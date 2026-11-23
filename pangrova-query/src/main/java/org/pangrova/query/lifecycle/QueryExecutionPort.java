@@ -8,6 +8,7 @@ import org.pangrova.query.api.lifecycle.QueryOperation;
 import org.pangrova.query.api.session.QuerySession;
 
 import java.util.List;
+import java.util.concurrent.CompletionStage;
 import java.util.function.Consumer;
 
 /** Execution-owner operations borrowed by the query lifecycle owner. */
@@ -22,6 +23,9 @@ public interface QueryExecutionPort extends QueryExecutionCleanup {
 
     /** Dispatches an admitted query and returns its closed control-plane outcome. */
     QueryDispatchOutcome dispatch(QueryStateMachine state, String sql, QuerySession session);
+
+    /** Starts an admitted query and observes its closed outcome without retaining the submit thread. */
+    CompletionStage<QueryDispatchOutcome> dispatchAsync(QueryStateMachine state, String sql, QuerySession session);
 
     /** Retires exact output column names after response construction. */
     List<String> removeColumnNames(String queryId);

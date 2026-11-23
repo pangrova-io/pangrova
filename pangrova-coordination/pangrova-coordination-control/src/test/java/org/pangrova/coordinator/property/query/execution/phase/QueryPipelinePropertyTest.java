@@ -49,7 +49,7 @@ class QueryPipelinePropertyTest {
                     @Override
                     public PhaseResult execute(QueryExecutionContext context) {
                         callOrder.add(phaseId);
-                        return new PhaseResult.Terminal(TERMINAL_RESULT);
+                        return PhaseResult.Terminal.completed(TERMINAL_RESULT);
                     }
 
                     @Override
@@ -132,7 +132,7 @@ class QueryPipelinePropertyTest {
         for (QueryExecutionPhase phase : phases) {
             PhaseResult result = phase.execute(ctx);
             if (result instanceof PhaseResult.Terminal) {
-                return ((PhaseResult.Terminal) result).result();
+                return ((PhaseResult.Terminal) result).completion().toCompletableFuture().join();
             } else if (result instanceof PhaseResult.Continue) {
                 ctx = ((PhaseResult.Continue) result).updated();
             }

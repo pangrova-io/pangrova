@@ -14,6 +14,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -113,7 +115,7 @@ class QueryManagerAsyncSubmitTest {
         CountDownLatch commit = new CountDownLatch(1);
         QueryDispatcher dispatcher = new SlowQueryDispatcher(new CountDownLatch(1), commit) {
             @Override
-            public DispatchResult execute(QueryStateMachine sm, String sql,
+            public CompletionStage<DispatchResult> executeAsync(QueryStateMachine sm, String sql,
                                           QuerySession session) {
                 sm.tryTransition(QueryState.PLANNING);
                 sm.tryTransition(QueryState.SCHEDULING);
@@ -122,7 +124,7 @@ class QueryManagerAsyncSubmitTest {
                 await(commit);
                 sm.tryTransition(QueryState.FINISHING);
                 sm.tryTransition(QueryState.FINISHED);
-                return null;
+                return CompletableFuture.completedFuture(null);
             }
         };
         QueryManager manager = new QueryManager(QueryManagerTestContexts.minimalAsync(
@@ -247,7 +249,7 @@ class QueryManagerAsyncSubmitTest {
         QueryDispatcher dispatcher = new SlowQueryDispatcher(
                 new CountDownLatch(1), new CountDownLatch(1)) {
             @Override
-            public DispatchResult execute(QueryStateMachine sm, String sql,
+            public CompletionStage<DispatchResult> executeAsync(QueryStateMachine sm, String sql,
                                           QuerySession session) {
                 var endpoint = new ResultEndpoint(
                         "localhost", 9090, "ticket-early", "arrow-flight");
@@ -257,7 +259,7 @@ class QueryManagerAsyncSubmitTest {
                 endpointPublished.countDown();
                 await(allowRunning);
                 sm.tryTransition(QueryState.RUNNING);
-                return new DispatchResult("localhost", "task-early", endpoint);
+                return CompletableFuture.completedFuture(new DispatchResult("localhost", "task-early", endpoint));
             }
         };
         QueryManager manager = new QueryManager(QueryManagerTestContexts.minimalAsync(
@@ -289,7 +291,7 @@ class QueryManagerAsyncSubmitTest {
         QueryDispatcher dispatcher = new SlowQueryDispatcher(
                 new CountDownLatch(1), new CountDownLatch(1)) {
             @Override
-            public DispatchResult execute(QueryStateMachine sm, String sql,
+            public CompletionStage<DispatchResult> executeAsync(QueryStateMachine sm, String sql,
                                           QuerySession session) {
                 sm.tryTransition(QueryState.PLANNING);
                 sm.tryTransition(QueryState.SCHEDULING);
@@ -298,9 +300,9 @@ class QueryManagerAsyncSubmitTest {
                 sm.tryTransition(QueryState.FINISHED);
                 terminalReached.countDown();
                 await(allowResult);
-                return new DispatchResult("localhost", "task-ddl",
+                return CompletableFuture.completedFuture(new DispatchResult("localhost", "task-ddl",
                         new ResultEndpoint("localhost", 9090,
-                                "ticket-ddl", "arrow-flight"));
+                                "ticket-ddl", "arrow-flight")));
             }
         };
         QueryManager manager = new QueryManager(QueryManagerTestContexts.minimalAsync(
@@ -331,7 +333,7 @@ class QueryManagerAsyncSubmitTest {
         QueryDispatcher unavailable = new SlowQueryDispatcher(
                 new CountDownLatch(1), new CountDownLatch(1)) {
             @Override
-            public DispatchResult execute(QueryStateMachine sm, String sql,
+            public CompletionStage<DispatchResult> executeAsync(QueryStateMachine sm, String sql,
                                           QuerySession session) {
                 sm.tryTransition(QueryState.PLANNING);
                 sm.tryTransition(QueryState.FAILED);
@@ -394,9 +396,9 @@ class QueryManagerAsyncSubmitTest {
         try (var remote = (RemoteTaskDispatcher) dependencies.dispatcher()) {
             var dispatcher = new QueryDispatcher(dependencies, null, null) {
                 @Override
-                public DispatchResult execute(QueryStateMachine sm, String sql, QuerySession session) {
+                public CompletionStage<DispatchResult> executeAsync(QueryStateMachine sm, String sql, QuerySession session) {
                     executingState.set(sm);
-                    return super.execute(sm, sql, session);
+                    return super.executeAsync(sm, sql, session);
                 }
             };
             var manager = new QueryManager(QueryManagerTestContexts.minimalAsync(
@@ -424,7 +426,7 @@ class QueryManagerAsyncSubmitTest {
         CountDownLatch blocked = new CountDownLatch(1);
         QueryDispatcher dispatcher = new SlowQueryDispatcher(dispatched, blocked) {
             @Override
-            public DispatchResult execute(QueryStateMachine sm, String sql,
+            public CompletionStage<DispatchResult> executeAsync(QueryStateMachine sm, String sql,
                                           QuerySession session) {
                 sm.tryTransition(QueryState.PLANNING);
                 sm.tryTransition(QueryState.SCHEDULING);
@@ -508,7 +510,7 @@ class QueryManagerAsyncSubmitTest {
         }
 
         @Override
-        public DispatchResult execute(QueryStateMachine sm, String sql,
+        public CompletionStage<DispatchResult> executeAsync(QueryStateMachine sm, String sql,
                                       QuerySession session) {
             // Set the result endpoint BEFORE transitioning to RUNNING — the async
             // listener fires on RUNNING and immediately reads the endpoint.
@@ -536,8 +538,8 @@ class QueryManagerAsyncSubmitTest {
             sm.tryTransition(QueryState.FINISHING);
             sm.tryTransition(QueryState.FINISHED);
 
-            return new DispatchResult("localhost",
-                    "task-" + session.queryId(), endpoint);
+            return CompletableFuture.completedFuture(new DispatchResult("localhost",
+                    "task-" + session.queryId(), endpoint));
         }
 
         @Override

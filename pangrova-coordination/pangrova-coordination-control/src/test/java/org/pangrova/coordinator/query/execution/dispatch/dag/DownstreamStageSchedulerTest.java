@@ -171,8 +171,8 @@ class DownstreamStageSchedulerTest {
                 throw expected;
             });
 
-            assertThatThrownBy(() -> DAGCompletionEvaluator.awaitCompletion(
-                    state.completion(), TimeUnit.SECONDS.toMillis(5), state.queryId()))
+            assertThatThrownBy(() -> DAGCompletionEvaluator.awaitResult(
+                    state.completion().orTimeout(5, TimeUnit.SECONDS), state.queryId(), () -> { }))
                     .isInstanceOfSatisfying(PangrovaException.class, failure -> {
                         assertThat(failure.getErrorCode()).isEqualTo(PangrovaErrorCode.COORDINATOR_DISPATCH_FAILED);
                         assertThat(failure).hasCause(expected);

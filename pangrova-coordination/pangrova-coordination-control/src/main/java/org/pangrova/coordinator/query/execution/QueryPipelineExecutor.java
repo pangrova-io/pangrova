@@ -7,6 +7,9 @@ import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.query.session.SessionTableNames;
 import org.pangrova.query.api.enums.QueryState;
 
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -86,10 +89,9 @@ final class QueryPipelineExecutor {
      * Executes the full query pipeline: statement dispatch → compilation →
      * cache lookup → distributed dispatch.
      */
-    DispatchResult doExecute(QueryStateMachine sm, String sql,
-                             QuerySession session) {
+    CompletionStage<DispatchResult> doExecute(QueryStateMachine sm, String sql, QuerySession session) {
         if (!sm.tryTransition(QueryState.PLANNING)) {
-            return null;
+            return CompletableFuture.completedFuture(null);
         }
         Span querySpan = queryTracer != null
                 ? queryTracer.startQuerySpan(session.queryId(), sql) : null;
@@ -103,11 +105,12 @@ final class QueryPipelineExecutor {
                         LOG.debug("event=query_end queryId={}", session.queryId());
                         recordQueryCompletion(session.queryId(), sql, session);
                     });
-            return coordinator.execute(initialCtx);
-        } finally {
-            if (querySpan != null) {
-                querySpan.end();
-            }
+            return coordinator.execute(initialCtx).whenComplete((result, failure) -> {
+                if (querySpan != null) querySpan.end();
+            });
+        } catch (RuntimeException | Error failure) {
+            if (querySpan != null) querySpan.end();
+            throw failure;
         }
     }
 
@@ -205,22 +208,9 @@ final class QueryPipelineExecutor {
         }
     }
 
-    /**
-     * Compiles DML SQL and dispatches the resulting plan to native workers,
-     * bypassing StatementDispatchPhase.
-     */
-    DispatchResult executeDmlSql(QueryStateMachine sm, String sql,
-                                 QuerySession session) {
-        return executeDmlSql(sm, sql, session, null);
-    }
-
-    /**
-     * Compiles DML SQL with an optional write mode override.
-     * When writeModeOverride is non-null, it replaces the Calcite-derived write mode.
-     */
-    DispatchResult executeDmlSql(QueryStateMachine sm, String sql,
-                                 QuerySession session,
-                                 String writeModeOverride) {
+    /** Compiles a DML override that cannot be represented by the ordinary AST route. */
+    private CompletionStage<DispatchResult> startDmlSql(QueryStateMachine sm, String sql,
+            QuerySession session, String writeModeOverride) {
         SqlCompiler compiler = securityPolicyApplier.getCompiler().forSession(
                 org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(session));
         var observed = securityPolicyApplier.applyPoliciesObserved(compiler.compileToPlannedQuery(sql), session);
@@ -236,7 +226,7 @@ final class QueryPipelineExecutor {
                     ctx.dmlWriteContext().get().targetTable(), writeModeOverride,
                     ctx.dmlWriteContext().get().partitionSpec(), ctx.dmlWriteContext().get().policyObservation()));
         }
-        return schedulingEngine.dispatchQuery(sm, session, plan, ctx);
+        return schedulingEngine.startQuery(sm, session, plan, ctx);
     }
 
     /**
@@ -244,9 +234,8 @@ final class QueryPipelineExecutor {
      * native workers, bypassing both StatementDispatchPhase and the SQL string
      * round-trip.
      */
-    DispatchResult executeDmlStatement(QueryStateMachine sm,
-                                       org.pangrova.parser.api.ast.Statement stmt,
-                                       QuerySession session) {
+    CompletionStage<DispatchResult> startDmlStatement(QueryStateMachine sm,
+            org.pangrova.parser.api.ast.Statement stmt, QuerySession session) {
         SqlCompiler compiler = securityPolicyApplier.getCompiler().forSession(
                 org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(session));
 
@@ -266,7 +255,7 @@ final class QueryPipelineExecutor {
             }
             if (hasUpdate || hasDelete) {
                 String sql = new org.pangrova.parser.format.AstPrinter().print(merge);
-                return executeDmlSql(sm, sql, session, "OVERWRITE");
+                return startDmlSql(sm, sql, session, "OVERWRITE");
             }
         }
 
@@ -283,7 +272,7 @@ final class QueryPipelineExecutor {
         ctx = withWriteObservation(ctx, WritePolicyObservation.capture(observed, compiler, stmt));
         ctx = adjustNativeDmlWriteMode(stmt, ctx);
 
-        return schedulingEngine.dispatchQuery(sm, session, plan, ctx);
+        return schedulingEngine.startQuery(sm, session, plan, ctx);
     }
 
     private static DispatchQueryContext adjustNativeDmlWriteMode(
@@ -388,9 +377,9 @@ final class QueryPipelineExecutor {
         return securityPolicyApplier.getCompiler();
     }
 
-    private DispatchResult executeDistributedDispatch(QueryExecutionContext ctx) {
+    private CompletionStage<DispatchResult> executeDistributedDispatch(QueryExecutionContext ctx) {
         PlannedQuery plan = (PlannedQuery) ctx.compiledPlan();
-        return schedulingEngine.dispatchQuery(
+        return schedulingEngine.startQuery(
                 ctx.stateMachine(), ctx.session(), plan,
                 new DispatchQueryContext(ctx.snapshotOverrides(), ctx.sql(), ctx.compiler(), ctx.preOptColumnNames()));
     }

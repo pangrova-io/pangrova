@@ -3,6 +3,7 @@ import org.pangrova.query.dispatch.StatementResult;
 
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.pangrova.common.enums.PangrovaErrorCode;
@@ -36,14 +37,23 @@ public final class MetadataExecutionFactory implements StatementExecutionFactory
     }
 
     @Override
-    @SuppressWarnings("unchecked")
     public StatementResult execute(Statement statement, StatementExecutionContext context) {
-        MetadataTask<Statement> task = (MetadataTask<Statement>) tasks.get(statement.getClass());
+        return task(statement).execute(statement, context);
+    }
+
+    @Override
+    public CompletionStage<StatementResult> start(Statement statement, StatementExecutionContext context) {
+        return task(statement).start(statement, context);
+    }
+
+    @SuppressWarnings("unchecked")
+    private MetadataTask<Statement> task(Statement statement) {
+        var task = (MetadataTask<Statement>) tasks.get(statement.getClass());
         if (task == null) {
             throw new PangrovaException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
                     "No metadata task registered for: " + statement.getClass().getSimpleName());
         }
-        return task.execute(statement, context);
+        return task;
     }
 
     /** Registers an additional task after construction (for dynamic handlers). */

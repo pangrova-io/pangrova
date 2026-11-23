@@ -4,11 +4,11 @@ import org.pangrova.query.api.write.WriteAuthorityResolver;
 
 import org.pangrova.planner.analysis.AuthorizedRelation;
 
+import java.util.concurrent.CompletionStage;
+import java.util.function.Supplier;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.pangrova.common.enums.PangrovaErrorCode;
-import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.query.lifecycle.QueryStateMachine;
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.audit.QueryLineageCapture;
@@ -17,6 +17,10 @@ import org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher;
 import org.pangrova.execution.task.DispatchResult;
 import org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchContext;
 import org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchEngine;
+import org.pangrova.coordinator.query.execution.dispatch.dag.runtime.DAGCompletionEvaluator;
+import org.pangrova.common.lifecycle.ResourceCloser;
+import org.pangrova.query.lifecycle.QueryDispatchOutcome;
+
 import org.pangrova.coordinator.scheduler.placement.DefaultWorkerSelector;
 import org.pangrova.coordinator.scheduler.placement.WorkerSelector;
 import org.pangrova.coordinator.query.execution.dispatch.dag.PipelineConfig;
@@ -126,31 +130,32 @@ public class QueryDispatcher implements org.pangrova.query.lifecycle.QueryExecut
 
     // ── Public API ──
 
-    /** Unified execution entry point. All paths return DispatchResult. */
-    public DispatchResult execute(QueryStateMachine sm, String sql,
-                                  QuerySession session) {
+    /** Synchronous callers await the same execution used by asynchronous submission. */
+    public DispatchResult execute(QueryStateMachine sm, String sql, QuerySession session) {
+        return DAGCompletionEvaluator.awaitResult(executeAsync(sm, sql, session), session.queryId(),
+                () -> cancelDispatchedTasks(session.queryId()));
+    }
+
+    /** Retains the admitted operation through planning and final execution callbacks. */
+    public CompletionStage<DispatchResult> executeAsync(
+            QueryStateMachine sm, String sql, QuerySession session) {
         checkNotNull(sm, "state machine must not be null");
         checkNotNull(sql, "sql must not be null");
         checkNotNull(session, "session must not be null");
-        session = bindConnectorAuthority(sm, session);
-        try (var operation = taskTracker.enterQueryOperation(session.queryId())) {
-            DispatchResult result = pipelineExecutor.doExecute(
-                    sm, sql, session);
-            return result;
-        } catch (Exception e) {
-            LOG.error("event=execute_crash queryId={} error={}",
-                    session.queryId(), e.getMessage(), e);
-            // QueryManager must publish the failed state before claiming physical
-            // cleanup. Early cleanup closes metadata admission and can prevent that
-            // transition after the asynchronous submit response has already returned.
-            throw wrapIfNeeded(e, session.queryId());
-        }
+        var authorizedSession = bindConnectorAuthority(sm, session);
+        return trackExecution(session.queryId(), () -> pipelineExecutor.doExecute(sm, sql, authorizedSession));
     }
 
-    /** Executes DML SQL using the session's default write mode. */
-    public DispatchResult executeDmlSql(QueryStateMachine sm, String sql,
-                                        QuerySession session) {
-        return executeDmlSql(sm, sql, session, null);
+    private CompletionStage<DispatchResult> trackExecution(String queryId,
+            Supplier<CompletionStage<DispatchResult>> start) {
+        var operation = taskTracker.enterQueryOperation(queryId);
+        try {
+            return start.get().whenComplete((result, failure) ->
+                    ResourceCloser.closeAll(failure, operation::close));
+        } catch (RuntimeException | Error failure) {
+            ResourceCloser.closeAll(failure, operation::close);
+            throw failure;
+        }
     }
 
     /** Compiles a protected read relation using this dispatcher's current query authority. */
@@ -159,25 +164,11 @@ public class QueryDispatcher implements org.pangrova.query.lifecycle.QueryExecut
         return pipelineExecutor.compileAuthorizedRelation(sql, session);
     }
 
-    /** Executes DML SQL with an explicit write-mode override when provided. */
-    public DispatchResult executeDmlSql(QueryStateMachine sm, String sql,
-                                        QuerySession session,
-                                        String writeModeOverride) {
-        session = bindConnectorAuthority(sm, session);
-        try (var operation = taskTracker.enterQueryOperation(session.queryId())) {
-            return pipelineExecutor.executeDmlSql(sm, sql, session, writeModeOverride);
-        }
-    }
-
-    /** Executes an already-parsed DML statement under the query's connector authority. */
-    public DispatchResult executeDmlStatement(
-            QueryStateMachine sm,
-            org.pangrova.parser.api.ast.Statement stmt,
-            QuerySession session) {
-        session = bindConnectorAuthority(sm, session);
-        try (var operation = taskTracker.enterQueryOperation(session.queryId())) {
-            return pipelineExecutor.executeDmlStatement(sm, stmt, session);
-        }
+    /** Compiles and schedules a parsed DML statement under the admitted authority. */
+    public CompletionStage<DispatchResult> startDmlStatement(
+            QueryStateMachine sm, org.pangrova.parser.api.ast.Statement stmt, QuerySession session) {
+        var authorizedSession = bindConnectorAuthority(sm, session);
+        return trackExecution(session.queryId(), () -> pipelineExecutor.startDmlStatement(sm, stmt, authorizedSession));
     }
 
     public QueryLineageInfo removeLineageInfo(String queryId) {
@@ -296,11 +287,18 @@ public class QueryDispatcher implements org.pangrova.query.lifecycle.QueryExecut
     }
 
     @Override
-    public org.pangrova.query.lifecycle.QueryDispatchOutcome dispatch(
+    public QueryDispatchOutcome dispatch(QueryStateMachine sm, String sql, QuerySession session) {
+        return dispatchOutcome(execute(sm, sql, session));
+    }
+
+    @Override
+    public CompletionStage<QueryDispatchOutcome> dispatchAsync(
             QueryStateMachine sm, String sql, QuerySession session) {
-        var result = execute(sm, sql, session);
-        return result == null ? null
-                : new org.pangrova.query.lifecycle.QueryDispatchOutcome(result.resultEndpoint());
+        return executeAsync(sm, sql, session).thenApply(QueryDispatcher::dispatchOutcome);
+    }
+
+    private static QueryDispatchOutcome dispatchOutcome(DispatchResult result) {
+        return result == null ? null : new QueryDispatchOutcome(result.resultEndpoint());
     }
 
     @Override
@@ -400,17 +398,4 @@ public class QueryDispatcher implements org.pangrova.query.lifecycle.QueryExecut
         return List.copyOf(handlers);
     }
 
-    // ── Internal helpers ──
-
-    private static RuntimeException wrapIfNeeded(Exception e,
-                                                  String queryId) {
-        if (e instanceof PangrovaException) {
-            return (PangrovaException) e;
-        }
-        if (e instanceof RuntimeException re) {
-            return re;
-        }
-        return new PangrovaException(PangrovaErrorCode.RUNTIME_TASK_FAILED,
-                "Query execution failed [queryId=" + queryId + "]", e);
-    }
 }

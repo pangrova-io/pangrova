@@ -1,6 +1,5 @@
 package org.pangrova.coordinator.query.execution.dispatch;
 
-import org.pangrova.execution.task.DispatchResult;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -21,7 +20,7 @@ class StatementDispatcherRelationalIsolationTest {
         var session = new QuerySession(
                 "system-table-query", Map.of(), null, "tenant-a", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
 
-        DispatchResult result = dispatcher.tryDispatch(
+        var result = dispatcher.tryDispatch(
                 new QueryStateMachine(),
                 new SqlCompiler().parseToAst("SELECT * FROM lake.analytics.orders$snapshots"),
                 session.queryId(), session);

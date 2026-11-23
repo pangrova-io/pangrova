@@ -9,6 +9,7 @@ import org.pangrova.query.api.enums.QueryState;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -18,6 +19,7 @@ import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.query.lifecycle.QueryStateMachine;
 import org.pangrova.coordinator.result.CoordinatorResultService;
 import org.pangrova.parser.api.ast.Statement;
+import org.pangrova.observability.logging.LogContext;
 import org.pangrova.security.api.authorization.AccessControl;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -52,7 +54,7 @@ public final class StatementDispatcher {
      * Attempts to dispatch the AST selected by the query phase.
      * Returns null if the statement belongs to relational planning.
      */
-    public DispatchResult tryDispatch(
+    public CompletionStage<DispatchResult> tryDispatch(
             QueryStateMachine sm, Statement ast,
             String queryId, QuerySession session) {
         if (ast == null || !isRoutable(ast)) {
@@ -70,9 +72,20 @@ public final class StatementDispatcher {
         }
         checkPermission(ast, session);
         var context = new StatementExecutionContext(sm, queryId, session);
-        StatementResult result = executeUnchecked(factory, ast, context);
-        fireCompletionEvent(queryId, ast, result, session);
-        return toDispatchResult(result, queryId, sm);
+        return startUnchecked(factory, ast, context).thenApply(result -> complete(ast, context, result));
+    }
+
+    private DispatchResult complete(Statement statement, StatementExecutionContext context, StatementResult result) {
+        var trace = context.session().traceContext();
+        var previousLogContext = LogContext.snapshot();
+        try (var scope = trace.makeCurrent()) {
+            LogContext.set(trace.traceId(), trace.spanId());
+            LogContext.setQueryId(context.queryId());
+            fireCompletionEvent(context.queryId(), statement, result, context.session());
+            return toDispatchResult(result, context.queryId(), context.stateMachine());
+        } finally {
+            LogContext.restore(previousLogContext);
+        }
     }
 
     /**
@@ -126,6 +139,12 @@ public final class StatementDispatcher {
             StatementExecutionFactory<T> factory, Statement stmt,
             StatementExecutionContext context) {
         return factory.execute((T) stmt, context);
+    }
+
+    @SuppressWarnings("unchecked")
+    private <T extends Statement> CompletionStage<StatementResult> startUnchecked(
+            StatementExecutionFactory<T> factory, Statement stmt, StatementExecutionContext context) {
+        return factory.start((T) stmt, context);
     }
 
     private void fireCompletionEvent(

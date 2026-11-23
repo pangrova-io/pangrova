@@ -2235,7 +2235,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                     if (qd == null) {
                         throw new IllegalStateException("QueryDispatcher not initialized");
                     }
-                    return qd.executeDmlStatement(sm, stmt, session);
+                    return qd.startDmlStatement(sm, stmt, session);
                 };
         // Build CoordinatorResultService BEFORE StatementDispatcher so DDL/metadata
         // results (SHOW INDEXES, DESCRIBE, etc.) are buffered and returned to clients.
@@ -2689,7 +2689,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 metadataBootstrap.catalogRegistry(), e2eCoordinationService,
                 java.util.Objects.requireNonNull(sharedDdlExecutor),
                 (sm, session, stmt) -> java.util.Objects.requireNonNull(sharedQueryDispatcher)
-                        .executeDmlStatement(sm, stmt, session),
+                        .startDmlStatement(sm, stmt, session),
                 SqlE2ETestBase::buildSqlCompiler,
                 stateStoreDataSource, currentAccessControl);
         dispatcher.registerFactory(factory);

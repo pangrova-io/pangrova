@@ -42,6 +42,22 @@ SDK, Coordinator, Worker, Client DTOs or provider implementations.
 
 ## 1. End-to-End Query Flow
 
+
+### Query submission and execution completion
+
+The bounded asynchronous submission executor runs SQL planning and starts the
+distributed DAG. The DAG publishes its OUTPUT endpoint after Worker acknowledgement
+and settles the execution through its completion stage. A running query does not
+hold a submission thread while its Workers produce or finish results. The
+execution operation remains admitted through terminal callbacks, while task and
+result owners account for their own physical drain.
+
+Native INSERT, UPDATE, DELETE, MERGE, and CTAS attach their result publication to
+the fenced write completion. Connector and journal effects are resolved before
+the statement publishes its control-plane result. Synchronous callers await the
+same completion. Cancellation and the existing deadline settle the owned
+execution and leave physical cleanup with the task and query owners.
+
 ![End-to-end query execution: client submission, Coordinator parse/plan/admit/schedule, canonical task binding, Worker JVM and Native execution, Output Worker result stream, and Coordinator terminal handling](../../website/static/img/diagrams/query-execution-flow.svg)
 
 Note: the diagram above shows only the result path. Data from the Compute Workers is aggregated to the Output Worker via Arrow Flight Shuffle, and the Output Worker then streams the results back to the Client.

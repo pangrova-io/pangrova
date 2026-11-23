@@ -13,6 +13,8 @@ import org.pangrova.query.api.session.QuerySession;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -379,11 +381,11 @@ class QueryManagerDrainConcurrencyTest {
         }
 
         @Override
-        public DispatchResult execute(QueryStateMachine sm, String sql,
+        public CompletionStage<DispatchResult> executeAsync(QueryStateMachine sm, String sql,
                                       QuerySession session) {
             sm.toFinisher().run();
-            return new DispatchResult(
-                    "local", "task-local", new ResultEndpoint("local", 0, "/results/local", "http"));
+            return CompletableFuture.completedFuture(new DispatchResult(
+                    "local", "task-local", new ResultEndpoint("local", 0, "/results/local", "http")));
         }
     }
 
@@ -418,9 +420,9 @@ class QueryManagerDrainConcurrencyTest {
         }
 
         @Override
-        public DispatchResult execute(QueryStateMachine sm, String sql,
+        public CompletionStage<DispatchResult> executeAsync(QueryStateMachine sm, String sql,
                                       QuerySession session) {
-            return null;
+            return CompletableFuture.completedFuture(null);
         }
 
         @Override

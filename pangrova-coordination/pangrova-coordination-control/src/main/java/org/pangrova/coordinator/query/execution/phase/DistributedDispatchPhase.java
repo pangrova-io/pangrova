@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.query.execution.phase;
 
+import java.util.concurrent.CompletionStage;
 import java.util.function.Function;
 
 import org.pangrova.execution.task.DispatchResult;
@@ -14,17 +15,16 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
  */
 public final class DistributedDispatchPhase implements QueryExecutionPhase {
 
-    private final Function<QueryExecutionContext, DispatchResult> dispatchFunction;
+    private final Function<QueryExecutionContext, CompletionStage<DispatchResult>> dispatchFunction;
 
     public DistributedDispatchPhase(
-            Function<QueryExecutionContext, DispatchResult> dispatchFunction) {
+            Function<QueryExecutionContext, CompletionStage<DispatchResult>> dispatchFunction) {
         this.dispatchFunction = checkNotNull(dispatchFunction, "dispatchFunction");
     }
 
     @Override
     public PhaseResult execute(QueryExecutionContext context) {
-        DispatchResult result = dispatchFunction.apply(context);
-        return new PhaseResult.Terminal(result);
+        return new PhaseResult.Terminal(dispatchFunction.apply(context));
     }
 
     @Override

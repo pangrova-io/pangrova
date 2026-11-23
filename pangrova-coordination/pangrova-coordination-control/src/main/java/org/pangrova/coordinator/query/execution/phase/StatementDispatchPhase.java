@@ -2,7 +2,6 @@ package org.pangrova.coordinator.query.execution.phase;
 
 import org.pangrova.query.api.enums.QueryState;
 
-import org.pangrova.execution.task.DispatchResult;
 import org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher;
 import org.pangrova.parser.api.ast.Statement;
 
@@ -62,20 +61,18 @@ public final class StatementDispatchPhase implements QueryExecutionPhase {
             LOG.debug("event=show_metadata_expanded queryId={}", context.session().queryId());
             return new PhaseResult.Continue(context.withMetadataQuery(metadataQuery));
         }
-        DispatchResult result = statementDispatcher.tryDispatch(
+        var completion = statementDispatcher.tryDispatch(
                 context.stateMachine(),
                 parsed,
                 context.session().queryId(),
                 context.session());
-        if (result != null) {
-            return new PhaseResult.Terminal(result);
+        if (completion != null) {
+            return new PhaseResult.Terminal(completion);
         }
-        // DDL/DML may complete without a DispatchResult (no resultService).
-        // If the state machine already reached a terminal state, stop here.
         var state = context.stateMachine().getState();
         if (state == QueryState.FINISHED
                 || state == QueryState.FAILED) {
-            return new PhaseResult.Terminal(null);
+            return PhaseResult.Terminal.completed(null);
         }
         return new PhaseResult.Continue(context);
     }

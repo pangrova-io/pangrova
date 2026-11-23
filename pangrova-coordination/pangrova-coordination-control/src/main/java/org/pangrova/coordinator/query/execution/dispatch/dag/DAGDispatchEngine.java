@@ -11,10 +11,18 @@ import java.util.List;
 import java.util.Map;
 import java.util.OptionalInt;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
+import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.enums.PangrovaErrorCode;
+import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.generation.publication.read.PublishedGenerationBindingResolver;
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.execution.task.DispatchResult;
@@ -57,6 +65,8 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
     private final StageSplitFetcher stageSplitFetcher;
     private final CoalescedShuffleInputs coalescedShuffleInputs;
     private final DownstreamStageScheduler downstreamStageScheduler;
+    private final ScheduledExecutorService deadlines = ManagedExecutorFactory.newScheduledThreadPool(
+            "dag-dispatch-deadline", 2);
     private final DAGLifecycleController lifecycle;
     private volatile QueryOperatorStatsRegistry operatorStats;
     private final org.pangrova.coordinator.query.execution.dispatch.dag.runtime.DurableDAGControl durableControl;
@@ -134,20 +144,8 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
         });
     }
 
-    /** Dispatches a DAG with its immutable query context. */
-    public DispatchResult dispatch(
-            QuerySession session,
-            StageDAG dag,
-            SqlCompiler compiler,
-            WorkerSelector workerSelector,
-            long timeoutMs,
-            QueryExecutionScope queryContext) {
-        return dispatch(session, dag, compiler, workerSelector, timeoutMs,
-                queryContext, ignored -> { });
-    }
-
-    /** Publishes the OUTPUT endpoint once Worker dispatch is acknowledged. */
-    public DispatchResult dispatch(
+    /** Schedules a live DAG and publishes its OUTPUT endpoint after Worker acknowledgement. */
+    public CompletionStage<DispatchResult> start(
             QuerySession session,
             StageDAG dag,
             SqlCompiler compiler,
@@ -156,27 +154,6 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
             QueryExecutionScope queryContext,
             Consumer<DispatchResult> resultReadySink) {
         lifecycle.registerQuery(session.queryId(), dag, queryContext);
-        return dispatchRegistered(session, dag, compiler, workerSelector, timeoutMs, resultReadySink);
-    }
-
-    /** Dispatches a DAG using any previously registered query context. */
-    public DispatchResult dispatch(
-            QuerySession session,
-            StageDAG dag,
-            SqlCompiler compiler,
-            WorkerSelector workerSelector,
-            long timeoutMs) {
-        lifecycle.registerDagIfAbsent(session.queryId(), dag);
-        return dispatchRegistered(session, dag, compiler, workerSelector, timeoutMs, ignored -> { });
-    }
-
-    private DispatchResult dispatchRegistered(
-            QuerySession session,
-            StageDAG dag,
-            SqlCompiler compiler,
-            WorkerSelector workerSelector,
-            long timeoutMs,
-            Consumer<DispatchResult> resultReadySink) {
         var scope = lifecycle.queryContext(session.queryId());
         var filter = scope == null || scope.writeConfig() != null ? null : BuildFilterGate.create(dag);
         DAGExecutionState state = DAGExecutionState.create(new StageExecutionContext.Live(session), dag,
@@ -186,13 +163,32 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
         lifecycle.registerLiveExecution(state);
         try {
             scheduleRootStages(state, registerListeners(state));
-            return DAGCompletionEvaluator.awaitCompletion(
-                    state.completion(), timeoutMs, session.queryId());
-        } catch (Exception failure) {
-            lifecycle.failDispatch(
-                    state.queryId(), state.dag(), state.cancelled(), state.dispatched());
-            throw failure;
+            armDeadline(state.completion(), timeoutMs, () -> new PangrovaException(
+                    PangrovaErrorCode.RUNTIME_QUERY_TIMEOUT,
+                    "DAG dispatch timed out [queryId=" + state.queryId() + "]"));
+        } catch (RuntimeException | LinkageError failure) {
+            state.completion().completeExceptionally(failure);
         }
+        return state.completion().handle((result, failure) -> {
+            if (failure == null) return result;
+            if (failure instanceof CancellationException cancelled) throw cancelled;
+            var dispatchFailure = DispatchCanceller.wrapIfNeeded(failure, state.queryId());
+            try {
+                lifecycle.failDispatch(state.queryId(), state.dag(), state.cancelled(), state.dispatched());
+            } catch (RuntimeException | Error cleanup) {
+                if (cleanup != dispatchFailure) dispatchFailure.addSuppressed(cleanup);
+            }
+            throw dispatchFailure;
+        });
+    }
+
+    /** Arms a deadline owned by the execution engine and removes it on completion. */
+    public void armDeadline(CompletableFuture<?> completion, long timeoutMs,
+            Supplier<? extends RuntimeException> failure) {
+        if (completion.isDone()) return;
+        var deadline = deadlines.schedule(() -> completion.completeExceptionally(failure.get()),
+                timeoutMs, TimeUnit.MILLISECONDS);
+        completion.whenComplete((result, caught) -> deadline.cancel(false));
     }
 
     private QueryStageObservations registerListeners(DAGExecutionState state) {
@@ -333,7 +329,11 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
 
     @Override
     public void close() {
-        downstreamStageScheduler.close();
+        try {
+            downstreamStageScheduler.close();
+        } finally {
+            deadlines.shutdownNow();
+        }
     }
 
     private void scheduleReadyDownstream(DAGExecutionState state, QueryStageObservations observations) {
@@ -390,7 +390,7 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
             failStageDispatch(stage, failure, state);
             throw DispatchCanceller.wrapIfNeeded(failure, state.queryId());
         } catch (Exception failure) {
-            stage.stateMachine().tryTransitionTo(StageState.FAILED);
+            failStageDispatch(stage, failure, state);
             lifecycle.failQuery(state.queryId(), state.dag());
             throw propagateSchedulingFailure(failure);
         }

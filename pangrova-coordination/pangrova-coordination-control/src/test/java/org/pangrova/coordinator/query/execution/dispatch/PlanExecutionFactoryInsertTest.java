@@ -176,8 +176,8 @@ class PlanExecutionFactoryInsertTest {
                     (state, incomingSession, nativeStatement) -> {
                         dispatched.add(nativeStatement);
                         events.add("dispatch");
-                        return new DispatchResult("worker.invalid", "task-1",
-                                new ResultEndpoint("worker.invalid", 1, "ticket", "grpc"));
+                        return java.util.concurrent.CompletableFuture.completedFuture(new DispatchResult("worker.invalid", "task-1",
+                                new ResultEndpoint("worker.invalid", 1, "ticket", "grpc")));
                     }, callback, (sql, ignored) -> sql,
                     registry, null));
             stateMachine = new QueryStateMachine();

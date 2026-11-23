@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query.execution.dispatch;
 
+import org.pangrova.coordinator.query.execution.dispatch.dag.runtime.DAGCompletionEvaluator;
+import org.pangrova.execution.stage.QueryExecutionScope;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.execution.task.DispatchResult;
@@ -7,7 +9,10 @@ import org.pangrova.execution.task.DispatchResult;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchContext;
@@ -51,15 +56,14 @@ class DAGDispatchEngineShuffleCleanupTest {
         DAGDispatchEngine engine = buildEngine(new FailingTaskDispatcher(), recorder,
                 List.of(new ShuffleStageHandler(recorder)));
 
-        QuerySession session = new QuerySession(
-                "q-d29", Map.of(), null, null, java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
+        QuerySession session = SourceFreeQueryFixture.session("q-d29");
         StageDAG dag = buildSingleStageDAG("q-d29");
         SqlCompiler compiler = new SqlCompiler();
 
-        assertThrows(Exception.class, () ->
-                engine.dispatch(session, dag, compiler, testWorkerSelector(), 5000L));
-
-        assertEquals(List.of("q-d29"), recorder.cleanupCalls);
+        try (engine) {
+            assertThrows(Exception.class, () -> await(engine, session, dag, compiler));
+            assertEquals(List.of("q-d29"), recorder.cleanupCalls);
+        }
     }
 
     @Test
@@ -72,12 +76,31 @@ class DAGDispatchEngineShuffleCleanupTest {
         try (var engine = buildEngine(new NoOpTaskDispatcher(), recorder,
                 List.of(new ShuffleStageHandler(recorder), failPreparation))) {
             var failure = assertThrows(PangrovaException.class, () ->
-                    engine.dispatch(session, dag, new SqlCompiler(), testWorkerSelector(), 5_000L));
+                    await(engine, session, dag, new SqlCompiler()));
             assertEquals(PangrovaErrorCode.COORDINATOR_DISPATCH_FAILED, failure.getErrorCode());
             assertSame(missingClass, failure.getCause());
             assertEquals(StageState.FAILED, dag.findStage(1).stateMachine().getState());
             assertEquals(0, dag.findStage(1).retryCount());
             assertEquals(List.of(session.queryId()), recorder.cleanupCalls);
+        }
+    }
+
+    private static DispatchResult await(DAGDispatchEngine engine, QuerySession session, StageDAG dag,
+            SqlCompiler compiler) {
+        return DAGCompletionEvaluator.awaitResult(engine.start(session, dag, compiler, testWorkerSelector(),
+                5_000L, QueryExecutionScope.readOnly(session), ignored -> { }),
+                session.queryId(), () -> engine.cancelLiveDispatch(session.queryId()));
+    }
+
+    @Test
+    void dispatchDeadlineSettlesTheOwnedFutureWithoutAWaitingThread() {
+        var completion = new CompletableFuture<DispatchResult>();
+        var timeout = new PangrovaException(PangrovaErrorCode.RUNTIME_QUERY_TIMEOUT, "dispatch timed out");
+        try (var engine = buildEngine(new NoOpTaskDispatcher(), new RecordingShuffleManager(), List.of())) {
+            engine.armDeadline(completion, 0, () -> timeout);
+            var failed = assertThrows(ExecutionException.class, () -> completion.get(5, TimeUnit.SECONDS));
+            assertSame(timeout, failed.getCause());
+            assertTrue(completion.isCompletedExceptionally());
         }
     }
 

@@ -233,7 +233,7 @@ final class QueryExecutionBootstrap {
         // DML dispatch function: compiles statement SQL to RelNode, dispatches
         // through QueryDispatcher pipeline. Late-bound via queryDispatcherRef
         // because QueryDispatcher is constructed after StatementDispatcher.
-        // Uses executeDmlStatement() to bypass StatementDispatchPhase and
+        // Uses startDmlStatement() to bypass StatementDispatchPhase and
         // convert AST → SqlNode → RelNode directly without SQL string round-trip.
         org.pangrova.coordinator.query.execution.dispatch.NativeDmlCompileFunction dmlDispatch =
                 (sm, session, stmt) -> {
@@ -242,7 +242,7 @@ final class QueryExecutionBootstrap {
                         throw new IllegalStateException(
                                 "QueryDispatcher not initialized");
                     }
-                    return qd.executeDmlStatement(sm, stmt, session);
+                    return qd.startDmlStatement(sm, stmt, session);
                 };
 
         var ddlExecutor = new org.pangrova.coordinator.query.statement.DdlExecutor(

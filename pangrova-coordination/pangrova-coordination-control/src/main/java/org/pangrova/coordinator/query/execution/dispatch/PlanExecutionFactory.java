@@ -6,10 +6,13 @@ import org.pangrova.query.api.enums.StatementCategory;
 import org.pangrova.query.statement.StatementTableTargets;
 
 import org.pangrova.metadata.resolution.ConnectorTableLookup;
+import org.pangrova.coordinator.query.execution.dispatch.dag.runtime.DAGCompletionEvaluator;
 import org.pangrova.execution.task.DispatchResult;
 
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 
@@ -70,8 +73,13 @@ public final class PlanExecutionFactory implements StatementExecutionFactory<Sta
 
     @Override
     public StatementResult execute(Statement statement, StatementExecutionContext ctx) {
+        return DAGCompletionEvaluator.awaitResult(start(statement, ctx), ctx.queryId(), () -> { });
+    }
+
+    @Override
+    public CompletionStage<StatementResult> start(Statement statement, StatementExecutionContext ctx) {
         if (statement instanceof ExplainStatement s) {
-            return executeExplain(s, ctx);
+            return CompletableFuture.completedFuture(executeExplain(s, ctx));
         }
         if (statement instanceof InsertStatement
                 || statement instanceof InsertOverwriteStatement
@@ -91,15 +99,18 @@ public final class PlanExecutionFactory implements StatementExecutionFactory<Sta
                 "Unsupported plan statement: " + statement.getClass().getSimpleName());
     }
 
-    private StatementResult executeDml(Statement statement, StatementExecutionContext ctx) {
+    private CompletionStage<StatementResult> executeDml(Statement statement, StatementExecutionContext ctx) {
         validateInsertValuesGovernance(statement, ctx.session());
         requireGeneratedColumnPlanIfNeeded(statement, ctx.session());
         // The Native write can finish before the dispatcher publishes its bounded
         // control-plane acknowledgement. Keep FINISHED hidden until that endpoint exists.
         checkNotNull(ctx.stateMachine(), "DML query state")
                 .deferTerminalUntilControlPlaneResult();
-        DispatchResult result = dmlDispatch.apply(ctx.stateMachine(), ctx.session(),
-                statement);
+        return dmlDispatch.apply(ctx.stateMachine(), ctx.session(), statement)
+                .thenApply(result -> completeDml(statement, ctx, result));
+    }
+
+    private StatementResult completeDml(Statement statement, StatementExecutionContext ctx, DispatchResult result) {
         if (result == null) {
             throw new org.pangrova.common.exception.PangrovaException(
                     org.pangrova.common.enums.PangrovaErrorCode.RUNTIME_TASK_FAILED,

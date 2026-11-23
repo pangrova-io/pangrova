@@ -2,6 +2,8 @@ package org.pangrova.coordinator.query.execution.dispatch;
 
 import org.pangrova.execution.task.DispatchResult;
 
+import java.util.concurrent.CompletionStage;
+
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.query.lifecycle.QueryStateMachine;
 import org.pangrova.parser.api.ast.Statement;
@@ -22,9 +24,7 @@ public interface NativeDmlCompileFunction {
      * @param stateMachine query state machine for lifecycle tracking
      * @param session      coordinator session context
      * @param stmt         the DML statement to compile and dispatch
-     * @return dispatch result with worker task information
+     * @return completion of Native execution and the fenced write
      */
-    DispatchResult apply(QueryStateMachine stateMachine,
-                         QuerySession session,
-                         Statement stmt);
+    CompletionStage<DispatchResult> apply(QueryStateMachine stateMachine, QuerySession session, Statement stmt);
 }
