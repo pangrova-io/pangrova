@@ -128,6 +128,11 @@ transaction. It checks expiry using a separate database-clock statement after
 the anchor row lock. Absent/replaced/expired ownership is a typed rejection;
 SQL failures and corrupt rows are not stale-owner results.
 
+A first execution-anchor acquisition takes the transaction-scoped acquisition
+lock and writes an initial row with database time. Once the insert owns the
+row, a separate write samples the time after any insert wait and returns the
+exact persisted lease. Each write samples its clock within the statement.
+
 Generation owns exact durable route reads/writes and publication-owner lookup in
 `generation.store.postgresql.execution`. Its injected fence verifies the route, delegates
 anchor authority to Query, and exposes `GenerationExecutionOwnerLostException` to
