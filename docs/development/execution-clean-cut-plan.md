@@ -90,6 +90,8 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
+实施批次 141 在索引增量维护中先判断当前发布代次和快照祖先关系，再枚举待发布快照的文件。受控重放包含一个已经发布的快照与它的一个祖先，完整文件清单调用从两次降为零，两个 durable 订阅通知均已执行。真实 Iceberg SQL 与 PostgreSQL 验证追加后创建了更高的 ACTIVE 代次，发布绑定追加后的 main 快照并增加了对象数。56 项回归及 Checkstyle 通过，覆盖快照目录、旧事件、索引授权和发布围栏。
+
 实施批次 140 修正相关子查询晚暴露的外层谓词。复用 Calcite 内连接条件下推，只在可证明两个新连接都取得条件时重排笛卡尔左子树。TPC-H Q2 确定性夹具的最大 Native 算子输出从 100 亿行降到 13,166 行，OUTPUT 执行从 29,443 ms 降到 18 ms，查询审计从 30,628 ms 降到 424 ms。相同 SQL 与 PostgreSQL 返回相同的空结果，匹配夹具数据的参数变体验证了与 PostgreSQL 顺序和值一致的 100 行。五份 TPC-H 计划移除了无谓笛卡尔积，其余受检 TPC-H 与 TPC-DS 计划一致。128 项回归及 Checkstyle 通过，另有一项生成 golden 的可选用例跳过。 [Calcite 内连接谓词下推](https://calcite.apache.org/javadocAggregate/org/apache/calcite/rel/rules/FilterJoinRule.FilterIntoJoinRule.html) · [Trino 的谓词下推和连接排序](https://github.com/trinodb/trino/blob/master/core/trino-main/src/main/java/io/trino/sql/planner/PlanOptimizers.java)
 
 实施批次 139 在实时执行图记录构建侧与 Probe 的一次动态过滤决定及等待区间。结果区分已应用、空构建、缺失摘要、超时和查询终止，作用于同一代 Probe 枚举。实际双 Worker 的稀疏键样本中，单构建任务等待 59.427 ms，探测从 40 个分片、28,448 B 降至 4 个分片、2,795 B。两个构建任务等待 42.003 ms，探测从 40 个分片、29,181 B 降至 4 个分片、3,186 B。真实 Flight 查询核对完整结果和实际资源归还。39 项 Java 回归与 Checkstyle 通过，含 PostgreSQL 读预算和 22 个 TPC-H 查询的确定性参考夹具。持久 SDK 的本地对照另通过 150 次串行和每秒 8 次到达的 80 次混合样本。样本未达到跨引擎、过载或 P99 门槛。

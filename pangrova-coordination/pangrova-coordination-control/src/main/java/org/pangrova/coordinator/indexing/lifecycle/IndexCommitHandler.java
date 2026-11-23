@@ -157,9 +157,7 @@ public final class IndexCommitHandler implements CommitListener, MetadataEventLi
                 markIndexStale(store, descriptor, "snapshot_metadata_unavailable");
                 continue;
             }
-            List<SnapshotDataFile> targetFiles = snapshotMetadata.listFilesAtSnapshot(files.snapshotId);
-            IndexRefreshInput input = resolveRefreshInput(
-                    store, snapshotMetadata, descriptor, files, targetFiles);
+            IndexRefreshInput input = resolveRefreshInput(store, snapshotMetadata, descriptor, files);
             if (input == null) {
                 continue;
             }
@@ -175,8 +173,7 @@ public final class IndexCommitHandler implements CommitListener, MetadataEventLi
             IndexMetadataStore store,
             SnapshotAwareMetadata snapshotMetadata,
             IndexDescriptor descriptor,
-            MergedCommitFiles event,
-            List<SnapshotDataFile> targetFiles) {
+            MergedCommitFiles event) {
         IndexGenerationManifest active = store.findActiveIndexGeneration(
                 descriptor.indexId()).orElse(null);
         if (active == null) {
@@ -200,6 +197,7 @@ public final class IndexCommitHandler implements CommitListener, MetadataEventLi
                 return null;
             }
         }
+        List<SnapshotDataFile> targetFiles = snapshotMetadata.listFilesAtSnapshot(event.snapshotId);
         SnapshotFileDelta delta = active.sourceSnapshot().isBlank()
                 ? fullReplacement(store, descriptor, targetFiles)
                 : validatedDelta(

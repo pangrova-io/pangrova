@@ -1,5 +1,9 @@
 package org.pangrova.testing.integration.e2e.index;
 
+import org.awaitility.Awaitility;
+import org.pangrova.metadata.testinfra.TableWriteAuthorityFixture;
+import org.pangrova.persistence.indexing.api.metadata.IndexGenerationManifest;
+import org.pangrova.persistence.indexing.postgresql.metadata.JdbcIndexMetadataStore;
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
@@ -10,7 +14,9 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInfo;
 
+import java.time.Duration;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -51,6 +57,27 @@ class IndexCommitDrivenBuildE2ETest extends SqlE2ETestBase {
 
     private String fqn() { return FQN_PREFIX + tableName; }
 
+    private String currentSnapshot() {
+        var refs = sqlRunner.execute("SELECT snapshot_id FROM " + fqn() + "$refs WHERE name = 'main'");
+        assertThat(refs).hasSize(1);
+        return Long.toString(refs.get(0).getLong("snapshot_id"));
+    }
+
+    private IndexGenerationManifest awaitPublishedIndex(String sourceSnapshot) {
+        String tenantId = authenticatedCatalogSession(CATALOG).getProperties().get("tenant_id");
+        var indexes = new JdbcIndexMetadataStore(stateStoreDataSource(),
+                TableWriteAuthorityFixture.create()::requireCurrent);
+        return Awaitility.await("published index generation for snapshot " + sourceSnapshot)
+                .atMost(Duration.ofSeconds(30))
+                .until(() -> indexes.findIndexesByTable(tenantId, CATALOG, SCHEMA, tableName).stream()
+                        .filter(index -> index.indexName().equals("idx_bf"))
+                        .findFirst()
+                        .flatMap(index -> indexes.findActiveIndexGeneration(index.indexId()))
+                        .filter(manifest -> sourceSnapshot.equals(manifest.sourceSnapshot())),
+                        Optional::isPresent)
+                .orElseThrow();
+    }
+
     @Nested
     @DisplayName("Basic Incremental Build")
     class BasicIncrementalBuild {
@@ -61,8 +88,12 @@ class IndexCommitDrivenBuildE2ETest extends SqlE2ETestBase {
             sqlRunner.executeDdl("CREATE INDEX idx_bf ON " + fqn()
                     + "(user_id) USING BLOOM_FILTER");
 
-            // Insert new data — should trigger CommitListener
+            var before = awaitPublishedIndex(currentSnapshot());
             sqlRunner.execute("INSERT INTO " + fqn() + " VALUES (3, 'Charlie')");
+            var after = awaitPublishedIndex(currentSnapshot());
+            assertThat(after.indexId()).isEqualTo(before.indexId());
+            assertThat(after.generation()).isGreaterThan(before.generation());
+            assertThat(after.objectCount()).isGreaterThan(before.objectCount());
 
             // Query should return correct results including new data
             List<TypedRow> rows = sqlRunner.execute(
