@@ -1,19 +1,30 @@
 package org.pangrova.planner.substrait;
 
-import com.google.protobuf.Descriptors;
+import com.google.protobuf.Descriptors.Descriptor;
+import com.google.protobuf.Descriptors.EnumValueDescriptor;
+import com.google.protobuf.Descriptors.FieldDescriptor;
 import com.google.protobuf.Message;
+import io.substrait.proto.Expression;
+import io.substrait.proto.FetchRel;
+import io.substrait.proto.HashJoinRel;
+import io.substrait.proto.MergeJoinRel;
 import io.substrait.proto.Plan;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /** Normalizes official SDK output to the current Substrait wire contract. */
 final class SubstraitProtoNormalizer {
 
-    private static final String FETCH_REL = "substrait.FetchRel";
-    private static final String MERGE_JOIN_REL = "substrait.MergeJoinRel";
-    private static final String HASH_JOIN_REL = "substrait.HashJoinRel";
+    private static final Set<Descriptor> JOIN_TYPES =
+            Set.of(HashJoinRel.getDescriptor(), MergeJoinRel.getDescriptor());
+    private static final Map<Descriptor, List<FieldDescriptor>> RELATION_FIELDS = relationFields();
 
     private SubstraitProtoNormalizer() {}
 
@@ -22,29 +33,64 @@ final class SubstraitProtoNormalizer {
     }
 
     private static Message normalizeMessage(Message message) {
-        Message.Builder builder = message.toBuilder();
-        if (FETCH_REL.equals(message.getDescriptorForType().getFullName())) {
-            normalizeFetch(builder);
+        Descriptor type = message.getDescriptorForType();
+        Message.Builder changed = type == FetchRel.getDescriptor() ? normalizeFetch(message) : null;
+        for (var field : RELATION_FIELDS.getOrDefault(type, List.of())) {
+            changed = normalizeField(message, changed, field);
         }
-        for (Map.Entry<Descriptors.FieldDescriptor, Object> entry
-                : message.getAllFields().entrySet()) {
-            normalizeField(builder, entry.getKey(), entry.getValue());
+        if (JOIN_TYPES.contains(type)) {
+            var left = type.findFieldByName("left_keys");
+            var right = type.findFieldByName("right_keys");
+            if (message.getRepeatedFieldCount(left) != 0 || message.getRepeatedFieldCount(right) != 0) {
+                if (changed == null) changed = message.toBuilder();
+                normalizeJoinKeys(changed, left, right);
+            }
         }
-        if (MERGE_JOIN_REL.equals(message.getDescriptorForType().getFullName())
-                || HASH_JOIN_REL.equals(message.getDescriptorForType().getFullName())) {
-            normalizeJoinKeys(builder);
-        }
-        return builder.build();
+        return changed == null ? message : changed.build();
     }
 
-    private static void normalizeJoinKeys(Message.Builder join) {
-        var descriptor = join.getDescriptorForType();
-        var keysField = descriptor.findFieldByName("keys");
-        var leftField = descriptor.findFieldByName("left_keys");
-        var rightField = descriptor.findFieldByName("right_keys");
+    private static Map<Descriptor, List<FieldDescriptor>> relationFields() {
+        // Index the descriptor graph once. The reverse walk includes relation
+        // children inside subqueries and excludes types, literals and metadata.
+        var visited = new HashSet<Descriptor>();
+        var queue = new ArrayDeque<Descriptor>();
+        var parents = new HashMap<Descriptor, List<FieldDescriptor>>();
+        queue.add(Plan.getDescriptor());
+        while (!queue.isEmpty()) {
+            var type = queue.remove();
+            if (!visited.add(type)) continue;
+            for (var field : type.getFields()) {
+                if (field.getJavaType() == FieldDescriptor.JavaType.MESSAGE) {
+                    var child = field.getMessageType();
+                    parents.computeIfAbsent(child, ignored -> new ArrayList<>()).add(field);
+                    queue.add(child);
+                }
+            }
+        }
+
+        var fields = new HashMap<Descriptor, List<FieldDescriptor>>();
+        visited.clear();
+        queue.add(FetchRel.getDescriptor());
+        queue.addAll(JOIN_TYPES);
+        while (!queue.isEmpty()) {
+            var child = queue.remove();
+            if (!visited.add(child)) continue;
+            for (var field : parents.getOrDefault(child, List.of())) {
+                var containing = field.getContainingType();
+                fields.computeIfAbsent(containing, ignored -> new ArrayList<>()).add(field);
+                queue.add(containing);
+            }
+        }
+        fields.replaceAll((type, children) -> children.stream()
+                .sorted(Comparator.comparingInt(FieldDescriptor::getNumber)).toList());
+        return Map.copyOf(fields);
+    }
+
+    private static void normalizeJoinKeys(
+            Message.Builder join, FieldDescriptor leftField, FieldDescriptor rightField) {
+        var keysField = join.getDescriptorForType().findFieldByName("keys");
         int legacyLeft = join.getRepeatedFieldCount(leftField);
         int legacyRight = join.getRepeatedFieldCount(rightField);
-        if (legacyLeft == 0 && legacyRight == 0) return;
         int canonical = join.getRepeatedFieldCount(keysField);
         if (canonical == 0 || legacyLeft != canonical || legacyRight != canonical) {
             throw new IllegalArgumentException("Deprecated join keys differ from canonical keys");
@@ -56,7 +102,7 @@ final class SubstraitProtoNormalizer {
                     keyDescriptor.findFieldByName("comparison"));
             var simple = comparison.getDescriptorForType().findFieldByName("simple");
             if (!comparison.hasField(simple)
-                    || ((Descriptors.EnumValueDescriptor) comparison.getField(simple)).getNumber() != 1) {
+                    || ((EnumValueDescriptor) comparison.getField(simple)).getNumber() != 1) {
                 throw new IllegalArgumentException("Deprecated join keys require canonical EQ comparison");
             }
             if (!key.getField(keyDescriptor.findFieldByName("left"))
@@ -70,54 +116,47 @@ final class SubstraitProtoNormalizer {
         join.clearField(rightField);
     }
 
-    private static void normalizeField(
-            Message.Builder builder,
-            Descriptors.FieldDescriptor field,
-            Object value) {
-        if (field.getJavaType() != Descriptors.FieldDescriptor.JavaType.MESSAGE) {
-            return;
-        }
+    private static Message.Builder normalizeField(
+            Message original, Message.Builder changed, FieldDescriptor field) {
         if (field.isRepeated()) {
-            List<?> values = new ArrayList<>((List<?>) value);
-            for (int index = 0; index < values.size(); index++) {
-                builder.setRepeatedField(
-                        field, index, normalizeMessage((Message) values.get(index)));
+            for (int index = 0; index < original.getRepeatedFieldCount(field); index++) {
+                var child = (Message) original.getRepeatedField(field, index);
+                var normalized = normalizeMessage(child);
+                if (normalized != child) {
+                    if (changed == null) changed = original.toBuilder();
+                    changed.setRepeatedField(field, index, normalized);
+                }
             }
-            return;
+        } else if (original.hasField(field)) {
+            var child = (Message) original.getField(field);
+            var normalized = normalizeMessage(child);
+            if (normalized != child) {
+                if (changed == null) changed = original.toBuilder();
+                changed.setField(field, normalized);
+            }
         }
-        builder.setField(field, normalizeMessage((Message) value));
+        return changed;
     }
 
-    private static void normalizeFetch(Message.Builder fetch) {
-        Descriptors.Descriptor descriptor = fetch.getDescriptorForType();
-        moveIntegerToExpression(fetch,
-                descriptor.findFieldByName("offset"),
-                descriptor.findFieldByName("offset_expr"));
-        moveIntegerToExpression(fetch,
-                descriptor.findFieldByName("count"),
-                descriptor.findFieldByName("count_expr"));
+    private static Message.Builder normalizeFetch(Message fetch) {
+        var descriptor = fetch.getDescriptorForType();
+        var changed = integerToExpression(fetch, null,
+                descriptor.findFieldByName("offset"), descriptor.findFieldByName("offset_expr"));
+        return integerToExpression(fetch, changed,
+                descriptor.findFieldByName("count"), descriptor.findFieldByName("count_expr"));
     }
 
-    private static void moveIntegerToExpression(
-            Message.Builder fetch,
-            Descriptors.FieldDescriptor oldField,
-            Descriptors.FieldDescriptor expressionField) {
-        if (oldField == null || expressionField == null || !fetch.hasField(oldField)) {
-            return;
-        }
-        long value = (Long) fetch.getField(oldField);
+    private static Message.Builder integerToExpression(Message fetch, Message.Builder changed,
+            FieldDescriptor legacy, FieldDescriptor replacement) {
+        if (legacy == null || replacement == null || !fetch.hasField(legacy)) return changed;
+        long value = (Long) fetch.getField(legacy);
         if (value < 0) {
-            throw new IllegalArgumentException(
-                    "Fetch value must be non-negative: " + value);
+            throw new IllegalArgumentException("Fetch value must be non-negative: " + value);
         }
-        Message.Builder expression = fetch.newBuilderForField(expressionField);
-        Descriptors.FieldDescriptor literalField =
-                expression.getDescriptorForType().findFieldByName("literal");
-        Message.Builder literal = expression.newBuilderForField(literalField);
-        Descriptors.FieldDescriptor integerField =
-                literal.getDescriptorForType().findFieldByName("i64");
-        literal.setField(integerField, value);
-        expression.setField(literalField, literal.build());
-        fetch.setField(expressionField, expression.build());
+        if (fetch.hasField(replacement)) return changed;
+        if (changed == null) changed = fetch.toBuilder();
+        changed.setField(replacement, Expression.newBuilder()
+                .setLiteral(Expression.Literal.newBuilder().setI64(value)).build());
+        return changed;
     }
 }

@@ -111,6 +111,10 @@ After the Plan Fragmenter divides the Calcite tree into stages, the Coordinator 
 each stage into a Substrait plan. Worker submission carries these bytes in the binary Protobuf
 `TaskRequest.substrait_plan` field over HTTP. The Worker prepares and serializes its local
 task request for JNI. The enclosed Substrait plan is decoded on the Native side.
+
+The SDK-to-wire normalizer walks only Protobuf fields whose descriptors can
+contain Fetch, hash join or merge join relations, including subqueries. It
+reuses unchanged messages and rebuilds the ancestors of each corrected relation.
 Native task admission retains typed Bloom index hints and Paimon deletion-vector
 references for the in-process scanner. The Lance read unit stays encoded for its
 Rust FFI call.
