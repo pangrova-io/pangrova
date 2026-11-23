@@ -94,6 +94,10 @@ final class QueryAdmissionOwnership {
 
         void returnCapacity() {
             release.run();
+            clearCapacity();
+        }
+
+        void clearCapacity() {
             release = () -> {};
         }
     }

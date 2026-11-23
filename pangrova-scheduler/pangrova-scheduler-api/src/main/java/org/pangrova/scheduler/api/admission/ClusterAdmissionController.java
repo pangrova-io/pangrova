@@ -41,7 +41,9 @@ public interface ClusterAdmissionController {
      * Evaluates whether the given query should be admitted, queued, or rejected.
      *
      * <p>Admission must be atomic: concurrent callers must not cause the system
-     * to exceed the configured concurrency or memory limits.</p>
+     * to exceed the configured concurrency or memory limits. A returned REJECT
+     * leaves this request without a new reservation. An exception can leave an
+     * unresolved reservation that requires reconciliation.</p>
      *
      * @param request the admission request context (tenant, resource group, query, memory estimate)
      * @return the admission decision (never null)

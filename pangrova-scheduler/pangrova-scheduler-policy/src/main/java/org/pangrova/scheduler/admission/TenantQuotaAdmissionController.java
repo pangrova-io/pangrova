@@ -214,7 +214,7 @@ public final class TenantQuotaAdmissionController implements ClusterAdmissionCon
             QueryAdmissionOwnership.Reservation reservation) {
         reservation.retain(() -> clusterSlots.release(tenantId, request.queryId()));
         if (!clusterSlots.tryReserve(tenantId, request.queryId(), quota.maxConcurrentQueries())) {
-            reservation.returnCapacity();
+            reservation.clearCapacity();
             return queueOrReject(request, quota, queueCounter, tenantId, reservation);
         }
         AdmissionDecision memoryReject = checkMemoryReject(request, quota, tenantId);

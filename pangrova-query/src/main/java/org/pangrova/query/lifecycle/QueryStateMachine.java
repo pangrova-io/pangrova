@@ -129,6 +129,9 @@ public class QueryStateMachine {
     /** Admission owner installs its exact release obligation before attempting acquisition. */
     public void retainAdmissionRelease(Runnable release) { admissionRelease = release; }
 
+    /** Clears the tentative release after admission confirms this request owns no reservation. */
+    public void discardUnacquiredAdmission() { admissionRelease = null; }
+
     /** Serialized admission/cleanup owner releases the reservation; failure retains it for retry. */
     public void releaseAdmission() {
         Runnable release = admissionRelease;

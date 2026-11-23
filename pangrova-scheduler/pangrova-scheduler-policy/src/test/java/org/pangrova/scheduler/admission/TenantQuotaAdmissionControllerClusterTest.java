@@ -173,6 +173,7 @@ class TenantQuotaAdmissionControllerClusterTest {
     void sharedAdmissionAndQueueUseReservationOutcomeWithoutDiagnosticUsageReads() {
         var actual = new InMemoryClusterConcurrencySlots();
         var reads = new java.util.concurrent.atomic.AtomicInteger();
+        var releases = new java.util.concurrent.atomic.AtomicInteger();
         var observed = new org.pangrova.persistence.coordination.api.admission.ClusterConcurrencySlots() {
             @Override
             public boolean tryReserve(String tenant, String query, int limit) {
@@ -181,6 +182,7 @@ class TenantQuotaAdmissionControllerClusterTest {
 
             @Override
             public void release(String tenant, String query) {
+                releases.incrementAndGet();
                 actual.release(tenant, query);
             }
 
@@ -197,8 +199,14 @@ class TenantQuotaAdmissionControllerClusterTest {
         assertThat(controller.admit(AdmissionRequest.of("t1", "default", "queued")).verdict())
                 .isEqualTo(AdmissionVerdict.QUEUE);
         assertThat(reads).hasValue(0);
+        assertThat(releases).hasValue(0);
+        controller.release("queued", "t1");
+        assertThat(releases).hasValue(0);
         assertThat(controller.admittedCount("t1")).isEqualTo(QUOTA.maxConcurrentQueries());
         assertThat(reads).hasValue(1);
+        controller.release("query-0", "t1");
+        assertThat(releases).hasValue(1);
+        assertThat(actual.active("t1")).isEqualTo(QUOTA.maxConcurrentQueries() - 1);
     }
 
     /** Immutable component input: tenant -> [memoryBytes, activeQueries]. */

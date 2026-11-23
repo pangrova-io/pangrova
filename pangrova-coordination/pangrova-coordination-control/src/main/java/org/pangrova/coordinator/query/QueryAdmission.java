@@ -14,6 +14,7 @@ import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.coordinator.resilience.resilience4j.ResilienceRegistry;
 import org.pangrova.query.api.enums.QueryState;
 import org.pangrova.query.api.error.QueryFailure;
+import org.pangrova.scheduler.api.enums.AdmissionVerdict;
 import org.pangrova.scheduler.api.resource.AdmissionRequest;
 import org.pangrova.scheduler.api.admission.ClusterAdmissionController;
 
@@ -73,10 +74,14 @@ final class QueryAdmission implements org.pangrova.query.lifecycle.QueryAdmissio
         if (!decision.isAdmitted()) {
             QueryRejectedException rejected = new QueryRejectedException(
                     "Cluster admission denied for tenant " + tenantId + ": " + decision.reason());
-            try {
-                state.releaseAdmission();
-            } catch (RuntimeException | Error cleanup) {
-                rejected.addSuppressed(cleanup);
+            if (decision.verdict() == AdmissionVerdict.REJECT) {
+                state.discardUnacquiredAdmission();
+            } else {
+                try {
+                    state.releaseAdmission();
+                } catch (RuntimeException | Error cleanup) {
+                    rejected.addSuppressed(cleanup);
+                }
             }
             throw rejected;
         }
