@@ -100,6 +100,13 @@
         <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
     </Match>
 
+    <!-- These fields share immutable generated Java messages (never their mutable builders). -->
+    <Match>
+        <Class name="org.pangrova.execution.task.DispatchResult"/>
+        <Field name="shuffleEndpoint" type="org.pangrova.protocol.http.TaskShuffleEndpoint"/>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+    </Match>
+
     <!-- Capability signatures are public SHA-256 contract identifiers, never secret keys. -->
     <Match>
         <Class name="org.pangrova.protocol.capability.BuiltInCapabilityCatalog"/>
@@ -1166,6 +1173,20 @@
         <Method name="record"/>
         <Bug pattern="UNSAFE_HASH_EQUALS"/>
     </Match>
+    <!-- Stage graph SHA-256 values are public graph and plan identities.
+         These checks only compare immutable metadata admitted by the transaction. -->
+    <Match>
+        <Class name="org.pangrova.persistence.generation.postgresql.exchange.PostgresGenerationStageExchangeStore"/>
+        <Method name="~require(RegistrationIdentity|GraphEdge)"/>
+        <Bug pattern="UNSAFE_HASH_EQUALS"/>
+    </Match>
+    <!-- Calcite borrows a read-only lazy view. Its entry and name sets are unmodifiable. -->
+    <Match>
+        <Class name="org.pangrova.planner.metadata.catalog.LazyMetadataSchema"/>
+        <Method name="getTableMap" params="" returns="java.util.Map"/>
+        <Field name="tableMap" type="java.util.Map"/>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
     <!-- PaimonConnector lends its actual connector-owned metadata service through the SPI.
          Copies would disconnect snapshot pins and commit notifications. This classification
          covers borrowed DI identity only, not thread safety or completed resource drain. -->
@@ -1679,9 +1700,8 @@
          in the owning DTOs. Only the observed class/method/signature/field/type/bug
          tuples are classified; mutable payloads and all other findings stay checked.
          Contract: https://protobuf.dev/reference/java/java-generated/ -->
-    <!-- Shuffle capability records carry immutable, built protobuf messages.
-         Only these exact message-valued fields are classified; the canonicalBytes
-         byte[] in CompleteWriteBatch remains checked for ownership exposure. -->
+    <!-- Shuffle write records carry built Protobuf values and an immutable ByteString.
+         The separate checksum byte array stays checked for ownership exposure. -->
     <Match>
         <Class name="org.pangrova.shuffle.security.CapabilityScope"/>
         <Method name="taskAttempt" params="" returns="org.pangrova.protocol.v2.TaskAttemptId"/>
@@ -1708,14 +1728,26 @@
     </Match>
     <Match>
         <Class name="org.pangrova.shuffle.transport.CompleteWriteBatch"/>
-        <Method name="&lt;init&gt;" params="java.lang.String,int,long,long,org.pangrova.protocol.v2.TaskAttemptId,org.pangrova.protocol.v2.ShuffleAccessCapability,byte[],byte[]" returns="void"/>
+        <Method name="&lt;init&gt;" params="java.lang.String,int,long,long,org.pangrova.protocol.v2.TaskAttemptId,org.pangrova.protocol.v2.ShuffleAccessCapability,com.google.protobuf.ByteString,byte[]" returns="void"/>
         <Field name="attempt" type="org.pangrova.protocol.v2.TaskAttemptId"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
     <Match>
         <Class name="org.pangrova.shuffle.transport.CompleteWriteBatch"/>
-        <Method name="&lt;init&gt;" params="java.lang.String,int,long,long,org.pangrova.protocol.v2.TaskAttemptId,org.pangrova.protocol.v2.ShuffleAccessCapability,byte[],byte[]" returns="void"/>
+        <Method name="&lt;init&gt;" params="java.lang.String,int,long,long,org.pangrova.protocol.v2.TaskAttemptId,org.pangrova.protocol.v2.ShuffleAccessCapability,com.google.protobuf.ByteString,byte[]" returns="void"/>
         <Field name="capability" type="org.pangrova.protocol.v2.ShuffleAccessCapability"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.shuffle.transport.CompleteWriteBatch"/>
+        <Method name="canonicalBytes" params="" returns="com.google.protobuf.ByteString"/>
+        <Field name="canonicalBytes" type="com.google.protobuf.ByteString"/>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.shuffle.transport.CompleteWriteBatch"/>
+        <Method name="&lt;init&gt;" params="java.lang.String,int,long,long,org.pangrova.protocol.v2.TaskAttemptId,org.pangrova.protocol.v2.ShuffleAccessCapability,com.google.protobuf.ByteString,byte[]" returns="void"/>
+        <Field name="canonicalBytes" type="com.google.protobuf.ByteString"/>
         <Bug pattern="EI_EXPOSE_REP2"/>
     </Match>
     <Match>
@@ -2485,6 +2517,12 @@
         <Class name="org.pangrova.coordinator.query.execution.dispatch.dag.retrieval.ResolvedRetrievalGeneration" />
         <Field name="bindingTemplate" type="org.pangrova.protocol.v2.ArtifactBinding" />
         <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2" />
+    </Match>
+    <!-- The resolved template owns a built Protobuf binding. -->
+    <Match>
+        <Class name="org.pangrova.generation.publication.read.PublishedGenerationBindingResolver$ResolvedTemplate"/>
+        <Field name="binding" type="org.pangrova.protocol.v2.ArtifactBinding"/>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
     </Match>
     <Match>
         <Class name="org.pangrova.execution.binding.TaskRequestFactory$LeafTask" />

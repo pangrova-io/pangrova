@@ -30,15 +30,17 @@ import static org.pangrova.persistence.jdbc.support.JdbcSupport.getInstant;
 /** Same-connection immutable publication reads, shared by query resolution and durable claim preparation. */
 final class PostgresGenerationPublishedInputs {
     private static final PostgresGenerationQueries INPUTS = new PostgresGenerationQueries();
+    private static final String PUBLISHED_MANIFEST =
+            "SELECT * FROM artifact_build_jobs WHERE tenant_id=? AND artifact_id=? "
+                    + "AND staging_generation=? AND source_snapshot=? AND state='PUBLISHED'";
+    private static final String LOCKED_PUBLISHED_MANIFEST = PUBLISHED_MANIFEST + " FOR SHARE";
 
     private PostgresGenerationPublishedInputs() {}
 
     static Optional<GenerationManifest> findManifest(Connection connection, String tenantId,
             String artifactId, String generation, String sourceSnapshot, boolean lock) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT * FROM artifact_build_jobs WHERE tenant_id=? AND artifact_id=? "
-                        + "AND staging_generation=? AND source_snapshot=? "
-                        + "AND state='PUBLISHED'" + (lock ? " FOR SHARE" : ""))) {
+                lock ? LOCKED_PUBLISHED_MANIFEST : PUBLISHED_MANIFEST)) {
             statement.setString(1, tenantId);
             statement.setString(2, artifactId);
             statement.setString(3, generation);

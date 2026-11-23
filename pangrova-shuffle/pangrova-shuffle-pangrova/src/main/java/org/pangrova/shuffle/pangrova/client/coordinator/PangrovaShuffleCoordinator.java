@@ -500,11 +500,8 @@ public final class PangrovaShuffleCoordinator
     private QueryShuffleState requireStableState(String queryId) {
         ShuffleExecutionOwner resolved = checkNotNull(
                 ownerResolver.resolve(queryId), "shuffle owner must not be null");
-        QueryShuffleState state = queryStates.get(queryId);
-        if (state == null) {
-            state = new QueryShuffleState(resolved);
-            queryStates.put(queryId, state);
-        } else if (!state.owner.equals(resolved)) {
+        var state = queryStates.computeIfAbsent(queryId, ignored -> new QueryShuffleState(resolved));
+        if (!state.owner.equals(resolved)) {
             throw new IllegalStateException(
                     "Shuffle owner changed during one query lifecycle: " + queryId);
         }
