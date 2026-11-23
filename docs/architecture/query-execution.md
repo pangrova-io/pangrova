@@ -269,8 +269,8 @@ from other storage and JNI interfaces:
 
 | Transfer Scenario | Serialization Format | Zero-copy | Note |
 |----------|-----------|--------|------|
-| Worker-to-Worker Shuffle (Native Flight) | Velox PrestoVectorSerde page in one Arrow binary cell | ✗ | Native producer callback → serialized shuffle queue → Flight DoGet → Native ExchangeSource; no per-batch Java/JNI hop |
-| Output Worker→Client (Flight) | Arrow IPC RecordBatch where supported | ✗ | Result path is separate from the shuffle page format |
+| Worker-to-Worker Shuffle (Native Flight) | Canonical Arrow batch stream page in one Arrow binary cell | ✗ | Native producer callback → serialized shuffle queue → Flight DoGet → Native ExchangeSource; no per-batch Java/JNI hop |
+| Output Worker→Client (Flight) | Standard Arrow Flight schema and record messages | Buffer reuse where supported | OUTPUT prepares each final record message in Velox and sends it through the task's byte window |
 | Native→Java columnar bridge | Arrow C Data Interface | Potentially | Interface exists, but is not the current Worker-to-Worker shuffle path |
 | RAM Cache storage | Component-specific | — | Not the shuffle wire contract |
 | Velox operator spill | Velox-managed | — | Not an Arrow IPC shuffle persistence guarantee |
@@ -280,8 +280,8 @@ from other storage and JNI interfaces:
 
 The Native Flight server wraps each serialized shuffle page as the value of a
 single Arrow binary cell; the consumer extracts and deserializes that page into
-Velox. Flight's Arrow IPC framing must not be confused with the shuffle
-payload's PrestoVectorSerde format.
+Velox. The shuffle page carries its own schema, batches and EOF inside the
+outer Flight frame. Client results use one Flight schema and standard record messages.
 
 The current Arrow Flight reader exposes synchronous `Next()` calls. Native
 exchange reads therefore run on a dedicated blocking-I/O CPU pool; Flight
@@ -676,15 +676,18 @@ Native output before claiming the stream.
 The stream retains the admitted task identity and uses it for batch reads. Each read checks the live cancellation, revocation and deadline conditions before publishing data.
 
 HTTP can advertise the endpoint while Native initializes the task. An early
-DoGet waits up to 750 ms for the readiness notification. Velox initializes
-the actual output buffer before the Worker activates the registration. The
-same registry lock guards readiness and the one allowed stream claim.
-Registration retirement and server shutdown wake pending readers.
+DoGet waits up to 750 ms for the readiness notification. The Worker activates
+the registration after the Velox task has started. The same registry lock
+guards readiness and the one allowed stream claim. Registration retirement
+and server shutdown wake pending readers and producers.
 
-The Flight stream carries the result schema and Arrow RecordBatches. The
-client reads to EOF and observes query completion and physical cleanup through
-the HTTP query state. The Coordinator serves control-plane statement results
-through its own result source.
+Each OUTPUT Driver prepares final Arrow record messages into a shared byte
+window. Queued messages and buffers held by Flight use the same credit. A
+full window suspends the Driver until a message's last buffer is released.
+Successful producer completion seals the queue. The Flight transport commits
+the result task after writing the stream, and an earlier disconnect fails it.
+The client reads to EOF and observes physical cleanup through the HTTP query state. The
+Coordinator serves control-plane statement results through its own result source.
 
 #### 3.3.5 Full Interaction Timeline
 

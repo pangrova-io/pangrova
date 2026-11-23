@@ -259,6 +259,7 @@ class TaskExecutor {
   std::string errorMessage() const;
   TaskLifecycle::Snapshot lifecycleSnapshot() const;
   void recordExecutionError(const protocol::v2::ExecutionError& error);
+  void recordResultStreamFinished();
   void recordResultStreamFailure(const std::string& message);
   std::string nativeStackTrace() const;
   std::optional<protocol::v2::ArtifactWorkReport> artifactWorkReport() const;

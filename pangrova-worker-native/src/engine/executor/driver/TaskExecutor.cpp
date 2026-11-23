@@ -317,6 +317,12 @@ void TaskExecutor::recordExecutionError(
   lifecycle_.recordExecutionError(error);
 }
 
+void TaskExecutor::recordResultStreamFinished() {
+  if (!config_.is_result_task || !lifecycle_.finishResultStream()) {
+    throw std::logic_error("Cannot finish delivery for an inactive result task");
+  }
+}
+
 void TaskExecutor::recordResultStreamFailure(const std::string& message) {
   protocol::v2::ExecutionError error;
   error.set_error_class(protocol::v2::ERROR_CLASS_RESULT_VALIDATION);

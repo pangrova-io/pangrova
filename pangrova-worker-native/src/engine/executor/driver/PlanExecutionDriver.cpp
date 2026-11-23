@@ -88,7 +88,7 @@ PlanExecutionDriver::prepareExecution(observability::SpanScope* span) {
       execution->artifactContext->read_budget);
   velox::VeloxPlanConverter converter(config_.function_registry);
   auto plan = converter.convert(config_.substrait_plan, execution->retrieval->splits,
-      config_.is_result_task, "ArrowBatch", config_.operator_bindings,
+      config_.operator_bindings,
       execution->artifactContext, execution->retrieval->split_overrides,
       config_.num_shuffle_partitions);
   if (!plan) throw std::runtime_error("Failed to convert Substrait plan to Velox PlanNode");

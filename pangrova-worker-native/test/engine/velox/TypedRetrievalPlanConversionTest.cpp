@@ -301,7 +301,7 @@ std::shared_ptr<const facebook::velox::core::PlanNode> convertRelation(
     VeloxPlanConverter& converter,
     const substrait::Rel& rel) {
   return converter.convert(
-      serializePlan(rel), {}, false, "ArrowBatch", operatorBindings(rel));
+      serializePlan(rel), {}, operatorBindings(rel));
 }
 
 }  // namespace
@@ -419,7 +419,7 @@ TEST(TypedRetrievalPlanConversionTest, EveryAnnBuildsExactLocalTopNOverCandidate
         facebook::velox::exec::FunctionRegistrySnapshot::capture();
     VeloxPlanConverter converter(converter_registry);
     auto result = converter.convert(
-        serializePlan(rel), {}, false, "ArrowBatch", bindings);
+        serializePlan(rel), {}, bindings);
     auto final_topn = std::dynamic_pointer_cast<
         const facebook::velox::core::TopNNode>(result);
     ASSERT_NE(final_topn, nullptr);
@@ -472,7 +472,7 @@ TEST(TypedRetrievalPlanConversionTest, FanOutRoutesArtifactSplitsToIndependentSc
       facebook::velox::exec::FunctionRegistrySnapshot::capture();
   VeloxPlanConverter converter(converter_registry);
   auto result = converter.convert(
-      serializePlan(fan_out), {}, false, "ArrowBatch", bindings, nullptr,
+      serializePlan(fan_out), {}, bindings, nullptr,
       overrides);
 
   ASSERT_NE(result, nullptr);
@@ -525,7 +525,7 @@ TEST(TypedRetrievalPlanConversionTest, Bm25BuildsExactLocalTopNOverMaterializedS
       facebook::velox::exec::FunctionRegistrySnapshot::capture();
   VeloxPlanConverter converter(converter_registry);
   auto result = converter.convert(
-      serializePlan(rel), {}, false, "ArrowBatch", bindings);
+      serializePlan(rel), {}, bindings);
   auto final_topn = std::dynamic_pointer_cast<
       const facebook::velox::core::TopNNode>(result);
   ASSERT_NE(final_topn, nullptr);
@@ -794,7 +794,7 @@ TEST(TypedRetrievalPlanConversionTest, CrossEncoderModelDriftFailsClosed) {
       facebook::velox::exec::FunctionRegistrySnapshot::capture();
   VeloxPlanConverter converter(converter_registry);
   EXPECT_THROW(
-      converter.convert(serializePlan(rel), {}, false, "ArrowBatch", bindings),
+      converter.convert(serializePlan(rel), {}, bindings),
       std::runtime_error);
 }
 

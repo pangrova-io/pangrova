@@ -60,8 +60,6 @@ std::shared_ptr<const facebook::velox::core::PlanNode>
 VeloxPlanConverter::convert(
     const std::vector<uint8_t>& plan_bytes,
     const std::vector<split::SplitConfig>& splits,
-    bool is_result_task,
-    const std::string& result_serde_name,
     const std::unordered_map<
         std::string, pangrova::protocol::v2::OperatorBinding>&
         operator_bindings,
@@ -131,15 +129,8 @@ VeloxPlanConverter::convert(
           "Shuffle task and producer ExchangeRel must be bound together");
     }
     bindResultColumnLabels(plan_rel.root(), node->outputType());
-    // For result tasks, wrap the plan root with PartitionedOutputNode so that
-    // Velox serializes output via the canonical serde inside the operator pipeline
-    // and routes it through OutputBufferManager for native result serving.
-    // Skip wrapping if the root is already a PartitionedOutputNode (e.g., from
-    // an ExchangeRel that was converted to a partitioned output).
-    node = wrapResultTaskOutput(node, is_result_task, result_serde_name);
     validateAllOperatorBindingsConsumed();
     LOG(INFO) << "event=plan_conversion_complete"
-              << " is_result_task=" << is_result_task
               << " output_type=" << (node ? node->outputType()->toString() : "null")
               << " root_node=" << (node ? node->name() : "null");
     return node;
@@ -151,10 +142,8 @@ VeloxPlanConverter::convert(
       throw std::runtime_error(
           "Shuffle task and producer ExchangeRel must be bound together");
     }
-    node = wrapResultTaskOutput(node, is_result_task, result_serde_name);
     validateAllOperatorBindingsConsumed();
     LOG(INFO) << "event=plan_conversion_complete_rel"
-              << " is_result_task=" << is_result_task
               << " output_type=" << (node ? node->outputType()->toString() : "null")
               << " root_node=" << (node ? node->name() : "null");
     return node;
@@ -224,47 +213,6 @@ VeloxPlanConverter::getScanNodeOutputType(
 
 std::string VeloxPlanConverter::nextNodeId() {
   return "node_" + std::to_string(next_node_id_++);
-}
-
-// ---------------------------------------------------------------------------
-// Result task PartitionedOutputNode wrapping
-// ---------------------------------------------------------------------------
-
-std::shared_ptr<const facebook::velox::core::PlanNode>
-VeloxPlanConverter::wrapResultTaskOutput(
-    std::shared_ptr<const facebook::velox::core::PlanNode> node,
-    bool is_result_task,
-    const std::string& serde_name) {
-  if (serde_name != "ArrowBatch") {
-    throw std::runtime_error("Result output requires canonical Arrow batch serde");
-  }
-  if (!is_result_task || !node) {
-    return node;
-  }
-  // Skip wrapping if the root is already a PartitionedOutputNode.
-  if (std::dynamic_pointer_cast<
-          const facebook::velox::core::PartitionedOutputNode>(node) !=
-      nullptr) {
-    return node;
-  }
-  auto result_output_type =
-      std::dynamic_pointer_cast<const facebook::velox::RowType>(
-          node->outputType());
-  auto output = std::make_shared<facebook::velox::core::PartitionedOutputNode>(
-      nextNodeId(),
-      facebook::velox::core::PartitionedOutputNode::Kind::kArbitrary,
-      /*keys=*/std::vector<std::shared_ptr<
-          const facebook::velox::core::ITypedExpr>>{},
-      /*numPartitions=*/1,
-      /*replicateNullsAndAny=*/false,
-      /*partitionFunctionSpec=*/nullptr,
-      result_output_type,
-      serde_name,
-      node);
-  if (!serde_schema_bindings_.emplace(output->id(), canonical_output_schema_).second) {
-    throw std::runtime_error("Serialization node has duplicate canonical schema bindings");
-  }
-  return output;
 }
 
 // ---------------------------------------------------------------------------

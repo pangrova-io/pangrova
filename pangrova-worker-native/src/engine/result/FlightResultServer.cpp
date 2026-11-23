@@ -1,11 +1,6 @@
-// FlightResultServer: Arrow Flight server that pulls pre-serialized
-// SerializedPage from Velox's OutputBufferManager and serves them
-// to the authorized client via Arrow Flight DoGet.
-//
-// Aligned with Prestissimo: same Velox components, Arrow Flight transport.
-
 #include "engine/result/FlightResultServer.h"
-#include "engine/result/ResultBatchStreamReader.h"
+#include "engine/result/ResultFlightStream.h"
+#include "engine/result/ResultPayloadQueue.h"
 #include "engine/result/ResultReadAuthority.h"
 #include "capabilities/capability/LogicalTypeContract.h"
 #include <arrow/util/key_value_metadata.h>
@@ -14,7 +9,6 @@
 #include <exception>
 #include <stdexcept>
 #include <unordered_set>
-#include <velox/exec/OutputBufferManager.h>
 #include "engine/observability/PangrovaLog.h"
 
 namespace pangrova::result {
@@ -28,10 +22,9 @@ FlightResultServer* FlightResultServer::instance() {
 }
 
 void FlightResultServer::registerTaskOutputType(const std::string& taskId, TaskOutputInfo info) {
-  if (!info.buffers) info.buffers = facebook::velox::exec::OutputBufferManager::getInstanceRef();
   std::shared_lock<std::shared_mutex> service_lock(instance_mutex_);
   auto* server = instance();
-  if (!server || !server->isRunning() || !info.output_type || !info.wire_schema || !info.pool || !info.ownership ||
+  if (!server || !server->isRunning() || !info.output_type || !info.wire_schema || !info.pool || !info.ownership || !info.queue ||
       static_cast<size_t>(info.wire_schema->num_fields()) != info.output_type->size() ||
       info.column_labels.size() != info.output_type->size() || info.authority.attempt().task_id() != taskId ||
       info.authority.security().tenant_id().empty() || info.authority.deadline_epoch_ms() == 0 ||
@@ -40,6 +33,9 @@ void FlightResultServer::registerTaskOutputType(const std::string& taskId, TaskO
   }
   std::lock_guard<std::mutex> lock(server->output_type_mutex_);
   if (!server->isRunning()) throw std::runtime_error("Result server is shutting down");
+  if (info.ownership->evidence().authority_revoked) {
+    throw std::invalid_argument("Revoked result authority cannot be registered");
+  }
   if (!server->output_type_cache_.emplace(taskId, std::move(info)).second) {
     throw std::invalid_argument("Result task identity is already registered");
   }
@@ -60,7 +56,8 @@ bool FlightResultServer::markTaskOutputReady(const std::string& taskId) {
   return true;
 }
 
-void FlightResultServer::unregisterTaskOutputType(const std::string& taskId) {
+void FlightResultServer::unregisterTaskOutputType(const std::string& taskId,
+    const std::shared_ptr<ResultOwnershipState>& owner) {
   std::optional<TaskOutputInfo> removed;
   {
     std::shared_lock<std::shared_mutex> service_lock(instance_mutex_);
@@ -68,12 +65,14 @@ void FlightResultServer::unregisterTaskOutputType(const std::string& taskId) {
     if (!server) return;
     std::lock_guard<std::mutex> lock(server->output_type_mutex_);
     const auto found = server->output_type_cache_.find(taskId);
-    if (found == server->output_type_cache_.end()) return;
+    if (found == server->output_type_cache_.end() || found->second.ownership != owner) return;
     removed = std::move(found->second);
     server->output_type_cache_.erase(found);
     server->output_ready_.notify_all();
   }
   removed->ownership->revokeAuthority();
+  removed->queue->abort(arrow::Status::Cancelled("Result task registration was revoked"));
+  removed->ownership->revokeAndClearQueue();
 }
 
 std::optional<FlightResultServer::TaskOutputInfo> FlightResultServer::lookupTaskOutputInfo(const std::string& taskId) {
@@ -85,7 +84,7 @@ std::optional<FlightResultServer::TaskOutputInfo> FlightResultServer::lookupTask
   return it == server->output_type_cache_.end() ? std::nullopt : std::optional<TaskOutputInfo>(it->second);
 }
 
-arrow::Result<std::shared_ptr<arrow::RecordBatchReader>> FlightResultServer::openTaskOutput(
+arrow::Result<std::unique_ptr<arrow::flight::FlightDataStream>> FlightResultServer::openTaskOutput(
     const protocol::v2::ResultReadGrant& grant,
     std::chrono::milliseconds wait,
     const arrow::flight::ServerCallContext* context) {
@@ -117,27 +116,13 @@ arrow::Result<std::shared_ptr<arrow::RecordBatchReader>> FlightResultServer::ope
   info.claimed = true;
   auto claimed = info;
   lock.unlock();
-  return resultBatchStreamReader(std::move(claimed), config_.max_bytes_per_response,
-      config_.result_fetch_timeout_seconds, context);
+  return resultFlightStream(std::move(claimed), config_.result_fetch_timeout_seconds, context);
 }
 
 // ---------------------------------------------------------------------------
 // detail:: implementations (F-NATIVE-SHUF-01 owning-buffer fix).
 // ---------------------------------------------------------------------------
 namespace detail {
-
-FetchWaitDecision decideFetchWait(
-    bool alive,
-    int64_t elapsed_seconds,
-    int64_t timeout_seconds) {
-  if (!alive) {
-    return FetchWaitDecision::kProducerDead;
-  }
-  if (timeout_seconds > 0 && elapsed_seconds >= timeout_seconds) {
-    return FetchWaitDecision::kTimedOut;
-  }
-  return FetchWaitDecision::kKeepWaiting;
-}
 
 arrow::Result<std::shared_ptr<arrow::Schema>> withResultColumnTypes(
     const std::shared_ptr<arrow::Schema>& schema,
@@ -303,7 +288,7 @@ void FlightResultServer::stop() {
   std::exception_ptr cleanup_failure;
   for (auto current = revoked.begin(); current != revoked.end();) {
     try {
-      current->second.buffers->deleteResults(current->first, 0);
+      current->second.queue->abort(arrow::Status::Cancelled("Result server is shutting down"));
       current->second.ownership->revokeAndClearQueue();
       current = revoked.erase(current);
     } catch (...) {
@@ -316,8 +301,7 @@ void FlightResultServer::stop() {
     output_type_cache_.swap(revoked);
   }
 
-  // DoGet may be blocked in an SDK fetch whose route disappeared on failure.
-  // Wake those exact readers before gRPC waits for their exit.
+  // Wake the revoked readers before gRPC waits for their exit.
   if (!transport_stopped_) {
     // Revocation has already made every in-flight read invalid. A graceful
     // Flight shutdown can wait forever for an idle client to close its RPC;
@@ -343,8 +327,7 @@ arrow::Status FlightResultServer::DoGet(
       arrow::flight::FlightStatusCode::Unauthenticated, "Invalid result authority");
   const auto& grant = *authenticated;
   constexpr auto registrationWait = std::chrono::milliseconds(750);
-  ARROW_ASSIGN_OR_RAISE(auto reader, openTaskOutput(grant, registrationWait, &context));
-  *stream = std::make_unique<arrow::flight::RecordBatchStream>(reader);
+  ARROW_ASSIGN_OR_RAISE(*stream, openTaskOutput(grant, registrationWait, &context));
   return arrow::Status::OK();
 }
 

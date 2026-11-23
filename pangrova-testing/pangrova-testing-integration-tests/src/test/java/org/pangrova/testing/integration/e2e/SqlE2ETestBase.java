@@ -1563,9 +1563,9 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
      *
      * <h4>Cleanup (F-DOGET-03)</h4>
      * <p>On final failure, cancels the native task via WorkerTaskManager and
-     * always releases the task executor to prevent resource leaks
-     * (stuck result tasks hold folly threads and native memory pools
-     * indefinitely because PartitionedOutputNode waits for DoGet).</p>
+     * releases the task executor after its ready messages and reader have
+     * drained. A full byte window suspends the producer until Flight returns
+     * credit or the task is cancelled.</p>
      */
     protected static List<TypedRow> fetchResultsViaFlight(
             ResultEndpoint endpoint, String queryId, CoordinatorTaskTracker tracker) {

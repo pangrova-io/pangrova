@@ -137,9 +137,6 @@ velox::VeloxTaskRunnerConfig makeRunnerConfig(const TaskExecutorConfig& config,
   runner_config.shuffle_partition_key_indices =
       config.shuffle_partition_key_indices;
 
-  // Propagate result task flag. When true, VeloxTaskRunner skips the
-  // consumer callback — Velox's PartitionedOutputNode routes output
-  // through OutputBufferManager, and FlightResultServer pulls from it.
   runner_config.is_result_task = config.is_result_task;
   if (runner_config.is_result_task || runner_config.is_shuffle_task) {
     if (config.resource_limit.max_shuffle_buffer_bytes <= 0) {

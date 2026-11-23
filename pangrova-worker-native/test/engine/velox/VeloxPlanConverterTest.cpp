@@ -287,7 +287,7 @@ TEST_F(VeloxPlanConverterTest, GovernedAiExpressionConsumesExactBinding) {
       facebook::velox::exec::FunctionRegistrySnapshot::capture();
   VeloxPlanConverter converter(converter_registry);
   auto result = converter.convert(
-      {bytes.begin(), bytes.end()}, {}, false, "ArrowBatch",
+      {bytes.begin(), bytes.end()}, {},
       {{binding.plan_node_id(), binding}});
 
   auto project_node = std::dynamic_pointer_cast<
@@ -320,7 +320,7 @@ TEST_F(VeloxPlanConverterTest, GovernedAiExpressionConsumesExactBinding) {
   VeloxPlanConverter missing_binding_converter(missing_binding_converter_registry);
   EXPECT_THROW(
       missing_binding_converter.convert(
-          {bytes.begin(), bytes.end()}, {}, false, "ArrowBatch", {}),
+          {bytes.begin(), bytes.end()}, {}, {}),
       std::runtime_error);
 
   auto drifted = binding;
@@ -330,7 +330,7 @@ TEST_F(VeloxPlanConverterTest, GovernedAiExpressionConsumesExactBinding) {
   VeloxPlanConverter drifted_binding_converter(drifted_binding_converter_registry);
   EXPECT_THROW(
       drifted_binding_converter.convert(
-          {bytes.begin(), bytes.end()}, {}, false, "ArrowBatch",
+          {bytes.begin(), bytes.end()}, {},
           {{drifted.plan_node_id(), drifted}}),
       std::runtime_error);
 
@@ -345,7 +345,7 @@ TEST_F(VeloxPlanConverterTest, GovernedAiExpressionConsumesExactBinding) {
   VeloxPlanConverter output_drifted_converter(output_drifted_converter_registry);
   EXPECT_THROW(
       output_drifted_converter.convert(
-          {bytes.begin(), bytes.end()}, {}, false, "ArrowBatch",
+          {bytes.begin(), bytes.end()}, {},
           {{output_drifted.plan_node_id(), output_drifted}}),
       std::runtime_error);
 
@@ -359,7 +359,7 @@ TEST_F(VeloxPlanConverterTest, GovernedAiExpressionConsumesExactBinding) {
       facebook::velox::exec::FunctionRegistrySnapshot::capture();
   VeloxPlanConverter nullable_output_converter(nullable_output_converter_registry);
   EXPECT_NO_THROW(nullable_output_converter.convert(
-      {bytes.begin(), bytes.end()}, {}, false, "ArrowBatch",
+      {bytes.begin(), bytes.end()}, {},
       {{nullable_model_output.plan_node_id(), nullable_model_output}}));
 }
 
@@ -403,7 +403,7 @@ TEST_F(VeloxPlanConverterTest, GovernedAiEmbedCarriesExactVectorDimension) {
       facebook::velox::exec::FunctionRegistrySnapshot::capture();
   VeloxPlanConverter converter(converter_registry);
   auto result = converter.convert(
-      {bytes.begin(), bytes.end()}, {}, false, "ArrowBatch",
+      {bytes.begin(), bytes.end()}, {},
       {{binding.plan_node_id(), binding}});
 
   auto project_node = std::dynamic_pointer_cast<
@@ -438,7 +438,7 @@ TEST_F(VeloxPlanConverterTest, GovernedAiEmbedCarriesExactVectorDimension) {
   VeloxPlanConverter drifted_converter(drifted_converter_registry);
   EXPECT_ANY_THROW(
       drifted_converter.convert(
-          {bytes.begin(), bytes.end()}, {}, false, "ArrowBatch",
+          {bytes.begin(), bytes.end()}, {},
           {{drifted.plan_node_id(), drifted}}));
 }
 

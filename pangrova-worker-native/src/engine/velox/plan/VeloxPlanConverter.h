@@ -81,17 +81,9 @@ class VeloxPlanConverter {
       std::shared_ptr<const facebook::velox::exec::FunctionRegistrySnapshot> function_registry);
   // Convert raw Substrait Plan protobuf bytes into a Velox PlanNode.
   // splits: connector split metadata for table scan operators.
-  // is_result_task: when true, wraps the plan root with a
-  //   PartitionedOutputNode so that Velox serializes output via the
-  //   specified serde and routes it through OutputBufferManager for native
-  //   result serving.
-  // result_serde_name: serde name for PartitionedOutputNode when
-  //   is_result_task is true. The sole supported name is "ArrowBatch".
   std::shared_ptr<const facebook::velox::core::PlanNode> convert(
       const std::vector<uint8_t>& plan_bytes,
       const std::vector<split::SplitConfig>& splits,
-      bool is_result_task = false,
-      const std::string& result_serde_name = "ArrowBatch",
       const std::unordered_map<
           std::string, pangrova::protocol::v2::OperatorBinding>&
           operator_bindings = {},
@@ -215,11 +207,6 @@ class VeloxPlanConverter {
   // Wrap a plan node with PartitionedOutputNode for result tasks.
   // No-op when is_result_task is false or node is already a PartitionedOutputNode.
   // serde_name: the canonical serialization format name ("ArrowBatch").
-  std::shared_ptr<const facebook::velox::core::PlanNode> wrapResultTaskOutput(
-      std::shared_ptr<const facebook::velox::core::PlanNode> node,
-      bool is_result_task,
-      const std::string& serde_name);
-
   // Generate a unique plan node id string.
   std::string nextNodeId();
 

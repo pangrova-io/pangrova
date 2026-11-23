@@ -33,12 +33,16 @@
 
 namespace facebook::velox::exec {
 class Task;
-class OutputBufferManager;
 class FunctionRegistrySnapshot;
 struct TaskStats;
 }
 
 namespace pangrova::observability { class NativeMetricsCollector; }
+
+namespace pangrova::result {
+class ResultPayloadProducer;
+class ResultPayloadQueue;
+}
 
 namespace pangrova::velox {
 
@@ -101,9 +105,7 @@ struct VeloxTaskRunnerConfig {
   int64_t shuffle_push_timeout_ms = 30000;
   int32_t shuffle_min_partition_flush_rows = 128;
 
-  // When true, the plan contains a PartitionedOutputNode and Velox routes
-  // output through OutputBufferManager. No consumer callback is set, and
-  // OutputQueue is not used for the result path.
+  // Result tasks publish exact Flight messages through a bounded Native queue.
   bool is_result_task = false;
   // Exact admitted serialized-output backpressure threshold. This is not a
   // total-memory hard cap: Velox can enqueue a final page before blocking.
@@ -252,6 +254,8 @@ class VeloxTaskRunner
   // Commit every buffered shuffle row before the producer can publish a
   // successful terminal state. A failed flush must leave the stream abortable.
   void finalizeShuffleOutput();
+  bool commitResultOutput();
+  void failResultOutput(const std::string& failure);
 
   void cleanup();
 
@@ -276,8 +280,6 @@ class VeloxTaskRunner
   std::atomic<uint64_t> index_splits_skipped_{0};
   std::unordered_map<std::string, std::vector<split::SplitConfig>>
       scan_split_overrides_;
-  // Declared before Task so the SDK buffer owner outlives Task destruction.
-  std::shared_ptr<facebook::velox::exec::OutputBufferManager> result_buffers_;
   std::shared_ptr<facebook::velox::exec::Task> velox_task_;
   pangrova::executor::OutputQueue* output_queue_;
   pangrova::shuffle::SerializedShuffleQueue* shuffle_queue_{nullptr};
@@ -296,6 +298,8 @@ class VeloxTaskRunner
   void startInitializedTask();
 
   std::shared_ptr<pangrova::result::ResultOwnershipState> result_ownership_;
+  std::shared_ptr<pangrova::result::ResultPayloadQueue> result_queue_;
+  std::unique_ptr<pangrova::result::ResultPayloadProducer> result_producer_;
   std::atomic<bool> cancelled_{false};
   mutable std::mutex error_mutex_;
   std::string error_message_;

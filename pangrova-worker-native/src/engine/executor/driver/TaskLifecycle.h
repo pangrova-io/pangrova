@@ -68,6 +68,9 @@ class TaskLifecycle {
   // Convenience: transition to FLUSHING.
   void notifyTaskComplete();
 
+  // Publish successful delivery only from the authorized Flight close.
+  bool finishResultStream();
+
   // Convenience: set error + transition to FAILED.
   // Captures C++ stack trace at the call site for propagation to Java.
   void notifyTaskFailed(const std::string& message);

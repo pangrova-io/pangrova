@@ -90,6 +90,12 @@ void TaskLifecycle::notifyTaskComplete() {
   transitionTo(ExecutorState::FLUSHING);
 }
 
+bool TaskLifecycle::finishResultStream() {
+  std::lock_guard<std::mutex> lock(error_mutex_);
+  return !error_ && transitionToLocked(ExecutorState::FLUSHING) &&
+      transitionToLocked(ExecutorState::FINISHED);
+}
+
 void TaskLifecycle::notifyTaskFailed(const std::string& message) {
   // Capture stack trace and set error BEFORE transitioning state.
   // This avoids a race where observers see FAILED state but errorMessage()

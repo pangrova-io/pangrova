@@ -10,6 +10,8 @@
 #include <unordered_set>
 #include <vector>
 
+#include <folly/ScopeGuard.h>
+
 #include "jni/RuntimeInitializer.h"
 #include "indexing/index/IndexHintFilter.h"
 #include "engine/observability/PangrovaLog.h"
@@ -19,6 +21,7 @@
 
 #include "engine/velox/runner/TaskStatsEncoding.h"
 #include "engine/result/FlightResultServer.h"
+#include "engine/result/ResultPayloadProducer.h"
 #include "capabilities/capability/LogicalTypeContract.h"
 
 // Logging for dynamic filter injection warnings.
@@ -179,8 +182,11 @@ VeloxTaskRunner::VeloxTaskRunner(
   if (config_.is_result_task && !config_.canonical_output_schema) {
     throw std::invalid_argument("Result task requires its admitted canonical output schema");
   }
-  // Result tasks use Velox OutputBufferManager instead of OutputQueue,
-  // so output_queue may be nullptr for result tasks.
+  if (config_.is_result_task) {
+    result_ownership_ = std::make_shared<result::ResultOwnershipState>();
+    result_queue_ = std::make_shared<result::ResultPayloadQueue>(
+        config_.serialized_output_buffer_threshold_bytes);
+  }
   if (!output_queue && !config_.is_result_task) {
     throw std::invalid_argument(
         "VeloxTaskRunner: output_queue must not be null for non-result tasks");
@@ -226,7 +232,7 @@ void VeloxTaskRunner::start() {
   // independently. The pinned SDK defaults to sharing these expressions;
   // this is a semantic invariant, not a session performance override.
   query_config_values[facebook::velox::core::QueryConfig::kExprDedupNonDeterministic] = "false";
-  if (config_.is_result_task || config_.is_shuffle_task) {
+  if (config_.is_shuffle_task) {
     if (config_.serialized_output_buffer_threshold_bytes <= 0) {
       throw std::runtime_error("Serialized output requires a positive serialized-buffer grant");
     }
@@ -435,28 +441,42 @@ void VeloxTaskRunner::start() {
     }
   }
 
-  // For parallel mode, set up a consumer callback that pushes results to
-  // the output queue (or shuffle queue for shuffle tasks).
-  // Velox calls this from Driver threads with output batches.
-  //
-  // RESULT TASK EXCEPTION: When is_result_task is true, the plan contains a
-  // PartitionedOutputNode that serializes output via ArrowBatchVectorSerde and
-  // routes it through Velox's OutputBufferManager automatically. No consumer
-  // callback is needed — passing nullptr lets Velox use OutputBufferManager.
-  // FlightResultServer pulls the canonical Arrow streams from OutputBufferManager.
-  //
-  // VELOX VERSION CONSTRAINT: This lambda captures `this` and relies on
-  // velox_task_->requestCancel().wait() blocking until all Driver threads
-  // exit (guaranteed as of Velox 0.1.x). If upgrading Velox, verify that
-  // requestCancel().wait() still provides this guarantee.
-  //
-  // P0-BUG-2: Safety guarantee for `this` capture: VeloxTaskRunner destructor
-  // calls cancel() which invokes requestCancel().wait(), ensuring all Driver
-  // threads have stopped before `this` is destroyed. The cancelled_ atomic
-  // flag provides an additional early-exit guard.
+  // Velox calls this from Drivers. A suspended Driver yields on a future
+  // after transferring its output to the appropriate consumer.
   facebook::velox::exec::Consumer consumer = nullptr;
-  if (execMode == facebook::velox::exec::Task::ExecutionMode::kParallel &&
-      !config_.is_result_task) {
+  if (config_.is_result_task) {
+    consumer = [weak = weak_from_this()](
+        facebook::velox::RowVectorPtr rows, bool /*atEnd*/, facebook::velox::ContinueFuture* future) {
+      auto self = weak.lock();
+      if (!self || !rows || rows->size() == 0 || self->cancelled_.load()) {
+        return facebook::velox::exec::BlockingReason::kNotBlocked;
+      }
+      // Count work that races cancellation before there is an IPC frame.
+      // A revoked attempt cannot start another allocation or publish drain early.
+      if (!self->result_ownership_->tryAcquireBatch()) {
+        return facebook::velox::exec::BlockingReason::kNotBlocked;
+      }
+      const auto preparation = folly::makeGuard([&] { self->result_ownership_->releaseBatch(); });
+      auto prepared = self->result_producer_->prepare(rows, self->velox_task_);
+      VELOX_USER_CHECK(prepared.ok(), "Cannot encode result payload: {}", prepared.status().ToString());
+      auto frames = std::move(*prepared);
+      if (frames.size() == 1) {
+        const auto pushed = self->result_queue_->tryPush(frames.front());
+        if (pushed.status().IsCancelled()) return facebook::velox::exec::BlockingReason::kNotBlocked;
+        VELOX_USER_CHECK(pushed.ok(), "Cannot publish result payload: {}", pushed.status().ToString());
+        if (*pushed) return facebook::velox::exec::BlockingReason::kNotBlocked;
+      }
+      VELOX_CHECK_NOT_NULL(future);
+      auto [promise, resume] = facebook::velox::makeVeloxContinuePromiseContract("Result Flight credit");
+      auto wake = std::make_shared<facebook::velox::ContinuePromise>(std::move(promise));
+      const auto queued = self->result_queue_->pushOrDefer(std::move(frames),
+          [wake](const arrow::Status&) { wake->setValue(); });
+      if (queued.IsCancelled()) return facebook::velox::exec::BlockingReason::kNotBlocked;
+      VELOX_USER_CHECK(queued.ok(), "Cannot queue result payload: {}", queued.ToString());
+      *future = std::move(resume);
+      return facebook::velox::exec::BlockingReason::kWaitForConsumer;
+    };
+  } else {
     if (config_.is_shuffle_task && shuffle_writer_ && shuffle_queue_) {
       // Shuffle path: serialize RowVector via ShuffleBatchSerializer and push
       // ShuffleBatch to SerializedShuffleQueue.
@@ -724,13 +744,13 @@ void VeloxTaskRunner::start() {
       0,  // memoryArbitrationPriority
       std::move(spillDiskOpts));
 
-  // Publish the result schema before the OutputBuffer becomes visible to
-  // Flight DoGet. The cache carries exact logical column types with the
-  // physical Velox row type as one atomic registration.
+  // Construct the one producer and register its exact schema and authority
+  // before Drivers can publish payloads.
   if (config_.is_result_task) {
     auto output_type = std::dynamic_pointer_cast<const facebook::velox::RowType>(
         plan_->outputType());
-    if (output_type) {
+    VELOX_CHECK_NOT_NULL(output_type);
+    {
       pangrova::result::FlightResultServer::TaskOutputInfo info;
       info.output_type = output_type;
       info.result_column_types = config_.result_column_types;
@@ -753,18 +773,22 @@ void VeloxTaskRunner::start() {
         }
         capability::validateVectorResultField(column.logical_type, *info.wire_schema->field(column.column_index));
       }
-      result_ownership_ = std::make_shared<pangrova::result::ResultOwnershipState>();
       info.ownership = result_ownership_;
-      result_buffers_ = facebook::velox::exec::OutputBufferManager::getInstanceRef();
-      info.buffers = result_buffers_;
+      info.queue = result_queue_;
+      result_producer_ = std::make_unique<result::ResultPayloadProducer>(
+          *config_.canonical_output_schema, info.wire_schema, info.result_column_types,
+          info.pool, result_ownership_);
       // Direct runner tests have no executor registry owner. Canonical Task
       // execution always binds a positive handle before the runner is built.
       if (config_.executor_handle > 0) {
+        info.report_stream_finished = [handle = config_.executor_handle, reporter = config_.failure_reporter] {
+          reporter->reportResultStreamFinished(handle);
+        };
         const std::weak_ptr<facebook::velox::exec::Task> producer = velox_task_;
         info.report_stream_failure = [handle = config_.executor_handle, reporter = config_.failure_reporter,
                                       producer](const std::string& failure) {
           reporter->reportResultStreamFailure(handle, failure);
-          // A reader may exit while the producer is blocked on its output buffer.
+          // A reader may exit while the producer is waiting for Flight credit.
           // Publish the canonical failure before stopping the actual SDK task.
           if (const auto task = producer.lock()) task->setError(failure);
         };
@@ -955,11 +979,9 @@ void VeloxTaskRunner::startInitializedTask() {
       ? config_.max_drivers_override
       : config_.max_drivers;
   velox_task_->start(drivers);
-  if (!result_ownership_ || cancelled_.load() || !velox_task_->isRunning()) return;
-  const bool activated = result_buffers_ && result_buffers_->stats(config_.task_id).has_value() &&
-      pangrova::result::FlightResultServer::markTaskOutputReady(config_.task_id);
-  if (!activated && !cancelled_.load() && velox_task_->isRunning()) {
-    throw std::runtime_error("Running result task has no active output buffer registration");
+  if (!result_queue_ || cancelled_.load()) return;
+  if (!result::FlightResultServer::markTaskOutputReady(config_.task_id) && !cancelled_.load()) {
+    throw std::runtime_error("Started result task has no active Flight registration");
   }
 }
 
@@ -976,13 +998,7 @@ bool VeloxTaskRunner::waitForCompletion() {
   try {
     startInitializedTask();
 
-    // Wait until the task finishes via taskCompletionFuture.
-    // For result tasks with PartitionedOutputNode, this future resolves
-    // only after all output is consumed by FlightResultServer::DoGet().
-    // The Java DAG dispatch layer handles the result-task lifecycle:
-    // it completes the DAG future when the task reaches RUNNING state
-    // (not FINISHED), allowing the coordinator to fetch results via
-    // FlightResultServer, which unblocks the Velox task completion.
+    // This waits for the producer. Result frames may still be in Flight.
     velox_task_->taskCompletionFuture().wait();
     if (result_ownership_) result_ownership_->stopProducer();
 
@@ -994,23 +1010,10 @@ bool VeloxTaskRunner::waitForCompletion() {
       return true;
     }
 
-    auto state = velox_task_->state();
-    if (state == facebook::velox::exec::TaskState::kFailed) {
-      {
-        std::lock_guard<std::mutex> lock(error_mutex_);
-        error_message_ = velox_task_->errorMessage();
-      }
-#if __has_include(<glog/logging.h>)
-      LOG(ERROR) << "velox_task_failed"
-                 << " query_id=" << config_.query_id
-                 << " task_id=" << config_.task_id
-                 << " error_type=velox_execution"
-                 << " error_detail=" << velox_task_->errorMessage();
-#endif
-      cleanup();
-      finished_.store(true);
-      return false;
+    if (velox_task_->state() == facebook::velox::exec::TaskState::kFailed) {
+      return handleTaskCompletion();
     }
+    if (!commitResultOutput()) return false;
 
     // Defer cleanup() to PlanExecutionDriver — it must drain the OutputQueue
     // before cleanup closes it and releases RowVector memory pools.
@@ -1118,6 +1121,7 @@ bool VeloxTaskRunner::handleTaskCompletion() {
                << " error_type=velox_execution"
                << " error_detail=" << velox_task_->errorMessage();
 #endif
+    failResultOutput(failure);
     cleanup();
     finished_.store(true);
     return false;
@@ -1229,15 +1233,27 @@ void VeloxTaskRunner::finalizeShuffleOutput() {
   shuffle_accumulator_.reset();
 }
 
+bool VeloxTaskRunner::commitResultOutput() {
+  if (!result_queue_) return true;
+  const auto sealed = result_queue_->seal();
+  if (sealed.IsCancelled() || cancelled_.load()) return false;
+  VELOX_CHECK(sealed.ok(), "Cannot seal result payloads: {}", sealed.ToString());
+  return true;
+}
+
+void VeloxTaskRunner::failResultOutput(const std::string& failure) {
+  if (!result_queue_) return;
+  result_ownership_->revokeAuthority();
+  result_queue_->abort(arrow::Status::ExecutionError(failure));
+  revokeResultOutput();
+}
+
 void VeloxTaskRunner::revokeResultOutput() {
-  if (config_.is_result_task) {
-    if (result_ownership_) result_ownership_->revokeAuthority();
-    pangrova::result::FlightResultServer::unregisterTaskOutputType(config_.task_id);
-    if (result_buffers_) {
-      result_buffers_->deleteResults(config_.task_id, 0);
-      if (result_ownership_) result_ownership_->revokeAndClearQueue();
-    }
-  }
+  if (!result_queue_) return;
+  result_ownership_->revokeAuthority();
+  result::FlightResultServer::unregisterTaskOutputType(config_.task_id, result_ownership_);
+  result_queue_->abort(arrow::Status::Cancelled("Result task was cancelled or released"));
+  result_ownership_->revokeAndClearQueue();
 }
 
 void VeloxTaskRunner::cleanup() {
@@ -1245,7 +1261,6 @@ void VeloxTaskRunner::cleanup() {
     PendingFilterRegistry::instance().remove(config_.task_id);
     // Successful producer completion is not consumption or result revocation.
     if (cancelled_.load() || !errorMessage().empty()) revokeResultOutput();
-    // Result tasks use Velox OutputBufferManager — no OutputQueue to close.
     // A successful producer flushes explicitly before publishing FINISHED.
     // Cancellation/failure discards buffered rows; its queue is aborted.
     {

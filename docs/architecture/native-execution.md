@@ -86,10 +86,16 @@ pruning followed by a Native final Top-K. These are Native data-plane
 operators: the Coordinator only binds stages and never combines rows in its
 JVM. Pipeline consumers may start only after upstream producer task records
 exist, not while that stage is still `SCHEDULING`. The Native shuffle writer's
-compression codec is also installed in Velox's Exchange QueryConfig and the
-task-scoped Flight result decoder so both Native exchange pages and result
-OutputBuffer pages use the same codec. The singleton global Sort
-remains a scale bottleneck until distributed range-sort/merge is validated.
+compression codec is installed in Velox's Exchange QueryConfig for inter-Worker
+exchange pages. An OUTPUT Driver admits the canonical Arrow batch and prepares
+its standard Flight record message once. A task-owned byte window controls
+ready messages and retained transport buffers. A full window suspends the
+Driver until a buffer is released. Flight sends the display schema and the
+prepared record messages. Successful producer completion seals the queue, and
+Flight commits the result task after writing the stream to EOF. The task releases
+its resources after the producer, registered authority, reader and retained
+buffers have all drained. The singleton global Sort remains a scale bottleneck
+until distributed range-sort/merge is validated.
 
 Native aggregate conversion binds distinct direct grouping columns to the source
 vectors. It adds a projection when a computed key, nested argument, or repeated

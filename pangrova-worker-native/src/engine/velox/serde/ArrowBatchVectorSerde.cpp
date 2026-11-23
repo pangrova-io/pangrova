@@ -5,12 +5,11 @@
 #include "engine/velox/serde/CanonicalResultNullability.h"
 #include "engine/velox/serde/CanonicalVectorNames.h"
 #include "engine/velox/serde/CanonicalArrowSchema.h"
+#include "engine/velox/serde/CanonicalArrowBatchBridge.h"
 #include "engine/columnar/CanonicalBatchStream.h"
 #include <limits>
 
 #include <arrow/buffer.h>
-#include <arrow/c/abi.h>
-#include <arrow/c/bridge.h>
 #include <arrow/io/interfaces.h>
 #include <arrow/io/memory.h>
 #include <arrow/ipc/reader.h>
@@ -18,12 +17,10 @@
 #include <arrow/record_batch.h>
 #include <arrow/status.h>
 #include <arrow/type.h>
-#include <arrow/util/bitmap_ops.h>
 
 #include "velox/common/base/Exceptions.h"
 #include "velox/common/memory/ByteStream.h"
 #include "velox/vector/ComplexVector.h"
-#include "velox/vector/arrow/Bridge.h"
 
 namespace pangrova::velox {
 
@@ -82,73 +79,6 @@ const ArrowBatchVectorSerde::StreamOptions& canonicalOptions(
       stream->maximum_bytes <= columnar::kMaximumBatchStreamBytes,
       "Arrow batch serde requires a bounded positive wire size");
   return *stream;
-}
-
-struct ExportedColumnarData {
-  ArrowArray array{};
-  ArrowSchema schema{};
-  ~ExportedColumnarData() {
-    if (array.release) array.release(&array);
-    if (schema.release) schema.release(&schema);
-  }
-};
-
-// Velox may retain an old cached null count after an expression clears its
-// nulls. Arrow's C Data Interface requires the count to describe the exported
-// validity bitmap, so derive it from that bitmap at the transport boundary.
-void reconcileExportedNullCounts(ArrowArray& array) {
-  VELOX_CHECK_GE(array.length, 0);
-  VELOX_CHECK_GE(array.offset, 0);
-  VELOX_CHECK_GT(array.n_buffers, 0);
-  VELOX_CHECK_NOT_NULL(array.buffers);
-  if (const auto* validity = static_cast<const uint8_t*>(array.buffers[0])) {
-    array.null_count = array.length -
-        arrow::internal::CountSetBits(validity, array.offset, array.length);
-  } else {
-    VELOX_CHECK_EQ(array.null_count, 0,
-        "Exported Arrow array has nulls but no validity bitmap");
-  }
-  VELOX_CHECK_GE(array.n_children, 0);
-  for (int64_t i = 0; i < array.n_children; ++i) {
-    VELOX_CHECK_NOT_NULL(array.children);
-    VELOX_CHECK_NOT_NULL(array.children[i]);
-    reconcileExportedNullCounts(*array.children[i]);
-  }
-  if (array.dictionary) reconcileExportedNullCounts(*array.dictionary);
-}
-
-// Validates that all column types in the RowVector are representable in Arrow
-// IPC format. Throws ArrowBatchUnsupportedTypeException for opaque types.
-void validateExportType(const facebook::velox::TypePtr& type) {
-  if (type->kind() == facebook::velox::TypeKind::OPAQUE) {
-    throw ArrowBatchUnsupportedTypeException(type->toString());
-  }
-  for (uint32_t i = 0; i < type->size(); ++i) validateExportType(type->childAt(i));
-}
-void validateTypesForExport(const facebook::velox::RowVectorPtr& vector) {
-  validateExportType(vector->type());
-}
-
-// Exports a Velox RowVector to an Arrow RecordBatch via Arrow C Data Interface.
-// Physical encodings are normalized so every batch has one logical wire schema.
-std::shared_ptr<arrow::RecordBatch> exportToBatch(
-    const facebook::velox::RowVectorPtr& vector,
-    facebook::velox::memory::MemoryPool* pool) {
-  ExportedColumnarData data;
-  ArrowOptions arrow_opts;
-  // Transport schema is fixed by the logical types, not per-batch encodings.
-  arrow_opts.flattenDictionary = true;
-  arrow_opts.flattenConstant = true;
-  facebook::velox::exportToArrow(vector, data.array, pool, arrow_opts);
-  facebook::velox::exportToArrow(vector, data.schema, arrow_opts);
-  reconcileExportedNullCounts(data.array);
-
-  auto result = arrow::ImportRecordBatch(&data.array, &data.schema);
-  VELOX_CHECK(
-      result.ok(),
-      "Failed to export RowVector to RecordBatch: {}",
-      result.status().ToString());
-  return *result;
 }
 
 // The Arrow writer sees positions relative to this page, even in an existing Velox stream.
@@ -241,7 +171,7 @@ class ArrowBatchSerializer : public facebook::velox::BatchVectorSerializer {
       const folly::Range<const facebook::velox::IndexRange*>& ranges,
       facebook::velox::Scratch& /*scratch*/,
       facebook::velox::OutputStream* stream) override {
-    validateTypesForExport(vector);
+    validateArrowExportTypes(vector);
 
     facebook::velox::RowVectorPtr target;
     if (ranges.size() == 1 && ranges[0].begin == 0 &&
@@ -254,7 +184,7 @@ class ArrowBatchSerializer : public facebook::velox::BatchVectorSerializer {
     target = std::dynamic_pointer_cast<facebook::velox::RowVector>(bindCanonicalVectorNames(
         target, admittedCanonicalResultType(*canonical_schema_)));
     validateCanonicalResultNullability(*canonical_schema_, target);
-    auto batch = bindCanonicalArrowSchema(exportToBatch(target, pool_), wire_schema_);
+    auto batch = bindCanonicalArrowSchema(exportArrowRecordBatch(target, pool_), wire_schema_);
 
     const auto page = preparePage({std::move(batch)}, columnar_pool_, options_);
     writePage(*page, *stream);
@@ -297,7 +227,7 @@ class ArrowBatchIterativeSerializer
       const facebook::velox::RowVectorPtr& vector,
       const folly::Range<const facebook::velox::IndexRange*>& ranges,
       facebook::velox::Scratch& /*scratch*/) override {
-    validateTypesForExport(vector);
+    validateArrowExportTypes(vector);
     VELOX_USER_CHECK(*vector->type() == *type_,
         "Arrow stream input type differs from its declared output type");
     // Stage every selected owner before publishing any of this append. A late
@@ -361,7 +291,7 @@ class ArrowBatchIterativeSerializer
     if (encoded_ || buffered_vectors_.empty()) return;
     std::vector<std::shared_ptr<arrow::RecordBatch>> batches;
     for (const auto& vector : buffered_vectors_) {
-      batches.push_back(bindCanonicalArrowSchema(exportToBatch(vector, pool_), wire_schema_));
+      batches.push_back(bindCanonicalArrowSchema(exportArrowRecordBatch(vector, pool_), wire_schema_));
     }
     encoded_ = preparePage(batches, columnar_pool_, options_);
   }
@@ -464,13 +394,8 @@ void ArrowBatchVectorSerde::deserialize(
     VELOX_USER_CHECK_LE(batch->num_rows(),
         std::numeric_limits<facebook::velox::vector_size_t>::max() - rows,
         "Arrow append total rows exceed vector row capacity");
-    ExportedColumnarData data;
     const auto physical = bindCanonicalArrowSchema(batch, taskSchema);
-    const auto exported = arrow::ExportRecordBatch(*physical, &data.array, &data.schema);
-    VELOX_CHECK(exported.ok(), "Arrow batch export failed: {}", exported.ToString());
-    auto vector = std::dynamic_pointer_cast<facebook::velox::RowVector>(
-        facebook::velox::importFromArrowAsOwner(data.schema, data.array, pool));
-    VELOX_CHECK_NOT_NULL(vector);
+    auto vector = importArrowRecordBatch(*physical, pool);
     VELOX_CHECK(*vector->type() == *type,
         "Arrow stream schema differs from the exact task output schema");
     validateCanonicalResultNullability(*admitted.canonical_schema, vector);

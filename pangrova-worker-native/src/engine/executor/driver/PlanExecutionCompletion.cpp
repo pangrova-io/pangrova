@@ -72,8 +72,10 @@ void PlanExecutionDriver::completeExecution(
     if (output_queue_) output_queue_->close();
     completeWriteDrain(execution, false);
     if (!cancelled_.load()) {
-      notifyFailure("Native task failed: " +
-          (failure.empty() ? execution->runner->errorMessage() : failure));
+      const auto message = "Native task failed: " +
+          (failure.empty() ? execution->runner->errorMessage() : failure);
+      notifyFailure(message);
+      execution->runner->failResultOutput(message);
     }
     return;
   }
@@ -99,6 +101,12 @@ void PlanExecutionDriver::finishSuccessfulExecution(
   if (cancelled_.load()) return;
   // All fallible success steps precede terminal publication and direct EOF.
   if (shuffle_queue_ && !shuffle_queue_->commit()) return;
+  if (execution->runner->hasResultOutput()) {
+    // Sealing admits EOF. The Flight transport owns the successful terminal
+    // transition, since its reader can still disconnect after the task stopped.
+    execution->runner->commitResultOutput();
+    return;
+  }
   lifecycle_.notifyTaskComplete();
   lifecycle_.transitionTo(ExecutorState::FINISHED);
 }
