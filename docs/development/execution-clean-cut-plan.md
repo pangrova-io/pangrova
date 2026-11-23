@@ -90,6 +90,8 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
+字面值 INSERT 与 INSERT OVERWRITE 在预检内共用一次表元数据，列顺序、FILE MIME、托管文件与生成列校验复用同一观测。写入分配和 fenced commit 继续验证当前权威状态。定向对照中，显式列 INSERT 的句柄与元数据调用由 2 次和 3 次变为各 1 次，省略列名的写入由 2 次和 4 次变为各 1 次。真实并发 Iceberg 对照中，四个 INSERT 在受理到调度之间各自的目录表加载从 9 次降为 5 次，可见快照和读取结果一致。此处计量的是连接器加载调用。 88 项定向回归与 Checkstyle 通过，另有真实读写并发用例通过。
+
 Coordinator 提交线程执行规划和启动分布式 DAG，查询运行期间由完成事件推进。同步接口等待同一个结果，DML 与 CTAS 在提交栅栏通过后继续发布控制面结果，取消、阶段期限、写入期限和物理资源归还仍由执行所有者负责。真实单 Worker、HTTP 与 Flight 的旧路径对照中，四条已读完数据的查询保留其终态报告，占满四条提交线程。第五条等待 538 ms，释放一份报告后 33 ms 读到结果。候选在暂留全部四份报告时完成独立读取。四个真实 Iceberg 写入等待提交时也完成独立读取，随后各表读回预期数据并确认物理清理。这项受控对照验证调度隔离。固定到达率端到端 P95 留在发布验收。 164 项定向测试、69 项打包端到端测试及 Checkstyle、SpotBugs 通过。真实回归覆盖双 Worker Shuffle、CTAS、并发写入、拒绝与取消、物化和 Native 资源释放。角色运行包清单 SHA-256 为 `a6e4ddd526faf8da10ee046eadb9a6dcd3bce97f8854b46a01db0303831817fe`。 [Trino 查询生命周期](https://github.com/trinodb/trino/blob/master/core/trino-main/src/main/java/io/trino/execution/QueryExecution.java)
 
 持久关系阶段在领取分片前解析并验证一次计划与模板，阶段共用 Substrait 字节和校验和。每次领取仍使用当前权限、租约、分片、产物与资源证据，并匹配原阶段和模型声明。本地 32,827 B 计划对照中，64 个分片的准备分配从 34,246,463 B 降到 337,384 B，组中位耗时从 34.29 ms 降到 0.50 ms，计划字节一致。该测量覆盖准备与编码。精确分片领取合并坐标证明和可领取行锁查询。Producer 完成复用同一事务锁定的作业和分片行，保留当前权限与执行围栏验证，并跳过纯 Shuffle Producer 用不到的分片元数据读取。44 项 PostgreSQL 和控制面用例通过。 合并运行包另通过 71 项测试，覆盖 PostgreSQL 取消锁与阶段交换、Lance 导出、目录事务、双 Worker Shuffle 和 Native 资源释放。角色运行包清单 SHA-256 为 `803e2850497f05f7a89a7b8ec4660e4a40bb74a735e55c6c5f35239869dcf07f`。

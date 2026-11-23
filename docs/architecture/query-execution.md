@@ -52,6 +52,11 @@ hold a submission thread while its Workers produce or finish results. The
 execution operation remains admitted through terminal callbacks, while task and
 result owners account for their own physical drain.
 
+Literal INSERT and INSERT OVERWRITE resolve the target metadata once during
+statement admission. Column order, FILE MIME validation, managed-file validation,
+and generated-column admission use that same observation. Write allocation and
+the final commit still validate against the current connector authority.
+
 Native INSERT, UPDATE, DELETE, MERGE, and CTAS attach their result publication to
 the fenced write completion. Connector and journal effects are resolved before
 the statement publishes its control-plane result. Synchronous callers await the

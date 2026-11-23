@@ -87,6 +87,23 @@ class PlanExecutionFactoryInsertTest {
     }
 
     @Test
+    void literalInsertsReadTheTargetMetadataOnceWithEitherColumnLayout() {
+        var explicit = new Fixture();
+        explicit.execute(new InsertStatement(TABLE, Optional.of(List.of("id")),
+                List.of(List.of(Literal.ofInteger(7)))));
+        var implicit = new Fixture();
+        implicit.execute(new InsertStatement(TABLE, Optional.empty(),
+                List.of(List.of(Literal.ofInteger(7), Literal.ofNull(), Literal.ofNull(),
+                        Literal.ofNull(), Literal.ofNull()))));
+
+        assertThat(List.of(
+                List.of(explicit.metadata.tableHandleReads, explicit.metadata.tableMetadataReads),
+                List.of(implicit.metadata.tableHandleReads, implicit.metadata.tableMetadataReads)))
+                .as("table handle and metadata reads with explicit and implicit column order")
+                .containsExactly(List.of(1, 1), List.of(1, 1));
+    }
+
+    @Test
     void staticOverwriteUsesPartitionScopedContextAndSameNativeStatement() {
         Fixture fixture = new Fixture();
         InsertOverwriteStatement statement = new InsertOverwriteStatement(
@@ -236,6 +253,8 @@ class PlanExecutionFactoryInsertTest {
     private static final class InsertMetadata implements ConnectorMetadata {
         private final List<String> events;
         private final InsertTable table = new InsertTable();
+        int tableHandleReads;
+        int tableMetadataReads;
         int beginInsertCount;
         int beginOverwriteCount;
         Map<String, String> staticPartition = Map.of();
@@ -246,10 +265,12 @@ class PlanExecutionFactoryInsertTest {
             return List.of(SCHEMA_TABLE);
         }
         @Override public ConnectorTableHandle getTableHandle(ConnectorSession session, SchemaTableName name) {
+            tableHandleReads++;
             return name.equals(SCHEMA_TABLE) ? table : null;
         }
         @Override public ConnectorTableMetadata getTableMetadata(
                 ConnectorSession session, ConnectorTableHandle handle) {
+            tableMetadataReads++;
             List<String> names = List.of("id", "amount", "created_at", "embedding", "asset");
             return new ConnectorTableMetadata(SCHEMA_TABLE, names, List.of(
                     new ConnectorTableMetadata.Column("id", PangrovaType.BIGINT),
