@@ -183,40 +183,36 @@ public final class IndexCommitHandler implements CommitListener, MetadataEventLi
         if (active.sourceSnapshot().equals(event.snapshotId)) {
             return null;
         }
-        if (!active.sourceSnapshot().isBlank()) {
-            SnapshotRelation relation = snapshotMetadata.relation(
-                    active.sourceSnapshot(), event.snapshotId);
-            if (relation == SnapshotRelation.RIGHT_ANCESTOR) {
-                LOG.info("action=stale_commit_event_ignored indexId={} activeSnapshot={} "
-                                + "eventSnapshot={}",
+        boolean replace = active.sourceSnapshot().isBlank();
+        SnapshotFileDelta delta;
+        if (replace) {
+            delta = fullReplacement(store, descriptor, snapshotMetadata.listFilesAtSnapshot(event.snapshotId));
+        } else {
+            var advance = snapshotMetadata.observeAdvance(active.sourceSnapshot(), event.snapshotId);
+            if (advance.relation() == SnapshotRelation.SAME) return null;
+            if (advance.relation() == SnapshotRelation.RIGHT_ANCESTOR) {
+                LOG.info("action=stale_commit_event_ignored indexId={} activeSnapshot={} eventSnapshot={}",
                         descriptor.indexId(), active.sourceSnapshot(), event.snapshotId);
                 return null;
             }
-            if (relation == SnapshotRelation.DIVERGED) {
+            if (advance.relation() == SnapshotRelation.DIVERGED) {
                 markIndexStale(store, descriptor, "source_snapshot_lineage_diverged");
                 return null;
             }
+            delta = validatedDelta(store, descriptor, active, event, advance);
         }
-        List<SnapshotDataFile> targetFiles = snapshotMetadata.listFilesAtSnapshot(event.snapshotId);
-        SnapshotFileDelta delta = active.sourceSnapshot().isBlank()
-                ? fullReplacement(store, descriptor, targetFiles)
-                : validatedDelta(
-                        store, snapshotMetadata, descriptor, active, event, targetFiles);
-        return new IndexRefreshInput(
-                event.snapshotId,
-                delta.added().stream().map(IndexCommitHandler::toDataFileInfo).toList(),
-                delta.removed(), active.sourceSnapshot().isBlank());
+        return new IndexRefreshInput(event.snapshotId,
+                delta.added().stream().map(IndexCommitHandler::toDataFileInfo).toList(), delta.removed(), replace);
     }
 
     private SnapshotFileDelta validatedDelta(
             IndexMetadataStore store,
-            SnapshotAwareMetadata snapshotMetadata,
             IndexDescriptor descriptor,
             IndexGenerationManifest active,
             MergedCommitFiles event,
-            List<SnapshotDataFile> targetFiles) {
-        SnapshotFileDelta delta = snapshotMetadata.diffFiles(
-                active.sourceSnapshot(), event.snapshotId);
+            SnapshotAwareMetadata.SnapshotAdvance advance) {
+        var delta = advance.delta();
+        var targetFiles = advance.targetFiles();
         Set<String> indexed = indexedFiles(
                 store, descriptor.indexId(), active.generation());
         Set<String> predicted = new HashSet<>(indexed);

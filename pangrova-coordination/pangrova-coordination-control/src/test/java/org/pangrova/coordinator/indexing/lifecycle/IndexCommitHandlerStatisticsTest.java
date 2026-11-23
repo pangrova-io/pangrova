@@ -418,10 +418,13 @@ class IndexCommitHandlerStatisticsTest {
             throw new AssertionError("Expected exact commit");
         }
         @Override public SnapshotRelation relation(String left, String right) {
+            throw new AssertionError("Commit handling uses a single lineage observation");
+        }
+        @Override public SnapshotAdvance observeAdvance(String left, String right) {
             assertThat(left).isEqualTo("snap-2");
             assertThat(right).isEqualTo("snap-1");
             lineageReads.incrementAndGet();
-            return SnapshotRelation.RIGHT_ANCESTOR;
+            return SnapshotAdvance.noAdvance(SnapshotRelation.RIGHT_ANCESTOR);
         }
         @Override public List<SnapshotDataFile> listFilesAtSnapshot(String snapshotId) {
             fileLists.incrementAndGet();

@@ -1,6 +1,7 @@
 package org.pangrova.connector.paimon;
 
 import org.junit.jupiter.api.Test;
+import org.pangrova.connector.api.enums.SnapshotRelation;
 import org.pangrova.connector.api.index.ColumnValueReader;
 import org.pangrova.connector.api.index.SnapshotDataFile;
 
@@ -42,13 +43,20 @@ class PaimonIndexAccessorTest extends PaimonDeleteTestSupport {
         createTable(true, true);
         writeRows(new StoredRow(1, "east", "first", "one"),
                 new StoredRow(2, "west", "first", "two"));
-        writeRows(new StoredRow(3, "east", "second", "three"));
         var support = new PaimonMetadata(catalog, "index_catalog", new org.pangrova.connector.paimon.PaimonSplitRegistry())
                 .getIndexSupport().orElseThrow();
         var snapshot = support.getSnapshotAwareMetadata(DATABASE, TABLE_NAME).orElseThrow();
-        List<SnapshotDataFile> files = snapshot.listFilesAtSnapshot(
-                snapshot.currentSnapshotId().orElseThrow());
-        assertThat(files).hasSize(3);
+        String first = snapshot.currentSnapshotId().orElseThrow();
+        writeRows(new StoredRow(3, "east", "second", "three"));
+        String last = snapshot.currentSnapshotId().orElseThrow();
+
+        var advance = snapshot.observeAdvance(first, last);
+        assertThat(advance.relation()).isEqualTo(SnapshotRelation.LEFT_ANCESTOR);
+        assertThat(advance.delta().added()).hasSize(1).allSatisfy(file -> assertThat(file.rowCount()).isOne());
+        assertThat(advance.delta().removed()).isEmpty();
+        List<SnapshotDataFile> files = advance.targetFiles();
+        assertThat(files).hasSize(3).isEqualTo(snapshot.listFilesAtSnapshot(last));
+        assertThat(snapshot.observeAdvance(last, first).targetFiles()).isEmpty();
         ColumnValueReader reader = support.getColumnValueReader().orElseThrow();
         List<Long> ids = new ArrayList<>();
         for (SnapshotDataFile file : files) {

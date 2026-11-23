@@ -90,6 +90,8 @@ names are rejected before dispatch.
 Retries reuse stable work-unit identities while attempt IDs and fencing tokens
 advance. No in-memory build state is authoritative.
 
+Incremental index maintenance observes lineage before opening the snapshot file inventories. For a forward commit, the Connector uses one bound table observation, reads each immutable inventory once and derives the file delta from the same target inventory used for coverage validation. Replayed or superseded snapshots require only the lineage decision.
+
 ## Query flow
 
 1. The planner recognizes `ORDER BY <distance>(vector, literal) LIMIT k` and

@@ -14,7 +14,6 @@ import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.io.CloseableIterable;
 
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -63,14 +62,19 @@ public final class IcebergSnapshotAwareMetadata implements SnapshotAwareMetadata
     }
 
     private List<SnapshotDataFile> listFiles(Table table, String snapshotId) {
-        return collectDataFiles(table, snapshotId).values().stream()
-                .sorted(Comparator.comparing(SnapshotDataFile::path))
-                .toList();
+        return sortedFiles(collectDataFiles(table, snapshotId));
+    }
+
+    private static List<SnapshotDataFile> sortedFiles(Map<String, SnapshotDataFile> files) {
+        return files.values().stream().sorted(Comparator.comparing(SnapshotDataFile::path)).toList();
     }
 
     @Override
     public SnapshotRelation relation(String leftSnapshotId, String rightSnapshotId) {
-        Table table = loadTable();
+        return relation(loadTable(), leftSnapshotId, rightSnapshotId);
+    }
+
+    private SnapshotRelation relation(Table table, String leftSnapshotId, String rightSnapshotId) {
         validateSnapshotExists(table, leftSnapshotId);
         validateSnapshotExists(table, rightSnapshotId);
         if (leftSnapshotId.equals(rightSnapshotId)) {
@@ -88,25 +92,20 @@ public final class IcebergSnapshotAwareMetadata implements SnapshotAwareMetadata
     }
 
     @Override
+    public SnapshotAdvance observeAdvance(String fromSnapshotId, String toSnapshotId) {
+        Table table = loadTable();
+        SnapshotRelation lineage = relation(table, fromSnapshotId, toSnapshotId);
+        if (lineage != SnapshotRelation.LEFT_ANCESTOR) return SnapshotAdvance.noAdvance(lineage);
+        var from = collectDataFiles(table, fromSnapshotId);
+        var target = collectDataFiles(table, toSnapshotId);
+        return new SnapshotAdvance(lineage, sortedFiles(target), SnapshotFileDelta.between(from, target));
+    }
+
+    @Override
     public SnapshotFileDelta diffFiles(String fromSnapshotId, String toSnapshotId) {
         Table table = loadTable();
-        Map<String, SnapshotDataFile> fromFiles = collectDataFiles(table, fromSnapshotId);
-        Map<String, SnapshotDataFile> toFiles = collectDataFiles(table, toSnapshotId);
-        List<SnapshotDataFile> added = new ArrayList<>();
-        for (SnapshotDataFile file : toFiles.values()) {
-            if (!fromFiles.containsKey(file.path())) {
-                added.add(file);
-            }
-        }
-        List<String> removed = new ArrayList<>();
-        for (String path : fromFiles.keySet()) {
-            if (!toFiles.containsKey(path)) {
-                removed.add(path);
-            }
-        }
-        added.sort(Comparator.comparing(SnapshotDataFile::path));
-        removed.sort(String::compareTo);
-        return new SnapshotFileDelta(added, removed);
+        return SnapshotFileDelta.between(
+                collectDataFiles(table, fromSnapshotId), collectDataFiles(table, toSnapshotId));
     }
 
     private Map<String, SnapshotDataFile> collectDataFiles(Table table, String snapshotId) {

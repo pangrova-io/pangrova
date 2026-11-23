@@ -17,6 +17,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.connector.api.commit.DistributedWriteCommitContext;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.pangrova.connector.api.metadata.Constraint;
+import org.pangrova.connector.api.enums.SnapshotRelation;
 import org.pangrova.connector.api.metadata.DynamicFilter;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
@@ -85,6 +86,36 @@ class IcebergJdbcSchemaIsolationIntegrationTest extends ContainerTestBase {
                     .withPath(second).withFileSizeInBytes(64).withRecordCount(3).build()).commit();
             assertThat(metadata.listDataFiles(schema.name(), "data", "events")).containsExactly(first, second);
             assertThat(pin.listFilesAtSnapshot(originalSnapshot)).extracting(file -> file.path()).containsExactly(first);
+
+            String appended = pin.currentSnapshotId().orElseThrow();
+            for (int sample = 0; sample < 3; sample++) {
+                long baselineStart = schema.catalogPointerLookups();
+                var relation = pin.relation(originalSnapshot, appended);
+                var expectedFiles = pin.listFilesAtSnapshot(appended);
+                var expectedDelta = pin.diffFiles(originalSnapshot, appended);
+                long baselineSelects = schema.catalogPointerLookups() - baselineStart;
+
+                long candidateStart = schema.catalogPointerLookups();
+                var observed = pin.observeAdvance(originalSnapshot, appended);
+                long candidateSelects = schema.catalogPointerLookups() - candidateStart;
+
+                assertThat(relation).isEqualTo(SnapshotRelation.LEFT_ANCESTOR);
+                assertThat(observed.relation()).isEqualTo(relation);
+                assertThat(observed.targetFiles()).isEqualTo(expectedFiles);
+                assertThat(observed.delta()).isEqualTo(expectedDelta);
+                assertThat(observed.delta().added()).extracting(file -> file.path()).containsExactly(second);
+                assertThat(observed.delta().removed()).isEmpty();
+                assertThat(baselineSelects).isEqualTo(3);
+                assertThat(candidateSelects).isOne();
+                System.out.printf("event=index_snapshot_advance sample=%d baseline_pointer_selects=%d "
+                        + "fused_pointer_selects=%d target_files=%d%n",
+                        sample, baselineSelects, candidateSelects, observed.targetFiles().size());
+            }
+            long predecessorStart = schema.catalogPointerLookups();
+            var predecessor = pin.observeAdvance(appended, originalSnapshot);
+            assertThat(schema.catalogPointerLookups() - predecessorStart).isOne();
+            assertThat(predecessor.relation()).isEqualTo(SnapshotRelation.RIGHT_ANCESTOR);
+            assertThat(predecessor.targetFiles()).isEmpty();
         }
     }
 
