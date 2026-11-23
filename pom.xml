@@ -65,7 +65,7 @@
         <!-- Core dependencies -->
         <antlr4.version>4.13.1</antlr4.version>
         <calcite.version>1.42.0</calcite.version>
-        <avatica.version>1.28.0</avatica.version>
+        <avatica.version>1.29.0</avatica.version>
         <arrow.version>19.0.0</arrow.version>
         <substrait.version>0.95.0</substrait.version>
         <!-- gRPC >= 1.76.0 required: the protoc-gen-grpc-java osx-aarch_64 artifacts
