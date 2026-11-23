@@ -185,11 +185,6 @@ public final class TaskInfo {
         return execution.executorReleaseReceipt();
     }
 
-    byte[] executorReleaseReport() {
-        var receipt = executorReleaseReceipt();
-        return receipt == null ? null : receipt.bytes().toByteArray();
-    }
-
     byte[] stagedExecutorReleaseReceipt() {
         return execution.stagedExecutorReleaseReceipt();
     }
@@ -340,12 +335,12 @@ public final class TaskInfo {
 
     // --- Canonical terminal status (delegated) ---
 
-    public byte[] terminalTaskReport() {
-        return execution.terminalTaskReport();
+    TaskReportEvidence terminalTaskEvidence() {
+        return execution.terminalTaskEvidence();
     }
 
-    public void setTerminalTaskReport(byte[] status) {
-        execution.setTerminalTaskReport(status);
+    void setTerminalTaskEvidence(TaskReportEvidence status) {
+        execution.setTerminalTaskEvidence(status);
     }
 
     NativeTaskStats terminalTaskStats() {

@@ -30,9 +30,11 @@ class TaskTerminalEvidenceContractTest {
             assertThatThrownBy(() -> TaskCompletionMonitor.requireCanonicalTaskReport(request, missing))
                     .isInstanceOf(IllegalStateException.class).hasMessageContaining("canonical TaskReport");
         }
+        assertThatThrownBy(() -> TaskCompletionMonitor.validateTerminalEvidence(request, new byte[] {(byte) 0x80}))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("malformed canonical TaskReport");
         var failure = new ErrorDetail("INTERNAL_ERROR", "MissingNativeEvidence", "Missing canonical TaskReport");
-        var reconciled = TaskReport.parseFrom(WorkerTerminalTaskReports.unsuccessful(
-                request, TaskState.TASK_STATE_FAILED, failure));
+        var reconciled = WorkerTerminalTaskReports.unsuccessful(
+                request, TaskState.TASK_STATE_FAILED, failure);
         assertThat(reconciled.getState()).isEqualTo(TaskState.TASK_STATE_FAILED);
         assertThat(reconciled.getReportOrigin()).isEqualTo(TaskReportOrigin.TASK_REPORT_ORIGIN_WORKER_RECONCILED);
         assertThat(reconciled.getAttempt()).isEqualTo(request.getAttempt());
@@ -54,8 +56,8 @@ class TaskTerminalEvidenceContractTest {
         assertThat(TaskCompletionMonitor.requireCanonicalTaskReport(request, nativeFailure.toByteArray()))
                 .isEqualTo(nativeFailure);
         var error = new ErrorDetail("INTERNAL_ERROR", "WorkerFailure", "Preserve Native failure evidence");
-        var reconciled = TaskReport.parseFrom(WorkerTerminalTaskReports.unsuccessful(
-                request, TaskState.TASK_STATE_FAILED, error, nativeFailure.toByteArray()));
+        var reconciled = WorkerTerminalTaskReports.unsuccessful(
+                request, TaskState.TASK_STATE_FAILED, error, nativeFailure);
         assertThat(reconciled.getState()).isEqualTo(TaskState.TASK_STATE_FAILED);
         assertThat(reconciled.getReportOrigin()).isEqualTo(TaskReportOrigin.TASK_REPORT_ORIGIN_WORKER_RECONCILED);
         assertThat(reconciled.getUsage().getPeakNativeMemoryBytes()).isEqualTo(8L * 1024 * 1024);
@@ -199,8 +201,8 @@ class TaskTerminalEvidenceContractTest {
         var admission = ExecutionError.newBuilder().setErrorClass(ErrorClass.ERROR_CLASS_ADMISSION)
                 .setCode("SHUFFLE_MANAGED_CHANNEL_LIMIT").setMessage("Worker channel credit exhausted")
                 .setRetryable(true).setFailedComponent("remote-shuffle-channel-admission").build();
-        var rejected = TaskReport.parseFrom(WorkerTerminalTaskReports.unsuccessfulWithError(
-                request, TaskState.TASK_STATE_FAILED, admission, null));
+        var rejected = WorkerTerminalTaskReports.unsuccessfulWithError(
+                request, TaskState.TASK_STATE_FAILED, admission, null);
         assertThat(rejected.getAttempt()).isEqualTo(request.getAttempt());
         assertThat(rejected.getError()).isEqualTo(admission);
         assertThat(rejected.getReportOrigin()).isEqualTo(TaskReportOrigin.TASK_REPORT_ORIGIN_WORKER_RECONCILED);
@@ -210,12 +212,12 @@ class TaskTerminalEvidenceContractTest {
                 .setError(ExecutionError.newBuilder().setErrorClass(ErrorClass.ERROR_CLASS_DATA_CORRUPTION)
                         .setCode("NATIVE_FIRST_FAILURE").setMessage("Native rejected corrupt input")
                         .setFailedComponent("native-exchange")).build();
-        var retained = TaskReport.parseFrom(WorkerTerminalTaskReports.unsuccessfulWithError(
-                request, TaskState.TASK_STATE_FAILED, admission, first.toByteArray()));
+        var retained = WorkerTerminalTaskReports.unsuccessfulWithError(
+                request, TaskState.TASK_STATE_FAILED, admission, first);
         assertThat(retained.getError()).isEqualTo(first.getError());
         var other = first.toBuilder().setAttempt(first.getAttempt().toBuilder().setTaskId("different-attempt"));
-        assertThat(TaskReport.parseFrom(WorkerTerminalTaskReports.unsuccessfulWithError(
-                request, TaskState.TASK_STATE_FAILED, admission, other.build().toByteArray())).getError())
+        assertThat(WorkerTerminalTaskReports.unsuccessfulWithError(
+                request, TaskState.TASK_STATE_FAILED, admission, other.build()).getError())
                 .isEqualTo(admission);
     }
 }

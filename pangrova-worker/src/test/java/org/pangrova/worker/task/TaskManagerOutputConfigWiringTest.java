@@ -7,7 +7,6 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.ResourceLock;
 import org.pangrova.protocol.v2.TaskExecutionOptions;
-import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.protocol.v2.TaskState;
 import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
@@ -42,7 +41,7 @@ class TaskManagerOutputConfigWiringTest {
             assertThat(request.getExecutionOptions().getDirectResultOutput()).isFalse();
             assertThat(info.executorHandle()).isZero();
             assertThat(info.allocatedBufferMemory()).isZero();
-            var report = TaskReport.parseFrom(info.terminalTaskReport());
+            var report = info.terminalTaskEvidence().report();
             assertThat(report.getState()).isEqualTo(TaskState.TASK_STATE_FINISHED);
             assertThat(report.hasNativeTaskStats()).isTrue();
             assertThat(report.getNativeTaskStats().getOperatorStatsList())

@@ -69,15 +69,15 @@ public final class WorkerTerminalTaskReports {
                 .build().toByteArray();
     }
 
-    public static byte[] unsuccessful(
+    public static TaskReport unsuccessful(
             TaskRequest request, TaskState state, ErrorDetail error) {
         return unsuccessful(request, state, error, null);
     }
 
     /** Retains trustworthy Native usage while replacing uncertain failure coverage. */
-    public static byte[] unsuccessful(
+    public static TaskReport unsuccessful(
             TaskRequest request, TaskState state, ErrorDetail error,
-            byte[] nativeReport) {
+            TaskReport nativeReport) {
         if (request == null || !request.hasAttempt()) {
             throw new IllegalArgumentException("Worker terminal report needs a task attempt");
         }
@@ -94,13 +94,13 @@ public final class WorkerTerminalTaskReports {
     }
 
     /** Accepts already classified Worker failures without parsing REST strings. */
-    public static byte[] unsuccessfulWithError(
-            TaskRequest request, TaskState state, ExecutionError failure, byte[] nativeReport) {
-        return unsuccessfulReport(request, state, failure, nativeReport).build().toByteArray();
+    public static TaskReport unsuccessfulWithError(
+            TaskRequest request, TaskState state, ExecutionError failure, TaskReport nativeReport) {
+        return unsuccessfulReport(request, state, failure, nativeReport).build();
     }
 
     private static TaskReport.Builder unsuccessfulReport(
-            TaskRequest request, TaskState state, ExecutionError failure, byte[] nativeReport) {
+            TaskRequest request, TaskState state, ExecutionError failure, TaskReport nativeReport) {
         if (request == null || !request.hasAttempt()
                 || state != TaskState.TASK_STATE_FAILED && state != TaskState.TASK_STATE_CANCELLED) {
             throw new IllegalArgumentException("Worker failure needs an exact attempt and unsuccessful state");
@@ -206,22 +206,13 @@ public final class WorkerTerminalTaskReports {
                 .filter(usage -> CanonicalTaskRequests.usageWithinGrant(usage, request.getResourceGrant()));
     }
 
-    private static Optional<TaskReport> matchingNativeReport(TaskRequest request, byte[] encoded) {
-        if (encoded == null || encoded.length == 0) {
+    private static Optional<TaskReport> matchingNativeReport(TaskRequest request, TaskReport nativeStatus) {
+        if (nativeStatus == null || nativeStatus.getReportOrigin() != TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE
+                || !nativeStatus.getAttempt().equals(request.getAttempt())
+                || !nativeStatus.getUnknownFields().asMap().isEmpty()) {
             return Optional.empty();
         }
-        try {
-            TaskReport nativeStatus = TaskReport.parseFrom(encoded);
-            if (nativeStatus.getReportOrigin()
-                    != TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE
-                    || !nativeStatus.getAttempt().equals(request.getAttempt())
-                    || !nativeStatus.getUnknownFields().asMap().isEmpty()) {
-                return Optional.empty();
-            }
-            return Optional.of(nativeStatus);
-        } catch (com.google.protobuf.InvalidProtocolBufferException malformed) {
-            return Optional.empty();
-        }
+        return Optional.of(nativeStatus);
     }
 
     private record SourceKey(String id, String snapshot) {}

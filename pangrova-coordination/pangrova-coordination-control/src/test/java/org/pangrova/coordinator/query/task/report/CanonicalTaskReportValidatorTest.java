@@ -189,7 +189,7 @@ class CanonicalTaskReportValidatorTest {
         byte[] encoded = WorkerTerminalTaskReports.unsuccessful(
                 request.taskRequest(), TaskState.TASK_STATE_FAILED,
                 new ErrorDetail("WORKER_SETUP_FAILED", "IllegalStateException",
-                        "Native allocation failed"));
+                        "Native allocation failed")).toByteArray();
         TaskReport status = TaskReport.parseFrom(encoded);
 
         assertThat(status.getCoverage().getCompletedWorkUnits()).isZero();
@@ -215,9 +215,9 @@ class CanonicalTaskReportValidatorTest {
                         .setSplitId("split-" + index).build())
                 .toList();
         SubmitTaskRequest request = request("COMPUTE", List.of(), splits);
-        TaskReport status = TaskReport.parseFrom(WorkerTerminalTaskReports.unsuccessful(
+        TaskReport status = WorkerTerminalTaskReports.unsuccessful(
                 request.taskRequest(), TaskState.TASK_STATE_FAILED,
-                new ErrorDetail("SOURCE_FAILED", "Failure", "source read failed")));
+                new ErrorDetail("SOURCE_FAILED", "Failure", "source read failed"));
 
         assertThat(status.getCoverage().getAllWorkUnitsFailed()).isTrue();
         assertThat(status.getCoverage().getFailedWorkUnitIdsCount()).isZero();
@@ -228,9 +228,9 @@ class CanonicalTaskReportValidatorTest {
     @Test
     void acceptsFencedWorkerCancellationWithoutNativeReport() throws Exception {
         SubmitTaskRequest request = request("COMPUTE", List.of());
-        TaskReport status = TaskReport.parseFrom(WorkerTerminalTaskReports.unsuccessful(
+        TaskReport status = WorkerTerminalTaskReports.unsuccessful(
                 request.taskRequest(), TaskState.TASK_STATE_CANCELLED,
-                new ErrorDetail("TASK_CANCELLED", "Cancellation", "Cancelled")));
+                new ErrorDetail("TASK_CANCELLED", "Cancellation", "Cancelled"));
 
         assertThat(status.getError().getErrorClass())
                 .isEqualTo(ErrorClass.ERROR_CLASS_CANCELLED);
@@ -241,10 +241,10 @@ class CanonicalTaskReportValidatorTest {
     @Test
     void acceptsFencedWorkerWriteFailure() throws Exception {
         SubmitTaskRequest request = request("WRITE", List.of());
-        TaskReport status = TaskReport.parseFrom(WorkerTerminalTaskReports.unsuccessful(
+        TaskReport status = WorkerTerminalTaskReports.unsuccessful(
                 request.taskRequest(), TaskState.TASK_STATE_FAILED,
                 new ErrorDetail("WRITE_BIND_FAILED", "IllegalStateException",
-                        "Connector writer unavailable")));
+                        "Connector writer unavailable"));
 
         assertThat(validator.validate(report(request, status, "FAILED"), request))
                 .contains(status);
@@ -258,7 +258,7 @@ class CanonicalTaskReportValidatorTest {
                 .setPeakNativeMemoryBytes(1024)
                 .setProviderRequestBytes(7)
                 .build();
-        byte[] nativeFailure = TaskReport.newBuilder()
+        TaskReport nativeFailure = TaskReport.newBuilder()
                 .setReportOrigin(org.pangrova.protocol.v2.TaskReportOrigin
                         .TASK_REPORT_ORIGIN_NATIVE)
                 .setAttempt(request.taskRequest().getAttempt())
@@ -269,11 +269,11 @@ class CanonicalTaskReportValidatorTest {
                         .setCode("PROVIDER_FAILED")
                         .setMessage("provider rejected request")
                         .setFailedComponent("provider"))
-                .build().toByteArray();
-        TaskReport status = TaskReport.parseFrom(WorkerTerminalTaskReports.unsuccessful(
+                .build();
+        TaskReport status = WorkerTerminalTaskReports.unsuccessful(
                 request.taskRequest(), TaskState.TASK_STATE_FAILED,
                 new ErrorDetail("PROVIDER_FAILED", "ERROR_CLASS_PROVIDER",
-                        "provider rejected request"), nativeFailure));
+                        "provider rejected request"), nativeFailure);
 
         assertThat(status.getUsage()).isEqualTo(observedUsage);
         assertThat(status.getError().getCode()).isEqualTo("PROVIDER_FAILED");
@@ -302,10 +302,10 @@ class CanonicalTaskReportValidatorTest {
                 .addArtifacts(artifact)
                 .build();
         SubmitTaskRequest request = request("COMPUTE", List.of(binding));
-        TaskReport status = TaskReport.parseFrom(WorkerTerminalTaskReports.unsuccessful(
+        TaskReport status = WorkerTerminalTaskReports.unsuccessful(
                 request.taskRequest(), TaskState.TASK_STATE_FAILED,
                 new ErrorDetail("WORKER_SETUP_FAILED", "IllegalStateException",
-                        "Native allocation failed")));
+                        "Native allocation failed"));
 
         assertThat(status.getCoverage().getCompletedWorkUnits()).isZero();
         assertThat(status.getCoverage().getArtifacts(0).getArtifactId())
@@ -632,14 +632,14 @@ class CanonicalTaskReportValidatorTest {
         SubmitTaskRequest request = request("COMPUTE", List.of());
         var usage = ResourceUsage.newBuilder().setProviderAttempts(1).setProviderResponseBytes(50)
                 .setObservedProviderResponseBytes(1001).build();
-        byte[] nativeFailure = TaskReport.newBuilder()
+        TaskReport nativeFailure = TaskReport.newBuilder()
                 .setReportOrigin(org.pangrova.protocol.v2.TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE)
                 .setAttempt(request.taskRequest().getAttempt()).setState(TaskState.TASK_STATE_FAILED)
                 .setUsage(usage).setError(ExecutionError.newBuilder().setErrorClass(ErrorClass.ERROR_CLASS_PROVIDER)
-                        .setCode("AI_BUDGET_EXCEEDED").setMessage("response retention denied")).build().toByteArray();
-        TaskReport failed = TaskReport.parseFrom(WorkerTerminalTaskReports.unsuccessful(request.taskRequest(),
+                        .setCode("AI_BUDGET_EXCEEDED").setMessage("response retention denied")).build();
+        TaskReport failed = WorkerTerminalTaskReports.unsuccessful(request.taskRequest(),
                 TaskState.TASK_STATE_FAILED, new ErrorDetail("AI_BUDGET_EXCEEDED", "AiInvocationException",
-                        "response retention denied"), nativeFailure));
+                        "response retention denied"), nativeFailure);
         assertThat(failed.getUsage()).isEqualTo(usage);
         assertThat(validator.validate(report(request, failed, "FAILED"), request)).contains(failed);
     }

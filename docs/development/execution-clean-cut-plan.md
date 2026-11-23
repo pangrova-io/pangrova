@@ -90,7 +90,9 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
-实施批次 141 在索引增量维护中先判断当前发布代次和快照祖先关系，再枚举待发布快照的文件。受控重放包含一个已经发布的快照与它的一个祖先，完整文件清单调用从两次降为零，两个 durable 订阅通知均已执行。真实 Iceberg SQL 与 PostgreSQL 验证追加后创建了更高的 ACTIVE 代次，发布绑定追加后的 main 快照并增加了对象数。56 项回归及 Checkstyle 通过，覆盖快照目录、旧事件、索引授权和发布围栏。
+实施批次 142 在 Worker 从 JNI 读取首份终态时校验并保留同一份规范字节和已解析消息。状态、错误详情与发布使用该证据。Worker 重整失败时直接构建类型化消息，在发布边界编码一次。Corretto 17 受控分配对照中，首份回执的 1 算子和 128 算子样本分别从 3,896 B 降到 1,928 B、从 121,384 B 降到 59,000 B；失败重整分别从 10,502 B 降到 1,592 B、从 198,952 B 降到 12,034 B。四份规范载荷摘要逐一一致。177 项正式回归与 Checkstyle 通过，覆盖实际 Native、HTTP ACK 重发、Flight、双 Worker、读库预算、COPY 和 CDC。
+
+实施批次 141 在索引增量维护中先判断当前发布代次和快照祖先关系，再枚举待发布快照的文件。受控重放包含一个已经发布的快照与它的一个祖先，完整文件清单调用从两次降为零，两个 durable 订阅通知均已执行。真实 Iceberg SQL 与 PostgreSQL 验证追加后创建了更高的 ACTIVE 代次，发布绑定追加后的 main 快照并增加了对象数。56 项回归及 Checkstyle 通过，覆盖快照目录、旧事件、索引授权和发布围栏。 同源独立进程验收重新打包了 739 项产物，Coordinator、Worker 和 CLI、对象存储远端 Shuffle、Kafka→Paimon CDC 三项通过。
 
 实施批次 140 修正相关子查询晚暴露的外层谓词。复用 Calcite 内连接条件下推，只在可证明两个新连接都取得条件时重排笛卡尔左子树。TPC-H Q2 确定性夹具的最大 Native 算子输出从 100 亿行降到 13,166 行，OUTPUT 执行从 29,443 ms 降到 18 ms，查询审计从 30,628 ms 降到 424 ms。相同 SQL 与 PostgreSQL 返回相同的空结果，匹配夹具数据的参数变体验证了与 PostgreSQL 顺序和值一致的 100 行。五份 TPC-H 计划移除了无谓笛卡尔积，其余受检 TPC-H 与 TPC-DS 计划一致。128 项回归及 Checkstyle 通过，另有一项生成 golden 的可选用例跳过。 [Calcite 内连接谓词下推](https://calcite.apache.org/javadocAggregate/org/apache/calcite/rel/rules/FilterJoinRule.FilterIntoJoinRule.html) · [Trino 的谓词下推和连接排序](https://github.com/trinodb/trino/blob/master/core/trino-main/src/main/java/io/trino/sql/planner/PlanOptimizers.java)
 

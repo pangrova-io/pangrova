@@ -73,7 +73,7 @@ final class TaskExecutionState {
             new AtomicReference<>(java.util.List.of());
 
     // Canonical v2 TaskReport captured before the native handle is released.
-    private final AtomicReference<byte[]> terminalTaskReport = new AtomicReference<>();
+    private final AtomicReference<TaskReportEvidence> initialTerminalReport = new AtomicReference<>();
 
     // Canonical v2 NativeTaskStats captured before the native handle is released.
     private final AtomicReference<NativeTaskStats> terminalTaskStats = new AtomicReference<>();
@@ -198,20 +198,17 @@ final class TaskExecutionState {
 
     // --- Canonical terminal status ---
 
-    byte[] terminalTaskReport() {
+    TaskReportEvidence terminalTaskEvidence() {
         var release = executorRelease.get();
         if (release != null && release.isDone() && !release.isCompletedExceptionally()) {
             var receipt = release.join();
-            if (receipt != null) return receipt.bytes().toByteArray();
+            if (receipt != null) return receipt;
         }
-        byte[] value = terminalTaskReport.get();
-        return value == null ? null : value.clone();
+        return initialTerminalReport.get();
     }
 
-    void setTerminalTaskReport(byte[] status) {
-        if (status != null && status.length > 0) {
-            terminalTaskReport.compareAndSet(null, status.clone());
-        }
+    void setTerminalTaskEvidence(TaskReportEvidence status) {
+        initialTerminalReport.compareAndSet(null, status);
     }
 
     NativeTaskStats terminalTaskStats() {

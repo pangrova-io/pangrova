@@ -32,7 +32,7 @@ class TaskCancellationResourceCleanupTest {
             tasks.awaitState(info, org.pangrova.worker.enums.TaskState.CANCELLED);
             assertRetired(runtime, info, handle);
             var report = TaskReport.parseFrom(tasks.terminalReport(info).canonicalTaskReport());
-            var released = TaskReport.parseFrom(info.executorReleaseReport());
+            var released = info.executorReleaseReceipt().report();
             assertThat(released.getExecutionDrainState())
                     .isEqualTo(org.pangrova.protocol.v2.ExecutionDrainState.EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED);
             assertThat(released.getState()).isEqualTo(TaskState.TASK_STATE_CANCELLED);
@@ -54,11 +54,11 @@ class TaskCancellationResourceCleanupTest {
             Runnable release = () -> tasks.manager().releaseTaskExecutor(info.taskId());
             monitor.onTaskCompleted(info.taskId(), info, tasks.manager().lifecycleCallback, release);
             tasks.awaitState(info, org.pangrova.worker.enums.TaskState.CANCELLED);
-            byte[] receipt = info.executorReleaseReport();
+            byte[] receipt = info.executorReleaseReceipt().bytes().toByteArray();
             // A duplicate actual callback after CANCELLED still joins the same
             // real release owner rather than returning before resource cleanup.
             monitor.onTaskCompleted(info.taskId(), info, tasks.manager().lifecycleCallback, release);
-            assertThat(info.executorReleaseReport()).isEqualTo(receipt);
+            assertThat(info.executorReleaseReceipt().bytes().toByteArray()).isEqualTo(receipt);
             assertRetired(runtime, info, handle);
             assertThat(tasks.reports().reports().stream().filter(report -> report.state().equals("CANCELLED")))
                     .hasSize(1);
@@ -76,7 +76,7 @@ class TaskCancellationResourceCleanupTest {
             tasks.awaitState(info, org.pangrova.worker.enums.TaskState.CANCELLED);
             assertRetired(runtime, info, handle);
             assertThat(runtime.executor().releaseTask(handle)).isEmpty();
-            assertThat(TaskReport.parseFrom(info.executorReleaseReport()).getState())
+            assertThat(info.executorReleaseReceipt().report().getState())
                     .isEqualTo(TaskState.TASK_STATE_CANCELLED);
             assertThat(tasks.manager().cancelTask(info.taskId()).isSuccess()).isFalse();
             assertThat(runtime.nodePool().getUsedBytes()).isZero();
@@ -157,7 +157,7 @@ class TaskCancellationResourceCleanupTest {
             tasks.manager().lifecycleManager.executeTask(info.taskId(), info, tasks.manager().lifecycleCallback);
             tasks.awaitState(info, org.pangrova.worker.enums.TaskState.CANCELLED);
             assertRetired(runtime, info, handle);
-            var receipt = TaskReport.parseFrom(info.executorReleaseReport());
+            var receipt = info.executorReleaseReceipt().report();
             assertThat(receipt.getState()).isEqualTo(TaskState.TASK_STATE_CANCELLED);
             assertThat(receipt.hasNativeTaskStats()).isFalse();
             assertThat(tasks.reports().reports()).noneMatch(report -> report.state().equals("RUNNING"));
@@ -189,7 +189,8 @@ class TaskCancellationResourceCleanupTest {
             runtime.executor().startTask(handle);
             runtime.awaitFinished(handle);
             assertThat(tasks.manager().transition(info.taskId(), org.pangrova.worker.enums.TaskState.RUNNING)).isTrue();
-            info.setTerminalTaskReport(runtime.executor().getTaskStatus(handle));
+            info.setTerminalTaskEvidence(TaskCompletionMonitor.validateTerminalEvidence(
+                    info.request().taskRequest(), runtime.executor().getTaskStatus(handle)));
             info.setTerminalTaskStats(org.pangrova.protocol.v2.NativeTaskStats.parseFrom(
                     runtime.executor().getTaskStats(handle)));
             var failure = new AtomicReference<Throwable>();
@@ -227,7 +228,7 @@ class TaskCancellationResourceCleanupTest {
     private static void assertRetired(ActualNativeTaskFixture runtime, TaskInfo info, long oldHandle) {
         assertThat(info.executorHandle()).isZero();
         assertThat(info.allocatedBufferMemory()).isZero();
-        assertThat(info.executorReleaseReport()).isNotEmpty();
+        assertThat(info.executorReleaseReceipt().bytes().toByteArray()).isNotEmpty();
         assertThatThrownBy(() -> runtime.executor().getTaskStatus(oldHandle)).isInstanceOf(IllegalStateException.class);
     }
 }

@@ -387,7 +387,7 @@ class PipelineIntegrationTest {
                     .build().toByteArray();
         } else if ("FAILED".equals(state)) {
             canonical = org.pangrova.protocol.task.WorkerTerminalTaskReports.unsuccessful(request,
-                    org.pangrova.protocol.v2.TaskState.TASK_STATE_FAILED, error);
+                    org.pangrova.protocol.v2.TaskState.TASK_STATE_FAILED, error).toByteArray();
         }
         return new TaskStatusReport(
                 taskId, QUERY_ID, attempt.getStageId(), attempt.getPartitionId(),

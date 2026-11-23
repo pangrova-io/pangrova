@@ -31,9 +31,9 @@ class CanonicalCoverageAdmissionTest {
         }
 
         CanonicalTaskRequests.validateForAdmission(request.build());
-        var report = TaskReport.parseFrom(WorkerTerminalTaskReports.unsuccessful(
+        var report = WorkerTerminalTaskReports.unsuccessful(
                 request.build(), TaskState.TASK_STATE_FAILED,
-                new ErrorDetail("TASK_FAILED", "Failure", "source read failed")));
+                new ErrorDetail("TASK_FAILED", "Failure", "source read failed"));
 
         assertThat(report.getCoverage().getAllWorkUnitsFailed()).isTrue();
         assertThat(report.getCoverage().getFailedWorkUnitIdsCount()).isZero();
@@ -99,10 +99,10 @@ class CanonicalCoverageAdmissionTest {
                 .setUsage(ResourceUsage.newBuilder().setPeakNativeMemoryBytes(1))
                 .build();
 
-        var reconciled = TaskReport.parseFrom(WorkerTerminalTaskReports.unsuccessful(
+        var reconciled = WorkerTerminalTaskReports.unsuccessful(
                 request.build(), TaskState.TASK_STATE_FAILED,
                 new ErrorDetail("TASK_FAILED", "Failure", "source read failed"),
-                foreignReport.toByteArray()));
+                foreignReport);
 
         assertThat(reconciled.hasUsage()).isFalse();
     }
@@ -130,14 +130,14 @@ class CanonicalCoverageAdmissionTest {
                 .setState(TaskState.TASK_STATE_FAILED)
                 .setReportOrigin(TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE).setUsage(usage);
         var error = new ErrorDetail("TASK_FAILED", "Failure", "source read failed");
-        var boundary = TaskReport.parseFrom(WorkerTerminalTaskReports.unsuccessful(
-                request, TaskState.TASK_STATE_FAILED, error, observed.build().toByteArray()));
+        var boundary = WorkerTerminalTaskReports.unsuccessful(
+                request, TaskState.TASK_STATE_FAILED, error, observed.build());
         assertThat(boundary.getUsage()).isEqualTo(usage.build());
         for (long value : new long[] {11L, -1L}) {
             usage.setField(field, value);
             observed.setUsage(usage);
-            var rejected = TaskReport.parseFrom(WorkerTerminalTaskReports.unsuccessful(
-                    request, TaskState.TASK_STATE_FAILED, error, observed.build().toByteArray()));
+            var rejected = WorkerTerminalTaskReports.unsuccessful(
+                    request, TaskState.TASK_STATE_FAILED, error, observed.build());
             assertThat(rejected.hasUsage()).isFalse();
             assertThat(rejected.getCoverage().getCompletedWorkUnits()).isZero();
         }
@@ -152,21 +152,24 @@ class CanonicalCoverageAdmissionTest {
                 .setState(TaskState.TASK_STATE_FAILED)
                 .setReportOrigin(TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE).setError(nativeError).build();
         var error = new ErrorDetail("WORKER_FAILURE", "Failure", "worker failure");
-        var exact = TaskReport.parseFrom(WorkerTerminalTaskReports.unsuccessful(
-                request, TaskState.TASK_STATE_FAILED, error, observed.toByteArray()));
+        var exact = WorkerTerminalTaskReports.unsuccessful(
+                request, TaskState.TASK_STATE_FAILED, error, observed);
         assertThat(exact.getError()).isEqualTo(nativeError);
-        byte[][] untrustworthy = {
-                null, new byte[0], new byte[] {(byte) 0x80},
+        TaskReport[] untrustworthy = {
+                null, TaskReport.getDefaultInstance(),
                 observed.toBuilder().setAttempt(request.getAttempt().toBuilder().setAttemptId(1))
-                        .build().toByteArray(),
-                observed.toBuilder().setState(TaskState.TASK_STATE_CANCELLED).build().toByteArray(),
+                        .build(),
+                observed.toBuilder().setState(TaskState.TASK_STATE_CANCELLED).build(),
                 observed.toBuilder().setReportOrigin(TaskReportOrigin.TASK_REPORT_ORIGIN_WORKER_RECONCILED)
-                        .build().toByteArray(),
-                observed.toBuilder().clearError().build().toByteArray(),
-                observed.toBuilder().setError(nativeError.toBuilder().clearCode()).build().toByteArray()};
-        for (byte[] encoded : untrustworthy) {
-            var fallback = TaskReport.parseFrom(WorkerTerminalTaskReports.unsuccessful(
-                    request, TaskState.TASK_STATE_FAILED, error, encoded));
+                        .build(),
+                observed.toBuilder().setUnknownFields(com.google.protobuf.UnknownFieldSet.newBuilder()
+                        .addField(999, com.google.protobuf.UnknownFieldSet.Field.newBuilder().addVarint(1).build())
+                        .build()).build(),
+                observed.toBuilder().clearError().build(),
+                observed.toBuilder().setError(nativeError.toBuilder().clearCode()).build()};
+        for (TaskReport untrusted : untrustworthy) {
+            var fallback = WorkerTerminalTaskReports.unsuccessful(
+                    request, TaskState.TASK_STATE_FAILED, error, untrusted);
             assertThat(fallback.getError().getCode()).isEqualTo("WORKER_FAILURE");
             assertThat(fallback.getCoverage().getCompletedWorkUnits()).isZero();
         }
@@ -179,20 +182,20 @@ class CanonicalCoverageAdmissionTest {
                 .setReportOrigin(TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE)
                 .setUsage(ResourceUsage.newBuilder().setCpuNanos(Long.MAX_VALUE)).build();
         var error = new ErrorDetail("TASK_FAILED", "Failure", "source read failed");
-        var valid = TaskReport.parseFrom(WorkerTerminalTaskReports.unsuccessful(
-                request, TaskState.TASK_STATE_FAILED, error, observed.toByteArray()));
+        var valid = WorkerTerminalTaskReports.unsuccessful(
+                request, TaskState.TASK_STATE_FAILED, error, observed);
         assertThat(valid.getUsage().getCpuNanos()).isEqualTo(Long.MAX_VALUE);
         var invalidCpu = observed.toBuilder().setUsage(observed.getUsage().toBuilder().setCpuNanos(-1)).build();
-        var rejectedCpu = TaskReport.parseFrom(WorkerTerminalTaskReports.unsuccessful(
-                request, TaskState.TASK_STATE_FAILED, error, invalidCpu.toByteArray()));
+        var rejectedCpu = WorkerTerminalTaskReports.unsuccessful(
+                request, TaskState.TASK_STATE_FAILED, error, invalidCpu);
         assertThat(rejectedCpu.hasUsage()).isFalse();
-        var missingGrant = TaskReport.parseFrom(WorkerTerminalTaskReports.unsuccessful(
+        var missingGrant = WorkerTerminalTaskReports.unsuccessful(
                 request.toBuilder().clearResourceGrant().build(), TaskState.TASK_STATE_FAILED,
-                error, observed.toByteArray()));
+                error, observed);
         assertThat(missingGrant.hasUsage()).isFalse();
-        var invalidGrant = TaskReport.parseFrom(WorkerTerminalTaskReports.unsuccessful(
+        var invalidGrant = WorkerTerminalTaskReports.unsuccessful(
                 request.toBuilder().setResourceGrant(StageResourceGrant.newBuilder().setNativeMemoryBytes(-1)).build(),
-                TaskState.TASK_STATE_FAILED, error, observed.toByteArray()));
+                TaskState.TASK_STATE_FAILED, error, observed);
         assertThat(invalidGrant.hasUsage()).isFalse();
     }
 

@@ -41,7 +41,7 @@ final class TaskStatusCollector {
     }
 
     void reportStatus(TaskInfo info, String state, ErrorDetail error) {
-        reportStatus(info, state, error, info.terminalTaskReport());
+        reportStatus(info, state, error, info.terminalTaskEvidence());
     }
 
     /** Reserves the canonical finish sequence before arming result release or awaiting its ACK. */
@@ -53,7 +53,7 @@ final class TaskStatusCollector {
         }
         boolean released = info.resourcesReleased();
         info.publishResultStatus(released,
-                () -> prepareTerminalReport(info, "FINISHED", null, info.terminalTaskReport(), released),
+                () -> prepareTerminalReport(info, "FINISHED", null, info.terminalTaskEvidence(), released),
                 report -> {
                     watchResult.run();
                     return reporter.reportTerminal(report);
@@ -74,34 +74,50 @@ final class TaskStatusCollector {
         var taskState = "CANCELLED".equals(state)
                 ? org.pangrova.protocol.v2.TaskState.TASK_STATE_CANCELLED
                 : org.pangrova.protocol.v2.TaskState.TASK_STATE_FAILED;
-        byte[] canonical = org.pangrova.protocol.task.WorkerTerminalTaskReports.unsuccessful(
-                info.request().taskRequest(), taskState, error,
-                info.executorReleaseReport());
-        canonical = withActualDrain(info, canonical);
-        reportStatus(info, state, error, canonical);
+        var canonical = org.pangrova.protocol.task.WorkerTerminalTaskReports.unsuccessful(
+                info.request().taskRequest(), taskState, error, releasedReportMessage(info));
+        reportReconciledStatus(info, state, error, canonical);
     }
 
     void reportWorkerTerminalFailure(TaskInfo info, org.pangrova.protocol.v2.ExecutionError error) {
         if (reporter == null) return;
-        byte[] canonical = org.pangrova.protocol.task.WorkerTerminalTaskReports.unsuccessfulWithError(
+        var canonical = org.pangrova.protocol.task.WorkerTerminalTaskReports.unsuccessfulWithError(
                 info.request().taskRequest(), org.pangrova.protocol.v2.TaskState.TASK_STATE_FAILED,
-                error, info.executorReleaseReport());
-        canonical = withActualDrain(info, canonical);
-        reportStatus(info, "FAILED", new ErrorDetail(error.getCode(), error.getErrorClass().name(),
+                error, releasedReportMessage(info));
+        reportReconciledStatus(info, "FAILED", new ErrorDetail(error.getCode(), error.getErrorClass().name(),
                 error.getMessage()), canonical);
     }
 
-    private static byte[] withActualDrain(TaskInfo info, byte[] canonical) {
-        try {
-            var report = org.pangrova.protocol.v2.TaskReport.parseFrom(canonical).toBuilder()
-                    .setExecutionDrainState(info.executionDrainState());
-            if (info.executorHandle() == 0 && info.executorReleaseReceipt() == null) {
-                report.getUsageBuilder().setObjectStoreReadBytes(info.preNativeReadBytes());
-            }
-            return report.build().toByteArray();
-        } catch (com.google.protobuf.InvalidProtocolBufferException failure) {
-            throw new IllegalStateException("Worker produced a malformed canonical terminal report", failure);
+    private void reportReconciledStatus(TaskInfo info, String state, ErrorDetail error,
+            org.pangrova.protocol.v2.TaskReport canonical) {
+        var initial = attachActualDrain(info, canonical);
+        boolean released = info.resourcesReleased();
+        info.publishTerminalStatus(released,
+                () -> {
+                    if (released && "CANCELLED".equals(state)) {
+                        return releasedReport(info, state, error, initial);
+                    }
+                    var report = released ? attachActualDrain(info, initial) : initial;
+                    return buildReport(info, state, error, TaskReportEvidence.encode(report));
+                }, reporter::report);
+    }
+
+    private static org.pangrova.protocol.v2.TaskReport releasedReportMessage(TaskInfo info) {
+        var actual = info.executorReleaseReceipt();
+        return actual == null ? null : actual.report();
+    }
+
+    private static TaskReportEvidence withActualDrain(TaskInfo info, org.pangrova.protocol.v2.TaskReport canonical) {
+        return TaskReportEvidence.encode(attachActualDrain(info, canonical));
+    }
+
+    private static org.pangrova.protocol.v2.TaskReport attachActualDrain(
+            TaskInfo info, org.pangrova.protocol.v2.TaskReport canonical) {
+        var report = canonical.toBuilder().setExecutionDrainState(info.executionDrainState());
+        if (info.executorHandle() == 0 && info.executorReleaseReceipt() == null) {
+            report.getUsageBuilder().setObjectStoreReadBytes(info.preNativeReadBytes());
         }
+        return report.build();
     }
 
     /** Reads only the exact successful resource-release checkpoint, never a poll/ACK or handle value. */
@@ -120,7 +136,7 @@ final class TaskStatusCollector {
     }
 
     private void reportStatus(
-            TaskInfo info, String state, ErrorDetail error, byte[] terminalReport) {
+            TaskInfo info, String state, ErrorDetail error, TaskReportEvidence terminalReport) {
         if (reporter == null) {
             return;
         }
@@ -134,17 +150,16 @@ final class TaskStatusCollector {
     }
 
     private TaskStatusReport prepareTerminalReport(
-            TaskInfo info, String state, ErrorDetail error, byte[] terminalReport, boolean released) {
+            TaskInfo info, String state, ErrorDetail error, TaskReportEvidence terminalReport, boolean released) {
         if (!released) return buildReport(info, state, error, terminalReport);
         if (terminalReport != null && !"CANCELLED".equals(state)) {
-            var exact = info.executorReleaseReceipt();
-            if (exact != null && exact.report().getState() == TaskStateMapper.toProtoState(TaskState.valueOf(state))
-                    && exact.bytes().asReadOnlyByteBuffer().equals(java.nio.ByteBuffer.wrap(terminalReport))) {
-                return buildReport(info, state, error, exact);
+            if (terminalReport == info.executorReleaseReceipt()
+                    && terminalReport.report().getState() == TaskStateMapper.toProtoState(TaskState.valueOf(state))) {
+                return buildReport(info, state, error, terminalReport);
             }
-            return buildReport(info, state, error, withActualDrain(info, terminalReport));
+            return buildReport(info, state, error, withActualDrain(info, terminalReport.report()));
         }
-        return releasedReport(info, state, error, terminalReport);
+        return releasedReport(info, state, error, terminalReport == null ? null : terminalReport.report());
     }
 
     /** Publishes the actual later release, without cancelling a successfully consumed result. */
@@ -166,7 +181,8 @@ final class TaskStatusCollector {
         return releasedReport(info, info.getState().name(), null, null);
     }
 
-    private TaskStatusReport releasedReport(TaskInfo info, String state, ErrorDetail error, byte[] terminalReport) {
+    private TaskStatusReport releasedReport(TaskInfo info, String state, ErrorDetail error,
+            org.pangrova.protocol.v2.TaskReport terminalReport) {
         var actual = executionDrainReceipt(info).orElseThrow(() ->
                 new IllegalStateException("Terminal publication lacks actual released execution evidence"));
         if ("CANCELLED".equals(state) && actual.getState() == org.pangrova.protocol.v2.TaskState.TASK_STATE_CANCELLED) {
@@ -191,9 +207,9 @@ final class TaskStatusCollector {
             if (failure == null) {
                 failure = new ErrorDetail("TASK_CANCELLED", "Cancellation", "Task cancelled by control plane");
             }
-            byte[] canonical = org.pangrova.protocol.task.WorkerTerminalTaskReports.unsuccessful(
+            var canonical = org.pangrova.protocol.task.WorkerTerminalTaskReports.unsuccessful(
                     info.request().taskRequest(), TaskStateMapper.toProtoState(TaskState.valueOf(state)),
-                    failure, info.executorReleaseReport());
+                    failure, actual);
             return buildReport(info, state, failure, withActualDrain(info, canonical));
         } else {
             throw new IllegalStateException("Released task is not terminal: " + state);
@@ -209,12 +225,6 @@ final class TaskStatusCollector {
         if (!report.hasError()) return null;
         var error = report.getError();
         return new ErrorDetail(error.getCode(), error.getErrorClass().name(), error.getMessage());
-    }
-
-    private TaskStatusReport buildReport(TaskInfo info, String state, ErrorDetail error, byte[] terminalReport) {
-        var evidence = terminalReport == null ? null : com.google.protobuf.ByteString.copyFrom(terminalReport);
-        return buildReport(info, state, error,
-                evidence == null ? null : new TaskReportEvidence(evidence, parseDeliveryEvidence(evidence)));
     }
 
     private TaskStatusReport buildReport(TaskInfo info, String state, ErrorDetail error, TaskReportEvidence terminal) {
@@ -238,15 +248,6 @@ final class TaskStatusCollector {
                 seq, System.currentTimeMillis(), evidence, canonical);
         logStatusReport(info, state, seq);
         return report;
-    }
-
-    private static org.pangrova.protocol.v2.TaskReport parseDeliveryEvidence(com.google.protobuf.ByteString evidence) {
-        if (evidence == null) return null;
-        try {
-            return org.pangrova.protocol.v2.TaskReport.parseFrom(evidence);
-        } catch (com.google.protobuf.InvalidProtocolBufferException malformed) {
-            throw new IllegalStateException("Worker cannot deliver malformed canonical terminal evidence", malformed);
-        }
     }
 
     void logTaskSubmitted(String taskId) {

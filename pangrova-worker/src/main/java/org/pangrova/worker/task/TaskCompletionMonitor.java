@@ -126,17 +126,9 @@ public final class TaskCompletionMonitor {
             }
             return;
         }
-        byte[] status;
-        try {
-            status = deps.taskExecutor().getTaskStatus(handle);
-        } catch (IllegalStateException failure) {
-            if (info.executorHandle() != 0) {
-                throw failure;
-            }
-            status = info.executorReleaseReport();
-        }
-        var parsed = requireCanonicalTaskReport(info.request().taskRequest(), status);
-        info.setTerminalTaskReport(status);
+        var evidence = readTerminalEvidence(info, handle);
+        var parsed = evidence.report();
+        info.setTerminalTaskEvidence(evidence);
         boolean workerExecuted = isWorkerExecuted(info.request().taskRequest());
         if (!workerExecuted) {
             captureTaskStats(info, handle, parsed);
@@ -152,6 +144,23 @@ public final class TaskCompletionMonitor {
             info.setTerminalCommitFragments(
                     deps.taskExecutor().getTaskCommitFragments(handle));
         }
+    }
+
+    private TaskReportEvidence readTerminalEvidence(TaskInfo info, long handle) {
+        byte[] status;
+        try {
+            status = deps.taskExecutor().getTaskStatus(handle);
+        } catch (IllegalStateException failure) {
+            if (info.executorHandle() != 0) throw failure;
+            return requireReleasedEvidence(info);
+        }
+        return validateTerminalEvidence(info.request().taskRequest(), status);
+    }
+
+    static TaskReportEvidence validateTerminalEvidence(
+            org.pangrova.protocol.v2.TaskRequest request, byte[] status) {
+        var report = requireCanonicalTaskReport(request, status);
+        return new TaskReportEvidence(com.google.protobuf.ByteString.copyFrom(status), report);
     }
 
     private void captureTaskStats(
@@ -191,12 +200,16 @@ public final class TaskCompletionMonitor {
     }
 
     private static org.pangrova.protocol.v2.TaskReport requireReleasedReport(TaskInfo info) {
+        return requireReleasedEvidence(info).report();
+    }
+
+    private static TaskReportEvidence requireReleasedEvidence(TaskInfo info) {
         var receipt = info.executorReleaseReceipt();
         if (receipt == null) {
             throw new IllegalStateException("Task completed without a canonical TaskReport: "
                     + info.request().taskRequest().getAttempt().getTaskId());
         }
-        return receipt.report();
+        return receipt;
     }
 
     static org.pangrova.protocol.v2.TaskReport requireCanonicalTaskReport(
@@ -571,26 +584,17 @@ public final class TaskCompletionMonitor {
     }
 
     private static ErrorDetail nativeFailureDetail(TaskInfo info) {
-        byte[] encoded = info.terminalTaskReport();
-        if (encoded == null || encoded.length == 0 || info.request() == null) {
+        var evidence = info.terminalTaskEvidence();
+        if (evidence == null || info.request() == null) return null;
+        var status = evidence.report();
+        if (status.getState() != org.pangrova.protocol.v2.TaskState.TASK_STATE_FAILED
+                || !status.hasError()
+                || !status.getAttempt().equals(info.request().taskRequest().getAttempt())
+                || status.getError().getCode().isBlank()) {
             return null;
         }
-        try {
-            var status = org.pangrova.protocol.v2.TaskReport.parseFrom(encoded);
-            if (status.getState() != org.pangrova.protocol.v2.TaskState.TASK_STATE_FAILED
-                    || !status.hasError()
-                    || !status.getAttempt().equals(info.request().taskRequest().getAttempt())
-                    || status.getError().getCode().isBlank()) {
-                return null;
-            }
-            var nativeError = status.getError();
-            return new ErrorDetail(
-                    nativeError.getCode(),
-                    nativeError.getErrorClass().name(),
-                    nativeError.getMessage());
-        } catch (com.google.protobuf.InvalidProtocolBufferException malformed) {
-            return null;
-        }
+        var nativeError = status.getError();
+        return new ErrorDetail(nativeError.getCode(), nativeError.getErrorClass().name(), nativeError.getMessage());
     }
 
     static boolean isNativeUnsupportedFeature(Exception cause) {

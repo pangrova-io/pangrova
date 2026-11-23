@@ -49,7 +49,7 @@ class TaskManagerZeroHandleTest {
             tasks.awaitState(info, TaskState.FINISHED);
             assertThat(info.executorHandle()).isZero();
             var receipt =
-                    org.pangrova.protocol.v2.TaskReport.parseFrom(info.executorReleaseReport());
+                    info.executorReleaseReceipt().report();
             assertThat(receipt.getAttempt()).isEqualTo(info.request().taskRequest().getAttempt());
             assertThat(receipt.getReportOrigin())
                     .isEqualTo(org.pangrova.protocol.v2.TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE);
