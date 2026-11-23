@@ -118,9 +118,11 @@ The private COPY client uses HTTP/1.1 with mutual TLS.
 
 A stage with no retrieval or AI binding hints reuses its immutable bound plan.
 Generated-value reads are resolved before this handoff, and the output stage
-validates declared result column logical types. Generated-value scan enumeration
-visits the original Substrait relations in input order. A generated-value overlay
-rebuilds its affected scan and ancestors. Reads of the same generated column and
+validates declared result column logical types. Generated-value binding parses
+the stage bytes once and visits the original Substrait relations in input order.
+A generated-value overlay rebuilds its affected scan and ancestors in the same
+parsed plan. A stage without an overlay retains the original wire bytes.
+Reads of the same generated column and
 snapshot in one stage share one publication observation, including absence.
 Each scan retains its own binding node ID.
 

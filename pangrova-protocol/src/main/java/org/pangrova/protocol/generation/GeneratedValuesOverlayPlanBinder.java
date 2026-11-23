@@ -26,6 +26,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Function;
 import java.util.function.UnaryOperator;
 
 /** Inserts exact published generated-value reads below already compiled policy expressions. */
@@ -50,19 +51,20 @@ public final class GeneratedValuesOverlayPlanBinder {
         }
     }
 
-    /** Lists actual serialized reads, preserving order and their full schema/emit contracts. */
-    public static List<ReadRel> reads(byte[] planBytes) {
-        List<ReadRel> result = new ArrayList<>();
-        rewrite(parse(planBytes), relation -> {
-            result.add(relation.getRead());
+    /** Selects overlays from the validated read order and rewrites only when a target is selected. */
+    public static BoundExecutionPlan resolve(byte[] planBytes,
+            Function<List<ReadRel>, List<ReadOverlay>> selectOverlays) {
+        Plan plan = parse(planBytes);
+        List<ReadRel> reads = new ArrayList<>();
+        rewrite(plan, relation -> {
+            reads.add(relation.getRead());
             return relation;
         });
-        return List.copyOf(result);
+        var overlays = selectOverlays.apply(List.copyOf(reads));
+        return overlays.isEmpty() ? new BoundExecutionPlan(planBytes, List.of()) : bind(plan, overlays);
     }
 
-    /** Replaces only requested physical read outputs, preserving every downstream ordinal and expression. */
-    public static BoundExecutionPlan bind(byte[] planBytes, List<ReadOverlay> overlays) {
-        if (overlays.isEmpty()) return new BoundExecutionPlan(planBytes, List.of());
+    private static BoundExecutionPlan bind(Plan plan, List<ReadOverlay> overlays) {
         Map<Integer, List<ReadOverlay>> byRead = new HashMap<>();
         for (var overlay : overlays) {
             var values = byRead.computeIfAbsent(overlay.readOrdinal(), ignored -> new ArrayList<>());
@@ -73,7 +75,7 @@ public final class GeneratedValuesOverlayPlanBinder {
         }
         List<OperatorBinding> bindings = new ArrayList<>();
         var ordinal = new java.util.concurrent.atomic.AtomicInteger();
-        Plan rewritten = rewrite(parse(planBytes), relation -> {
+        Plan rewritten = rewrite(plan, relation -> {
             var requested = byRead.get(ordinal.getAndIncrement());
             return requested == null ? relation : bindRead(relation.getRead(), requested, bindings);
         });

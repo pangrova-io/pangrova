@@ -1,4 +1,5 @@
 package org.pangrova.coordinator.generation.read;
+import io.substrait.proto.ReadRel;
 import org.pangrova.planner.substrait.NativeDatasetSchemaCompiler;
 import org.pangrova.coordinator.generation.read.GeneratedValueGenerationBindingResolver.ResolvedRead;
 
@@ -40,9 +41,15 @@ public final class GeneratedValueReadResolver {
         stageSplits.forEach(org.pangrova.generation.codec.source.GenerationSourceSplitValidator::validateSplit);
         var bySource = stageSplits.stream().collect(Collectors.groupingBy(DataSplit::getSourceId));
         var bindings = selectedBindings(sources);
+        return GeneratedValuesOverlayPlanBinder.resolve(plan,
+                reads -> selectOverlays(actor, reads, bySource, bindings));
+    }
+
+    private List<GeneratedValuesOverlayPlanBinder.ReadOverlay> selectOverlays(QuerySession actor,
+            List<ReadRel> reads, Map<String, List<DataSplit>> bySource,
+            Map<QualifiedTableName, ConnectorReadBinding> bindings) {
         var overlays = new ArrayList<GeneratedValuesOverlayPlanBinder.ReadOverlay>();
         Map<PublicationRead, Optional<ResolvedRead>> publications = new HashMap<>();
-        var reads = GeneratedValuesOverlayPlanBinder.reads(plan);
         for (int ordinal = 0; ordinal < reads.size(); ordinal++) {
             var read = reads.get(ordinal);
             if (!read.hasNamedTable() || read.getNamedTable().getNamesCount() != 3) continue;
@@ -55,7 +62,7 @@ public final class GeneratedValueReadResolver {
             }
             bindRead(actor, read, ordinal, table, sourceSplits, binding, publications, overlays);
         }
-        return GeneratedValuesOverlayPlanBinder.bind(plan, overlays);
+        return overlays;
     }
 
     private static Map<QualifiedTableName, ConnectorReadBinding> selectedBindings(
@@ -73,7 +80,7 @@ public final class GeneratedValueReadResolver {
         return bindings;
     }
 
-    private void bindRead(QuerySession actor, io.substrait.proto.ReadRel read, int ordinal,
+    private void bindRead(QuerySession actor, ReadRel read, int ordinal,
                           QualifiedTableName table, List<DataSplit> splits, ConnectorReadBinding binding,
                           Map<PublicationRead, Optional<ResolvedRead>> publications,
                           List<GeneratedValuesOverlayPlanBinder.ReadOverlay> overlays) {
@@ -110,7 +117,7 @@ public final class GeneratedValueReadResolver {
 
     private record PublicationRead(QualifiedTableName table, String column, String snapshot) {}
 
-    private static void requireSchema(io.substrait.proto.ReadRel read,
+    private static void requireSchema(ReadRel read,
                                       org.pangrova.connector.api.metadata.table.ConnectorTableMetadata table) {
         var actual = NativeDatasetSchemaCompiler.compile(table.typedColumns()).schema();
         if (!read.hasBaseSchema() || !(read.getBaseSchema().equals(actual)
@@ -149,7 +156,7 @@ public final class GeneratedValueReadResolver {
         return true;
     }
 
-    private static boolean isOutput(io.substrait.proto.ReadRel read, String target) {
+    private static boolean isOutput(ReadRel read, String target) {
         int field = read.getBaseSchema().getNamesList().indexOf(target);
         return field >= 0 && (!read.getCommon().hasEmit()
                 || read.getCommon().getEmit().getOutputMappingList().contains(field));
