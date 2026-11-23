@@ -66,20 +66,33 @@ public final class IdempotencyKeyRegistry {
     private final class Expiration implements Delayed {
         private final Key key;
         private final Entry entry;
+        private final long deadlineMillis;
 
         private Expiration(Key key, Entry entry) {
             this.key = key;
             this.entry = entry;
+            this.deadlineMillis = entry.expiresAtMillis;
         }
 
         @Override
         public long getDelay(TimeUnit unit) {
-            return unit.convert(entry.expiresAtMillis - clock.millis(), TimeUnit.MILLISECONDS);
+            return unit.convert(deadlineMillis - clock.millis(), TimeUnit.MILLISECONDS);
         }
 
         @Override
         public int compareTo(Delayed other) {
-            return Long.compare(entry.expiresAtMillis, ((Expiration) other).entry.expiresAtMillis);
+            return Long.compare(deadlineMillis, ((Expiration) other).deadlineMillis);
+        }
+
+        /** Heap ordering groups coincident deadlines. Removal still checks the exact key and entry. */
+        @Override
+        public boolean equals(Object other) {
+            return other instanceof Expiration expiration && deadlineMillis == expiration.deadlineMillis;
+        }
+
+        @Override
+        public int hashCode() {
+            return Long.hashCode(deadlineMillis);
         }
     }
 

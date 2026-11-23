@@ -107,6 +107,28 @@
         <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
     </Match>
 
+    <Match>
+        <Class name="org.pangrova.coordinator.query.execution.split.QuerySplit"/>
+        <Field name="data" type="org.pangrova.protocol.v2.DataSplit"/>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+    </Match>
+
+    <Match>
+        <Class name="org.pangrova.coordinator.generation.read.GeneratedValueGenerationBindingResolver$ResolvedRead" />
+        <Field name="artifact" type="org.pangrova.protocol.v2.ArtifactBinding" />
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2" />
+    </Match>
+    <Match>
+        <Class name="org.pangrova.coordinator.generation.read.GeneratedValueGenerationBindingResolver$ResolvedRead" />
+        <Field name="resources" type="org.pangrova.protocol.v2.OperatorResourceRequirement" />
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2" />
+    </Match>
+    <Match>
+        <Class name="org.pangrova.coordinator.worker.WorkerInfo$AdmittedInventory" />
+        <Field name="inventory" type="org.pangrova.protocol.v2.CapabilityInventory" />
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2" />
+    </Match>
+
     <!-- Capability signatures are public SHA-256 contract identifiers, never secret keys. -->
     <Match>
         <Class name="org.pangrova.protocol.capability.BuiltInCapabilityCatalog"/>
@@ -2503,7 +2525,7 @@
          trackers across concurrent stage handlers. Copies would lose terminal events. -->
     <Match>
         <Class name="org.pangrova.coordinator.query.execution.dispatch.dag.runtime.DAGExecutionState" />
-        <Field name="~(cancelled|completion|dispatchFailures|dispatched|results|runningStageCount)" />
+        <Field name="~(cancelled|completion|dispatchFailures|dispatched|downstreamWakeups|results|runningStageCount)" />
         <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2" />
     </Match>
     <!-- Audited Coordinator ownership findings: exact class/field/type matches. -->
