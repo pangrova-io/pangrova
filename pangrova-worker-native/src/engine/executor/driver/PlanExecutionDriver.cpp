@@ -41,7 +41,7 @@ void PlanExecutionDriver::executeVeloxPlan() {
     }
     execution = prepareExecution(span.get());
     if (!execution || !publishRunner(execution)) return;
-    execution->runner->start();
+    execution->runner->start(config_.splits);
     if (dispatchExecution(execution)) completion.dismiss();
   } catch (...) {
     auto failure = std::current_exception();
@@ -107,7 +107,7 @@ PlanExecutionDriver::prepareExecution(observability::SpanScope* span) {
   if (cancelled_.load()) return nullptr;
   execution->runner = std::make_shared<velox::VeloxTaskRunner>(
       makeRunnerConfig(config_, converter, execution->spillPolicy), plan,
-      config_.splits, output_queue_, shuffle_queue_,
+      output_queue_, shuffle_queue_,
       converter.scanNodeSplitOverrides());
   return execution;
 }

@@ -152,6 +152,9 @@ task request for JNI. Native decodes the enclosed Substrait plan once per task.
 Retrieval preparation checks the plan version before any artifact lookup.
 Velox conversion uses the same parsed plan. Ordinary scan splits stay in the
 task configuration. Retrieval preparation owns only the overrides and their leases.
+Native validates unique split identities when admitting the task. Velox borrows
+those splits for initialization and attaches them to scan leaves without
+rebuilding a duplicate split list.
 
 The SDK-to-wire normalizer walks only Protobuf fields whose descriptors can
 contain Fetch, hash join or merge join relations, including subqueries. It

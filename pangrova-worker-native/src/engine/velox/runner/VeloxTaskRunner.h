@@ -185,7 +185,6 @@ class VeloxTaskRunner
   VeloxTaskRunner(
       const VeloxTaskRunnerConfig& config,
       std::shared_ptr<const facebook::velox::core::PlanNode> plan,
-      const std::vector<split::SplitConfig>& splits,
       pangrova::executor::OutputQueue* output_queue,
       pangrova::shuffle::SerializedShuffleQueue* shuffle_queue = nullptr,
       std::unordered_map<std::string, std::vector<split::SplitConfig>>
@@ -197,8 +196,9 @@ class VeloxTaskRunner
   VeloxTaskRunner(const VeloxTaskRunner&) = delete;
   VeloxTaskRunner& operator=(const VeloxTaskRunner&) = delete;
 
-  // Start Velox task execution.
-  void start();
+  // Initializes the task from the admitted, unique split identities.
+  // The vector is borrowed only during initialization.
+  void start(const std::vector<split::SplitConfig>& splits);
 
   // Cancel the running Velox task.
   void cancel();
@@ -275,7 +275,6 @@ class VeloxTaskRunner
 
   const VeloxTaskRunnerConfig config_;
   std::shared_ptr<const facebook::velox::core::PlanNode> plan_;
-  std::vector<split::SplitConfig> splits_;
   std::atomic<uint64_t> index_splits_evaluated_{0};
   std::atomic<uint64_t> index_splits_skipped_{0};
   std::unordered_map<std::string, std::vector<split::SplitConfig>>

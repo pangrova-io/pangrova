@@ -207,7 +207,7 @@ struct TaskExecutorConfig {
 // Orchestrator: composes lifecycle, execution driver, and output routing.
 class TaskExecutor {
  public:
-  explicit TaskExecutor(const TaskExecutorConfig& config);
+  explicit TaskExecutor(TaskExecutorConfig config);
   ~TaskExecutor();
 
   // Non-copyable, non-movable.

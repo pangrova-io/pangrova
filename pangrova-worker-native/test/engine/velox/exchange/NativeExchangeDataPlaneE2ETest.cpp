@@ -161,8 +161,7 @@ std::filesystem::path tlsResource(const char* filename) {
 
 std::shared_ptr<VeloxTaskRunner> makeConsumer(
     executor::OutputQueue* output_queue,
-    const facebook::velox::core::PlanNodePtr& probe = nullptr,
-    std::vector<split::SplitConfig> splits = {}) {
+    const facebook::velox::core::PlanNodePtr& probe = nullptr) {
   const auto converter_registry =
       facebook::velox::exec::FunctionRegistrySnapshot::capture();
   VeloxPlanConverter converter(converter_registry);
@@ -186,7 +185,7 @@ std::shared_ptr<VeloxTaskRunner> makeConsumer(
   config.query_id = "query-native-e2e";
   config.max_drivers = 2;
   return std::make_shared<VeloxTaskRunner>(
-      config, plan, std::move(splits), output_queue);
+      config, plan, output_queue);
 }
 
 std::shared_ptr<PangrovaExchangeSource> makeDirectSource(
@@ -305,7 +304,7 @@ TEST_F(NativeExchangeDataPlaneE2ETest, EmptyPartitionTraversesFlightAndVelox) {
   executor::OutputQueue outputQueue(8);
   auto runner = makeConsumer(&outputQueue);
 
-  ASSERT_NO_THROW(runner->start());
+  ASSERT_NO_THROW(runner->start({}));
   EXPECT_TRUE(runner->waitForCompletion()) << runner->errorMessage();
   EXPECT_TRUE(runner->isFinished());
 
@@ -372,7 +371,7 @@ TEST_F(NativeExchangeDataPlaneE2ETest, NonEmptyBatchTraversesFlightAndVelox) {
 
   executor::OutputQueue outputQueue(8);
   auto runner = makeConsumer(&outputQueue);
-  ASSERT_NO_THROW(runner->start());
+  ASSERT_NO_THROW(runner->start({}));
   ASSERT_TRUE(runner->waitForCompletion()) << runner->errorMessage();
   ASSERT_TRUE(runner->isFinished());
 
@@ -434,7 +433,7 @@ TEST_F(NativeExchangeDataPlaneE2ETest, ReportsWaitForTheActualFlightProducer) {
   };
   executor::OutputQueue outputQueue(8);
   auto runner = makeConsumer(&outputQueue);
-  ASSERT_NO_THROW(runner->start());
+  ASSERT_NO_THROW(runner->start({}));
   auto completion = runner->startAsync();
   SCOPE_EXIT {
     if (!runner->isFinished()) runner->cancel();
@@ -525,8 +524,8 @@ TEST_F(NativeExchangeDataPlaneE2ETest, PublishedBuildFiltersTheLocalJoinProbe) {
   registry.registerSource(kConsumerHandle, kPlanNodeId, kExchangeId, localEndpoint(port));
   registry.sealInput(kConsumerHandle, kPlanNodeId, kExchangeId, 1);
   executor::OutputQueue output(8);
-  auto runner = makeConsumer(&output, probe, {file});
-  runner->start();
+  auto runner = makeConsumer(&output, probe);
+  runner->start({file});
   ASSERT_TRUE(runner->waitForCompletion()) << runner->errorMessage();
   const auto report_stats = runner->collectTaskStats();
   ASSERT_TRUE(report_stats.has_value());
@@ -667,7 +666,7 @@ TEST_F(NativeExchangeDataPlaneE2ETest, CompressedBatchTraversesFlightAndVelox) {
 
   executor::OutputQueue outputQueue(8);
   auto runner = makeConsumer(&outputQueue);
-  ASSERT_NO_THROW(runner->start());
+  ASSERT_NO_THROW(runner->start({}));
   ASSERT_TRUE(runner->waitForCompletion()) << runner->errorMessage();
   facebook::velox::RowVectorPtr output;
   int64_t rows = 0;

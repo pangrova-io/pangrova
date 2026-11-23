@@ -65,8 +65,8 @@ class NonDeterministicExpressionExecutionTest : public CanonicalPublishedTaskTes
     config.session_properties[core::QueryConfig::kExprDedupNonDeterministic] = "true";
     config.session_properties["velox.expression.dedup_non_deterministic"] = "true";
     runner_ = std::make_shared<VeloxTaskRunner>(
-        config, plan, std::vector<split::SplitConfig>{}, &queue_);
-    runner_->start();
+        config, plan, &queue_);
+    runner_->start({});
   }
 
   static core::TypedExprPtr randomExpression() {

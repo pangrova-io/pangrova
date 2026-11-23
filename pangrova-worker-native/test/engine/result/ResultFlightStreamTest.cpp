@@ -149,8 +149,8 @@ class ResultFlightStreamTest : public ::testing::Test {
     config.is_result_task = true;
     config.serialized_output_buffer_threshold_bytes = windowBytes;
     runner_ = std::make_shared<pangrova::velox::VeloxTaskRunner>(config, source,
-        std::vector<split::SplitConfig>{}, nullptr);
-    runner_->start();
+        nullptr);
+    runner_->start({});
     if (pause) {
       auto pending = runner_->veloxTask()->requestPause();
       runner_pause_owned_ = true;

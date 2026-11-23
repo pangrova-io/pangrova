@@ -5,7 +5,6 @@
 #include <chrono>
 #include <filesystem>
 #include <limits>
-#include <set>
 #include <stdexcept>
 #include <unordered_set>
 #include <vector>
@@ -159,14 +158,12 @@ void scheduleDeferredOutput(
 VeloxTaskRunner::VeloxTaskRunner(
     const VeloxTaskRunnerConfig& config,
     std::shared_ptr<const facebook::velox::core::PlanNode> plan,
-    const std::vector<split::SplitConfig>& splits,
     pangrova::executor::OutputQueue* output_queue,
     pangrova::shuffle::SerializedShuffleQueue* shuffle_queue,
     std::unordered_map<std::string, std::vector<split::SplitConfig>>
         scan_split_overrides)
     : config_(config),
       plan_(std::move(plan)),
-      splits_(splits),
       scan_split_overrides_(std::move(scan_split_overrides)),
       output_queue_(output_queue),
       shuffle_queue_(shuffle_queue) {
@@ -201,7 +198,7 @@ VeloxTaskRunner::~VeloxTaskRunner() {
   cancel();
 }
 
-void VeloxTaskRunner::start() {
+void VeloxTaskRunner::start(const std::vector<split::SplitConfig>& splits) {
   if (const auto ordinal = config_.build_key_ordinal; ordinal &&
       (!config_.is_shuffle_task || *ordinal >= plan_->outputType()->size() ||
        plan_->outputType()->childAt(*ordinal)->kind() != facebook::velox::TypeKind::BIGINT)) {
@@ -861,34 +858,11 @@ void VeloxTaskRunner::start() {
         "Retrieval split override references an unknown scan node");
   }
 
-  // Deduplicate splits by (split_id, table_name, file_path, start_offset, length).
-  // When a plan has multiple scan nodes for the same table (e.g. UNION ALL),
-  // the coordinator may send one split per scan node — all pointing to the
-  // same file.  Without dedup, the routing loop below broadcasts each
-  // duplicate to every matching leaf node, causing N× data multiplication.
-  // Note: start_offset and length are included in the key to avoid
-  // over-deduplicating partitioned tables where multiple splits share
-  // the same file path but cover different byte ranges.
-  // split_id is included to prevent over-deduplication in self-join
-  // scenarios where the same file appears on both sides of the join
-  // with different split_ids but an empty table_name.
-  std::vector<split::SplitConfig> uniqueSplits;
-  {
-    std::set<std::tuple<std::string, std::string, std::string, int64_t, int64_t>> seen;
-    for (const auto& s : splits_) {
-      auto key = std::make_tuple(s.split_id, s.table_name, s.file_path,
-                                 s.start_offset, s.length);
-      if (seen.insert(key).second) {
-        uniqueSplits.push_back(s);
-      }
-    }
-  }
-
   // Route splits to scan nodes by matching split table name to scan node
   // table name.  Supports both exact match and suffix match (the split may
   // carry "schema.table" while the scan node only has "table").
   // If no match is found, broadcast to all leaf nodes as fallback.
-  for (const auto& splitConfig : uniqueSplits) {
+  for (const auto& splitConfig : splits) {
     bool index_evaluated = false;
     if (!index::IndexHintFilter::shouldKeepTypedSplit(
             splitConfig.index_hints.get(), splitConfig.file_path, &index_evaluated)) {

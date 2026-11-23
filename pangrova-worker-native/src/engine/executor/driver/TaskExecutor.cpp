@@ -7,6 +7,7 @@
 
 #include <chrono>
 #include <stdexcept>
+#include <utility>
 
 #include "engine/cache/SemanticResultCache.h"
 #include "jni/RuntimeInitializer.h"
@@ -23,14 +24,14 @@ namespace pangrova::executor {
 const std::string& TaskExecutor::callbackContext() const { return config_.callback_context; }
 bool TaskExecutor::isResultTask() const { return config_.is_result_task; }
 
-TaskExecutor::TaskExecutor(const TaskExecutorConfig& config)
-    : config_(config),
-      router_(config.num_shuffle_partitions,
-              config.output_queue_capacity,
-              config.shuffle_queue_capacity,
-              static_cast<size_t>(config.resource_limit.max_shuffle_buffer_bytes),
-              config.queue_poll_timeout),
-      trace_id_(config.trace_id) {
+TaskExecutor::TaskExecutor(TaskExecutorConfig config)
+    : config_(std::move(config)),
+      router_(config_.num_shuffle_partitions,
+              config_.output_queue_capacity,
+              config_.shuffle_queue_capacity,
+              static_cast<size_t>(config_.resource_limit.max_shuffle_buffer_bytes),
+              config_.queue_poll_timeout),
+      trace_id_(config_.trace_id) {
   execution_driver_ = std::make_unique<PlanExecutionDriver>(
       config_, lifecycle_, router_.outputQueue(),
       router_.serializedShuffleQueue(), metrics_collector_);

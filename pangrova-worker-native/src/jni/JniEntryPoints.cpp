@@ -139,7 +139,7 @@ std::shared_ptr<pangrova::executor::TaskExecutor> constructTaskExecutor(
       throw;
     }
   }
-  return std::make_shared<pangrova::executor::TaskExecutor>(config);
+  return std::make_shared<pangrova::executor::TaskExecutor>(std::move(config));
 }
 
 int64_t createTaskExecutor(JNIEnv* env, protocol::v2::TaskRequest request,
