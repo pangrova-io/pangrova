@@ -24,6 +24,7 @@ import org.pangrova.planner.security.ColumnMaskApplier;
 import org.pangrova.planner.security.RowFilterApplier;
 import org.pangrova.planner.stability.PlanHasher;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import org.pangrova.security.api.authorization.AccessControl;
 import org.pangrova.security.api.identity.UserIdentity;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.TableModify;
@@ -342,12 +343,24 @@ public final class PlannedQuery {
         return transformed == plan ? this : withPlan(transformed);
     }
 
+    public PlannedQuery applyAuthorizedMasks(ColumnMaskApplier applier,
+            AccessControl.ReadAuthorization authorization) {
+        RelNode transformed = applier.applyAuthorizedMasks(plan, authorization);
+        return transformed == plan ? this : withPlan(transformed);
+    }
+
     /**
      * Applies row-level security filters and returns the transformed query.
      * Delegates to the applier which operates on the internal RelNode.
      */
     public PlannedQuery applyRowFilters(RowFilterApplier applier, UserIdentity identity) {
         RelNode transformed = applier.applyRowFilters(plan, identity);
+        return transformed == plan ? this : withPlan(transformed);
+    }
+
+    public PlannedQuery applyAuthorizedFilters(RowFilterApplier applier,
+            AccessControl.ReadAuthorization authorization) {
+        RelNode transformed = applier.applyAuthorizedFilters(plan, authorization);
         return transformed == plan ? this : withPlan(transformed);
     }
 

@@ -3,6 +3,7 @@ package org.pangrova.security.policy.authorization;
 import org.pangrova.security.api.exception.AuthorizationDeniedException;
 import org.pangrova.security.api.authorization.AccessControl;
 import org.pangrova.security.api.identity.UserIdentity;
+import org.pangrova.security.api.mask.TableColumnMasks;
 import org.pangrova.file.api.enums.FileSpaceType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,7 +21,8 @@ import org.pangrova.security.api.rowfilter.RowFilterSource;
 
 /**
  * Current authorization from the authoritative role catalog and privilege store.
- * Every check reads current grants; storage failures never reuse an earlier permission.
+ * Direct checks consult current grants. A protected plan reads one set of roles
+ * and grants during its authorization pass. Storage failures prevent admission.
  * Identity groups remain distinct from explicitly resolved Pangrova roles.
  */
 public final class DynamicRbacAccessControl implements AccessControl {
@@ -48,6 +50,55 @@ public final class DynamicRbacAccessControl implements AccessControl {
             throw new AuthorizationDeniedException("Authenticated principal is required");
         }
         return roleStore.effectiveRoles(user.principal(), user.groups());
+    }
+
+    @Override
+    public ReadAuthorization beginReadAuthorization(UserIdentity user) {
+        return new RbacReadAuthorization(user);
+    }
+
+    private final class RbacReadAuthorization implements ReadAuthorization {
+        private final UserIdentity user;
+        private Set<String> roles;
+        private List<PrivilegeGrant> grants;
+
+        private RbacReadAuthorization(UserIdentity user) {
+            this.user = user;
+        }
+
+        private Set<String> roles() {
+            if (roles == null) {
+                roles = Set.copyOf(effectiveRoles(user));
+            }
+            return roles;
+        }
+
+        private List<PrivilegeGrant> grants() {
+            if (grants == null) {
+                grants = List.copyOf(resolveGrants(roles()));
+            }
+            return grants;
+        }
+
+        @Override
+        public void requireSelect(String catalog, String schema, String table) {
+            requireTableGrant(user, grants(), catalog, schema, table, Privilege.SELECT);
+        }
+
+        @Override
+        public void requireUnfilteredMetadata(String catalog, String schema, String table) {
+            requireMetadataRead(user, roles(), grants(), catalog, schema, table);
+        }
+
+        @Override
+        public Optional<String> rowFilter(String catalog, String schema, String table) {
+            return rlsFilter.getFilter(user, roles(), catalog, schema, table);
+        }
+
+        @Override
+        public TableColumnMasks columnMasks(String catalog, String schema, String table) {
+            return maskProcessor.getMasks(user, roles(), catalog, schema, table);
+        }
     }
 
     @Override
@@ -186,7 +237,12 @@ public final class DynamicRbacAccessControl implements AccessControl {
     @Override
     public void checkCanReadTableMetadata(UserIdentity user, String catalog, String schema, String table) {
         Set<String> roles = effectiveRoles(user);
-        requireTableGrant(user, resolveGrants(roles), catalog, schema, table, Privilege.SELECT);
+        requireMetadataRead(user, roles, resolveGrants(roles), catalog, schema, table);
+    }
+
+    private void requireMetadataRead(UserIdentity user, Set<String> roles, List<PrivilegeGrant> grants,
+            String catalog, String schema, String table) {
+        requireTableGrant(user, grants, catalog, schema, table, Privilege.SELECT);
         if (rlsFilter.getFilter(user, roles, catalog, schema, table).isPresent()
                 || maskProcessor.hasApplicableMask(user, roles, catalog, schema, table)) {
             throw new AuthorizationDeniedException(
@@ -297,7 +353,7 @@ public final class DynamicRbacAccessControl implements AccessControl {
     }
 
     @Override
-    public org.pangrova.security.api.mask.TableColumnMasks getColumnMasks(
+    public TableColumnMasks getColumnMasks(
             UserIdentity user, String catalog, String schema, String table) {
         return maskProcessor.getMasks(user, effectiveRoles(user), catalog, schema, table);
     }

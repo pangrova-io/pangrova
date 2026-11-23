@@ -90,6 +90,8 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
+实施批次 165 在一次受保护的 SQL 编译内共用主体的有效角色和授权集合。SELECT、列掩码和行过滤都使用这份角色证据，策略仍从各自的权威存储读取。真实双 Worker 单表查询中，PostgreSQL 角色成员 SELECT 从每次 3 条降至 1 条。调用跟踪确认了原来三条请求的来源，正式回归断言每次只读一次。新的授权编译能看到角色和授权的撤销。启动时校验受保护的规划使用同一个策略提供者。117 项定向 Java 用例、93 项端到端用例、Checkstyle 及 152 模块静态检查通过。角色清单为 `211d67ad006c91a52540dbcfcbdb63be0cb775c2c96849d9f9823d01fc5ec61f`。
+
 实施批次 164 合并一次受控表物理身份校验中重复的目录部署读取。普通物理扫描的形状识别使用编译时已选绑定，真正展开连接器派生表时校验当前所有权。双 Worker 单表 Iceberg 查询的 PostgreSQL 目录定义 SELECT 从 10 次降至 7 次，调用跟踪分别确认两次身份校验重复和一次扫描形状判断。真实回归约束每次执行的目录读取上限，并验证目录版本变化会拒绝旧授权。50 项规划与目录测试、95 项真实端到端用例、Checkstyle 及 152 模块静态检查通过。角色清单为 `812a84e28745f72a3ea5217ce4e89f65208d1555f6f66465ff2e77aba6f657f5`。
 
 实施批次 163 把执行所有权释放中的数据库时间和待恢复写入判断纳入一次 fenced 退役语句。先取得行锁，再以新的 PostgreSQL 语句快照确认当前租约和写入状态。真实 PostgreSQL 各跑五次单输出查询和八个扫描任务的分布式查询。两组独立的写 journal SELECT 都从五次降至零，新的退役语句各执行五次。每次有效释放从四条数据库语句降至两条。用实际并发事务验证行锁等待期间记录的写意图仍可由后继 owner 接管。35 项 PostgreSQL 定向测试、79 模块静态检查和 18 项端到端用例通过。端到端用例覆盖写冲突与回滚、Paimon/Lance 写入、Flight 断连及实际 Worker 重启。发行包清单为 `5d349aa986d94eebc77ce0dcfdef5c025d035fb4e47309ada0f84e9b47fa4d90`。 [PostgreSQL 16 语句快照](https://www.postgresql.org/docs/16/transaction-iso.html#XACT-READ-COMMITTED) · [PostgreSQL 16 写入 CTE](https://www.postgresql.org/docs/16/queries-with.html#QUERIES-WITH-MODIFYING)

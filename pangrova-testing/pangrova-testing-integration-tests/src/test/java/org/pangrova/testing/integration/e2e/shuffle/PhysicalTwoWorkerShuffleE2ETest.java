@@ -246,11 +246,17 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
         try (var connection = stateStoreDataSource().getConnection(); var statement = connection.createStatement()) {
             statement.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public");
         }
-        long before = catalogDescriptorCalls();
+        String catalogTemplate = "SELECT name, type, provider, state, properties, comment, allowed_tenants,"
+                + "%FROM catalog_definitions WHERE name=$1";
+        String roleTemplate = "SELECT registered.role_name FROM pangrova_roles registered%";
+        long catalogBefore = statementCalls(catalogTemplate);
+        long rolesBefore = statementCalls(roleTemplate);
         String sql = decimalStateSql(decimalOrders);
         var result = executeWithScanAggregates(sql, "PartialAggregation");
-        assertThat(catalogDescriptorCalls() - before).as("catalog deployment reads for one physical query")
-                .isLessThanOrEqualTo(7);
+        assertThat(statementCalls(catalogTemplate) - catalogBefore)
+                .as("catalog deployment reads for one physical query").isLessThanOrEqualTo(7);
+        assertThat(statementCalls(roleTemplate) - rolesBefore)
+                .as("one effective-role lookup during protected query planning").isOne();
         assertThat(result.scannedRows()).isEqualTo(800);
         assertThat(result.exchangeRows()).isPositive().isLessThan(result.scannedRows());
         assertThat(result.exchangeBytes()).isPositive();
@@ -280,15 +286,14 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
         });
     }
 
-    private static long catalogDescriptorCalls() throws SQLException {
+    private static long statementCalls(String template) throws SQLException {
         try (var connection = stateStoreDataSource().getConnection(); var statement = connection.prepareStatement("""
                 SELECT COALESCE(SUM(calls), 0)
                 FROM public.pg_stat_statements
                 WHERE dbid=(SELECT oid FROM pg_database WHERE datname=current_database())
                   AND toplevel AND query LIKE ?
                 """)) {
-            statement.setString(1, "SELECT name, type, provider, state, properties, comment, allowed_tenants,"
-                    + "%FROM catalog_definitions WHERE name=$1");
+            statement.setString(1, template);
             try (var result = statement.executeQuery()) {
                 assertThat(result.next()).isTrue();
                 return result.getLong(1);

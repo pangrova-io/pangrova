@@ -65,6 +65,11 @@ public final class ColumnMaskApplier {
                 physicalToLogical);
     }
 
+    /** Verifies the policy provider against the authority that admitted the query. */
+    public boolean usesAuthority(AccessControl authority) {
+        return accessControl == authority;
+    }
+
     /** Uses logical Dynamic Table policy identity for this query's physical scans. */
     public ColumnMaskApplier withAuthorityMapping(
             java.util.Map<QualifiedTableName, QualifiedTableName> mapping) {
@@ -80,32 +85,36 @@ public final class ColumnMaskApplier {
         if (identity == null) {
             return relNode;
         }
-        return applyMasksRecursive(relNode, identity, new java.util.HashMap<>());
+        return applyAuthorizedMasks(relNode, accessControl.beginReadAuthorization(identity));
     }
 
-    private RelNode applyMasksRecursive(RelNode node, UserIdentity identity,
+    public RelNode applyAuthorizedMasks(RelNode relNode, AccessControl.ReadAuthorization authorization) {
+        return applyMasksRecursive(relNode, authorization, new java.util.HashMap<>());
+    }
+
+    private RelNode applyMasksRecursive(RelNode node, AccessControl.ReadAuthorization authorization,
             Map<QualifiedTableName, TableColumnMasks> tableMasks) {
         if (node instanceof org.apache.calcite.rel.logical.LogicalTableModify modify
                 && MutationPolicyInputs.modifiesExistingRows(modify)) {
             return MutationPolicyInputs.columnMasks(modify,
-                    input -> applyMasksRecursive(input, identity, tableMasks),
-                    scan -> applyMasksToScan(scan, identity, tableMasks));
+                    input -> applyMasksRecursive(input, authorization, tableMasks),
+                    scan -> applyMasksToScan(scan, authorization, tableMasks));
         }
         if (node instanceof TableScan scan) {
-            return applyMasksToScan(scan, identity, tableMasks);
+            return applyMasksToScan(scan, authorization, tableMasks);
         }
         return PlanNodeTransform.replaceInputs(node,
-                input -> applyMasksRecursive(input, identity, tableMasks));
+                input -> applyMasksRecursive(input, authorization, tableMasks));
     }
 
-    private RelNode applyMasksToScan(TableScan scan, UserIdentity identity,
+    private RelNode applyMasksToScan(TableScan scan, AccessControl.ReadAuthorization authorization,
             Map<QualifiedTableName, TableColumnMasks> tableMasks) {
         List<RelDataTypeField> fields = scan.getRowType().getFieldList();
         if (fields.isEmpty()) return scan;
         QualifiedTableName ref = PlanNodeTransform.extractTableRef(scan);
         QualifiedTableName authority = policyTable(ref);
-        var masks = tableMasks.computeIfAbsent(authority, table -> accessControl.getColumnMasks(
-                identity, table.catalog(), table.schema(), table.table()));
+        var masks = tableMasks.computeIfAbsent(authority, table -> authorization.columnMasks(
+                table.catalog(), table.schema(), table.table()));
         RexBuilder rexBuilder = scan.getCluster().getRexBuilder();
 
         List<RexNode> projects = new ArrayList<>();

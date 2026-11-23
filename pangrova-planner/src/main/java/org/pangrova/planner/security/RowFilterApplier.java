@@ -67,6 +67,11 @@ public final class RowFilterApplier {
                 physicalToLogical);
     }
 
+    /** Verifies the policy provider against the authority that admitted the query. */
+    public boolean usesAuthority(AccessControl authority) {
+        return accessControl == authority;
+    }
+
     /** Uses logical Dynamic Table policy identity for this query's physical scans. */
     public RowFilterApplier withAuthorityMapping(
             Map<QualifiedTableName, QualifiedTableName> mapping) {
@@ -84,31 +89,35 @@ public final class RowFilterApplier {
             throw new AuthenticationRequiredException(
                     "Row-level security requires an authenticated identity");
         }
-        Map<QualifiedTableName, Optional<String>> filters = new HashMap<>();
-        return applyFiltersRecursive(relNode, identity, filters);
+        return applyAuthorizedFilters(relNode, accessControl.beginReadAuthorization(identity));
     }
 
-    private RelNode applyFiltersRecursive(RelNode node, UserIdentity identity,
+    public RelNode applyAuthorizedFilters(RelNode relNode, AccessControl.ReadAuthorization authorization) {
+        Map<QualifiedTableName, Optional<String>> filters = new HashMap<>();
+        return applyFiltersRecursive(relNode, authorization, filters);
+    }
+
+    private RelNode applyFiltersRecursive(RelNode node, AccessControl.ReadAuthorization authorization,
             Map<QualifiedTableName, Optional<String>> filters) {
         if (node instanceof org.apache.calcite.rel.logical.LogicalTableModify modify
                 && MutationPolicyInputs.modifiesExistingRows(modify)) {
             return MutationPolicyInputs.rowFilters(modify,
-                    input -> applyFiltersRecursive(input, identity, filters),
-                    scan -> applyFilterToScan(scan, identity, filters));
+                    input -> applyFiltersRecursive(input, authorization, filters),
+                    scan -> applyFilterToScan(scan, authorization, filters));
         }
         if (node instanceof TableScan scan) {
-            return applyFilterToScan(scan, identity, filters);
+            return applyFilterToScan(scan, authorization, filters);
         }
         return PlanNodeTransform.replaceInputs(node,
-                input -> applyFiltersRecursive(input, identity, filters));
+                input -> applyFiltersRecursive(input, authorization, filters));
     }
 
-    private RelNode applyFilterToScan(TableScan scan, UserIdentity identity,
+    private RelNode applyFilterToScan(TableScan scan, AccessControl.ReadAuthorization authorization,
             Map<QualifiedTableName, Optional<String>> filters) {
         QualifiedTableName ref = PlanNodeTransform.extractTableRef(scan);
         QualifiedTableName authority = physicalToLogical.getOrDefault(ref, ref);
         Optional<String> filter = filters.computeIfAbsent(authority,
-                table -> accessControl.getRowFilter(identity, table.catalog(), table.schema(), table.table()));
+                table -> authorization.rowFilter(table.catalog(), table.schema(), table.table()));
         if (observations != null) {
             observations.rowFilter(ref, filter);
         }
