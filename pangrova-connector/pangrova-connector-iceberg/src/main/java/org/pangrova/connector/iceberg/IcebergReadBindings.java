@@ -1,6 +1,7 @@
 package org.pangrova.connector.iceberg;
 
 import org.apache.iceberg.HasTableOperations;
+import org.apache.iceberg.PartitionSpecParser;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
@@ -13,7 +14,6 @@ import org.pangrova.connector.iceberg.handle.IcebergFileTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergPartitionTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergManifestTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
-import org.pangrova.connector.iceberg.handle.IcebergTableHandleFactory;
 import org.pangrova.connector.api.metadata.table.ConnectorReadBinding;
 import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
 import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
@@ -84,14 +84,16 @@ final class IcebergReadBindings {
             Consumer<Optional<TableIdentity>> beforeSnapshotBinding) {
         Table table = tables.resolveTable(handle);
         var capturedMetadata = metadata(table);
+        String currentSchemaJson = null;
         if (beforeSnapshotBinding != null) {
-            beforeSnapshotBinding.accept(Optional.of(liveIdentity(capturedMetadata)));
+            currentSchemaJson = SchemaParser.toJson(capturedMetadata.schema());
+            beforeSnapshotBinding.accept(Optional.of(IcebergReadSchema.identity(capturedMetadata, currentSchemaJson)));
         }
         Snapshot snapshot = selectedSnapshot(table, handle);
         String identity = identity(table, snapshot);
         var properties = new LinkedHashMap<>(table.properties());
         properties.put(IcebergTableHandle.SOURCE_IDENTITY_PROPERTY, identity);
-        var readSchema = IcebergReadSchema.resolve(handle, table);
+        var readSchema = IcebergReadSchema.resolve(handle, table, capturedMetadata, currentSchemaJson);
         var declaration = IcebergCatalogTables.readDeclaration(handle, readSchema);
         var schema = readSchema.schema();
         var schemaIdentity = declaration.declarationEvidence() == TableDeclarationEvidence.EXACT
@@ -100,11 +102,10 @@ final class IcebergReadBindings {
                         org.pangrova.connector.api.enums.FieldIdStability
                                 .NON_REUSABLE_NAMESPACE))
                 : Optional.<org.pangrova.connector.api.metadata.table.ConnectorReadSchemaIdentity>empty();
-        var fresh = IcebergTableHandleFactory.fromTable(handle.schemaName(), handle.tableName(), table);
-        var bound = new IcebergTableHandle(fresh.schemaName(), fresh.tableName(), fresh.tableLocation(),
+        var bound = new IcebergTableHandle(handle.schemaName(), handle.tableName(), table.location(),
                 snapshot == null ? Optional.empty() : Optional.of(snapshot.snapshotId()),
-                org.apache.iceberg.SchemaParser.toJson(schema), fresh.partitionSpecJson(),
-                fresh.formatVersion(), properties, handle.readMode(), handle.fromSnapshotId(),
+                readSchema.schemaJson(), PartitionSpecParser.toJson(table.spec()),
+                capturedMetadata.formatVersion(), properties, handle.readMode(), handle.fromSnapshotId(),
                 handle.toSnapshotId(), handle.pushedLimit());
         TableStatistics statistics = snapshot == null ? new TableStatistics(0, 0, 0, Map.of())
                 : IcebergStatisticsCollector.planningStatistics(snapshot, table, handle, schema);
@@ -119,8 +120,7 @@ final class IcebergReadBindings {
     }
 
     static TableIdentity liveIdentity(TableMetadata metadata) {
-        return new TableIdentity("ICEBERG", metadata.uuid(), metadata.location(),
-                DigestUtils.sha256Hex(SchemaParser.toJson(metadata.schema())));
+        return IcebergReadSchema.identity(metadata, SchemaParser.toJson(metadata.schema()));
     }
 
     static TableVersionToken currentVersion(TableMetadata metadata) {

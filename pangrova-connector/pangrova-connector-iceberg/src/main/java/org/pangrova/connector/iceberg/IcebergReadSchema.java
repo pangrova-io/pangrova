@@ -2,10 +2,13 @@ package org.pangrova.connector.iceberg;
 
 import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableMetadata;
 import org.apache.iceberg.TableMetadataParser;
+import org.pangrova.common.util.DigestUtils;
+import org.pangrova.connector.api.metadata.table.TableIdentity;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
 import org.pangrova.generation.codec.column.GeneratedColumnMetadataCodec;
 
@@ -14,27 +17,32 @@ import java.util.Map;
 import java.util.Optional;
 
 /** Physical schema and independently proven declaration properties of one exact SDK snapshot. */
-record IcebergReadSchema(Schema schema, Optional<Map<String, String>> declarationProperties,
-        org.pangrova.connector.api.metadata.table.TableIdentity tableIdentity) {
+record IcebergReadSchema(Schema schema, String schemaJson, Optional<Map<String, String>> declarationProperties,
+        TableIdentity tableIdentity) {
     private static final int MAX_METADATA_FILES = 1024;
 
     static IcebergReadSchema resolve(IcebergTableHandle handle, Table table) {
-        if (!table.location().equals(handle.tableLocation())) {
-            throw new IllegalArgumentException("Iceberg metadata belongs to a different table");
-        }
         if (!(table instanceof HasTableOperations operations)) {
             throw new IllegalStateException("Read schema evidence requires actual table metadata");
         }
-        var captured = operations.operations().current();
+        return resolve(handle, table, operations.operations().current(), null);
+    }
+
+    static IcebergReadSchema resolve(IcebergTableHandle handle, Table table, TableMetadata captured,
+            String currentSchemaJson) {
+        if (!table.location().equals(handle.tableLocation())) {
+            throw new IllegalArgumentException("Iceberg metadata belongs to a different table");
+        }
         if (IcebergTableHandle.READ_MODE_FULL.equals(handle.readMode())
                 && handle.properties().containsKey(IcebergTableHandle.SOURCE_IDENTITY_PROPERTY)) {
             var properties = new java.util.LinkedHashMap<>(handle.properties());
             properties.remove(IcebergTableHandle.SOURCE_IDENTITY_PROPERTY);
-            return selected(org.apache.iceberg.SchemaParser.fromJson(handle.schemaJson()),
-                    Optional.of(Map.copyOf(properties)), captured);
+            return selected(SchemaParser.fromJson(handle.schemaJson()),
+                    Optional.of(Map.copyOf(properties)), captured, currentSchemaJson);
         }
         if (handle.snapshotId().isEmpty()) {
-            return selected(captured.schema(), Optional.of(Map.copyOf(captured.properties())), captured);
+            return selected(captured.schema(), Optional.of(Map.copyOf(captured.properties())),
+                    captured, currentSchemaJson);
         }
         var snapshot = captured.snapshot(handle.snapshotId().orElseThrow());
         if (snapshot == null || snapshot.schemaId() == null) {
@@ -47,17 +55,21 @@ record IcebergReadSchema(Schema schema, Optional<Map<String, String>> declaratio
         var summary = snapshot.summary();
         if (summary.containsKey(GeneratedColumnMetadataCodec.PAYLOAD_PROPERTY)
                 || summary.containsKey(GeneratedColumnMetadataCodec.SHA256_PROPERTY)) {
-            return selected(schema, Optional.of(IcebergSnapshotDeclarations.properties(summary)), captured);
+            return selected(schema, Optional.of(IcebergSnapshotDeclarations.properties(summary)),
+                    captured, currentSchemaJson);
         }
-        return selected(schema, creationProperties(table, snapshot, captured), captured);
+        return selected(schema, creationProperties(table, snapshot, captured), captured, currentSchemaJson);
     }
 
     private static IcebergReadSchema selected(Schema schema, Optional<Map<String, String>> properties,
-            TableMetadata captured) {
-        return new IcebergReadSchema(schema, properties,
-                new org.pangrova.connector.api.metadata.table.TableIdentity("ICEBERG", captured.uuid(),
-                        captured.location(), org.pangrova.common.util.DigestUtils.sha256Hex(
-                                org.apache.iceberg.SchemaParser.toJson(schema))));
+            TableMetadata captured, String currentSchemaJson) {
+        String schemaJson = schema == captured.schema() && currentSchemaJson != null
+                ? currentSchemaJson : SchemaParser.toJson(schema);
+        return new IcebergReadSchema(schema, schemaJson, properties, identity(captured, schemaJson));
+    }
+
+    static TableIdentity identity(TableMetadata metadata, String schemaJson) {
+        return new TableIdentity("ICEBERG", metadata.uuid(), metadata.location(), DigestUtils.sha256Hex(schemaJson));
     }
 
     private static Optional<Map<String, String>> creationProperties(Table table, Snapshot snapshot,
