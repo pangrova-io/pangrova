@@ -27,9 +27,8 @@ public record TaskStatusReport(
         String errorCode,
         Map<String, String> errorMetadata,
         TaskAttemptDescriptor attempt,
-        ByteString canonicalEvidence,
-        TaskAttemptId reportedAttempt,
-        TaskReport decodedStatus) {
+        TaskReportEvidence terminalEvidence,
+        TaskAttemptId reportedAttempt) {
 
     /** Maximum binary HTTP delivery, including any write commit fragments. */
     public static final int MAX_HTTP_BODY_BYTES = 8 * 1024 * 1024;
@@ -45,7 +44,7 @@ public record TaskStatusReport(
             Map<String, String> errorMetadata, TaskAttemptDescriptor attempt) {
         this(taskId, queryId, stageId, partitionId, taskType, workerId, state,
                 stats, error, writeResult, reportSequence, timestampMs, errorCode,
-                errorMetadata, attempt, null, null, null);
+                errorMetadata, attempt, null, null);
     }
 
     public TaskStatusReport(
@@ -57,7 +56,7 @@ public record TaskStatusReport(
             byte[] canonicalTaskReport) {
         this(taskId, queryId, stageId, partitionId, taskType, workerId, state,
                 stats, error, writeResult, reportSequence, timestampMs, errorCode,
-                errorMetadata, attempt, copyEvidence(canonicalTaskReport), null, null);
+                errorMetadata, attempt, decodeEvidence(canonicalTaskReport), null);
     }
 
     public TaskStatusReport {
@@ -84,35 +83,42 @@ public record TaskStatusReport(
                                               String state, NativeTaskStats stats, ErrorDetail error,
                                               WriteResultDescriptor writeResult, long sequence, long timestampMs,
                                               byte[] terminalEvidence) {
-        return fromAttempt(identity, taskType, workerId, state, stats, error, writeResult, sequence,
-                timestampMs, copyEvidence(terminalEvidence), null);
+        return fromEvidence(identity, taskType, workerId, state, stats, error, writeResult, sequence,
+                timestampMs, decodeEvidence(terminalEvidence));
     }
 
     /** Reuses evidence already parsed by the producer. */
-    public static TaskStatusReport fromAttempt(TaskAttemptId identity, String taskType, String workerId,
+    public static TaskStatusReport fromEvidence(TaskAttemptId identity, String taskType, String workerId,
                                               String state, NativeTaskStats stats, ErrorDetail error,
                                               WriteResultDescriptor writeResult, long sequence, long timestampMs,
-                                              ByteString terminalEvidence, TaskReport decodedStatus) {
+                                              TaskReportEvidence terminalEvidence) {
         return new TaskStatusReport(identity.getTaskId(), identity.getQueryOrJobId(), identity.getStageId(),
                 identity.getPartitionId(), taskType, workerId, state, stats, error, writeResult, sequence,
                 timestampMs, null, null, TaskAttemptDescriptor.from(identity),
-                terminalEvidence, identity, decodedStatus);
+                terminalEvidence, identity);
+    }
+
+    /** Returns immutable evidence in its original wire encoding. */
+    public ByteString canonicalEvidence() {
+        return terminalEvidence == null ? null : terminalEvidence.bytes();
     }
 
     /** Returns owned bytes for callers that pass the exact evidence to an external sink. */
     public byte[] canonicalTaskReport() {
-        return canonicalEvidence == null ? null : canonicalEvidence.toByteArray();
+        return terminalEvidence == null ? null : terminalEvidence.bytes().toByteArray();
     }
 
-    /** Reuses the ingress parse when present. Internal report producers may supply raw evidence. */
-    public TaskReport canonicalStatus() throws InvalidProtocolBufferException {
-        if (decodedStatus != null) {
-            return decodedStatus;
+    /** Returns the immutable terminal message paired with those exact bytes. */
+    public TaskReport canonicalStatus() {
+        return terminalEvidence == null ? null : terminalEvidence.report();
+    }
+
+    private static TaskReportEvidence decodeEvidence(byte[] bytes) {
+        if (bytes == null) return null;
+        try {
+            return TaskReportEvidence.decode(ByteString.copyFrom(bytes));
+        } catch (InvalidProtocolBufferException failure) {
+            throw new IllegalArgumentException("Malformed canonical Native TaskReport", failure);
         }
-        return canonicalEvidence == null ? null : TaskReport.parseFrom(canonicalEvidence);
-    }
-
-    private static ByteString copyEvidence(byte[] bytes) {
-        return bytes == null ? null : ByteString.copyFrom(bytes);
     }
 }

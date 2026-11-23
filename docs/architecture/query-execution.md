@@ -682,7 +682,9 @@ before finalizing the staged fragment.
 `TaskStatusDelivery` carries the Worker ID, task role, report sequence and
 timestamp. Progress carries the complete issued `TaskAttemptId` and the
 lifecycle state. Terminal delivery carries the exact canonical `TaskReport`
-bytes. The Coordinator reads attempt, lifecycle state, usage, coverage,
+bytes. The Coordinator parses the report once at ingress. A durable generation
+commit uses that parsed report and the same original bytes for exact replay.
+The Coordinator reads attempt, lifecycle state, usage, coverage,
 structured error and Native statistics from that message. Supplemental
 statistics are allowed when canonical Native statistics are absent. Write
 commit evidence travels as opaque binary fragments in the same delivery.

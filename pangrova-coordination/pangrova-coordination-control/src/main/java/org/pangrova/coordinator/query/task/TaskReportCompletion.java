@@ -17,7 +17,7 @@ public final class TaskReportCompletion {
             callback.onTaskTerminal(report.queryId(), logicalTaskId, report.state(), failure(report));
             return;
         }
-        var decoded = report.decodedStatus();
+        var decoded = report.canonicalStatus();
         List<StageCompletionCallback.BuildKeyRange> buildKeys = decoded == null
                 || !decoded.getNativeTaskStats().hasBuildKeys() ? null
                 : decoded.getNativeTaskStats().getBuildKeys().getRangesList().stream()

@@ -27,7 +27,7 @@ class TaskTerminalEvidenceContractTest {
     void missingNativeTerminalReportFailsRatherThanCreatingAResultFinish() throws Exception {
         var request = ActualNativeTaskFixture.valuesTaskRequest(true);
         for (byte[] missing : new byte[][] {null, new byte[0]}) {
-            assertThatThrownBy(() -> TaskCompletionMonitor.requireCanonicalTaskReport(request, missing))
+            assertThatThrownBy(() -> TaskCompletionMonitor.validateTerminalEvidence(request, missing))
                     .isInstanceOf(IllegalStateException.class).hasMessageContaining("canonical TaskReport");
         }
         assertThatThrownBy(() -> TaskCompletionMonitor.validateTerminalEvidence(request, new byte[] {(byte) 0x80}))
@@ -53,7 +53,7 @@ class TaskTerminalEvidenceContractTest {
                 .setError(ExecutionError.newBuilder().setCode("PROVIDER_FAILED")
                         .setErrorClass(ErrorClass.ERROR_CLASS_PROVIDER).setMessage("provider rejected request")
                         .setFailedComponent("provider")).build();
-        assertThat(TaskCompletionMonitor.requireCanonicalTaskReport(request, nativeFailure.toByteArray()))
+        assertThat(TaskCompletionMonitor.validateTerminalEvidence(request, nativeFailure.toByteArray()).report())
                 .isEqualTo(nativeFailure);
         var error = new ErrorDetail("INTERNAL_ERROR", "WorkerFailure", "Preserve Native failure evidence");
         var reconciled = WorkerTerminalTaskReports.unsuccessful(
@@ -75,7 +75,7 @@ class TaskTerminalEvidenceContractTest {
         var nonNative = valid.toBuilder().setReportOrigin(TaskReportOrigin.TASK_REPORT_ORIGIN_WORKER_RECONCILED).build();
         var running = valid.toBuilder().setState(TaskState.TASK_STATE_RUNNING).build();
         for (var rejected : new TaskReport[] {other, nonNative, running}) {
-            assertThatThrownBy(() -> TaskCompletionMonitor.requireCanonicalTaskReport(request, rejected.toByteArray()))
+            assertThatThrownBy(() -> TaskCompletionMonitor.validateTerminalEvidence(request, rejected.toByteArray()))
                     .isInstanceOf(IllegalStateException.class).hasMessageContaining("terminal task authority");
         }
     }
@@ -90,12 +90,12 @@ class TaskTerminalEvidenceContractTest {
                 .setReportOrigin(TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE);
         var contradictoryFinished = base.clone().setState(TaskState.TASK_STATE_FINISHED).setError(error).build();
         var incompleteFailed = base.clone().setState(TaskState.TASK_STATE_FAILED).build();
-        assertThatThrownBy(() -> TaskCompletionMonitor.requireCanonicalTaskReport(
+        assertThatThrownBy(() -> TaskCompletionMonitor.validateTerminalEvidence(
                 request, contradictoryFinished.toByteArray())).isInstanceOf(IllegalStateException.class);
-        assertThatThrownBy(() -> TaskCompletionMonitor.requireCanonicalTaskReport(
+        assertThatThrownBy(() -> TaskCompletionMonitor.validateTerminalEvidence(
                 request, incompleteFailed.toByteArray())).isInstanceOf(IllegalStateException.class);
         var cancelled = base.setState(TaskState.TASK_STATE_CANCELLED).setError(error).build();
-        assertThat(TaskCompletionMonitor.requireCanonicalTaskReport(request, cancelled.toByteArray()))
+        assertThat(TaskCompletionMonitor.validateTerminalEvidence(request, cancelled.toByteArray()).report())
                 .isEqualTo(cancelled);
     }
 
@@ -109,7 +109,7 @@ class TaskTerminalEvidenceContractTest {
                 .setExecutionDrainState(ExecutionDrainState.EXECUTION_DRAIN_STATE_WORKER_TASK_COMPLETED)
                 .build();
 
-        assertThat(TaskCompletionMonitor.requireCanonicalTaskReport(request, valid.toByteArray()))
+        assertThat(TaskCompletionMonitor.validateTerminalEvidence(request, valid.toByteArray()).report())
                 .isEqualTo(valid);
         var rejected = new TaskReport[] {
                 valid.toBuilder().setAttempt(request.getAttempt().toBuilder()
@@ -121,7 +121,7 @@ class TaskTerminalEvidenceContractTest {
                 valid.toBuilder().setNativeTaskStats(NativeTaskStats.getDefaultInstance()).build()
         };
         for (var report : rejected) {
-            assertThatThrownBy(() -> TaskCompletionMonitor.requireCanonicalTaskReport(
+            assertThatThrownBy(() -> TaskCompletionMonitor.validateTerminalEvidence(
                     request, report.toByteArray()))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("JVM completion authority");
@@ -171,11 +171,11 @@ class TaskTerminalEvidenceContractTest {
                         ExecutionDrainState.EXECUTION_DRAIN_STATE_ADMISSION_CLOSED_WITHOUT_NATIVE_OWNER)
                 .setError(error).build();
 
-        assertThat(TaskCompletionMonitor.requireCanonicalTaskReport(request, valid.toByteArray()))
+        assertThat(TaskCompletionMonitor.validateTerminalEvidence(request, valid.toByteArray()).report())
                 .isEqualTo(valid);
         var wrongDrain = valid.toBuilder().setExecutionDrainState(
                 ExecutionDrainState.EXECUTION_DRAIN_STATE_WORKER_TASK_COMPLETED).build();
-        assertThatThrownBy(() -> TaskCompletionMonitor.requireCanonicalTaskReport(
+        assertThatThrownBy(() -> TaskCompletionMonitor.validateTerminalEvidence(
                 request, wrongDrain.toByteArray()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("JVM completion authority");
@@ -189,7 +189,7 @@ class TaskTerminalEvidenceContractTest {
                 .setReportOrigin(TaskReportOrigin.TASK_REPORT_ORIGIN_WORKER_EXECUTED)
                 .setExecutionDrainState(ExecutionDrainState.EXECUTION_DRAIN_STATE_WORKER_TASK_COMPLETED)
                 .build();
-        assertThatThrownBy(() -> TaskCompletionMonitor.requireCanonicalTaskReport(
+        assertThatThrownBy(() -> TaskCompletionMonitor.validateTerminalEvidence(
                 request, forged.toByteArray()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("terminal task authority");

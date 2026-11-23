@@ -53,12 +53,7 @@ public final class CanonicalTaskReportValidator {
             throw invalid("TaskReport exceeds the control-plane size limit");
         }
 
-        TaskReport status;
-        try {
-            status = report.canonicalStatus();
-        } catch (InvalidProtocolBufferException e) {
-            throw new IllegalArgumentException("Malformed canonical Native TaskReport", e);
-        }
+        var status = report.terminalEvidence().report();
         if (!status.hasAttempt()) {
             throw invalid("Native status is missing its fenced attempt identity");
         }
