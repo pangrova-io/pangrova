@@ -25,7 +25,7 @@ final class QueryAdmissionOwnership {
         try {
             var decision = admission.run(candidate.reservation);
             candidate.decision.complete(decision);
-            if (decision.verdict() == org.pangrova.scheduler.api.enums.AdmissionVerdict.REJECT) {
+            if (!decision.isAdmitted()) {
                 queries.remove(request.queryId(), candidate);
             }
             return decision;
@@ -90,11 +90,6 @@ final class QueryAdmissionOwnership {
 
         void retain(Runnable releaseAction) {
             this.release = releaseAction;
-        }
-
-        void returnCapacity() {
-            release.run();
-            clearCapacity();
         }
 
         void clearCapacity() {

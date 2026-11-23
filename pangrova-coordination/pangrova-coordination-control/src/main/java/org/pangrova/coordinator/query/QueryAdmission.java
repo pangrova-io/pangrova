@@ -14,7 +14,6 @@ import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.coordinator.resilience.resilience4j.ResilienceRegistry;
 import org.pangrova.query.api.enums.QueryState;
 import org.pangrova.query.api.error.QueryFailure;
-import org.pangrova.scheduler.api.enums.AdmissionVerdict;
 import org.pangrova.scheduler.api.resource.AdmissionRequest;
 import org.pangrova.scheduler.api.resource.AdmissionRequest.TenantLimits;
 import org.pangrova.security.api.tenant.ResolvedTenantContext;
@@ -76,23 +75,14 @@ final class QueryAdmission implements org.pangrova.query.lifecycle.QueryAdmissio
         }
         String tenantId = tenant.tenantId();
         var quota = tenant.tenant().quota();
-        var limits = new TenantLimits(quota.maxMemoryBytes(), quota.maxConcurrentQueries(), quota.maxQueuedQueries());
-        // Retain the exact release obligation before admission can acquire a slot or queue entry.
+        var limits = new TenantLimits(quota.maxMemoryBytes(), quota.maxConcurrentQueries());
+        // Retain the exact release obligation before admission can acquire a slot.
         state.retainAdmissionRelease(() -> controller.release(queryId, tenantId));
         var decision = controller.admit(AdmissionRequest.of(tenantId, "default", queryId, limits));
         if (!decision.isAdmitted()) {
-            var rejected = new TenantQuotaExceededException(
+            state.discardUnacquiredAdmission();
+            throw new TenantQuotaExceededException(
                     "Cluster admission denied for tenant " + tenantId + ": " + decision.reason());
-            if (decision.verdict() == AdmissionVerdict.REJECT) {
-                state.discardUnacquiredAdmission();
-            } else {
-                try {
-                    state.releaseAdmission();
-                } catch (RuntimeException | Error cleanup) {
-                    rejected.addSuppressed(cleanup);
-                }
-            }
-            throw rejected;
         }
     }
 

@@ -131,15 +131,14 @@ class QueryManagerJournalTest {
         }
     }
 
-    @Test void queuedAdmissionReleasesItsExactLocalReservationOnce() throws Exception {
+    @Test void deniedAdmissionFromThePortRequiresNoRelease() throws Exception {
         try (var fixture = new QueryManagerJournalFixture(0)) {
-            var controller = new CountingController(request -> AdmissionDecision.queue("queued at tenant limit"));
+            var controller = new CountingController(request -> AdmissionDecision.reject("tenant at capacity"));
             fixture.manager.setClusterAdmissionController(controller);
-            assertThatThrownBy(() -> fixture.manager.submitQuery("queued-admission", "SELECT 1",
-                    SourceFreeQueryFixture.session("queued-admission")))
-                    .isInstanceOf(TenantQuotaExceededException.class);
+            assertThatThrownBy(() -> fixture.manager.submitQuery("port-denial", "SELECT 1",
+                    SourceFreeQueryFixture.session("port-denial"))).isInstanceOf(TenantQuotaExceededException.class);
             assertThat(fixture.manager.getActiveQueryCount()).isZero();
-            assertThat(controller.releases).isOne();
+            assertThat(controller.releases).isZero();
         }
     }
 

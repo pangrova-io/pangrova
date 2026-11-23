@@ -50,5 +50,5 @@ public record AdmissionRequest(
     }
 
     /** The limits used by admission, projected from the authenticated tenant for this query. */
-    public record TenantLimits(long maxMemoryBytes, int maxConcurrentQueries, int maxQueuedQueries) {}
+    public record TenantLimits(long maxMemoryBytes, int maxConcurrentQueries) {}
 }

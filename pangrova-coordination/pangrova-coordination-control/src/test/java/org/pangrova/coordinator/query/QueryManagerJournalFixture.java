@@ -52,7 +52,7 @@ final class QueryManagerJournalFixture implements AutoCloseable {
     private final RemoteTaskDispatcher transport = new RemoteTaskDispatcher(CircuitBreakerPolicy.noOp(), TestObservability.TRACING);
 
     QueryManagerJournalFixture(int capacity) throws java.sql.SQLException {
-        tenantLimits = new TenantLimits(Long.MAX_VALUE, capacity, 0);
+        tenantLimits = new TenantLimits(Long.MAX_VALUE, capacity);
         var tenant = new Tenant("fixture-tenant", "journal-test", TenantStatus.ACTIVE,
                 new ResourceQuota(Long.MAX_VALUE, capacity, 0, Long.MAX_VALUE, Long.MAX_VALUE,
                         Long.MAX_VALUE, Long.MAX_VALUE, Long.MAX_VALUE),

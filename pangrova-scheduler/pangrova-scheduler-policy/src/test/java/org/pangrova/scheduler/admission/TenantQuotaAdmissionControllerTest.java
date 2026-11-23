@@ -15,7 +15,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class TenantQuotaAdmissionControllerTest {
 
-    private static final TenantLimits QUOTA = new TenantLimits(10L << 30, 3, 5);
+    private static final TenantLimits QUOTA = new TenantLimits(10L << 30, 3);
     private final TenantQuotaAdmissionController controller = new TenantQuotaAdmissionController(null, null);
 
     @Test
@@ -30,7 +30,7 @@ class TenantQuotaAdmissionControllerTest {
     void reservesAgainstTheLatestLimitsSuppliedForEachQuery() {
         assertThat(controller.admit(AdmissionRequest.of("t1", "default", "q1", QUOTA)).isAdmitted()).isTrue();
 
-        var lowered = new TenantLimits(QUOTA.maxMemoryBytes(), 1, 0);
+        var lowered = new TenantLimits(QUOTA.maxMemoryBytes(), 1);
         assertThat(controller.admit(AdmissionRequest.of("t1", "default", "q2", lowered)).verdict())
                 .isEqualTo(AdmissionVerdict.REJECT);
         assertThat(controller.admittedCount("t1")).isOne();
@@ -40,16 +40,16 @@ class TenantQuotaAdmissionControllerTest {
     }
 
     @Test
-    void queuesWhenConcurrencyLimitReached() {
+    void rejectsWhenConcurrencyLimitReached() {
         // Admit 3 queries (maxConcurrentQueries = 3)
         controller.admit(AdmissionRequest.of("t1", "default", "q1", QUOTA));
         controller.admit(AdmissionRequest.of("t1", "default", "q2", QUOTA));
         controller.admit(AdmissionRequest.of("t1", "default", "q3", QUOTA));
         assertThat(controller.admittedCount("t1")).isEqualTo(3);
 
-        // 4th query should be queued
+        // A full controller leaves the fourth query without a reservation.
         AdmissionDecision decision = controller.admit(AdmissionRequest.of("t1", "default", "q4", QUOTA));
-        assertThat(decision.verdict()).isEqualTo(AdmissionVerdict.QUEUE);
+        assertThat(decision.verdict()).isEqualTo(AdmissionVerdict.REJECT);
     }
 
     @Test

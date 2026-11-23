@@ -17,7 +17,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * Tests for the cluster admission control SPI contracts (Task 145, G-RES-04).
  */
 class ClusterAdmissionControllerSpiTest {
-    private static final AdmissionRequest.TenantLimits QUOTA = new AdmissionRequest.TenantLimits(2048, 3, 0);
+    private static final AdmissionRequest.TenantLimits QUOTA = new AdmissionRequest.TenantLimits(2048, 3);
 
     // --- AdmissionRequest ---
 
@@ -75,16 +75,9 @@ class ClusterAdmissionControllerSpiTest {
     @Test
     void admitDecision() {
         AdmissionDecision d = AdmissionDecision.admit();
+        assertThat(d).isSameAs(AdmissionDecision.admit());
         assertThat(d.verdict()).isEqualTo(AdmissionVerdict.ADMIT);
         assertThat(d.isAdmitted()).isTrue();
-    }
-
-    @Test
-    void queueDecision() {
-        AdmissionDecision d = AdmissionDecision.queue("group at capacity");
-        assertThat(d.verdict()).isEqualTo(AdmissionVerdict.QUEUE);
-        assertThat(d.isAdmitted()).isFalse();
-        assertThat(d.reason()).isEqualTo("group at capacity");
     }
 
     @Test

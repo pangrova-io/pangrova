@@ -36,7 +36,7 @@ import org.junit.jupiter.params.provider.ValueSource;
  */
 class TenantQuotaAdmissionControllerClusterTest {
 
-    private static final TenantLimits QUOTA = new TenantLimits(10L << 30, 3, 5);
+    private static final TenantLimits QUOTA = new TenantLimits(10L << 30, 3);
 
     private TenantQuotaAdmissionController controllerWith(GlobalTenantUsageView view) {
         return new TenantQuotaAdmissionController(view, null);
@@ -68,7 +68,7 @@ class TenantQuotaAdmissionControllerClusterTest {
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void wrappedClusterMemoryCannotAdmitOrLeakAReservedSlot(boolean useSharedSlots) {
-        var quota = new TenantLimits(Long.MAX_VALUE, 3, 5);
+        var quota = new TenantLimits(Long.MAX_VALUE, 3);
         var view = new FixedGlobalUsageView(Map.of("t1", new long[]{Long.MAX_VALUE - 2, 0}));
         var slots = useSharedSlots ? new InMemoryClusterConcurrencySlots() : null;
         var controller = new TenantQuotaAdmissionController(view, slots);
@@ -84,7 +84,7 @@ class TenantQuotaAdmissionControllerClusterTest {
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void exactRepresentableClusterLimitCanBeAdmitted(boolean useSharedSlots) {
-        var quota = new TenantLimits(Long.MAX_VALUE, 3, 5);
+        var quota = new TenantLimits(Long.MAX_VALUE, 3);
         var view = new FixedGlobalUsageView(Map.of("t1", new long[]{Long.MAX_VALUE - 10, 0}));
         var slots = useSharedSlots ? new InMemoryClusterConcurrencySlots() : null;
         var controller = new TenantQuotaAdmissionController(view, slots);
@@ -111,7 +111,7 @@ class TenantQuotaAdmissionControllerClusterTest {
     }
 
     @Test
-    void queuesWhenClusterConcurrencyAlreadySaturated() {
+    void rejectsWhenClusterConcurrencyAlreadySaturated() {
         // Cluster already at the concurrency limit (3) even though this coordinator
         // has admitted nothing locally.
         var view = new FixedGlobalUsageView(Map.of("t1", new long[]{0, 3}));
@@ -119,7 +119,7 @@ class TenantQuotaAdmissionControllerClusterTest {
 
         AdmissionDecision decision = controllerWith(view).admit(req);
 
-        assertThat(decision.verdict()).isEqualTo(AdmissionVerdict.QUEUE);
+        assertThat(decision.verdict()).isEqualTo(AdmissionVerdict.REJECT);
     }
 
     @Test
@@ -137,7 +137,7 @@ class TenantQuotaAdmissionControllerClusterTest {
     }
 
     @Test
-    void sharedAdmissionAndQueueUseReservationOutcomeWithoutDiagnosticUsageReads() {
+    void sharedAdmissionUsesReservationOutcomeWithoutDiagnosticUsageReads() {
         var actual = new InMemoryClusterConcurrencySlots();
         var reads = new java.util.concurrent.atomic.AtomicInteger();
         var releases = new java.util.concurrent.atomic.AtomicInteger();
@@ -164,17 +164,35 @@ class TenantQuotaAdmissionControllerClusterTest {
             var request = AdmissionRequest.of("t1", "default", "query-" + index, QUOTA);
             assertThat(controller.admit(request).isAdmitted()).isTrue();
         }
-        assertThat(controller.admit(AdmissionRequest.of("t1", "default", "queued", QUOTA)).verdict())
-                .isEqualTo(AdmissionVerdict.QUEUE);
+        assertThat(controller.admit(AdmissionRequest.of("t1", "default", "over-capacity", QUOTA)).verdict())
+                .isEqualTo(AdmissionVerdict.REJECT);
         assertThat(reads).hasValue(0);
-        assertThat(releases).hasValue(0);
-        controller.release("queued", "t1");
         assertThat(releases).hasValue(0);
         assertThat(controller.admittedCount("t1")).isEqualTo(QUOTA.maxConcurrentQueries());
         assertThat(reads).hasValue(1);
         controller.release("query-0", "t1");
         assertThat(releases).hasValue(1);
         assertThat(actual.active("t1")).isEqualTo(QUOTA.maxConcurrentQueries() - 1);
+    }
+
+    @Test
+    void rejectedMemoryEstimateNeverAcquiresOrReturnsASharedSlot() {
+        var slots = new org.pangrova.persistence.coordination.api.admission.ClusterConcurrencySlots() {
+            @Override public boolean tryReserve(String tenant, String query, int limit) {
+                throw new AssertionError("A rejected estimate must not reserve capacity");
+            }
+            @Override public void release(String tenant, String query) {
+                throw new AssertionError("A rejected estimate must not return capacity");
+            }
+            @Override public int active(String tenant) {
+                throw new AssertionError("A rejected estimate must not read usage");
+            }
+        };
+        var controller = new TenantQuotaAdmissionController(null, slots);
+        var request = new AdmissionRequest("t1", "default", "too-large", QUOTA,
+                OptionalLong.of(QUOTA.maxMemoryBytes() + 1));
+
+        assertThat(controller.admit(request).verdict()).isEqualTo(AdmissionVerdict.REJECT);
     }
 
     /** Immutable component input: tenant -> [memoryBytes, activeQueries]. */

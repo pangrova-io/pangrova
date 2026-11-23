@@ -23,7 +23,7 @@ class TenantAdmissionMemoryPropertyTest {
             @ForAll @LongRange(min = 0) long clusterUsed,
             @ForAll @LongRange(min = 0) long estimated,
             @ForAll boolean sharedSlotStore) {
-        var quota = new TenantLimits(limit, 1, 0);
+        var quota = new TenantLimits(limit, 1);
         var slots = sharedSlotStore ? new InMemoryClusterConcurrencySlots() : null;
         var controller = new TenantQuotaAdmissionController(new MemoryUsage(clusterUsed), slots);
 

@@ -12,7 +12,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Direct lifecycle tests for the admission owner, not SQL/Native execution evidence. */
 class QueryAdmissionOwnershipTest {
-    private static final TenantLimits QUOTA = new TenantLimits(1000, 2, 1);
+    private static final TenantLimits QUOTA = new TenantLimits(1000, 2);
 
     @Test
     void failedAdmissionRetainsItsEnteredReservationForCleanup() {
@@ -70,16 +70,19 @@ class QueryAdmissionOwnershipTest {
     }
 
     @Test
-    void memoryRejectionReturnsCapacityOnceBeforeRemovingOwner() {
+    void refusalWithoutReservationCanRetryWithTheSameIdentity() {
         var ownership = new QueryAdmissionOwnership();
         var returned = new AtomicInteger();
-        var decision = ownership.admit(request("query"), reservation -> {
-            reservation.retain(returned::incrementAndGet);
-            reservation.returnCapacity();
-            return AdmissionDecision.reject("memory limit");
-        });
+        var decision = ownership.admit(request("query"), reservation -> AdmissionDecision.reject("memory limit"));
         assertThat(decision.isAdmitted()).isFalse();
-        ownership.release("query", "tenant");
+        assertThat(ownership.release("query", "tenant")).isFalse();
+
+        var accepted = ownership.admit(request("query"), reservation -> {
+            reservation.retain(returned::incrementAndGet);
+            return AdmissionDecision.admit();
+        });
+        assertThat(accepted.isAdmitted()).isTrue();
+        assertThat(ownership.release("query", "tenant")).isTrue();
         assertThat(returned.get()).isEqualTo(1);
     }
 

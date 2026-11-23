@@ -246,7 +246,7 @@ class ClusterConcurrencySlotsTest extends ContainerTestBase {
     }
 
     private static AdmissionRequest request(String queryId) {
-        return AdmissionRequest.of("t", "default", queryId, new TenantLimits(1000, 2, 1));
+        return AdmissionRequest.of("t", "default", queryId, new TenantLimits(1000, 2));
     }
 
     private static TenantQuotaAdmissionController controller(ClusterConcurrencySlots slots) {

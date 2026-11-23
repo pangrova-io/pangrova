@@ -90,6 +90,8 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
+实施批次 157 移除共享准入返回后立即释放的排队分支。容量满时直接返回拒绝，真正的工作负载排队保留在自身调度器。已有内存估算超限时，基线仍调用共享槽位预留，候选在进入共享槽位存储前拒绝，真实 HTTP 入口当前不附带该估算。可确定的拒绝移除临时所有权，未确认的写入保留原查询的清理义务。447 项 Java 回归和 Checkstyle 通过。与 Arrow 直写一同打包的独立 JVM 通过三项 PostgreSQL 租户用例，验证撤权、45 次饱和拒绝、40 次完整 Flight 读取与物理排空。
+
 批次 156 的后续校验将候选从动态长度占位符改为固定 SQL 和类型化数组绑定。真实 PostgreSQL 的 1,001 条候选分两次执行同一 prepared statement，另准备一次描述符加锁。跨批次共享路径只获得一次删除资格，当前映射的共享路径保留。测试覆盖微秒时间戳、非 ASCII 文件名和数组转义，17 项 PostgreSQL 回归、Checkstyle 和 SpotBugs 通过。批次 156 的原始同源角色清单 `17a3161c37128aa9a01077ec8a460de70f477a01f3c3df7593981daed42b95a8` 已通过六项独立进程回归，覆盖 Kafka→Paimon、远程 Shuffle、真实 CLI 和持久租户配额。 [PostgreSQL 数组展开](https://www.postgresql.org/docs/16/functions-array.html)
 
 实施批次 156 将索引孤儿映射按索引分组回收。装配基线处理 100 条旧映射时重读了完整映射列表 100 次，候选为零。真实 PostgreSQL 同一索引的 100 条映射只准备一次描述符加锁和一条批量删除及路径归属 SQL，保留服务中的共享路径。两个独立数据库连接并发回收两个旧所有者时，只返回一次共享文件删除资格。事务核对原状态、代次、路径及验证时间，保留最近两代。58 项回归和 Checkstyle 通过，覆盖实际物理文件删除、失败 fence、发布、重放与当前有效映射。 [PostgreSQL 写 CTE](https://www.postgresql.org/docs/16/queries-with.html) · [PostgreSQL Read Committed](https://www.postgresql.org/docs/16/transaction-iso.html#XACT-READ-COMMITTED)
