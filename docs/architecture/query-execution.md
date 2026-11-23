@@ -60,7 +60,9 @@ result owners account for their own physical drain.
 
 Literal INSERT and INSERT OVERWRITE resolve the target metadata once during
 statement admission. Column order, FILE MIME validation, managed-file validation,
-and generated-column admission use that same observation. Write allocation and
+and generated-column admission use that same observation. Iceberg reads the
+current declaration directly by name from one catalog pointer and returns typed
+schema and properties. Write allocation and
 the final commit still validate against the current connector authority.
 
 Native INSERT, UPDATE, DELETE, MERGE, and CTAS attach their result publication to

@@ -214,6 +214,12 @@ abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRe
     }
 
     @Override
+    public Optional<ConnectorTableMetadata> describeNamedTable(ConnectorSession session, SchemaTableName table) {
+        if (table.table().indexOf('$') >= 0) return ConnectorMetadata.super.describeNamedTable(session, table);
+        return catalogTables.describeNamedTable(table);
+    }
+
+    @Override
     public ConnectorTableMetadata getTableMetadata(ConnectorSession session, ConnectorTableHandle table) {
         if (table instanceof IcebergPartitionTableHandle partitions) {
             var columns = partitions.typedColumns();

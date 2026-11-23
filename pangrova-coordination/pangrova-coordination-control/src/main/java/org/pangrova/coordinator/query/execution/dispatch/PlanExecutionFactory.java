@@ -1,11 +1,13 @@
 package org.pangrova.coordinator.query.execution.dispatch;
+import org.pangrova.common.enums.PangrovaErrorCode;
+import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.query.dispatch.StatementResult;
 
 import org.pangrova.query.api.enums.StatementCategory;
 
 import org.pangrova.query.statement.StatementTableTargets;
 
-import org.pangrova.metadata.resolution.ConnectorTableLookup;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.pangrova.coordinator.query.execution.dispatch.dag.runtime.DAGCompletionEvaluator;
 import org.pangrova.execution.task.DispatchResult;
 
@@ -117,8 +119,8 @@ public final class PlanExecutionFactory implements StatementExecutionFactory<Sta
 
     private StatementResult completeDml(Statement statement, StatementExecutionContext ctx, DispatchResult result) {
         if (result == null) {
-            throw new org.pangrova.common.exception.PangrovaException(
-                    org.pangrova.common.enums.PangrovaErrorCode.RUNTIME_TASK_FAILED,
+            throw new PangrovaException(
+                    PangrovaErrorCode.RUNTIME_TASK_FAILED,
                     "Native DML dispatch returned null for "
                             + statement.getClass().getSimpleName());
         }
@@ -152,8 +154,8 @@ public final class PlanExecutionFactory implements StatementExecutionFactory<Sta
         }
         if (rows != null) {
             if (rows.isEmpty()) {
-                throw new org.pangrova.common.exception.PangrovaException(
-                        org.pangrova.common.enums.PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
+                throw new PangrovaException(
+                        PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
                         "INSERT VALUES requires at least one row");
             }
             checkNotNull(catalogRegistry, "INSERT VALUES requires catalog metadata");
@@ -163,10 +165,10 @@ public final class PlanExecutionFactory implements StatementExecutionFactory<Sta
         if (ref == null) return;
         var connectorSession = SessionContextConverter.toConnectorSession(querySession, ref.catalog(), ref.schema());
         var metadata = catalogRegistry.getCatalog(ref.catalog()).getMetadata(connectorSession);
-        var handle = ConnectorTableLookup.requireTableHandle(metadata, connectorSession, ref);
-        // All checks here describe the same statement target. The write allocation
-        // independently revalidates its authority before opening any output handle.
-        var table = metadata.getTableMetadata(connectorSession, handle);
+        // The write allocation independently revalidates its authority before opening the output handle.
+        var table = metadata.describeNamedTable(connectorSession, new SchemaTableName(ref.schema(), ref.table()))
+                .orElseThrow(() -> new PangrovaException(
+                        PangrovaErrorCode.METADATA_TABLE_NOT_FOUND, "Table not found: " + ref));
         if (rows != null) {
             List<String> columns = explicitColumns.orElse(table.columns());
             FileColumnMimeValidator.validate(table, columns, rows);

@@ -5,6 +5,7 @@ import org.pangrova.connector.api.enums.MetadataTableKind;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.metadata.table.ColumnHandle;
@@ -51,6 +52,12 @@ public interface ConnectorMetadata
      * @return the table metadata, never null
      */
     ConnectorTableMetadata getTableMetadata(ConnectorSession session, ConnectorTableHandle table);
+
+    /** Describes the current named table without requiring the caller to retain its scan handle. */
+    default Optional<ConnectorTableMetadata> describeNamedTable(ConnectorSession session, SchemaTableName table) {
+        var handle = getTableHandle(session, table);
+        return handle == null ? Optional.empty() : Optional.of(getTableMetadata(session, handle));
+    }
 
     /**
      * Returns read metadata with explicit declaration evidence. Historical consumers require EXACT;

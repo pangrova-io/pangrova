@@ -175,6 +175,33 @@ class IcebergJdbcSchemaIsolationIntegrationTest extends ContainerTestBase {
     }
 
     @Test
+    void namedDeclarationUsesOneCurrentJdbcPointerAndPreservesTheActualSchema() throws Exception {
+        try (var schema = DatabaseSchema.create(); var selected = catalog(schema, "V1")) {
+            createTable(selected);
+            var metadata = new IcebergMetadata(selected, schema.name());
+            var name = new SchemaTableName("data", "events");
+            schema.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public");
+
+            long baseline = schema.catalogPointerLookups();
+            var handle = metadata.getTableHandle(READER, name);
+            var previous = metadata.getTableMetadata(READER, handle);
+            assertThat(schema.catalogPointerLookups() - baseline).isEqualTo(2);
+
+            long first = schema.catalogPointerLookups();
+            assertThat(metadata.describeNamedTable(READER, name)).contains(previous);
+            assertThat(schema.catalogPointerLookups() - first).isEqualTo(1);
+
+            try (var writer = catalog(schema, "V1")) {
+                writer.loadTable(TABLE).updateSchema().addColumn("new_field", Types.LongType.get()).commit();
+            }
+            long second = schema.catalogPointerLookups();
+            assertThat(metadata.describeNamedTable(READER, name)).hasValueSatisfying(declaration ->
+                    assertThat(declaration.columns()).containsExactly("id", "new_field"));
+            assertThat(schema.catalogPointerLookups() - second).isEqualTo(1);
+        }
+    }
+
+    @Test
     void freshJdbcTableResolutionChecksCurrentMetadataPointerOnce() throws Exception {
         try (var schema = DatabaseSchema.create(); var selected = catalog(schema, "V1")) {
             createTable(selected);
