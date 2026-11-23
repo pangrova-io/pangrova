@@ -91,6 +91,8 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
+Native 每份任务只解码一次 Substrait。产物检索在任何外部读取前检查同一解析结果的版本，Velox 转换复用该对象。检索准备只持有实际的分片覆盖和租约。原始扫描分片沿用执行配置。相同字节的受控解析对照中，56 B、1,119 B 和 36,836 B 样本的解析分配量分别从 1,392 B 降到 696 B、40,000 B 降到 20,000 B、1,246,272 B 降到 623,136 B。macOS arm64 与 Linux arm64 各通过 47 项定向和 4,367 项全量 Native 测试，零失败、零跳过。41 项 macOS 同源打包回归与 9 项 Linux 独立进程回归通过，覆盖真实向量检索、双 Worker、过载释放及 Iceberg、Paimon、Lance 写入恢复。角色清单 SHA-256 分别为 2af684cc28f5cd8b1c3ced528992586ed6acd7166df7b70b2c9b2ad66925fb96 和 a9ce6079f99dff8a8aea7b464a0e84e40d2a3fdf7ccba4b2c152d4b8be3b9ebf。
+
 Iceberg JDBC 的完全限定表名优先检查精确命名空间。同一实际 PostgreSQL、HTTP 和 Native Flight 对照每秒 25 与 60 次，各完成 20 笔查询并核对结果和物理归还。额外创建 1,024 个无关命名空间后，每组命名空间读取从 40 次、20,520 行和 4,280 次共享缓冲区命中，降到 20 次、20 行和 40 次命中。候选在目录扩充前后的读取量相同。两个目录列表查询各从 20 次降到 0 次。每笔仍读两次表指针和核对四次执行所有权。测试涵盖精确大小写、无精确匹配时的大小写解析、空命名空间、外部更改及完整目录列表。37 项焦点回归和 32 项同源打包回归通过。角色清单 SHA-256 为 9acc3c47f8eb2a92e5df5bf07812bf0d3980eefe6a11dfb7123cf2428d28c8b6。 [Trino Iceberg 元数据实现](https://github.com/trinodb/trino/blob/master/plugin/trino-iceberg/src/main/java/io/trino/plugin/iceberg/IcebergMetadata.java) · [Iceberg 的 Spark 表解析](https://github.com/apache/iceberg/blob/main/docs/docs/spark-queries.md)
 
 Worker 的二进制任务请求通过有界流进入 Protobuf，删除 Jersey 中间整包数组。实际 Jetty 收到声明超限的请求，仅发送一个字节即返回 HTTP 413。无声明长度的合法字段流在第一个超限字节被拒绝。原有不规范字段顺序的 COPY 证据仍逐字节保留。Corretto 17 的 Jersey 与 Protobuf 解码对照中，含 1、128、4,096 个分片的合成载荷，每次解码线程分配量分别从 11,416 B 降到 5,944 B、165,688 B 降到 86,824 B、5,071,312 B 降到 2,403,880 B。4 MiB 以单个计划字段为主的载荷从 25,167,528 B 降到 8,421,368 B。四组解码后的规范字节与摘要逐一一致。75 项焦点和 34 项同源打包回归通过。角色清单 SHA-256 为 d169ade77fb0074a001bcac11c7ace21fc81a84e24da5400cdcfc7c95f3fb2cb。
