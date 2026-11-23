@@ -75,6 +75,39 @@ class CanonicalTaskReportValidatorTest {
     }
 
     @Test
+    void acceptsBoundedBuildSummaryOnlyForTheExactIssuedBuildRead() {
+        var ordinary = request("COMPUTE", List.of());
+        var issued = SubmitTaskRequest.from(ordinary.taskRequest().toBuilder().setBuildKeyOrdinal(0).build());
+        var summary = org.pangrova.protocol.v2.BuildKeySummary.newBuilder()
+                .addRanges(buildRange(Long.MIN_VALUE, Long.MIN_VALUE)).addRanges(buildRange(4, 7));
+        var nativeStats = org.pangrova.protocol.v2.NativeTaskStats.newBuilder().setBuildKeys(summary);
+        var successful = TaskReport.newBuilder().setAttempt(nativeAttempt())
+                .setState(TaskState.TASK_STATE_FINISHED).setCoverage(completeCoverage())
+                .setReportOrigin(org.pangrova.protocol.v2.TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE);
+        var report = successful.setNativeTaskStats(nativeStats).build();
+        assertThat(validator.validate(report(issued, report), issued)).contains(report);
+        assertThatThrownBy(() -> validator.validate(report(ordinary, report), ordinary))
+                .hasMessageContaining("does not match its issued request");
+
+        var adjacent = summary.clone().addRanges(buildRange(8, 9));
+        var invalid = successful.setNativeTaskStats(nativeStats.setBuildKeys(adjacent)).build();
+        assertThatThrownBy(() -> validator.validate(report(issued, invalid), issued))
+                .hasMessageContaining("not sorted and separated");
+
+        var tooMany = summary.clearRanges();
+        for (int index = 0; index < 17; index++) {
+            tooMany.addRanges(buildRange(2L * index, 2L * index));
+        }
+        var excessive = successful.setNativeTaskStats(nativeStats.setBuildKeys(tooMany)).build();
+        assertThatThrownBy(() -> validator.validate(report(issued, excessive), issued))
+                .hasMessageContaining("does not match its issued request");
+    }
+
+    private static org.pangrova.protocol.v2.BuildKeyRange buildRange(long minimum, long maximum) {
+        return org.pangrova.protocol.v2.BuildKeyRange.newBuilder().setMinimum(minimum).setMaximum(maximum).build();
+    }
+
+    @Test
     void acceptsWorkerExecutedCdcCompletionReceipt() {
         SubmitTaskRequest request = request("CDC_INGEST", List.of());
         TaskReport status = TaskReport.newBuilder()

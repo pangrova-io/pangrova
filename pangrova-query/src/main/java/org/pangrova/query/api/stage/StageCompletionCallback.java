@@ -1,5 +1,6 @@
 package org.pangrova.query.api.stage;
 
+import java.util.List;
 import java.util.function.Consumer;
 import org.pangrova.common.api.annotation.Internal;
 import org.pangrova.query.api.error.QueryFailure;
@@ -14,32 +15,24 @@ public interface StageCompletionCallback {
      */
     void onTaskTerminal(String queryId, String taskId, String state, QueryFailure error);
 
-    /** Carries the elected physical attempt's build summary with the logical terminal event. */
-    default void onTaskTerminal(String queryId, String taskId, String state, QueryFailure error,
-            BuildKeyRange buildKeyRange) {
-        onTaskTerminal(queryId, taskId, state, error);
-    }
-
-    /** Identifies the physical attempt selected to settle a logical slot. */
+    /** Identifies the winning physical attempt and its optional completed build summary. */
     default void onSuccessfulTaskTerminal(String queryId, String logicalTaskId,
-            SuccessfulAttempt attempt, BuildKeyRange buildKeyRange) {
-        onTaskTerminal(queryId, logicalTaskId, "FINISHED", null, buildKeyRange);
+            SuccessfulAttempt attempt, List<BuildKeyRange> buildKeyRanges) {
+        onTaskTerminal(queryId, logicalTaskId, "FINISHED", null);
     }
 
     record SuccessfulAttempt(String taskId, int partitionId, long planEpoch, int attemptId) {}
 
-    /** Inclusive signed bounds, or a complete summary with no non-null keys. */
-    record BuildKeyRange(long minimum, long maximum, boolean empty) {
+    /** Inclusive signed bounds of one interval in the completed build summary. */
+    record BuildKeyRange(long minimum, long maximum) {
+        public static final int MAX_RANGES = 16;
+
         public BuildKeyRange {
-            if (minimum > maximum || (empty && (minimum != 0 || maximum != 0))) {
-                throw new IllegalArgumentException("Invalid build key range");
-            }
+            if (minimum > maximum) throw new IllegalArgumentException("Invalid build key range");
         }
 
         public BuildKeyRange merge(BuildKeyRange other) {
-            if (empty) return other;
-            if (other.empty) return this;
-            return new BuildKeyRange(Math.min(minimum, other.minimum), Math.max(maximum, other.maximum), false);
+            return new BuildKeyRange(Math.min(minimum, other.minimum), Math.max(maximum, other.maximum));
         }
     }
 

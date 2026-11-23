@@ -24,6 +24,7 @@
 #include "engine/shuffle/ShuffleBatchSerializer.h"
 #include "engine/shuffle/ShufflePartitionAccumulator.h"
 #include "engine/velox/plan/ShuffleOutputSpec.h"
+#include "engine/velox/runner/BuildKeyRanges.h"
 #include "engine/result/ResultColumnType.h"
 #include "pangrova/protocol/v2/result.pb.h"
 #include "velox/common/memory/Memory.h"
@@ -266,7 +267,7 @@ class VeloxTaskRunner
   // Checks task state and sets finished_/error_message_ accordingly.
   // Called on Velox's internal executor thread — must be thread-safe.
   bool handleTaskCompletion();
-  void collectBuildKeyRange(const facebook::velox::RowVector& rows);
+  void collectBuildKeyRanges(const facebook::velox::RowVector& rows);
 
   const VeloxTaskRunnerConfig config_;
   std::shared_ptr<const facebook::velox::core::PlanNode> plan_;
@@ -289,8 +290,8 @@ class VeloxTaskRunner
   // from config_.shuffle_partition_key_indices to avoid recomputing per batch.
   std::vector<facebook::velox::column_index_t> shuffle_key_channels_;
   std::atomic<uint64_t> shuffle_next_row_{0};
-  mutable std::mutex build_key_range_mutex_;
-  std::optional<std::pair<int64_t, int64_t>> build_key_range_;
+  mutable std::mutex build_key_ranges_mutex_;
+  BuildKeyRanges build_key_ranges_;
   std::atomic<bool> finished_{false};
   std::shared_ptr<pangrova::result::ResultOwnershipState> result_ownership_;
   std::atomic<bool> cancelled_{false};

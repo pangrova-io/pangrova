@@ -823,20 +823,19 @@ identities, and field ID.
 
 ### 9.2 Build and probe
 
-Each elected Native build task reports inclusive minimum and maximum keys
-using its existing task completion report. The Coordinator waits up to
-200 ms for the full successful build cohort and the required exchange
-publication. It merges overlapping or adjacent task ranges and keeps up to
-16 disjoint ranges. If the range budget is exceeded, one encompassing
-interval covers every reported key. A complete build containing only NULL
-keys yields an empty probe. A missing or late report leaves pruning to the
-original constraints.
+Each elected Native build task reports up to 16 disjoint inclusive key ranges
+in its existing task completion report. Native merges overlapping and adjacent
+ranges across batches. The Coordinator waits up to 200 ms for the full
+successful build cohort and required exchange publication, then merges the
+task ranges under the same bound. If either merge exceeds the range budget,
+one encompassing interval covers every key seen by that merge. A complete
+build containing only NULL keys yields an empty probe. A missing or late
+report leaves pruning to the original constraints.
 
 Iceberg plans splits with the disjunction of the retained ranges and the
 original static predicates. Inclusive partition and file-statistics
 evaluation retains any file that may match. The Worker still evaluates the
-join on the rows. The bounds do not distinguish missing keys within a single
-task's reported interval.
+join on the rows.
 
 ### 9.3 Scope
 

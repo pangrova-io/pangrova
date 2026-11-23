@@ -7,6 +7,7 @@ import org.pangrova.query.api.stage.StageCompletionCallback.SuccessfulAttempt;
 import org.pangrova.query.api.stage.StageCompletionCallback.BuildKeyRange;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -52,26 +53,21 @@ public final class TaskTerminalRegistry {
 
     /** First terminal fact wins. A stage callback may synchronously retry or retire this DAG. */
     public void onTerminal(String query, String taskId, String state, QueryFailure error) {
-        onTerminal(query, taskId, state, error, null);
-    }
-
-    /** Records the elected physical attempt's summary with its first logical terminal event. */
-    public void onTerminal(String query, String taskId, String state, QueryFailure error, BuildKeyRange range) {
-        onTerminal(query, taskId, state, error, range, null);
+        onTerminal(query, taskId, state, error, null, null);
     }
 
     public void onSuccessfulTerminal(String query, String logicalTaskId, SuccessfulAttempt attempt,
-            BuildKeyRange range) {
-        onTerminal(query, logicalTaskId, "FINISHED", null, range, attempt);
+            List<BuildKeyRange> ranges) {
+        onTerminal(query, logicalTaskId, "FINISHED", null, ranges, attempt);
     }
 
-    private void onTerminal(String query, String taskId, String state, QueryFailure error, BuildKeyRange range,
-            SuccessfulAttempt attempt) {
+    private void onTerminal(String query, String taskId, String state, QueryFailure error,
+            List<BuildKeyRange> ranges, SuccessfulAttempt attempt) {
         if (!queryId.equals(query) || !("FINISHED".equals(state) || "FAILED".equals(state)
                 || "CANCELLED".equals(state))) {
             return;
         }
-        Event event = new Event(state, error, range, attempt);
+        Event event = new Event(state, error, ranges, attempt);
         Stage stage;
         int generation;
         synchronized (this) {
@@ -117,10 +113,10 @@ public final class TaskTerminalRegistry {
         private Event event;
     }
 
-    private record Event(String state, QueryFailure error, BuildKeyRange range, SuccessfulAttempt attempt) {
+    private record Event(String state, QueryFailure error, List<BuildKeyRange> ranges, SuccessfulAttempt attempt) {
         private boolean deliver(Stage stage, String taskId, int generation) {
             if ("FINISHED".equals(state)) {
-                return stage.onTaskFinished(taskId, generation, range);
+                return stage.onTaskFinished(taskId, generation, ranges);
             }
             QueryFailure cause = "CANCELLED".equals(state) && error == null
                     ? new QueryFailure("TASK_CANCELLED", "TaskCancelled", "Task was cancelled") : error;

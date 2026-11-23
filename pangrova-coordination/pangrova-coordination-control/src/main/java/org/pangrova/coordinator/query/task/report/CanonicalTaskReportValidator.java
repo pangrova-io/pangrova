@@ -18,6 +18,8 @@ import org.pangrova.protocol.v2.ResourceUsage;
 import org.pangrova.protocol.v2.SourceSnapshotReport;
 import org.pangrova.protocol.v2.StageResourceGrant;
 import org.pangrova.protocol.v2.TaskReport;
+import org.pangrova.protocol.v2.TaskReportOrigin;
+import org.pangrova.query.api.stage.StageCompletionCallback.BuildKeyRange;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.protocol.v2.TaskState;
 
@@ -68,15 +70,7 @@ public final class CanonicalTaskReportValidator {
         validateOrigin(status);
         validateCoverage(status, expectedRequest);
         validateTaskUsage(status, expectedRequest);
-        var nativeStats = status.getNativeTaskStats();
-        if (nativeStats.hasBuildKeyRange()) {
-            var range = nativeStats.getBuildKeyRange();
-            if (!expectedRequest.taskRequest().hasBuildKeyOrdinal() || !range.getUnknownFields().asMap().isEmpty()
-                    || range.getMinimum() > range.getMaximum()
-                    || (range.getEmpty() && (range.getMinimum() != 0 || range.getMaximum() != 0))) {
-                throw invalid("Native build key range does not match its issued request");
-            }
-        }
+        validateBuildKeys(status, expectedRequest);
         GenerationTaskReportValidator.validate(status, report, expectedRequest);
         PhysicalWriteTaskReportValidator.validate(status, report, expectedRequest);
         return Optional.of(status);
@@ -89,7 +83,33 @@ public final class CanonicalTaskReportValidator {
         }
         TaskReport status = parse(encoded);
         CanonicalExecutionDrainReports.validateReceipt(status, expected);
+        validateBuildKeys(status, expected);
         return status;
+    }
+
+    private static void validateBuildKeys(TaskReport status, SubmitTaskRequest request) {
+        var stats = status.getNativeTaskStats();
+        if (!stats.hasBuildKeys()) return;
+        var summary = stats.getBuildKeys();
+        if (!request.taskRequest().hasBuildKeyOrdinal()
+                || status.getState() != TaskState.TASK_STATE_FINISHED
+                || status.getReportOrigin() != TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE
+                || !summary.getUnknownFields().asMap().isEmpty()
+                || summary.getRangesCount() > BuildKeyRange.MAX_RANGES) {
+            throw invalid("Native build key summary does not match its issued request");
+        }
+        for (int index = 0; index < summary.getRangesCount(); index++) {
+            var range = summary.getRanges(index);
+            if (!range.getUnknownFields().asMap().isEmpty() || range.getMinimum() > range.getMaximum()) {
+                throw invalid("Native build key summary contains an invalid range");
+            }
+            if (index > 0) {
+                long priorMaximum = summary.getRanges(index - 1).getMaximum();
+                if (priorMaximum == Long.MAX_VALUE || range.getMinimum() <= priorMaximum + 1) {
+                    throw invalid("Native build key ranges are not sorted and separated");
+                }
+            }
+        }
     }
 
     private static TaskReport parse(byte[] encoded) {

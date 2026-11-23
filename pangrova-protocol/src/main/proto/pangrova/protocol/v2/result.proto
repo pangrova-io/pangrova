@@ -252,15 +252,21 @@ message NativeTaskStats {
   uint64 index_splits_evaluated = 19;
   uint64 index_splits_skipped = 20;
   // Present only for a completed requested build-key scan of the exchange output.
-  BuildKeyRange build_key_range = 21;
+  BuildKeySummary build_keys = 21;
+  reserved "build_key_range";
 }
 
-// Inclusive signed bounds on all non-null build keys. Empty means every output
-// row was visited and no non-null build key existed in this attempt.
+// A completed summary covers every non-null key. No ranges means all keys were null.
+// At most 16 inclusive ranges, sorted and separated by at least one value.
+message BuildKeySummary {
+  repeated BuildKeyRange ranges = 1;
+}
+
 message BuildKeyRange {
   sint64 minimum = 1;
   sint64 maximum = 2;
-  bool empty = 3;
+  reserved 3;
+  reserved "empty";
 }
 
 // Generic report produced by one fenced background work page. Outputs are

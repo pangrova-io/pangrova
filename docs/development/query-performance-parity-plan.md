@@ -25,7 +25,7 @@ unlisted: true
 |---|---|---|
 | CBO 统计质量 | 已移除由 min/max/NDV 推导的均匀直方图，并保留缺失 NDV。Join 和过滤器按直接列来源读取统计。三表 Join 的两个等价写法在本地规划探针中均使用实际来源的列统计 | 范围过滤仍需实测分布。倾斜和相关性可能影响 Join 顺序、build 侧、broadcast 和并行度。用每 plan node 的估计偏差与实际物理计划验证 |
 | Join 并行化 | `PlanFragmenter.resolveStageParallelism` 对缺少兼容 Exchange 或仍混有直接表扫描的 Join 回到单任务，保护分布式覆盖 | 记录哪些多表 SQL 触发此保护、部署中实际 Worker/driver 数与单任务耗时，再为高成本形态补齐双输入分布 |
-| 跨 Stage 动态过滤 | 实时 INNER BIGINT 等值 Join 按完整获胜回执约束同一 Iceberg 快照。真实双 Worker 查询的连续键场景从 40 个分片、32,449 字节降到 2 个分片、1,398 字节。分散构建区间场景从 35 个分片、24,460 字节降到 4 个分片、2,795 字节 | 评估单任务内稀疏键、等待、其他键及连接器。删除名称型描述与测试专用收集器留下的断开路径 |
+| 跨 Stage 动态过滤 | 实时 INNER BIGINT 等值 Join 按完整获胜回执约束同一 Iceberg 快照。真实双 Worker 查询的连续键场景从 40 个分片、32,449 字节降到 2 个分片、1,398 字节。分散构建区间场景从 35 个分片、24,460 字节降到 4 个分片、2,795 字节 | 单构建任务保留有界稀疏区间，冷探测从 35 个分片、27,885 字节降到 4 个分片、2,795 字节。继续验证等待成本、其他键及连接器。删除名称型描述与测试专用收集器留下的断开路径 |
 | 扫描发现与分片大小 | Iceberg 已按批枚举并关闭 SDK 文件计划。`SplitFetcher` 仍收齐分片用于全局放置，`IndexAwareSplitFetcher` 先全量 fetch 再过滤。放置使用 split 实际文件范围和物理字节估计 | 按字节分配将两个 512 MiB 和两个 512 KiB 的输入从 1 GiB 与 1 MiB 调整为两组 512.5 MiB。10,000 文件的单 split 探针 P50 从 11.340 ms 降到 2.647 ms，生产 SQL 仍须单独测量放置等待、I/O 和尾 task |
 | 聚合与 Exchange | 并行扫描上的全局 `COUNT` 和整数 `MIN/MAX` 可在任务本地归约，具有快照匹配 NDV 的简单分组可按同一键归并。真实双 Worker 分别验证了读取 80 行、输出 8 条全局状态，以及两列分组的 Shuffle 行数从 192 降到 16 | 更广的函数覆盖以及中间状态跨网仍需准确的类型和成本证据。Native 转换器对缺少原始参数类型的状态输入 phase 会拒绝 |
 | AQE 读取布局 | 符合条件的单哈希输入按已提交回执合并连续分区，保留生产坐标和各分区证明。真实 Native 与两端点对照覆盖了 4 → 1 个任务和 35 行逐项一致 | 完整 SQL 负载仍需归因，Join 多输入合并、偏斜拆分和 durable replay 各需覆盖证明 |
@@ -50,7 +50,7 @@ unlisted: true
 
 1. 在已有按物理扫描字节分配的基础上分开校准对象打开、解码和删除成本，记录估计缺失。需要 durable cohort 的阶段按固定快照和完整分片覆盖验证限流派发。 [Spark 文件分区](https://spark.apache.org/docs/latest/sql-performance-tuning.html#tuning-partitions)
 2. 先从 manifest、分区/文件统计剪裁开始，基于 Native reader 指标证明 row group/page 的读取量。大文件按不重叠的合法范围拆分，小文件按工作量组包。测试快照演进、删除文件、冷/热缓存、宽表、稀疏与随机访问。索引按成本和实际跳过 bytes 评估。缓存亲和用实际命中与驻留证据，prefetch 按字节预算，避免无效读取把热数据挤出。 [Iceberg 扫描规划](https://iceberg.apache.org/spec/#scan-planning)
-3. **扩大可证明的动态过滤覆盖。** 当前 Iceberg INNER BIGINT 单列路径使用选定快照、稳定 field ID、完整获胜集合和 200 ms 有界等待。已验证分散构建任务范围的合并剪裁。接下来按实际数据分布测量单个构建任务内的稀疏值、多键和等待成本。在并行探测、迟报、投机和大扫描夹具中验证尚未签发的工作可以安全接收新条件。统计等待、已发 I/O、文件与 row group 跳过及实际字节。 [Trino 动态过滤](https://trino.io/docs/current/admin/dynamic-filtering.html)
+3. **扩大可证明的动态过滤覆盖。** 当前 Iceberg INNER BIGINT 单列路径使用选定快照、稳定 field ID、完整获胜集合和 200 ms 有界等待。已验证多个构建任务与单任务内的稀疏范围。接下来按实际数据分布测量多键和等待成本。在并行探测、迟报、投机和大扫描夹具中验证尚未签发的工作可以安全接收新条件。统计等待、已发 I/O、文件与 row group 跳过及实际字节。 [Trino 动态过滤](https://trino.io/docs/current/admin/dynamic-filtering.html)
 
 ### Q3 让 CBO、聚合和 AQE 缩减跨节点工作
 

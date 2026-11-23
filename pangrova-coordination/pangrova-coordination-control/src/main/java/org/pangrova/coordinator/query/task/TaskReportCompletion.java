@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.query.task;
 
+import java.util.List;
 import java.util.Objects;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.query.api.error.QueryFailure;
@@ -17,12 +18,11 @@ public final class TaskReportCompletion {
             return;
         }
         var decoded = report.decodedStatus();
-        StageCompletionCallback.BuildKeyRange buildKeys = null;
-        if (decoded != null && decoded.getNativeTaskStats().hasBuildKeyRange()) {
-            var range = decoded.getNativeTaskStats().getBuildKeyRange();
-            buildKeys = new StageCompletionCallback.BuildKeyRange(range.getMinimum(), range.getMaximum(),
-                    range.getEmpty());
-        }
+        List<StageCompletionCallback.BuildKeyRange> buildKeys = decoded == null
+                || !decoded.getNativeTaskStats().hasBuildKeys() ? null
+                : decoded.getNativeTaskStats().getBuildKeys().getRangesList().stream()
+                        .map(range -> new StageCompletionCallback.BuildKeyRange(range.getMinimum(), range.getMaximum()))
+                        .toList();
         var attempt = report.attempt();
         var selected = new StageCompletionCallback.SuccessfulAttempt(report.taskId(), report.partitionId(),
                 attempt.planEpoch(), attempt.attemptId());

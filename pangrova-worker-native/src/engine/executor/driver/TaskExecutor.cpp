@@ -414,7 +414,7 @@ uint64_t TaskExecutor::requestedObjectReadBytes() const {
 std::optional<protocol::v2::NativeTaskStats> TaskExecutor::collectTaskStats() const {
   auto stats = execution_driver_ ? execution_driver_->collectTaskStats() : std::nullopt;
   if (!stats) return std::nullopt;
-  if (state() != ExecutorState::FINISHED) stats->clear_build_key_range();
+  if (state() != ExecutorState::FINISHED) stats->clear_build_keys();
   const auto cache_usage =
       cache::SemanticResultCache::instance().taskUsage(config_.task_id);
   stats->set_cache_hit_bytes(cache_usage.hit_bytes);

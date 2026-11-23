@@ -4,9 +4,13 @@ import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.api.TestReporter;
 import org.pangrova.connector.api.metadata.table.TableStatistics;
 import org.pangrova.coordinator.worker.WorkerInfo;
+import org.pangrova.protocol.v2.BuildKeyRange;
+import org.pangrova.protocol.v2.BuildKeySummary;
 import org.pangrova.protocol.v2.ExecutionDrainState;
 import org.pangrova.protocol.v2.OperatorStats;
 import org.pangrova.protocol.v2.TaskReport;
@@ -304,14 +308,11 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
         assertThat(pruned.rows()).extracting(row -> row.getLong("payload")).containsExactly(113L, 113L, 114L);
         assertThat(unpruned.rows()).usingRecursiveComparison().isEqualTo(pruned.rows());
         assertThat(outer.rows()).hasSize(41);
-        assertThat(outer.buildRanges()).isEmpty();
+        assertThat(outer.buildSummaries()).isEmpty();
         assertThat(outer.sourceSplits(probe)).isEqualTo(40L);
-        assertThat(unpruned.buildRanges()).isEmpty();
-        assertThat(pruned.buildRanges()).singleElement().satisfies(range -> {
-            assertThat(range.getEmpty()).isFalse();
-            assertThat(range.getMinimum()).isEqualTo(13L);
-            assertThat(range.getMaximum()).isEqualTo(14L);
-        });
+        assertThat(unpruned.buildSummaries()).isEmpty();
+        assertThat(pruned.buildSummaries()).singleElement().satisfies(summary ->
+                assertThat(summary.getRangesList()).containsExactly(buildKeyRange(13, 14)));
         assertThat(unpruned.sourceSplits(probe)).isEqualTo(40L);
         assertThat(pruned.sourceSplits(probe)).isEqualTo(2L);
         org.slf4j.LoggerFactory.getLogger(PhysicalTwoWorkerShuffleE2ETest.class).info(
@@ -331,21 +332,30 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
         var empty = executeWithDrainedReports(projected + " JOIN " + allNull + " b ON " + condition);
         assertThat(empty.rows()).isEmpty();
         assertThat(empty.sourceSplits(probe)).isZero();
-        assertThat(empty.buildRanges()).singleElement().satisfies(range -> assertThat(range.getEmpty()).isTrue());
+        assertThat(empty.buildSummaries()).singleElement().satisfies(summary ->
+                assertThat(summary.getRangesList()).isEmpty());
     }
 
-    @Test
-    void separatedBuildRangesPruneOnlyMatchingProbePartitions(TestReporter metrics) {
-        String probe = orders + "_sparse_probe";
-        String build = orders + "_sparse_build";
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void separatedBuildRangesPruneOnlyMatchingProbePartitions(boolean oneBuildTask, TestReporter metrics) {
+        String suffix = oneBuildTask ? "_single_sparse" : "_multi_sparse";
+        String probe = orders + suffix + "_probe";
+        String build = orders + suffix + "_build";
         sqlRunner.executeDdl("CREATE TABLE " + probe + " (id BIGINT, payload BIGINT) PARTITIONED BY (id)");
         sqlRunner.executeDdl("CREATE TABLE " + build + " (id BIGINT)");
         String values = java.util.stream.IntStream.range(0, 40)
                 .mapToObj(row -> "(" + row + ", " + (row + 100) + ")")
                 .collect(java.util.stream.Collectors.joining(", "));
         sqlRunner.execute("INSERT INTO " + probe + " VALUES " + values);
-        sqlRunner.execute("INSERT INTO " + build + " VALUES (2), (2), (3)");
-        sqlRunner.execute("INSERT INTO " + build + " VALUES (35), (36), (NULL)");
+        String valuesBeforeGap = "(2), (2), (3)";
+        String valuesAfterGap = "(35), (36), (NULL)";
+        if (oneBuildTask) {
+            sqlRunner.execute("INSERT INTO " + build + " VALUES " + valuesBeforeGap + ", " + valuesAfterGap);
+        } else {
+            sqlRunner.execute("INSERT INTO " + build + " VALUES " + valuesBeforeGap);
+            sqlRunner.execute("INSERT INTO " + build + " VALUES " + valuesAfterGap);
+        }
 
         String join = "SELECT p.id, p.payload FROM " + probe + " p JOIN " + build + " b ON ";
         // Measure the pruned read before the full scan can warm its file ranges.
@@ -355,23 +365,33 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
         assertThat(pruned.rows()).extracting(row -> row.getLong("payload"))
                 .containsExactly(102L, 102L, 103L, 135L, 136L);
         assertThat(unpruned.rows()).usingRecursiveComparison().isEqualTo(pruned.rows());
-        assertThat(unpruned.buildRanges()).isEmpty();
-        assertThat(pruned.buildRanges()).containsExactlyInAnyOrder(
-                org.pangrova.protocol.v2.BuildKeyRange.newBuilder().setMinimum(2).setMaximum(3).build(),
-                org.pangrova.protocol.v2.BuildKeyRange.newBuilder().setMinimum(35).setMaximum(36).build());
+        assertThat(unpruned.buildSummaries()).isEmpty();
+        var lower = buildKeyRange(2, 3);
+        var upper = buildKeyRange(35, 36);
+        if (oneBuildTask) {
+            assertThat(pruned.buildSummaries()).singleElement().satisfies(summary ->
+                    assertThat(summary.getRangesList()).containsExactly(lower, upper));
+        } else {
+            assertThat(pruned.buildSummaries()).extracting(BuildKeySummary::getRangesList)
+                    .containsExactlyInAnyOrder(List.of(lower), List.of(upper));
+        }
         long fullSplits = unpruned.sourceSplits(probe);
         long filteredSplits = pruned.sourceSplits(probe);
         long fullBytes = unpruned.sourceReadBytes(probe);
         long filteredBytes = pruned.sourceReadBytes(probe);
         org.slf4j.LoggerFactory.getLogger(PhysicalTwoWorkerShuffleE2ETest.class).info(
-                "event=sparse_build_probe fullSplits={} filteredSplits={} fullBytes={} filteredBytes={}",
-                fullSplits, filteredSplits, fullBytes, filteredBytes);
+                "event=sparse_build_probe oneBuildTask={} fullSplits={} filteredSplits={} fullBytes={} filteredBytes={}",
+                oneBuildTask, fullSplits, filteredSplits, fullBytes, filteredBytes);
         metrics.publishEntry(Map.of("full_probe_splits", Long.toString(fullSplits),
                 "filtered_probe_splits", Long.toString(filteredSplits), "full_probe_read_bytes", Long.toString(fullBytes),
                 "filtered_probe_read_bytes", Long.toString(filteredBytes)));
         assertThat(fullSplits).isEqualTo(40);
         assertThat(filteredSplits).isEqualTo(4);
         assertThat(filteredBytes).isPositive().isLessThan(fullBytes);
+    }
+
+    private static BuildKeyRange buildKeyRange(long minimum, long maximum) {
+        return BuildKeyRange.newBuilder().setMinimum(minimum).setMaximum(maximum).build();
     }
 
     private static DrainedQuery executeWithDrainedReports(String sql) {
@@ -402,10 +422,10 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
     }
 
     private record DrainedQuery(List<TypedRow> rows, List<TaskReport> reports) {
-        List<org.pangrova.protocol.v2.BuildKeyRange> buildRanges() {
+        List<BuildKeySummary> buildSummaries() {
             return reports.stream().map(TaskReport::getNativeTaskStats)
-                    .filter(org.pangrova.protocol.v2.NativeTaskStats::hasBuildKeyRange)
-                    .map(org.pangrova.protocol.v2.NativeTaskStats::getBuildKeyRange).toList();
+                    .filter(org.pangrova.protocol.v2.NativeTaskStats::hasBuildKeys)
+                    .map(org.pangrova.protocol.v2.NativeTaskStats::getBuildKeys).toList();
         }
 
         long sourceSplits(String source) {

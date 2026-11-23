@@ -489,7 +489,7 @@ void VeloxTaskRunner::start() {
           return facebook::velox::exec::BlockingReason::kNotBlocked;
         }
         if (self->config_.build_key_ordinal) {
-          self->collectBuildKeyRange(*vector);
+          self->collectBuildKeyRanges(*vector);
         }
 
         // F-NATIVE-SHUF-09: Use configurable timeout from VeloxTaskRunnerConfig.
@@ -1178,23 +1178,15 @@ facebook::velox::exec::Task* VeloxTaskRunner::veloxTask() const {
   return velox_task_.get();
 }
 
-void VeloxTaskRunner::collectBuildKeyRange(const facebook::velox::RowVector& rows) {
+void VeloxTaskRunner::collectBuildKeyRanges(const facebook::velox::RowVector& rows) {
   facebook::velox::DecodedVector key(*rows.childAt(*config_.build_key_ordinal));
-  int64_t minimum = std::numeric_limits<int64_t>::max();
-  int64_t maximum = std::numeric_limits<int64_t>::min();
+  BuildKeyRanges batch;
   for (facebook::velox::vector_size_t index = 0; index < rows.size(); ++index) {
-    if (key.isNullAt(index)) continue;
-    auto value = key.valueAt<int64_t>(index);
-    minimum = std::min(minimum, value);
-    maximum = std::max(maximum, value);
+    if (!key.isNullAt(index)) batch.add(key.valueAt<int64_t>(index));
   }
-  if (minimum > maximum) return;
-  std::lock_guard lock(build_key_range_mutex_);
-  if (build_key_range_) {
-    minimum = std::min(minimum, build_key_range_->first);
-    maximum = std::max(maximum, build_key_range_->second);
-  }
-  build_key_range_.emplace(minimum, maximum);
+  if (batch.ranges().empty()) return;
+  std::lock_guard lock(build_key_ranges_mutex_);
+  build_key_ranges_.merge(batch);
 }
 
 std::optional<protocol::v2::NativeTaskStats> VeloxTaskRunner::collectTaskStats(
@@ -1211,12 +1203,12 @@ std::optional<protocol::v2::NativeTaskStats> VeloxTaskRunner::collectTaskStats(
       index_splits_evaluated_.load(std::memory_order_acquire),
       index_splits_skipped_.load(std::memory_order_acquire));
   if (config_.build_key_ordinal && velox_task_->state() == facebook::velox::exec::TaskState::kFinished) {
-    std::lock_guard lock(build_key_range_mutex_);
-    auto* range = stats.mutable_build_key_range();
-    range->set_empty(!build_key_range_);
-    if (build_key_range_) {
-      range->set_minimum(build_key_range_->first);
-      range->set_maximum(build_key_range_->second);
+    std::lock_guard lock(build_key_ranges_mutex_);
+    auto* buildKeys = stats.mutable_build_keys();
+    for (const auto& interval : build_key_ranges_.ranges()) {
+      auto* range = buildKeys->add_ranges();
+      range->set_minimum(interval.minimum);
+      range->set_maximum(interval.maximum);
     }
   }
   if (stats.operator_stats().empty() && stats.ByteSizeLong() == 0) {

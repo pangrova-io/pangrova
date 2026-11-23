@@ -35,7 +35,6 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
 public final class Stage {
 
     private static final Logger LOG = LoggerFactory.getLogger(Stage.class);
-    private static final int MAX_BUILD_FILTER_RANGES = 16;
 
     private final StageNode plan;
     private final StageStateMachine stateMachine;
@@ -145,8 +144,8 @@ public final class Stage {
     }
 
     /** Merges the winning summary under the same generation fence as the terminal task. */
-    public boolean onTaskFinished(String taskId, int generation, BuildKeyRange range) {
-        return applyTaskReport(taskId, generation, true, null, range);
+    public boolean onTaskFinished(String taskId, int generation, List<BuildKeyRange> ranges) {
+        return applyTaskReport(taskId, generation, true, null, ranges);
     }
 
     /** Returns a bounded union for a complete cohort, or null if any summary is absent. */
@@ -156,7 +155,7 @@ public final class Stage {
         if (buildKeyRanges.size() == 1) return List.of(buildKeyRanges.get(0));
 
         buildKeyRanges.sort(Comparator.comparingLong(BuildKeyRange::minimum));
-        List<BuildKeyRange> union = new ArrayList<>(Math.min(MAX_BUILD_FILTER_RANGES, buildKeyRanges.size()));
+        List<BuildKeyRange> union = new ArrayList<>(Math.min(BuildKeyRange.MAX_RANGES, buildKeyRanges.size()));
         BuildKeyRange current = buildKeyRanges.get(0);
         for (int index = 1; index < buildKeyRanges.size(); index++) {
             BuildKeyRange next = buildKeyRanges.get(index);
@@ -165,9 +164,9 @@ public final class Stage {
                 continue;
             }
             union.add(current);
-            if (union.size() == MAX_BUILD_FILTER_RANGES) {
+            if (union.size() == BuildKeyRange.MAX_RANGES) {
                 long maximum = buildKeyRanges.stream().mapToLong(BuildKeyRange::maximum).max().orElseThrow();
-                return List.of(new BuildKeyRange(buildKeyRanges.get(0).minimum(), maximum, false));
+                return List.of(new BuildKeyRange(buildKeyRanges.get(0).minimum(), maximum));
             }
             current = next;
         }
@@ -193,7 +192,7 @@ public final class Stage {
     }
 
     private boolean applyTaskReport(String taskId, int generation, boolean success, QueryFailure error,
-            BuildKeyRange range) {
+            List<BuildKeyRange> ranges) {
         checkNotNull(taskId, "taskId must not be null");
         boolean allSucceeded;
         synchronized (this) {
@@ -201,11 +200,11 @@ public final class Stage {
                     || finishedTaskIds.contains(taskId) || failedTaskIds.contains(taskId)) return false;
             if (success) {
                 finishedTaskIds.add(taskId);
-                if (range != null) {
+                if (ranges != null) {
                     buildKeyReports++;
-                    if (!range.empty()) {
+                    if (!ranges.isEmpty()) {
                         if (buildKeyRanges == null) buildKeyRanges = new ArrayList<>();
-                        buildKeyRanges.add(range);
+                        buildKeyRanges.addAll(ranges);
                     }
                 }
             } else {

@@ -592,15 +592,9 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
     }
 
     @Override
-    public void onTaskTerminal(String queryId, String taskId, String state, QueryFailure error,
-            BuildKeyRange range) {
-        lifecycle.onTaskTerminal(queryId, taskId, state, error, range);
-    }
-
-    @Override
     public void onSuccessfulTaskTerminal(String queryId, String logicalTaskId, SuccessfulAttempt attempt,
-            BuildKeyRange range) {
-        lifecycle.onSuccessfulTaskTerminal(queryId, logicalTaskId, attempt, range);
+            List<BuildKeyRange> ranges) {
+        lifecycle.onSuccessfulTaskTerminal(queryId, logicalTaskId, attempt, ranges);
     }
 
     /** Removes all per-query dispatch state. */

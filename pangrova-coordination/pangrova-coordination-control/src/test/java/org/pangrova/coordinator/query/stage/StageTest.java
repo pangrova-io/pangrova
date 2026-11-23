@@ -70,14 +70,14 @@ class StageTest {
         stage.addTaskId("second");
         int generation = stage.currentGeneration();
 
-        stage.onTaskFinished("first", generation, new BuildKeyRange(-8, -2, false));
-        stage.onTaskFinished("first", generation, new BuildKeyRange(Long.MIN_VALUE, Long.MAX_VALUE, false));
-        stage.onTaskFinished("second", generation + 1, new BuildKeyRange(-40, 40, false));
+        stage.onTaskFinished("first", generation, List.of(new BuildKeyRange(-8, -2)));
+        stage.onTaskFinished("first", generation, List.of(new BuildKeyRange(Long.MIN_VALUE, Long.MAX_VALUE)));
+        stage.onTaskFinished("second", generation + 1, List.of(new BuildKeyRange(-40, 40)));
         assertThat(stage.completeBuildKeyRanges()).isNull();
-        stage.onTaskFinished("second", generation, new BuildKeyRange(0, 0, true));
+        stage.onTaskFinished("second", generation, List.of());
 
         assertThat(stage.stateMachine().getState()).isEqualTo(StageState.FINISHED);
-        assertThat(stage.completeBuildKeyRanges()).containsExactly(new BuildKeyRange(-8, -2, false));
+        assertThat(stage.completeBuildKeyRanges()).containsExactly(new BuildKeyRange(-8, -2));
     }
 
     @Test
@@ -87,7 +87,7 @@ class StageTest {
         stage.stateMachine().transitionTo(StageState.RUNNING);
         stage.addTaskId("first");
         stage.addTaskId("second");
-        stage.onTaskFinished("first", stage.currentGeneration(), new BuildKeyRange(0, 0, true));
+        stage.onTaskFinished("first", stage.currentGeneration(), List.of());
         stage.onTaskFinished("second");
 
         assertThat(stage.stateMachine().getState()).isEqualTo(StageState.FINISHED);
@@ -96,33 +96,36 @@ class StageTest {
 
     @Test
     void completeBuildPreservesGapsAndCoalescesOverlappingOrAdjacentSignedRanges() {
-        var ranges = List.of(new BuildKeyRange(Long.MAX_VALUE, Long.MAX_VALUE, false),
-                new BuildKeyRange(12, 15, false), new BuildKeyRange(0, 1, false),
-                new BuildKeyRange(Long.MIN_VALUE, Long.MIN_VALUE, false),
-                new BuildKeyRange(2, 3, false), new BuildKeyRange(11, 12, false),
-                new BuildKeyRange(Long.MAX_VALUE - 2, Long.MAX_VALUE - 1, false),
-                new BuildKeyRange(0, 0, true));
+        var ranges = List.of(new BuildKeyRange(Long.MAX_VALUE, Long.MAX_VALUE),
+                new BuildKeyRange(12, 15), new BuildKeyRange(0, 1),
+                new BuildKeyRange(Long.MIN_VALUE, Long.MIN_VALUE),
+                new BuildKeyRange(2, 3), new BuildKeyRange(11, 12),
+                new BuildKeyRange(Long.MAX_VALUE - 2, Long.MAX_VALUE - 1));
         assertThat(completedBuild(ranges).completeBuildKeyRanges()).containsExactly(
-                new BuildKeyRange(Long.MIN_VALUE, Long.MIN_VALUE, false), new BuildKeyRange(0, 3, false),
-                new BuildKeyRange(11, 15, false), new BuildKeyRange(Long.MAX_VALUE - 2, Long.MAX_VALUE, false));
-        assertThat(completedBuild(List.of(new BuildKeyRange(0, 0, true))).completeBuildKeyRanges()).isEmpty();
+                new BuildKeyRange(Long.MIN_VALUE, Long.MIN_VALUE), new BuildKeyRange(0, 3),
+                new BuildKeyRange(11, 15), new BuildKeyRange(Long.MAX_VALUE - 2, Long.MAX_VALUE));
+        assertThat(completedBuildSummaries(List.of(List.of())).completeBuildKeyRanges()).isEmpty();
     }
 
     @Test
     void excessiveDisjointBuildRangesUseConservativeBoundedCoverage() {
         var ranges = java.util.stream.LongStream.range(0, 17)
-                .mapToObj(i -> new BuildKeyRange(2 * i, 2 * i, false)).toList();
+                .mapToObj(i -> new BuildKeyRange(2 * i, 2 * i)).toList();
         assertThat(completedBuild(ranges.subList(0, 16)).completeBuildKeyRanges()).hasSize(16);
-        assertThat(completedBuild(ranges).completeBuildKeyRanges()).containsExactly(new BuildKeyRange(0, 32, false));
+        assertThat(completedBuild(ranges).completeBuildKeyRanges()).containsExactly(new BuildKeyRange(0, 32));
     }
 
     private Stage completedBuild(List<BuildKeyRange> ranges) {
+        return completedBuildSummaries(ranges.stream().map(List::of).toList());
+    }
+
+    private Stage completedBuildSummaries(List<List<BuildKeyRange>> summaries) {
         var stage = Stage.create(dummyNode(0), "q1");
         stage.stateMachine().transitionTo(StageState.SCHEDULING);
         stage.stateMachine().transitionTo(StageState.RUNNING);
-        for (int index = 0; index < ranges.size(); index++) stage.addTaskId("task-" + index);
-        for (int index = 0; index < ranges.size(); index++) {
-            stage.onTaskFinished("task-" + index, stage.currentGeneration(), ranges.get(index));
+        for (int index = 0; index < summaries.size(); index++) stage.addTaskId("task-" + index);
+        for (int index = 0; index < summaries.size(); index++) {
+            stage.onTaskFinished("task-" + index, stage.currentGeneration(), summaries.get(index));
         }
         return stage;
     }
