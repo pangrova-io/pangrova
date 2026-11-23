@@ -14,9 +14,12 @@
 package org.pangrova.protocol.execution;
 
 import org.pangrova.common.api.annotation.Experimental;
+import org.pangrova.protocol.v2.ExecutionCallbackContext;
+import org.pangrova.protocol.v2.OperatorBinding;
 import org.pangrova.protocol.v2.ResourceUsage;
 import org.pangrova.protocol.v2.TaskAttemptId;
-import org.pangrova.protocol.v2.TaskRequest;
+
+import java.util.List;
 
 /**
  * Worker-owned task admission and accounting seam for AI provider capacity.
@@ -34,7 +37,7 @@ import org.pangrova.protocol.v2.TaskRequest;
 public interface AiTaskLifecycle {
 
     /** Installs the canonical task authority before any Native callback can execute. */
-    void registerTask(TaskRequest request);
+    void registerTask(ExecutionCallbackContext callback, List<OperatorBinding> bindings);
 
     /** Retires transient provider admission state after the Native task joins. */
     ResourceUsage releaseTask(String tenantId, TaskAttemptId attempt);
@@ -48,7 +51,7 @@ public interface AiTaskLifecycle {
     /** No-op lifecycle used when no AI runtime is installed. */
     AiTaskLifecycle NONE = new AiTaskLifecycle() {
         @Override
-        public void registerTask(TaskRequest request) {
+        public void registerTask(ExecutionCallbackContext callback, List<OperatorBinding> bindings) {
         }
 
         @Override

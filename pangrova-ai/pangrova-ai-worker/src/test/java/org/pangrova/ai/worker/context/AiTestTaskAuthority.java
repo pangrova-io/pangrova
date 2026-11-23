@@ -13,6 +13,7 @@ import org.pangrova.protocol.v2.StageResourceGrant;
 import org.pangrova.protocol.v2.TaskKind;
 import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.protocol.v2.TraceContext;
+import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.testing.testkit.CanonicalTaskRequestTestFixture;
 import org.pangrova.ai.worker.invocation.AiInvocationService;
 
@@ -30,8 +31,7 @@ public final class AiTestTaskAuthority {
                 "trace-1", deadline), StageResourceGrant.newBuilder()
                 .setGrantId(taskId + ":grant").setCpuSlots(1)
                 .setNativeMemoryBytes(1048576).setMediaBytes(mediaBytes).build());
-        AiExecutionContext context = AiExecutionContext.fromTaskRequest(request);
-        AiInvocationService.registerTask(request);
+        AiExecutionContext context = register(request);
         try {
             return AiExecutionContext.callWith(context, action);
         } finally {
@@ -41,12 +41,22 @@ public final class AiTestTaskAuthority {
 
     public static AiExecutionContext context(String tenant, String principal, String query,
             String task, String trace, long deadline, long mediaBytes) {
-        return AiExecutionContext.fromTaskRequest(request(new Identity(
+        return context(request(new Identity(
                 tenant, principal, query, task, trace, deadline), StageResourceGrant.newBuilder()
                 .setGrantId(task + ":grant").setCpuSlots(1).setNativeMemoryBytes(1048576)
                 .setProviderConcurrency(2).setProviderItems(1024).setProviderAttempts(4096)
                 .setProviderRequestBytes(268435456).setProviderResponseBytes(1073741824)
                 .setMediaBytes(mediaBytes).build()));
+    }
+
+    public static AiExecutionContext register(TaskRequest request) {
+        var callback = CanonicalTaskRequests.callbackFor(request);
+        AiInvocationService.registerTask(callback, request.getOperatorBindingsList());
+        return AiExecutionContext.fromCanonicalTaskAuthority(callback);
+    }
+
+    public static AiExecutionContext context(TaskRequest request) {
+        return AiExecutionContext.fromCanonicalTaskAuthority(CanonicalTaskRequests.callbackFor(request));
     }
 
     public static TaskRequest request(Identity identity, StageResourceGrant grant) {
