@@ -54,6 +54,10 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
             "SELECT policy_id, policy_name,%FROM row_policy WHERE enabled%";
     private static final String INDEPENDENT_MASK_LOOKUP =
             "SELECT mask_id, mask_name,%FROM column_mask WHERE catalog_name=%";
+    private static final String READ_POLICY_IDENTITY_AND_BINDINGS_LOOKUP =
+            "SELECT control.table_id, control.state,%LEFT JOIN table_control_governance_binding%";
+    private static final String INDEPENDENT_GOVERNANCE_LOOKUP =
+            "SELECT binding_id, table_id, binding_type, binding_ref,%FROM table_control_governance_binding%";
 
     @Override
     protected List<ConnectorTestConfig> connectorConfigs() {
@@ -108,8 +112,9 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
     @Test
     void managedReadLoadsItsRegistrationAndCatalogTogether() throws SQLException {
         String table = "iceberg_catalog.default.read_admission_database_budget";
-        sqlRunner.executeDdl("CREATE TABLE " + table + " (id BIGINT)");
-        sqlRunner.execute("INSERT INTO " + table + " VALUES (42)");
+        sqlRunner.executeDdl("CREATE TABLE " + table + " (id BIGINT, email VARCHAR)");
+        sqlRunner.execute("INSERT INTO " + table + " VALUES (42, 'alice@example.com')");
+        sqlRunner.executeDdl("ALTER TABLE " + table + " ALTER COLUMN email SET TAG pii_type = 'PII_EMAIL'");
 
         long previousAdmissionLookups = calls(READ_ADMISSION_LOOKUP);
         long previousRegistrationLookups = calls(TABLE_REGISTRATION_LOOKUP);
@@ -120,8 +125,11 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
         long previousPolicyLookups = calls(READ_POLICIES_LOOKUP);
         long previousRowLookups = calls(INDEPENDENT_ROW_POLICY_LOOKUP);
         long previousMaskLookups = calls(INDEPENDENT_MASK_LOOKUP);
-        assertThat(sqlRunner.execute("SELECT id FROM " + table + " WHERE id = 42"))
-                .extracting(row -> row.getLong("id")).containsExactly(42L);
+        long previousPolicyIdentityLookups = calls(READ_POLICY_IDENTITY_AND_BINDINGS_LOOKUP);
+        long previousGovernanceLookups = calls(INDEPENDENT_GOVERNANCE_LOOKUP);
+        var rows = sqlRunner.execute("SELECT id, email FROM " + table + " WHERE id = 42");
+        assertThat(rows).extracting(row -> row.getLong("id")).containsExactly(42L);
+        assertThat(rows).extracting(row -> row.getString("email")).containsExactly("***@***");
 
         assertThat(calls(READ_ADMISSION_LOOKUP) - previousAdmissionLookups).isOne();
         assertThat(calls(TABLE_REGISTRATION_LOOKUP) - previousRegistrationLookups).isZero();
@@ -132,6 +140,8 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
         assertThat(calls(READ_POLICIES_LOOKUP) - previousPolicyLookups).isOne();
         assertThat(calls(INDEPENDENT_ROW_POLICY_LOOKUP) - previousRowLookups).isZero();
         assertThat(calls(INDEPENDENT_MASK_LOOKUP) - previousMaskLookups).isZero();
+        assertThat(calls(INDEPENDENT_GOVERNANCE_LOOKUP) - previousGovernanceLookups).isZero();
+        assertThat(calls(READ_POLICY_IDENTITY_AND_BINDINGS_LOOKUP) - previousPolicyIdentityLookups).isOne();
     }
 
     @Test

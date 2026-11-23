@@ -8,7 +8,6 @@ import org.pangrova.security.api.mask.ColumnMask;
 import org.pangrova.security.api.mask.TableColumnMasks;
 import org.pangrova.security.api.rowfilter.RowPolicy;
 import org.pangrova.table.api.policy.GovernanceBinding;
-import org.pangrova.table.api.policy.TablePolicyAuthority;
 
 import javax.sql.DataSource;
 import java.sql.SQLException;
@@ -26,7 +25,6 @@ import org.pangrova.metadata.api.catalog.CatalogDeploymentIdentity;
 /** PostgreSQL row and column policies bound to one current table identity. */
 public final class PostgresTableReadPolicyAuthority implements TableReadPolicySource {
     private final DataSource dataSource;
-    private final TablePolicyAuthority tables;
     private final Consumer<CatalogDeploymentIdentity> localCatalog;
     private final TableControlPolicyProjections projections;
     private final JdbcReadPolicyStore policyStore;
@@ -46,11 +44,10 @@ public final class PostgresTableReadPolicyAuthority implements TableReadPolicySo
     }
 
     /** Composes the durable policy stores with the live table identity and governance projections. */
-    public PostgresTableReadPolicyAuthority(DataSource dataSource, TablePolicyAuthority tables,
+    public PostgresTableReadPolicyAuthority(DataSource dataSource,
             Consumer<CatalogDeploymentIdentity> localCatalog, TableControlPolicyProjections projections,
             RowPolicyRenderer rowRenderer, ColumnMaskRenderer maskRenderer) {
         this.dataSource = Objects.requireNonNull(dataSource, "dataSource");
-        this.tables = Objects.requireNonNull(tables, "tables");
         this.localCatalog = Objects.requireNonNull(localCatalog, "localCatalog");
         this.projections = Objects.requireNonNull(projections, "projections");
         this.policyStore = new JdbcReadPolicyStore(dataSource);
@@ -60,23 +57,25 @@ public final class PostgresTableReadPolicyAuthority implements TableReadPolicySo
 
     @Override
     public PolicyRead bind(UserIdentity user, Set<String> roles, String catalog, String schema, String table) {
-        var target = new PolicyTable(catalog, schema, table, currentTableId(catalog, schema, table));
-        return new BoundPolicies(user, Set.copyOf(roles), target);
+        return new BoundPolicies(user, Set.copyOf(roles), currentTable(catalog, schema, table));
     }
 
-    private UUID currentTableId(String catalog, String schema, String table) {
+    private PolicyTable currentTable(String catalog, String schema, String table) {
         try (var connection = dataSource.getConnection()) {
-            var identity = PostgresPolicyTableIdentity.find(connection, catalog, schema, table,
+            var observed = PostgresPolicyTableIdentity.findRead(connection, catalog, schema, table,
                     "Read policy table identity or catalog deployment changed");
-            identity.ifPresent(verified -> localCatalog.accept(
-                    new CatalogDeploymentIdentity(catalog, verified.incarnation(), verified.revision())));
-            return identity.map(PostgresPolicyTableIdentity.VerifiedTable::tableId).orElse(null);
+            if (observed.isEmpty()) return new PolicyTable(catalog, schema, table, null, List.of());
+            var read = observed.orElseThrow();
+            var identity = read.table();
+            localCatalog.accept(new CatalogDeploymentIdentity(catalog, identity.incarnation(), identity.revision()));
+            return new PolicyTable(catalog, schema, table, identity.tableId(), read.bindings());
         } catch (SQLException failure) {
             throw new IllegalStateException("Failed to observe the current table policy identity", failure);
         }
     }
 
-    private record PolicyTable(String catalog, String schema, String name, UUID id) {}
+    private record PolicyTable(String catalog, String schema, String name, UUID id,
+            List<GovernanceBinding> bindings) {}
 
     private final class BoundPolicies implements PolicyRead {
         private final UserIdentity user;
@@ -124,10 +123,8 @@ public final class PostgresTableReadPolicyAuthority implements TableReadPolicySo
         private Map<String, List<ColumnMask>> masksByColumn() {
             if (byColumn == null) {
                 var selected = policies().masks();
-                var bindings = table.id() == null ? List.<GovernanceBinding>of()
-                        : tables.bindingsFor(table.id());
                 var projected = projections.projectColumns(
-                        table.id(), table.catalog(), table.schema(), table.name(), selected, bindings);
+                        table.id(), table.catalog(), table.schema(), table.name(), selected, table.bindings());
                 byColumn = projected.isEmpty() ? Map.of()
                         : projected.stream().collect(Collectors.groupingBy(ColumnMask::columnName));
             }

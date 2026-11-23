@@ -258,7 +258,8 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
         String admissionTemplate = "SELECT control.*, catalog.incarnation_id AS observed_catalog_incarnation%";
         long readAdmissionBefore = statementCalls(admissionTemplate);
         String joinedTemplate = "SELECT control.table_id, control.state,%"
-                + "FROM table_control_registry control LEFT JOIN catalog_definitions catalog%";
+                + "FROM table_control_registry control LEFT JOIN catalog_definitions catalog%"
+                + "LEFT JOIN table_control_governance_binding%";
         String fullOwnerTemplate = "SELECT table_id, catalog_name, schema_name, table_name,%"
                 + "FROM table_control_registry WHERE table_id%$1";
         String compactOwnerTemplate = "SELECT %FROM table_control_name_reservation reservation%"
