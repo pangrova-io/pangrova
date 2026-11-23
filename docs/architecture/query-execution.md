@@ -302,6 +302,12 @@ equijoin; the serializer removes those duplicate fields only when each entry
 matches its current key. Native rejects plans that still contain deprecated
 join key lists.
 
+An uncorrelated scalar subquery sends its selected value to one complete owner.
+The typed Substrait relation selects the input ordinal and derives its nullable
+output directly from the input schema. Velox enforces the cardinality after
+gathering local drivers. A second row fails immediately, including a repeated
+value or a NULL. The empty input produces one SQL NULL.
+
 For a join with an ON predicate that contains both equijoin keys and residual
 conditions, the planner serializes the complete predicate inside `JoinRel`.
 The native join evaluates the residual while matching rows. A filter placed

@@ -220,6 +220,21 @@ VeloxPlanConverter::convertExtensionSingleRel(
     if (envelope.has_rerank()) {
       return convertRerank(envelope.rerank(), input, input_type);
     }
+    if (envelope.has_enforce_single_row()) {
+      const auto ordinal = envelope.enforce_single_row().input_ordinal();
+      if (!input_type || ordinal >= input_type->size()) {
+        throw std::runtime_error("Single-row value is outside the input schema");
+      }
+      if (input_type->size() != 1) {
+        auto field = std::make_shared<facebook::velox::core::FieldAccessTypedExpr>(
+            input_type->childAt(ordinal), input_type->nameOf(ordinal));
+        input = std::make_shared<facebook::velox::core::ProjectNode>(nextNodeId(),
+            std::vector<std::string>{input_type->nameOf(ordinal)},
+            std::vector<facebook::velox::core::TypedExprPtr>{std::move(field)}, std::move(input));
+      }
+      return std::make_shared<facebook::velox::core::EnforceSingleRowNode>(
+          nextNodeId(), insertLocalPartitionExchange(std::move(input), {}));
+    }
     if (envelope.has_artifact_build()) {
       return convertArtifactBuild(
           envelope.artifact_build(), input, input_type);

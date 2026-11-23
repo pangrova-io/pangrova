@@ -90,6 +90,8 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
+实施批次 159 修复标量子查询的基数校验。实际 Iceberg SQL 的旧路径把 SINGLE_VALUE 降为 MIN，重复值、值与 NULL、不同值三种多行输入均被错误接受。同版 Coordinator 与 Native 使用携带原字段序号的类型化 Substrait 单行算子，合并两个实际 Worker 的输入后拒绝第二行，零行返回 NULL，单行保留原值或 NULL。双 Worker 验收核对不同 Worker attempt、实际交换和物理释放。4,362 项 Native 全量和 53 项实际 Java 到 Native 回归通过，覆盖双 Worker Shuffle、Iceberg、TPC 派生查询、PostgreSQL 读预算、能力握手和 Checkstyle。同源角色清单为 `b8700a4af99e49bcfb29bc15ba860ca72f177c9e53b11bc333d3ccd9d623652d`。
+
 实施批次 158 移除交换和结果生产端的完整 Arrow IPC staging buffer。Schema、批次和 EOF 先算出精确大小，Velox 批量与迭代序列化直接写输出，超限时目标保持原有位置。JNI 写回调复用该准备过程并分配精确连续区。实际 Velox 夹具的 4 MiB 页在 2 MiB 临时池上限下由内存拒绝变为通过，输入和目标另有池。Arrow 18.0.0 的九组配对 64 MiB UTF-8 探针中，未压缩中位数 14.6849→5.00737 ms，LZ4 36.9995→27.1766 ms，Zstd 72.4042→66.2523 ms，三种编码逐字节一致。329 项定向和 4,362 项 Native 全量测试通过，另有 41 项 Java Native 验收，包含双 Worker Shuffle、大结果背压、实际数据库读预算、Iceberg 原子写、Paimon/Lance、Kafka→Paimon 及租户排空。同源 739 项角色清单为 `71663d14c7097647f129f6422b5ed58feba6c9081d47aa340f328bd7cc858e2f`。规范描述符和实际 Native 函数目录逐字节一致。探针仅归因 IPC 页编码和输出复制。 [Arrow 18.0.0 IPC](https://github.com/apache/arrow/blob/apache-arrow-18.0.0/cpp/src/arrow/ipc/writer.cc)
 
 实施批次 157 移除共享准入返回后立即释放的排队分支。容量满时直接返回拒绝，真正的工作负载排队保留在自身调度器。已有内存估算超限时，基线仍调用共享槽位预留，候选在进入共享槽位存储前拒绝，真实 HTTP 入口当前不附带该估算。可确定的拒绝移除临时所有权，未确认的写入保留原查询的清理义务。447 项 Java 回归和 Checkstyle 通过。与 Arrow 直写一同打包的独立 JVM 通过三项 PostgreSQL 租户用例，验证撤权、45 次饱和拒绝、40 次完整 Flight 读取与物理排空。

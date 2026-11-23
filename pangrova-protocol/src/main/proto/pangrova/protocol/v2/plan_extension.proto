@@ -134,6 +134,11 @@ message ExchangeInputDetail {
   bool require_complete = 9;
 }
 
+// A complete singleton input must yield zero or one row, counting NULL rows.
+message EnforceSingleRowDetail {
+  uint32 input_ordinal = 1;
+}
+
 message RelationDetailEnvelope {
   uint32 schema_version = 1;
   oneof detail {
@@ -145,5 +150,6 @@ message RelationDetailEnvelope {
     ExchangeInputDetail exchange_input = 15;
     TableFunctionDetail table_function = 16;
     ArtifactBuildDetail artifact_build = 17;
+    EnforceSingleRowDetail enforce_single_row = 18;
   }
 }

@@ -11,6 +11,19 @@ exporter catalogue used by function-contract tests.
 ## Current capture
 
 On 2026-11-23 the packaged macOS arm64 Worker handshake and matching function
+exporter captured the typed scalar subquery relation. The function definitions,
+registered signatures, vector companions and type projections match the prior capture.
+Both fixtures carry descriptor SHA-256 `af6dc87f7a3364cce8618001c6a1d223b110d5a52fd0038c76039e695a3eed83`.
+
+| Artifact | Bytes | SHA-256 | Capabilities / functions / models |
+| --- | ---: | --- | --- |
+| Native library | 322902117 | `2445a748f1c0f11e0b8e241669850d668d1fe551a2f73ac03d1251b72892b5f9` |  |
+| Worker inventory | 796871 | `99b9e47647c2d2e22e9a090cf678034fcc028658c29a9a43ddd30a0fc53ea360` | 19 / 108 / 2 |
+| Function exporter catalogue | 784252 | `9b0733d62d378bf5e1188bedc7684bfc8c04736166e0b42af31dd28bdf4b7391` | 9 / 92 / 0 |
+
+## Earlier November 23 operator wait capture
+
+On 2026-11-23 the packaged macOS arm64 Worker handshake and matching function
 exporter captured the task-report protocol with per-operator blocked time and
 selected wait causes. Both fixtures carry descriptor SHA-256
 `584ccf8d14fd47a231c009051615d3d559c694cd03025cc12d1ce7ce3c0203a3`.

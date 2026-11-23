@@ -198,6 +198,33 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
     }
 
     @Test
+    void scalarSubqueryEnforcesOneRowAcrossBothPhysicalWorkers() {
+        Set<String> existing = new HashSet<>(queryManager.getStateMachines().keySet());
+        var error = sqlRunner.executeExpectingError("SELECT (SELECT score FROM " + orders
+                + " WHERE MOD(score, 50) = 0) AS amount FROM " + regions + " WHERE id = 0");
+        assertThat(error.message()).contains("Expected single row of input");
+        Set<String> issued = new HashSet<>(queryManager.getStateMachines().keySet());
+        issued.removeAll(existing);
+        assertThat(issued).hasSize(1);
+        String queryId = issued.iterator().next();
+        Awaitility.await("both physical Workers release the scalar subquery")
+                .atMost(Duration.ofSeconds(90))
+                .ignoreExceptionsInstanceOf(IllegalStateException.class)
+                .untilAsserted(() -> {
+                    taskTracker.requireQueryExecutionDrained(queryId);
+                    assertThat(queryManager.getStateMachines().get(queryId).physicalCleanupApplied()).isTrue();
+                    var profile = queryProfileService().getProfile(queryId, E2E_USER_PRINCIPAL);
+                    assertThat(profile).isPresent();
+                    var graph = profile.orElseThrow().executionGraph();
+                    assertThat(graph).isNotNull();
+                    assertThat(graph.exchanges()).isNotEmpty();
+                    assertThat(profile.orElseThrow().attempts()).extracting(attempt -> attempt.workerId())
+                            .contains(WORKER_ID, SECOND_WORKER_ID);
+                });
+        assertThat(secondWorker.isAlive()).isTrue();
+    }
+
+    @Test
     void observedLowCardinalityGroupsReduceBeforeHashExchange(TestReporter metrics) {
         StringBuilder insert = new StringBuilder("INSERT INTO " + regions + " VALUES (1000, NULL)");
         for (int row = 0; row < 80; row++) {

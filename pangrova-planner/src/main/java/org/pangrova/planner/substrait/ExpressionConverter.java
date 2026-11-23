@@ -142,7 +142,6 @@ final class ExpressionConverter {
             case CAST -> convertCast(call);
             case CASE -> convertCase(call);
             case SEARCH -> convertSearch(call);
-            case SINGLE_VALUE -> convert(call.getOperands().get(0));
             case ARRAY_VALUE_CONSTRUCTOR -> convertArrayConstructor(call);
             case MAP_VALUE_CONSTRUCTOR -> convertMapConstructor(call);
             case ROW -> convertStructConstructor(call, call.getType());

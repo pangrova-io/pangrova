@@ -1,12 +1,14 @@
 package org.pangrova.planner.substrait;
 
 import org.pangrova.planner.exception.SubstraitConversionException;
+import org.pangrova.planner.extension.EnforceSingleRowRelDetail;
 
 import io.substrait.expression.Expression;
 import io.substrait.expression.ExpressionCreator;
 import io.substrait.expression.FieldReference;
 import io.substrait.expression.ImmutableAggregateFunctionInvocation;
 import io.substrait.relation.Aggregate;
+import io.substrait.relation.ExtensionSingle;
 import io.substrait.relation.ImmutableAggregate;
 import io.substrait.relation.ImmutableGrouping;
 import io.substrait.relation.ImmutableMeasure;
@@ -36,6 +38,9 @@ final class AggregateConverter {
     }
 
     Rel convert(LogicalAggregate agg, Rel input) {
+        if (agg.getAggCallList().stream().anyMatch(AggregateConverter::singleValue)) {
+            return enforceSingleRow(agg, input);
+        }
         List<Aggregate.Grouping> groupings = buildGroupings(agg);
         RelDataType inputRowType = agg.getInput().getRowType();
         List<Aggregate.Measure> measures = agg.getAggCallList().stream()
@@ -48,6 +53,32 @@ final class AggregateConverter {
             builder.remap(Rel.Remap.offset(0, agg.getRowType().getFieldCount()));
         }
         return builder.build();
+    }
+
+    private static boolean singleValue(AggregateCall call) {
+        return call.getAggregation().getKind() == SqlKind.SINGLE_VALUE;
+    }
+
+    private static Rel enforceSingleRow(LogicalAggregate aggregate, Rel input) {
+        if (aggregate.getGroupCount() != 0 || aggregate.getGroupSets().size() != 1
+                || aggregate.getAggCallList().size() != 1) {
+            throw new SubstraitConversionException(PangrovaErrorCode.SUBSTRAIT_TYPE_MAPPING_FAILURE,
+                    "Single-row enforcement requires one scalar subquery result");
+        }
+        var call = aggregate.getAggCallList().get(0);
+        if (call.getArgList().size() != 1 || call.filterArg >= 0 || call.isDistinct() || call.isApproximate()
+                || call.ignoreNulls() || call.distinctKeys != null || call.hasCollation() || !call.rexList.isEmpty()) {
+            throw new SubstraitConversionException(PangrovaErrorCode.SUBSTRAIT_TYPE_MAPPING_FAILURE,
+                    "Single-row enforcement requires one unmodified input value");
+        }
+        int ordinal = call.getArgList().get(0);
+        var fields = input.getRecordType().fields();
+        if (ordinal < 0 || ordinal >= fields.size()) {
+            throw new SubstraitConversionException(PangrovaErrorCode.SUBSTRAIT_TYPE_MAPPING_FAILURE,
+                    "Single-row value is outside the scalar subquery input");
+        }
+        var detail = new EnforceSingleRowRelDetail(ordinal);
+        return ExtensionSingle.from(detail, input).build();
     }
 
     /**
@@ -79,22 +110,9 @@ final class AggregateConverter {
     }
 
     private Aggregate.Measure buildMeasure(AggregateCall call, RelDataType inputRowType) {
-        // SINGLE_VALUE: Calcite's scalar subquery enforcement (exactly one row).
-        // LITERAL_AGG: Calcite's internal aggregate for decorrelation of NOT IN
-        // subqueries — produces a constant value per group. Both have no Substrait
-        // equivalent; min() is semantically safe (single-row or constant input).
-        // WARNING: If Calcite decorrelation produces multi-row input for SINGLE_VALUE
-        // (a Calcite bug), min() will silently return the wrong result instead of
-        // raising an error. The native engine should assert single-row semantics
-        // for SINGLE_VALUE-mapped aggregates.
-        FunctionReference ref;
-        String opName = call.getAggregation().getName();
-        if (call.getAggregation().getKind() == SqlKind.SINGLE_VALUE
-                || "LITERAL_AGG".equals(opName)) {
-            ref = new FunctionReference("aggregate", "min");
-        } else {
-            ref = functionMapper.map(call.getAggregation());
-        }
+        // The decorrelator uses LITERAL_AGG for one constant per group.
+        var ref = "LITERAL_AGG".equals(call.getAggregation().getName())
+                ? new FunctionReference("aggregate", "min") : functionMapper.map(call.getAggregation());
         var variant = functionMapper.resolveAggregateVariant(ref);
         Type outputType = resolveAggregateOutputType(call, ref);
         int fieldCount = inputRowType.getFieldCount();
