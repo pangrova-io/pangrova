@@ -279,6 +279,10 @@ OVERWRITE, which is a real truncate operation rather than an empty-fragment no-o
 the fingerprint as the durable snapshot user marker and resolves the exact committed snapshot
 on replay, rather than substituting the current/latest snapshot.
 
+Each Iceberg commit attempt uses the same fresh metadata for fingerprint lookup and validation
+of the retained ancestry. The old secondary commit token is retired. SDK metadata checks for
+the atomic commit and the final publication observation still run at their respective boundaries.
+
 A fresh Iceberg JDBC table load already reads the authoritative metadata pointer. Pangrova uses
 that metadata for the UUID check and exact publication receipt. Required empty INSERTs publish
 a marker-bearing snapshot and verify it after publication.

@@ -250,7 +250,7 @@ class IcebergJdbcSchemaIsolationIntegrationTest extends ContainerTestBase {
                 metadata.finishDistributedWrite(READER, handle, fragments, context);
             }
             assertThat(schema.catalogPointerLookups() - before).as("exact catalog pointer SELECTs")
-                    .isEqualTo(requiresPublication ? 8 : 7);
+                    .isEqualTo(requiresPublication ? 7 : 6);
             table.refresh();
             assertThat(table.snapshots()).hasSize(1);
             assertThat(table.currentSnapshot().summary()).containsEntry(IcebergDistributedCommitMarker.FINGERPRINT,

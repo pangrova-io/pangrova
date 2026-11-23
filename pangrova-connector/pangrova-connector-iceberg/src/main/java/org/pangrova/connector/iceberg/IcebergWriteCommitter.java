@@ -99,7 +99,6 @@ final class IcebergWriteCommitter {
         commitExecutor.executeIdempotently(table, context, () -> {
             var append = IcebergDeclarationCommit.bind(catalog, table, handle).newAppend();
             IcebergDistributedCommitMarker.apply(append, context);
-            IdempotentCommitController.apply(append, context);
             IcebergSnapshotDeclarations.apply(append, handle);
             append.commit();
         });
@@ -311,7 +310,6 @@ final class IcebergWriteCommitter {
                 append.appendFile(df);
             }
             IcebergDistributedCommitMarker.apply(append, context);
-            IdempotentCommitController.apply(append, context);
             IcebergSnapshotDeclarations.apply(append, handle);
             append.commit();
         });
@@ -331,7 +329,6 @@ final class IcebergWriteCommitter {
             var overwrite = IcebergOverwriteCommit.build(
                     IcebergDeclarationCommit.bind(catalog, icebergTable, handle), handle, dataFiles);
             IcebergDistributedCommitMarker.apply(overwrite, context);
-            IdempotentCommitController.apply(overwrite, context);
             IcebergSnapshotDeclarations.apply(overwrite, handle);
             overwrite.commit();
         });
@@ -365,7 +362,6 @@ final class IcebergWriteCommitter {
                 rowDelta.addDeletes(df);
             }
             IcebergDistributedCommitMarker.apply(rowDelta, context);
-            IdempotentCommitController.apply(rowDelta, context);
             IcebergSnapshotDeclarations.apply(rowDelta, handle);
             rowDelta.commit();
         });
@@ -410,7 +406,6 @@ final class IcebergWriteCommitter {
                 rowDelta.addDeletes(df);
             }
             IcebergDistributedCommitMarker.apply(rowDelta, context);
-            IdempotentCommitController.apply(rowDelta, context);
             IcebergSnapshotDeclarations.apply(rowDelta, handle);
             rowDelta.commit();
         });
