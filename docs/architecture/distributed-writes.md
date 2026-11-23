@@ -283,6 +283,10 @@ A fresh Iceberg JDBC table load already reads the authoritative metadata pointer
 that metadata for the UUID check and exact publication receipt. Required empty INSERTs publish
 a marker-bearing snapshot and verify it after publication.
 
+The Iceberg fragment collector parses each Worker UTF-8 payload once per collection. It reads
+the operation and file lists from the same JSON tree and appends the file descriptors directly
+to the write's collection. The journal fingerprint still covers the original fragment bytes.
+
 If an Iceberg fingerprint is absent, the connector checks that every retained snapshot on the
 current parent chain back to the bound base snapshot is available. A gap caused by snapshot
 expiration fails closed instead of re-appending. This check cannot prove an outcome when the
