@@ -70,6 +70,11 @@ public final class PaimonSnapshotAwareMetadata implements SnapshotAwareMetadata 
     }
 
     @Override
+    public Optional<CurrentSnapshotFiles> currentSnapshotFiles() {
+        return currentSnapshotId().map(snapshot -> new CurrentSnapshotFiles(snapshot, listFilesAtSnapshot(snapshot)));
+    }
+
+    @Override
     public List<SnapshotDataFile> listFilesAtSnapshot(String snapshotId) {
         return collectDataFiles(snapshotId).values().stream()
                 .sorted(Comparator.comparing(SnapshotDataFile::path))

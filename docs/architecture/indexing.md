@@ -214,6 +214,9 @@ connector decisions must be measured separately.
 ## Distributed correctness invariants
 
 - Every query and build uses one immutable source snapshot.
+- Index builds that enumerate the current files select the snapshot and read its
+  file set through one connector observation. Iceberg opens the catalog table
+  once. Explicit historical reads continue to use the requested snapshot.
 - Artifact generations are immutable and atomically published.
 - Every object checksum, format identity and row-locator schema is validated.
 - Workers must advertise the exact capability signature and compatible format.

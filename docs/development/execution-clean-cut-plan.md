@@ -90,7 +90,9 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
-实施批次 135 让 Worker 的进度回报与独立补充统计直接使用规范 Protobuf，移除无生产 HTTP 入口的状态响应 DTO、算子 DTO 和 Native 统计投影。补充字段校验禁止携带构建键证据，重发仍核对相同状态、序号和内容。Corretto 17 用相同生产编解码器对照五组各 512 次。94 B 的进度回报往返分配由 2,848 B 降到 2,064 B，837 B 的 16 算子样本由 15,992 B 降到 9,504 B，两份载荷逐字节一致。162 项验证和 Checkstyle 通过，覆盖 HTTP 重发、双 Worker、COPY、PostgreSQL 读预算、Flight 断连及物理释放。
+实施批次 136 让索引构建和目录文件枚举在一次连接器观察中选择当前快照并读取其文件集合。Iceberg 复用一个已打开的目录表，Paimon 保留同一已绑定表。真实 PostgreSQL 的三次对照均从两条目录指针 SELECT 降到一条，空表保持一次。实际提交新快照后，当前文件集合包含新文件，显式历史快照仍只返回原文件。43 项回归和 Checkstyle、模块边界检查通过，涵盖 Iceberg 与 Paimon SQL、索引创建、增量构建和快照固定。
+
+实施批次 135 让 Worker 的进度回报与独立补充统计直接使用规范 Protobuf，移除无生产 HTTP 入口的状态响应 DTO、算子 DTO 和 Native 统计投影。补充字段校验禁止携带构建键证据，重发仍核对相同状态、序号和内容。Corretto 17 用相同生产编解码器对照五组各 512 次。94 B 的进度回报往返分配由 2,848 B 降到 2,064 B，837 B 的 16 算子样本由 15,992 B 降到 9,504 B，两份载荷逐字节一致。162 项验证和 Checkstyle 通过，覆盖 HTTP 重发、双 Worker、COPY、PostgreSQL 读预算、Flight 断连及物理释放。 同源 macOS 独立进程验收使用 739 项内容清单，Coordinator、Worker 和 CLI 及对象存储远端 Shuffle 两项通过。
 
 实施批次 134 让 Coordinator 的任务回报入口保留一份不可变的 Native Protobuf 统计，由读取 JSON Profile 时生成公开模型。移除接收时的诊断副本和重试比对中的重复投影，继续核对精确回报摘要、任务归属、递增序号与实际释放。Corretto 17 按五组各 512 次测量 HTTP 解码的线程分配。121 B 单算子回报由 2,648 B 降到 2,096 B，6,084 B 的 128 算子回报由 65,912 B 降到 51,632 B，回报字节摘要一致。176 项验证通过，覆盖真实 Worker 握手、HTTP 重发、双 Worker、PostgreSQL 读预算、慢读断连、生成列与 COPY 提交。Checkstyle 和模块边界检查通过。
 

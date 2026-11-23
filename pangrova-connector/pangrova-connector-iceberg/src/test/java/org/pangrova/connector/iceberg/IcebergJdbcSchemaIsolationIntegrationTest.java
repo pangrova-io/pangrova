@@ -57,6 +57,38 @@ class IcebergJdbcSchemaIsolationIntegrationTest extends ContainerTestBase {
     Path warehouse;
 
     @Test
+    void currentIndexFilesUseOneCatalogReadPerObservation() throws Exception {
+        try (var schema = DatabaseSchema.create(); var selected = catalog(schema, "V1")) {
+            createTable(selected);
+            var table = selected.loadTable(TABLE);
+            var metadata = new IcebergMetadata(selected, schema.name());
+            schema.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public");
+            long emptyBefore = schema.catalogPointerLookups();
+            assertThat(metadata.listDataFiles(schema.name(), "data", "events")).isEmpty();
+            assertThat(schema.catalogPointerLookups() - emptyBefore).isEqualTo(1);
+
+            String first = table.location() + "/data/first.parquet";
+            table.newAppend().appendFile(DataFiles.builder(PartitionSpec.unpartitioned())
+                    .withPath(first).withFileSizeInBytes(128).withRecordCount(7).build()).commit();
+            var pin = metadata.getSnapshotAwareMetadata("data", "events").orElseThrow();
+            String originalSnapshot = pin.currentSnapshotId().orElseThrow();
+            for (int sample = 0; sample < 3; sample++) {
+                long before = schema.catalogPointerLookups();
+                assertThat(metadata.listDataFiles(schema.name(), "data", "events")).containsExactly(first);
+                long selects = schema.catalogPointerLookups() - before;
+                assertThat(selects).isEqualTo(1);
+                System.out.printf("event=index_snapshot_files sample=%d pointer_selects=%d files=1%n",
+                        sample, selects);
+            }
+            String second = table.location() + "/data/second.parquet";
+            table.newAppend().appendFile(DataFiles.builder(PartitionSpec.unpartitioned())
+                    .withPath(second).withFileSizeInBytes(64).withRecordCount(3).build()).commit();
+            assertThat(metadata.listDataFiles(schema.name(), "data", "events")).containsExactly(first, second);
+            assertThat(pin.listFilesAtSnapshot(originalSnapshot)).extracting(file -> file.path()).containsExactly(first);
+        }
+    }
+
+    @Test
     void postgresConnectorUsesTheExactSpellingWithoutListingTheNamespace() throws Exception {
         try (var schema = DatabaseSchema.create(); var selected = catalog(schema, "V1")) {
             selected.createNamespace(Namespace.of("data"));

@@ -544,22 +544,14 @@ public final class IndexDdlExecutor implements AutoCloseable {
                     PangrovaErrorCode.METADATA_INDEX_VALIDATION_ERROR,
                     "Index builds require immutable snapshot metadata for " + tableRef);
         }
-        Optional<String> snapshot = metadata.currentSnapshotId();
-        if (snapshot.isEmpty()) {
-            return new IndexBuildInput(
-                    materializeDataFiles ? ""
-                            : org.pangrova.coordinator.generation.SnapshotGenerationSplitPlanner
-                                    .EMPTY_SNAPSHOT,
-                    List.of());
-        }
         if (!materializeDataFiles) {
-            return new IndexBuildInput(snapshot.get(), List.of());
+            var snapshot = metadata.currentSnapshotId().orElse(
+                    org.pangrova.coordinator.generation.SnapshotGenerationSplitPlanner.EMPTY_SNAPSHOT);
+            return new IndexBuildInput(snapshot, List.of());
         }
-        List<org.pangrova.indexing.build.DataFileInfo> files = metadata
-                .listFilesAtSnapshot(snapshot.get()).stream()
-                .map(IndexDdlExecutor::toDataFileInfo)
-                .toList();
-        return new IndexBuildInput(snapshot.get(), files);
+        return metadata.currentSnapshotFiles().map(snapshot -> new IndexBuildInput(snapshot.snapshotId(),
+                snapshot.files().stream().map(IndexDdlExecutor::toDataFileInfo).toList()))
+                .orElseGet(() -> new IndexBuildInput("", List.of()));
     }
 
     private static org.pangrova.indexing.build.DataFileInfo toDataFileInfo(

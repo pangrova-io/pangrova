@@ -25,6 +25,16 @@ public interface SnapshotAwareMetadata {
     /** Returns the connector's current immutable snapshot token, if one exists. */
     Optional<String> currentSnapshotId();
 
+    /** Selects the current snapshot and lists its files in the same connector observation. */
+    Optional<CurrentSnapshotFiles> currentSnapshotFiles();
+
+    /** A complete file set tied to the snapshot selected for this observation. */
+    record CurrentSnapshotFiles(String snapshotId, List<SnapshotDataFile> files) {
+        public CurrentSnapshotFiles {
+            files = List.copyOf(files);
+        }
+    }
+
     /**
      * Lists the complete file set for an immutable snapshot.
      *

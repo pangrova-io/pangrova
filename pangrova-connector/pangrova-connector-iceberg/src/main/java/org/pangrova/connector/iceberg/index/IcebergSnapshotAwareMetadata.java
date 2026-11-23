@@ -49,8 +49,20 @@ public final class IcebergSnapshotAwareMetadata implements SnapshotAwareMetadata
     }
 
     @Override
-    public List<SnapshotDataFile> listFilesAtSnapshot(String snapshotId) {
+    public Optional<CurrentSnapshotFiles> currentSnapshotFiles() {
         Table table = loadTable();
+        Snapshot snapshot = table.currentSnapshot();
+        if (snapshot == null) return Optional.empty();
+        String snapshotId = Long.toString(snapshot.snapshotId());
+        return Optional.of(new CurrentSnapshotFiles(snapshotId, listFiles(table, snapshotId)));
+    }
+
+    @Override
+    public List<SnapshotDataFile> listFilesAtSnapshot(String snapshotId) {
+        return listFiles(loadTable(), snapshotId);
+    }
+
+    private List<SnapshotDataFile> listFiles(Table table, String snapshotId) {
         return collectDataFiles(table, snapshotId).values().stream()
                 .sorted(Comparator.comparing(SnapshotDataFile::path))
                 .toList();
