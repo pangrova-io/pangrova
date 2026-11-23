@@ -225,6 +225,35 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
     }
 
     @Test
+    void decimalAvgKeepsTheNativeExactScaleAcrossTwoWorkers() {
+        var result = executeWithScanAggregates(
+                "SELECT AVG(CAST(score AS DECIMAL(22,7))) AS mean, "
+                        + "AVG(CAST(score AS DECIMAL(9,2))) AS short_mean FROM " + orders, false);
+        assertThat(result.scannedRows()).isEqualTo(80);
+        assertThat(result.rows()).singleElement().satisfies(row -> {
+            assertThat(row.getRaw("mean")).isEqualTo(new java.math.BigDecimal("39.5000000"));
+            assertThat(row.getRaw("short_mean")).isEqualTo(new java.math.BigDecimal("39.50"));
+        });
+    }
+
+    @Test
+    void decimalAvgSupportsFiltersEmptyInputAndMixedAggregates() {
+        var result = executeWithDrainedReports("SELECT "
+                + "AVG(CAST(score AS DECIMAL(22,7))) FILTER (WHERE score < 4) AS sampled_mean, "
+                + "AVG(CAST(score AS DECIMAL(22,7))) FILTER (WHERE score < 0) AS empty_mean, "
+                + "COUNT(*) AS row_count FROM " + orders);
+        assertThat(result.rows()).singleElement().satisfies(row -> {
+            assertThat(row.getRaw("sampled_mean")).isEqualTo(new java.math.BigDecimal("1.5000000"));
+            assertThat(row.getRaw("empty_mean")).isNull();
+            assertThat(row.getRaw("row_count")).isEqualTo(80L);
+        });
+
+        var empty = executeWithDrainedReports(
+                "SELECT AVG(CAST(score AS DECIMAL(22,7))) AS mean FROM " + orders + " WHERE score < 0");
+        assertThat(empty.rows()).singleElement().satisfies(row -> assertThat(row.getRaw("mean")).isNull());
+    }
+
+    @Test
     void observedLowCardinalityGroupsReduceBeforeHashExchange(TestReporter metrics) {
         StringBuilder insert = new StringBuilder("INSERT INTO " + regions + " VALUES (1000, NULL)");
         for (int row = 0; row < 80; row++) {

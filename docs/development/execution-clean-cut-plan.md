@@ -90,6 +90,10 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
+实施批次 161 保留 DECIMAL AVG 的原生聚合。双 Worker 实际 SQL 的基线被 Calcite 改写为 SUM/COUNT，随后因 Native 没有 DECIMAL 与 BIGINT 的除法签名而失败。候选让已注册的 Velox AVG 直接处理 DECIMAL，分别验证 DECIMAL(9,2) 的 39.50 和 DECIMAL(22,7) 的 39.5000000。过滤、空输入、混合 COUNT、双 Worker 实际放置和物理回收通过。45 项规划测试、57 项同源 Java 到 Native 实际用例和 Checkstyle 通过，覆盖 TPC-H、TPC-DS 派生、Flight 慢读及断连和 PostgreSQL 读预算。角色清单为 `5a12e1f57f42c043f4c6dfa495fcbff8bec4eb9a3f3ca103f6b31546e6991665`。
+
+批次 160 的两组同源配对使用同一断连夹具和两个确切产物。夹具的请求额度仅覆盖 schema 和首个记录批，并使用 64 KiB HTTP/2 接收窗口使进程退出点位于实际传输中。四次均逐行通过并返回 FAILED 与物理排空。8,192 行窄结果到 EOF 中位数为 617.5→626.0 ms，75,497,472 B 宽结果为 482.5→412.0 ms。宽结果首批为 116.5→127.0 ms，仍需对首批的读取、转换和消息粒度单独归因。这一组是本机顺序执行的两对样本，宽结果含固定 250 ms 慢读停顿。
+
 实施批次 160 移除 OUTPUT 的内部 IPC 页编解码和 SDK 结果页队列。Velox Driver 按已准入的 schema 生成标准 Arrow Flight 消息，传输层复用消息和缓冲区。字节额度覆盖待发消息和传输仍持有的缓冲区，满额时挂起 Driver，最后一个缓冲区归还后恢复。Velox 完成封存队列，真实 Flight 写完后才提交成功终态。独立客户端进程强制退出返回 FAILED，保留原始流错误和物理排空证据。8,192 行窄结果及 75,497,472 B 宽结果逐行通过，并验证慢读、提前关闭、额外读库预算、双 Worker、嵌套类型和 Iceberg/Paimon/Lance 写入。4,362 项 Native 全量、60 项 Java 到 Native 实际用例和 Checkstyle 通过。同源角色清单为 `56f0fa33635b928e2be29afdbd482ee2887c1a33b01219eb4ff67db00765f77f`。Arrow 18.0.0 九组配对 64 MiB 探针产出相同的最终消息，完整流编码后再解码发送与直接生成消息的中位数为 16.9988 和 3.03163 ms。这是进程内阶段探针，跨主机整链路性能仍按同源负载验收。 [Arrow 18 Flight 传输实现](https://github.com/apache/arrow/blob/apache-arrow-18.0.0/cpp/src/arrow/flight/transport_server.cc)
 
 实施批次 159 修复标量子查询的基数校验。实际 Iceberg SQL 的旧路径把 SINGLE_VALUE 降为 MIN，重复值、值与 NULL、不同值三种多行输入均被错误接受。同版 Coordinator 与 Native 使用携带原字段序号的类型化 Substrait 单行算子，合并两个实际 Worker 的输入后拒绝第二行，零行返回 NULL，单行保留原值或 NULL。双 Worker 验收核对不同 Worker attempt、实际交换和物理释放。4,362 项 Native 全量和 53 项实际 Java 到 Native 回归通过，覆盖双 Worker Shuffle、Iceberg、TPC 派生查询、PostgreSQL 读预算、能力握手和 Checkstyle。同源角色清单为 `b8700a4af99e49bcfb29bc15ba860ca72f177c9e53b11bc333d3ccd9d623652d`。

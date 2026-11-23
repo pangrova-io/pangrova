@@ -19,6 +19,7 @@ import org.apache.calcite.rel.core.AggregateCall;
 import org.apache.calcite.rel.logical.LogicalAggregate;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.sql.SqlKind;
+import org.apache.calcite.sql.type.SqlTypeName;
 
 import java.util.List;
 
@@ -156,13 +157,11 @@ final class AggregateConverter {
         return measureBuilder.build();
     }
 
-    /**
-     * The native engine's avg() always returns FP64 regardless of input type.
-     * Calcite returns INTEGER for AVG(INTEGER), causing a type mismatch
-     * at the native execution layer. Override to FP64 for avg.
-     */
     private Type resolveAggregateOutputType(AggregateCall call, FunctionReference ref) {
-        if ("avg".equals(ref.name())) {
+        // The actual DECIMAL registration returns the original precision and
+        // scale. Calcite can declare integral AVG as integral while Velox
+        // returns FP64 for that registered signature.
+        if ("avg".equals(ref.name()) && call.getType().getSqlTypeName() != SqlTypeName.DECIMAL) {
             TypeCreator creator = TypeCreator.of(call.getType().isNullable());
             return creator.FP64;
         }

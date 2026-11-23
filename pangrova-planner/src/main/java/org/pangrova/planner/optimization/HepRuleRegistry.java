@@ -12,6 +12,7 @@ import org.apache.calcite.rel.core.Values;
 import org.apache.calcite.rel.rules.FilterJoinRule;
 import org.apache.calcite.rel.rules.JoinAssociateRule;
 import org.apache.calcite.rel.rules.JoinPushTransitivePredicatesRule;
+import org.apache.calcite.rel.rules.AggregateReduceFunctionsRule;
 import org.apache.calcite.rel.rules.CoreRules;
 import org.apache.calcite.rel.core.Filter;
 import org.apache.calcite.rel.core.Project;
@@ -20,6 +21,9 @@ import org.apache.calcite.rex.RexUtil;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import org.apache.calcite.sql.SqlKind;
+import org.apache.calcite.sql.type.SqlTypeName;
+
 import java.util.List;
 
 /**
@@ -34,6 +38,12 @@ import java.util.List;
  * excluded — they belong in the cost-based Cascades/Volcano planner.
  */
 public final class HepRuleRegistry {
+
+    // Keep DECIMAL average in the Native accumulator.
+    private static final RelOptRule REDUCE_AGGREGATES = AggregateReduceFunctionsRule.Config.DEFAULT
+            .withExtraCondition(call -> call.getAggregation().getKind() != SqlKind.AVG
+                    || call.getType().getSqlTypeName() != SqlTypeName.DECIMAL)
+            .toRule();
 
     private HepRuleRegistry() {
         // utility class
@@ -234,7 +244,7 @@ public final class HepRuleRegistry {
         // the native engine cannot execute. The native engine handles DISTINCT invocation natively via
         // AggregationNode's per-measure distinct and BOOLEAN masks.
         return List.of(
-                CoreRules.AGGREGATE_REDUCE_FUNCTIONS,
+                REDUCE_AGGREGATES,
                 CoreRules.AGGREGATE_PROJECT_MERGE,
                 CoreRules.AGGREGATE_REMOVE,
                 CoreRules.AGGREGATE_JOIN_TRANSPOSE,
