@@ -15,7 +15,9 @@
 #include <cstdlib>
 #include <filesystem>
 #include <memory>
+#include <mutex>
 #include <optional>
+#include <set>
 #include <string>
 #include <thread>
 #include <vector>
@@ -911,6 +913,102 @@ TEST_F(
   registry.discardExecutor(consumerHandle);
 }
 
+class RecordingFlightShuffleServer : public shuffle::FlightShuffleServer {
+ public:
+  using FlightShuffleServer::FlightShuffleServer;
+
+  arrow::Status DoGet(
+      const arrow::flight::ServerCallContext& context,
+      const arrow::flight::Ticket& ticket,
+      std::unique_ptr<arrow::flight::FlightDataStream>* stream) override {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      ++requests_;
+      peers_.insert(context.peer());
+    }
+    return shuffle::FlightShuffleServer::DoGet(context, ticket, stream);
+  }
+
+  std::pair<size_t, size_t> connections() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return {requests_, peers_.size()};
+  }
+
+ private:
+  mutable std::mutex mutex_;
+  size_t requests_ = 0;
+  std::set<std::string> peers_;
+};
+
+TEST_F(NativeExchangeDataPlaneE2ETest, CancellingOneFlightSourceKeepsTheSharedPeerStreamAlive) {
+  constexpr int64_t secondProducer = kProducerHandle + 1;
+  constexpr int64_t firstConsumer = kConsumerHandle + 21;
+  constexpr int64_t secondConsumer = kConsumerHandle + 22;
+  PangrovaExchangeSource::configureTransportSecurity(false, "", "", "", "");
+  auto& registry = PendingEndpointRegistry::instance();
+  registry.clear();
+  auto root = pangrova::test::testRootPool("SharedPeerCancellation");
+  auto leaf = root->addLeafChild("consumer");
+
+  shuffle::SerializedShuffleQueue firstQueue(2);
+  shuffle::SerializedShuffleQueue secondQueue(2);
+  const std::string firstData(1024 * 1024 + 257, 'a');
+  const std::string secondData(1024 * 1024 + 511, 'b');
+  auto publish = [](shuffle::SerializedShuffleQueue& queue, const std::string& data) {
+    shuffle::ShuffleBatch batch;
+    batch.partition_id = 0;
+    batch.data = folly::IOBuf::copyBuffer(data);
+    batch.row_count = 1;
+    return queue.push(std::move(batch), std::chrono::seconds(1));
+  };
+  ASSERT_TRUE(publish(firstQueue, firstData));
+  ASSERT_TRUE(publish(secondQueue, secondData));
+  ASSERT_TRUE(secondQueue.commit());
+
+  shuffle::FlightShuffleServerConfig config;
+  config.port = 0;
+  RecordingFlightShuffleServer server(config);
+  const int port = server.start();
+  ASSERT_GT(port, 0);
+  server.registerHandle(kProducerHandle, &firstQueue, "query-native-e2e", 1, 1,
+      kPlanEpoch, kAttemptId, kFencingToken);
+  server.registerHandle(secondProducer, &secondQueue, "query-native-e2e", 1, 1,
+      kPlanEpoch, kAttemptId, kFencingToken);
+
+  auto sourceFor = [&](int64_t consumer, int64_t producer) {
+    registry.registerSource(consumer, kPlanNodeId, kExchangeId, localEndpoint(port, producer));
+    registry.sealInput(consumer, kPlanNodeId, kExchangeId, 1);
+    auto binding = registry.takeSealedInput(consumer, kPlanNodeId);
+    return std::make_shared<PangrovaExchangeSource>(
+        binding.value().sources.front().runtime_source_id, 0,
+        std::make_shared<facebook::velox::exec::ExchangeQueue>(1, 0), leaf.get());
+  };
+  auto first = sourceFor(firstConsumer, kProducerHandle);
+  auto second = sourceFor(secondConsumer, secondProducer);
+  ASSERT_TRUE(armRequest(first));
+  EXPECT_EQ(first->requestDataSizes(std::chrono::seconds(2)).get().remainingBytes,
+      (std::vector<int64_t>{static_cast<int64_t>(firstData.size())}));
+  ASSERT_TRUE(armRequest(second));
+  EXPECT_EQ(second->requestDataSizes(std::chrono::seconds(2)).get().remainingBytes,
+      (std::vector<int64_t>{static_cast<int64_t>(secondData.size())}));
+
+  first->close();
+  ASSERT_TRUE(armRequest(second));
+  EXPECT_EQ(second->request(secondData.size(), std::chrono::seconds(2)).get().bytes, secondData.size());
+  ASSERT_TRUE(armRequest(second));
+  EXPECT_TRUE(second->request(secondData.size(), std::chrono::seconds(2)).get().atEnd);
+  const auto [requests, peers] = server.connections();
+  EXPECT_EQ(requests, 2);
+  EXPECT_EQ(peers, 1);
+
+  second->close();
+  server.unregisterHandle(kProducerHandle);
+  server.unregisterHandle(secondProducer);
+  server.stop();
+  registry.discardExecutor(firstConsumer);
+  registry.discardExecutor(secondConsumer);
+}
+
 TEST_F(
     NativeExchangeDataPlaneE2ETest,
     MultiSourceVeloxClientProbeDoesNotBypassQueueBackpressure) {
@@ -940,7 +1038,7 @@ TEST_F(
 
   shuffle::FlightShuffleServerConfig serverConfig;
   serverConfig.port = 0;
-  shuffle::FlightShuffleServer server(serverConfig);
+  RecordingFlightShuffleServer server(serverConfig);
   const int port = server.start();
   ASSERT_GT(port, 0);
   server.registerHandle(
@@ -1000,6 +1098,10 @@ TEST_F(
   std::this_thread::sleep_for(std::chrono::milliseconds(250));
   EXPECT_EQ(client->queue()->receivedPages(), 1);
   EXPECT_LE(client->queue()->totalBytes(), queueBudget);
+
+  const auto [requests, peers] = server.connections();
+  EXPECT_EQ(requests, 2);
+  EXPECT_EQ(peers, 1);
 
   client->close();
   server.unregisterHandle(kProducerHandle);
