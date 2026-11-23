@@ -56,13 +56,8 @@ if [[ "$OS" == "Darwin" ]]; then
     PANGROVA_BREW="$(command -v brew || true)"
   fi
   HOMEBREW_PREFIX="$("$PANGROVA_BREW" --prefix 2>/dev/null || true)"
-  OPENSSL_PREFIX="$("$PANGROVA_BREW" --prefix openssl@3 2>/dev/null || true)"
-  if [[ -z "$OPENSSL_PREFIX" ]]; then
-    # Arrow's bundled thrift still calls APIs removed in OpenSSL 4 (SSLv3_method,
-    # ASN1_STRING_data); build the whole dependency stack against OpenSSL 3.
-    HOMEBREW_NO_AUTO_UPDATE=1 "$PANGROVA_BREW" install openssl@3
-    OPENSSL_PREFIX="$("$PANGROVA_BREW" --prefix openssl@3)"
-  fi
+  source "$PANGROVA_BOOTSTRAP_SCRIPT_DIR/resolve-darwin-openssl.sh"
+  configure_darwin_openssl "$PANGROVA_BREW" install
   BISON_PREFIX="$("$PANGROVA_BREW" --prefix bison 2>/dev/null || true)"
   FLEX_PREFIX="$("$PANGROVA_BREW" --prefix flex 2>/dev/null || true)"
 fi
@@ -321,7 +316,7 @@ build_grpc() {
     ssl_args+=(-DCMAKE_FIND_LIBRARY_SUFFIXES=.a)
   fi
   if [[ "$OS" == "Darwin" ]]; then
-    ssl_args+=("-DOPENSSL_ROOT_DIR=$(brew --prefix openssl@3)")
+    ssl_args+=("-DOPENSSL_ROOT_DIR=$OPENSSL_PREFIX")
   fi
   checkout_dependency https://github.com/grpc/grpc.git "$GRPC_VERSION" "$src"
   # Package providers supply abseil, protobuf, and zlib. Only the providers
@@ -447,6 +442,7 @@ build_velox() {
     libevent_prefix="$(resolve_darwin_libevent "$PANGROVA_BREW" install)"
     local folly_alignment_digest
     folly_alignment_digest=$(shasum -a 256 "$PANGROVA_FOLLY_ALIGNMENT_PATCH" | awk '{print $1}')
+    local fbthrift_stamp="$INSTALL_PREFIX/.pangrova-fbthrift-ready"
 
     # Upstream stores archives inside source directories that it deletes on retry.
     apply_folly_source_patches() {
@@ -576,9 +572,11 @@ build_velox() {
         -e 's/OpaqueAliasNode{uri/OpaqueAliasNode{uriCopy/' \
         "$type_system_builder"
       rm -f "$type_system_builder.bak"
+      # fbthrift's FindOpenSSL wrapper runs brew unless the CMake variable is set.
       cmake_install_dir fbthrift \
+        "-DOPENSSL_ROOT_DIR=$OPENSSL_PREFIX" \
         -Denable_tests=OFF -DBUILD_TESTS=OFF -DBUILD_SHARED_LIBS=OFF
-      touch "$INSTALL_PREFIX/.pangrova-fbthrift-ready"
+      printf '%s\n' openssl@3 > "$fbthrift_stamp"
     }
 
     install_boost() {
@@ -642,9 +640,12 @@ build_velox() {
     if [[ ! -f "$INSTALL_PREFIX/lib/cmake/AWSSDK/AWSSDKConfig.cmake" ]]; then
       run_and_time install_aws_deps
     fi
-    if [[ -f "$INSTALL_PREFIX/.pangrova-fbthrift-ready" ]]; then
+    if [[ -f "$fbthrift_stamp" ]]; then
       if ! darwin_folly_has_alignment_patch "$INSTALL_PREFIX" "$folly_alignment_digest"; then
         run_and_time install_folly
+      fi
+      if [[ "$(<"$fbthrift_stamp")" != openssl@3 ]]; then
+        run_and_time install_fbthrift
       fi
       run_and_time install_xsimd
       run_and_time install_stemmer
@@ -710,14 +711,8 @@ build_velox() {
   local velox_prefix_path="$DEPS_PREFIX;$VELOX_DIR/deps-install"
   if [[ "$OS" == "Darwin" ]]; then
     velox_platform_args+=("-DSnappy_DIR=$INSTALL_PREFIX/lib/cmake/Snappy")
-    if [[ -n "$OPENSSL_PREFIX" ]]; then
-      velox_platform_args+=("-DOPENSSL_ROOT_DIR=$OPENSSL_PREFIX")
-      velox_prefix_path+=";$OPENSSL_PREFIX"
-      # Arrow's ExternalProject sub-builds do not inherit -D flags; the
-      # environment is what keeps their find_package(OpenSSL) on openssl@3
-      # instead of Homebrew's default openssl@4.
-      export OPENSSL_ROOT_DIR="$OPENSSL_PREFIX"
-    fi
+    velox_platform_args+=("-DOPENSSL_ROOT_DIR=$OPENSSL_PREFIX")
+    velox_prefix_path+=";$OPENSSL_PREFIX"
     [[ -n "$FLEX_PREFIX" ]] && velox_platform_args+=("-DFLEX_INCLUDE_DIR=$FLEX_PREFIX/include")
     [[ -n "$HOMEBREW_PREFIX" ]] && velox_prefix_path+=";$HOMEBREW_PREFIX"
   fi
@@ -897,7 +892,7 @@ ENVEOF
     "$PANGROVA_HOME/env.sh"
   if [[ "$OS" == "Darwin" ]]; then
     local llvm_env
-    llvm_env="export CC=\"$CC\"\nexport CXX=\"$CXX\"\nexport SDKROOT=\"$SDKROOT\"\nexport PATH=\"$(dirname "$CXX"):\$PATH\""
+    llvm_env="export CC=\"$CC\"\nexport CXX=\"$CXX\"\nexport SDKROOT=\"$SDKROOT\"\nexport OPENSSL_ROOT_DIR=\"$OPENSSL_PREFIX\"\nexport PATH=\"$(dirname "$CXX"):\$PATH\""
     sed -i.tmp -e "s|LLVM_ENV|$llvm_env|" "$PANGROVA_HOME/env.sh"
   else
     sed -i.tmp -e '/LLVM_ENV/d' "$PANGROVA_HOME/env.sh"
