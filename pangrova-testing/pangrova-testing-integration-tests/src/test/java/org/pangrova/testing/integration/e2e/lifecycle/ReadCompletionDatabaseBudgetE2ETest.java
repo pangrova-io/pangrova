@@ -123,7 +123,7 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
         assertThat(sqlRunner.execute("SELECT id FROM " + table))
                 .extracting(row -> row.getLong("id")).containsExactly(42L);
         assertThat(calls(ICEBERG_POINTER_LOOKUP) - previousPointerLookups)
-                .as("Iceberg pointer SELECTs during discovery, binding and split planning").isEqualTo(3L);
+                .as("Iceberg pointer SELECTs during read selection and split planning").isEqualTo(2L);
 
         assertThat(sqlRunner.execute("SELECT id FROM iceberg_catalog"))
                 .extracting(row -> row.getLong("id")).containsExactly(7L);

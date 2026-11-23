@@ -1,5 +1,6 @@
 package org.pangrova.planner.metadata.catalog;
 
+import org.pangrova.connector.api.metadata.ConnectorReadDiscovery;
 import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 import org.pangrova.connector.api.metadata.table.ConnectorReadBinding;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
@@ -48,7 +49,7 @@ public final class MetadataResolvedTable extends AbstractTable {
     }
 
     static MetadataResolvedTable fromReadBinding(PlanningReadBindings bindings, QualifiedTableName table,
-            PlanningReadBindings.TableDiscovery discovery) {
+            ConnectorReadDiscovery discovery) {
         return new MetadataResolvedTable(() -> bindings.selectedRead(table, discovery),
                 () -> bindings.resolve(table, discovery)
                         .orElseThrow(() -> new IllegalStateException("Selected table disappeared")),

@@ -4,6 +4,9 @@ import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
+import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.exceptions.NoSuchTableException;
+import org.apache.iceberg.jdbc.JdbcCatalog;
 import org.pangrova.connector.api.enums.TableDeclarationEvidence;
 import org.pangrova.connector.api.enums.SnapshotReferenceType;
 import org.pangrova.connector.iceberg.enums.IcebergSystemTableKind;
@@ -13,11 +16,13 @@ import org.pangrova.connector.iceberg.handle.IcebergFileTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergPartitionTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergSystemTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
+import org.pangrova.connector.iceberg.handle.IcebergTableHandleFactory;
 import org.pangrova.connector.iceberg.index.IcebergNativeIndexEvaluator;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.enums.MetadataTableKind;
 import org.pangrova.connector.api.metadata.MetadataTableListing;
 import org.pangrova.connector.api.metadata.ConnectorMetadata;
+import org.pangrova.connector.api.metadata.ConnectorReadDiscovery;
 import org.pangrova.connector.api.metadata.ConnectorSystemTable;
 import org.pangrova.connector.api.metadata.SnapshotReference;
 import org.pangrova.connector.api.metadata.table.ColumnHandle;
@@ -119,6 +124,27 @@ abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRe
     @Override
     public boolean supportsExactTableNameLookup() {
         return exactTableNameLookup;
+    }
+
+    @Override
+    public ConnectorReadDiscovery discoverRead(ConnectorSession session, SchemaTableName name) {
+        if (catalog.getClass() != JdbcCatalog.class || name.table().indexOf('$') >= 0) {
+            return ConnectorMetadata.super.discoverRead(session, name);
+        }
+        // A direct JDBC load gives this compilation its own table operations.
+        final Table table;
+        try {
+            table = catalog.loadTable(TableIdentifier.of(name.schema(), name.table()));
+        } catch (NoSuchTableException absent) {
+            return null;
+        }
+        var handle = IcebergTableHandleFactory.fromTable(name.schema(), name.table(), table);
+        return new ConnectorReadDiscovery(this, handle,
+                (bindingSession, selector, check) -> {
+                    var selected = (IcebergTableHandle) selector;
+                    requireSameTable(handle, selected);
+                    return IcebergReadBindings.bindData(table, selected, check);
+                });
     }
 
     @Override
@@ -265,12 +291,16 @@ abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRe
     public ConnectorReadBinding bindReadWithIdentityCheck(ConnectorSession session, ConnectorTableHandle liveTable,
             ConnectorTableHandle selector, Consumer<Optional<TableIdentity>> beforeSnapshotBinding) {
         if (liveTable instanceof IcebergTableHandle live && selector instanceof IcebergTableHandle selected) {
-            if (!live.schemaName().equals(selected.schemaName()) || !live.tableName().equals(selected.tableName())) {
-                throw new IllegalArgumentException("Read selector refers to another Iceberg table");
-            }
-            return IcebergReadBindings.bindData(catalogTables, selected, beforeSnapshotBinding);
+            requireSameTable(live, selected);
+            return IcebergReadBindings.bindData(catalogTables.resolveTable(selected), selected, beforeSnapshotBinding);
         }
         return ConnectorMetadata.super.bindReadWithIdentityCheck(session, liveTable, selector, beforeSnapshotBinding);
+    }
+
+    private static void requireSameTable(IcebergTableHandle live, IcebergTableHandle selected) {
+        if (!live.schemaName().equals(selected.schemaName()) || !live.tableName().equals(selected.tableName())) {
+            throw new IllegalArgumentException("Read selector refers to another Iceberg table");
+        }
     }
 
     @Override

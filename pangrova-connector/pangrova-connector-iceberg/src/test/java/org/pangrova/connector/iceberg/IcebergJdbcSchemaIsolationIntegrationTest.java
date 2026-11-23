@@ -273,6 +273,51 @@ class IcebergJdbcSchemaIsolationIntegrationTest extends ContainerTestBase {
         }
     }
 
+    @Test
+    void discoveryAndControlledBindingReadTheCatalogPointerOnce() throws Exception {
+        try (var schema = DatabaseSchema.create(); var catalog = catalog(schema, "V1")) {
+            createTable(catalog);
+            var metadata = new IcebergMetadata(catalog, schema.name());
+            var name = new SchemaTableName("data", "events");
+            var expected = metadata.getTableIdentity(READER, metadata.getTableHandle(READER, name));
+            assertThat(expected).isPresent();
+            schema.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public");
+            long before = schema.catalogPointerLookups();
+
+            var discovered = java.util.Objects.requireNonNull(metadata.discoverRead(READER, name));
+            var binding = discovered.binder().bind(READER, discovered.handle(),
+                    observed -> assertThat(observed).isEqualTo(expected));
+
+            assertThat(schema.catalogPointerLookups() - before).isOne();
+            assertThat(binding.schemaIdentity()).hasValueSatisfying(identity ->
+                    assertThat(identity.tableIdentity()).isEqualTo(expected.orElseThrow()));
+        }
+    }
+
+    @Test
+    void readDiscoveryRetainsIdentityAndCannotExecuteAgainstAReplacement() throws Exception {
+        try (var schema = DatabaseSchema.create();
+                var reader = catalog(schema, "V1"); var writer = catalog(schema, "V1")) {
+            createTable(reader);
+            var metadata = new IcebergMetadata(reader, schema.name());
+            var name = new SchemaTableName("data", "events");
+            var discovered = java.util.Objects.requireNonNull(metadata.discoverRead(READER, name));
+            var original = metadata.getTableIdentity(READER, discovered.handle()).orElseThrow();
+            assertThat(writer.dropTable(TABLE, false)).isTrue();
+            writer.buildTable(TABLE, TABLE_SCHEMA).withLocation(warehouse.resolve("discovery-replacement").toString())
+                    .create();
+
+            var binding = discovered.binder().bind(READER, discovered.handle(),
+                    observed -> assertThat(observed).contains(original));
+
+            assertThat(binding.schemaIdentity()).hasValueSatisfying(identity ->
+                    assertThat(identity.tableIdentity()).isEqualTo(original));
+            assertThatThrownBy(() -> metadata.validateReadBinding(READER, binding))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("Selected table or snapshot identity changed");
+        }
+    }
+
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void distributedWriteCatalogPointerBudget(boolean requiresPublication) throws Exception {

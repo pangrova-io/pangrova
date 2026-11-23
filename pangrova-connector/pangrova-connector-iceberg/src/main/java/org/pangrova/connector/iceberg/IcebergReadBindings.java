@@ -77,12 +77,12 @@ final class IcebergReadBindings {
                     ReadSnapshotState.METADATA, OptionalLong.empty(),
                     system.metadataLocation(), Optional.empty(), Optional.empty());
         }
-        return bindData(tables, (IcebergTableHandle) selector, null);
+        var handle = (IcebergTableHandle) selector;
+        return bindData(tables.resolveTable(handle), handle, null);
     }
 
-    static ConnectorReadBinding bindData(IcebergCatalogTables tables, IcebergTableHandle handle,
+    static ConnectorReadBinding bindData(Table table, IcebergTableHandle handle,
             Consumer<Optional<TableIdentity>> beforeSnapshotBinding) {
-        Table table = tables.resolveTable(handle);
         var capturedMetadata = metadata(table);
         String currentSchemaJson = null;
         if (beforeSnapshotBinding != null) {

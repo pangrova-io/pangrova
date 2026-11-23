@@ -42,6 +42,14 @@ public interface ConnectorMetadata
      */
     ConnectorTableHandle getTableHandle(ConnectorSession session, SchemaTableName tableName);
 
+    /** Finds a named read source, or returns null if the table does not exist. */
+    default ConnectorReadDiscovery discoverRead(ConnectorSession session, SchemaTableName table) {
+        var handle = getTableHandle(session, table);
+        return handle == null ? null : new ConnectorReadDiscovery(this, handle,
+                (bindingSession, selector, check) -> check == null ? bindRead(bindingSession, selector)
+                        : bindReadWithIdentityCheck(bindingSession, handle, selector, check));
+    }
+
     /** Whether an ordinary named lookup can only return the exact catalog spelling. */
     default boolean supportsExactTableNameLookup() {
         return false;
