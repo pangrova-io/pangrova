@@ -1,12 +1,22 @@
 package org.pangrova.testing.integration.e2e.result;
 
+import com.google.protobuf.ByteString;
+import io.grpc.CallOptions;
+import io.grpc.ClientCall;
+import io.grpc.Metadata;
+import io.grpc.Status;
+import io.grpc.netty.NettyChannelBuilder;
+import org.apache.arrow.flatbuf.Message;
+import org.apache.arrow.flatbuf.MessageHeader;
+import org.apache.arrow.flatbuf.RecordBatch;
+import org.apache.arrow.flight.impl.Flight;
+import org.apache.arrow.flight.impl.FlightServiceGrpc;
 import org.pangrova.client.http.PangrovaRestClient;
 import org.pangrova.client.http.QueryExecution;
 import org.pangrova.common.client.enums.CancelOutcome;
 import org.pangrova.common.client.result.ResultEndpoint;
 import org.pangrova.common.client.session.RetryPolicy;
 import org.pangrova.common.enums.QueryWaitTarget;
-import org.pangrova.transport.client.FlightResultFetcher;
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
@@ -23,6 +33,8 @@ import java.time.Duration;
 import java.util.BitSet;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -30,7 +42,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * E2E: Backpressure under slow consumer.
  * Proves FlightResultServer handles large result sets without OOM
- * via Velox OutputBufferManager backpressure.
+ * with bounded Native Flight backpressure.
  *
  * <p>Validates: Requirements 4.1, 4.2, 4.3, 4.4</p>
  */
@@ -169,10 +181,51 @@ class BackpressureE2ETest extends SqlE2ETestBase {
             var command = new DataInputStream(System.in);
             var route = new ResultEndpoint(command.readUTF(), command.readInt(), command.readUTF(), command.readUTF());
             long deadline = command.readLong();
-            try (var fetcher = new FlightResultFetcher(); var cursor = fetcher.open(route, deadline)) {
-                if (!cursor.next()) throw new IllegalStateException("Flight returned no first row");
+            long remaining = deadline - System.currentTimeMillis();
+            if (remaining <= 0) throw new IllegalStateException("Result deadline elapsed before opening Flight");
+            var channel = NettyChannelBuilder.forAddress(route.host(), route.port())
+                    .usePlaintext().flowControlWindow(64 * 1024)
+                    .maxInboundMessageSize(256 * 1024 * 1024).build();
+            try {
+                var firstBatch = new CompletableFuture<Void>();
+                var call = channel.newCall(FlightServiceGrpc.getDoGetMethod(),
+                        CallOptions.DEFAULT.withDeadlineAfter(remaining, TimeUnit.MILLISECONDS));
+                call.start(new ClientCall.Listener<>() {
+                    private boolean hasSchema;
+
+                    @Override
+                    public void onMessage(Flight.FlightData frame) {
+                        var header = Message.getRootAsMessage(frame.getDataHeader().asReadOnlyByteBuffer());
+                        if (!hasSchema && header.headerType() == MessageHeader.Schema) {
+                            hasSchema = true;
+                            return;
+                        }
+                        if (hasSchema && header.headerType() == MessageHeader.RecordBatch) {
+                            var batch = (RecordBatch) header.header(new RecordBatch());
+                            if (batch.length() > 0 && header.bodyLength() == frame.getDataBody().size()) {
+                                firstBatch.complete(null);
+                                return;
+                            }
+                        }
+                        firstBatch.completeExceptionally(new IllegalStateException("Invalid first Flight batch"));
+                    }
+
+                    @Override
+                    public void onClose(Status status, Metadata trailers) {
+                        firstBatch.completeExceptionally(status.asRuntimeException());
+                    }
+                }, new Metadata());
+                call.sendMessage(Flight.Ticket.newBuilder().setTicket(ByteString.copyFromUtf8(route.ticket())).build());
+                call.halfClose();
+                // FlightClient normally asks for five messages. Request exactly the
+                // schema and one batch so later messages remain backpressured when
+                // the parent terminates this process.
+                call.request(2);
+                firstBatch.get(remaining, TimeUnit.MILLISECONDS);
                 Files.writeString(Path.of(args[0]), "read");
-                new java.util.concurrent.CountDownLatch(1).await();
+                new CountDownLatch(1).await();
+            } finally {
+                channel.shutdownNow();
             }
         }
     }
