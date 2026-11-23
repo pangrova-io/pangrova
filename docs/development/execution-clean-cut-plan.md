@@ -25,7 +25,7 @@ unlisted: true
 | 客户端、准入和状态 | 扩大已完成的本地固定到达率压测到多 Coordinator，定位过载时点查和分组 P95 上升。验证认证状态投影、客户端重连、长短查询干扰与租户槽位归还 | 每条路径的首批、P95、超时、拒绝、耗尽恢复和零正常状态 SELECT |
 | 授权和命名空间 | 消除限定表名解析前的命名空间全量枚举。表身份、治理绑定、行策略和列掩码已使用一次权威读取。继续验证多表查询能否合并各表的读取并保留逐表权限校验 | 精确计数，覆盖直授和组授权、撤权、表更替、大小写匹配、显式命名空间枚举及安全失败 |
 | 快照和 split 枚举 | 为同一连接联合多个动态过滤键域，扩展连接器和晚到覆盖。大文件按合法范围拆分，小文件按工作量组包。有界枚举与实际读放大按连接器验证 | 冻结相同快照与授权。比较 split 数、实际对象 GET 和读取字节，覆盖缺失、晚到、失败、删除文件、快照演进和取消 |
-| 计划、分配和控制面 | 清理 Worker AI 回调授权投影里重复的计划校验和 JVM 内部 protobuf 编解码。量化下游准备隔离在固定到达率、受阻目录 I/O 与写入混合负载下的 P95。以混合负载校准单输入 AQE 的阈值和尾时延，再验证多输入、偏斜拆分和持久重放 | 基线和候选完成同一完整结果。检查覆盖、滞后、重试、投机获胜和 durable replay |
+| 计划、分配和控制面 | 从 Worker HTTP 处理线程隔离 JNI 创建、输入准备和 ACK 等待，保留一次精确 ACK。清理 Worker AI 回调授权投影里重复的计划校验和 JVM 内部 protobuf 编解码。量化下游准备隔离在固定到达率、受阻目录 I/O 与写入混合负载下的 P95。以混合负载校准单输入 AQE 的阈值和尾时延，再验证多输入、偏斜拆分和持久重放 | 基线和候选完成同一完整结果。检查覆盖、滞后、重试、投机获胜和 durable replay |
 | 远端 Shuffle | 核验更宽和变长输出的实际对象数、内存及跨主机吞吐。扩大热点并发，量化锁等待与尾时延，再校准是否需要段存储 | PostgreSQL 和对象存储真实压测，覆盖权限撤销、owner 切换、背压、未知 PUT、丢 ACK 和 GC |
 | Velox 与结果 | 对剩余 I/O、解码、spill、缓存和单出口成本做归因。继续测跨主机出口、持续内存占用与链路异常下的释放 | 冷热、偏斜和宽/窄负载。若出口瓶颈成立，验证并行消费的顺序、EOF、资源窗口和真实归还 |
 | 写入与提交 | 用高并发和故障窗口校准文件大小、写放大、提交时延及各格式恢复。原子发布和跨引擎结果独立验收 | Iceberg/Paimon/Lance/COPY/CDC 保留快照、offset、精确 fence 和资源归还证据 |
@@ -48,6 +48,8 @@ unlisted: true
 **跨 owner 幂等先做合同。** 当前 `IdempotencyKeyRegistry` 是进程内 map，key 由 principal 与请求幂等键组成。owner 路由可以降低重复访问，但响应已丢、owner 已退出时，路由不能证明该 SQL 从未受理。若支持跨节点重复提交，必须在一次受理提交中保留可恢复的授权作用域、键、请求摘要与 queryId。优先与已有 durable 受理事实一起持久化，由权威唯一约束选出原请求。正常只走受理写入，冲突/未知结果再读取验证。取到已受理回执也不触发第二次 DML。没有配置跨节点持久受理时，在该部署合同内提供受理 owner 范围的幂等。验收分别注入响应丢失、崩溃与接管。
 
 **控制协议和调度分开验收。** 保留现有 HTTP 服务设施，以一个 canonical 二进制消息替换 task/report 的 JSON+Base64 镜像，可独立测 body bytes、解析次数和 CPU/attempt。避免把新 gRPC 服务、共享计划缓存、重新编排 ACK 同时设成依赖。销毁任务与取消不能靠 HTTP 是否返回判断。Worker 快速接纳和真正端点 Ready 若需分开，以精确 attempt 和当前 generation 表达。对于不产生端点的任务无需额外 Ready RPC。DAG callback 只做小型状态发布，用查询顺序和 admission 约束交接给有界工作池，阶段准备与 durable commit 各有容量。用阻塞目录、慢对象存储、终态报告压力和关闭观察无关查询 P95、队列和 resource drain。
+
+**Worker 阻塞资源需要单独限额。** 当前首个请求仍在 Jetty 处理线程内创建 Native executor、准备 COPY 输入并注册端点。同一任务的重复请求加入同一端点就绪等待。下一步用有界的创建执行资源处理首次任务，让初始请求和重试都通过异步 HTTP 等待一个真实 ACK。限制处理中请求总数和保留的解码字节，使用原有过载响应，不提前发布端点，也不增加轮询。验收用受阻的 JNI/COPY 测量 HTTP 工作线程、健康检查和取消延迟、过载恢复、同一任务创建次数、首批与实际排空。Trino 的任务入口使用 JAX-RS 异步响应，任务状态订阅绑定同一个等待结果。Spark 在 Worker 记录真实任务后交给执行线程，并处理拒绝时的注册清理。 [Jakarta REST 异步资源接口](https://jakarta.ee/specifications/restful-ws/4.0/jakarta-restful-ws-spec-4.0.html#asynchronous_processing) · [Trino Worker 任务入口](https://github.com/trinodb/trino/blob/master/core/trino-main/src/main/java/io/trino/server/TaskResource.java) · [Spark Executor 任务启动](https://github.com/apache/spark/blob/master/core/src/main/scala/org/apache/spark/executor/Executor.scala)
 
 **小查询保留流水直连。** 持久交换支持跨 Worker 重试或 durable replay，但消耗写入、发布、存储和再次读取。Trino 也明确指出 TASK 重试适合大批查询，可能增加高频短查询延迟。按明确的恢复要求或实测负载选择路径。在同一查询中按 stage 边的依赖语义选定读取方式，已签发边保持稳定。将两种执行策略作为真实能力管理。 [Trino Fault-tolerant execution](https://trino.io/docs/current/admin/fault-tolerant-execution.html#task)
 
@@ -92,6 +94,8 @@ unlisted: true
 每一个删除项验收同时看生产调用归零、注册/配置被移除、相邻行为经过真实入口，以及对应的性能或正确性证据。生产 rollout 只有整套新版本和全新运行环境，故障恢复用同版本状态机演练。目录现有的业务数据与历史实验保留为可重现输入。
 
 ## 验证记录与覆盖边界
+
+Worker 的同一精确任务重复提交等待实际端点注册。真实 Jetty/JNI 用例在 Native Shuffle 注册前暂停第一个请求。基线重复请求提前返回 HTTP 200，缺失端点。候选只注册一次，两次 ACK 都等待注册，返回相同的两张分区票据。取消仍能按精确任务所有权找到初始化中的任务，已封口的准备任务不会收到成功 ACK。51 项焦点回归和 33 项同源打包回归通过，涵盖双 Worker、取消、过载、COPY 和实际归还。角色清单 SHA-256 为 da0e34222cbd003f978d2b379b964d1c2bb9600d7f233e0d6d3b160d68b3839d。
 
 Worker 任务接入沿路复用同一份经过结构校验的请求，移除 Native 创建前在 Worker Java 中再次校验原始请求的步骤。实际双 Worker 对照完成同样的 40 笔固定到达率工作负载，并各产生 45 次预期的租户配额拒绝。按任务类型和计划大小逐项核对，共 122 个计划，Worker Java 计划 SHA-256 次数从 366 降到 244，输入字节从 83,928 B 降到 55,952 B。存量的另一遍来自 AI 生命周期把任务投影成回调上下文，随后执行 Java 内部 protobuf 编解码。独立 JNI 校验保留。42 项焦点回归和 34 项同源打包回归通过，涵盖 COPY、双 Worker Shuffle、CDC、租户准入和资源实际归还。角色清单 SHA-256 为 4cea99883374d76c9780f3cb99017693fd2de3b00ea19eeda8f1f6c6f1f0a956。
 
