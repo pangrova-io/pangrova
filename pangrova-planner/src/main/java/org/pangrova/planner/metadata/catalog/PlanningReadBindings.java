@@ -182,9 +182,8 @@ public final class PlanningReadBindings {
 
     private AdmittedRead loadAdmitted(QualifiedTableName key, ConnectorSession session, TableDiscovery discovery) {
         var control = catalogs.tableControl();
-        var controlled = control.enabled() ? control.find(key.catalog(), key.schema(), key.table())
+        var controlled = control.enabled() ? control.findForRead(key, "SQL read binding")
                 : Optional.<TableControlRecord>empty();
-        controlled.ifPresent(record -> control.requireCurrentCatalog(record, "SQL read binding"));
         var metadata = catalogs.metadataForQuery(key.catalog(), session);
         var handle = discovery != null && discovery.metadata() == metadata ? discovery.handle()
                 : metadata.getTableHandle(session, new SchemaTableName(key.schema(), key.table()));

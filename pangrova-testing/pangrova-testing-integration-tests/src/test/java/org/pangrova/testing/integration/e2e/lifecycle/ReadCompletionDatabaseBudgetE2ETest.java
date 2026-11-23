@@ -32,6 +32,14 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
                     + "WHERE execution_id = $1 AND expires_at > clock_timestamp()";
     private static final String PUBLICATION_LOOKUP =
             "SELECT tenant_id,requesting_principal,%FROM materialization.attempts WHERE execution_anchor=$1";
+    private static final String READ_ADMISSION_LOOKUP =
+            "SELECT control.*, catalog.incarnation_id AS observed_catalog_incarnation%";
+    private static final String TABLE_REGISTRATION_LOOKUP =
+            "SELECT table_id, catalog_name, schema_name, table_name, %"
+                    + "FROM table_control_registry WHERE state <> % AND table_id IN (SELECT table_id "
+                    + "FROM table_control_name_reservation%";
+    private static final String CATALOG_DEPLOYMENT_LOOKUP =
+            "SELECT name, incarnation_id, revision FROM catalog_definitions WHERE name%";
 
     @Override
     protected List<ConnectorTestConfig> connectorConfigs() {
@@ -79,6 +87,23 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
         assertExactAttemptProfile(queryId);
         assertProfileIsScopedToTheSubmittingPrincipal(queryId);
         assertQueryLifecycleIsScopedToTheSubmittingPrincipal(queryId);
+    }
+
+    @Test
+    void managedReadLoadsItsRegistrationAndCatalogTogether() throws SQLException {
+        String table = "iceberg_catalog.default.read_admission_database_budget";
+        sqlRunner.executeDdl("CREATE TABLE " + table + " (id BIGINT)");
+        sqlRunner.execute("INSERT INTO " + table + " VALUES (42)");
+
+        long previousAdmissionLookups = calls(READ_ADMISSION_LOOKUP);
+        long previousRegistrationLookups = calls(TABLE_REGISTRATION_LOOKUP);
+        long previousDeploymentLookups = calls(CATALOG_DEPLOYMENT_LOOKUP);
+        assertThat(sqlRunner.execute("SELECT id FROM " + table + " WHERE id = 42"))
+                .extracting(row -> row.getLong("id")).containsExactly(42L);
+
+        assertThat(calls(READ_ADMISSION_LOOKUP) - previousAdmissionLookups).isOne();
+        assertThat(calls(TABLE_REGISTRATION_LOOKUP) - previousRegistrationLookups).isZero();
+        assertThat(calls(CATALOG_DEPLOYMENT_LOOKUP) - previousDeploymentLookups).isZero();
     }
 
     @Test

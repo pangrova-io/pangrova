@@ -2000,6 +2000,12 @@ lives in Coordinator until the session contract closure is extracted.
 
 ### Compiled relation ownership
 
+PostgreSQL read admission loads the table registration and current catalog
+deployment in one statement before opening the connector. A registered table
+with a removed deployment fails admission. The Coordinator also verifies the
+local catalog and rechecks the table owner after resolving the handle and
+binding the snapshot.
+
 Foreground authorization observes current subject roles and grants once per
 protected compilation. Row filters and column masks share the verified table
 identity in that scope. The next compilation reads current policy. Durable

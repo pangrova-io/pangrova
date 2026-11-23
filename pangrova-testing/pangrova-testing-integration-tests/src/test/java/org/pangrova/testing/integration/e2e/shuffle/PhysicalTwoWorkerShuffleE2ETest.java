@@ -250,9 +250,11 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
                 + "%FROM catalog_definitions WHERE name=$1";
         String roleTemplate = "SELECT registered.role_name FROM pangrova_roles registered%";
         String identityTemplate = "SELECT name, incarnation_id, revision FROM catalog_definitions WHERE name=$1";
-        String tableNameTemplate = "SELECT %"
+        String tableNameTemplate = "SELECT table_id, catalog_name, schema_name, table_name, %"
                 + "FROM table_control_registry WHERE state <>%FROM table_control_name_reservation%";
         long tableReadsBefore = statementCalls(tableNameTemplate);
+        String admissionTemplate = "SELECT control.*, catalog.incarnation_id AS observed_catalog_incarnation%";
+        long readAdmissionBefore = statementCalls(admissionTemplate);
         String joinedTemplate = "SELECT control.table_id, control.state,%"
                 + "FROM table_control_registry control LEFT JOIN catalog_definitions catalog%";
         String fullOwnerTemplate = "SELECT table_id, catalog_name, schema_name, table_name,%"
@@ -270,9 +272,11 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
         assertThat(statementCalls(catalogTemplate) - catalogBefore)
                 .as("full catalog descriptor reads for one physical query").isZero();
         assertThat(statementCalls(identityTemplate) - identityBefore)
-                .as("catalog deployment reads outside the table-owner checks").isOne();
+                .as("separate catalog deployment reads for one physical query").isZero();
         assertThat(statementCalls(tableNameTemplate) - tableReadsBefore)
-                .as("current table name reads for one physical query").isPositive().isOne();
+                .as("separate table registration reads for one physical query").isZero();
+        assertThat(statementCalls(admissionTemplate) - readAdmissionBefore)
+                .as("joined table and catalog admissions for one physical query").isOne();
         assertThat(statementCalls(joinedTemplate) - joinedBefore)
                 .as("joined policy identity reads for one physical query").isOne();
         assertThat(statementCalls(fullOwnerTemplate) - fullOwnerBefore)
