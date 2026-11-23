@@ -501,8 +501,10 @@ while calling `NativeRuntime.nativeStartTaskWithTrace(executorHandle, traceId)`.
 Velox supplies per-operator counters as part of its task statistics snapshot.
 The Worker includes those counters in canonical Native task reports. After
 validating the issued attempt and report sequence, the Coordinator retains
-the latest available counters for the exact attempt and serves them in the
-[JSON query profile](../getting-started/clients/rest-api.md#query-profile).
+the latest immutable Protobuf statistics for the exact attempt. It converts
+them to the public response model when the
+[JSON query profile](../getting-started/clients/rest-api.md#query-profile) is read.
+A repeated terminal delivery still matches the original evidence bytes.
 
 The Coordinator currently configures `UnavailableProfiler` for SVG flame
 graphs. The SVG endpoint responds with HTTP 501 and `UNSUPPORTED_CAPABILITY`.

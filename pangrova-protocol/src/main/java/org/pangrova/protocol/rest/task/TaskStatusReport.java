@@ -18,7 +18,7 @@ public record TaskStatusReport(
         String taskType,
         String workerId,
         String state,
-        TaskStats stats,
+        TaskStats supplementalStats,
         ErrorDetail error,
         WriteResultDescriptor writeResult,
         long reportSequence,
@@ -96,15 +96,6 @@ public record TaskStatusReport(
                 identity.getPartitionId(), taskType, workerId, state, stats, error, writeResult, sequence,
                 timestampMs, null, null, TaskAttemptDescriptor.from(identity),
                 terminalEvidence, identity, decodedStatus);
-    }
-
-    /** Projects diagnostics on demand when the producer kept canonical Native statistics. */
-    @Override
-    public TaskStats stats() {
-        if (stats == null && decodedStatus != null && decodedStatus.hasNativeTaskStats()) {
-            return TaskStats.fromNative(decodedStatus.getNativeTaskStats());
-        }
-        return stats;
     }
 
     /** Returns owned bytes for callers that pass the exact evidence to an external sink. */

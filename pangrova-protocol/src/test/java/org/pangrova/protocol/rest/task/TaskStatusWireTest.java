@@ -46,7 +46,8 @@ class TaskStatusWireTest {
         var decoded = TaskStatusWire.decode(encoded);
         assertThat(decoded.reportedAttempt()).isEqualTo(ATTEMPT);
         assertThat(decoded.canonicalStatus()).isSameAs(decoded.canonicalStatus()).isEqualTo(terminal);
-        assertThat(decoded.stats().rowsRead()).isEqualTo(80);
+        assertThat(decoded.supplementalStats()).isNull();
+        assertThat(decoded.canonicalStatus().getNativeTaskStats().getRowsRead()).isEqualTo(80);
         assertThat(decoded.canonicalTaskReport()).containsExactly(exact);
         assertThat(TaskStatusWire.encode(decoded)).containsExactly(encoded);
     }
@@ -63,7 +64,7 @@ class TaskStatusWireTest {
 
         var decoded = TaskStatusWire.decode(TaskStatusWire.encode(report));
         assertThat(decoded.writeResult()).isEqualTo(write);
-        assertThat(decoded.stats()).isEqualTo(stats);
+        assertThat(decoded.supplementalStats()).isEqualTo(stats);
     }
 
     @Test

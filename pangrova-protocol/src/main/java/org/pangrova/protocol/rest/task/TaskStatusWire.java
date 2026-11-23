@@ -47,8 +47,9 @@ public final class TaskStatusWire {
             }
             delivery.setProgress(TaskProgress.newBuilder().setAttempt(report.reportedAttempt()).setState(state));
         }
-        if ((terminal == null || !terminal.hasNativeTaskStats()) && report.stats() != null) {
-            delivery.setSupplementalStats(encodeStats(report.stats()));
+        TaskStats supplemental = report.supplementalStats();
+        if ((terminal == null || !terminal.hasNativeTaskStats()) && supplemental != null) {
+            delivery.setSupplementalStats(encodeStats(supplemental));
         }
         if (report.writeResult() != null) {
             delivery.setWrite(encodeWrite(report.writeResult()));
@@ -103,7 +104,7 @@ public final class TaskStatusWire {
             default -> throw new IllegalArgumentException("Task status evidence is required");
         }
 
-        var stats = decodeStats(delivery, canonical);
+        var stats = decodeSupplementalStats(delivery, canonical);
         var error = canonical != null && canonical.hasError() ? canonical.getError() : null;
         return new TaskStatusReport(attempt.getTaskId(), attempt.getQueryOrJobId(), attempt.getStageId(),
                 attempt.getPartitionId(), role.name().substring("TASK_ROLE_".length()),
@@ -115,12 +116,12 @@ public final class TaskStatusWire {
                 TaskAttemptDescriptor.from(attempt), evidence, attempt, canonical);
     }
 
-    private static TaskStats decodeStats(TaskStatusDelivery delivery, TaskReport canonical) {
+    private static TaskStats decodeSupplementalStats(TaskStatusDelivery delivery, TaskReport canonical) {
         if (canonical != null && canonical.hasNativeTaskStats()) {
             if (delivery.hasSupplementalStats()) {
                 throw new IllegalArgumentException("Terminal delivery already carries canonical Native statistics");
             }
-            return TaskStats.fromNative(canonical.getNativeTaskStats());
+            return null;
         }
         return delivery.hasSupplementalStats() ? TaskStats.fromNative(delivery.getSupplementalStats()) : null;
     }

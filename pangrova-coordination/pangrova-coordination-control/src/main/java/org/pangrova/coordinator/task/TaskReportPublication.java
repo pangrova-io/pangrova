@@ -51,7 +51,7 @@ public final class TaskReportPublication implements AutoCloseable {
         final long sequence;
         final long timestamp;
         final ByteString canonicalDigest;
-        final org.pangrova.protocol.rest.task.TaskStats stats;
+        final org.pangrova.protocol.rest.task.TaskStats supplementalStats;
         final org.pangrova.common.client.error.ErrorDetail error;
         final org.pangrova.protocol.rest.data.WriteResultDescriptor writeResult;
         final String errorCode;
@@ -86,7 +86,7 @@ public final class TaskReportPublication implements AutoCloseable {
             partitionId = report.partitionId();
             attempt = report.attempt();
             reportedAttempt = report.reportedAttempt();
-            stats = report.stats();
+            supplementalStats = report.supplementalStats();
             error = report.error();
             writeResult = report.writeResult();
             errorCode = report.errorCode();
@@ -110,7 +110,7 @@ public final class TaskReportPublication implements AutoCloseable {
         }
 
         private boolean matchesPayload(TaskStatusReport retry) {
-            return java.util.Objects.equals(stats, retry.stats())
+            return java.util.Objects.equals(supplementalStats, retry.supplementalStats())
                     && java.util.Objects.equals(error, retry.error())
                     && java.util.Objects.equals(writeResult, retry.writeResult())
                     && java.util.Objects.equals(errorCode, retry.errorCode())

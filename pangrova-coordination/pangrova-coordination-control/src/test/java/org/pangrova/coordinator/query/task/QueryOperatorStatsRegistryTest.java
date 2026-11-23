@@ -19,9 +19,9 @@ class QueryOperatorStatsRegistryTest {
     void aLateOlderReportCannotOverwriteTheFullLatestAttempt() {
         var registry = new QueryOperatorStatsRegistry();
         var attempt = attempt(2, 3, 4, "first");
-        registry.record(attempt, report(attempt, 3, "FINISHED", stats(40)));
-        registry.record(attempt, report(attempt, 2, "RUNNING", stats(10)));
-        registry.record(attempt, report(attempt, 4, "FINISHED", NativeTaskStats.getDefaultInstance()));
+        registry.record(attempt, report(attempt, 3, "FINISHED", stats(40)), null);
+        registry.record(attempt, report(attempt, 2, "RUNNING", stats(10)), null);
+        registry.record(attempt, report(attempt, 4, "FINISHED", NativeTaskStats.getDefaultInstance()), null);
 
         assertThat(registry.attemptStats("query")).singleElement().satisfies(sample -> {
             assertThat(sample.stageId()).isEqualTo(2);
@@ -44,9 +44,9 @@ class QueryOperatorStatsRegistryTest {
         var downstream = attempt(1, 2, 0, "downstream");
         var twoOperators = stats(8).toBuilder().addOperatorStats(OperatorStats.newBuilder()
                 .setPlanNodeId("node-1").setOperatorType("Project").setOutputRows(7)).build();
-        registry.record(downstream, report(downstream, 1, "FINISHED", stats(11)));
-        registry.record(original, report(original, 3, "CANCELLED", stats(6)));
-        registry.record(retry, report(retry, 3, "FINISHED", twoOperators));
+        registry.record(downstream, report(downstream, 1, "FINISHED", stats(11)), null);
+        registry.record(original, report(original, 3, "CANCELLED", stats(6)), null);
+        registry.record(retry, report(retry, 3, "FINISHED", twoOperators), null);
 
         assertThat(registry.attemptStats("query")).extracting(Attempt::taskId)
                 .containsExactly("original", "retry", "downstream");
@@ -57,9 +57,37 @@ class QueryOperatorStatsRegistryTest {
     void absentAndEmptyReportsProvideNoTelemetry() {
         var registry = new QueryOperatorStatsRegistry();
         var attempt = attempt(0, 0, 0, "empty");
-        registry.record(attempt, report(attempt, 1, "RUNNING", NativeTaskStats.getDefaultInstance()));
+        registry.record(attempt, report(attempt, 1, "RUNNING", NativeTaskStats.getDefaultInstance()), null);
         assertThat(registry.attemptStats("absent")).isEmpty();
         assertThat(registry.attemptStats("query")).isEmpty();
+    }
+
+    @Test
+    void acceptedCanonicalStatisticsProjectToTheSameAttemptProfile() throws Exception {
+        var registry = new QueryOperatorStatsRegistry();
+        var issued = attempt(1, 2, 0, "native");
+        var report = org.pangrova.protocol.v2.TaskReport.newBuilder().setAttempt(issued)
+                .setState(org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED)
+                .setNativeTaskStats(stats(22).toBuilder().setElapsedTimeMs(21).setCpuTimeMs(7)).build();
+        var original = TaskStatusReport.fromAttempt(issued, "COMPUTE", "worker", "FINISHED",
+                null, null, null, 2, 1000, report.toByteString(), report);
+        var decoded = org.pangrova.protocol.rest.task.TaskStatusWire.decode(
+                org.pangrova.protocol.rest.task.TaskStatusWire.encode(original));
+        assertThat(decoded.supplementalStats()).isNull();
+
+        registry.record(issued, decoded, decoded.decodedStatus());
+
+        assertThat(registry.attemptStats("query")).singleElement().satisfies(sample -> {
+            assertThat(sample.reportSequence()).isEqualTo(2L);
+            assertThat(sample.elapsedTimeMs()).isEqualTo(21L);
+            assertThat(sample.cpuTimeMs()).isEqualTo(7L);
+            assertThat(sample.backpressureWaitMs()).isEqualTo(5L);
+            assertThat(sample.operators()).singleElement().satisfies(metric -> {
+                assertThat(metric.operatorType()).isEqualTo("TableScan");
+                assertThat(metric.planNodeId()).isEqualTo("node-1");
+                assertThat(metric.outputRows()).isEqualTo(22L);
+            });
+        });
     }
 
     private static TaskAttemptId attempt(int stage, int partition, int number, String taskId) {

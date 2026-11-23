@@ -90,7 +90,9 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
-实施批次 133 移除 Native 任务启动和清理中的全局 Profiler 注册表。仓库的生产入口只有任务插入和移除，SVG 端点使用显式的不可用实现，JSON Profile 继续读取规范任务回报。提取原生产注册函数的本地并发探针对插入和移除成对计时，单线程中位数 260 ns，四线程约 1,044 ns。删除了两次共享锁获取和每任务注册项。4,353 项 Native 用例通过，覆盖实际结果、Flight Exchange、取消与资源清理。
+实施批次 134 让 Coordinator 的任务回报入口保留一份不可变的 Native Protobuf 统计，由读取 JSON Profile 时生成公开模型。移除接收时的诊断副本和重试比对中的重复投影，继续核对精确回报摘要、任务归属、递增序号与实际释放。Corretto 17 按五组各 512 次测量 HTTP 解码的线程分配。121 B 单算子回报由 2,648 B 降到 2,096 B，6,084 B 的 128 算子回报由 65,912 B 降到 51,632 B，回报字节摘要一致。176 项验证通过，覆盖真实 Worker 握手、HTTP 重发、双 Worker、PostgreSQL 读预算、慢读断连、生成列与 COPY 提交。Checkstyle 和模块边界检查通过。
+
+实施批次 133 移除 Native 任务启动和清理中的全局 Profiler 注册表。仓库的生产入口只有任务插入和移除，SVG 端点使用显式的不可用实现，JSON Profile 继续读取规范任务回报。提取原生产注册函数的本地并发探针对插入和移除成对计时，单线程中位数 260 ns，四线程约 1,044 ns。删除了两次全局互斥锁获取和每任务注册项。4,353 项 Native 用例通过，覆盖实际结果、Flight Exchange、取消与资源清理。
 
 实施批次 132 在 Native 单个构建任务内合并批次键区间，最多发布 16 个互不相连的 BIGINT 区间。Coordinator 继续要求获胜构建任务齐备和交换已发布。任一层合并超限时使用覆盖全部键的外包区间。真实双 Worker 冷探测的单任务场景从 35 个分片、27,885 B 降到 4 个分片、2,795 B，重复键和 NULL 的连接结果及实际资源归还通过。50,000 键的本地区间收集对照额外耗时低于 0.13 ms。规范 Protobuf 描述符、模块边界、Checkstyle、118 项 Java 定向用例、18 项实际路径回归和 4,353 项 Native 用例通过。 [Trino 动态过滤收集上限](https://trino.io/docs/current/admin/dynamic-filtering.html#dynamic-filter-collection-thresholds)
 

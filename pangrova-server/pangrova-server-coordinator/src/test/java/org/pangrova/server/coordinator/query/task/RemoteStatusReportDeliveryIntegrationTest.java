@@ -89,7 +89,7 @@ class RemoteStatusReportDeliveryIntegrationTest {
             var actual = fixture.actualRunningReport();
             // Exercise the non-running progress branch using the issued identity.
             var pending = TaskStatusReport.fromAttempt(actual.reportedAttempt(), actual.taskType(), actual.workerId(),
-                    "PENDING", actual.stats(), null, null, actual.reportSequence(), actual.timestampMs(), null);
+                    "PENDING", actual.supplementalStats(), null, null, actual.reportSequence(), actual.timestampMs(), null);
             fixture.reporter().report(pending);
             assertThat(fixture.relay().matchingAttempts()).hasSize(1);
             assertThat(fixture.failedReports()).isZero();
@@ -206,12 +206,12 @@ class RemoteStatusReportDeliveryIntegrationTest {
             var changed = TaskStatusReport.fromAttempt(actual.reportedAttempt(), actual.taskType(), actual.workerId(),
                     actual.state(), null, actual.error(), actual.writeResult(), actual.reportSequence(),
                     actual.timestampMs(), actual.canonicalTaskReport());
-            assertThat(actual.stats()).isNotNull();
+            assertThat(actual.supplementalStats()).isNotNull();
             assertThat(deliverActualProgress(fixture, changed).getDirective()).isEqualTo(TaskStatusAck.Directive.STALE_REJECTED);
             var fencedAttempt = actual.reportedAttempt().toBuilder()
                     .setControlEpoch(actual.reportedAttempt().getControlEpoch() + 1).build();
             var fenced = TaskStatusReport.fromAttempt(fencedAttempt, actual.taskType(), actual.workerId(),
-                    actual.state(), actual.stats(), actual.error(), actual.writeResult(), actual.reportSequence(),
+                    actual.state(), actual.supplementalStats(), actual.error(), actual.writeResult(), actual.reportSequence(),
                     actual.timestampMs(), null);
             assertThat(deliverActualProgress(fixture, fenced).getDirective()).isEqualTo(TaskStatusAck.Directive.STALE_REJECTED);
             assertThat(deliverActualProgress(fixture, actual).getDirective()).isEqualTo(TaskStatusAck.Directive.CONTINUE);

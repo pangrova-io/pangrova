@@ -15,6 +15,7 @@ import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.protocol.v2.TaskKind;
+import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.query.lifecycle.QueryStateJournalPort;
 import org.pangrova.query.api.journal.TaskStateEvent;
@@ -144,7 +145,7 @@ public final class TaskStatusReceiver {
             boolean accepted = publishReport(expectedRequest, report, validation, ownership, durableWork);
             if (accepted) {
                 sequence.accept();
-                recordOperatorStats(expectedRequest, report);
+                recordOperatorStats(expectedRequest, report, validation.canonicalStatus().orElse(null));
             }
             return accepted;
         }
@@ -155,12 +156,10 @@ public final class TaskStatusReceiver {
         return taskTracker.supersedesResultNotice(report);
     }
 
-    private void recordOperatorStats(SubmitTaskRequest issued, TaskStatusReport report) {
+    private void recordOperatorStats(SubmitTaskRequest issued, TaskStatusReport report, TaskReport canonical) {
         var registry = operatorStats;
-        if (registry == null || issued == null || report.stats() == null) {
-            return;
-        }
-        registry.record(issued.taskRequest().getAttempt(), report);
+        if (registry == null || issued == null) return;
+        registry.record(issued.taskRequest().getAttempt(), report, canonical);
     }
 
     private boolean publishReport(SubmitTaskRequest expectedRequest, TaskStatusReport report,

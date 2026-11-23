@@ -71,11 +71,21 @@ class TaskMemoryPropagationTest {
             awaitActualTerminal(tasks, info);
             assertActualOutcome(tasks, info);
             assertThat(tasks.reports().reports()).isNotEmpty().allSatisfy(report -> {
-                assertThat(report.stats()).isNotNull();
-                assertThat(report.stats().memoryBytes()).isGreaterThanOrEqualTo(0);
-                assertThat(report.stats().peakMemoryBytes()).isGreaterThanOrEqualTo(0);
+                var canonical = report.canonicalStatus();
+                if (canonical != null && canonical.hasNativeTaskStats()) {
+                    var stats = canonical.getNativeTaskStats();
+                    assertThat(stats.getMemoryBytes()).isNotNegative();
+                    assertThat(stats.getPeakMemoryBytes()).isNotNegative();
+                } else {
+                    var stats = report.supplementalStats();
+                    assertThat(stats).isNotNull();
+                    assertThat(stats.memoryBytes()).isNotNegative();
+                    assertThat(stats.peakMemoryBytes()).isNotNegative();
+                }
             });
-            assertThat(tasks.terminalReport(info).stats().peakMemoryBytes()).isPositive();
+            var terminal = tasks.terminalReport(info).canonicalStatus();
+            assertThat(terminal.hasNativeTaskStats()).isTrue();
+            assertThat(terminal.getNativeTaskStats().getPeakMemoryBytes()).isPositive();
         }
     }
 

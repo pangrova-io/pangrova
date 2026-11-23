@@ -6,7 +6,9 @@ import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.protocol.rest.task.TaskStats;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
+import org.pangrova.protocol.v2.NativeTaskStats;
 import org.pangrova.protocol.v2.TaskAttemptId;
+import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.query.profiling.OperatorStatsSource;
 
 import java.time.Duration;
@@ -30,13 +32,19 @@ public final class QueryOperatorStatsRegistry implements OperatorStatsSource {
             .build();
 
     /** Borrows the immutable counters of an accepted Worker report. */
-    public void record(TaskAttemptId attempt, TaskStatusReport report) {
-        TaskStats stats = report.stats();
-        if (stats == null || stats.operatorStats().isEmpty()) return;
+    public void record(TaskAttemptId attempt, TaskStatusReport report, TaskReport canonical) {
+        NativeTaskStats nativeStats = canonical != null && canonical.hasNativeTaskStats()
+                ? canonical.getNativeTaskStats() : null;
+        TaskStats supplemental = report.supplementalStats();
+        if (nativeStats == null
+                ? supplemental == null || supplemental.operatorStats().isEmpty()
+                : nativeStats.getOperatorStatsCount() == 0) {
+            return;
+        }
         var attempts = byQuery.get(attempt.getQueryOrJobId(), ignored -> new QueryTelemetry()).attempts;
         long sequence = report.reportSequence();
         attempts.compute(attempt, (ignored, previous) -> previous == null || sequence > previous.sequence()
-                ? new Sample(report.workerId(), report.state(), sequence, stats) : previous);
+                ? new Sample(report.workerId(), report.state(), sequence, nativeStats, supplemental) : previous);
     }
 
     @Override
@@ -69,16 +77,32 @@ public final class QueryOperatorStatsRegistry implements OperatorStatsSource {
         private volatile QueryStageObservations observations;
     }
 
-    private record Sample(String workerId, String state, long sequence, TaskStats stats) {
+    private record Sample(String workerId, String state, long sequence, NativeTaskStats nativeStats,
+            TaskStats supplemental) {
         Attempt toAttempt(TaskAttemptId attempt) {
-            var operators = stats.operatorStats().stream()
+            if (nativeStats != null) {
+                var operators = nativeStats.getOperatorStatsList().stream()
+                        .map(op -> new Metric(op.getOperatorType(), op.getPlanNodeId(), op.getInputRows(),
+                                op.getOutputRows(), op.getInputBytes(), op.getOutputBytes(), op.getCpuNanos(),
+                                op.getWallNanos(), op.getPeakMemoryBytes(), op.getSpillBytes()))
+                        .toList();
+                return toAttempt(attempt, nativeStats.getElapsedTimeMs(), nativeStats.getCpuTimeMs(),
+                        nativeStats.getBackpressureWaitMs(), operators);
+            }
+            var operators = supplemental.operatorStats().stream()
                     .map(op -> new Metric(op.operatorType(), op.planNodeId(), op.inputRows(), op.outputRows(),
                             op.inputBytes(), op.outputBytes(), op.cpuNanos(), op.wallNanos(),
                             op.peakMemoryBytes(), op.spillBytes()))
                     .toList();
+            return toAttempt(attempt, supplemental.elapsedTimeMs(), supplemental.cpuTimeMs(),
+                    supplemental.backpressureWaitMs(), operators);
+        }
+
+        private Attempt toAttempt(TaskAttemptId attempt, long elapsedMs, long cpuMs, long backpressureMs,
+                List<Metric> operators) {
             return new Attempt(attempt.getStageId(), attempt.getPartitionId(), attempt.getPlanEpoch(),
-                    attempt.getAttemptId(), attempt.getTaskId(), workerId, state, sequence, stats.elapsedTimeMs(),
-                    stats.cpuTimeMs(), stats.backpressureWaitMs(), operators);
+                    attempt.getAttemptId(), attempt.getTaskId(), workerId, state, sequence, elapsedMs,
+                    cpuMs, backpressureMs, operators);
         }
     }
 }
