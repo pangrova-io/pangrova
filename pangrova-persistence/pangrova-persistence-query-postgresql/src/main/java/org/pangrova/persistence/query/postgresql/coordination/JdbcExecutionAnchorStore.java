@@ -20,6 +20,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 import static org.pangrova.common.util.Preconditions.requireText;
 
@@ -39,11 +40,12 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
             WITH lease_clock AS MATERIALIZED (SELECT clock_timestamp() AS sampled_at)
             INSERT INTO execution_anchor
                 (execution_id, owner_id, owner_incarnation, fencing_token, acquired_at, expires_at, version)
-            SELECT ?, ?, ?, ?, sampled_at, sampled_at + CAST(? AS interval), 1
+            SELECT ?, ?, ?, nextval('execution_anchor_token_seq'), sampled_at, sampled_at + CAST(? AS interval), 1
             FROM lease_clock
             WHERE NOT EXISTS (SELECT 1 FROM execution_read_window w
                 WHERE w.execution_id=? AND w.protected_until>clock_timestamp())
             ON CONFLICT DO NOTHING
+            RETURNING fencing_token
             """;
     private static final String REPLACE_EXPIRED =
             "UPDATE execution_anchor SET owner_id=?, owner_incarnation=?, fencing_token=?, "
@@ -163,12 +165,12 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
             Duration leaseDuration) throws SQLException {
         AnchorRow row = selectForUpdate(connection, executionId);
         if (row == null) {
-            long token = nextToken(connection);
             String interval = leaseDuration.toMillis() + " milliseconds";
-            if (insert(connection, executionId, ownerId, ownerIncarnation, token, interval)) {
+            OptionalLong token = insert(connection, executionId, ownerId, ownerIncarnation, interval);
+            if (token.isPresent()) {
                 // INSERT may wait for an invisible competing INSERT that rolls back.
                 // Our row is now exclusively owned; grant from time after that wait.
-                return Optional.of(refreshInserted(connection, executionId, token, interval));
+                return Optional.of(refreshInserted(connection, executionId, token.getAsLong(), interval));
             }
             row = selectForUpdate(connection, executionId);
         }
@@ -385,21 +387,21 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
         }
     }
 
-    private static boolean insert(
+    private static OptionalLong insert(
             Connection connection,
             String executionId,
             String ownerId,
             String ownerIncarnation,
-            long token,
             String interval) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(INSERT_ANCHOR)) {
             statement.setString(1, executionId);
             statement.setString(2, ownerId);
             statement.setString(3, ownerIncarnation);
-            statement.setLong(4, token);
-            statement.setString(5, interval);
-            statement.setString(6, executionId);
-            return statement.executeUpdate() == 1;
+            statement.setString(4, interval);
+            statement.setString(5, executionId);
+            try (ResultSet result = statement.executeQuery()) {
+                return result.next() ? OptionalLong.of(result.getLong("fencing_token")) : OptionalLong.empty();
+            }
         }
     }
 

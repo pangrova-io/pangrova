@@ -54,7 +54,7 @@ class JdbcExecutionAnchorStoreTest {
     }
 
     @Test
-    void firstAcquisitionReturnsItsPersistedLeaseWithoutStandaloneClockReads() throws Exception {
+    void firstAcquisitionReturnsItsPersistedLeaseWithoutStandaloneClockOrTokenReads() throws Exception {
         try (var postgres = new PostgreSQLContainer<>("postgres:16-alpine")
                 .withCommand("postgres", "-c", "shared_preload_libraries=pg_stat_statements")) {
             postgres.start();
@@ -66,18 +66,20 @@ class JdbcExecutionAnchorStoreTest {
             try (var connection = source.getConnection(); var statement = connection.createStatement()) {
                 statement.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public");
             }
-            long previous = standaloneClockReads(source);
+            long previousClocks = statementCalls(source, "SELECT clock_timestamp()");
+            long previousTokens = statementCalls(source, "SELECT nextval($1)");
             var countedStore = new JdbcExecutionAnchorStore(source);
             var lease = countedStore.tryAcquire("q-insert-clock", "a", "a-1", Duration.ofMillis(7_023))
                     .orElseThrow();
 
-            assertThat(standaloneClockReads(source) - previous).isZero();
+            assertThat(statementCalls(source, "SELECT clock_timestamp()") - previousClocks).isZero();
+            assertThat(statementCalls(source, "SELECT nextval($1)") - previousTokens).isZero();
             assertThat(lease.expiresAt()).isEqualTo(lease.acquiredAt().plusMillis(7_023));
             assertThat(countedStore.current("q-insert-clock")).contains(lease);
         }
     }
 
-    private static long standaloneClockReads(DataSource source) throws Exception {
+    private static long statementCalls(DataSource source, String sql) throws Exception {
         try (var connection = source.getConnection();
                 var statement = connection.prepareStatement("""
                         SELECT COALESCE(sum(calls), 0)
@@ -85,7 +87,7 @@ class JdbcExecutionAnchorStoreTest {
                         WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
                           AND query = ?
                         """)) {
-            statement.setString(1, "SELECT clock_timestamp()");
+            statement.setString(1, sql);
             try (var rows = statement.executeQuery()) {
                 assertThat(rows.next()).isTrue();
                 return rows.getLong(1);
