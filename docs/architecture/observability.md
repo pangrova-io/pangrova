@@ -496,78 +496,16 @@ span identifiers are all zeroes. At task startup, `NativeTaskExecutor.startTask`
 the trace ID captured on that executor's admitted request. It holds the handle lease
 while calling `NativeRuntime.nativeStartTaskWithTrace(executorHandle, traceId)`.
 
-### 4.4 Native-Layer Profiling
+### 4.4 Native Operator Statistics
 
-![Native Layer Profiling](../../website/static/img/diagrams/generated/observability-11-4c6501d6a1.svg)
+Velox supplies per-operator counters as part of its task statistics snapshot.
+The Worker includes those counters in canonical Native task reports. After
+validating the issued attempt and report sequence, the Coordinator retains
+the latest available counters for the exact attempt and serves them in the
+[JSON query profile](../getting-started/clients/rest-api.md#query-profile).
 
-```cpp
-// NativeProfiler.h
-#pragma once
-
-namespace pangrova {
-namespace profiling {
-
-enum class ProfileType { CPU, MEMORY, LOCK, IO };
-
-/**
- * Native-layer Profiler
- */
-class NativeProfiler {
-public:
-    static NativeProfiler& instance();
-
-    /** Start profiling for specified duration */
-    void startProfiling(ProfileType type, std::chrono::seconds duration);
-
-    /** Stop and get profile data */
-    std::string stopAndGetProfile(ProfileType type, const std::string& format);
-
-    /** Enable continuous profiling (low overhead) */
-    void enableContinuousProfiling(const std::string& pyroscopeEndpoint);
-
-    /** Profile specific query */
-    void startQueryProfiling(const std::string& queryId);
-    std::string stopQueryProfiling(const std::string& queryId);
-
-private:
-    // Integration with perf/async-profiler
-};
-
-} // namespace profiling
-} // namespace pangrova
-```
-
-```java
-// ProfilerEndpoint.java - HTTP API for profiling
-@RestController
-@RequestMapping("/api/v1/profiler")
-public class ProfilerEndpoint {
-
-    @PostMapping("/native/start")
-    public void startNativeProfiling(
-            @RequestParam ProfileType type,
-            @RequestParam(defaultValue = "30") int durationSeconds) {
-        nativeProfiler.start(type, Duration.ofSeconds(durationSeconds));
-    }
-
-    @GetMapping("/native/flamegraph")
-    public ResponseEntity<byte[]> getNativeFlameGraph(@RequestParam ProfileType type) {
-        byte[] svg = nativeProfiler.getFlameGraph(type);
-        return ResponseEntity.ok()
-            .contentType(MediaType.valueOf("image/svg+xml"))
-            .body(svg);
-    }
-
-    @GetMapping("/query/{queryId}/profile")
-    public QueryProfile getQueryProfile(@PathVariable String queryId) {
-        // Return combined Java + Native profile for specific query
-        return QueryProfile.builder()
-            .javaProfile(javaProfiler.getProfile(queryId))
-            .nativeProfile(nativeProfiler.getProfile(queryId))
-            .build();
-    }
-}
-```
+The Coordinator currently configures `UnavailableProfiler` for SVG flame
+graphs. The SVG endpoint responds with HTTP 501 and `UNSUPPORTED_CAPABILITY`.
 
 ### 4.5 Query Resource Audit
 

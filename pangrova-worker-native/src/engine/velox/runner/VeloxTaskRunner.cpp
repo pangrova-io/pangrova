@@ -13,7 +13,6 @@
 #include "jni/RuntimeInitializer.h"
 #include "indexing/index/IndexHintFilter.h"
 #include "engine/observability/PangrovaLog.h"
-#include "engine/observability/NativeProfiler.h"
 #include "engine/observability/NativeMetricsCollector.h"
 #include "engine/shuffle/SerializedShuffleQueue.h"
 #include "engine/shuffle/ShuffleBatchSerializer.h"
@@ -917,11 +916,6 @@ void VeloxTaskRunner::start() {
   for (const auto& leaf : splitLeafNodes) {
     velox_task_->noMoreSplits(leaf.nodeId);
   }
-
-  // Register with NativeProfiler for operator-level profiling.
-  observability::NativeProfiler::instance().registerTask(
-      config_.task_id, velox_task_);
-
 }
 
 void VeloxTaskRunner::cancel() {
@@ -1243,7 +1237,6 @@ void VeloxTaskRunner::revokeResultOutput() {
 
 void VeloxTaskRunner::cleanup() {
   std::call_once(cleanup_once_, [this] {
-    observability::NativeProfiler::instance().unregisterTask(config_.task_id);
     PendingFilterRegistry::instance().remove(config_.task_id);
     // Successful producer completion is not consumption or result revocation.
     if (cancelled_.load() || !errorMessage().empty()) revokeResultOutput();
