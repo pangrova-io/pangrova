@@ -1,6 +1,6 @@
 LogicalProject(o_year=[$0], mkt_share=[/($1, $2)])
   LogicalSort(sort0=[$0], dir0=[ASC])
-    LogicalAggregate(group=[{0}], agg#0=[$SUM0($1)], agg#1=[$SUM0($2)])
+    LogicalAggregate(group=[{0}], agg#0=[SUM($1)], agg#1=[SUM($2)])
       LogicalProject(o_year=[EXTRACT(FLAG(YEAR), $11)], $f1=[CASE(=($17, 'BRAZIL'), *($7, -(1, $8)), 0.0000:DECIMAL(31, 4))], volume=[*($7, -(1, $8))])
         LogicalJoin(condition=[=($15, $18)], joinType=[inner])
           LogicalJoin(condition=[=($3, $16)], joinType=[inner])
