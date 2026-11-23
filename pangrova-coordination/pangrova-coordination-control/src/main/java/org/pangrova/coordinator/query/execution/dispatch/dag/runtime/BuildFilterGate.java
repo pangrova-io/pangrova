@@ -10,15 +10,28 @@ import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.planner.analysis.StageRuntimeFilter;
 import org.pangrova.query.api.stage.StageCompletionCallback.BuildKeyRange;
+import org.pangrova.query.profiling.OperatorStatsSource.RuntimeFilterOutcome;
 
 /** Bounds the delay before the single eligible probe root enumerates its pinned splits. */
 public final class BuildFilterGate {
     private static final long MAX_WAIT_MS = 200;
 
+    private static final ProbeRelease EMPTY = new ProbeRelease(RuntimeFilterOutcome.EMPTY_BUILD, List.of());
+    private static final ProbeRelease MISSING = new ProbeRelease(RuntimeFilterOutcome.MISSING_SUMMARY, null);
+    private static final ProbeRelease TIMEOUT = new ProbeRelease(RuntimeFilterOutcome.TIMED_OUT, null);
+    private static final ProbeRelease TERMINATED = new ProbeRelease(RuntimeFilterOutcome.QUERY_TERMINATED, null);
+
     private final StageRuntimeFilter plan;
-    private final CompletableFuture<List<BuildKeyRange>> completedBuild = new CompletableFuture<>();
-    private volatile boolean probeReleased;
-    private List<BuildKeyRange> releasedRanges;
+    private final CompletableFuture<ProbeRelease> completedBuild = new CompletableFuture<>();
+    private volatile ProbeRelease releasedProbe;
+
+    public record ProbeRelease(RuntimeFilterOutcome outcome, List<BuildKeyRange> ranges) {
+        public ProbeRelease {
+            ranges = ranges == null ? null : List.copyOf(ranges);
+        }
+
+        public int rangeCount() { return ranges == null ? 0 : ranges.size(); }
+    }
 
     private BuildFilterGate(StageRuntimeFilter plan) {
         this.plan = plan;
@@ -43,7 +56,7 @@ public final class BuildFilterGate {
 
     public boolean isProbe(int stageId) { return stageId == plan.probeStageId(); }
 
-    public boolean blocks(int stageId) { return isProbe(stageId) && !probeReleased; }
+    public boolean blocks(int stageId) { return isProbe(stageId) && releasedProbe == null; }
 
     public OptionalInt buildOrdinal(int stageId) {
         return stageId == plan.buildStageId() ? OptionalInt.of(plan.buildKeyOrdinal()) : OptionalInt.empty();
@@ -52,27 +65,33 @@ public final class BuildFilterGate {
     /** Called after the winning cohort has finished and any external publication is fenced. */
     public void onFinished(Stage stage) {
         if (stage.stageId() == plan.buildStageId() && stage.exchangeReadyForConsumers()) {
-            completedBuild.complete(stage.completeBuildKeyRanges());
+            var ranges = stage.completeBuildKeyRanges();
+            completedBuild.complete(ranges == null ? MISSING
+                    : ranges.isEmpty() ? EMPTY : new ProbeRelease(RuntimeFilterOutcome.APPLIED, ranges));
         }
     }
 
     /** Releases exactly one scan decision. A late result cannot affect an issued probe. */
-    public void releaseProbe(CompletableFuture<?> queryCompletion) {
-        queryCompletion.whenComplete((result, failure) -> completedBuild.complete(null));
+    public ProbeRelease releaseProbe(CompletableFuture<?> queryCompletion) {
+        queryCompletion.whenComplete((result, failure) -> completedBuild.complete(TERMINATED));
+        ProbeRelease decision;
         try {
-            releasedRanges = completedBuild.get(MAX_WAIT_MS, TimeUnit.MILLISECONDS);
+            decision = completedBuild.get(MAX_WAIT_MS, TimeUnit.MILLISECONDS);
         } catch (TimeoutException timeout) {
-            completedBuild.complete(null);
+            completedBuild.complete(TIMEOUT);
+            decision = TIMEOUT;
         } catch (InterruptedException interruption) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("Interrupted while awaiting the runtime-filter build", interruption);
         } catch (ExecutionException failure) {
             throw new IllegalStateException("Runtime-filter build observation failed", failure.getCause());
         }
-        probeReleased = true;
+        releasedProbe = decision;
+        return decision;
     }
 
     public List<BuildKeyRange> probeRanges(int stageId) {
-        return probeReleased && isProbe(stageId) ? releasedRanges : null;
+        var released = releasedProbe;
+        return released != null && isProbe(stageId) ? released.ranges() : null;
     }
 }

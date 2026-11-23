@@ -15,7 +15,7 @@ public interface OperatorStatsSource {
 
     record ExecutionGraph(List<Stage> stages, List<Exchange> exchanges, List<StageTransition> transitions,
             List<SelectedAttempt> selectedAttempts, List<DownstreamPreparation> downstreamPreparations,
-            List<StageDispatchWork> stageDispatchWork) {
+            List<StageDispatchWork> stageDispatchWork, RuntimeFilterWait runtimeFilterWait) {
         public ExecutionGraph {
             stages = List.copyOf(stages);
             exchanges = List.copyOf(exchanges);
@@ -53,6 +53,14 @@ public interface OperatorStatsSource {
     /** A completed interval measured on the graph's Coordinator, with an item count where applicable. */
     record StageDispatchWork(int stageId, int generation, DispatchPhase phase, long startedNanos,
             long finishedNanos, Integer itemCount, boolean successful) {}
+
+    /** Outcome of the sole cross-stage build gate used before enumerating this probe. */
+    record RuntimeFilterWait(int buildStageId, int probeStageId, int probeGeneration,
+            long startedNanos, long finishedNanos, RuntimeFilterOutcome outcome, int rangeCount) {}
+
+    enum RuntimeFilterOutcome {
+        APPLIED, EMPTY_BUILD, MISSING_SUMMARY, TIMED_OUT, QUERY_TERMINATED
+    }
 
     /** Coordinates and counters from the latest retained report for one exact attempt. */
     record Attempt(

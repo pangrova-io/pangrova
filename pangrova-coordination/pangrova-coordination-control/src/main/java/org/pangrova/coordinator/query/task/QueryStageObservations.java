@@ -11,6 +11,8 @@ import org.pangrova.query.profiling.OperatorStatsSource.DownstreamPreparation;
 import org.pangrova.query.profiling.OperatorStatsSource.Exchange;
 import org.pangrova.query.profiling.OperatorStatsSource.ExecutionGraph;
 import org.pangrova.query.profiling.OperatorStatsSource.PreparationOutcome;
+import org.pangrova.query.profiling.OperatorStatsSource.RuntimeFilterOutcome;
+import org.pangrova.query.profiling.OperatorStatsSource.RuntimeFilterWait;
 import org.pangrova.query.profiling.OperatorStatsSource.SelectedAttempt;
 import org.pangrova.query.profiling.OperatorStatsSource.Stage;
 import org.pangrova.query.profiling.OperatorStatsSource.StageDispatchWork;
@@ -25,6 +27,7 @@ public final class QueryStageObservations {
     private final ConcurrentLinkedQueue<SelectedAttempt> selectedAttempts = new ConcurrentLinkedQueue<>();
     private final ConcurrentLinkedQueue<Preparation> preparations = new ConcurrentLinkedQueue<>();
     private final ConcurrentLinkedQueue<StageDispatchWork> stageDispatchWork = new ConcurrentLinkedQueue<>();
+    private volatile RuntimeFilterWait runtimeFilterWait;
 
     QueryStageObservations(StageDAG dag) {
         stages = dag.stages().stream().map(stage -> new Stage(stage.stageId(), stage.taskType(), stage.parallelism()))
@@ -63,6 +66,13 @@ public final class QueryStageObservations {
                 elapsedNanos(), itemCount, successful));
     }
 
+    /** Records the actual decision before the held probe enumerates files. */
+    public void recordRuntimeFilterWait(int buildStageId, int probeStageId, int probeGeneration,
+            long startedNanos, RuntimeFilterOutcome outcome, int rangeCount) {
+        runtimeFilterWait = new RuntimeFilterWait(buildStageId, probeStageId, probeGeneration,
+                startedNanos, elapsedNanos(), outcome, rangeCount);
+    }
+
     /** One scheduler-owned operation, with a consistent snapshot at each transition. */
     public final class Preparation {
         private volatile DownstreamPreparation latest;
@@ -90,6 +100,7 @@ public final class QueryStageObservations {
                 .sorted(Comparator.comparingLong(DownstreamPreparation::submittedNanos)).toList();
         var dispatch = stageDispatchWork.stream().sorted(Comparator.comparingLong(StageDispatchWork::startedNanos))
                 .toList();
-        return new ExecutionGraph(stages, exchanges, timeline, selected, preparation, dispatch);
+        return new ExecutionGraph(stages, exchanges, timeline, selected, preparation, dispatch,
+                runtimeFilterWait);
     }
 }

@@ -15,6 +15,8 @@ import org.pangrova.protocol.v2.ExecutionDrainState;
 import org.pangrova.protocol.v2.OperatorStats;
 import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.v2.WorkerExecutionIdentity;
+import org.pangrova.query.profiling.OperatorStatsSource.RuntimeFilterOutcome;
+import org.pangrova.query.profiling.OperatorStatsSource.RuntimeFilterWait;
 import org.pangrova.scheduler.api.enums.HealthState;
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
@@ -332,6 +334,9 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
         var empty = executeWithDrainedReports(projected + " JOIN " + allNull + " b ON " + condition);
         assertThat(empty.rows()).isEmpty();
         assertThat(empty.sourceSplits(probe)).isZero();
+        assertThat(empty.runtimeFilterWait()).isNotNull();
+        assertThat(empty.runtimeFilterWait().outcome()).isEqualTo(RuntimeFilterOutcome.EMPTY_BUILD);
+        assertThat(empty.runtimeFilterWait().rangeCount()).isZero();
         assertThat(empty.buildSummaries()).singleElement().satisfies(summary ->
                 assertThat(summary.getRangesList()).isEmpty());
     }
@@ -366,6 +371,20 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
                 .containsExactly(102L, 102L, 103L, 135L, 136L);
         assertThat(unpruned.rows()).usingRecursiveComparison().isEqualTo(pruned.rows());
         assertThat(unpruned.buildSummaries()).isEmpty();
+        assertThat(unpruned.runtimeFilterWait()).isNull();
+        var wait = pruned.runtimeFilterWait();
+        assertThat(wait).isNotNull();
+        assertThat(wait.outcome()).isEqualTo(RuntimeFilterOutcome.APPLIED);
+        assertThat(wait.rangeCount()).isEqualTo(2);
+        assertThat(wait.buildStageId()).isNotEqualTo(wait.probeStageId());
+        assertThat(wait.finishedNanos()).isGreaterThanOrEqualTo(wait.startedNanos());
+        long waitNanos = wait.finishedNanos() - wait.startedNanos();
+        metrics.publishEntry("runtime_filter_wait_ns", Long.toString(waitNanos));
+        org.slf4j.LoggerFactory.getLogger(PhysicalTwoWorkerShuffleE2ETest.class).info(
+                "event=runtime_filter_wait_evidence oneBuildTask={} waitNanos={} fullSplits={} filteredSplits={} "
+                        + "fullBytes={} filteredBytes={}", oneBuildTask, waitNanos,
+                unpruned.sourceSplits(probe), pruned.sourceSplits(probe),
+                unpruned.sourceReadBytes(probe), pruned.sourceReadBytes(probe));
         var lower = buildKeyRange(2, 3);
         var upper = buildKeyRange(35, 36);
         if (oneBuildTask) {
@@ -413,15 +432,20 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
                     .ignoreExceptionsInstanceOf(IllegalStateException.class).untilAsserted(() -> {
                         taskTracker.requireQueryExecutionDrained(queryId);
                         assertThat(queryManager.getStateMachines().get(queryId).physicalCleanupApplied()).isTrue();
+                        assertThat(queryProfileService().getProfile(queryId, E2E_USER_PRINCIPAL)).isPresent();
                     });
+            var graph = queryProfileService().getProfile(queryId, E2E_USER_PRINCIPAL).orElseThrow()
+                    .executionGraph();
             return new DrainedQuery(rows, capture.get().values().stream()
-                    .filter(report -> report.getAttempt().getQueryOrJobId().equals(queryId)).toList());
+                    .filter(report -> report.getAttempt().getQueryOrJobId().equals(queryId)).toList(),
+                    graph.runtimeFilterWait());
         } finally {
             capture.set(null);
         }
     }
 
-    private record DrainedQuery(List<TypedRow> rows, List<TaskReport> reports) {
+    private record DrainedQuery(List<TypedRow> rows, List<TaskReport> reports,
+            RuntimeFilterWait runtimeFilterWait) {
         List<BuildKeySummary> buildSummaries() {
             return reports.stream().map(TaskReport::getNativeTaskStats)
                     .filter(org.pangrova.protocol.v2.NativeTaskStats::hasBuildKeys)

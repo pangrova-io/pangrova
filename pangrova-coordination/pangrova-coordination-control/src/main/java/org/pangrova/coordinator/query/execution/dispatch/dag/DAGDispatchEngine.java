@@ -287,9 +287,16 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
                     "DAG has no root stages for query " + state.queryId());
         }
         roots.forEach(stage -> scheduleStage(stage, state, observations));
-        if (state.buildFilter() != null) {
-            state.buildFilter().releaseProbe(state.completion());
-            scheduleStage(state.dag().findStage(state.buildFilter().plan().probeStageId()), state, observations);
+        var gate = state.buildFilter();
+        if (gate != null) {
+            var probe = state.dag().findStage(gate.plan().probeStageId());
+            long waitStarted = observations == null ? 0L : observations.elapsedNanos();
+            var release = gate.releaseProbe(state.completion());
+            if (observations != null) {
+                observations.recordRuntimeFilterWait(gate.plan().buildStageId(), probe.stageId(),
+                        probe.currentGeneration(), waitStarted, release.outcome(), release.rangeCount());
+            }
+            scheduleStage(probe, state, observations);
         }
     }
 
