@@ -134,6 +134,37 @@ TEST_F(VeloxPlanConverterTest, TableScanProducesTableScanNode) {
   expectLogicalOutputField(converter, output_type, 2, "status");
 }
 
+TEST_F(VeloxPlanConverterTest, DistinctReadEmitNarrowsTheAssignedScanAndKeepsBaseSchema) {
+  substrait::Rel rel;
+  auto* read = rel.mutable_read();
+  auto* names = read->mutable_named_table();
+  names->add_names("catalog");
+  names->add_names("schema");
+  names->add_names("orders");
+  auto* schema = read->mutable_base_schema();
+  addI64Column(schema, "order_id");
+  addI64Column(schema, "customer_id");
+  addStringColumn(schema, "status");
+  auto* emit = read->mutable_common()->mutable_emit();
+  emit->add_output_mapping(2);
+  emit->add_output_mapping(0);
+
+  VeloxPlanConverter converter(facebook::velox::exec::FunctionRegistrySnapshot::capture());
+  auto result = converter.convert(serializePlan(rel, {"state", "id"}), {});
+  auto scan = std::dynamic_pointer_cast<const facebook::velox::core::TableScanNode>(result);
+  ASSERT_NE(scan, nullptr);
+  auto output = scan->outputType();
+  ASSERT_EQ(output->size(), 2);
+  EXPECT_EQ(scan->assignments().at(output->nameOf(0))->name(), "status");
+  EXPECT_EQ(scan->assignments().at(output->nameOf(1))->name(), "order_id");
+  expectLogicalOutputField(converter, output, 0, "state");
+  expectLogicalOutputField(converter, output, 1, "id");
+  auto handle = std::dynamic_pointer_cast<const PangrovaTableHandle>(scan->tableHandle());
+  ASSERT_NE(handle, nullptr);
+  EXPECT_EQ(handle->scanSchema()->names(),
+      (std::vector<std::string>{"order_id", "customer_id", "status"}));
+}
+
 // ---------------------------------------------------------------------------
 // Test: Filter (FilterRel → TableScan)
 // ---------------------------------------------------------------------------

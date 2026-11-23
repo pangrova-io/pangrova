@@ -39,6 +39,7 @@ import org.apache.calcite.rel.logical.LogicalFilter;
 import org.apache.calcite.rel.logical.LogicalJoin;
 import org.apache.calcite.rel.logical.LogicalProject;
 import org.apache.calcite.rel.logical.LogicalTableFunctionScan;
+import org.apache.calcite.rel.logical.LogicalTableScan;
 import org.apache.calcite.rex.RexCall;
 import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.rex.RexInputRef;
@@ -231,6 +232,9 @@ final class PlanFragmenter {
 
         /** Aggregates, windows and global ordering require a semantically complete input distribution. */
         private RelNode enforceGlobalOperators(RelNode node, boolean root) {
+            if (liveRead) {
+                node = projectBeforeSort(node);
+            }
             if (!node.getInputs().isEmpty()) {
                 List<RelNode> inputs = new ArrayList<>(node.getInputs().size());
                 boolean changed = false;
@@ -293,6 +297,32 @@ final class PlanFragmenter {
                 }
             }
             return node;
+        }
+
+        private static RelNode projectBeforeSort(RelNode node) {
+            // Calcite can place a narrow projection above Sort. Move its field
+            // selection below the sort before enforcing the gather distribution.
+            if (!(node instanceof LogicalProject project) || !(project.getInput() instanceof Sort sort)
+                    || !(sort.getInput() instanceof LogicalTableScan scan)
+                    || project.getProjects().isEmpty()
+                    || !project.getProjects().stream().allMatch(RexInputRef.class::isInstance)) {
+                return node;
+            }
+            var fields = project.getProjects().stream().map(RexInputRef.class::cast)
+                    .map(RexInputRef::getIndex).toList();
+            if (fields.size() >= scan.getRowType().getFieldCount()
+                    || new java.util.HashSet<>(fields).size() != fields.size()) {
+                return node;
+            }
+            var ordering = sort.getCollation().getFieldCollations();
+            if (ordering.stream().anyMatch(key -> !fields.contains(key.getFieldIndex()))) {
+                return node;
+            }
+            var remapped = RelCollations.of(ordering.stream()
+                    .map(key -> key.withFieldIndex(fields.indexOf(key.getFieldIndex()))).toList());
+            var projection = project.copy(scan.getTraitSet().replace(RelCollations.EMPTY),
+                    scan, project.getProjects(), project.getRowType());
+            return sort.copy(sort.getTraitSet().replace(remapped), projection, remapped, sort.offset, sort.fetch);
         }
 
         private static boolean canReduceBeforeExchange(LogicalAggregate aggregate, int producers) {

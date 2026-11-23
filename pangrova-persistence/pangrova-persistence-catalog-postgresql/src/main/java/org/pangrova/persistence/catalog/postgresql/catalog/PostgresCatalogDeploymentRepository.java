@@ -78,6 +78,14 @@ public final class PostgresCatalogDeploymentRepository extends PostgresCatalogPe
     }
 
     @Override
+    public Optional<CatalogDeploymentIdentity> findCurrentDeployment(String name) {
+        String sql = "SELECT name, incarnation_id, revision FROM catalog_definitions WHERE name=?";
+        return executeQuery(sql, ps -> ps.setString(1, name), rs -> rs.next()
+                ? Optional.of(new CatalogDeploymentIdentity(rs.getString(1), rs.getString(2), rs.getLong(3)))
+                : Optional.empty());
+    }
+
+    @Override
     public Optional<CatalogDescriptor> findCatalogDescriptorRevision(
             String name, String incarnationId, long revision) {
         if (name == null || name.isBlank() || incarnationId == null

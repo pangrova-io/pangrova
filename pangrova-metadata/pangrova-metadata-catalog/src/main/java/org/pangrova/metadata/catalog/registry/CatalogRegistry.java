@@ -512,7 +512,7 @@ public class CatalogRegistry implements CatalogReadAccess {
                 throw new CatalogSuspendedException("Catalog '" + name + "' is suspended");
             }
             CatalogDescriptor local = handle.getDescriptor();
-            CatalogDescriptor current = store.getCatalogDescriptor(name)
+            var current = store.findCurrentDeployment(name)
                     .orElseThrow(() -> new CatalogNotFoundException("Catalog '" + name + "' was removed"));
             if (!current.incarnationId().equals(local.incarnationId())
                     || current.revision() != local.revision()) {

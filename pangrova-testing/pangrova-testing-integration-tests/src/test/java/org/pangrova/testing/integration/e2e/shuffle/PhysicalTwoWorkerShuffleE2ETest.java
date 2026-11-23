@@ -249,12 +249,16 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
         String catalogTemplate = "SELECT name, type, provider, state, properties, comment, allowed_tenants,"
                 + "%FROM catalog_definitions WHERE name=$1";
         String roleTemplate = "SELECT registered.role_name FROM pangrova_roles registered%";
+        String identityTemplate = "SELECT name, incarnation_id, revision FROM catalog_definitions WHERE name=$1";
+        long identityBefore = statementCalls(identityTemplate);
         long catalogBefore = statementCalls(catalogTemplate);
         long rolesBefore = statementCalls(roleTemplate);
         String sql = decimalStateSql(decimalOrders);
         var result = executeWithScanAggregates(sql, "PartialAggregation");
         assertThat(statementCalls(catalogTemplate) - catalogBefore)
-                .as("catalog deployment reads for one physical query").isLessThanOrEqualTo(7);
+                .as("full catalog descriptor reads for one physical query").isZero();
+        assertThat(statementCalls(identityTemplate) - identityBefore)
+                .as("narrow catalog deployment reads for one physical query").isPositive().isLessThanOrEqualTo(7);
         assertThat(statementCalls(roleTemplate) - rolesBefore)
                 .as("one effective-role lookup during protected query planning").isOne();
         assertThat(result.scannedRows()).isEqualTo(800);
@@ -551,6 +555,31 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
         assertThat(filteredBytes).isPositive().isLessThan(fullBytes);
     }
 
+    @Test
+    void directProjectionReadsOnlyRequestedColumnsInBothPhysicalWorkers(TestReporter metrics) {
+        var narrow = executeWithDrainedReports("SELECT id FROM " + orders + " ORDER BY id");
+        var wide = executeWithDrainedReports("SELECT id, score FROM " + orders + " ORDER BY id");
+
+        assertThat(narrow.rows()).extracting(row -> row.getLong("id"))
+                .containsExactlyElementsOf(wide.rows().stream().map(row -> row.getLong("id")).toList());
+        assertThat(narrow.rows()).hasSize(80);
+        assertThat(narrow.sourceSplits(orders)).isEqualTo(wide.sourceSplits(orders)).isEqualTo(8);
+        var workers = narrow.reports().stream().filter(report -> report.getCoverage().getSourceSnapshotsList()
+                .stream().anyMatch(coverage -> coverage.getSourceId().equals(orders))).toList();
+        assertThat(workers).extracting(report -> report.getAttempt().getWorkerExecutionIdentity())
+                .contains(workerManager.getWorker(WORKER_ID).workerExecutionIdentity().toProto(),
+                        workerManager.getWorker(SECOND_WORKER_ID).workerExecutionIdentity().toProto());
+        assertThat(narrow.scanOutputBytes()).isPositive().isLessThan(wide.scanOutputBytes());
+        var first = executeWithDrainedReports("SELECT id FROM " + orders + " ORDER BY id DESC LIMIT 5");
+        assertThat(first.rows()).extracting(row -> row.getLong("id")).containsExactly(79L, 78L, 77L, 76L, 75L);
+        var offset = executeWithDrainedReports("SELECT id FROM " + orders + " ORDER BY id DESC LIMIT 5 OFFSET 3");
+        assertThat(offset.rows()).extracting(row -> row.getLong("id")).containsExactly(76L, 75L, 74L, 73L, 72L);
+        metrics.publishEntry(Map.of("narrow_scan_output_bytes", Long.toString(narrow.scanOutputBytes()),
+                "wide_scan_output_bytes", Long.toString(wide.scanOutputBytes()),
+                "narrow_file_read_bytes", Long.toString(narrow.sourceReadBytes(orders)),
+                "wide_file_read_bytes", Long.toString(wide.sourceReadBytes(orders))));
+    }
+
     private static BuildKeyRange buildKeyRange(long minimum, long maximum) {
         return BuildKeyRange.newBuilder().setMinimum(minimum).setMaximum(maximum).build();
     }
@@ -598,6 +627,12 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
             return reports.stream().flatMap(report -> report.getCoverage().getSourceSnapshotsList().stream())
                     .filter(coverage -> coverage.getSourceId().equals(source))
                     .mapToLong(org.pangrova.protocol.v2.SourceSnapshotReport::getCompletedWorkUnits).sum();
+        }
+
+        long scanOutputBytes() {
+            return reports.stream().flatMap(report -> report.getNativeTaskStats().getOperatorStatsList().stream())
+                    .filter(stat -> stat.getOperatorType().equals("TableScan"))
+                    .mapToLong(OperatorStats::getOutputBytes).sum();
         }
 
         long sourceReadBytes(String source) {

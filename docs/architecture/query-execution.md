@@ -119,6 +119,18 @@ Native task admission retains typed Bloom index hints and Paimon deletion-vector
 references for the in-process scanner. The Lance read unit stays encoded for its
 Rust FFI call.
 
+A direct projection of distinct table columns uses the standard Substrait
+ReadRel output mapping. The Native scan assigns the selected columns and
+keeps the canonical table schema for connector binding and schema evolution.
+When the projected columns include every sort key, fragmentation moves the
+projection before the sort and its gather. Sort direction, null ordering,
+offset and limit retain their original semantics. The SQL authorization check
+still covers the logical relation. [Trino projection pushdown](https://trino.io/docs/current/optimizer/pushdown.html#projection-pushdown) · [Velox table scan assignments](https://facebookincubator.github.io/velox/develop/operators.html#tablescannode)
+
+A current catalog check reads the catalog name, incarnation and revision. The
+initial catalog load owns the deployment payload. The compact check keeps the
+revision fence at each existing ownership boundary.
+
 Managed cluster control clients use HTTP/1.1 to match their Jetty listeners.
 This covers task submission, Worker reports, heartbeats and registration.
 The private COPY client uses HTTP/1.1 with mutual TLS.

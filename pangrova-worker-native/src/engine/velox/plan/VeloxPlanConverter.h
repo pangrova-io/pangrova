@@ -256,6 +256,13 @@ class VeloxPlanConverter {
       const substrait::ReadRel& read_rel,
       const std::vector<split::SplitConfig>& splits);
 
+  std::shared_ptr<const facebook::velox::core::PlanNode> namedTableScan(
+      const substrait::ReadRel& read,
+      const facebook::velox::RowTypePtr& base_type,
+      const facebook::velox::RowTypePtr& scan_type,
+      const facebook::velox::RowTypePtr& physical_type,
+      facebook::velox::core::TypedExprPtr filter);
+
   // Convert a Substrait VirtualTable (inline literal data) to a Velox ValuesNode.
   std::shared_ptr<const facebook::velox::core::PlanNode> convertVirtualTable(
       const substrait::ReadRel& read_rel,

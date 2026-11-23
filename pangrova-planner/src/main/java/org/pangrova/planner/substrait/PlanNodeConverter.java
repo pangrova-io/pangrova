@@ -170,7 +170,16 @@ public final class PlanNodeConverter {
 
     private Rel visitProject(LogicalProject project) {
         Rel input = visit(project.getInput());
-        List<Expression> expressions = project.getProjects().stream()
+        var fields = project.getProjects();
+        if (input instanceof ImmutableNamedScan scan && scan.getRemap().isEmpty()
+                && !fields.isEmpty() && fields.size() < scan.getRecordType().fields().size()
+                && fields.stream().allMatch(RexInputRef.class::isInstance)) {
+            var ordinals = fields.stream().map(RexInputRef.class::cast).map(RexInputRef::getIndex).toList();
+            if (new java.util.HashSet<>(ordinals).size() == ordinals.size()) {
+                return scan.withRemap(Rel.Remap.of(ordinals));
+            }
+        }
+        List<Expression> expressions = fields.stream()
                 .map(rexConverter::convert)
                 .toList();
         // Substrait Project appends expressions to every input field by
