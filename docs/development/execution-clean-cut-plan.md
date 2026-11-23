@@ -91,6 +91,8 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
+Native Shuffle 的标准单页 Flight 响应直接持有已经接收并对齐的 Arrow 数据缓冲区，去除入 Velox 队列前的一次整页复制。真实用例将 1,048,833 B 页克隆后销毁最初的 Arrow 持有者与 Velox 页，克隆仍读取同一地址和内容，最后一个引用释放后缓冲区随之归还。保留逐页队列计量和跨多个值时的独立缓冲区。macOS 和 Linux arm64 各通过 4,367 项 Release Native 测试，零失败、零跳过。同源 macOS 角色包 42 项和 Linux 9 项独立进程通过，包含双 Worker、远端 Shuffle、取消、实际资源归还和三种连接器写入恢复。macOS 角色清单 SHA-256 为 `1a84debf13baaae5aff306ec0c124b39f3cadc542ab0026384d738ec5092f6ec`。
+
 同一 Worker 的并发 Native Shuffle 流共享当前 TLS 配置下的 Flight 客户端。真实双流对照中，服务端收到两个独立请求，TCP 连接从两条降到一条，队列维持原有背压。取消第一条流后，第二条读完其结果并到达 EOF。两项各重复 20 次通过。弱引用归还最后一条流持有的连接，热点端点的额外通道保留并发流容量。Linux arm64 和 macOS arm64 各通过 4,366 项 Release Native 测试。相同代理干扰下，macOS 同源角色包 42 项与 Linux 9 项独立进程回归通过。macOS 角色清单的 SHA-256 为 `b37d1d5778dc8968520ae5df1d875efb236caec9493e9c91eae5b50c9585b332`。大规模跨主机负载仍需按连接数、并发流、背压和尾时延校准。 [Arrow Flight 客户端复用](https://arrow.apache.org/docs/cpp/flight.html#re-use-clients-whenever-possible) · [gRPC 并发流](https://grpc.io/docs/guides/performance/)
 
 前台读在同一 PostgreSQL 语句观测表登记、目录版本和稳定表 ID 所属的治理绑定。策略继续按当前本地目录和同一表身份应用。每秒 25 次的两版各有 50 笔真实点查完成，独立治理绑定 SELECT 从 50 次降到 0 次，候选执行 50 次联合读取，实际结果和资源归还逐笔核对。真实 Iceberg 查询按 PII 标签遮蔽邮件地址，Paimon 用例覆盖重命名、移除标签和再次创建同名表。49 项 PostgreSQL 与 76 项打包端到端回归通过，含列掩码、行过滤、子查询、双 Worker 执行及写入。运行包清单 SHA-256 为 `9471fdb45e2d3d5bb85fa3952ca9246e6471e717567cd261c052e664ceb3a7c9`。
