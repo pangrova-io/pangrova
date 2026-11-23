@@ -42,6 +42,12 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
             "SELECT name, incarnation_id, revision FROM catalog_definitions WHERE name%";
     private static final String ICEBERG_POINTER_LOOKUP =
             "SELECT * FROM iceberg_tables WHERE catalog_name = %AND table_name =%";
+    private static final String READ_SUBJECT_LOOKUP =
+            "WITH effective AS (%SELECT registered.role_name%LEFT JOIN security_grants grants%";
+    private static final String INDEPENDENT_ROLE_LOOKUP =
+            "SELECT registered.role_name FROM pangrova_roles registered%";
+    private static final String INDEPENDENT_GRANT_LOOKUP =
+            "SELECT grant_id, role_name, privilege,%FROM security_grants WHERE role_name = ANY%";
 
     @Override
     protected List<ConnectorTestConfig> connectorConfigs() {
@@ -102,12 +108,18 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
         long previousAdmissionLookups = calls(READ_ADMISSION_LOOKUP);
         long previousRegistrationLookups = calls(TABLE_REGISTRATION_LOOKUP);
         long previousDeploymentLookups = calls(CATALOG_DEPLOYMENT_LOOKUP);
+        long previousSubjectLookups = calls(READ_SUBJECT_LOOKUP);
+        long previousRoleLookups = calls(INDEPENDENT_ROLE_LOOKUP);
+        long previousGrantLookups = calls(INDEPENDENT_GRANT_LOOKUP);
         assertThat(sqlRunner.execute("SELECT id FROM " + table + " WHERE id = 42"))
                 .extracting(row -> row.getLong("id")).containsExactly(42L);
 
         assertThat(calls(READ_ADMISSION_LOOKUP) - previousAdmissionLookups).isOne();
         assertThat(calls(TABLE_REGISTRATION_LOOKUP) - previousRegistrationLookups).isZero();
         assertThat(calls(CATALOG_DEPLOYMENT_LOOKUP) - previousDeploymentLookups).isZero();
+        assertThat(calls(READ_SUBJECT_LOOKUP) - previousSubjectLookups).isOne();
+        assertThat(calls(INDEPENDENT_ROLE_LOOKUP) - previousRoleLookups).isZero();
+        assertThat(calls(INDEPENDENT_GRANT_LOOKUP) - previousGrantLookups).isZero();
     }
 
     @Test

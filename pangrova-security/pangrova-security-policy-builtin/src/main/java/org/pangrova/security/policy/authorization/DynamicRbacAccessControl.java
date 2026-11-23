@@ -2,6 +2,7 @@ package org.pangrova.security.policy.authorization;
 
 import org.pangrova.security.api.exception.AuthorizationDeniedException;
 import org.pangrova.security.api.authorization.AccessControl;
+import org.pangrova.security.api.authorization.ReadAuthorizationSubjectSource;
 import org.pangrova.security.api.authorization.TableReadPolicySource;
 import org.pangrova.security.api.authorization.TableReadPolicySource.PolicyRead;
 import org.pangrova.security.api.identity.UserIdentity;
@@ -36,6 +37,7 @@ public final class DynamicRbacAccessControl implements AccessControl {
     private final GrantStore grantStore;
     private final RoleStore roleStore;
     private final TableReadPolicySource policySource;
+    private final ReadAuthorizationSubjectSource readSubjects;
 
     /** Creates the sole RBAC path with a mandatory role authority. */
     public DynamicRbacAccessControl(GrantStore grantStore, RoleStore roleStore,
@@ -46,17 +48,32 @@ public final class DynamicRbacAccessControl implements AccessControl {
 
     /** Binds foreground policies to the supplied table authority. */
     public DynamicRbacAccessControl(GrantStore grantStore, RoleStore roleStore, TableReadPolicySource policySource) {
+        this(grantStore, roleStore, policySource, (principal, groups) -> {
+            var roles = roleStore.effectiveRoles(principal, groups);
+            return new ReadAuthorizationSubjectSource.Subject(
+                    roles, roles.isEmpty() ? List.of() : grantStore.listGrantsForRoles(roles));
+        });
+    }
+
+    /** Resolves the foreground read subject from the same role and grant authority. */
+    public DynamicRbacAccessControl(GrantStore grantStore, RoleStore roleStore, TableReadPolicySource policySource,
+            ReadAuthorizationSubjectSource readSubjects) {
         this.grantStore = Objects.requireNonNull(grantStore, "grantStore");
         this.roleStore = Objects.requireNonNull(roleStore, "roleStore");
         this.policySource = Objects.requireNonNull(policySource, "policySource");
+        this.readSubjects = Objects.requireNonNull(readSubjects, "readSubjects");
     }
 
     /** Resolves current direct assignments and explicitly mapped identity groups. */
     public Set<String> effectiveRoles(UserIdentity user) {
+        requirePrincipal(user);
+        return roleStore.effectiveRoles(user.principal(), user.groups());
+    }
+
+    private static void requirePrincipal(UserIdentity user) {
         if (user == null || user.principal() == null || user.principal().isBlank()) {
             throw new AuthorizationDeniedException("Authenticated principal is required");
         }
-        return roleStore.effectiveRoles(user.principal(), user.groups());
     }
 
     @Override
@@ -68,37 +85,30 @@ public final class DynamicRbacAccessControl implements AccessControl {
 
     private final class RbacReadAuthorization implements ReadAuthorization {
         private final UserIdentity user;
-        private Set<String> roles;
-        private List<PrivilegeGrant> grants;
+        private ReadAuthorizationSubjectSource.Subject subject;
         private Map<PolicyTarget, PolicyRead> policies;
 
         private RbacReadAuthorization(UserIdentity user) {
             this.user = user;
         }
 
-        private Set<String> roles() {
-            if (roles == null) {
-                roles = Set.copyOf(effectiveRoles(user));
+        private ReadAuthorizationSubjectSource.Subject subject() {
+            if (subject == null) {
+                requirePrincipal(user);
+                subject = readSubjects.read(user.principal(), user.groups());
             }
-            return roles;
-        }
-
-        private List<PrivilegeGrant> grants() {
-            if (grants == null) {
-                grants = List.copyOf(resolveGrants(roles()));
-            }
-            return grants;
+            return subject;
         }
 
         private PolicyRead policy(String catalog, String schema, String table) {
             if (policies == null) policies = new HashMap<>();
             return policies.computeIfAbsent(new PolicyTarget(catalog, schema, table), target ->
-                    policySource.bind(user, roles(), target.catalog(), target.schema(), target.table()));
+                    policySource.bind(user, subject().roles(), target.catalog(), target.schema(), target.table()));
         }
 
         @Override
         public void requireSelect(String catalog, String schema, String table) {
-            requireTableGrant(user, grants(), catalog, schema, table, Privilege.SELECT);
+            requireTableGrant(user, subject().grants(), catalog, schema, table, Privilege.SELECT);
         }
 
         @Override

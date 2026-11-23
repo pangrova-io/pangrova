@@ -85,7 +85,7 @@ final class E2eCurrentAuthority {
                         catalogs::requireLocalDeployment,
                         new MetadataTableControlPolicyProjections(),
                         org.pangrova.security.rowfilter.RowLevelSecurityFilter::renderPolicies,
-                        org.pangrova.security.mask.ColumnMaskingProcessor::renderMasks));
+                        org.pangrova.security.mask.ColumnMaskingProcessor::renderMasks), roles);
     }
 
     static void removeDefault(DataSource dataSource, String principal) {
