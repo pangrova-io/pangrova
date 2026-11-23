@@ -249,6 +249,8 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
         String catalogTemplate = "SELECT name, type, provider, state, properties, comment, allowed_tenants,"
                 + "%FROM catalog_definitions WHERE name=$1";
         String roleTemplate = "SELECT registered.role_name FROM pangrova_roles registered%";
+        String grantTemplate = "SELECT grant_id, role_name, privilege,%FROM security_grants WHERE role_name = ANY%";
+        String subjectTemplate = "WITH effective AS (%SELECT registered.role_name%LEFT JOIN security_grants grants%";
         String identityTemplate = "SELECT name, incarnation_id, revision FROM catalog_definitions WHERE name=$1";
         String tableNameTemplate = "SELECT table_id, catalog_name, schema_name, table_name, %"
                 + "FROM table_control_registry WHERE state <>%FROM table_control_name_reservation%";
@@ -267,6 +269,8 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
         long identityBefore = statementCalls(identityTemplate);
         long catalogBefore = statementCalls(catalogTemplate);
         long rolesBefore = statementCalls(roleTemplate);
+        long grantsBefore = statementCalls(grantTemplate);
+        long subjectBefore = statementCalls(subjectTemplate);
         String sql = decimalStateSql(decimalOrders);
         var result = executeWithScanAggregates(sql, "PartialAggregation");
         assertThat(statementCalls(catalogTemplate) - catalogBefore)
@@ -284,7 +288,11 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
         assertThat(statementCalls(compactOwnerTemplate) - compactOwnerBefore)
                 .as("fences before and after snapshot binding and split enumeration").isEqualTo(4);
         assertThat(statementCalls(roleTemplate) - rolesBefore)
-                .as("one effective-role lookup during protected query planning").isOne();
+                .as("separate effective role reads during protected query planning").isZero();
+        assertThat(statementCalls(grantTemplate) - grantsBefore)
+                .as("separate grant reads during protected query planning").isZero();
+        assertThat(statementCalls(subjectTemplate) - subjectBefore)
+                .as("joined role and grant reads during protected query planning").isOne();
         assertThat(result.scannedRows()).isEqualTo(800);
         assertThat(result.exchangeRows()).isPositive().isLessThan(result.scannedRows());
         assertThat(result.exchangeBytes()).isPositive();
