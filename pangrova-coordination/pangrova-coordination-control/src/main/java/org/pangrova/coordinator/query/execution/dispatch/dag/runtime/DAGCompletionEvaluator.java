@@ -113,10 +113,7 @@ public final class DAGCompletionEvaluator {
             completion.completeExceptionally(failure);
             throw failure;
         } catch (java.util.concurrent.ExecutionException failed) {
-            Throwable cause = failed.getCause();
-            throw DispatchCanceller.wrapIfNeeded(
-                    cause instanceof Exception ex ? ex
-                            : new RuntimeException(cause), queryId);
+            throw DispatchCanceller.wrapIfNeeded(failed.getCause(), queryId);
         }
     }
 

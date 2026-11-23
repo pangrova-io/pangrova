@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
+import org.pangrova.coordinator.query.execution.dispatch.dag.runtime.DAGCompletionEvaluator;
 import org.pangrova.coordinator.query.execution.dispatch.dag.runtime.DAGExecutionState;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.task.QueryOperatorStatsRegistry;
@@ -149,6 +150,39 @@ class DownstreamStageSchedulerTest {
             assertThat(preparations(registry, state)).singleElement().satisfies(work -> {
                 assertThat(work.outcome()).isEqualTo(PreparationOutcome.FAILED);
                 assertThat(work.startedNanos()).isGreaterThanOrEqualTo(work.submittedNanos());
+                assertThat(work.finishedNanos()).isGreaterThanOrEqualTo(work.startedNanos());
+            });
+        }
+    }
+
+    @Test
+    void missingStageClassFailsTheWaiterAndReleasesPreparationOwnership() {
+        var tracker = new CoordinatorTaskTracker();
+        var state = open(tracker, "missing-stage-class");
+        var registry = new QueryOperatorStatsRegistry();
+        var observations = registry.beginExecution(state.queryId(), state.dag());
+        var drained = drained(tracker, state);
+        var expected = new NoClassDefFoundError("org/pangrova/planner/exchange/ExchangeInputLeafDetail");
+        var attempts = new AtomicInteger();
+        var executor = ManagedExecutorFactory.newBoundedThreadPool("test-read-prepare", 1, 1);
+        try (var scheduler = new DownstreamStageScheduler(tracker, executor)) {
+            scheduler.request(state, observations, () -> {
+                attempts.incrementAndGet();
+                throw expected;
+            });
+
+            assertThatThrownBy(() -> DAGCompletionEvaluator.awaitCompletion(
+                    state.completion(), TimeUnit.SECONDS.toMillis(5), state.queryId()))
+                    .isInstanceOfSatisfying(PangrovaException.class, failure -> {
+                        assertThat(failure.getErrorCode()).isEqualTo(PangrovaErrorCode.COORDINATOR_DISPATCH_FAILED);
+                        assertThat(failure).hasCause(expected);
+                    });
+            await(drained);
+            scheduler.request(state, observations, attempts::incrementAndGet);
+            assertThat(state.cancelled().get()).isTrue();
+            assertThat(attempts.get()).isEqualTo(1);
+            assertThat(preparations(registry, state)).singleElement().satisfies(work -> {
+                assertThat(work.outcome()).isEqualTo(PreparationOutcome.FAILED);
                 assertThat(work.finishedNanos()).isGreaterThanOrEqualTo(work.startedNanos());
             });
         }

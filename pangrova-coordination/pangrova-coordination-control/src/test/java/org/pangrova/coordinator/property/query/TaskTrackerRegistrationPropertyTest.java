@@ -41,7 +41,8 @@ import org.pangrova.security.api.identity.UserIdentity;
  */
 class TaskTrackerRegistrationPropertyTest {
 
-    private static final int TRANSPORT_PORT = 0;
+    // The HTTP wiring fixture advertises a Flight endpoint without starting its listener.
+    private static final int TRANSPORT_PORT = 19095;
     private static final long WORKER_MEMORY = 4L * 1024 * 1024 * 1024;
     private static final UserIdentity TEST_IDENTITY = new UserIdentity(
             "test-user", Set.of("public"), Map.of(), Instant.EPOCH);

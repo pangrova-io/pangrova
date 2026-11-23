@@ -721,11 +721,14 @@ class JdbcCopySourceReadAdmissionsTest {
                 new ResourceQuota(0, 0, 0, 0, 0, 0, 0, 0),
                 java.util.List.of(), java.util.List.of(), null, Map.of(), Instant.now(), "system"));
         tenants.addUserToTenant("tenant-a", "alice", TenantRole.MEMBER);
-        return fixtureWithExistingTenant(source);
+        var anchor = new JdbcExecutionAnchorStore(source).tryAcquire(
+                "execution-one", "coordinator-one", "incarnation-one", Duration.ofMinutes(5))
+                .orElseThrow();
+        return fixtureWithExistingAuthority(source, anchor);
     }
 
-    /** Shares the normal COPY authority setup after a historical-schema test seeds its tenant. */
-    static Fixture fixtureWithExistingTenant(DataSource source) throws Exception {
+    /** Configures COPY authorization using the anchor already acquired for the fixture schema. */
+    static Fixture fixtureWithExistingAuthority(DataSource source, ExecutionAnchor anchor) throws Exception {
         var roles = new JdbcRoleStore(source);
         roles.createRole(Role.of("reader"));
         roles.grantRoleToUser(UserRoleAssignment.of("alice", "reader"));
@@ -738,15 +741,12 @@ class JdbcCopySourceReadAdmissionsTest {
                 new RowLevelSecurityFilter(new JdbcRowPolicyStore(source)),
                 new ColumnMaskingProcessor(new JdbcColumnMaskStore(source)));
         var revision = profiles.getCurrentRevision("incoming").orElseThrow();
-        ExecutionAnchor anchor = new JdbcExecutionAnchorStore(source).tryAcquire(
-                "execution-one", "coordinator-one", "incarnation-one", Duration.ofMinutes(5))
-                .orElseThrow();
         var controlLease = new JdbcDistributedLease(source).tryAcquire(
                 "coordinator_leader", "coordinator-one", Duration.ofMinutes(5)).orElseThrow();
         var scope = new CopySourceReadAdmissions.Scope("tenant-a", "alice", "incoming",
                 revision.incarnationId(), revision.revision(), SOURCE, MANAGED_ROOT,
                 "a".repeat(64),
-                "execution-one", "stage-one",
+                anchor.executionId(), "stage-one",
                 anchor.ownerId(), anchor.ownerIncarnation(), controlLease.epoch(), anchor.fencingToken(),
                 System.currentTimeMillis() + 60_000);
         return new Fixture(source, profiles, grants, access,

@@ -209,7 +209,7 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
                 updateRunningCount(previous, next, state.runningStageCount());
                 try {
                     onStateChange(stage, next, state, observations);
-                } catch (Exception failure) {
+                } catch (Exception | LinkageError failure) {
                     LOG.error("event=stage_listener_exception stageId={} queryId={}"
                                     + " transition={}→{} error={}",
                             id, state.queryId(), previous, next,
@@ -386,6 +386,9 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
             recordDispatchWork(observations, stage.stageId(), generation, DispatchPhase.SUBMIT_TASKS,
                     submissionStarted, partitions.size(), true);
             awaitStageDispatch(stage, prepared.plan(), partitions, state, observations);
+        } catch (LinkageError failure) {
+            failStageDispatch(stage, failure, state);
+            throw DispatchCanceller.wrapIfNeeded(failure, state.queryId());
         } catch (Exception failure) {
             stage.stateMachine().tryTransitionTo(StageState.FAILED);
             lifecycle.failQuery(state.queryId(), state.dag());

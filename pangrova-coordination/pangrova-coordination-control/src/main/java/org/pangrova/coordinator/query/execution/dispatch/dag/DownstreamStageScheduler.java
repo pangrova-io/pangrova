@@ -57,7 +57,7 @@ final class DownstreamStageScheduler implements AutoCloseable {
             if (preparation != null) {
                 preparation.finish(ran ? PreparationOutcome.COMPLETED : PreparationOutcome.SKIPPED);
             }
-        } catch (RuntimeException failure) {
+        } catch (RuntimeException | LinkageError failure) {
             if (preparation != null) preparation.finish(PreparationOutcome.FAILED);
             state.cancelled().set(true);
             state.completion().completeExceptionally(failure);

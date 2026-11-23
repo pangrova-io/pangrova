@@ -90,6 +90,8 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
+下游阶段准备发生 Java 类链接错误时，Coordinator 以原始错误结束 DAG 等待，进入失败清理并释放准备操作。构建隔离后的双 Worker 故障注入从私有诊断类路径移除 `ExchangeInputLeafDetail`。同一条 SQL 在 1,167 ms 返回 `COORDINATOR-0003`，记录 `FAILED`，取消 8 个已派发任务并确认物理清理。随后独立查询正常返回。正常诊断从冻结的类路径读取完整构建产物。37 项定向、30 项 COPY 和索引授权、19 项 Native 写入恢复和 Worker ACK，以及 40 项端到端用例通过。131 模块静态验证通过。角色清单为 `5f16354f46be8d99f5715b517243e89b437a80b2390722b358de6479299863aa`。
+
 受保护编译内的行过滤和列掩码复用同一个当前表身份。实际双 Worker SQL 的目录身份读取从 7 次降到 6 次，表名查询从 3 次降到 2 次。策略按需读取，下一次编译重新取当前授权。查询状态恢复由 Query API 持有 journal admission payload，内存与 PostgreSQL 共用同一 JSON 合同。92 项定向 Java 用例与 93 项实际端到端用例通过，覆盖模块边界、目录读预算、子查询撤权、数据库权限故障、状态读取和恢复主体。重建后的角色清单为 `fbcae01b499303c2d53017a8a0fb5319f2aa0848cd1a4a08e8fb659423a83011`。
 
 窄列 Parquet 批次将投影列数不超过表字段一半时的整文件预载窗口和 footer 探读分别设为 64 KiB。大于窗口的文件可独立读取 footer 与所选列块。在 33 列、24,000 行、两份 Iceberg 文件的实际双 Worker 对照中，单列排序查询从 3,328,539 B 降至 166,515 B，逐行结果一致。同一候选的宽输出为 4,961,691 B，带隐式排序列的窄输出为 205,306 B。另一个带 WHERE 的窄列形态仍达 4,948,399 B，后续按谓词保留必要读取列。上述计量是 Native 向文件系统请求的字节，跨主机对象请求数与 P95 仍需同源环境测量。97 项定向及 4,365 项全量 Native、92 项实际端到端和 Checkstyle 通过。正式回归约束窄读字节小于同表宽读的四分之一。同源角色清单为 `716e44642b0076861cb906759aeef4e6559a8e8bc1ba0868a04debb6a14479a9`。 [Parquet 列块和 footer](https://parquet.apache.org/docs/file-format/) · [Velox reader 配置](https://facebookincubator.github.io/velox/configs.html)

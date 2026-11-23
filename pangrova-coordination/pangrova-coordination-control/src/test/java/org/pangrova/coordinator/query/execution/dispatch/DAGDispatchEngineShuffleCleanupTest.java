@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query.execution.dispatch;
 
+import org.pangrova.common.enums.PangrovaErrorCode;
+import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.execution.task.DispatchResult;
 
 import java.util.List;
@@ -13,6 +15,9 @@ import org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchEngine;
 import org.pangrova.coordinator.query.execution.dispatch.dag.PipelineConfig;
 import org.pangrova.coordinator.scheduler.placement.WorkerSelector;
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.ShuffleStageHandler;
+import org.pangrova.coordinator.query.execution.dispatch.dag.handler.StageLifecycleHandler;
+import org.pangrova.coordinator.testinfra.SourceFreeQueryFixture;
+import org.pangrova.query.api.enums.StageState;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageNode;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
@@ -43,7 +48,8 @@ class DAGDispatchEngineShuffleCleanupTest {
     @DisplayName("dispatch failure notifies shuffle cleanup exactly once")
     void dispatchCatchBlockCleansUpShuffle() {
         RecordingShuffleManager recorder = new RecordingShuffleManager();
-        DAGDispatchEngine engine = buildEngine(new FailingTaskDispatcher(), recorder);
+        DAGDispatchEngine engine = buildEngine(new FailingTaskDispatcher(), recorder,
+                List.of(new ShuffleStageHandler(recorder)));
 
         QuerySession session = new QuerySession(
                 "q-d29", Map.of(), null, null, java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
@@ -54,6 +60,25 @@ class DAGDispatchEngineShuffleCleanupTest {
                 engine.dispatch(session, dag, compiler, testWorkerSelector(), 5000L));
 
         assertEquals(List.of("q-d29"), recorder.cleanupCalls);
+    }
+
+    @Test
+    void stageLinkageFailureRetainsItsCauseAndCleansUpTheQuery() {
+        var recorder = new RecordingShuffleManager();
+        var session = SourceFreeQueryFixture.session("q-linkage");
+        var dag = buildSingleStageDAG(session.queryId());
+        var missingClass = new NoClassDefFoundError("org/pangrova/planner/exchange/ExchangeInputLeafDetail");
+        StageLifecycleHandler failPreparation = event -> { throw missingClass; };
+        try (var engine = buildEngine(new NoOpTaskDispatcher(), recorder,
+                List.of(new ShuffleStageHandler(recorder), failPreparation))) {
+            var failure = assertThrows(PangrovaException.class, () ->
+                    engine.dispatch(session, dag, new SqlCompiler(), testWorkerSelector(), 5_000L));
+            assertEquals(PangrovaErrorCode.COORDINATOR_DISPATCH_FAILED, failure.getErrorCode());
+            assertSame(missingClass, failure.getCause());
+            assertEquals(StageState.FAILED, dag.findStage(1).stateMachine().getState());
+            assertEquals(0, dag.findStage(1).retryCount());
+            assertEquals(List.of(session.queryId()), recorder.cleanupCalls);
+        }
     }
 
     @Test
@@ -120,8 +145,8 @@ class DAGDispatchEngineShuffleCleanupTest {
 
     // --- helpers ---
 
-    private static DAGDispatchEngine buildEngine(TaskDispatcher dispatcher,
-                                                  ShuffleLifecycleManager shuffleManager) {
+    private static DAGDispatchEngine buildEngine(TaskDispatcher dispatcher, ShuffleLifecycleManager shuffleManager,
+            List<StageLifecycleHandler> handlers) {
         DAGDispatchContext deps = new DAGDispatchContext(
                 dispatcher,
                 new CoordinatorTaskTracker(),
@@ -136,7 +161,7 @@ class DAGDispatchEngineShuffleCleanupTest {
                 null,  // resilienceRegistry
                 null); // stateJournal
         return new DAGDispatchEngine(
-                deps, List.of(new ShuffleStageHandler(shuffleManager)), null, null, null);
+                deps, handlers, null, null, null);
     }
 
     private static StageDAG buildSingleStageDAG(String queryId) {

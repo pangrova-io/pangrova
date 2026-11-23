@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.coordination.store.jdbc;
 
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.persistence.file.api.copy.CopySourceReadAdmissions;
 
 import org.flywaydb.core.Flyway;
@@ -136,7 +137,7 @@ class JdbcCopyFrozenInputLineageTest {
         Flyway.configure().dataSource(source).locations("classpath:db/migration")
                 .target(MigrationVersion.fromVersion("64")).load().migrate();
         createV64AuthorityFixture(source);
-        var fixture = JdbcCopySourceReadAdmissionsTest.fixtureWithExistingTenant(source);
+        var fixture = JdbcCopySourceReadAdmissionsTest.fixtureWithExistingAuthority(source, insertV64Anchor(source));
         var proof = insertLegacyRoot(fixture);
         Flyway.configure().dataSource(source).locations("classpath:db/migration").load().migrate();
         var input = fixture.admissions().issueFrozenInput(inputAttempt(fixture, "after-upgrade"), fixture.anchor());
@@ -188,6 +189,23 @@ class JdbcCopyFrozenInputLineageTest {
                 assertThat(rows.next()).isTrue();
                 assertThat(rows.getInt(1)).isZero();
             }
+        }
+    }
+
+    private static ExecutionAnchor insertV64Anchor(javax.sql.DataSource source) throws SQLException {
+        try (var connection = source.getConnection(); var statement = connection.createStatement();
+                var row = statement.executeQuery("""
+                        INSERT INTO execution_anchor
+                            (execution_id, owner_id, owner_incarnation, fencing_token, acquired_at, expires_at)
+                        VALUES ('execution-one', 'coordinator-one', 'incarnation-one',
+                            nextval('execution_anchor_token_seq'), clock_timestamp(),
+                            clock_timestamp() + interval '5 minutes')
+                        RETURNING execution_id, owner_id, owner_incarnation, fencing_token, acquired_at, expires_at
+                        """)) {
+            assertThat(row.next()).isTrue();
+            return new ExecutionAnchor(row.getString("execution_id"), row.getString("owner_id"),
+                    row.getString("owner_incarnation"), row.getLong("fencing_token"),
+                    row.getTimestamp("acquired_at").toInstant(), row.getTimestamp("expires_at").toInstant());
         }
     }
 
