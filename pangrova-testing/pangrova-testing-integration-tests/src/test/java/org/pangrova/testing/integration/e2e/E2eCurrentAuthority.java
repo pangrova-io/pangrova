@@ -82,6 +82,7 @@ final class E2eCurrentAuthority {
         }
         return new DynamicRbacAccessControl(grants, roles,
                 new PostgresTableReadPolicyAuthority(dataSource, catalogs.tableGovernance(),
+                        catalogs::requireLocalDeployment,
                         new MetadataTableControlPolicyProjections(),
                         org.pangrova.security.rowfilter.RowLevelSecurityFilter::renderPolicies,
                         org.pangrova.security.mask.ColumnMaskingProcessor::renderMasks));

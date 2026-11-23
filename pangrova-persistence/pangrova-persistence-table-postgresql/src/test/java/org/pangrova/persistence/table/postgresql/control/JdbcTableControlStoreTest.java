@@ -74,6 +74,49 @@ class JdbcTableControlStoreTest extends ContainerTestBase {
     }
 
     @Test
+    void readOwnerRequiresCurrentCatalogButAllowsDataVersionChanges() throws SQLException {
+        var owner = readOwner();
+        assertThat(store.matchesCurrentReadOwner(owner)).isTrue();
+
+        store.save(owner.toBuilder().version("ICEBERG:uuid-orders:8", NOW.plusSeconds(1))
+                .metadataRevision(owner.metadataRevision() + 1).build());
+        assertThat(store.matchesCurrentReadOwner(owner)).isTrue();
+
+        try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
+            assertThat(statement.executeUpdate("UPDATE catalog_definitions SET revision=8 WHERE name='cat'")).isOne();
+        }
+        assertThat(store.matchesCurrentReadOwner(owner)).isFalse();
+    }
+
+    @Test
+    void readOwnerRejectsDifferentPhysicalIdentityAndMissingNameReservation() throws SQLException {
+        var owner = readOwner();
+        assertThat(store.matchesCurrentReadOwner(owner.toBuilder().formatTableUuid("replacement").build())).isFalse();
+        assertThat(store.matchesCurrentReadOwner(owner.toBuilder().formatLocation(null).build())).isFalse();
+
+        try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
+            assertThat(statement.executeUpdate("DELETE FROM table_control_name_reservation WHERE catalog_name='cat'"))
+                    .isOne();
+        }
+        assertThat(store.findById(owner.tableId())).contains(owner);
+        assertThat(store.matchesCurrentReadOwner(owner)).isFalse();
+    }
+
+    private TableControlRecord readOwner() throws SQLException {
+        String incarnation = UUID.randomUUID().toString();
+        try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement("""
+                INSERT INTO catalog_definitions (name,type,provider,state,properties,incarnation_id,revision)
+                VALUES ('cat','CONNECTOR','iceberg','ACTIVE','{}',?,7)
+                """)) {
+            statement.setString(1, incarnation);
+            assertThat(statement.executeUpdate()).isOne();
+        }
+        var owner = managed("orders").toBuilder().catalogIncarnationId(incarnation).catalogRevision(7L).build();
+        store.save(owner);
+        return owner;
+    }
+
+    @Test
     void upsertChangesStateWithoutChangingIdentity() {
         TableControlRecord record = managed("orders");
         store.save(record);

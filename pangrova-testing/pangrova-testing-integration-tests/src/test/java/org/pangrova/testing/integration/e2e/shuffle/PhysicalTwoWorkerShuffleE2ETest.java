@@ -253,6 +253,15 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
         String tableNameTemplate = "SELECT %"
                 + "FROM table_control_registry WHERE state <>%FROM table_control_name_reservation%";
         long tableReadsBefore = statementCalls(tableNameTemplate);
+        String joinedTemplate = "SELECT control.table_id, control.state,%"
+                + "FROM table_control_registry control LEFT JOIN catalog_definitions catalog%";
+        String fullOwnerTemplate = "SELECT table_id, catalog_name, schema_name, table_name,%"
+                + "FROM table_control_registry WHERE table_id%$1";
+        String compactOwnerTemplate = "SELECT %FROM table_control_name_reservation reservation%"
+                + "JOIN table_control_registry control%JOIN catalog_definitions catalog%";
+        long joinedBefore = statementCalls(joinedTemplate);
+        long fullOwnerBefore = statementCalls(fullOwnerTemplate);
+        long compactOwnerBefore = statementCalls(compactOwnerTemplate);
         long identityBefore = statementCalls(identityTemplate);
         long catalogBefore = statementCalls(catalogTemplate);
         long rolesBefore = statementCalls(roleTemplate);
@@ -261,9 +270,15 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
         assertThat(statementCalls(catalogTemplate) - catalogBefore)
                 .as("full catalog descriptor reads for one physical query").isZero();
         assertThat(statementCalls(identityTemplate) - identityBefore)
-                .as("narrow catalog deployment reads for one physical query").isPositive().isLessThanOrEqualTo(6);
+                .as("catalog deployment reads outside the table-owner checks").isOne();
         assertThat(statementCalls(tableNameTemplate) - tableReadsBefore)
-                .as("current table name reads for one physical query").isPositive().isLessThanOrEqualTo(2);
+                .as("current table name reads for one physical query").isPositive().isOne();
+        assertThat(statementCalls(joinedTemplate) - joinedBefore)
+                .as("joined policy identity reads for one physical query").isOne();
+        assertThat(statementCalls(fullOwnerTemplate) - fullOwnerBefore)
+                .as("complete table control records used for current owner checks").isZero();
+        assertThat(statementCalls(compactOwnerTemplate) - compactOwnerBefore)
+                .as("fences before and after snapshot binding and split enumeration").isEqualTo(4);
         assertThat(statementCalls(roleTemplate) - rolesBefore)
                 .as("one effective-role lookup during protected query planning").isOne();
         assertThat(result.scannedRows()).isEqualTo(800);

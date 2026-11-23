@@ -69,6 +69,13 @@ admitted table identity before returning zero splits.
 The direct JDBC catalog reads the metadata pointer during load. Catalog wrappers
 that can return cached SDK tables refresh that observation before validation.
 
+With PostgreSQL table control, read-owner checks use one authority statement to
+match the active name reservation, table identity, physical format identity, and
+catalog deployment. The Coordinator compares the same deployment to its local
+catalog handle before admitting the read. The checks bracket both snapshot binding
+and split enumeration. A physical identity mismatch still follows the table
+control quarantine path.
+
 `QueryBootstrap` creates the published-artifact reader and obtains the generated-value
 reader from `QueryMaterializationFactory`. It passes both readers explicitly into
 Query/DAG construction. Dispatch borrows the readers independently of whether index

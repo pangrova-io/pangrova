@@ -4,28 +4,31 @@ import org.pangrova.persistence.security.postgresql.mask.JdbcColumnMaskStore;
 import org.pangrova.persistence.security.postgresql.rowfilter.JdbcRowPolicyStore;
 import org.pangrova.persistence.workflow.api.security.TableControlPolicyProjections;
 import org.pangrova.security.api.authorization.TableReadPolicySource;
-import org.pangrova.security.api.exception.AccessDeniedException;
 import org.pangrova.security.api.identity.UserIdentity;
 import org.pangrova.security.api.mask.ColumnMask;
 import org.pangrova.security.api.mask.TableColumnMasks;
 import org.pangrova.security.api.rowfilter.RowPolicy;
-import org.pangrova.table.api.enums.TableControlState;
-import org.pangrova.table.api.ownership.TableControlRecord;
 import org.pangrova.table.api.policy.GovernanceBinding;
 import org.pangrova.table.api.policy.TablePolicyAuthority;
 
 import javax.sql.DataSource;
+import java.sql.SQLException;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
+
+import org.pangrova.metadata.api.catalog.CatalogDeploymentIdentity;
 
 /** PostgreSQL row and column policies bound to one current table identity. */
 public final class PostgresTableReadPolicyAuthority implements TableReadPolicySource {
+    private final DataSource dataSource;
     private final TablePolicyAuthority tables;
+    private final Consumer<CatalogDeploymentIdentity> localCatalog;
     private final TableControlPolicyProjections projections;
     private final JdbcRowPolicyStore rows;
     private final JdbcColumnMaskStore masks;
@@ -46,9 +49,11 @@ public final class PostgresTableReadPolicyAuthority implements TableReadPolicySo
 
     /** Composes the durable policy stores with the live table identity and governance projections. */
     public PostgresTableReadPolicyAuthority(DataSource dataSource, TablePolicyAuthority tables,
-            TableControlPolicyProjections projections,
+            Consumer<CatalogDeploymentIdentity> localCatalog, TableControlPolicyProjections projections,
             RowPolicyRenderer rowRenderer, ColumnMaskRenderer maskRenderer) {
+        this.dataSource = Objects.requireNonNull(dataSource, "dataSource");
         this.tables = Objects.requireNonNull(tables, "tables");
+        this.localCatalog = Objects.requireNonNull(localCatalog, "localCatalog");
         this.projections = Objects.requireNonNull(projections, "projections");
         this.rows = new JdbcRowPolicyStore(dataSource);
         this.masks = new JdbcColumnMaskStore(dataSource);
@@ -58,15 +63,20 @@ public final class PostgresTableReadPolicyAuthority implements TableReadPolicySo
 
     @Override
     public PolicyRead bind(UserIdentity user, Set<String> roles, String catalog, String schema, String table) {
-        var record = tables.find(catalog, schema, table);
-        record.ifPresent(current -> {
-            tables.requireCurrentCatalog(current, "Read policies");
-            if (current.state() != TableControlState.ACTIVE) {
-                throw new AccessDeniedException("Read policies require an ACTIVE controlled table");
-            }
-        });
-        var target = new PolicyTable(catalog, schema, table, record.map(TableControlRecord::tableId).orElse(null));
+        var target = new PolicyTable(catalog, schema, table, currentTableId(catalog, schema, table));
         return new BoundPolicies(user, Set.copyOf(roles), target);
+    }
+
+    private UUID currentTableId(String catalog, String schema, String table) {
+        try (var connection = dataSource.getConnection()) {
+            var identity = PostgresPolicyTableIdentity.find(connection, catalog, schema, table,
+                    "Read policy table identity or catalog deployment changed");
+            identity.ifPresent(verified -> localCatalog.accept(
+                    new CatalogDeploymentIdentity(catalog, verified.incarnation(), verified.revision())));
+            return identity.map(PostgresPolicyTableIdentity.VerifiedTable::tableId).orElse(null);
+        } catch (SQLException failure) {
+            throw new IllegalStateException("Failed to observe the current table policy identity", failure);
+        }
     }
 
     private record PolicyTable(String catalog, String schema, String name, UUID id) {}

@@ -11,6 +11,7 @@ import org.pangrova.table.api.ownership.TableControlRecord;
 import org.pangrova.table.api.rename.TableControlRenameIntent;
 import org.pangrova.table.api.enums.TableControlState;
 import org.pangrova.table.api.ownership.TableControlStore;
+import org.pangrova.table.api.ownership.TableReadOwnerStore;
 import org.pangrova.table.api.observation.TableVersionObservation;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.persistence.jdbc.support.JdbcSupport;
@@ -37,7 +38,7 @@ import static org.pangrova.persistence.jdbc.support.JdbcSupport.setJson;
  * the Persistence Memory table control provider.
  */
 @ThreadSafe
-public final class JdbcTableControlStore implements TableControlStore {
+public final class JdbcTableControlStore implements TableControlStore, TableReadOwnerStore {
 
     private static final String COLUMNS = "table_id, catalog_name, schema_name, table_name, "
             + "format, format_table_uuid, format_location, ownership_mode, state, provenance, "
@@ -75,6 +76,22 @@ public final class JdbcTableControlStore implements TableControlStore {
 
     private static final String FIND_BY_ID = "SELECT " + COLUMNS + " FROM table_control_registry "
             + "WHERE table_id=?";
+
+    private static final String MATCH_READ_OWNER = """
+            SELECT 1 FROM table_control_name_reservation reservation
+            JOIN table_control_registry control ON control.table_id=reservation.table_id
+                AND control.catalog_name=reservation.catalog_name
+                AND control.schema_name=reservation.schema_name
+                AND control.table_name=reservation.table_name
+            JOIN catalog_definitions catalog ON catalog.name=control.catalog_name
+                AND catalog.incarnation_id=control.catalog_incarnation_id
+                AND catalog.revision=control.catalog_revision
+            WHERE reservation.catalog_name=? AND reservation.schema_name=? AND reservation.table_name=?
+                AND control.table_id=? AND control.state='ACTIVE'
+                AND control.catalog_incarnation_id=? AND control.catalog_revision=?
+                AND control.format=? AND control.format_table_uuid IS NOT DISTINCT FROM ?
+                AND control.format_location IS NOT DISTINCT FROM ?
+            """;
 
     private static final String LIST_BY_CATALOG = "SELECT " + COLUMNS
             + " FROM table_control_registry WHERE catalog_name=? "
@@ -118,6 +135,21 @@ public final class JdbcTableControlStore implements TableControlStore {
     public Optional<TableControlRecord> findById(UUID tableId) {
         return query(FIND_BY_ID, ps -> ps.setObject(1, tableId),
                 rs -> rs.next() ? Optional.of(map(rs)) : Optional.empty());
+    }
+
+    @Override
+    public boolean matchesCurrentReadOwner(TableControlRecord expected) {
+        return query(MATCH_READ_OWNER, ps -> {
+            ps.setString(1, expected.catalog());
+            ps.setString(2, expected.schema());
+            ps.setString(3, expected.table());
+            ps.setObject(4, expected.tableId());
+            ps.setString(5, expected.catalogIncarnationId());
+            ps.setObject(6, expected.catalogRevision(), Types.BIGINT);
+            ps.setString(7, expected.format());
+            ps.setString(8, expected.formatTableUuid());
+            ps.setString(9, expected.formatLocation());
+        }, ResultSet::next);
     }
 
     @Override

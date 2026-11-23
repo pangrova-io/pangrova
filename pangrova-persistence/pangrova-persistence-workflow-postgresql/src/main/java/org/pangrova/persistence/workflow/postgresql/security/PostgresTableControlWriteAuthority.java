@@ -47,39 +47,18 @@ public final class PostgresTableControlWriteAuthority implements TableControlWri
     private PolicySnapshot observe(Connection connection, String principal, Set<String> roles,
             TablePermission permission) throws SQLException {
         var table = permission.table();
-        UUID tableId = identity(connection, permission);
+        String denial = "Deferred table identity or catalog deployment changed";
+        var identity = PostgresPolicyTableIdentity.find(connection, table.catalog(), table.schema(),
+                table.table(), denial).orElse(null);
+        if (identity != null && !identity.activeCatalog()) {
+            throw new AuthorizationDeniedException(denial);
+        }
+        UUID tableId = identity == null ? null : identity.tableId();
         return policies.observe(connection, principal, roles, permission,
                 () -> projections.projectRows(tableId, table.catalog(), table.schema(), table.table(),
                         JdbcRowPolicyStore.listForCurrentTable(connection, table.catalog(), table.schema(),
                                 table.table(), tableId)),
                 masks -> projections.projectColumns(tableId, table.catalog(), table.schema(), table.table(), masks,
                         tableId == null ? List.of() : PostgresTablePolicyRepository.list(connection, tableId)));
-    }
-
-    private static UUID identity(Connection connection, TablePermission permission)
-            throws SQLException {
-        var table = permission.table();
-        try (var query = connection.prepareStatement("SELECT control.table_id, control.state, "
-                + "control.catalog_incarnation_id, control.catalog_revision, catalog.incarnation_id, "
-                + "catalog.revision, catalog.state AS catalog_state FROM table_control_registry control "
-                + "LEFT JOIN catalog_definitions catalog ON catalog.name=control.catalog_name "
-                + "WHERE control.table_id IN (SELECT table_id FROM table_control_name_reservation "
-                + "WHERE catalog_name=? AND schema_name=? AND table_name=?) "
-                + "AND control.state<>'DROPPED'")) {
-            query.setString(1, table.catalog());
-            query.setString(2, table.schema());
-            query.setString(3, table.table());
-            try (var row = query.executeQuery()) {
-                if (!row.next()) return null;
-                if (!"ACTIVE".equals(row.getString("state"))
-                        || !"ACTIVE".equals(row.getString("catalog_state"))
-                        || row.getString("incarnation_id") == null
-                        || !row.getString("incarnation_id").equals(row.getString("catalog_incarnation_id"))
-                        || row.getLong("revision") != row.getLong("catalog_revision")) {
-                    throw new AuthorizationDeniedException("Deferred table identity or catalog deployment changed");
-                }
-                return row.getObject("table_id", UUID.class);
-            }
-        }
     }
 }
