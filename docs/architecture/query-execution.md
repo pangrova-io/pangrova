@@ -171,6 +171,8 @@ selected snapshot. Append-range reads carry unknown cardinality until a range es
 available. Lance derives its declaration and row count from one verified publication.
 Worker receives the bound execution plan. Calcite schemas remain in the coordinator process.
 
+A controlled read checks the current catalog deployment once when matching its physical table format identity. Planning can inspect the selected read binding to recognize a physical scan. Expansion verifies current ownership of a connector-derived table before replacing that scan with its definition. Split enumeration and generated column overlay binding check the authority at their respective handoffs.
+
 ### 2.3 Custom Optimization Rules
 
 Equality-based join algorithms require at least one paired equality key.

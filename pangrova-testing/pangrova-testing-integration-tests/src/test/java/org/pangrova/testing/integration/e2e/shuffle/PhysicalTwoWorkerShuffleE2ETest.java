@@ -26,6 +26,7 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.SQLException;
 import java.time.Duration;
 import java.util.HashSet;
 import java.util.List;
@@ -241,9 +242,15 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
     }
 
     @Test
-    void decimalSumAndAvgShareOneTypedStageAndKeepNullableStates(TestReporter metrics) {
+    void decimalSumAndAvgShareOneTypedStageAndKeepNullableStates(TestReporter metrics) throws SQLException {
+        try (var connection = stateStoreDataSource().getConnection(); var statement = connection.createStatement()) {
+            statement.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public");
+        }
+        long before = catalogDescriptorCalls();
         String sql = decimalStateSql(decimalOrders);
         var result = executeWithScanAggregates(sql, "PartialAggregation");
+        assertThat(catalogDescriptorCalls() - before).as("catalog deployment reads for one physical query")
+                .isLessThanOrEqualTo(7);
         assertThat(result.scannedRows()).isEqualTo(800);
         assertThat(result.exchangeRows()).isPositive().isLessThan(result.scannedRows());
         assertThat(result.exchangeBytes()).isPositive();
@@ -271,6 +278,22 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
             assertThat(row.getRaw("mean")).isEqualTo(new java.math.BigDecimal("1.50"));
             assertThat(row.getRaw("empty_total")).isNull();
         });
+    }
+
+    private static long catalogDescriptorCalls() throws SQLException {
+        try (var connection = stateStoreDataSource().getConnection(); var statement = connection.prepareStatement("""
+                SELECT COALESCE(SUM(calls), 0)
+                FROM public.pg_stat_statements
+                WHERE dbid=(SELECT oid FROM pg_database WHERE datname=current_database())
+                  AND toplevel AND query LIKE ?
+                """)) {
+            statement.setString(1, "SELECT name, type, provider, state, properties, comment, allowed_tenants,"
+                    + "%FROM catalog_definitions WHERE name=$1");
+            try (var result = statement.executeQuery()) {
+                assertThat(result.next()).isTrue();
+                return result.getLong(1);
+            }
+        }
     }
 
     private static String decimalStateSql(String table) {

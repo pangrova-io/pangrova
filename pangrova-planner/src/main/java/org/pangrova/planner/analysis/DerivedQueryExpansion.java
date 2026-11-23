@@ -22,6 +22,7 @@ import org.pangrova.planner.parse.PangrovaParserFactory;
 import org.pangrova.planner.validation.PangrovaSqlOperatorTable;
 import org.pangrova.connector.api.metadata.table.ConnectorDerivedTableHandle;
 import org.pangrova.connector.api.metadata.table.ConnectorReadBinding;
+import org.pangrova.planner.metadata.catalog.MetadataResolvedTable;
 
 /** Expands frozen connector definitions before policy application, without consulting a live catalog. */
 final class DerivedQueryExpansion extends RelShuttleImpl {
@@ -45,10 +46,18 @@ final class DerivedQueryExpansion extends RelShuttleImpl {
 
     @Override
     public RelNode visit(TableScan scan) {
-        var binding = PlanTable.require(scan).unwrap(ConnectorReadBinding.class);
+        var table = PlanTable.require(scan);
+        var physical = table.unwrap(MetadataResolvedTable.class);
+        // Compilation can inspect the selected shape. A derived relation is
+        // expanded away, so it must still verify its owner before expansion.
+        if (physical != null && physical.selectedReadBinding().map(ConnectorReadBinding::handle)
+                .filter(ConnectorDerivedTableHandle.class::isInstance).isEmpty()) {
+            return scan;
+        }
+        var binding = table.unwrap(ConnectorReadBinding.class);
         if (binding == null || !(binding.handle() instanceof ConnectorDerivedTableHandle derived)) return scan;
         binding.declaration().requireExactDeclaration();
-        var identity = new Identity(List.copyOf(PlanTable.require(scan).getQualifiedName()), binding.sourceIdentity());
+        var identity = new Identity(List.copyOf(table.getQualifiedName()), binding.sourceIdentity());
         if (active.contains(identity) || active.size() >= MAX_DEPTH) {
             throw invalid("Recursive or excessively nested connector derived query: " + identity.name());
         }

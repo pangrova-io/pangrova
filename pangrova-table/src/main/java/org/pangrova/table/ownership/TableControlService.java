@@ -148,6 +148,11 @@ public final class TableControlService implements TableReadAuthority {
             return;
         }
         requireCurrentCatalog(record, operation);
+        requireMatchingFormatIdentity(record, operation, observedIdentity);
+    }
+
+    private void requireMatchingFormatIdentity(TableControlRecord record, String operation,
+            Optional<TableIdentity> observedIdentity) {
         Optional<TableIdentity> evidence = observedIdentity
                 .filter(TableIdentity::hasFormatUuid);
         if (!hasFormatUuid(record)) {
@@ -197,7 +202,7 @@ public final class TableControlService implements TableReadAuthority {
             throw new AccessDeniedException(operation + " rejected: missing format identity for "
                     + expected.qualifiedName());
         }
-        requireMatchingIdentity(current, operation, identity);
+        requireMatchingFormatIdentity(current, operation, identity);
     }
 
     /** Fences read admission while allowing a selected immutable snapshot to predate a data-version observation. */
@@ -208,7 +213,7 @@ public final class TableControlService implements TableReadAuthority {
             throw new AccessDeniedException(operation + " rejected: missing format identity for "
                     + expected.qualifiedName());
         }
-        requireMatchingIdentity(current, operation, identity);
+        requireMatchingFormatIdentity(current, operation, identity);
     }
 
     /** Revalidates a cached binding's captured owner without treating old evidence as a new observation. */
