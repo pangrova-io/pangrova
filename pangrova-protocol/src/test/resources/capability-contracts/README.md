@@ -10,6 +10,19 @@ exporter catalogue used by function-contract tests.
 
 ## Current capture
 
+On 2026-11-23 the packaged macOS arm64 Worker handshake and matching function
+exporter captured the protocol for bounded disjoint build-key ranges used by
+cross-stage Iceberg pruning. Both fixtures carry descriptor SHA-256
+`37f4135b6b03274ca856e45c14238b44c476c8ebead26a3fe2d3bbebf25c571a`.
+
+| Artifact | Bytes | SHA-256 | Capabilities / functions / models |
+| --- | ---: | --- | --- |
+| Native library | 322897717 | `8e85b615bfdce500145f4d6c98dd91ae228b30a5fab6e773d3a4410e5b172cbf` | |
+| Worker inventory | 796871 | `8261167dc59c96fd96d9a2df3fa28d74a4b493460c0a3dd4a3baf572362089a8` | 19 / 108 / 2 |
+| Function exporter catalogue | 784252 | `b7c7ef05a4f07a60b004a60741fb65ca04efe995e72ee8f597468221936170f5` | 9 / 92 / 0 |
+
+## Earlier November 23 external Shuffle capture
+
 On 2026-11-23 the packaged macOS arm64 handshake and function exporter captured
 the protocol for reading contiguous groups of committed external Shuffle
 partitions. Both fixtures carry descriptor SHA-256
