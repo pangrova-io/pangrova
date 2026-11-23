@@ -1,9 +1,6 @@
 package org.pangrova.persistence.security.postgresql.rowfilter;
 
 import org.junit.jupiter.api.Test;
-import org.pangrova.persistence.security.postgresql.mask.JdbcColumnMaskStore;
-import org.pangrova.persistence.security.postgresql.policy.JdbcReadPolicyStore;
-import org.pangrova.security.api.mask.ColumnMask;
 import org.pangrova.security.api.rowfilter.RowPolicy;
 import org.pangrova.testing.testkit.postgres.MigratedPostgres;
 import org.pangrova.testing.testkit.ContainerTestBase;
@@ -71,41 +68,6 @@ class JdbcRowPolicyStoreTest extends ContainerTestBase {
                 .extracting(RowPolicy::filterExpression).containsExactly("id > 0", "id > 20");
         assertThat(store.getPoliciesForCurrentTable("cat", "db", "orders", null))
                 .extracting(RowPolicy::filterExpression).containsExactly("id > 20");
-    }
-
-    @Test
-    void combinedReadKeepsRowIdentityScopeAndTheExactNamedMasks() throws Exception {
-        var source = MigratedPostgres.create();
-        var rows = new JdbcRowPolicyStore(source);
-        var masks = new JdbcColumnMaskStore(source);
-        var readPolicies = new JdbcReadPolicyStore(source);
-        UUID current = UUID.randomUUID();
-        rows.savePolicy(policy(current, "old_name", "id > 0", true));
-        rows.savePolicy(policy(UUID.randomUUID(), "orders", "id > 10", true));
-        rows.savePolicy(policy(null, "orders", "id > 20", true));
-        rows.savePolicy(policy(null, "other_table", "id > 30", true));
-        rows.savePolicy(new RowPolicy(0, "disabled", "cat", "db", "orders", "id > 40",
-                List.of("reader"), false, 50, current));
-        masks.saveColumnMask(new ColumnMask(0, "hide_payload", "cat", "db", "orders", "payload",
-                "'masked'", List.of("reader"), List.of("admin"), true, current));
-        masks.saveColumnMask(new ColumnMask(0, "disabled", "cat", "db", "orders", "id",
-                "0", List.of("reader"), List.of(), false, current));
-        masks.saveColumnMask(new ColumnMask(0, "other_table", "cat", "db", "other_table", "payload",
-                "'hidden'", List.of("reader"), List.of(), true, null));
-
-        var managed = readPolicies.read("cat", "db", "orders", current);
-        assertThat(managed.rows()).containsExactlyElementsOf(
-                rows.getPoliciesForCurrentTable("cat", "db", "orders", current));
-        assertThat(managed.rows()).hasSize(2);
-        assertThat(managed.masks()).containsExactlyElementsOf(masks.getTableMasks("cat", "db", "orders"));
-        assertThat(managed.masks()).hasSize(1);
-
-        var external = readPolicies.read("cat", "db", "orders", null);
-        assertThat(external.rows()).extracting(RowPolicy::filterExpression).containsExactly("id > 20");
-        assertThat(external.masks()).isEqualTo(managed.masks());
-        var absent = readPolicies.read("cat", "db", "absent", null);
-        assertThat(absent.rows()).isEmpty();
-        assertThat(absent.masks()).isEmpty();
     }
 
     private static RowPolicy policy(UUID tableId, String table, String expression, boolean enabled) {

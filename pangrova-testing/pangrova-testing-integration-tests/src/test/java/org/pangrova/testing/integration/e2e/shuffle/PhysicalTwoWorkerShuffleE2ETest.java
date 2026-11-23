@@ -257,9 +257,8 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
         long tableReadsBefore = statementCalls(tableNameTemplate);
         String admissionTemplate = "SELECT control.*, catalog.incarnation_id AS observed_catalog_incarnation%";
         long readAdmissionBefore = statementCalls(admissionTemplate);
-        String joinedTemplate = "SELECT control.table_id, control.state,%"
-                + "FROM table_control_registry control LEFT JOIN catalog_definitions catalog%"
-                + "LEFT JOIN table_control_governance_binding%";
+        String joinedTemplate = "WITH read_target(catalog_name, schema_name, table_name) AS (%"
+                + "FROM table_control_registry%FROM row_policy%FROM column_mask%FROM table_control_governance_binding%";
         String fullOwnerTemplate = "SELECT table_id, catalog_name, schema_name, table_name,%"
                 + "FROM table_control_registry WHERE table_id%$1";
         String compactOwnerTemplate = "SELECT %FROM table_control_name_reservation reservation%"
@@ -283,7 +282,7 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
         assertThat(statementCalls(admissionTemplate) - readAdmissionBefore)
                 .as("joined table and catalog admissions for one physical query").isOne();
         assertThat(statementCalls(joinedTemplate) - joinedBefore)
-                .as("joined policy identity reads for one physical query").isOne();
+                .as("authoritative table policy snapshot reads for one physical query").isOne();
         assertThat(statementCalls(fullOwnerTemplate) - fullOwnerBefore)
                 .as("complete table control records used for current owner checks").isZero();
         assertThat(statementCalls(compactOwnerTemplate) - compactOwnerBefore)

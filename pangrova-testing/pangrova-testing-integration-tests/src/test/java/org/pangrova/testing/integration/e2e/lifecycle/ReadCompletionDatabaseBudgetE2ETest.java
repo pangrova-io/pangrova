@@ -48,6 +48,9 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
             "SELECT registered.role_name FROM pangrova_roles registered%";
     private static final String INDEPENDENT_GRANT_LOOKUP =
             "SELECT grant_id, role_name, privilege,%FROM security_grants WHERE role_name = ANY%";
+    private static final String READ_POLICY_SNAPSHOT =
+            "WITH read_target(catalog_name, schema_name, table_name) AS (%FROM table_control_registry%"
+                    + "FROM row_policy%FROM column_mask%FROM table_control_governance_binding%";
     private static final String READ_POLICIES_LOOKUP =
             "WITH read_target(table_id, catalog_name, schema_name, table_name) AS (%UNION ALL%";
     private static final String INDEPENDENT_ROW_POLICY_LOOKUP =
@@ -123,6 +126,7 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
         long previousRoleLookups = calls(INDEPENDENT_ROLE_LOOKUP);
         long previousGrantLookups = calls(INDEPENDENT_GRANT_LOOKUP);
         long previousPolicyLookups = calls(READ_POLICIES_LOOKUP);
+        long previousPolicySnapshots = calls(READ_POLICY_SNAPSHOT);
         long previousRowLookups = calls(INDEPENDENT_ROW_POLICY_LOOKUP);
         long previousMaskLookups = calls(INDEPENDENT_MASK_LOOKUP);
         long previousPolicyIdentityLookups = calls(READ_POLICY_IDENTITY_AND_BINDINGS_LOOKUP);
@@ -137,11 +141,12 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
         assertThat(calls(READ_SUBJECT_LOOKUP) - previousSubjectLookups).isOne();
         assertThat(calls(INDEPENDENT_ROLE_LOOKUP) - previousRoleLookups).isZero();
         assertThat(calls(INDEPENDENT_GRANT_LOOKUP) - previousGrantLookups).isZero();
-        assertThat(calls(READ_POLICIES_LOOKUP) - previousPolicyLookups).isOne();
+        assertThat(calls(READ_POLICY_SNAPSHOT) - previousPolicySnapshots).isOne();
+        assertThat(calls(READ_POLICIES_LOOKUP) - previousPolicyLookups).isZero();
         assertThat(calls(INDEPENDENT_ROW_POLICY_LOOKUP) - previousRowLookups).isZero();
         assertThat(calls(INDEPENDENT_MASK_LOOKUP) - previousMaskLookups).isZero();
         assertThat(calls(INDEPENDENT_GOVERNANCE_LOOKUP) - previousGovernanceLookups).isZero();
-        assertThat(calls(READ_POLICY_IDENTITY_AND_BINDINGS_LOOKUP) - previousPolicyIdentityLookups).isOne();
+        assertThat(calls(READ_POLICY_IDENTITY_AND_BINDINGS_LOOKUP) - previousPolicyIdentityLookups).isZero();
     }
 
     @Test
