@@ -23,7 +23,7 @@ class TaskAdmissionRegistryTest {
     private static final Clock NOW = Clock.fixed(Instant.ofEpochMilli(1000), ZoneOffset.UTC);
 
     @Test
-    void duplicateWaitsForActualTaskPublication() throws Exception {
+    void duplicateWaitsForSetupWhileControlCanAlreadyResolveTheOwner() throws Exception {
         var registry = new TaskAdmissionRegistry(2, NOW);
         var original = registry.reserve(request("task", 2000), "worker-task");
         var duplicate = registry.reserve(request("task", 2000), "unused-worker-task");
@@ -35,9 +35,13 @@ class TaskAdmissionRegistryTest {
             assertThat(waiting).isNotDone();
             original.publish(() -> {});
             assertThat(waiting).isNotDone();
-            original.admitted();
-            assertThat(waiting.get(10, TimeUnit.SECONDS)).isEqualTo("worker-task");
+            original.handOff();
             assertThat(registry.resolve("task")).isEqualTo("worker-task");
+            assertThat(waiting).isNotDone();
+            registry.sealAndAwaitAdmissions();
+            assertThat(waiting).isNotDone();
+            original.completeTaskSetup();
+            assertThat(waiting.get(10, TimeUnit.SECONDS)).isEqualTo("worker-task");
         } finally {
             executor.shutdownNow();
             assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
@@ -153,6 +157,43 @@ class TaskAdmissionRegistryTest {
         assertThatThrownBy(duplicate::awaitAdmission).isSameAs(failure);
         assertThat(registry.size()).isZero();
         assertThat(registry.reserve(request("task", 2000), "retry").first()).isTrue();
+    }
+
+    @Test
+    void setupExceptionReachesDuplicatesWithoutLosingTheExactCleanupOwner() {
+        var registry = new TaskAdmissionRegistry(1, NOW);
+        var request = request("task", 2000);
+        var first = registry.reserve(request, "worker-task");
+        var duplicate = registry.reserve(request, "unused");
+        first.publish(() -> {});
+        first.handOff();
+        var failure = new IllegalStateException("native setup threw after ownership");
+        first.failAfterHandoff(failure);
+
+        assertThatThrownBy(duplicate::awaitAdmission).isSameAs(failure);
+        assertThat(registry.resolve("task")).isEqualTo("worker-task");
+        var sealed = registry.seal(sealRequest(request), true);
+        assertThat(sealed.workerTaskId()).isEqualTo("worker-task");
+        assertThat(sealed.noOwnerExited()).isFalse();
+        assertThat(sealed.receipt()).isEmpty();
+    }
+
+    @Test
+    void sealDuringSetupStopsUnfinishedAcknowledgementAndRetainsTheOwner() {
+        var registry = new TaskAdmissionRegistry(1, NOW);
+        var request = request("task", 2000);
+        var first = registry.reserve(request, "worker-task");
+        var duplicate = registry.reserve(request, "unused");
+        first.publish(() -> {});
+        first.handOff();
+        assertThat(registry.seal(sealRequest(request), true).workerTaskId()).isEqualTo("worker-task");
+
+        var rejection = org.assertj.core.api.Assertions.catchThrowableOfType(
+                first::completeTaskSetup, TaskAdmissionException.class);
+        assertThat(rejection).hasMessageContaining("admission is sealed");
+        first.failAfterHandoff(rejection);
+        assertThatThrownBy(duplicate::awaitAdmission).isSameAs(rejection);
+        assertThat(registry.resolve("task")).isEqualTo("worker-task");
     }
 
     @Test

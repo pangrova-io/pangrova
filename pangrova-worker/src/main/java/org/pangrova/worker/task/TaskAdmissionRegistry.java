@@ -227,8 +227,7 @@ final class TaskAdmissionRegistry {
             Entry entry = entries.get(canonicalTaskId);
             return entry == null
                             || entry.workerTaskId.isEmpty()
-                            || !entry.admitted.isDone()
-                            || entry.admitted.isCompletedExceptionally()
+                            || !entry.handedOff
                     ? null
                     : entry.workerTaskId;
         }
@@ -267,7 +266,8 @@ final class TaskAdmissionRegistry {
             pending =
                     CompletableFuture.allOf(
                             entries.values().stream()
-                                    .filter(entry -> !entry.admitted.isDone())
+                                    // Handed-off tasks are joined by their lifecycle owners.
+                                    .filter(entry -> !entry.handedOff && !entry.admitted.isDone())
                                     .map(entry -> entry.admitted.handle((result, failure) -> null))
                                     .toArray(CompletableFuture[]::new));
         }
@@ -307,27 +307,44 @@ final class TaskAdmissionRegistry {
             synchronized (entries) {
                 requireOpen();
                 requireUnexpired(entry.deadline);
-                if (entry.sealed) {
-                    throw new TaskAdmissionException(
-                            TaskAdmissionReason.SEALED,
-                            "Exact task admission is sealed: " + taskId);
-                }
+                requireUnsealed();
                 publication.run();
             }
         }
 
+        // Source preparation and pre-start fixtures have no separate endpoint setup.
         void admitted() {
+            handOff();
+            entry.admitted.complete(entry.workerTaskId);
+        }
+
+        void handOff() {
             synchronized (entries) {
                 requireOpen();
                 requireUnexpired(entry.deadline);
-                if (entry.sealed) {
-                    throw new TaskAdmissionException(
-                            TaskAdmissionReason.SEALED,
-                            "Exact task admission is sealed: " + taskId);
-                }
+                requireUnsealed();
                 entry.handedOff = true;
             }
+        }
+
+        void completeTaskSetup() {
+            synchronized (entries) {
+                requireUnexpired(entry.deadline);
+                requireUnsealed();
+            }
             entry.admitted.complete(entry.workerTaskId);
+        }
+
+        private void requireUnsealed() {
+            if (entry.sealed) {
+                throw new TaskAdmissionException(
+                        TaskAdmissionReason.SEALED,
+                        "Exact task admission is sealed: " + taskId);
+            }
+        }
+
+        void failAfterHandoff(Throwable failure) {
+            entry.admitted.completeExceptionally(failure);
         }
 
         void rejectedBeforeOwnership(Throwable failure) {

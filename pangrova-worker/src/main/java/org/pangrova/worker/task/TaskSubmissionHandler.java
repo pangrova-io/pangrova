@@ -106,18 +106,24 @@ final class TaskSubmissionHandler {
             reservation.publish(() -> owner.tasks.register(published));
             owner.transition(taskId, TaskState.INITIALIZING);
             registerSubmittedTask(taskId, queryId, request);
-            reservation.admitted();
+            reservation.handOff();
         } catch (RuntimeException | Error failure) {
             rejectBeforeOwnership(info, reservation, failure);
             throw failure;
         }
-        LOG.info("event=task_submitted taskId={} queryId={}", taskId, queryId);
-        if (owner.lifecycleManager != null) {
-            owner.lifecycleManager.executeTask(taskId, info, admission, owner.lifecycleCallback);
-        } else {
-            autoFinishIfConfigured(taskId, queryId, request);
+        try {
+            LOG.info("event=task_submitted taskId={} queryId={}", taskId, queryId);
+            if (owner.lifecycleManager != null) {
+                owner.lifecycleManager.executeTask(taskId, info, admission, owner.lifecycleCallback);
+            } else {
+                autoFinishIfConfigured(taskId, queryId, request);
+            }
+            reservation.completeTaskSetup();
+            return taskId;
+        } catch (RuntimeException | Error failure) {
+            reservation.failAfterHandoff(failure);
+            throw failure;
         }
-        return taskId;
     }
 
     private void rejectBeforeOwnership(
