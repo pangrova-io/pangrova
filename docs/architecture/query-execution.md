@@ -127,6 +127,12 @@ projection before the sort and its gather. Sort direction, null ordering,
 offset and limit retain their original semantics. The SQL authorization check
 still covers the logical relation. [Trino projection pushdown](https://trino.io/docs/current/optimizer/pushdown.html#projection-pushdown) · [Velox table scan assignments](https://facebookincubator.github.io/velox/develop/operators.html#tablescannode)
 
+For a Parquet scan that requests at most half of the canonical top-level
+columns, the Native reader uses a 64 KiB speculative footer read. It can
+load the footer and selected column chunks separately above that size.
+Small files can still load as a unit. Other scan shapes use the existing
+buffering and asynchronous prefetch. [Parquet file layout](https://parquet.apache.org/docs/file-format/) · [Velox reader options](https://facebookincubator.github.io/velox/configs.html)
+
 A current catalog check reads the catalog name, incarnation and revision. The
 initial catalog load owns the deployment payload. The compact check keeps the
 revision fence at each existing ownership boundary.

@@ -90,6 +90,8 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
+窄列 Parquet 批次将投影列数不超过表字段一半时的整文件预载窗口和 footer 探读分别设为 64 KiB。大于窗口的文件可独立读取 footer 与所选列块。在 33 列、24,000 行、两份 Iceberg 文件的实际双 Worker 对照中，单列排序查询从 3,328,539 B 降至 166,515 B，逐行结果一致。同一候选的宽输出为 4,961,691 B，带隐式排序列的窄输出为 205,306 B。另一个带 WHERE 的窄列形态仍达 4,948,399 B，后续按谓词保留必要读取列。上述计量是 Native 向文件系统请求的字节，跨主机对象请求数与 P95 仍需同源环境测量。97 项定向及 4,365 项全量 Native、92 项实际端到端和 Checkstyle 通过。正式回归约束窄读字节小于同表宽读的四分之一。同源角色清单为 `716e44642b0076861cb906759aeef4e6559a8e8bc1ba0868a04debb6a14479a9`。 [Parquet 列块和 footer](https://parquet.apache.org/docs/file-format/) · [Velox reader 配置](https://facebookincubator.github.io/velox/configs.html)
+
 实施批次 169 使用当前目录身份查询校验名称、incarnation 和 revision。真实双 Worker Iceberg SQL 的完整目录部署 SELECT 从 7 次降到 0 次，保留 7 次精简身份读取和原有 revision 校验。普通直接投影用 Substrait ReadRel 输出映射缩小 Native 扫描赋值，保留连接器绑定的基础 schema。初版在全局排序处仍交换所有列。修正版在拆分前把符合条件的直接投影移到排序和 Gather 之前，按投影序号重绑定排序键，并覆盖排序方向、空值顺序、OFFSET 和 LIMIT。两套布局一致的实际双 Worker 对照读取相同的两份 Iceberg Parquet 文件并返回同样的 24,000 行。扫描物化由 12,963,456 B 降至 392,832 B，Native 文件读取由 4,971,586 B 降至 3,328,539 B。Velox 的默认整文件预载仍会读取窄投影用不到的文件范围。77 项定向 Java、104 项真实端到端、4,365 项 Native 全量、Checkstyle 及 152 模块静态检查通过。角色清单为 `d94c48456303f80c3bd0bd658ffdfc78a9c224bd9180c59b9404437d210edaec`。 [Trino 投影下推](https://trino.io/docs/current/optimizer/pushdown.html#projection-pushdown) · [Velox TableScan](https://facebookincubator.github.io/velox/develop/operators.html#tablescannode)
 
 实施批次 168 将 Substrait SDK 的规范化限定到可能包含 Fetch、哈希 Join 或归并 Join 的消息路径，覆盖表达式内子查询。只有确实改动的关系及其祖先新建消息。组序交替的 Java 对照中，单扫描与 24 扫描输入得到相同的输出字节。线程分配分别由 28,040 B 降至 3,496 B 和 1,682,384 B 降至 174,664 B，组中位耗时分别为 50.10→4.19 µs 和 1.68→0.54 ms。定向回归覆盖 Fetch 子查询和已校验 Join 键。64 项定向 Java、81 项真实端到端、Checkstyle 及 152 模块静态检查通过。角色清单为 `77caa193cbc8fafd3b4ce42318359249fd9595d9db0d3f29ec430d44b2e06150`。

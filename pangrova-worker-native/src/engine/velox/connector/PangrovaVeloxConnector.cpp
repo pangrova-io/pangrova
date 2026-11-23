@@ -477,6 +477,16 @@ void PangrovaVeloxDataSource::createReaderPair(
   facebook::velox::dwio::common::ReaderOptions readerOpts(pool_);
   readerOpts.setFileFormat(format);
 
+  // The SDK defaults preload up to 8 MiB during footer lookup. A narrow
+  // scan must be able to fetch the footer and selected chunks independently.
+  static constexpr uint64_t kProjectedParquetFooterBytes = 64L * 1024;
+  const bool sparseParquet = format == facebook::velox::dwio::common::FileFormat::PARQUET
+      && target_type->size() <= scan_schema_->size() / 2;
+  if (sparseParquet) {
+    readerOpts.setFilePreloadThreshold(kProjectedParquetFooterBytes);
+    readerOpts.setFooterSpeculativeIoSize(kProjectedParquetFooterBytes);
+  }
+
   // IO executor for async prefetch. Velox uses this to overlap IO with
   // computation: while the current batch is being processed, the next row
   // group is prefetched in the background.
@@ -660,7 +670,8 @@ void PangrovaVeloxDataSource::createReaderPair(
   bool isSmallFile =
       fileSize > 0 && eager_first_stripe_threshold_bytes_ > 0 &&
       fileSize < static_cast<uint64_t>(eager_first_stripe_threshold_bytes_);
-  rowOpts.setEagerFirstStripeLoad(isSmallFile);
+  rowOpts.setEagerFirstStripeLoad(isSmallFile
+      && (!sparseParquet || fileSize <= kProjectedParquetFooterBytes));
 
   // Task 2.16 (Parquet Page Index): Enable column index filtering for
   // page-level data skipping. When SubfieldFilters are present on the

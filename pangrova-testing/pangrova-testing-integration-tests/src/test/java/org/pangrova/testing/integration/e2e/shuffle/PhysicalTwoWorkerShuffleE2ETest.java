@@ -580,6 +580,40 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
                 "wide_file_read_bytes", Long.toString(wide.sourceReadBytes(orders))));
     }
 
+    @Test
+    void sparseParquetProjectionReadsOnlyItsFileRanges(TestReporter metrics) {
+        String table = orders + "_projection";
+        var definitions = new StringJoiner(", ");
+        var expression = new StringJoiner(", ");
+        definitions.add("id BIGINT");
+        expression.add("id");
+        for (int column = 0; column < 32; column++) {
+            definitions.add("data_" + column + " BIGINT");
+            expression.add("MOD(id*id*" + (104729 + column * 571)
+                    + "+id*" + (65537 + column * 983) + ",2147483647)");
+        }
+        sqlRunner.executeDdl("CREATE TABLE " + table + " (" + definitions + ")");
+        try {
+            sqlRunner.execute("INSERT INTO " + table + " SELECT " + expression
+                    + " FROM GENERATE_SERIES(1, 12000) AS s(id)");
+            sqlRunner.execute("INSERT INTO " + table + " SELECT " + expression
+                    + " FROM GENERATE_SERIES(12001, 24000) AS s(id)");
+            var narrow = executeWithDrainedReports("SELECT id FROM " + table + " ORDER BY id");
+            var wide = executeWithDrainedReports("SELECT * FROM " + table + " ORDER BY id");
+            assertThat(narrow.rows()).hasSize(24000);
+            assertThat(narrow.rows()).extracting(row -> row.getLong("id"))
+                    .containsExactlyElementsOf(wide.rows().stream().map(row -> row.getLong("id")).toList());
+            assertThat(narrow.sourceSplits(table)).isEqualTo(2).isEqualTo(wide.sourceSplits(table));
+            long narrowBytes = narrow.sourceReadBytes(table);
+            long wideBytes = wide.sourceReadBytes(table);
+            assertThat(narrowBytes).as("sparse Parquet file bytes").isPositive().isLessThan(wideBytes / 4);
+            metrics.publishEntry(Map.of("narrow_parquet_file_bytes", Long.toString(narrowBytes),
+                    "wide_parquet_file_bytes", Long.toString(wideBytes)));
+        } finally {
+            sqlRunner.executeDdl("DROP TABLE " + table);
+        }
+    }
+
     private static BuildKeyRange buildKeyRange(long minimum, long maximum) {
         return BuildKeyRange.newBuilder().setMinimum(minimum).setMaximum(maximum).build();
     }
