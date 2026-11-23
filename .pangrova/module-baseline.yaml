@@ -3739,28 +3739,21 @@ artifacts:
       pangrova-common: compile
       pangrova-persistence-coordination-api: compile
       pangrova-persistence-coordination-postgresql: test
-      pangrova-persistence-security-api: compile
-      pangrova-persistence-security-memory: test
       pangrova-protocol: compile
       pangrova-scheduler-api: compile
-      pangrova-security-api: compile
       pangrova-testing-kit: test
     imports:
       main:
         - pangrova-common
         - pangrova-persistence-coordination-api
-        - pangrova-persistence-security-api
         - pangrova-protocol
         - pangrova-scheduler-api
-        - pangrova-security-api
       test:
         - pangrova-common
         - pangrova-persistence-coordination-api
         - pangrova-persistence-coordination-postgresql
-        - pangrova-persistence-security-memory
         - pangrova-protocol
         - pangrova-scheduler-api
-        - pangrova-security-api
         - pangrova-testing-kit
     exportedPackages:
       - org.pangrova.scheduler.admission

@@ -403,6 +403,33 @@ final class IndependentLocalProcesses implements AutoCloseable {
     void awaitClusterReady() {
         awaitHealth("Coordinator with registered Worker and catalog", coordinator, coordinatorPort);
     }
+    void enableMetadataStatementCounters() throws java.sql.SQLException {
+        try (var connection = security.dataSource().getConnection();
+                var statement = connection.createStatement()) {
+            statement.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public");
+        }
+    }
+
+    long metadataStatementCalls(String pattern) throws java.sql.SQLException {
+        try (var connection = security.dataSource().getConnection();
+                var statement = connection.prepareStatement("""
+                        SELECT COALESCE(SUM(calls), 0) FROM public.pg_stat_statements
+                        WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+                          AND query LIKE ?
+                        """)) {
+            statement.setString(1, pattern);
+            try (var rows = statement.executeQuery()) {
+                if (!rows.next()) throw new java.sql.SQLException("Missing statement count");
+                return rows.getLong(1);
+            }
+        }
+    }
+
+    void revokeTenantMembership() {
+        var tenants = new org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore(security.dataSource());
+        tenants.removeUserFromTenant(ProcessSecurityAuthority.TENANT, ProcessSecurityAuthority.USER);
+    }
+
     int activeTenantReservations() {
         return new JdbcClusterConcurrencySlots(security.dataSource())
                 .active(ProcessSecurityAuthority.TENANT);

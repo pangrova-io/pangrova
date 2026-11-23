@@ -65,7 +65,7 @@ class QueryManagerJournalTest {
 
     @Test void failedQueuedJournalWriteRemovesUnownedQuery() throws Exception {
         try (var fixture = new QueryManagerJournalFixture(2)) {
-            assertThat(fixture.admission.admit(AdmissionRequest.of("fixture-tenant", "default", "survivor")).isAdmitted()).isTrue();
+            assertThat(fixture.admission.admit(fixture.admissionRequest("survivor")).isAdmitted()).isTrue();
             fixture.store.journal().close(); // Actual admission seal, before transfer; not an accepted SQL failure.
             assertThatThrownBy(() -> fixture.manager.submitQuery("journal-failure", "SELECT 1",
                     SourceFreeQueryFixture.session("journal-failure"))).isInstanceOf(JournalWriteException.class)

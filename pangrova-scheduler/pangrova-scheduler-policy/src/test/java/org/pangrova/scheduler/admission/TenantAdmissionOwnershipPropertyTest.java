@@ -6,17 +6,12 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.IntRange;
 import net.jqwik.api.constraints.Size;
-import org.pangrova.security.api.tenant.ResourceQuota;
-import org.pangrova.security.api.tenant.Tenant;
-import org.pangrova.security.api.enums.TenantStatus;
-import org.pangrova.persistence.security.memory.tenant.InMemoryTenantStore;
 import org.pangrova.scheduler.api.resource.AdmissionRequest;
+import org.pangrova.scheduler.api.resource.AdmissionRequest.TenantLimits;
 import org.pangrova.scheduler.api.enums.AdmissionVerdict;
 
-import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -27,12 +22,8 @@ class TenantAdmissionOwnershipPropertyTest {
     void reservationsMatchExactLiveQuerySet(
             @ForAll @Size(min = 1, max = 100) List<@IntRange(min = -20, max = 20) Integer> events,
             @ForAll boolean shared) {
-        var tenants = new InMemoryTenantStore();
-        var quota = new ResourceQuota(1000, 3, 2, 1000, 1000, 1000, 1000, 1000);
-        tenants.createTenant(new Tenant("t", "Tenant", TenantStatus.ACTIVE, quota,
-                List.of(), List.of(), null, Map.of(), Instant.EPOCH, "admin"));
-        var controller = new TenantQuotaAdmissionController(tenants, null,
-                shared ? new InMemoryClusterConcurrencySlots() : null);
+        var quota = new TenantLimits(1000, 3, 2);
+        var controller = new TenantQuotaAdmissionController(null, shared ? new InMemoryClusterConcurrencySlots() : null);
         var admitted = new HashSet<String>();
         var queued = new HashSet<String>();
         var liveIdentities = new java.util.HashMap<Integer, String>();
@@ -53,7 +44,7 @@ class TenantAdmissionOwnershipPropertyTest {
                     liveIdentities.put(slot, query);
                 }
                 var expected = expectedVerdict(query, admitted, queued);
-                var actual = controller.admit(AdmissionRequest.of("t", "default", query));
+                var actual = controller.admit(AdmissionRequest.of("t", "default", query, quota));
                 assertThat(actual.verdict()).isEqualTo(expected);
                 if (expected == AdmissionVerdict.ADMIT) {
                     admitted.add(query);

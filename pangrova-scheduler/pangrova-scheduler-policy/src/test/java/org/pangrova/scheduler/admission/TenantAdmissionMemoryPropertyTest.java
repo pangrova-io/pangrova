@@ -5,17 +5,11 @@ import org.pangrova.testing.testkit.coordination.admission.InMemoryClusterConcur
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.constraints.LongRange;
-import org.pangrova.security.api.tenant.ResourceQuota;
-import org.pangrova.security.api.tenant.Tenant;
-import org.pangrova.security.api.enums.TenantStatus;
-import org.pangrova.persistence.security.memory.tenant.InMemoryTenantStore;
 import org.pangrova.scheduler.api.resource.AdmissionRequest;
+import org.pangrova.scheduler.api.resource.AdmissionRequest.TenantLimits;
 import org.pangrova.scheduler.api.quota.GlobalTenantUsageView;
 
 import java.math.BigInteger;
-import java.time.Instant;
-import java.util.List;
-import java.util.Map;
 import java.util.OptionalLong;
 import java.util.Set;
 
@@ -29,14 +23,11 @@ class TenantAdmissionMemoryPropertyTest {
             @ForAll @LongRange(min = 0) long clusterUsed,
             @ForAll @LongRange(min = 0) long estimated,
             @ForAll boolean sharedSlotStore) {
-        var quota = new ResourceQuota(limit, 1, 0, 100, 100, 100, 100, 100);
-        var store = new InMemoryTenantStore();
-        store.createTenant(new Tenant("tenant", "Tenant", TenantStatus.ACTIVE, quota,
-                List.of(), List.of(), null, Map.of(), Instant.EPOCH, "admin"));
+        var quota = new TenantLimits(limit, 1, 0);
         var slots = sharedSlotStore ? new InMemoryClusterConcurrencySlots() : null;
-        var controller = new TenantQuotaAdmissionController(store, new MemoryUsage(clusterUsed), slots);
+        var controller = new TenantQuotaAdmissionController(new MemoryUsage(clusterUsed), slots);
 
-        var actual = controller.admit(new AdmissionRequest("tenant", "default", "query",
+        var actual = controller.admit(new AdmissionRequest("tenant", "default", "query", quota,
                 OptionalLong.of(estimated)));
         boolean fits = BigInteger.valueOf(clusterUsed).add(BigInteger.valueOf(estimated))
                 .compareTo(BigInteger.valueOf(limit)) <= 0;

@@ -15,6 +15,7 @@ import java.util.OptionalLong;
  * @param tenantId        the authenticated tenant (never null or blank)
  * @param resourceGroupId the resource group this query is classified into (never null)
  * @param queryId         unique query identifier (never null or blank)
+ * @param tenantLimits    limits from the authenticated tenant definition resolved for this submission
  * @param estimatedMemoryBytes nonnegative CBO-estimated memory (empty if unavailable)
  */
 @Experimental(reason = "G-RES-04: cluster admission control SPI")
@@ -22,6 +23,7 @@ public record AdmissionRequest(
         String tenantId,
         String resourceGroupId,
         String queryId,
+        TenantLimits tenantLimits,
         OptionalLong estimatedMemoryBytes) {
 
     public AdmissionRequest {
@@ -34,6 +36,7 @@ public record AdmissionRequest(
         if (queryId.isBlank()) {
             throw new IllegalArgumentException("queryId must not be blank");
         }
+        Objects.requireNonNull(tenantLimits, "tenantLimits must not be null");
         estimatedMemoryBytes = estimatedMemoryBytes == null
                 ? OptionalLong.empty() : estimatedMemoryBytes;
         if (estimatedMemoryBytes.isPresent() && estimatedMemoryBytes.getAsLong() < 0) {
@@ -42,7 +45,10 @@ public record AdmissionRequest(
     }
 
     /** Creates a request without a memory estimate. */
-    public static AdmissionRequest of(String tenantId, String resourceGroupId, String queryId) {
-        return new AdmissionRequest(tenantId, resourceGroupId, queryId, OptionalLong.empty());
+    public static AdmissionRequest of(String tenantId, String resourceGroupId, String queryId, TenantLimits limits) {
+        return new AdmissionRequest(tenantId, resourceGroupId, queryId, limits, OptionalLong.empty());
     }
+
+    /** The limits used by admission, projected from the authenticated tenant for this query. */
+    public record TenantLimits(long maxMemoryBytes, int maxConcurrentQueries, int maxQueuedQueries) {}
 }

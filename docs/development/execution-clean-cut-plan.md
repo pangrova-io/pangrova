@@ -90,6 +90,8 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
+实施批次 152 让成员解析返回一次权威读取取得的租户和配额，并直接交给 Scheduler 准入。实库常量 SQL 从提交到物理释放的读取为 1 次成员查询加 2 次租户 ID 查询，候选为 1 加 1，保留每个阶段放置对当前资源池的核验。撤销成员关系后，下一次提交执行一次成员查询、返回 HTTP 403，槽位保持为零。没有跨请求权限缓存。105 项准入和所有者测试、追加的 30 项撤权和 HTTP 校验、Checkstyle 及模块事实检查通过。739 项角色清单 `0c0a404df95ddeacac57001f093475166f2409a5dea27718b454f181318ddf6a` 分别通过撤权和以 45 次配额拒绝、40 次完整读取及物理排空为门槛的独立双 Worker 验收。第一次合跑有一次 Worker 健康探针超时，同一产物的负载用例单独复测通过。
+
 实施批次 151 让 Native 本地并行聚合复用首次绑定返回的累加器类型，Partial 构建移除一次同签名注册表绑定。DECIMAL(22,7) SUM 的实际计划验证 Partial 产出 VARBINARY，Final 保留 DECIMAL(22,7) 原始实参并返回 DECIMAL(38,7)。619 项定向测试、4,356 项 Native 全量测试和 54 项真实 Java 到 Native 回归通过，包含 TPC 派生、GROUPING SETS、双 Worker Shuffle 和 PostgreSQL 读预算。Native 函数目录逐字节一致。该结论覆盖单任务内的类型绑定和执行，跨 Stage DECIMAL 状态仍待验收。
 
 实施批次 150 清除 Native 聚合前无作用的恒等投影。实际转换基线在聚合输入处生成一个四列 Project，分组字段被重复追加。候选从原来的三列 TableScan 直接绑定分组，计算表达式和必要的别名仍按需物化。593 项聚合相关测试和 4,355 项 Native 全量测试通过。54 项真实 Java 到 Native 回归包含 TPC-H/TPC-DS 派生夹具、GROUPING SETS、双 Worker Shuffle、能力握手和 PostgreSQL 读预算。739 项角色清单 `cc58258eb73853d64659e0f313ec8f6bf47ab8aa0ba5ddbc0866af70297ca854` 的独立进程验证覆盖双 Worker 重启、远程 Shuffle、Kafka→Paimon 和租户配额恢复。规范 Protobuf 描述符和 Native 函数目录摘要一致。已验证计划结构和结果语义，CPU 和端到端延迟仍按同条件基准归因。

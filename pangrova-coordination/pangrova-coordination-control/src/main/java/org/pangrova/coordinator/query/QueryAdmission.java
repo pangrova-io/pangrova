@@ -16,6 +16,8 @@ import org.pangrova.query.api.enums.QueryState;
 import org.pangrova.query.api.error.QueryFailure;
 import org.pangrova.scheduler.api.enums.AdmissionVerdict;
 import org.pangrova.scheduler.api.resource.AdmissionRequest;
+import org.pangrova.scheduler.api.resource.AdmissionRequest.TenantLimits;
+import org.pangrova.security.api.tenant.ResolvedTenantContext;
 import org.pangrova.scheduler.api.admission.ClusterAdmissionController;
 
 /** Owns query admission reservations until dependent physical execution has drained. */
@@ -65,12 +67,18 @@ final class QueryAdmission implements org.pangrova.query.lifecycle.QueryAdmissio
     }
 
     @Override
-    public void checkCluster(String queryId, String tenantId, QueryStateMachine state) {
+    public void checkCluster(String queryId, ResolvedTenantContext tenant, QueryStateMachine state) {
         ClusterAdmissionController controller = cluster;
-        if (controller == null || tenantId == null || tenantId.isBlank()) return;
+        if (controller == null) return;
+        if (tenant == null) {
+            throw new IllegalStateException("Cluster admission requires a resolved tenant");
+        }
+        String tenantId = tenant.tenantId();
+        var quota = tenant.tenant().quota();
+        var limits = new TenantLimits(quota.maxMemoryBytes(), quota.maxConcurrentQueries(), quota.maxQueuedQueries());
         // Retain the exact release obligation before admission can acquire a slot or queue entry.
         state.retainAdmissionRelease(() -> controller.release(queryId, tenantId));
-        var decision = controller.admit(AdmissionRequest.of(tenantId, "default", queryId));
+        var decision = controller.admit(AdmissionRequest.of(tenantId, "default", queryId, limits));
         if (!decision.isAdmitted()) {
             QueryRejectedException rejected = new QueryRejectedException(
                     "Cluster admission denied for tenant " + tenantId + ": " + decision.reason());

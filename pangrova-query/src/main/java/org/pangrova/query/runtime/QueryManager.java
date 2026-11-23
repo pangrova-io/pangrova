@@ -13,6 +13,7 @@ import org.pangrova.query.api.enums.QueryState;
 import org.pangrova.query.api.exception.QueryRejectedException;
 import org.pangrova.query.api.submission.AsyncSubmitConfig;
 import org.pangrova.query.api.session.QuerySession;
+import org.pangrova.security.api.tenant.ResolvedTenantContext;
 
 import java.time.Duration;
 import java.util.List;
@@ -212,10 +213,14 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
         try {
             registerJournalListener(queryId, sm);
 
-            enriched = enrichTenant(session.withQueryAuthority(sm.connectorAuthority()), sm);
+            ResolvedTenantContext tenant = tenantAdmission == null ? null
+                    : tenantAdmission.resolveTenant(session.userIdentity(), queries.states());
+            String tenantId = tenant == null ? unscopedTenantId(session) : tenant.tenantId();
+            sm.setTenantId(tenantId);
+            enriched = session.withQueryAuthority(sm.connectorAuthority()).withTenantId(tenantId);
             admission.checkThrottle(queryId, enriched);
 
-            admission.checkCluster(queryId, enriched.tenantId(), sm);
+            admission.checkCluster(queryId, tenant, sm);
 
             acquireOwnershipOrReject(queryId);
 
@@ -251,15 +256,6 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
                                                  QuerySession session, QueryStateMachine state) {
         return new QueryAsyncSubmission(queryDispatcher, asyncSubmitConfig, asyncExecutor,
                 this::failQuery, this::applyDispatchResult).execute(queryId, sql, session, state);
-    }
-
-    private QuerySession enrichTenant(
-            QuerySession session, QueryStateMachine sm) {
-        QuerySession enriched = enrichWithTenant(session);
-        if (enriched.tenantId() != null) {
-            sm.setTenantId(enriched.tenantId());
-        }
-        return enriched;
     }
 
     private void acquireOwnershipOrReject(String queryId) {
@@ -298,12 +294,8 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
         }
     }
 
-    private QuerySession enrichWithTenant(QuerySession session) {
-        String tenantId = tenantAdmission != null
-                ? tenantAdmission.resolveTenant(session.userIdentity(), queries.states())
-                : (session.tenantId() != null && !session.tenantId().isBlank()
-                        ? session.tenantId() : "default");
-        return session.withTenantId(tenantId);
+    private static String unscopedTenantId(QuerySession session) {
+        return session.tenantId() == null || session.tenantId().isBlank() ? "default" : session.tenantId();
     }
 
     public void setClusterAdmissionController(

@@ -4,16 +4,10 @@ import org.pangrova.testing.testkit.coordination.admission.InMemoryClusterConcur
 
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.pangrova.security.api.tenant.ResourceQuota;
-import org.pangrova.security.api.tenant.Tenant;
-import org.pangrova.security.api.enums.TenantStatus;
-import org.pangrova.persistence.security.memory.tenant.InMemoryTenantStore;
 import org.pangrova.scheduler.api.resource.AdmissionRequest;
+import org.pangrova.scheduler.api.resource.AdmissionRequest.TenantLimits;
 import org.pangrova.scheduler.api.enums.AdmissionVerdict;
 
-import java.time.Instant;
-import java.util.List;
-import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -156,7 +150,7 @@ class TenantAdmissionOwnershipTest {
     }
 
     private static AdmissionRequest request(String queryId) {
-        return AdmissionRequest.of("tenant", "default", queryId);
+        return AdmissionRequest.of("tenant", "default", queryId, new TenantLimits(1000, 2, 1));
     }
 
     private static void admit(TenantQuotaAdmissionController controller, String queryId) {
@@ -164,11 +158,6 @@ class TenantAdmissionOwnershipTest {
     }
 
     private static TenantQuotaAdmissionController controller(boolean shared) {
-        var store = new InMemoryTenantStore();
-        var quota = new ResourceQuota(1000, 2, 1, 1000, 1000, 1000, 1000, 1000);
-        store.createTenant(new Tenant("tenant", "Tenant", TenantStatus.ACTIVE, quota,
-                List.of(), List.of(), null, Map.of(), Instant.EPOCH, "admin"));
-        return new TenantQuotaAdmissionController(store, null,
-                shared ? new InMemoryClusterConcurrencySlots() : null);
+        return new TenantQuotaAdmissionController(null, shared ? new InMemoryClusterConcurrencySlots() : null);
     }
 }

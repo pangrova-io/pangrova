@@ -3,6 +3,7 @@ package org.pangrova.scheduler.admission;
 import org.junit.jupiter.api.Test;
 import org.pangrova.scheduler.api.resource.AdmissionDecision;
 import org.pangrova.scheduler.api.resource.AdmissionRequest;
+import org.pangrova.scheduler.api.resource.AdmissionRequest.TenantLimits;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -11,6 +12,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Direct lifecycle tests for the admission owner, not SQL/Native execution evidence. */
 class QueryAdmissionOwnershipTest {
+    private static final TenantLimits QUOTA = new TenantLimits(1000, 2, 1);
 
     @Test
     void failedAdmissionRetainsItsEnteredReservationForCleanup() {
@@ -57,7 +59,7 @@ class QueryAdmissionOwnershipTest {
             reservation.retain(returned::incrementAndGet);
             return AdmissionDecision.admit();
         });
-        var changed = AdmissionRequest.of("different-tenant", "default", "query");
+        var changed = AdmissionRequest.of("different-tenant", "default", "query", QUOTA);
         assertThat(ownership.admit(changed, reservation -> {
             throw new AssertionError("conflicting admission action must not enter");
         }).isAdmitted()).isFalse();
@@ -82,6 +84,6 @@ class QueryAdmissionOwnershipTest {
     }
 
     private static AdmissionRequest request(String queryId) {
-        return AdmissionRequest.of("tenant", "default", queryId);
+        return AdmissionRequest.of("tenant", "default", queryId, QUOTA);
     }
 }

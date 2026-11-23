@@ -233,13 +233,10 @@ final class QueryBootstrap {
         selfIntelligence.initialize(executionWiring);
         selfIntelligence.wireIntoQueryDispatcher(queryDispatcher);
         // P1-5b: enforce tenant budget limits across coordinators on the submission path.
-        if (moduleWiring != null) {
-            var admission = SecurityBootstrap.createClusterAdmissionController(
-                    moduleWiring.getTenantStore(), workerManager.tenantUsageView(),
-                    metadataDataSource);
-            if (admission != null) {
-                queryManager.setClusterAdmissionController(admission);
-            }
+        if (moduleWiring != null && moduleWiring.getTenantResolver() != null
+                && moduleWiring.getQuotaChecker() != null) {
+            queryManager.setClusterAdmissionController(SecurityBootstrap.createClusterAdmissionController(
+                    workerManager.tenantUsageView(), metadataDataSource));
         }
         LOG.info("event=query_bootstrap_complete speculation={} embedding={}",
                 config.speculationEnabled(),

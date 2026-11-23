@@ -57,6 +57,39 @@ class PersistentTenantOverloadE2ETest extends ContainerTestBase {
         }
     }
 
+    @Test
+    void resolvesTenantLimitsOnceAndChecksMembershipAgainOnTheNextSubmission() throws Exception {
+        String membershipLookup = "SELECT t.*, m.role AS membership_role FROM tenants t "
+                + "JOIN tenant_user_memberships m ON m.tenant_id=t.tenant_id WHERE m.user_principal=$1";
+        String tenantLookup = "SELECT * FROM tenants WHERE tenant_id = $1";
+        try (var processes = new IndependentLocalProcesses()) {
+            processes.startCoordinatorAndFirstWorker();
+            processes.enableMetadataStatementCounters();
+            try (var client = processes.coordinatorClientBuilder().retryPolicy(RetryPolicy.NONE).build()) {
+                long initialMembership = processes.metadataStatementCalls(membershipLookup);
+                long initialTenant = processes.metadataStatementCalls(tenantLookup);
+                long deadline = System.currentTimeMillis() + TIMEOUT.toMillis();
+                var query = client.beginQuery("SELECT CAST(42 AS BIGINT)", Map.of());
+                finish(client, query, awaitResult(query, deadline), List.of(42L), deadline);
+                assertThat(processes.activeTenantReservations()).isZero();
+                long membershipReads = processes.metadataStatementCalls(membershipLookup) - initialMembership;
+                long tenantReads = processes.metadataStatementCalls(tenantLookup) - initialTenant;
+                LOG.info("event=tenant_admission_reads membership={} tenantById={}", membershipReads, tenantReads);
+                assertThat(membershipReads).as("authorization membership lookups").isOne();
+                assertThat(tenantReads).as("current placement read for one cohort").isOne();
+
+                processes.revokeTenantMembership();
+                var revoked = catchThrowableOfType(() -> client.beginQuery("SELECT CAST(43 AS BIGINT)", Map.of()),
+                        PangrovaClientException.class);
+                assertThat(revoked).isNotNull().isNotInstanceOf(PangrovaServerException.class);
+                assertThat(revoked.errorCode()).isEqualTo(PangrovaErrorCode.ACCESS_DENIED.getCode());
+                assertThat(processes.metadataStatementCalls(membershipLookup) - initialMembership).isEqualTo(2L);
+                assertThat(processes.metadataStatementCalls(tenantLookup) - initialTenant).isOne();
+                assertThat(processes.activeTenantReservations()).isZero();
+            }
+        }
+    }
+
     private static void runArrivals(IndependentLocalProcesses processes) throws Exception {
         processes.startCoordinatorAndFirstWorker();
         processes.createSourceCatalog();

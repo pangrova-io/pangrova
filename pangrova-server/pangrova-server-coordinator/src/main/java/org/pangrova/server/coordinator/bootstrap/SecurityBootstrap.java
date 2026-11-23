@@ -11,7 +11,6 @@ import org.pangrova.security.rowfilter.RowLevelSecurityFilter;
 import org.pangrova.persistence.coordination.api.admission.ClusterConcurrencySlots;
 import org.pangrova.persistence.coordination.postgresql.admission.JdbcClusterConcurrencySlots;
 import org.pangrova.scheduler.admission.TenantQuotaAdmissionController;
-import org.pangrova.persistence.security.api.tenant.TenantStore;
 import org.pangrova.scheduler.api.quota.GlobalTenantUsageView;
 import org.pangrova.security.api.authorization.AccessControl;
 import org.slf4j.Logger;
@@ -156,16 +155,11 @@ final class SecurityBootstrap {
      * Without a shared database (dev / in-memory) the slot store stays null and the controller
      * falls back to the view alone.</p>
      *
-     * @return {@code null} when tenant awareness is not configured, meaning no admission control
      */
     static TenantQuotaAdmissionController createClusterAdmissionController(
-            TenantStore tenantStore, GlobalTenantUsageView usageView, DataSource metadataDataSource) {
-        if (tenantStore == null || usageView == null) {
-            return null;
-        }
+            GlobalTenantUsageView usageView, DataSource metadataDataSource) {
         ClusterConcurrencySlots clusterSlots = metadataDataSource != null
                 ? new JdbcClusterConcurrencySlots(metadataDataSource) : null;
-        return new TenantQuotaAdmissionController(
-                tenantStore, usageView, clusterSlots);
+        return new TenantQuotaAdmissionController(usageView, clusterSlots);
     }
 }
