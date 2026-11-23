@@ -119,9 +119,7 @@ public final class TaskCompletionMonitor {
      */
     private void captureTerminalMetadata(TaskInfo info, long handle) {
         if (info.executorHandle() == 0) {
-            var released =
-                    requireCanonicalTaskReport(
-                            info.request().taskRequest(), info.executorReleaseReport());
+            var released = requireReleasedReport(info);
             if (released.getState() != org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED) {
                 throw new IllegalStateException(
                         "Released Native task did not finish successfully: " + released.getState());
@@ -178,7 +176,7 @@ public final class TaskCompletionMonitor {
             if (info.executorHandle() != 0) {
                 throw failure;
             }
-            var receipt = requireCanonicalTaskReport(info.request().taskRequest(), info.executorReleaseReport());
+            var receipt = requireReleasedReport(info);
             return receipt.hasNativeTaskStats() ? receipt.getNativeTaskStats() : null;
         }
         if (encoded == null || encoded.length == 0) {
@@ -190,6 +188,15 @@ public final class TaskCompletionMonitor {
             throw new IllegalStateException(
                     "Native task statistics are malformed: " + info.taskId(), failure);
         }
+    }
+
+    private static org.pangrova.protocol.v2.TaskReport requireReleasedReport(TaskInfo info) {
+        var receipt = info.executorReleaseReceipt();
+        if (receipt == null) {
+            throw new IllegalStateException("Task completed without a canonical TaskReport: "
+                    + info.request().taskRequest().getAttempt().getTaskId());
+        }
+        return receipt.report();
     }
 
     static org.pangrova.protocol.v2.TaskReport requireCanonicalTaskReport(
@@ -411,7 +418,7 @@ public final class TaskCompletionMonitor {
 
     private boolean isFinishedOrReleased(TaskInfo info, long handle, int waitMillis) throws InterruptedException {
         if (info.executorHandle() == 0) {
-            requireCanonicalTaskReport(info.request().taskRequest(), info.executorReleaseReport());
+            requireReleasedReport(info);
             return true;
         }
         try {
@@ -420,7 +427,7 @@ public final class TaskCompletionMonitor {
             if (info.executorHandle() != 0) {
                 throw failure;
             }
-            requireCanonicalTaskReport(info.request().taskRequest(), info.executorReleaseReport());
+            requireReleasedReport(info);
             return true;
         }
     }

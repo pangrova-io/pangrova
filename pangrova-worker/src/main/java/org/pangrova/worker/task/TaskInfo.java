@@ -176,13 +176,18 @@ public final class TaskInfo {
         return execution.compareAndSetExecutorHandle(expected, update);
     }
 
-    java.util.concurrent.CompletableFuture<byte[]> claimExecutorRelease(
-            java.util.concurrent.CompletableFuture<byte[]> candidate) {
+    java.util.concurrent.CompletableFuture<TaskReportEvidence> claimExecutorRelease(
+            java.util.concurrent.CompletableFuture<TaskReportEvidence> candidate) {
         return execution.claimExecutorRelease(candidate);
     }
 
+    TaskReportEvidence executorReleaseReceipt() {
+        return execution.executorReleaseReceipt();
+    }
+
     byte[] executorReleaseReport() {
-        return execution.executorReleaseReport();
+        var receipt = executorReleaseReceipt();
+        return receipt == null ? null : receipt.bytes().toByteArray();
     }
 
     byte[] stagedExecutorReleaseReceipt() {
@@ -206,10 +211,9 @@ public final class TaskInfo {
     }
 
     org.pangrova.protocol.v2.ExecutionDrainState executionDrainState() {
-        byte[] receipt = executorReleaseReport();
+        var receipt = executorReleaseReceipt();
         if (receipt != null) {
-            return TaskCompletionMonitor.requireCanonicalTaskReport(request.taskRequest(), receipt)
-                    .getExecutionDrainState();
+            return receipt.report().getExecutionDrainState();
         }
         if (!nativeCreation.sealWithoutOwnerOrAwaitExit()) {
             throw new IllegalStateException("Created Native owner has no actual release receipt");

@@ -1,5 +1,6 @@
 package org.pangrova.worker.task;
 
+import com.google.protobuf.ByteString;
 import org.pangrova.worker.shuffle.NativeShuffleProducerRegistration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -90,34 +91,37 @@ final class TaskResourceReleaser {
      * outcome before releasing task memory.
      */
     void releaseExecutorIfNeeded(TaskInfo info) {
-        var candidate = new java.util.concurrent.CompletableFuture<byte[]>();
+        var candidate = new java.util.concurrent.CompletableFuture<TaskReportEvidence>();
         var release = info.claimExecutorRelease(candidate);
         if (release != candidate) {
             release.join();
             return;
         }
         try {
-            if (info.isWorkerExecuted()) {
-                releaseWorkerExecutedExecutor(info, release);
-                return;
-            }
-            if (TaskNativeCreationRecovery.seal(info, deps == null ? null : deps.taskExecutor())) {
+            boolean workerExecuted = info.isWorkerExecuted();
+            if (!workerExecuted && TaskNativeCreationRecovery.seal(info, deps == null ? null : deps.taskExecutor())) {
                 release.complete(null);
                 return;
             }
             long handle = info.executorHandle();
             if (handle == 0) {
-                throw new IllegalStateException("Actual Native owner has no release receipt");
+                if (!workerExecuted) {
+                    throw new IllegalStateException("Actual Native owner has no release receipt");
+                }
+                release.complete(null);
+                return;
             }
             byte[] receipt = releaseActualExecutor(info, handle);
             var report = validateFinalReceipt(info, receipt);
+            var evidence = new TaskReportEvidence(ByteString.copyFrom(receipt), report);
             info.setReleasedTaskStats(
                     report.hasNativeTaskStats() ? report.getNativeTaskStats() : null);
             if (!info.compareAndSetExecutorHandle(handle, 0)) {
                 throw new IllegalStateException(
-                        "Native executor handle changed during release: task=" + info.taskId());
+                        "Executor handle changed during release: task=" + info.taskId());
             }
-            release.complete(receipt);
+            release.complete(evidence);
+            info.stageExecutorReleaseReceipt(null);
             LOG.debug("event=executor_released taskId={} handle={}", info.taskId(), handle);
         } catch (RuntimeException | Error failure) {
             release.completeExceptionally(failure);
@@ -130,49 +134,18 @@ final class TaskResourceReleaser {
         }
     }
 
-    private void releaseWorkerExecutedExecutor(
-            TaskInfo info, java.util.concurrent.CompletableFuture<byte[]> release) {
-        long handle = info.executorHandle();
-        if (handle == 0) {
-            // Creation failed before a backend owner existed; the failure report
-            // will carry the no-Native-owner admission closure.
-            release.complete(null);
-            return;
-        }
-        byte[] receipt = deps.taskExecutor().releaseTask(handle)
-                .orElseThrow(() -> new IllegalStateException(
-                        "Worker-executed task release returned no final report: " + info.taskId()));
-        info.stageExecutorReleaseReceipt(receipt);
-        validateFinalReceipt(info, receipt);
-        info.setReleasedTaskStats(null);
-        if (!info.compareAndSetExecutorHandle(handle, 0)) {
-            throw new IllegalStateException(
-                    "Worker-executed handle changed during release: task=" + info.taskId());
-        }
-        release.complete(receipt);
-        LOG.debug("event=worker_executed_released taskId={} handle={}", info.taskId(), handle);
-    }
-
     private byte[] releaseActualExecutor(TaskInfo info, long handle) {
+        byte[] receipt = info.stagedExecutorReleaseReceipt();
+        if (receipt != null) return receipt;
         if (deps == null || deps.taskExecutor() == null) {
             throw new IllegalStateException("Task executor is unavailable during release");
         }
-        byte[] receipt = info.stagedExecutorReleaseReceipt();
-        if (receipt != null) {
-            validateFinalReceipt(info, receipt);
-            return receipt;
-        }
-        if (deps.exchangeTransport() != null) {
+        if (!info.isWorkerExecuted() && deps.exchangeTransport() != null) {
             deps.exchangeTransport().releaseInputs(handle);
         }
-        receipt =
-                deps.taskExecutor()
-                        .releaseTask(handle)
-                        .orElseThrow(
-                                () ->
-                                        new IllegalStateException(
-                                                "Native task release returned no final report: "
-                                                        + info.taskId()));
+        receipt = deps.taskExecutor().releaseTask(handle)
+                .orElseThrow(() -> new IllegalStateException(
+                        "Task release returned no final report: " + info.taskId()));
         info.stageExecutorReleaseReceipt(receipt);
         return receipt;
     }

@@ -32,7 +32,7 @@ final class TaskExecutionState {
     private final AtomicReference<TaskState> state =
             new AtomicReference<>(TaskState.RECEIVED);
     private final AtomicLong executorHandle = new AtomicLong(0);
-    private final AtomicReference<CompletableFuture<byte[]>> executorRelease =
+    private final AtomicReference<CompletableFuture<TaskReportEvidence>> executorRelease =
             new AtomicReference<>();
     private final AtomicReference<CompletableFuture<Void>> resourcesRelease =
             new AtomicReference<>();
@@ -131,15 +131,14 @@ final class TaskExecutionState {
         return executorHandle.compareAndSet(expected, update);
     }
 
-    CompletableFuture<byte[]> claimExecutorRelease(CompletableFuture<byte[]> candidate) {
+    CompletableFuture<TaskReportEvidence> claimExecutorRelease(
+            CompletableFuture<TaskReportEvidence> candidate) {
         return claimRelease(executorRelease, candidate);
     }
 
-    byte[] executorReleaseReport() {
+    TaskReportEvidence executorReleaseReceipt() {
         var release = executorRelease.get();
-        if (release == null) return null;
-        byte[] receipt = release.join();
-        return receipt == null ? null : receipt.clone();
+        return release == null ? null : release.join();
     }
 
     CompletableFuture<Void> claimResourcesRelease(CompletableFuture<Void> candidate) {
@@ -202,8 +201,8 @@ final class TaskExecutionState {
     byte[] terminalTaskReport() {
         var release = executorRelease.get();
         if (release != null && release.isDone() && !release.isCompletedExceptionally()) {
-            byte[] receipt = release.join();
-            if (receipt != null) return receipt.clone();
+            var receipt = release.join();
+            if (receipt != null) return receipt.bytes().toByteArray();
         }
         byte[] value = terminalTaskReport.get();
         return value == null ? null : value.clone();

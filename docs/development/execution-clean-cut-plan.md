@@ -90,6 +90,8 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
+实施批次 138 让 Native 与 JVM 执行器的最终释放回执在 Worker 内以同一份不可变消息和原始字节保存，物理退出状态核对和同一终态发布直接复用。退役后重试从已取得的回执恢复，错误 attempt 无法清除句柄。Corretto 17 的回执校验与投影探针中，115 B 样本的线程分配由 5,240 B 降到 1,720 B，6,458 B 的 128 算子样本由 192,568 B 降到 61,792 B，两份规范字节摘要一致。该探针测量分配，单算子样本未观察到耗时改善。77 项正式 Java 回归、Checkstyle 和模块边界通过，覆盖实际 Native Flight 释放、HTTP 重报、双 Worker Shuffle、PostgreSQL 读预算、COPY 和 JVM CDC。
+
 实施批次 137 在规范 Native 回报和 JSON Profile 中保留算子总阻塞及生产者、消费者、split、连接器四类等待。计量按 Velox driver 累加，并行等待可以重叠。受控真实 Flight 测试在暂停生产者时录得 85.477 ms 的生产者累计等待，消费者和连接器等待为零，三行结果完整。实际输出背压测试在取消并物理释放后保留了消费者等待。对应 JNI 与两份能力夹具同源重采，4,354 项 Native 和 107 项 Java 验证通过，另通过描述符、Checkstyle 和模块边界检查。 [Trino 的算子等待归因](https://trino.io/docs/current/sql/explain-analyze.html)
 
 实施批次 136 让索引构建和目录文件枚举在一次连接器观察中选择当前快照并读取其文件集合。Iceberg 复用一个已打开的目录表，Paimon 保留同一已绑定表。真实 PostgreSQL 的三次对照均从两条目录指针 SELECT 降到一条，空表保持一次。实际提交新快照后，当前文件集合包含新文件，显式历史快照仍只返回原文件。43 项回归和 Checkstyle、模块边界检查通过，涵盖 Iceberg 与 Paimon SQL、索引创建、增量构建和快照固定。

@@ -598,7 +598,10 @@ Terminal handling reads the full Native report for usage, coverage, and statisti
 when available.
 Native derives those fields from one Velox statistics snapshot. The Worker
 retains the parsed immutable statistics through terminal handling and replaces
-them with the final report's statistics on actual release.
+them with the final report's statistics on actual release. Both execution
+backends retain the validated release report alongside its exact canonical
+bytes. Drain checks and publication of that same terminal fact use the retained
+report. A release retry after executor retirement uses the staged receipt.
 The failure path also reads the Native report to extract the original error.
 Native tasks publish `FINISHED` with a validated Native-origin `TaskReport`.
 Worker-executed CDC tasks use their own completion and drain evidence. For

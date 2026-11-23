@@ -112,6 +112,9 @@ class OutputTaskMemoryReleaseTest {
         assertThat(released).hasSize(2);
         assertThat(released.get(1).reportSequence()).isGreaterThan(released.get(0).reportSequence());
         assertThat(TaskReport.parseFrom(released.get(1).canonicalTaskReport())).isEqualTo(receipt);
+        var accepted = info.executorReleaseReceipt();
+        assertThat(released.get(1).decodedStatus()).isSameAs(accepted.report());
+        assertThat(released.get(1).canonicalEvidence()).isSameAs(accepted.bytes());
         assertThat(TaskReport.parseFrom(released.get(0).canonicalTaskReport()).getExecutionDrainState())
                 .isEqualTo(org.pangrova.protocol.v2.ExecutionDrainState.EXECUTION_DRAIN_STATE_UNSPECIFIED);
     }

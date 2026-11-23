@@ -1,6 +1,8 @@
 package org.pangrova.worker.task;
 
 import org.junit.jupiter.api.Test;
+import org.pangrova.protocol.rest.task.SubmitTaskRequest;
+import org.pangrova.protocol.rest.task.convert.TaskRequestDtoConverter;
 import org.pangrova.protocol.task.WorkerTerminalTaskReports;
 import org.pangrova.common.client.error.ErrorDetail;
 import org.pangrova.protocol.v2.ErrorClass;
@@ -13,6 +15,8 @@ import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.v2.TaskReportOrigin;
 import org.pangrova.protocol.v2.TaskState;
 import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
+
+import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -120,6 +124,34 @@ class TaskTerminalEvidenceContractTest {
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("JVM completion authority");
         }
+    }
+
+    @Test
+    void workerExecutionReleaseRetryUsesTheStagedReceiptAfterOwnerRetirement() {
+        var request = ActualNativeTaskFixture.valuesTaskRequest(true).toBuilder()
+                .setTaskKind(TaskKind.TASK_KIND_CDC_INGEST).build();
+        var submitted = SubmitTaskRequest.from(request);
+        var info = new TaskInfo(request.getAttempt().getTaskId(), request.getAttempt().getQueryOrJobId(),
+                submitted, TaskRequestDtoConverter.toTaskDescriptor(submitted), Instant.now());
+        long retiredHandle = Long.MAX_VALUE / 2;
+        info.setExecutorHandle(retiredHandle);
+        var receipt = TaskReport.newBuilder().setAttempt(request.getAttempt())
+                .setState(TaskState.TASK_STATE_FINISHED)
+                .setReportOrigin(TaskReportOrigin.TASK_REPORT_ORIGIN_WORKER_EXECUTED)
+                .setExecutionDrainState(ExecutionDrainState.EXECUTION_DRAIN_STATE_WORKER_TASK_COMPLETED)
+                .build();
+        var wrong = receipt.toBuilder().setAttempt(request.getAttempt().toBuilder().setTaskId("other-task")).build();
+        var releaser = new TaskResourceReleaser(null, null, ignored -> {});
+        info.stageExecutorReleaseReceipt(wrong.toByteArray());
+        assertThatThrownBy(() -> releaser.releaseExecutorIfNeeded(info))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("JVM completion authority");
+        assertThat(info.executorHandle()).isEqualTo(retiredHandle);
+        info.stageExecutorReleaseReceipt(receipt.toByteArray());
+        releaser.releaseExecutorIfNeeded(info);
+        assertThat(info.executorHandle()).isZero();
+        assertThat(info.executorReleaseReceipt().report()).isEqualTo(receipt);
+        assertThat(info.executorReleaseReceipt().bytes()).isEqualTo(receipt.toByteString());
+        assertThat(info.stagedExecutorReleaseReceipt()).isNull();
     }
 
     @Test
