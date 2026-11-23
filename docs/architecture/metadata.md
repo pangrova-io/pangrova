@@ -141,6 +141,10 @@ wires this real fence into build, stage, exchange and publication stores.
 Managed-source publication and File's COPY-source read admission also receive the
 Query transaction port explicitly; neither calls a static anchor-store helper.
 The former File-owned duplicate anchor-fence interface has been removed.
+Foreground query authorization reads effective roles and their grants in one
+PostgreSQL statement. The read includes direct assignments and mapped groups.
+The same subject supplies table privilege checks and row and column policy
+evaluation for the compilation.
 Server Coordinator composes a `PostgresTableControlWriteAuthority` with the same
 identity-bound row and mask projection used for foreground policy reads. Query and
 Generation receive the `TableControlWriteAuthority` port. The PostgreSQL workflow
