@@ -49,7 +49,7 @@ unlisted: true
 
 **控制协议和调度分开验收。** 保留现有 HTTP 服务设施，以一个 canonical 二进制消息替换 task/report 的 JSON+Base64 镜像，可独立测 body bytes、解析次数和 CPU/attempt。避免把新 gRPC 服务、共享计划缓存、重新编排 ACK 同时设成依赖。销毁任务与取消不能靠 HTTP 是否返回判断。Worker 快速接纳和真正端点 Ready 若需分开，以精确 attempt 和当前 generation 表达。对于不产生端点的任务无需额外 Ready RPC。DAG callback 只做小型状态发布，用查询顺序和 admission 约束交接给有界工作池，阶段准备与 durable commit 各有容量。用阻塞目录、慢对象存储、终态报告压力和关闭观察无关查询 P95、队列和 resource drain。
 
-**Worker 阻塞资源需要单独限额。** 当前首个请求仍在 Jetty 处理线程内创建 Native executor、准备 COPY 输入并注册端点。同一任务的重复请求加入同一端点就绪等待。下一步用有界的创建执行资源处理首次任务，让初始请求和重试都通过异步 HTTP 等待一个真实 ACK。限制处理中请求总数和保留的解码字节，使用原有过载响应，不提前发布端点，也不增加轮询。验收用受阻的 JNI/COPY 测量 HTTP 工作线程、健康检查和取消延迟、过载恢复、同一任务创建次数、首批与实际排空。Trino 的任务入口使用 JAX-RS 异步响应，任务状态订阅绑定同一个等待结果。Spark 在 Worker 记录真实任务后交给执行线程，并处理拒绝时的注册清理。 [Jakarta REST 异步资源接口](https://jakarta.ee/specifications/restful-ws/4.0/jakarta-restful-ws-spec-4.0.html#asynchronous_processing) · [Trino Worker 任务入口](https://github.com/trinodb/trino/blob/master/core/trino-main/src/main/java/io/trino/server/TaskResource.java) · [Spark Executor 任务启动](https://github.com/apache/spark/blob/master/core/src/main/scala/org/apache/spark/executor/Executor.scala)
+**Worker 阻塞资源需要单独限额。** 当前首个请求仍在 Jetty 处理线程内创建 Native executor、准备 COPY 输入并注册端点。同一任务的重复请求已异步加入同一端点就绪等待。下一步用有界的创建执行资源处理首次任务，让初始请求也通过异步 HTTP 等待实际 ACK。限制处理中请求总数和保留的解码字节，使用原有过载响应，不提前发布端点，也不增加轮询。验收用受阻的 JNI/COPY 测量 HTTP 工作线程、健康检查和取消延迟、过载恢复、同一任务创建次数、首批与实际排空。Trino 的任务入口使用 JAX-RS 异步响应，任务状态订阅绑定同一个等待结果。Spark 在 Worker 记录真实任务后交给执行线程，并处理拒绝时的注册清理。 [Jakarta REST 异步资源接口](https://jakarta.ee/specifications/restful-ws/4.0/jakarta-restful-ws-spec-4.0.html#asynchronous_processing) · [Trino Worker 任务入口](https://github.com/trinodb/trino/blob/master/core/trino-main/src/main/java/io/trino/server/TaskResource.java) · [Spark Executor 任务启动](https://github.com/apache/spark/blob/master/core/src/main/scala/org/apache/spark/executor/Executor.scala)
 
 **小查询保留流水直连。** 持久交换支持跨 Worker 重试或 durable replay，但消耗写入、发布、存储和再次读取。Trino 也明确指出 TASK 重试适合大批查询，可能增加高频短查询延迟。按明确的恢复要求或实测负载选择路径。在同一查询中按 stage 边的依赖语义选定读取方式，已签发边保持稳定。将两种执行策略作为真实能力管理。 [Trino Fault-tolerant execution](https://trino.io/docs/current/admin/fault-tolerant-execution.html#task)
 
@@ -94,6 +94,8 @@ unlisted: true
 每一个删除项验收同时看生产调用归零、注册/配置被移除、相邻行为经过真实入口，以及对应的性能或正确性证据。生产 rollout 只有整套新版本和全新运行环境，故障恢复用同版本状态机演练。目录现有的业务数据与历史实验保留为可重现输入。
 
 ## 验证记录与覆盖边界
+
+Worker 精确重复提交通过原任务的共享完成信号异步等待 ACK，HTTP 观察截止只终止该次等待。受控 Jetty/JNI 对照中，80 个重放令基线 58 个 Jetty 线程等待，候选降到 0。注册仍被暂停时，候选健康检查在本次窗口耗时 20 ms，基线在释放注册后返回，本次为 832 ms。另一个 140 个重放窗口中，128 个得到相同 ACK，多余 12 个收到结构化 HTTP 503，只执行一次真实生产者注册，等待容量全部归还。45 项焦点回归和 34 项同源打包回归通过。角色清单 SHA-256 为 84a8210950be39905386cc7d7ae2b1d074204b12c0180359e213e403d0457bef。
 
 TaskReport 的入口解析结果和原始字节由同一不可变对象持有。真实 PostgreSQL 持久执行测试以非标准字段顺序提交 189 B 合法消息，Java 解析由 HTTP 入口和持久提交各 1 次降为仅入口 1 次。库内保存的字段顺序、字节和 SHA-256 与原始消息一致。普通查询继续只在入口解析。144 项焦点回归和 49 项角色打包回归通过，覆盖 PostgreSQL 代际、旧所有者、真实 JNI 终态、远端与双 Worker Shuffle、DML、CDC、COPY 和实际释放。角色清单 SHA-256 为 d162e0a9eb538561d86bba857838ce7d489c131dd36a7ea4ec775a703e584d11。
 
