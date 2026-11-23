@@ -25,6 +25,8 @@ import static org.awaitility.Awaitility.await;
 class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
     private static final String JOURNAL_LOOKUP =
             "SELECT query_id, catalog_name,%FROM write_commit_journal WHERE query_id = $1";
+    private static final String RELEASE_JOURNAL_LOOKUP =
+            "SELECT EXISTS (%FROM write_commit_journal j%WHERE j.query_id=$1%";
     private static final String ANCHOR_LOOKUP =
             "SELECT owner_id, owner_incarnation, fencing_token,%FROM execution_anchor "
                     + "WHERE execution_id = $1 AND expires_at > clock_timestamp()";
@@ -47,6 +49,7 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
     @Test
     void readCompletionChecksOwnershipWithoutQueryingTheWriteJournal() throws Exception {
         long previousJournalLookups = calls(JOURNAL_LOOKUP);
+        long previousReleaseJournalLookups = calls(RELEASE_JOURNAL_LOOKUP);
         long previousOwnershipLookups = calls(ANCHOR_LOOKUP);
         String queryId;
         try (var client = PangrovaRestClient.builder().coordinatorHost("localhost")
@@ -70,6 +73,8 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
             awaitSuccessfulDrain(execution, deadline);
         }
         assertThat(calls(JOURNAL_LOOKUP) - previousJournalLookups).as("write journal SELECTs").isZero();
+        assertThat(calls(RELEASE_JOURNAL_LOOKUP) - previousReleaseJournalLookups)
+                .as("separate write recovery SELECTs during anchor release").isZero();
         assertThat(calls(ANCHOR_LOOKUP) - previousOwnershipLookups).as("query finalization fence SELECTs").isOne();
         assertExactAttemptProfile(queryId);
         assertProfileIsScopedToTheSubmittingPrincipal(queryId);

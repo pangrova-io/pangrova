@@ -14,11 +14,15 @@ import org.pangrova.persistence.query.api.exception.JournalWriteException;
 import org.pangrova.connector.api.commit.NativeWriteFinalization;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
 
 /**
  * PostgreSQL contract tests for the durable fenced write journal.
@@ -267,11 +271,68 @@ class JdbcWriteCommitJournalPostgresTest extends ContainerTestBase {
         assertThat(leases.claimExpired("coordinator-c", "process-c", lifetime, 1)).isEmpty();
     }
 
+    @Test
+    void releaseSeesWriteIntentCommittedWhileWaitingForOwnerLock() throws Exception {
+        var leases = new org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore(dataSource);
+        var lifetime = Duration.ofMinutes(1);
+        var original = leases.tryAcquire("intent-during-release", "coordinator-a", "process-a", lifetime)
+                .orElseThrow();
+        var executor = Executors.newSingleThreadExecutor();
+        try (var writer = dataSource.getConnection()) {
+            writer.setAutoCommit(false);
+            int writerPid;
+            try (var lock = writer.prepareStatement("""
+                    SELECT pg_backend_pid() FROM execution_anchor WHERE execution_id=? FOR UPDATE
+                    """)) {
+                lock.setString(1, original.executionId());
+                try (var row = lock.executeQuery()) {
+                    assertThat(row.next()).isTrue();
+                    writerPid = row.getInt(1);
+                }
+            }
+            var releasing = executor.submit(() -> leases.release(original));
+            await().atMost(Duration.ofSeconds(10)).until(() -> waitsFor(writerPid));
+            var intent = pending(original.executionId(), System.currentTimeMillis(), null, original.fencingToken());
+            journal.recordIntent(intent);
+            writer.commit();
+            assertThat(releasing.get(10, TimeUnit.SECONDS)).isTrue();
+            assertThat(leases.current(original.executionId())).isEmpty();
+            assertThat(leases.claimExpired("coordinator-b", "process-b", lifetime, 1))
+                    .singleElement().satisfies(anchor -> {
+                        assertThat(anchor.executionId()).isEqualTo(intent.queryId());
+                        assertThat(anchor.fencingToken()).isGreaterThan(original.fencingToken());
+                    });
+            assertThat(journal.replayPendingEntries(Set.of(intent.queryId())))
+                    .singleElement().satisfies(entry -> {
+                        assertThat(entry.commitFingerprint()).isEqualTo(intent.commitFingerprint());
+                        assertThat(entry.executionFencingToken()).isEqualTo(original.fencingToken());
+                    });
+        } finally {
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    private boolean waitsFor(int holderPid) throws java.sql.SQLException {
+        try (var observer = dataSource.getConnection(); var query = observer.prepareStatement("""
+                SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE ?=ANY(pg_blocking_pids(pid)))
+                """)) {
+            query.setInt(1, holderPid);
+            try (var result = query.executeQuery()) {
+                return result.next() && result.getBoolean(1);
+            }
+        }
+    }
+
     private static WriteCommitEntry pending(String queryId, long timestampMs) {
         return pending(queryId, timestampMs, null);
     }
 
     private static WriteCommitEntry pending(String queryId, long timestampMs, CdcSourceIdentity source) {
+        return pending(queryId, timestampMs, source, 7L);
+    }
+
+    private static WriteCommitEntry pending(String queryId, long timestampMs, CdcSourceIdentity source, long token) {
         var fragments = List.of(new byte[]{1, 2, 3});
         String fingerprint = WriteCommitFingerprint.compute(
                 new org.pangrova.persistence.query.api.commit.WriteCommitFingerprint.Intent(
@@ -302,7 +363,7 @@ class JdbcWriteCommitJournalPostgresTest extends ContainerTestBase {
                 fingerprint,
                 "coordinator-a",
                 "process-a",
-                7L,
+                token,
                 null, null, source);
     }
 }
