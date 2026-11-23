@@ -25,7 +25,7 @@ unlisted: true
 | 客户端、准入和状态 | 扩大已完成的本地固定到达率压测到多 Coordinator，定位过载时点查和分组 P95 上升。验证认证状态投影、客户端重连、长短查询干扰与租户槽位归还 | 每条路径的首批、P95、超时、拒绝、耗尽恢复和零正常状态 SELECT |
 | 授权和命名空间 | 消除限定表名解析前的命名空间全量枚举。表身份、治理绑定、行策略和列掩码已使用一次权威读取。继续验证多表查询能否合并各表的读取并保留逐表权限校验 | 精确计数，覆盖直授和组授权、撤权、表更替、大小写匹配、显式命名空间枚举及安全失败 |
 | 快照和 split 枚举 | 为同一连接联合多个动态过滤键域，扩展连接器和晚到覆盖。大文件按合法范围拆分，小文件按工作量组包。有界枚举与实际读放大按连接器验证 | 冻结相同快照与授权。比较 split 数、实际对象 GET 和读取字节，覆盖缺失、晚到、失败、删除文件、快照演进和取消 |
-| 计划、分配和控制面 | 从 Worker HTTP 处理线程隔离 JNI 创建、输入准备和 ACK 等待，保留一次精确 ACK。量化下游准备隔离在固定到达率、受阻目录 I/O 与写入混合负载下的 P95。以混合负载校准单输入 AQE 的阈值和尾时延，再验证多输入、偏斜拆分和持久重放 | 基线和候选完成同一完整结果。检查覆盖、滞后、重试、投机获胜和 durable replay |
+| 计划、分配和控制面 | 验证 Worker Task HTTP 编解码的请求体分配、并发读取与过载恢复。量化下游准备隔离在固定到达率、受阻目录 I/O 与写入混合负载下的 P95。以混合负载校准单输入 AQE 的阈值和尾时延，再验证多输入、偏斜拆分和持久重放 | 基线和候选完成同一完整结果。检查覆盖、滞后、重试、投机获胜和 durable replay |
 | 远端 Shuffle | 核验更宽和变长输出的实际对象数、内存及跨主机吞吐。扩大热点并发，量化锁等待与尾时延，再校准是否需要段存储 | PostgreSQL 和对象存储真实压测，覆盖权限撤销、owner 切换、背压、未知 PUT、丢 ACK 和 GC |
 | Velox 与结果 | 对剩余 I/O、解码、spill、缓存和单出口成本做归因。继续测跨主机出口、持续内存占用与链路异常下的释放 | 冷热、偏斜和宽/窄负载。若出口瓶颈成立，验证并行消费的顺序、EOF、资源窗口和真实归还 |
 | 写入与提交 | 用高并发和故障窗口校准文件大小、写放大、提交时延及各格式恢复。原子发布和跨引擎结果独立验收 | Iceberg/Paimon/Lance/COPY/CDC 保留快照、offset、精确 fence 和资源归还证据 |
@@ -48,8 +48,6 @@ unlisted: true
 **跨 owner 幂等先做合同。** 当前 `IdempotencyKeyRegistry` 是进程内 map，key 由 principal 与请求幂等键组成。owner 路由可以降低重复访问，但响应已丢、owner 已退出时，路由不能证明该 SQL 从未受理。若支持跨节点重复提交，必须在一次受理提交中保留可恢复的授权作用域、键、请求摘要与 queryId。优先与已有 durable 受理事实一起持久化，由权威唯一约束选出原请求。正常只走受理写入，冲突/未知结果再读取验证。取到已受理回执也不触发第二次 DML。没有配置跨节点持久受理时，在该部署合同内提供受理 owner 范围的幂等。验收分别注入响应丢失、崩溃与接管。
 
 **控制协议和调度分开验收。** 保留现有 HTTP 服务设施，以一个 canonical 二进制消息替换 task/report 的 JSON+Base64 镜像，可独立测 body bytes、解析次数和 CPU/attempt。避免把新 gRPC 服务、共享计划缓存、重新编排 ACK 同时设成依赖。销毁任务与取消不能靠 HTTP 是否返回判断。Worker 快速接纳和真正端点 Ready 若需分开，以精确 attempt 和当前 generation 表达。对于不产生端点的任务无需额外 Ready RPC。DAG callback 只做小型状态发布，用查询顺序和 admission 约束交接给有界工作池，阶段准备与 durable commit 各有容量。用阻塞目录、慢对象存储、终态报告压力和关闭观察无关查询 P95、队列和 resource drain。
-
-**Worker 阻塞资源需要单独限额。** 当前首个请求仍在 Jetty 处理线程内创建 Native executor、准备 COPY 输入并注册端点。同一任务的重复请求已异步加入同一端点就绪等待。下一步用有界的创建执行资源处理首次任务，让初始请求也通过异步 HTTP 等待实际 ACK。限制处理中请求总数和保留的解码字节，使用原有过载响应，不提前发布端点，也不增加轮询。验收用受阻的 JNI/COPY 测量 HTTP 工作线程、健康检查和取消延迟、过载恢复、同一任务创建次数、首批与实际排空。Trino 的任务入口使用 JAX-RS 异步响应，任务状态订阅绑定同一个等待结果。Spark 在 Worker 记录真实任务后交给执行线程，并处理拒绝时的注册清理。 [Jakarta REST 异步资源接口](https://jakarta.ee/specifications/restful-ws/4.0/jakarta-restful-ws-spec-4.0.html#asynchronous_processing) · [Trino Worker 任务入口](https://github.com/trinodb/trino/blob/master/core/trino-main/src/main/java/io/trino/server/TaskResource.java) · [Spark Executor 任务启动](https://github.com/apache/spark/blob/master/core/src/main/scala/org/apache/spark/executor/Executor.scala)
 
 **小查询保留流水直连。** 持久交换支持跨 Worker 重试或 durable replay，但消耗写入、发布、存储和再次读取。Trino 也明确指出 TASK 重试适合大批查询，可能增加高频短查询延迟。按明确的恢复要求或实测负载选择路径。在同一查询中按 stage 边的依赖语义选定读取方式，已签发边保持稳定。将两种执行策略作为真实能力管理。 [Trino Fault-tolerant execution](https://trino.io/docs/current/admin/fault-tolerant-execution.html#task)
 
@@ -94,6 +92,8 @@ unlisted: true
 每一个删除项验收同时看生产调用归零、注册/配置被移除、相邻行为经过真实入口，以及对应的性能或正确性证据。生产 rollout 只有整套新版本和全新运行环境，故障恢复用同版本状态机演练。目录现有的业务数据与历史实验保留为可重现输入。
 
 ## 验证记录与覆盖边界
+
+首次 Worker 任务在取得精确所有权后交给独立执行器，最多 64 个运行、64 个排队，合计按原始请求长度限制在 128 MiB。出队前检查期限、控制与执行所有权和取消封口。受控 Jetty/JNI 对照中，72 个首次提交在两版都成功、实际资源全部释放。暂停生产者注册期间，基线健康检查在放行后返回，耗时 889 ms。候选在注册仍暂停时返回，耗时 20 ms。这是受控窗口观测。58 项焦点和 35 项同源打包回归通过，覆盖真实双 Worker、COPY、CDC、AI、过载、取消和 JNI 释放。角色清单 SHA-256 为 923a7cac06cebef689cd3dbb6ce4bb41e040995202b088711b86fb4167586dc9。 [Jakarta REST 异步资源接口](https://jakarta.ee/specifications/restful-ws/4.0/jakarta-restful-ws-spec-4.0.html#asynchronous_processing) · [Trino Worker 任务入口](https://github.com/trinodb/trino/blob/master/core/trino-main/src/main/java/io/trino/server/TaskResource.java) · [Spark Executor 任务启动](https://github.com/apache/spark/blob/master/core/src/main/scala/org/apache/spark/executor/Executor.scala)
 
 Worker 精确重复提交通过原任务的共享完成信号异步等待 ACK，HTTP 观察截止只终止该次等待。受控 Jetty/JNI 对照中，80 个重放令基线 58 个 Jetty 线程等待，候选降到 0。注册仍被暂停时，候选健康检查在本次窗口耗时 20 ms，基线在释放注册后返回，本次为 832 ms。另一个 140 个重放窗口中，128 个得到相同 ACK，多余 12 个收到结构化 HTTP 503，只执行一次真实生产者注册，等待容量全部归还。45 项焦点回归和 34 项同源打包回归通过。角色清单 SHA-256 为 84a8210950be39905386cc7d7ae2b1d074204b12c0180359e213e403d0457bef。
 
