@@ -40,10 +40,14 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
                     + "FROM table_control_name_reservation%";
     private static final String CATALOG_DEPLOYMENT_LOOKUP =
             "SELECT name, incarnation_id, revision FROM catalog_definitions WHERE name%";
+    private static final String ICEBERG_POINTER_LOOKUP =
+            "SELECT * FROM iceberg_tables WHERE catalog_name = %AND table_name =%";
 
     @Override
     protected List<ConnectorTestConfig> connectorConfigs() {
-        return List.of(ConnectorTestConfig.icebergLocal("iceberg_catalog", "default", icebergWarehouse().toString()));
+        return List.of(ConnectorTestConfig.icebergLocal("iceberg_catalog", "default", icebergWarehouse().toString(),
+                Map.of("type", "jdbc", "uri", pgJdbcUrl(), "jdbc.user", pgUsername(),
+                        "jdbc.password", pgPassword(), "jdbc.schema-version", "V1")));
     }
 
     @BeforeAll
@@ -104,6 +108,33 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
         assertThat(calls(READ_ADMISSION_LOOKUP) - previousAdmissionLookups).isOne();
         assertThat(calls(TABLE_REGISTRATION_LOOKUP) - previousRegistrationLookups).isZero();
         assertThat(calls(CATALOG_DEPLOYMENT_LOOKUP) - previousDeploymentLookups).isZero();
+    }
+
+    @Test
+    void qualifiedSourceResolvesWithoutLookingUpItsCatalogNameAsATable() throws SQLException {
+        String table = "iceberg_catalog.default.qualified_read_database_budget";
+        String sameNameAsCatalog = "iceberg_catalog.default.iceberg_catalog";
+        sqlRunner.executeDdl("CREATE TABLE " + table + " (id BIGINT)");
+        sqlRunner.executeDdl("CREATE TABLE " + sameNameAsCatalog + " (id BIGINT)");
+        sqlRunner.execute("INSERT INTO " + table + " VALUES (42)");
+        sqlRunner.execute("INSERT INTO " + sameNameAsCatalog + " VALUES (7)");
+
+        long previousPointerLookups = calls(ICEBERG_POINTER_LOOKUP);
+        assertThat(sqlRunner.execute("SELECT id FROM " + table))
+                .extracting(row -> row.getLong("id")).containsExactly(42L);
+        assertThat(calls(ICEBERG_POINTER_LOOKUP) - previousPointerLookups)
+                .as("Iceberg pointer SELECTs during discovery, binding and split planning").isEqualTo(3L);
+
+        assertThat(sqlRunner.execute("SELECT id FROM iceberg_catalog"))
+                .extracting(row -> row.getLong("id")).containsExactly(7L);
+        assertThat(sqlRunner.execute("SELECT id FROM \"iceberg_catalog\".\"default\".\"qualified_read_database_budget\""))
+                .extracting(row -> row.getLong("id")).containsExactly(42L);
+        assertThat(sqlRunner.execute("SELECT qualified.id AS qualified_id, local_table.id AS local_id FROM "
+                + table + " AS qualified CROSS JOIN iceberg_catalog AS local_table"))
+                .singleElement().satisfies(row -> {
+                    assertThat(row.getLong("qualified_id")).isEqualTo(42L);
+                    assertThat(row.getLong("local_id")).isEqualTo(7L);
+                });
     }
 
     @Test

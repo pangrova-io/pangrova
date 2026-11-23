@@ -59,38 +59,49 @@ public final class MetadataSchemaBuilder {
                 null, null, session.getProperties(), session.getProperties().get("tenant_id"), null,
                 session.getQueryAuthority().map(org.pangrova.connector.api.query.ConnectorQueryAuthority::queryId)
                         .orElseGet(() -> session.getProperties().get("queryId")), session.getQueryAuthority());
-        AbstractSchema root = schemaWithChildren(session, () -> metadataService.listCatalogs(metadataSession),
+        AbstractSchema root = new NamespaceSchema(session, () -> metadataService.listCatalogs(metadataSession),
                 catalog -> catalogSchema(session, metadataSession, catalog, readBindings));
         return CalciteSchema.createRootSchema(false, false, "", root);
     }
 
+    /** The metadata root contains only catalogs, with tables two namespace levels below it. */
+    public static boolean hasCatalogNamespaces(CalciteSchema root) {
+        return root.isRoot() && root.schema instanceof NamespaceSchema;
+    }
+
     private AbstractSchema catalogSchema(ConnectorSession session, MetadataSessionContext metadataSession,
                                  String catalog, PlanningReadBindings readBindings) {
-        return schemaWithChildren(session, () -> readBindings == null
+        return new NamespaceSchema(session, () -> readBindings == null
                         ? metadataService.listSchemas(metadataSession, catalog) : readBindings.listSchemaNames(catalog),
                 name -> new LazyMetadataSchema(catalog, name, readBindings));
     }
 
-    private static AbstractSchema schemaWithChildren(ConnectorSession session, Supplier<List<String>> names,
-            Function<String, Schema> createChild) {
-        boolean queryScoped = session.getQueryAuthority().isPresent();
-        return new AbstractSchema() {
-            private final LazyReference<Map<String, Schema>> visible = new LazyReference<>();
-            private final Map<String, Schema> instances = new ConcurrentHashMap<>();
+    private static final class NamespaceSchema extends AbstractSchema {
+        private final boolean queryScoped;
+        private final Supplier<List<String>> names;
+        private final Function<String, Schema> createChild;
+        private final LazyReference<Map<String, Schema>> visible = new LazyReference<>();
+        private final Map<String, Schema> instances = new ConcurrentHashMap<>();
 
-            @Override
-            protected Map<String, Schema> getSubSchemaMap() {
-                return queryScoped ? visible.getOrCompute(this::load) : load();
-            }
+        private NamespaceSchema(ConnectorSession session, Supplier<List<String>> names,
+                Function<String, Schema> createChild) {
+            this.queryScoped = session.getQueryAuthority().isPresent();
+            this.names = names;
+            this.createChild = createChild;
+        }
 
-            private Map<String, Schema> load() {
-                Map<String, Schema> selected = new LinkedHashMap<>();
-                for (String name : names.get()) {
-                    selected.put(name, instances.computeIfAbsent(name, createChild));
-                }
-                return java.util.Collections.unmodifiableMap(selected);
+        @Override
+        protected Map<String, Schema> getSubSchemaMap() {
+            return queryScoped ? visible.getOrCompute(this::load) : load();
+        }
+
+        private Map<String, Schema> load() {
+            Map<String, Schema> selected = new LinkedHashMap<>();
+            for (String name : names.get()) {
+                selected.put(name, instances.computeIfAbsent(name, createChild));
             }
-        };
+            return java.util.Collections.unmodifiableMap(selected);
+        }
     }
 
     /**

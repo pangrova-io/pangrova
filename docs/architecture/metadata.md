@@ -802,6 +802,11 @@ Pangrova may write, drop, or maintain it.
   when its stable ID and version match both the admitted control record and the bound
   connector version. The optimizer otherwise uses the selected source's connector estimates. `UNLINK` and `DROP TABLE` purge the row with the other table-scoped state, so a
   reused name cannot inherit old cardinalities.
+- The SQL planner resolves a fully qualified source through the catalog at the root
+  before consulting the session's default namespace. The catalog name therefore
+  does not trigger a table lookup in the default namespace. Unqualified sources
+  still resolve against their session defaults. The selected source proceeds
+  through the usual ownership, snapshot and split validation.
 - `TableControlPolicyBinder` stores governance artifacts (column tag, column mask, row filter,
   quality rule, lineage) in `table_control_governance_binding`, keyed by `table_id` and the
   artifact reference. Binding requires an `ACTIVE` `LINKED`/`MANAGED` record: an `OBSERVED`
