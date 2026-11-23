@@ -17,6 +17,7 @@
 #include "engine/plan/SubstraitPlanParser.h"
 #include "engine/plan/SubstraitProtocolVersion.h"
 #include "engine/velox/plan/VeloxPlanConverter.h"
+#include "capabilities/capability/FunctionCatalogPublication.h"
 #include "capabilities/capability/FunctionPlanBindings.h"
 
 #include <cassert>
@@ -39,9 +40,12 @@ namespace pangrova::velox {
 // ---------------------------------------------------------------------------
 
 VeloxPlanConverter::VeloxPlanConverter(
-    std::shared_ptr<const facebook::velox::exec::FunctionRegistrySnapshot> function_registry)
-    : function_registry_(std::move(function_registry)) {
-  if (!function_registry_) throw std::invalid_argument("Plan conversion requires its admitted function registry owner");
+    std::shared_ptr<const facebook::velox::exec::FunctionRegistrySnapshot> function_registry,
+    std::shared_ptr<const capability::FunctionCatalogPublication> function_catalog)
+    : function_registry_(std::move(function_registry)), function_catalog_(std::move(function_catalog)) {
+  if (!function_registry_ || (function_catalog_ && function_catalog_->registry() != function_registry_)) {
+    throw std::invalid_argument("Plan conversion requires its admitted function registry owner");
+  }
 }
 
 void VeloxPlanConverter::requireFunctionKind(

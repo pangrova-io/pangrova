@@ -55,6 +55,8 @@ import org.pangrova.planner.cost.join.BroadcastJoinConfig;
 import org.pangrova.planner.cost.join.PangrovaHashJoin;
 import org.pangrova.planner.metadata.PlanTable;
 import org.pangrova.planner.metadata.catalog.MetadataResolvedTable;
+import io.substrait.proto.AggregationPhase;
+import org.pangrova.protocol.function.catalog.FunctionCatalogView;
 import org.pangrova.protocol.v2.BatchSerde;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -66,6 +68,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.IntUnaryOperator;
+import java.util.function.Supplier;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
@@ -102,6 +106,13 @@ final class PlanFragmenter {
 
     static FragmentedPlan fragment(RelNode root, int sessionParallelismOverride,
             StageTerminalPurpose terminalPurpose, int clusterParallelismLimit, boolean needsRetrievalReducer) {
+        return fragment(root, sessionParallelismOverride, terminalPurpose, clusterParallelismLimit,
+                needsRetrievalReducer, List::of, ignored -> 0);
+    }
+
+    static FragmentedPlan fragment(RelNode root, int sessionParallelismOverride,
+            StageTerminalPurpose terminalPurpose, int clusterParallelismLimit, boolean needsRetrievalReducer,
+            Supplier<List<FunctionCatalogView>> catalogueSource, IntUnaryOperator driverEstimate) {
         checkNotNull(root, "root RelNode must not be null");
         if (clusterParallelismLimit < 1) {
             throw new IllegalArgumentException("Cluster parallelism limit must be positive");
@@ -110,7 +121,7 @@ final class PlanFragmenter {
                 sessionParallelismOverride,
                 DEFAULT_BYTES_PER_PARTITION,
                 Math.min(DEFAULT_MAX_PARALLELISM, clusterParallelismLimit),
-                checkNotNull(terminalPurpose, "terminalPurpose must not be null"));
+                checkNotNull(terminalPurpose, "terminalPurpose must not be null"), catalogueSource, driverEstimate);
         return context.fragment(root, needsRetrievalReducer);
     }
 
@@ -145,6 +156,9 @@ final class PlanFragmenter {
         private final long bytesPerPartition;
         private final int maxParallelism;
         private final StageTerminalPurpose terminalPurpose;
+        private final Supplier<List<FunctionCatalogView>> catalogueSource;
+        private List<FunctionCatalogView> functionCatalogues;
+        private final IntUnaryOperator driverEstimate;
         private int nextStageId;
         private boolean liveRead;
 
@@ -152,7 +166,11 @@ final class PlanFragmenter {
                 int sessionParallelismOverride,
                 long bytesPerPartition,
                 int maxParallelism,
-                StageTerminalPurpose terminalPurpose) {
+                StageTerminalPurpose terminalPurpose,
+                Supplier<List<FunctionCatalogView>> catalogueSource,
+                IntUnaryOperator driverEstimate) {
+            this.catalogueSource = catalogueSource;
+            this.driverEstimate = driverEstimate;
             this.sessionParallelismOverride = sessionParallelismOverride;
             this.bytesPerPartition = bytesPerPartition;
             this.maxParallelism = maxParallelism;
@@ -234,8 +252,17 @@ final class PlanFragmenter {
                 // aggregate owners without adding scan parallelism. Gather its rows
                 // at one owner so each group has exactly one final result.
                 int producers = resolveStageParallelism(aggregate.getInput());
-                if (aggregate instanceof LogicalAggregate logical && canReduceBeforeExchange(logical, producers)) {
-                    return reduceBeforeExchange(logical);
+                if (aggregate instanceof LogicalAggregate logical) {
+                    if (liveRead && containsDirectTableScan(logical.getInput())) {
+                        var bindings = DecimalAggregateExchange.select(logical, this::functionCatalogues, producers,
+                                driverEstimate.applyAsInt(producers));
+                        if (!bindings.isEmpty()) {
+                            return reduceDecimalBeforeExchange(logical, bindings);
+                        }
+                    }
+                    if (canReduceBeforeExchange(logical, producers)) {
+                        return reduceBeforeExchange(logical);
+                    }
                 }
                 boolean parallelProducer = producers > SINGLE_PARALLELISM;
                 PangrovaDistribution distribution = parallelProducer && (aggregate.getGroupSets() == null
@@ -330,6 +357,31 @@ final class PlanFragmenter {
                 };
                 default -> false;
             };
+        }
+
+        private List<FunctionCatalogView> functionCatalogues() {
+            if (functionCatalogues == null) {
+                functionCatalogues = catalogueSource.get();
+            }
+            return functionCatalogues;
+        }
+
+        private static RelNode reduceDecimalBeforeExchange(LogicalAggregate aggregate,
+                List<AggregateExchangeBinding> bindings) {
+            var input = aggregate.getInput();
+            var typeFactory = aggregate.getCluster().getTypeFactory();
+            var stateType = typeFactory.createTypeWithNullability(
+                    typeFactory.createSqlType(SqlTypeName.VARBINARY), true);
+            var fields = typeFactory.builder();
+            for (var field : aggregate.getRowType().getFieldList()) {
+                fields.add(field.getName(), stateType);
+            }
+            var calls = aggregate.getAggCallList();
+            var local = new StageAggregate(input.getTraitSet().replace(PangrovaDistribution.ANY), input,
+                    calls, fields.build(), AggregationPhase.AGGREGATION_PHASE_INITIAL_TO_INTERMEDIATE, bindings);
+            var exchanged = enforceDistribution(local, PangrovaDistribution.SINGLETON);
+            return new StageAggregate(aggregate.getTraitSet(), exchanged, calls, aggregate.getRowType(),
+                    AggregationPhase.AGGREGATION_PHASE_INTERMEDIATE_TO_RESULT, bindings);
         }
 
         private static RelNode reduceBeforeExchange(LogicalAggregate aggregate) {

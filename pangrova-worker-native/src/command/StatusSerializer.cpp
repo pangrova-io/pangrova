@@ -22,7 +22,6 @@
 // Access VeloxTaskRunner through PlanExecutionDriver.
 #include "engine/executor/driver/PlanExecutionDriver.h"
 #include "engine/velox/runner/TaskStatsEncoding.h"
-#include "engine/velox/runner/VeloxTaskRunner.h"
 
 #include "pangrova/protocol/v2/result.pb.h"
 #include "pangrova/protocol/v2/runtime.pb.h"
@@ -144,17 +143,8 @@ std::vector<uint8_t> serializeTaskStatus(
 
 std::vector<uint8_t> serializeTaskStats(
     executor::TaskExecutor& executor) {
-  // P1-STAT-3: Unified stats serialization.
-  // Primary path: collect from Velox TaskStats via VeloxTaskRunner.
-  // This provides per-operator metrics (wall time, CPU time, rows, memory,
-  // spill) directly from the Velox execution engine.
-  // Both paths serialize to the same canonical TaskStats proto.
-  auto* runner = executor.veloxTaskRunner();
-  if (runner) {
-    auto veloxStats = runner->collectTaskStats();
-    if (veloxStats) {
-      return velox::serializeNativeTaskStats(*veloxStats);
-    }
+  if (auto stats = executor.collectTaskStats()) {
+    return velox::serializeNativeTaskStats(*stats);
   }
 
   // Fallback: use NativeMetricsCollector snapshot for top-level aggregates.

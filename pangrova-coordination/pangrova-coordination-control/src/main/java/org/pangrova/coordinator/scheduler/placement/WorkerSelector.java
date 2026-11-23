@@ -49,6 +49,9 @@ public interface WorkerSelector {
         return selected;
     }
 
+    /** Estimates the greatest default Driver grant with one concurrent stage. */
+    default int estimateMaximumTaskDrivers(int activeWorkers, int parallelism) { return 0; }
+
     /** Computes a task grant that fits the exact selected Worker. */
     StageResourceGrant computeResourceLimit(
             int parallelism, int concurrentStages, WorkerInfo selectedWorker);

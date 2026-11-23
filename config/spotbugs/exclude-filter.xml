@@ -129,6 +129,19 @@
         <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2" />
     </Match>
 
+    <!-- Cross-stage bindings share only immutable Protobuf values. -->
+    <Match>
+        <Class name="org.pangrova.planner.analysis.AggregateExchangeBinding"/>
+        <Or>
+            <Field name="function" type="org.pangrova.protocol.v2.FunctionReferenceContract"/>
+            <Field name="actualRegistrationSha256" type="com.google.protobuf.ByteString"/>
+            <Field name="originalArguments" type="io.substrait.proto.NamedStruct"/>
+            <Field name="state" type="io.substrait.proto.Type"/>
+            <Field name="result" type="io.substrait.proto.Type"/>
+        </Or>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+    </Match>
+
     <!-- Capability signatures are public SHA-256 contract identifiers, never secret keys. -->
     <Match>
         <Class name="org.pangrova.protocol.capability.BuiltInCapabilityCatalog"/>

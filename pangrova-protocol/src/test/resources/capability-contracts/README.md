@@ -10,6 +10,20 @@ exporter catalogue used by function-contract tests.
 
 ## Current capture
 
+On 2026-11-23 the packaged macOS arm64 Worker handshake and function exporter
+captured the protocol for typed cross-stage aggregate states and Native Shuffle
+payload statistics. Function availability, registered signatures, vector
+companions and type projections match the prior capture. Both fixtures carry
+descriptor SHA-256 `0a3ecc5a87007cd1d7cd2d0693c3355bfa7b7ce904e9ff212ece2f4cd2c58e66`.
+
+| Artifact | Bytes | SHA-256 | Capabilities / functions / models |
+| --- | ---: | --- | --- |
+| Native library | 322931637 | `d9378b7ebde16375f5b379aa952353e7cf9efd6400019d4aeeed470d3cdd1caa` |  |
+| Worker inventory | 796871 | `b3f643e25b50fe20697fc616831ffbd1366c7a8ebf9f6d1635bdc9866c6f0787` | 19 / 108 / 2 |
+| Function exporter catalogue | 784252 | `295db4d5277df7fec91db8ba9192705c64b604a2ff29a695cf9dc00ee38338af` | 9 / 92 / 0 |
+
+## November 23 scalar subquery capture
+
 On 2026-11-23 the packaged macOS arm64 Worker handshake and matching function
 exporter captured the typed scalar subquery relation. The function definitions,
 registered signatures, vector companions and type projections match the prior capture.

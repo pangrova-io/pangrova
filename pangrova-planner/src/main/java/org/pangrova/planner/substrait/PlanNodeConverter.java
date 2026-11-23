@@ -24,6 +24,7 @@ import io.substrait.relation.Rel;
 import io.substrait.type.NamedStruct;
 import io.substrait.type.TypeCreator;
 import io.substrait.type.proto.TypeProtoConverter;
+import org.pangrova.planner.analysis.StageAggregate;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.planner.cost.distribution.PangrovaExchange;
 import org.pangrova.planner.cost.distribution.PangrovaExchangeInput;
@@ -145,6 +146,8 @@ public final class PlanNodeConverter {
                         n -> physicalJoinConverter.visitNestedLoopJoin((PangrovaNestedLoopJoin) n)),
                 Map.entry(PangrovaExchangeInput.class,
                         n -> visitExchangeInput((PangrovaExchangeInput) n)),
+                Map.entry(StageAggregate.class,
+                        n -> aggregateConverter.convert((StageAggregate) n, visit(((StageAggregate) n).getInput()))),
                 Map.entry(LogicalAggregate.class,
                         n -> aggregateConverter.convert((LogicalAggregate) n,
                         visit(((LogicalAggregate) n).getInput()))),

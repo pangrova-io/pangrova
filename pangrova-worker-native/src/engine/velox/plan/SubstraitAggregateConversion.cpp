@@ -5,7 +5,9 @@
 #include <iterator>
 
 #include "engine/velox/plan/CanonicalOrdinalIdentity.h"
+#include "capabilities/capability/FunctionCatalogPublication.h"
 #include "capabilities/capability/RegisteredFunctionBinding.h"
+#include "pangrova/protocol/v2/plan_extension.pb.h"
 
 namespace pangrova::velox {
 using namespace facebook::velox;
@@ -22,6 +24,14 @@ Step resolveAggregationStep(substrait::AggregationPhase phase) {
     case substrait::AGGREGATION_PHASE_UNSPECIFIED: return Step::kFinal;
     default: throw std::runtime_error("Aggregate has an unknown phase");
   }
+}
+
+bool isStateField(const substrait::FunctionArgument& argument) {
+  if (!argument.has_value() || !argument.value().has_selection()) return false;
+  const auto& selection = argument.value().selection();
+  return selection.has_root_reference() && selection.has_direct_reference() &&
+      selection.direct_reference().has_struct_field() &&
+      !selection.direct_reference().struct_field().has_child();
 }
 
 void validateGroupingReferences(const substrait::AggregateRel& relation) {
@@ -69,7 +79,8 @@ core::TypedExprPtr VeloxPlanConverter::aggregateInputValue(
 }
 
 VeloxPlanConverter::BoundAggregateMeasure VeloxPlanConverter::convertAggregateMeasure(
-    const substrait::AggregateRel::Measure& measure, const RowTypePtr& inputType,
+    const substrait::AggregateRel::Measure& measure,
+    const protocol::v2::AggregatePhaseMeasure* phaseBinding, const RowTypePtr& inputType,
     std::vector<std::string>& names, std::vector<core::TypedExprPtr>& projections) {
   if (!measure.has_measure()) throw std::runtime_error("Aggregate measure has no function");
   const auto& function = measure.measure();
@@ -80,22 +91,41 @@ VeloxPlanConverter::BoundAggregateMeasure VeloxPlanConverter::convertAggregateMe
   }
   const auto found = function_map_.find(function.function_reference());
   if (found == function_map_.end()) throw std::runtime_error("Aggregate references an unbound function");
+  const bool consumesState = function.phase() == substrait::AGGREGATION_PHASE_INTERMEDIATE_TO_RESULT;
+  if (function.phase() == substrait::AGGREGATION_PHASE_UNSPECIFIED ||
+      function.phase() == substrait::AGGREGATION_PHASE_INTERMEDIATE_TO_INTERMEDIATE) {
+    throw std::runtime_error("Aggregate phase has no admitted state contract");
+  }
+  if (phaseBinding) {
+    const auto* actual = function_catalog_->aggregateRegistration(found->second);
+    if (!phaseBinding->GetReflection()->GetUnknownFields(*phaseBinding).empty() ||
+        !actual || actual->contract_sha256() != phaseBinding->registration_sha256() ||
+        consumesState != phaseBinding->has_original_raw_arguments()) {
+      throw std::runtime_error("Aggregate phase differs from its admitted original types or registration");
+    }
+  }
+  if (consumesState && (!phaseBinding || function.arguments_size() != 1 ||
+      !isStateField(function.arguments(0)) || measure.has_filter() || !function.sorts().empty() ||
+      function.invocation() != substrait::AggregateFunction::AGGREGATION_INVOCATION_ALL)) {
+    throw std::runtime_error("Final aggregate requires an admitted single state without a filter, sort or DISTINCT");
+  }
   std::vector<core::TypedExprPtr> arguments;
   core::AggregationNode::Aggregate aggregate;
   for (const auto& argument : function.arguments()) {
     if (!argument.has_value()) throw std::runtime_error("Aggregate requires canonical value arguments");
     auto value = aggregateInputValue(argument.value(), inputType, names, projections, true);
-    aggregate.rawInputTypes.push_back(value->type());
+    if (!consumesState) aggregate.rawInputTypes.push_back(value->type());
     arguments.push_back(std::move(value));
   }
-  if (function.phase() == substrait::AGGREGATION_PHASE_UNSPECIFIED ||
-      function.phase() == substrait::AGGREGATION_PHASE_INTERMEDIATE_TO_INTERMEDIATE ||
-      function.phase() == substrait::AGGREGATION_PHASE_INTERMEDIATE_TO_RESULT) {
-    throw std::runtime_error("State aggregate phase requires authoritative original raw-input types");
+  const auto output = convertType(function.output_type());
+  if (consumesState) {
+    aggregate.rawInputTypes = convertNamedStruct(phaseBinding->original_raw_arguments())->children();
   }
-  auto binding = pangrova::capability::bindRegisteredRawAggregate(*function_registry_, found->second,
-      convertType(function.output_type()), std::move(arguments),
-      function.phase() == substrait::AGGREGATION_PHASE_INITIAL_TO_INTERMEDIATE);
+  auto binding = consumesState
+      ? capability::bindRegisteredStateAggregate(*function_registry_, found->second, output,
+          std::move(arguments), aggregate.rawInputTypes)
+      : capability::bindRegisteredRawAggregate(*function_registry_, found->second, output,
+          std::move(arguments), function.phase() == substrait::AGGREGATION_PHASE_INITIAL_TO_INTERMEDIATE);
   aggregate.call = std::move(binding.call);
   aggregate.distinct = function.invocation() == substrait::AggregateFunction::AGGREGATION_INVOCATION_DISTINCT;
   if (measure.has_filter()) {
@@ -125,6 +155,24 @@ VeloxPlanConverter::PreparedAggregate VeloxPlanConverter::prepareAggregate(
   validateGroupingReferences(relation);
   const auto phase = relation.measures().empty() ? substrait::AGGREGATION_PHASE_INITIAL_TO_RESULT
                                                  : relation.measures(0).measure().phase();
+  const auto consumesState = phase == substrait::AGGREGATION_PHASE_INTERMEDIATE_TO_RESULT;
+  const auto emitsState = phase == substrait::AGGREGATION_PHASE_INITIAL_TO_INTERMEDIATE;
+  std::optional<protocol::v2::AggregatePhaseDetail> phaseDetail;
+  if (relation.has_advanced_extension() && relation.advanced_extension().has_enhancement()) {
+    const auto& enhancement = relation.advanced_extension().enhancement();
+    phaseDetail.emplace();
+    if ((!consumesState && !emitsState) || !function_catalog_ || relation.groupings_size() != 1 ||
+        enhancement.type_url() != "type.googleapis.com/pangrova.protocol.v2.AggregatePhaseDetail" ||
+        !enhancement.UnpackTo(&*phaseDetail) ||
+        !phaseDetail->GetReflection()->GetUnknownFields(*phaseDetail).empty() ||
+        phaseDetail->measures_size() != relation.measures_size() || relation.measures_size() == 0 ||
+        phaseDetail->implementation_build_id() != function_catalog_->inventory().function_catalog().implementation_build_id()) {
+      throw std::runtime_error("Aggregate phase enhancement does not match its admitted execution catalogue");
+    }
+  }
+  if (!phaseDetail && (consumesState || (emitsState && shuffle_partition_count_ > 0))) {
+    throw std::runtime_error("Cross-stage aggregate requires its phase enhancement");
+  }
   PreparedAggregate prepared;
   prepared.input = std::move(input);
   prepared.step = resolveAggregationStep(phase);
@@ -159,8 +207,10 @@ VeloxPlanConverter::PreparedAggregate VeloxPlanConverter::prepareAggregate(
   }
   const bool expansion = relation.groupings_size() > 1;
   std::unordered_set<std::string> expansionFields;
-  for (const auto& measure : relation.measures()) {
-    auto binding = convertAggregateMeasure(measure, inputType, names, computed);
+  for (int ordinal = 0; ordinal < relation.measures_size(); ++ordinal) {
+    const auto& measure = relation.measures(ordinal);
+    const auto* phaseBinding = phaseDetail ? &phaseDetail->measures(ordinal) : nullptr;
+    auto binding = convertAggregateMeasure(measure, phaseBinding, inputType, names, computed);
     if (expansion) collectGroupIdInputs(binding.measure, expansionFields, prepared.group_id_inputs);
     prepared.measures.push_back(std::move(binding.measure));
     if (localPartial) prepared.intermediate_types.push_back(std::move(binding.intermediate_type));
@@ -217,7 +267,7 @@ std::shared_ptr<const core::PlanNode> VeloxPlanConverter::convertAggregateRel(
   if (prepared.usesLocalPartial()) {
     return buildParallelAggregation(prepared.keys, preGrouped, prepared, prepared.input);
   }
-  if (prepared.step == Step::kSingle && prepared.requires_single) {
+  if (prepared.step == Step::kFinal || (prepared.step == Step::kSingle && prepared.requires_single)) {
     prepared.input = insertLocalPartitionExchange(prepared.input, prepared.keys);
     preGrouped.clear();
   }

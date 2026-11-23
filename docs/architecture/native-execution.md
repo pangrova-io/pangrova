@@ -106,6 +106,15 @@ Final keeps the original raw argument types alongside its state input. For
 DECIMAL(22,7) SUM, the local accumulator is VARBINARY and the result is
 DECIMAL(38,7).
 
+For cross-stage aggregation, the Substrait Aggregate enhancement identifies
+the exact Native implementation build and each registered function signature.
+The final stage carries the original raw input types and reads one typed state
+field per measure. Native validates the build, signature and state type before
+constructing the task. The current DECIMAL state contains four 64-bit values.
+Shuffle payload bytes count serialized pages accepted by the task queue. The
+counter is exported with Native task statistics and excludes transport framing
+and resend traffic.
+
 Substrait grouping sets use original input ordinals for keys, arguments and
 masks. The Native preparation keeps exactly the fields that GroupId must load,
 and GroupId carries only measure inputs alongside the grouping keys and set ID.

@@ -148,8 +148,9 @@ int64_t createTaskExecutor(JNIEnv* env, protocol::v2::TaskRequest request,
   const auto handle = registry.reserveCreation(creationIdentity(request));
   try {
     auto config = taskConfigFromRequest(request);
-    config.function_registry = NativeEngineLifecycle::instance()
-        .functionCatalogStartup()->requirePublished()->registry();
+    config.function_catalog = NativeEngineLifecycle::instance()
+        .functionCatalogStartup()->requirePublished();
+    config.function_registry = config.function_catalog->registry();
     config.trace_id = trace_id;
     config.span_id = span_id;
     registry.attachCreation(handle, constructTaskExecutor(env, std::move(config)));

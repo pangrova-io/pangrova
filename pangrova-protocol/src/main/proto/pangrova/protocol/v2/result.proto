@@ -259,6 +259,9 @@ message NativeTaskStats {
   uint64 index_splits_skipped = 20;
   // Present only for a completed requested build-key scan of the exchange output.
   BuildKeySummary build_keys = 21;
+  // Cumulative serialized page bytes accepted by the task-owned Shuffle queue.
+  // Transport framing and resend attempts are excluded.
+  uint64 shuffle_payload_bytes = 22;
   reserved "build_key_range";
 }
 

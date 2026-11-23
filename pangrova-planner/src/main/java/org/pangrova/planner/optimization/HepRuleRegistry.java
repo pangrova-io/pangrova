@@ -39,10 +39,11 @@ import java.util.List;
  */
 public final class HepRuleRegistry {
 
-    // Keep DECIMAL average in the Native accumulator.
+    // The Native accumulators preserve DECIMAL SUM and AVG semantics.
     private static final RelOptRule REDUCE_AGGREGATES = AggregateReduceFunctionsRule.Config.DEFAULT
-            .withExtraCondition(call -> call.getAggregation().getKind() != SqlKind.AVG
-                    || call.getType().getSqlTypeName() != SqlTypeName.DECIMAL)
+            .withExtraCondition(call -> call.getType().getSqlTypeName() != SqlTypeName.DECIMAL
+                    || (call.getAggregation().getKind() != SqlKind.AVG
+                        && call.getAggregation().getKind() != SqlKind.SUM))
             .toRule();
 
     private HepRuleRegistry() {

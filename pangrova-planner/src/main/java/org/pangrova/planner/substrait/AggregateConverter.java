@@ -2,8 +2,14 @@ package org.pangrova.planner.substrait;
 
 import org.pangrova.planner.exception.SubstraitConversionException;
 import org.pangrova.planner.extension.EnforceSingleRowRelDetail;
+import org.pangrova.planner.analysis.StageAggregate;
+import org.pangrova.protocol.v2.AggregatePhaseDetail;
+import org.pangrova.protocol.v2.AggregatePhaseMeasure;
 
+import com.google.protobuf.Any;
 import io.substrait.expression.Expression;
+import io.substrait.extension.ImmutableAdvancedExtension;
+import io.substrait.proto.AggregationPhase;
 import io.substrait.expression.ExpressionCreator;
 import io.substrait.expression.FieldReference;
 import io.substrait.expression.ImmutableAggregateFunctionInvocation;
@@ -21,6 +27,7 @@ import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.sql.type.SqlTypeName;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import org.pangrova.common.enums.PangrovaErrorCode;
@@ -54,6 +61,42 @@ final class AggregateConverter {
             builder.remap(Rel.Remap.offset(0, agg.getRowType().getFieldCount()));
         }
         return builder.build();
+    }
+
+    Rel convert(StageAggregate aggregate, Rel input) {
+        boolean producesState = aggregate.phase() == AggregationPhase.AGGREGATION_PHASE_INITIAL_TO_INTERMEDIATE;
+        var phase = producesState ? Expression.AggregationPhase.INITIAL_TO_INTERMEDIATE
+                : Expression.AggregationPhase.INTERMEDIATE_TO_RESULT;
+        var calls = aggregate.calls();
+        var bindings = aggregate.bindings();
+        var detail = AggregatePhaseDetail.newBuilder()
+                .setImplementationBuildId(bindings.get(0).implementationBuildId());
+        var measures = new ArrayList<Aggregate.Measure>(calls.size());
+        var fields = aggregate.getRowType().getFieldList();
+        for (int ordinal = 0; ordinal < calls.size(); ordinal++) {
+            var call = calls.get(ordinal);
+            var binding = bindings.get(ordinal);
+            var ref = functionMapper.map(call.getAggregation());
+            if (!binding.function().getName().equals(ref.name())
+                    || !binding.implementationBuildId().equals(detail.getImplementationBuildId())) {
+                throw new IllegalArgumentException("Stage aggregate does not match its bound function");
+            }
+            var measureDetail = AggregatePhaseMeasure.newBuilder()
+                    .setRegistrationSha256(binding.actualRegistrationSha256());
+            if (!producesState) {
+                measureDetail.setOriginalRawArguments(binding.originalArguments());
+            }
+            detail.addMeasures(measureDetail);
+            measures.add(buildMeasure(call, ref, aggregate.getInput().getRowType(),
+                    producesState ? call.getArgList() : List.of(ordinal), producesState ? call.filterArg : -1,
+                    phase, typeMapper.map(fields.get(ordinal).getType())));
+        }
+        var phaseDetail = detail.build();
+        var enhancement = ImmutableAdvancedExtension
+                .<PangrovaOptimization, PangrovaExtensionProtoConverter.Enhancement>builder()
+                .enhancement(() -> Any.pack(phaseDetail)).build();
+        return ImmutableAggregate.builder().input(input).measures(measures)
+                .groupings(List.of(ImmutableGrouping.builder().build())).extension(enhancement).build();
     }
 
     private static boolean singleValue(AggregateCall call) {
@@ -114,10 +157,15 @@ final class AggregateConverter {
         // The decorrelator uses LITERAL_AGG for one constant per group.
         var ref = "LITERAL_AGG".equals(call.getAggregation().getName())
                 ? new FunctionReference("aggregate", "min") : functionMapper.map(call.getAggregation());
+        return buildMeasure(call, ref, inputRowType, call.getArgList(), call.filterArg,
+                Expression.AggregationPhase.INITIAL_TO_RESULT, resolveAggregateOutputType(call, ref));
+    }
+
+    private Aggregate.Measure buildMeasure(AggregateCall call, FunctionReference ref, RelDataType inputRowType,
+            List<Integer> argumentOrdinals, int filterOrdinal, Expression.AggregationPhase phase, Type outputType) {
         var variant = functionMapper.resolveAggregateVariant(ref);
-        Type outputType = resolveAggregateOutputType(call, ref);
         int fieldCount = inputRowType.getFieldCount();
-        List<Expression> args = call.getArgList().stream()
+        List<Expression> args = argumentOrdinals.stream()
                 .map(idx -> {
                     if (idx < 0 || idx >= fieldCount) {
                         throw new SubstraitConversionException(
@@ -136,23 +184,23 @@ final class AggregateConverter {
         }
         var invocation = ImmutableAggregateFunctionInvocation.builder()
                 .declaration(variant).outputType(outputType)
-                .aggregationPhase(Expression.AggregationPhase.INITIAL_TO_RESULT)
+                .aggregationPhase(phase)
                 .invocation(call.isDistinct()
                         ? Expression.AggregationInvocation.DISTINCT
                         : Expression.AggregationInvocation.ALL)
                 .arguments(args).build();
         var measureBuilder = ImmutableMeasure.builder().function(invocation);
-        if (call.filterArg >= 0) {
-            if (call.filterArg >= fieldCount) {
+        if (filterOrdinal >= 0) {
+            if (filterOrdinal >= fieldCount) {
                 throw new SubstraitConversionException(
                         PangrovaErrorCode.SUBSTRAIT_TYPE_MAPPING_FAILURE,
-                        "Aggregate FILTER arg index " + call.filterArg + " out of bounds for "
+                        "Aggregate FILTER arg index " + filterOrdinal + " out of bounds for "
                                 + fieldCount + " input fields");
             }
             Type filterType = typeMapper.map(
-                    inputRowType.getFieldList().get(call.filterArg).getType());
+                    inputRowType.getFieldList().get(filterOrdinal).getType());
             measureBuilder.preMeasureFilter(
-                    FieldReference.newRootStructReference(call.filterArg, filterType));
+                    FieldReference.newRootStructReference(filterOrdinal, filterType));
         }
         return measureBuilder.build();
     }

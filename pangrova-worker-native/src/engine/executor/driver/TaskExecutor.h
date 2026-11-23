@@ -43,6 +43,8 @@ namespace pangrova::shuffle {
 class ShuffleEgressExecutor;
 }  // namespace pangrova::shuffle
 
+namespace pangrova::capability { class FunctionCatalogPublication; }
+
 namespace pangrova::executor {
 
 // Resource limits extracted from v2 TaskRequest.StageResourceGrant.
@@ -127,6 +129,7 @@ struct ShuffleExecutionConfig {
 struct TaskExecutorConfig {
   // Admitted process-local factory owner; never re-read from a live registry.
   std::shared_ptr<const facebook::velox::exec::FunctionRegistrySnapshot> function_registry;
+  std::shared_ptr<const capability::FunctionCatalogPublication> function_catalog;
   // Serialized once after canonical admission, reused by every callback batch.
   std::string callback_context;
   // Process-local identity assigned by HandleRegistry before start(). It is

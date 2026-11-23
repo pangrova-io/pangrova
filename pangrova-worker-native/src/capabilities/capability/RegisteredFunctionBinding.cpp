@@ -84,6 +84,24 @@ RegisteredAggregateBinding bindRegisteredRawAggregate(
   return {call(name, output, std::move(arguments)), resolved->intermediateType};
 }
 
+RegisteredAggregateBinding bindRegisteredStateAggregate(
+    const facebook::velox::exec::FunctionRegistrySnapshot& registry,
+    const std::string& name, const facebook::velox::TypePtr& output,
+    FunctionArguments states, const std::vector<facebook::velox::TypePtr>& rawTypes) {
+  if (states.size() != 1 || !states.front() || !states.front()->type() || rawTypes.empty()) {
+    throw std::invalid_argument("State aggregate requires one state input and its original raw types");
+  }
+  const auto resolved = registry.bindAggregate(name, rawTypes);
+  if (!resolved) throw std::runtime_error("No exact registered state aggregate signature: " + name);
+  const auto& constants = resolved->signature->constantArguments();
+  if (std::any_of(constants.begin(), constants.end(), [](bool constant) { return constant; })) {
+    throw std::runtime_error("State aggregate raw signature contains a constant argument: " + name);
+  }
+  requireOutput(name, states.front()->type(), resolved->intermediateType, "aggregate state input");
+  requireOutput(name, output, resolved->resultType, "aggregate output");
+  return {call(name, output, std::move(states)), resolved->intermediateType};
+}
+
 facebook::velox::core::CallTypedExprPtr bindRegisteredWindow(
     const facebook::velox::exec::FunctionRegistrySnapshot& registry,
     const std::string& name, const facebook::velox::TypePtr& output,

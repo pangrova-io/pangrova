@@ -75,6 +75,19 @@ class CanonicalTaskReportValidatorTest {
     }
 
     @Test
+    void shufflePayloadObservationDoesNotConsumeAnExecutionGrant() {
+        var issued = request("COMPUTE", List.of());
+        assertThat(issued.taskRequest().getResourceGrant().getShuffleSendBytes()).isZero();
+        var status = TaskReport.newBuilder().setAttempt(nativeAttempt())
+                .setState(TaskState.TASK_STATE_FINISHED).setCoverage(completeCoverage())
+                .setReportOrigin(org.pangrova.protocol.v2.TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE)
+                .setNativeTaskStats(org.pangrova.protocol.v2.NativeTaskStats.newBuilder().setShufflePayloadBytes(512))
+                .build();
+
+        assertThat(validator.validate(report(issued, status), issued)).contains(status);
+    }
+
+    @Test
     void acceptsBoundedBuildSummaryOnlyForTheExactIssuedBuildRead() {
         var ordinary = request("COMPUTE", List.of());
         var issued = SubmitTaskRequest.from(ordinary.taskRequest().toBuilder().setBuildKeyOrdinal(0).build());

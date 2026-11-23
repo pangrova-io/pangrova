@@ -90,6 +90,8 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
+实施批次 162 让成本合适的全局 DECIMAL SUM 和 AVG 在并行扫描任务生成 Velox 状态，最终阶段按已注册函数的 build、签名和原始类型归并。两套相同数据和文件布局的双 Worker 对照中，800 行扫描的交换从 800 行、30,592 B 降到 16 条状态行、9,816 B，IPC 有效载荷减少 67.91%。同样的查询形态在 80 行时从 7,424 B 增到 9,816 B，成本模型加入每个 Driver 的 IPC 页开销后保留小输入的原始交换路径。精确小数位、过滤空值、相反的 38 位溢出状态归并与实际回收通过。累计页字节写入授权额度字段曾令零发送额度的任务无法确认终态。候选使用 Native 执行统计回报实际页字节。同源 Native 4,363 项、规划和回报 147 项、能力与协议 82 项、72 项真实端到端用例、Checkstyle 及全仓 152 模块静态检查通过。真实用例覆盖双 Worker、TPC-H、TPC-DS 派生、PostgreSQL 读预算、Flight 慢读与断连和写入提交。角色清单为 `80c17e67566478286fe8acc3ae0838276363c28e209a41e75b08f178ec5a5bf2`。 [Trino 的预聚合规划](https://github.com/trinodb/trino/blob/master/core/trino-main/src/main/java/io/trino/sql/planner/iterative/rule/PushPartialAggregationThroughExchange.java) · [Velox 的聚合阶段及运行时成本](https://facebookincubator.github.io/velox/develop/aggregations.html#adaptive-disabling-of-partial-aggregation)
+
 实施批次 161 保留 DECIMAL AVG 的原生聚合。双 Worker 实际 SQL 的基线被 Calcite 改写为 SUM/COUNT，随后因 Native 没有 DECIMAL 与 BIGINT 的除法签名而失败。候选让已注册的 Velox AVG 直接处理 DECIMAL，分别验证 DECIMAL(9,2) 的 39.50 和 DECIMAL(22,7) 的 39.5000000。过滤、空输入、混合 COUNT、双 Worker 实际放置和物理回收通过。45 项规划测试、57 项同源 Java 到 Native 实际用例和 Checkstyle 通过，覆盖 TPC-H、TPC-DS 派生、Flight 慢读及断连和 PostgreSQL 读预算。角色清单为 `5a12e1f57f42c043f4c6dfa495fcbff8bec4eb9a3f3ca103f6b31546e6991665`。
 
 批次 160 的两组同源配对使用同一断连夹具和两个确切产物。夹具的请求额度仅覆盖 schema 和首个记录批，并使用 64 KiB HTTP/2 接收窗口使进程退出点位于实际传输中。四次均逐行通过并返回 FAILED 与物理排空。8,192 行窄结果到 EOF 中位数为 617.5→626.0 ms，75,497,472 B 宽结果为 482.5→412.0 ms。宽结果首批为 116.5→127.0 ms，仍需对首批的读取、转换和消息粒度单独归因。这一组是本机顺序执行的两对样本，宽结果含固定 250 ms 慢读停顿。

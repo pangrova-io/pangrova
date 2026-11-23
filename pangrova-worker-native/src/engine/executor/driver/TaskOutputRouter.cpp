@@ -73,6 +73,10 @@ void TaskOutputRouter::drainOutputQueue() {
   }
 }
 
+uint64_t TaskOutputRouter::shufflePayloadBytes() const {
+  return serialized_shuffle_queue_ ? serialized_shuffle_queue_->enqueuedPayloadBytes() : 0;
+}
+
 int32_t TaskOutputRouter::numShufflePartitions() const {
   return num_shuffle_partitions_;
 }

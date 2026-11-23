@@ -122,6 +122,8 @@ class SerializedShuffleQueue final {
         return false;
       }
       queue_.push_back({std::move(batch), charge});
+      enqueued_payload_bytes_ += std::min<uint64_t>(bytes,
+          std::numeric_limits<uint64_t>::max() - enqueued_payload_bytes_);
       pending.retained = true;
       not_empty_.notify_one();
     }
@@ -204,6 +206,12 @@ class SerializedShuffleQueue final {
     return queue_.size();
   }
   size_t capacity() const { return capacity_; }
+  // Canonical page bytes accepted for egress across this task's lifetime.
+  uint64_t enqueuedPayloadBytes() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return enqueued_payload_bytes_;
+  }
+
   size_t usedBytes() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return used_bytes_;
@@ -224,6 +232,7 @@ class SerializedShuffleQueue final {
   std::condition_variable settled_;
   std::deque<Entry> queue_;
   size_t used_bytes_ = 0;
+  uint64_t enqueued_payload_bytes_ = 0;
   size_t copying_ = 0;
   bool closed_ = false;
   Outcome outcome_ = Outcome::OPEN;

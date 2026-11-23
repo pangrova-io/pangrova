@@ -371,8 +371,11 @@ final class QuerySchedulingEngine {
         var merge = retrievalIntents.collectRetrievalMergeIntent(ctx.vectorSearchNode(), ctx.rerankerPlan());
         java.util.Optional<RerankIntent> rerank = retrievalIntents.collectRerankIntent(ctx.rerankerPlan());
         boolean needsRetrievalReducer = merge.isPresent() || rerank.isPresent();
+        boolean usesDefaultDrivers = !session.sessionProperties().containsKey("velox.max_drivers");
         var fragments = artifactIntents.isEmpty() && !needsRetrievalReducer
-                ? plannedQuery.fragmentForCluster(clusterParallelismLimit)
+                ? ctx.compiler().fragmentQueryForCluster(plannedQuery, clusterParallelismLimit,
+                        parallelism -> usesDefaultDrivers
+                                ? deps.workerSelector().estimateMaximumTaskDrivers(workerCount, parallelism) : 0)
                 : plannedQuery.fragmentWithPhysicalRetrievalIdentity(clusterParallelismLimit, needsRetrievalReducer);
         ctx.vectorSearchNode().ifPresent(vector -> LOG.info(
                 "event=vector_retrieval_plan queryId={} indexId={} intentCount={} stageCount={}",

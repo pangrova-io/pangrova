@@ -61,6 +61,7 @@ class TaskOutputRouter {
 
   // Number of shuffle partitions configured.
   int32_t numShufflePartitions() const;
+  uint64_t shufflePayloadBytes() const;
 
  private:
   std::unique_ptr<OutputQueue> output_queue_;

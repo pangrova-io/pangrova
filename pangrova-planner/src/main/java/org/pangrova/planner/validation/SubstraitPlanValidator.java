@@ -95,11 +95,15 @@ public final class SubstraitPlanValidator {
         this.capabilities = java.util.Objects.requireNonNull(capabilities, "capabilities");
     }
 
+    public NativeCapabilityRegistry capabilitySnapshot() {
+        return java.util.Objects.requireNonNull(capabilities.get(), "capability snapshot");
+    }
+
     /**
      * Validates every root in the plan and returns an aggregate result.
      */
     public PlanValidationResult validate(Plan plan) {
-        NativeCapabilityRegistry registry = java.util.Objects.requireNonNull(capabilities.get(), "capability snapshot");
+        NativeCapabilityRegistry registry = capabilitySnapshot();
         List<UnsupportedNode> unsupported = new ArrayList<>();
         int[] relCount = {0};
         for (Plan.Root root : plan.getRoots()) {

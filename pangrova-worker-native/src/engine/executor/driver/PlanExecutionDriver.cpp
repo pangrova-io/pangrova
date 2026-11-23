@@ -86,7 +86,7 @@ PlanExecutionDriver::prepareExecution(observability::SpanScope* span) {
       static_cast<uint64_t>(
           std::max<int64_t>(0, config_.resource_limit.max_object_store_read_bytes)),
       execution->artifactContext->read_budget);
-  velox::VeloxPlanConverter converter(config_.function_registry);
+  velox::VeloxPlanConverter converter(config_.function_registry, config_.function_catalog);
   auto plan = converter.convert(config_.substrait_plan, execution->retrieval->splits,
       config_.operator_bindings,
       execution->artifactContext, execution->retrieval->split_overrides,

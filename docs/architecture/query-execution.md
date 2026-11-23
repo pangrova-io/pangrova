@@ -330,6 +330,8 @@ The Coordinator executes no data-processing operators. All Output Stages (includ
 
 Eligible global counts and integral minima and maxima reduce on the parallel scan tasks. The final stage gathers the scalar results and merges them. Each scan task evaluates the original aggregate inputs and filter masks.
 
+Eligible global DECIMAL SUM and AVG can exchange the Velox accumulator. The planner starts with the snapshot row estimate and the producer Driver allocation. It estimates the state rows and the Arrow IPC page metadata for each producer Driver. It selects partial aggregation when both the estimated row count and byte count are lower. Scan tasks apply the original filters. The final task uses the raw input precision and scale to bind the function that merges those states. The decision uses the admitted Worker function catalogue held in memory.
+
 Eligible grouped counts and integral minima and maxima also reduce on scan tasks. The planner estimates combinations from snapshot-matched distinct counts for every direct grouping column, with a NULL bucket where applicable. It requires lower estimated exchange rows and bytes. The exchange hashes the complete grouping key, and the downstream stage merges matching groups, including NULL keys.
 
 #### 3.3.1 Design Goals and Constraints

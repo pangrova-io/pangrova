@@ -60,12 +60,15 @@ class NamedStruct;
 }  // namespace substrait
 
 namespace pangrova::protocol::v2 {
+class AggregatePhaseMeasure;
 class RetrievalSourceDetail;
 class RetrievalMergeDetail;
 class RerankDetail;
 class ArtifactBuildDetail;
 class TableFunctionDetail;
 }  // namespace pangrova::protocol::v2
+
+namespace pangrova::capability { class FunctionCatalogPublication; }
 
 namespace pangrova::velox {
 
@@ -78,7 +81,8 @@ struct ArtifactBuildTaskContext;
 class VeloxPlanConverter {
  public:
   explicit VeloxPlanConverter(
-      std::shared_ptr<const facebook::velox::exec::FunctionRegistrySnapshot> function_registry);
+      std::shared_ptr<const facebook::velox::exec::FunctionRegistrySnapshot> function_registry,
+      std::shared_ptr<const capability::FunctionCatalogPublication> function_catalog = nullptr);
   // Convert raw Substrait Plan protobuf bytes into a Velox PlanNode.
   // splits: connector split metadata for table scan operators.
   std::shared_ptr<const facebook::velox::core::PlanNode> convert(
@@ -150,6 +154,7 @@ class VeloxPlanConverter {
  private:
   void requireFunctionKind(uint32_t anchor, pangrova::protocol::v2::FunctionKind kind) const;
   const std::shared_ptr<const facebook::velox::exec::FunctionRegistrySnapshot> function_registry_;
+  const std::shared_ptr<const capability::FunctionCatalogPublication> function_catalog_;
   // Monotonically increasing node id counter for unique PlanNode ids.
   int next_node_id_ = 0;
   int32_t shuffle_partition_count_ = 0;
@@ -436,6 +441,7 @@ class VeloxPlanConverter {
 
   BoundAggregateMeasure convertAggregateMeasure(
       const substrait::AggregateRel::Measure& measure,
+      const protocol::v2::AggregatePhaseMeasure* phase_binding,
       const facebook::velox::RowTypePtr& input_type,
       std::vector<std::string>& names,
       std::vector<facebook::velox::core::TypedExprPtr>& projections);

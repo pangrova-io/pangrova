@@ -31,6 +31,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.StringJoiner;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -49,6 +50,7 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
     private static Path workerLog;
     private static Path workerSpillDirectory;
     private static String orders;
+    private static String decimalOrders;
     private static String customers;
     private static String regions;
 
@@ -64,9 +66,11 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
                 CATALOG, SCHEMA, icebergWarehouse().toString())));
         String suffix = Long.toHexString(System.nanoTime());
         orders = CATALOG + "." + SCHEMA + ".two_worker_orders_" + suffix;
+        decimalOrders = CATALOG + "." + SCHEMA + ".two_worker_decimal_" + suffix;
         customers = CATALOG + "." + SCHEMA + ".two_worker_customers_" + suffix;
         regions = CATALOG + "." + SCHEMA + ".two_worker_regions_" + suffix;
         seedTablesBeforeSecondWorkerJoins();
+        seedDecimalTable();
 
         workerConfig = Files.createTempFile("pangrova-physical-worker-", ".yml");
         workerLog = Files.createTempFile("pangrova-physical-worker-", ".log");
@@ -228,12 +232,66 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
     void decimalAvgKeepsTheNativeExactScaleAcrossTwoWorkers() {
         var result = executeWithScanAggregates(
                 "SELECT AVG(CAST(score AS DECIMAL(22,7))) AS mean, "
-                        + "AVG(CAST(score AS DECIMAL(9,2))) AS short_mean FROM " + orders, false);
-        assertThat(result.scannedRows()).isEqualTo(80);
+                        + "AVG(CAST(score AS DECIMAL(9,2))) AS short_mean FROM " + decimalOrders, "PartialAggregation");
+        assertThat(result.scannedRows()).isEqualTo(800);
         assertThat(result.rows()).singleElement().satisfies(row -> {
-            assertThat(row.getRaw("mean")).isEqualTo(new java.math.BigDecimal("39.5000000"));
-            assertThat(row.getRaw("short_mean")).isEqualTo(new java.math.BigDecimal("39.50"));
+            assertThat(row.getRaw("mean")).isEqualTo(new java.math.BigDecimal("399.5000000"));
+            assertThat(row.getRaw("short_mean")).isEqualTo(new java.math.BigDecimal("399.50"));
         });
+    }
+
+    @Test
+    void decimalSumAndAvgShareOneTypedStageAndKeepNullableStates(TestReporter metrics) {
+        String sql = decimalStateSql(decimalOrders);
+        var result = executeWithScanAggregates(sql, "PartialAggregation");
+        assertThat(result.scannedRows()).isEqualTo(800);
+        assertThat(result.exchangeRows()).isPositive().isLessThan(result.scannedRows());
+        assertThat(result.exchangeBytes()).isPositive();
+        assertThat(result.rows()).singleElement().satisfies(row -> {
+            assertThat(row.getRaw("total")).isEqualTo(new java.math.BigDecimal("319600.0000000"));
+            assertThat(row.getRaw("mean")).isEqualTo(new java.math.BigDecimal("1.50"));
+            assertThat(row.getRaw("empty_total")).isNull();
+        });
+        org.slf4j.LoggerFactory.getLogger(PhysicalTwoWorkerShuffleE2ETest.class).info(
+                "event=decimal_aggregate_exchange scans={} stateRows={} payloadBytes={}",
+                result.scannedRows(), result.exchangeRows(), result.exchangeBytes());
+        metrics.publishEntry(Map.of("scan_rows", Long.toString(result.scannedRows()),
+                "state_rows", Long.toString(result.exchangeRows()),
+                "shuffle_payload_bytes", Long.toString(result.exchangeBytes())));
+    }
+
+    @Test
+    void decimalAggregateKeepsRawPagesForSmallInput() {
+        var result = executeWithScanAggregates(decimalStateSql(orders), false);
+        assertThat(result.scannedRows()).isEqualTo(80);
+        assertThat(result.exchangeRows()).isEqualTo(80);
+        assertThat(result.exchangeBytes()).isPositive();
+        assertThat(result.rows()).singleElement().satisfies(row -> {
+            assertThat(row.getRaw("total")).isEqualTo(new java.math.BigDecimal("3160.0000000"));
+            assertThat(row.getRaw("mean")).isEqualTo(new java.math.BigDecimal("1.50"));
+            assertThat(row.getRaw("empty_total")).isNull();
+        });
+    }
+
+    private static String decimalStateSql(String table) {
+        String decimal = "CAST(score AS DECIMAL(22,7))";
+        return "SELECT SUM(" + decimal + ") AS total, "
+                + "AVG(CAST(score AS DECIMAL(9,2))) FILTER (WHERE score < 4) AS mean, "
+                + "SUM(" + decimal + ") FILTER (WHERE score < 0) AS empty_total FROM " + table;
+    }
+
+    @Test
+    void decimalSumMergesOppositeOverflowStatesAcrossWorkers() {
+        String maximum = "99999999999999999999999999999999999999";
+        String decimal = "CASE WHEN score < 400 THEN CAST('" + maximum + "' AS DECIMAL(38,0))"
+                + " ELSE CAST('-" + maximum + "' AS DECIMAL(38,0)) END";
+        var result = executeWithScanAggregates("SELECT SUM(" + decimal + ") AS total FROM " + decimalOrders,
+                "PartialAggregation");
+        assertThat(result.scannedRows()).isEqualTo(800);
+        assertThat(result.exchangeRows()).isPositive().isLessThan(result.scannedRows());
+        assertThat(result.exchangeBytes()).isPositive();
+        assertThat(result.rows()).singleElement().satisfies(row ->
+                assertThat(row.getRaw("total")).isEqualTo(java.math.BigDecimal.ZERO));
     }
 
     @Test
@@ -526,6 +584,10 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
     }
 
     private static ScanAggregates executeWithScanAggregates(String sql, boolean reduce) {
+        return executeWithScanAggregates(sql, reduce ? "Aggregation" : null);
+    }
+
+    private static ScanAggregates executeWithScanAggregates(String sql, String reductionOperator) {
         var capture = new AtomicReference<>(new ConcurrentHashMap<String, TaskReport>());
         taskTracker.addExecutionDrainListener(report -> {
             var reports = capture.get();
@@ -558,12 +620,18 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
                         long scannedRows = scanStats.stream().filter(stat -> stat.getOperatorType().equals("TableScan"))
                                 .mapToLong(OperatorStats::getOutputRows).sum();
                         var localReductions = scanStats.stream()
-                                .filter(stat -> stat.getOperatorType().equals("Aggregation"))
+                                .filter(stat -> reductionOperator == null
+                                        ? stat.getOperatorType().equals("Aggregation")
+                                                || stat.getOperatorType().equals("PartialAggregation")
+                                        : stat.getOperatorType().equals(reductionOperator))
                                 .toList();
-                        assertThat(localReductions).hasSize(reduce ? scanWorkers.size() : 0);
+                        assertThat(localReductions).hasSize(reductionOperator == null ? 0 : scanWorkers.size());
                         long exchangeRows = scanStats.stream().filter(stat -> stat.getOperatorType().equals(
                                 "CallbackSink")).mapToLong(OperatorStats::getInputRows).sum();
-                        aggregateResult.set(new ScanAggregates(rows, scannedRows, localReductions, exchangeRows));
+                        long exchangeBytes = scanWorkers.stream()
+                                .mapToLong(report -> report.getNativeTaskStats().getShufflePayloadBytes()).sum();
+                        aggregateResult.set(new ScanAggregates(
+                                rows, scannedRows, localReductions, exchangeRows, exchangeBytes));
                     });
             return aggregateResult.get();
         } finally {
@@ -572,7 +640,8 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
     }
 
     private record ScanAggregates(
-            List<TypedRow> rows, long scannedRows, List<OperatorStats> localAggregates, long exchangeRows) {}
+            List<TypedRow> rows, long scannedRows, List<OperatorStats> localAggregates,
+            long exchangeRows, long exchangeBytes) {}
 
     private void requireDistributedResultAndDrain(Map<String, Set<WorkerExecutionIdentity>> drainedWorkers,
             Set<WorkerExecutionIdentity> expected) {
@@ -731,6 +800,17 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
             sqlRunner.execute(ordersInsert.toString());
             sqlRunner.execute(customersInsert.toString());
             sqlRunner.execute(regionsInsert.toString());
+        }
+    }
+
+    private static void seedDecimalTable() {
+        sqlRunner.executeDdl("CREATE TABLE " + decimalOrders + " (score BIGINT)");
+        for (int first = 0; first < 800; first += 100) {
+            var rows = new StringJoiner(",");
+            for (int score = first; score < first + 100; score++) {
+                rows.add("(" + score + ")");
+            }
+            sqlRunner.execute("INSERT INTO " + decimalOrders + " VALUES " + rows);
         }
     }
 

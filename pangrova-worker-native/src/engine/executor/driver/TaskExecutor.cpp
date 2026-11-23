@@ -429,6 +429,7 @@ std::optional<protocol::v2::NativeTaskStats> TaskExecutor::collectTaskStats() co
   stats->set_cache_miss_count(cache_usage.misses);
   stats->set_cache_eviction_count(cache_usage.evictions);
   stats->set_cache_admission_rejection_count(cache_usage.admission_rejections);
+  stats->set_shuffle_payload_bytes(router_.shufflePayloadBytes());
   return stats;
 }
 

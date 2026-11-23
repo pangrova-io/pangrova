@@ -139,6 +139,19 @@ message EnforceSingleRowDetail {
   uint32 input_ordinal = 1;
 }
 
+// Required enhancement on a cross-stage AggregateRel. The standard measures
+// carry the phase, state operand and output type, and retain their ordinal.
+message AggregatePhaseDetail {
+  string implementation_build_id = 1;
+  repeated AggregatePhaseMeasure measures = 2;
+}
+
+message AggregatePhaseMeasure {
+  bytes registration_sha256 = 1;
+  // Present only for input already reduced to a registered intermediate state.
+  substrait.NamedStruct original_raw_arguments = 2;
+}
+
 message RelationDetailEnvelope {
   uint32 schema_version = 1;
   oneof detail {

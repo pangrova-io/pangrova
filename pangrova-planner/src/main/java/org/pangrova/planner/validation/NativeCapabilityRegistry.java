@@ -7,9 +7,11 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.function.Supplier;
 import org.pangrova.protocol.capability.inventory.CapabilityInventoryCodec;
+import org.pangrova.protocol.function.catalog.FunctionCatalogView;
 import org.pangrova.protocol.v2.CapabilityInventory;
 
 /**
@@ -44,14 +46,18 @@ public final class NativeCapabilityRegistry {
 
     private volatile CapabilitySnapshot snapshot;
     private final boolean supportsUpdates;
+    private final List<CapabilityInventory> functionInventories;
+    private volatile List<FunctionCatalogView> functionCatalogues;
 
     private NativeCapabilityRegistry(
             Set<String> relTypes,
             Set<String> exprTypes,
             Set<String> functions,
-            boolean supportsUpdates) {
+            boolean supportsUpdates,
+            List<CapabilityInventory> functionInventories) {
         this.snapshot = new CapabilitySnapshot(relTypes, exprTypes, functions);
         this.supportsUpdates = supportsUpdates;
+        this.functionInventories = List.copyOf(functionInventories);
     }
 
     /**
@@ -66,15 +72,30 @@ public final class NativeCapabilityRegistry {
         Set<String> relations = new HashSet<>();
         Set<String> expressions = new HashSet<>();
         Set<String> functions = new HashSet<>();
+        var catalogues = new LinkedHashMap<com.google.protobuf.ByteString, CapabilityInventory>();
         Set<CapabilityInventory> distinct = Collections.newSetFromMap(new IdentityHashMap<>());
         for (var inventory : inventories) {
             if (!distinct.add(inventory)) continue;
             CapabilityInventoryCodec.validate(inventory);
+            catalogues.putIfAbsent(inventory.getFunctionCatalog().getManifestSha256(), inventory);
             relations.addAll(inventory.getSupportedSubstraitRelTypesList());
             expressions.addAll(inventory.getSupportedSubstraitExpressionTypesList());
             inventory.getFunctionsList().forEach(function -> functions.add(function.getRef().getName()));
         }
-        return new NativeCapabilityRegistry(relations, expressions, functions, false);
+        return new NativeCapabilityRegistry(relations, expressions, functions, false,
+                List.copyOf(catalogues.values()));
+    }
+
+    public List<FunctionCatalogView> functionCatalogues() {
+        var captured = functionCatalogues;
+        return captured == null ? captureFunctionCatalogues() : captured;
+    }
+
+    private synchronized List<FunctionCatalogView> captureFunctionCatalogues() {
+        if (functionCatalogues == null) {
+            functionCatalogues = functionInventories.stream().map(FunctionCatalogView::new).toList();
+        }
+        return functionCatalogues;
     }
 
     /** Reuses one validated union while the live immutable inventory identities remain the same. */
@@ -194,7 +215,7 @@ public final class NativeCapabilityRegistry {
         );
 
         return new NativeCapabilityRegistry(
-                defaultRelTypes, defaultExprTypes, defaultFunctions, true);
+                defaultRelTypes, defaultExprTypes, defaultFunctions, true, List.of());
     }
 
     /**

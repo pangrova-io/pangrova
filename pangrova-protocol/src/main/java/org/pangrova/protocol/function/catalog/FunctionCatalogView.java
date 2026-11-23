@@ -66,6 +66,12 @@ public final class FunctionCatalogView {
                 .setUrn(Objects.requireNonNull(urn, "urn")).setName(Objects.requireNonNull(name, "name")).build());
     }
 
+    public Optional<SubstraitFunctionDefinition> findDefinition(FunctionKind kind, String urn, String name) {
+        var identity = FunctionReferenceContract.newBuilder().setKind(validKind(kind))
+                .setUrn(Objects.requireNonNull(urn, "urn")).setName(Objects.requireNonNull(name, "name")).build();
+        return Optional.ofNullable(definitions.get(FunctionCatalogContracts.referenceIdentity(identity)));
+    }
+
     /** A reference carrying an unknown field or detached hash never acquires the captured authority. */
     public SubstraitFunctionDefinition definition(FunctionReferenceContract reference) {
         var definition = findDefinition(Objects.requireNonNull(reference, "reference"));

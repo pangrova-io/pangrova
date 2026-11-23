@@ -404,6 +404,14 @@ public final class PlannedQuery {
                 clusterParallelismLimit);
     }
 
+    FragmentedPlan fragmentForCluster(int clusterParallelismLimit,
+            java.util.function.Supplier<List<org.pangrova.protocol.function.catalog.FunctionCatalogView>>
+                    catalogueSource,
+            java.util.function.IntUnaryOperator driverEstimate) {
+        return PlanFragmenter.fragment(plan, -1, StageTerminalPurpose.QUERY_RESULT, clusterParallelismLimit,
+                false, catalogueSource, driverEstimate);
+    }
+
     /** Carries physical identity through producer/exchange/merge and trims only final output. */
     public FragmentedPlan fragmentWithPhysicalRetrievalIdentity() {
         return fragmentWithPhysicalRetrievalIdentity(128);

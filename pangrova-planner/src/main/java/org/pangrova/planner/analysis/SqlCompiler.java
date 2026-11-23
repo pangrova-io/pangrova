@@ -80,6 +80,14 @@ public class SqlCompiler {
                 sessionPlanner, sessionScope);
     }
 
+    /** Captures phase support before fixing the producer and consumer stage schemas. */
+    public FragmentedPlan fragmentQueryForCluster(PlannedQuery query, int clusterParallelismLimit,
+            java.util.function.IntUnaryOperator driverEstimate) {
+        return query.fragmentForCluster(clusterParallelismLimit,
+                () -> validator.capabilitySnapshot().functionCatalogues(),
+                driverEstimate);
+    }
+
     /** Installs the metadata boundary without depending on its implementation. */
     public SqlCompiler withSessionPlanner(Function<ConnectorSession, PangrovaPlanner> factory) {
         return new SqlCompiler(planner, converter, serializer, validator,
