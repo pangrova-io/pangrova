@@ -31,8 +31,6 @@ unlisted: true
 | 写入与提交 | 用高并发和故障窗口校准文件大小、写放大、提交时延及各格式恢复。原子发布和跨引擎结果独立验收 | Iceberg/Paimon/Lance/COPY/CDC 保留快照、offset、精确 fence 和资源归还证据 |
 | 发布门槛 | 同硬件、同快照对比 Trino 和 Spark 的 SF100/SF1000，并执行 Linux Native 完整链路回归 | 同源产物、结果摘要、物理 Profile、全量可复核的吞吐和延迟，以及限定环境记录 |
 
-限定名解析仍经 Calcite 取目录命名空间。真实 Iceberg JDBC 对照中，在同一目录增加 1,024 个无关空命名空间后，20 笔点查均返回预期值并归还资源。命名空间属性的 SELECT 调用仍为 20 次，返回行从 20 行升到 20,500 行。另一条表命名空间 SELECT 保持 20 次和 20 行。下一步让完全限定的表引用走按名发现，以当前已验证的表身份和连接器语义绑定实际快照。显式目录枚举继续走列表接口。验收应覆盖命名大小写匹配、引号、同名表、权限拒绝、外部目录变更和空命名空间，并证明点查的元数据返回行数与其他命名空间数量无关。Trino 的 Iceberg 表句柄入口通过限定名调用目录载入表，Spark 的 Iceberg 接口也支持按目录和命名空间定位目标表。 [Trino Iceberg 元数据实现](https://github.com/trinodb/trino/blob/master/plugin/trino-iceberg/src/main/java/io/trino/plugin/iceberg/IcebergMetadata.java) · [Iceberg 的 Spark 表解析](https://github.com/apache/iceberg/blob/main/docs/docs/spark-queries.md)
-
 ## 固定三条稳态零读库门槛
 
 1. **状态订阅和诊断读取。** 活跃 query 由 owner 的认证状态投影提供。正常状态读取与客户端重连在投影窗口内产生零 journal SELECT。只在接管、冷启动重放、明确的历史查询读取数据库。以两个 Coordinator 和大量同 query 的客户端断言次数，覆盖 Ready endpoint 和错误细节。
@@ -92,6 +90,8 @@ unlisted: true
 每一个删除项验收同时看生产调用归零、注册/配置被移除、相邻行为经过真实入口，以及对应的性能或正确性证据。生产 rollout 只有整套新版本和全新运行环境，故障恢复用同版本状态机演练。目录现有的业务数据与历史实验保留为可重现输入。
 
 ## 验证记录与覆盖边界
+
+Iceberg JDBC 的完全限定表名优先检查精确命名空间。同一实际 PostgreSQL、HTTP 和 Native Flight 对照每秒 25 与 60 次，各完成 20 笔查询并核对结果和物理归还。额外创建 1,024 个无关命名空间后，每组命名空间读取从 40 次、20,520 行和 4,280 次共享缓冲区命中，降到 20 次、20 行和 40 次命中。候选在目录扩充前后的读取量相同。两个目录列表查询各从 20 次降到 0 次。每笔仍读两次表指针和核对四次执行所有权。测试涵盖精确大小写、无精确匹配时的大小写解析、空命名空间、外部更改及完整目录列表。37 项焦点回归和 32 项同源打包回归通过。角色清单 SHA-256 为 9acc3c47f8eb2a92e5df5bf07812bf0d3980eefe6a11dfb7123cf2428d28c8b6。 [Trino Iceberg 元数据实现](https://github.com/trinodb/trino/blob/master/plugin/trino-iceberg/src/main/java/io/trino/plugin/iceberg/IcebergMetadata.java) · [Iceberg 的 Spark 表解析](https://github.com/apache/iceberg/blob/main/docs/docs/spark-queries.md)
 
 Worker 的二进制任务请求通过有界流进入 Protobuf，删除 Jersey 中间整包数组。实际 Jetty 收到声明超限的请求，仅发送一个字节即返回 HTTP 413。无声明长度的合法字段流在第一个超限字节被拒绝。原有不规范字段顺序的 COPY 证据仍逐字节保留。Corretto 17 的 Jersey 与 Protobuf 解码对照中，含 1、128、4,096 个分片的合成载荷，每次解码线程分配量分别从 11,416 B 降到 5,944 B、165,688 B 降到 86,824 B、5,071,312 B 降到 2,403,880 B。4 MiB 以单个计划字段为主的载荷从 25,167,528 B 降到 8,421,368 B。四组解码后的规范字节与摘要逐一一致。75 项焦点和 34 项同源打包回归通过。角色清单 SHA-256 为 d169ade77fb0074a001bcac11c7ace21fc81a84e24da5400cdcfc7c95f3fb2cb。
 
