@@ -90,6 +90,8 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
+实施批次 151 让 Native 本地并行聚合复用首次绑定返回的累加器类型，Partial 构建移除一次同签名注册表绑定。DECIMAL(22,7) SUM 的实际计划验证 Partial 产出 VARBINARY，Final 保留 DECIMAL(22,7) 原始实参并返回 DECIMAL(38,7)。619 项定向测试、4,356 项 Native 全量测试和 54 项真实 Java 到 Native 回归通过，包含 TPC 派生、GROUPING SETS、双 Worker Shuffle 和 PostgreSQL 读预算。Native 函数目录逐字节一致。该结论覆盖单任务内的类型绑定和执行，跨 Stage DECIMAL 状态仍待验收。
+
 实施批次 150 清除 Native 聚合前无作用的恒等投影。实际转换基线在聚合输入处生成一个四列 Project，分组字段被重复追加。候选从原来的三列 TableScan 直接绑定分组，计算表达式和必要的别名仍按需物化。593 项聚合相关测试和 4,355 项 Native 全量测试通过。54 项真实 Java 到 Native 回归包含 TPC-H/TPC-DS 派生夹具、GROUPING SETS、双 Worker Shuffle、能力握手和 PostgreSQL 读预算。739 项角色清单 `cc58258eb73853d64659e0f313ec8f6bf47ab8aa0ba5ddbc0866af70297ca854` 的独立进程验证覆盖双 Worker 重启、远程 Shuffle、Kafka→Paimon 和租户配额恢复。规范 Protobuf 描述符和 Native 函数目录摘要一致。已验证计划结构和结果语义，CPU 和端到端延迟仍按同条件基准归因。
 
 实施批次 149 清除已确认拒绝时的空释放。两条基线探针分别复现 Scheduler 和 QueryManager 对已拒绝准入调用一次释放，修复后均为零。若预留确认异常，仍按原所有者完成物理核对，实际取得的槽位只释放一次。82 项正式测试和 Checkstyle 通过，包含 PostgreSQL 上限和持久所有者、重复拒绝以及已落库但确认失败的回归。

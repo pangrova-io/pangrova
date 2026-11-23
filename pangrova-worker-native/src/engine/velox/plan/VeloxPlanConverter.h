@@ -413,14 +413,30 @@ class VeloxPlanConverter {
 
   // --- AggregateRel helpers ---
 
+  struct PreparedAggregate {
+    std::shared_ptr<const facebook::velox::core::PlanNode> input;
+    std::vector<std::string> names;
+    std::vector<facebook::velox::core::AggregationNode::Aggregate> measures;
+    std::vector<facebook::velox::core::FieldAccessTypedExprPtr> keys;
+    std::vector<facebook::velox::TypePtr> intermediate_types;
+    facebook::velox::core::AggregationNode::Step step{};
+    bool requires_single = false;
+
+    bool usesLocalPartial() const {
+      return step == facebook::velox::core::AggregationNode::Step::kSingle && !requires_single;
+    }
+  };
+
+  struct BoundAggregateMeasure {
+    facebook::velox::core::AggregationNode::Aggregate measure;
+    facebook::velox::TypePtr intermediate_type;
+  };
+
   // Bind grouping keys in declaration order and prepare only computed aggregate inputs.
-  std::shared_ptr<const facebook::velox::core::PlanNode> convertAggregateMeasures(
+  PreparedAggregate prepareAggregate(
       const substrait::AggregateRel& aggregate_rel,
       std::shared_ptr<const facebook::velox::core::PlanNode> input,
-      const facebook::velox::RowTypePtr& input_type,
-      std::vector<std::string>& aggregate_names,
-      std::vector<facebook::velox::core::AggregationNode::Aggregate>& aggregates,
-      std::vector<facebook::velox::core::FieldAccessTypedExprPtr>& grouping_keys);
+      const facebook::velox::RowTypePtr& input_type);
 
   facebook::velox::core::TypedExprPtr aggregateInputValue(
       const substrait::Expression& expression,
@@ -429,15 +445,11 @@ class VeloxPlanConverter {
       std::vector<facebook::velox::core::TypedExprPtr>& projections,
       bool preserve_constant);
 
-  facebook::velox::core::AggregationNode::Aggregate convertAggregateMeasure(
+  BoundAggregateMeasure convertAggregateMeasure(
       const substrait::AggregateRel::Measure& measure,
       const facebook::velox::RowTypePtr& input_type,
       std::vector<std::string>& names,
       std::vector<facebook::velox::core::TypedExprPtr>& projections);
-
-  // Map Substrait aggregation phase to Velox AggregationNode::Step.
-  facebook::velox::core::AggregationNode::Step resolveAggregationStep(
-      const substrait::AggregateRel& aggregate_rel);
 
   // Detect pre-grouped keys when input is sorted on grouping keys.
   std::vector<std::shared_ptr<const facebook::velox::core::FieldAccessTypedExpr>>
@@ -459,8 +471,7 @@ class VeloxPlanConverter {
   std::shared_ptr<const facebook::velox::core::PlanNode> buildParallelAggregation(
       const std::vector<std::shared_ptr<const facebook::velox::core::FieldAccessTypedExpr>>& grouping_keys,
       const std::vector<std::shared_ptr<const facebook::velox::core::FieldAccessTypedExpr>>& pre_grouped_keys,
-      const std::vector<std::string>& aggregate_names,
-      const std::vector<facebook::velox::core::AggregationNode::Aggregate>& aggregates,
+      const PreparedAggregate& aggregate,
       std::shared_ptr<const facebook::velox::core::PlanNode> input,
       const std::vector<facebook::velox::vector_size_t>& globalGroupingSets = {},
       const std::optional<facebook::velox::core::FieldAccessTypedExprPtr>& groupId = std::nullopt);

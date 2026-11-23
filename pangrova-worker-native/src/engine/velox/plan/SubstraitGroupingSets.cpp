@@ -42,11 +42,9 @@ std::shared_ptr<const core::PlanNode> VeloxPlanConverter::projectGroupingOutput(
 std::shared_ptr<const core::PlanNode> VeloxPlanConverter::convertMultiGroupingAggregate(
     const substrait::AggregateRel& aggregate,
     std::shared_ptr<const core::PlanNode> input, const RowTypePtr& inputType) {
-  std::vector<std::string> names;
-  std::vector<core::AggregationNode::Aggregate> measures;
-  std::vector<core::FieldAccessTypedExprPtr> inputKeys;
-  auto prepared = convertAggregateMeasures(aggregate, input, inputType, names, measures, inputKeys);
-  const auto preparedType = prepared->outputType();
+  auto prepared = prepareAggregate(aggregate, std::move(input), inputType);
+  const auto preparedType = prepared.input->outputType();
+  const auto& inputKeys = prepared.keys;
   std::vector<core::GroupIdNode::GroupingKeyInfo> keyInfos;
   std::vector<std::vector<std::string>> sets;
   std::vector<vector_size_t> globalSets;
@@ -68,7 +66,7 @@ std::shared_ptr<const core::PlanNode> VeloxPlanConverter::convertMultiGroupingAg
   for (size_t i = 0; i < preparedType->size(); ++i) passthrough.push_back(field(preparedType, i));
   auto expanded = std::make_shared<core::GroupIdNode>(nextNodeId(), std::move(sets),
       std::move(keyInfos), std::move(passthrough),
-      physicalFieldAlias(preparedType->size() + inputKeys.size()), prepared);
+      physicalFieldAlias(preparedType->size() + inputKeys.size()), std::move(prepared.input));
   const auto expandedType = expanded->outputType();
   std::vector<core::FieldAccessTypedExprPtr> keys;
   for (size_t i = 0; i < inputKeys.size(); ++i) keys.push_back(field(expandedType, i));
@@ -76,24 +74,20 @@ std::shared_ptr<const core::PlanNode> VeloxPlanConverter::convertMultiGroupingAg
   keys.push_back(groupId);
   // The one preparation projection evaluated arguments in the original
   // context. GroupId retains those fields; it never rebinds proto ordinals.
-  bool requiresSingle = false;
-  for (int i = 0; i < aggregate.measures_size(); ++i) {
-    requiresSingle |= measures[i].distinct || !measures[i].sortingKeys.empty();
-  }
-  const auto step = resolveAggregationStep(aggregate);
   const std::optional<core::FieldAccessTypedExprPtr> globalGroupId =
       globalSets.empty() ? std::nullopt : std::make_optional(groupId);
   std::shared_ptr<const core::PlanNode> result;
-  if (step == core::AggregationNode::Step::kSingle && !requiresSingle) {
-    result = buildParallelAggregation(keys, {}, names, measures, expanded, globalSets, globalGroupId);
+  const auto measureCount = prepared.measures.size();
+  if (prepared.usesLocalPartial()) {
+    result = buildParallelAggregation(keys, {}, prepared, expanded, globalSets, globalGroupId);
   } else {
-    auto source = requiresSingle ? core::LocalPartitionNode::gather(nextNodeId(), {expanded})
-                           : std::shared_ptr<const core::PlanNode>(expanded);
-    result = std::make_shared<core::AggregationNode>(nextNodeId(), step, keys,
-        std::vector<core::FieldAccessTypedExprPtr>{}, names, measures,
-        globalSets, globalGroupId, false, false, source);
+    auto source = prepared.requires_single ? core::LocalPartitionNode::gather(nextNodeId(), {expanded})
+                                          : std::shared_ptr<const core::PlanNode>(expanded);
+    result = std::make_shared<core::AggregationNode>(nextNodeId(), prepared.step, std::move(keys),
+        std::vector<core::FieldAccessTypedExprPtr>{}, std::move(prepared.names), std::move(prepared.measures),
+        globalSets, globalGroupId, false, false, std::move(source));
   }
-  return projectGroupingOutput(result, inputKeys.size(), measures.size());
+  return projectGroupingOutput(result, inputKeys.size(), measureCount);
 }
 
 }  // namespace pangrova::velox

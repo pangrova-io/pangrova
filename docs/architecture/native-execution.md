@@ -94,7 +94,11 @@ remains a scale bottleneck until distributed range-sort/merge is validated.
 Native aggregate conversion binds distinct direct grouping columns to the source
 vectors. It adds a projection when a computed key, nested argument, or repeated
 grouping alias needs its own field. Grouping sets reuse the same prepared inputs
-in the GroupId expansion while preserving the grouping set identifier.
+in the GroupId expansion while preserving the grouping set identifier. The local
+Partial uses the accumulator type returned by the raw signature binding. The
+Final keeps the original raw argument types alongside its state input. For
+DECIMAL(22,7) SUM, the local accumulator is VARBINARY and the result is
+DECIMAL(38,7).
 
 Splitless sources such as `GENERATE_SERIES` need two cardinality boundaries:
 the planner assigns one producer task to a stage containing the source, and

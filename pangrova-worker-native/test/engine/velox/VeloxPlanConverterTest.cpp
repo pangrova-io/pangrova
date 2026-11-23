@@ -517,7 +517,7 @@ void addBoolColumn(substrait::NamedStruct* schema, const std::string& name) {
 
 // Builds an AggregateRel plan: group by field 0, sum(field 1) with an
 // optional measure filter referencing filter_field (or -1 for none).
-std::vector<uint8_t> buildAggregateWithFilterPlan(int filter_field) {
+std::vector<uint8_t> buildAggregateWithFilterPlan(int filter_field, bool decimal = false) {
   substrait::Rel rel;
   auto* agg = rel.mutable_aggregate();
 
@@ -525,7 +525,15 @@ std::vector<uint8_t> buildAggregateWithFilterPlan(int filter_field) {
   input_read->mutable_named_table()->add_names("sales");
   auto* schema = input_read->mutable_base_schema();
   addI64Column(schema, "region_id");
-  addI64Column(schema, "amount");
+  if (decimal) {
+    schema->add_names("amount");
+    auto* amount = schema->mutable_struct_()->add_types()->mutable_decimal();
+    amount->set_precision(22);
+    amount->set_scale(7);
+    amount->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
+  } else {
+    addI64Column(schema, "amount");
+  }
   addBoolColumn(schema, "is_valid");
 
   auto* grouping = agg->add_groupings();
@@ -538,7 +546,14 @@ std::vector<uint8_t> buildAggregateWithFilterPlan(int filter_field) {
   agg_func->set_phase(substrait::AGGREGATION_PHASE_INITIAL_TO_RESULT);
   auto* arg = agg_func->add_arguments();
   setFieldRef(arg->mutable_value(), 1);
-  agg_func->mutable_output_type()->mutable_i64()->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
+  if (decimal) {
+    auto* output = agg_func->mutable_output_type()->mutable_decimal();
+    output->set_precision(38);
+    output->set_scale(7);
+    output->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
+  } else {
+    agg_func->mutable_output_type()->mutable_i64()->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
+  }
   if (filter_field >= 0) {
     setFieldRef(measure->mutable_filter(), filter_field);
   }
@@ -547,7 +562,7 @@ std::vector<uint8_t> buildAggregateWithFilterPlan(int filter_field) {
   auto* ext = plan.add_extensions();
   auto* ext_func = ext->mutable_extension_function();
   ext_func->set_function_anchor(1);
-  ext_func->set_name("sum:i64");
+  ext_func->set_name(decimal ? "sum:dec" : "sum:i64");
 
   auto* plan_rel = plan.add_relations();
   *plan_rel->mutable_root()->mutable_input() = rel;
@@ -632,6 +647,25 @@ TEST_F(VeloxPlanConverterTest, AggregateMeasureFilterSetsMask) {
   }
 }
 
+
+TEST_F(VeloxPlanConverterTest, DecimalSumUsesBoundAccumulatorAndPreservesRawInputType) {
+  using namespace facebook::velox;
+  const auto registry = exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(registry);
+  const auto result = converter.convert(buildAggregateWithFilterPlan(-1, true), {});
+  const auto nodes = collectAggregationNodes(result);
+  ASSERT_EQ(nodes.size(), 2u);
+  using Step = core::AggregationNode::Step;
+  EXPECT_EQ(nodes.front()->step(), Step::kFinal);
+  EXPECT_EQ(nodes.back()->step(), Step::kPartial);
+  const auto& final = nodes.front()->aggregates().at(0);
+  const auto& partial = nodes.back()->aggregates().at(0);
+  EXPECT_TRUE(partial.call->type()->isVarbinary());
+  EXPECT_TRUE(final.call->inputs().at(0)->type()->isVarbinary());
+  EXPECT_TRUE(final.call->type()->equivalent(*DECIMAL(38, 7)));
+  ASSERT_EQ(final.rawInputTypes.size(), 1u);
+  EXPECT_TRUE(final.rawInputTypes.at(0)->equivalent(*DECIMAL(22, 7)));
+}
 
 TEST_F(VeloxPlanConverterTest, AggregateWithoutMeasureFilterHasNoMask) {
   auto plan_bytes = buildAggregateWithFilterPlan(/*filter_field=*/-1);

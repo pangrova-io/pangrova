@@ -11,6 +11,19 @@ namespace pangrova::velox {
 using namespace facebook::velox;
 
 namespace {
+using Step = core::AggregationNode::Step;
+
+Step resolveAggregationStep(substrait::AggregationPhase phase) {
+  switch (phase) {
+    case substrait::AGGREGATION_PHASE_INITIAL_TO_INTERMEDIATE: return Step::kPartial;
+    case substrait::AGGREGATION_PHASE_INTERMEDIATE_TO_INTERMEDIATE: return Step::kIntermediate;
+    case substrait::AGGREGATION_PHASE_INITIAL_TO_RESULT: return Step::kSingle;
+    case substrait::AGGREGATION_PHASE_INTERMEDIATE_TO_RESULT: return Step::kFinal;
+    case substrait::AGGREGATION_PHASE_UNSPECIFIED: return Step::kFinal;
+    default: throw std::runtime_error("Aggregate has an unknown phase");
+  }
+}
+
 void validateGroupingReferences(const substrait::AggregateRel& relation) {
   std::vector<bool> referenced(relation.grouping_expressions_size());
   for (const auto& grouping : relation.groupings()) {
@@ -41,7 +54,7 @@ core::TypedExprPtr VeloxPlanConverter::aggregateInputValue(
   return std::make_shared<core::FieldAccessTypedExpr>(value->type(), name);
 }
 
-core::AggregationNode::Aggregate VeloxPlanConverter::convertAggregateMeasure(
+VeloxPlanConverter::BoundAggregateMeasure VeloxPlanConverter::convertAggregateMeasure(
     const substrait::AggregateRel::Measure& measure, const RowTypePtr& inputType,
     std::vector<std::string>& names, std::vector<core::TypedExprPtr>& projections) {
   if (!measure.has_measure()) throw std::runtime_error("Aggregate measure has no function");
@@ -66,9 +79,10 @@ core::AggregationNode::Aggregate VeloxPlanConverter::convertAggregateMeasure(
       function.phase() == substrait::AGGREGATION_PHASE_INTERMEDIATE_TO_RESULT) {
     throw std::runtime_error("State aggregate phase requires authoritative original raw-input types");
   }
-  aggregate.call = pangrova::capability::bindRegisteredRawAggregate(*function_registry_, found->second,
+  auto binding = pangrova::capability::bindRegisteredRawAggregate(*function_registry_, found->second,
       convertType(function.output_type()), std::move(arguments),
-      function.phase() == substrait::AGGREGATION_PHASE_INITIAL_TO_INTERMEDIATE).call;
+      function.phase() == substrait::AGGREGATION_PHASE_INITIAL_TO_INTERMEDIATE);
+  aggregate.call = std::move(binding.call);
   aggregate.distinct = function.invocation() == substrait::AggregateFunction::AGGREGATION_INVOCATION_DISTINCT;
   if (measure.has_filter()) {
     if (function.phase() == substrait::AGGREGATION_PHASE_INTERMEDIATE_TO_INTERMEDIATE ||
@@ -85,41 +99,60 @@ core::AggregationNode::Aggregate VeloxPlanConverter::convertAggregateMeasure(
     aggregate.sortingKeys.push_back(std::dynamic_pointer_cast<const core::FieldAccessTypedExpr>(key));
     aggregate.sortingOrders.push_back(convertSortOrder(sort));
   }
-  return aggregate;
+  return {std::move(aggregate), std::move(binding.intermediate)};
 }
 
-std::shared_ptr<const core::PlanNode> VeloxPlanConverter::convertAggregateMeasures(
+VeloxPlanConverter::PreparedAggregate VeloxPlanConverter::prepareAggregate(
     const substrait::AggregateRel& relation, std::shared_ptr<const core::PlanNode> input,
-    const RowTypePtr& inputType, std::vector<std::string>& aggregateNames,
-    std::vector<core::AggregationNode::Aggregate>& aggregates,
-    std::vector<core::FieldAccessTypedExprPtr>& groupingKeys) {
+    const RowTypePtr& inputType) {
   if (relation.groupings_size() == 0 && relation.measures_size() == 0) {
     throw std::runtime_error("Aggregate requires grouping sets or measures");
   }
   validateGroupingReferences(relation);
+  const auto phase = relation.measures().empty() ? substrait::AGGREGATION_PHASE_INITIAL_TO_RESULT
+                                                 : relation.measures(0).measure().phase();
+  PreparedAggregate prepared;
+  prepared.input = std::move(input);
+  prepared.step = resolveAggregationStep(phase);
+  for (const auto& measure : relation.measures()) {
+    const auto& function = measure.measure();
+    if (!measure.has_measure() || function.phase() != phase) {
+      throw std::runtime_error("All aggregate measures must have the same declared phase");
+    }
+    prepared.requires_single |=
+        function.invocation() == substrait::AggregateFunction::AGGREGATION_INVOCATION_DISTINCT ||
+        !function.sorts().empty();
+  }
+  const bool localPartial = prepared.usesLocalPartial();
+  prepared.measures.reserve(relation.measures_size());
+  prepared.names.reserve(relation.measures_size());
+  if (localPartial) prepared.intermediate_types.reserve(relation.measures_size());
+
   auto names = inputType->names();
   std::vector<core::TypedExprPtr> computed;
   std::unordered_set<std::string> usedGroupingFields;
-  groupingKeys.reserve(relation.grouping_expressions_size());
+  prepared.keys.reserve(relation.grouping_expressions_size());
   for (const auto& expression : relation.grouping_expressions()) {
     auto value = convertExpression(expression, inputType);
     const auto field = std::dynamic_pointer_cast<const core::FieldAccessTypedExpr>(value);
     if (field && field->inputs().empty() && usedGroupingFields.emplace(field->name()).second) {
-      groupingKeys.push_back(field);
+      prepared.keys.push_back(field);
     } else {
       names.push_back(physicalFieldAlias(names.size()));
-      groupingKeys.push_back(std::make_shared<core::FieldAccessTypedExpr>(value->type(), names.back()));
+      prepared.keys.push_back(std::make_shared<core::FieldAccessTypedExpr>(value->type(), names.back()));
       computed.push_back(std::move(value));
     }
   }
   for (const auto& measure : relation.measures()) {
-    aggregates.push_back(convertAggregateMeasure(measure, inputType, names, computed));
+    auto binding = convertAggregateMeasure(measure, inputType, names, computed);
+    prepared.measures.push_back(std::move(binding.measure));
+    if (localPartial) prepared.intermediate_types.push_back(std::move(binding.intermediate_type));
   }
   for (int i = 0; i < relation.measures_size(); ++i) {
-    aggregateNames.push_back(physicalFieldAlias(names.size() + relation.grouping_expressions_size() +
+    prepared.names.push_back(physicalFieldAlias(names.size() + relation.grouping_expressions_size() +
         (relation.groupings_size() > 1 ? 1 : 0) + i));
   }
-  if (computed.empty()) return input;
+  if (computed.empty()) return prepared;
   std::vector<core::TypedExprPtr> projections;
   projections.reserve(names.size());
   for (size_t i = 0; i < inputType->size(); ++i) {
@@ -127,26 +160,9 @@ std::shared_ptr<const core::PlanNode> VeloxPlanConverter::convertAggregateMeasur
   }
   projections.insert(projections.end(), std::make_move_iterator(computed.begin()),
       std::make_move_iterator(computed.end()));
-  return std::make_shared<core::ProjectNode>(nextNodeId(), std::move(names), std::move(projections), input);
-}
-
-core::AggregationNode::Step VeloxPlanConverter::resolveAggregationStep(
-    const substrait::AggregateRel& relation) {
-  if (relation.measures_size() == 0) return core::AggregationNode::Step::kSingle;
-  const auto phase = relation.measures(0).measure().phase();
-  for (const auto& measure : relation.measures()) {
-    if (!measure.has_measure() || measure.measure().phase() != phase) {
-      throw std::runtime_error("All aggregate measures must have the same declared phase");
-    }
-  }
-  switch (phase) {
-    case substrait::AGGREGATION_PHASE_INITIAL_TO_INTERMEDIATE: return core::AggregationNode::Step::kPartial;
-    case substrait::AGGREGATION_PHASE_INTERMEDIATE_TO_INTERMEDIATE: return core::AggregationNode::Step::kIntermediate;
-    case substrait::AGGREGATION_PHASE_INITIAL_TO_RESULT: return core::AggregationNode::Step::kSingle;
-    case substrait::AGGREGATION_PHASE_INTERMEDIATE_TO_RESULT: return core::AggregationNode::Step::kFinal;
-    case substrait::AGGREGATION_PHASE_UNSPECIFIED: return core::AggregationNode::Step::kFinal;
-    default: throw std::runtime_error("Aggregate has an unknown phase");
-  }
+  prepared.input = std::make_shared<core::ProjectNode>(
+      nextNodeId(), std::move(names), std::move(projections), std::move(prepared.input));
+  return prepared;
 }
 
 std::vector<core::FieldAccessTypedExprPtr> VeloxPlanConverter::detectPreGroupedKeys(
@@ -165,24 +181,18 @@ std::shared_ptr<const core::PlanNode> VeloxPlanConverter::convertAggregateRel(
   auto input = convertRel(relation.input(), splits);
   const auto inputType = input->outputType();
   if (relation.groupings_size() > 1) return convertMultiGroupingAggregate(relation, input, inputType);
-  std::vector<std::string> names;
-  std::vector<core::AggregationNode::Aggregate> aggregates;
-  std::vector<core::FieldAccessTypedExprPtr> keys;
-  auto prepared = convertAggregateMeasures(relation, input, inputType, names, aggregates, keys);
-  const auto preGrouped = detectPreGroupedKeys(input, keys);
-  const auto step = resolveAggregationStep(relation);
-  const bool requiresSingle = std::any_of(aggregates.begin(), aggregates.end(),
-      [](const auto& aggregate) { return aggregate.distinct || !aggregate.sortingKeys.empty(); });
-  if (step == core::AggregationNode::Step::kSingle && !requiresSingle) {
-    return buildParallelAggregation(keys, preGrouped, names, aggregates, prepared);
+  auto prepared = prepareAggregate(relation, input, inputType);
+  auto preGrouped = detectPreGroupedKeys(input, prepared.keys);
+  if (prepared.usesLocalPartial()) {
+    return buildParallelAggregation(prepared.keys, preGrouped, prepared, prepared.input);
   }
-  if (step == core::AggregationNode::Step::kSingle && requiresSingle) {
-    prepared = insertLocalPartitionExchange(prepared, keys);
+  if (prepared.step == Step::kSingle && prepared.requires_single) {
+    prepared.input = insertLocalPartitionExchange(prepared.input, prepared.keys);
+    preGrouped.clear();
   }
-  return std::make_shared<core::AggregationNode>(nextNodeId(), step, keys,
-      step == core::AggregationNode::Step::kSingle && requiresSingle
-          ? std::vector<core::FieldAccessTypedExprPtr>{} : preGrouped,
-      names, aggregates, false, false, prepared);
+  return std::make_shared<core::AggregationNode>(nextNodeId(), prepared.step, std::move(prepared.keys),
+      std::move(preGrouped), std::move(prepared.names), std::move(prepared.measures),
+      false, false, std::move(prepared.input));
 }
 
 }  // namespace pangrova::velox
