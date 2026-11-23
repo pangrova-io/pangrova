@@ -27,6 +27,8 @@ import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -104,13 +106,15 @@ class IcebergMetadataAtomicCommitTest {
         assertThat(countSnapshots(table)).isEqualTo(1);
     }
 
-    @Test
-    void requiredEmptyInsertCommitsOneRealSnapshotAndReplaysExactly() {
+    @ParameterizedTest
+    @ValueSource(ints = {0, 1, 32})
+    void requiredEmptyInsertCommitsOneRealSnapshotAndReplaysExactly(int fragmentCount) {
         Table table = createTable("required_empty");
         var handle = beginInsert("required_empty");
-        var context = context("required-empty", handle, List.of());
+        var fragments = java.util.Collections.nCopies(fragmentCount, "[]".getBytes(StandardCharsets.UTF_8));
+        var context = context("required-empty", handle, fragments);
         assertThat(table.currentSnapshot()).isNull();
-        var receipt = metadata.finishDistributedWriteWithPublication(SESSION, handle, List.of(), context);
+        var receipt = metadata.finishDistributedWriteWithPublication(SESSION, handle, fragments, context);
         table.refresh();
         assertThat(table.currentSnapshot().snapshotId()).isEqualTo(receipt.publishedVersion());
         assertThat(table.currentSnapshot().summary()).containsEntry(
@@ -120,7 +124,7 @@ class IcebergMetadataAtomicCommitTest {
         } catch (java.io.IOException failure) {
             throw new java.io.UncheckedIOException(failure);
         }
-        assertThat(metadata.finishDistributedWriteWithPublication(SESSION, handle, List.of(), context))
+        assertThat(metadata.finishDistributedWriteWithPublication(SESSION, handle, fragments, context))
                 .isEqualTo(receipt);
         table.refresh();
         assertThat(countSnapshots(table)).isEqualTo(1);

@@ -285,7 +285,8 @@ the atomic commit and the final publication observation still run at their respe
 
 A fresh Iceberg JDBC table load already reads the authoritative metadata pointer. Pangrova uses
 that metadata for the UUID check and exact publication receipt. Required empty INSERTs publish
-a marker-bearing snapshot and verify it after publication.
+a marker-bearing snapshot and verify it after publication. Their publication step uses the empty
+INSERT classification from the original fragment collection.
 
 The Iceberg fragment collector parses each Worker UTF-8 payload once per collection. It reads
 the operation and file lists from the same JSON tree and appends the file descriptors directly

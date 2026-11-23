@@ -212,7 +212,7 @@ public class IcebergMetadata extends IcebergReadMetadata implements CopyFilePubl
         finishIcebergDistributedWrite(session, outputHandle, fragments, context);
     }
 
-    private void finishIcebergDistributedWrite(
+    private boolean finishIcebergDistributedWrite(
             ConnectorSession session,
             ConnectorOutputTableHandle outputHandle,
             List<byte[]> fragments,
@@ -268,7 +268,7 @@ public class IcebergMetadata extends IcebergReadMetadata implements CopyFilePubl
                 || !handle.tableUuid().equals(context.copyFile().tableUuid()))) {
             throw new IllegalArgumentException("COPY claim does not match the Iceberg INSERT target");
         }
-        writeCommitter.finishDistributedWrite(
+        return writeCommitter.finishDistributedWrite(
                 icebergTable, handle, fragments, tenantId, context);
     }
 
@@ -277,7 +277,7 @@ public class IcebergMetadata extends IcebergReadMetadata implements CopyFilePubl
             ConnectorSession session, ConnectorOutputTableHandle outputHandle,
             List<byte[]> fragments, DistributedWriteCommitContext context) {
         java.util.Objects.requireNonNull(context, "Required publication needs its exact commit context");
-        finishIcebergDistributedWrite(session, outputHandle, fragments, context);
+        boolean emptyInsert = finishIcebergDistributedWrite(session, outputHandle, fragments, context);
         IcebergOutputTableHandle handle = (IcebergOutputTableHandle) outputHandle;
         Table table = IcebergCatalogTables.resolveTable(
                 catalog, TableIdentifier.of(handle.schemaName(), handle.tableName()));
@@ -285,7 +285,7 @@ public class IcebergMetadata extends IcebergReadMetadata implements CopyFilePubl
             throw new IllegalStateException("Iceberg table UUID changed before required publication proof");
         }
         var snapshot = writeCommitter.publishedSnapshotOrCommitEmptyInsert(
-                table, handle, fragments, tenantId(session), context);
+                table, handle, emptyInsert, tenantId(session), context);
         if (snapshot == null || snapshot.manifestListLocation() == null) {
             throw new IllegalStateException("Required Iceberg publication marker or manifest is absent");
         }

@@ -50,12 +50,14 @@ final class IcebergWriteCommitter {
      * (non-timeout) failure the worker-written files are deleted best-effort;
      * on a timeout the outcome is AMBIGUOUS so files are left for maintenance
      * cleanup (RemoveOrphanFiles) instead of risking deletion of committed data.
+     *
+     * @return whether this validated write is an INSERT with no data or delete files
      */
-    void finishDistributedWrite(Table icebergTable,
-                                IcebergOutputTableHandle handle,
-                                List<byte[]> fragments,
-                                String tenantId,
-                                DistributedWriteCommitContext context) {
+    boolean finishDistributedWrite(Table icebergTable,
+                                   IcebergOutputTableHandle handle,
+                                   List<byte[]> fragments,
+                                   String tenantId,
+                                   DistributedWriteCommitContext context) {
         if (!IcebergDistributedCommitMarker.isPublished(icebergTable, context)) {
             ((org.apache.iceberg.HasTableOperations) IcebergDeclarationCommit.bind(
                     catalog, icebergTable, handle)).operations().current();
@@ -72,9 +74,11 @@ final class IcebergWriteCommitter {
         if (cdc && !cdcMutation && collected.operation() != null && !"APPEND".equals(collected.operation())) {
             throw new UnsupportedOperationException("Iceberg CDC INSERT accepts only append fragments");
         }
+        boolean emptyInsert = IcebergOutputTableHandle.MODE_INSERT.equals(handle.writeMode())
+                && collected.dataFiles().isEmpty() && collected.deleteFiles().isEmpty();
         if (collected.operation() == null) {
             handleEmptyFragments(icebergTable, handle, tenantId, context);
-            return;
+            return emptyInsert;
         }
         try {
             commitCollectedFragments(icebergTable, handle, collected, tenantId, context);
@@ -84,16 +88,15 @@ final class IcebergWriteCommitter {
         }
         LOG.info("event=distributed_write_committed table={}.{}",
                 handle.schemaName(), handle.tableName());
+        return emptyInsert;
     }
 
     /** An explicitly required empty INSERT still needs its own fenced, marker-bearing catalog snapshot. */
-    Snapshot publishedSnapshotOrCommitEmptyInsert(Table table, IcebergOutputTableHandle handle, List<byte[]> fragments,
+    Snapshot publishedSnapshotOrCommitEmptyInsert(Table table, IcebergOutputTableHandle handle, boolean emptyInsert,
             String tenant, DistributedWriteCommitContext context) {
         Snapshot published = IcebergDistributedCommitMarker.publishedSnapshot(table, context);
         if (published != null) return published;
-        var collected = IcebergFragmentParser.collectAllFragments(table, handle, fragments);
-        if (!IcebergOutputTableHandle.MODE_INSERT.equals(handle.writeMode())
-                || !collected.dataFiles().isEmpty() || !collected.deleteFiles().isEmpty()) {
+        if (!emptyInsert) {
             throw new IllegalStateException("Required nonempty write has no exact published snapshot marker");
         }
         commitExecutor.executeIdempotently(table, context, () -> {
