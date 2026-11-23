@@ -11,6 +11,7 @@ import org.pangrova.protocol.rest.copy.CopySourceReadHttp;
 import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.protocol.v2.TaskRequest;
 
+import java.io.InputStream;
 import java.util.HexFormat;
 import java.util.Objects;
 
@@ -47,7 +48,15 @@ public final class SubmitTaskRequest {
 
     /** Parses the sole task submission wire format. COPY keeps the exact embedded task bytes. */
     public static SubmitTaskRequest decode(byte[] body) throws InvalidProtocolBufferException {
-        var envelope = TaskSubmission.parseFrom(body);
+        return decodeEnvelope(TaskSubmission.parseFrom(body));
+    }
+
+    /** Parses the submission directly from a request body with transport limits already applied. */
+    public static SubmitTaskRequest decode(InputStream body) throws InvalidProtocolBufferException {
+        return decodeEnvelope(TaskSubmission.parser().parseFrom(body));
+    }
+
+    private static SubmitTaskRequest decodeEnvelope(TaskSubmission envelope) throws InvalidProtocolBufferException {
         if (!envelope.getUnknownFields().asMap().isEmpty()) {
             throw new IllegalArgumentException("Unexpected fields in task submission");
         }

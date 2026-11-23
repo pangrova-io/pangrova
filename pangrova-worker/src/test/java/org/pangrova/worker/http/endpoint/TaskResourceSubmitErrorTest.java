@@ -20,6 +20,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.io.ByteArrayInputStream;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -59,7 +61,7 @@ class TaskResourceSubmitErrorTest {
                         .build();
         SubmitTaskRequest request = SubmitTaskRequest.from(canonical);
 
-        Response response = resource.submitTask(request.encode(), null).toCompletableFuture().join();
+        Response response = resource.submitTask(new ByteArrayInputStream(request.encode()), null).toCompletableFuture().join();
 
         assertThat(response.getStatus()).isEqualTo(400);
         var errorResponse = TaskSubmitAck.parseFrom((byte[]) response.getEntity());
@@ -75,7 +77,7 @@ class TaskResourceSubmitErrorTest {
                 "task-1", "query-1", 0, 1, org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ,
                 "plan-fragment".getBytes(java.nio.charset.StandardCharsets.UTF_8)).clearResourceGrant().build();
         var request = SubmitTaskRequest.from(canonical);
-        try (Response response = resource.submitTask(request.encode(), null).toCompletableFuture().join()) {
+        try (Response response = resource.submitTask(new ByteArrayInputStream(request.encode()), null).toCompletableFuture().join()) {
             assertThat(response.getStatus()).isEqualTo(400);
             var error = TaskSubmitAck.parseFrom((byte[]) response.getEntity());
             assertThat(error.hasRejected()).isTrue();
@@ -97,7 +99,7 @@ class TaskResourceSubmitErrorTest {
                         .setDirectResultOutput(true))
                 .build();
         org.pangrova.protocol.task.CanonicalTaskRequests.validateForAdmission(canonical);
-        try (Response response = resource.submitTask(SubmitTaskRequest.from(canonical).encode(), null).toCompletableFuture().join()) {
+        try (Response response = resource.submitTask(new ByteArrayInputStream(SubmitTaskRequest.from(canonical).encode()), null).toCompletableFuture().join()) {
             assertThat(response.getStatus()).isEqualTo(500);
             var error = TaskSubmitAck.parseFrom((byte[]) response.getEntity());
             assertThat(error.hasRejected()).isTrue();
@@ -126,7 +128,7 @@ class TaskResourceSubmitErrorTest {
                         .setDigest(ByteString.copyFrom(new byte[32])))
                 .setWrite(WriteOutputBinding.getDefaultInstance())
                 .addRanges(CdcSourceRange.newBuilder().setTopic("orders").setEndOffset(1)));
-        try (Response response = resource.submitTask(SubmitTaskRequest.from(request.build()).encode(), null).toCompletableFuture().join()) {
+        try (Response response = resource.submitTask(new ByteArrayInputStream(SubmitTaskRequest.from(request.build()).encode()), null).toCompletableFuture().join()) {
             assertThat(response.getStatus()).isEqualTo(503);
             var error = TaskSubmitAck.parseFrom((byte[]) response.getEntity());
             assertThat(error.hasRejected()).isTrue();

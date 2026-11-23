@@ -1,14 +1,21 @@
 package org.pangrova.worker.http;
 
+import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
+import java.io.InputStreamReader;
+import java.net.Socket;
 import java.net.URI;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
+import org.pangrova.protocol.http.TaskSubmitAck;
+import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.transport.http.client.HttpClientFactory;
 import org.pangrova.transport.http.client.ManagedHttpClient;
 import org.pangrova.testing.testkit.TestExchangeTransport;
@@ -74,13 +81,33 @@ class WorkerHttpStartupTest {
 
         var malformed = http.httpClient().send(HttpRequest.newBuilder(taskUri()).timeout(Duration.ofSeconds(5))
                 .header("X-Internal-Auth", SECRET).header("Content-Type", "application/x-protobuf")
-                .POST(HttpRequest.BodyPublishers.ofByteArray(new byte[]{(byte) 0x80})).build(),
+                .POST(HttpRequest.BodyPublishers.ofInputStream(
+                        () -> new ByteArrayInputStream(new byte[]{(byte) 0x80}))).build(),
                 HttpResponse.BodyHandlers.ofByteArray());
         assertThat(malformed.statusCode()).isEqualTo(400);
         assertThat(malformed.headers().firstValue("Content-Type")).contains("application/x-protobuf");
-        var ack = org.pangrova.protocol.http.TaskSubmitAck.parseFrom(malformed.body());
+        var ack = TaskSubmitAck.parseFrom(malformed.body());
         assertThat(ack.hasRejected()).isTrue();
         assertThat(ack.getRejected().getCode()).isEqualTo("BAD_REQUEST");
+    }
+
+    @Test
+    void oversizedContentLengthIsRejectedBeforeReadingTheBody() throws Exception {
+        try (var socket = new Socket(taskUri().getHost(), taskUri().getPort())) {
+            socket.setSoTimeout(5_000);
+            var request = "POST /v1/task HTTP/1.1\r\n"
+                    + "Host: " + taskUri().getAuthority() + "\r\n"
+                    + "X-Internal-Auth: " + SECRET + "\r\n"
+                    + "Content-Type: " + SubmitTaskRequest.MEDIA_TYPE + "\r\n"
+                    + "Content-Length: " + (SubmitTaskRequest.MAX_HTTP_BODY_BYTES + 1L) + "\r\n"
+                    + "Connection: close\r\n\r\n";
+            socket.getOutputStream().write(request.getBytes(StandardCharsets.US_ASCII));
+            // Send one byte so the router can identify a present entity, then wait for rejection.
+            socket.getOutputStream().write(0x0a);
+            socket.getOutputStream().flush();
+            var response = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.US_ASCII));
+            assertThat(response.readLine()).startsWith("HTTP/1.1 413 ");
+        }
     }
 
     @Test

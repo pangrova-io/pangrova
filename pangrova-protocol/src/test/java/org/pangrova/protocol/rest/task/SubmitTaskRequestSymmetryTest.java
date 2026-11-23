@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.google.protobuf.CodedOutputStream;
 
+import java.io.ByteArrayInputStream;
 import java.util.List;
 import java.util.HexFormat;
 import java.nio.charset.StandardCharsets;
@@ -76,6 +77,7 @@ class SubmitTaskRequestSymmetryTest {
         assertThat(decoded.canonicalBytes()).isEqualTo(request.canonicalBytes());
         assertThat(decoded.taskRequest()).isEqualTo(request.taskRequest());
         assertThat(decoded).isEqualTo(request);
+        assertThat(SubmitTaskRequest.decode(new ByteArrayInputStream(body))).isEqualTo(decoded);
     }
 
     @Test
@@ -115,7 +117,8 @@ class SubmitTaskRequestSymmetryTest {
         var envelope = TaskSubmission.parseFrom(submitted.encode()).toBuilder();
         envelope.getCopyBuilder().setCanonicalTask(bytes.toByteString());
         var body = envelope.build().toByteArray();
-        var decoded = SubmitTaskRequest.decode(body);
+        var decoded = SubmitTaskRequest.decode(new ByteArrayInputStream(body));
+        assertThat(decoded).isEqualTo(SubmitTaskRequest.decode(body));
         assertThat(decoded.taskRequest()).isEqualTo(canonical);
         assertThat(decoded.canonicalBytes()).isEqualTo(bytes.toByteString().toByteArray());
         assertThat(decoded.encode()).isEqualTo(body);

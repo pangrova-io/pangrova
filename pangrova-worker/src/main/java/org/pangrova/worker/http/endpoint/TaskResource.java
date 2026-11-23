@@ -31,12 +31,14 @@ import org.pangrova.protocol.execution.TaskDescriptor;
 import org.pangrova.protocol.v2.ExchangeInputBinding;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.shuffle.exchange.ExchangeTransport;
+import org.pangrova.transport.http.SizeLimitedInputStream;
 import org.pangrova.worker.exchange.source.ExchangeSourceRegistry;
 import org.pangrova.worker.task.TaskManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.Closeable;
+import java.io.InputStream;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
@@ -150,25 +152,36 @@ public final class TaskResource implements Closeable {
     @POST
     @Consumes(SubmitTaskRequest.MEDIA_TYPE)
     @Produces(SubmitTaskRequest.MEDIA_TYPE)
-    public CompletionStage<Response> submitTask(byte[] body, @Context HttpServletRequest transport) {
-        if (body == null || body.length == 0) {
+    public CompletionStage<Response> submitTask(InputStream body, @Context HttpServletRequest transport) {
+        if (transport != null && transport.getContentLengthLong() > SubmitTaskRequest.MAX_HTTP_BODY_BYTES) {
+            return rejectOversizedTask();
+        }
+        if (body == null) {
             return CompletableFuture.completedFuture(rejectSubmit(
                     Response.Status.BAD_REQUEST.getStatusCode(), "Task submission payload is required"));
         }
-        if (body.length > SubmitTaskRequest.MAX_HTTP_BODY_BYTES) {
-            return CompletableFuture.completedFuture(rejectSubmit(
-                    Response.Status.REQUEST_ENTITY_TOO_LARGE.getStatusCode(),
-                    "Task submission exceeds the HTTP limit"));
-        }
+        var limited = new SizeLimitedInputStream(
+                body, SubmitTaskRequest.MAX_HTTP_BODY_BYTES, limit -> new TaskBodyTooLargeException());
         SubmitTaskRequest request;
         try {
-            request = SubmitTaskRequest.decode(body);
+            request = SubmitTaskRequest.decode(limited);
+        } catch (TaskBodyTooLargeException overflow) {
+            return rejectOversizedTask();
         } catch (InvalidProtocolBufferException | IllegalArgumentException failure) {
-            return CompletableFuture.completedFuture(rejectSubmit(
-                    Response.Status.BAD_REQUEST.getStatusCode(), "Invalid binary task submission"));
+            String reason = limited.bytesRead() == 0
+                    ? "Task submission payload is required"
+                    : "Invalid binary task submission";
+            return CompletableFuture.completedFuture(rejectSubmit(Response.Status.BAD_REQUEST.getStatusCode(), reason));
         }
-        return submitTask(request, body.length, transport != null && transport.isSecure());
+        return submitTask(request, limited.bytesRead(), transport != null && transport.isSecure());
     }
+
+    private static CompletionStage<Response> rejectOversizedTask() {
+        return CompletableFuture.completedFuture(rejectSubmit(
+                Response.Status.REQUEST_ENTITY_TOO_LARGE.getStatusCode(), "Task submission exceeds the HTTP limit"));
+    }
+
+    private static final class TaskBodyTooLargeException extends RuntimeException {}
 
     private CompletionStage<Response> submitTask(SubmitTaskRequest request, int bodyBytes, boolean secureTransport) {
         if (request.copySourceRead() != null && !secureTransport) {

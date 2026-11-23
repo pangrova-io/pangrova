@@ -15,6 +15,7 @@ import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
 import org.pangrova.worker.exchange.source.ExchangeSourceRegistry;
 import org.pangrova.worker.http.endpoint.TaskResource;
 
+import java.io.ByteArrayInputStream;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -43,7 +44,7 @@ class TaskSetupAdmissionTest {
             }
             try {
                 assertThat(occupied.await(8, TimeUnit.SECONDS)).isTrue();
-                var submitted = resource.submitTask(SubmitTaskRequest.from(request).encode(), null)
+                var submitted = resource.submitTask(new ByteArrayInputStream(SubmitTaskRequest.from(request).encode()), null)
                         .toCompletableFuture();
                 assertThat(submitted).isNotDone();
                 String taskId = request.getAttempt().getTaskId();

@@ -622,6 +622,10 @@ directly into typed AI callback authority for local registration. Binary callbac
 decoding and validation apply when a callback crosses JNI. Native also validates
 the local execution request at that boundary.
 
+The Worker decodes the binary HTTP request directly from a bounded stream.
+It rejects a declared or observed body over 128 MiB. COPY retains the exact
+embedded task bytes for ticket redemption.
+
 The Worker returns a `TaskSubmitAck` with an `admitted` or `rejected` outcome.
 An admitted acknowledgement carries the canonical task ID and any result or
 Shuffle endpoint owned by that task. Shuffle tickets remain opaque bytes and
@@ -643,6 +647,7 @@ the returned identity and endpoint scope before recording the dispatch result.
 | Missing, malformed, or invalid task | 400 | `rejected` |
 | Authentication or private transport rejected | 401 or 403 | The auth filter rejects unauthenticated callers. The task endpoint rejects plaintext COPY |
 | Stale control or execution owner | 409 | `rejected` |
+| Task request body exceeds 128 MiB | 413 | `rejected` |
 | Unsupported request media type | 415 | The router rejects the request |
 | Worker has yet to observe the submitted control epoch | 425 | `rejected`. The Coordinator can resend the identical binary body within its deadline |
 | Worker control not ready or admission capacity exceeded | 503 | `rejected` |
