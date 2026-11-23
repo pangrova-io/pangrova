@@ -299,7 +299,8 @@ final class TaskAdmissionRegistry {
             this.first = first;
         }
 
-        boolean first() {
+        @Override
+        public boolean first() {
             return first;
         }
 
@@ -315,6 +316,14 @@ final class TaskAdmissionRegistry {
         @Override
         public java.util.concurrent.CompletionStage<String> completion() {
             return entry.admitted.minimalCompletionStage();
+        }
+
+        void checkCanPublish() {
+            synchronized (entries) {
+                requireOpen();
+                requireUnexpired(entry.deadline);
+                requireUnsealed();
+            }
         }
 
         void publish(Runnable publication) {

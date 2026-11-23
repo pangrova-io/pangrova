@@ -25,6 +25,9 @@ public final class SubmitTaskRequest {
 
     public static final String MEDIA_TYPE = "application/x-protobuf";
 
+    /** Maximum encoded task body admitted by the Worker HTTP control endpoint. */
+    public static final int MAX_HTTP_BODY_BYTES = 128 * 1024 * 1024;
+
     private static final int SHA256_BYTES = 32;
 
     private final TaskRequest taskRequest;
@@ -106,7 +109,7 @@ public final class SubmitTaskRequest {
     public byte[] encode() {
         var envelope = TaskSubmission.newBuilder();
         if (copySourceRead == null) {
-            return envelope.setTask(taskRequest).build().toByteArray();
+            return encodeEnvelope(envelope.setTask(taskRequest).build());
         }
         var scope = copySourceRead.scope();
         var ticket = CopyTaskTicket.newBuilder().setNonce(copySourceRead.nonce())
@@ -120,8 +123,15 @@ public final class SubmitTaskRequest {
                         .setOwnerId(scope.ownerId()).setOwnerIncarnation(scope.ownerIncarnation())
                         .setControlEpoch(scope.controlEpoch()).setOwnerFencingToken(scope.ownerFencingToken())
                         .setDeadlineEpochMs(scope.deadlineEpochMs()));
-        return envelope.setCopy(CopyTaskSubmission.newBuilder().setCanonicalTask(copyTaskBytes)
-                .setTicket(ticket)).build().toByteArray();
+        return encodeEnvelope(envelope.setCopy(CopyTaskSubmission.newBuilder().setCanonicalTask(copyTaskBytes)
+                .setTicket(ticket)).build());
+    }
+
+    private static byte[] encodeEnvelope(TaskSubmission envelope) {
+        if (envelope.getSerializedSize() > MAX_HTTP_BODY_BYTES) {
+            throw new IllegalArgumentException("Task submission exceeds the HTTP limit");
+        }
+        return envelope.toByteArray();
     }
 
     /** Private Worker RPC payload. Never log or propagate to JNI. */

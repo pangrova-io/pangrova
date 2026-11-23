@@ -107,6 +107,16 @@ public class TaskManager implements AutoCloseable {
     volatile org.pangrova.worker.cache.RecentFileAccessTracker recentFileAccessTracker;
 
     final TaskDrainExecutor drainExecutor;
+    private static final int MAX_CONCURRENT_TASK_SETUPS = 64;
+    private static final int MAX_QUEUED_TASK_SETUPS = 64;
+    private static final long TASK_SETUP_DRAIN_TIMEOUT_MS = 30_000;
+
+    private final java.util.concurrent.ExecutorService taskSetupExecutor =
+            org.pangrova.common.concurrent.ManagedExecutorFactory.newBoundedThreadPool(
+                    "worker-task-setup", MAX_CONCURRENT_TASK_SETUPS, MAX_QUEUED_TASK_SETUPS);
+    private final java.util.concurrent.Semaphore taskSetupBytes =
+            new java.util.concurrent.Semaphore(SubmitTaskRequest.MAX_HTTP_BODY_BYTES);
+
     private final TaskSubmissionHandler submissionHandler;
     private final WorkerTaskCancellation cancellation;
     private final TaskAdmissionControl admissionControl = new TaskAdmissionControl(this);
@@ -170,6 +180,7 @@ public class TaskManager implements AutoCloseable {
     @Override
     public void close() {
         drainExecutor.beginDraining();
+        taskSetupExecutor.shutdown();
         TaskAdmissionRollback.release(
                 () -> {
                     var preparation = sourcePreparationControl;
@@ -184,8 +195,12 @@ public class TaskManager implements AutoCloseable {
                     for (TaskInfo info : tasks.values()) info.retryCleanup();
                 },
                 taskAdmissions::sealAndAwaitAdmissions,
-                () -> TaskManagerShutdown.close(deps, taskExecutor, lifecycleManager, lifecycleCallback,
-                        java.util.List.copyOf(tasks.values())));
+                () -> {
+                    org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(
+                            taskSetupExecutor, TASK_SETUP_DRAIN_TIMEOUT_MS);
+                    TaskManagerShutdown.close(deps, taskExecutor, lifecycleManager, lifecycleCallback,
+                            java.util.List.copyOf(tasks.values()));
+                });
         if (deps == null) admissionIncarnation.closeAfterDrain(() -> {});
     }
 
@@ -258,13 +273,41 @@ public class TaskManager implements AutoCloseable {
 
     /** Observes the actual admission without transferring or cancelling its ownership. */
     public interface TaskAdmission {
+        boolean first();
+
         boolean completed();
 
         java.util.concurrent.CompletionStage<String> completion();
     }
 
-    public TaskAdmission submitValidatedTask(TaskDescriptor descriptor, ValidatedTaskSubmission request) {
-        return submissionHandler.submitValidatedTask(descriptor, request);
+    public TaskAdmission submitValidatedTask(
+            TaskDescriptor descriptor, ValidatedTaskSubmission request, int bodyBytes) {
+        return submissionHandler.submitValidatedTask(descriptor, request, bodyBytes);
+    }
+
+    void scheduleTaskSetup(int bodyBytes, Runnable setup) {
+        if (bodyBytes <= 0 || !taskSetupBytes.tryAcquire(bodyBytes)) {
+            throw new org.pangrova.worker.exception.TaskAdmissionException(
+                    org.pangrova.worker.enums.TaskAdmissionReason.CAPACITY,
+                    "Worker task setup lacks request byte capacity");
+        }
+        boolean submitted = false;
+        try {
+            taskSetupExecutor.execute(() -> {
+                try {
+                    setup.run();
+                } finally {
+                    taskSetupBytes.release(bodyBytes);
+                }
+            });
+            submitted = true;
+        } catch (java.util.concurrent.RejectedExecutionException rejected) {
+            throw new org.pangrova.worker.exception.TaskAdmissionException(
+                    org.pangrova.worker.enums.TaskAdmissionReason.CAPACITY,
+                    "Worker task setup is closed or at capacity");
+        } finally {
+            if (!submitted) taskSetupBytes.release(bodyBytes);
+        }
     }
 
     public String submitTask(TaskDescriptor descriptor) {

@@ -155,6 +155,11 @@ public final class TaskResource implements Closeable {
             return CompletableFuture.completedFuture(rejectSubmit(
                     Response.Status.BAD_REQUEST.getStatusCode(), "Task submission payload is required"));
         }
+        if (body.length > SubmitTaskRequest.MAX_HTTP_BODY_BYTES) {
+            return CompletableFuture.completedFuture(rejectSubmit(
+                    Response.Status.REQUEST_ENTITY_TOO_LARGE.getStatusCode(),
+                    "Task submission exceeds the HTTP limit"));
+        }
         SubmitTaskRequest request;
         try {
             request = SubmitTaskRequest.decode(body);
@@ -162,10 +167,10 @@ public final class TaskResource implements Closeable {
             return CompletableFuture.completedFuture(rejectSubmit(
                     Response.Status.BAD_REQUEST.getStatusCode(), "Invalid binary task submission"));
         }
-        return submitTask(request, transport != null && transport.isSecure());
+        return submitTask(request, body.length, transport != null && transport.isSecure());
     }
 
-    private CompletionStage<Response> submitTask(SubmitTaskRequest request, boolean secureTransport) {
+    private CompletionStage<Response> submitTask(SubmitTaskRequest request, int bodyBytes, boolean secureTransport) {
         if (request.copySourceRead() != null && !secureTransport) {
             return CompletableFuture.completedFuture(rejectSubmit(
                     Response.Status.FORBIDDEN.getStatusCode(), "COPY_SECURE_TRANSPORT_REQUIRED",
@@ -174,7 +179,7 @@ public final class TaskResource implements Closeable {
         LogContext.set(CurrentSpanIds.currentTraceId(), CurrentSpanIds.currentSpanId());
         org.pangrova.observability.api.tracing.Span span = startSpan("task.submit");
         try {
-            return executeSubmit(request).whenComplete((result, failure) -> endSpan(span));
+            return executeSubmit(request, bodyBytes).whenComplete((result, failure) -> endSpan(span));
         } catch (Exception failure) {
             endSpan(span);
             return CompletableFuture.completedFuture(handleSubmitError(queryId(request), failure));
@@ -186,7 +191,7 @@ public final class TaskResource implements Closeable {
         }
     }
 
-    private CompletionStage<Response> executeSubmit(SubmitTaskRequest request) {
+    private CompletionStage<Response> executeSubmit(SubmitTaskRequest request, int bodyBytes) {
         // Classify a missing or stale control epoch through the fail-closed
         // fencing path before full contract validation. This check is pure and
         // must precede every admission side effect.
@@ -204,20 +209,21 @@ public final class TaskResource implements Closeable {
         taskManager.verifyExecutionOwnerForAdmission(request);
         ResultEndpoint endpoint = resultEndpoint(validated);
         TaskDescriptor descriptor = TaskRequestDtoConverter.toTaskDescriptor(request);
-        var ownership = taskManager.submitValidatedTask(descriptor, validated);
+        var ownership = taskManager.submitValidatedTask(descriptor, validated, bodyBytes);
         var attempt = request.taskRequest().getAttempt();
         String taskId = attempt.getTaskId();
         String query = attempt.getQueryOrJobId();
-        boolean pendingRetry = !ownership.completed();
+        boolean pending = !ownership.completed();
+        boolean pendingRetry = pending && !ownership.first();
         if (pendingRetry && !pendingRetryAcks.tryAcquire()) {
             return CompletableFuture.completedFuture(rejectSubmit(Response.Status.SERVICE_UNAVAILABLE.getStatusCode(),
                     "Worker has too many pending exact task acknowledgements"));
         }
         var response = ownership.completion().handle((workerTaskId, failure) ->
                 submissionResponse(taskId, query, endpoint, workerTaskId, failure));
-        if (!pendingRetry) return response;
+        if (!pending) return response;
         // An HTTP deadline must not settle the shared admission or release its observer capacity early.
-        response.whenComplete((ignored, failure) -> pendingRetryAcks.release());
+        if (pendingRetry) response.whenComplete((ignored, failure) -> pendingRetryAcks.release());
         long remainingMs = Math.max(1L, request.taskRequest().getDeadlineEpochMs() - System.currentTimeMillis());
         return response.toCompletableFuture().copy().completeOnTimeout(
                 rejectSubmit(Response.Status.REQUEST_TIMEOUT.getStatusCode(), "Exact task acknowledgement expired"),

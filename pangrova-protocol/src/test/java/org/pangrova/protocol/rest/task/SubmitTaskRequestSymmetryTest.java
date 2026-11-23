@@ -56,6 +56,16 @@ class SubmitTaskRequestSymmetryTest {
     }
 
     @Test
+    void oversizedPlanEnvelopeIsRejectedBeforeSerializingItsRepeatedSplits() {
+        var builder = fullRequest().taskRequest().toBuilder();
+        var split = org.pangrova.protocol.v2.DataSplit.newBuilder()
+                .setSourceId("s".repeat(1024 * 1024)).build();
+        for (int index = 0; index < 129; index++) builder.addSplits(split);
+        assertThatThrownBy(() -> SubmitTaskRequest.from(builder.build()).encode())
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("HTTP limit");
+    }
+
+    @Test
     void binaryRoundTripCarriesOneTypedCanonicalTask() throws Exception {
         SubmitTaskRequest request = fullRequest();
 

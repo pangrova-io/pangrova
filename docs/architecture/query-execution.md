@@ -628,8 +628,11 @@ Shuffle endpoint owned by that task. Shuffle tickets remain opaque bytes and
 are ordered by output partition for direct lookup. A repeat delivery of the
 same task waits asynchronously for the original task's endpoint setup.
 The Worker bounds pending retry acknowledgements and uses the original task
-deadline for each HTTP observation. Cancellation and shutdown can identify the
-actual owner during setup. The Coordinator verifies
+deadline for each HTTP observation. The first request hands setup to a separate
+Worker executor after the exact reservation, with 64 active setups, 64 queued
+setups and 128 MiB of admitted request bodies across both. Setup rechecks
+authority before allocating task resources. Cancellation and shutdown can
+identify the actual owner during setup. The Coordinator verifies
 the returned identity and endpoint scope before recording the dispatch result.
 
 | Scenario | HTTP status | Acknowledgement |
