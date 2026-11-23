@@ -182,6 +182,14 @@ physical join would invalidate its algorithm and required exchanges. Stage
 serialization continues to reject equality joins with empty keys and broadcast
 joins without a broadcast exchange.
 
+Calcite's structural subquery expansion can expose ordinary WHERE predicates
+below a correlated subquery after the main join rules have run. The planner
+pushes the eligible predicates into those inner joins before serialization.
+When a connected inner join has a Cartesian left child, the planner can
+reassociate the inputs if both resulting joins receive a predicate. This
+rule uses deterministic, unhinted logical join conditions and preserves the
+output column ordinals.
+
 Production fragment validation captures the union of current active Workers'
 validated relation, expression and function inventories. The standalone compiler's
 conservative name defaults do not represent cluster support. This coarse check

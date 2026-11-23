@@ -81,6 +81,14 @@ abstract class TpcHTestBase extends SqlE2ETestBase {
                 actual, reference.query(loadQueryResource(filename)), filename, columns);
     }
 
+    List<TypedRow> executeAndVerifyVariant(
+            String filename, java.util.function.UnaryOperator<String> customize, String... columns) {
+        String sql = customize.apply(loadQueryResource(filename));
+        List<TypedRow> rows = sqlRunner.execute(prefixTableNames(sql));
+        TpcHTestSupport.assertMatchesReference(rows, reference.query(sql), filename, columns);
+        return rows;
+    }
+
     private String loadAndPrefixQuery(String filename) {
         return prefixTableNames(loadQueryResource(filename));
     }

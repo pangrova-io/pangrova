@@ -41,9 +41,38 @@ class TpcHCorrectnessTest extends TpcHTestBase {
         @Test
         @DisplayName("finds minimum cost supplier for parts in a region")
         void minimumCostSupplier() {
+            var before = new java.util.HashSet<>(queryManager.getStateMachines().keySet());
             List<TypedRow> rows = executeQuery("q02.sql");
             assertMatchesReference(rows, "q02.sql",
                     "s_name", "s_address");
+            var issued = new java.util.HashSet<>(queryManager.getStateMachines().keySet());
+            issued.removeAll(before);
+            assertThat(issued).hasSize(1);
+            String id = issued.iterator().next();
+            org.awaitility.Awaitility.await("Q2 query physically drained and profiled")
+                    .atMost(java.time.Duration.ofSeconds(30)).untilAsserted(() -> {
+                        taskTracker.requireQueryExecutionDrained(id);
+                        assertThat(queryProfileService().getProfile(id, E2E_USER_PRINCIPAL)).isPresent();
+                    });
+            var profile = queryProfileService().getProfile(id, E2E_USER_PRINCIPAL).orElseThrow();
+            var operators = profile.attempts().stream().flatMap(attempt -> attempt.operators().stream()).toList();
+            assertThat(operators).isNotEmpty();
+            long largestOutput = operators.stream().mapToLong(operator -> operator.outputRows()).max().orElseThrow();
+            assertThat(largestOutput).as("largest actual operator output in the deterministic Q2 fixture")
+                    .isLessThan(100_000L);
+            var outputAttempt = profile.attempts().stream().filter(attempt -> attempt.stageId() == 0)
+                    .findFirst().orElseThrow();
+            org.slf4j.LoggerFactory.getLogger(TpcHCorrectnessTest.class).info(
+                    "event=tpch_q2_work queryId={} outputElapsedMs={} outputCpuMs={} largestOperatorOutputRows={}",
+                    id, outputAttempt.elapsedTimeMs(), outputAttempt.cpuTimeMs(), largestOutput);
+        }
+
+        @Test
+        @DisplayName("retains rows and minimum supplier cost with fixture-compatible part predicates")
+        void minimumCostSupplierWithMatchingParts() {
+            var rows = executeAndVerifyVariant("q02.sql", sql -> sql.replace("p_size = 15", "p_size BETWEEN 1 AND 50")
+                    .replace("p_type LIKE '%BRASS'", "p_type IS NOT NULL"), "s_name", "s_address", "p_partkey");
+            assertThat(rows).isNotEmpty();
         }
     }
 
