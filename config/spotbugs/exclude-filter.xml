@@ -62,6 +62,13 @@
         <Bug pattern="MS_EXPOSE_REP,SE_BAD_FIELD"/>
     </Match>
 
+    <!-- protoc owns the HTTP task message package and its immutable singleton getters. -->
+    <Match>
+        <Package name="org.pangrova.protocol.http"/>
+        <Method name="~get(DefaultInstance|Descriptor)" params=""/>
+        <Bug pattern="MS_EXPOSE_REP"/>
+    </Match>
+
     <!--
         ANTLR4-generated lexer/parser/visitor/listener classes.
     -->
@@ -149,6 +156,21 @@
         <Class name="org.pangrova.protocol.function.declaration.FunctionBindingDeclarations"/>
         <Method name="declarationSha256" params="" returns="com.google.protobuf.ByteString"/>
         <Field name="declarationSha256" type="com.google.protobuf.ByteString"/>
+        <Bug pattern="MS_EXPOSE_REP"/>
+    </Match>
+
+    <!-- Descriptor and protocol identities are immutable, built Protobuf values.
+         The separate descriptor byte-array export continues to return a defensive copy. -->
+    <Match>
+        <Class name="org.pangrova.protocol.descriptor.CanonicalProtocolDescriptors"/>
+        <Method name="descriptorSet" params="" returns="com.google.protobuf.DescriptorProtos$FileDescriptorSet"/>
+        <Field name="DESCRIPTORS" type="com.google.protobuf.DescriptorProtos$FileDescriptorSet"/>
+        <Bug pattern="MS_EXPOSE_REP"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.protocol.descriptor.CanonicalProtocolIdentity"/>
+        <Method name="current" params="" returns="org.pangrova.protocol.v2.ProtocolVersion"/>
+        <Field name="CURRENT" type="org.pangrova.protocol.v2.ProtocolVersion"/>
         <Bug pattern="MS_EXPOSE_REP"/>
     </Match>
 
