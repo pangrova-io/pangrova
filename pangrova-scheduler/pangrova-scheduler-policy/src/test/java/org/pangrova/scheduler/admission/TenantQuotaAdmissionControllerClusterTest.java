@@ -169,6 +169,38 @@ class TenantQuotaAdmissionControllerClusterTest {
         assertThat(controller.admittedCount("t1")).isEqualTo(1);
     }
 
+    @Test
+    void sharedAdmissionAndQueueUseReservationOutcomeWithoutDiagnosticUsageReads() {
+        var actual = new InMemoryClusterConcurrencySlots();
+        var reads = new java.util.concurrent.atomic.AtomicInteger();
+        var observed = new org.pangrova.persistence.coordination.api.admission.ClusterConcurrencySlots() {
+            @Override
+            public boolean tryReserve(String tenant, String query, int limit) {
+                return actual.tryReserve(tenant, query, limit);
+            }
+
+            @Override
+            public void release(String tenant, String query) {
+                actual.release(tenant, query);
+            }
+
+            @Override
+            public int active(String tenant) {
+                reads.incrementAndGet();
+                return actual.active(tenant);
+            }
+        };
+        var controller = new TenantQuotaAdmissionController(tenantStore, null, observed);
+        for (int index = 0; index < QUOTA.maxConcurrentQueries(); index++) {
+            assertThat(controller.admit(AdmissionRequest.of("t1", "default", "query-" + index)).isAdmitted()).isTrue();
+        }
+        assertThat(controller.admit(AdmissionRequest.of("t1", "default", "queued")).verdict())
+                .isEqualTo(AdmissionVerdict.QUEUE);
+        assertThat(reads).hasValue(0);
+        assertThat(controller.admittedCount("t1")).isEqualTo(QUOTA.maxConcurrentQueries());
+        assertThat(reads).hasValue(1);
+    }
+
     /** Immutable component input: tenant -> [memoryBytes, activeQueries]. */
     private static final class FixedGlobalUsageView implements GlobalTenantUsageView {
         private final Map<String, long[]> usage;

@@ -134,7 +134,7 @@ public final class TenantQuotaAdmissionController implements ClusterAdmissionCon
         if (view != null) {
             int clusterActive = view.aggregatedActiveQueries(tenantId);
             if (clusterActive >= quota.maxConcurrentQueries()) {
-                return queueOrReject(request, quota, queueCounter, tenantId, clusterActive, reservation);
+                return queueOrReject(request, quota, queueCounter, tenantId, reservation);
             }
         }
 
@@ -142,7 +142,7 @@ public final class TenantQuotaAdmissionController implements ClusterAdmissionCon
         while (true) {
             int current = counter.get();
             if (current >= quota.maxConcurrentQueries()) {
-                return queueOrReject(request, quota, queueCounter, tenantId, current, reservation);
+                return queueOrReject(request, quota, queueCounter, tenantId, reservation);
             }
             if (counter.compareAndSet(current, current + 1)) {
                 reservation.retain(counter::decrementAndGet);
@@ -165,7 +165,7 @@ public final class TenantQuotaAdmissionController implements ClusterAdmissionCon
 
     /** Handles admission when at concurrency limit: queue if possible, otherwise reject. */
     private AdmissionDecision queueOrReject(AdmissionRequest request, ResourceQuota quota,
-                                            AtomicInteger queueCounter, String tenantId, int current,
+                                            AtomicInteger queueCounter, String tenantId,
                                             QueryAdmissionOwnership.Reservation reservation) {
         int queued;
         do {
@@ -174,20 +174,19 @@ public final class TenantQuotaAdmissionController implements ClusterAdmissionCon
                 continue;
             }
             LOG.info("event=admission_rejected tenantId={} queryId={} "
-                            + "concurrent={} max={} queued={} maxQueued={}",
-                    tenantId, request.queryId(), current,
+                            + "maxConcurrent={} queued={} maxQueued={}",
+                    tenantId, request.queryId(),
                     quota.maxConcurrentQueries(), queued, quota.maxQueuedQueries());
             return AdmissionDecision.reject(
-                    "concurrent query limit reached (" + current + "/"
+                    "concurrent query limit reached (capacity "
                         + quota.maxConcurrentQueries() + ") and queue full ("
                         + queued + "/" + quota.maxQueuedQueries() + ")");
         } while (!queueCounter.compareAndSet(queued, queued + 1));
         reservation.retain(queueCounter::decrementAndGet);
-        LOG.debug("event=admission_queued tenantId={} queryId={} concurrent={} queued={}",
-                tenantId, request.queryId(), current, queued + 1);
+        LOG.debug("event=admission_queued tenantId={} queryId={} queued={}",
+                tenantId, request.queryId(), queued + 1);
         return AdmissionDecision.queue(
-            "concurrent query limit reached (" + current + "/"
-                + quota.maxConcurrentQueries() + "), queued");
+            "concurrent query limit reached (capacity " + quota.maxConcurrentQueries() + "), queued");
     }
 
     /** Memory-aware check after successful CAS: validate against quota then admit. */
@@ -216,20 +215,20 @@ public final class TenantQuotaAdmissionController implements ClusterAdmissionCon
         reservation.retain(() -> clusterSlots.release(tenantId, request.queryId()));
         if (!clusterSlots.tryReserve(tenantId, request.queryId(), quota.maxConcurrentQueries())) {
             reservation.returnCapacity();
-            return queueOrReject(request, quota, queueCounter, tenantId, clusterSlots.active(tenantId), reservation);
+            return queueOrReject(request, quota, queueCounter, tenantId, reservation);
         }
         AdmissionDecision memoryReject = checkMemoryReject(request, quota, tenantId);
         if (memoryReject != null) {
             reservation.returnCapacity();
             return memoryReject;
         }
-        counter.incrementAndGet();
+        int localActive = counter.incrementAndGet();
         reservation.retain(() -> {
             clusterSlots.release(tenantId, request.queryId());
             counter.decrementAndGet();
         });
-        LOG.debug("event=admission_admitted tenantId={} queryId={} clusterActive={}",
-                tenantId, request.queryId(), clusterSlots.active(tenantId));
+        LOG.debug("event=admission_admitted tenantId={} queryId={} localActive={}",
+                tenantId, request.queryId(), localActive);
         return AdmissionDecision.admit();
     }
 

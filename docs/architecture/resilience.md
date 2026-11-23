@@ -245,6 +245,8 @@ public class CircuitBreakerConfig {
 
 The query admission breaker acquires a probe for one local submission. The terminal owner settles that probe once. Expected tenant quota, policy and validation rejections and explicit cancellation release the probe without recording a health outcome. Successful queries and infrastructure failures continue to inform the breaker. A closed admission gate returns HTTP 503 with `COORDINATOR-0002`. Tenant quota rejections return HTTP 429 with `TENANT-0001`.
 
+The PostgreSQL store reserves capacity and inserts its exact owner in one statement within the same transaction. The release statement locks the tenant row, deletes the matching owner, and decrements the count for the deleted owner. Explicit diagnostic requests can observe the count. Routine admission logs and queue responses use the result of the admission attempt. [PostgreSQL INSERT](https://www.postgresql.org/docs/16/sql-insert.html) · [PostgreSQL WITH](https://www.postgresql.org/docs/16/queries-with.html)
+
 ## 5. Degradation Strategy
 
 ### 5.1 Degradation Scenarios

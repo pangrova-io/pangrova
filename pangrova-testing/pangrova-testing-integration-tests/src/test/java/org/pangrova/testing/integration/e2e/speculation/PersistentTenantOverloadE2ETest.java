@@ -67,6 +67,13 @@ class PersistentTenantOverloadE2ETest extends ContainerTestBase {
         processes.startSecondWorker();
 
         try (var client = processes.coordinatorClientBuilder().retryPolicy(RetryPolicy.NONE).build()) {
+            for (var workload : WORKLOADS) {
+                long warmupDeadline = System.currentTimeMillis() + TIMEOUT.toMillis();
+                var warmup = client.beginQuery(workload.sql(), Map.of());
+                finish(client, warmup, awaitResult(warmup, warmupDeadline), workload.expected(), warmupDeadline);
+            }
+            assertThat(processes.activeTenantReservations()).isZero();
+
             var first = client.beginQuery("SELECT CAST(81 AS BIGINT)", Map.of());
             var second = client.beginQuery("SELECT CAST(82 AS BIGINT)", Map.of());
             long deadline = System.currentTimeMillis() + TIMEOUT.toMillis();
@@ -74,19 +81,20 @@ class PersistentTenantOverloadE2ETest extends ContainerTestBase {
             var secondEndpoint = awaitResult(second, deadline);
             assertThat(processes.activeTenantReservations()).isEqualTo(2);
 
-            offer(45, Duration.ofMillis(50), (workload, scheduled) -> reject(client, workload, scheduled));
+            offer(45, Duration.ofMillis(50), 8, (workload, scheduled) -> reject(client, workload, scheduled));
             assertThat(processes.activeTenantReservations()).isEqualTo(2);
             finish(client, first, firstEndpoint, List.of(81L), deadline);
             finish(client, second, secondEndpoint, List.of(82L), deadline);
             assertThat(processes.activeTenantReservations()).isZero();
-            offer(40, Duration.ofMillis(200), (workload, scheduled) -> complete(client, workload, scheduled));
+            offer(40, Duration.ofMillis(200), 1, (workload, scheduled) -> complete(client, workload, scheduled));
             assertThat(processes.activeTenantReservations()).isZero();
             assertThat(processes.reports().forwardingFailures()).isEmpty();
         }
     }
 
-    private static void offer(int count, Duration interval, BiConsumer<Workload, Long> operation) throws Exception {
-        var pool = ManagedExecutorFactory.newScheduledThreadPool("tenant-overload-arrivals", 8);
+    private static void offer(int count, Duration interval, int concurrency,
+                              BiConsumer<Workload, Long> operation) throws Exception {
+        var pool = ManagedExecutorFactory.newScheduledThreadPool("tenant-overload-arrivals", concurrency);
         var jobs = new ArrayList<Future<?>>(count);
         long first = System.nanoTime() + interval.toNanos();
         try {
