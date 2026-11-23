@@ -227,7 +227,7 @@ TEST_F(
   split.file_format = pangrova::split::FileFormatType::LANCE;
   split.source_snapshot = "1";
   split.storage_binding = pangrova::test::testStorageBinding(path);
-  split.file_scan_detail = pangrova::test::testReadDetail(
+  split.lance_read_unit = pangrova::test::testReadDetail(
       pangrova::test::testScanPage(path, 1, split.storage_binding).partitions(0));
   split.partition_values["region"] = "us-east";
   split.column_mappings = {
@@ -426,7 +426,7 @@ TEST_F(LanceBatchReaderTest, DatasetPhysicalPositionsReachConnectorWithExactSour
     split.source_snapshot = "1";
     split.storage_binding = pangrova::test::testStorageBinding(path);
     const auto partition = pangrova::test::testScanPage(path, 1, split.storage_binding).partitions(0);
-    split.file_scan_detail = pangrova::test::testReadDetail(partition);
+    split.lance_read_unit = pangrova::test::testReadDetail(partition);
     split.data_object_id = "table-a:1:" + std::to_string(partition.partition_id());
     const auto expectedSource = split.data_object_id;
     if (type->containsChild("region")) split.partition_values.emplace("region", "test-region");

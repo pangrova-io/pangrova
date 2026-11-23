@@ -455,24 +455,9 @@ void PangrovaVeloxDataSource::prepareSplitState(
     }
   }
 
-  // Paimon MOW deletion vector: when DV is enabled, read the DV file
-  // and create a DeletionVectorRowFilter. The existing applyDeleteFilter()
-  // in next() applies it automatically.
-  if (config.paimon.has_value()) {
-    loadPaimonDeletionVector(config);
-  }
-}
-
-void PangrovaVeloxDataSource::loadPaimonDeletionVector(
-    const split::SplitConfig& split) {
-  if (split.file_scan_detail.empty()) return;
-  protocol::v2::FileSplitDetail detail;
-  if (!detail.ParseFromString(split.file_scan_detail)) {
-    throw std::invalid_argument("Paimon split requires canonical physical file metadata");
-  }
-  if (detail.physical_file_scan().has_deletion_vector()) {
+  if (config.deletion_vector) {
     delete_filters_.push_back(std::make_unique<delete_filter::PaimonSnapshotDeletionFilter>(
-        detail.physical_file_scan().deletion_vector(), split.storage_binding));
+        *config.deletion_vector, config.storage_binding));
   }
 }
 
@@ -903,7 +888,7 @@ void PangrovaVeloxDataSource::openLanceReader(
   try {
     lance_reader_ = std::make_unique<pangrova::lance::LanceBatchReader>(
         pool_, physicalType, filePath, version, physicalNames,
-        split.storage_binding, split.file_scan_detail, split.physical_lance_file ? split.length : 0);
+        split.storage_binding, split.lance_read_unit, split.physical_lance_file ? split.length : 0);
     current_reader_output_type_ = lance_reader_->outputType();
   } catch (const std::exception& e) {
     PANGROVA_LOG_ERROR << "lance_reader_open_failed"
@@ -979,18 +964,16 @@ void PangrovaVeloxDataSource::initializeMergeReader(
         PhysicalFileSchema schema(merge_reader_output_type_, file.column_mappings, file.type_promotions);
         const auto& physical_type = schema.physicalType();
         if (file.file_format == split::FileFormatType::LANCE) {
-          protocol::v2::FileSplitDetail read;
-          if (!read.ParseFromString(file.file_scan_detail)) throw std::invalid_argument("Malformed physical file read unit");
           std::unique_ptr<delete_filter::RowDeleteFilter> deletion;
-          if (read.physical_file_scan().has_deletion_vector()) {
+          if (file.deletion_vector) {
             deletion = std::make_unique<delete_filter::PaimonSnapshotDeletionFilter>(
-                read.physical_file_scan().deletion_vector(), split.storage_binding);
+                *file.deletion_vector, split.storage_binding);
           }
           readers.push_back(std::make_unique<EvolvedMergeBatchReader>(
               std::make_unique<LanceMergeBatchReader>(
                   std::make_unique<pangrova::lance::LanceBatchReader>(pool_, physical_type, path,
                       paimon.snapshot_id, physical_type->names(), split.storage_binding,
-                      file.file_scan_detail, file.file_size), std::move(deletion)), std::move(schema)));
+                      file.lance_read_unit, file.file_size), std::move(deletion)), std::move(schema)));
           continue;
         }
         std::unique_ptr<facebook::velox::dwio::common::Reader> reader;

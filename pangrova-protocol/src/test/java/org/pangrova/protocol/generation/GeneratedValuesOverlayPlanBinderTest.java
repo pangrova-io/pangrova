@@ -113,7 +113,8 @@ class GeneratedValuesOverlayPlanBinderTest {
                 .addInputs(firstInput).addInputs(secondInput).addInputs(firstInput);
         byte[] original = plan(Rel.newBuilder().setSet(set).build());
         var bound = GeneratedValuesOverlayPlanBinder.resolve(original, reads -> {
-            assertThat(reads).containsExactly(first, second, first);
+            assertThat(reads).extracting(GeneratedValuesOverlayPlanBinder.ReadSite::read)
+                    .containsExactly(first, second, first);
             return List.of(intent(1, "middle"));
         });
         var rewritten = Plan.parseFrom(bound.planBytes()).getRelations(0).getRoot().getInput().getSet();
@@ -122,6 +123,34 @@ class GeneratedValuesOverlayPlanBinderTest {
         assertThat(rewritten.getInputs(1).getProject().getInput().getFilter().getCondition()).isEqualTo(second.getFilter());
         assertThat(rewritten.getInputs(2)).isEqualTo(firstInput);
         assertThat(bound.operatorBindings()).containsExactly(intent(1, "middle").binding());
+    }
+
+    @Test
+    void skipsUnusedGeneratedColumnButRetainsFilterAndInputExpressionDependencies() {
+        var physical = Rel.newBuilder().setRead(read()).build();
+        var visible = RelCommon.newBuilder().setEmit(RelCommon.Emit.newBuilder().addOutputMapping(3));
+        var filter = FilterRel.newBuilder().setInput(physical).setCondition(isNotNull(0));
+        var project = ProjectRel.newBuilder().setInput(Rel.newBuilder().setFilter(filter))
+                .addExpressions(field(0)).setCommon(visible);
+        assertGeneratedFieldUsed(Rel.newBuilder().setProject(project).build(), false);
+
+        filter.setCondition(isNotNull(2));
+        project.setInput(Rel.newBuilder().setFilter(filter));
+        assertGeneratedFieldUsed(Rel.newBuilder().setProject(project).build(), true);
+
+        filter.setCondition(isNotNull(0));
+        project.setInput(Rel.newBuilder().setFilter(filter)).setExpressions(0, field(2));
+        assertGeneratedFieldUsed(Rel.newBuilder().setProject(project).build(), true);
+    }
+
+    private static void assertGeneratedFieldUsed(Rel root, boolean used) {
+        byte[] original = plan(root);
+        var untouched = GeneratedValuesOverlayPlanBinder.resolve(original, reads -> {
+            assertThat(reads).singleElement().satisfies(site ->
+                    assertThat(site.usesColumn("embedding")).isEqualTo(used));
+            return List.of();
+        });
+        assertThat(untouched.planBytes()).containsExactly(original);
     }
 
     @Test

@@ -111,6 +111,9 @@ After the Plan Fragmenter divides the Calcite tree into stages, the Coordinator 
 each stage into a Substrait plan. Worker submission carries these bytes in the binary Protobuf
 `TaskRequest.substrait_plan` field over HTTP. The Worker prepares and serializes its local
 task request for JNI. The enclosed Substrait plan is decoded on the Native side.
+Native task admission retains typed Bloom index hints and Paimon deletion-vector
+references for the in-process scanner. The Lance read unit stays encoded for its
+Rust FFI call.
 
 Managed cluster control clients use HTTP/1.1 to match their Jetty listeners.
 This covers task submission, Worker reports, heartbeats and registration.
@@ -125,6 +128,11 @@ parsed plan. A stage without an overlay retains the original wire bytes.
 Reads of the same generated column and
 snapshot in one stage share one publication observation, including absence.
 Each scan retains its own binding node ID.
+
+A projection and an immediately adjacent filter can prove that a generated
+column has no effect on expressions or emitted fields. This skips its
+publication lookup and artifact binding. A column referenced by a filter,
+policy expression or visible output still uses the published snapshot.
 
 Live artifact-bound tasks read publication metadata in windows of up to 16
 tasks, after split placement. The Coordinator loads each publication for the

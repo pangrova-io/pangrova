@@ -730,7 +730,7 @@ TEST(ParseTaskConfigTest, ParsesGenericDataSplitAndTypedFileDetail) {
   EXPECT_EQ(parsed.table_name, "catalog.schema.items");
   EXPECT_EQ(parsed.file_path, "/data/part-0.parquet");
   EXPECT_EQ(parsed.file_format, split::FileFormatType::PARQUET);
-  EXPECT_TRUE(parsed.file_scan_detail.empty());
+  EXPECT_TRUE(parsed.lance_read_unit.empty());
   EXPECT_EQ(parsed.partition_values.at("region"), "apac");
   ASSERT_EQ(parsed.column_mappings.size(), 1U);
   EXPECT_EQ(parsed.column_mappings.front().target_name, "new_col");
@@ -743,7 +743,11 @@ TEST(ParseTaskConfigTest, ParsesGenericDataSplitAndTypedFileDetail) {
 
   split->mutable_file_detail()->add_index_eval_hints()->set_data_file_path(split->opaque_location());
   auto with_index = parseTaskConfig(serializeRaw(request));
-  EXPECT_EQ(with_index.splits.front().file_scan_detail, split->file_detail().SerializeAsString());
+  const auto& indexed = with_index.splits.front();
+  EXPECT_TRUE(indexed.lance_read_unit.empty());
+  ASSERT_TRUE(indexed.index_hints);
+  ASSERT_EQ(indexed.index_hints->size(), 1U);
+  EXPECT_EQ(indexed.index_hints->front().data_file_path(), split->opaque_location());
 }
 
 TEST(ParseTaskConfigTest, RejectsDataSplitWithoutTypedFileDetail) {
@@ -1131,7 +1135,37 @@ TEST(ParseTaskConfigTest, ParsesPaimonAndOrcDetails) {
   EXPECT_EQ(
       config.splits.front().paimon->lsm_levels.front().files.front().file_path,
       "/data/l0.orc");
-  EXPECT_TRUE(config.splits.front().paimon->lsm_levels.front().files.front().file_scan_detail.empty());
+  EXPECT_TRUE(config.splits.front().paimon->lsm_levels.front().files.front().lance_read_unit.empty());
+}
+
+TEST(ParseTaskConfigTest, RetainsPaimonDeletionReferenceWithoutSerializingParquetSplit) {
+  auto request = validRequest();
+  auto* data_split = addFileSplit(request);
+  data_split->set_connector_id("paimon");
+  auto* detail = data_split->mutable_file_detail();
+  auto* paimon = detail->mutable_paimon();
+  paimon->set_read_mode(proto::PAIMON_READ_MODE_PRIMARY_KEY);
+  paimon->set_merge_engine(proto::PAIMON_MERGE_ENGINE_DEDUPLICATE);
+  paimon->set_changelog_producer(proto::PAIMON_CHANGELOG_PRODUCER_NONE);
+  paimon->set_deletion_vectors_enabled(true);
+  paimon->mutable_merge_policy();
+  auto* scan = detail->mutable_physical_file_scan();
+  scan->set_physical_rows(100);
+  auto* deletion = scan->mutable_deletion_vector();
+  deletion->set_opaque_location("/delete/positions.dv");
+  deletion->set_byte_length(512);
+  deletion->set_byte_offset(32);
+  deletion->set_physical_rows(100);
+
+  const auto config = parseTaskConfig(serializeRaw(request));
+
+  ASSERT_EQ(config.splits.size(), 1U);
+  const auto& parsed = config.splits.front();
+  ASSERT_TRUE(parsed.paimon);
+  ASSERT_TRUE(parsed.deletion_vector);
+  EXPECT_EQ(parsed.deletion_vector->SerializeAsString(), deletion->SerializeAsString());
+  EXPECT_TRUE(parsed.lance_read_unit.empty());
+  EXPECT_FALSE(parsed.index_hints);
 }
 
 TEST(ParseTaskConfigTest, ParsesCanonicalLanceSplit) {
@@ -1150,7 +1184,7 @@ TEST(ParseTaskConfigTest, ParsesCanonicalLanceSplit) {
   EXPECT_EQ(parsed.data_object_id, "object-1");
   EXPECT_FALSE(parsed.storage_binding.empty());
   proto::FileSplitDetail read;
-  ASSERT_TRUE(read.ParseFromString(parsed.file_scan_detail));
+  ASSERT_TRUE(read.ParseFromString(parsed.lance_read_unit));
   const auto& partition = read.scan_partition();
   EXPECT_EQ(partition.partition_id(), 42u);
   EXPECT_EQ(partition.physical_rows(), 100u);

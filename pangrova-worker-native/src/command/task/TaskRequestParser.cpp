@@ -15,12 +15,14 @@
 #include <cstdint>
 #include <chrono>
 #include <limits>
+#include <memory>
 #include <set>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <unordered_set>
 #include <utility>
+#include <vector>
 
 #include <google/protobuf/io/coded_stream.h>
 #include <google/protobuf/io/zero_copy_stream_impl_lite.h>
@@ -588,7 +590,11 @@ PaimonConfig parsePaimon(const proto::PaimonSplitDetail& detail) {
         proto::FileSplitDetail read;
         read.set_file_format(file.file_format());
         *read.mutable_physical_file_scan() = file.scan();
-        physical.file_scan_detail = read.SerializeAsString();
+        physical.lance_read_unit = read.SerializeAsString();
+        if (file.scan().has_deletion_vector()) {
+          physical.deletion_vector = std::make_shared<const proto::DeletionVectorReference>(
+              file.scan().deletion_vector());
+        }
       }
       parsed.files.push_back(std::move(physical));
     }
@@ -642,9 +648,13 @@ SplitConfig parseSplit(const proto::DataSplit& split, const proto::TaskRequest& 
   config.data_object_id = split.data_object_id();
   config.file_path = split.opaque_location();
   config.file_format = parseFileFormat(detail.file_format());
-  if (config.file_format == split::FileFormatType::LANCE || detail.index_eval_hints_size() != 0 ||
-      (detail.has_paimon() && detail.physical_file_scan().has_deletion_vector())) {
-    config.file_scan_detail = detail.SerializeAsString();
+  if (config.file_format == split::FileFormatType::LANCE) {
+    config.lance_read_unit = detail.SerializeAsString();
+  }
+  if (!detail.index_eval_hints().empty()) {
+    const auto& hints = detail.index_eval_hints();
+    config.index_hints = std::make_shared<const std::vector<proto::IndexEvalHintDetail>>(
+        hints.begin(), hints.end());
   }
   if (detail.has_system_table()) {
     const bool directory = detail.system_table().kind() ==
@@ -997,6 +1007,10 @@ SplitConfig parseSplit(const proto::DataSplit& split, const proto::TaskRequest& 
   } else if (detail.has_paimon()) {
     config.paimon = parsePaimon(detail.paimon());
     config.paimon->partition_values = config.partition_values;
+    if (detail.physical_file_scan().has_deletion_vector()) {
+      config.deletion_vector = std::make_shared<const proto::DeletionVectorReference>(
+          detail.physical_file_scan().deletion_vector());
+    }
   }
   return config;
 }

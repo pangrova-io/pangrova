@@ -175,7 +175,6 @@ class PangrovaVeloxDataSource : public facebook::velox::connector::DataSource {
   // Load Paimon MOW deletion vector when DV is enabled.
   // Reads the DV file via DeletionVectorReader and creates a
   // DeletionVectorRowFilter added to delete_filters_.
-  void loadPaimonDeletionVector(const split::SplitConfig& split);
 
   // Create a Velox DWIO Reader + RowReader pair for a file path.
   // Shared by openVeloxReader() and initializeMergeReader() to eliminate

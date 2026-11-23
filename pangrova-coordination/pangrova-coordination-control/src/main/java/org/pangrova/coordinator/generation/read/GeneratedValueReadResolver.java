@@ -10,6 +10,7 @@ import org.pangrova.planner.analysis.SplitSourceDescriptor;
 import org.pangrova.protocol.execution.BoundExecutionPlan;
 import org.pangrova.generation.codec.column.GeneratedColumnMetadataCodec;
 import org.pangrova.protocol.generation.GeneratedValuesOverlayPlanBinder;
+import org.pangrova.protocol.generation.GeneratedValuesOverlayPlanBinder.ReadSite;
 import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.connector.api.metadata.table.ConnectorReadBinding;
@@ -46,12 +47,13 @@ public final class GeneratedValueReadResolver {
     }
 
     private List<GeneratedValuesOverlayPlanBinder.ReadOverlay> selectOverlays(QuerySession actor,
-            List<ReadRel> reads, Map<String, List<DataSplit>> bySource,
+            List<ReadSite> reads, Map<String, List<DataSplit>> bySource,
             Map<QualifiedTableName, ConnectorReadBinding> bindings) {
         var overlays = new ArrayList<GeneratedValuesOverlayPlanBinder.ReadOverlay>();
         Map<PublicationRead, Optional<ResolvedRead>> publications = new HashMap<>();
         for (int ordinal = 0; ordinal < reads.size(); ordinal++) {
-            var read = reads.get(ordinal);
+            var site = reads.get(ordinal);
+            var read = site.read();
             if (!read.hasNamedTable() || read.getNamedTable().getNamesCount() != 3) continue;
             var table = QualifiedTableName.resolve(read.getNamedTable().getNamesList());
             var sourceSplits = bySource.get(table.toString());
@@ -60,7 +62,7 @@ public final class GeneratedValueReadResolver {
             if (binding == null) {
                 throw new IllegalStateException("Compiled read has no admitted connector binding for " + table);
             }
-            bindRead(actor, read, ordinal, table, sourceSplits, binding, publications, overlays);
+            bindRead(actor, site, ordinal, table, sourceSplits, binding, publications, overlays);
         }
         return overlays;
     }
@@ -80,7 +82,7 @@ public final class GeneratedValueReadResolver {
         return bindings;
     }
 
-    private void bindRead(QuerySession actor, ReadRel read, int ordinal,
+    private void bindRead(QuerySession actor, ReadSite site, int ordinal,
                           QualifiedTableName table, List<DataSplit> splits, ConnectorReadBinding binding,
                           Map<PublicationRead, Optional<ResolvedRead>> publications,
                           List<GeneratedValuesOverlayPlanBinder.ReadOverlay> overlays) {
@@ -91,12 +93,12 @@ public final class GeneratedValueReadResolver {
         }
         var declared = binding.declaration().requireExactDeclaration();
         var definitions = GeneratedColumnMetadataCodec.decode(declared.properties());
-        requireSchema(read, declared);
+        requireSchema(site.read(), declared);
         if (definitions.getDefinitionsCount() == 0) return;
         parseSnapshot(snapshot);
         var declaration = WriteDeclarationSnapshot.capture(table, declared, definitions.toByteArray(), true);
         for (var definition : definitions.getDefinitionsList()) {
-            if (!read.hasFilter() && !isOutput(read, definition.getTargetColumn())) continue;
+            if (!site.usesColumn(definition.getTargetColumn())) continue;
             String node = actor.queryId() + ":generated-read:" + ordinal + ":" + definition.getTargetColumn();
             var publication = new PublicationRead(table, definition.getTargetColumn(), snapshot);
             var template = publications.computeIfAbsent(publication, key -> artifacts.resolveTemplate(
@@ -109,7 +111,7 @@ public final class GeneratedValueReadResolver {
                             "Generated query definition differs from the exact published declaration");
                 }
                 overlays.add(new GeneratedValuesOverlayPlanBinder.ReadOverlay(
-                        ordinal, read.getNamedTable().getNamesList(),
+                        ordinal, site.read().getNamedTable().getNamesList(),
                         definition.getTargetColumn(), resolved.bind(node)));
             });
         }
@@ -154,12 +156,6 @@ public final class GeneratedValueReadResolver {
             }
         }
         return true;
-    }
-
-    private static boolean isOutput(ReadRel read, String target) {
-        int field = read.getBaseSchema().getNamesList().indexOf(target);
-        return field >= 0 && (!read.getCommon().hasEmit()
-                || read.getCommon().getEmit().getOutputMappingList().contains(field));
     }
 
     private static long parseSnapshot(String value) {

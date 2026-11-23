@@ -842,7 +842,7 @@ void VeloxTaskRunner::start() {
     for (const auto& split_config : override->second) {
       bool index_evaluated = false;
       if (!index::IndexHintFilter::shouldKeepTypedSplit(
-              split_config.file_scan_detail, split_config.file_path, &index_evaluated)) {
+              split_config.index_hints.get(), split_config.file_path, &index_evaluated)) {
         ++index_split_total;
         ++index_split_skipped;
         continue;
@@ -891,7 +891,7 @@ void VeloxTaskRunner::start() {
   for (const auto& splitConfig : uniqueSplits) {
     bool index_evaluated = false;
     if (!index::IndexHintFilter::shouldKeepTypedSplit(
-            splitConfig.file_scan_detail, splitConfig.file_path, &index_evaluated)) {
+            splitConfig.index_hints.get(), splitConfig.file_path, &index_evaluated)) {
       ++index_split_total;
       ++index_split_skipped;
       continue;
