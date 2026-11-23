@@ -636,8 +636,12 @@ are ordered by output partition for direct lookup. A repeat delivery of the
 same task waits asynchronously for the original task's endpoint setup.
 The Worker bounds pending retry acknowledgements and uses the original task
 deadline for each HTTP observation. The first request hands setup to a separate
-Worker executor after the exact reservation, with 64 active setups, 64 queued
-setups and 128 MiB of admitted request bodies across both. Setup rechecks
+Worker executor after the exact reservation, with 64 active setups and 64 queued
+setups. A shared 128 MiB allowance covers the bytes entering decode and the
+bodies queued or running through setup. Declared lengths acquire allowance before
+decode. Streams without a declared length acquire it as bytes arrive. Exact
+replays release their request bytes after joining the existing admission.
+Setup rechecks
 authority before allocating task resources. Cancellation and shutdown can
 identify the actual owner during setup. Setup failures return a rejected acknowledgement
 with the original diagnostic after recording the task's terminal outcome.
@@ -653,7 +657,7 @@ the returned identity and endpoint scope before recording the dispatch result.
 | Task request body exceeds 128 MiB | 413 | `rejected` |
 | Unsupported request media type | 415 | The router rejects the request |
 | Worker has yet to observe the submitted control epoch | 425 | `rejected`. The Coordinator can resend the identical binary body within its deadline |
-| Worker control not ready or admission capacity exceeded | 503 | `rejected` |
+| Worker control not ready or task admission, body, or setup capacity exceeded | 503 | `rejected` |
 | Internal submission failure | 500 | `rejected` |
 
 `DELETE /v1/task/{taskId}` seals the exact issued attempt using a binary

@@ -51,7 +51,7 @@ final class TaskSubmissionHandler {
     }
 
     TaskManager.TaskAdmission submitValidatedTask(
-            TaskDescriptor descriptor, ValidatedTaskSubmission admission, int bodyBytes) {
+            TaskDescriptor descriptor, ValidatedTaskSubmission admission, TaskManager.TaskBodyAdmission body) {
         var request = admission.submission();
         requireSubmissionAuthority(descriptor, request);
         var reservation = reserveSubmission(descriptor, request);
@@ -59,7 +59,7 @@ final class TaskSubmissionHandler {
 
         var result = new java.util.concurrent.CompletableFuture<String>();
         try {
-            owner.scheduleTaskSetup(bodyBytes, () -> runTaskSetup(descriptor, admission, reservation, result));
+            owner.scheduleTaskSetup(body, () -> runTaskSetup(descriptor, admission, reservation, result));
         } catch (RuntimeException | Error rejected) {
             reservation.rejectedBeforeOwnership(rejected);
             throw rejected;

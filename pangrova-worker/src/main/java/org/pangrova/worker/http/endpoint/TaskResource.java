@@ -153,27 +153,34 @@ public final class TaskResource implements Closeable {
     @Consumes(SubmitTaskRequest.MEDIA_TYPE)
     @Produces(SubmitTaskRequest.MEDIA_TYPE)
     public CompletionStage<Response> submitTask(InputStream body, @Context HttpServletRequest transport) {
-        if (transport != null && transport.getContentLengthLong() > SubmitTaskRequest.MAX_HTTP_BODY_BYTES) {
-            return rejectOversizedTask();
-        }
+        long declaredLength = transport == null ? -1 : transport.getContentLengthLong();
+        if (declaredLength > SubmitTaskRequest.MAX_HTTP_BODY_BYTES) return rejectOversizedTask();
         if (body == null) {
             return CompletableFuture.completedFuture(rejectSubmit(
                     Response.Status.BAD_REQUEST.getStatusCode(), "Task submission payload is required"));
         }
-        var limited = new SizeLimitedInputStream(
-                body, SubmitTaskRequest.MAX_HTTP_BODY_BYTES, limit -> new TaskBodyTooLargeException());
-        SubmitTaskRequest request;
-        try {
-            request = SubmitTaskRequest.decode(limited);
+        try (var admission = taskManager.admitTaskBody()) {
+            if (declaredLength > 0) admission.reserve((int) declaredLength);
+            var limited = new SizeLimitedInputStream(body, SubmitTaskRequest.MAX_HTTP_BODY_BYTES,
+                    limit -> new TaskBodyTooLargeException(),
+                    declaredLength > 0 ? ignored -> {} : admission::reserve);
+            SubmitTaskRequest request;
+            try {
+                request = SubmitTaskRequest.decode(limited);
+            } catch (InvalidProtocolBufferException | IllegalArgumentException failure) {
+                String reason = limited.bytesRead() == 0
+                        ? "Task submission payload is required"
+                        : "Invalid binary task submission";
+                return CompletableFuture.completedFuture(
+                        rejectSubmit(Response.Status.BAD_REQUEST.getStatusCode(), reason));
+            }
+            return submitTask(request, admission, transport != null && transport.isSecure());
         } catch (TaskBodyTooLargeException overflow) {
             return rejectOversizedTask();
-        } catch (InvalidProtocolBufferException | IllegalArgumentException failure) {
-            String reason = limited.bytesRead() == 0
-                    ? "Task submission payload is required"
-                    : "Invalid binary task submission";
-            return CompletableFuture.completedFuture(rejectSubmit(Response.Status.BAD_REQUEST.getStatusCode(), reason));
+        } catch (org.pangrova.worker.exception.TaskAdmissionException capacity) {
+            return CompletableFuture.completedFuture(
+                    rejectSubmit(Response.Status.SERVICE_UNAVAILABLE.getStatusCode(), capacity.getMessage()));
         }
-        return submitTask(request, limited.bytesRead(), transport != null && transport.isSecure());
     }
 
     private static CompletionStage<Response> rejectOversizedTask() {
@@ -183,7 +190,8 @@ public final class TaskResource implements Closeable {
 
     private static final class TaskBodyTooLargeException extends RuntimeException {}
 
-    private CompletionStage<Response> submitTask(SubmitTaskRequest request, int bodyBytes, boolean secureTransport) {
+    private CompletionStage<Response> submitTask(
+            SubmitTaskRequest request, TaskManager.TaskBodyAdmission body, boolean secureTransport) {
         if (request.copySourceRead() != null && !secureTransport) {
             return CompletableFuture.completedFuture(rejectSubmit(
                     Response.Status.FORBIDDEN.getStatusCode(), "COPY_SECURE_TRANSPORT_REQUIRED",
@@ -192,7 +200,7 @@ public final class TaskResource implements Closeable {
         LogContext.set(CurrentSpanIds.currentTraceId(), CurrentSpanIds.currentSpanId());
         org.pangrova.observability.api.tracing.Span span = startSpan("task.submit");
         try {
-            return executeSubmit(request, bodyBytes).whenComplete((result, failure) -> endSpan(span));
+            return executeSubmit(request, body).whenComplete((result, failure) -> endSpan(span));
         } catch (Exception failure) {
             endSpan(span);
             return CompletableFuture.completedFuture(handleSubmitError(queryId(request), failure));
@@ -204,7 +212,7 @@ public final class TaskResource implements Closeable {
         }
     }
 
-    private CompletionStage<Response> executeSubmit(SubmitTaskRequest request, int bodyBytes) {
+    private CompletionStage<Response> executeSubmit(SubmitTaskRequest request, TaskManager.TaskBodyAdmission body) {
         // Classify a missing or stale control epoch through the fail-closed
         // fencing path before full contract validation. This check is pure and
         // must precede every admission side effect.
@@ -222,7 +230,7 @@ public final class TaskResource implements Closeable {
         taskManager.verifyExecutionOwnerForAdmission(request);
         ResultEndpoint endpoint = resultEndpoint(validated);
         TaskDescriptor descriptor = TaskRequestDtoConverter.toTaskDescriptor(request);
-        var ownership = taskManager.submitValidatedTask(descriptor, validated, bodyBytes);
+        var ownership = taskManager.submitValidatedTask(descriptor, validated, body);
         var attempt = request.taskRequest().getAttempt();
         String taskId = attempt.getTaskId();
         String query = attempt.getQueryOrJobId();

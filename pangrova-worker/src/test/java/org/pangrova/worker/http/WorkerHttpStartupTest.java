@@ -111,6 +111,36 @@ class WorkerHttpStartupTest {
     }
 
     @Test
+    void requestByteCapacityCoversDeclaredAndStreamingBodiesBeforeDecoding() throws Exception {
+        byte[] malformed = {(byte) 0x80};
+        var declared = HttpRequest.BodyPublishers.ofByteArray(malformed);
+        var chunked = HttpRequest.BodyPublishers.ofInputStream(() -> new ByteArrayInputStream(malformed));
+        try (var admitted = tasks.admitTaskBody()) {
+            admitted.reserve(SubmitTaskRequest.MAX_HTTP_BODY_BYTES);
+            for (var sender : java.util.List.of(declared, chunked)) {
+                var response = http.httpClient().send(HttpRequest.newBuilder(taskUri())
+                        .timeout(Duration.ofSeconds(5)).header("X-Internal-Auth", SECRET)
+                        .header("Content-Type", SubmitTaskRequest.MEDIA_TYPE).POST(sender).build(),
+                        HttpResponse.BodyHandlers.ofByteArray());
+                assertThat(response.statusCode()).isEqualTo(503);
+                var ack = TaskSubmitAck.parseFrom(response.body());
+                assertThat(ack.getRejected().getCode()).isEqualTo("SERVICE_UNAVAILABLE");
+                assertThat(ack.getRejected().getReason()).contains("task submission byte capacity");
+            }
+        }
+        var recovered = http.httpClient().send(HttpRequest.newBuilder(taskUri())
+                .timeout(Duration.ofSeconds(5)).header("X-Internal-Auth", SECRET)
+                .header("Content-Type", SubmitTaskRequest.MEDIA_TYPE).POST(declared).build(),
+                HttpResponse.BodyHandlers.ofByteArray());
+        assertThat(recovered.statusCode()).isEqualTo(400);
+        assertThat(TaskSubmitAck.parseFrom(recovered.body()).getRejected().getReason())
+                .contains("Invalid binary task");
+        try (var available = tasks.admitTaskBody()) {
+            available.reserve(SubmitTaskRequest.MAX_HTTP_BODY_BYTES);
+        }
+    }
+
+    @Test
     void stopAlsoClosesTheFileEndpointFactory() throws Exception {
         var factory = org.pangrova.worker.file.ObjectStoreAccessorFactory.discover();
         var files = new org.pangrova.worker.file.FileSpaceFileResource(factory, SECRET, event -> {});

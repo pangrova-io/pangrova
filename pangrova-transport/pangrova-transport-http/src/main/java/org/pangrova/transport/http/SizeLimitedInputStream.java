@@ -2,6 +2,7 @@ package org.pangrova.transport.http;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.function.IntConsumer;
 import java.util.function.IntFunction;
 
 import static java.util.Objects.checkFromIndexSize;
@@ -13,18 +14,26 @@ public final class SizeLimitedInputStream extends InputStream {
     private final InputStream delegate;
     private final int maxBytes;
     private final IntFunction<? extends RuntimeException> overflow;
+    private final IntConsumer observedBytes;
     private int bytesRead;
     private boolean exceeded;
 
     /** Wraps a request body and supplies its transport-specific overflow exception. */
     public SizeLimitedInputStream(
             InputStream delegate, int maxBytes, IntFunction<? extends RuntimeException> overflow) {
+        this(delegate, maxBytes, overflow, ignored -> {});
+    }
+
+    /** Calls the byte observer before delivering each newly read range to the parser. */
+    public SizeLimitedInputStream(InputStream delegate, int maxBytes,
+            IntFunction<? extends RuntimeException> overflow, IntConsumer observedBytes) {
         this.delegate = requireNonNull(delegate, "delegate");
         if (maxBytes < 0) {
             throw new IllegalArgumentException("maxBytes must not be negative");
         }
         this.maxBytes = maxBytes;
         this.overflow = requireNonNull(overflow, "overflow");
+        this.observedBytes = requireNonNull(observedBytes, "observedBytes");
     }
 
     /** Number of body bytes passed through to the reader. */
@@ -44,7 +53,7 @@ public final class SizeLimitedInputStream extends InputStream {
         }
         int b = delegate.read();
         if (b != -1) {
-            bytesRead++;
+            observedBytes.accept(++bytesRead);
         }
         return b;
     }
@@ -65,6 +74,7 @@ public final class SizeLimitedInputStream extends InputStream {
         int n = delegate.read(buf, off, allowedLen);
         if (n > 0) {
             bytesRead += n;
+            observedBytes.accept(bytesRead);
         }
         return n;
     }

@@ -1,8 +1,11 @@
 package org.pangrova.worker.task;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
 
 import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.ResourceLock;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -12,10 +15,12 @@ import org.pangrova.protocol.task.CanonicalTaskAdmissionSeals;
 import org.pangrova.protocol.v2.ExecutionDrainState;
 import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
+import org.pangrova.worker.exception.TaskAdmissionException;
 import org.pangrova.worker.exchange.source.ExchangeSourceRegistry;
 import org.pangrova.worker.http.endpoint.TaskResource;
 
 import java.io.ByteArrayInputStream;
+import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -23,6 +28,48 @@ import java.util.concurrent.TimeUnit;
 @ResourceLock(ActualNativeTaskFixture.RUNTIME_LOCK)
 class TaskSetupAdmissionTest {
     private enum Invalidation { EXACT_SEAL, ADVANCED_CONTROL_EPOCH }
+
+    @Test
+    void byteAllowanceStaysWithTheSetupOwnerUntilItExits() throws Exception {
+        var entered = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        try (var manager = TaskManager.forHttpWiringOnly()) {
+            try (var body = manager.admitTaskBody()) {
+                body.reserve(SubmitTaskRequest.MAX_HTTP_BODY_BYTES);
+                manager.scheduleTaskSetup(body, () -> holdSetupSlot(entered, release));
+            }
+            try {
+                assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+                try (var competing = manager.admitTaskBody()) {
+                    assertThatThrownBy(() -> competing.reserve(1))
+                            .isInstanceOf(TaskAdmissionException.class)
+                            .hasMessageContaining("task submission byte capacity");
+                }
+            } finally {
+                release.countDown();
+            }
+            await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> {
+                try (var restored = manager.admitTaskBody()) {
+                    restored.reserve(SubmitTaskRequest.MAX_HTTP_BODY_BYTES);
+                }
+            });
+        }
+    }
+
+    @Test
+    void scheduleRejectionReturnsTheBodyAllowance() {
+        var manager = TaskManager.forHttpWiringOnly();
+        manager.close();
+        try (var body = manager.admitTaskBody()) {
+            body.reserve(SubmitTaskRequest.MAX_HTTP_BODY_BYTES);
+            assertThatThrownBy(() -> manager.scheduleTaskSetup(body, () -> {
+                throw new AssertionError("A closed setup executor cannot enter the task");
+            })).isInstanceOf(TaskAdmissionException.class).hasMessageContaining("closed or at capacity");
+        }
+        try (var restored = manager.admitTaskBody()) {
+            restored.reserve(SubmitTaskRequest.MAX_HTTP_BODY_BYTES);
+        }
+    }
 
     @ParameterizedTest
     @EnumSource(Invalidation.class)
@@ -40,7 +87,10 @@ class TaskSetupAdmissionTest {
             manager.requireControlEpochHandshake();
             manager.observeControlEpoch(epoch);
             for (int slot = 0; slot < 64; slot++) {
-                manager.scheduleTaskSetup(1, () -> holdSetupSlot(occupied, releaseSetups));
+                try (var body = manager.admitTaskBody()) {
+                    body.reserve(1);
+                    manager.scheduleTaskSetup(body, () -> holdSetupSlot(occupied, releaseSetups));
+                }
             }
             try {
                 assertThat(occupied.await(8, TimeUnit.SECONDS)).isTrue();

@@ -114,7 +114,7 @@ public class TaskManager implements AutoCloseable {
     private final java.util.concurrent.ExecutorService taskSetupExecutor =
             org.pangrova.common.concurrent.ManagedExecutorFactory.newBoundedThreadPool(
                     "worker-task-setup", MAX_CONCURRENT_TASK_SETUPS, MAX_QUEUED_TASK_SETUPS);
-    private final java.util.concurrent.Semaphore taskSetupBytes =
+    private final java.util.concurrent.Semaphore taskSubmissionBytes =
             new java.util.concurrent.Semaphore(SubmitTaskRequest.MAX_HTTP_BODY_BYTES);
 
     private final TaskSubmissionHandler submissionHandler;
@@ -280,33 +280,74 @@ public class TaskManager implements AutoCloseable {
         java.util.concurrent.CompletionStage<String> completion();
     }
 
-    public TaskAdmission submitValidatedTask(
-            TaskDescriptor descriptor, ValidatedTaskSubmission request, int bodyBytes) {
-        return submissionHandler.submitValidatedTask(descriptor, request, bodyBytes);
+    /** Acquires a Worker-local body lease that can be handed to the setup executor. */
+    public TaskBodyAdmission admitTaskBody() {
+        return new TaskBodyAdmission(taskSubmissionBytes);
     }
 
-    void scheduleTaskSetup(int bodyBytes, Runnable setup) {
-        if (bodyBytes <= 0 || !taskSetupBytes.tryAcquire(bodyBytes)) {
-            throw new org.pangrova.worker.exception.TaskAdmissionException(
-                    org.pangrova.worker.enums.TaskAdmissionReason.CAPACITY,
-                    "Worker task setup lacks request byte capacity");
+    /** The same byte allowance covers HTTP decode, queueing and running setup. */
+    public static final class TaskBodyAdmission implements AutoCloseable {
+        private final java.util.concurrent.Semaphore capacity;
+        private int bytes;
+        private boolean ingressClosed;
+
+        private TaskBodyAdmission(java.util.concurrent.Semaphore capacity) {
+            this.capacity = capacity;
         }
-        boolean submitted = false;
+
+        /** Reserves a declared length or the next observed length before parsing more bytes. */
+        public void reserve(int length) {
+            if (ingressClosed) throw new IllegalStateException("Task body admission is no longer accepting bytes");
+            if (length <= bytes) return;
+            if (!capacity.tryAcquire(length - bytes)) {
+                throw new org.pangrova.worker.exception.TaskAdmissionException(
+                        org.pangrova.worker.enums.TaskAdmissionReason.CAPACITY,
+                        "Worker lacks task submission byte capacity");
+            }
+            bytes = length;
+        }
+
+        @Override
+        public void close() {
+            if (!ingressClosed) {
+                ingressClosed = true;
+                release();
+            }
+        }
+
+        private void release() {
+            capacity.release(bytes);
+            bytes = 0;
+        }
+    }
+
+    public TaskAdmission submitValidatedTask(
+            TaskDescriptor descriptor, ValidatedTaskSubmission request, TaskBodyAdmission body) {
+        return submissionHandler.submitValidatedTask(descriptor, request, body);
+    }
+
+    void scheduleTaskSetup(TaskBodyAdmission body, Runnable setup) {
+        if (body.capacity != taskSubmissionBytes || body.ingressClosed || body.bytes == 0) {
+            throw new IllegalStateException("Worker task setup requires its original task body admission");
+        }
+        // From this point either a scheduled setup or its rejection releases the allowance.
+        body.ingressClosed = true;
+        boolean scheduled = false;
         try {
             taskSetupExecutor.execute(() -> {
                 try {
                     setup.run();
                 } finally {
-                    taskSetupBytes.release(bodyBytes);
+                    body.release();
                 }
             });
-            submitted = true;
+            scheduled = true;
         } catch (java.util.concurrent.RejectedExecutionException rejected) {
             throw new org.pangrova.worker.exception.TaskAdmissionException(
                     org.pangrova.worker.enums.TaskAdmissionReason.CAPACITY,
                     "Worker task setup is closed or at capacity");
         } finally {
-            if (!submitted) taskSetupBytes.release(bodyBytes);
+            if (!scheduled) body.release();
         }
     }
 
