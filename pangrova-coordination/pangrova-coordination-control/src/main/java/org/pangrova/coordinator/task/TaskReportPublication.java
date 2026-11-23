@@ -51,7 +51,7 @@ public final class TaskReportPublication implements AutoCloseable {
         final long sequence;
         final long timestamp;
         final ByteString canonicalDigest;
-        final org.pangrova.protocol.rest.task.TaskStats supplementalStats;
+        final org.pangrova.protocol.v2.NativeTaskStats supplementalStats;
         final org.pangrova.common.client.error.ErrorDetail error;
         final org.pangrova.protocol.rest.data.WriteResultDescriptor writeResult;
         final String errorCode;

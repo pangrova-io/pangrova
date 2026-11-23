@@ -37,7 +37,7 @@ class TaskStatusWireTest {
         prefix.flush();
         byte[] exact = bytes.toByteString().toByteArray();
         var report = TaskStatusReport.fromAttempt(ATTEMPT, "OUTPUT", "worker", "FINISHED",
-                TaskStats.fromNative(stats), null, null, 5, 1000, exact);
+                stats, null, null, 5, 1000, exact);
 
         byte[] encoded = TaskStatusWire.encode(report);
         var wire = TaskStatusDelivery.parseFrom(encoded);
@@ -58,13 +58,38 @@ class TaskStatusWireTest {
                 .setState(TaskState.TASK_STATE_FINISHED).build();
         var write = new WriteResultDescriptor(List.of(), 80, 512, new byte[]{1, 2},
                 List.of(new byte[]{5, (byte) 0x80}, new byte[]{7}));
-        var stats = TaskStats.fromNative(NativeTaskStats.newBuilder().setRowsWritten(80).build());
+        var stats = NativeTaskStats.newBuilder().setRowsWritten(80).build();
         var report = TaskStatusReport.fromAttempt(ATTEMPT, "WRITE", "worker", "FINISHED",
                 stats, null, write, 6, 1001, terminal.toByteArray());
 
         var decoded = TaskStatusWire.decode(TaskStatusWire.encode(report));
         assertThat(decoded.writeResult()).isEqualTo(write);
         assertThat(decoded.supplementalStats()).isEqualTo(stats);
+    }
+
+    @Test
+    void progressCannotPublishBuildKeyEvidence() {
+        var frame = TaskStatusDelivery.newBuilder().setWorkerId("worker")
+                .setRole(TaskRole.TASK_ROLE_COMPUTE).setSequence(4)
+                .setProgress(TaskProgress.newBuilder().setAttempt(ATTEMPT).setState(TaskState.TASK_STATE_RUNNING))
+                .setSupplementalStats(NativeTaskStats.newBuilder()
+                        .setBuildKeys(org.pangrova.protocol.v2.BuildKeySummary.getDefaultInstance()));
+        byte[] forged = frame.build().toByteArray();
+        assertThatThrownBy(() -> TaskStatusWire.decode(forged)).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void supplementalOperatorsRejectUnknownFields() {
+        var unknown = com.google.protobuf.UnknownFieldSet.newBuilder().addField(99,
+                com.google.protobuf.UnknownFieldSet.Field.newBuilder().addVarint(1).build()).build();
+        var stats = NativeTaskStats.newBuilder().addOperatorStats(
+                org.pangrova.protocol.v2.OperatorStats.newBuilder().setUnknownFields(unknown));
+        var progress = TaskStatusDelivery.newBuilder().setWorkerId("worker")
+                .setRole(TaskRole.TASK_ROLE_COMPUTE).setSequence(4)
+                .setProgress(TaskProgress.newBuilder().setAttempt(ATTEMPT).setState(TaskState.TASK_STATE_RUNNING))
+                .setSupplementalStats(stats).build().toByteArray();
+
+        assertThatThrownBy(() -> TaskStatusWire.decode(progress)).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test

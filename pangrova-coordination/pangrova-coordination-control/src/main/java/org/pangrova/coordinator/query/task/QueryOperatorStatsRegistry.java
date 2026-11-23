@@ -4,7 +4,6 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.coordinator.query.stage.StageDAG;
-import org.pangrova.protocol.rest.task.TaskStats;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.protocol.v2.NativeTaskStats;
 import org.pangrova.protocol.v2.TaskAttemptId;
@@ -33,18 +32,13 @@ public final class QueryOperatorStatsRegistry implements OperatorStatsSource {
 
     /** Borrows the immutable counters of an accepted Worker report. */
     public void record(TaskAttemptId attempt, TaskStatusReport report, TaskReport canonical) {
-        NativeTaskStats nativeStats = canonical != null && canonical.hasNativeTaskStats()
-                ? canonical.getNativeTaskStats() : null;
-        TaskStats supplemental = report.supplementalStats();
-        if (nativeStats == null
-                ? supplemental == null || supplemental.operatorStats().isEmpty()
-                : nativeStats.getOperatorStatsCount() == 0) {
-            return;
-        }
+        NativeTaskStats stats = canonical != null && canonical.hasNativeTaskStats()
+                ? canonical.getNativeTaskStats() : report.supplementalStats();
+        if (stats == null || stats.getOperatorStatsCount() == 0) return;
         var attempts = byQuery.get(attempt.getQueryOrJobId(), ignored -> new QueryTelemetry()).attempts;
         long sequence = report.reportSequence();
         attempts.compute(attempt, (ignored, previous) -> previous == null || sequence > previous.sequence()
-                ? new Sample(report.workerId(), report.state(), sequence, nativeStats, supplemental) : previous);
+                ? new Sample(report.workerId(), report.state(), sequence, stats) : previous);
     }
 
     @Override
@@ -77,32 +71,16 @@ public final class QueryOperatorStatsRegistry implements OperatorStatsSource {
         private volatile QueryStageObservations observations;
     }
 
-    private record Sample(String workerId, String state, long sequence, NativeTaskStats nativeStats,
-            TaskStats supplemental) {
+    private record Sample(String workerId, String state, long sequence, NativeTaskStats stats) {
         Attempt toAttempt(TaskAttemptId attempt) {
-            if (nativeStats != null) {
-                var operators = nativeStats.getOperatorStatsList().stream()
-                        .map(op -> new Metric(op.getOperatorType(), op.getPlanNodeId(), op.getInputRows(),
-                                op.getOutputRows(), op.getInputBytes(), op.getOutputBytes(), op.getCpuNanos(),
-                                op.getWallNanos(), op.getPeakMemoryBytes(), op.getSpillBytes()))
-                        .toList();
-                return toAttempt(attempt, nativeStats.getElapsedTimeMs(), nativeStats.getCpuTimeMs(),
-                        nativeStats.getBackpressureWaitMs(), operators);
-            }
-            var operators = supplemental.operatorStats().stream()
-                    .map(op -> new Metric(op.operatorType(), op.planNodeId(), op.inputRows(), op.outputRows(),
-                            op.inputBytes(), op.outputBytes(), op.cpuNanos(), op.wallNanos(),
-                            op.peakMemoryBytes(), op.spillBytes()))
+            var operators = stats.getOperatorStatsList().stream()
+                    .map(op -> new Metric(op.getOperatorType(), op.getPlanNodeId(), op.getInputRows(),
+                            op.getOutputRows(), op.getInputBytes(), op.getOutputBytes(), op.getCpuNanos(),
+                            op.getWallNanos(), op.getPeakMemoryBytes(), op.getSpillBytes()))
                     .toList();
-            return toAttempt(attempt, supplemental.elapsedTimeMs(), supplemental.cpuTimeMs(),
-                    supplemental.backpressureWaitMs(), operators);
-        }
-
-        private Attempt toAttempt(TaskAttemptId attempt, long elapsedMs, long cpuMs, long backpressureMs,
-                List<Metric> operators) {
             return new Attempt(attempt.getStageId(), attempt.getPartitionId(), attempt.getPlanEpoch(),
-                    attempt.getAttemptId(), attempt.getTaskId(), workerId, state, sequence, elapsedMs,
-                    cpuMs, backpressureMs, operators);
+                    attempt.getAttemptId(), attempt.getTaskId(), workerId, state, sequence,
+                    stats.getElapsedTimeMs(), stats.getCpuTimeMs(), stats.getBackpressureWaitMs(), operators);
         }
     }
 }

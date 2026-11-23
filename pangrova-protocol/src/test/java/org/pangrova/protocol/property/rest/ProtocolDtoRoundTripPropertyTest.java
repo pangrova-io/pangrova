@@ -21,18 +21,20 @@ import org.pangrova.common.client.result.ResultEndpoint;
 import org.pangrova.common.client.query.SubmitQueryRequest;
 import org.pangrova.common.client.query.SubmitQueryResponse;
 import org.pangrova.protocol.rest.task.exchange.ExchangeSourceDescriptor;
-import org.pangrova.protocol.rest.task.OperatorStats;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.http.TaskAdmitted;
 import org.pangrova.protocol.http.TaskRejected;
 import org.pangrova.protocol.http.TaskResultEndpoint;
 import org.pangrova.protocol.http.TaskSubmitAck;
-import org.pangrova.protocol.rest.task.TaskStats;
+import org.pangrova.protocol.rest.task.TaskStatusReport;
+import org.pangrova.protocol.rest.task.TaskStatusWire;
+import org.pangrova.protocol.v2.NativeTaskStats;
+import org.pangrova.protocol.v2.OperatorStats;
+import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.protocol.rest.task.TaskAttemptDescriptor;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.protocol.http.TaskStatusAck;
 import org.pangrova.protocol.rest.task.TaskStatusWire;
-import org.pangrova.protocol.rest.task.TaskStatusResponse;
 import org.pangrova.protocol.rest.worker.WorkerRegistrationRequest;
 import org.pangrova.protocol.v2.StageResourceGrant;
 import org.pangrova.protocol.v2.DataSplit;
@@ -139,8 +141,9 @@ class ProtocolDtoRoundTripPropertyTest {
     @Property(tries = 10)
     @Tag("protocol-dto-round-trip")
     void operatorStatsRoundTrip(
-            @ForAll("operatorStatsList") OperatorStats original) {
-        assertRoundTrip(original, OperatorStats.class);
+            @ForAll("operatorStatsList") OperatorStats original) throws Exception {
+        var stats = NativeTaskStats.newBuilder().addOperatorStats(original).build();
+        assertThat(roundTripTaskStats(stats).getOperatorStatsList()).containsExactly(original);
     }
 
     @Property(tries = 10)
@@ -153,8 +156,16 @@ class ProtocolDtoRoundTripPropertyTest {
     @Property(tries = 10)
     @Tag("protocol-dto-round-trip")
     void taskStatsRoundTrip(
-            @ForAll("taskStatsList") TaskStats original) {
-        assertRoundTrip(original, TaskStats.class);
+            @ForAll("taskStatsList") NativeTaskStats original) throws Exception {
+        assertThat(roundTripTaskStats(original)).isEqualTo(original);
+    }
+
+    private static NativeTaskStats roundTripTaskStats(NativeTaskStats stats) throws Exception {
+        var attempt = TaskAttemptId.newBuilder().setTaskId("task").setQueryOrJobId("query")
+                .setPlanEpoch(1).setFencingToken(1).build();
+        var progress = TaskStatusReport.fromAttempt(attempt, "COMPUTE", "worker", "RUNNING",
+                stats, null, null, 1L, 1000, null);
+        return TaskStatusWire.decode(TaskStatusWire.encode(progress)).supplementalStats();
     }
 
     @Property(tries = 10)
@@ -183,13 +194,6 @@ class ProtocolDtoRoundTripPropertyTest {
     void taskStatusReportResponseRoundTrip(
             @ForAll("taskStatusReportResponses") TaskStatusAck original) throws Exception {
         assertThat(TaskStatusAck.parseFrom(original.toByteArray())).isEqualTo(original);
-    }
-
-    @Property(tries = 10)
-    @Tag("protocol-dto-round-trip")
-    void taskStatusResponseRoundTrip(
-            @ForAll("taskStatusResponses") TaskStatusResponse original) {
-        assertRoundTrip(original, TaskStatusResponse.class);
     }
 
     // --- worker/ package ---
@@ -331,11 +335,11 @@ class ProtocolDtoRoundTripPropertyTest {
                 Arbitraries.longs().between(0, 10_000_000_000L),
                 nonBlankString()
         ).as((opType, inRows, outRows, inBytes, outBytes, cpuNs, wallNs, nodeId) ->
-                new OperatorStats(opType, inRows, outRows, inBytes, outBytes,
-                        cpuNs, wallNs, nodeId,
-                        Math.abs(inRows % (1_000_000_000)),
-                        Math.abs(outRows % (2_000_000_000L)),
-                        Math.abs(inBytes % 500_000_000)));
+                OperatorStats.newBuilder().setOperatorType(opType).setPlanNodeId(nodeId)
+                        .setInputRows(inRows).setOutputRows(outRows).setInputBytes(inBytes).setOutputBytes(outBytes)
+                        .setCpuNanos(cpuNs).setWallNanos(wallNs).setMemoryBytes(inRows % 1_000_000_000)
+                        .setPeakMemoryBytes(outRows % 2_000_000_000L).setSpillBytes(inBytes % 500_000_000)
+                        .build());
     }
 
     @Provide
@@ -353,29 +357,22 @@ class ProtocolDtoRoundTripPropertyTest {
     }
 
     @Provide
-    Arbitrary<TaskStats> taskStatsList() {
+    Arbitrary<NativeTaskStats> taskStatsList() {
         return operatorStatsList().list().ofMinSize(0).ofMaxSize(3)
                 .flatMap(ops -> Arbitraries.longs().between(0, 10_000_000)
-                        .map(rowsRead -> new TaskStats(
-                                rowsRead,
-                                rowsRead * 100,
-                                rowsRead / 2,
-                                rowsRead * 50,
-                                Math.abs(rowsRead % 600_000),
-                                Math.abs(rowsRead % 300_000),
-                                Math.abs(rowsRead % (8L * 1024 * 1024)),
-                                Math.abs(rowsRead % (16L * 1024 * 1024)),
-                                Math.abs(rowsRead % (32L * 1024 * 1024)),
-                                Math.abs(rowsRead % (4L * 1024 * 1024)),
-                                Math.abs(rowsRead % (4L * 1024 * 1024)),
-                                Math.abs(rowsRead % 1_000_000),
-                                Math.abs(rowsRead % 2_000_000),
-                                ops,
-                                Math.abs(rowsRead % 10_000),
-                                Math.abs(rowsRead % 1_000),
-                                Math.abs(rowsRead % 1_000),
-                                Math.abs(rowsRead % 1_000),
-                                Math.abs(rowsRead % 1_000))));
+                        .map(rowsRead -> NativeTaskStats.newBuilder()
+                                .setRowsRead(rowsRead).setBytesRead(rowsRead * 100)
+                                .setRowsWritten(rowsRead / 2).setBytesWritten(rowsRead * 50)
+                                .setElapsedTimeMs(rowsRead % 600_000).setCpuTimeMs(rowsRead % 300_000)
+                                .setMemoryBytes(rowsRead % (8L * 1024 * 1024))
+                                .setPeakMemoryBytes(rowsRead % (16L * 1024 * 1024))
+                                .setSpillBytes(rowsRead % (32L * 1024 * 1024))
+                                .setCacheHitBytes(rowsRead % (4L * 1024 * 1024))
+                                .setCacheMissBytes(rowsRead % (4L * 1024 * 1024))
+                                .addAllOperatorStats(ops).setBackpressureWaitMs(rowsRead % 10_000)
+                                .setCacheHitCount(rowsRead % 1_000).setCacheMissCount(rowsRead % 1_000)
+                                .setCacheEvictionCount(rowsRead % 1_000).setCacheAdmissionRejectionCount(rowsRead % 1_000)
+                                .build()));
     }
 
     @Provide
@@ -454,16 +451,6 @@ class ProtocolDtoRoundTripPropertyTest {
                         TaskStatusAck.Directive.RETIRED_RESULT_NOTICE))
                 .as((taskId, sequence, directive) -> TaskStatusAck.newBuilder().setTaskId(taskId)
                         .setSequence(sequence).setDirective(directive).build());
-    }
-
-    @Provide
-    Arbitrary<TaskStatusResponse> taskStatusResponses() {
-        return Combinators.combine(
-                nonBlankString(),
-                Arbitraries.of("RUNNING", "FINISHED", "FAILED", "CANCELLED"),
-                taskStatsList().injectNull(0.3),
-                errorDetails().injectNull(0.5)
-        ).as(TaskStatusResponse::new);
     }
 
     @Provide

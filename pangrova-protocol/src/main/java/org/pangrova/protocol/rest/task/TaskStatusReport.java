@@ -4,6 +4,7 @@ import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
 import org.pangrova.common.client.error.ErrorDetail;
 import org.pangrova.protocol.rest.data.WriteResultDescriptor;
+import org.pangrova.protocol.v2.NativeTaskStats;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.protocol.v2.TaskReport;
 
@@ -18,7 +19,7 @@ public record TaskStatusReport(
         String taskType,
         String workerId,
         String state,
-        TaskStats supplementalStats,
+        NativeTaskStats supplementalStats,
         ErrorDetail error,
         WriteResultDescriptor writeResult,
         long reportSequence,
@@ -38,7 +39,7 @@ public record TaskStatusReport(
 
     public TaskStatusReport(
             String taskId, String queryId, int stageId, int partitionId,
-            String taskType, String workerId, String state, TaskStats stats,
+            String taskType, String workerId, String state, NativeTaskStats stats,
             ErrorDetail error, WriteResultDescriptor writeResult,
             long reportSequence, long timestampMs, String errorCode,
             Map<String, String> errorMetadata, TaskAttemptDescriptor attempt) {
@@ -49,7 +50,7 @@ public record TaskStatusReport(
 
     public TaskStatusReport(
             String taskId, String queryId, int stageId, int partitionId,
-            String taskType, String workerId, String state, TaskStats stats,
+            String taskType, String workerId, String state, NativeTaskStats stats,
             ErrorDetail error, WriteResultDescriptor writeResult,
             long reportSequence, long timestampMs, String errorCode,
             Map<String, String> errorMetadata, TaskAttemptDescriptor attempt,
@@ -80,7 +81,7 @@ public record TaskStatusReport(
 
     /** Builds a Worker report using the complete issued attempt identity. */
     public static TaskStatusReport fromAttempt(TaskAttemptId identity, String taskType, String workerId,
-                                              String state, TaskStats stats, ErrorDetail error,
+                                              String state, NativeTaskStats stats, ErrorDetail error,
                                               WriteResultDescriptor writeResult, long sequence, long timestampMs,
                                               byte[] terminalEvidence) {
         return fromAttempt(identity, taskType, workerId, state, stats, error, writeResult, sequence,
@@ -89,7 +90,7 @@ public record TaskStatusReport(
 
     /** Reuses evidence already parsed by the producer. */
     public static TaskStatusReport fromAttempt(TaskAttemptId identity, String taskType, String workerId,
-                                              String state, TaskStats stats, ErrorDetail error,
+                                              String state, NativeTaskStats stats, ErrorDetail error,
                                               WriteResultDescriptor writeResult, long sequence, long timestampMs,
                                               ByteString terminalEvidence, TaskReport decodedStatus) {
         return new TaskStatusReport(identity.getTaskId(), identity.getQueryOrJobId(), identity.getStageId(),

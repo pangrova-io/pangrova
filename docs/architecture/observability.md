@@ -505,6 +505,11 @@ the latest immutable Protobuf statistics for the exact attempt. It converts
 them to the public response model when the
 [JSON query profile](../getting-started/clients/rest-api.md#query-profile) is read.
 A repeated terminal delivery still matches the original evidence bytes.
+Progress updates and reconciled failures can carry supplemental statistics as
+the same typed `NativeTaskStats` message. The HTTP boundary passes that message
+directly. Build-key evidence belongs to the authoritative Native terminal
+report. The Coordinator exposes the accepted counters through one Profile
+projection.
 
 The Coordinator currently configures `UnavailableProfiler` for SVG flame
 graphs. The SVG endpoint responds with HTTP 501 and `UNSUPPORTED_CAPABILITY`.

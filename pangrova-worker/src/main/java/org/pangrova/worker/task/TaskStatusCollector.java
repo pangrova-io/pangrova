@@ -5,9 +5,9 @@ import org.pangrova.worker.task.report.TaskStatusReporter;
 import org.pangrova.protocol.rest.data.WriteResultDescriptor;
 import org.pangrova.common.client.error.ErrorDetail;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
-import org.pangrova.protocol.rest.task.TaskStats;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.protocol.execution.TaskDescriptor;
+import org.pangrova.protocol.v2.NativeTaskStats;
 import org.pangrova.worker.enums.TaskState;
 import org.pangrova.worker.task.memory.TaskMemoryAllocator;
 import org.slf4j.Logger;
@@ -220,7 +220,7 @@ final class TaskStatusCollector {
         long seq = info.nextReportSequence();
         var evidence = terminalReport == null ? null : com.google.protobuf.ByteString.copyFrom(terminalReport);
         var canonical = parseDeliveryEvidence(evidence);
-        TaskStats taskStats = collectTaskStats(info, state, canonical);
+        var taskStats = collectTaskStats(info, state, canonical);
         WriteResultDescriptor writeResult = collectWriteResult(info, state);
         SubmitTaskRequest req = info.request();
         if (req == null || !req.taskRequest().hasAttempt()) {
@@ -261,18 +261,19 @@ final class TaskStatusCollector {
                 taskId, workerId, cause.getMessage(), cause);
     }
 
-    private TaskStats collectTaskStats(TaskInfo info, String state, org.pangrova.protocol.v2.TaskReport canonical) {
+    private NativeTaskStats collectTaskStats(
+            TaskInfo info, String state, org.pangrova.protocol.v2.TaskReport canonical) {
         if (canonical != null && canonical.hasNativeTaskStats()) {
             var stats = canonical.getNativeTaskStats();
             logCacheUsage(info.taskId(), stats.getCacheHitCount(), stats.getCacheMissCount(),
                     stats.getCacheEvictionCount(), stats.getCacheAdmissionRejectionCount());
             return null;
         }
-        TaskStats captured = decodeCapturedTaskStats(info);
-        if (captured != null) {
-            logCacheUsage(info.taskId(), captured.cacheHitCount(), captured.cacheMissCount(),
-                    captured.cacheEvictionCount(), captured.cacheAdmissionRejectionCount());
-            return captured;
+        var captured = info.terminalTaskStats();
+        if (captured != null && captured.getSerializedSize() > 0) {
+            logCacheUsage(info.taskId(), captured.getCacheHitCount(), captured.getCacheMissCount(),
+                    captured.getCacheEvictionCount(), captured.getCacheAdmissionRejectionCount());
+            return captured.hasBuildKeys() ? captured.toBuilder().clearBuildKeys().build() : captured;
         }
         if ("FINISHED".equals(state) && info.request() != null
                 && TaskCompletionMonitor.isWorkerExecuted(info.request().taskRequest())) {
@@ -290,14 +291,6 @@ final class TaskStatusCollector {
         return collectInProgressTaskStats(info);
     }
 
-    private static TaskStats decodeCapturedTaskStats(TaskInfo info) {
-        var terminalStats = info.terminalTaskStats();
-        if (terminalStats != null && terminalStats.getSerializedSize() > 0) {
-            return NativeOperatorStatsCollector.toTaskStats(terminalStats);
-        }
-        return null;
-    }
-
     private static boolean isReleasedTerminalWithoutStats(TaskInfo info, String state) {
         return info.resourcesReleased()
                 && ("FINISHED".equals(state) || "FAILED".equals(state) || "CANCELLED".equals(state));
@@ -310,7 +303,7 @@ final class TaskStatusCollector {
                 taskId, hits, misses, evictions, rejected);
     }
 
-    private TaskStats collectInProgressTaskStats(TaskInfo info) {
+    private NativeTaskStats collectInProgressTaskStats(TaskInfo info) {
         long elapsed = java.time.Duration.between(info.startTime(), Instant.now()).toMillis();
         long outputRows = info.outputBatches();
         long outputBytes = info.outputBytes();
@@ -320,9 +313,11 @@ final class TaskStatusCollector {
         if (memoryAllocator != null) {
             memoryAllocator.logMemoryWarningIfNeeded(info.memoryAccount(), memoryBytes);
         }
-        return new TaskStats(outputRows, outputBytes, outputRows, outputBytes,
-                elapsed, 0, memoryBytes, peakMemory, 0, 0, 0,
-                0, 0, List.of(), 0, 0, 0, 0, 0);
+        return NativeTaskStats.newBuilder()
+                .setRowsRead(outputRows).setRowsWritten(outputRows)
+                .setBytesRead(outputBytes).setBytesWritten(outputBytes)
+                .setElapsedTimeMs(elapsed).setMemoryBytes(memoryBytes).setPeakMemoryBytes(peakMemory)
+                .build();
     }
 
     private WriteResultDescriptor collectWriteResult(TaskInfo info, String state) {

@@ -47,9 +47,10 @@ public final class TaskStatusWire {
             }
             delivery.setProgress(TaskProgress.newBuilder().setAttempt(report.reportedAttempt()).setState(state));
         }
-        TaskStats supplemental = report.supplementalStats();
+        var supplemental = report.supplementalStats();
         if ((terminal == null || !terminal.hasNativeTaskStats()) && supplemental != null) {
-            delivery.setSupplementalStats(encodeStats(supplemental));
+            validateSupplementalStats(supplemental);
+            delivery.setSupplementalStats(supplemental);
         }
         if (report.writeResult() != null) {
             delivery.setWrite(encodeWrite(report.writeResult()));
@@ -116,14 +117,28 @@ public final class TaskStatusWire {
                 TaskAttemptDescriptor.from(attempt), evidence, attempt, canonical);
     }
 
-    private static TaskStats decodeSupplementalStats(TaskStatusDelivery delivery, TaskReport canonical) {
+    private static NativeTaskStats decodeSupplementalStats(TaskStatusDelivery delivery, TaskReport canonical) {
         if (canonical != null && canonical.hasNativeTaskStats()) {
             if (delivery.hasSupplementalStats()) {
                 throw new IllegalArgumentException("Terminal delivery already carries canonical Native statistics");
             }
             return null;
         }
-        return delivery.hasSupplementalStats() ? TaskStats.fromNative(delivery.getSupplementalStats()) : null;
+        if (!delivery.hasSupplementalStats()) return null;
+        var stats = delivery.getSupplementalStats();
+        validateSupplementalStats(stats);
+        return stats;
+    }
+
+    private static void validateSupplementalStats(NativeTaskStats stats) {
+        if (stats.hasBuildKeys() || !stats.getUnknownFields().asMap().isEmpty()) {
+            throw new IllegalArgumentException("Unexpected evidence in supplemental task statistics");
+        }
+        for (var op : stats.getOperatorStatsList()) {
+            if (!op.getUnknownFields().asMap().isEmpty()) {
+                throw new IllegalArgumentException("Unexpected fields in supplemental operator statistics");
+            }
+        }
     }
 
     private static boolean isTerminal(TaskState state) {
@@ -134,26 +149,6 @@ public final class TaskStatusWire {
     private static boolean isProgress(TaskState state) {
         return state == TaskState.TASK_STATE_PENDING || state == TaskState.TASK_STATE_RUNNING
                 || state == TaskState.TASK_STATE_FLUSHING;
-    }
-
-    private static NativeTaskStats encodeStats(TaskStats stats) {
-        var proto = NativeTaskStats.newBuilder().setRowsRead(stats.rowsRead()).setBytesRead(stats.bytesRead())
-                .setRowsWritten(stats.rowsWritten()).setBytesWritten(stats.bytesWritten())
-                .setElapsedTimeMs(stats.elapsedTimeMs()).setCpuTimeMs(stats.cpuTimeMs())
-                .setMemoryBytes(stats.memoryBytes()).setPeakMemoryBytes(stats.peakMemoryBytes())
-                .setSpillBytes(stats.spillBytes()).setCacheHitBytes(stats.cacheHitBytes())
-                .setCacheMissBytes(stats.cacheMissBytes()).setBackpressureWaitMs(stats.backpressureWaitMs())
-                .setCacheHitCount(stats.cacheHitCount()).setCacheMissCount(stats.cacheMissCount())
-                .setCacheEvictionCount(stats.cacheEvictionCount())
-                .setCacheAdmissionRejectionCount(stats.cacheAdmissionRejectionCount());
-        for (var op : stats.operatorStats()) {
-            proto.addOperatorStats(org.pangrova.protocol.v2.OperatorStats.newBuilder()
-                    .setOperatorType(op.operatorType()).setInputRows(op.inputRows()).setOutputRows(op.outputRows())
-                    .setInputBytes(op.inputBytes()).setOutputBytes(op.outputBytes()).setCpuNanos(op.cpuNanos())
-                    .setWallNanos(op.wallNanos()).setPlanNodeId(op.planNodeId()).setMemoryBytes(op.memoryBytes())
-                    .setPeakMemoryBytes(op.peakMemoryBytes()).setSpillBytes(op.spillBytes()));
-        }
-        return proto.build();
     }
 
     private static TaskWriteEvidence encodeWrite(WriteResultDescriptor write) {

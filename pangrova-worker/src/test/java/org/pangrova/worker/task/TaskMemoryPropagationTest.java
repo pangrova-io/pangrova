@@ -79,8 +79,8 @@ class TaskMemoryPropagationTest {
                 } else {
                     var stats = report.supplementalStats();
                     assertThat(stats).isNotNull();
-                    assertThat(stats.memoryBytes()).isNotNegative();
-                    assertThat(stats.peakMemoryBytes()).isNotNegative();
+                    assertThat(stats.getMemoryBytes()).isNotNegative();
+                    assertThat(stats.getPeakMemoryBytes()).isNotNegative();
                 }
             });
             var terminal = tasks.terminalReport(info).canonicalStatus();

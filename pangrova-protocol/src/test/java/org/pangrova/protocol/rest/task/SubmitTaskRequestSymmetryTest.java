@@ -149,27 +149,18 @@ class SubmitTaskRequestSymmetryTest {
     }
 
     @Test
-    void taskStatsRestDtoCoversNativeReportFields() {
-        TaskStats stats = new TaskStats(
-                100, 2048, 50, 1024, 500, 120, 4096, 8192, 256, 512, 64,
-                32, 64, List.of(), 12, 7, 8, 9, 10);
-
-        assertThat(stats.rowsRead()).isEqualTo(100);
-        assertThat(stats.bytesRead()).isEqualTo(2048);
-        assertThat(stats.rowsWritten()).isEqualTo(50);
-        assertThat(stats.bytesWritten()).isEqualTo(1024);
-        assertThat(stats.elapsedTimeMs()).isEqualTo(500);
-        assertThat(stats.cpuTimeMs()).isEqualTo(120);
-        assertThat(stats.memoryBytes()).isEqualTo(4096);
-        assertThat(stats.peakMemoryBytes()).isEqualTo(8192);
-        assertThat(stats.spillBytes()).isEqualTo(256);
-        assertThat(stats.cacheHitBytes()).isEqualTo(512);
-        assertThat(stats.cacheMissBytes()).isEqualTo(64);
-        assertThat(stats.cacheHitCount()).isEqualTo(7);
-        assertThat(stats.cacheMissCount()).isEqualTo(8);
-        assertThat(stats.cacheEvictionCount()).isEqualTo(9);
-        assertThat(stats.cacheAdmissionRejectionCount()).isEqualTo(10);
-        assertThat(TaskStats.class.getRecordComponents()).hasSize(19);
+    void taskStatusWirePreservesTypedSupplementalStatistics() throws Exception {
+        var stats = org.pangrova.protocol.v2.NativeTaskStats.newBuilder()
+                .setRowsRead(100).setBytesRead(2048).setRowsWritten(50).setBytesWritten(1024)
+                .setElapsedTimeMs(500).setCpuTimeMs(120).setMemoryBytes(4096).setPeakMemoryBytes(8192)
+                .setSpillBytes(256).setCacheHitBytes(512).setCacheMissBytes(64).setBackpressureWaitMs(12)
+                .setCacheHitCount(7).setCacheMissCount(8).setCacheEvictionCount(9)
+                .setCacheAdmissionRejectionCount(10).setConsumerBlockedDrivers(2)
+                .setIndexSplitsEvaluated(13).setIndexSplitsSkipped(11).build();
+        var progress = TaskStatusReport.fromAttempt(fullRequest().taskRequest().getAttempt(),
+                "OUTPUT", "worker-1", "RUNNING", stats, null, null, 1L, 1000L, null);
+        var decoded = TaskStatusWire.decode(TaskStatusWire.encode(progress));
+        assertThat(decoded.supplementalStats()).isEqualTo(stats);
     }
 
     private static SubmitTaskRequest fullRequest() {
@@ -205,9 +196,9 @@ class SubmitTaskRequestSymmetryTest {
 
     private static TaskStatusReport reportFrom(TaskRequest request) {
         var attempt = request.getAttempt();
-        TaskStats stats = new TaskStats(
-                10, 100, 5, 50, 200, 50, 1024, 2048, 0, 0, 0,
-                0, 0, List.of(), 0, 0, 0, 0, 0);
+        var stats = org.pangrova.protocol.v2.NativeTaskStats.newBuilder()
+                .setRowsRead(10).setBytesRead(100).setRowsWritten(5).setBytesWritten(50)
+                .setElapsedTimeMs(200).setCpuTimeMs(50).setMemoryBytes(1024).setPeakMemoryBytes(2048).build();
         return new TaskStatusReport(
                 attempt.getTaskId(), attempt.getQueryOrJobId(),
                 attempt.getStageId(), attempt.getPartitionId(), "OUTPUT",

@@ -2,7 +2,6 @@ package org.pangrova.coordinator.query.task;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.protocol.rest.task.TaskAttemptDescriptor;
-import org.pangrova.protocol.rest.task.TaskStats;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.protocol.v2.NativeTaskStats;
 import org.pangrova.protocol.v2.OperatorStats;
@@ -97,7 +96,7 @@ class QueryOperatorStatsRegistryTest {
 
     private static TaskStatusReport report(TaskAttemptId attempt, long sequence, String state, NativeTaskStats stats) {
         return new TaskStatusReport(attempt.getTaskId(), attempt.getQueryOrJobId(), attempt.getStageId(),
-                attempt.getPartitionId(), "COMPUTE", "worker", state, TaskStats.fromNative(stats),
+                attempt.getPartitionId(), "COMPUTE", "worker", state, stats,
                 null, null, sequence, 1L, null, Map.of(),
                 new TaskAttemptDescriptor(attempt.getPlanEpoch(), attempt.getAttemptId(), attempt.getFencingToken()));
     }

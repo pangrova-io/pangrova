@@ -8,8 +8,8 @@ import org.pangrova.protocol.rest.data.WriteResultDescriptor;
 import org.pangrova.common.client.error.ErrorDetail;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.TaskAttemptDescriptor;
-import org.pangrova.protocol.rest.task.TaskStats;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
+import org.pangrova.protocol.v2.NativeTaskStats;
 import org.pangrova.protocol.v2.TaskKind;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -60,14 +60,14 @@ class TaskReportPublicationTest {
         assertThat(fact.matches(report("FINISHED", stats(2), null, null, null, null, new byte[]{1, 2}))).isFalse();
     }
 
-    private TaskStatusReport report(String state, TaskStats stats, ErrorDetail error,
+    private TaskStatusReport report(String state, NativeTaskStats stats, ErrorDetail error,
             WriteResultDescriptor write, String code, Map<String, String> metadata, byte[] canonical) {
         return new TaskStatusReport("task", "query", 0, 0, "READ", "worker", state,
                 stats, error, write, 1, 1000, code, metadata,
                 TaskAttemptDescriptor.from(request.taskRequest().getAttempt()), canonical);
     }
 
-    private static TaskStats stats(long rows) {
-        return new TaskStats(rows, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, List.of(), 0, 0, 0, 0, 0);
+    private static NativeTaskStats stats(long rows) {
+        return NativeTaskStats.newBuilder().setRowsRead(rows).build();
     }
 }
