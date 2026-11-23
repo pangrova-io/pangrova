@@ -3,7 +3,12 @@ package org.pangrova.persistence.indexing.postgresql.metadata;
 import org.pangrova.metadata.testinfra.TableWriteAuthorityFixture;
 
 import org.pangrova.persistence.indexing.postgresql.build.JdbcIndexBuildClaimRepository;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Proxy;
+import java.sql.Connection;
+import java.sql.SQLException;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -13,6 +18,7 @@ import javax.sql.DataSource;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.postgresql.ds.PGSimpleDataSource;
 import org.pangrova.persistence.indexing.api.metadata.CommitEventRequest;
 import org.pangrova.persistence.indexing.api.metadata.IndexGenerationFormat;
 import org.pangrova.persistence.indexing.api.metadata.IndexFileMapping;
@@ -137,16 +143,115 @@ class JdbcIndexGenerationPublicationTest {
         assertThat(new JdbcIndexBuildClaimRepository(dataSource).tryClaim("idx", 2, OWNER, Instant.now())).isTrue();
         store.registerIndexFile(OWNER, currentFile);
 
-        assertThat(store.removeIndexFileMappingIfState(
-                oldFile, IndexState.READY, 2)).isFalse();
+        assertThat(store.removeOrphanMappings(descriptor.indexId(), IndexState.READY, 2, List.of(oldFile))
+                .mappingsRemoved()).isZero();
         assertThat(store.getIndexFileMappings(descriptor.indexId())).hasSize(2);
 
-        store.updateIndexState(descriptor.indexId(), IndexState.READY.name(), Instant.EPOCH.plusSeconds(1));
-        assertThat(store.removeIndexFileMappingIfState(
-                oldFile, IndexState.READY, readyGen1.generation())).isTrue();
+        var gen2 = readyGen1.withGeneration(2, gen2Version)
+                .withBuildSnapshotId("snapshot-3", gen2Version);
+        store.publishIndexGeneration(request(gen2, 1));
+        var removed = store.removeOrphanMappings(descriptor.indexId(), IndexState.READY, 2, List.of(oldFile));
+        assertThat(removed.mappingsRemoved()).isOne();
+        assertThat(removed.pathsToDelete()).containsExactly("v1/shared.idx");
+        assertThat(store.removeOrphanMappings(descriptor.indexId(), IndexState.READY, 2, List.of(oldFile))
+                .mappingsRemoved()).isZero();
         assertThat(store.getIndexFileMappings(descriptor.indexId()))
                 .extracting(IndexFileMapping::indexFilePath)
                 .containsExactly("v2/g2.idx");
+    }
+
+    @Test
+    void simultaneousObsoleteOwnersOnlyReleaseThePathOnce() throws Exception {
+        var descriptor = readyDescriptor("cohort", "tenant").withGeneration(4, Instant.now());
+        store.registerIndex(descriptor);
+        var first = seedObsoleteMapping(descriptor.indexId(), "first", "shared.idx", 0);
+        var second = seedObsoleteMapping(descriptor.indexId(), "second", "shared.idx", 1);
+        var current = seedObsoleteMapping(descriptor.indexId(), "serving", "serving.idx", 4);
+        var executor = Executors.newFixedThreadPool(2);
+        var start = new CountDownLatch(1);
+        try {
+            var firstDecision = executor.submit(() -> {
+                assertThat(start.await(10, TimeUnit.SECONDS)).isTrue();
+                return store.removeOrphanMappings(descriptor.indexId(), IndexState.READY, 4, List.of(first));
+            });
+            var secondDecision = executor.submit(() -> {
+                assertThat(start.await(10, TimeUnit.SECONDS)).isTrue();
+                return store.removeOrphanMappings(descriptor.indexId(), IndexState.READY, 4, List.of(second));
+            });
+            start.countDown();
+            var results = List.of(firstDecision.get(10, TimeUnit.SECONDS), secondDecision.get(10, TimeUnit.SECONDS));
+            assertThat(results).allMatch(result -> result.mappingsRemoved() == 1);
+            assertThat(results.stream().flatMap(result -> result.pathsToDelete().stream()).toList())
+                    .containsExactly("shared.idx");
+            assertThat(store.getIndexFileMappings(descriptor.indexId()))
+                    .extracting(IndexFileMapping::indexFilePath).containsExactly(current.indexFilePath());
+        } finally {
+            start.countDown();
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test
+    void obsoleteCohortUsesOneDescriptorLockAndOneSqlMutation() throws Exception {
+        var descriptor = readyDescriptor("bulk", "tenant").withGeneration(4, Instant.now());
+        store.registerIndex(descriptor);
+        List<IndexFileMapping> candidates = new ArrayList<>();
+        List<String> expectedPaths = new ArrayList<>();
+        for (int file = 0; file < 100; file++) {
+            String id = "data-" + file;
+            String path = "old-" + file + ".idx";
+            candidates.add(seedObsoleteMapping(descriptor.indexId(), id, path, 2));
+            expectedPaths.add(path);
+        }
+        var current = seedObsoleteMapping(descriptor.indexId(), "serving", expectedPaths.remove(0), 4);
+        var preparedSql = new ArrayList<String>();
+        var counted = new PGSimpleDataSource() {
+            @Override
+            public Connection getConnection() throws SQLException {
+                Connection actual = dataSource.getConnection();
+                return (Connection) Proxy.newProxyInstance(Connection.class.getClassLoader(),
+                        new Class<?>[]{Connection.class}, (proxy, method, args) -> {
+                            if (method.getName().equals("prepareStatement")) preparedSql.add((String) args[0]);
+                            try {
+                                return method.invoke(actual, args);
+                            } catch (InvocationTargetException failure) {
+                                throw failure.getCause();
+                            }
+                        });
+            }
+        };
+        var gc = new JdbcIndexGcStore(counted);
+
+        var removed = gc.removeOrphanMappings(descriptor.indexId(), IndexState.READY, 4, candidates);
+
+        assertThat(removed.mappingsRemoved()).isEqualTo(100);
+        assertThat(removed.pathsToDelete()).containsExactlyInAnyOrderElementsOf(expectedPaths);
+        assertThat(preparedSql).hasSize(2);
+        assertThat(preparedSql.get(0)).startsWith("SELECT index_id FROM index_descriptors");
+        assertThat(preparedSql.get(1)).startsWith("WITH candidates");
+        assertThat(store.getIndexFileMappings(descriptor.indexId()))
+                .extracting(IndexFileMapping::indexFilePath).containsExactly(current.indexFilePath());
+    }
+
+    private IndexFileMapping seedObsoleteMapping(String indexId, String data, String path, int generation)
+            throws java.sql.SQLException {
+        try (var connection = dataSource.getConnection();
+                var insert = connection.prepareStatement("""
+                        INSERT INTO index_file_mappings(
+                            index_id, data_file_path, index_file_path, generation, created_at, checksum)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        """)) {
+            insert.setString(1, indexId);
+            insert.setString(2, data);
+            insert.setString(3, path);
+            insert.setInt(4, generation);
+            insert.setTimestamp(5, java.sql.Timestamp.from(Instant.EPOCH));
+            insert.setString(6, "f".repeat(64));
+            insert.executeUpdate();
+        }
+        return new IndexFileMapping(indexId, data, path, 0, 0, "f".repeat(64), generation,
+                null, 0, Instant.EPOCH, 0);
     }
 
     @Test

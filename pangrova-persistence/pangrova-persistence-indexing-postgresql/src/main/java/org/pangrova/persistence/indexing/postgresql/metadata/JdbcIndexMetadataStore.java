@@ -320,11 +320,9 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
     }
 
     @Override
-    public boolean removeIndexFileMappingIfState(IndexFileMapping mapping,
-                                                  IndexState expectedState,
-                                                  int expectedGeneration) {
-        return fileMappingStore.removeIndexFileMappingIfState(
-                mapping, expectedState, expectedGeneration);
+    public OrphanRemoval removeOrphanMappings(String indexId, IndexState expectedState,
+                                              int expectedGeneration, List<IndexFileMapping> mappings) {
+        return gcStore.removeOrphanMappings(indexId, expectedState, expectedGeneration, mappings);
     }
 
     @Override

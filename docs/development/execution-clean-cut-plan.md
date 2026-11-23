@@ -90,6 +90,8 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
+实施批次 156 将索引孤儿映射按索引分组回收。装配基线处理 100 条旧映射时重读了完整映射列表 100 次，候选为零。真实 PostgreSQL 同一索引的 100 条映射只准备一次描述符加锁和一条批量删除及路径归属 SQL，保留服务中的共享路径。两个独立数据库连接并发回收两个旧所有者时，只返回一次共享文件删除资格。事务核对原状态、代次、路径及验证时间，保留最近两代。58 项回归和 Checkstyle 通过，覆盖实际物理文件删除、失败 fence、发布、重放与当前有效映射。 [PostgreSQL 写 CTE](https://www.postgresql.org/docs/16/queries-with.html) · [PostgreSQL Read Committed](https://www.postgresql.org/docs/16/transaction-iso.html#XACT-READ-COMMITTED)
+
 实施批次 154 让共享槽位拒绝使用租户配额响应。真实 PostgreSQL 中两个其他查询的所有者占满槽位，本地 Coordinator 尚无在途查询。基线返回 HTTP 503 `COORDINATOR-0002`，修复返回 HTTP 429 `TENANT-0001`，两条原有槽位保持精确，释放后实际 Native Flight 查询取得正确值、EOF 和槽位归零。64 项正式回归与 Checkstyle 通过。同源角色清单 `fde195b594e9fb2a16d14053abbaef429a3082682735f31dc50821faab62ab1e` 的三项独立进程验收同时覆盖撤权、45 次饱和拒绝、40 次结果和物理排空。测试由真实 PostgreSQL 注入其他查询的槽位所有者。
 
 实施批次 155 将 Native Flight 解码的完整 Arrow 校验集中到接收的权威 schema 边界。此前解码、字段校验与显示 schema 绑定均遍历批次。现在在解码中一次核对结构、必填值和嵌套约束，显示字段绑定复用相同类型的数组和缓冲区。实际 Arrow 18.0.0 的 64 MiB UTF-8 校验探针中，三遍与一遍校验的中位数为 10.0925 ms 和 3.16426 ms。323 项定向测试、4,358 项 Native 全量测试及 25 项真实 Java 链路回归和 Checkstyle 通过。实际 Flight 逐行验证 8,192 行的窄结果和 75,497,472 B 的变长结果，并验证慢读、提前关闭、客户端进程退出、EOF 与物理排空。探针耗时仅用于归因校验阶段。 [Arrow 18.0.0 的完整校验接口](https://github.com/apache/arrow/blob/apache-arrow-18.0.0/cpp/src/arrow/record_batch.h)

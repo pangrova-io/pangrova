@@ -4,6 +4,7 @@ import org.pangrova.common.api.annotation.Experimental;
 import org.pangrova.indexing.api.enums.IndexState;
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 
 /** Physical cleanup and verification of obsolete index generations. */
 @Experimental
@@ -14,19 +15,18 @@ public interface IndexCleanup {
     /** Removes a single file mapping. */
     void removeIndexFileMapping(String indexId, String dataFilePath);
 
-    /**
-     * Removes a file mapping only if the index is in the expected state.
-     * Prevents TOCTOU race between GC and concurrent state transitions.
-     *
-     * @param mapping       the exact file and generation to remove
-     * @param expectedState the state the index must be in for removal to proceed
-     * @param expectedGeneration the observed active index generation
-     * @return true if the mapping was removed, false if the index was not in the expected state
+    /** Removes exactly the observed obsolete mappings under the expected descriptor fence.
+     * The returned paths have no surviving mapping in any generation of the index.
      */
-    default boolean removeIndexFileMappingIfState(IndexFileMapping mapping,
-                                                   IndexState expectedState,
-                                                   int expectedGeneration) {
+    default OrphanRemoval removeOrphanMappings(String indexId, IndexState expectedState,
+                                              int expectedGeneration, List<IndexFileMapping> mappings) {
         throw new UnsupportedOperationException("Exact generation-fenced mapping removal is required");
+    }
+
+    record OrphanRemoval(int mappingsRemoved, Set<String> pathsToDelete) {
+        public OrphanRemoval {
+            pathsToDelete = Set.copyOf(pathsToDelete);
+        }
     }
 
     /** Marks mappings as orphaned for GC cleanup. */
