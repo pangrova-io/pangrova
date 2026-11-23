@@ -4,6 +4,7 @@ import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
+import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.jdbc.JdbcCatalog;
@@ -114,6 +115,13 @@ abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRe
     @Override
     public List<String> listSchemaNames(ConnectorSession session) {
         return catalogTables.listSchemaNames();
+    }
+
+    @Override
+    public boolean hasExactSchemaName(ConnectorSession session, String schemaName) {
+        // This catalog projects first-level Iceberg namespaces as SQL schemas.
+        return catalog.getClass() == JdbcCatalog.class && !schemaName.isEmpty()
+                && schemaName.indexOf('.') < 0 && ((JdbcCatalog) catalog).namespaceExists(Namespace.of(schemaName));
     }
 
     @Override

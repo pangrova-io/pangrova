@@ -73,6 +73,11 @@ public final class PlanningReadBindings {
                 .listSchemaNames(session));
     }
 
+    boolean hasExactSchemaName(String catalog, String schema) {
+        return withSession(catalog, null, session -> catalogs.metadataForQuery(catalog, session)
+                .hasExactSchemaName(session, schema));
+    }
+
     private MetadataResolvedTable discover(QualifiedTableName table, boolean requireExactSpelling) {
         if (!requireExactSpelling) {
             var admitted = bindings.get(table);

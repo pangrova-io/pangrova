@@ -814,8 +814,12 @@ Pangrova may write, drop, or maintain it.
 - The SQL planner resolves a fully qualified source through the catalog at the root
   before consulting the session's default namespace. The catalog name therefore
   does not trigger a table lookup in the default namespace. Unqualified sources
-  still resolve against their session defaults. The selected source proceeds
-  through the usual ownership, snapshot and split validation.
+  still resolve against their session defaults. An admitted Iceberg JDBC query
+  checks the exact first-level namespace by name before consulting the schema
+  listing. Exact spelling wins when names differ only by case. Names without
+  an exact match use case-insensitive resolution. The query reuses each named
+  check during compilation. Explicit schema listing still enumerates the catalog.
+  The selected source proceeds through ownership, snapshot and split validation.
 - `TableControlPolicyBinder` stores governance artifacts (column tag, column mask, row filter,
   quality rule, lineage) in `table_control_governance_binding`, keyed by `table_id` and the
   artifact reference. Binding requires an `ACTIVE` `LINKED`/`MANAGED` record: an `OBSERVED`

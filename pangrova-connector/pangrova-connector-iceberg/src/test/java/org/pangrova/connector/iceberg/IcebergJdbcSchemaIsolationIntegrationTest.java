@@ -151,6 +151,30 @@ class IcebergJdbcSchemaIsolationIntegrationTest extends ContainerTestBase {
     }
 
     @Test
+    void jdbcNamedSchemaEvidenceRespectsSpellingAndFirstLevelProjection() throws Exception {
+        try (var schema = DatabaseSchema.create(); var selected = catalog(schema, "V1")) {
+            var metadata = new IcebergMetadata(selected, schema.name());
+            selected.createNamespace(Namespace.of("Exact"));
+            selected.createNamespace(Namespace.of("exact"));
+            selected.createNamespace(Namespace.of("parent", "child"));
+            selected.createNamespace(Namespace.of("axby", "child"));
+
+            assertThat(metadata.hasExactSchemaName(READER, "Exact")).isTrue();
+            assertThat(metadata.hasExactSchemaName(READER, "exact")).isTrue();
+            assertThat(metadata.hasExactSchemaName(READER, "EXACT")).isFalse();
+            assertThat(metadata.hasExactSchemaName(READER, "parent")).isTrue();
+            assertThat(metadata.hasExactSchemaName(READER, "parent.child")).isFalse();
+            assertThat(metadata.hasExactSchemaName(READER, "a_by")).isFalse();
+            assertThat(metadata.hasExactSchemaName(READER, "a%by")).isFalse();
+            assertThat(metadata.listSchemaNames(READER)).contains("Exact", "exact", "parent", "axby");
+
+            assertThat(selected.dropNamespace(Namespace.of("exact"))).isTrue();
+            assertThat(metadata.hasExactSchemaName(READER, "exact")).isFalse();
+            assertThat(metadata.hasExactSchemaName(READER, "Exact")).isTrue();
+        }
+    }
+
+    @Test
     void verifiesTheBoundSnapshotAndEnumeratesWithOneCatalogPointerRead() throws Exception {
         try (var schema = DatabaseSchema.create(); var selected = catalog(schema, "V1")) {
             createTable(selected);

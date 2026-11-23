@@ -7,13 +7,18 @@ import org.pangrova.connector.api.session.ConnectorSession;
 import org.apache.calcite.jdbc.CalciteSchema;
 import org.apache.calcite.schema.Schema;
 import org.apache.calcite.schema.impl.AbstractSchema;
+import org.apache.calcite.schema.lookup.LikePattern;
+import org.apache.calcite.schema.lookup.Lookup;
+import org.apache.calcite.schema.lookup.Named;
 import org.apache.calcite.util.LazyReference;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.LinkedHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 /**
@@ -60,7 +65,7 @@ public final class MetadataSchemaBuilder {
                 session.getQueryAuthority().map(org.pangrova.connector.api.query.ConnectorQueryAuthority::queryId)
                         .orElseGet(() -> session.getProperties().get("queryId")), session.getQueryAuthority());
         AbstractSchema root = new NamespaceSchema(session, () -> metadataService.listCatalogs(metadataSession),
-                catalog -> catalogSchema(session, metadataSession, catalog, readBindings));
+                catalog -> catalogSchema(session, metadataSession, catalog, readBindings), null);
         return CalciteSchema.createRootSchema(false, false, "", root);
     }
 
@@ -73,7 +78,8 @@ public final class MetadataSchemaBuilder {
                                  String catalog, PlanningReadBindings readBindings) {
         return new NamespaceSchema(session, () -> readBindings == null
                         ? metadataService.listSchemas(metadataSession, catalog) : readBindings.listSchemaNames(catalog),
-                name -> new LazyMetadataSchema(catalog, name, readBindings));
+                name -> new LazyMetadataSchema(catalog, name, readBindings),
+                readBindings == null ? null : schema -> readBindings.hasExactSchemaName(catalog, schema));
     }
 
     private static final class NamespaceSchema extends AbstractSchema {
@@ -82,12 +88,50 @@ public final class MetadataSchemaBuilder {
         private final Function<String, Schema> createChild;
         private final LazyReference<Map<String, Schema>> visible = new LazyReference<>();
         private final Map<String, Schema> instances = new ConcurrentHashMap<>();
+        private final Lookup<? extends Schema> lookup;
 
         private NamespaceSchema(ConnectorSession session, Supplier<List<String>> names,
-                Function<String, Schema> createChild) {
+                Function<String, Schema> createChild, Predicate<String> exactSchema) {
             this.queryScoped = session.getQueryAuthority().isPresent();
             this.names = names;
             this.createChild = createChild;
+            var listed = super.subSchemas();
+            this.lookup = queryScoped && exactSchema != null ? exactLookup(listed, exactSchema) : listed;
+        }
+
+        @Override
+        public Lookup<? extends Schema> subSchemas() {
+            return lookup;
+        }
+
+        private Lookup<? extends Schema> exactLookup(Lookup<? extends Schema> listed, Predicate<String> exactSchema) {
+            return new Lookup<Schema>() {
+                private final Map<String, Boolean> checkedNames = new ConcurrentHashMap<>();
+
+                private Schema exact(String name) {
+                    return checkedNames.computeIfAbsent(name, exactSchema::test)
+                            ? instances.computeIfAbsent(name, createChild) : null;
+                }
+
+                @Override
+                public Schema get(String name) {
+                    var found = exact(name);
+                    return found != null ? found : listed.get(name);
+                }
+
+                @Override
+                public Named<Schema> getIgnoreCase(String name) {
+                    var exact = exact(name);
+                    if (exact != null) return new Named<>(name, exact);
+                    var found = listed.getIgnoreCase(name);
+                    return found == null ? null : new Named<>(found.name(), found.entity());
+                }
+
+                @Override
+                public Set<String> getNames(LikePattern pattern) {
+                    return listed.getNames(pattern);
+                }
+            };
         }
 
         @Override

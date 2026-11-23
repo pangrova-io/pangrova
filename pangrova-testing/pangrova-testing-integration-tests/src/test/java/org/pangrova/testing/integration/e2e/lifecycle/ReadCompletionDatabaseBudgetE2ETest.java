@@ -42,6 +42,13 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
             "SELECT name, incarnation_id, revision FROM catalog_definitions WHERE name%";
     private static final String ICEBERG_POINTER_LOOKUP =
             "SELECT * FROM iceberg_tables WHERE catalog_name = %AND table_name =%";
+    private static final String ICEBERG_TABLE_NAMESPACE_LIST =
+            "SELECT DISTINCT table_namespace FROM iceberg_tables WHERE catalog_name = %";
+    private static final String ICEBERG_PROPERTY_NAMESPACE_LIST =
+            "SELECT DISTINCT namespace FROM iceberg_namespace_properties WHERE catalog_name = %";
+    private static final String ICEBERG_NAMED_NAMESPACE_LOOKUP =
+            "SELECT table_namespace FROM iceberg_tables WHERE catalog_name = %"
+                    + "AND%table_namespace = %OR table_namespace LIKE %LIMIT %";
     private static final String READ_SUBJECT_LOOKUP =
             "WITH effective AS (%SELECT registered.role_name%LEFT JOIN security_grants grants%";
     private static final String INDEPENDENT_ROLE_LOOKUP =
@@ -159,10 +166,17 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
         sqlRunner.execute("INSERT INTO " + sameNameAsCatalog + " VALUES (7)");
 
         long previousPointerLookups = calls(ICEBERG_POINTER_LOOKUP);
+        long previousTableNamespaceListings = calls(ICEBERG_TABLE_NAMESPACE_LIST);
+        long previousPropertyNamespaceListings = calls(ICEBERG_PROPERTY_NAMESPACE_LIST);
+        long previousNamedNamespaceLookups = calls(ICEBERG_NAMED_NAMESPACE_LOOKUP);
         assertThat(sqlRunner.execute("SELECT id FROM " + table))
                 .extracting(row -> row.getLong("id")).containsExactly(42L);
         assertThat(calls(ICEBERG_POINTER_LOOKUP) - previousPointerLookups)
                 .as("Iceberg pointer SELECTs during read selection and split planning").isEqualTo(2L);
+        assertThat(calls(ICEBERG_TABLE_NAMESPACE_LIST) - previousTableNamespaceListings).isZero();
+        assertThat(calls(ICEBERG_PROPERTY_NAMESPACE_LIST) - previousPropertyNamespaceListings).isZero();
+        assertThat(calls(ICEBERG_NAMED_NAMESPACE_LOOKUP) - previousNamedNamespaceLookups)
+                .as("exact Iceberg namespace SELECTs").isOne();
 
         assertThat(sqlRunner.execute("SELECT id FROM iceberg_catalog"))
                 .extracting(row -> row.getLong("id")).containsExactly(7L);
