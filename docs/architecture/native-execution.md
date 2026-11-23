@@ -91,6 +91,11 @@ task-scoped Flight result decoder so both Native exchange pages and result
 OutputBuffer pages use the same codec. The singleton global Sort
 remains a scale bottleneck until distributed range-sort/merge is validated.
 
+Native aggregate conversion binds distinct direct grouping columns to the source
+vectors. It adds a projection when a computed key, nested argument, or repeated
+grouping alias needs its own field. Grouping sets reuse the same prepared inputs
+in the GroupId expansion while preserving the grouping set identifier.
+
 Splitless sources such as `GENERATE_SERIES` need two cardinality boundaries:
 the planner assigns one producer task to a stage containing the source, and
 the zero-input Native table-function node limits its Velox source pipeline to

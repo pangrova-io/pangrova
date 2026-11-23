@@ -44,42 +44,34 @@ std::shared_ptr<const core::PlanNode> VeloxPlanConverter::convertMultiGroupingAg
     std::shared_ptr<const core::PlanNode> input, const RowTypePtr& inputType) {
   std::vector<std::string> names;
   std::vector<core::AggregationNode::Aggregate> measures;
-  auto prepared = convertAggregateMeasures(aggregate, input, inputType, names, measures);
+  std::vector<core::FieldAccessTypedExprPtr> inputKeys;
+  auto prepared = convertAggregateMeasures(aggregate, input, inputType, names, measures, inputKeys);
   const auto preparedType = prepared->outputType();
-  std::unordered_map<uint32_t, size_t> keyOrdinals;
   std::vector<core::GroupIdNode::GroupingKeyInfo> keyInfos;
   std::vector<std::vector<std::string>> sets;
   std::vector<vector_size_t> globalSets;
-  for (int index = 0; index < aggregate.grouping_expressions_size(); ++index) {
-    keyInfos.push_back({physicalFieldAlias(preparedType->size() + index),
-        field(preparedType, inputType->size() + index)});
+  for (size_t index = 0; index < inputKeys.size(); ++index) {
+    keyInfos.push_back({physicalFieldAlias(preparedType->size() + index), inputKeys[index]});
   }
   for (const auto& grouping : aggregate.groupings()) {
     std::vector<std::string> set;
     std::unordered_set<uint32_t> used;
     for (const auto index : grouping.expression_references()) {
-      if (index >= static_cast<uint32_t>(aggregate.grouping_expressions_size())) {
-        throw std::runtime_error("Grouping expression reference is out of bounds");
-      }
       if (!used.emplace(index).second) continue;
-      keyOrdinals.emplace(index, index);
       const auto name = physicalFieldAlias(preparedType->size() + index);
       set.push_back(name);
     }
     if (set.empty()) globalSets.push_back(static_cast<vector_size_t>(sets.size()));
     sets.push_back(std::move(set));
   }
-  if (keyOrdinals.size() != static_cast<size_t>(aggregate.grouping_expressions_size())) {
-    throw std::runtime_error("Every grouping expression must be referenced");
-  }
   std::vector<core::FieldAccessTypedExprPtr> passthrough;
   for (size_t i = 0; i < preparedType->size(); ++i) passthrough.push_back(field(preparedType, i));
   auto expanded = std::make_shared<core::GroupIdNode>(nextNodeId(), std::move(sets),
       std::move(keyInfos), std::move(passthrough),
-      physicalFieldAlias(preparedType->size() + keyOrdinals.size()), prepared);
+      physicalFieldAlias(preparedType->size() + inputKeys.size()), prepared);
   const auto expandedType = expanded->outputType();
   std::vector<core::FieldAccessTypedExprPtr> keys;
-  for (size_t i = 0; i < keyOrdinals.size(); ++i) keys.push_back(field(expandedType, i));
+  for (size_t i = 0; i < inputKeys.size(); ++i) keys.push_back(field(expandedType, i));
   auto groupId = field(expandedType, expandedType->size() - 1);
   keys.push_back(groupId);
   // The one preparation projection evaluated arguments in the original
@@ -101,7 +93,7 @@ std::shared_ptr<const core::PlanNode> VeloxPlanConverter::convertMultiGroupingAg
         std::vector<core::FieldAccessTypedExprPtr>{}, names, measures,
         globalSets, globalGroupId, false, false, source);
   }
-  return projectGroupingOutput(result, keyOrdinals.size(), measures.size());
+  return projectGroupingOutput(result, inputKeys.size(), measures.size());
 }
 
 }  // namespace pangrova::velox

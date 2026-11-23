@@ -612,6 +612,12 @@ TEST_F(VeloxPlanConverterTest, AggregateMeasureFilterSetsMask) {
 
   // Deepest aggregation node sees the raw input — mask required there.
   const auto* raw_input_agg = agg_nodes.back();
+  ASSERT_EQ(raw_input_agg->sources().size(), 1u);
+  const auto& rawSource = raw_input_agg->sources()[0];
+  EXPECT_EQ(rawSource->name(), "TableScan");
+  EXPECT_EQ(rawSource->outputType()->size(), 3u);
+  ASSERT_EQ(raw_input_agg->groupingKeys().size(), 1u);
+  EXPECT_EQ(raw_input_agg->groupingKeys()[0]->name(), rawSource->outputType()->nameOf(0));
   ASSERT_EQ(raw_input_agg->aggregates().size(), 1u);
   const auto& aggregate = raw_input_agg->aggregates()[0];
   ASSERT_NE(aggregate.mask, nullptr);

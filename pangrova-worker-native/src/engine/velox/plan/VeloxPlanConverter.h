@@ -413,19 +413,14 @@ class VeloxPlanConverter {
 
   // --- AggregateRel helpers ---
 
-  // Keys follow the shared expression declaration order, never set order.
-  std::vector<std::shared_ptr<const facebook::velox::core::FieldAccessTypedExpr>>
-  convertGroupingKeys(
-      const substrait::AggregateRel& aggregate_rel,
-      const facebook::velox::RowTypePtr& prepared_type, size_t base_arity);
-
-  // Convert AggregateRel measures to Velox Aggregate descriptors.
+  // Bind grouping keys in declaration order and prepare only computed aggregate inputs.
   std::shared_ptr<const facebook::velox::core::PlanNode> convertAggregateMeasures(
       const substrait::AggregateRel& aggregate_rel,
       std::shared_ptr<const facebook::velox::core::PlanNode> input,
       const facebook::velox::RowTypePtr& input_type,
       std::vector<std::string>& aggregate_names,
-      std::vector<facebook::velox::core::AggregationNode::Aggregate>& aggregates);
+      std::vector<facebook::velox::core::AggregationNode::Aggregate>& aggregates,
+      std::vector<facebook::velox::core::FieldAccessTypedExprPtr>& grouping_keys);
 
   facebook::velox::core::TypedExprPtr aggregateInputValue(
       const substrait::Expression& expression,
@@ -447,7 +442,6 @@ class VeloxPlanConverter {
   // Detect pre-grouped keys when input is sorted on grouping keys.
   std::vector<std::shared_ptr<const facebook::velox::core::FieldAccessTypedExpr>>
   detectPreGroupedKeys(
-      const substrait::AggregateRel& aggregate_rel,
       const std::shared_ptr<const facebook::velox::core::PlanNode>& input,
       const std::vector<std::shared_ptr<const facebook::velox::core::FieldAccessTypedExpr>>& grouping_keys);
 

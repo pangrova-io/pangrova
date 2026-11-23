@@ -2,6 +2,7 @@
 #include "engine/velox/plan/VeloxPlanConverter.h"
 
 #include <algorithm>
+#include <iterator>
 
 #include "engine/velox/plan/CanonicalOrdinalIdentity.h"
 #include "capabilities/capability/RegisteredFunctionBinding.h"
@@ -9,28 +10,22 @@
 namespace pangrova::velox {
 using namespace facebook::velox;
 
-std::vector<core::FieldAccessTypedExprPtr> VeloxPlanConverter::convertGroupingKeys(
-    const substrait::AggregateRel& relation, const RowTypePtr& preparedType,
-    size_t baseArity) {
-  std::unordered_set<uint32_t> references;
+namespace {
+void validateGroupingReferences(const substrait::AggregateRel& relation) {
+  std::vector<bool> referenced(relation.grouping_expressions_size());
   for (const auto& grouping : relation.groupings()) {
     for (const auto reference : grouping.expression_references()) {
-      if (reference >= static_cast<uint32_t>(relation.grouping_expressions_size())) {
+      if (reference >= referenced.size()) {
         throw std::runtime_error("Aggregate grouping expression reference is out of bounds");
       }
-      references.emplace(reference);
+      referenced[reference] = true;
     }
   }
-  if (references.size() != static_cast<size_t>(relation.grouping_expressions_size())) {
+  if (std::any_of(referenced.begin(), referenced.end(), [](bool used) { return !used; })) {
     throw std::runtime_error("Every grouping expression must be referenced");
   }
-  std::vector<core::FieldAccessTypedExprPtr> keys;
-  for (int i = 0; i < relation.grouping_expressions_size(); ++i) {
-    keys.push_back(std::make_shared<core::FieldAccessTypedExpr>(
-        preparedType->childAt(baseArity + i), preparedType->nameOf(baseArity + i)));
-  }
-  return keys;
 }
+}  // namespace
 
 core::TypedExprPtr VeloxPlanConverter::aggregateInputValue(
     const substrait::Expression& expression, const RowTypePtr& inputType,
@@ -96,26 +91,42 @@ core::AggregationNode::Aggregate VeloxPlanConverter::convertAggregateMeasure(
 std::shared_ptr<const core::PlanNode> VeloxPlanConverter::convertAggregateMeasures(
     const substrait::AggregateRel& relation, std::shared_ptr<const core::PlanNode> input,
     const RowTypePtr& inputType, std::vector<std::string>& aggregateNames,
-    std::vector<core::AggregationNode::Aggregate>& aggregates) {
+    std::vector<core::AggregationNode::Aggregate>& aggregates,
+    std::vector<core::FieldAccessTypedExprPtr>& groupingKeys) {
   if (relation.groupings_size() == 0 && relation.measures_size() == 0) {
     throw std::runtime_error("Aggregate requires grouping sets or measures");
   }
+  validateGroupingReferences(relation);
   auto names = inputType->names();
-  std::vector<core::TypedExprPtr> projections;
-  for (size_t i = 0; i < inputType->size(); ++i) {
-    projections.push_back(std::make_shared<core::FieldAccessTypedExpr>(inputType->childAt(i), names[i]));
-  }
+  std::vector<core::TypedExprPtr> computed;
+  std::unordered_set<std::string> usedGroupingFields;
+  groupingKeys.reserve(relation.grouping_expressions_size());
   for (const auto& expression : relation.grouping_expressions()) {
-    names.push_back(physicalFieldAlias(names.size()));
-    projections.push_back(convertExpression(expression, inputType));
+    auto value = convertExpression(expression, inputType);
+    const auto field = std::dynamic_pointer_cast<const core::FieldAccessTypedExpr>(value);
+    if (field && field->inputs().empty() && usedGroupingFields.emplace(field->name()).second) {
+      groupingKeys.push_back(field);
+    } else {
+      names.push_back(physicalFieldAlias(names.size()));
+      groupingKeys.push_back(std::make_shared<core::FieldAccessTypedExpr>(value->type(), names.back()));
+      computed.push_back(std::move(value));
+    }
   }
   for (const auto& measure : relation.measures()) {
-    aggregates.push_back(convertAggregateMeasure(measure, inputType, names, projections));
+    aggregates.push_back(convertAggregateMeasure(measure, inputType, names, computed));
   }
   for (int i = 0; i < relation.measures_size(); ++i) {
     aggregateNames.push_back(physicalFieldAlias(names.size() + relation.grouping_expressions_size() +
         (relation.groupings_size() > 1 ? 1 : 0) + i));
   }
+  if (computed.empty()) return input;
+  std::vector<core::TypedExprPtr> projections;
+  projections.reserve(names.size());
+  for (size_t i = 0; i < inputType->size(); ++i) {
+    projections.push_back(std::make_shared<core::FieldAccessTypedExpr>(inputType->childAt(i), names[i]));
+  }
+  projections.insert(projections.end(), std::make_move_iterator(computed.begin()),
+      std::make_move_iterator(computed.end()));
   return std::make_shared<core::ProjectNode>(nextNodeId(), std::move(names), std::move(projections), input);
 }
 
@@ -139,14 +150,12 @@ core::AggregationNode::Step VeloxPlanConverter::resolveAggregationStep(
 }
 
 std::vector<core::FieldAccessTypedExprPtr> VeloxPlanConverter::detectPreGroupedKeys(
-    const substrait::AggregateRel& relation, const std::shared_ptr<const core::PlanNode>& input,
+    const std::shared_ptr<const core::PlanNode>& input,
     const std::vector<core::FieldAccessTypedExprPtr>& groupingKeys) {
   const auto sort = std::dynamic_pointer_cast<const core::OrderByNode>(input);
   if (!sort || sort->sortingKeys().size() < groupingKeys.size()) return {};
   for (size_t i = 0; i < groupingKeys.size(); ++i) {
-    const auto key = std::dynamic_pointer_cast<const core::FieldAccessTypedExpr>(
-        convertExpression(relation.grouping_expressions(i), input->outputType()));
-    if (!key || !key->inputs().empty() || key->name() != sort->sortingKeys()[i]->name()) return {};
+    if (groupingKeys[i]->name() != sort->sortingKeys()[i]->name()) return {};
   }
   return groupingKeys;
 }
@@ -158,9 +167,9 @@ std::shared_ptr<const core::PlanNode> VeloxPlanConverter::convertAggregateRel(
   if (relation.groupings_size() > 1) return convertMultiGroupingAggregate(relation, input, inputType);
   std::vector<std::string> names;
   std::vector<core::AggregationNode::Aggregate> aggregates;
-  auto prepared = convertAggregateMeasures(relation, input, inputType, names, aggregates);
-  const auto keys = convertGroupingKeys(relation, prepared->outputType(), inputType->size());
-  const auto preGrouped = detectPreGroupedKeys(relation, input, keys);
+  std::vector<core::FieldAccessTypedExprPtr> keys;
+  auto prepared = convertAggregateMeasures(relation, input, inputType, names, aggregates, keys);
+  const auto preGrouped = detectPreGroupedKeys(input, keys);
   const auto step = resolveAggregationStep(relation);
   const bool requiresSingle = std::any_of(aggregates.begin(), aggregates.end(),
       [](const auto& aggregate) { return aggregate.distinct || !aggregate.sortingKeys.empty(); });
