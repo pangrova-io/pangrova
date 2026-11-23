@@ -1,7 +1,6 @@
 package org.pangrova.persistence.workflow.postgresql.security;
 
-import org.pangrova.persistence.security.postgresql.mask.JdbcColumnMaskStore;
-import org.pangrova.persistence.security.postgresql.rowfilter.JdbcRowPolicyStore;
+import org.pangrova.persistence.security.postgresql.policy.JdbcReadPolicyStore;
 import org.pangrova.persistence.workflow.api.security.TableControlPolicyProjections;
 import org.pangrova.security.api.authorization.TableReadPolicySource;
 import org.pangrova.security.api.identity.UserIdentity;
@@ -30,8 +29,7 @@ public final class PostgresTableReadPolicyAuthority implements TableReadPolicySo
     private final TablePolicyAuthority tables;
     private final Consumer<CatalogDeploymentIdentity> localCatalog;
     private final TableControlPolicyProjections projections;
-    private final JdbcRowPolicyStore rows;
-    private final JdbcColumnMaskStore masks;
+    private final JdbcReadPolicyStore policyStore;
     private final RowPolicyRenderer rowRenderer;
     private final ColumnMaskRenderer maskRenderer;
 
@@ -55,8 +53,7 @@ public final class PostgresTableReadPolicyAuthority implements TableReadPolicySo
         this.tables = Objects.requireNonNull(tables, "tables");
         this.localCatalog = Objects.requireNonNull(localCatalog, "localCatalog");
         this.projections = Objects.requireNonNull(projections, "projections");
-        this.rows = new JdbcRowPolicyStore(dataSource);
-        this.masks = new JdbcColumnMaskStore(dataSource);
+        this.policyStore = new JdbcReadPolicyStore(dataSource);
         this.rowRenderer = Objects.requireNonNull(rowRenderer, "rowRenderer");
         this.maskRenderer = Objects.requireNonNull(maskRenderer, "maskRenderer");
     }
@@ -87,6 +84,7 @@ public final class PostgresTableReadPolicyAuthority implements TableReadPolicySo
         private final PolicyTable table;
         private Optional<String> filter;
         private Map<String, List<ColumnMask>> byColumn;
+        private JdbcReadPolicyStore.ReadPolicies policies;
 
         private BoundPolicies(UserIdentity user, Set<String> roles, PolicyTable table) {
             this.user = user;
@@ -97,10 +95,9 @@ public final class PostgresTableReadPolicyAuthority implements TableReadPolicySo
         @Override
         public Optional<String> rowFilter() {
             if (filter == null) {
-                var policies = rows.getPoliciesForCurrentTable(
-                        table.catalog(), table.schema(), table.name(), table.id());
                 filter = rowRenderer.render(user, roles,
-                        projections.projectRows(table.id(), table.catalog(), table.schema(), table.name(), policies));
+                        projections.projectRows(table.id(), table.catalog(), table.schema(), table.name(),
+                                policies().rows()));
             }
             return filter;
         }
@@ -126,7 +123,7 @@ public final class PostgresTableReadPolicyAuthority implements TableReadPolicySo
 
         private Map<String, List<ColumnMask>> masksByColumn() {
             if (byColumn == null) {
-                var selected = masks.getTableMasks(table.catalog(), table.schema(), table.name());
+                var selected = policies().masks();
                 var bindings = table.id() == null ? List.<GovernanceBinding>of()
                         : tables.bindingsFor(table.id());
                 var projected = projections.projectColumns(
@@ -135,6 +132,13 @@ public final class PostgresTableReadPolicyAuthority implements TableReadPolicySo
                         : projected.stream().collect(Collectors.groupingBy(ColumnMask::columnName));
             }
             return byColumn;
+        }
+
+        private JdbcReadPolicyStore.ReadPolicies policies() {
+            if (policies == null) {
+                policies = policyStore.read(table.catalog(), table.schema(), table.name(), table.id());
+            }
+            return policies;
         }
     }
 }

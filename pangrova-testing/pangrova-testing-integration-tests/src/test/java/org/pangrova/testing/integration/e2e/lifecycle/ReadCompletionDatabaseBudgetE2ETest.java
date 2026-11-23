@@ -48,6 +48,12 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
             "SELECT registered.role_name FROM pangrova_roles registered%";
     private static final String INDEPENDENT_GRANT_LOOKUP =
             "SELECT grant_id, role_name, privilege,%FROM security_grants WHERE role_name = ANY%";
+    private static final String READ_POLICIES_LOOKUP =
+            "WITH read_target(table_id, catalog_name, schema_name, table_name) AS (%UNION ALL%";
+    private static final String INDEPENDENT_ROW_POLICY_LOOKUP =
+            "SELECT policy_id, policy_name,%FROM row_policy WHERE enabled%";
+    private static final String INDEPENDENT_MASK_LOOKUP =
+            "SELECT mask_id, mask_name,%FROM column_mask WHERE catalog_name=%";
 
     @Override
     protected List<ConnectorTestConfig> connectorConfigs() {
@@ -111,6 +117,9 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
         long previousSubjectLookups = calls(READ_SUBJECT_LOOKUP);
         long previousRoleLookups = calls(INDEPENDENT_ROLE_LOOKUP);
         long previousGrantLookups = calls(INDEPENDENT_GRANT_LOOKUP);
+        long previousPolicyLookups = calls(READ_POLICIES_LOOKUP);
+        long previousRowLookups = calls(INDEPENDENT_ROW_POLICY_LOOKUP);
+        long previousMaskLookups = calls(INDEPENDENT_MASK_LOOKUP);
         assertThat(sqlRunner.execute("SELECT id FROM " + table + " WHERE id = 42"))
                 .extracting(row -> row.getLong("id")).containsExactly(42L);
 
@@ -120,6 +129,9 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
         assertThat(calls(READ_SUBJECT_LOOKUP) - previousSubjectLookups).isOne();
         assertThat(calls(INDEPENDENT_ROLE_LOOKUP) - previousRoleLookups).isZero();
         assertThat(calls(INDEPENDENT_GRANT_LOOKUP) - previousGrantLookups).isZero();
+        assertThat(calls(READ_POLICIES_LOOKUP) - previousPolicyLookups).isOne();
+        assertThat(calls(INDEPENDENT_ROW_POLICY_LOOKUP) - previousRowLookups).isZero();
+        assertThat(calls(INDEPENDENT_MASK_LOOKUP) - previousMaskLookups).isZero();
     }
 
     @Test
