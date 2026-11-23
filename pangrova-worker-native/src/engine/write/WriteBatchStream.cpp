@@ -7,16 +7,6 @@
 namespace pangrova::write {
 namespace {
 
-arrow::Status validatePlainType(const arrow::DataType& type) {
-  if (type.id() == arrow::Type::DICTIONARY) {
-    return arrow::Status::Invalid("Write batch dictionaries must be flattened before serialization");
-  }
-  for (const auto& field : type.fields()) {
-    ARROW_RETURN_NOT_OK(validatePlainType(*field->type()));
-  }
-  return arrow::Status::OK();
-}
-
 arrow::Status validateBatchShape(const arrow::RecordBatch& batch) {
   const auto& schema = batch.schema();
   if (!schema) return arrow::Status::Invalid("Write batch schema is missing");
@@ -46,10 +36,6 @@ arrow::Result<std::shared_ptr<arrow::Buffer>> encodeWriteBatch(
     return arrow::Status::Invalid("Write batch row count outside JNI int32 range");
   }
   ARROW_RETURN_NOT_OK(validateBatchShape(batch));
-  ARROW_RETURN_NOT_OK(batch.ValidateFull());
-  for (const auto& field : batch.schema()->fields()) {
-    ARROW_RETURN_NOT_OK(validatePlainType(*field->type()));
-  }
   // Rebuild only RecordBatch metadata; column buffers retain their actual owners.
   auto record = arrow::RecordBatch::Make(batch.schema(), batch.num_rows(), batch.columns());
   return columnar::encodeBatchStream({std::move(record)}, pool);

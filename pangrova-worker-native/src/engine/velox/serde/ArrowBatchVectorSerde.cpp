@@ -11,6 +11,7 @@
 #include <arrow/buffer.h>
 #include <arrow/c/abi.h>
 #include <arrow/c/bridge.h>
+#include <arrow/io/interfaces.h>
 #include <arrow/io/memory.h>
 #include <arrow/ipc/reader.h>
 #include <arrow/ipc/writer.h>
@@ -150,17 +151,45 @@ std::shared_ptr<arrow::RecordBatch> exportToBatch(
   return *result;
 }
 
-// One plain Arrow stream per OutputBuffer payload, without private framing.
-void writeBatchesToStream(
+// The Arrow writer sees positions relative to this page, even in an existing Velox stream.
+class PageOutput final : public arrow::io::OutputStream {
+ public:
+  explicit PageOutput(facebook::velox::OutputStream& stream) : stream_(stream) {}
+
+  arrow::Status Close() override {
+    closed_ = true;
+    return arrow::Status::OK();
+  }
+
+  bool closed() const override { return closed_; }
+  arrow::Result<int64_t> Tell() const override { return position_; }
+
+  arrow::Status Write(const void* data, int64_t bytes) override {
+    stream_.write(static_cast<const char*>(data), bytes);
+    position_ += bytes;
+    return arrow::Status::OK();
+  }
+
+ private:
+  facebook::velox::OutputStream& stream_;
+  int64_t position_ = 0;
+  bool closed_ = false;
+};
+
+std::unique_ptr<columnar::PreparedBatchStream> preparePage(
     const std::vector<std::shared_ptr<arrow::RecordBatch>>& batches,
-    facebook::velox::OutputStream* stream,
     const std::shared_ptr<pangrova::memory::ColumnarMemoryPool>& pool,
     const columnar::BatchStreamOptions& options) {
-  const auto encoded = columnar::encodeBatchStream(batches, pool, options);
-  if (encoded.status().IsCapacityError()) throw ArrowBatchWireLimitException(encoded.status().ToString());
-  VELOX_CHECK(encoded.ok(), "Arrow stream serialization failed: {}", encoded.status().ToString());
-  const auto& buffer = *encoded;
-  stream->write(reinterpret_cast<const char*>(buffer->data()), buffer->size());
+  auto prepared = columnar::PreparedBatchStream::prepare(batches, pool, options);
+  if (prepared.status().IsCapacityError()) throw ArrowBatchWireLimitException(prepared.status().ToString());
+  VELOX_CHECK(prepared.ok(), "Arrow stream serialization failed: {}", prepared.status().ToString());
+  return std::move(*prepared);
+}
+
+void writePage(const columnar::PreparedBatchStream& page, facebook::velox::OutputStream& stream) {
+  PageOutput output(stream);
+  const auto written = page.writeTo(output);
+  VELOX_CHECK(written.ok(), "Arrow stream write failed: {}", written.ToString());
 }
 
 // Selects rows from a RowVector by index ranges, returning a flat RowVector.
@@ -227,7 +256,8 @@ class ArrowBatchSerializer : public facebook::velox::BatchVectorSerializer {
     validateCanonicalResultNullability(*canonical_schema_, target);
     auto batch = bindCanonicalArrowSchema(exportToBatch(target, pool_), wire_schema_);
 
-    writeBatchesToStream({batch}, stream, columnar_pool_, options_);
+    const auto page = preparePage({std::move(batch)}, columnar_pool_, options_);
+    writePage(*page, *stream);
   }
 
   void estimateSerializedSize(
@@ -317,7 +347,7 @@ class ArrowBatchIterativeSerializer
 
   void flush(facebook::velox::OutputStream* stream) override {
     prepareEncoded();
-    if (encoded_) stream->write(reinterpret_cast<const char*>(encoded_->data()), encoded_->size());
+    if (encoded_) writePage(*encoded_, *stream);
     clear();
   }
 
@@ -333,10 +363,7 @@ class ArrowBatchIterativeSerializer
     for (const auto& vector : buffered_vectors_) {
       batches.push_back(bindCanonicalArrowSchema(exportToBatch(vector, pool_), wire_schema_));
     }
-    auto encoded = columnar::encodeBatchStream(batches, columnar_pool_, options_);
-    if (encoded.status().IsCapacityError()) throw ArrowBatchWireLimitException(encoded.status().ToString());
-    VELOX_CHECK(encoded.ok(), "Arrow stream serialization failed: {}", encoded.status().ToString());
-    encoded_ = *encoded;
+    encoded_ = preparePage(batches, columnar_pool_, options_);
   }
 
   facebook::velox::RowTypePtr type_;
@@ -346,7 +373,7 @@ class ArrowBatchIterativeSerializer
   const std::shared_ptr<const substrait::NamedStruct> canonical_schema_;
   const std::shared_ptr<arrow::Schema> wire_schema_;
   std::vector<facebook::velox::RowVectorPtr> buffered_vectors_;
-  mutable std::shared_ptr<arrow::Buffer> encoded_;
+  mutable std::unique_ptr<columnar::PreparedBatchStream> encoded_;
 };
 
 }  // namespace

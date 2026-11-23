@@ -396,9 +396,15 @@ carry these pages in Native Flight binary cells. Remote Shuffle publishes the
 same pages through gRPC. Each producing Velox driver owns its partition hash
 and selection scratch state. For fixed-width columns the accumulator estimates
 the size of the selected rows. Variable-width selections use a conservative
-source-size bound. The serializer checks the actual Arrow page bytes in both
-cases. The final result path uses `FlightResultServer` and its own Arrow result
-serialization. The canonical task/report proto carries the control messages.
+source-size bound. Both serializers prepare the schema and batch payloads with
+the task allocator and include the Arrow EOF marker in the exact wire size.
+Once that size fits the configured ceiling, they write the IPC messages directly
+to the Velox output stream. The iterative serializer retains the prepared
+payloads from size calculation through flush. A wire-limit failure occurs before
+the first output byte, so the partition selector can split the page. The JNI
+write bridge uses the same payload preparation and allocates its contiguous
+callback buffer at the exact committed size. `FlightResultServer` encodes result
+batches for the client. The canonical task/report proto carries the control messages.
 
 ## 17. Expression Execution
 

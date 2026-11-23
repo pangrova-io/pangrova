@@ -1,32 +1,18 @@
 #include "engine/columnar/CanonicalBatchStream.h"
 #include "engine/columnar/CanonicalArrowValidation.h"
 #include <arrow/io/memory.h>
+#include <arrow/ipc/dictionary.h>
 #include <arrow/ipc/reader.h>
 #include <arrow/ipc/writer.h>
 #include <arrow/util/compression.h>
+#include <algorithm>
+#include <array>
 #include <cmath>
 
 namespace pangrova::columnar {
 namespace {
-// Rejects each write before it grows the governed output allocation.
-class BoundedBatchOutput final : public arrow::io::OutputStream {
- public:
-  BoundedBatchOutput(std::shared_ptr<arrow::io::BufferOutputStream> sink, int64_t maximum)
-      : sink_(std::move(sink)), maximum_(maximum) {}
-  arrow::Status Close() override { return sink_->Close(); }
-  bool closed() const override { return sink_->closed(); }
-  arrow::Result<int64_t> Tell() const override { return sink_->Tell(); }
-  arrow::Status Write(const void* data, int64_t bytes) override {
-    ARROW_ASSIGN_OR_RAISE(auto position, sink_->Tell());
-    if (bytes < 0 || bytes > maximum_ - position) {
-      return arrow::Status::CapacityError("Canonical batch stream exceeds wire limit");
-    }
-    return sink_->Write(data, bytes);
-  }
- private:
-  std::shared_ptr<arrow::io::BufferOutputStream> sink_;
-  const int64_t maximum_;
-};
+// The continuation token followed by a zero-length message terminates each IPC stream.
+constexpr std::array<uint8_t, 8> kStreamEnd{0xff, 0xff, 0xff, 0xff, 0, 0, 0, 0};
 
 arrow::Result<arrow::ipc::IpcWriteOptions> writeOptions(
     const BatchStreamOptions& config, arrow::MemoryPool* pool) {
@@ -50,30 +36,69 @@ arrow::Result<arrow::ipc::IpcWriteOptions> writeOptions(
 }
 }  // namespace
 
-arrow::Result<std::shared_ptr<arrow::Buffer>> encodeBatchStream(
+PreparedBatchStream::PreparedBatchStream(std::shared_ptr<memory::ColumnarMemoryPool> pool,
+    arrow::ipc::IpcWriteOptions options, std::vector<arrow::ipc::IpcPayload> payloads, int64_t size)
+    : pool_(std::move(pool)), options_(std::move(options)), payloads_(std::move(payloads)), size_(size) {}
+
+arrow::Result<std::unique_ptr<PreparedBatchStream>> PreparedBatchStream::prepare(
     const std::vector<std::shared_ptr<arrow::RecordBatch>>& batches,
     const std::shared_ptr<memory::ColumnarMemoryPool>& pool, const BatchStreamOptions& config) {
   const auto maximumBytes = config.maximum_bytes;
-  if (!pool || batches.empty() || maximumBytes <= 0 || maximumBytes > kMaximumBatchStreamBytes) {
+  if (!pool || batches.empty() || !batches.front() || maximumBytes <= 0 ||
+      maximumBytes > kMaximumBatchStreamBytes) {
     return arrow::Status::Invalid("Canonical batch stream requires allocator, batches and bounded wire size");
   }
-  if (!batches.front()) return arrow::Status::Invalid("Canonical batch stream requires non-null batches");
+  const auto& schema = *batches.front()->schema();
+  const arrow::ipc::DictionaryFieldMapper dictionaries(schema);
+  if (dictionaries.num_fields() != 0) {
+    return arrow::Status::Invalid("Canonical batch stream requires flattened dictionaries");
+  }
+  ARROW_ASSIGN_OR_RAISE(auto options, writeOptions(config, pool.get()));
+
+  std::vector<arrow::ipc::IpcPayload> payloads;
+  int64_t size = static_cast<int64_t>(kStreamEnd.size());
+  auto append = [&](arrow::ipc::IpcPayload payload) -> arrow::Status {
+    const auto bytes = arrow::ipc::GetPayloadSize(payload, options);
+    if (bytes <= 0 || bytes > maximumBytes - size) {
+      return arrow::Status::CapacityError("Canonical batch stream exceeds wire limit");
+    }
+    size += bytes;
+    payloads.push_back(std::move(payload));
+    return arrow::Status::OK();
+  };
+  arrow::ipc::IpcPayload schemaPayload;
+  ARROW_RETURN_NOT_OK(arrow::ipc::GetSchemaPayload(schema, options, dictionaries, &schemaPayload));
+  ARROW_RETURN_NOT_OK(append(std::move(schemaPayload)));
   for (const auto& batch : batches) {
-    if (!batch || !batch->schema()->Equals(*batches.front()->schema(), true)) {
+    if (!batch || (batch->schema().get() != &schema && !batch->schema()->Equals(schema, true))) {
       return arrow::Status::TypeError("Canonical batch stream changed its declared schema");
     }
     ARROW_RETURN_NOT_OK(batch->ValidateFull());
+    arrow::ipc::IpcPayload payload;
+    ARROW_RETURN_NOT_OK(arrow::ipc::GetRecordBatchPayload(*batch, options, &payload));
+    ARROW_RETURN_NOT_OK(append(std::move(payload)));
   }
-  ARROW_ASSIGN_OR_RAISE(auto sink, arrow::io::BufferOutputStream::Create(0, pool.get()));
-  auto bounded = std::make_shared<BoundedBatchOutput>(sink, maximumBytes);
-  ARROW_ASSIGN_OR_RAISE(auto options, writeOptions(config, pool.get()));
-  ARROW_ASSIGN_OR_RAISE(auto writer, arrow::ipc::MakeStreamWriter(bounded, batches.front()->schema(), options));
-  for (const auto& batch : batches) {
-    ARROW_RETURN_NOT_OK(writer->WriteRecordBatch(*batch));
+  return std::unique_ptr<PreparedBatchStream>(
+      new PreparedBatchStream(pool, std::move(options), std::move(payloads), size));
+}
+
+arrow::Status PreparedBatchStream::writeTo(arrow::io::OutputStream& sink) const {
+  for (const auto& payload : payloads_) {
+    int32_t metadataBytes = 0;
+    ARROW_RETURN_NOT_OK(arrow::ipc::WriteIpcPayload(payload, options_, &sink, &metadataBytes));
   }
-  ARROW_RETURN_NOT_OK(writer->Close());
-  ARROW_ASSIGN_OR_RAISE(auto buffer, sink->Finish());
-  if (buffer->size() > maximumBytes) return arrow::Status::CapacityError("Canonical batch stream exceeds wire limit");
+  return sink.Write(kStreamEnd.data(), kStreamEnd.size());
+}
+
+arrow::Result<std::shared_ptr<arrow::Buffer>> encodeBatchStream(
+    const std::vector<std::shared_ptr<arrow::RecordBatch>>& batches,
+    const std::shared_ptr<memory::ColumnarMemoryPool>& pool, const BatchStreamOptions& config) {
+  ARROW_ASSIGN_OR_RAISE(auto prepared, PreparedBatchStream::prepare(batches, pool, config));
+  ARROW_ASSIGN_OR_RAISE(auto storage, arrow::AllocateBuffer(prepared->size(), pool.get()));
+  auto buffer = std::shared_ptr<arrow::Buffer>(std::move(storage));
+  arrow::io::FixedSizeBufferWriter sink(buffer);
+  ARROW_RETURN_NOT_OK(prepared->writeTo(sink));
+  ARROW_RETURN_NOT_OK(sink.Close());
   return memory::retainColumnarBuffer(std::move(buffer), pool);
 }
 
@@ -81,13 +106,13 @@ arrow::Result<std::vector<std::shared_ptr<arrow::RecordBatch>>> decodeBatchStrea
     std::shared_ptr<arrow::Buffer> buffer,
     const std::shared_ptr<memory::ColumnarMemoryPool>& pool, int64_t maximumBytes,
     const arrow::Schema* admittedSchema) {
+  const auto endBytes = static_cast<int64_t>(kStreamEnd.size());
   if (!buffer || !pool || maximumBytes <= 0 || maximumBytes > kMaximumBatchStreamBytes ||
-      buffer->size() < 8 || buffer->size() > maximumBytes) {
+      buffer->size() < endBytes || buffer->size() > maximumBytes) {
     return arrow::Status::Invalid("Canonical batch stream has invalid ownership or wire size");
   }
-  const auto* end = buffer->data() + buffer->size() - 8;
-  if (end[0] != 0xff || end[1] != 0xff || end[2] != 0xff || end[3] != 0xff ||
-      end[4] != 0 || end[5] != 0 || end[6] != 0 || end[7] != 0) {
+  const auto* end = buffer->data() + buffer->size() - endBytes;
+  if (!std::equal(kStreamEnd.begin(), kStreamEnd.end(), end)) {
     return arrow::Status::SerializationError("Canonical batch stream is missing its committed Arrow EOF marker");
   }
   auto input = std::make_shared<arrow::io::BufferReader>(std::move(buffer));
