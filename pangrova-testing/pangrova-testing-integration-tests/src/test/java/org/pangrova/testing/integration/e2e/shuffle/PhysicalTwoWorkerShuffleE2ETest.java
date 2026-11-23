@@ -588,6 +588,40 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
     }
 
     @Test
+    void anEligibleEqualityInAConjunctiveJoinPrunesBeforeDispatch() {
+        String probe = orders + "_conjunctive_filter_probe";
+        String build = orders + "_conjunctive_filter_build";
+        sqlRunner.executeDdl("CREATE TABLE " + probe + " (id BIGINT, payload BIGINT) PARTITIONED BY (id)");
+        sqlRunner.executeDdl("CREATE TABLE " + build + " (id BIGINT, payload BIGINT)");
+        String values = java.util.stream.IntStream.range(0, 40)
+                .mapToObj(row -> "(" + row + ", " + (row + 100) + ")")
+                .collect(java.util.stream.Collectors.joining(", "));
+        sqlRunner.execute("INSERT INTO " + probe + " VALUES " + values);
+        sqlRunner.execute("INSERT INTO " + build + " VALUES "
+                + "(2, 102), (2, 102), (2, 999), (35, 135), (36, 136), (NULL, 136), (36, NULL)");
+
+        String join = "SELECT p.id, p.payload FROM " + probe + " p JOIN " + build + " b ON "
+                + "ABS(p.payload) = b.payload AND ";
+        var pruned = executeWithDrainedReports(join + "p.id = b.id ORDER BY p.id");
+        var unpruned = executeWithDrainedReports(join + "ABS(p.id) = b.id ORDER BY p.id");
+
+        assertThat(pruned.rows()).extracting(row -> row.getLong("id")).containsExactly(2L, 2L, 35L, 36L);
+        assertThat(pruned.rows()).extracting(row -> row.getLong("payload")).containsExactly(102L, 102L, 135L, 136L);
+        assertThat(unpruned.rows()).usingRecursiveComparison().isEqualTo(pruned.rows());
+        assertThat(unpruned.sourceSplits(probe)).isEqualTo(40L);
+        assertThat(pruned.sourceSplits(probe)).isEqualTo(3L);
+        assertThat(pruned.sourceReadBytes(probe)).isPositive().isLessThan(unpruned.sourceReadBytes(probe));
+        assertThat(pruned.runtimeFilterWait()).isNotNull();
+        assertThat(pruned.runtimeFilterWait().outcome()).isEqualTo(RuntimeFilterOutcome.APPLIED);
+        assertThat(pruned.buildSummaries()).singleElement().satisfies(summary ->
+                assertThat(summary.getRangesList()).containsExactly(buildKeyRange(2, 2), buildKeyRange(35, 36)));
+        org.slf4j.LoggerFactory.getLogger(PhysicalTwoWorkerShuffleE2ETest.class).info(
+                "event=conjunctive_filter_physical_reads fullSplits={} filteredSplits={} fullBytes={} filteredBytes={}",
+                unpruned.sourceSplits(probe), pruned.sourceSplits(probe),
+                unpruned.sourceReadBytes(probe), pruned.sourceReadBytes(probe));
+    }
+
+    @Test
     void directProjectionReadsOnlyRequestedColumnsInBothPhysicalWorkers(TestReporter metrics) {
         var narrow = executeWithDrainedReports("SELECT id FROM " + orders + " ORDER BY id");
         var wide = executeWithDrainedReports("SELECT id, score FROM " + orders + " ORDER BY id");

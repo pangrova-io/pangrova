@@ -43,6 +43,7 @@ import org.apache.calcite.rel.logical.LogicalTableScan;
 import org.apache.calcite.rex.RexCall;
 import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.rex.RexInputRef;
+import org.apache.calcite.plan.RelOptUtil;
 import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.sql.fun.SqlStdOperatorTable;
 import org.apache.calcite.sql.type.SqlTypeName;
@@ -753,8 +754,7 @@ final class PlanFragmenter {
         }
 
         private Optional<StageRuntimeFilter> eligibleRuntimeFilter(Join join) {
-            var keys = bigintInnerJoinKeys(join);
-            if (keys == null || !(join.getRight() instanceof PangrovaExchangeInput build)) {
+            if (!(join.getRight() instanceof PangrovaExchangeInput build)) {
                 return Optional.empty();
             }
             RelNode probeInput = join.getLeft();
@@ -768,18 +768,16 @@ final class PlanFragmenter {
                     return Optional.empty();
                 }
                 probeInput = producer.getInput();
-            } else if (!dependencies.get(build.downstreamStageId()).equals(List.of(buildStage))) {
+            } else if (!List.of(buildStage).equals(dependencies.get(build.downstreamStageId()))) {
                 return Optional.empty();
             }
-            return directProbeColumn(probeInput, keys.probe()).map(column -> new StageRuntimeFilter(
-                    buildStage, build.exchangeId(), keys.build(), probeStage,
-                    column.read(), column.fieldId(), column.name()));
+            return eligibleRuntimeFilterKey(join, probeInput).map(key -> new StageRuntimeFilter(
+                    buildStage, build.exchangeId(), key.buildOrdinal(), probeStage,
+                    key.probe().read(), key.probe().fieldId(), key.probe().name()));
         }
 
         private static RelNode materializeSelectiveBuild(LogicalJoin join) {
-            var keys = bigintInnerJoinKeys(join);
-            if (keys == null) return join;
-            var probe = directProbeColumn(join.getLeft(), keys.probe()).orElse(null);
+            var probe = eligibleRuntimeFilterKey(join, join.getLeft()).map(RuntimeFilterKey::probe).orElse(null);
             if (probe == null || !StageRuntimeFilter.enoughProbeWork(probe.read().statistics())) return join;
 
             var build = directBuildRead(join.getRight()).orElse(null);
@@ -806,23 +804,33 @@ final class PlanFragmenter {
             return node instanceof TableScan scan ? selectedRead(scan) : Optional.empty();
         }
 
-        private static JoinKeys bigintInnerJoinKeys(Join join) {
-            if (join.getJoinType() != JoinRelType.INNER || !join.getVariablesSet().isEmpty()
-                    || !(join.getCondition() instanceof RexCall equality)
-                    || equality.getKind() != SqlKind.EQUALS
-                    || !(equality.operands.get(0) instanceof RexInputRef first)
-                    || !(equality.operands.get(1) instanceof RexInputRef second)
-                    || first.getType().getSqlTypeName() != SqlTypeName.BIGINT
-                    || second.getType().getSqlTypeName() != SqlTypeName.BIGINT) {
-                return null;
+        private static Optional<RuntimeFilterKey> eligibleRuntimeFilterKey(Join join, RelNode probeInput) {
+            if (join.getJoinType() != JoinRelType.INNER || !join.getVariablesSet().isEmpty()) {
+                return Optional.empty();
             }
             int leftCount = join.getLeft().getRowType().getFieldCount();
-            int probeKey = Math.min(first.getIndex(), second.getIndex());
-            int buildKey = Math.max(first.getIndex(), second.getIndex()) - leftCount;
-            return probeKey < leftCount && buildKey >= 0 ? new JoinKeys(probeKey, buildKey) : null;
+            for (var conjunct : RelOptUtil.conjunctions(join.getCondition())) {
+                if (!(conjunct instanceof RexCall equality)
+                        || equality.getKind() != SqlKind.EQUALS
+                        || !(equality.operands.get(0) instanceof RexInputRef first)
+                        || !(equality.operands.get(1) instanceof RexInputRef second)
+                        || first.getType().getSqlTypeName() != SqlTypeName.BIGINT
+                        || second.getType().getSqlTypeName() != SqlTypeName.BIGINT) {
+                    continue;
+                }
+                int probeOrdinal = Math.min(first.getIndex(), second.getIndex());
+                int buildOrdinal = Math.max(first.getIndex(), second.getIndex()) - leftCount;
+                if (probeOrdinal < leftCount && buildOrdinal >= 0) {
+                    var probe = directProbeColumn(probeInput, probeOrdinal);
+                    if (probe.isPresent()) {
+                        return Optional.of(new RuntimeFilterKey(buildOrdinal, probe.orElseThrow()));
+                    }
+                }
+            }
+            return Optional.empty();
         }
 
-        private record JoinKeys(int probe, int build) {}
+        private record RuntimeFilterKey(int buildOrdinal, ProbeColumn probe) {}
 
         private static int countPhysicalScans(RelNode node) {
             if (node instanceof TableScan) return 1;
