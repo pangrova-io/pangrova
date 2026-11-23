@@ -798,9 +798,9 @@ Pangrova may write, drop, or maintain it.
   persists them in `table_control_statistics`, keyed by `table_id` and bound to the version
   token observed during collection. The collection aborts if the version changes mid-run, if the
   connector reports no version token, or if it reports no usable statistics; nothing is stored
-  under a fabricated zero. The planner (`CatalogStatisticsProvider`) prefers a persisted row only
-  while its token still matches the control record and otherwise reads live connector
-  statistics. `UNLINK` and `DROP TABLE` purge the row with the other table-scoped state, so a
+  under a fabricated zero. The planner's `PlanningReadBindings` uses a persisted row only
+  when its stable ID and version match both the admitted control record and the bound
+  connector version. The optimizer otherwise uses the selected source's connector estimates. `UNLINK` and `DROP TABLE` purge the row with the other table-scoped state, so a
   reused name cannot inherit old cardinalities.
 - `TableControlPolicyBinder` stores governance artifacts (column tag, column mask, row filter,
   quality rule, lineage) in `table_control_governance_binding`, keyed by `table_id` and the
