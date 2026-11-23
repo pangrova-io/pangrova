@@ -93,6 +93,8 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
+Worker 首次任务初始化失败时，首次请求和精确重放收到同一个结构化拒绝。真实 JNI 夹具分别在已分配 Native 执行器之后注入运行时异常和类链接错误。原入口返回 HTTP 200 且缺失 Shuffle 端点。候选均返回 HTTP 500，带原始错误，验证了相同的重放字节、单次初始化、FAILED 终态和实际 Native 资源归还。31 项焦点和 34 项同源打包回归通过。角色清单 SHA-256 为 c518ee10e3990ee02c5b0b2c09b164922624e4663e5aa286979ccdc4c0902197。
+
 首次 Worker 任务在取得精确所有权后交给独立执行器，最多 64 个运行、64 个排队，合计按原始请求长度限制在 128 MiB。出队前检查期限、控制与执行所有权和取消封口。受控 Jetty/JNI 对照中，72 个首次提交在两版都成功、实际资源全部释放。暂停生产者注册期间，基线健康检查在放行后返回，耗时 889 ms。候选在注册仍暂停时返回，耗时 20 ms。这是受控窗口观测。58 项焦点和 35 项同源打包回归通过，覆盖真实双 Worker、COPY、CDC、AI、过载、取消和 JNI 释放。角色清单 SHA-256 为 923a7cac06cebef689cd3dbb6ce4bb41e040995202b088711b86fb4167586dc9。 [Jakarta REST 异步资源接口](https://jakarta.ee/specifications/restful-ws/4.0/jakarta-restful-ws-spec-4.0.html#asynchronous_processing) · [Trino Worker 任务入口](https://github.com/trinodb/trino/blob/master/core/trino-main/src/main/java/io/trino/server/TaskResource.java) · [Spark Executor 任务启动](https://github.com/apache/spark/blob/master/core/src/main/scala/org/apache/spark/executor/Executor.scala)
 
 Worker 精确重复提交通过原任务的共享完成信号异步等待 ACK，HTTP 观察截止只终止该次等待。受控 Jetty/JNI 对照中，80 个重放令基线 58 个 Jetty 线程等待，候选降到 0。注册仍被暂停时，候选健康检查在本次窗口耗时 20 ms，基线在释放注册后返回，本次为 832 ms。另一个 140 个重放窗口中，128 个得到相同 ACK，多余 12 个收到结构化 HTTP 503，只执行一次真实生产者注册，等待容量全部归还。45 项焦点回归和 34 项同源打包回归通过。角色清单 SHA-256 为 84a8210950be39905386cc7d7ae2b1d074204b12c0180359e213e403d0457bef。
