@@ -23,7 +23,7 @@ class QueryProfileServiceTest {
     @Test
     void profileCopiesInputCollectionsAndExposesOnlyImmutableLists() {
         var operators = new ArrayList<OperatorStatsSource.Metric>();
-        var metric = new OperatorStatsSource.Metric("Scan", "node", 1, 1, 4, 4, 500, 700, 4, 0);
+        var metric = new OperatorStatsSource.Metric("Scan", "node", 1, 1, 4, 4, 500, 700, 4, 0, 0, 0, 0, 0, 0);
         operators.add(metric);
         var attempt = new OperatorStatsSource.Attempt(0, 1, 1, 0, "task", "worker",
                 "FINISHED", 5, 1, 1, 0, operators);
@@ -102,7 +102,8 @@ class QueryProfileServiceTest {
         var store = new InMemoryQueryAuditStore();
         var auditService = new QueryAuditService(store);
         var metric = new OperatorStatsSource.Metric(
-                "TableScan", "node-1", 100, 50, 200, 100, 2_000_000, 3_000_000, 4096, 0);
+                "TableScan", "node-1", 100, 50, 200, 100, 2_000_000, 3_000_000, 4096, 0,
+                1_500_000, 0, 0, 300_000, 1_200_000);
         var attempt = new OperatorStatsSource.Attempt(2, 1, 4, 0, "task-1", "worker-1",
                 "FINISHED", 7, 3, 2, 1, List.of(metric));
         var service = new QueryProfileService(auditService, queryId -> List.of(attempt));
@@ -120,6 +121,7 @@ class QueryProfileServiceTest {
         assertThat(profile.telemetryAvailable()).isTrue();
         assertThat(profile.attempts()).containsExactly(attempt);
         assertThat(profile.attempts().get(0).operators()).containsExactly(metric);
+        assertThat(profile.attempts().get(0).operators().get(0).waitForConnectorNanos()).isEqualTo(1_200_000);
     }
 
     @Test

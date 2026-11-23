@@ -45,7 +45,7 @@ public final class TaskManagerContext {
     }
 
     public TaskStatusReporter reporter() { return reporter; }
-    public TaskExecutor taskExecutor() { return taskExecutor; }
+    TaskExecutor taskExecutor() { return taskExecutor; }
     public MemoryRefs memoryDeps() { return memoryDeps; }
     public TransportRefs transportDeps() { return transportDeps; }
     public ExecutorService completionMonitorExecutor() { return completionMonitorExecutor; }
