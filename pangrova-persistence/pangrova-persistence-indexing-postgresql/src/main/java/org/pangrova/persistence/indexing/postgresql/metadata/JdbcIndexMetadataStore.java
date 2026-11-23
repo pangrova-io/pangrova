@@ -291,6 +291,11 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
     }
 
     @Override
+    public Set<String> getIndexedDataFilePaths(String indexId, int generation) {
+        return fileMappingStore.getIndexedDataFilePaths(indexId, generation);
+    }
+
+    @Override
     public Map<String, Map<String, String>> batchGetIndexFileMappings(
             List<String> indexIds, List<String> dataFilePaths) {
         return fileMappingStore.batchGetIndexFileMappings(indexIds, dataFilePaths);

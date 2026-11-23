@@ -360,6 +360,11 @@ class IndexGcGenerationFencingTest {
         @Override public void dropIndex(String id, Instant t) {}
         @Override public void purgeIndex(String id) { purgedIndexes.add(id); descriptors.remove(id); }
         @Override public void batchRegisterIndexFiles(String owner, List<IndexFileMapping> m) {}
+        @Override public Set<String> getIndexedDataFilePaths(String id, int generation) {
+            return staleMappings.stream()
+                    .filter(mapping -> id.equals(mapping.indexId()) && mapping.generation() == generation)
+                    .map(IndexFileMapping::dataFilePath).collect(java.util.stream.Collectors.toUnmodifiableSet());
+        }
         @Override public List<IndexFileMapping> getIndexFileMappings(String id) {
             return staleMappings.stream().filter(mapping -> id.equals(mapping.indexId())).toList();
         }

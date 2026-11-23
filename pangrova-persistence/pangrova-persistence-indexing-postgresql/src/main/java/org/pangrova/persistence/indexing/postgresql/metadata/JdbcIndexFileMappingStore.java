@@ -13,8 +13,10 @@ import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.pangrova.persistence.indexing.postgresql.metadata.IndexMetadataMapper.bindMapping;
 
@@ -159,6 +161,20 @@ final class JdbcIndexFileMappingStore extends JdbcStoreSupport {
         String sql = "SELECT * FROM index_file_mappings WHERE index_id=?";
         return executeQuery(sql, ps -> ps.setString(1, indexId),
                 IndexMetadataMapper::mapMappingList);
+    }
+
+    Set<String> getIndexedDataFilePaths(String indexId, int generation) {
+        String sql = "SELECT data_file_path FROM index_file_mappings WHERE index_id=? AND generation=?";
+        return executeQuery(sql, statement -> {
+            statement.setString(1, indexId);
+            statement.setInt(2, generation);
+        }, rows -> {
+            Set<String> paths = new HashSet<>();
+            while (rows.next()) {
+                paths.add(rows.getString(1));
+            }
+            return Set.copyOf(paths);
+        });
     }
 
     Map<String, Map<String, String>> batchGetIndexFileMappings(

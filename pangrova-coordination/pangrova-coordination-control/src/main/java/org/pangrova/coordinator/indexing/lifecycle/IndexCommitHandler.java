@@ -7,7 +7,6 @@ import org.pangrova.metadata.api.event.MetadataEvent;
 import org.pangrova.metadata.api.event.MetadataEventListener;
 import org.pangrova.persistence.indexing.api.metadata.CommitEventRequest;
 import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
-import org.pangrova.persistence.indexing.api.metadata.IndexFileMapping;
 import org.pangrova.persistence.indexing.api.metadata.IndexGenerationManifest;
 import org.pangrova.connector.api.index.CommitEvent;
 import org.pangrova.connector.api.enums.CommitEventType;
@@ -213,8 +212,7 @@ public final class IndexCommitHandler implements CommitListener, MetadataEventLi
             SnapshotAwareMetadata.SnapshotAdvance advance) {
         var delta = advance.delta();
         var targetFiles = advance.targetFiles();
-        Set<String> indexed = indexedFiles(
-                store, descriptor.indexId(), active.generation());
+        Set<String> indexed = store.getIndexedDataFilePaths(descriptor.indexId(), active.generation());
         Set<String> predicted = new HashSet<>(indexed);
         predicted.removeAll(delta.removed());
         predicted.addAll(delta.added().stream().map(SnapshotDataFile::path).toList());
@@ -224,6 +222,9 @@ public final class IndexCommitHandler implements CommitListener, MetadataEventLi
             LOG.warn("action=commit_delta_validation_failed indexId={} "
                             + "predictedFiles={} targetFiles={} action=full_replacement",
                     descriptor.indexId(), predicted.size(), target.size());
+            if (descriptor.generation() == active.generation()) {
+                return new SnapshotFileDelta(targetFiles, List.copyOf(indexed));
+            }
             return fullReplacement(store, descriptor, targetFiles);
         }
         logEventDrift(descriptor.indexId(), event, delta);
@@ -236,16 +237,7 @@ public final class IndexCommitHandler implements CommitListener, MetadataEventLi
             List<SnapshotDataFile> targetFiles) {
         return new SnapshotFileDelta(
                 targetFiles,
-                List.copyOf(indexedFiles(
-                        store, descriptor.indexId(), descriptor.generation())));
-    }
-
-    private static Set<String> indexedFiles(
-            IndexMetadataStore store, String indexId, int generation) {
-        return store.getIndexFileMappings(indexId).stream()
-                .filter(mapping -> mapping.generation() == generation)
-                .map(IndexFileMapping::dataFilePath)
-                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+                List.copyOf(store.getIndexedDataFilePaths(descriptor.indexId(), descriptor.generation())));
     }
 
     private static DataFileInfo toDataFileInfo(SnapshotDataFile file) {

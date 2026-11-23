@@ -131,6 +131,15 @@ class JdbcIndexSelectionsTest {
         assertThat(store.getIndexFileMappings("first").stream().filter(m -> m.generation() == 0)).hasSize(1005);
         assertThat(store.getIndexFileMappings("first").stream().filter(m -> m.generation() == 1))
                 .extracting(IndexFileMapping::dataFilePath).containsExactlyInAnyOrderElementsOf(paths.subList(1001, 1005));
+        var projectionQueries = new AtomicInteger();
+        var projectedReader = new JdbcIndexFileMappingStore(beforeArtifactQuery(projectionQueries::incrementAndGet));
+        var projected = projectedReader.getIndexedDataFilePaths("first", 1);
+        assertThat(projectionQueries).hasValue(1);
+        assertThat(projected).containsExactlyInAnyOrderElementsOf(paths.subList(1001, 1005));
+        assertThat(store.getIndexedDataFilePaths("first", 0)).containsExactlyInAnyOrderElementsOf(paths);
+        assertThat(store.getIndexedDataFilePaths("second", 0)).containsExactly(paths.get(0));
+        assertThat(store.getIndexedDataFilePaths("second", 1)).isEmpty();
+        assertThat(store.getIndexedDataFilePaths("first", 8)).isEmpty();
         assertThat(store.getIndexFileMappingCounts(List.of("first"), List.of())).isEmpty();
         assertThat(store.filterUnindexedFiles("first", List.of())).isEmpty();
         store.markOrphanedByDataFiles("first", List.of());
