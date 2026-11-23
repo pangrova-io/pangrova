@@ -91,6 +91,8 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
+同一 Worker 的并发 Native Shuffle 流共享当前 TLS 配置下的 Flight 客户端。真实双流对照中，服务端收到两个独立请求，TCP 连接从两条降到一条，队列维持原有背压。取消第一条流后，第二条读完其结果并到达 EOF。两项各重复 20 次通过。弱引用归还最后一条流持有的连接，热点端点的额外通道保留并发流容量。Linux arm64 和 macOS arm64 各通过 4,366 项 Release Native 测试。相同代理干扰下，macOS 同源角色包 42 项与 Linux 9 项独立进程回归通过。macOS 角色清单的 SHA-256 为 `b37d1d5778dc8968520ae5df1d875efb236caec9493e9c91eae5b50c9585b332`。大规模跨主机负载仍需按连接数、并发流、背压和尾时延校准。 [Arrow Flight 客户端复用](https://arrow.apache.org/docs/cpp/flight.html#re-use-clients-whenever-possible) · [gRPC 并发流](https://grpc.io/docs/guides/performance/)
+
 前台读在同一 PostgreSQL 语句观测表登记、目录版本和稳定表 ID 所属的治理绑定。策略继续按当前本地目录和同一表身份应用。每秒 25 次的两版各有 50 笔真实点查完成，独立治理绑定 SELECT 从 50 次降到 0 次，候选执行 50 次联合读取，实际结果和资源归还逐笔核对。真实 Iceberg 查询按 PII 标签遮蔽邮件地址，Paimon 用例覆盖重命名、移除标签和再次创建同名表。49 项 PostgreSQL 与 76 项打包端到端回归通过，含列掩码、行过滤、子查询、双 Worker 执行及写入。运行包清单 SHA-256 为 `9471fdb45e2d3d5bb85fa3952ca9246e6471e717567cd261c052e664ceb3a7c9`。
 
 Native Shuffle 直连 Coordinator 签发的 Worker 域名和端口，使用同一 Worker TLS 身份与任务票据。在可控代理对照中，基线的 gRPC 客户端错误地尝试连接进程代理，候选直连并读回三行。macOS arm64 和 Linux arm64 的 Release Native 各通过 4,365 项测试，零失败、零跳过。使用相同无效代理环境，同源 macOS 角色包的 36 项端到端回归以及 Linux 的 9 项独立进程回归通过，覆盖双 Worker 直接交换、对象存储远端交换、租户超载与资源归还，以及 Iceberg、Paimon 和 Lance 写入恢复。macOS 角色包内三处 Native 资源与 Release 库逐字节相同，清单 SHA-256 为 `e99e5f6f073bcab83e0d37a019c018a06bd04f9411cf3fade2fd9e3857ce1fbf`。
