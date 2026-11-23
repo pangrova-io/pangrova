@@ -148,7 +148,10 @@ builds an immutable Substrait message. Live exchange and generated-value binding
 use this message before creating task plan bytes. Worker submission carries
 these bytes in the binary Protobuf
 `TaskRequest.substrait_plan` field over HTTP. The Worker prepares and serializes its local
-task request for JNI. The enclosed Substrait plan is decoded on the Native side.
+task request for JNI. Native decodes the enclosed Substrait plan once per task.
+Retrieval preparation checks the plan version before any artifact lookup.
+Velox conversion uses the same parsed plan. Ordinary scan splits stay in the
+task configuration. Retrieval preparation owns only the overrides and their leases.
 
 The SDK-to-wire normalizer walks only Protobuf fields whose descriptors can
 contain Fetch, hash join or merge join relations, including subqueries. It

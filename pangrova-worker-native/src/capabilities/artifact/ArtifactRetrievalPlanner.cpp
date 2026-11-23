@@ -1,7 +1,6 @@
 // Copyright (c) Pangrova contributors. All rights reserved.
 // Licensed under the Apache License, Version 2.0.
 
-#include "engine/plan/SubstraitPlanParser.h"
 #include "engine/plan/SubstraitProtocolVersion.h"
 #include "capabilities/artifact/ArtifactRetrievalPlanner.h"
 
@@ -396,23 +395,14 @@ std::vector<float> readRawVector(
 
 std::shared_ptr<ArtifactRetrievalPreparation>
 ArtifactRetrievalPlanner::prepare(
-    const std::vector<uint8_t>& substrait_plan,
+    const substrait::Plan& plan,
     const std::unordered_map<std::string, proto::OperatorBinding>&
         operator_bindings,
     const std::vector<split::SplitConfig>& splits,
     uint64_t max_object_store_read_bytes,
     std::shared_ptr<resource::TaskObjectReadBudget> task_budget) {
-  auto preparation = std::make_shared<ArtifactRetrievalPreparation>();
-  preparation->splits = splits;
-
-  substrait::Plan plan;
-  if (substrait_plan.empty() ||
-      !pangrova::plan::parseSubstraitPlan(
-          substrait_plan.data(), substrait_plan.size(), &plan)) {
-    throw std::runtime_error(
-        "Artifact retrieval preparation received an invalid Substrait plan");
-  }
   pangrova::plan::validateSubstraitVersion(plan);
+  auto preparation = std::make_shared<ArtifactRetrievalPreparation>();
 
   std::vector<proto::RetrievalSourceDetail> details;
   for (const auto& relation : plan.relations()) {

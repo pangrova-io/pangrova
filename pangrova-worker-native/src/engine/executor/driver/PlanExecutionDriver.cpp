@@ -11,6 +11,7 @@
 #include "engine/executor/driver/PlanExecutionWriteSinks.h"
 #include "engine/executor/driver/TaskExecutor.h"
 #include "engine/executor/NativeUnsupportedFeatureException.h"
+#include "engine/plan/SubstraitPlanParser.h"
 #include "jni/RuntimeInitializer.h"
 #include "engine/observability/NativeTracer.h"
 #include "engine/observability/PangrovaLog.h"
@@ -81,13 +82,18 @@ PlanExecutionDriver::prepareExecution(observability::SpanScope* span) {
     if (cancelled_.load()) task_read_budget_->requestCancel();
   }
   execution->artifactContext = std::move(context);
+  substrait::Plan substrait_plan;
+  if (config_.substrait_plan.empty() || !pangrova::plan::parseSubstraitPlan(
+          config_.substrait_plan.data(), config_.substrait_plan.size(), &substrait_plan)) {
+    throw std::runtime_error("Native task received an invalid Substrait plan");
+  }
   execution->retrieval = artifact::ArtifactRetrievalPlanner::prepare(
-      config_.substrait_plan, config_.operator_bindings, config_.splits,
+      substrait_plan, config_.operator_bindings, config_.splits,
       static_cast<uint64_t>(
           std::max<int64_t>(0, config_.resource_limit.max_object_store_read_bytes)),
       execution->artifactContext->read_budget);
   velox::VeloxPlanConverter converter(config_.function_registry, config_.function_catalog);
-  auto plan = converter.convert(config_.substrait_plan, execution->retrieval->splits,
+  auto plan = converter.convertValidatedPlan(substrait_plan, config_.splits,
       config_.operator_bindings,
       execution->artifactContext, execution->retrieval->split_overrides,
       config_.num_shuffle_partitions);
@@ -101,7 +107,7 @@ PlanExecutionDriver::prepareExecution(observability::SpanScope* span) {
   if (cancelled_.load()) return nullptr;
   execution->runner = std::make_shared<velox::VeloxTaskRunner>(
       makeRunnerConfig(config_, converter, execution->spillPolicy), plan,
-      execution->retrieval->splits, output_queue_, shuffle_queue_,
+      config_.splits, output_queue_, shuffle_queue_,
       converter.scanNodeSplitOverrides());
   return execution;
 }
