@@ -14,7 +14,8 @@ std::shared_ptr<arrow::Schema> canonicalArrowSchema(
     const substrait::NamedStruct& declared,
     facebook::velox::memory::MemoryPool* pool);
 
-// Rebinds schema metadata without copying any payload buffer.
+// Rebinds schema metadata without copying any payload buffer. The wire
+// encoder or decoder owns the full value and buffer validation.
 std::shared_ptr<arrow::RecordBatch> bindCanonicalArrowSchema(
     const std::shared_ptr<arrow::RecordBatch>& batch,
     const std::shared_ptr<arrow::Schema>& schema);

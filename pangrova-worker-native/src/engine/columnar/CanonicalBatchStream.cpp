@@ -1,4 +1,5 @@
 #include "engine/columnar/CanonicalBatchStream.h"
+#include "engine/columnar/CanonicalArrowValidation.h"
 #include <arrow/io/memory.h>
 #include <arrow/ipc/reader.h>
 #include <arrow/ipc/writer.h>
@@ -78,7 +79,8 @@ arrow::Result<std::shared_ptr<arrow::Buffer>> encodeBatchStream(
 
 arrow::Result<std::vector<std::shared_ptr<arrow::RecordBatch>>> decodeBatchStream(
     std::shared_ptr<arrow::Buffer> buffer,
-    const std::shared_ptr<memory::ColumnarMemoryPool>& pool, int64_t maximumBytes) {
+    const std::shared_ptr<memory::ColumnarMemoryPool>& pool, int64_t maximumBytes,
+    const arrow::Schema* admittedSchema) {
   if (!buffer || !pool || maximumBytes <= 0 || maximumBytes > kMaximumBatchStreamBytes ||
       buffer->size() < 8 || buffer->size() > maximumBytes) {
     return arrow::Status::Invalid("Canonical batch stream has invalid ownership or wire size");
@@ -98,10 +100,14 @@ arrow::Result<std::vector<std::shared_ptr<arrow::RecordBatch>>> decodeBatchStrea
     std::shared_ptr<arrow::RecordBatch> batch;
     ARROW_RETURN_NOT_OK(reader->ReadNext(&batch));
     if (!batch) break;
-    if (!batch->schema()->Equals(*reader->schema(), true)) {
+    if (batch->schema() != reader->schema() && !batch->schema()->Equals(*reader->schema(), true)) {
       return arrow::Status::TypeError("Canonical batch stream changed schema during decoding");
     }
-    ARROW_RETURN_NOT_OK(batch->ValidateFull());
+    if (admittedSchema) {
+      ARROW_RETURN_NOT_OK(validateCanonicalArrowBatch(*batch, *admittedSchema));
+    } else {
+      ARROW_RETURN_NOT_OK(batch->ValidateFull());
+    }
     result.push_back(memory::retainColumnarBatch(batch, pool));
   }
   ARROW_ASSIGN_OR_RAISE(auto consumed, input->Tell());

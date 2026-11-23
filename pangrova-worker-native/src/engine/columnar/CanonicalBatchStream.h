@@ -17,10 +17,11 @@ arrow::Result<std::shared_ptr<arrow::Buffer>> encodeBatchStream(
     const std::vector<std::shared_ptr<arrow::RecordBatch>>& batches,
     const std::shared_ptr<memory::ColumnarMemoryPool>& pool,
     const BatchStreamOptions& options = {});
-// Reads Arrow schemas/dictionaries/batches, never SQL types. The consumer must
-// validate against its authoritative task/result schema.
+// Checks Arrow buffers once per decoded batch. An admitted schema also checks
+// wire identity and required values before any batch is returned.
 arrow::Result<std::vector<std::shared_ptr<arrow::RecordBatch>>> decodeBatchStream(
     std::shared_ptr<arrow::Buffer> buffer,
     const std::shared_ptr<memory::ColumnarMemoryPool>& pool,
-    int64_t maximumBytes = kMaximumBatchStreamBytes);
+    int64_t maximumBytes = kMaximumBatchStreamBytes,
+    const arrow::Schema* admittedSchema = nullptr);
 }  // namespace pangrova::columnar

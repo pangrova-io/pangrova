@@ -235,6 +235,11 @@ TaskReport; the Worker then publishes a failed, zero-completed-coverage
 reconciliation with the Native failure attached. A result stream that returns
 an error is not a successful producer EOF.
 
+Result IPC decoding checks the admitted schema, Arrow array layout and required
+values together. The public schema binds names and metadata to the validated
+arrays and buffers. The reader verifies declared vector dimensions and retains
+ownership of each batch during transport.
+
 ## 6. JNI Boundary
 
 The JNI layer transfers task-control commands, canonical v2 task bytes and

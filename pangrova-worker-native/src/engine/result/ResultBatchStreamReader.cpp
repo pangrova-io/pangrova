@@ -9,7 +9,6 @@
 #include <folly/io/IOBuf.h>
 #include <velox/exec/OutputBufferManager.h>
 #include "engine/columnar/CanonicalBatchStream.h"
-#include "engine/columnar/CanonicalArrowValidation.h"
 #include "capabilities/capability/LogicalTypeContract.h"
 #include "engine/result/ResultPendingRead.h"
 #include "engine/velox/serde/CanonicalArrowSchema.h"
@@ -36,12 +35,9 @@ arrow::Result<std::vector<std::shared_ptr<arrow::RecordBatch>>> decodePage(
     std::shared_ptr<arrow::Buffer> buffer,
     const std::shared_ptr<arrow::Schema>& schema,
     const std::shared_ptr<memory::ColumnarMemoryPool>& pool) {
-  ARROW_ASSIGN_OR_RAISE(auto batches, columnar::decodeBatchStream(std::move(buffer), pool));
-  for (const auto& batch : batches) {
-    if (!schema) return arrow::Status::Invalid("Result wire schema is unavailable");
-    ARROW_RETURN_NOT_OK(columnar::validateCanonicalArrowBatch(*batch, *schema));
-  }
-  return batches;
+  if (!schema) return arrow::Status::Invalid("Result wire schema is unavailable");
+  return columnar::decodeBatchStream(
+      std::move(buffer), pool, columnar::kMaximumBatchStreamBytes, schema.get());
 }
 
 arrow::Result<std::shared_ptr<arrow::Buffer>> ownPage(std::unique_ptr<folly::IOBuf> page,

@@ -90,6 +90,8 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
+实施批次 155 将 Native Flight 解码的完整 Arrow 校验集中到接收的权威 schema 边界。此前解码、字段校验与显示 schema 绑定均遍历批次。现在在解码中一次核对结构、必填值和嵌套约束，显示字段绑定复用相同类型的数组和缓冲区。实际 Arrow 18.0.0 的 64 MiB UTF-8 校验探针中，三遍与一遍校验的中位数为 10.0925 ms 和 3.16426 ms。323 项定向测试、4,358 项 Native 全量测试及 25 项真实 Java 链路回归和 Checkstyle 通过。实际 Flight 逐行验证 8,192 行的窄结果和 75,497,472 B 的变长结果，并验证慢读、提前关闭、客户端进程退出、EOF 与物理排空。探针耗时仅用于归因校验阶段。 [Arrow 18.0.0 的完整校验接口](https://github.com/apache/arrow/blob/apache-arrow-18.0.0/cpp/src/arrow/record_batch.h)
+
 实施批次 153 移除 Java GROUPING SETS 的预压缩 Project 和重复的字段重映射。在五列输入的真实 Substrait 转换夹具中，分组键、聚合参数和布尔掩码保留原 ordinal 3、1、4。Native 在同一次绑定内计算 GroupId 的列需求，旧夹具的 GroupId 输入由 6 列减至 4 列，聚合透传由 6 列减至 2 列，输出由 9 列减至 5 列。Velox 会急切加载 GroupId 的输入列，因此在该边界保留按需列裁剪。65 项规划回归、619 项 Native 定向测试、4,357 项 Native 全量测试、57 项真实 Java 到 Native 回归和 Checkstyle 通过。实际 SQL 覆盖 CUBE、ROLLUP、GROUPING SETS、TPC 派生查询、双 Worker Shuffle、Flight 结果和 PostgreSQL 读预算。
 
 实施批次 152 让成员解析返回一次权威读取取得的租户和配额，并直接交给 Scheduler 准入。实库常量 SQL 从提交到物理释放的读取为 1 次成员查询加 2 次租户 ID 查询，候选为 1 加 1，保留每个阶段放置对当前资源池的核验。撤销成员关系后，下一次提交执行一次成员查询、返回 HTTP 403，槽位保持为零。没有跨请求权限缓存。105 项准入和所有者测试、追加的 30 项撤权和 HTTP 校验、Checkstyle 及模块事实检查通过。739 项角色清单 `0c0a404df95ddeacac57001f093475166f2409a5dea27718b454f181318ddf6a` 分别通过撤权和以 45 次配额拒绝、40 次完整读取及物理排空为门槛的独立双 Worker 验收。第一次合跑有一次 Worker 健康探针超时，同一产物的负载用例单独复测通过。

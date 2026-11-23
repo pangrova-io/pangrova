@@ -51,6 +51,28 @@ TEST_F(CanonicalBatchStreamTest, PlainArrowStreamPreservesEveryBatchAndExactSche
   EXPECT_EQ(second->Value(0), 3);
 }
 
+TEST_F(CanonicalBatchStreamTest, AdmittedDecodeChecksExactSchemaAndRequiredValues) {
+  const auto source = batch(pool_, {42});
+  const auto encoded = encodeBatchStream({source}, pool_);
+  ASSERT_TRUE(encoded.ok()) << encoded.status().ToString();
+  const auto decoded = decodeBatchStream(*encoded, pool_, kMaximumBatchStreamBytes, source->schema().get());
+  ASSERT_TRUE(decoded.ok()) << decoded.status().ToString();
+  ASSERT_EQ(decoded->size(), 1u);
+  EXPECT_TRUE(decoded->front()->Equals(*source));
+  const auto wrongName = arrow::schema({arrow::field("wrong", arrow::int64())});
+  EXPECT_TRUE(decodeBatchStream(*encoded, pool_, kMaximumBatchStreamBytes, wrongName.get()).status().IsTypeError());
+
+  arrow::Int64Builder builder(pool_.get());
+  ASSERT_TRUE(builder.AppendNull().ok());
+  std::shared_ptr<arrow::Array> values;
+  ASSERT_TRUE(builder.Finish(&values).ok());
+  const auto required = arrow::schema({arrow::field("id", arrow::int64(), false)});
+  const auto sourceNull = arrow::RecordBatch::Make(required, 1, arrow::ArrayVector{values});
+  const auto encodedNull = encodeBatchStream({sourceNull}, pool_);
+  ASSERT_TRUE(encodedNull.ok()) << encodedNull.status().ToString();
+  EXPECT_TRUE(decodeBatchStream(*encodedNull, pool_, kMaximumBatchStreamBytes, required.get()).status().IsInvalid());
+}
+
 TEST_F(CanonicalBatchStreamTest, ZeroColumnBatchesRetainIndependentRowCounts) {
   auto schema = arrow::schema({});
   auto encoded = encodeBatchStream({arrow::RecordBatch::Make(schema, 2, arrow::ArrayVector{}),
