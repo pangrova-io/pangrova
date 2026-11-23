@@ -18,6 +18,7 @@
 #include <folly/futures/Future.h>
 #include <folly/io/IOBuf.h>
 #include <glog/logging.h>
+#include <grpc/impl/channel_arg_names.h>
 
 #include "jni/RuntimeInitializer.h"
 #include "engine/observability/PangrovaLog.h"
@@ -604,6 +605,8 @@ void PangrovaExchangeSource::performFlightRead(
             locationResult.status().ToString());
       }
       auto clientOptions = arrow::flight::FlightClientOptions::Defaults();
+      // Shuffle peers are authenticated endpoints on the cluster network.
+      clientOptions.generic_options.emplace_back(GRPC_ARG_ENABLE_HTTP_PROXY, 0);
       clientOptions.generic_options.emplace_back(
           "grpc.keepalive_time_ms", kFlightKeepaliveTimeMs);
       clientOptions.generic_options.emplace_back(

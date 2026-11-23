@@ -12,8 +12,10 @@
 
 #include <array>
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -293,6 +295,23 @@ TEST_F(NativeExchangeDataPlaneE2ETest, EmptyPartitionTraversesFlightAndVelox) {
 }
 
 TEST_F(NativeExchangeDataPlaneE2ETest, NonEmptyBatchTraversesFlightAndVelox) {
+  auto configureEnvironment = [](const char* name, const char* replacement) {
+    std::optional<std::string> saved;
+    if (const char* value = std::getenv(name)) {
+      saved = value;
+    }
+    EXPECT_EQ(::setenv(name, replacement, 1), 0);
+    return folly::makeGuard([name, saved = std::move(saved)]() {
+      if (saved) {
+        ::setenv(name, saved->c_str(), 1);
+      } else {
+        ::unsetenv(name);
+      }
+    });
+  };
+  auto proxy = configureEnvironment("grpc_proxy", "http://127.0.0.1:1");
+  auto exclusions = configureEnvironment("no_grpc_proxy", "other-host.invalid");
+
   PendingEndpointRegistry::instance().clear();
   auto root_pool = pangrova::test::testRootPool(
       "NativeExchangeDataPlaneE2ETest");

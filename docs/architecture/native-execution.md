@@ -349,6 +349,8 @@ Producer output is partitioned and serialized by the Native execution path.
 `SerializedShuffleQueue` owns queued pages; `FlightShuffleServer` serves
 ticket-scoped DoGet streams; `PangrovaExchangeSource` consumes upstream
 partitions directly in Native.
+The Native gRPC channel connects directly to the assigned Worker endpoint.
+Worker-to-Worker Shuffle requires connectivity on the cluster network.
 `ShuffleBufferStore` bounds demux retention separately from the producer
 queue. The current/default deployment must not be described as zero-copy or
 producer-loss recoverable without matching storage and fault tests.
