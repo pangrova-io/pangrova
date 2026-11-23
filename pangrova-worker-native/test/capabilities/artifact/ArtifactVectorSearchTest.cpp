@@ -6,7 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <bit>
-#include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <set>
@@ -37,9 +37,10 @@ std::string digest(const std::filesystem::path& path) {
 class ArtifactVectorSearchTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    directory_ = std::filesystem::temp_directory_path() / ("pangrova-filtered-artifact-" +
-        std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
-    std::filesystem::create_directories(directory_);
+    auto directory = (std::filesystem::temp_directory_path() /
+                      "pangrova-filtered-artifact-XXXXXX").string();
+    ASSERT_NE(::mkdtemp(directory.data()), nullptr);
+    directory_ = directory;
     if (vector::diskann::DiskAnnIndexCache::instance().enabled()) {
       vector::diskann::DiskAnnIndexCache::instance().shutdown();
     }
@@ -57,7 +58,9 @@ class ArtifactVectorSearchTest : public ::testing::Test {
     root_.reset();
     vector::diskann::DiskAnnIndexCache::instance().shutdown();
     ImmutableArtifactCache::instance().shutdown();
-    std::filesystem::remove_all(directory_);
+    if (!directory_.empty()) {
+      std::filesystem::remove_all(directory_);
+    }
   }
   void build() {
     const std::array<float, 16> values{0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0};
