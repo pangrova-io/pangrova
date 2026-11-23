@@ -1,4 +1,5 @@
 #include <gtest/gtest.h>
+#include <arrow/buffer.h>
 #include <folly/ScopeGuard.h>
 
 #include "engine/velox/connector/PangrovaTableHandle.h"
@@ -260,6 +261,24 @@ class NativeExchangeDataPlaneE2ETest : public ::testing::Test {
     pangrova::test::testMemoryManager();
   }
 };
+
+TEST_F(NativeExchangeDataPlaneE2ETest, ReceivedFlightPageAndVeloxCloneShareTheArrowPayload) {
+  const std::string content(1024 * 1024 + 257, 'p');
+  auto owner = arrow::Buffer::FromString(content);
+  const auto* address = owner->data();
+  std::weak_ptr<arrow::Buffer> lifetime = owner;
+  auto buffer = detail::retainFlightPageBuffer(owner, address, content.size());
+  auto page = std::make_unique<facebook::velox::exec::SerializedPage>(std::move(buffer));
+  auto queued = page->getIOBuf();
+  owner.reset();
+  page.reset();
+
+  ASSERT_FALSE(lifetime.expired());
+  ASSERT_EQ(queued->data(), address);
+  EXPECT_EQ(std::string_view(reinterpret_cast<const char*>(queued->data()), queued->length()), content);
+  queued.reset();
+  EXPECT_TRUE(lifetime.expired());
+}
 
 TEST_F(NativeExchangeDataPlaneE2ETest, EmptyPartitionTraversesFlightAndVelox) {
   PendingEndpointRegistry::instance().clear();

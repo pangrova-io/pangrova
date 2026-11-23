@@ -200,6 +200,21 @@ bool flightTransportSecurityCompatible(
   return local_tls_enabled == !endpoint_tls_identity.empty();
 }
 
+std::unique_ptr<folly::IOBuf> retainFlightPageBuffer(
+    std::shared_ptr<arrow::Buffer> owner, const uint8_t* payload, size_t size) {
+  if (size == 0) return folly::IOBuf::create(0);
+  auto lifetime = std::make_unique<std::shared_ptr<arrow::Buffer>>(std::move(owner));
+  const iovec view{const_cast<uint8_t*>(payload), size};
+  // The out-of-line IOV API keeps the allocator ABI inside Folly.
+  auto result = folly::IOBuf::takeOwnershipIov(
+      &view, 1, [](void*, void* context) {
+        delete static_cast<std::shared_ptr<arrow::Buffer>*>(context);
+      }, lifetime.get(), false);
+  lifetime.release();
+  result->markExternallySharedOne();
+  return result;
+}
+
 }  // namespace detail
 
 using facebook::velox::exec::SerializedPage;
@@ -822,10 +837,11 @@ PangrovaExchangeSource::Response PangrovaExchangeSource::enqueueFlightBatch(
     int32_t length = 0;
     const uint8_t* value = binaryArray->GetValue(row, &length);
     totalBytes += static_cast<int64_t>(length);
-    // The exchange queue can outlive the Arrow batch. Keep each page in an
-    // owning buffer; Folly's takeOwnership ABI is not portable across the
-    // macOS libc++ versions used by the build and dependency archives.
-    auto data = folly::IOBuf::copyBuffer(value, static_cast<size_t>(length));
+    // Canonical Flight batches contain one complete page, so retaining the
+    // data buffer has the same release granularity as retaining the page.
+    auto data = batch->num_rows() == 1
+        ? detail::retainFlightPageBuffer(binaryArray->value_data(), value, length)
+        : folly::IOBuf::copyBuffer(value, static_cast<size_t>(length));
     pages.push_back(std::make_unique<SerializedPage>(
         std::move(data), nullptr, std::optional<int64_t>(std::nullopt)));
   }

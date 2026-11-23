@@ -358,6 +358,11 @@ channels to preserve stream capacity. A connection is released after its
 last stream ends. Rotating transport credentials starts a fresh client pool.
 [Arrow Flight client reuse](https://arrow.apache.org/docs/cpp/flight.html#re-use-clients-whenever-possible)
 Worker-to-Worker Shuffle requires connectivity on the cluster network.
+A canonical one-page Flight response retains the received Arrow value buffer
+as the Velox page, including any clones needed by the decoder. The queue
+continues to account for the page bytes. The last clone releases the Arrow
+buffer. Batches with multiple values use independent page buffers to keep
+their release accounting granular.
 `ShuffleBufferStore` bounds demux retention separately from the producer
 queue. The current/default deployment must not be described as zero-copy or
 producer-loss recoverable without matching storage and fault tests.

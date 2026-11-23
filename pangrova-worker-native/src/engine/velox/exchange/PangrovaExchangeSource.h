@@ -48,6 +48,10 @@ StreamCompletion decideStreamCompletion(
 bool flightTransportSecurityCompatible(
     bool local_tls_enabled, std::string_view endpoint_tls_identity);
 
+// Keeps the received Arrow buffer alive across serialized page and IOBuf clones.
+std::unique_ptr<folly::IOBuf> retainFlightPageBuffer(
+    std::shared_ptr<arrow::Buffer> owner, const uint8_t* payload, size_t size);
+
 }  // namespace detail
 
 // ExchangeSource that bridges Pangrova's exchange service with Velox.
