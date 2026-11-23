@@ -164,7 +164,7 @@ public record AuthorizedStageGraph(StageTerminalPurpose terminalPurpose,
     }
 
     /** Binds a live consumer to the canonical schemas of its dispatched producer plans. */
-    public static SerializedPlanFragment bindLiveExchangeInputs(int stageId, SerializedPlanFragment consumer,
+    public static CompiledStagePlan bindLiveExchangeInputs(int stageId, CompiledStagePlan consumer,
             List<StageTransfer> incoming, Map<Integer, List<ByteString>> producerPlans) {
         return AuthorizedStageExchangeBindings.bindLive(stageId, consumer, incoming, producerPlans);
     }

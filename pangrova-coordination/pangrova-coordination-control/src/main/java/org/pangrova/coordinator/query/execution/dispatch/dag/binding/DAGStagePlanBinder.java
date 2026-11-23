@@ -13,6 +13,7 @@ import org.pangrova.coordinator.query.execution.dispatch.dag.retrieval.Retrieval
 import org.pangrova.coordinator.query.execution.dispatch.dag.retrieval.RetrievalPlanBinder;
 import org.pangrova.coordinator.query.execution.dispatch.dag.retrieval.RetrievalPlanBinder.DistributedRetrieval;
 import org.pangrova.coordinator.query.stage.StageNode;
+import org.pangrova.planner.analysis.CompiledStagePlan;
 import org.pangrova.planner.api.fragment.SerializedPlanFragment;
 import org.pangrova.protocol.execution.BoundExecutionPlan;
 import org.pangrova.protocol.type.VectorLogicalType;
@@ -37,28 +38,32 @@ public final class DAGStagePlanBinder {
     }
 
     /** Authenticated live compilation metadata for one exact stage. */
-    public record Input(SerializedPlanFragment serialized, StageNode plan,
-            List<QuerySplit> splits, QueryExecutionScope queryContext,
+    public record Input(CompiledStagePlan compiled, StageNode plan,
+            StageSplitFetcher.FetchedSplits fetched, QueryExecutionScope queryContext,
             QuerySession session, WorkerSelector workerSelector, boolean outputStage) {
         public Input {
-            splits = List.copyOf(splits);
+            java.util.Objects.requireNonNull(fetched, "Live stage binding requires its acquired split sources");
             java.util.Objects.requireNonNull(session, "Live stage binding requires a query session");
         }
     }
 
     /** Resolves live protected-stage bindings through the canonical model/artifact ports. */
     public BoundExecutionPlan bind(Input input) {
-        var serialized = input.serialized();
+        var compiled = input.compiled();
         var plan = input.plan();
-        var splits = input.splits();
+        var splits = input.fetched().splits();
         var queryContext = input.queryContext();
-        BoundExecutionPlan generated = generatedValueReadResolver == null || splits.isEmpty()
-                ? new BoundExecutionPlan(serialized.planBytes(), List.of())
-                : generatedValueReadResolver.bindReadOverlays(serialized.planBytes(), input.session(),
-                        splits.stream().map(QuerySplit::data).toList(),
-                        plan.stagePlan().splitSources());
+        BoundExecutionPlan generated;
+        if (generatedValueReadResolver == null || splits.isEmpty()) {
+            generated = new BoundExecutionPlan(compiled.plan().toByteArray(), List.of());
+        } else {
+            var sources = input.fetched().sources();
+            sources.requireCurrent();
+            generated = generatedValueReadResolver.bindReadOverlays(compiled.plan(), input.session(),
+                    splits.stream().map(QuerySplit::data).toList(), sources.descriptors());
+        }
         boolean outputStage = input.outputStage();
-        if (serialized.retrievalTopKHints().isEmpty() && serialized.aiInvocationHints().isEmpty()) {
+        if (compiled.retrievalTopKHints().isEmpty() && compiled.aiInvocationHints().isEmpty()) {
             List<ResultColumnLogicalType> resultTypes = outputStage
                     ? bindResultColumnTypes(plan.stagePlan(), Map.of())
                     : List.of();
@@ -67,7 +72,7 @@ public final class DAGStagePlanBinder {
                     : new BoundExecutionPlan(generated.planBytes(), generated.operatorBindings(), resultTypes);
         }
         SerializedPlanFragment readable = new SerializedPlanFragment(generated.planBytes(),
-                serialized.retrievalTopKHints(), serialized.aiInvocationHints());
+                compiled.retrievalTopKHints(), compiled.aiInvocationHints());
         Map<String, ResolvedRetrievalGeneration> artifacts =
                 queryContext == null ? Map.of() : retrievalArtifactResolver.resolve(readable,
                         queryContext.retrievalArtifacts(), queryContext.retrievalMerge(), splits);
@@ -78,7 +83,7 @@ public final class DAGStagePlanBinder {
                 new java.util.ArrayList<>(generated.operatorBindings());
         operators.addAll(retrievalPlan.operatorBindings());
         Map<String, LogicalType> modelOutputTypes = new java.util.HashMap<>();
-        serialized.aiInvocationHints().forEach(hint -> {
+        compiled.aiInvocationHints().forEach(hint -> {
             var binding = AiInvocationOperatorBinder.bindQuery(
                     hint, input.workerSelector(), input.session().userIdentity());
             operators.add(binding);

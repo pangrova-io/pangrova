@@ -102,10 +102,11 @@ class OllamaAiSqlE2ETest extends PangrovaE2ETestBase {
     }
 
     @Test
-    @DisplayName("non-deterministic AI_COMPLETE performs a real provider call on each execution")
+    @DisplayName("identical AI_COMPLETE queries each perform a real provider call")
     void repeatedAiCompleteInvokesTheProviderForEachExecution() {
+        // Use structured output so this request-count test does not depend on free-text sampling.
         String sql = "SELECT AI_COMPLETE('" + LOGICAL_MODEL
-                + "', 'Reply with exactly this cache marker: pangrova-r7-cache.') AS response";
+                + "', 'Return a JSON object with marker set to pangrova-r7-cache.', 'true') AS response";
         long before = completionRequestCount();
 
         String first = scalarString(executeQuery(sql));

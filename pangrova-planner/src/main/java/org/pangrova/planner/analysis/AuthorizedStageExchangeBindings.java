@@ -29,9 +29,9 @@ import java.util.stream.Collectors;
 final class AuthorizedStageExchangeBindings {
     private AuthorizedStageExchangeBindings() {}
 
-    static SerializedPlanFragment bindLive(int stageId, SerializedPlanFragment consumer,
+    static CompiledStagePlan bindLive(int stageId, CompiledStagePlan consumer,
             List<StageTransfer> incoming, Map<Integer, List<ByteString>> producerPlans) {
-        Fragment target = fragment(stageId, consumer);
+        Fragment target = fragment(stageId, consumer.plan());
         var edges = incoming.stream().collect(Collectors.toMap(StageTransfer::exchangeId, Function.identity()));
         requireInputs(target, edges);
         if (edges.isEmpty()) return consumer;
@@ -56,8 +56,7 @@ final class AuthorizedStageExchangeBindings {
         Rel root = SubstraitRelationLayout.replaceRelations(target.root().getInput(), replacements);
         var plan = target.plan().toBuilder().setRelations(0, target.plan().getRelations(0).toBuilder()
                 .setRoot(target.root().toBuilder().setInput(root))).build();
-        return new SerializedPlanFragment(plan.toByteArray(), consumer.retrievalTopKHints(),
-                consumer.aiInvocationHints());
+        return consumer.withPlan(plan);
     }
 
     static NamedStruct requireProducerSchema(StageTransfer edge, Map<Integer, List<ByteString>> producerPlans) {

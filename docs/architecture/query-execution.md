@@ -107,8 +107,10 @@ Stage serialization reuses the validated capability union while the active Worke
 
 ![SQL Query](../../website/static/img/diagrams/generated/query-execution-01-60cdcff82f.svg)
 
-After the Plan Fragmenter divides the Calcite tree into stages, the Coordinator serializes
-each stage into a Substrait plan. Worker submission carries these bytes in the binary Protobuf
+After the Plan Fragmenter divides the Calcite tree into stages, the Coordinator
+builds an immutable Substrait message. Live exchange and generated-value binding
+use this message before creating task plan bytes. Worker submission carries
+these bytes in the binary Protobuf
 `TaskRequest.substrait_plan` field over HTTP. The Worker prepares and serializes its local
 task request for JNI. The enclosed Substrait plan is decoded on the Native side.
 
@@ -124,7 +126,11 @@ ReadRel output mapping. The Native scan assigns the selected columns and
 keeps the canonical table schema for connector binding and schema evolution.
 When the projected columns include every sort key, fragmentation moves the
 projection before the sort and its gather. Sort direction, null ordering,
-offset and limit retain their original semantics. The SQL authorization check
+offset and limit retain their original semantics. A direct projection over a
+single filtered table retains the output columns and the predicate dependencies
+in the scan. The filter checks the predicate and discards its hidden input
+columns before downstream operators. Split pruning uses the original Calcite
+filter. The SQL authorization check
 still covers the logical relation. [Trino projection pushdown](https://trino.io/docs/current/optimizer/pushdown.html#projection-pushdown) · [Velox table scan assignments](https://facebookincubator.github.io/velox/develop/operators.html#tablescannode)
 
 For a Parquet scan that requests at most half of the canonical top-level
@@ -142,14 +148,16 @@ This covers task submission, Worker reports, heartbeats and registration.
 The private COPY client uses HTTP/1.1 with mutual TLS.
 
 A stage with no retrieval or AI binding hints reuses its immutable bound plan.
-Generated-value reads are resolved before this handoff, and the output stage
-validates declared result column logical types. Generated-value binding parses
-the stage bytes once and visits the original Substrait relations in input order.
-A generated-value overlay rebuilds its affected scan and ancestors in the same
-parsed plan. A stage without an overlay retains the original wire bytes.
-Reads of the same generated column and
-snapshot in one stage share one publication observation, including absence.
-Each scan retains its own binding node ID.
+Generated-value binding visits the live Substrait message in input order. Scans
+of the same table share the exact source snapshot and declaration. Every scan
+checks its schema. A publication lookup for the same generated column and snapshot
+is shared, including absence, and each scan retains its own binding node ID.
+A generated-value overlay rebuilds the affected scan and its ancestors before
+encoding the plan. The output stage validates declared logical result types.
+
+Live stage preparation retains split source descriptors for both enumeration and
+artifact binding. It rechecks the captured owners after connector I/O and before
+dispatch. The frozen descriptors preserve the original snapshot and predicates.
 
 A projection and an immediately adjacent filter can prove that a generated
 column has no effect on expressions or emitted fields. This skips its

@@ -133,6 +133,11 @@ public final class PlanFragment implements StagePlanAccess {
         return PlanSplitSourceExtractor.queryOutputColumns(planNode);
     }
 
+    /** Prepares live split selection and the matching post-I/O owner fence. */
+    public PlanSplitSourceExtractor.PreparedSources prepareSplitSources() {
+        return PlanSplitSourceExtractor.prepare(planNode);
+    }
+
     /** An eligible single-table predicate scope for index selection. */
     public Optional<ScanPredicates> singleScanPredicates() {
         return PlanSplitSourceExtractor.singleScanPredicates(planNode);
@@ -211,6 +216,11 @@ public final class PlanFragment implements StagePlanAccess {
      */
     public byte[] toSubstraitBytes(SqlCompiler compiler, java.util.List<String> columnNames) {
         return toSerializedPlan(compiler, columnNames).planBytes();
+    }
+
+    /** Compiles this live fragment without crossing a wire boundary. */
+    public CompiledStagePlan compileStagePlan(SqlCompiler compiler, List<String> columnNames) {
+        return compiler.compileStagePlan(planNode, columnNames);
     }
 
     /** Serializes this fragment and retains typed relation intents for protocol binding. */

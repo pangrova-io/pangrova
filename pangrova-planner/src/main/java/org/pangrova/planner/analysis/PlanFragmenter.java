@@ -303,14 +303,18 @@ final class PlanFragmenter {
             // Calcite can place a narrow projection above Sort. Move its field
             // selection below the sort before enforcing the gather distribution.
             if (!(node instanceof LogicalProject project) || !(project.getInput() instanceof Sort sort)
-                    || !(sort.getInput() instanceof LogicalTableScan scan)
                     || project.getProjects().isEmpty()
                     || !project.getProjects().stream().allMatch(RexInputRef.class::isInstance)) {
                 return node;
             }
+            var input = sort.getInput();
+            if (!(input instanceof LogicalTableScan)
+                    && !(input instanceof LogicalFilter filter && filter.getInput() instanceof LogicalTableScan)) {
+                return node;
+            }
             var fields = project.getProjects().stream().map(RexInputRef.class::cast)
                     .map(RexInputRef::getIndex).toList();
-            if (fields.size() >= scan.getRowType().getFieldCount()
+            if (fields.size() >= input.getRowType().getFieldCount()
                     || new java.util.HashSet<>(fields).size() != fields.size()) {
                 return node;
             }
@@ -320,8 +324,8 @@ final class PlanFragmenter {
             }
             var remapped = RelCollations.of(ordering.stream()
                     .map(key -> key.withFieldIndex(fields.indexOf(key.getFieldIndex()))).toList());
-            var projection = project.copy(scan.getTraitSet().replace(RelCollations.EMPTY),
-                    scan, project.getProjects(), project.getRowType());
+            var projection = project.copy(input.getTraitSet().replace(RelCollations.EMPTY),
+                    input, project.getProjects(), project.getRowType());
             return sort.copy(sort.getTraitSet().replace(remapped), projection, remapped, sort.offset, sort.fetch);
         }
 

@@ -75,9 +75,9 @@ class GeneratedValueReadResolverIntegrationTest {
             byte[] compiled = plan(declaration);
             fixture.table().updateSchema().addColumn("later", Types.StringType.get()).commit();
 
-            assertThat(fixture.resolver().bindReadOverlays(compiled, ACTOR, splits(version), selected)
+            assertThat(bind(fixture.resolver(), compiled, ACTOR, splits(version), selected)
                     .operatorBindings()).isEmpty();
-            assertThatThrownBy(() -> fixture.resolver().bindReadOverlays(compiled, ACTOR,
+            assertThatThrownBy(() -> bind(fixture.resolver(), compiled, ACTOR,
                     splits(version == Long.MAX_VALUE ? version - 1 : version + 1), selected))
                     .isInstanceOf(IllegalStateException.class).hasMessageContaining("admitted snapshot");
         }
@@ -100,13 +100,13 @@ class GeneratedValueReadResolverIntegrationTest {
             struct.addTypes(io.substrait.proto.Type.newBuilder().setI64(
                     io.substrait.proto.Type.I64.newBuilder().setNullability(required)));
             var exact = schema.setStruct(struct).build();
-            assertThat(fixture.resolver().bindReadOverlays(plan(exact), ACTOR,
+            assertThat(bind(fixture.resolver(), plan(exact), ACTOR,
                     splits(version), source(fixture, null)).operatorBindings()).isEmpty();
             var wrong = exact.toBuilder().setStruct(exact.getStruct().toBuilder().setTypes(
                     exact.getStruct().getTypesCount() - 1,
                     io.substrait.proto.Type.newBuilder().setI64(io.substrait.proto.Type.I64.newBuilder()
                             .setNullability(io.substrait.proto.Type.Nullability.NULLABILITY_NULLABLE)))).build();
-            assertThatThrownBy(() -> fixture.resolver().bindReadOverlays(plan(wrong), ACTOR,
+            assertThatThrownBy(() -> bind(fixture.resolver(), plan(wrong), ACTOR,
                     splits(version), source(fixture, null))).hasMessageContaining("declared SDK schema");
         }
     }
@@ -121,16 +121,16 @@ class GeneratedValueReadResolverIntegrationTest {
             fixture.table().updateSchema().addColumn("later", Types.StringType.get()).commit();
             var splits = splits(version);
             byte[] protectedRead = plan(historical);
-            assertThat(fixture.resolver().bindReadOverlays(protectedRead, ACTOR, splits, source(fixture, version))
+            assertThat(bind(fixture.resolver(), protectedRead, ACTOR, splits, source(fixture, version))
                     .operatorBindings()).isEmpty(); // No publication exists yet; this ASYNC generation is pending.
             var incomplete = new ConnectorTableMetadata(historical.table(), List.of("id"),
                     List.of(historical.typedColumns().get(0)), historical.properties());
-            assertThatThrownBy(() -> fixture.resolver().bindReadOverlays(plan(incomplete), ACTOR,
+            assertThatThrownBy(() -> bind(fixture.resolver(), plan(incomplete), ACTOR,
                     splits, source(fixture, version)))
                     .isInstanceOf(IllegalStateException.class).hasMessageContaining("declared SDK schema");
-            assertThat(fixture.resolver().bindReadOverlays(plan(currentMetadata(fixture)), ACTOR, splits, source(fixture, null))
+            assertThat(bind(fixture.resolver(), plan(currentMetadata(fixture)), ACTOR, splits, source(fixture, null))
                     .operatorBindings()).isEmpty(); // FULL uses current absence, not the old data snapshot declaration.
-            assertThatThrownBy(() -> fixture.resolver().bindReadOverlays(plan(incomplete), ACTOR, splits, source(fixture, null)))
+            assertThatThrownBy(() -> bind(fixture.resolver(), plan(incomplete), ACTOR, splits, source(fixture, null)))
                     .isInstanceOf(IllegalStateException.class).hasMessageContaining("declared SDK schema");
         }
     }
@@ -149,10 +149,10 @@ class GeneratedValueReadResolverIntegrationTest {
             update.commit();
             fixture.table().updateSchema().addColumn("later", Types.StringType.get()).commit();
             fixture.table().updateProperties().set("irrelevant", "new-revision").commit();
-            assertThatThrownBy(() -> fixture.resolver().bindReadOverlays(historicalRead, ACTOR,
+            assertThatThrownBy(() -> bind(fixture.resolver(), historicalRead, ACTOR,
                     splits(version), source(fixture, version)))
                     .isInstanceOf(ConnectorException.class).hasMessageContaining("declaration evidence is unavailable");
-            assertThat(fixture.resolver().bindReadOverlays(plan(currentMetadata(fixture)), ACTOR,
+            assertThat(bind(fixture.resolver(), plan(currentMetadata(fixture)), ACTOR,
                     splits(version), source(fixture, null))
                     .operatorBindings()).isEmpty();
         }
@@ -178,11 +178,22 @@ class GeneratedValueReadResolverIntegrationTest {
                     .build().toByteArray();
             for (int execution = 0; execution < 3; execution++) {
                 long before = publicationReads(dataSource);
-                var bound = fixture.resolver().bindReadOverlays(stage, ACTOR, splits(version), selected);
+                var bound = bind(fixture.resolver(), stage, ACTOR, splits(version), selected);
                 assertThat(bound.operatorBindings()).isEmpty();
                 assertThat(bound.planBytes()).containsExactly(stage);
                 assertThat(publicationReads(dataSource) - before).as("publication SELECTs per stage").isOne();
             }
+
+            var read = root.getInput().getRead();
+            var incompatible = read.getBaseSchema().toBuilder().setNames(0, "different_column").build();
+            reads.setInputs(7, root.getInput().toBuilder()
+                    .setRead(read.toBuilder().setBaseSchema(incompatible)).build());
+            byte[] invalidStage = compiled.toBuilder().setRelations(0, PlanRel.newBuilder()
+                    .setRoot(root.toBuilder().setInput(Rel.newBuilder().setSet(reads))))
+                    .build().toByteArray();
+            assertThatThrownBy(() -> bind(fixture.resolver(),
+                    invalidStage, ACTOR, splits(version), selected))
+                    .isInstanceOf(IllegalStateException.class).hasMessageContaining("declared SDK schema");
         }
     }
 
@@ -249,6 +260,14 @@ class GeneratedValueReadResolverIntegrationTest {
 
     private static ConnectorSession session() {
         return SessionContextConverter.toConnectorSession(ACTOR, "lake", "db");
+    }
+
+    private static org.pangrova.protocol.execution.BoundExecutionPlan bind(
+            GeneratedValueReadResolver resolver, byte[] plan, QuerySession actor, List<DataSplit> splits,
+            List<org.pangrova.planner.analysis.SplitSourceDescriptor> sources)
+            throws com.google.protobuf.InvalidProtocolBufferException {
+        return resolver.bindReadOverlays(
+                org.pangrova.protocol.substrait.SubstraitPlanCodec.parse(plan), actor, splits, sources);
     }
 
     private static byte[] plan(ConnectorTableMetadata metadata) {

@@ -90,13 +90,13 @@ class GeneratedValuesOverlayPlanBinderTest {
 
     @Test
     void bindsRepeatedReadsByExactOrdinalRatherThanTableNameAlone() throws Exception {
-        var original = Plan.parseFrom(plan(Rel.newBuilder().setRead(read()).build()));
-        var repeated = original.toBuilder().addRelations(original.getRelations(0)).build().toByteArray();
+        var original = plan(Rel.newBuilder().setRead(read()).build());
+        var repeated = original.toBuilder().addRelations(original.getRelations(0)).build();
         var bound = bind(repeated,
                 List.of(intent(0, "left"), intent(1, "right")));
         assertThat(bound.operatorBindings()).extracting(OperatorBinding::getPlanNodeId)
                 .containsExactly("left", "right");
-        var verified = GeneratedValuesOverlayPlanBinder.resolve(bound.planBytes(), reads -> {
+        var verified = GeneratedValuesOverlayPlanBinder.resolve(Plan.parseFrom(bound.planBytes()), reads -> {
             assertThat(reads).hasSize(2);
             return List.of();
         });
@@ -111,7 +111,7 @@ class GeneratedValuesOverlayPlanBinderTest {
         var secondInput = Rel.newBuilder().setRead(second).build();
         var set = SetRel.newBuilder().setOp(SetRel.SetOp.SET_OP_UNION_ALL)
                 .addInputs(firstInput).addInputs(secondInput).addInputs(firstInput);
-        byte[] original = plan(Rel.newBuilder().setSet(set).build());
+        Plan original = plan(Rel.newBuilder().setSet(set).build());
         var bound = GeneratedValuesOverlayPlanBinder.resolve(original, reads -> {
             assertThat(reads).extracting(GeneratedValuesOverlayPlanBinder.ReadSite::read)
                     .containsExactly(first, second, first);
@@ -144,18 +144,18 @@ class GeneratedValuesOverlayPlanBinderTest {
     }
 
     private static void assertGeneratedFieldUsed(Rel root, boolean used) {
-        byte[] original = plan(root);
+        Plan original = plan(root);
         var untouched = GeneratedValuesOverlayPlanBinder.resolve(original, reads -> {
             assertThat(reads).singleElement().satisfies(site ->
                     assertThat(site.usesColumn("embedding")).isEqualTo(used));
             return List.of();
         });
-        assertThat(untouched.planBytes()).containsExactly(original);
+        assertThat(untouched.planBytes()).containsExactly(original.toByteArray());
     }
 
     @Test
     void rejectsWrongReadIdentityDuplicateTargetAndMissingReadOrdinal() {
-        byte[] original = plan(Rel.newBuilder().setRead(read()).build());
+        Plan original = plan(Rel.newBuilder().setRead(read()).build());
         var wrong = new GeneratedValuesOverlayPlanBinder.ReadOverlay(
                 0, List.of("lake", "sales", "other"), "embedding", binding("wrong"));
         assertThatThrownBy(() -> bind(original, List.of(wrong)))
@@ -184,8 +184,8 @@ class GeneratedValuesOverlayPlanBinderTest {
         }
     }
 
-    private static BoundExecutionPlan bind(byte[] bytes, List<GeneratedValuesOverlayPlanBinder.ReadOverlay> overlays) {
-        return GeneratedValuesOverlayPlanBinder.resolve(bytes, reads -> overlays);
+    private static BoundExecutionPlan bind(Plan plan, List<GeneratedValuesOverlayPlanBinder.ReadOverlay> overlays) {
+        return GeneratedValuesOverlayPlanBinder.resolve(plan, reads -> overlays);
     }
 
     private static GeneratedValuesOverlayPlanBinder.ReadOverlay intent(int ordinal, String node) {
@@ -213,12 +213,12 @@ class GeneratedValuesOverlayPlanBinderTest {
                 .setNamedTable(ReadRel.NamedTable.newBuilder().addAllNames(TABLE)).build();
     }
 
-    private static byte[] plan(Rel relation) {
+    private static Plan plan(Rel relation) {
         return Plan.newBuilder().addExtensions(io.substrait.proto.SimpleExtensionDeclaration.newBuilder()
                 .setExtensionFunction(io.substrait.proto.SimpleExtensionDeclaration.ExtensionFunction.newBuilder()
                         .setFunctionAnchor(1).setName("is_not_null:any")))
                 .addRelations(PlanRel.newBuilder().setRoot(RelRoot.newBuilder()
-                .setInput(relation).addAllNames(List.of("embedding", "id", "embedding")))).build().toByteArray();
+                .setInput(relation).addAllNames(List.of("embedding", "id", "embedding")))).build();
     }
 
     private static Expression field(int ordinal) {

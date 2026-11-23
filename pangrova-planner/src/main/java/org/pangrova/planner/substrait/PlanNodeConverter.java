@@ -13,6 +13,7 @@ import io.substrait.expression.FieldReference;
 import io.substrait.expression.ImmutableExpression;
 import io.substrait.extension.ExtensionCollector;
 import io.substrait.relation.ImmutableFetch;
+import io.substrait.relation.ImmutableFilter;
 import io.substrait.relation.ExtensionLeaf;
 import io.substrait.relation.ImmutableJoin;
 import io.substrait.relation.ImmutableNamedScan;
@@ -35,6 +36,7 @@ import org.pangrova.planner.cost.join.PangrovaSortMergeJoin;
 import org.pangrova.planner.api.retrieval.RetrievalTopKPlanHint;
 import org.pangrova.planner.api.invocation.AiInvocationPlanHint;
 import org.pangrova.planner.validation.NativeCapabilityRegistry;
+import org.apache.calcite.plan.RelOptUtil;
 import org.apache.calcite.rel.RelFieldCollation;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.JoinInfo;
@@ -61,6 +63,8 @@ import org.apache.calcite.rex.RexCall;
 import org.apache.calcite.rex.RexInputRef;
 import org.apache.calcite.rex.RexLiteral;
 import org.apache.calcite.rex.RexNode;
+import org.apache.calcite.rex.RexShuttle;
+import org.apache.calcite.rex.RexUtil;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -68,10 +72,12 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.IdentityHashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.stream.IntStream;
 
 /**
  * Top-level dispatch: routes Calcite RelNode to the appropriate converter.
@@ -169,17 +175,20 @@ public final class PlanNodeConverter {
     }
 
     private Rel visitProject(LogicalProject project) {
-        Rel input = visit(project.getInput());
-        var fields = project.getProjects();
-        if (input instanceof ImmutableNamedScan scan && scan.getRemap().isEmpty()
-                && !fields.isEmpty() && fields.size() < scan.getRecordType().fields().size()
-                && fields.stream().allMatch(RexInputRef.class::isInstance)) {
-            var ordinals = fields.stream().map(RexInputRef.class::cast).map(RexInputRef::getIndex).toList();
-            if (new java.util.HashSet<>(ordinals).size() == ordinals.size()) {
-                return scan.withRemap(Rel.Remap.of(ordinals));
+        var child = project.getInput();
+        if (child instanceof LogicalFilter filter && filter.getInput() instanceof LogicalTableScan scan) {
+            var ordinals = directProjection(project);
+            if (!ordinals.isEmpty()) {
+                var narrowed = projectFilteredScan(filter, scan, ordinals);
+                if (narrowed != null) return narrowed;
             }
         }
-        List<Expression> expressions = fields.stream()
+        Rel input = visit(child);
+        if (input instanceof ImmutableNamedScan scan && scan.getRemap().isEmpty()) {
+            var ordinals = directProjection(project);
+            if (!ordinals.isEmpty()) return scan.withRemap(Rel.Remap.of(ordinals));
+        }
+        List<Expression> expressions = project.getProjects().stream()
                 .map(rexConverter::convert)
                 .toList();
         // Substrait Project appends expressions to every input field by
@@ -195,8 +204,47 @@ public final class PlanNodeConverter {
                 .build();
     }
 
+    private static List<Integer> directProjection(LogicalProject project) {
+        var fields = project.getProjects();
+        if (fields.isEmpty() || fields.size() >= project.getInput().getRowType().getFieldCount()
+                || !fields.stream().allMatch(RexInputRef.class::isInstance)) {
+            return List.of();
+        }
+        var ordinals = fields.stream().map(RexInputRef.class::cast).map(RexInputRef::getIndex).toList();
+        return new java.util.HashSet<>(ordinals).size() == ordinals.size() ? ordinals : List.of();
+    }
+
+    private Rel projectFilteredScan(LogicalFilter filter, LogicalTableScan scan, List<Integer> output) {
+        var condition = filter.getCondition();
+        if (RexUtil.containsCorrelation(condition) || RexUtil.SubQueryFinder.containsSubQuery(filter)) {
+            return null;
+        }
+        var mapping = new LinkedHashMap<Integer, Integer>();
+        for (int field : output) {
+            mapping.put(field, mapping.size());
+        }
+        for (int field : RelOptUtil.InputFinder.bits(condition)) {
+            mapping.putIfAbsent(field, mapping.size());
+        }
+        if (mapping.size() >= scan.getRowType().getFieldCount()) return null;
+        // Keep the Calcite filter on the original scan for split pruning. Only
+        // the emitted wire ordinals and the predicate's input references change.
+        var scanWithColumns = visitTableScan(scan).withRemap(Rel.Remap.of(List.copyOf(mapping.keySet())));
+        var predicate = condition.accept(new RexShuttle() {
+            @Override
+            public RexNode visitInputRef(RexInputRef ref) {
+                return new RexInputRef(mapping.get(ref.getIndex()), ref.getType());
+            }
+        });
+        var result = ImmutableFilter.builder().input(scanWithColumns).condition(rexConverter.convert(predicate));
+        if (mapping.size() > output.size()) {
+            result.remap(Rel.Remap.of(IntStream.range(0, output.size()).boxed().toList()));
+        }
+        return result.build();
+    }
+
     private Rel visitFilter(LogicalFilter filter) {
-        return io.substrait.relation.ImmutableFilter.builder()
+        return ImmutableFilter.builder()
                 .input(visit(filter.getInput())).condition(rexConverter.convert(filter.getCondition())).build();
     }
 
@@ -228,7 +276,7 @@ public final class PlanNodeConverter {
         return converted;
     }
 
-    private Rel visitTableScan(LogicalTableScan scan) {
+    private ImmutableNamedScan visitTableScan(LogicalTableScan scan) {
         NamedStruct ns = buildNamedStruct(scan.getRowType());
         List<String> qualifiedName = PlanTable.require(scan)
                 .getQualifiedName();

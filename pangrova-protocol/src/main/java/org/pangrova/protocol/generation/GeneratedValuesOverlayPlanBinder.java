@@ -2,7 +2,6 @@ package org.pangrova.protocol.generation;
 
 import com.google.protobuf.Any;
 import com.google.protobuf.Descriptors.FieldDescriptor;
-import com.google.protobuf.InvalidProtocolBufferException;
 import com.google.protobuf.Message;
 import io.substrait.proto.Expression;
 import io.substrait.proto.FilterRel;
@@ -120,17 +119,16 @@ public final class GeneratedValuesOverlayPlanBinder {
         return false;
     }
 
-    /** Selects overlays from the validated read order and rewrites only when a target is selected. */
-    public static BoundExecutionPlan resolve(byte[] planBytes,
-            Function<List<ReadSite>, List<ReadOverlay>> selectOverlays) {
-        Plan plan = parse(planBytes);
+    /** Selects overlays from the live plan and encodes the bound wire message. */
+    public static BoundExecutionPlan resolve(Plan plan, Function<List<ReadSite>, List<ReadOverlay>> selectOverlays) {
         List<ReadSite> reads = new ArrayList<>();
         rewrite(plan, (relation, parent, grandparent) -> {
             reads.add(new ReadSite(relation.getRead(), parent, grandparent));
             return relation;
         });
         var overlays = selectOverlays.apply(List.copyOf(reads));
-        return overlays.isEmpty() ? new BoundExecutionPlan(planBytes, List.of()) : bind(plan, overlays);
+        if (!overlays.isEmpty()) return bind(plan, overlays);
+        return new BoundExecutionPlan(plan.toByteArray(), List.of());
     }
 
     private static BoundExecutionPlan bind(Plan plan, List<ReadOverlay> overlays) {
@@ -262,14 +260,6 @@ public final class GeneratedValuesOverlayPlanBinder {
         return NamedExpressionArgument.newBuilder().setName(name)
                 .setExpression(org.pangrova.protocol.substrait.SubstraitRelationLayout
                         .rootFieldReference(field)).build();
-    }
-
-    private static Plan parse(byte[] bytes) {
-        try {
-            return org.pangrova.protocol.substrait.SubstraitPlanCodec.parse(bytes);
-        } catch (InvalidProtocolBufferException failure) {
-            throw new IllegalArgumentException("Generated query plan is malformed", failure);
-        }
     }
 
     @FunctionalInterface

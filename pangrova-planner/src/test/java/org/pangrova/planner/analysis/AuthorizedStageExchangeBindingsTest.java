@@ -27,11 +27,14 @@ class AuthorizedStageExchangeBindingsTest {
         var aliases = source.toBuilder().setNames(0, "display_record").build();
         var producer = plan(producer(values(source, 3)), aliases.getNamesList());
         var wire = ByteString.copyFrom(producer.planBytes());
-        var consumer = plan(consumer(aliases), aliases.getNamesList());
+        var encoded = plan(consumer(aliases), aliases.getNamesList());
+        var consumer = new CompiledStagePlan(Plan.parseFrom(encoded.planBytes()),
+                encoded.retrievalTopKHints(), encoded.aiInvocationHints());
+        assertThat(consumer.serialize().planBytes()).containsExactly(encoded.planBytes());
         var bound = AuthorizedStageGraph.bindLiveExchangeInputs(0, consumer, List.of(edge()),
                 Map.of(1, List.of(wire, wire, ByteString.copyFrom(producer.planBytes()),
                         ByteString.copyFrom(plan(producer(values(source, 4)), aliases.getNamesList()).planBytes()))));
-        var root = Plan.parseFrom(bound.planBytes()).getRelations(0).getRoot();
+        var root = bound.plan().getRelations(0).getRoot();
         var detail = root.getInput().getExtensionLeaf().getDetail()
                 .unpack(org.pangrova.protocol.v2.RelationDetailEnvelope.class).getExchangeInput();
         assertThat(detail.getOutputSchema()).isEqualTo(source);

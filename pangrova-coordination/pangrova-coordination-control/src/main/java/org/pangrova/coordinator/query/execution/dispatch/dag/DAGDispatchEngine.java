@@ -38,7 +38,6 @@ import org.pangrova.coordinator.query.stage.StageNode;
 import org.pangrova.coordinator.query.task.QueryOperatorStatsRegistry;
 import org.pangrova.coordinator.query.task.QueryStageObservations;
 import org.pangrova.query.profiling.OperatorStatsSource.DispatchPhase;
-import org.pangrova.planner.api.fragment.SerializedPlanFragment;
 import org.pangrova.planner.analysis.SqlCompiler;
 import org.pangrova.protocol.execution.BoundExecutionPlan;
 import org.pangrova.query.api.error.QueryFailure;
@@ -429,27 +428,28 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
         boolean outputStage = state.dag().findDownstreamEdge(plan.stageId()) == null;
         List<String> visibleColumns = queryContext == null ? List.of() : queryContext.preOptColumnNames();
         long serializationStarted = dispatchTimestamp(observations);
-        SerializedPlanFragment serialized = state.serializePlan(plan, visibleColumns);
+        var compiled = state.compilePlan(plan, visibleColumns);
         recordDispatchWork(observations, plan.stageId(), generation, DispatchPhase.SERIALIZE_PLAN,
                 serializationStarted, null, true);
         if (queryContext != null && !queryContext.retrievalArtifacts().isEmpty()) {
             LOG.info("event=retrieval_stage_hints queryId={} stageId={} hints={}",
-                    state.queryId(), plan.stageId(), serialized.retrievalTopKHints().stream()
+                    state.queryId(), plan.stageId(), compiled.retrievalTopKHints().stream()
                             .map(hint -> hint.kind() + ":" + hint.sourceKey()).toList());
         }
         long enumerationStarted = dispatchTimestamp(observations);
-        List<QuerySplit> splits = stageSplitFetcher.fetch(
+        var fetched = stageSplitFetcher.fetch(
                 plan, queryContext == null ? null : queryContext.requireLiveSession(),
                 queryContext == null ? Map.of() : queryContext.snapshotOverrides(),
                 queryContext == null || queryContext.writeConfig() == null
                         ? null : queryContext.writeConfig().writeMode(), state.buildFilter());
+        List<QuerySplit> splits = fetched.splits();
         recordDispatchWork(observations, plan.stageId(), generation, DispatchPhase.ENUMERATE_SPLITS,
                 enumerationStarted, splits.size(), true);
         long bindingStarted = dispatchTimestamp(observations);
         org.pangrova.execution.split.CanonicalSplitValidator.validateAll(
                 () -> splits.stream().map(QuerySplit::data).iterator(), state.queryId(), plan.stageId());
         BoundExecutionPlan boundPlan = stagePlanBinder.bind(new DAGStagePlanBinder.Input(
-                serialized, plan, splits, queryContext, state.session(), state.workerSelector(), outputStage));
+                compiled, plan, fetched, queryContext, state.session(), state.workerSelector(), outputStage));
         recordDispatchWork(observations, plan.stageId(), generation, DispatchPhase.VALIDATE_AND_BIND_PLAN,
                 bindingStarted, null, true);
         // Only the terminal stage owns the table write. Upstream stages must
@@ -460,7 +460,7 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
         var dispatch = new LeafStageDispatcher.LeafDispatch(
                 state.execution(), plan, boundPlan, splits, state.workerSelector(),
                 state.dag(), state.dispatched(), writeConfig,
-                !serialized.retrievalTopKHints().isEmpty(),
+                !compiled.retrievalTopKHints().isEmpty(),
                 Math.addExact(stage.currentGeneration(), 1L), null,
                 state.buildFilter() == null ? OptionalInt.empty() : state.buildFilter().buildOrdinal(stage.stageId()));
         return new PreparedStage(plan, dispatch);

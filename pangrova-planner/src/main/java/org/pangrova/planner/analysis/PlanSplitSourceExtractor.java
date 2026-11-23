@@ -54,12 +54,22 @@ public final class PlanSplitSourceExtractor {
      * @return deduplicated table scan descriptors with extracted constraints
      */
     public static List<SplitSourceDescriptor> extract(RelNode relNode) {
+        return extract(relNode, new IdentityHashMap<>());
+    }
+
+    /** Retains the exact source evidence to fence later dispatch after connector I/O. */
+    public static PreparedSources prepare(RelNode relNode) {
+        Map<RelOptTable, Optional<ConnectorReadBinding>> verified = new IdentityHashMap<>();
+        return new PreparedSources(extract(relNode, verified), verified);
+    }
+
+    private static List<SplitSourceDescriptor> extract(RelNode relNode,
+            Map<RelOptTable, Optional<ConnectorReadBinding>> verifiedBindings) {
         List<TableScanRef> refs = new ArrayList<>();
         collectTableScans(relNode, refs);
         if (refs.isEmpty()) {
             return List.of();
         }
-        Map<RelOptTable, Optional<ConnectorReadBinding>> verifiedBindings = new IdentityHashMap<>();
         Map<List<String>, TableScanRef> unique = deduplicateTableRefs(refs, verifiedBindings);
         List<SplitSourceDescriptor> descriptors = new ArrayList<>(unique.size());
         for (TableScanRef ref : unique.values()) {
@@ -74,6 +84,35 @@ public final class PlanSplitSourceExtractor {
                     constraint, columns, verifyBinding(ref, verifiedBindings)));
         }
         return descriptors;
+    }
+
+    /** Captures immutable split selection and can recheck its owner without rebuilding the selection. */
+    public static final class PreparedSources {
+        private final List<SplitSourceDescriptor> descriptors;
+        private final Map<RelOptTable, Optional<ConnectorReadBinding>> bindings;
+
+        private PreparedSources(List<SplitSourceDescriptor> descriptors,
+                Map<RelOptTable, Optional<ConnectorReadBinding>> bindings) {
+            this.descriptors = List.copyOf(descriptors);
+            this.bindings = bindings;
+        }
+
+        /** Original descriptors used to enumerate the stage inputs. */
+        public List<SplitSourceDescriptor> descriptors() {
+            return descriptors;
+        }
+
+        /** Rechecks all original binding owners at the post-enumeration dispatch boundary. */
+        public void requireCurrent() {
+            bindings.forEach((table, expected) -> {
+                var current = Optional.ofNullable(table.unwrap(ConnectorReadBinding.class));
+                if (!expected.equals(current)) {
+                    throw new PlannerException(org.pangrova.common.enums.PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
+                            "The selected split source binding changed during stage preparation: "
+                                    + table.getQualifiedName());
+                }
+            });
+        }
     }
 
     /** Returns scalar predicates only when their provenance is unambiguous for one physical scan. */

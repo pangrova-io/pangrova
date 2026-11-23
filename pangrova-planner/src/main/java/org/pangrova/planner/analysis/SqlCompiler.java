@@ -238,10 +238,11 @@ public class SqlCompiler {
     /** Converts and validates a fragment while preserving typed relation intents. */
     public SerializedPlanFragment convertValidateAndSerializeFragment(
             RelNode relNode, List<String> preOptColumnNames) {
-        return doConvertValidateAndSerialize(relNode, preOptColumnNames);
+        return compileStagePlan(relNode, preOptColumnNames).serialize();
     }
 
-    private SerializedPlanFragment doConvertValidateAndSerialize(
+    /** Compiles and validates the live fragment before any wire boundary. */
+    public CompiledStagePlan compileStagePlan(
             RelNode relNode, List<String> preOptColumnNames) {
         ConversionResult convResult = converter.convertWithResult(relNode, preOptColumnNames);
         PlanValidationResult result = validator.validate(convResult.plan());
@@ -259,8 +260,8 @@ public class SqlCompiler {
             throw new PlannerException(PangrovaErrorCode.NATIVE_UNSUPPORTED_PLAN,
                     "Plan contains unsupported operators: " + unsupported);
         }
-        return new SerializedPlanFragment(
-                serializer.serialize(convResult.plan()),
+        return new CompiledStagePlan(
+                serializer.toProto(convResult.plan()),
                 convResult.retrievalTopKHints(),
                 convResult.aiInvocationHints());
     }

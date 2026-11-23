@@ -8,6 +8,7 @@ import org.pangrova.coordinator.scheduler.placement.WorkerSelector;
 import org.pangrova.coordinator.query.execution.dispatch.dag.control.DurableStageRuntime;
 import org.pangrova.execution.authority.StageExecutionContext;
 import org.pangrova.coordinator.query.stage.StageDAG;
+import org.pangrova.planner.analysis.CompiledStagePlan;
 import org.pangrova.planner.analysis.SqlCompiler;
 import org.pangrova.planner.analysis.AuthorizedStageGraph;
 import org.pangrova.planner.analysis.StageTransfer;
@@ -49,31 +50,30 @@ public record DAGExecutionState(StageExecutionContext execution, StageDAG dag, S
     public String queryId() { return execution.executionId(); }
     public QuerySession session() { return execution.requireLiveSession(); }
 
-    /** Serializes the actual live stage, preserving the pre-optimization output ordinal names. */
-    public org.pangrova.planner.api.fragment.SerializedPlanFragment serializePlan(
+    /** Compiles the actual live stage with the pre-optimization output ordinal names. */
+    public CompiledStagePlan compilePlan(
             org.pangrova.coordinator.query.stage.StageNode plan,
             List<String> preOptColumnNames) {
-        return bindLiveExchangeInputs(plan, serializeUnboundPlan(plan, preOptColumnNames));
+        return bindLiveExchangeInputs(plan, compileUnboundPlan(plan, preOptColumnNames));
     }
 
-    /** Serializes the logical exchange shape before the merge binds its source tag. */
-    public org.pangrova.planner.api.fragment.SerializedPlanFragment serializeUnboundPlan(
+    /** Compiles the logical exchange shape before the merge binds its source tag. */
+    private CompiledStagePlan compileUnboundPlan(
             org.pangrova.coordinator.query.stage.StageNode plan, List<String> preOptColumnNames) {
         List<String> columns = plan.stagePlan().fieldNames();
         if (dag.findDownstreamEdge(plan.stageId()) == null && !preOptColumnNames.isEmpty()) {
             columns = List.copyOf(preOptColumnNames);
         }
-        return plan.stagePlan().toSerializedPlan(compiler, columns);
+        return plan.stagePlan().requireLiveFragment().compileStagePlan(compiler, columns);
     }
 
     /** Validates the Consumer's input against the dispatched producer wire schemas. */
-    public org.pangrova.planner.api.fragment.SerializedPlanFragment bindLiveExchangeInputs(
-            org.pangrova.coordinator.query.stage.StageNode plan,
-            org.pangrova.planner.api.fragment.SerializedPlanFragment serialized) {
+    private CompiledStagePlan bindLiveExchangeInputs(
+            org.pangrova.coordinator.query.stage.StageNode plan, CompiledStagePlan compiled) {
         var incoming = incomingTransfers(plan.stageId());
-        if (incoming.isEmpty()) return serialized;
+        if (incoming.isEmpty()) return compiled;
         return AuthorizedStageGraph.bindLiveExchangeInputs(
-                plan.stageId(), serialized, incoming, producerPlans(incoming));
+                plan.stageId(), compiled, incoming, producerPlans(incoming));
     }
 
     private List<StageTransfer> incomingTransfers(int stageId) {

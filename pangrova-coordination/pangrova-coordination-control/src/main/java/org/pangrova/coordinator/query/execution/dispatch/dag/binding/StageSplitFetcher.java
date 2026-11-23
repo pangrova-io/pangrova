@@ -13,6 +13,7 @@ import org.pangrova.coordinator.query.execution.split.SplitFetcher;
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.stage.StageNode;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
+import org.pangrova.planner.analysis.PlanSplitSourceExtractor.PreparedSources;
 import org.pangrova.planner.analysis.SplitSourceDescriptor;
 import org.pangrova.connector.api.metadata.Constraint;
 import org.pangrova.connector.api.metadata.Domain;
@@ -38,8 +39,16 @@ public final class StageSplitFetcher {
                 ? new CatalogStageSplitSource(catalogRegistry) : indexAwareSplitFetcher;
     }
 
+    /** The enumerated splits and the exact compilation observations that admitted them. */
+    public record FetchedSplits(List<QuerySplit> splits, PreparedSources sources) {
+        public FetchedSplits {
+            splits = List.copyOf(splits);
+            java.util.Objects.requireNonNull(sources, "Fetched stage splits require exact source observations");
+        }
+    }
+
     /** Fetches a live stage using only its authenticated session, pinned selectors and write mode. */
-    public List<QuerySplit> fetch(
+    public FetchedSplits fetch(
             StageNode plan,
             QuerySession session,
             Map<String, Long> snapshotOverrides,
@@ -48,7 +57,7 @@ public final class StageSplitFetcher {
     }
 
     /** Applies proven probe ranges within the normal authorized catalog enumeration. */
-    public List<QuerySplit> fetch(StageNode plan, QuerySession session,
+    public FetchedSplits fetch(StageNode plan, QuerySession session,
             Map<String, Long> snapshotOverrides, String writeMode, BuildFilterGate filter) {
         if (session == null) {
             throw new IllegalStateException("Query session is required for authenticated split lookup");
@@ -58,14 +67,18 @@ public final class StageSplitFetcher {
                     "Durable stage allocations require the current exact persisted partition gate");
         }
         Map<String, Long> overrides = snapshotOverrides == null ? Map.of() : Map.copyOf(snapshotOverrides);
-        if ("OVERWRITE".equals(writeMode) || "UPDATE".equals(writeMode)) {
-            return fetchWithoutConstraints(plan, overrides, session);
-        }
         var fragment = plan.stagePlan().requireLiveFragment();
-        var sources = fragment.splitSources();
+        var sourcePlan = fragment.prepareSplitSources();
+        var sources = sourcePlan.descriptors();
+        if ("OVERWRITE".equals(writeMode) || "UPDATE".equals(writeMode)) {
+            return new FetchedSplits(fetchWithoutConstraints(
+                    sources, fragment.queryOutputColumns(), overrides, session), sourcePlan);
+        }
         var ranges = filter == null ? null : filter.probeRanges(plan.stageId());
         if (ranges == null || sources.size() != 1) {
-            return splitSource.fetchAndFilterSplits(fragment, sources, overrides, session.queryId(), session);
+            return new FetchedSplits(
+                    splitSource.fetchAndFilterSplits(fragment, sources, overrides, session.queryId(), session),
+                    sourcePlan);
         }
         var original = sources.get(0);
         var pruned = prune(original, filter.plan(), ranges);
@@ -74,7 +87,7 @@ public final class StageSplitFetcher {
             LOG.info("event=runtime_filter_probe_splits queryId={} stageId={} splitCount={} emptyBuild={}",
                     session.queryId(), plan.stageId(), splits.size(), ranges.isEmpty());
         }
-        return splits;
+        return new FetchedSplits(splits, sourcePlan);
     }
 
     private static SplitSourceDescriptor prune(
@@ -111,17 +124,15 @@ public final class StageSplitFetcher {
 
     private record BuildKeyColumn(String columnName) implements ColumnHandle {}
 
-    private List<QuerySplit> fetchWithoutConstraints(
-            StageNode plan,
-            Map<String, Long> overrides, org.pangrova.query.api.session.QuerySession session) {
-        List<SplitSourceDescriptor> sources = plan.stagePlan().splitSources().stream()
+    private List<QuerySplit> fetchWithoutConstraints(List<SplitSourceDescriptor> sources,
+            List<String> outputColumns, Map<String, Long> overrides, QuerySession session) {
+        List<SplitSourceDescriptor> unpruned = sources.stream()
                 .map(source -> new SplitSourceDescriptor(
                         source.catalogName(), source.schemaName(), source.tableName(),
                         Constraint.EMPTY, source.tableColumns(), source.readBinding()))
                 .toList();
         return SplitFetcher.fetchSplitsWithFilePaths(
-                sources, catalogRegistry, overrides,
-                plan.stagePlan().queryOutputColumns(), session);
+                unpruned, catalogRegistry, overrides, outputColumns, session);
     }
 
 }

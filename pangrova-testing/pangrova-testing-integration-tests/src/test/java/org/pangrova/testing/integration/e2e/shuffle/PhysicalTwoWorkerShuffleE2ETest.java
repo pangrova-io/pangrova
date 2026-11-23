@@ -614,6 +614,19 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
             assertThat(narrowBytes).as("sparse Parquet file bytes").isPositive().isLessThan(wideBytes / 4);
             metrics.publishEntry(Map.of("narrow_parquet_file_bytes", Long.toString(narrowBytes),
                     "wide_parquet_file_bytes", Long.toString(wideBytes)));
+
+
+            var filtered = executeWithDrainedReports("SELECT id FROM " + table
+                    + " WHERE data_0 BETWEEN 300000000 AND 400000000 ORDER BY id");
+            assertThat(filtered.rows()).hasSize(1122).extracting(row -> row.getLong("id"))
+                    .containsExactlyElementsOf(wide.rows().stream()
+                            .filter(row -> row.getLong("data_0") >= 300000000L
+                                    && row.getLong("data_0") <= 400000000L)
+                            .map(row -> row.getLong("id")).toList());
+            assertThat(filtered.sourceSplits(table)).isEqualTo(narrow.sourceSplits(table));
+            long filteredBytes = filtered.sourceReadBytes(table);
+            assertThat(filteredBytes).as("filtered Parquet file bytes").isPositive().isLessThan(wideBytes / 4);
+            metrics.publishEntry("filtered_parquet_file_bytes", Long.toString(filteredBytes));
         } finally {
             sqlRunner.executeDdl("DROP TABLE " + table);
         }

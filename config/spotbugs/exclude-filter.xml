@@ -142,6 +142,13 @@
         <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
     </Match>
 
+    <!-- Live compilation shares a built Substrait message whose repeated fields are immutable. -->
+    <Match>
+        <Class name="org.pangrova.planner.analysis.CompiledStagePlan"/>
+        <Field name="plan" type="io.substrait.proto.Plan"/>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+    </Match>
+
     <!-- Capability signatures are public SHA-256 contract identifiers, never secret keys. -->
     <Match>
         <Class name="org.pangrova.protocol.capability.BuiltInCapabilityCatalog"/>
