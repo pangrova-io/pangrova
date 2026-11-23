@@ -39,6 +39,11 @@ import org.slf4j.LoggerFactory;
 import java.io.Closeable;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 
 /**
  * JAX-RS resource for Worker task operations. Exchange inputs are immutable task-admission
@@ -51,7 +56,10 @@ import java.util.OptionalLong;
 public final class TaskResource implements Closeable {
 
     private static final int HTTP_TOO_EARLY = 425;
+    private static final int MAX_PENDING_RETRY_ACKS = 128;
     private static final Logger LOG = LoggerFactory.getLogger(TaskResource.class);
+
+    private final Semaphore pendingRetryAcks = new Semaphore(MAX_PENDING_RETRY_ACKS);
 
     private final TaskManager taskManager;
     private final ExchangeTransport<TaskAttemptId, ExchangeInputBinding> exchangeTransport;
@@ -142,37 +150,43 @@ public final class TaskResource implements Closeable {
     @POST
     @Consumes(SubmitTaskRequest.MEDIA_TYPE)
     @Produces(SubmitTaskRequest.MEDIA_TYPE)
-    public Response submitTask(byte[] body, @Context HttpServletRequest transport) {
+    public CompletionStage<Response> submitTask(byte[] body, @Context HttpServletRequest transport) {
         if (body == null || body.length == 0) {
-            return rejectSubmit(Response.Status.BAD_REQUEST.getStatusCode(), "Task submission payload is required");
+            return CompletableFuture.completedFuture(rejectSubmit(
+                    Response.Status.BAD_REQUEST.getStatusCode(), "Task submission payload is required"));
         }
         SubmitTaskRequest request;
         try {
             request = SubmitTaskRequest.decode(body);
         } catch (InvalidProtocolBufferException | IllegalArgumentException failure) {
-            return rejectSubmit(Response.Status.BAD_REQUEST.getStatusCode(), "Invalid binary task submission");
+            return CompletableFuture.completedFuture(rejectSubmit(
+                    Response.Status.BAD_REQUEST.getStatusCode(), "Invalid binary task submission"));
         }
         return submitTask(request, transport != null && transport.isSecure());
     }
 
-    private Response submitTask(SubmitTaskRequest request, boolean secureTransport) {
+    private CompletionStage<Response> submitTask(SubmitTaskRequest request, boolean secureTransport) {
         if (request.copySourceRead() != null && !secureTransport) {
-            return rejectSubmit(Response.Status.FORBIDDEN.getStatusCode(), "COPY_SECURE_TRANSPORT_REQUIRED",
-                    "COPY private task requires mutual-TLS transport");
+            return CompletableFuture.completedFuture(rejectSubmit(
+                    Response.Status.FORBIDDEN.getStatusCode(), "COPY_SECURE_TRANSPORT_REQUIRED",
+                    "COPY private task requires mutual-TLS transport"));
         }
         LogContext.set(CurrentSpanIds.currentTraceId(), CurrentSpanIds.currentSpanId());
         org.pangrova.observability.api.tracing.Span span = startSpan("task.submit");
         try {
-            return executeSubmit(request);
-        } catch (Exception e) {
-            return handleSubmitError(request, e);
-        } finally {
+            return executeSubmit(request).whenComplete((result, failure) -> endSpan(span));
+        } catch (Exception failure) {
             endSpan(span);
+            return CompletableFuture.completedFuture(handleSubmitError(queryId(request), failure));
+        } catch (Error failure) {
+            endSpan(span);
+            throw failure;
+        } finally {
             LogContext.clear();
         }
     }
 
-    private Response executeSubmit(SubmitTaskRequest request) {
+    private CompletionStage<Response> executeSubmit(SubmitTaskRequest request) {
         // Classify a missing or stale control epoch through the fail-closed
         // fencing path before full contract validation. This check is pure and
         // must precede every admission side effect.
@@ -184,13 +198,40 @@ public final class TaskResource implements Closeable {
         try {
             validated = new ValidatedTaskSubmission(request);
         } catch (IllegalArgumentException invalidRequest) {
-            return rejectSubmit(Response.Status.BAD_REQUEST.getStatusCode(), invalidRequest.getMessage());
+            return CompletableFuture.completedFuture(rejectSubmit(
+                    Response.Status.BAD_REQUEST.getStatusCode(), invalidRequest.getMessage()));
         }
         taskManager.verifyExecutionOwnerForAdmission(request);
         ResultEndpoint endpoint = resultEndpoint(validated);
         TaskDescriptor descriptor = TaskRequestDtoConverter.toTaskDescriptor(request);
-        String workerTaskId = taskManager.submitValidatedTask(descriptor, validated);
-        var admitted = TaskAdmitted.newBuilder().setTaskId(request.taskRequest().getAttempt().getTaskId());
+        var ownership = taskManager.submitValidatedTask(descriptor, validated);
+        var attempt = request.taskRequest().getAttempt();
+        String taskId = attempt.getTaskId();
+        String query = attempt.getQueryOrJobId();
+        boolean pendingRetry = !ownership.completed();
+        if (pendingRetry && !pendingRetryAcks.tryAcquire()) {
+            return CompletableFuture.completedFuture(rejectSubmit(Response.Status.SERVICE_UNAVAILABLE.getStatusCode(),
+                    "Worker has too many pending exact task acknowledgements"));
+        }
+        var response = ownership.completion().handle((workerTaskId, failure) ->
+                submissionResponse(taskId, query, endpoint, workerTaskId, failure));
+        if (!pendingRetry) return response;
+        // An HTTP deadline must not settle the shared admission or release its observer capacity early.
+        response.whenComplete((ignored, failure) -> pendingRetryAcks.release());
+        long remainingMs = Math.max(1L, request.taskRequest().getDeadlineEpochMs() - System.currentTimeMillis());
+        return response.toCompletableFuture().copy().completeOnTimeout(
+                rejectSubmit(Response.Status.REQUEST_TIMEOUT.getStatusCode(), "Exact task acknowledgement expired"),
+                remainingMs, TimeUnit.MILLISECONDS);
+    }
+
+    private Response submissionResponse(String taskId, String queryId, ResultEndpoint endpoint,
+            String workerTaskId, Throwable failure) {
+        if (failure != null) {
+            var cause = failure instanceof CompletionException completion ? completion.getCause() : failure;
+            if (cause instanceof Error error) throw error;
+            return handleSubmitError(queryId, cause);
+        }
+        var admitted = TaskAdmitted.newBuilder().setTaskId(taskId);
         if (endpoint != null) {
             admitted.setResultEndpoint(TaskResultEndpoint.newBuilder().setHost(endpoint.host())
                     .setPort(endpoint.port()).setTicket(endpoint.ticket()).setProtocol(endpoint.protocol()));
@@ -218,7 +259,7 @@ public final class TaskResource implements Closeable {
         return resultTickets.endpoint(request, workerHost, transportPort, resultProtocol);
     }
 
-    private Response handleSubmitError(SubmitTaskRequest request, Exception e) {
+    private Response handleSubmitError(String queryId, Throwable e) {
         if (e instanceof org.pangrova.worker.exception.TaskAdmissionException admission) {
             int status = switch (admission.reason()) {
                 case EXPIRED -> Response.Status.REQUEST_TIMEOUT.getStatusCode();
@@ -232,7 +273,7 @@ public final class TaskResource implements Closeable {
             int status = epochRejectionStatus(fenceError);
             LOG.warn(
                     "event=task_submit_epoch_rejected queryId={} reason={} error={}",
-                    queryId(request),
+                    queryId,
                     fenceError.reason(),
                     fenceError.getMessage());
             return rejectSubmit(status, fenceError.getMessage());
@@ -240,7 +281,7 @@ public final class TaskResource implements Closeable {
         if (e instanceof org.pangrova.worker.exception.ExecutionOwnerFenceException) {
             LOG.warn(
                     "event=task_submit_owner_rejected queryId={} error={}",
-                    queryId(request),
+                    queryId,
                     e.getMessage());
             return rejectSubmit(Response.Status.CONFLICT.getStatusCode(), e.getMessage());
         }
@@ -250,13 +291,13 @@ public final class TaskResource implements Closeable {
                                 .RESOURCE_MEMORY_EXCEEDED) {
             LOG.warn(
                     "event=task_submit_resource_rejected queryId={} error={}",
-                    queryId(request),
+                    queryId,
                     e.getMessage());
             return rejectSubmit(Response.Status.SERVICE_UNAVAILABLE.getStatusCode(), e.getMessage());
         }
         LOG.error(
                 "event=task_submit_failed queryId={} error={}",
-                queryId(request),
+                queryId,
                 e.getMessage(),
                 e);
         return rejectSubmit(Response.Status.INTERNAL_SERVER_ERROR.getStatusCode(), e.getMessage());

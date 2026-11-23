@@ -49,6 +49,23 @@ class TaskAdmissionRegistryTest {
     }
 
     @Test
+    void anObserverDeadlineDoesNotSettleTheActualAdmission() throws Exception {
+        var registry = new TaskAdmissionRegistry(1, NOW);
+        var original = registry.reserve(request("task", 2000), "worker-task");
+        var duplicate = registry.reserve(request("task", 2000), "ignored");
+        original.publish(() -> {});
+        original.handOff();
+
+        var observer = duplicate.completion().toCompletableFuture();
+        assertThat(observer.completeExceptionally(new java.util.concurrent.TimeoutException())).isTrue();
+        assertThat(original.completed()).isFalse();
+
+        original.completeTaskSetup();
+        assertThat(duplicate.completion().toCompletableFuture().get(10, TimeUnit.SECONDS)).isEqualTo("worker-task");
+        assertThat(observer.isCompletedExceptionally()).isTrue();
+    }
+
+    @Test
     void concurrentDuplicatesElectExactlyOneOwner() throws Exception {
         var registry = new TaskAdmissionRegistry(2, NOW);
         var barrier = new CyclicBarrier(4);

@@ -626,8 +626,10 @@ The Worker returns a `TaskSubmitAck` with an `admitted` or `rejected` outcome.
 An admitted acknowledgement carries the canonical task ID and any result or
 Shuffle endpoint owned by that task. Shuffle tickets remain opaque bytes and
 are ordered by output partition for direct lookup. A repeat delivery of the
-same task waits for the original task's endpoint setup. Cancellation and
-shutdown can identify the actual owner during setup. The Coordinator verifies
+same task waits asynchronously for the original task's endpoint setup.
+The Worker bounds pending retry acknowledgements and uses the original task
+deadline for each HTTP observation. Cancellation and shutdown can identify the
+actual owner during setup. The Coordinator verifies
 the returned identity and endpoint scope before recording the dispatch result.
 
 | Scenario | HTTP status | Acknowledgement |

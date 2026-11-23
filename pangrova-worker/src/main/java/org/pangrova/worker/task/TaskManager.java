@@ -256,7 +256,14 @@ public class TaskManager implements AutoCloseable {
         return submissionHandler.submitTask(descriptor, request);
     }
 
-    public String submitValidatedTask(TaskDescriptor descriptor, ValidatedTaskSubmission request) {
+    /** Observes the actual admission without transferring or cancelling its ownership. */
+    public interface TaskAdmission {
+        boolean completed();
+
+        java.util.concurrent.CompletionStage<String> completion();
+    }
+
+    public TaskAdmission submitValidatedTask(TaskDescriptor descriptor, ValidatedTaskSubmission request) {
         return submissionHandler.submitValidatedTask(descriptor, request);
     }
 

@@ -42,14 +42,15 @@ final class TaskSubmissionHandler {
     }
 
     String submitTask(TaskDescriptor descriptor, SubmitTaskRequest request) {
-        return submitTask(descriptor, request, null);
+        var reservation = beginSubmission(descriptor, request, null);
+        return reservation.first() ? reservation.workerTaskId() : reservation.awaitAdmission();
     }
 
-    String submitValidatedTask(TaskDescriptor descriptor, ValidatedTaskSubmission request) {
-        return submitTask(descriptor, request.submission(), request);
+    TaskManager.TaskAdmission submitValidatedTask(TaskDescriptor descriptor, ValidatedTaskSubmission request) {
+        return beginSubmission(descriptor, request.submission(), request);
     }
 
-    private String submitTask(TaskDescriptor descriptor, SubmitTaskRequest request,
+    private TaskAdmissionRegistry.Reservation beginSubmission(TaskDescriptor descriptor, SubmitTaskRequest request,
             ValidatedTaskSubmission previouslyValidated) {
         checkNotNull(descriptor, "descriptor must not be null");
         checkNotNull(request, "request must not be null");
@@ -83,11 +84,11 @@ final class TaskSubmissionHandler {
         String taskId =
                 owner.tasks.nextId(descriptor.queryId().toString());
         var reservation = owner.taskAdmissions.reserve(canonical, taskId);
-        if (!reservation.first()) return reservation.awaitAdmission();
-        return submitReserved(descriptor, admission, taskId, reservation);
+        if (reservation.first()) submitReserved(descriptor, admission, taskId, reservation);
+        return reservation;
     }
 
-    private String submitReserved(
+    private void submitReserved(
             TaskDescriptor descriptor,
             ValidatedTaskSubmission admission,
             String taskId,
@@ -119,7 +120,6 @@ final class TaskSubmissionHandler {
                 autoFinishIfConfigured(taskId, queryId, request);
             }
             reservation.completeTaskSetup();
-            return taskId;
         } catch (RuntimeException | Error failure) {
             reservation.failAfterHandoff(failure);
             throw failure;

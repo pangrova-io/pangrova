@@ -30,7 +30,7 @@ class TaskResourceCanonicalControlTest {
             String canonical = "canonical-task";
             var original = request(runtime, canonical);
             var owner = fixture.preparePending(original.taskRequest());
-            try (Response submitted = resource.submitTask(original.encode(), null)) {
+            try (Response submitted = resource.submitTask(original.encode(), null).toCompletableFuture().join()) {
                 assertThat(submitted.getStatus()).isEqualTo(200);
                 assertThat(TaskSubmitAck.parseFrom((byte[]) submitted.getEntity()).getAdmitted().getTaskId())
                         .isEqualTo(canonical);
@@ -48,7 +48,7 @@ class TaskResourceCanonicalControlTest {
             assertThat(owner.allocatedBufferMemory()).isZero();
             assertThat(manager.getTaskState(local)).contains(TaskState.CANCELLED);
             assertThat(manager.resolveWorkerTaskId(canonical)).isEqualTo(local);
-            try (Response delayed = resource.submitTask(original.encode(), null)) {
+            try (Response delayed = resource.submitTask(original.encode(), null).toCompletableFuture().join()) {
                 assertThat(delayed.getStatus()).isEqualTo(409);
             }
             assertThat(manager.resolveWorkerTaskId(canonical)).isEqualTo(local);
@@ -74,7 +74,7 @@ class TaskResourceCanonicalControlTest {
             var manager = fixture.manager();
             var original = request(runtime, "canonical-task");
             var owner = fixture.preparePending(original.taskRequest());
-            try (Response submitted = resource.submitTask(original.encode(), null)) {
+            try (Response submitted = resource.submitTask(original.encode(), null).toCompletableFuture().join()) {
                 assertThat(submitted.getStatus()).isEqualTo(200);
             }
             String local = manager.resolveWorkerTaskId("canonical-task");
@@ -111,7 +111,7 @@ class TaskResourceCanonicalControlTest {
                                 org.pangrova.protocol.v2.ExecutionDrainState
                                         .EXECUTION_DRAIN_STATE_ADMISSION_CLOSED_WITHOUT_NATIVE_OWNER);
                 assertThat(manager.resolveWorkerTaskId("absent")).isNull();
-                try (Response late = resource.submitTask(original.encode(), null)) {
+                try (Response late = resource.submitTask(original.encode(), null).toCompletableFuture().join()) {
                     assertThat(late.getStatus()).isEqualTo(409);
                 }
                 assertThat(runtime.nodePool().getUsedBytes()).isZero();
@@ -138,7 +138,7 @@ class TaskResourceCanonicalControlTest {
                 var fixture = new ActualTaskManagerFixture(runtime, "control-http");
                 var resource = resource(fixture.manager(), runtime)) {
             TaskRequest request = runtime.valuesRequest(true);
-            try (Response submitted = resource.submitTask(SubmitTaskRequest.from(request).encode(), null)) {
+            try (Response submitted = resource.submitTask(SubmitTaskRequest.from(request).encode(), null).toCompletableFuture().join()) {
                 assertThat(submitted.getStatus()).isEqualTo(200);
                 var ack = TaskSubmitAck.parseFrom((byte[]) submitted.getEntity());
                 assertThat(ack.hasAdmitted()).isTrue();

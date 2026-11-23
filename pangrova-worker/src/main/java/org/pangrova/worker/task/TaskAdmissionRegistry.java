@@ -288,7 +288,7 @@ final class TaskAdmissionRegistry {
         }
     }
 
-    final class Reservation {
+    final class Reservation implements TaskManager.TaskAdmission {
         private final String taskId;
         private final Entry entry;
         private final boolean first;
@@ -301,6 +301,20 @@ final class TaskAdmissionRegistry {
 
         boolean first() {
             return first;
+        }
+
+        String workerTaskId() {
+            return entry.workerTaskId;
+        }
+
+        @Override
+        public boolean completed() {
+            return entry.admitted.isDone();
+        }
+
+        @Override
+        public java.util.concurrent.CompletionStage<String> completion() {
+            return entry.admitted.minimalCompletionStage();
         }
 
         void publish(Runnable publication) {

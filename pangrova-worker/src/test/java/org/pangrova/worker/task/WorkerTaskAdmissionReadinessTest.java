@@ -33,7 +33,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 @ResourceLock(ActualNativeTaskFixture.RUNTIME_LOCK)
 class WorkerTaskAdmissionReadinessTest {
     @Test
-    void overlappingExactSubmissionsGetTheSameActualProducerEndpoint() throws Exception {
+    void exactRetriesKeepControlResponsiveAndShareOneProducerRegistration() throws Exception {
         var registrationEntered = new CountDownLatch(1);
         var allowRegistration = new CountDownLatch(1);
         var registrations = new AtomicInteger();
@@ -55,39 +55,64 @@ class WorkerTaskAdmissionReadinessTest {
                     new RecordingTaskStatusReporter(), memory, transports)) {
                 var config = new WorkerHttpServer.WorkerHttpConfig(0, "127.0.0.1", runtime.resultPort())
                         .withBindHost("127.0.0.1");
-                var server = new WorkerHttpServer(config, tasks.manager(), transports.exchangeTransport());
+                var healthCheck = new org.pangrova.common.lifecycle.HealthCheckEndpoint(
+                        org.pangrova.common.enums.ClusterNodeType.WORKER,
+                        new org.pangrova.common.lifecycle.HealthCheckEndpoint.HealthConditions() {
+                            @Override public boolean isHttpReady() { return true; }
+                            @Override public boolean isTransportReady() { return true; }
+                            @Override public boolean isNativeReady() { return true; }
+                            @Override public int resultServerPort() { return runtime.resultPort(); }
+                            @Override public boolean resultServerRunning() { return true; }
+                            @Override public int activeWorkerCount() { return 1; }
+                            @Override public int activeCatalogCount() { return 0; }
+                        });
+                var server = new WorkerHttpServer(config, tasks.manager(), transports.exchangeTransport(), healthCheck);
                 server.start();
                 try {
                     var plan = ActualNativeTaskFixture.valuesTaskRequest(false).getSubstraitPlan().toByteArray();
                     var task = runtime.bindWorker(ActualNativeShuffleRequests.producer(2, plan));
                     var submit = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + server.getPort() + "/v1/task"))
-                            .timeout(Duration.ofSeconds(15))
+                            .timeout(Duration.ofSeconds(30))
                             .header("Content-Type", SubmitTaskRequest.MEDIA_TYPE)
                             .POST(HttpRequest.BodyPublishers.ofByteArray(SubmitTaskRequest.from(task).encode())).build();
                     var client = HttpClient.newHttpClient();
                     var first = client.sendAsync(submit, HttpResponse.BodyHandlers.ofByteArray());
                     assertThat(registrationEntered.await(10, TimeUnit.SECONDS)).isTrue();
-                    var duplicate = client.sendAsync(submit, HttpResponse.BodyHandlers.ofByteArray());
+                    int replayCount = 140;
+                    var duplicates = java.util.stream.IntStream.range(0, replayCount)
+                            .mapToObj(index -> client.sendAsync(submit, HttpResponse.BodyHandlers.ofByteArray())).toList();
+                    var health = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + server.getPort() + "/v1/health"))
+                            .timeout(Duration.ofSeconds(30)).GET().build();
+                    var pending = pendingAcknowledgements(server);
                     try {
-                        await().during(Duration.ofMillis(750)).atMost(Duration.ofSeconds(3)).untilAsserted(() -> {
-                            assertThat(first.isDone()).as("initial submission waits for its actual endpoint").isFalse();
-                            if (duplicate.isDone()) {
-                                var early = duplicate.join();
-                                var ack = TaskSubmitAck.parseFrom(early.body());
-                                throw new AssertionError("Duplicate returned HTTP " + early.statusCode()
-                                        + " before producer registration. Shuffle endpoint present: "
-                                        + ack.getAdmitted().hasShuffleEndpoint());
-                            }
-                        });
+                        await().atMost(Duration.ofSeconds(8)).until(() -> pending.availablePermits() == 0);
+                        await().atMost(Duration.ofSeconds(3)).until(() ->
+                                duplicates.stream().filter(java.util.concurrent.CompletableFuture::isDone).count()
+                                        == 12);
+                        assertThat(first.isDone()).isFalse();
+                        var healthResponse = HttpClient.newHttpClient()
+                                .sendAsync(health, HttpResponse.BodyHandlers.discarding());
+                        assertThat(healthResponse.get(5, TimeUnit.SECONDS).statusCode()).isEqualTo(200);
                     } finally {
                         allowRegistration.countDown();
                     }
                     var firstAck = requireAccepted(first.get(10, TimeUnit.SECONDS));
-                    var duplicateAck = requireAccepted(duplicate.get(10, TimeUnit.SECONDS));
+                    int busy = 0;
+                    for (var replay : duplicates) {
+                        var reply = replay.get(10, TimeUnit.SECONDS);
+                        if (reply.statusCode() == 503) {
+                            assertThat(TaskSubmitAck.parseFrom(reply.body()).getRejected().getCode())
+                                    .isEqualTo("SERVICE_UNAVAILABLE");
+                            busy++;
+                        } else {
+                            assertThat(requireAccepted(reply)).isEqualTo(firstAck);
+                        }
+                    }
+                    assertThat(busy).isEqualTo(12);
+                    await().atMost(Duration.ofSeconds(3)).until(() -> pending.availablePermits() == 128);
                     assertThat(firstAck.getAdmitted().getTaskId()).isEqualTo(task.getAttempt().getTaskId());
                     assertThat(firstAck.getAdmitted().hasShuffleEndpoint()).isTrue();
                     assertThat(firstAck.getAdmitted().getShuffleEndpoint().getPartitionTicketsCount()).isEqualTo(2);
-                    assertThat(duplicateAck).isEqualTo(firstAck);
                     assertThat(registrations).hasValue(1);
                     var info = tasks.admittedTask(task);
                     tasks.awaitState(info, org.pangrova.worker.enums.TaskState.FINISHED);
@@ -101,6 +126,15 @@ class WorkerTaskAdmissionReadinessTest {
         }
     }
 
+    private static java.util.concurrent.Semaphore pendingAcknowledgements(WorkerHttpServer server) throws Exception {
+        var field = WorkerHttpServer.class.getDeclaredField("taskResource");
+        field.setAccessible(true);
+        var resource = field.get(server);
+        var waiting = resource.getClass().getDeclaredField("pendingRetryAcks");
+        waiting.setAccessible(true);
+        return (java.util.concurrent.Semaphore) waiting.get(resource);
+    }
+
     private static boolean isProducerRegistration(byte[] command) {
         try {
             return RuntimeCommand.parseFrom(command).getCommandType()
@@ -112,7 +146,7 @@ class WorkerTaskAdmissionReadinessTest {
 
     private static void awaitRegistrationPermit(CountDownLatch permit) {
         try {
-            if (!permit.await(10, TimeUnit.SECONDS)) {
+            if (!permit.await(25, TimeUnit.SECONDS)) {
                 throw new AssertionError("Producer registration did not receive permission");
             }
         } catch (InterruptedException failure) {

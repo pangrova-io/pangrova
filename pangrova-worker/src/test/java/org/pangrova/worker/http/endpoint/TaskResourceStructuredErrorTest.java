@@ -24,7 +24,7 @@ class TaskResourceStructuredErrorTest {
     void submitTaskReturnsBadRequestForNull() throws Exception {
         TaskResource resource = buildResource();
 
-        Response response = resource.submitTask(null, null);
+        Response response = resource.submitTask(null, null).toCompletableFuture().join();
 
         assertThat(response.getStatus()).isEqualTo(400);
         var ack = TaskSubmitAck.parseFrom((byte[]) response.getEntity());
@@ -45,7 +45,7 @@ class TaskResourceStructuredErrorTest {
                 .build();
         SubmitTaskRequest request = SubmitTaskRequest.from(canonical);
 
-        Response response = resource.submitTask(request.encode(), null);
+        Response response = resource.submitTask(request.encode(), null).toCompletableFuture().join();
 
         assertThat(response.getStatus()).isEqualTo(400);
         var ack = TaskSubmitAck.parseFrom((byte[]) response.getEntity());
