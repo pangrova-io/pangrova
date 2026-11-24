@@ -20,6 +20,7 @@ import org.pangrova.protocol.v2.TaskAttemptId;
 
 /** Canonical v2 task construction and Worker-admission validation. */
 public final class CanonicalTaskRequests {
+    public static final int MAX_BUILD_KEY_COLUMNS = 4;
     public static final int MAX_EXTERNAL_PARTITIONS_PER_INPUT = 32;
 
     public static final int MAX_COVERAGE_IDENTITIES = 4_096;
@@ -147,12 +148,25 @@ public final class CanonicalTaskRequests {
         validateCoverageIdentityBounds(request);
         validateExchangeInputs(request);
         validateRuntimeFilters(request);
-        if (request.hasBuildKeyOrdinal() && (request.getBuildKeyOrdinal() < 0
+        validateBuildKeyOrdinals(request);
+    }
+
+    private static void validateBuildKeyOrdinals(TaskRequest request) {
+        var ordinals = request.getBuildKeyOrdinalsList();
+        if (ordinals.isEmpty()) return;
+        if (ordinals.size() > MAX_BUILD_KEY_COLUMNS
                 || request.getTaskKind() != org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ
                 || !request.getExecutionOptions().hasShuffle()
                 || request.getExecutionOptions().getDirectResultOutput()
-                || request.getExchangeInputsCount() != 0)) {
-            throw new IllegalArgumentException("Runtime-filter build key requires a leaf shuffle producer");
+                || request.getExchangeInputsCount() != 0) {
+            throw new IllegalArgumentException("Runtime-filter build keys require a bounded leaf shuffle producer");
+        }
+        int previous = -1;
+        for (int ordinal : ordinals) {
+            if (ordinal <= previous) {
+                throw new IllegalArgumentException("Runtime-filter build key ordinals must be sorted and distinct");
+            }
+            previous = ordinal;
         }
     }
 

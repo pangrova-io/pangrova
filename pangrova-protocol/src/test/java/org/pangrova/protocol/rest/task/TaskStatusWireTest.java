@@ -73,7 +73,7 @@ class TaskStatusWireTest {
                 .setRole(TaskRole.TASK_ROLE_COMPUTE).setSequence(4)
                 .setProgress(TaskProgress.newBuilder().setAttempt(ATTEMPT).setState(TaskState.TASK_STATE_RUNNING))
                 .setSupplementalStats(NativeTaskStats.newBuilder()
-                        .setBuildKeys(org.pangrova.protocol.v2.BuildKeySummary.getDefaultInstance()));
+                        .addBuildKeySummaries(org.pangrova.protocol.v2.BuildKeySummary.newBuilder().setOrdinal(0)));
         byte[] forged = frame.build().toByteArray();
         assertThatThrownBy(() -> TaskStatusWire.decode(forged)).isInstanceOf(IllegalArgumentException.class);
     }

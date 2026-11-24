@@ -622,6 +622,44 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
     }
 
     @Test
+    void appliesBothEligibleBuildKeyDomains() {
+        String probe = orders + "_two_key_probe";
+        String build = orders + "_two_key_build";
+        sqlRunner.executeDdl("CREATE TABLE " + probe
+                + " (id BIGINT, tag BIGINT, payload BIGINT) PARTITIONED BY (id, tag)");
+        sqlRunner.executeDdl("CREATE TABLE " + build + " (id BIGINT, tag BIGINT)");
+        String probeValues = java.util.stream.IntStream.range(0, 320)
+                .mapToObj(row -> "(" + (row / 40) + ", " + (row / 8 % 5) + ", " + row + ")")
+                .collect(java.util.stream.Collectors.joining(", "));
+        sqlRunner.execute("INSERT INTO " + probe + " VALUES " + probeValues);
+        sqlRunner.execute("INSERT INTO " + build + " VALUES "
+                + "(1, 1), (1, 3), (3, 1), (3, 3), (6, 1), (1, 1), (1, NULL), (NULL, 1)");
+
+        String join = "SELECT p.id, p.tag, p.payload FROM " + probe + " p JOIN " + build + " b ON ";
+        var both = executeWithDrainedReports(join + "p.id = b.id AND p.tag = b.tag ORDER BY p.id, p.payload");
+        var idOnly = executeWithDrainedReports(join + "p.id = b.id AND ABS(p.tag) = b.tag ORDER BY p.id, p.payload");
+        var tagOnly = executeWithDrainedReports(join + "ABS(p.id) = b.id AND p.tag = b.tag ORDER BY p.id, p.payload");
+
+        assertThat(both.rows()).hasSize(48).usingRecursiveComparison().isEqualTo(idOnly.rows());
+        assertThat(tagOnly.rows()).usingRecursiveComparison().isEqualTo(idOnly.rows());
+        assertThat(both.sourceSplits(probe)).isEqualTo(6L);
+        assertThat(both.buildSummaries()).hasSize(2);
+        assertThat(both.runtimeFilterWait().outcome()).isEqualTo(RuntimeFilterOutcome.APPLIED);
+        assertThat(both.runtimeFilterWait().rangeCount()).isEqualTo(5);
+        assertThat(idOnly.sourceSplits(probe)).isEqualTo(15L);
+        assertThat(tagOnly.sourceSplits(probe)).isEqualTo(16L);
+        assertThat(both.sourceReadBytes(probe)).isPositive()
+                .isLessThan(idOnly.sourceReadBytes(probe)).isLessThan(tagOnly.sourceReadBytes(probe));
+        var logger = org.slf4j.LoggerFactory.getLogger(PhysicalTwoWorkerShuffleE2ETest.class);
+        for (var sample : Map.of("both", both, "id_only", idOnly, "tag_only", tagOnly).entrySet()) {
+            var query = sample.getValue();
+            logger.info("event=multi_key_probe variant={} rows={} splits={} readerBytes={} profile={} summaries={}",
+                    sample.getKey(), query.rows().size(), query.sourceSplits(probe), query.sourceReadBytes(probe),
+                    query.runtimeFilterWait(), query.buildSummaries());
+        }
+    }
+
+    @Test
     void directProjectionReadsOnlyRequestedColumnsInBothPhysicalWorkers(TestReporter metrics) {
         var narrow = executeWithDrainedReports("SELECT id FROM " + orders + " ORDER BY id");
         var wide = executeWithDrainedReports("SELECT id, score FROM " + orders + " ORDER BY id");
@@ -732,8 +770,7 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
             RuntimeFilterWait runtimeFilterWait) {
         List<BuildKeySummary> buildSummaries() {
             return reports.stream().map(TaskReport::getNativeTaskStats)
-                    .filter(org.pangrova.protocol.v2.NativeTaskStats::hasBuildKeys)
-                    .map(org.pangrova.protocol.v2.NativeTaskStats::getBuildKeys).toList();
+                    .flatMap(stats -> stats.getBuildKeySummariesList().stream()).toList();
         }
 
         long sourceSplits(String source) {

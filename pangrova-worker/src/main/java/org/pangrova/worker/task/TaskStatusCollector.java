@@ -275,7 +275,8 @@ final class TaskStatusCollector {
         if (captured != null && captured.getSerializedSize() > 0) {
             logCacheUsage(info.taskId(), captured.getCacheHitCount(), captured.getCacheMissCount(),
                     captured.getCacheEvictionCount(), captured.getCacheAdmissionRejectionCount());
-            return captured.hasBuildKeys() ? captured.toBuilder().clearBuildKeys().build() : captured;
+            return captured.getBuildKeySummariesCount() == 0
+                    ? captured : captured.toBuilder().clearBuildKeySummaries().build();
         }
         if ("FINISHED".equals(state) && info.request() != null
                 && TaskCompletionMonitor.isWorkerExecuted(info.request().taskRequest())) {

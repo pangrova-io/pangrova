@@ -94,7 +94,7 @@ struct VeloxTaskRunnerConfig {
   bool is_shuffle_task = false;
   int32_t num_shuffle_partitions = 0;
   std::optional<ShuffleOutputSpec> shuffle_output_spec;
-  std::optional<uint32_t> build_key_ordinal;
+  std::vector<uint32_t> build_key_ordinals;
   std::string shuffle_compression_codec = "lz4";
   // Indices of columns used for shuffle partition hash computation.
   // When empty, the first column is used as the default partition key.
@@ -293,7 +293,7 @@ class VeloxTaskRunner
   std::vector<facebook::velox::column_index_t> shuffle_key_channels_;
   std::atomic<uint64_t> shuffle_next_row_{0};
   mutable std::mutex build_key_ranges_mutex_;
-  BuildKeyRanges build_key_ranges_;
+  std::vector<BuildKeyRanges> build_key_ranges_;
   std::atomic<bool> finished_{false};
   bool startInitializedTask();
 

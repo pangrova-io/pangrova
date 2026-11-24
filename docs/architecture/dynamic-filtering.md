@@ -12,7 +12,7 @@ Pangrova applies static and runtime Join predicates at different points in query
 |---|---|---|
 | Native hash Join | Velox build operator and probe scan in the same native task | When the complete build hash table is available, HashProbe can push an exact domain or bounded Bloom filter through the Velox driver to the corresponding scan ordinal. `ColumnAssignmentDataSource` evaluates the received filter on projected rows, including aliased columns, across source formats. Velox checks Join type and spill state before publishing. Scan output rows and producer plan node IDs identify the effect. Underlying file reads can still occur. |
 | Explicit filter binding | A caller supplies a typed `RuntimeFilterBinding` and an exact target plan node | The native task parser validates initial bindings. Runtime commands can inject a filter into an executing task. These consumers do not create a source of build-side values. |
-| Coordinator-generated cross-stage pruning | A bounded INNER Join build with an eligible BIGINT equality and a pinned Iceberg probe scan | The Coordinator uses the elected Native build receipts and committed Exchange before enumerating the probe. The probe uses the original constraints when build evidence is unavailable by the deadline. |
+| Coordinator-generated cross-stage pruning | A bounded INNER Join build with eligible BIGINT equalities and a pinned Iceberg probe scan | The Coordinator uses the elected Native build receipts and committed Exchange before enumerating the probe. The probe uses the original constraints when build evidence is unavailable by the deadline. |
 
 ## Planning and execution
 
@@ -29,25 +29,28 @@ A broadcast Join can receive its build records from another stage and scan the p
 ## Pruning a probe scan in another stage
 
 `PlanFragmenter` selects a bounded build on the physical right side of an
-eligible INNER Join. It can use one required BIGINT equality from a conjunction
-when the probe operand resolves to a physical Iceberg column. The original
-Join evaluates every condition. The binding identifies the physical build
-stage, its broadcast Exchange and the admitted Iceberg snapshot and schema.
-The stable connector field ID identifies the probe column.
+eligible INNER Join. It can use up to four required BIGINT equalities from
+one conjunction when the probe operands resolve to distinct physical fields
+of the same Iceberg scan. The binding identifies the build stage, its Exchange,
+the sorted build output ordinals and the selected Iceberg snapshot and schema.
+Stable connector field IDs identify the probe fields.
 
 Each successful elected Native build task reports up to 16 disjoint inclusive
-ranges. A successful build that sees only NULL keys publishes an empty domain.
-The Coordinator waits up to 200 ms for the complete winning cohort and its
-Exchange publication. It merges the ranges, with one enclosing interval when
-the range limit is exceeded. A missing, late, or incomplete receipt keeps the
-original scan constraints. Retired attempts cannot authorize pruning.
+ranges per requested output ordinal. A completed ordinal with only NULL keys
+has an empty domain. The Coordinator waits up to 200 ms for the complete
+winning cohort and its Exchange publication. It unions ranges across tasks
+per ordinal and uses one enclosing interval when the range limit is exceeded.
+A winning attempt with a missing summary, a late result, or an incomplete
+cohort keeps the original scan constraints. Retired attempts cannot authorize
+pruning.
 
-Iceberg combines the retained range disjunction with the original predicates
-before enumerating splits. Inclusive file statistics keep files that might
-match. The Worker still evaluates the Join on the rows and preserves duplicate
-build keys. SQL tests cover the exact results, actual scanned splits and bytes,
-and physical release for both single-task and multi-task build cohorts.
+Iceberg applies the intersection of the per-field domains and the original
+predicates before enumerating splits. Each field domain allows any value in
+its range union. Inclusive file statistics keep any file that might match.
+The Worker evaluates the complete Join condition on the rows, preserving
+build key correlation, duplicates and SQL NULL semantics. SQL tests cover
+results, actual scanned splits and bytes, and physical release.
 
-Additional key types, filters across several keys, connector coverage and late
-predicates for work that is still unsigned remain in the
+Additional key types, connector coverage and late predicates for work that is
+still unsigned remain in the
 [query performance plan](../development/query-performance-parity-plan.md).

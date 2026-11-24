@@ -111,8 +111,10 @@ message TaskRequest {
   // Exact bounded CDC source range and connector write authority. Worker-local
   // source credentials never enter this message.
   CdcIngestBinding cdc_ingest = 22;
-  // A signed BIGINT column in the producer ExchangeRel output. Zero is a valid ordinal.
-  optional uint32 build_key_ordinal = 23;
+  reserved 23;
+  reserved "build_key_ordinal";
+  // Up to four sorted, distinct BIGINT columns in the producer ExchangeRel output.
+  repeated uint32 build_key_ordinals = 24;
 }
 
 // One bounded Worker-side CDC ingest attempt. The binding is admitted once and

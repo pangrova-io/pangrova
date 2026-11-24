@@ -17,6 +17,7 @@ import org.apache.calcite.rex.RexBuilder;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -70,14 +71,14 @@ class StageTest {
         stage.addTaskId("second");
         int generation = stage.currentGeneration();
 
-        stage.onTaskFinished("first", generation, List.of(new BuildKeyRange(-8, -2)));
-        stage.onTaskFinished("first", generation, List.of(new BuildKeyRange(Long.MIN_VALUE, Long.MAX_VALUE)));
-        stage.onTaskFinished("second", generation + 1, List.of(new BuildKeyRange(-40, 40)));
+        stage.onTaskFinished("first", generation, Map.of(0, List.of(new BuildKeyRange(-8, -2))));
+        stage.onTaskFinished("first", generation, Map.of(0, List.of(new BuildKeyRange(Long.MIN_VALUE, Long.MAX_VALUE))));
+        stage.onTaskFinished("second", generation + 1, Map.of(0, List.of(new BuildKeyRange(-40, 40))));
         assertThat(stage.completeBuildKeyRanges()).isNull();
-        stage.onTaskFinished("second", generation, List.of());
+        stage.onTaskFinished("second", generation, Map.of(0, List.of()));
 
         assertThat(stage.stateMachine().getState()).isEqualTo(StageState.FINISHED);
-        assertThat(stage.completeBuildKeyRanges()).containsExactly(new BuildKeyRange(-8, -2));
+        assertThat(stage.completeBuildKeyRanges().get(0)).containsExactly(new BuildKeyRange(-8, -2));
     }
 
     @Test
@@ -87,7 +88,7 @@ class StageTest {
         stage.stateMachine().transitionTo(StageState.RUNNING);
         stage.addTaskId("first");
         stage.addTaskId("second");
-        stage.onTaskFinished("first", stage.currentGeneration(), List.of());
+        stage.onTaskFinished("first", stage.currentGeneration(), Map.of(0, List.of()));
         stage.onTaskFinished("second");
 
         assertThat(stage.stateMachine().getState()).isEqualTo(StageState.FINISHED);
@@ -101,18 +102,18 @@ class StageTest {
                 new BuildKeyRange(Long.MIN_VALUE, Long.MIN_VALUE),
                 new BuildKeyRange(2, 3), new BuildKeyRange(11, 12),
                 new BuildKeyRange(Long.MAX_VALUE - 2, Long.MAX_VALUE - 1));
-        assertThat(completedBuild(ranges).completeBuildKeyRanges()).containsExactly(
+        assertThat(completedBuild(ranges).completeBuildKeyRanges().get(0)).containsExactly(
                 new BuildKeyRange(Long.MIN_VALUE, Long.MIN_VALUE), new BuildKeyRange(0, 3),
                 new BuildKeyRange(11, 15), new BuildKeyRange(Long.MAX_VALUE - 2, Long.MAX_VALUE));
-        assertThat(completedBuildSummaries(List.of(List.of())).completeBuildKeyRanges()).isEmpty();
+        assertThat(completedBuildSummaries(List.of(List.of())).completeBuildKeyRanges().get(0)).isEmpty();
     }
 
     @Test
     void excessiveDisjointBuildRangesUseConservativeBoundedCoverage() {
         var ranges = java.util.stream.LongStream.range(0, 17)
                 .mapToObj(i -> new BuildKeyRange(2 * i, 2 * i)).toList();
-        assertThat(completedBuild(ranges.subList(0, 16)).completeBuildKeyRanges()).hasSize(16);
-        assertThat(completedBuild(ranges).completeBuildKeyRanges()).containsExactly(new BuildKeyRange(0, 32));
+        assertThat(completedBuild(ranges.subList(0, 16)).completeBuildKeyRanges().get(0)).hasSize(16);
+        assertThat(completedBuild(ranges).completeBuildKeyRanges().get(0)).containsExactly(new BuildKeyRange(0, 32));
     }
 
     private Stage completedBuild(List<BuildKeyRange> ranges) {
@@ -125,7 +126,7 @@ class StageTest {
         stage.stateMachine().transitionTo(StageState.RUNNING);
         for (int index = 0; index < summaries.size(); index++) stage.addTaskId("task-" + index);
         for (int index = 0; index < summaries.size(); index++) {
-            stage.onTaskFinished("task-" + index, stage.currentGeneration(), summaries.get(index));
+            stage.onTaskFinished("task-" + index, stage.currentGeneration(), Map.of(0, summaries.get(index)));
         }
         return stage;
     }

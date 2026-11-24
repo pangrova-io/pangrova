@@ -117,7 +117,7 @@ velox::VeloxTaskRunnerConfig makeRunnerConfig(const TaskExecutorConfig& config,
   runner_config.shuffle_compression_codec = config.shuffle_compression_codec;
   runner_config.preferred_output_batch_rows = config.shuffle_batch_size;
   runner_config.shuffle_output_spec = converter.shuffleOutputSpec();
-  runner_config.build_key_ordinal = config.build_key_ordinal;
+  runner_config.build_key_ordinals = config.build_key_ordinals;
   if (runner_config.is_shuffle_task) {
     if (config.shuffle_batch_serde != pangrova::protocol::v2::BATCH_SERDE_ARROW_BATCH ||
         config.shuffle_batch_size <= 0 ||

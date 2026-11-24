@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.runtime;
 
 import java.util.List;
-import java.util.OptionalInt;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ScheduledExecutorService;
@@ -16,25 +16,30 @@ import org.pangrova.query.profiling.OperatorStatsSource.RuntimeFilterOutcome;
 public final class BuildFilterGate {
     private static final long MAX_WAIT_MS = 200;
 
-    private static final ProbeRelease EMPTY = new ProbeRelease(RuntimeFilterOutcome.EMPTY_BUILD, List.of());
+    private static final ProbeRelease EMPTY = new ProbeRelease(RuntimeFilterOutcome.EMPTY_BUILD, Map.of());
     private static final ProbeRelease MISSING = new ProbeRelease(RuntimeFilterOutcome.MISSING_SUMMARY, null);
     private static final ProbeRelease TIMEOUT = new ProbeRelease(RuntimeFilterOutcome.TIMED_OUT, null);
     private static final ProbeRelease TERMINATED = new ProbeRelease(RuntimeFilterOutcome.QUERY_TERMINATED, null);
 
     private final StageRuntimeFilter plan;
+    private final List<Integer> buildOrdinals;
     private final CompletableFuture<ProbeRelease> completedBuild = new CompletableFuture<>();
     private volatile ProbeRelease releasedProbe;
 
-    public record ProbeRelease(RuntimeFilterOutcome outcome, List<BuildKeyRange> ranges) {
+    public record ProbeRelease(RuntimeFilterOutcome outcome, Map<Integer, List<BuildKeyRange>> ranges) {
         public ProbeRelease {
-            ranges = ranges == null ? null : List.copyOf(ranges);
+            ranges = ranges == null ? null : Map.copyOf(ranges);
         }
 
-        public int rangeCount() { return ranges == null ? 0 : ranges.size(); }
+        public int rangeCount() {
+            return ranges == null ? 0 : ranges.values().stream().mapToInt(List::size).sum();
+        }
     }
 
     private BuildFilterGate(StageRuntimeFilter plan) {
         this.plan = plan;
+        buildOrdinals = plan.keys().stream()
+                .map(StageRuntimeFilter.ProbeKey::buildOrdinal).distinct().sorted().toList();
     }
 
     /** Enables the gate only for a bounded build and a probe with enough potential I/O savings. */
@@ -58,17 +63,21 @@ public final class BuildFilterGate {
 
     public boolean blocks(int stageId) { return isProbe(stageId) && releasedProbe == null; }
 
-    public OptionalInt buildOrdinal(int stageId) {
-        return stageId == plan.buildStageId() ? OptionalInt.of(plan.buildKeyOrdinal()) : OptionalInt.empty();
+    public List<Integer> buildOrdinals(int stageId) {
+        return stageId == plan.buildStageId() ? buildOrdinals : List.of();
     }
 
     /** Called after the winning cohort has finished and any external publication is fenced. */
     public void onFinished(Stage stage) {
-        if (stage.stageId() == plan.buildStageId() && stage.exchangeReadyForConsumers()) {
-            var ranges = stage.completeBuildKeyRanges();
-            completedBuild.complete(ranges == null ? MISSING
-                    : ranges.isEmpty() ? EMPTY : new ProbeRelease(RuntimeFilterOutcome.APPLIED, ranges));
+        if (stage.stageId() != plan.buildStageId() || !stage.exchangeReadyForConsumers()) return;
+        var ranges = stage.completeBuildKeyRanges();
+        if (ranges == null || buildOrdinals.size() != ranges.size()
+                || !ranges.keySet().containsAll(buildOrdinals)) {
+            completedBuild.complete(MISSING);
+            return;
         }
+        completedBuild.complete(ranges.values().stream().anyMatch(List::isEmpty)
+                ? EMPTY : new ProbeRelease(RuntimeFilterOutcome.APPLIED, ranges));
     }
 
     /** Releases exactly one scan decision when the build, deadline or query settles first. */
@@ -84,7 +93,7 @@ public final class BuildFilterGate {
         });
     }
 
-    public List<BuildKeyRange> probeRanges(int stageId) {
+    public Map<Integer, List<BuildKeyRange>> probeRanges(int stageId) {
         var released = releasedProbe;
         return released != null && isProbe(stageId) ? released.ranges() : null;
     }

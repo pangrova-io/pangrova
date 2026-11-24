@@ -256,10 +256,13 @@ Worker receives the bound execution plan. Calcite schemas remain in the coordina
 A controlled read checks the current catalog deployment once when matching its physical table format identity. Planning can inspect the selected read binding to recognize a physical scan. Expansion verifies current ownership of a connector-derived table before replacing that scan with its definition. Split enumeration and generated column overlay binding check the authority at their respective handoffs.
 
 A live read with an eligible runtime filter starts the build and releases probe
-enumeration on the first build result, deadline, or query termination. An
-eligible probe is scheduled on the read preparation executor after that decision.
-The timeout preserves full probe scanning and a late build cannot change the
-ranges on the issued probe.
+enumeration on build completion, deadline, or query termination. One leaf shuffle
+producer can collect ranges for up to four BIGINT equality columns. The Coordinator
+unions the ranges per ordinal across the complete winning build cohort. It applies
+the domains together when the probe's Iceberg snapshot, schema, source and field
+identities match. The join still evaluates the full condition for each matching row.
+Missing evidence or a timeout releases an unfiltered probe. A late report leaves
+the already issued probe ranges unchanged.
 
 ### 2.3 Custom Optimization Rules
 

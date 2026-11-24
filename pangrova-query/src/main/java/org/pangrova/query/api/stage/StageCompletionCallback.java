@@ -1,6 +1,7 @@
 package org.pangrova.query.api.stage;
 
 import java.util.List;
+import java.util.Map;
 import java.util.function.Consumer;
 import org.pangrova.common.api.annotation.Internal;
 import org.pangrova.query.api.error.QueryFailure;
@@ -17,7 +18,7 @@ public interface StageCompletionCallback {
 
     /** Identifies the winning physical attempt and its optional completed build summary. */
     default void onSuccessfulTaskTerminal(String queryId, String logicalTaskId,
-            SuccessfulAttempt attempt, List<BuildKeyRange> buildKeyRanges) {
+            SuccessfulAttempt attempt, Map<Integer, List<BuildKeyRange>> buildKeyRanges) {
         onTaskTerminal(queryId, logicalTaskId, "FINISHED", null);
     }
 

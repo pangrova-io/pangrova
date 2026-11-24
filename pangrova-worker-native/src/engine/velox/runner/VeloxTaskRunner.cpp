@@ -1,7 +1,9 @@
 // VeloxTaskRunner: Drives Velox exec::Task and feeds output to OutputQueue.
 #include "engine/velox/runner/VeloxTaskRunner.h"
+#include "engine/executor/driver/TaskExecutor.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <filesystem>
 #include <limits>
@@ -199,11 +201,16 @@ VeloxTaskRunner::~VeloxTaskRunner() {
 }
 
 void VeloxTaskRunner::start(const std::vector<split::SplitConfig>& splits) {
-  if (const auto ordinal = config_.build_key_ordinal; ordinal &&
-      (!config_.is_shuffle_task || *ordinal >= plan_->outputType()->size() ||
-       plan_->outputType()->childAt(*ordinal)->kind() != facebook::velox::TypeKind::BIGINT)) {
-    throw std::invalid_argument("Runtime-filter build key requires a BIGINT shuffle output column");
+  if (config_.build_key_ordinals.size() > executor::TaskExecutorConfig::kMaximumBuildKeyColumns) {
+    throw std::invalid_argument("Too many runtime-filter build keys");
   }
+  for (const auto ordinal : config_.build_key_ordinals) {
+    if (!config_.is_shuffle_task || ordinal >= plan_->outputType()->size() ||
+        plan_->outputType()->childAt(ordinal)->kind() != facebook::velox::TypeKind::BIGINT) {
+      throw std::invalid_argument("Runtime-filter build keys require BIGINT shuffle output columns");
+    }
+  }
+  build_key_ranges_.resize(config_.build_key_ordinals.size());
   // Precondition: this object must be managed by a shared_ptr before start()
   // is called, because the consumer callback captures weak_from_this().
   // PlanExecutionDriver::executeVeloxPlan() creates the runner via
@@ -504,7 +511,7 @@ void VeloxTaskRunner::start(const std::vector<split::SplitConfig>& splits) {
         if (self->cancelled_.load()) {
           return facebook::velox::exec::BlockingReason::kNotBlocked;
         }
-        if (self->config_.build_key_ordinal) {
+        if (!self->config_.build_key_ordinals.empty()) {
           self->collectBuildKeyRanges(*vector);
         }
 
@@ -1156,14 +1163,21 @@ facebook::velox::exec::Task* VeloxTaskRunner::veloxTask() const {
 }
 
 void VeloxTaskRunner::collectBuildKeyRanges(const facebook::velox::RowVector& rows) {
-  facebook::velox::DecodedVector key(*rows.childAt(*config_.build_key_ordinal));
-  BuildKeyRanges batch;
-  for (facebook::velox::vector_size_t index = 0; index < rows.size(); ++index) {
-    if (!key.isNullAt(index)) batch.add(key.valueAt<int64_t>(index));
+  const auto count = config_.build_key_ordinals.size();
+  std::array<BuildKeyRanges, executor::TaskExecutorConfig::kMaximumBuildKeyColumns> batch;
+  bool containsKey = false;
+  for (size_t channel = 0; channel < count; ++channel) {
+    facebook::velox::DecodedVector key(*rows.childAt(config_.build_key_ordinals[channel]));
+    for (facebook::velox::vector_size_t index = 0; index < rows.size(); ++index) {
+      if (!key.isNullAt(index)) batch[channel].add(key.valueAt<int64_t>(index));
+    }
+    containsKey |= !batch[channel].ranges().empty();
   }
-  if (batch.ranges().empty()) return;
+  if (!containsKey) return;
   std::lock_guard lock(build_key_ranges_mutex_);
-  build_key_ranges_.merge(batch);
+  for (size_t channel = 0; channel < count; ++channel) {
+    build_key_ranges_[channel].merge(batch[channel]);
+  }
 }
 
 std::optional<protocol::v2::NativeTaskStats> VeloxTaskRunner::collectTaskStats(
@@ -1179,13 +1193,16 @@ std::optional<protocol::v2::NativeTaskStats> VeloxTaskRunner::collectTaskStats(
       snapshot,
       index_splits_evaluated_.load(std::memory_order_acquire),
       index_splits_skipped_.load(std::memory_order_acquire));
-  if (config_.build_key_ordinal && velox_task_->state() == facebook::velox::exec::TaskState::kFinished) {
+  if (!config_.build_key_ordinals.empty() && velox_task_->state() == facebook::velox::exec::TaskState::kFinished) {
     std::lock_guard lock(build_key_ranges_mutex_);
-    auto* buildKeys = stats.mutable_build_keys();
-    for (const auto& interval : build_key_ranges_.ranges()) {
-      auto* range = buildKeys->add_ranges();
-      range->set_minimum(interval.minimum);
-      range->set_maximum(interval.maximum);
+    for (size_t channel = 0; channel < config_.build_key_ordinals.size(); ++channel) {
+      auto* summary = stats.add_build_key_summaries();
+      summary->set_ordinal(config_.build_key_ordinals[channel]);
+      for (const auto& interval : build_key_ranges_[channel].ranges()) {
+        auto* range = summary->add_ranges();
+        range->set_minimum(interval.minimum);
+        range->set_maximum(interval.maximum);
+      }
     }
   }
   if (stats.operator_stats().empty() && stats.ByteSizeLong() == 0) {

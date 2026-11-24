@@ -83,16 +83,26 @@ public final class CanonicalTaskReportValidator {
     }
 
     private static void validateBuildKeys(TaskReport status, SubmitTaskRequest request) {
-        var stats = status.getNativeTaskStats();
-        if (!stats.hasBuildKeys()) return;
-        var summary = stats.getBuildKeys();
-        if (!request.taskRequest().hasBuildKeyOrdinal()
+        var summaries = status.getNativeTaskStats().getBuildKeySummariesList();
+        if (summaries.isEmpty()) return;
+        var expected = request.taskRequest().getBuildKeyOrdinalsList();
+        if (summaries.size() != expected.size()
                 || status.getState() != TaskState.TASK_STATE_FINISHED
-                || status.getReportOrigin() != TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE
-                || !summary.getUnknownFields().asMap().isEmpty()
-                || summary.getRangesCount() > BuildKeyRange.MAX_RANGES) {
-            throw invalid("Native build key summary does not match its issued request");
+                || status.getReportOrigin() != TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE) {
+            throw invalid("Native build key summaries do not match their issued request");
         }
+        for (int index = 0; index < summaries.size(); index++) {
+            var summary = summaries.get(index);
+            if (!summary.hasOrdinal() || summary.getOrdinal() != expected.get(index)
+                    || !summary.getUnknownFields().asMap().isEmpty()
+                    || summary.getRangesCount() > BuildKeyRange.MAX_RANGES) {
+                throw invalid("Native build key summary does not match its issued ordinal");
+            }
+            validateBuildKeyRanges(summary);
+        }
+    }
+
+    private static void validateBuildKeyRanges(org.pangrova.protocol.v2.BuildKeySummary summary) {
         for (int index = 0; index < summary.getRangesCount(); index++) {
             var range = summary.getRanges(index);
             if (!range.getUnknownFields().asMap().isEmpty() || range.getMinimum() > range.getMaximum()) {

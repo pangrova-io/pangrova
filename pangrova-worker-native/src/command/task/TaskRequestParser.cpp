@@ -1911,13 +1911,20 @@ executor::TaskExecutorConfig parseFromProto(const proto::TaskRequest& request) {
   applyWorkerCopyInput(request, config);
   validateOperatorBindings(request, config);
   validateRuntimeFilterBindings(request, config);
-  if (request.has_build_key_ordinal()) {
-    if (request.build_key_ordinal() > static_cast<uint32_t>(std::numeric_limits<int32_t>::max()) ||
+  if (const auto& ordinals = request.build_key_ordinals(); !ordinals.empty()) {
+    if (ordinals.size() > executor::TaskExecutorConfig::kMaximumBuildKeyColumns ||
         request.task_kind() != proto::TASK_KIND_READ || !request.execution_options().has_shuffle() ||
         request.execution_options().direct_result_output() || request.exchange_inputs_size() != 0) {
-      throw std::invalid_argument("Runtime-filter build key requires a leaf shuffle producer");
+      throw std::invalid_argument("Runtime-filter build keys require a bounded leaf shuffle producer");
     }
-    config.build_key_ordinal = request.build_key_ordinal();
+    config.build_key_ordinals.reserve(ordinals.size());
+    for (const auto ordinal : ordinals) {
+      if (ordinal > static_cast<uint32_t>(std::numeric_limits<int32_t>::max()) ||
+          (!config.build_key_ordinals.empty() && ordinal <= config.build_key_ordinals.back())) {
+        throw std::invalid_argument("Runtime-filter build key ordinals must be sorted and distinct");
+      }
+      config.build_key_ordinals.push_back(ordinal);
+    }
   }
   if (request.has_execution_options()) {
     const auto& options = request.execution_options();
