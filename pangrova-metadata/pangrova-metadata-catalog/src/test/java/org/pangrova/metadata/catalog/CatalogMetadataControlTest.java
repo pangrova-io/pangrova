@@ -84,6 +84,20 @@ class CatalogMetadataControlTest {
     }
 
     @Test
+    void restoresConfiguredStatisticsWhenRestoringTableControl() {
+        var configuredControl = registry.tableControl();
+        var configuredStatistics = registry.tableStatistics();
+        var override = new TableControlService(new InMemoryTableControlStore(),
+                registry::requireCurrentCatalogIdentity, new TableControlSettings(true, true, Set.of()));
+
+        registry.setTableControlService(override);
+        assertThat(registry.tableStatistics()).isNotSameAs(configuredStatistics);
+
+        registry.setTableControlService(configuredControl);
+        assertThat(registry.tableStatistics()).isSameAs(configuredStatistics);
+    }
+
+    @Test
     void cachedReadsRejectARecreatedCatalogEvenWhenThePhysicalTableIsUnchanged() {
         service.createTable(session(), ref("orders"), tableMetadata("orders"));
         service.resolveTable(session(), ref("orders"));
