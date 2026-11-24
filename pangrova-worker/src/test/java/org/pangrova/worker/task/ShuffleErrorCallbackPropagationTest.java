@@ -36,7 +36,7 @@ class ShuffleErrorCallbackPropagationTest {
     void computeTaskWithoutShuffleConfigIgnoresShufflePipeline() throws Exception {
         try (var runtime = new ActualNativeTaskFixture();
                 var tasks = new ActualTaskManagerFixture(runtime, "actual-no-shuffle")) {
-            var info = tasks.submit(runtime.valuesRequest(true));
+            var info = tasks.submitReadable(runtime.valuesRequest(true));
             assertThat(info.shuffleServerHandle()).isNull();
             assertThat(tasks.consume(info).values()).containsExactly(42L);
             tasks.awaitState(info, org.pangrova.worker.enums.TaskState.FINISHED);

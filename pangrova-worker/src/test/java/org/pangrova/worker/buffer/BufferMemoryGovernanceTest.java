@@ -70,7 +70,7 @@ class BufferMemoryGovernanceTest {
              var tasks = new ActualTaskManagerFixture(runtime, "buffer-sequence")) {
             long baseline = runtime.arbitrator().getUsedMemory();
             for (int index = 0; index < taskCount; index++) {
-                var info = tasks.submit(runtime.bindWorker(request(TASK_MEMORY, ActualNativeTaskPlans.values(batchCount, 2))));
+                var info = tasks.submitReadable(runtime.bindWorker(request(TASK_MEMORY, ActualNativeTaskPlans.values(batchCount, 2))));
                 tasks.awaitState(info, TaskState.RUNNING);
                 assertThat(tasks.consume(info).rows()).isEqualTo(batchCount * 2L);
                 tasks.awaitState(info, TaskState.FINISHED);
@@ -86,7 +86,7 @@ class BufferMemoryGovernanceTest {
              var tasks = new ActualTaskManagerFixture(runtime, "buffer-key-" + taskSuffix)) {
             var request = runtime.bindWorker(request(TASK_MEMORY, ActualNativeTaskPlans.values(1, 2))).toBuilder();
             request.getAttemptBuilder().setTaskId("task-key-" + taskSuffix);
-            var info = tasks.submit(request.build());
+            var info = tasks.submitReadable(request.build());
             tasks.awaitState(info, TaskState.RUNNING);
             String key = "buffer:" + info.taskId();
             assertThat(runtime.arbitrator().queryAllocationsSnapshot()).containsEntry(key, bufferGrant(TASK_MEMORY));
@@ -100,7 +100,7 @@ class BufferMemoryGovernanceTest {
         try (var runtime = new ActualNativeTaskFixture();
              var tasks = new ActualTaskManagerFixture(runtime, "buffer-grant")) {
             long baseline = runtime.arbitrator().getUsedMemory();
-            var info = tasks.submit(runtime.bindWorker(request(taskMemory, ActualNativeTaskPlans.values(batches, 2))));
+            var info = tasks.submitReadable(runtime.bindWorker(request(taskMemory, ActualNativeTaskPlans.values(batches, 2))));
             tasks.awaitState(info, TaskState.RUNNING);
             assertHeldGrant(runtime, info, taskMemory);
             assertThat(tasks.consume(info).rows()).isEqualTo(batches * 2L);

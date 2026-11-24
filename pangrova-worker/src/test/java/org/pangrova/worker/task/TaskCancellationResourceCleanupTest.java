@@ -117,7 +117,7 @@ class TaskCancellationResourceCleanupTest {
         try (var runtime = new ActualNativeTaskFixture();
              var tasks = new ActualTaskManagerFixture(runtime, "actual-cancel-rpc")) {
             var request = runtime.bindWorker(largeRequest());
-            var info = tasks.submit(request);
+            var info = tasks.submitReadable(request);
             long handle = info.executorHandle();
             try (var reader = new ActualPausedNativeResultReader(runtime, request)) {
                 assertThat(reader.firstBatchRows()).isPositive();

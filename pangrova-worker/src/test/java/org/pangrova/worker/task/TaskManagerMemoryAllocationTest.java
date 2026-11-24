@@ -91,7 +91,7 @@ class TaskManagerMemoryAllocationTest {
         try (var runtime = new ActualNativeTaskFixture();
                 var tasks = admission(runtime, 4 * 1024 * MB, 100 * MB)) {
             for (int index = 0; index < 2; index++) {
-                var info = tasks.submit(runtime.bindWorker(request(50 * MB, 50 * MB)));
+                var info = tasks.submitReadable(runtime.bindWorker(request(50 * MB, 50 * MB)));
                 assertThat(info.allocatedBufferMemory()).isEqualTo(50 * MB);
                 assertThat(tasks.consume(info).values()).containsExactly(42L);
                 tasks.awaitState(info, TaskState.FINISHED);

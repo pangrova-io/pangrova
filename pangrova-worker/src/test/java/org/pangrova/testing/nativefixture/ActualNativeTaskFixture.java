@@ -38,6 +38,8 @@ import org.pangrova.worker.task.TransportRefs;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 /** Actual packaged JNI runtime, admitted values tasks and live Native transports. */
 public final class ActualNativeTaskFixture implements AutoCloseable {
@@ -192,8 +194,19 @@ public final class ActualNativeTaskFixture implements AutoCloseable {
 
     public long createStarted(TaskRequest request) {
         long handle = createPending(request);
-        executor.startTask(handle);
+        if (request.getExecutionOptions().getDirectResultOutput()) {
+            startReadable(handle);
+        } else {
+            executor.startTask(handle);
+        }
         return handle;
+    }
+
+    /** Starts an actual Native output owner and joins its one Flight registration event. */
+    public void startReadable(long handle) {
+        var ready = new CompletableFuture<Void>();
+        executor.startResultTask(handle, () -> ready.complete(null));
+        ready.orTimeout(20, TimeUnit.SECONDS).join();
     }
 
     public TaskReport awaitFinished(long handle) throws Exception {

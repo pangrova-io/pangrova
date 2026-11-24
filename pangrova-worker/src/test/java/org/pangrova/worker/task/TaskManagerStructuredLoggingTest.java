@@ -19,7 +19,7 @@ class TaskManagerStructuredLoggingTest {
     void taskSubmitDoesNotThrow() throws Exception {
         try (var runtime = new ActualNativeTaskFixture();
                 var tasks = new ActualTaskManagerFixture(runtime, "submit-log")) {
-            var info = tasks.submit(runtime.valuesRequest(true));
+            var info = tasks.submitReadable(runtime.valuesRequest(true));
             assertThat(tasks.consume(info).values()).containsExactly(42L);
             tasks.awaitState(info, TaskState.FINISHED);
             assertThat(tasks.terminalReport(info).taskId())
@@ -31,7 +31,7 @@ class TaskManagerStructuredLoggingTest {
     void taskCompletesSuccessfully() throws Exception {
         try (var runtime = new ActualNativeTaskFixture();
                 var tasks = new ActualTaskManagerFixture(runtime, "completion-log")) {
-            var info = tasks.submit(runtime.valuesRequest(true));
+            var info = tasks.submitReadable(runtime.valuesRequest(true));
             assertThat(tasks.consume(info).values()).containsExactly(42L);
             tasks.awaitState(info, TaskState.FINISHED);
             assertThat(tasks.manager().getTaskState(info.taskId()))
@@ -62,7 +62,7 @@ class TaskManagerStructuredLoggingTest {
                 var tasks = new ActualTaskManagerFixture(runtime, "registration-log")) {
             var admitted = new java.util.concurrent.atomic.AtomicReference<TaskInfo>();
             assertThatNoException()
-                    .isThrownBy(() -> admitted.set(tasks.submit(runtime.valuesRequest(true))));
+                    .isThrownBy(() -> admitted.set(tasks.submitReadable(runtime.valuesRequest(true))));
             var info = admitted.get();
             tasks.awaitState(info, TaskState.RUNNING);
             assertThat(tasks.manager().getRunningTaskCount()).isEqualTo(1);

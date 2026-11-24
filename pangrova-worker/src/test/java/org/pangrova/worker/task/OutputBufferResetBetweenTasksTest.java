@@ -20,13 +20,13 @@ class OutputBufferResetBetweenTasksTest {
         try (var runtime = new ActualNativeTaskFixture();
                 var tasks = new ActualTaskManagerFixture(runtime, "actual-result-isolation")) {
             var first =
-                    tasks.submit(
+                    tasks.submitReadable(
                             runtime.bindWorker(ActualNativeTaskFixture.planTaskRequest(
                                     true, ActualNativeTaskPlans.values(2, 3))));
             assertThat(tasks.consume(first).values())
                     .containsExactlyInAnyOrder(0L, 1L, 2L, 3L, 4L, 5L);
             tasks.awaitState(first, TaskState.FINISHED);
-            var second = tasks.submit(runtime.valuesRequest(true));
+            var second = tasks.submitReadable(runtime.valuesRequest(true));
             assertThat(tasks.consume(second).values()).containsExactly(42L);
             tasks.awaitState(second, TaskState.FINISHED);
             assertThat(first.executorHandle()).isZero();
@@ -38,7 +38,7 @@ class OutputBufferResetBetweenTasksTest {
     void releaseClosesPreviousNativeBuffer() throws Exception {
         try (var runtime = new ActualNativeTaskFixture();
                 var tasks = new ActualTaskManagerFixture(runtime, "actual-result-retire")) {
-            var first = tasks.submit(runtime.valuesRequest(true));
+            var first = tasks.submitReadable(runtime.valuesRequest(true));
             long oldHandle = first.executorHandle();
             tasks.consume(first);
             tasks.awaitState(first, TaskState.FINISHED);
@@ -54,11 +54,11 @@ class OutputBufferResetBetweenTasksTest {
     void nextEmptyResultHasNoPreviousBatches() throws Exception {
         try (var runtime = new ActualNativeTaskFixture();
                 var tasks = new ActualTaskManagerFixture(runtime, "actual-empty-isolation")) {
-            var first = tasks.submit(runtime.valuesRequest(true));
+            var first = tasks.submitReadable(runtime.valuesRequest(true));
             assertThat(tasks.consume(first).rows()).isOne();
             tasks.awaitState(first, TaskState.FINISHED);
             var second =
-                    tasks.submit(
+                    tasks.submitReadable(
                             runtime.bindWorker(ActualNativeTaskFixture.planTaskRequest(
                                     true, ActualNativeTaskPlans.values(0, 0))));
             var received = tasks.consume(second);

@@ -3,7 +3,6 @@
 
 #include <atomic>
 #include <chrono>
-#include <condition_variable>
 #include <cstdint>
 #include <functional>
 #include <mutex>
@@ -140,7 +139,6 @@ class FlightResultServer : public arrow::flight::FlightServerBase {
   // Checks the complete immutable grant before claiming the result reader.
   arrow::Result<std::unique_ptr<arrow::flight::FlightDataStream>> openTaskOutput(
       const protocol::v2::ResultReadGrant& grant,
-      std::chrono::milliseconds wait = std::chrono::milliseconds::zero(),
       const arrow::flight::ServerCallContext* context = nullptr);
 
   // Singleton instance accessor. Set during start(), cleared during stop().
@@ -166,7 +164,6 @@ class FlightResultServer : public arrow::flight::FlightServerBase {
   // F-NATIVE-SHUF-08: Per-instance caches instead of process-global statics.
   // Guarded by their respective mutexes; accessed via instance().
   mutable std::mutex output_type_mutex_;
-  std::condition_variable output_ready_;
   std::unordered_map<std::string, TaskOutputInfo> output_type_cache_;
   static std::atomic<FlightResultServer*> instance_;
   // Pins the actual service during short registration operations. Never held

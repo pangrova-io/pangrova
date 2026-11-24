@@ -4,6 +4,7 @@ import org.pangrova.worker.enums.TaskState;
 
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
+import org.pangrova.protocol.task.ValidatedTaskSubmission;
 import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.worker.resource.ResourceManager;
 import org.pangrova.worker.resource.spill.SpillManager;
@@ -14,6 +15,7 @@ import org.pangrova.worker.task.memory.MemoryRefs;
 
 import java.time.Duration;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
@@ -96,6 +98,20 @@ public final class ActualTaskManagerFixture implements AutoCloseable {
         var submitted = SubmitTaskRequest.from(request);
         String id = manager.submitTask(submitted);
         return manager.tasks.get(id);
+    }
+
+    /** Awaits the production admission acknowledgement before opening the real Flight stream. */
+    public TaskInfo submitReadable(TaskRequest request) {
+        return manager.tasks.get(submitReadable(manager, SubmitTaskRequest.from(request)));
+    }
+
+    /** Uses the same Worker admission completion as HTTP for an already built test request. */
+    public static String submitReadable(TaskManager manager, SubmitTaskRequest request) {
+        try (var body = manager.admitTaskBody()) {
+            body.reserve(request.encode().length);
+            return manager.submitValidatedTask(new ValidatedTaskSubmission(request), body)
+                    .completion().toCompletableFuture().orTimeout(20, TimeUnit.SECONDS).join();
+        }
     }
 
     public void awaitState(TaskInfo info, TaskState expected) {

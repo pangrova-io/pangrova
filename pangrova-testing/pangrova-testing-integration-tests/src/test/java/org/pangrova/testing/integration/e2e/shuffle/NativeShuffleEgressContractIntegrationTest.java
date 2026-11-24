@@ -70,7 +70,7 @@ class NativeShuffleEgressContractIntegrationTest extends ContainerTestBase {
                     ExchangeInputBinding.newBuilder().setPlanNodeId(ActualExternalShuffleTask.PLAN_NODE)
                             .setExchangeId(ActualExternalShuffleTask.EXCHANGE_ID)
                             .setExpectedSourcePartitions(1).setExternal(binding.input()).build()));
-            runtime.executor().startTask(consumerHandle);
+            runtime.startReadable(consumerHandle);
             var values = ActualNativeResultReader.count(runtime, consumer);
             assertThat(values.rows()).isEqualTo(1);
             assertThat(values.sum()).isEqualTo(42);

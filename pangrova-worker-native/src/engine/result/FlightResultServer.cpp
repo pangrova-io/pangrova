@@ -45,14 +45,10 @@ bool FlightResultServer::markTaskOutputReady(const std::string& taskId) {
   std::shared_lock<std::shared_mutex> service_lock(instance_mutex_);
   auto* server = instance();
   if (!server) return false;
-  {
-    std::lock_guard<std::mutex> lock(server->output_type_mutex_);
-    auto found = server->output_type_cache_.find(taskId);
-    if (!server->isRunning() || found == server->output_type_cache_.end()) return false;
-    if (found->second.ready) return true;
-    found->second.ready = true;
-  }
-  server->output_ready_.notify_all();
+  std::lock_guard<std::mutex> lock(server->output_type_mutex_);
+  auto found = server->output_type_cache_.find(taskId);
+  if (!server->isRunning() || found == server->output_type_cache_.end()) return false;
+  found->second.ready = true;
   return true;
 }
 
@@ -68,7 +64,6 @@ void FlightResultServer::unregisterTaskOutputType(const std::string& taskId,
     if (found == server->output_type_cache_.end() || found->second.ownership != owner) return;
     removed = std::move(found->second);
     server->output_type_cache_.erase(found);
-    server->output_ready_.notify_all();
   }
   removed->ownership->revokeAuthority();
   removed->queue->abort(arrow::Status::Cancelled("Result task registration was revoked"));
@@ -86,24 +81,11 @@ std::optional<FlightResultServer::TaskOutputInfo> FlightResultServer::lookupTask
 
 arrow::Result<std::unique_ptr<arrow::flight::FlightDataStream>> FlightResultServer::openTaskOutput(
     const protocol::v2::ResultReadGrant& grant,
-    std::chrono::milliseconds wait,
     const arrow::flight::ServerCallContext* context) {
   const auto& taskId = grant.attempt().task_id();
-  auto cancelled = [context] { return context && context->is_cancelled(); };
   std::unique_lock<std::mutex> lock(output_type_mutex_);
-  auto found = output_type_cache_.end();
-  bool observedRegistration = false;
-  auto settled = [&] {
-    found = output_type_cache_.find(taskId);
-    if (!isRunning() || cancelled()) return true;
-    if (found == output_type_cache_.end()) return observedRegistration;
-    observedRegistration = true;
-    return found->second.ready;
-  };
-  if (!settled() && wait > std::chrono::milliseconds::zero()) {
-    output_ready_.wait_for(lock, wait, settled);
-  }
-  if (cancelled()) return arrow::Status::Cancelled("Result reader cancelled while opening");
+  if (context && context->is_cancelled()) return arrow::Status::Cancelled("Result reader cancelled while opening");
+  const auto found = output_type_cache_.find(taskId);
   if (!isRunning() || found == output_type_cache_.end() || !found->second.ready ||
       !validateResultRead(grant, found->second.authority).ok()) {
     return arrow::flight::MakeFlightError(arrow::flight::FlightStatusCode::Unauthorized,
@@ -258,7 +240,6 @@ int FlightResultServer::start() {
       std::lock_guard<std::mutex> lock(output_type_mutex_);
       running_.store(false);
     }
-    output_ready_.notify_all();
   });
 
   PANGROVA_LOG(INFO) << "event=flight_result_server_started"
@@ -280,7 +261,6 @@ void FlightResultServer::stop() {
     std::lock_guard<std::mutex> lock(output_type_mutex_);
     revoked.swap(output_type_cache_);
   }
-  output_ready_.notify_all();
   // Transfer the actual cache nodes, not an unbudgeted deep copy of every
   // schema/security envelope. Admission is sealed; failed nodes are returned
   // to the same authoritative cache for retry without a second registry.
@@ -326,8 +306,7 @@ arrow::Status FlightResultServer::DoGet(
   if (!authenticated.ok()) return arrow::flight::MakeFlightError(
       arrow::flight::FlightStatusCode::Unauthenticated, "Invalid result authority");
   const auto& grant = *authenticated;
-  constexpr auto registrationWait = std::chrono::milliseconds(750);
-  ARROW_ASSIGN_OR_RAISE(*stream, openTaskOutput(grant, registrationWait, &context));
+  ARROW_ASSIGN_OR_RAISE(*stream, openTaskOutput(grant, &context));
   return arrow::Status::OK();
 }
 

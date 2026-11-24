@@ -648,6 +648,9 @@ Native signals this transition on the task start call's callback. The Worker
 releases its HTTP body and setup budget after JNI setup and waits for the signal
 without a Jetty or setup thread. A failure before registration settles the same
 acknowledgement with the captured Native error and retains its drain path.
+Flight authenticates the signed ticket and claims the matching readable
+registration immediately. An absent, revoked or unready registration is rejected
+without a separate registration wait in the data plane.
 The Worker bounds pending retry acknowledgements and uses the original task
 deadline for each HTTP observation. The first request hands setup to a separate
 Worker executor after the exact reservation, with 64 active setups and 64 queued

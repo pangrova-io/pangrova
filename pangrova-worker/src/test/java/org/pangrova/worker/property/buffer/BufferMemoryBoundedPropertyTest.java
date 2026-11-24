@@ -67,7 +67,7 @@ class BufferMemoryBoundedPropertyTest {
     private static List<TaskInfo> submitConcurrentTasks(ActualNativeTaskFixture runtime, ActualTaskManagerFixture tasks, int count, int batches) {
         var infos = new ArrayList<TaskInfo>();
         for (int index = 0; index < count; index++) {
-            infos.add(tasks.submit(runtime.bindWorker(ActualNativeTaskFixture.planTaskRequest(true,
+            infos.add(tasks.submitReadable(runtime.bindWorker(ActualNativeTaskFixture.planTaskRequest(true,
                     ActualNativeTaskPlans.values(batches, 2)))));
         }
         return List.copyOf(infos);

@@ -73,7 +73,7 @@ class NativeExchangeTransportExternalIntegrationTest extends ContainerTestBase {
         var binding = service.delegateRead(producer, request);
         long handle = nativeRuntime.createPending(request);
         transport.bindInputs(handle, binding.consumerAttempt(), List.of(input(binding.input())));
-        nativeRuntime.executor().startTask(handle);
+        nativeRuntime.startReadable(handle);
         var values = ActualNativeResultReader.count(nativeRuntime, request);
         assertThat(values.rows()).isEqualTo(rows);
         assertThat(values.sum()).isEqualTo((long) rows * (rows - 1) / 2);
@@ -133,7 +133,7 @@ class NativeExchangeTransportExternalIntegrationTest extends ContainerTestBase {
         org.pangrova.protocol.task.CanonicalTaskRequests.validateForAdmission(admitted);
         long handle = nativeRuntime.createPending(admitted);
         transport.bindInputs(handle, admitted.getAttempt(), admitted.getExchangeInputsList());
-        nativeRuntime.executor().startTask(handle);
+        nativeRuntime.startReadable(handle);
         var result = ActualNativeResultReader.read(nativeRuntime, admitted);
         assertThat(nativeRuntime.awaitFinished(handle).getState()).isEqualTo(TaskState.TASK_STATE_FINISHED);
         transport.releaseInputs(handle);

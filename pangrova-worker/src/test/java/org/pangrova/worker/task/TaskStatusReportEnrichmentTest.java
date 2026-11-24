@@ -53,7 +53,7 @@ class TaskStatusReportEnrichmentTest {
             var request =
                     runtime.bindWorker(ActualNativeTaskFixture.planTaskRequest(
                             true, ActualNativeTaskPlans.values(5, 2)));
-            var info = tasks.submit(request);
+            var info = tasks.submitReadable(request);
             assertThat(tasks.consume(info).rows()).isEqualTo(10);
             tasks.awaitState(info, org.pangrova.worker.enums.TaskState.FINISHED);
             // Output rows are the terminal relation cardinality, not source/each-operator sums.
@@ -110,7 +110,7 @@ class TaskStatusReportEnrichmentTest {
     void sequenceIsMonotonicallyIncreasingAcrossReports() throws Exception {
         try (var runtime = new ActualNativeTaskFixture();
                 var tasks = new ActualTaskManagerFixture(runtime, "enrichment-sequence")) {
-            var info = tasks.submit(runtime.valuesRequest(true));
+            var info = tasks.submitReadable(runtime.valuesRequest(true));
             tasks.awaitState(info, org.pangrova.worker.enums.TaskState.RUNNING);
             tasks.manager().statusCollector.reportStatus(info, "RUNNING", null);
             assertThat(tasks.consume(info).values()).containsExactly(42L);
