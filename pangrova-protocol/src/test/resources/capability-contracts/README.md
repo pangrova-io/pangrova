@@ -10,6 +10,20 @@ exporter catalogue used by function-contract tests.
 
 ## Current capture
 
+On 2026-11-24 the macOS arm64 Worker handshake and function exporter captured
+the protocol for multi-key Iceberg scan pruning. The Java/Native handshake
+verified the normalized descriptor SHA-256
+`06aa02534e8a4b953b936cb84b45385e9d33017a616762fdb0bbe77a7027fd2b` and checked
+that the Worker publication retains every Native field alongside the deployed models.
+
+| Artifact | Bytes | SHA-256 | Capabilities / functions / models |
+| --- | ---: | --- | ---: |
+| Native library | 322966197 | `86547e9227fbbce36586b2fa51ab99ab091f01bf53a595569a3b122b5ad2aa7e` | |
+| Worker inventory | 796871 | `4ed7acd8840016f9ecdcfb3d5722937e02ef24f630bfac6b14ccb7cccb573197` | 19 / 108 / 2 |
+| Function exporter catalogue | 784252 | `cf189dc5569ead5d44d3d31d2369a9cb64f6f1a7a5ac811b4b7857b47d5be3f1` | 9 / 92 / 0 |
+
+## November 23 typed aggregate capture
+
 On 2026-11-23 the packaged macOS arm64 Worker handshake and function exporter
 captured the protocol for typed cross-stage aggregate states and Native Shuffle
 payload statistics. Function availability, registered signatures, vector
