@@ -4,7 +4,6 @@ import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.protocol.execution.TaskDescriptor;
 import org.pangrova.protocol.execution.TaskResourceLimit;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
-import org.pangrova.protocol.rest.task.convert.TaskRequestDtoConverter;
 
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -23,16 +22,18 @@ public final class TaskMemoryAccount {
     private final String queryId;
     private final SubmitTaskRequest request;
     private final TaskDescriptor descriptor;
+    private final String taskType;
     private final AtomicLong allocatedMemory = new AtomicLong(0);
     private final AtomicLong allocatedBufferMemory = new AtomicLong(0);
 
     /** Creates one task's reservation ledger; memory demand is resolved when allocation is requested. */
     public TaskMemoryAccount(String taskId, String queryId,
-                             SubmitTaskRequest request, TaskDescriptor descriptor) {
+                             SubmitTaskRequest request, TaskDescriptor descriptor, String taskType) {
         this.taskId = taskId;
         this.queryId = queryId;
         this.request = request;
         this.descriptor = descriptor;
+        this.taskType = taskType;
     }
 
     String taskId() { return taskId; }
@@ -56,7 +57,7 @@ public final class TaskMemoryAccount {
     }
 
     String taskType() {
-        return request == null ? descriptor.taskType() : TaskRequestDtoConverter.taskType(request.taskRequest());
+        return taskType;
     }
 
     /** Resolves the canonical grant first; descriptor-only tasks are test wiring. */

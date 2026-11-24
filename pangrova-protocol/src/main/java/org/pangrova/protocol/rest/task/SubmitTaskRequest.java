@@ -153,6 +153,25 @@ public final class SubmitTaskRequest {
         return taskRequest;
     }
 
+    /** Classifies the admitted task for scheduling and progress reporting. */
+    public String taskType() {
+        if (taskRequest.hasExecutionOptions()
+                && taskRequest.getExecutionOptions().getDirectResultOutput()) {
+            return "OUTPUT";
+        }
+        return switch (taskRequest.getTaskKind()) {
+            case TASK_KIND_READ, TASK_KIND_SHUFFLE_READ, TASK_KIND_SHUFFLE_WRITE ->
+                    "COMPUTE";
+            case TASK_KIND_WRITE -> "WRITE";
+            case TASK_KIND_BACKGROUND_BUILD -> "BACKGROUND_BUILD";
+            case TASK_KIND_BACKGROUND_VALIDATE -> "BACKGROUND_VALIDATE";
+            case TASK_KIND_BACKGROUND_EXPORT -> "BACKGROUND_EXPORT";
+            case TASK_KIND_CDC_INGEST -> "CDC_INGEST";
+            default -> throw new IllegalArgumentException(
+                    "Unsupported canonical task kind: " + taskRequest.getTaskKind());
+        };
+    }
+
     /** Returns the canonical task bytes, preserving the original bytes for private COPY. */
     public byte[] canonicalBytes() {
         return copyTaskBytes == null ? taskRequest.toByteArray() : copyTaskBytes.toByteArray();

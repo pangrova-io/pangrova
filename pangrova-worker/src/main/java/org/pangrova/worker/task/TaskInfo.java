@@ -10,7 +10,6 @@ import java.time.Instant;
 import org.pangrova.worker.task.memory.TaskMemoryAccount;
 
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
-import org.pangrova.protocol.rest.task.convert.TaskRequestDtoConverter;
 import org.pangrova.worker.resource.memory.TaskMemoryPool;
 import org.pangrova.protocol.execution.TaskDescriptor;
 
@@ -43,7 +42,7 @@ public final class TaskInfo {
 
     TaskInfo(String taskId, SubmitTaskRequest request, Instant startTime) {
         this(taskId, request.taskRequest().getAttempt().getQueryOrJobId(), request, null,
-                TaskRequestDtoConverter.taskType(request.taskRequest()), startTime);
+                request.taskType(), startTime);
     }
 
     TaskInfo(String taskId, String queryId, TaskDescriptor descriptor, Instant startTime) {
@@ -63,7 +62,7 @@ public final class TaskInfo {
         this.descriptor = descriptor;
         this.taskType = taskType;
         this.startTime = startTime;
-        this.memoryAccount = new TaskMemoryAccount(taskId, queryId, request, descriptor);
+        this.memoryAccount = new TaskMemoryAccount(taskId, queryId, request, descriptor, taskType);
     }
 
     // --- Immutable accessors ---

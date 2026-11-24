@@ -8,7 +8,6 @@ import net.jqwik.api.Provide;
 import net.jqwik.api.Tag;
 import org.junit.jupiter.api.parallel.ResourceLock;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
-import org.pangrova.protocol.rest.task.convert.TaskRequestDtoConverter;
 import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.v2.TaskReportOrigin;
 import org.pangrova.protocol.v2.TaskRequest;
@@ -31,11 +30,10 @@ import static org.awaitility.Awaitility.await;
 @ResourceLock(ActualNativeTaskFixture.RUNTIME_LOCK)
 class TaskMemoryPropagationTest {
     @Property(tries = 200)
-    void memoryLimitResolutionMatchesDescriptor(@ForAll("positiveMemoryLimits") long memoryBytes) {
+    void memoryLimitResolutionMatchesCanonicalGrant(@ForAll("positiveMemoryLimits") long memoryBytes) {
         var submitted = SubmitTaskRequest.from(request(memoryBytes, ActualNativeTaskPlans.values(1, 1)));
-        var descriptor = TaskRequestDtoConverter.toTaskDescriptor(submitted);
         var info = new TaskInfo("memory-projection", submitted, Instant.now());
-        assertThat(descriptor.resourceLimit().maxMemoryBytes()).isEqualTo(memoryBytes);
+        assertThat(submitted.taskRequest().getResourceGrant().getNativeMemoryBytes()).isEqualTo(memoryBytes);
         assertThat(info.memoryAccount().requestedNativeMemoryBytes()).isEqualTo(memoryBytes);
     }
 

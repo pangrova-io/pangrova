@@ -625,8 +625,8 @@ directly into typed AI callback authority for local registration. Binary callbac
 decoding and validation apply when a callback crosses JNI. Native also validates
 the local execution request at that boundary. Worker admission, memory accounting
 and progress reports read task metadata from the canonical request. Scan split
-messages are passed to Native without projecting them into a second Worker
-descriptor.
+messages are passed to Native as the task's canonical split list. The HTTP
+contract carries the attempt identity, resource grant and task kind directly.
 
 The Worker decodes the binary HTTP request directly from a bounded stream.
 It rejects a declared or observed body over 128 MiB. COPY retains the exact
