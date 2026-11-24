@@ -454,9 +454,7 @@ final class TaskLifecycleManager {
     }
 
     /**
-     * Returns true if this task is a final-stage result task (OUTPUT type).
-     * When true, the native side wraps the plan with PartitionedOutputNode
-     * and routes output through the native OutputBufferManager.
+     * Identifies final-stage tasks whose Velox result callback feeds the task-owned Flight queue.
      */
     private static boolean isResultTask(TaskInfo info) {
         var request = info.request();

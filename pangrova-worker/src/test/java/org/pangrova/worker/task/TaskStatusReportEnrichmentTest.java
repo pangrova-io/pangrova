@@ -56,14 +56,14 @@ class TaskStatusReportEnrichmentTest {
             var info = tasks.submitReadable(request);
             assertThat(tasks.consume(info).rows()).isEqualTo(10);
             tasks.awaitState(info, org.pangrova.worker.enums.TaskState.FINISHED);
-            // Output rows are the terminal relation cardinality, not source/each-operator sums.
+            // CallbackSink receives the exact terminal relation sent to the Native Flight producer.
             tasks.manager().statusCollector.reportStatus(info, "FINISHED", null);
             var finished = taskReports(tasks, info).get(taskReports(tasks, info).size() - 1);
             assertThat(finished.supplementalStats()).isNull();
             var terminal = finished.canonicalStatus();
             assertThat(terminal.hasNativeTaskStats()).isTrue();
             assertThat(terminal.getNativeTaskStats().getOperatorStatsList())
-                    .filteredOn(operator -> operator.getOperatorType().equals("PartitionedOutput"))
+                    .filteredOn(operator -> operator.getOperatorType().equals("CallbackSink"))
                     .singleElement()
                     .satisfies(operator -> assertThat(operator.getInputRows()).isEqualTo(10));
         }
