@@ -57,7 +57,7 @@ public final class AiTransportTestAdmission implements AutoCloseable {
                         .setProviderItems(limits.items()).setProviderAttempts(limits.attempts())
                         .setProviderRequestBytes(limits.requestBytes()).setProviderResponseBytes(limits.responseBytes())
                         .setMediaBytes(limits.mediaBytes()).build()).toBuilder().addOperatorBindings(operator).build();
-        context = AiExecutionContext.fromTaskRequest(task);
+        context = AiTestTaskAuthority.context(task);
         binding = GovernedAiBindings.fromAdmitted(operator);
         manager.registerTask(context, task.getOperatorBindingsList());
         var capability = capability(operation, limits);

@@ -7,6 +7,7 @@
 
 #include <chrono>
 #include <stdexcept>
+#include <utility>
 
 #include "engine/cache/SemanticResultCache.h"
 #include "jni/RuntimeInitializer.h"
@@ -23,14 +24,14 @@ namespace pangrova::executor {
 const std::string& TaskExecutor::callbackContext() const { return config_.callback_context; }
 bool TaskExecutor::isResultTask() const { return config_.is_result_task; }
 
-TaskExecutor::TaskExecutor(const TaskExecutorConfig& config)
-    : config_(config),
-      router_(config.num_shuffle_partitions,
-              config.output_queue_capacity,
-              config.shuffle_queue_capacity,
-              static_cast<size_t>(config.resource_limit.max_shuffle_buffer_bytes),
-              config.queue_poll_timeout),
-      trace_id_(config.trace_id) {
+TaskExecutor::TaskExecutor(TaskExecutorConfig config)
+    : config_(std::move(config)),
+      router_(config_.num_shuffle_partitions,
+              config_.output_queue_capacity,
+              config_.shuffle_queue_capacity,
+              static_cast<size_t>(config_.resource_limit.max_shuffle_buffer_bytes),
+              config_.queue_poll_timeout),
+      trace_id_(config_.trace_id) {
   execution_driver_ = std::make_unique<PlanExecutionDriver>(
       config_, lifecycle_, router_.outputQueue(),
       router_.serializedShuffleQueue(), metrics_collector_);
@@ -47,7 +48,10 @@ TaskExecutor::~TaskExecutor() {
   cache::SemanticResultCache::instance().releaseTaskUsage(config_.task_id);
 }
 
-void TaskExecutor::start() {
+void TaskExecutor::start(std::function<void()> on_result_ready) {
+  if (on_result_ready && !isResultTask()) {
+    throw std::invalid_argument("Result readiness requires an OUTPUT executor");
+  }
   auto execution_control = acquireExecutionStart();
   if (isExecutionReleased()) {
     throw std::runtime_error("Cannot start a released Native executor: " + config_.task_id);
@@ -57,7 +61,7 @@ void TaskExecutor::start() {
         "Cannot start task " + config_.task_id +
         ": invalid state transition");
   }
-  execution_driver_->executeAsync();
+  execution_driver_->executeAsync(std::move(on_result_ready));
 }
 
 void TaskExecutor::bindHandle(int64_t executor_handle, const TaskFailureReporter& failure_reporter) {

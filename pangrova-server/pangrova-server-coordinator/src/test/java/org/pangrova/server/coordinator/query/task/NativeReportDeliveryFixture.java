@@ -41,6 +41,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ScheduledExecutorService;
 
 /** Actual SQL/JNI and authenticated internal HTTP in one JVM; not process-isolated E2E. */
 final class NativeReportDeliveryFixture implements AutoCloseable {
@@ -61,6 +62,7 @@ final class NativeReportDeliveryFixture implements AutoCloseable {
     private RemoteTaskStatusReporter reporter;
     private ScheduledExecutorService cleanupExecutor;
     private ExecutorService queryExecutor;
+    private ScheduledExecutorService submitDeadlines;
     private ResultEndpoint endpoint;
     private Throwable resultFailure;
 
@@ -129,6 +131,8 @@ final class NativeReportDeliveryFixture implements AutoCloseable {
         } else {
             queryExecutor = org.pangrova.common.concurrent.ManagedExecutorFactory
                     .newSingleThreadExecutor("report-fixture-query-admission");
+            submitDeadlines = org.pangrova.common.concurrent.ManagedExecutorFactory
+                    .newSingleThreadScheduledExecutor("report-fixture-query-deadline");
             queries = new QueryManager(new QueryManagerContext(execution, TestObservability.TRACING,
                     null, null,
                     org.pangrova.coordinator.query.QueryManagerCollaborators.admission(null, null),
@@ -136,7 +140,7 @@ final class NativeReportDeliveryFixture implements AutoCloseable {
                             null, null, null, execution, null),
                     org.pangrova.coordinator.query.QueryManagerCollaborators.journal(
                             journal, null),
-                    null, AsyncSubmitConfig.defaultEnabled(), queryExecutor,
+                    null, AsyncSubmitConfig.defaultEnabled(), queryExecutor, submitDeadlines,
                     new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory()));
             queries.setLocalCoordinatorId("report-coordinator");
             worker.connect(execution, tracker, workers, queries);
@@ -260,6 +264,7 @@ final class NativeReportDeliveryFixture implements AutoCloseable {
     }
 
     private void stopQueryExecutor() throws InterruptedException {
+        if (submitDeadlines != null) submitDeadlines.shutdownNow();
         if (queryExecutor == null) return;
         queryExecutor.shutdown();
         try {

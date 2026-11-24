@@ -48,6 +48,10 @@ StreamCompletion decideStreamCompletion(
 bool flightTransportSecurityCompatible(
     bool local_tls_enabled, std::string_view endpoint_tls_identity);
 
+// Keeps the received Arrow buffer alive across serialized page and IOBuf clones.
+std::unique_ptr<folly::IOBuf> retainFlightPageBuffer(
+    std::shared_ptr<arrow::Buffer> owner, const uint8_t* payload, size_t size);
+
 }  // namespace detail
 
 // ExchangeSource that bridges Pangrova's exchange service with Velox.
@@ -142,8 +146,6 @@ class PangrovaExchangeSource
   // Flight client state (active mode)
   // Transport liveness is enforced by gRPC keepalive, not a Flight call
   // deadline. A call deadline would cap the lifetime of a healthy long query.
-  static constexpr int kFlightKeepaliveTimeMs = 30000;
-  static constexpr int kFlightKeepaliveTimeoutMs = 10000;
   std::atomic<bool> flight_configured_{false};
   std::string flight_host_;
   int flight_port_ = 0;

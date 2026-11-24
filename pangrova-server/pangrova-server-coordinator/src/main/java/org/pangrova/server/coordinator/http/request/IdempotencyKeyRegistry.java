@@ -35,6 +35,7 @@ import java.util.Objects;
 import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.DelayQueue;
 import java.util.concurrent.Delayed;
@@ -114,8 +115,8 @@ public final class IdempotencyKeyRegistry {
      * pre-registration submission is released for a later retry. Recorded failures keep their query
      * identity and cannot rerun the SQL during the TTL. The request fingerprint is fixed-size.
      */
-    public SubmitQueryResponse submit(String principal, String key, SubmitQueryRequest request,
-            Supplier<SubmitQueryResponse> submit) {
+    public CompletionStage<SubmitQueryResponse> submit(String principal, String key, SubmitQueryRequest request,
+            Supplier<CompletionStage<SubmitQueryResponse>> submit) {
         var scopedKey = new Key(Objects.requireNonNull(principal, "principal"), Objects.requireNonNull(key, "key"));
         long now = clock.millis();
         retireExpiredReceipts();
@@ -126,33 +127,31 @@ public final class IdempotencyKeyRegistry {
             throw new ClientErrorException("Idempotency key was already used for a different request",
                     Response.Status.CONFLICT);
         }
-        if (selected != candidate) {
+        if (selected == candidate) {
             try {
-                return selected.receipt.join();
-            } catch (CompletionException failure) {
-                if (failure.getCause() instanceof RuntimeException cause) {
-                    throw cause;
-                }
-                if (failure.getCause() instanceof Error cause) {
-                    throw cause;
-                }
-                throw failure;
+                Objects.requireNonNull(submit.get(), "submission receipt stage")
+                        .whenComplete((receipt, failure) -> complete(scopedKey, selected, receipt, failure));
+            } catch (RuntimeException | Error failure) {
+                complete(scopedKey, selected, null, failure);
             }
         }
-        try {
-            SubmitQueryResponse receipt = Objects.requireNonNull(submit.get(), "submission receipt");
-            selected.receipt.complete(receipt);
-            retainReceipt(scopedKey, selected);
-            return receipt;
-        } catch (RuntimeException | Error failure) {
-            selected.receipt.completeExceptionally(failure);
-            if (failure instanceof RecordedSubmissionException || failure instanceof Error) {
-                retainReceipt(scopedKey, selected);
-            } else {
-                entries.remove(scopedKey, selected);
-            }
-            throw failure;
+        return selected.receipt.minimalCompletionStage();
+    }
+
+    private void complete(Key key, Entry entry, SubmitQueryResponse receipt, Throwable failure) {
+        Throwable cause = failure instanceof CompletionException && failure.getCause() != null
+                ? failure.getCause() : failure;
+        if (cause == null && receipt != null) {
+            retainReceipt(key, entry);
+            entry.receipt.complete(receipt);
+            return;
         }
+        if (cause instanceof RecordedSubmissionException || cause instanceof Error) {
+            retainReceipt(key, entry);
+        } else {
+            entries.remove(key, entry);
+        }
+        entry.receipt.completeExceptionally(cause == null ? new NullPointerException("submission receipt") : cause);
     }
 
     private void retireExpiredReceipts() {

@@ -1,5 +1,7 @@
 package org.pangrova.worker.task;
 
+import org.pangrova.protocol.rest.task.TaskReportEvidence;
+
 import org.pangrova.protocol.v2.NativeTaskStats;
 import org.pangrova.worker.enums.TaskState;
 
@@ -14,7 +16,7 @@ import org.pangrova.protocol.execution.TaskDescriptor;
 /**
  * Task tracking record: immutable metadata + delegated mutable execution state.
  *
- * <p>Metadata fields (taskId, queryId, request, descriptor, startTime) are final and set at
+ * <p>Task identity, classification and request are final and set at
  * construction. Execution state (executor handle and output stats) is owned by
  * {@link TaskExecutionState}; admission memory reservations are owned by
  * {@link TaskMemoryAccount}. Both are accessed through the same per-task owners.
@@ -26,6 +28,7 @@ public final class TaskInfo {
     private final String queryId;
     private final SubmitTaskRequest request;
     private final TaskDescriptor descriptor;
+    private final String taskType;
     private final Instant startTime;
 
     // --- Mutable execution state (delegated) ---
@@ -37,18 +40,29 @@ public final class TaskInfo {
     @org.pangrova.common.concurrent.GuardedBy("this")
     private TaskResultRelease resultRelease;
 
-    TaskInfo(
+    TaskInfo(String taskId, SubmitTaskRequest request, Instant startTime) {
+        this(taskId, request.taskRequest().getAttempt().getQueryOrJobId(), request, null,
+                request.taskType(), startTime);
+    }
+
+    TaskInfo(String taskId, String queryId, TaskDescriptor descriptor, Instant startTime) {
+        this(taskId, queryId, null, descriptor, descriptor == null ? "unknown" : descriptor.taskType(), startTime);
+    }
+
+    private TaskInfo(
             String taskId,
             String queryId,
             SubmitTaskRequest request,
             TaskDescriptor descriptor,
+            String taskType,
             Instant startTime) {
         this.taskId = taskId;
         this.queryId = queryId;
         this.request = request;
         this.descriptor = descriptor;
+        this.taskType = taskType;
         this.startTime = startTime;
-        this.memoryAccount = new TaskMemoryAccount(taskId, queryId, request, descriptor);
+        this.memoryAccount = new TaskMemoryAccount(taskId, queryId, request, descriptor, taskType);
     }
 
     // --- Immutable accessors ---
@@ -65,8 +79,20 @@ public final class TaskInfo {
         return request;
     }
 
-    public TaskDescriptor descriptor() {
-        return descriptor;
+    String taskType() {
+        return taskType;
+    }
+
+    boolean hasTaskMetadata() {
+        return request != null || descriptor != null;
+    }
+
+    int stageId() {
+        return request == null ? descriptor.stageId() : request.taskRequest().getAttempt().getStageId();
+    }
+
+    int partitionId() {
+        return request == null ? descriptor.partitionId() : request.taskRequest().getAttempt().getPartitionId();
     }
 
     public Instant startTime() {

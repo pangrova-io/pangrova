@@ -15,7 +15,7 @@ public final class TaskRetentionRegistryFixture {
     }
 
     public static void addFinished(TaskManager manager, String id) {
-        var info = new TaskInfo(id, "retention-query", null, null, Instant.now().minusSeconds(3600));
+        var info = new TaskInfo(id, "retention-query", null, Instant.now().minusSeconds(3600));
         if (!info.compareAndSetState(TaskState.RECEIVED, TaskState.RUNNING)
                 || !info.compareAndSetState(TaskState.RUNNING, TaskState.FINISHED)) {
             throw new AssertionError("Failed to construct terminal fixture");

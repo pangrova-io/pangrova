@@ -76,11 +76,7 @@ public final class JdbcRowPolicyStore extends JdbcPolicyStoreSupport implements 
     private static List<RowPolicy> read(ResultSet row) throws SQLException {
         List<RowPolicy> policies = new ArrayList<>();
         while (row.next()) {
-            policies.add(new RowPolicy(row.getLong("policy_id"), row.getString("policy_name"),
-                    row.getString("catalog_name"), row.getString("schema_name"), row.getString("table_name"),
-                    row.getString("filter_expression"), decodeRoles(row.getString("apply_to_roles")),
-                    row.getBoolean("enabled"), row.getInt("priority"),
-                    row.getObject("table_id", java.util.UUID.class)));
+            policies.add(readRowPolicy(row));
         }
         return List.copyOf(policies);
     }

@@ -1,12 +1,15 @@
 package org.pangrova.metadata.coordination;
 import org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore;
 
+import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import org.pangrova.execution.api.ownership.ExecutionAnchor;
+import org.postgresql.ds.PGSimpleDataSource;
+import org.testcontainers.containers.PostgreSQLContainer;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -48,6 +51,48 @@ class JdbcExecutionAnchorStoreTest {
         assertThat(second.fencingToken()).isGreaterThan(first.fencingToken());
         assertThat(store.release(first)).isFalse();
         assertThat(store.current("q-1")).contains(second);
+    }
+
+    @Test
+    void firstAcquisitionReturnsItsPersistedLeaseWithoutStandaloneClockOrTokenReads() throws Exception {
+        try (var postgres = new PostgreSQLContainer<>("postgres:16-alpine")
+                .withCommand("postgres", "-c", "shared_preload_libraries=pg_stat_statements")) {
+            postgres.start();
+            var source = new PGSimpleDataSource();
+            source.setURL(postgres.getJdbcUrl());
+            source.setUser(postgres.getUsername());
+            source.setPassword(postgres.getPassword());
+            Flyway.configure().dataSource(source).locations("classpath:db/migration").load().migrate();
+            try (var connection = source.getConnection(); var statement = connection.createStatement()) {
+                statement.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public");
+            }
+            long previousClocks = statementCalls(source, "SELECT clock_timestamp()");
+            long previousTokens = statementCalls(source, "SELECT nextval($1)");
+            var countedStore = new JdbcExecutionAnchorStore(source);
+            var lease = countedStore.tryAcquire("q-insert-clock", "a", "a-1", Duration.ofMillis(7_023))
+                    .orElseThrow();
+
+            assertThat(statementCalls(source, "SELECT clock_timestamp()") - previousClocks).isZero();
+            assertThat(statementCalls(source, "SELECT nextval($1)") - previousTokens).isZero();
+            assertThat(lease.expiresAt()).isEqualTo(lease.acquiredAt().plusMillis(7_023));
+            assertThat(countedStore.current("q-insert-clock")).contains(lease);
+        }
+    }
+
+    private static long statementCalls(DataSource source, String sql) throws Exception {
+        try (var connection = source.getConnection();
+                var statement = connection.prepareStatement("""
+                        SELECT COALESCE(sum(calls), 0)
+                        FROM public.pg_stat_statements
+                        WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+                          AND query = ?
+                        """)) {
+            statement.setString(1, sql);
+            try (var rows = statement.executeQuery()) {
+                assertThat(rows.next()).isTrue();
+                return rows.getLong(1);
+            }
+        }
     }
 
     @ParameterizedTest

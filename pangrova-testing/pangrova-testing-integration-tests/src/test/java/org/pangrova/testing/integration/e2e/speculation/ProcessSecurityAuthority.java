@@ -19,6 +19,7 @@ import org.postgresql.ds.PGSimpleDataSource;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
 import org.testcontainers.containers.wait.strategy.Wait;
+import org.testcontainers.containers.wait.strategy.WaitAllStrategy;
 import org.testcontainers.images.builder.Transferable;
 import org.testcontainers.utility.DockerImageName;
 
@@ -59,7 +60,11 @@ final class ProcessSecurityAuthority implements AutoCloseable {
                 .withCopyToContainer(Transferable.of(ldif().getBytes(StandardCharsets.UTF_8)),
                         "/container/service/slapd/assets/config/bootstrap/ldif/custom/spec-user.ldif")
                 .withCommand("--copy-service")
-                .waitingFor(Wait.forListeningPort().withStartupTimeout(Duration.ofSeconds(120)));
+                // The image opens port 389 during LDIF bootstrap and closes it before serving.
+                .waitingFor(new WaitAllStrategy()
+                        .withStrategy(Wait.forLogMessage(".*First start is done[.]{3}.*\\s", 1))
+                        .withStrategy(Wait.forListeningPort())
+                        .withStartupTimeout(Duration.ofSeconds(120)));
     }
 
     void start() throws Exception {

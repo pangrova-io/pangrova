@@ -43,7 +43,7 @@ class TaskManagerZeroHandleTest {
     void taskSucceedsOnNonZeroHandle() throws Exception {
         try (var runtime = new ActualNativeTaskFixture();
                 var tasks = new ActualTaskManagerFixture(runtime, "actual-positive-handle")) {
-            var info = tasks.submit(runtime.valuesRequest(true));
+            var info = tasks.submitReadable(runtime.valuesRequest(true));
             assertThat(info.executorHandle()).isPositive();
             assertThat(tasks.consume(info).values()).containsExactly(42L);
             tasks.awaitState(info, TaskState.FINISHED);

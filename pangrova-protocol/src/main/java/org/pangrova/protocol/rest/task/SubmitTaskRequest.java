@@ -11,6 +11,7 @@ import org.pangrova.protocol.rest.copy.CopySourceReadHttp;
 import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.protocol.v2.TaskRequest;
 
+import java.io.InputStream;
 import java.util.HexFormat;
 import java.util.Objects;
 
@@ -24,6 +25,9 @@ import java.util.Objects;
 public final class SubmitTaskRequest {
 
     public static final String MEDIA_TYPE = "application/x-protobuf";
+
+    /** Maximum encoded task body admitted by the Worker HTTP control endpoint. */
+    public static final int MAX_HTTP_BODY_BYTES = 128 * 1024 * 1024;
 
     private static final int SHA256_BYTES = 32;
 
@@ -44,7 +48,15 @@ public final class SubmitTaskRequest {
 
     /** Parses the sole task submission wire format. COPY keeps the exact embedded task bytes. */
     public static SubmitTaskRequest decode(byte[] body) throws InvalidProtocolBufferException {
-        var envelope = TaskSubmission.parseFrom(body);
+        return decodeEnvelope(TaskSubmission.parseFrom(body));
+    }
+
+    /** Parses the submission directly from a request body with transport limits already applied. */
+    public static SubmitTaskRequest decode(InputStream body) throws InvalidProtocolBufferException {
+        return decodeEnvelope(TaskSubmission.parser().parseFrom(body));
+    }
+
+    private static SubmitTaskRequest decodeEnvelope(TaskSubmission envelope) throws InvalidProtocolBufferException {
         if (!envelope.getUnknownFields().asMap().isEmpty()) {
             throw new IllegalArgumentException("Unexpected fields in task submission");
         }
@@ -106,7 +118,7 @@ public final class SubmitTaskRequest {
     public byte[] encode() {
         var envelope = TaskSubmission.newBuilder();
         if (copySourceRead == null) {
-            return envelope.setTask(taskRequest).build().toByteArray();
+            return encodeEnvelope(envelope.setTask(taskRequest).build());
         }
         var scope = copySourceRead.scope();
         var ticket = CopyTaskTicket.newBuilder().setNonce(copySourceRead.nonce())
@@ -120,8 +132,15 @@ public final class SubmitTaskRequest {
                         .setOwnerId(scope.ownerId()).setOwnerIncarnation(scope.ownerIncarnation())
                         .setControlEpoch(scope.controlEpoch()).setOwnerFencingToken(scope.ownerFencingToken())
                         .setDeadlineEpochMs(scope.deadlineEpochMs()));
-        return envelope.setCopy(CopyTaskSubmission.newBuilder().setCanonicalTask(copyTaskBytes)
-                .setTicket(ticket)).build().toByteArray();
+        return encodeEnvelope(envelope.setCopy(CopyTaskSubmission.newBuilder().setCanonicalTask(copyTaskBytes)
+                .setTicket(ticket)).build());
+    }
+
+    private static byte[] encodeEnvelope(TaskSubmission envelope) {
+        if (envelope.getSerializedSize() > MAX_HTTP_BODY_BYTES) {
+            throw new IllegalArgumentException("Task submission exceeds the HTTP limit");
+        }
+        return envelope.toByteArray();
     }
 
     /** Private Worker RPC payload. Never log or propagate to JNI. */
@@ -132,6 +151,25 @@ public final class SubmitTaskRequest {
     /** Returns the immutable parsed canonical task contract. */
     public TaskRequest taskRequest() {
         return taskRequest;
+    }
+
+    /** Classifies the admitted task for scheduling and progress reporting. */
+    public String taskType() {
+        if (taskRequest.hasExecutionOptions()
+                && taskRequest.getExecutionOptions().getDirectResultOutput()) {
+            return "OUTPUT";
+        }
+        return switch (taskRequest.getTaskKind()) {
+            case TASK_KIND_READ, TASK_KIND_SHUFFLE_READ, TASK_KIND_SHUFFLE_WRITE ->
+                    "COMPUTE";
+            case TASK_KIND_WRITE -> "WRITE";
+            case TASK_KIND_BACKGROUND_BUILD -> "BACKGROUND_BUILD";
+            case TASK_KIND_BACKGROUND_VALIDATE -> "BACKGROUND_VALIDATE";
+            case TASK_KIND_BACKGROUND_EXPORT -> "BACKGROUND_EXPORT";
+            case TASK_KIND_CDC_INGEST -> "CDC_INGEST";
+            default -> throw new IllegalArgumentException(
+                    "Unsupported canonical task kind: " + taskRequest.getTaskKind());
+        };
     }
 
     /** Returns the canonical task bytes, preserving the original bytes for private COPY. */

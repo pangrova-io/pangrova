@@ -216,8 +216,10 @@ class RequestLimitFilterTest {
     @Test
     void sizeLimitedInputStreamEnforcesLimit() throws IOException {
         byte[] data = new byte[MAX_SIZE + 100];
-        InputStream limited = new RequestLimitFilter.SizeLimitedInputStream(
-                new ByteArrayInputStream(data), MAX_SIZE);
+        StubRequestContext ctx = new StubRequestContext("/v1/query/submit");
+        ctx.setEntityStream(new ByteArrayInputStream(data));
+        filter.filter(ctx);
+        var limited = ctx.getEntityStream();
 
         byte[] buf = new byte[MAX_SIZE + 100];
         int totalRead = 0;
@@ -243,7 +245,10 @@ class RequestLimitFilterTest {
 
     @Test
     void exactSizeEofAndZeroLengthReadRespectInputStreamContract() throws IOException {
-        var limited = new RequestLimitFilter.SizeLimitedInputStream(new ByteArrayInputStream(new byte[MAX_SIZE]), MAX_SIZE);
+        StubRequestContext ctx = new StubRequestContext("/v1/query/submit");
+        ctx.setEntityStream(new ByteArrayInputStream(new byte[MAX_SIZE]));
+        filter.filter(ctx);
+        var limited = ctx.getEntityStream();
         assertThat(limited.readNBytes(MAX_SIZE)).hasSize(MAX_SIZE);
         assertThat(limited.read(new byte[1], 0, 0)).isZero();
         assertThat(limited.read(new byte[1], 0, 1)).isEqualTo(-1);

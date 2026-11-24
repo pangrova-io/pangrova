@@ -1,5 +1,7 @@
 package org.pangrova.worker.task;
 
+import org.pangrova.protocol.rest.task.TaskReportEvidence;
+
 import org.pangrova.worker.enums.NativeTaskFailureCategory;
 import org.pangrova.worker.enums.TaskState;
 import org.pangrova.common.concurrent.ThreadSafe;
@@ -159,8 +161,22 @@ public final class TaskCompletionMonitor {
 
     static TaskReportEvidence validateTerminalEvidence(
             org.pangrova.protocol.v2.TaskRequest request, byte[] status) {
-        var report = requireCanonicalTaskReport(request, status);
-        return new TaskReportEvidence(com.google.protobuf.ByteString.copyFrom(status), report);
+        if (status == null || status.length == 0) {
+            throw new IllegalStateException(
+                    "Task completed without a canonical TaskReport: "
+                            + request.getAttempt().getTaskId());
+        }
+        TaskReportEvidence evidence;
+        try {
+            evidence = TaskReportEvidence.decode(com.google.protobuf.ByteString.copyFrom(status));
+        } catch (com.google.protobuf.InvalidProtocolBufferException malformed) {
+            throw new IllegalStateException(
+                    "Task returned a malformed canonical TaskReport: "
+                            + request.getAttempt().getTaskId(),
+                    malformed);
+        }
+        validateCanonicalTaskReport(request, evidence.report());
+        return evidence;
     }
 
     private void captureTaskStats(
@@ -212,25 +228,11 @@ public final class TaskCompletionMonitor {
         return receipt;
     }
 
-    static org.pangrova.protocol.v2.TaskReport requireCanonicalTaskReport(
-            org.pangrova.protocol.v2.TaskRequest request, byte[] status) {
-        if (status == null || status.length == 0) {
-            throw new IllegalStateException(
-                    "Task completed without a canonical TaskReport: "
-                            + request.getAttempt().getTaskId());
-        }
-        org.pangrova.protocol.v2.TaskReport parsed;
-        try {
-            parsed = org.pangrova.protocol.v2.TaskReport.parseFrom(status);
-        } catch (com.google.protobuf.InvalidProtocolBufferException malformed) {
-            throw new IllegalStateException(
-                    "Task returned a malformed canonical TaskReport: "
-                            + request.getAttempt().getTaskId(),
-                    malformed);
-        }
+    private static void validateCanonicalTaskReport(org.pangrova.protocol.v2.TaskRequest request,
+            org.pangrova.protocol.v2.TaskReport parsed) {
         if (isWorkerExecuted(request)) {
             requireWorkerExecutedReport(request, parsed);
-            return parsed;
+            return;
         }
         if (!parsed.getUnknownFields().asMap().isEmpty()
                 || !parsed.getAttempt().equals(request.getAttempt())
@@ -247,7 +249,6 @@ public final class TaskCompletionMonitor {
             throw new IllegalStateException(
                     "Native canonical TaskReport violates its terminal task authority");
         }
-        return parsed;
     }
 
     private static void requireWorkerExecutedReport(

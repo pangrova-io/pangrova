@@ -15,6 +15,7 @@ import org.apache.iceberg.parquet.Parquet;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.pangrova.common.util.DigestUtils;
 import org.pangrova.connector.api.enums.ReadSnapshotState;
 import org.pangrova.connector.iceberg.read.IcebergExpressionToSubstrait;
 import org.pangrova.connector.api.session.ConnectorSession;
@@ -146,21 +147,29 @@ class IcebergReadBindingIntegrationTest {
             long selected = table.currentSnapshot().snapshotId();
             table.updateSchema().addColumn("added", Types.StringType.get()).commit();
             var metadata = new IcebergMetadata(catalog, "bound");
-            var current = bind(metadata, "schema");
+            var liveHandle = metadata.getTableHandle(SESSION, new SchemaTableName("db", "schema"));
+            var liveIdentity = metadata.getTableIdentity(SESSION, liveHandle);
+            var current = metadata.bindReadWithIdentityCheck(SESSION, liveHandle, liveHandle,
+                    actual -> assertThat(actual).isEqualTo(liveIdentity));
             assertThat(current.snapshotId().orElseThrow()).isEqualTo(selected);
             assertThat(current.declaration().metadata().columns()).containsExactly("id", "added");
             var selectedHandle = (org.pangrova.connector.iceberg.handle.IcebergTableHandle) current.handle();
+            assertThat(current.schemaIdentity().orElseThrow().tableIdentity().schemaFingerprint())
+                    .isEqualTo(DigestUtils.sha256Hex(selectedHandle.schemaJson()));
             String identityKey = org.pangrova.connector.iceberg.handle.IcebergTableHandle.SOURCE_IDENTITY_PROPERTY;
             assertThat(selectedHandle.withLimit(1).properties()).containsKey(identityKey);
             assertThat(selectedHandle.withSnapshotId(selected).properties()).doesNotContainKey(identityKey);
             assertThat(selectedHandle.withoutSnapshotId().properties()).doesNotContainKey(identityKey);
             assertThat(selectedHandle.withIncrementalRead(selected, selected).properties()).doesNotContainKey(identityKey);
-            var oldHandle = metadata.getTableHandle(SESSION, new SchemaTableName("db", "schema"))
-                    .withTimeTravelSnapshot(selected);
-            var historical = metadata.bindRead(SESSION, oldHandle);
+            var oldHandle = liveHandle.withTimeTravelSnapshot(selected);
+            var historical = metadata.bindReadWithIdentityCheck(SESSION, liveHandle, oldHandle,
+                    actual -> assertThat(actual).isEqualTo(liveIdentity));
             assertThat(historical.declaration().requireExactDeclaration().columns()).containsExactly("id");
             assertThat(current.schemaIdentity().orElseThrow().tableIdentity().schemaFingerprint())
                     .isNotEqualTo(historical.schemaIdentity().orElseThrow().tableIdentity().schemaFingerprint());
+            var historicalHandle = (org.pangrova.connector.iceberg.handle.IcebergTableHandle) historical.handle();
+            assertThat(historical.schemaIdentity().orElseThrow().tableIdentity().schemaFingerprint())
+                    .isEqualTo(DigestUtils.sha256Hex(historicalHandle.schemaJson()));
             assertThat(historical.schemaIdentity().orElseThrow().fields()).hasSize(1);
             assertThat(splits(catalog, current)).hasSize(1);
             assertThat(splits(catalog, historical)).hasSize(1);

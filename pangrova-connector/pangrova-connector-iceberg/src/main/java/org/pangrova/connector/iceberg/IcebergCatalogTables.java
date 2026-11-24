@@ -10,6 +10,8 @@ import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
 import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 import org.pangrova.connector.api.metadata.table.ConnectorTableReadMetadata;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.apache.iceberg.HasTableOperations;
+import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
@@ -74,6 +76,20 @@ final class IcebergCatalogTables {
         }
     }
 
+    Optional<ConnectorTableMetadata> describeNamedTable(SchemaTableName name) {
+        Table table;
+        try {
+            table = resolveTable(catalog, TableIdentifier.of(name.schema(), name.table()));
+        } catch (org.apache.iceberg.exceptions.NoSuchTableException absent) {
+            return Optional.empty();
+        }
+        if (!(table instanceof HasTableOperations operations)) {
+            throw new IllegalStateException("Table declaration requires actual Iceberg metadata");
+        }
+        var current = operations.operations().current();
+        return Optional.of(declaration(name, current.schema(), current.properties()));
+    }
+
     /** Builds the connector table metadata for the given handle. */
     ConnectorTableMetadata getTableMetadata(IcebergTableHandle handle) {
         return getTableReadMetadata(handle).requireExactDeclaration();
@@ -89,16 +105,17 @@ final class IcebergCatalogTables {
     }
 
     static ConnectorTableReadMetadata readDeclaration(IcebergTableHandle handle, IcebergReadSchema evidence) {
-        var properties = evidence.declarationProperties().orElse(Map.of());
-        var typedColumns = IcebergTypeMapper.toPangrovaColumns(
-                evidence.schema(), properties);
-        List<String> columnNames = typedColumns.stream()
-                .map(ConnectorTableMetadata.Column::name)
-                .toList();
-        SchemaTableName name = new SchemaTableName(handle.schemaName(), handle.tableName());
-        return new ConnectorTableReadMetadata(new ConnectorTableMetadata(name, columnNames, typedColumns, properties),
-                evidence.declarationProperties().isPresent() ? TableDeclarationEvidence.EXACT
-                        : TableDeclarationEvidence.UNAVAILABLE);
+        var properties = evidence.declarationProperties();
+        var name = new SchemaTableName(handle.schemaName(), handle.tableName());
+        return new ConnectorTableReadMetadata(declaration(name, evidence.schema(), properties.orElse(Map.of())),
+                properties.isPresent() ? TableDeclarationEvidence.EXACT : TableDeclarationEvidence.UNAVAILABLE);
+    }
+
+    private static ConnectorTableMetadata declaration(
+            SchemaTableName name, Schema schema, Map<String, String> properties) {
+        var typedColumns = IcebergTypeMapper.toPangrovaColumns(schema, properties);
+        return new ConnectorTableMetadata(name,
+                typedColumns.stream().map(ConnectorTableMetadata.Column::name).toList(), typedColumns, properties);
     }
 
     /** Builds column handles from the table schema for the given handle. */

@@ -157,21 +157,25 @@ public final class JdbcGrantStore extends JdbcPolicyStoreSupport implements Gran
     static List<PrivilegeGrant> collectGrants(ResultSet rs) throws SQLException {
         List<PrivilegeGrant> grants = new ArrayList<>();
         while (rs.next()) {
-            grants.add(new PrivilegeGrant(
-                    String.valueOf(rs.getLong("grant_id")),
-                    rs.getString("role_name"),
-                    Privilege.valueOf(rs.getString("privilege")),
-                    rs.getString("object_type"),
-                    rs.getString("catalog_name"),
-                    rs.getString("schema_name"),
-                    rs.getString("table_name"),
-                    rs.getString("column_name"),
-                    rs.getBoolean("with_grant_option"),
-                    rs.getBoolean("cascade_revoke"),
-                    rs.getString("granted_by"),
-                    rs.getTimestamp("granted_at") != null
-                            ? rs.getTimestamp("granted_at").toInstant() : null));
+            grants.add(readGrant(rs, rs.getLong("grant_id")));
         }
         return grants;
+    }
+
+    static PrivilegeGrant readGrant(ResultSet row, long grantId) throws SQLException {
+        var grantedAt = row.getTimestamp("granted_at");
+        return new PrivilegeGrant(
+                String.valueOf(grantId),
+                row.getString("role_name"),
+                Privilege.valueOf(row.getString("privilege")),
+                row.getString("object_type"),
+                row.getString("catalog_name"),
+                row.getString("schema_name"),
+                row.getString("table_name"),
+                row.getString("column_name"),
+                row.getBoolean("with_grant_option"),
+                row.getBoolean("cascade_revoke"),
+                row.getString("granted_by"),
+                grantedAt != null ? grantedAt.toInstant() : null);
     }
 }

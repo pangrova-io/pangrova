@@ -332,9 +332,9 @@ class CoordinatorWorkerProtocolPropertyTest {
                         null, null, null, null, null, null, null, null, new org.pangrova.persistence.query.memory.transaction.InMemoryWriteCommitJournal(),
                         new org.pangrova.coordinator.query.task.report.GenerationWorkReportSink() {
                             @Override
-                            public boolean commit(String tenantId, org.pangrova.protocol.v2.TaskReport status,
-                                    byte[] originalWireBytes) {
-                                assertThat(originalWireBytes).isEqualTo(status.toByteArray());
+                            public boolean commit(String tenantId,
+                                    org.pangrova.protocol.rest.task.TaskReportEvidence evidence) {
+                                assertThat(evidence.bytes()).isEqualTo(evidence.report().toByteString());
                                 if (commitAttempts.incrementAndGet() == 2) {
                                     retryCommitEntered.countDown();
                                     await(releaseRetryCommit);

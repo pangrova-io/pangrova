@@ -45,6 +45,12 @@ SDK, Coordinator, Worker, Client DTOs or provider implementations.
 
 ### Query submission and execution completion
 
+The HTTP submission exchange suspends while the query waits for readiness.
+Concurrent retries with the same authenticated principal, idempotency key and
+request fingerprint observe the same owned receipt. They release their HTTP
+threads while the original request is pending, and cancelling an observer
+does not cancel the admitted query.
+
 The bounded asynchronous submission executor runs SQL planning and starts the
 distributed DAG. The DAG publishes its OUTPUT endpoint after Worker acknowledgement
 and settles the execution through its completion stage. A running query does not
@@ -54,7 +60,9 @@ result owners account for their own physical drain.
 
 Literal INSERT and INSERT OVERWRITE resolve the target metadata once during
 statement admission. Column order, FILE MIME validation, managed-file validation,
-and generated-column admission use that same observation. Write allocation and
+and generated-column admission use that same observation. Iceberg reads the
+current declaration directly by name from one catalog pointer and returns typed
+schema and properties. Write allocation and
 the final commit still validate against the current connector authority.
 
 Native INSERT, UPDATE, DELETE, MERGE, and CTAS attach their result publication to
@@ -140,7 +148,13 @@ builds an immutable Substrait message. Live exchange and generated-value binding
 use this message before creating task plan bytes. Worker submission carries
 these bytes in the binary Protobuf
 `TaskRequest.substrait_plan` field over HTTP. The Worker prepares and serializes its local
-task request for JNI. The enclosed Substrait plan is decoded on the Native side.
+task request for JNI. Native decodes the enclosed Substrait plan once per task.
+Retrieval preparation checks the plan version before any artifact lookup.
+Velox conversion uses the same parsed plan. Ordinary scan splits stay in the
+task configuration. Retrieval preparation owns only the overrides and their leases.
+Native validates unique split identities when admitting the task. Velox borrows
+those splits for initialization and attaches them to scan leaves without
+rebuilding a duplicate split list.
 
 The SDK-to-wire normalizer walks only Protobuf fields whose descriptors can
 contain Fetch, hash join or merge join relations, including subqueries. It
@@ -607,12 +621,48 @@ Response:
 acknowledgement. `TaskSubmission.task` carries one typed v2 `TaskRequest`.
 Private COPY submissions use the Worker mutual-TLS listener and carry the
 original canonical bytes and scoped ticket in `TaskSubmission.copy`. The
-Worker keeps the ticket outside the Native request.
+Worker keeps the ticket outside the Native request. HTTP admission verifies the
+immutable task structure and plan checksum once in Worker Java. The validated
+submission is passed through task routing to Native task creation and projected
+directly into typed AI callback authority for local registration. Binary callback
+decoding and validation apply when a callback crosses JNI. Native also validates
+the local execution request at that boundary. Worker admission, memory accounting
+and progress reports read task metadata from the canonical request. Scan split
+messages are passed to Native as the task's canonical split list. The HTTP
+contract carries the attempt identity, resource grant and task kind directly.
+Worker validation reads generated resource grant fields directly. Unsigned
+values beyond Java accounting range and unknown grant fields are rejected.
+
+The Worker decodes the binary HTTP request directly from a bounded stream.
+It rejects a declared or observed body over 128 MiB. COPY retains the exact
+embedded task bytes for ticket redemption.
 
 The Worker returns a `TaskSubmitAck` with an `admitted` or `rejected` outcome.
 An admitted acknowledgement carries the canonical task ID and any result or
 Shuffle endpoint owned by that task. Shuffle tickets remain opaque bytes and
-are ordered by output partition for direct lookup. The Coordinator verifies
+are ordered by output partition for direct lookup. A repeat delivery of the
+same task waits asynchronously for the original task's endpoint setup.
+For OUTPUT tasks, the original acknowledgement and replays wait for Native to
+register the exact Flight producer, schema and queue and to start its drivers.
+Native signals this transition on the task start call's callback. The Worker
+releases its HTTP body and setup budget after JNI setup and waits for the signal
+without a Jetty or setup thread. A failure before registration settles the same
+acknowledgement with the captured Native error and retains its drain path.
+Flight authenticates the signed ticket and claims the matching readable
+registration immediately. An absent, revoked or unready registration is rejected
+without a separate registration wait in the data plane.
+The Worker bounds pending retry acknowledgements and uses the original task
+deadline for each HTTP observation. The first request hands setup to a separate
+Worker executor after the exact reservation, with 64 active setups and 64 queued
+setups. A shared 128 MiB allowance covers the bytes entering decode and the
+bodies queued or running through setup. Declared lengths acquire allowance before
+decode. Streams without a declared length acquire it as bytes arrive. Exact
+replays release their request bytes after joining the existing admission.
+Setup rechecks
+authority before allocating task resources. Cancellation and shutdown can
+identify the actual owner during setup. Setup failures return a rejected acknowledgement
+with the original diagnostic after recording the task's terminal outcome.
+The Coordinator verifies
 the returned identity and endpoint scope before recording the dispatch result.
 
 | Scenario | HTTP status | Acknowledgement |
@@ -621,9 +671,10 @@ the returned identity and endpoint scope before recording the dispatch result.
 | Missing, malformed, or invalid task | 400 | `rejected` |
 | Authentication or private transport rejected | 401 or 403 | The auth filter rejects unauthenticated callers. The task endpoint rejects plaintext COPY |
 | Stale control or execution owner | 409 | `rejected` |
+| Task request body exceeds 128 MiB | 413 | `rejected` |
 | Unsupported request media type | 415 | The router rejects the request |
 | Worker has yet to observe the submitted control epoch | 425 | `rejected`. The Coordinator can resend the identical binary body within its deadline |
-| Worker control not ready or admission capacity exceeded | 503 | `rejected` |
+| Worker control not ready or task admission, body, or setup capacity exceeded | 503 | `rejected` |
 | Internal submission failure | 500 | `rejected` |
 
 `DELETE /v1/task/{taskId}` seals the exact issued attempt using a binary
@@ -667,7 +718,9 @@ before finalizing the staged fragment.
 `TaskStatusDelivery` carries the Worker ID, task role, report sequence and
 timestamp. Progress carries the complete issued `TaskAttemptId` and the
 lifecycle state. Terminal delivery carries the exact canonical `TaskReport`
-bytes. The Coordinator reads attempt, lifecycle state, usage, coverage,
+bytes. The Coordinator parses the report once at ingress. A durable generation
+commit uses that parsed report and the same original bytes for exact replay.
+The Coordinator reads attempt, lifecycle state, usage, coverage,
 structured error and Native statistics from that message. Supplemental
 statistics are allowed when canonical Native statistics are absent. Write
 commit evidence travels as opaque binary fragments in the same delivery.
@@ -907,7 +960,7 @@ Task preparation uses the direct roles already verified by table authorization o
 
 **Stage scheduling order**
 
-Each live or durable dispatch cohort resolves its tenant placement before the first task is issued. Later stages and retries resolve the current tenant policy again. Local Shuffle still requires the same exact Worker incarnation. Durable partition claims use the resolved pool and current in-memory Worker inventory during the claim transaction.
+Each live or durable dispatch cohort resolves its tenant placement before the first task is issued. The PostgreSQL placement lookup reads the current tenant status and its assigned resource pool. Later stages and retries repeat that lookup. Local Shuffle still requires the same exact Worker incarnation. Durable partition claims use the resolved pool and current in-memory Worker inventory during the claim transaction.
 
 The Coordinator schedules in topological order of the Stage DAG: leaf Stages are scheduled first, and the Output Stage is scheduled last.
 
@@ -1038,6 +1091,11 @@ share the same synchronization boundary. A suspended wait owns no Jetty request
 thread. Timeout and connection completion detach its observer. State changes
 schedule HTTP response work on Jetty. An explicit historical status read can
 consult the query journal.
+
+A first execution acquires its PostgreSQL advisory lock before the anchor INSERT
+allocates and returns the fencing token. A separate statement starts the lease
+clock after the inserted row is exclusively owned, including when the INSERT
+waited for a competing uncommitted row.
 
 A live DAG with a verified read-only plan skips the write commit journal during task completion. Query finalization still checks the current execution anchor and evaluates the lease against the PostgreSQL clock in the same SELECT. Write publication and recovery keep their durable commit checks.
 
@@ -1991,6 +2049,17 @@ its full API/Core/Provider split remains pending. Query session adaptation still
 lives in Coordinator until the session contract closure is extracted.
 
 ### Compiled relation ownership
+
+PostgreSQL read admission loads the table registration and current catalog
+deployment in one statement before opening the connector. A registered table
+with a removed deployment fails admission. The Coordinator also verifies the
+local catalog and rechecks the table owner after resolving the handle and
+binding the snapshot.
+
+Iceberg checks the live format identity against the metadata already opened
+for snapshot binding. The connector checks that identity before choosing the
+snapshot. Split planning verifies the selected source against the current
+catalog table as a separate boundary.
 
 Foreground authorization observes current subject roles and grants once per
 protected compilation. Row filters and column masks share the verified table

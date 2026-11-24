@@ -64,8 +64,7 @@ class AiRerankScoreFunctionTest {
         var function = new AiRerankScoreFunction(name -> provider);
 
         var task = task();
-        AiInvocationService.registerTask(task);
-        var context = AiExecutionContext.fromTaskRequest(task);
+        var context = AiTestTaskAuthority.register(task);
         try {
             List<ColumnValue> result = AiExecutionContext.callWith(context,
                     () -> function.invokeBatch(List.of(
@@ -87,8 +86,7 @@ class AiRerankScoreFunctionTest {
     @Test
     void rejectsChangedCallbackAuthorityBeforeProviderLookup() {
         var task = task();
-        AiInvocationService.registerTask(task);
-        var context = AiExecutionContext.fromTaskRequest(task);
+        var context = AiTestTaskAuthority.register(task);
         var arguments = new ArrayList<>(arguments(task, "q", "document"));
         int ordinal = FunctionBindingDeclarations.governedLayout("AI_RERANK").ordinal("model_version");
         arguments.set(ordinal, new ColumnValue.StringValue("changed-version"));

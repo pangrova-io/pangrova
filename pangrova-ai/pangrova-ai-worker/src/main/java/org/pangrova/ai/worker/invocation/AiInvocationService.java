@@ -41,6 +41,8 @@ import org.pangrova.ai.api.invocation.InferenceResult;
 import org.pangrova.ai.api.invocation.GenerationParameters;
 import org.pangrova.ai.api.enums.Modality;
 import org.pangrova.protocol.v2.TaskAttemptId;
+import org.pangrova.protocol.v2.ExecutionCallbackContext;
+import org.pangrova.protocol.v2.OperatorBinding;
 import org.pangrova.protocol.v2.ResourceUsage;
 import org.pangrova.ai.api.invocation.RerankingBatchResult;
 import org.pangrova.ai.api.reranking.RerankingProvider;
@@ -71,8 +73,8 @@ public final class AiInvocationService {
             new AiInvocationBudgetManager();
 
     /** Registers canonical Worker task authority before any Native callback can execute. */
-    public static void registerTask(org.pangrova.protocol.v2.TaskRequest request) {
-        BUDGET_MANAGER.registerTask(AiExecutionContext.fromTaskRequest(request), request.getOperatorBindingsList());
+    public static void registerTask(ExecutionCallbackContext callback, List<OperatorBinding> bindings) {
+        BUDGET_MANAGER.registerTask(AiExecutionContext.fromCanonicalTaskAuthority(callback), bindings);
     }
 
     /** Returns the actual admitted binding; callback literals are never an authority. */

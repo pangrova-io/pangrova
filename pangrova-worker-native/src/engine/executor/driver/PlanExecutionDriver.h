@@ -4,6 +4,7 @@
 #pragma once
 
 #include <atomic>
+#include <functional>
 #include <future>
 #include <memory>
 #include <mutex>
@@ -79,7 +80,7 @@ class PlanExecutionDriver {
   PlanExecutionDriver& operator=(const PlanExecutionDriver&) = delete;
 
   // Start execution on a background thread.
-  void executeAsync();
+  void executeAsync(std::function<void()> on_result_ready = {});
 
   // Join the execution thread (blocking).
   void join();
@@ -137,7 +138,7 @@ class PlanExecutionDriver {
       PendingDynamicFilter filter);
 
   // Core Velox execution logic — runs on the background thread.
-  void executeVeloxPlan();
+  void executeVeloxPlan(const std::function<void()>& on_result_ready);
   std::shared_ptr<Execution> prepareExecution(observability::SpanScope* span);
   bool publishRunner(const std::shared_ptr<Execution>& execution);
   void startOutputDrains(const std::shared_ptr<Execution>& execution);
@@ -150,7 +151,8 @@ class PlanExecutionDriver {
   std::string stopExecution(const std::shared_ptr<Execution>& execution);
   void reportExecutionFailure(std::exception_ptr failure, const char* context,
                               const std::string& cleanupErrors);
-  bool dispatchExecution(const std::shared_ptr<Execution>& execution);
+  bool dispatchExecution(const std::shared_ptr<Execution>& execution,
+                         const std::function<void()>& on_result_ready);
   void signalCompletion();
 
   // Close failure channels before publishing FAILED to terminal observers.

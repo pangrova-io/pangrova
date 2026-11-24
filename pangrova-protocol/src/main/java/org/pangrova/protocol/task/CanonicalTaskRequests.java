@@ -65,6 +65,12 @@ public final class CanonicalTaskRequests {
     /** Validates the same admitted task authority used by every Native callback. */
     public static ExecutionCallbackContext callbackFor(TaskRequest request) {
         validateForAdmission(request);
+        var callback = projectCallbackContext(request);
+        validateCallback(callback);
+        return callback;
+    }
+
+    static ExecutionCallbackContext projectCallbackContext(TaskRequest request) {
         var callback = ExecutionCallbackContext.newBuilder()
                 .setProtocol(request.getProtocol()).setSecurity(request.getSecurity())
                 .setAttempt(request.getAttempt()).setResourceGrant(request.getResourceGrant())
@@ -72,9 +78,7 @@ public final class CanonicalTaskRequests {
         if (request.hasTraceContext()) {
             callback.setTraceContext(request.getTraceContext());
         }
-        var context = callback.build();
-        validateCallback(context);
-        return context;
+        return callback.build();
     }
 
     /** Validates the same admitted task authority used by every Native callback. */

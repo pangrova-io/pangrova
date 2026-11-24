@@ -45,7 +45,7 @@ class WorkerBackpressureBootstrapTest {
             assertThat(receipt.getAttempt()).isEqualTo(request.getAttempt());
             assertThat(receipt.hasNativeTaskStats()).isTrue();
             assertThat(receipt.getNativeTaskStats().getOperatorStatsList())
-                    .filteredOn(op -> "PartitionedOutput".equals(op.getOperatorType()))
+                    .filteredOn(op -> "CallbackSink".equals(op.getOperatorType()))
                     .anySatisfy(op -> {
                         assertThat(op.getWaitForConsumerNanos()).isPositive();
                         assertThat(op.getBlockedNanos()).isGreaterThanOrEqualTo(op.getWaitForConsumerNanos());

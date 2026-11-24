@@ -227,7 +227,7 @@ public final class TaskStatusReceiver {
     private boolean processReservedReport(TaskStatusReport report, SubmitTaskRequest expected,
             StatusValidation validation, String owner, boolean durable) {
         if (durable && isFinishedState(report.state())
-                && !commitDurableReport(expected, report, validation.canonicalStatus().orElseThrow())) {
+                && !commitDurableReport(expected, report)) {
             LOG.warn("event=artifact_report_rejected_durable taskId={} attempt={}", report.taskId(), report.attempt());
             return validation.canonicalStatus().filter(status -> status.getExecutionDrainState()
                     != org.pangrova.protocol.v2.ExecutionDrainState.EXECUTION_DRAIN_STATE_UNSPECIFIED).isPresent();
@@ -244,11 +244,10 @@ public final class TaskStatusReceiver {
                 .ifPresent(status -> taskTracker.recordExecutionDrain(request, status));
     }
 
-    private boolean commitDurableReport(SubmitTaskRequest request, TaskStatusReport report,
-            org.pangrova.protocol.v2.TaskReport status) {
+    private boolean commitDurableReport(SubmitTaskRequest request, TaskStatusReport report) {
         try {
             return artifactWorkReportSink.commit(request.taskRequest().getSecurity().getTenantId(),
-                    status, report.canonicalTaskReport());
+                    report.terminalEvidence());
         } catch (org.pangrova.security.api.exception.AuthorizationDeniedException
                 | org.pangrova.generation.api.exception.GenerationExecutionOwnerLostException fenced) {
             LOG.warn("event=durable_report_rejected_authority queryId={} taskId={} reason={}",

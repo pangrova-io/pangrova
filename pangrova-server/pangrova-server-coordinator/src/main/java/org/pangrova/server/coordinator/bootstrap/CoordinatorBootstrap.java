@@ -117,7 +117,7 @@ public final class CoordinatorBootstrap {
     private void startRoleSubsystems() {
         security = new SecurityBootstrap(config, metadataDataSource,
                 source -> new org.pangrova.persistence.workflow.postgresql.security.PostgresTableReadPolicyAuthority(
-                        source, metadataBootstrap.catalogRegistry().tableGovernance(),
+                        source,
                         metadataBootstrap.catalogRegistry()::requireLocalDeployment,
                         new org.pangrova.metadata.security.MetadataTableControlPolicyProjections(),
                         org.pangrova.security.rowfilter.RowLevelSecurityFilter::renderPolicies,

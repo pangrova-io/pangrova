@@ -55,7 +55,6 @@ class SchedulerAbstractionLayerTest {
         Set<String> expectedAdapters = Set.of(
                 "TaskDispatcher.java",
                 "RemoteTaskDispatcher.java",
-                "SubmitTaskRequestConverter.java",
                 "SchedulerCancelResult.java",
                 "WorkerTaskControlClient.java");
 
@@ -140,8 +139,7 @@ class SchedulerAbstractionLayerTest {
         List<String> violations = scanForImports(STRATEGY_PKG,
                 "import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher",
                 "import org.pangrova.scheduler.api.exception.CircuitBreakerOpenException",
-                "import org.pangrova.scheduler.api.exception.NoAvailableWorkerException",
-                "import org.pangrova.coordinator.scheduler.SubmitTaskRequestConverter");
+                "import org.pangrova.scheduler.api.exception.NoAvailableWorkerException");
 
         assertThat(violations)
                 .as("strategy/ sub-package should not depend on scheduler/ root implementation details")

@@ -149,8 +149,8 @@ class ResultFlightStreamTest : public ::testing::Test {
     config.is_result_task = true;
     config.serialized_output_buffer_threshold_bytes = windowBytes;
     runner_ = std::make_shared<pangrova::velox::VeloxTaskRunner>(config, source,
-        std::vector<split::SplitConfig>{}, nullptr);
-    runner_->start();
+        nullptr);
+    runner_->start({});
     if (pause) {
       auto pending = runner_->veloxTask()->requestPause();
       runner_pause_owned_ = true;
@@ -216,35 +216,34 @@ class ResultFlightStreamTest : public ::testing::Test {
   inline static const std::string kTicketKey = "result-reader-real-ticket-key-012345678901";
 };
 
-TEST_F(ResultFlightStreamTest, SignedFlightWaitsForRealProducerReadiness) {
+TEST_F(ResultFlightStreamTest, SignedFlightClaimsOnlyAnAlreadyReadableRegistration) {
   preparePausedRunner();
   const auto registered = FlightResultServer::lookupTaskOutputInfo(task_id_);
   ASSERT_TRUE(registered.has_value());
   ASSERT_TRUE(registered->pool);
   ASSERT_FALSE(registered->ready);
   EXPECT_FALSE(server_->openTaskOutput(grant(registered->authority)).ok());
-  auto started = std::promise<void>();
-  auto entered = started.get_future();
-  std::unique_ptr<arrow::flight::FlightStreamReader> stream;
-  using Clock = std::chrono::steady_clock;
-  auto schemaRead = std::async(std::launch::async, [&] {
-    started.set_value();
-    auto opened = rpcReader(registered->authority);
-    if (!opened.ok()) return std::pair{opened.status(), Clock::now()};
-    stream = std::move(*opened);
-    const auto schema = stream->GetSchema();
-    return std::pair{schema.status(), Clock::now()};
-  });
-  ASSERT_EQ(entered.wait_for(std::chrono::seconds(2)), std::future_status::ready);
-  EXPECT_EQ(schemaRead.wait_for(std::chrono::milliseconds(17)), std::future_status::timeout);
-  auto completion = runner_->startAsync().via(pangrova::jni::globalExecutor().get());
+  auto premature = rpcReader(registered->authority);
+  const auto denial = premature.ok() ? (*premature)->GetSchema().status() : premature.status();
+  ASSERT_FALSE(denial.ok());
+  const auto detail = arrow::flight::FlightStatusDetail::UnwrapStatus(denial);
+  ASSERT_TRUE(detail);
+  EXPECT_EQ(detail->code(), arrow::flight::FlightStatusCode::Unauthorized);
+  int notifications = 0;
+  auto completion = runner_->startAsync([&] {
+    ++notifications;
+    const auto readable = FlightResultServer::lookupTaskOutputInfo(task_id_);
+    ASSERT_TRUE(readable.has_value());
+    EXPECT_TRUE(readable->ready);
+  }).via(pangrova::jni::globalExecutor().get());
+  ASSERT_EQ(notifications, 1);
   ASSERT_TRUE(FlightResultServer::lookupTaskOutputInfo(task_id_)->ready);
-  const auto ready = Clock::now();
-  const auto [status, schemaReady] = schemaRead.get();
-  ASSERT_TRUE(status.ok()) << status.ToString();
+  auto opened = rpcReader(registered->authority);
+  ASSERT_TRUE(opened.ok()) << opened.status().ToString();
+  auto stream = std::move(*opened);
+  const auto schema = stream->GetSchema();
+  ASSERT_TRUE(schema.ok()) << schema.status().ToString();
   EXPECT_FALSE(server_->openTaskOutput(grant(registered->authority)).ok());
-  RecordProperty("ready_to_schema_us", std::to_string(
-      std::chrono::duration_cast<std::chrono::microseconds>(schemaReady - ready).count()));
 
   exec::Task::resume(runner_->veloxTask()->shared_from_this());
   runner_pause_owned_ = false;
@@ -264,6 +263,14 @@ TEST_F(ResultFlightStreamTest, SignedFlightWaitsForRealProducerReadiness) {
   EXPECT_EQ(data->data, nullptr);
   stream.reset();
   EXPECT_TRUE(awaitActual([&] { return runner_->resultDrainEvidence().drained(); }));
+  runner_->cancel();
+  ASSERT_FALSE(FlightResultServer::lookupTaskOutputInfo(task_id_).has_value());
+  auto retired = rpcReader(registered->authority);
+  const auto rejected = retired.ok() ? (*retired)->GetSchema().status() : retired.status();
+  ASSERT_FALSE(rejected.ok());
+  const auto retiredDetail = arrow::flight::FlightStatusDetail::UnwrapStatus(rejected);
+  ASSERT_TRUE(retiredDetail);
+  EXPECT_EQ(retiredDetail->code(), arrow::flight::FlightStatusCode::Unauthorized);
 }
 
 TEST_F(ResultFlightStreamTest, ActualRunnerKeepsLogicalWireNamesRequiredFlagsAndPresentationLabelsSeparate) {

@@ -111,6 +111,46 @@ class QueryManagerAsyncSubmitTest {
     }
 
     @Test
+    void asyncReceiptReturnsWhilePlanningIsHeldAndObserverCancellationKeepsTheQuery() throws Exception {
+        var entering = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var endpoint = new ResultEndpoint("localhost", 9090, "ticket-async-observer", "arrow-flight");
+        var dispatcher = new SlowQueryDispatcher(entering, release) {
+            @Override
+            public CompletionStage<DispatchResult> executeAsync(QueryStateMachine sm, String sql,
+                    QuerySession session) {
+                sm.tryTransition(QueryState.PLANNING);
+                entering.countDown();
+                await(release);
+                sm.tryTransition(QueryState.SCHEDULING);
+                sm.tryTransition(QueryState.RUNNING);
+                sm.setResultEndpoint(endpoint);
+                return CompletableFuture.completedFuture(new DispatchResult("localhost", "task-observer", endpoint));
+            }
+        };
+        var manager = new QueryManager(QueryManagerTestContexts.minimalAsync(
+                dispatcher, TestObservability.TRACING, AsyncSubmitConfig.defaultEnabled(), asyncExecutor));
+        var request = Executors.newSingleThreadExecutor();
+        try {
+            String queryId = "async-observer";
+            var receipt = request.submit(() ->
+                    manager.submitQueryAsync(queryId, "SELECT 1", testSession(queryId))).get(2, TimeUnit.SECONDS);
+            assertThat(entering.await(5, TimeUnit.SECONDS)).isTrue();
+            var disconnected = receipt.toCompletableFuture();
+            assertThat(disconnected.cancel(false)).isTrue();
+            var remaining = receipt.toCompletableFuture();
+            assertThat(remaining).isNotDone();
+
+            release.countDown();
+            assertThat(remaining.get(5, TimeUnit.SECONDS).resultEndpoint()).isEqualTo(endpoint);
+            assertThat(manager.getQueryState(queryId)).contains(QueryState.RUNNING);
+        } finally {
+            release.countDown();
+            request.shutdownNow();
+        }
+    }
+
+    @Test
     void resultlessWriteDispatchReturnsBeforeLongCommit() throws Exception {
         CountDownLatch commit = new CountDownLatch(1);
         QueryDispatcher dispatcher = new SlowQueryDispatcher(new CountDownLatch(1), commit) {

@@ -38,6 +38,8 @@ import org.pangrova.common.client.query.SubmitQueryResponse;
 import org.pangrova.security.api.exception.AuthenticationRequiredException;
 import org.pangrova.security.api.identity.UserIdentity;
 
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.CompletionStage;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -78,12 +80,12 @@ public final class QueryResource {
     /** Submits a new query, deduplicating retries when an Idempotency-Key is supplied. */
     @POST
     @Path("/submit")
-    public Response submitQuery(SubmitQueryRequest request,
-                                @Context ContainerRequestContext requestContext) {
+    public void submitQuery(SubmitQueryRequest request, @Context ContainerRequestContext requestContext,
+            @Suspended AsyncResponse response) {
         validateSubmitRequest(request);
         UserIdentity identity = extractUserIdentity(requestContext);
         String key = requestContext == null ? null : requestContext.getHeaderString("Idempotency-Key");
-        SubmitQueryResponse receipt;
+        CompletionStage<SubmitQueryResponse> receipt;
         if (idempotencyRegistry != null && key != null && !key.isBlank()) {
             if (identity == null || identity.principal() == null || identity.principal().isBlank()) {
                 throw new AuthenticationRequiredException("Idempotent query submission requires a principal");
@@ -93,32 +95,51 @@ public final class QueryResource {
         } else {
             receipt = doSubmit(UUID.randomUUID().toString(), request, identity);
         }
-        return Response.ok(receipt).build();
+        receipt.whenComplete((result, failure) -> {
+            if (failure == null) {
+                response.resume(Response.ok(result).build());
+            } else {
+                response.resume(unwrap(failure));
+            }
+        });
     }
 
-    private SubmitQueryResponse submitWithIdempotency(SubmitQueryRequest request, UserIdentity identity) {
+    private CompletionStage<SubmitQueryResponse> submitWithIdempotency(
+            SubmitQueryRequest request, UserIdentity identity) {
         String queryId = UUID.randomUUID().toString();
         try {
-            return doSubmit(queryId, request, identity);
+            return doSubmit(queryId, request, identity).exceptionally(failure -> {
+                Throwable cause = unwrap(failure);
+                if (cause instanceof RuntimeException runtime) throw recordedFailure(queryId, runtime);
+                if (cause instanceof Error error) throw error;
+                throw new CompletionException(cause);
+            });
         } catch (RuntimeException failure) {
-            boolean recorded;
-            try {
-                recorded = queryManager.getQueryStateWithJournalFallback(queryId).isPresent();
-            } catch (RuntimeException checkFailure) {
-                failure.addSuppressed(checkFailure);
-                recorded = true;
-            }
-            if (recorded) {
-                throw new RecordedSubmissionException(queryId, failure);
-            }
-            throw failure;
+            throw recordedFailure(queryId, failure);
         }
     }
 
-    private SubmitQueryResponse doSubmit(String queryId, SubmitQueryRequest request, UserIdentity identity) {
+    private RuntimeException recordedFailure(String queryId, RuntimeException failure) {
+        boolean recorded;
+        try {
+            recorded = queryManager.getQueryStateWithJournalFallback(queryId).isPresent();
+        } catch (RuntimeException checkFailure) {
+            failure.addSuppressed(checkFailure);
+            recorded = true;
+        }
+        return recorded ? new RecordedSubmissionException(queryId, failure) : failure;
+    }
+
+    private CompletionStage<SubmitQueryResponse> doSubmit(
+            String queryId, SubmitQueryRequest request, UserIdentity identity) {
         QuerySession session = new QuerySession(
                 queryId, request.sessionProperties(), identity, null, Optional.empty(), traceContexts.capture());
-        return QueryResponseMapper.submission(queryManager.submitQuery(queryId, request.query(), session));
+        return queryManager.submitQueryAsync(queryId, request.query(), session)
+                .thenApply(QueryResponseMapper::submission);
+    }
+
+    private static Throwable unwrap(Throwable failure) {
+        return failure instanceof CompletionException && failure.getCause() != null ? failure.getCause() : failure;
     }
 
     private static UserIdentity extractUserIdentity(ContainerRequestContext ctx) {

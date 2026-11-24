@@ -102,6 +102,12 @@ class IcebergMetadataDeleteMergeTest {
         Snapshot afterSnapshot = table.currentSnapshot();
         assertThat(afterSnapshot).isNotNull();
         assertThat(afterSnapshot.snapshotId()).isNotEqualTo(snapshotBefore);
+        assertThat(afterSnapshot.addedDataFiles(table.io()))
+                .singleElement().satisfies(file ->
+                        assertThat(file.path()).hasToString(table.location() + "/data/merge-data-中文.parquet"));
+        assertThat(afterSnapshot.addedDeleteFiles(table.io()))
+                .singleElement().satisfies(file ->
+                        assertThat(file.path()).hasToString(table.location() + "/data/merge-delete-中文.parquet"));
     }
 
     @Test
@@ -119,6 +125,20 @@ class IcebergMetadataDeleteMergeTest {
                 metadata.finishDistributedWrite(SESSION, handle, List.of(fragment)))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("malformed_table");
+    }
+
+    @Test
+    void mergeFragmentMustUseUtf8() {
+        Table table = createV2TableWithData("wrong_encoding");
+        IcebergOutputTableHandle handle = beginMerge("wrong_encoding");
+        long snapshotBefore = table.currentSnapshot().snapshotId();
+        byte[] fragment = buildMergeFragmentJson(table).getBytes(StandardCharsets.UTF_16LE);
+
+        assertThatThrownBy(() -> metadata.finishDistributedWrite(SESSION, handle, List.of(fragment)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Failed to parse fragment JSON");
+        table.refresh();
+        assertThat(table.currentSnapshot().snapshotId()).isEqualTo(snapshotBefore);
     }
 
     // --- helpers ---
@@ -179,14 +199,14 @@ class IcebergMetadataDeleteMergeTest {
 
     private String buildMergeFragmentJson(Table table) {
         org.apache.iceberg.DataFile dataFile = org.apache.iceberg.DataFiles.builder(table.spec())
-                .withPath(table.location() + "/data/merge-data-001.parquet")
+                .withPath(table.location() + "/data/merge-data-中文.parquet")
                 .withFormat(org.apache.iceberg.FileFormat.PARQUET)
                 .withRecordCount(10)
                 .withFileSizeInBytes(2048)
                 .build();
         String dataFileJson = org.apache.iceberg.ContentFileParser.toJson(
                 dataFile, table.spec());
-        String deletePath = table.location() + "/data/merge-delete-001.parquet";
+        String deletePath = table.location() + "/data/merge-delete-中文.parquet";
         return "{\"operation\":\"MERGE\",\"dataFiles\":[" + dataFileJson + "],"
                 + "\"deleteFiles\":[{\"path\":\""
                 + deletePath

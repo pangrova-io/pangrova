@@ -5,6 +5,7 @@ import io.substrait.proto.Plan;
 import org.pangrova.protocol.substrait.SubstraitProtocolVersion;
 import io.substrait.proto.Rel;
 import io.substrait.proto.SetRel;
+import io.substrait.proto.SortField;
 import io.substrait.proto.Type;
 
 /** Generated canonical plans for real JNI task value and failure oracles. */
@@ -44,13 +45,30 @@ public final class ActualNativeTaskPlans {
 
     /** A small canonical input expands at the actual Native CrossNode, not in Java. */
     public static byte[] largeCross(int sideRows) {
+        return crossPlan(sideRows).build().toByteArray();
+    }
+
+    /** Materializes the cross-product in the actual Native sorting operator. */
+    public static byte[] sortedCross(int sideRows) {
+        var plan = crossPlan(sideRows);
+        var root = plan.getRelationsBuilder(0).getRootBuilder();
+        var input = root.getInput();
+        var sort = root.getInputBuilder().getSortBuilder().setInput(input);
+        var key = sort.addSortsBuilder().setDirection(SortField.SortDirection.SORT_DIRECTION_ASC_NULLS_FIRST)
+                .getExprBuilder().getSelectionBuilder();
+        key.getRootReferenceBuilder();
+        key.getDirectReferenceBuilder().getStructFieldBuilder().setField(0);
+        return plan.build().toByteArray();
+    }
+
+    private static Plan.Builder crossPlan(int sideRows) {
         if (sideRows <= 0) throw new IllegalArgumentException("Cross input must have positive rows");
         var plan = Plan.newBuilder().setVersion(SubstraitProtocolVersion.build());
         var cross = plan.addRelationsBuilder().getRootBuilder().addNames("value")
                 .getInputBuilder().getCrossBuilder();
         cross.setLeft(valuesInput(0, sideRows)).setRight(valuesInput(0, sideRows));
         cross.getCommonBuilder().getEmitBuilder().addOutputMapping(0);
-        return plan.build().toByteArray();
+        return plan;
     }
 
     /** A legal typed CAST evaluated by the Native operator, which must fail. */

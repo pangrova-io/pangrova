@@ -225,7 +225,7 @@ class SubqueryAuthorizationE2ETest extends SqlE2ETestBase {
     private void bindAuthority() {
         rewired = true;
         configureFeatureSecurity(new DynamicRbacAccessControl(grants, roles,
-                new PostgresTableReadPolicyAuthority(stateStoreDataSource(), testCatalogRegistry().tableGovernance(),
+                new PostgresTableReadPolicyAuthority(stateStoreDataSource(),
                         testCatalogRegistry()::requireLocalDeployment,
                         new MetadataTableControlPolicyProjections(),
                         org.pangrova.security.rowfilter.RowLevelSecurityFilter::renderPolicies,

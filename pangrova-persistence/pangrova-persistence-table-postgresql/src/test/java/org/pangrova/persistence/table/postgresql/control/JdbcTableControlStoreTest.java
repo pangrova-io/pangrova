@@ -2,6 +2,7 @@ package org.pangrova.persistence.table.postgresql.control;
 
 import org.pangrova.table.api.enums.OwnershipMode;
 import org.pangrova.table.api.enums.TableControlProvenance;
+import org.pangrova.table.api.identity.CatalogDeploymentIdentity;
 import org.pangrova.table.api.ownership.TableControlRecord;
 import org.pangrova.table.api.rename.TableControlRenameIntent;
 import org.pangrova.table.api.enums.TableControlState;
@@ -71,6 +72,27 @@ class JdbcTableControlStoreTest extends ContainerTestBase {
         assertThat(reloaded.properties()).containsEntry("owner", "alice");
         assertThat(reloaded.versionObservedAt()).isEqualTo(NOW);
         assertThat(reloaded.createdAt()).isEqualTo(NOW);
+    }
+
+    @Test
+    void readOwnerObservationPreservesTheRecordAcrossDeploymentChanges() throws SQLException {
+        var owner = readOwner();
+        var initial = store.observeReadOwner("cat", "db", "orders").orElseThrow();
+        assertThat(initial.record()).isEqualTo(owner);
+        assertThat(initial.deployment()).contains(new CatalogDeploymentIdentity(owner.catalogIncarnationId(), 7));
+
+        try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
+            assertThat(statement.executeUpdate("UPDATE catalog_definitions SET revision=8 WHERE name='cat'")).isOne();
+            var changed = store.observeReadOwner("cat", "db", "orders").orElseThrow();
+            assertThat(changed.record()).isEqualTo(owner);
+            assertThat(changed.deployment()).contains(new CatalogDeploymentIdentity(owner.catalogIncarnationId(), 8));
+
+            assertThat(statement.executeUpdate("DELETE FROM catalog_definitions WHERE name='cat'")).isOne();
+        }
+        var missing = store.observeReadOwner("cat", "db", "orders").orElseThrow();
+        assertThat(missing.record()).isEqualTo(owner);
+        assertThat(missing.deployment()).isEmpty();
+        assertThat(store.observeReadOwner("cat", "db", "unregistered")).isEmpty();
     }
 
     @Test

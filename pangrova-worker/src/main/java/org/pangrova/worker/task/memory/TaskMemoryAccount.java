@@ -22,16 +22,18 @@ public final class TaskMemoryAccount {
     private final String queryId;
     private final SubmitTaskRequest request;
     private final TaskDescriptor descriptor;
+    private final String taskType;
     private final AtomicLong allocatedMemory = new AtomicLong(0);
     private final AtomicLong allocatedBufferMemory = new AtomicLong(0);
 
     /** Creates one task's reservation ledger; memory demand is resolved when allocation is requested. */
     public TaskMemoryAccount(String taskId, String queryId,
-                             SubmitTaskRequest request, TaskDescriptor descriptor) {
+                             SubmitTaskRequest request, TaskDescriptor descriptor, String taskType) {
         this.taskId = taskId;
         this.queryId = queryId;
         this.request = request;
         this.descriptor = descriptor;
+        this.taskType = taskType;
     }
 
     String taskId() { return taskId; }
@@ -50,9 +52,13 @@ public final class TaskMemoryAccount {
         return request.taskRequest().getResourceGrant().getShuffleBufferBytes();
     }
 
-    int stageId() { return descriptor.stageId(); }
+    int stageId() {
+        return request == null ? descriptor.stageId() : request.taskRequest().getAttempt().getStageId();
+    }
 
-    String taskType() { return descriptor.taskType(); }
+    String taskType() {
+        return taskType;
+    }
 
     /** Resolves the canonical grant first; descriptor-only tasks are test wiring. */
     public long requestedNativeMemoryBytes() {

@@ -3135,6 +3135,7 @@ artifacts:
       - org.pangrova.persistence.security.postgresql.mask
       - org.pangrova.persistence.security.postgresql.policy
       - org.pangrova.persistence.security.postgresql.rowfilter
+      - org.pangrova.persistence.security.postgresql.support
       - org.pangrova.persistence.security.postgresql.tenant
       - org.pangrova.persistence.security.postgresql.transaction
     providers:
@@ -3371,7 +3372,11 @@ artifacts:
         - pangrova-metadata-api
         - pangrova-persistence-catalog-api
         - pangrova-persistence-catalog-postgresql
+        - pangrova-persistence-security-postgresql
+        - pangrova-persistence-table-postgresql
         - pangrova-persistence-workflow-api
+        - pangrova-security-api
+        - pangrova-table
         - pangrova-testing-kit
     exportedPackages:
       - org.pangrova.persistence.workflow.postgresql.generation
@@ -3538,7 +3543,6 @@ artifacts:
       - org.pangrova.protocol.rest.maintenance
       - org.pangrova.protocol.rest.shuffle
       - org.pangrova.protocol.rest.task
-      - org.pangrova.protocol.rest.task.convert
       - org.pangrova.protocol.rest.task.exchange
       - org.pangrova.protocol.rest.version
       - org.pangrova.protocol.rest.worker
@@ -3595,7 +3599,6 @@ artifacts:
       - org.pangrova.protocol.rest.maintenance
       - org.pangrova.protocol.rest.shuffle
       - org.pangrova.protocol.rest.task
-      - org.pangrova.protocol.rest.task.convert
       - org.pangrova.protocol.rest.task.exchange
       - org.pangrova.protocol.rest.version
       - org.pangrova.protocol.rest.worker

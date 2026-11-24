@@ -8,7 +8,10 @@
 #include <algorithm>
 #include <fstream>
 #include <limits>
+#include <map>
 #include <stdexcept>
+#include <tuple>
+#include <vector>
 
 #include <arrow/array.h>
 #include <arrow/buffer.h>
@@ -18,6 +21,7 @@
 #include <folly/futures/Future.h>
 #include <folly/io/IOBuf.h>
 #include <glog/logging.h>
+#include <grpc/impl/channel_arg_names.h>
 
 #include "jni/RuntimeInitializer.h"
 #include "engine/observability/PangrovaLog.h"
@@ -29,12 +33,94 @@ namespace pangrova::velox {
 
 namespace {
 
+constexpr int kFlightKeepaliveTimeMs = 30000;
+constexpr int kFlightKeepaliveTimeoutMs = 10000;
+constexpr size_t kRememberedFlightPeers = 256;
+// Each live source holds a reference. A read in progress may hold another.
+// This conservative limit leaves HTTP/2 stream capacity for skewed exchanges.
+constexpr long kFlightOwnersPerChannel = 32;
+
 struct FlightClientSecurity {
   bool enabled = false;
   std::string certificate_chain;
   std::string private_key;
   std::string root_ca;
+
+  std::shared_ptr<arrow::flight::FlightClient> clientFor(
+      const std::string& host, int port, const std::string& tlsIdentity) const;
+
+ private:
+  using Client = arrow::flight::FlightClient;
+  using Peer = std::tuple<std::string, int, std::string>;
+  mutable std::mutex clients_mutex;
+  // Stream owners keep the connection live. Idle cache entries hold no sockets.
+  mutable std::map<Peer, std::vector<std::weak_ptr<Client>>> clients;
+
+  std::shared_ptr<Client> createClient(
+      const std::string& host, int port, const std::string& tlsIdentity) const;
 };
+
+std::shared_ptr<arrow::flight::FlightClient> FlightClientSecurity::clientFor(
+    const std::string& host, int port, const std::string& tlsIdentity) const {
+  const Peer peer{host, port, tlsIdentity};
+  std::unique_lock<std::mutex> lock(clients_mutex);
+  if (!clients.contains(peer) && clients.size() >= kRememberedFlightPeers) {
+    std::erase_if(clients, [](const auto& entry) {
+      return std::ranges::all_of(entry.second, [](const auto& client) {
+        return client.expired();
+      });
+    });
+    if (clients.size() >= kRememberedFlightPeers) {
+      lock.unlock();
+      return createClient(host, port, tlsIdentity);
+    }
+  }
+
+  auto& peerClients = clients[peer];
+  std::erase_if(peerClients, [](const auto& client) { return client.expired(); });
+  for (const auto& weak : peerClients) {
+    auto client = weak.lock();
+    if (client && client.use_count() <= kFlightOwnersPerChannel) {
+      return client;
+    }
+  }
+
+  // FlightClient::Connect constructs the channel. The first DoGet performs
+  // network I/O after this mutex has been released.
+  auto client = createClient(host, port, tlsIdentity);
+  peerClients.emplace_back(client);
+  return client;
+}
+
+std::shared_ptr<arrow::flight::FlightClient> FlightClientSecurity::createClient(
+    const std::string& host, int port, const std::string& tlsIdentity) const {
+  auto location = enabled
+      ? arrow::flight::Location::ForGrpcTls(host, port)
+      : arrow::flight::Location::ForGrpcTcp(host, port);
+  if (!location.ok()) {
+    throw std::runtime_error(
+        "Failed to create Flight location: " + location.status().ToString());
+  }
+  auto options = arrow::flight::FlightClientOptions::Defaults();
+  // Shuffle peers are authenticated endpoints on the cluster network.
+  options.generic_options.emplace_back(GRPC_ARG_ENABLE_HTTP_PROXY, 0);
+  // Additional channels for the same busy peer have independent stream limits.
+  options.generic_options.emplace_back(GRPC_ARG_USE_LOCAL_SUBCHANNEL_POOL, 1);
+  options.generic_options.emplace_back(GRPC_ARG_KEEPALIVE_TIME_MS, kFlightKeepaliveTimeMs);
+  options.generic_options.emplace_back(GRPC_ARG_KEEPALIVE_TIMEOUT_MS, kFlightKeepaliveTimeoutMs);
+  options.generic_options.emplace_back(GRPC_ARG_KEEPALIVE_PERMIT_WITHOUT_CALLS, 1);
+  if (enabled) {
+    options.tls_root_certs = root_ca;
+    options.override_hostname = tlsIdentity;
+    options.cert_chain = certificate_chain;
+    options.private_key = private_key;
+  }
+  auto result = arrow::flight::FlightClient::Connect(*location, options);
+  if (!result.ok()) {
+    throw std::runtime_error("Failed to connect Flight client: " + result.status().ToString());
+  }
+  return std::shared_ptr<arrow::flight::FlightClient>(std::move(*result));
+}
 
 std::mutex g_flight_client_security_mutex;
 std::shared_ptr<const FlightClientSecurity> g_flight_client_security =
@@ -112,6 +198,21 @@ StreamCompletion decideStreamCompletion(
 bool flightTransportSecurityCompatible(
     bool local_tls_enabled, std::string_view endpoint_tls_identity) {
   return local_tls_enabled == !endpoint_tls_identity.empty();
+}
+
+std::unique_ptr<folly::IOBuf> retainFlightPageBuffer(
+    std::shared_ptr<arrow::Buffer> owner, const uint8_t* payload, size_t size) {
+  if (size == 0) return folly::IOBuf::create(0);
+  auto lifetime = std::make_unique<std::shared_ptr<arrow::Buffer>>(std::move(owner));
+  const iovec view{const_cast<uint8_t*>(payload), size};
+  // The out-of-line IOV API keeps the allocator ABI inside Folly.
+  auto result = folly::IOBuf::takeOwnershipIov(
+      &view, 1, [](void*, void* context) {
+        delete static_cast<std::shared_ptr<arrow::Buffer>*>(context);
+      }, lifetime.get(), false);
+  lifetime.release();
+  result->markExternallySharedOne();
+  return result;
 }
 
 }  // namespace detail
@@ -594,37 +695,7 @@ void PangrovaExchangeSource::performFlightRead(
     }
 
     if (!client) {
-      auto security = flightClientSecuritySnapshot();
-      auto locationResult = security->enabled
-          ? arrow::flight::Location::ForGrpcTls(host, port)
-          : arrow::flight::Location::ForGrpcTcp(host, port);
-      if (!locationResult.ok()) {
-        throw std::runtime_error(
-            "Failed to create Flight location: " +
-            locationResult.status().ToString());
-      }
-      auto clientOptions = arrow::flight::FlightClientOptions::Defaults();
-      clientOptions.generic_options.emplace_back(
-          "grpc.keepalive_time_ms", kFlightKeepaliveTimeMs);
-      clientOptions.generic_options.emplace_back(
-          "grpc.keepalive_timeout_ms", kFlightKeepaliveTimeoutMs);
-      clientOptions.generic_options.emplace_back(
-          "grpc.keepalive_permit_without_calls", 1);
-      if (security->enabled) {
-        clientOptions.tls_root_certs = security->root_ca;
-        clientOptions.override_hostname = tlsIdentity;
-        clientOptions.cert_chain = security->certificate_chain;
-        clientOptions.private_key = security->private_key;
-      }
-      auto clientResult = arrow::flight::FlightClient::Connect(
-          *locationResult, clientOptions);
-      if (!clientResult.ok()) {
-        throw std::runtime_error(
-            "Failed to connect Flight client: " +
-            clientResult.status().ToString());
-      }
-      client = std::shared_ptr<arrow::flight::FlightClient>(
-          std::move(*clientResult));
+      client = flightClientSecuritySnapshot()->clientFor(host, port, tlsIdentity);
       {
         std::lock_guard<std::mutex> lock(data_mutex_);
         flight_client_ = client;
@@ -766,10 +837,11 @@ PangrovaExchangeSource::Response PangrovaExchangeSource::enqueueFlightBatch(
     int32_t length = 0;
     const uint8_t* value = binaryArray->GetValue(row, &length);
     totalBytes += static_cast<int64_t>(length);
-    // The exchange queue can outlive the Arrow batch. Keep each page in an
-    // owning buffer; Folly's takeOwnership ABI is not portable across the
-    // macOS libc++ versions used by the build and dependency archives.
-    auto data = folly::IOBuf::copyBuffer(value, static_cast<size_t>(length));
+    // Canonical Flight batches contain one complete page, so retaining the
+    // data buffer has the same release granularity as retaining the page.
+    auto data = batch->num_rows() == 1
+        ? detail::retainFlightPageBuffer(binaryArray->value_data(), value, length)
+        : folly::IOBuf::copyBuffer(value, static_cast<size_t>(length));
     pages.push_back(std::make_unique<SerializedPage>(
         std::move(data), nullptr, std::optional<int64_t>(std::nullopt)));
   }

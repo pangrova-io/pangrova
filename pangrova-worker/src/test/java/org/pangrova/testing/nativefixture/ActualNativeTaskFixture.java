@@ -33,11 +33,14 @@ import org.pangrova.worker.jni.NativeRuntime;
 import org.pangrova.worker.result.NativeResultTransport;
 import org.pangrova.worker.result.ResultReadTickets;
 import org.pangrova.worker.shuffle.NativeShuffleProducerRegistration;
+import org.pangrova.worker.task.TaskManager;
 import org.pangrova.worker.task.TransportRefs;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 /** Actual packaged JNI runtime, admitted values tasks and live Native transports. */
 public final class ActualNativeTaskFixture implements AutoCloseable {
@@ -192,8 +195,28 @@ public final class ActualNativeTaskFixture implements AutoCloseable {
 
     public long createStarted(TaskRequest request) {
         long handle = createPending(request);
-        executor.startTask(handle);
+        if (request.getExecutionOptions().getDirectResultOutput()) {
+            startReadable(handle);
+        } else {
+            executor.startTask(handle);
+        }
         return handle;
+    }
+
+    /** Starts an actual Native output owner and joins its one Flight registration event. */
+    public void startReadable(long handle) {
+        var ready = new CompletableFuture<Void>();
+        executor.startResultTask(handle, () -> ready.complete(null));
+        ready.orTimeout(20, TimeUnit.SECONDS).join();
+    }
+
+    /** Uses the same Worker admission completion as HTTP for an already built test request. */
+    public static String submitReadable(TaskManager manager, SubmitTaskRequest request) {
+        try (var body = manager.admitTaskBody()) {
+            body.reserve(request.encode().length);
+            return manager.submitValidatedTask(new ValidatedTaskSubmission(request), body)
+                    .completion().toCompletableFuture().orTimeout(20, TimeUnit.SECONDS).join();
+        }
     }
 
     public TaskReport awaitFinished(long handle) throws Exception {

@@ -71,7 +71,7 @@ class TaskCleanupSchedulingTest {
     void retentionEvictsOnlyTerminalOwnerAndIsIdempotent() {
         var tasks = new WorkerTaskRegistry(256);
         var terminal = finishedTask("terminal");
-        var running = new TaskInfo("running", "other-query", null, null, Instant.now().minusSeconds(3600));
+        var running = new TaskInfo("running", "other-query", null, Instant.now().minusSeconds(3600));
         running.compareAndSetState(TaskState.RECEIVED, TaskState.RUNNING);
         tasks.register(terminal);
         tasks.register(running);
@@ -107,7 +107,7 @@ class TaskCleanupSchedulingTest {
     void concurrentReplacementIsNeverRemovedWithRetiredAttempt() {
         var tasks = new WorkerTaskRegistry(256);
         var old = finishedTask("attempt-key");
-        var replacement = new TaskInfo("attempt-key", "other-query", null, null, Instant.now());
+        var replacement = new TaskInfo("attempt-key", "other-query", null, Instant.now());
         tasks.register(old);
         assertThat(TaskCleanupScheduler.cleanupTerminalTasks(tasks, Duration.ZERO,
                 task -> {
@@ -162,8 +162,8 @@ class TaskCleanupSchedulingTest {
     @Test
     void drainRechecksTheExactTasksAndRejectsPublicationAfterItsSnapshot() throws Exception {
         var tasks = new WorkerTaskRegistry(2);
-        var first = new TaskInfo("first", "query", null, null, Instant.now());
-        var second = new TaskInfo("second", "query", null, null, Instant.now());
+        var first = new TaskInfo("first", "query", null, Instant.now());
+        var second = new TaskInfo("second", "query", null, Instant.now());
         tasks.register(first);
         tasks.register(second);
         var forced = new java.util.concurrent.ConcurrentLinkedQueue<String>();
@@ -190,7 +190,7 @@ class TaskCleanupSchedulingTest {
     }
 
     private static TaskInfo finishedTask(String id) {
-        var info = new TaskInfo(id, "query", null, null, Instant.now());
+        var info = new TaskInfo(id, "query", null, Instant.now());
         assertThat(info.compareAndSetState(TaskState.RECEIVED, TaskState.RUNNING)).isTrue();
         assertThat(info.compareAndSetState(TaskState.RUNNING, TaskState.FINISHED)).isTrue();
         return info;

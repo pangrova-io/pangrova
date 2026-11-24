@@ -5,16 +5,22 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.google.protobuf.CodedOutputStream;
 
+import java.io.ByteArrayInputStream;
 import java.util.List;
+import java.util.Map;
 import java.util.HexFormat;
 import java.nio.charset.StandardCharsets;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.pangrova.protocol.CanonicalTaskRequestTestFixture;
 import org.pangrova.protocol.http.TaskSubmission;
 import org.pangrova.protocol.rest.copy.CopySourceReadHttp;
 import org.pangrova.protocol.rest.data.WriteResultDescriptor;
 import org.pangrova.protocol.task.ValidatedTaskSubmission;
+import org.pangrova.protocol.v2.DataSplit;
+import org.pangrova.protocol.v2.StageResourceGrant;
 import org.pangrova.protocol.v2.TaskExecutionOptions;
 import org.pangrova.protocol.v2.TaskKind;
 import org.pangrova.protocol.v2.TaskRequest;
@@ -56,6 +62,16 @@ class SubmitTaskRequestSymmetryTest {
     }
 
     @Test
+    void oversizedPlanEnvelopeIsRejectedBeforeSerializingItsRepeatedSplits() {
+        var builder = fullRequest().taskRequest().toBuilder();
+        var split = org.pangrova.protocol.v2.DataSplit.newBuilder()
+                .setSourceId("s".repeat(1024 * 1024)).build();
+        for (int index = 0; index < 129; index++) builder.addSplits(split);
+        assertThatThrownBy(() -> SubmitTaskRequest.from(builder.build()).encode())
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("HTTP limit");
+    }
+
+    @Test
     void binaryRoundTripCarriesOneTypedCanonicalTask() throws Exception {
         SubmitTaskRequest request = fullRequest();
 
@@ -66,6 +82,51 @@ class SubmitTaskRequestSymmetryTest {
         assertThat(decoded.canonicalBytes()).isEqualTo(request.canonicalBytes());
         assertThat(decoded.taskRequest()).isEqualTo(request.taskRequest());
         assertThat(decoded).isEqualTo(request);
+        assertThat(SubmitTaskRequest.decode(new ByteArrayInputStream(body))).isEqualTo(decoded);
+    }
+
+    @Test
+    void canonicalSubmissionCarriesThePlanSplitsPropertiesAndResourceGrant() throws Exception {
+        var original = fullRequest().taskRequest();
+        var split = DataSplit.newBuilder().setSplitId("split-1").build();
+        var grant = StageResourceGrant.newBuilder().setGrantId("task-42:grant")
+                .setNativeMemoryBytes(4096).setCpuSlots(8).setSpillBytes(8192).build();
+        var request = SubmitTaskRequest.from(original.toBuilder().addSplits(split).setResourceGrant(grant)
+                .setExecutionOptions(original.getExecutionOptions().toBuilder()
+                        .putAllSessionProperties(Map.of("timezone", "UTC"))).build());
+
+        var admitted = SubmitTaskRequest.decode(new ByteArrayInputStream(request.encode()));
+        assertThat(admitted.taskType()).isEqualTo("OUTPUT");
+        assertThat(admitted.taskRequest().getAttempt()).isEqualTo(original.getAttempt());
+        assertThat(admitted.taskRequest().getSubstraitPlan()).isEqualTo(original.getSubstraitPlan());
+        assertThat(admitted.taskRequest().getSplitsList()).containsExactly(split);
+        assertThat(admitted.taskRequest().getExecutionOptions().getSessionPropertiesMap())
+                .containsExactlyEntriesOf(Map.of("timezone", "UTC"));
+        assertThat(admitted.taskRequest().getResourceGrant()).isEqualTo(grant);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"TASK_KIND_READ,COMPUTE", "TASK_KIND_SHUFFLE_READ,COMPUTE", "TASK_KIND_SHUFFLE_WRITE,COMPUTE",
+            "TASK_KIND_WRITE,WRITE", "TASK_KIND_BACKGROUND_BUILD,BACKGROUND_BUILD",
+            "TASK_KIND_BACKGROUND_VALIDATE,BACKGROUND_VALIDATE", "TASK_KIND_BACKGROUND_EXPORT,BACKGROUND_EXPORT",
+            "TASK_KIND_CDC_INGEST,CDC_INGEST"})
+    void canonicalTaskKindDeterminesWorkerType(TaskKind kind, String expected) throws Exception {
+        byte[] plan = kind == TaskKind.TASK_KIND_CDC_INGEST ? new byte[0] : new byte[]{1};
+        var request = SubmitTaskRequest.from(CanonicalTaskRequestTestFixture.builder("task", "query", kind, plan).build());
+        var admitted = SubmitTaskRequest.decode(request.encode());
+        assertThat(admitted.taskType()).isEqualTo(expected);
+        assertThat(admitted.taskRequest().getSubstraitPlan().toByteArray()).isEqualTo(plan);
+        assertThat(admitted.taskRequest().getSplitsList()).isEmpty();
+        assertThat(admitted.taskRequest().getExecutionOptions().getSessionPropertiesMap()).isEmpty();
+    }
+
+    @Test
+    void missingGrantIsRejectedByCanonicalAdmission() {
+        var canonical = CanonicalTaskRequestTestFixture.builder("task", "query",
+                TaskKind.TASK_KIND_READ, new byte[]{1}).clearResourceGrant().build();
+        var submitted = SubmitTaskRequest.from(canonical);
+        assertThatThrownBy(() -> new ValidatedTaskSubmission(submitted))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("resource grant is incomplete");
     }
 
     @Test
@@ -105,7 +166,8 @@ class SubmitTaskRequestSymmetryTest {
         var envelope = TaskSubmission.parseFrom(submitted.encode()).toBuilder();
         envelope.getCopyBuilder().setCanonicalTask(bytes.toByteString());
         var body = envelope.build().toByteArray();
-        var decoded = SubmitTaskRequest.decode(body);
+        var decoded = SubmitTaskRequest.decode(new ByteArrayInputStream(body));
+        assertThat(decoded).isEqualTo(SubmitTaskRequest.decode(body));
         assertThat(decoded.taskRequest()).isEqualTo(canonical);
         assertThat(decoded.canonicalBytes()).isEqualTo(bytes.toByteString().toByteArray());
         assertThat(decoded.encode()).isEqualTo(body);

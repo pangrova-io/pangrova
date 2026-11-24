@@ -5,6 +5,7 @@ import org.pangrova.common.api.annotation.Experimental;
 import org.pangrova.security.api.tenant.ResolvedTenantContext;
 import org.pangrova.security.api.tenant.Tenant;
 import org.pangrova.security.api.enums.TenantRole;
+import org.pangrova.security.api.enums.TenantStatus;
 
 import java.util.List;
 import java.util.Optional;
@@ -33,6 +34,12 @@ public interface TenantStore {
             org.pangrova.security.api.tenant.TenantMembershipMutation mutation);
 
     Optional<Tenant> getTenant(String tenantId);
+
+    /** Reads the current status and resource pool used to place a stage cohort. */
+    Optional<Placement> getPlacement(String tenantId);
+
+    /** A tenant's current permission to use its assigned Worker pool. */
+    record Placement(TenantStatus status, String resourcePool) {}
 
     /** Returns only ACTIVE tenants; ordering is unspecified. */
     List<Tenant> getAllActiveTenants();

@@ -14,11 +14,9 @@ import org.slf4j.LoggerFactory;
 /**
  * Native result transport delegating to C++ NativeResultServer via JNI.
  *
- * <p>Result data flows entirely within C++: the native engine's PartitionedOutputNode serializes
- * into canonical typed batch streams held by its output buffer. The Native server pulls
- * the owned bytes, and the client-facing data-plane endpoint
- * fetches them directly. JVM components only issue lifecycle control commands and
- * publish the signed Native endpoint; they never relay result pages.</p>
+ * <p>The Velox result callback serializes canonical typed batches into the task-owned Native
+ * queue. Flight serves those bytes directly to the client. The JVM controls the server lifecycle
+ * and publishes the signed endpoint.</p>
  *
  *
  * @see ResultTransport
