@@ -5,6 +5,7 @@ import org.pangrova.security.api.identity.UserIdentity;
 import org.pangrova.security.api.mask.TableColumnMasks;
 
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Access control SPI for imperative privilege checks and declarative policy retrieval.
@@ -46,6 +47,11 @@ public interface AccessControl
 
     /** Read privilege and policy evaluation for the same authenticated subject and plan. */
     interface ReadAuthorization {
+        /** Supplies the already authorized targets for the forthcoming policy pass. */
+        default void preparePolicies(Set<TableReadPolicySource.Target> targets) {
+            // Independent policy providers evaluate each target through their existing access control.
+        }
+
         void requireSelect(String catalog, String schema, String table);
 
         void requireUnfilteredMetadata(String catalog, String schema, String table);

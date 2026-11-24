@@ -56,7 +56,7 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
     private static final String INDEPENDENT_GRANT_LOOKUP =
             "SELECT grant_id, role_name, privilege,%FROM security_grants WHERE role_name = ANY%";
     private static final String READ_POLICY_SNAPSHOT =
-            "WITH read_target(catalog_name, schema_name, table_name) AS (%FROM table_control_registry%"
+            "WITH read_target(catalog_name, schema_name, table_name, target_ordinal) AS (%JOIN table_control_registry%"
                     + "FROM row_policy%FROM column_mask%FROM table_control_governance_binding%";
     private static final String READ_POLICIES_LOOKUP =
             "WITH read_target(table_id, catalog_name, schema_name, table_name) AS (%UNION ALL%";
@@ -154,6 +154,60 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
         assertThat(calls(INDEPENDENT_MASK_LOOKUP) - previousMaskLookups).isZero();
         assertThat(calls(INDEPENDENT_GOVERNANCE_LOOKUP) - previousGovernanceLookups).isZero();
         assertThat(calls(READ_POLICY_IDENTITY_AND_BINDINGS_LOOKUP) - previousPolicyIdentityLookups).isZero();
+    }
+
+    @Test
+    void managedJoinBatchesDistinctTablePoliciesAndReusesAliases() throws SQLException {
+        String name = "iceberg_catalog.default.policy_reads_";
+        int tables = 4;
+        for (int index = 0; index < tables; index++) {
+            String table = name + index;
+            sqlRunner.executeDdl("CREATE TABLE " + table + " (id BIGINT, email VARCHAR)");
+            sqlRunner.execute("INSERT INTO " + table + " VALUES (" + index + ", 'alice@example.com')");
+            sqlRunner.executeDdl("ALTER TABLE " + table + " ALTER COLUMN email SET TAG pii_type = 'PII_EMAIL'");
+        }
+        var projection = new java.util.StringJoiner(", ");
+        var from = new java.util.StringJoiner(" CROSS JOIN ");
+        for (int index = 0; index < tables; index++) {
+            String alias = "p" + index;
+            projection.add(alias + ".id AS id_" + index).add(alias + ".email AS email_" + index);
+            from.add(name + index + " " + alias);
+        }
+        projection.add("q.id AS id_alias").add("q.email AS email_alias");
+        from.add(name + "0 q");
+
+        long subject = calls(READ_SUBJECT_LOOKUP);
+        long policy = calls(READ_POLICY_SNAPSHOT);
+        long admission = calls(READ_ADMISSION_LOOKUP);
+        var existingQueries = new java.util.HashSet<>(queryManager.getStateMachines().keySet());
+        var rows = sqlRunner.execute("SELECT " + projection + " FROM " + from);
+        assertThat(rows).singleElement().satisfies(row -> {
+            for (int index = 0; index < tables; index++) {
+                assertThat(row.getLong("id_" + index)).isEqualTo((long) index);
+                assertThat(row.getString("email_" + index)).isEqualTo("***@***");
+            }
+            assertThat(row.getLong("id_alias")).isZero();
+            assertThat(row.getString("email_alias")).isEqualTo("***@***");
+        });
+        var issued = new java.util.HashSet<>(queryManager.getStateMachines().keySet());
+        issued.removeAll(existingQueries);
+        assertThat(issued).hasSize(1);
+        String queryId = issued.iterator().next();
+        org.awaitility.Awaitility.await("batched-policy query drained").atMost(Duration.ofSeconds(30))
+                .ignoreExceptionsInstanceOf(IllegalStateException.class).untilAsserted(() -> {
+                    taskTracker.requireQueryExecutionDrained(queryId);
+                    assertThat(queryManager.getStateMachines().get(queryId).physicalCleanupApplied()).isTrue();
+                });
+        long subjectReads = calls(READ_SUBJECT_LOOKUP) - subject;
+        long policyReads = calls(READ_POLICY_SNAPSHOT) - policy;
+        long admissionReads = calls(READ_ADMISSION_LOOKUP) - admission;
+        org.slf4j.LoggerFactory.getLogger(ReadCompletionDatabaseBudgetE2ETest.class).info(
+                "event=multi_table_policy_reads distinctTables={} aliases=5 subjectReads={} "
+                        + "policyReads={} admissionReads={}",
+                tables, subjectReads, policyReads, admissionReads);
+        assertThat(subjectReads).isOne();
+        assertThat(policyReads).isOne();
+        assertThat(admissionReads).isEqualTo(tables);
     }
 
     @Test
