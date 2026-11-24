@@ -8,8 +8,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.ResourceLock;
 import org.pangrova.protocol.http.TaskSubmitAck;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
+import org.pangrova.protocol.task.CanonicalTaskAdmissionSeals;
 import org.pangrova.protocol.v2.RuntimeCommand;
 import org.pangrova.protocol.v2.RuntimeCommandType;
+import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.testing.nativefixture.ActualNativeShuffleRequests;
 import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
 import org.pangrova.worker.execution.TaskExecutor;
@@ -138,16 +140,11 @@ class WorkerTaskAdmissionReadinessTest {
                     new ThreadBudgetTracker(8, 4, 2), new SpillManager()), runtime.nodePool(), null);
             try (var tasks = new ActualTaskManagerFixture(runtime, "http-output-ready", new RecordingTaskStatusReporter(),
                     memory, runtime.transports(), holdResultStart(runtime, start))) {
-                var config = new WorkerHttpServer.WorkerHttpConfig(0, "127.0.0.1", runtime.resultPort())
-                        .withBindHost("127.0.0.1");
-                var server = new WorkerHttpServer(config, tasks.manager(), runtime.transports().exchangeTransport(),
-                        null, null, runtime.resultTickets());
+                    var server = resultServer(runtime, tasks);
                 server.start();
                 try {
                     var request = runtime.valuesRequest(true);
-                    var submit = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + server.getPort() + "/v1/task"))
-                            .timeout(Duration.ofSeconds(10)).header("Content-Type", SubmitTaskRequest.MEDIA_TYPE)
-                            .POST(HttpRequest.BodyPublishers.ofByteArray(SubmitTaskRequest.from(request).encode())).build();
+                        var submit = resultSubmission(server, request);
                     var client = HttpClient.newHttpClient();
                     var original = client.sendAsync(submit, HttpResponse.BodyHandlers.ofByteArray());
                     var allowNativeStart = start.get(5, TimeUnit.SECONDS);
@@ -192,19 +189,14 @@ class WorkerTaskAdmissionReadinessTest {
     void nativePlanFailureBeforeFlightRegistrationReturnsTheCauseAndDrains() throws Exception {
         try (var runtime = new ActualNativeTaskFixture();
              var tasks = new ActualTaskManagerFixture(runtime, "http-output-setup-failure")) {
-            var config = new WorkerHttpServer.WorkerHttpConfig(0, "127.0.0.1", runtime.resultPort())
-                    .withBindHost("127.0.0.1");
-            var server = new WorkerHttpServer(config, tasks.manager(), runtime.transports().exchangeTransport(),
-                    null, null, runtime.resultTickets());
+            var server = resultServer(runtime, tasks);
             server.start();
             try {
                 var plan = io.substrait.proto.Plan.parseFrom(
                         ActualNativeTaskFixture.valuesTaskRequest(true).getSubstraitPlan()).toBuilder();
                 plan.getVersionBuilder().setMajorNumber(99);
                 var request = runtime.bindWorker(ActualNativeTaskFixture.planTaskRequest(true, plan.build().toByteArray()));
-                var submit = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + server.getPort() + "/v1/task"))
-                        .timeout(Duration.ofSeconds(10)).header("Content-Type", SubmitTaskRequest.MEDIA_TYPE)
-                        .POST(HttpRequest.BodyPublishers.ofByteArray(SubmitTaskRequest.from(request).encode())).build();
+                var submit = resultSubmission(server, request);
                 var client = HttpClient.newHttpClient();
                 var original = client.sendAsync(submit, HttpResponse.BodyHandlers.ofByteArray());
                 var replay = client.sendAsync(submit, HttpResponse.BodyHandlers.ofByteArray());
@@ -225,6 +217,57 @@ class WorkerTaskAdmissionReadinessTest {
                 server.stop();
             }
         }
+    }
+
+    @Test
+    void sealBeforeFlightRegistrationRejectsThePendingAckAndDrains() throws Exception {
+        try (var runtime = new ActualNativeTaskFixture()) {
+            var start = new CompletableFuture<Runnable>();
+            var memory = new MemoryRefs(new ResourceManager(runtime.arbitrator(),
+                    new ThreadBudgetTracker(8, 4, 2), new SpillManager()), runtime.nodePool(), null);
+            try (var tasks = new ActualTaskManagerFixture(runtime, "http-output-setup-cancel",
+                    new RecordingTaskStatusReporter(), memory, runtime.transports(), holdResultStart(runtime, start))) {
+                var server = resultServer(runtime, tasks);
+                server.start();
+                try {
+                    var request = runtime.valuesRequest(true);
+                    var client = HttpClient.newHttpClient();
+                    var submit = client.sendAsync(resultSubmission(server, request), HttpResponse.BodyHandlers.ofByteArray());
+                    start.get(5, TimeUnit.SECONDS);
+                    assertThat(submit.isDone()).isFalse();
+                    var cancel = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + server.getPort()
+                                    + "/v1/task/" + request.getAttempt().getTaskId()))
+                            .timeout(Duration.ofSeconds(10)).header("Content-Type", SubmitTaskRequest.MEDIA_TYPE)
+                            .method("DELETE", HttpRequest.BodyPublishers.ofByteArray(
+                                    CanonicalTaskAdmissionSeals.create(request).toByteArray())).build();
+                    var cancelled = client.send(cancel, HttpResponse.BodyHandlers.ofByteArray());
+                    assertThat(cancelled.statusCode()).isIn(200, 202);
+                    var response = submit.get(5, TimeUnit.SECONDS);
+                    assertThat(response.statusCode()).isEqualTo(409);
+                    assertThat(TaskSubmitAck.parseFrom(response.body()).hasAdmitted()).isFalse();
+                    var info = tasks.admittedTask(request);
+                    tasks.awaitState(info, org.pangrova.worker.enums.TaskState.CANCELLED);
+                    assertThat(info.executorHandle()).isZero();
+                    assertThat(info.allocatedBufferMemory()).isZero();
+                    assertThat(runtime.arbitrator().getUsedMemory()).isZero();
+                } finally {
+                    server.stop();
+                }
+            }
+        }
+    }
+
+    private static WorkerHttpServer resultServer(ActualNativeTaskFixture runtime, ActualTaskManagerFixture tasks) {
+        var config = new WorkerHttpServer.WorkerHttpConfig(0, "127.0.0.1", runtime.resultPort())
+                .withBindHost("127.0.0.1");
+        return new WorkerHttpServer(config, tasks.manager(), runtime.transports().exchangeTransport(),
+                null, null, runtime.resultTickets());
+    }
+
+    private static HttpRequest resultSubmission(WorkerHttpServer server, TaskRequest request) {
+        return HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + server.getPort() + "/v1/task"))
+                .timeout(Duration.ofSeconds(10)).header("Content-Type", SubmitTaskRequest.MEDIA_TYPE)
+                .POST(HttpRequest.BodyPublishers.ofByteArray(SubmitTaskRequest.from(request).encode())).build();
     }
 
     private static TaskExecutor holdResultStart(ActualNativeTaskFixture runtime, CompletableFuture<Runnable> start) {
