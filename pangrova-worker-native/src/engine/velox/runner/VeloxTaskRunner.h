@@ -7,6 +7,7 @@
 #include "engine/result/ResultOwnershipState.h"
 
 #include <atomic>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -214,7 +215,7 @@ class VeloxTaskRunner
   // post-completion work on a specific executor without blocking a pool thread.
   //
   // Must be called after start() has set up the Velox task.
-  folly::SemiFuture<bool> startAsync();
+  folly::SemiFuture<bool> startAsync(const std::function<void()>& on_result_ready = {});
 
   // Returns true if the task has finished (success or failure).
   bool isFinished() const;
@@ -294,7 +295,7 @@ class VeloxTaskRunner
   mutable std::mutex build_key_ranges_mutex_;
   BuildKeyRanges build_key_ranges_;
   std::atomic<bool> finished_{false};
-  void startInitializedTask();
+  bool startInitializedTask();
 
   std::shared_ptr<pangrova::result::ResultOwnershipState> result_ownership_;
   std::shared_ptr<pangrova::result::ResultPayloadQueue> result_queue_;

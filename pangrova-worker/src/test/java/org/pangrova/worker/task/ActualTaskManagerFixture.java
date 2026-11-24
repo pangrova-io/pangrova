@@ -39,10 +39,15 @@ public final class ActualTaskManagerFixture implements AutoCloseable {
 
     ActualTaskManagerFixture(ActualNativeTaskFixture runtime, String workerId, RecordingTaskStatusReporter reports,
             MemoryRefs memory, TransportRefs transports) {
+        this(runtime, workerId, reports, memory, transports, runtime.executor());
+    }
+
+    ActualTaskManagerFixture(ActualNativeTaskFixture runtime, String workerId, RecordingTaskStatusReporter reports,
+            MemoryRefs memory, TransportRefs transports, org.pangrova.worker.execution.TaskExecutor executor) {
         this.runtime = runtime;
         this.reports = reports;
         var monitor = Executors.newSingleThreadExecutor(task -> new Thread(task, "actual-jni-task-monitor"));
-        context = new TaskManagerContext(reports, runtime.executor(), memory, transports, monitor);
+        context = new TaskManagerContext(reports, executor, memory, transports, monitor);
         manager = new TaskManager(context, workerId, 0.0, runtime.admissionIncarnation());
     }
 

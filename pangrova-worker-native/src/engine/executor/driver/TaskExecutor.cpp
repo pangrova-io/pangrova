@@ -48,7 +48,10 @@ TaskExecutor::~TaskExecutor() {
   cache::SemanticResultCache::instance().releaseTaskUsage(config_.task_id);
 }
 
-void TaskExecutor::start() {
+void TaskExecutor::start(std::function<void()> on_result_ready) {
+  if (on_result_ready && !isResultTask()) {
+    throw std::invalid_argument("Result readiness requires an OUTPUT executor");
+  }
   auto execution_control = acquireExecutionStart();
   if (isExecutionReleased()) {
     throw std::runtime_error("Cannot start a released Native executor: " + config_.task_id);
@@ -58,7 +61,7 @@ void TaskExecutor::start() {
         "Cannot start task " + config_.task_id +
         ": invalid state transition");
   }
-  execution_driver_->executeAsync();
+  execution_driver_->executeAsync(std::move(on_result_ready));
 }
 
 void TaskExecutor::bindHandle(int64_t executor_handle, const TaskFailureReporter& failure_reporter) {

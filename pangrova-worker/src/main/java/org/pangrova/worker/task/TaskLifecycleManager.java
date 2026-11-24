@@ -17,6 +17,7 @@ import org.pangrova.worker.shuffle.NativeShuffleProducerRegistration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 
 import org.pangrova.common.concurrent.ThreadSafe;
@@ -105,7 +106,8 @@ final class TaskLifecycleManager {
      * @return the original handled setup failure, or null after successful setup
      */
     RuntimeException executeTask(
-            String taskId, TaskInfo info, ValidatedTaskSubmission admission, LifecycleCallback callback) {
+            String taskId, TaskInfo info, ValidatedTaskSubmission admission, LifecycleCallback callback,
+            CompletableFuture<Void> outputReady) {
         if (info.isWorkerExecuted()) {
             return executeWorkerExecutedTask(taskId, info, admission, callback);
         }
@@ -134,9 +136,9 @@ final class TaskLifecycleManager {
                 startShuffleViaSpi(info, handle, onError);
             }
 
-            startExecutor(taskId, info, handle, callback);
+            startExecutor(taskId, info, handle, callback, outputReady);
 
-            routeCompletionPipeline(taskId, info, handle, callback, onCompleted, onError);
+            routeCompletionPipeline(taskId, info, handle, callback, onCompleted, onError, outputReady);
             return null;
         } catch (RuntimeException | Error failure) {
             return handleSetupFailure(taskId, info, callback, failure, creationBegun, creationDelegated);
@@ -161,7 +163,7 @@ final class TaskLifecycleManager {
                     tid, info, callback, () -> releaseAllResources(info, taskId));
             Consumer<Exception> onError = e -> completionMonitor.onTaskError(
                     taskId, info, e, callback, () -> releaseAllResources(info, taskId));
-            startExecutor(taskId, info, handle, callback);
+            startExecutor(taskId, info, handle, callback, null);
             completionMonitor.startCompletionMonitor(taskId, info, handle, onCompleted, onError);
             return null;
         } catch (RuntimeException | Error failure) {
@@ -221,7 +223,8 @@ final class TaskLifecycleManager {
     private void routeCompletionPipeline(String taskId, TaskInfo info, long handle,
                                          LifecycleCallback callback,
                                          Consumer<String> onCompleted,
-                                         Consumer<Exception> onError) {
+                                         Consumer<Exception> onError,
+                                         CompletableFuture<Void> outputReady) {
         // Native transport mode: all tasks use completion monitor.
         // The native engine handles data routing autonomously:
         //   - COMPUTE stages route via shuffle transport
@@ -231,7 +234,7 @@ final class TaskLifecycleManager {
             LOG.info("event=native_transport_task_start taskId={} taskType={}",
                     taskId, info.taskType());
             if (isResultTask(info)) {
-                monitorResultTask(taskId, info, handle, callback);
+                monitorResultTask(taskId, info, handle, callback, outputReady);
             } else {
                 completionMonitor.startCompletionMonitor(taskId, info, handle, onCompleted, onError);
             }
@@ -422,14 +425,18 @@ final class TaskLifecycleManager {
     }
 
     private void startExecutor(String taskId, TaskInfo info, long handle,
-                               LifecycleCallback callback) {
+                               LifecycleCallback callback, CompletableFuture<Void> outputReady) {
         requireNotCancelled(info);
         // Admission is checked before any Native driver can consume data.
         TenantExecutionQuotaEnforcer enforcer = this.quotaEnforcer;
         if (enforcer != null) {
             enforcer.checkDuringExecution(taskId);
         }
-        deps.taskExecutor().startTask(handle);
+        if (outputReady == null) {
+            deps.taskExecutor().startTask(handle);
+        } else {
+            deps.taskExecutor().startResultTask(handle, () -> outputReady.complete(null));
+        }
         if (!callback.transition(taskId, TaskState.RUNNING)) {
             if (info.getState() == TaskState.CANCELLING) {
                 deps.taskExecutor().cancelTask(handle);
@@ -464,7 +471,7 @@ final class TaskLifecycleManager {
      * report; result availability itself is not a terminal task state.
      */
     private void monitorResultTask(String taskId, TaskInfo info, long handle,
-                                   LifecycleCallback callback) {
+                                   LifecycleCallback callback, CompletableFuture<Void> outputReady) {
         completionMonitor.startCompletionMonitor(taskId, info, handle,
                 tid -> completionMonitor.onTaskCompleted(tid, info, callback, () -> {
                     if (info.getState() == TaskState.CANCELLING) {
@@ -475,9 +482,28 @@ final class TaskLifecycleManager {
                     // The result consumer or worker drain releases it later.
                     resourceReleaser.unregisterShuffleProducerIfNeeded(info);
                 }),
-                e -> completionMonitor.onTaskError(
-                        taskId, info, e, callback,
-                        () -> releaseAllResources(info, taskId)));
+                failure -> {
+                    // The monitor has already captured the exact Native report. Unblock the submitter
+                    // even when subsequent cleanup or terminal HTTP delivery is delayed.
+                    failResultAcknowledgement(info, outputReady, failure);
+                    completionMonitor.onTaskError(taskId, info, failure, callback,
+                            () -> releaseAllResources(info, taskId));
+                });
+    }
+
+    private static void failResultAcknowledgement(
+            TaskInfo info, CompletableFuture<Void> outputReady, Exception failure) {
+        if (outputReady == null || outputReady.isDone()) return;
+        if (info.getState() == TaskState.CANCELLING || info.getState() == TaskState.CANCELLED) {
+            outputReady.completeExceptionally(new java.util.concurrent.CancellationException(
+                    "Task was cancelled before Flight registration: " + info.taskId()));
+            return;
+        }
+        var evidence = info.terminalTaskEvidence();
+        var nativeError = evidence == null ? null : evidence.report().getError();
+        outputReady.completeExceptionally(nativeError != null && !nativeError.getCode().isBlank()
+                ? new IllegalStateException(nativeError.getCode() + ": " + nativeError.getMessage(), failure)
+                : failure);
     }
 
     /** Releases the actual owner retained for a terminal result. */

@@ -640,6 +640,12 @@ An admitted acknowledgement carries the canonical task ID and any result or
 Shuffle endpoint owned by that task. Shuffle tickets remain opaque bytes and
 are ordered by output partition for direct lookup. A repeat delivery of the
 same task waits asynchronously for the original task's endpoint setup.
+For OUTPUT tasks, the original acknowledgement and replays wait for Native to
+register the exact Flight producer, schema and queue and to start its drivers.
+Native signals this transition on the task start call's callback. The Worker
+releases its HTTP body and setup budget after JNI setup and waits for the signal
+without a Jetty or setup thread. A failure before registration settles the same
+acknowledgement with the captured Native error and retains its drain path.
 The Worker bounds pending retry acknowledgements and uses the original task
 deadline for each HTTP observation. The first request hands setup to a separate
 Worker executor after the exact reservation, with 64 active setups and 64 queued

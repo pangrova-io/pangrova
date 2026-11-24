@@ -44,6 +44,9 @@ public interface TaskExecutor {
      */
     void startTask(long executorHandle);
 
+    /** Starts a Native OUTPUT task and signals when its exact Flight registration is readable. */
+    void startResultTask(long executorHandle, Runnable onReady);
+
     /**
      * Releases all resources associated with the task.
      *

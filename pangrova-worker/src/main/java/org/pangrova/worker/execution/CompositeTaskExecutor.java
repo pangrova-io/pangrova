@@ -74,6 +74,14 @@ public final class CompositeTaskExecutor implements TaskExecutor, AutoCloseable 
     }
 
     @Override
+    public void startResultTask(long executorHandle, Runnable onReady) {
+        if (workerHandles.containsKey(executorHandle)) {
+            throw new IllegalArgumentException("A Worker-JVM task cannot own a Native result endpoint");
+        }
+        nativeExecutor.startResultTask(executorHandle, onReady);
+    }
+
+    @Override
     public Optional<byte[]> releaseTask(long executorHandle) {
         Long backendHandle = workerHandles.get(executorHandle);
         if (backendHandle == null) {

@@ -147,7 +147,7 @@ Java_org_pangrova_worker_jni_NativeRuntime_nativeGetTaskStats0(
 
 JNIEXPORT void JNICALL
 Java_org_pangrova_worker_jni_NativeRuntime_nativeStartTaskWithTrace0(
-    JNIEnv* env, jclass clazz, jlong executorHandle, jstring traceId);
+    JNIEnv* env, jclass clazz, jlong executorHandle, jstring traceId, jobject onResultReady);
 
 // Unified command channel — all control-plane operations route through here.
 JNIEXPORT jbyteArray JNICALL

@@ -235,11 +235,20 @@ public final class NativeTaskExecutor implements TaskExecutor, AutoCloseable {
 
     @Override
     public void startTask(long executorHandle) {
+        startTask(executorHandle, null);
+    }
+
+    @Override
+    public void startResultTask(long executorHandle, Runnable onReady) {
+        startTask(executorHandle, java.util.Objects.requireNonNull(onReady, "onReady"));
+    }
+
+    private void startTask(long executorHandle, Runnable onReady) {
         var lease = acquireHandleLease(executorHandle);
         try {
             String traceId =
                     creationOwners.forHandle(executorHandle).request.getTraceContext().getTraceId();
-            NativeRuntime.nativeStartTaskWithTrace(executorHandle, traceId);
+            NativeRuntime.nativeStartTaskWithTrace(executorHandle, traceId, onReady);
         } finally {
             lease.close();
         }

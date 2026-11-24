@@ -27,6 +27,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Admits a task, reserves execution resources and hands the exact request to its lifecycle owner.
@@ -46,7 +47,7 @@ final class TaskSubmissionHandler {
         var admission = new ValidatedTaskSubmission(request);
         var reservation = reserveSubmission(request);
         if (!reservation.first()) return reservation.awaitAdmission();
-        submitReserved(admission, reservation.workerTaskId(), reservation);
+        submitReserved(admission, reservation.workerTaskId(), reservation, null);
         return reservation.workerTaskId();
     }
 
@@ -78,11 +79,15 @@ final class TaskSubmissionHandler {
             owner.verifyControlEpochForAdmission(request.getAttempt().getControlEpoch());
             owner.verifyExecutionOwnerForAdmission(admission.submission());
             entered = true;
-            var failure = submitReserved(admission, reservation.workerTaskId(), reservation);
-            if (failure == null) {
+            var outputReady = request.getExecutionOptions().getDirectResultOutput() && owner.lifecycleManager != null
+                    ? new CompletableFuture<Void>() : null;
+            var failure = submitReserved(admission, reservation.workerTaskId(), reservation, outputReady);
+            if (failure != null) {
+                result.completeExceptionally(failure);
+            } else if (outputReady == null) {
                 result.complete(reservation.workerTaskId());
             } else {
-                result.completeExceptionally(failure);
+                outputReady.whenComplete((ignored, unavailable) -> publishResultAck(reservation, result, unavailable));
             }
         } catch (RuntimeException | Error failure) {
             if (!entered) reservation.rejectedBeforeOwnership(failure);
@@ -90,6 +95,21 @@ final class TaskSubmissionHandler {
         } finally {
             org.pangrova.observability.logging.LogContext.clear();
         }
+    }
+
+    private static void publishResultAck(TaskAdmissionRegistry.Reservation reservation,
+            CompletableFuture<String> result, Throwable unavailable) {
+        if (unavailable == null) {
+            try {
+                reservation.completeTaskSetup();
+                result.complete(reservation.workerTaskId());
+                return;
+            } catch (RuntimeException | Error failure) {
+                unavailable = failure;
+            }
+        }
+        reservation.failAfterHandoff(unavailable);
+        result.completeExceptionally(unavailable);
     }
 
     // The first response preserves the setup failure while duplicates join any outstanding rollback.
@@ -144,7 +164,7 @@ final class TaskSubmissionHandler {
     private RuntimeException submitReserved(
             ValidatedTaskSubmission admission,
             String taskId,
-            TaskAdmissionRegistry.Reservation reservation) {
+            TaskAdmissionRegistry.Reservation reservation, CompletableFuture<Void> outputReady) {
         var request = admission.submission();
         String queryId = request.taskRequest().getAttempt().getQueryOrJobId();
         TaskInfo info = null;
@@ -169,7 +189,8 @@ final class TaskSubmissionHandler {
         try {
             LOG.info("event=task_submitted taskId={} queryId={}", taskId, queryId);
             if (owner.lifecycleManager != null) {
-                var failure = owner.lifecycleManager.executeTask(taskId, info, admission, owner.lifecycleCallback);
+                var failure = owner.lifecycleManager.executeTask(
+                        taskId, info, admission, owner.lifecycleCallback, outputReady);
                 if (failure != null) {
                     reservation.failAfterHandoff(failure);
                     return failure;
@@ -177,7 +198,7 @@ final class TaskSubmissionHandler {
             } else {
                 autoFinishIfConfigured(taskId, queryId, request);
             }
-            reservation.completeTaskSetup();
+            if (outputReady == null) reservation.completeTaskSetup();
             return null;
         } catch (RuntimeException | Error failure) {
             reservation.failAfterHandoff(failure);

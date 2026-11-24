@@ -156,7 +156,7 @@ class TaskCancellationResourceCleanupTest {
             assertThat(tasks.manager().cancelTask(info.taskId()).isSuccess()).isTrue();
             assertThat(info.allocatedBufferMemory()).isPositive();
             tasks.manager().lifecycleManager.executeTask(info.taskId(), info,
-                    new ValidatedTaskSubmission(info.request()), tasks.manager().lifecycleCallback);
+                    new ValidatedTaskSubmission(info.request()), tasks.manager().lifecycleCallback, null);
             tasks.awaitState(info, org.pangrova.worker.enums.TaskState.CANCELLED);
             assertRetired(runtime, info, handle);
             var receipt = info.executorReleaseReceipt().report();

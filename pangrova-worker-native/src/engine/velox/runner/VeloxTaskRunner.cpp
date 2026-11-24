@@ -948,15 +948,15 @@ void VeloxTaskRunner::releaseTaskAndWaitForDeletion() {
   deletion_future.wait();
 }
 
-void VeloxTaskRunner::startInitializedTask() {
+bool VeloxTaskRunner::startInitializedTask() {
   const int32_t drivers = config_.max_drivers_override > 0
       ? config_.max_drivers_override
       : config_.max_drivers;
   velox_task_->start(drivers);
-  if (!result_queue_ || cancelled_.load()) return;
-  if (!result::FlightResultServer::markTaskOutputReady(config_.task_id) && !cancelled_.load()) {
-    throw std::runtime_error("Started result task has no active Flight registration");
-  }
+  if (!result_queue_ || cancelled_.load()) return false;
+  if (result::FlightResultServer::markTaskOutputReady(config_.task_id)) return true;
+  if (cancelled_.load()) return false;
+  throw std::runtime_error("Started result task has no active Flight registration");
 }
 
 bool VeloxTaskRunner::waitForCompletion() {
@@ -1034,7 +1034,7 @@ bool VeloxTaskRunner::waitForCompletion() {
   }
 }
 
-folly::SemiFuture<bool> VeloxTaskRunner::startAsync() {
+folly::SemiFuture<bool> VeloxTaskRunner::startAsync(const std::function<void()>& on_result_ready) {
   if (!velox_task_) {
     {
       std::lock_guard<std::mutex> lock(error_mutex_);
@@ -1044,7 +1044,7 @@ folly::SemiFuture<bool> VeloxTaskRunner::startAsync() {
     return folly::makeSemiFuture(false);
   }
   try {
-    startInitializedTask();
+    if (startInitializedTask() && on_result_ready) on_result_ready();
   } catch (const std::exception& e) {
     {
       std::lock_guard<std::mutex> lock(error_mutex_);

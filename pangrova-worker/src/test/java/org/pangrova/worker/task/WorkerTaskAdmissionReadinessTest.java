@@ -12,6 +12,7 @@ import org.pangrova.protocol.v2.RuntimeCommand;
 import org.pangrova.protocol.v2.RuntimeCommandType;
 import org.pangrova.testing.nativefixture.ActualNativeShuffleRequests;
 import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
+import org.pangrova.worker.execution.TaskExecutor;
 import org.pangrova.worker.http.WorkerHttpServer;
 import org.pangrova.worker.resource.ResourceManager;
 import org.pangrova.worker.resource.spill.SpillManager;
@@ -19,16 +20,19 @@ import org.pangrova.worker.resource.thread.ThreadBudgetTracker;
 import org.pangrova.worker.shuffle.NativeShuffleProducerRegistration;
 import org.pangrova.worker.task.memory.MemoryRefs;
 
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Proxy;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/** Exercises actual Jetty submissions, JNI creation and task-owned Shuffle registration. */
+/** Exercises actual Jetty submissions, JNI creation and task-owned endpoint readiness. */
 @Tag("native-required")
 @ResourceLock(ActualNativeTaskFixture.RUNTIME_LOCK)
 class WorkerTaskAdmissionReadinessTest {
@@ -124,6 +128,120 @@ class WorkerTaskAdmissionReadinessTest {
                 }
             }
         }
+    }
+
+    @Test
+    void originalAndExactReplayWaitForNativeFlightToBecomeReadable() throws Exception {
+        try (var runtime = new ActualNativeTaskFixture()) {
+            var start = new CompletableFuture<Runnable>();
+            var memory = new MemoryRefs(new ResourceManager(runtime.arbitrator(),
+                    new ThreadBudgetTracker(8, 4, 2), new SpillManager()), runtime.nodePool(), null);
+            try (var tasks = new ActualTaskManagerFixture(runtime, "http-output-ready", new RecordingTaskStatusReporter(),
+                    memory, runtime.transports(), holdResultStart(runtime, start))) {
+                var config = new WorkerHttpServer.WorkerHttpConfig(0, "127.0.0.1", runtime.resultPort())
+                        .withBindHost("127.0.0.1");
+                var server = new WorkerHttpServer(config, tasks.manager(), runtime.transports().exchangeTransport(),
+                        null, null, runtime.resultTickets());
+                server.start();
+                try {
+                    var request = runtime.valuesRequest(true);
+                    var submit = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + server.getPort() + "/v1/task"))
+                            .timeout(Duration.ofSeconds(10)).header("Content-Type", SubmitTaskRequest.MEDIA_TYPE)
+                            .POST(HttpRequest.BodyPublishers.ofByteArray(SubmitTaskRequest.from(request).encode())).build();
+                    var client = HttpClient.newHttpClient();
+                    var original = client.sendAsync(submit, HttpResponse.BodyHandlers.ofByteArray());
+                    var allowNativeStart = start.get(5, TimeUnit.SECONDS);
+                    var replay = client.sendAsync(submit, HttpResponse.BodyHandlers.ofByteArray());
+                    await().atMost(Duration.ofSeconds(3)).untilAsserted(() -> {
+                        try (var available = tasks.manager().admitTaskBody()) {
+                            available.reserve(SubmitTaskRequest.MAX_HTTP_BODY_BYTES);
+                        }
+                    });
+                    await().during(Duration.ofMillis(900)).atMost(Duration.ofSeconds(3)).until(() ->
+                            !original.isDone() && !replay.isDone());
+                    allowNativeStart.run();
+                    var ack = requireAccepted(original.get(5, TimeUnit.SECONDS));
+                    assertThat(ack).isEqualTo(requireAccepted(replay.get(5, TimeUnit.SECONDS)));
+                    assertThat(ack.getAdmitted().getTaskId()).isEqualTo(request.getAttempt().getTaskId());
+                    var endpoint = ack.getAdmitted().getResultEndpoint();
+                    assertThat(endpoint.getPort()).isEqualTo(runtime.resultPort());
+                    assertThat(endpoint.getTicket()).isEqualTo(runtime.resultTicket(request));
+                    try (var allocator = new org.apache.arrow.memory.RootAllocator(ActualNativeTaskFixture.TASK_MEMORY_BYTES);
+                         var flight = org.apache.arrow.flight.FlightClient.builder(allocator,
+                                 org.apache.arrow.flight.Location.forGrpcInsecure(endpoint.getHost(), endpoint.getPort())).build();
+                         var stream = flight.getStream(new org.apache.arrow.flight.Ticket(
+                                 endpoint.getTicket().getBytes(java.nio.charset.StandardCharsets.UTF_8)))) {
+                        assertThat(stream.next()).isTrue();
+                        assertThat(stream.getRoot().getRowCount()).isEqualTo(1);
+                        assertThat(stream.getRoot().getVector(0).getObject(0)).isEqualTo(42L);
+                        assertThat(stream.next()).isFalse();
+                    }
+                    var info = tasks.admittedTask(request);
+                    tasks.awaitState(info, org.pangrova.worker.enums.TaskState.FINISHED);
+                    tasks.manager().releaseTaskExecutor(info.taskId());
+                    assertThat(info.executorHandle()).isZero();
+                    assertThat(info.allocatedBufferMemory()).isZero();
+                } finally {
+                    server.stop();
+                }
+            }
+        }
+    }
+
+    @Test
+    void nativePlanFailureBeforeFlightRegistrationReturnsTheCauseAndDrains() throws Exception {
+        try (var runtime = new ActualNativeTaskFixture();
+             var tasks = new ActualTaskManagerFixture(runtime, "http-output-setup-failure")) {
+            var config = new WorkerHttpServer.WorkerHttpConfig(0, "127.0.0.1", runtime.resultPort())
+                    .withBindHost("127.0.0.1");
+            var server = new WorkerHttpServer(config, tasks.manager(), runtime.transports().exchangeTransport(),
+                    null, null, runtime.resultTickets());
+            server.start();
+            try {
+                var plan = io.substrait.proto.Plan.parseFrom(
+                        ActualNativeTaskFixture.valuesTaskRequest(true).getSubstraitPlan()).toBuilder();
+                plan.getVersionBuilder().setMajorNumber(99);
+                var request = runtime.bindWorker(ActualNativeTaskFixture.planTaskRequest(true, plan.build().toByteArray()));
+                var submit = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + server.getPort() + "/v1/task"))
+                        .timeout(Duration.ofSeconds(10)).header("Content-Type", SubmitTaskRequest.MEDIA_TYPE)
+                        .POST(HttpRequest.BodyPublishers.ofByteArray(SubmitTaskRequest.from(request).encode())).build();
+                var client = HttpClient.newHttpClient();
+                var original = client.sendAsync(submit, HttpResponse.BodyHandlers.ofByteArray());
+                var replay = client.sendAsync(submit, HttpResponse.BodyHandlers.ofByteArray());
+                var first = original.get(5, TimeUnit.SECONDS);
+                var duplicate = replay.get(5, TimeUnit.SECONDS);
+                assertThat(first.statusCode()).isEqualTo(500);
+                assertThat(duplicate.statusCode()).isEqualTo(500);
+                var ack = TaskSubmitAck.parseFrom(first.body());
+                assertThat(ack.hasAdmitted()).isFalse();
+                assertThat(ack.getRejected().getReason()).contains("Substrait spec major-version mismatch");
+                assertThat(TaskSubmitAck.parseFrom(duplicate.body())).isEqualTo(ack);
+                var info = tasks.admittedTask(request);
+                tasks.awaitState(info, org.pangrova.worker.enums.TaskState.FAILED);
+                assertThat(info.executorHandle()).isZero();
+                assertThat(info.allocatedBufferMemory()).isZero();
+                assertThat(runtime.arbitrator().getUsedMemory()).isZero();
+            } finally {
+                server.stop();
+            }
+        }
+    }
+
+    private static TaskExecutor holdResultStart(ActualNativeTaskFixture runtime, CompletableFuture<Runnable> start) {
+        return (TaskExecutor) Proxy.newProxyInstance(TaskExecutor.class.getClassLoader(), new Class<?>[]{TaskExecutor.class},
+                (proxy, method, args) -> {
+                    if (method.getName().equals("startResultTask")) {
+                        long handle = (long) args[0];
+                        var onReady = (Runnable) args[1];
+                        assertThat(start.complete(() -> runtime.executor().startResultTask(handle, onReady))).isTrue();
+                        return null;
+                    }
+                    try {
+                        return method.invoke(runtime.executor(), args);
+                    } catch (InvocationTargetException failure) {
+                        throw failure.getCause();
+                    }
+                });
     }
 
     private static java.util.concurrent.Semaphore pendingAcknowledgements(WorkerHttpServer server) throws Exception {

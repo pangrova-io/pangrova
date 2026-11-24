@@ -159,6 +159,11 @@ class CompositeTaskExecutorTest {
         }
 
         @Override
+        public void startResultTask(long executorHandle, Runnable onReady) {
+            onReady.run();
+        }
+
+        @Override
         public Optional<byte[]> releaseTask(long executorHandle) {
             return Optional.empty();
         }
