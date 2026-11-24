@@ -5,6 +5,7 @@ import org.pangrova.security.api.authorization.AccessControl;
 import org.pangrova.security.api.authorization.ReadAuthorizationSubjectSource;
 import org.pangrova.security.api.authorization.TableReadPolicySource;
 import org.pangrova.security.api.authorization.TableReadPolicySource.PolicyRead;
+import org.pangrova.security.api.authorization.TableReadPolicySource.Target;
 import org.pangrova.security.api.identity.UserIdentity;
 import org.pangrova.security.api.mask.TableColumnMasks;
 import org.pangrova.file.api.enums.FileSpaceType;
@@ -12,6 +13,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -81,12 +83,11 @@ public final class DynamicRbacAccessControl implements AccessControl {
         return new RbacReadAuthorization(user);
     }
 
-    private record PolicyTarget(String catalog, String schema, String table) {}
-
     private final class RbacReadAuthorization implements ReadAuthorization {
         private final UserIdentity user;
         private ReadAuthorizationSubjectSource.Subject subject;
-        private Map<PolicyTarget, PolicyRead> policies;
+        private Map<Target, PolicyRead> policies;
+        private Set<Target> prepared = Set.of();
 
         private RbacReadAuthorization(UserIdentity user) {
             this.user = user;
@@ -100,10 +101,28 @@ public final class DynamicRbacAccessControl implements AccessControl {
             return subject;
         }
 
+        @Override
+        public void preparePolicies(Set<Target> targets) {
+            if (policies == null) {
+                prepared = Set.copyOf(targets);
+            } else {
+                var unread = new LinkedHashSet<>(targets);
+                unread.removeAll(policies.keySet());
+                prepared = Set.copyOf(unread);
+            }
+        }
+
         private PolicyRead policy(String catalog, String schema, String table) {
             if (policies == null) policies = new HashMap<>();
-            return policies.computeIfAbsent(new PolicyTarget(catalog, schema, table), target ->
-                    policySource.bind(user, subject().roles(), target.catalog(), target.schema(), target.table()));
+            var target = new Target(catalog, schema, table);
+            var existing = policies.get(target);
+            if (existing != null) return existing;
+
+            boolean inPreparedScope = prepared.contains(target);
+            var requested = inPreparedScope ? prepared : Set.of(target);
+            policies.putAll(capturePolicies(user, subject().roles(), requested));
+            if (inPreparedScope) prepared = Set.of();
+            return policies.get(target);
         }
 
         @Override
@@ -369,13 +388,26 @@ public final class DynamicRbacAccessControl implements AccessControl {
 
     @Override
     public Optional<String> getRowFilter(UserIdentity user, String catalog, String schema, String table) {
-        return policySource.bind(user, effectiveRoles(user), catalog, schema, table).rowFilter();
+        return directPolicy(user, catalog, schema, table).rowFilter();
     }
 
     @Override
     public TableColumnMasks getColumnMasks(
             UserIdentity user, String catalog, String schema, String table) {
-        return policySource.bind(user, effectiveRoles(user), catalog, schema, table).columnMasks();
+        return directPolicy(user, catalog, schema, table).columnMasks();
+    }
+
+    private PolicyRead directPolicy(UserIdentity user, String catalog, String schema, String table) {
+        var target = new Target(catalog, schema, table);
+        return capturePolicies(user, effectiveRoles(user), Set.of(target)).get(target);
+    }
+
+    private Map<Target, PolicyRead> capturePolicies(UserIdentity user, Set<String> roles, Set<Target> requested) {
+        var captured = Map.copyOf(policySource.bind(user, roles, requested));
+        if (!captured.keySet().equals(requested)) {
+            throw new IllegalStateException("Policy authority did not cover the exact requested read targets");
+        }
+        return captured;
     }
 
     private List<PrivilegeGrant> resolveGrants(UserIdentity user) {
