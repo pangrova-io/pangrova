@@ -327,27 +327,45 @@ class SubstraitRoundTripTest {
     }
 
     @Test
-    void projectionEmitMappingSurvivesGeneratedProtoRoundTrip() throws Exception {
-        Plan original = planAndConvert("SELECT o_totalprice, o_orderkey FROM orders");
+    void repeatedProjectionEmitMappingSurvivesGeneratedProtoRoundTrip() throws Exception {
+        Plan original = planAndConvert(
+                "SELECT o_totalprice, o_orderkey, o_totalprice AS price_copy FROM orders");
         var parsed = io.substrait.proto.Plan.parseFrom(serializer.serialize(original));
         var restored = io.substrait.proto.Plan.parseFrom(parsed.toByteArray());
         assertThat(restored).isEqualTo(parsed);
         var input = restored.getRelations(0).getRoot().getInput();
         assertThat(input.hasProject()).isTrue();
         var project = input.getProject();
-        assertThat(project.getExpressionsCount()).isEqualTo(2);
+        assertThat(project.getExpressionsCount()).isEqualTo(3);
         assertThat(project.getInput().hasRead()).isTrue();
         var schema = project.getInput().getRead().getBaseSchema();
         int inputFields = schema.getStruct().getTypesCount();
         assertThat(project.getCommon().hasEmit()).isTrue();
         assertThat(project.getCommon().getEmit().getOutputMappingList())
-                .containsExactly(inputFields, inputFields + 1);
+                .containsExactly(inputFields, inputFields + 1, inputFields + 2);
         int firstField = project.getExpressions(0).getSelection()
                 .getDirectReference().getStructField().getField();
         int secondField = project.getExpressions(1).getSelection()
                 .getDirectReference().getStructField().getField();
         assertThat(schema.getNames(firstField)).isEqualTo("o_totalprice");
         assertThat(schema.getNames(secondField)).isEqualTo("o_orderkey");
+        assertThat(project.getExpressions(2)).isEqualTo(project.getExpressions(0));
+    }
+
+    @Test
+    void reorderedScanOutputMappingSurvivesGeneratedProtoRoundTrip() throws Exception {
+        Plan original = planAndConvert("SELECT o_totalprice, o_orderkey FROM orders");
+        var parsed = io.substrait.proto.Plan.parseFrom(serializer.serialize(original));
+        var restored = io.substrait.proto.Plan.parseFrom(parsed.toByteArray());
+        assertThat(restored).isEqualTo(parsed);
+        var root = restored.getRelations(0).getRoot();
+        assertThat(root.getNamesList()).containsExactly("o_totalprice", "o_orderkey");
+        assertThat(root.getInput().hasRead()).isTrue();
+        var read = root.getInput().getRead();
+        assertThat(read.getBaseSchema().getNamesList())
+                .containsExactly("o_orderkey", "o_custkey", "o_orderstatus", "o_totalprice", "o_orderdate");
+        assertThat(read.getCommon().hasEmit()).isTrue();
+        assertThat(read.getCommon().getEmit().getOutputMappingList()).containsExactly(3, 0);
     }
 
     // -----------------------------------------------------------------------
