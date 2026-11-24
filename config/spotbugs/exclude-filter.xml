@@ -131,7 +131,7 @@
 
     <!-- Cross-stage bindings share only immutable Protobuf values. -->
     <Match>
-        <Class name="org.pangrova.planner.analysis.AggregateExchangeBinding"/>
+        <Class name="org.pangrova.planner.exchange.AggregateExchangeBinding"/>
         <Or>
             <Field name="function" type="org.pangrova.protocol.v2.FunctionReferenceContract"/>
             <Field name="actualRegistrationSha256" type="com.google.protobuf.ByteString"/>
