@@ -7,7 +7,7 @@ import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.query.execution.dispatch.dag.runtime.DAGExecutionState;
 import org.pangrova.coordinator.query.task.QueryStageObservations;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
-import org.pangrova.query.profiling.OperatorStatsSource.PreparationOutcome;
+import org.pangrova.query.profiling.enums.PreparationOutcome;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;

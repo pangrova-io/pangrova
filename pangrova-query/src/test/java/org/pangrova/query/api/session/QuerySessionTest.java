@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
+import org.pangrova.common.json.CanonicalJsonMapper;
 import org.pangrova.connector.api.metadata.table.SnapshotRange;
 import org.pangrova.connector.api.query.ConnectorQueryAuthority;
 import org.pangrova.connector.api.query.ConnectorQueryOperation;
@@ -38,6 +39,31 @@ class QuerySessionTest {
         assertThat(copy.userIdentity()).isSameAs(actor);
         assertThat(original.tenantId()).isEqualTo("unresolved");
         assertThat(original.sessionProperties()).containsOnlyKeys("catalog");
+    }
+
+    @Test
+    void journalAdmissionPreservesTheExactIdentity() throws Exception {
+        var actor = new UserIdentity("alice\"\\team", Set.of(), Map.of(), Instant.EPOCH);
+        var session = new QuerySession("query\"1", Map.of("schema", "private"), actor, null,
+                Optional.empty(), trace);
+
+        String payload = JournalSessionPayload.encode(session);
+        var json = CanonicalJsonMapper.readTree(payload);
+        assertThat(json.size()).isEqualTo(3);
+        assertThat(json.path("queryId").textValue()).isEqualTo(session.queryId());
+        assertThat(json.path("tenantId").textValue()).isEmpty();
+        assertThat(JournalSessionPayload.admittedPrincipal(session.queryId(), payload))
+                .contains(actor.principal());
+        assertThat(JournalSessionPayload.admittedPrincipal("another-query", payload)).isEmpty();
+    }
+
+    @Test
+    void journalRecoveryDoesNotCoerceMalformedOrNonTextIdentity() {
+        assertThat(JournalSessionPayload.admittedPrincipal("query", "{broken")).isEmpty();
+        assertThat(JournalSessionPayload.admittedPrincipal("query",
+                "{\"queryId\":\"query\",\"principal\":42}")).isEmpty();
+        assertThat(JournalSessionPayload.admittedPrincipal("query",
+                "{\"queryId\":\"query\",\"principal\":\" \"}")).isEmpty();
     }
 
     @Test

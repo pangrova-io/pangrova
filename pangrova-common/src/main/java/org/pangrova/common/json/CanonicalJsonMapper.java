@@ -8,6 +8,10 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Optional;
 
 /**
  * Canonical JSON serialization boundary shared by durable stores.
@@ -28,6 +32,15 @@ public final class CanonicalJsonMapper {
         return INSTANCE.writeValueAsString(value);
     }
 
+    /** Writes JSON using the standard unchecked I/O exception type. */
+    public static String writeValueAsStringUnchecked(Object value) {
+        try {
+            return writeValueAsString(value);
+        } catch (JsonProcessingException failure) {
+            throw new UncheckedIOException(failure);
+        }
+    }
+
     /** Serializes canonical bytes without exposing mutable configuration. */
     public static <T> byte[] writeValueAsBytes(T value) throws JsonProcessingException {
         return INSTANCE.writeValueAsBytes(value);
@@ -46,6 +59,28 @@ public final class CanonicalJsonMapper {
     /** Reads an independently owned tree. */
     public static JsonNode readTree(String json) throws JsonProcessingException {
         return INSTANCE.readTree(json);
+    }
+
+    /** Returns the textual fields of a JSON object, or empty for invalid input. */
+    public static Optional<Map<String, String>> readObjectTextFields(String json) {
+        if (json == null) {
+            return Optional.empty();
+        }
+        try {
+            JsonNode object = readTree(json);
+            if (object == null || !object.isObject()) {
+                return Optional.empty();
+            }
+            Map<String, String> fields = new HashMap<>();
+            object.fields().forEachRemaining(entry -> {
+                if (entry.getValue().isTextual()) {
+                    fields.put(entry.getKey(), entry.getValue().textValue());
+                }
+            });
+            return Optional.of(Map.copyOf(fields));
+        } catch (JsonProcessingException malformed) {
+            return Optional.empty();
+        }
     }
 
     /** Creates a new independently owned object node. */

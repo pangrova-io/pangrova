@@ -6,7 +6,7 @@ import org.pangrova.connector.api.metadata.ConnectorMetadata;
 import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.connector.api.session.ConnectorSession;
-import org.pangrova.coordinator.query.execution.ConnectorWriteBindingFactory;
+import org.pangrova.coordinator.metadata.ConnectorWriteBindingFactory;
 import org.pangrova.coordinator.query.task.write.WriteAllocationIntent;
 import org.pangrova.execution.write.WriteAuthorityAdmission;
 import org.pangrova.generation.codec.column.GeneratedColumnMetadataCodec;

@@ -2,6 +2,7 @@ package org.pangrova.testing.property;
 
 import org.pangrova.testing.testkit.TestProjectPaths;
 
+import net.jqwik.api.Example;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
@@ -107,18 +108,19 @@ class ProtoMessageFieldGoldenPropertyTest {
         SHUFFLE_CONFIG_GOLDEN.put(6, "repeated int32");
     }
 
-    private static final Map<Integer, String> SPLIT_INFO_GOLDEN = new LinkedHashMap<>();
+    private static final Map<Integer, String> DATA_SPLIT_GOLDEN = new LinkedHashMap<>();
     static {
-        SPLIT_INFO_GOLDEN.put(1, "string");
-        SPLIT_INFO_GOLDEN.put(2, "string");
-        SPLIT_INFO_GOLDEN.put(3, "string");
-        SPLIT_INFO_GOLDEN.put(4, "string");
-        SPLIT_INFO_GOLDEN.put(5, "string");
-        SPLIT_INFO_GOLDEN.put(6, "string");
-        SPLIT_INFO_GOLDEN.put(7, "uint64");
-        SPLIT_INFO_GOLDEN.put(8, "uint64");
-        SPLIT_INFO_GOLDEN.put(9, "repeated PartitionValue");
-        SPLIT_INFO_GOLDEN.put(10, "google.protobuf.Any");
+        DATA_SPLIT_GOLDEN.put(1, "string");
+        DATA_SPLIT_GOLDEN.put(2, "string");
+        DATA_SPLIT_GOLDEN.put(3, "string");
+        DATA_SPLIT_GOLDEN.put(4, "string");
+        DATA_SPLIT_GOLDEN.put(5, "string");
+        DATA_SPLIT_GOLDEN.put(6, "string");
+        DATA_SPLIT_GOLDEN.put(7, "uint64");
+        DATA_SPLIT_GOLDEN.put(8, "uint64");
+        DATA_SPLIT_GOLDEN.put(9, "repeated PartitionValue");
+        DATA_SPLIT_GOLDEN.put(11, "CatalogExecutionBinding");
+        DATA_SPLIT_GOLDEN.put(12, "FileSplitDetail");
     }
 
     // ── Canonical golden snapshot checks ──
@@ -172,13 +174,17 @@ class ProtoMessageFieldGoldenPropertyTest {
                 .containsEntry(e.getKey(), e.getValue());
     }
 
-    @Property(tries = 10)
+    @Example
     @Tag("proto-golden")
-    void canonicalSplitInfoFieldsMatchGolden(@ForAll("splitInfoEntries") Map.Entry<Integer, String> e) {
-        Map<Integer, String> parsed = parseMessageFields(CANONICAL_TASK_PROTO, "DataSplit");
-        assertThat(parsed)
-                .as("Canonical SplitInfo field %d must be type '%s'", e.getKey(), e.getValue())
-                .containsEntry(e.getKey(), e.getValue());
+    void canonicalDataSplitFieldsMatchGolden() {
+        assertThat(parseMessageFields(CANONICAL_TASK_PROTO, "DataSplit"))
+                .containsExactlyInAnyOrderEntriesOf(DATA_SPLIT_GOLDEN);
+        var descriptor = org.pangrova.protocol.v2.DataSplit.getDescriptor().toProto();
+        assertThat(descriptor.getReservedRangeList()).anySatisfy(range -> {
+            assertThat(range.getStart()).isLessThanOrEqualTo(10);
+            assertThat(range.getEnd()).isGreaterThan(10);
+        });
+        assertThat(descriptor.getReservedNameList()).contains("connector_detail");
     }
 
     // ── Negative self-test: the parser must actually expose a drift ──
@@ -237,11 +243,6 @@ class ProtoMessageFieldGoldenPropertyTest {
     @Provide
     Arbitrary<Map.Entry<Integer, String>> shuffleConfigEntries() {
         return Arbitraries.of(new ArrayList<>(SHUFFLE_CONFIG_GOLDEN.entrySet()));
-    }
-
-    @Provide
-    Arbitrary<Map.Entry<Integer, String>> splitInfoEntries() {
-        return Arbitraries.of(new ArrayList<>(SPLIT_INFO_GOLDEN.entrySet()));
     }
 
     // ── Proto message field parser ──

@@ -13,6 +13,7 @@
  */
 package org.pangrova.coordinator.query.execution;
 
+import org.pangrova.coordinator.metadata.ConnectorWriteBindingFactory;
 import org.pangrova.execution.write.WriteAuthorityAdmission;
 import org.pangrova.query.api.write.WriteAuthorityResolver;
 import org.pangrova.query.api.write.WriteAuthorityRequest;

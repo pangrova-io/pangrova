@@ -1,4 +1,4 @@
-package org.pangrova.planner.analysis;
+package org.pangrova.planner.exchange;
 
 import com.google.protobuf.ByteString;
 import io.substrait.proto.AggregationPhase;

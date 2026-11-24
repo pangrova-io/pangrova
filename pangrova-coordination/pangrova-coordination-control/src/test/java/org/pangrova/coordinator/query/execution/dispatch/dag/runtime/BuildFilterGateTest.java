@@ -23,7 +23,7 @@ import org.pangrova.planner.analysis.StageRuntimeFilter;
 import org.pangrova.planner.enums.ShuffleType;
 import org.pangrova.query.api.enums.StageState;
 import org.pangrova.query.api.stage.StageCompletionCallback.BuildKeyRange;
-import org.pangrova.query.profiling.OperatorStatsSource.RuntimeFilterOutcome;
+import org.pangrova.query.profiling.enums.RuntimeFilterOutcome;
 
 import java.util.List;
 import java.util.Map;

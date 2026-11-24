@@ -27,7 +27,9 @@ its exact issued `ConnectorQueryAuthority`; copying a session never creates,
 replaces or closes that lifetime. Tenant/property enrichment retains source
 snapshots, incremental ranges and the trusted internal-materialization marker.
 Client properties cannot set those trusted fields. SPI session conversion does
-not authenticate a caller or derive a trusted tenant from a name.
+not authenticate a caller or derive a trusted tenant from a name. The Query API
+exposes the journal session identity as a data record. Admission and recovery
+JSON use the shared canonical mapper through standard Java value types.
 
 Execution correlation is an Observability API snapshot. Entry services receive an
 explicit `ExecutionTraceContextFactory`; Server selects the OpenTelemetry factory.
@@ -630,8 +632,10 @@ the local execution request at that boundary. Worker admission, memory accountin
 and progress reports read task metadata from the canonical request. Scan split
 messages are passed to Native as the task's canonical split list. The HTTP
 contract carries the attempt identity, resource grant and task kind directly.
-Worker validation reads generated resource grant fields directly. Unsigned
-values beyond Java accounting range and unknown grant fields are rejected.
+The Worker derives its scheduling classification from the task kind and the
+direct-result option. Worker validation reads generated resource grant fields
+directly. Unsigned values beyond Java accounting range and unknown grant fields
+are rejected.
 
 The Worker decodes the binary HTTP request directly from a bounded stream.
 It rejects a declared or observed body over 128 MiB. COPY retains the exact

@@ -260,7 +260,7 @@ public class TaskManager implements AutoCloseable {
     }
 
     public org.pangrova.protocol.v2.SourcePreparationResult prepareSource(
-            org.pangrova.protocol.rest.copy.PrepareCopySourceRequest request) throws java.io.IOException {
+            org.pangrova.protocol.rest.copy.preparation.PrepareCopySourceRequest request) throws java.io.IOException {
         var preparation = java.util.Objects.requireNonNull(sourcePreparationControl, "Source preparation runtime");
         return preparation.execute(request);
     }

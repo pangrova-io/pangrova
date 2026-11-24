@@ -13,6 +13,9 @@
  */
 package org.pangrova.planner.analysis;
 
+import org.pangrova.planner.exchange.AggregateExchangeBinding;
+import org.pangrova.planner.exchange.DecimalAggregateExchange;
+import org.pangrova.planner.exchange.StageAggregate;
 import org.pangrova.planner.enums.DistributionType;
 import org.pangrova.planner.enums.StageTerminalPurpose;
 import org.pangrova.planner.enums.ShuffleType;

@@ -46,7 +46,7 @@ import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageNode;
 import org.pangrova.coordinator.query.task.QueryOperatorStatsRegistry;
 import org.pangrova.coordinator.query.task.QueryStageObservations;
-import org.pangrova.query.profiling.OperatorStatsSource.DispatchPhase;
+import org.pangrova.query.profiling.enums.DispatchPhase;
 import org.pangrova.planner.analysis.SqlCompiler;
 import org.pangrova.protocol.execution.BoundExecutionPlan;
 import org.pangrova.query.api.error.QueryFailure;

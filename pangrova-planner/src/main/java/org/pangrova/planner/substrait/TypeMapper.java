@@ -7,11 +7,10 @@ import io.substrait.type.TypeCreator;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.types.enums.PangrovaType;
 import org.pangrova.types.mapping.PangrovaTypeMapping;
-import org.pangrova.types.primitive.DecimalType;
 import org.pangrova.types.primitive.VarcharType;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.sql.type.SqlTypeName;
-import org.pangrova.planner.type.PlannerTypeSystem;
+import org.pangrova.planner.type.DecimalTypeMapping;
 
 /**
  * Maps Calcite RelDataType to Substrait Type, respecting nullability.
@@ -47,10 +46,7 @@ public class TypeMapper {
     private org.pangrova.types.Type mapToParameterized(
             SqlTypeName sqlType, RelDataType calciteType) {
         return switch (sqlType) {
-            case DECIMAL -> {
-                validateDecimalType(calciteType);
-                yield new DecimalType(calciteType.getPrecision(), calciteType.getScale());
-            }
+            case DECIMAL -> DecimalTypeMapping.toPangrova(calciteType);
             case VARCHAR, CHAR -> resolveVarchar(calciteType);
             case NULL -> VarcharType.UNBOUNDED;
             default -> bridgeViaPangrovaType(sqlType);
@@ -120,7 +116,7 @@ public class TypeMapper {
 
     private Type mapComplexType(TypeCreator creator, RelDataType calciteType) {
         return switch (calciteType.getSqlTypeName()) {
-            case DECIMAL -> mapDecimalType(creator, calciteType);
+            case DECIMAL -> DecimalTypeMapping.toSubstrait(calciteType);
             case ARRAY -> mapArrayType(creator, calciteType);
             case MAP -> mapMapType(creator, calciteType);
             // ROW = Calcite struct type with named fields (declared via
@@ -132,21 +128,6 @@ public class TypeMapper {
             case ROW -> mapRowType(creator, calciteType);
             default -> mapIntervalOrThrow(creator, calciteType);
         };
-    }
-
-    /** Preserves valid decimal parameters without repairing malformed generated types. */
-    private Type mapDecimalType(TypeCreator creator, RelDataType calciteType) {
-        validateDecimalType(calciteType);
-        return creator.decimal(calciteType.getPrecision(), calciteType.getScale());
-    }
-
-    private static void validateDecimalType(RelDataType type) {
-        try {
-            PlannerTypeSystem.INSTANCE.validateDecimal(type.getPrecision(), type.getScale());
-        } catch (IllegalArgumentException failure) {
-            throw new SubstraitConversionException(PangrovaErrorCode.SUBSTRAIT_TYPE_MAPPING_FAILURE,
-                    "Invalid DECIMAL type: " + failure.getMessage(), failure);
-        }
     }
 
     private Type mapIntervalOrThrow(TypeCreator creator, RelDataType calciteType) {

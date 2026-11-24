@@ -25,7 +25,7 @@ import io.substrait.relation.Rel;
 import io.substrait.type.NamedStruct;
 import io.substrait.type.TypeCreator;
 import io.substrait.type.proto.TypeProtoConverter;
-import org.pangrova.planner.analysis.StageAggregate;
+import org.pangrova.planner.exchange.StageAggregate;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.planner.cost.distribution.PangrovaExchange;
 import org.pangrova.planner.cost.distribution.PangrovaExchangeInput;
