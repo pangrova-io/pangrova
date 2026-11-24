@@ -27,7 +27,7 @@ unlisted: true
 | 快照和 split 枚举 | 为同一连接联合多个动态过滤键域，扩展连接器和晚到覆盖。大文件按合法范围拆分，小文件按工作量组包。有界枚举与实际读放大按连接器验证 | 冻结相同快照与授权。比较 split 数、实际对象 GET 和读取字节，覆盖缺失、晚到、失败、删除文件、快照演进和取消 |
 | 计划、分配和控制面 | 测量实际多 Worker 混合负载下，多个大请求同时解码、排队及 Native 创建时的驻留内存和尾时延。量化下游准备隔离在固定到达率、受阻目录 I/O 与写入混合负载下的 P95。以混合负载校准单输入 AQE 的阈值和尾时延，再验证多输入、偏斜拆分和持久重放 | 基线和候选完成同一完整结果。检查覆盖、滞后、重试、投机获胜和 durable replay |
 | 远端 Shuffle | 核验更宽和变长输出的实际对象数、内存及跨主机吞吐。扩大热点并发，量化锁等待与尾时延，再校准是否需要段存储 | PostgreSQL 和对象存储真实压测，覆盖权限撤销、owner 切换、背压、未知 PUT、丢 ACK 和 GC |
-| Velox 与结果 | 对剩余 I/O、解码、spill、缓存和单出口成本做归因。移除 Native Flight 对无可读注册的独立等待。继续测跨主机出口、持续内存占用与链路异常下的释放 | 测量已排空票据的拒绝延迟，检验精确签名、已就绪流单领取、首批、EOF 和真实归还。冷热、偏斜及宽窄负载验证顺序与资源窗口 |
+| Velox 与结果 | 对剩余 I/O、解码、spill、缓存和单出口成本做归因。继续测跨主机出口、持续内存占用与链路异常下的释放 | 冷热、偏斜及宽窄负载验证精确权限、顺序、首批、EOF、资源窗口与实际归还 |
 | 写入与提交 | 用高并发和故障窗口校准文件大小、写放大、提交时延及各格式恢复。原子发布和跨引擎结果独立验收 | Iceberg/Paimon/Lance/COPY/CDC 保留快照、offset、精确 fence 和资源归还证据 |
 | 发布门槛 | 同硬件、同快照对比 Trino 和 Spark 的 SF100/SF1000，并执行 Linux Native 完整链路回归 | 同源产物、结果摘要、物理 Profile、全量可复核的吞吐和延迟，以及限定环境记录 |
 
@@ -91,6 +91,8 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
+Native Flight 删除注册前的独立等待和全局唤醒。合法签名的已排空票据在 macOS 三次真实 DoGet 中，拒绝耗时中位数由 757 ms 降到 6 ms。每次均先读取值 42、验证 EOF 并观察 Native 资源归零。单领取、权限和取消的回归保留。Java 夹具按实际 OUTPUT ACK 等待，消费者等待和结果行数均使用 Velox 的 CallbackSink 检验。92 项 Worker 定向、50 项同源 macOS 端到端、6 项独立 Native Shuffle 入口及 9 项 Linux 独立进程回归通过。macOS 与 Linux arm64 各通过 35 项定向和 4,367 项 Native 全量测试。首次 Linux Native 全量运行中的 Lance Reader 记录了一次 PostgreSQL journal lookup 错误，同源单独复测和整组串行复测均通过，首次原因仍待确认。角色清单 SHA-256 分别为 f21060f2378295233bbfa2a60a22f4f959f2920cd7e1f54ff8b162e5cfe902f3 和 e585213845c88a7dcd6bfc7a9f3b1b28e5c5d64b5c32b424ead8fe312b1f1a48。
+
 Worker OUTPUT 的唯一可读信号来自 Native Flight 注册并完成 Driver 启动。同一消息用于原始提交和精确重放。已校验的资源授权直接读取 Protobuf 类型字段。相同规范字节的 Corretto 17 对照中，普通资源授权的校验由 424 B 降到 0 B 分配，全字段由 792 B 降到 0 B。持续拒绝逐字段溢出和未知字段，Flight 核对精确签名。79 项定向回归、静态分析、macOS 与 Linux arm64 各 52 项定向和 4,367 项 Native 全量测试通过。50 项同源 macOS 回归和 9 项 Linux 独立进程回归通过，覆盖实际结果读取和释放、双 Worker、过载、PostgreSQL 查询预算、COPY、CDC 与写入恢复。角色清单 SHA-256 分别为 d83f45cf0f77aab2d4a601bf5dd684578b451d953e4d1350b992ad974558f85d 和 7b368db18675753e32e7a54b87b63a8a5e668db7699184b992aa1b6d5d240606。
 
 先前一轮 Linux 回归中的 Iceberg 恢复超过等待上限，单独重跑覆盖 Iceberg、Paimon 与 Lance 均通过，初次超时的原因仍待确认。另一轮在 Coordinator 启动前因 LDAP 引导期间监听切换导致绑定失败。连续 6 次容器复现实测端口先可连接，LDAP 初始化随后完成。夹具现等待初始化结束与最终监听，并通过真实用户绑定验证；修正后整组独立进程回归全部通过。
@@ -101,7 +103,7 @@ Worker OUTPUT 的唯一可读信号来自 Native Flight 注册并完成 Driver �
 
 Worker HTTP 准入、内存和回报直接读取已经校验的 canonical task。移除每份扫描 split 到 Java 描述对象的转换。Corretto 17 按相同的 1、128 和 4,096 个分片隔离测量，分别去掉 400 B、3,968 B 和 115,072 B 线程分配。定向回归验证原始任务身份、内存 grant、COPY、RESULT 和终态。1 MiB 上限用有实质内存需求的 Velox 排序负载复现 MEM_CAP_EXCEEDED，确认失败与实际资源归还。85 项定向回归、27 项同源端到端回归和 1 项隔离 JNI/远端 Shuffle 通道准入通过。角色清单 SHA-256 为 1790c778b4c7cea12ba7897b0327343210da41539e9dca09f6b034ceff7abdd9。
 
-受控真实 Jetty/JNI/Flight 把 OUTPUT 的 Native 启动暂停在 HTTP ACK 之后。原始 HTTP 返回带有效票据的 200，首次 Flight 在客户端计时 897 ms 后返回 UNAUTHORIZED。放行后用同一票据读到一行、值 42 和准确 EOF，随后任务完成且 Native 内存归零。单独的真实 Native 重复实验得到同一现象。修复后，受控暂停 900 ms 时首次和重放均等待同一 Native 注册，Worker 归还 128 MiB 请求体预算。首次 Flight 读取成功并取得完整结果。注册前的 Native 版本不匹配返回同一因果 500，精确封口返回 409，两者释放实际句柄和内存。独立测得已释放的签名票据仍在约 757 ms 后拒绝，此等待另行清理。
+受控真实 Jetty/JNI/Flight 把 OUTPUT 的 Native 启动暂停在 HTTP ACK 之后。原始 HTTP 返回带有效票据的 200，首次 Flight 在客户端计时 897 ms 后返回 UNAUTHORIZED。放行后用同一票据读到一行、值 42 和准确 EOF，随后任务完成且 Native 内存归零。单独的真实 Native 重复实验得到同一现象。修复后，受控暂停 900 ms 时首次和重放均等待同一 Native 注册，Worker 归还 128 MiB 请求体预算。首次 Flight 读取成功并取得完整结果。注册前的 Native 版本不匹配返回同一因果 500，精确封口返回 409，两者释放实际句柄和内存。
 
 Worker 的任务 HTTP 解码、排队和首次设置共用 128 MiB 编码字节预算。真实 Jetty 测试耗尽预算后验证固定长度与分块请求都收到结构化 503，归还后同一请求可继续正常校验。Native 设置的唯一所有者接收预算，重复、畸形、超限、拒绝和关闭均归还实际持有量。61 项定向测试和 35 项同源角色包回归通过，覆盖双 Worker Shuffle、COPY、CDC、AI、取消、过载与物理释放。角色清单 SHA-256 为 `91307c6c550dcbaf56fa7feea05d84d8559b020d47de9b7fab2c487368e24ee8`。预算计量编码字节，混合负载的进程实际内存与尾时延仍作为单独验收项。
 
