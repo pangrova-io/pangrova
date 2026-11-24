@@ -28,7 +28,7 @@ class QueryResponseJsonContractTest {
         ResultEndpoint endpoint = new ResultEndpoint("host1", 9090, "ticket-abc", "grpc");
         QueryStats stats = new QueryStats(1500L, 200L, 42L);
         QueryStatusResponse response = new QueryStatusResponse(
-                "q-123", "FAILED", error, stats, endpoint);
+                "q-123", "FAILED", error, stats, endpoint, 17L, false);
 
         JsonNode root = MAPPER.valueToTree(response);
 
@@ -42,6 +42,11 @@ class QueryResponseJsonContractTest {
         // Field values
         assertThat(root.get("query_id").asText()).isEqualTo("q-123");
         assertThat(root.get("state").asText()).isEqualTo("FAILED");
+        assertThat(root.path("version").isIntegralNumber()).isTrue();
+        assertThat(root.path("version").longValue()).isEqualTo(17L);
+        assertThat(root.path("drained").isBoolean()).isTrue();
+        assertThat(root.path("drained").booleanValue()).isFalse();
+        assertThat(MAPPER.treeToValue(root, QueryStatusResponse.class)).isEqualTo(response);
 
         // Error sub-structure
         JsonNode errorNode = root.get("error");
@@ -76,6 +81,8 @@ class QueryResponseJsonContractTest {
         assertThat(root.has("error")).as("null error must be omitted").isFalse();
         assertThat(root.has("stats")).as("null stats must be omitted").isFalse();
         assertThat(root.has("result_endpoint")).as("null endpoint must be omitted").isFalse();
+        assertThat(root.has("version")).as("null version must be omitted").isFalse();
+        assertThat(root.has("drained")).as("null drained status must be omitted").isFalse();
     }
 
     @Test
