@@ -128,6 +128,11 @@ transaction. It checks expiry using a separate database-clock statement after
 the anchor row lock. Absent/replaced/expired ownership is a typed rejection;
 SQL failures and corrupt rows are not stale-owner results.
 
+A first execution-anchor acquisition takes the transaction-scoped acquisition
+lock and writes an initial row with database time. Once the insert owns the
+row, a separate write samples the time after any insert wait and returns the
+exact persisted lease. Each write samples its clock within the statement.
+
 Generation owns exact durable route reads/writes and publication-owner lookup in
 `generation.store.postgresql.execution`. Its injected fence verifies the route, delegates
 anchor authority to Query, and exposes `GenerationExecutionOwnerLostException` to
@@ -136,6 +141,10 @@ wires this real fence into build, stage, exchange and publication stores.
 Managed-source publication and File's COPY-source read admission also receive the
 Query transaction port explicitly; neither calls a static anchor-store helper.
 The former File-owned duplicate anchor-fence interface has been removed.
+Foreground query authorization reads effective roles and their grants in one
+PostgreSQL statement. The read includes direct assignments and mapped groups.
+The same subject supplies table privilege checks and row and column policy
+evaluation for the compilation.
 Server Coordinator composes a `PostgresTableControlWriteAuthority` with the same
 identity-bound row and mask projection used for foreground policy reads. Query and
 Generation receive the `TableControlWriteAuthority` port. The PostgreSQL workflow
@@ -802,6 +811,15 @@ Pangrova may write, drop, or maintain it.
   when its stable ID and version match both the admitted control record and the bound
   connector version. The optimizer otherwise uses the selected source's connector estimates. `UNLINK` and `DROP TABLE` purge the row with the other table-scoped state, so a
   reused name cannot inherit old cardinalities.
+- The SQL planner resolves a fully qualified source through the catalog at the root
+  before consulting the session's default namespace. The catalog name therefore
+  does not trigger a table lookup in the default namespace. Unqualified sources
+  still resolve against their session defaults. An admitted Iceberg JDBC query
+  checks the exact first-level namespace by name before consulting the schema
+  listing. Exact spelling wins when names differ only by case. Names without
+  an exact match use case-insensitive resolution. The query reuses each named
+  check during compilation. Explicit schema listing still enumerates the catalog.
+  The selected source proceeds through ownership, snapshot and split validation.
 - `TableControlPolicyBinder` stores governance artifacts (column tag, column mask, row filter,
   quality rule, lineage) in `table_control_governance_binding`, keyed by `table_id` and the
   artifact reference. Binding requires an `ACTIVE` `LINKED`/`MANAGED` record: an `OBSERVED`

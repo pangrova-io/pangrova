@@ -68,13 +68,13 @@ class QueryOperatorStatsRegistryTest {
         var report = org.pangrova.protocol.v2.TaskReport.newBuilder().setAttempt(issued)
                 .setState(org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED)
                 .setNativeTaskStats(stats(22).toBuilder().setElapsedTimeMs(21).setCpuTimeMs(7)).build();
-        var original = TaskStatusReport.fromAttempt(issued, "COMPUTE", "worker", "FINISHED",
-                null, null, null, 2, 1000, report.toByteString(), report);
+        var original = TaskStatusReport.fromEvidence(issued, "COMPUTE", "worker", "FINISHED",
+                null, null, null, 2, 1000, org.pangrova.protocol.rest.task.TaskReportEvidence.encode(report));
         var decoded = org.pangrova.protocol.rest.task.TaskStatusWire.decode(
                 org.pangrova.protocol.rest.task.TaskStatusWire.encode(original));
         assertThat(decoded.supplementalStats()).isNull();
 
-        registry.record(issued, decoded, decoded.decodedStatus());
+        registry.record(issued, decoded, decoded.canonicalStatus());
 
         assertThat(registry.attemptStats("query")).singleElement().satisfies(sample -> {
             assertThat(sample.reportSequence()).isEqualTo(2L);

@@ -85,6 +85,6 @@ class TaskInfoExecutorHandleCasTest {
     }
 
     private static TaskInfo createTaskInfo() {
-        return new TaskInfo("task-1", "query-1", null, null, Instant.now());
+        return new TaskInfo("task-1", "query-1", null, Instant.now());
     }
 }

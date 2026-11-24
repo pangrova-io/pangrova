@@ -4,6 +4,8 @@ import com.google.protobuf.UnknownFieldSet;
 import org.junit.jupiter.api.Test;
 import org.pangrova.protocol.task.CanonicalTaskAdmissionSeals;
 import org.pangrova.protocol.execution.AiTaskLifecycle;
+import org.pangrova.protocol.v2.ExecutionCallbackContext;
+import org.pangrova.protocol.v2.OperatorBinding;
 import org.pangrova.protocol.v2.ResourceUsage;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.protocol.v2.TaskRequest;
@@ -12,6 +14,8 @@ import org.pangrova.protocol.v2.ExecutorCreationRecoveryRequest;
 import org.pangrova.protocol.v2.ExecutorCreationRecoveryResult;
 import org.pangrova.protocol.v2.ExecutorCreationState;
 import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
+
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -115,7 +119,8 @@ class NativeCreationRecoveryContractTest {
             var independent = (TrackingLifecycle) WorkerCallbackProviders.taskLifecycle(loader);
             var request = ActualNativeTaskFixture.valuesTaskRequest(false);
             var owner = new NativeCreationOwners().prepare(request, installed);
-            installed.registerTask(request);
+            installed.registerTask(org.pangrova.protocol.task.CanonicalTaskRequests.callbackFor(request),
+                    request.getOperatorBindingsList());
             owner.aiRegistered = true;
             NativeCreationOwners.cleanupCallbacks(owner, null);
             NativeCreationOwners.cleanupCallbacks(owner, null);
@@ -130,7 +135,7 @@ class NativeCreationRecoveryContractTest {
 
     public static class TrackingLifecycle implements AiTaskLifecycle {
         private final java.util.List<TaskAttemptId> releases = new java.util.ArrayList<>();
-        public void registerTask(TaskRequest request) {}
+        public void registerTask(ExecutionCallbackContext callback, List<OperatorBinding> bindings) {}
         public ResourceUsage releaseTask(String tenant, TaskAttemptId attempt) {
             releases.add(attempt);
             return ResourceUsage.getDefaultInstance();

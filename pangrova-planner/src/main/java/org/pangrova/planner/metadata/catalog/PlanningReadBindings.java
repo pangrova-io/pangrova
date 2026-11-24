@@ -4,10 +4,9 @@ import org.pangrova.metadata.api.catalog.CatalogReadAccess;
 import org.pangrova.table.api.ownership.TableControlRecord;
 import org.pangrova.metadata.api.exception.MetadataResolutionException;
 import org.pangrova.connector.api.session.ConnectorSession;
-import org.pangrova.connector.api.metadata.ConnectorMetadata;
+import org.pangrova.connector.api.metadata.ConnectorReadDiscovery;
 import org.pangrova.connector.api.metadata.table.ConnectorReadBinding;
 import org.pangrova.connector.api.metadata.table.ConnectorReadSchemaIdentity;
-import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.pangrova.connector.api.metadata.table.TableStatistics;
@@ -49,7 +48,7 @@ public final class PlanningReadBindings {
         return resolve(new QualifiedTableName(catalog, schema, table), null);
     }
 
-    Optional<ConnectorReadBinding> resolve(QualifiedTableName table, TableDiscovery discovery) {
+    Optional<ConnectorReadBinding> resolve(QualifiedTableName table, ConnectorReadDiscovery discovery) {
         var admitted = resolveAdmitted(table, discovery);
         requireCurrentOwnership(table, admitted.owner());
         return admitted.binding();
@@ -74,6 +73,11 @@ public final class PlanningReadBindings {
                 .listSchemaNames(session));
     }
 
+    boolean hasExactSchemaName(String catalog, String schema) {
+        return withSession(catalog, null, session -> catalogs.metadataForQuery(catalog, session)
+                .hasExactSchemaName(session, schema));
+    }
+
     private MetadataResolvedTable discover(QualifiedTableName table, boolean requireExactSpelling) {
         if (!requireExactSpelling) {
             var admitted = bindings.get(table);
@@ -86,9 +90,8 @@ public final class PlanningReadBindings {
                 var admitted = bindings.get(table);
                 if (admitted != null) return discoveredFromBinding(table, admitted);
             }
-            var handle = metadata.getTableHandle(session, new SchemaTableName(table.schema(), table.table()));
-            return handle == null ? null
-                    : MetadataResolvedTable.fromReadBinding(this, table, new TableDiscovery(metadata, handle));
+            var discovery = metadata.discoverRead(session, new SchemaTableName(table.schema(), table.table()));
+            return discovery == null ? null : MetadataResolvedTable.fromReadBinding(this, table, discovery);
         });
     }
 
@@ -99,7 +102,7 @@ public final class PlanningReadBindings {
     }
 
     /** Supplies the immutable declaration and cardinality for this compilation. */
-    ConnectorReadBinding selectedRead(QualifiedTableName table, TableDiscovery discovery) {
+    ConnectorReadBinding selectedRead(QualifiedTableName table, ConnectorReadDiscovery discovery) {
         return resolveAdmitted(table, discovery).binding()
                 .orElseThrow(() -> new IllegalStateException("Selected table disappeared"));
     }
@@ -138,7 +141,7 @@ public final class PlanningReadBindings {
         return binding.statistics();
     }
 
-    private AdmittedRead resolveAdmitted(QualifiedTableName key, TableDiscovery discovery) {
+    private AdmittedRead resolveAdmitted(QualifiedTableName key, ConnectorReadDiscovery discovery) {
         var cached = bindings.get(key);
         if (cached != null) return await(cached);
         var proposed = new CompletableFuture<AdmittedRead>();
@@ -180,18 +183,17 @@ public final class PlanningReadBindings {
         return action.apply(session);
     }
 
-    private AdmittedRead loadAdmitted(QualifiedTableName key, ConnectorSession session, TableDiscovery discovery) {
+    private AdmittedRead loadAdmitted(QualifiedTableName key,
+            ConnectorSession session, ConnectorReadDiscovery discovery) {
         var control = catalogs.tableControl();
-        var controlled = control.enabled() ? control.find(key.catalog(), key.schema(), key.table())
+        var controlled = control.enabled() ? control.findForRead(key, "SQL read binding")
                 : Optional.<TableControlRecord>empty();
-        controlled.ifPresent(record -> control.requireCurrentCatalog(record, "SQL read binding"));
         var metadata = catalogs.metadataForQuery(key.catalog(), session);
-        var handle = discovery != null && discovery.metadata() == metadata ? discovery.handle()
-                : metadata.getTableHandle(session, new SchemaTableName(key.schema(), key.table()));
-        if (handle == null) return new AdmittedRead(Optional.empty(), controlled);
+        var discovered = discovery != null && discovery.metadata() == metadata ? discovery
+                : metadata.discoverRead(session, new SchemaTableName(key.schema(), key.table()));
+        if (discovered == null) return new AdmittedRead(Optional.empty(), controlled);
+        var handle = discovered.handle();
         var liveHandle = handle;
-        controlled.ifPresent(record -> control.requireReadIdentity(
-                record, metadata.getTableIdentity(session, liveHandle), "SQL read binding"));
         var snapshot = PlanningSnapshotSelectors.snapshot(session, key.catalog(), key.schema(), key.table());
         var range = PlanningIncrementalSelectors.range(session, key.catalog(), key.schema(), key.table());
         if (snapshot.isPresent() && range.isPresent()) {
@@ -199,11 +201,16 @@ public final class PlanningReadBindings {
         }
         if (snapshot.isPresent()) handle = handle.withTimeTravelSnapshot(snapshot.getAsLong());
         if (range.isPresent()) handle = handle.withIncrementalRange(range.orElseThrow());
-        var binding = metadata.bindRead(session, handle);
-        controlled.ifPresent(record -> control.requireReadIdentity(
-                record, binding.schemaIdentity().map(ConnectorReadSchemaIdentity::tableIdentity)
-                        .or(() -> metadata.getTableIdentity(session, liveHandle)),
-                "SQL read binding"));
+        ConnectorReadBinding binding;
+        if (controlled.isPresent()) {
+            var record = controlled.orElseThrow();
+            binding = discovered.binder().bind(session, handle,
+                    identity -> control.requireReadIdentity(record, identity, "SQL read binding"));
+            control.requireReadIdentity(record, binding.schemaIdentity().map(ConnectorReadSchemaIdentity::tableIdentity)
+                    .or(() -> metadata.getTableIdentity(session, liveHandle)), "SQL read binding");
+        } else {
+            binding = discovered.binder().bind(session, handle, null);
+        }
         if (snapshot.isPresent() && (binding.snapshotId().isEmpty()
                 || binding.snapshotId().getAsLong() != snapshot.getAsLong())) {
             throw new IllegalStateException("Connector did not bind the explicit source snapshot");
@@ -234,7 +241,4 @@ public final class PlanningReadBindings {
             this(binding, owner, new AtomicReference<>());
         }
     }
-
-    /** The table selector and exact metadata object that produced it. */
-    record TableDiscovery(ConnectorMetadata metadata, ConnectorTableHandle handle) {}
 }

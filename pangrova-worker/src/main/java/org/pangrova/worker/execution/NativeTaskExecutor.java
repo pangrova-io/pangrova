@@ -5,6 +5,8 @@ import org.pangrova.protocol.execution.AiTaskLifecycle;
 import org.pangrova.worker.function.WorkerCallbackProviders;
 
 import org.pangrova.shuffle.api.worker.ShuffleProducerSession;
+import org.pangrova.protocol.rest.task.SubmitTaskRequest;
+import org.pangrova.protocol.task.ValidatedTaskSubmission;
 import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.protocol.v2.TaskState;
@@ -98,40 +100,29 @@ public final class NativeTaskExecutor implements TaskExecutor, AutoCloseable {
 
     @Override
     public long createTask(TaskRequest request) {
+        ValidatedTaskSubmission admission;
         try {
-            org.pangrova.protocol.task.CanonicalTaskRequests.validateForAdmission(request);
-            if (request.hasCopySourceStagingCommandSha256()) {
-                throw new IllegalArgumentException("COPY creation requires its private Worker envelope");
-            }
+            admission = new ValidatedTaskSubmission(SubmitTaskRequest.from(request));
         } catch (RuntimeException failure) {
             throw new NativeTaskCreationFailure(0, true, failure);
         }
-        return createTask(request, null);
+        return createAdmittedTask(admission);
     }
 
-    /** Keeps the private ticket in Worker Java; only a verified local request reaches JNI. */
-    public long createCopyTask(org.pangrova.protocol.rest.task.SubmitTaskRequest envelope) {
-        TaskRequest request;
-        try {
-            request = envelope.taskRequest();
-            org.pangrova.protocol.task.CanonicalTaskRequests.validateForAdmission(request);
-        } catch (RuntimeException failure) {
-            throw new NativeTaskCreationFailure(0, true, failure);
-        }
-        if (envelope.copySourceRead() == null || copyInputs == null) {
+    @Override
+    public long createAdmittedTask(ValidatedTaskSubmission admission) {
+        var envelope = admission.submission();
+        var request = envelope.taskRequest();
+        boolean hasCopyInput = envelope.copySourceRead() != null;
+        if (hasCopyInput && copyInputs == null) {
             throw new NativeTaskCreationFailure(0, true,
                     new IllegalStateException("COPY input runtime and private source ticket are required"));
         }
-        return createTask(request, envelope);
-    }
-
-    private long createTask(org.pangrova.protocol.v2.TaskRequest request,
-                            org.pangrova.protocol.rest.task.SubmitTaskRequest envelope) {
         var owner = prepareCreation(request);
         try {
             var local = org.pangrova.worker.catalog
                     .WorkerNativeStorageTasks.prepare(request, catalogRuntime);
-            if (envelope != null) {
+            if (hasCopyInput) {
                 owner.copyReadBudget = new org.pangrova.worker.copy.CopyTaskReadBudget(
                         request.getResourceGrant().getObjectStoreReadBytes());
                 var input = org.pangrova.worker.copy.CopyNativeTaskInput.prepare(envelope, copyInputs,
@@ -140,8 +131,10 @@ public final class NativeTaskExecutor implements TaskExecutor, AutoCloseable {
                 local = local.toBuilder().setWorkerLocalCopyInput(input).build();
             }
             prepareExternalShuffle(owner);
-            aiLifecycle.registerTask(request);
-            owner.aiRegistered = true;
+            if (aiLifecycle != AiTaskLifecycle.NONE) {
+                aiLifecycle.registerTask(admission.callbackContext(), request.getOperatorBindingsList());
+                owner.aiRegistered = true;
+            }
             var trace = request.getTraceContext();
             byte[] localBytes = local.toByteArray();
             owner.enteredNative = true;
@@ -242,11 +235,20 @@ public final class NativeTaskExecutor implements TaskExecutor, AutoCloseable {
 
     @Override
     public void startTask(long executorHandle) {
+        startTask(executorHandle, null);
+    }
+
+    @Override
+    public void startResultTask(long executorHandle, Runnable onReady) {
+        startTask(executorHandle, java.util.Objects.requireNonNull(onReady, "onReady"));
+    }
+
+    private void startTask(long executorHandle, Runnable onReady) {
         var lease = acquireHandleLease(executorHandle);
         try {
             String traceId =
                     creationOwners.forHandle(executorHandle).request.getTraceContext().getTraceId();
-            NativeRuntime.nativeStartTaskWithTrace(executorHandle, traceId);
+            NativeRuntime.nativeStartTaskWithTrace(executorHandle, traceId, onReady);
         } finally {
             lease.close();
         }

@@ -56,9 +56,9 @@ TEST(VeloxAvailabilityTest, TaskRunnerClassIsAvailable) {
   config.query_id = "test-query";
   config.max_drivers = 1;
   EXPECT_EQ(config.max_drivers, 1);
-  EXPECT_NO_THROW(VeloxTaskRunner(config, plan, {}, &queue));
+  EXPECT_NO_THROW(VeloxTaskRunner(config, plan, &queue));
   config.function_registry.reset();
-  EXPECT_THROW(VeloxTaskRunner(config, plan, {}, &queue), std::invalid_argument);
+  EXPECT_THROW(VeloxTaskRunner(config, plan, &queue), std::invalid_argument);
 }
 
 TEST(VeloxAvailabilityTest, MemoryBridgeIsAvailable) {
@@ -96,7 +96,7 @@ TEST(VeloxExecutionTest, TaskExecutorConstructsWithVeloxPath) {
 TEST(VeloxCompileGuardTest, VeloxClassesCompile) {
   EXPECT_THROW(VeloxPlanConverter(nullptr), std::invalid_argument);
   VeloxTaskRunnerConfig config;
-  EXPECT_THROW(VeloxTaskRunner(config, nullptr, {}, nullptr), std::invalid_argument);
+  EXPECT_THROW(VeloxTaskRunner(config, nullptr, nullptr), std::invalid_argument);
 }
 
 }  // namespace

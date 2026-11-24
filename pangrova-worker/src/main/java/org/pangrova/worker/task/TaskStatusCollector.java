@@ -1,12 +1,13 @@
 package org.pangrova.worker.task;
 
+import org.pangrova.protocol.rest.task.TaskReportEvidence;
+
 import org.pangrova.worker.task.report.TaskStatusReporter;
 
 import org.pangrova.protocol.rest.data.WriteResultDescriptor;
 import org.pangrova.common.client.error.ErrorDetail;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
-import org.pangrova.protocol.execution.TaskDescriptor;
 import org.pangrova.protocol.v2.NativeTaskStats;
 import org.pangrova.worker.enums.TaskState;
 import org.pangrova.worker.task.memory.TaskMemoryAllocator;
@@ -229,7 +230,6 @@ final class TaskStatusCollector {
 
     private TaskStatusReport buildReport(TaskInfo info, String state, ErrorDetail error, TaskReportEvidence terminal) {
         long seq = info.nextReportSequence();
-        var evidence = terminal == null ? null : terminal.bytes();
         var canonical = terminal == null ? null : terminal.report();
         var taskStats = collectTaskStats(info, state, canonical);
         WriteResultDescriptor writeResult = collectWriteResult(info, state);
@@ -243,9 +243,9 @@ final class TaskStatusCollector {
         // The coordinator registers tasks by this ID in CoordinatorTaskTracker.
         // Using the worker's internal taskId would cause a mismatch and the
         // coordinator's awaitTaskCompletion future would never complete.
-        TaskStatusReport report = TaskStatusReport.fromAttempt(req.taskRequest().getAttempt(),
-                info.descriptor().taskType(), workerId, state, taskStats, error, writeResult,
-                seq, System.currentTimeMillis(), evidence, canonical);
+        TaskStatusReport report = TaskStatusReport.fromEvidence(req.taskRequest().getAttempt(),
+                info.taskType(), workerId, state, taskStats, error, writeResult,
+                seq, System.currentTimeMillis(), terminal);
         logStatusReport(info, state, seq);
         return report;
     }
@@ -373,11 +373,7 @@ final class TaskStatusCollector {
     }
 
     private void logStatusReport(TaskInfo info, String state, long seq) {
-        TaskDescriptor desc = info.descriptor();
-        if (desc == null) {
-            return;
-        }
         LOG.debug("event=status_report taskId={} stage={} partition={} type={} state={} seq={}",
-                info.taskId(), desc.stageId(), desc.partitionId(), desc.taskType(), state, seq);
+                info.taskId(), info.stageId(), info.partitionId(), info.taskType(), state, seq);
     }
 }

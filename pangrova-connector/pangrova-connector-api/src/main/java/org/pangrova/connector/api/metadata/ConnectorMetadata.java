@@ -5,15 +5,19 @@ import org.pangrova.connector.api.enums.MetadataTableKind;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.function.Consumer;
 
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.metadata.table.ColumnHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorReadBinding;
 import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
 import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 import org.pangrova.connector.api.metadata.table.ConnectorTableReadMetadata;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.pangrova.common.api.annotation.Stable;
 import org.pangrova.connector.api.metadata.table.TableStatistics;
+import org.pangrova.connector.api.metadata.table.TableIdentity;
 import org.pangrova.types.enums.PangrovaType;
 
 /**
@@ -38,6 +42,14 @@ public interface ConnectorMetadata
      */
     ConnectorTableHandle getTableHandle(ConnectorSession session, SchemaTableName tableName);
 
+    /** Finds a named read source, or returns null if the table does not exist. */
+    default ConnectorReadDiscovery discoverRead(ConnectorSession session, SchemaTableName table) {
+        var handle = getTableHandle(session, table);
+        return handle == null ? null : new ConnectorReadDiscovery(this, handle,
+                (bindingSession, selector, check) -> check == null ? bindRead(bindingSession, selector)
+                        : bindReadWithIdentityCheck(bindingSession, handle, selector, check));
+    }
+
     /** Whether an ordinary named lookup can only return the exact catalog spelling. */
     default boolean supportsExactTableNameLookup() {
         return false;
@@ -51,6 +63,12 @@ public interface ConnectorMetadata
      * @return the table metadata, never null
      */
     ConnectorTableMetadata getTableMetadata(ConnectorSession session, ConnectorTableHandle table);
+
+    /** Describes the current named table without requiring the caller to retain its scan handle. */
+    default Optional<ConnectorTableMetadata> describeNamedTable(ConnectorSession session, SchemaTableName table) {
+        var handle = getTableHandle(session, table);
+        return handle == null ? Optional.empty() : Optional.of(getTableMetadata(session, handle));
+    }
 
     /**
      * Returns read metadata with explicit declaration evidence. Historical consumers require EXACT;
@@ -73,6 +91,13 @@ public interface ConnectorMetadata
                 getTableReadMetadata(session, table), TableStatistics.UNKNOWN,
                 org.pangrova.connector.api.enums.ReadSnapshotState.UNVERSIONED,
                 java.util.OptionalLong.empty(), "", java.util.Optional.empty(), java.util.Optional.empty());
+    }
+
+    /** Checks the current physical identity before binding the selected snapshot. */
+    default ConnectorReadBinding bindReadWithIdentityCheck(ConnectorSession session, ConnectorTableHandle liveTable,
+            ConnectorTableHandle selector, Consumer<Optional<TableIdentity>> beforeSnapshotBinding) {
+        beforeSnapshotBinding.accept(getTableIdentity(session, liveTable));
+        return bindRead(session, selector);
     }
 
     /**

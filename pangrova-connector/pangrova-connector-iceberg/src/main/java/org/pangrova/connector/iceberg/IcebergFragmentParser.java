@@ -1,15 +1,18 @@
 package org.pangrova.connector.iceberg;
 
+import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
 import org.apache.iceberg.ContentFileParser;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
+import org.apache.iceberg.FileContent;
+import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Table;
+import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
 
-import java.nio.charset.StandardCharsets;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -23,15 +26,8 @@ import java.util.List;
 final class IcebergFragmentParser {
     static final String CDC_MERGE = "CDC_MERGE";
 
-    /**
-     * F-CONNECTOR-06: Shared {@link ObjectMapper} for all fragment JSON parsing.
-     * Each {@code new ObjectMapper()} initializes the full Jackson module system,
-     * serializer cache, and introspection infrastructure — a 4-way per-call
-     * allocation in {@code finishDistributedWrite} could allocate tens of
-     * thousands of mappers per commit. {@code ObjectMapper} is documented as
-     * thread-safe for read-only configurations.
-     */
-    private static final ObjectMapper SHARED_MAPPER = new ObjectMapper();
+    private static final ObjectMapper SHARED_MAPPER = new ObjectMapper(
+            JsonFactory.builder().disable(JsonFactory.Feature.CHARSET_DETECTION).build());
 
     private IcebergFragmentParser() {}
 
@@ -50,50 +46,43 @@ final class IcebergFragmentParser {
             if (fragment == null || fragment.length == 0) {
                 continue;
             }
-            String json = new String(fragment, StandardCharsets.UTF_8);
-            String operation = classifyFragment(json, handle);
+            JsonNode root = parseFragment(fragment, handle);
+            String operation = classifyFragment(root);
             resolvedOperation = mergeOperationType(resolvedOperation, operation, handle);
-            collectFilesFromFragment(icebergTable, handle, json, operation,
+            collectFilesFromFragment(icebergTable, handle, root, operation,
                     allDataFiles, allDeleteFiles);
         }
         return new IcebergCollectedFragments(
                 resolvedOperation, List.copyOf(allDataFiles), List.copyOf(allDeleteFiles));
     }
 
-    /**
-     * Classifies a JSON fragment as APPEND, OVERWRITE, DELETE, or MERGE
-     * based on its structure and operation discriminator field.
-     */
-    private static String classifyFragment(String json, IcebergOutputTableHandle handle) {
-        if (json.startsWith("[")) {
-            return "APPEND";
+    private static JsonNode parseFragment(byte[] fragment, IcebergOutputTableHandle handle) {
+        if (fragment[0] != '[' && fragment[0] != '{') {
+            throw new IllegalStateException(
+                    "Unrecognized fragment format for table %s.%s: expected JSON array or object"
+                            .formatted(handle.schemaName(), handle.tableName()));
         }
-        if (json.startsWith("{")) {
-            return classifyObjectFragment(json, handle);
-        }
-        throw new IllegalStateException(
-                "Unrecognized fragment format for table %s.%s: expected JSON array or object"
-                        .formatted(handle.schemaName(), handle.tableName()));
-    }
-
-    private static String classifyObjectFragment(String json, IcebergOutputTableHandle handle) {
         try {
-            JsonNode root = SHARED_MAPPER.readTree(json);
-            String operation = root.has("operation")
-                    ? root.get("operation").asText() : "";
-            return switch (operation) {
-                case "DELETE" -> "DELETE";
-                case "MERGE" -> "MERGE";
-                case CDC_MERGE -> CDC_MERGE;
-                default -> "OVERWRITE";
-            };
-        } catch (Exception e) {
+            return SHARED_MAPPER.readTree(fragment);
+        } catch (IOException e) {
             throw new IllegalStateException(
                     "Failed to parse fragment JSON for table %s.%s: %s"
                             .formatted(handle.schemaName(), handle.tableName(),
                                     e.getMessage()),
                     e);
         }
+    }
+
+    private static String classifyFragment(JsonNode root) {
+        if (root.isArray()) {
+            return "APPEND";
+        }
+        return switch (root.path("operation").asText()) {
+            case "DELETE" -> "DELETE";
+            case "MERGE" -> "MERGE";
+            case CDC_MERGE -> CDC_MERGE;
+            default -> "OVERWRITE";
+        };
     }
 
     /**
@@ -120,48 +109,35 @@ final class IcebergFragmentParser {
      */
     private static void collectFilesFromFragment(
             Table icebergTable, IcebergOutputTableHandle handle,
-            String json, String operation,
+            JsonNode root, String operation,
             List<DataFile> dataFiles, List<DeleteFile> deleteFiles) {
         switch (operation) {
-            case "APPEND" ->
-                    dataFiles.addAll(deserializeDataFilesViaParser(icebergTable.spec(), json));
-            case "OVERWRITE" ->
-                    dataFiles.addAll(
-                            deserializeOverwriteDataFilesViaParser(icebergTable.spec(), json));
-            case "DELETE" ->
-                    deleteFiles.addAll(deserializeDeleteFiles(icebergTable, handle, json));
+            case "APPEND" -> collectDataFiles(icebergTable.spec(), root, dataFiles);
+            case "OVERWRITE" -> collectDataFiles(icebergTable.spec(), root.path("dataFiles"), dataFiles);
+            case "DELETE" -> collectDeleteFiles(icebergTable, handle, root.path("deleteFiles"), deleteFiles);
             case "MERGE" -> {
-                dataFiles.addAll(
-                        deserializeOverwriteDataFilesViaParser(icebergTable.spec(), json));
-                deleteFiles.addAll(deserializeDeleteFiles(icebergTable, handle, json));
+                collectDataFiles(icebergTable.spec(), root.path("dataFiles"), dataFiles);
+                collectDeleteFiles(icebergTable, handle, root.path("deleteFiles"), deleteFiles);
             }
-            case CDC_MERGE -> {
-                dataFiles.addAll(deserializeOverwriteDataFilesViaParser(icebergTable.spec(), json));
-                deleteFiles.addAll(deserializeCdcDeletes(icebergTable.spec(), json));
-            }
+            case CDC_MERGE -> collectCdcFiles(icebergTable.spec(), root, dataFiles, deleteFiles);
             default -> throw new IllegalStateException("Unknown operation: " + operation);
         }
     }
 
-    private static List<DeleteFile> deserializeCdcDeletes(PartitionSpec spec, String json) {
-        try {
-            var fragment = SHARED_MAPPER.readTree(json);
-            var array = fragment.path("deleteFiles");
-            if (!array.isArray() || !fragment.path("dataFiles").isArray()) {
-                throw new IllegalArgumentException("Iceberg CDC fragment requires exact data and delete file lists");
+    private static void collectCdcFiles(PartitionSpec spec, JsonNode root,
+                                        List<DataFile> dataFiles, List<DeleteFile> deleteFiles) {
+        JsonNode data = root.path("dataFiles");
+        JsonNode deletes = root.path("deleteFiles");
+        if (!data.isArray() || !deletes.isArray()) {
+            throw new IllegalArgumentException("Iceberg CDC fragment requires exact data and delete file lists");
+        }
+        collectDataFiles(spec, data, dataFiles);
+        for (JsonNode element : deletes) {
+            var file = (DeleteFile) ContentFileParser.fromJson(element, spec);
+            if (file.content() != FileContent.POSITION_DELETES || file.format() != FileFormat.PARQUET) {
+                throw new IllegalArgumentException("Iceberg CDC requires Parquet position delete files");
             }
-            List<DeleteFile> files = new ArrayList<>();
-            for (var element : array) {
-                var file = (DeleteFile) ContentFileParser.fromJson(element, spec);
-                if (file.content() != org.apache.iceberg.FileContent.POSITION_DELETES
-                        || file.format() != org.apache.iceberg.FileFormat.PARQUET) {
-                    throw new IllegalArgumentException("Iceberg CDC requires Parquet position delete files");
-                }
-                files.add(file);
-            }
-            return files;
-        } catch (com.fasterxml.jackson.core.JsonProcessingException failure) {
-            throw new IllegalArgumentException("Malformed Iceberg CDC fragment", failure);
+            deleteFiles.add(file);
         }
     }
 
@@ -172,27 +148,13 @@ final class IcebergFragmentParser {
      * @throws IllegalStateException if a DeleteFile entry cannot be deserialized,
      *         including the file path and error details in the message
      */
-    private static List<DeleteFile> deserializeDeleteFiles(
-            Table table, IcebergOutputTableHandle handle, String json) {
-        try {
-            JsonNode root = SHARED_MAPPER.readTree(json);
-            JsonNode deleteFilesNode = root.get("deleteFiles");
-            if (deleteFilesNode == null || !deleteFilesNode.isArray()) {
-                return List.of();
-            }
-            List<DeleteFile> files = new ArrayList<>();
-            for (JsonNode element : deleteFilesNode) {
-                files.add(parseDeleteFileEntry(table, handle, element));
-            }
-            return files;
-        } catch (IllegalStateException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new IllegalStateException(
-                    "Failed to deserialize DeleteFiles for table %s.%s: %s"
-                            .formatted(handle.schemaName(), handle.tableName(),
-                                    e.getMessage()),
-                    e);
+    private static void collectDeleteFiles(
+            Table table, IcebergOutputTableHandle handle, JsonNode array, List<DeleteFile> files) {
+        if (!array.isArray()) {
+            return;
+        }
+        for (JsonNode element : array) {
+            files.add(parseDeleteFileEntry(table, handle, element));
         }
     }
 
@@ -204,8 +166,7 @@ final class IcebergFragmentParser {
         long fileSizeInBytes = node.has("fileSizeInBytes") ? node.get("fileSizeInBytes").asLong() : 0L;
         String contentType = node.has("content") ? node.get("content").asText() : "POSITION_DELETES";
         try {
-            org.apache.iceberg.FileFormat fileFormat =
-                    org.apache.iceberg.FileFormat.fromString(format);
+            FileFormat fileFormat = FileFormat.fromString(format);
             var builder = org.apache.iceberg.FileMetadata.deleteFileBuilder(table.spec());
             if ("EQUALITY_DELETES".equals(contentType)) {
                 builder.ofEqualityDeletes();
@@ -232,47 +193,15 @@ final class IcebergFragmentParser {
      * {@link ContentFileParser} for correct handling of escaped characters
      * and full round-trip fidelity with the serialization side.
      */
-    private static List<DataFile> deserializeDataFilesViaParser(PartitionSpec spec, String json) {
-        String trimmed = json.trim();
-        if (!trimmed.startsWith("[") || trimmed.equals("[]")) {
-            return List.of();
+    private static void collectDataFiles(PartitionSpec spec, JsonNode array, List<DataFile> files) {
+        if (!array.isArray()) {
+            return;
         }
         try {
-            JsonNode root = SHARED_MAPPER.readTree(trimmed);
-            if (!root.isArray()) {
-                throw new IllegalStateException(
-                        "Expected JSON array for APPEND DataFiles, got: " + root.getNodeType());
-            }
-            List<DataFile> files = new ArrayList<>();
-            for (JsonNode element : root) {
+            for (JsonNode element : array) {
                 files.add((DataFile) ContentFileParser.fromJson(element, spec));
             }
-            return files;
-        } catch (IllegalStateException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new IllegalStateException(
-                    "Failed to deserialize DataFile from JSON: " + e.getMessage(), e);
-        }
-    }
-
-    /**
-     * Deserializes DataFile descriptors from the {@code "dataFiles"} JSON array
-     * within an OVERWRITE or MERGE fragment, using Iceberg's {@link ContentFileParser}.
-     */
-    private static List<DataFile> deserializeOverwriteDataFilesViaParser(PartitionSpec spec, String json) {
-        try {
-            JsonNode root = SHARED_MAPPER.readTree(json);
-            JsonNode dataFilesNode = root.get("dataFiles");
-            if (dataFilesNode == null || !dataFilesNode.isArray()) {
-                return List.of();
-            }
-            List<DataFile> files = new ArrayList<>();
-            for (JsonNode element : dataFilesNode) {
-                files.add((DataFile) ContentFileParser.fromJson(element, spec));
-            }
-            return files;
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             throw new IllegalStateException(
                     "Failed to deserialize DataFile from JSON: " + e.getMessage(), e);
         }

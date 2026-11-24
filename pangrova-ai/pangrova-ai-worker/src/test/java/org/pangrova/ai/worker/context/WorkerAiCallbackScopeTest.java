@@ -2,6 +2,7 @@ package org.pangrova.ai.worker.context;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.protocol.task.CanonicalTaskRequests;
+import org.pangrova.protocol.v2.ExecutionCallbackContext;
 import org.pangrova.protocol.v2.StageResourceGrant;
 import org.pangrova.protocol.v2.TaskKind;
 import org.pangrova.testing.testkit.CanonicalTaskRequestTestFixture;
@@ -28,6 +29,18 @@ class WorkerAiCallbackScopeTest {
         assertThat(result).isEqualTo("tenant-a");
         assertThat(observed.get().principal()).isEqualTo("alice");
         assertThat(AiExecutionContext.current()).isEmpty();
+    }
+
+    @Test
+    void typedRegistrationAndNativeWireDecodeShareTheSameExactCallbackAuthority() throws Exception {
+        byte[] bytes = callbackAuthority("tenant-a", "alice", "query-a", "task-a");
+        var authority = ExecutionCallbackContext.parseFrom(bytes);
+        assertThat(AiExecutionContext.fromCanonicalTaskAuthority(authority))
+                .usingRecursiveComparison()
+                .isEqualTo(AiExecutionContext.fromCanonicalCallback(bytes));
+        assertThatThrownBy(() -> AiExecutionContext.fromCanonicalTaskAuthority(
+                authority.toBuilder().clearSecurity().build()))
+                .isInstanceOf(org.pangrova.ai.api.exception.AiInvocationException.class);
     }
 
     @Test

@@ -11,7 +11,9 @@ import org.pangrova.coordinator.metadata.MetadataPlanningTestSessions;
 
 import org.apache.calcite.schema.lookup.LikePattern;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
+import org.pangrova.metadata.catalog.CatalogMetadata;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
+import org.pangrova.coordinator.task.TestConnectorQuery;
 import org.pangrova.metadata.api.enums.CatalogState;
 import org.pangrova.metadata.api.enums.CatalogType;
 import org.pangrova.metadata.connector.ConnectorCatalogHandle;
@@ -238,7 +240,45 @@ class LazyMetadataSchemaSystemTableLookupTest {
                 .hasMessageContaining("FRESH");
     }
 
+    @Test
+    void admittedNamespaceLookupUsesExactSpellingBeforeCaseFallbackOrEnumeration() {
+        var metadata = new TestMetadata();
+        metadata.schemaNames.add("Test_Schema");
+        metadata.schemaNames.add("EmptySchema");
+        var catalogs = registry(metadata);
+        var service = new CatalogMetadata(catalogs, null, null, null);
+        var query = new TestConnectorQuery("named-namespace");
+        service.beginQuery(query.metadataSession());
+        try {
+            var builder = new MetadataSchemaBuilder(service, catalogs);
+            var root = builder.buildRootSchema(query.session(CATALOG, SCHEMA));
+            var lookup = root.subSchemas().get(CATALOG).subSchemas();
+
+            assertThat(lookup.getIgnoreCase(SCHEMA).name()).isEqualTo(SCHEMA);
+            assertThat(lookup.get(SCHEMA)).isNotNull();
+            assertThat(lookup.getIgnoreCase("Test_Schema").name()).isEqualTo("Test_Schema");
+            assertThat(lookup.getIgnoreCase("EmptySchema").name()).isEqualTo("EmptySchema");
+            assertThat(metadata.namespaceChecks).containsExactly(SCHEMA, "Test_Schema", "EmptySchema");
+            assertThat(metadata.namespaceListings).isZero();
+
+            assertThat(lookup.getIgnoreCase("TEST_SCHEMA").name()).isEqualTo("Test_Schema");
+            assertThat(lookup.getIgnoreCase("never_present")).isNull();
+            assertThat(lookup.getNames(LikePattern.any())).containsExactlyInAnyOrderElementsOf(metadata.schemaNames);
+            assertThat(metadata.namespaceListings).isOne();
+            assertThat(metadata.namespaceChecks).containsExactly(
+                    SCHEMA, "Test_Schema", "EmptySchema", "TEST_SCHEMA", "never_present");
+        } finally {
+            query.seal();
+            service.cleanupQuery(query.authority());
+            query.retire();
+        }
+    }
+
     private static LazyMetadataSchema schema(TestMetadata metadata) {
+        return new LazyMetadataSchema(registry(metadata), CATALOG, SCHEMA, MetadataPlanningTestSessions.session());
+    }
+
+    private static CatalogRegistry registry(TestMetadata metadata) {
         Connector connector = new Connector() {
             @Override
             public ConnectorMetadata getMetadata(ConnectorSession session) {
@@ -259,7 +299,7 @@ class LazyMetadataSchemaSystemTableLookupTest {
                 descriptor -> new ConnectorCatalogHandle(descriptor, connector), null, null);
         registry.register(new CatalogDescriptor(CATALOG, CatalogType.CONNECTOR,
                 "test-provider", CatalogState.ACTIVE, Map.of(), "", null));
-        return new LazyMetadataSchema(registry, CATALOG, SCHEMA, MetadataPlanningTestSessions.session());
+        return registry;
     }
 
     private record TestHandle(String name) implements ConnectorTableHandle {}
@@ -267,6 +307,9 @@ class LazyMetadataSchemaSystemTableLookupTest {
     private static final class TestMetadata implements ConnectorMetadata {
         private final List<String> lookups = new ArrayList<>();
         private final List<String> tableNames = new ArrayList<>(List.of("Orders"));
+        private final List<String> schemaNames = new ArrayList<>(List.of(SCHEMA));
+        private final List<String> namespaceChecks = new ArrayList<>();
+        private int namespaceListings;
         private int listCalls;
         private int declarationCalls;
         private boolean failSystemLookup;
@@ -274,7 +317,14 @@ class LazyMetadataSchemaSystemTableLookupTest {
 
         @Override
         public List<String> listSchemaNames(ConnectorSession session) {
-            return List.of(SCHEMA);
+            namespaceListings++;
+            return List.copyOf(schemaNames);
+        }
+
+        @Override
+        public boolean hasExactSchemaName(ConnectorSession session, String schemaName) {
+            namespaceChecks.add(schemaName);
+            return schemaNames.contains(schemaName);
         }
 
         @Override

@@ -23,9 +23,6 @@ import org.pangrova.scheduler.strategies.placement.LoadBalancedStrategy;
 import org.pangrova.testing.testkit.constants.TestObservability;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.v2.StageResourceGrant;
-import org.pangrova.protocol.rest.task.convert.TaskRequestDtoConverter;
-import org.pangrova.protocol.execution.TaskDescriptor;
-import org.pangrova.protocol.execution.TaskResourceLimit;
 import org.pangrova.observability.api.tracing.TracingProvider;
 import org.pangrova.security.api.identity.UserIdentity;
 import org.pangrova.planner.analysis.SqlCompiler;
@@ -115,32 +112,6 @@ class TaskResourceLimitPropagationTest {
     }
 
     @Test
-    void resourceLimitConversion_protocolToSpi_preservesValues() {
-        StageResourceGrant protocol = StageResourceGrant.newBuilder()
-                .setGrantId("conversion-test")
-                .setNativeMemoryBytes(2048L)
-                .setCpuSlots(8)
-                .setSpillBytes(4096L)
-                .build();
-
-        TaskResourceLimit spi = org.pangrova.protocol.rest.task.convert
-                .TaskRequestDtoConverter.toResourceLimit(protocol);
-
-        assertThat(spi.maxMemoryBytes()).isEqualTo(2048L);
-        assertThat(spi.maxThreads()).isEqualTo(8);
-        assertThat(spi.maxSpillBytes()).isEqualTo(4096L);
-        assertThat(spi.spillDirectory()).isEmpty();
-    }
-
-    @Test
-    void resourceLimitConversion_nullProtocol_returnsNone() {
-        TaskResourceLimit spi = org.pangrova.protocol.rest.task.convert
-                .TaskRequestDtoConverter.toResourceLimit(null);
-
-        assertThat(spi).isEqualTo(TaskResourceLimit.NONE);
-    }
-
-    @Test
     void fullPipeline_workerReceivesNonZeroResourceLimit() {
         QuerySession session = testSession("rl-q3");
         QueryStateMachine sm = new QueryStateMachine();
@@ -149,9 +120,9 @@ class TaskResourceLimitPropagationTest {
 
         // Verify the request that was dispatched has resource limits
         SubmitTaskRequest request = recordingDispatcher.capturedRequests().get(0);
-        TaskDescriptor descriptor = TaskRequestDtoConverter.toTaskDescriptor(request);
-        assertThat(descriptor.resourceLimit()).isNotEqualTo(TaskResourceLimit.NONE);
-        assertThat(descriptor.resourceLimit().maxMemoryBytes()).isGreaterThan(0);
+        assertThat(request.taskRequest().hasResourceGrant()).isTrue();
+        assertThat(grant(request).getNativeMemoryBytes()).isPositive();
+        assertThat(grant(request).getCpuSlots()).isPositive();
     }
 
     // ── Helpers ──

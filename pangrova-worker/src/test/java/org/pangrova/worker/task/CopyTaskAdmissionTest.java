@@ -28,8 +28,7 @@ class CopyTaskAdmissionTest {
         try (TaskManager manager = TaskManager.forHttpWiringOnly()) {
             var request = SubmitTaskRequest.from(canonical.toBuilder().setAttempt(canonical.getAttempt().toBuilder()
                     .setWorkerExecutionIdentity(manager.workerExecutionIdentity().toProto())).build());
-            var descriptor = org.pangrova.protocol.rest.task.convert.TaskRequestDtoConverter.toTaskDescriptor(request);
-            assertThatThrownBy(() -> manager.submitTask(descriptor, request))
+            assertThatThrownBy(() -> manager.submitTask(request))
                     .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("COPY source split");
             assertThat(manager.resolveWorkerTaskId(canonical.getAttempt().getTaskId())).isNull();
             assertThat(manager.getRunningTaskCount()).isZero();
@@ -56,8 +55,7 @@ class CopyTaskAdmissionTest {
             var request = SubmitTaskRequest.from(canonical.toBuilder().setAttempt(canonical.getAttempt().toBuilder()
                             .setWorkerExecutionIdentity(manager.workerExecutionIdentity().toProto())).build(),
                     new CopySourceReadHttp.RedeemRequest("n".repeat(43), scope));
-            var descriptor = org.pangrova.protocol.rest.task.convert.TaskRequestDtoConverter.toTaskDescriptor(request);
-            assertThatThrownBy(() -> manager.submitTask(descriptor, request))
+            assertThatThrownBy(() -> manager.submitTask(request))
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("configured Native input runtime");
             assertThat(manager.resolveWorkerTaskId(canonical.getAttempt().getTaskId())).isNull();

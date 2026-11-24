@@ -3,6 +3,7 @@ package org.pangrova.worker.task;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.ResourceLock;
+import org.pangrova.protocol.task.ValidatedTaskSubmission;
 import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.v2.TaskReportOrigin;
 import org.pangrova.protocol.v2.TaskState;
@@ -154,7 +155,8 @@ class TaskCancellationResourceCleanupTest {
             long handle = info.executorHandle();
             assertThat(tasks.manager().cancelTask(info.taskId()).isSuccess()).isTrue();
             assertThat(info.allocatedBufferMemory()).isPositive();
-            tasks.manager().lifecycleManager.executeTask(info.taskId(), info, tasks.manager().lifecycleCallback);
+            tasks.manager().lifecycleManager.executeTask(info.taskId(), info,
+                    new ValidatedTaskSubmission(info.request()), tasks.manager().lifecycleCallback, null);
             tasks.awaitState(info, org.pangrova.worker.enums.TaskState.CANCELLED);
             assertRetired(runtime, info, handle);
             var receipt = info.executorReleaseReceipt().report();

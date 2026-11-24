@@ -208,16 +208,13 @@ class UnifiedMemoryAccountingTest {
                 new TestPlanFragment(),
                 List.of(), Map.of(),
                 0, 0, "COMPUTE", limit);
-        return new TaskInfo(taskId, queryId, null, descriptor, Instant.now());
+        return new TaskInfo(taskId, queryId, descriptor, Instant.now());
     }
 
     private TaskInfo buildShuffleTaskInfo(long bufferBytes) {
         String taskId = "shuffle-task";
         String queryId = "shuffle-query";
         long memoryBytes = 32L * 1024 * 1024;
-        TaskDescriptor descriptor = new TaskDescriptor(
-                new QueryId(queryId), new TestPlanFragment(), List.of(), Map.of(),
-                0, 0, "COMPUTE", new TaskResourceLimit(memoryBytes, 1, 0, ""));
         var shuffle = org.pangrova.protocol.v2.ShuffleTaskOptions.newBuilder()
                 .setSerde(org.pangrova.protocol.v2.BatchSerde.BATCH_SERDE_ARROW_BATCH)
                 .setCompressionCodec("none").setBatchSize(1000).setPartitionCount(1)
@@ -232,8 +229,7 @@ class UnifiedMemoryAccountingTest {
                         .setShuffleBufferBytes(bufferBytes).setCpuSlots(1))
                 .setExecutionOptions(org.pangrova.protocol.v2.TaskExecutionOptions
                         .newBuilder().setShuffle(shuffle));
-        return new TaskInfo(taskId, queryId,
-                SubmitTaskRequest.from(canonical.build()), descriptor, Instant.now());
+        return new TaskInfo(taskId, SubmitTaskRequest.from(canonical.build()), Instant.now());
     }
 
     private static final class TestPlanFragment implements PlanFragment {

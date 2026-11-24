@@ -19,6 +19,7 @@ import org.apache.arrow.flight.Ticket;
 import org.apache.arrow.memory.RootAllocator;
 import org.pangrova.protocol.rest.copy.CopySourceReadHttp;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
+import org.pangrova.protocol.task.ValidatedTaskSubmission;
 import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
 import org.pangrova.protocol.v2.FileFormat;
@@ -87,7 +88,7 @@ final class CopyNativeInputAssertions {
         var runtime = fixture.nativeRuntime;
         var executor = runtime.executor();
         var denied = tasks.apply(0);
-        var failure = catchThrowable(() -> executor.createCopyTask(denied));
+        var failure = catchThrowable(() -> executor.createAdmittedTask(new ValidatedTaskSubmission(denied)));
         assertThat(failure).isInstanceOf(NativeTaskCreationFailure.class);
         var noOwner = (NativeTaskCreationFailure) failure;
         assertThat(noOwner.withoutNativeOwner()).isTrue();
@@ -95,7 +96,7 @@ final class CopyNativeInputAssertions {
         assertThat(localInputs(stagingRoot)).isEmpty();
 
         var exhausted = tasks.apply(fileSize);
-        long exhaustedHandle = executor.createCopyTask(exhausted);
+        long exhaustedHandle = executor.createAdmittedTask(new ValidatedTaskSubmission(exhausted));
         assertThat(localInputs(stagingRoot)).hasSize(1);
         executor.startTask(exhaustedHandle);
         org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(20)).until(() ->
@@ -117,7 +118,7 @@ final class CopyNativeInputAssertions {
         assertThat(localInputs(stagingRoot)).isEmpty();
 
         var cancelled = tasks.apply(Math.addExact(8 * fileSize, 1024 * 1024));
-        long cancelledHandle = executor.createCopyTask(cancelled);
+        long cancelledHandle = executor.createAdmittedTask(new ValidatedTaskSubmission(cancelled));
         executor.cancelTask(cancelledHandle);
         assertThat(localInputs(stagingRoot)).hasSize(1);
         var cancelledRelease = TaskReport.parseFrom(executor.releaseTask(cancelledHandle).orElseThrow());
@@ -196,8 +197,7 @@ final class CopyNativeInputAssertions {
 
     private static String submit(org.pangrova.worker.task.TaskManager manager, SubmitTaskRequest request) {
         manager.observeControlEpoch(request.taskRequest().getAttempt().getControlEpoch());
-        return manager.submitTask(org.pangrova.protocol.rest.task.convert.TaskRequestDtoConverter
-                .toTaskDescriptor(request), request);
+        return manager.submitTask(request);
     }
 
     private static List<Path> localInputs(Path root) throws Exception {

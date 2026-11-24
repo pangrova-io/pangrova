@@ -16,10 +16,17 @@ final class CanonicalAiExecutionContexts {
             throw invalidAuthority("Native callback task authority is absent", null);
         }
         try {
-            var callback = ExecutionCallbackContext.parseFrom(bytes);
+            return fromCanonical(ExecutionCallbackContext.parseFrom(bytes));
+        } catch (InvalidProtocolBufferException failure) {
+            throw invalidAuthority("Native callback task authority is invalid: " + failure.getMessage(), failure);
+        }
+    }
+
+    static AiExecutionContext fromCanonical(ExecutionCallbackContext callback) {
+        try {
             CanonicalTaskRequests.validateCallback(callback);
             return map(callback);
-        } catch (InvalidProtocolBufferException | IllegalArgumentException failure) {
+        } catch (IllegalArgumentException failure) {
             throw invalidAuthority("Native callback task authority is invalid: " + failure.getMessage(), failure);
         }
     }

@@ -1,5 +1,7 @@
 package org.pangrova.worker.http.endpoint;
 
+import java.io.ByteArrayInputStream;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 import jakarta.ws.rs.core.Response;
@@ -24,7 +26,7 @@ class TaskResourceEpochFenceTest {
             TaskManager manager = fixture.manager();
             manager.requireControlEpochHandshake();
 
-            Response response = resource.submitTask(request(1L).encode(), null);
+            Response response = resource.submitTask(new ByteArrayInputStream(request(1L).encode()), null).toCompletableFuture().join();
 
             assertThat(response.getStatus()).isEqualTo(503);
             assertRejected(response, "handshake");
@@ -41,9 +43,9 @@ class TaskResourceEpochFenceTest {
             manager.requireControlEpochHandshake();
             manager.observeControlEpoch(7);
 
-            Response missing = resource.submitTask(request(null).encode(), null);
-            Response stale = resource.submitTask(request(6L).encode(), null);
-            Response future = resource.submitTask(request(8L).encode(), null);
+            Response missing = resource.submitTask(new ByteArrayInputStream(request(null).encode()), null).toCompletableFuture().join();
+            Response stale = resource.submitTask(new ByteArrayInputStream(request(6L).encode()), null).toCompletableFuture().join();
+            Response future = resource.submitTask(new ByteArrayInputStream(request(8L).encode()), null).toCompletableFuture().join();
 
             assertThat(missing.getStatus()).isEqualTo(409);
             assertThat(stale.getStatus()).isEqualTo(409);

@@ -12,6 +12,7 @@ import org.pangrova.table.api.rename.TableControlRenameIntent;
 import org.pangrova.table.api.enums.TableControlState;
 import org.pangrova.table.api.ownership.TableControlStore;
 import org.pangrova.table.api.ownership.TableReadOwnerStore;
+import org.pangrova.table.api.identity.CatalogDeploymentIdentity;
 import org.pangrova.table.api.observation.TableVersionObservation;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.persistence.jdbc.support.JdbcSupport;
@@ -77,6 +78,15 @@ public final class JdbcTableControlStore implements TableControlStore, TableRead
     private static final String FIND_BY_ID = "SELECT " + COLUMNS + " FROM table_control_registry "
             + "WHERE table_id=?";
 
+    private static final String OBSERVE_READ_OWNER = """
+            SELECT control.*, catalog.incarnation_id AS observed_catalog_incarnation,
+                catalog.revision AS observed_catalog_revision
+            FROM (
+            """ + FIND_LIVE + """
+            ) control
+            LEFT JOIN catalog_definitions catalog ON catalog.name=control.catalog_name
+            """;
+
     private static final String MATCH_READ_OWNER = """
             SELECT 1 FROM table_control_name_reservation reservation
             JOIN table_control_registry control ON control.table_id=reservation.table_id
@@ -135,6 +145,22 @@ public final class JdbcTableControlStore implements TableControlStore, TableRead
     public Optional<TableControlRecord> findById(UUID tableId) {
         return query(FIND_BY_ID, ps -> ps.setObject(1, tableId),
                 rs -> rs.next() ? Optional.of(map(rs)) : Optional.empty());
+    }
+
+    @Override
+    public Optional<ReadOwnerObservation> observeReadOwner(String catalog, String schema, String table) {
+        return query(OBSERVE_READ_OWNER, ps -> {
+            ps.setString(1, catalog);
+            ps.setString(2, schema);
+            ps.setString(3, table);
+        }, rs -> {
+            if (!rs.next()) return Optional.empty();
+            String incarnation = rs.getString("observed_catalog_incarnation");
+            Optional<CatalogDeploymentIdentity> deployment = incarnation == null ? Optional.empty()
+                    : Optional.of(new CatalogDeploymentIdentity(
+                            incarnation, rs.getLong("observed_catalog_revision")));
+            return Optional.of(new ReadOwnerObservation(map(rs), deployment));
+        });
     }
 
     @Override

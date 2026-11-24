@@ -32,10 +32,48 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
                     + "WHERE execution_id = $1 AND expires_at > clock_timestamp()";
     private static final String PUBLICATION_LOOKUP =
             "SELECT tenant_id,requesting_principal,%FROM materialization.attempts WHERE execution_anchor=$1";
+    private static final String READ_ADMISSION_LOOKUP =
+            "SELECT control.*, catalog.incarnation_id AS observed_catalog_incarnation%";
+    private static final String TABLE_REGISTRATION_LOOKUP =
+            "SELECT table_id, catalog_name, schema_name, table_name, %"
+                    + "FROM table_control_registry WHERE state <> % AND table_id IN (SELECT table_id "
+                    + "FROM table_control_name_reservation%";
+    private static final String CATALOG_DEPLOYMENT_LOOKUP =
+            "SELECT name, incarnation_id, revision FROM catalog_definitions WHERE name%";
+    private static final String ICEBERG_POINTER_LOOKUP =
+            "SELECT * FROM iceberg_tables WHERE catalog_name = %AND table_name =%";
+    private static final String ICEBERG_TABLE_NAMESPACE_LIST =
+            "SELECT DISTINCT table_namespace FROM iceberg_tables WHERE catalog_name = %";
+    private static final String ICEBERG_PROPERTY_NAMESPACE_LIST =
+            "SELECT DISTINCT namespace FROM iceberg_namespace_properties WHERE catalog_name = %";
+    private static final String ICEBERG_NAMED_NAMESPACE_LOOKUP =
+            "SELECT table_namespace FROM iceberg_tables WHERE catalog_name = %"
+                    + "AND%table_namespace = %OR table_namespace LIKE %LIMIT %";
+    private static final String READ_SUBJECT_LOOKUP =
+            "WITH effective AS (%SELECT registered.role_name%LEFT JOIN security_grants grants%";
+    private static final String INDEPENDENT_ROLE_LOOKUP =
+            "SELECT registered.role_name FROM pangrova_roles registered%";
+    private static final String INDEPENDENT_GRANT_LOOKUP =
+            "SELECT grant_id, role_name, privilege,%FROM security_grants WHERE role_name = ANY%";
+    private static final String READ_POLICY_SNAPSHOT =
+            "WITH read_target(catalog_name, schema_name, table_name) AS (%FROM table_control_registry%"
+                    + "FROM row_policy%FROM column_mask%FROM table_control_governance_binding%";
+    private static final String READ_POLICIES_LOOKUP =
+            "WITH read_target(table_id, catalog_name, schema_name, table_name) AS (%UNION ALL%";
+    private static final String INDEPENDENT_ROW_POLICY_LOOKUP =
+            "SELECT policy_id, policy_name,%FROM row_policy WHERE enabled%";
+    private static final String INDEPENDENT_MASK_LOOKUP =
+            "SELECT mask_id, mask_name,%FROM column_mask WHERE catalog_name=%";
+    private static final String READ_POLICY_IDENTITY_AND_BINDINGS_LOOKUP =
+            "SELECT control.table_id, control.state,%LEFT JOIN table_control_governance_binding%";
+    private static final String INDEPENDENT_GOVERNANCE_LOOKUP =
+            "SELECT binding_id, table_id, binding_type, binding_ref,%FROM table_control_governance_binding%";
 
     @Override
     protected List<ConnectorTestConfig> connectorConfigs() {
-        return List.of(ConnectorTestConfig.icebergLocal("iceberg_catalog", "default", icebergWarehouse().toString()));
+        return List.of(ConnectorTestConfig.icebergLocal("iceberg_catalog", "default", icebergWarehouse().toString(),
+                Map.of("type", "jdbc", "uri", pgJdbcUrl(), "jdbc.user", pgUsername(),
+                        "jdbc.password", pgPassword(), "jdbc.schema-version", "V1")));
     }
 
     @BeforeAll
@@ -79,6 +117,77 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
         assertExactAttemptProfile(queryId);
         assertProfileIsScopedToTheSubmittingPrincipal(queryId);
         assertQueryLifecycleIsScopedToTheSubmittingPrincipal(queryId);
+    }
+
+    @Test
+    void managedReadLoadsItsRegistrationAndCatalogTogether() throws SQLException {
+        String table = "iceberg_catalog.default.read_admission_database_budget";
+        sqlRunner.executeDdl("CREATE TABLE " + table + " (id BIGINT, email VARCHAR)");
+        sqlRunner.execute("INSERT INTO " + table + " VALUES (42, 'alice@example.com')");
+        sqlRunner.executeDdl("ALTER TABLE " + table + " ALTER COLUMN email SET TAG pii_type = 'PII_EMAIL'");
+
+        long previousAdmissionLookups = calls(READ_ADMISSION_LOOKUP);
+        long previousRegistrationLookups = calls(TABLE_REGISTRATION_LOOKUP);
+        long previousDeploymentLookups = calls(CATALOG_DEPLOYMENT_LOOKUP);
+        long previousSubjectLookups = calls(READ_SUBJECT_LOOKUP);
+        long previousRoleLookups = calls(INDEPENDENT_ROLE_LOOKUP);
+        long previousGrantLookups = calls(INDEPENDENT_GRANT_LOOKUP);
+        long previousPolicyLookups = calls(READ_POLICIES_LOOKUP);
+        long previousPolicySnapshots = calls(READ_POLICY_SNAPSHOT);
+        long previousRowLookups = calls(INDEPENDENT_ROW_POLICY_LOOKUP);
+        long previousMaskLookups = calls(INDEPENDENT_MASK_LOOKUP);
+        long previousPolicyIdentityLookups = calls(READ_POLICY_IDENTITY_AND_BINDINGS_LOOKUP);
+        long previousGovernanceLookups = calls(INDEPENDENT_GOVERNANCE_LOOKUP);
+        var rows = sqlRunner.execute("SELECT id, email FROM " + table + " WHERE id = 42");
+        assertThat(rows).extracting(row -> row.getLong("id")).containsExactly(42L);
+        assertThat(rows).extracting(row -> row.getString("email")).containsExactly("***@***");
+
+        assertThat(calls(READ_ADMISSION_LOOKUP) - previousAdmissionLookups).isOne();
+        assertThat(calls(TABLE_REGISTRATION_LOOKUP) - previousRegistrationLookups).isZero();
+        assertThat(calls(CATALOG_DEPLOYMENT_LOOKUP) - previousDeploymentLookups).isZero();
+        assertThat(calls(READ_SUBJECT_LOOKUP) - previousSubjectLookups).isOne();
+        assertThat(calls(INDEPENDENT_ROLE_LOOKUP) - previousRoleLookups).isZero();
+        assertThat(calls(INDEPENDENT_GRANT_LOOKUP) - previousGrantLookups).isZero();
+        assertThat(calls(READ_POLICY_SNAPSHOT) - previousPolicySnapshots).isOne();
+        assertThat(calls(READ_POLICIES_LOOKUP) - previousPolicyLookups).isZero();
+        assertThat(calls(INDEPENDENT_ROW_POLICY_LOOKUP) - previousRowLookups).isZero();
+        assertThat(calls(INDEPENDENT_MASK_LOOKUP) - previousMaskLookups).isZero();
+        assertThat(calls(INDEPENDENT_GOVERNANCE_LOOKUP) - previousGovernanceLookups).isZero();
+        assertThat(calls(READ_POLICY_IDENTITY_AND_BINDINGS_LOOKUP) - previousPolicyIdentityLookups).isZero();
+    }
+
+    @Test
+    void qualifiedSourceResolvesWithoutLookingUpItsCatalogNameAsATable() throws SQLException {
+        String table = "iceberg_catalog.default.qualified_read_database_budget";
+        String sameNameAsCatalog = "iceberg_catalog.default.iceberg_catalog";
+        sqlRunner.executeDdl("CREATE TABLE " + table + " (id BIGINT)");
+        sqlRunner.executeDdl("CREATE TABLE " + sameNameAsCatalog + " (id BIGINT)");
+        sqlRunner.execute("INSERT INTO " + table + " VALUES (42)");
+        sqlRunner.execute("INSERT INTO " + sameNameAsCatalog + " VALUES (7)");
+
+        long previousPointerLookups = calls(ICEBERG_POINTER_LOOKUP);
+        long previousTableNamespaceListings = calls(ICEBERG_TABLE_NAMESPACE_LIST);
+        long previousPropertyNamespaceListings = calls(ICEBERG_PROPERTY_NAMESPACE_LIST);
+        long previousNamedNamespaceLookups = calls(ICEBERG_NAMED_NAMESPACE_LOOKUP);
+        assertThat(sqlRunner.execute("SELECT id FROM " + table))
+                .extracting(row -> row.getLong("id")).containsExactly(42L);
+        assertThat(calls(ICEBERG_POINTER_LOOKUP) - previousPointerLookups)
+                .as("Iceberg pointer SELECTs during read selection and split planning").isEqualTo(2L);
+        assertThat(calls(ICEBERG_TABLE_NAMESPACE_LIST) - previousTableNamespaceListings).isZero();
+        assertThat(calls(ICEBERG_PROPERTY_NAMESPACE_LIST) - previousPropertyNamespaceListings).isZero();
+        assertThat(calls(ICEBERG_NAMED_NAMESPACE_LOOKUP) - previousNamedNamespaceLookups)
+                .as("exact Iceberg namespace SELECTs").isOne();
+
+        assertThat(sqlRunner.execute("SELECT id FROM iceberg_catalog"))
+                .extracting(row -> row.getLong("id")).containsExactly(7L);
+        assertThat(sqlRunner.execute("SELECT id FROM \"iceberg_catalog\".\"default\".\"qualified_read_database_budget\""))
+                .extracting(row -> row.getLong("id")).containsExactly(42L);
+        assertThat(sqlRunner.execute("SELECT qualified.id AS qualified_id, local_table.id AS local_id FROM "
+                + table + " AS qualified CROSS JOIN iceberg_catalog AS local_table"))
+                .singleElement().satisfies(row -> {
+                    assertThat(row.getLong("qualified_id")).isEqualTo(42L);
+                    assertThat(row.getLong("local_id")).isEqualTo(7L);
+                });
     }
 
     @Test

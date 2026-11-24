@@ -4,7 +4,9 @@ import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFai
 
 import org.pangrova.persistence.security.postgresql.support.JdbcPolicyStoreSupport;
 
+import org.pangrova.security.api.authorization.ReadAuthorizationSubjectSource;
 import org.pangrova.security.api.policy.GroupRoleMapping;
+import org.pangrova.security.api.policy.PrivilegeGrant;
 import org.pangrova.security.api.policy.Role;
 import org.pangrova.persistence.security.api.policy.RoleStore;
 import org.pangrova.security.api.policy.UserRoleAssignment;
@@ -38,7 +40,7 @@ import java.util.Set;
  * <p>Per naming rule C13 this is {@code Persistent*} because {@code pangrova-security} is a policy
  * module rather than the owning persistence module.
  */
-public final class JdbcRoleStore extends JdbcPolicyStoreSupport implements RoleStore {
+public final class JdbcRoleStore extends JdbcPolicyStoreSupport implements RoleStore, ReadAuthorizationSubjectSource {
 
     private static final Logger LOG = LoggerFactory.getLogger(JdbcRoleStore.class);
     private static final String EFFECTIVE_ROLES = """
@@ -49,6 +51,43 @@ public final class JdbcRoleStore extends JdbcPolicyStoreSupport implements RoleS
                 SELECT role_name FROM pangrova_group_roles WHERE group_name = ANY (?)
             ) membership USING (role_name)
             """;
+    private static final String READ_SUBJECT = "WITH effective AS (" + EFFECTIVE_ROLES + """
+            )
+            SELECT effective.role_name AS subject_role, grants.grant_id, grants.role_name, grants.privilege,
+                   grants.object_type, grants.catalog_name, grants.schema_name, grants.table_name,
+                   grants.column_name, grants.with_grant_option, grants.cascade_revoke,
+                   grants.granted_by, grants.granted_at
+            FROM effective LEFT JOIN security_grants grants USING (role_name)
+            ORDER BY grants.grant_id NULLS LAST
+            """;
+
+    @Override
+    public Subject read(String principal, Set<String> groups) {
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement statement = conn.prepareStatement(READ_SUBJECT)) {
+            var groupNames = conn.createArrayOf("text", groups.toArray(String[]::new));
+            try {
+                statement.setString(1, principal);
+                statement.setArray(2, groupNames);
+                try (ResultSet rows = statement.executeQuery()) {
+                    Set<String> roles = new HashSet<>();
+                    List<PrivilegeGrant> grants = new ArrayList<>();
+                    while (rows.next()) {
+                        roles.add(rows.getString("subject_role"));
+                        long grantId = rows.getLong("grant_id");
+                        if (!rows.wasNull()) {
+                            grants.add(JdbcGrantStore.readGrant(rows, grantId));
+                        }
+                    }
+                    return new Subject(roles, grants);
+                }
+            } finally {
+                groupNames.free();
+            }
+        } catch (SQLException failure) {
+            throw new IllegalStateException("Failed resolving the read authorization subject", failure);
+        }
+    }
 
     public JdbcRoleStore(DataSource dataSource) {
         super(dataSource);

@@ -21,6 +21,7 @@ import org.pangrova.table.policy.TableControlPolicyBinder;
 import org.pangrova.table.ownership.TableControlService;
 import org.pangrova.table.api.ownership.TableControlRecord;
 import org.pangrova.table.api.ownership.TableReadOwnerStore;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.table.statistics.TableControlStatisticsService;
 import org.pangrova.metadata.api.exception.CatalogSuspendedException;
 import org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository;
@@ -104,13 +105,14 @@ public class CatalogRegistry implements CatalogReadAccess {
         this.federationHandleFactory = federationHandleFactory;
         this.eventDispatcher = eventDispatcher;
         this.healthMonitor = new CatalogHealthMonitor(catalogs);
+        var joinedOwners = stores.control() instanceof TableReadOwnerStore joined ? joined : null;
         this.tableControl = new TableControlService(
                 stores.control(),
                 catalogIdentities,
                 org.pangrova.table.config.TableControlSettings.fromSystemProperties(),
                 java.time.Clock.systemUTC(),
-                stores.control() instanceof TableReadOwnerStore joined
-                        ? expected -> identities.matchesReadOwner(joined, expected) : null);
+                joinedOwners == null ? null : table -> identities.observeReadOwner(joinedOwners, table),
+                joinedOwners == null ? null : expected -> identities.matchesReadOwner(joinedOwners, expected));
         this.tableStatistics = new TableControlStatisticsService(this.tableControl, stores.statistics());
         this.governance = new TableControlPolicyBinder(tableControl, stores.governance());
         this.tableMaintenance = new TableControlMaintenanceService(stores.maintenance());
@@ -524,6 +526,18 @@ public class CatalogRegistry implements CatalogReadAccess {
 
         void requireLocal(org.pangrova.metadata.api.catalog.CatalogDeploymentIdentity observed) {
             requireMatching(localDescriptor(observed.catalogName()), observed.incarnationId(), observed.revision());
+        }
+
+        Optional<TableReadOwnerStore.ReadOwnerObservation> observeReadOwner(
+                TableReadOwnerStore joined, QualifiedTableName table) {
+            return joined.observeReadOwner(table.catalog(), table.schema(), table.table()).map(observed -> {
+                String catalog = observed.record().catalog();
+                var local = localDescriptor(catalog);
+                var current = observed.deployment().orElseThrow(() ->
+                        new CatalogNotFoundException("Catalog '" + catalog + "' was removed"));
+                requireMatching(local, current.incarnationId(), current.revision());
+                return observed;
+            });
         }
 
         boolean matchesReadOwner(TableReadOwnerStore joined, TableControlRecord expected) {

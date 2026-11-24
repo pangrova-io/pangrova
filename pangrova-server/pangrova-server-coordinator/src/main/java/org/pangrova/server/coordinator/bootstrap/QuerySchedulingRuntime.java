@@ -65,12 +65,12 @@ final class QuerySchedulingRuntime implements AutoCloseable {
             if (tenantId == null || tenantId.isBlank()) {
                 throw new NoAvailableWorkerException("Tenant identity is required for placement");
             }
-            var tenant = store.getTenant(tenantId)
+            var placement = store.getPlacement(tenantId)
                     .orElseThrow(() -> new NoAvailableWorkerException("Unknown tenant for placement: " + tenantId));
-            if (tenant.status() != TenantStatus.ACTIVE) {
+            if (placement.status() != TenantStatus.ACTIVE) {
                 throw new NoAvailableWorkerException("Inactive tenant for placement: " + tenantId);
             }
-            return Optional.ofNullable(tenant.resourcePool());
+            return Optional.ofNullable(placement.resourcePool());
         };
     }
 

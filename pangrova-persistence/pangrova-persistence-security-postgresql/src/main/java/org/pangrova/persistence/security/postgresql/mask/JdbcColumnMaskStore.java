@@ -89,11 +89,7 @@ public final class JdbcColumnMaskStore extends JdbcPolicyStoreSupport
         try (ResultSet rs = statement.executeQuery()) {
             List<ColumnMask> masks = new ArrayList<>();
             while (rs.next()) {
-                masks.add(new ColumnMask(rs.getLong("mask_id"), rs.getString("mask_name"),
-                        rs.getString("catalog_name"), rs.getString("schema_name"), rs.getString("table_name"),
-                        rs.getString("column_name"), rs.getString("mask_expression"),
-                        decodeRoles(rs.getString("apply_to_roles")), decodeRoles(rs.getString("exempt_roles")),
-                        rs.getBoolean("enabled"), rs.getObject("table_id", java.util.UUID.class)));
+                masks.add(readColumnMask(rs));
             }
             return masks;
         }

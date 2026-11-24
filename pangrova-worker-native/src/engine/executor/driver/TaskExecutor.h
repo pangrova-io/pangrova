@@ -6,6 +6,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -207,7 +208,7 @@ struct TaskExecutorConfig {
 // Orchestrator: composes lifecycle, execution driver, and output routing.
 class TaskExecutor {
  public:
-  explicit TaskExecutor(const TaskExecutorConfig& config);
+  explicit TaskExecutor(TaskExecutorConfig config);
   ~TaskExecutor();
 
   // Non-copyable, non-movable.
@@ -215,7 +216,7 @@ class TaskExecutor {
   TaskExecutor& operator=(const TaskExecutor&) = delete;
 
   // Lifecycle — delegates to TaskLifecycle + PlanExecutionDriver.
-  void start();
+  void start(std::function<void()> on_result_ready = {});
   void cancel();
   void release();
   shuffle::ShuffleControlGate::Lease acquireShuffleStart();

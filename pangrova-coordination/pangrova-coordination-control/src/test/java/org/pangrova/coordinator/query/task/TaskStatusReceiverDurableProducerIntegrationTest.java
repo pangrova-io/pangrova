@@ -172,7 +172,13 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
         installStatementCounters();
         long before = executionRouteReads();
         var exchangeBefore = exchangeReads();
-        assertThat(receiver.onTaskStatus(status(request, original))).isTrue();
+        var delivery = org.pangrova.protocol.http.TaskStatusDelivery.newBuilder()
+                .setRole(org.pangrova.protocol.http.TaskRole.TASK_ROLE_COMPUTE)
+                .setWorkerId("worker-1").setSequence(1).setTimestampMs(System.currentTimeMillis())
+                .setTerminalReport(com.google.protobuf.ByteString.copyFrom(original)).build();
+        var received = org.pangrova.protocol.rest.task.TaskStatusWire.decode(delivery.toByteArray());
+        assertThat(received.terminalEvidence().bytes()).isEqualTo(delivery.getTerminalReport());
+        assertThat(receiver.onTaskStatus(received)).isTrue();
         assertThat(executionRouteReads() - before).as("durable execution route SELECTs").isEqualTo(3);
         assertThat(exchangeReads().since(exchangeBefore)).as("durable exchange evidence SELECTs")
                 .isEqualTo(new ExchangeReads(0, 0, 0, 0, 1));

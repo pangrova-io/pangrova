@@ -2,6 +2,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <functional>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
@@ -50,10 +51,10 @@ namespace pangrova::jni {
 namespace {
 std::atomic<JavaVM*> g_cached_jvm{nullptr};
 
-// A Native reader or exported Arrow buffer can exit on a non-Java thread.
-class ResultDrainJniEnv {
+// Result readiness and drain are published from Native threads.
+class TaskEventJniEnv {
  public:
-  explicit ResultDrainJniEnv(JavaVM* vm) : vm_(vm) {
+  explicit TaskEventJniEnv(JavaVM* vm) : vm_(vm) {
     const auto status = vm_->GetEnv(reinterpret_cast<void**>(&env_), JNI_VERSION_1_8);
     if (status == JNI_EDETACHED) {
       attached_ = vm_->AttachCurrentThreadAsDaemon(reinterpret_cast<void**>(&env_), nullptr) == JNI_OK;
@@ -63,10 +64,10 @@ class ResultDrainJniEnv {
     }
   }
 
-  ResultDrainJniEnv(const ResultDrainJniEnv&) = delete;
-  ResultDrainJniEnv& operator=(const ResultDrainJniEnv&) = delete;
+  TaskEventJniEnv(const TaskEventJniEnv&) = delete;
+  TaskEventJniEnv& operator=(const TaskEventJniEnv&) = delete;
 
-  ~ResultDrainJniEnv() { if (attached_) vm_->DetachCurrentThread(); }
+  ~TaskEventJniEnv() { if (attached_) vm_->DetachCurrentThread(); }
   JNIEnv* get() const { return env_; }
 
  private:
@@ -75,43 +76,45 @@ class ResultDrainJniEnv {
   bool attached_ = false;
 };
 
-class ResultDrainUpcall {
+class TaskEventUpcall {
  public:
-  ResultDrainUpcall(JNIEnv* env, jobject runnable, int64_t handle)
+  TaskEventUpcall(JNIEnv* env, jobject runnable, int64_t handle)
       : vm_(globalJavaVM()), run_(globalJniCache().runnable_run), handle_(handle) {
-    if (!vm_ || !run_ || !runnable) throw std::invalid_argument("Result drain callback is unavailable");
+    if (!vm_ || !run_ || !runnable) throw std::invalid_argument("Native task callback is unavailable");
     runnable_ = env->NewGlobalRef(runnable);
-    if (!runnable_) throw std::runtime_error("Could not retain result drain callback");
+    if (!runnable_) throw std::runtime_error("Could not retain Native task callback");
   }
 
-  ResultDrainUpcall(const ResultDrainUpcall&) = delete;
-  ResultDrainUpcall& operator=(const ResultDrainUpcall&) = delete;
+  TaskEventUpcall(const TaskEventUpcall&) = delete;
+  TaskEventUpcall& operator=(const TaskEventUpcall&) = delete;
 
-  ~ResultDrainUpcall() {
+  ~TaskEventUpcall() {
     if (!runnable_) return;
-    ResultDrainJniEnv thread(vm_);
+    TaskEventJniEnv thread(vm_);
     if (auto* env = thread.get()) {
       env->DeleteGlobalRef(runnable_);
     } else {
-      PANGROVA_LOG_ERROR << "event=result_drain_callback_release_failed executor_handle=" << handle_;
+      PANGROVA_LOG_ERROR << "event=native_task_callback_release_failed executor_handle=" << handle_;
     }
   }
 
-  void notify() noexcept {
-    ResultDrainJniEnv thread(vm_);
+  bool notify() noexcept {
+    TaskEventJniEnv thread(vm_);
     auto* env = thread.get();
     if (!env) {
-      PANGROVA_LOG_ERROR << "event=result_drain_callback_attach_failed executor_handle=" << handle_;
-      return;
+      PANGROVA_LOG_ERROR << "event=native_task_callback_attach_failed executor_handle=" << handle_;
+      return false;
     }
     env->CallVoidMethod(runnable_, run_);
-    if (env->ExceptionCheck()) {
-      PANGROVA_LOG_ERROR << "event=result_drain_callback_failed executor_handle=" << handle_;
+    const bool returned = !env->ExceptionCheck();
+    if (!returned) {
+      PANGROVA_LOG_ERROR << "event=native_task_callback_failed executor_handle=" << handle_;
       env->ExceptionDescribe();
       env->ExceptionClear();
     }
     env->DeleteGlobalRef(runnable_);
     runnable_ = nullptr;
+    return returned;
   }
 
  private:
@@ -139,7 +142,7 @@ std::shared_ptr<pangrova::executor::TaskExecutor> constructTaskExecutor(
       throw;
     }
   }
-  return std::make_shared<pangrova::executor::TaskExecutor>(config);
+  return std::make_shared<pangrova::executor::TaskExecutor>(std::move(config));
 }
 
 int64_t createTaskExecutor(JNIEnv* env, protocol::v2::TaskRequest request,
@@ -656,7 +659,7 @@ Java_org_pangrova_worker_jni_NativeRuntime_nativeWatchResultDrain0(
   try {
     auto executor = lookupExecutor(env, executorHandle);
     if (!executor) return;
-    auto listener = std::make_shared<pangrova::jni::ResultDrainUpcall>(env, callback, executorHandle);
+    auto listener = std::make_shared<pangrova::jni::TaskEventUpcall>(env, callback, executorHandle);
     executor->watchResultDrain([listener = std::move(listener)] { listener->notify(); });
   } JNI_CATCH_AND_THROW(env)
 }
@@ -731,8 +734,8 @@ Java_org_pangrova_worker_jni_NativeRuntime_nativeGetTaskStats0(
 // nativeUpdateMemoryLimit — REMOVED: migrated to unified command channel.
 
 JNIEXPORT void JNICALL
-Java_org_pangrova_worker_jni_NativeRuntime_nativeStartTaskWithTrace0(
-    JNIEnv* env, jclass, jlong executorHandle, jstring traceId) {
+Java_org_pangrova_worker_jni_NativeRuntime_nativeStartTaskWithReadiness0(
+    JNIEnv* env, jclass, jlong executorHandle, jstring traceId, jobject onResultReady) {
   pangrova::jni::JniLocalFrameGuard frame(env, 4);
   if (!frame.valid()) {
     pangrova::jni::throwJniCallException(
@@ -746,7 +749,14 @@ Java_org_pangrova_worker_jni_NativeRuntime_nativeStartTaskWithTrace0(
     if (!tid.empty()) {
       executor->setTraceId(tid);
     }
-    executor->start();
+    std::function<void()> on_result_ready;
+    if (onResultReady) {
+      auto listener = std::make_shared<pangrova::jni::TaskEventUpcall>(env, onResultReady, executorHandle);
+      on_result_ready = [listener = std::move(listener)] {
+        if (!listener->notify()) throw std::runtime_error("Cannot signal Java Flight readiness");
+      };
+    }
+    executor->start(std::move(on_result_ready));
   } JNI_CATCH_AND_THROW(env)
 }
 

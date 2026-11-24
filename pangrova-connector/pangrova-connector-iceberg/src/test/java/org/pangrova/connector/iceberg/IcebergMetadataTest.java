@@ -38,6 +38,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Proxy;
 import java.util.List;
 import java.util.Map;
@@ -140,6 +141,40 @@ class IcebergMetadataTest {
         ConnectorTableHandle handle = metadata.getTableHandle(SESSION, new SchemaTableName("db", "missing"));
 
         assertThat(handle).isNull();
+    }
+
+    @Test
+    void namedDeclarationLoadsCurrentTableOnceAndDoesNotRetainItsHandle() {
+        createNamespace("db");
+        var id = TableIdentifier.of("db", "orders");
+        var name = new SchemaTableName("db", "orders");
+        catalog.createTable(id, TEST_SCHEMA);
+
+        var loads = new AtomicLong();
+        var observed = (Catalog) Proxy.newProxyInstance(Catalog.class.getClassLoader(), new Class<?>[] {Catalog.class},
+                (proxy, method, arguments) -> {
+                    if (method.getName().equals("loadTable")) loads.incrementAndGet();
+                    try {
+                        return method.invoke(catalog, arguments);
+                    } catch (InvocationTargetException failure) {
+                        throw failure.getCause();
+                    }
+                });
+        var connector = new IcebergMetadata(observed, "test_catalog");
+        var oldHandle = connector.getTableHandle(SESSION, name);
+        var oldDeclaration = connector.getTableMetadata(SESSION, oldHandle);
+        assertThat(loads).hasValue(2);
+
+        loads.set(0);
+        assertThat(connector.describeNamedTable(SESSION, name)).contains(oldDeclaration);
+        assertThat(loads).hasValue(1);
+
+        catalog.loadTable(id).updateSchema().addColumn("region", Types.StringType.get()).commit();
+        assertThat(connector.describeNamedTable(SESSION, name)).hasValueSatisfying(after ->
+                assertThat(after.columns()).containsExactly("id", "name", "amount", "region"));
+        assertThat(catalog.dropTable(id)).isTrue();
+        assertThat(connector.describeNamedTable(SESSION, name)).isEmpty();
+        assertThat(loads).hasValue(3);
     }
 
     @Test

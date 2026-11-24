@@ -8,9 +8,12 @@ import org.pangrova.persistence.query.api.state.QueryStateJournal;
 import org.pangrova.query.api.submission.AsyncSubmitConfig;
 
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ScheduledExecutorService;
 
 /** Test-only query assembly. Each context receives an independent in-memory journal. */
 public final class QueryManagerTestContexts {
+    public static final ScheduledExecutorService SUBMIT_DEADLINES =
+            org.pangrova.common.concurrent.ManagedExecutorFactory.newSingleThreadScheduledExecutor("test-submit-deadline");
 
     private QueryManagerTestContexts() {}
 
@@ -50,7 +53,7 @@ public final class QueryManagerTestContexts {
                 audit,
                 org.pangrova.coordinator.query.QueryManagerCollaborators.journal(
                         new InMemoryQueryStateJournal(), audit),
-                null, asyncSubmitConfig, asyncExecutor,
+                null, asyncSubmitConfig, asyncExecutor, SUBMIT_DEADLINES,
                 new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory());
     }
 }

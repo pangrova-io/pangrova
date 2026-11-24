@@ -1,5 +1,6 @@
 package org.pangrova.table.ownership;
 
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.connector.api.metadata.table.TableIdentity;
 import org.pangrova.security.api.exception.AccessDeniedException;
 import org.pangrova.table.api.identity.CatalogDeploymentIdentity;
@@ -9,6 +10,7 @@ import org.pangrova.table.api.enums.TableControlState;
 import org.pangrova.table.api.ownership.TableControlStore;
 import org.pangrova.table.api.ownership.TableControlView;
 import org.pangrova.table.api.ownership.TableReadAuthority;
+import org.pangrova.table.api.ownership.TableReadOwnerStore.ReadOwnerObservation;
 import org.pangrova.table.config.TableControlSettings;
 import org.pangrova.table.identity.TableCatalogAuthority;
 import org.pangrova.table.observation.TableVersionObservations;
@@ -37,6 +39,7 @@ import static org.pangrova.table.identity.TablePhysicalIdentity.withIdentity;
 public final class TableControlService implements TableReadAuthority {
 
     private final TableControlStore store;
+    private final Function<QualifiedTableName, Optional<ReadOwnerObservation>> joinedReadAdmission;
     private final Predicate<TableControlRecord> joinedReadOwner;
     private final TableCatalogAuthority catalogAuthority;
     private final TableRegistrations registrations;
@@ -57,14 +60,16 @@ public final class TableControlService implements TableReadAuthority {
     /** Creates a control authority using live catalog identities and the supplied observation clock. */
     public TableControlService(TableControlStore store, Function<String, CatalogDeploymentIdentity> catalogs,
             TableControlSettings settings, Clock clock) {
-        this(store, catalogs, settings, clock, null);
+        this(store, catalogs, settings, clock, null, null);
     }
 
-    /** Binds the active read-owner check when table and catalog authority share a backend. */
+    /** Binds read admission and owner rechecks when table and catalog authority share a backend. */
     public TableControlService(TableControlStore store, Function<String, CatalogDeploymentIdentity> catalogs,
             TableControlSettings settings, Clock clock,
+            Function<QualifiedTableName, Optional<ReadOwnerObservation>> joinedReadAdmission,
             Predicate<TableControlRecord> joinedReadOwner) {
         this.store = store;
+        this.joinedReadAdmission = joinedReadAdmission;
         this.joinedReadOwner = joinedReadOwner;
         this.catalogAuthority = new TableCatalogAuthority(catalogs);
         this.observations = new TableVersionObservations(store, catalogAuthority, settings);
@@ -98,6 +103,20 @@ public final class TableControlService implements TableReadAuthority {
     @Override
     public Optional<TableControlRecord> find(String catalog, String schema, String table) {
         return store.find(catalog, schema, table);
+    }
+
+    @Override
+    public Optional<TableControlRecord> findForRead(QualifiedTableName table, String operation) {
+        if (joinedReadAdmission != null) {
+            return joinedReadAdmission.apply(table).map(observed -> {
+                TableCatalogAuthority.requireCurrent(observed.record(), observed.deployment().orElseThrow(),
+                        operation);
+                return observed.record();
+            });
+        }
+        var record = find(table.catalog(), table.schema(), table.table());
+        record.ifPresent(found -> requireCurrentCatalog(found, operation));
+        return record;
     }
 
     /** Resolves the original identity even after rename or retirement, for scoped cleanup. */
@@ -324,7 +343,6 @@ public final class TableControlService implements TableReadAuthority {
     }
 
     /** Rejects authority captured for another deployment, even if the format UUID is unchanged. */
-    @Override
     public void requireCurrentCatalog(TableControlRecord record, String operation) {
         catalogAuthority.requireCurrent(record, operation);
     }

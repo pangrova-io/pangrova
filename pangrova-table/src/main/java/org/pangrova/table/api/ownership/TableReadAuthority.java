@@ -1,6 +1,7 @@
 package org.pangrova.table.api.ownership;
 
 import org.pangrova.common.api.annotation.Internal;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.connector.api.metadata.table.TableIdentity;
 
 import java.util.Optional;
@@ -12,8 +13,8 @@ public interface TableReadAuthority {
 
     Optional<TableControlRecord> find(String catalog, String schema, String table);
 
-    /** Rejects a record belonging to a retired catalog deployment. */
-    void requireCurrentCatalog(TableControlRecord record, String operation);
+    /** Resolves the registered owner and verifies its deployment before opening the connector. */
+    Optional<TableControlRecord> findForRead(QualifiedTableName table, String operation);
 
     /** Rejects a live physical table whose identity differs from the captured owner. */
     void requireReadIdentity(TableControlRecord expected, Optional<TableIdentity> identity, String operation);
