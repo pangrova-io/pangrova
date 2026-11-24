@@ -2819,7 +2819,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                                             session, currentAccessControl,
                                             java.time.Instant.now(), readerPin).orElse(null);
                     var deps = new org.pangrova.planner.analysis.PlannerContext(
-                            new org.pangrova.planner.statistics.StatisticsCollector(bindings::statistics),
+                            new org.pangrova.planner.statistics.StatisticsCollector(bindings),
                             mvCatalog,
                             durableRewriter, null,
                             org.pangrova.planner.cost.CboConfig.DEFAULT,

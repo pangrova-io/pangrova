@@ -2,8 +2,11 @@ package org.pangrova.persistence.table.postgresql.statistics;
 
 import org.pangrova.common.json.CanonicalJsonMapper;
 import org.pangrova.table.api.exception.TableControlException;
+import org.pangrova.table.api.identity.CatalogDeploymentIdentity;
+import org.pangrova.table.api.ownership.TableControlRecord;
 import org.pangrova.table.api.statistics.TableControlStatistics;
 import org.pangrova.table.api.statistics.TableControlStatisticsStore;
+import org.pangrova.table.api.statistics.TableStatisticsSnapshotStore;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import org.pangrova.common.concurrent.ThreadSafe;
@@ -11,14 +14,17 @@ import org.pangrova.persistence.jdbc.support.JdbcSupport;
 import org.pangrova.connector.api.metadata.table.TableStatistics;
 
 import javax.sql.DataSource;
+import java.sql.Array;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.pangrova.persistence.jdbc.support.JdbcSupport.setJson;
@@ -28,7 +34,8 @@ import static org.pangrova.persistence.jdbc.support.JdbcSupport.setJson;
  * sees the same numbers, and a drop/recreate cannot inherit the old table's row.
  */
 @ThreadSafe
-public final class JdbcTableControlStatisticsStore implements TableControlStatisticsStore {
+public final class JdbcTableControlStatisticsStore
+        implements TableControlStatisticsStore, TableStatisticsSnapshotStore {
 
     private static final String UPSERT =
             "INSERT INTO table_control_statistics (table_id, stats_version, version_token, "
@@ -44,6 +51,20 @@ public final class JdbcTableControlStatisticsStore implements TableControlStatis
             "SELECT table_id, stats_version, version_token, row_count, data_size, "
                     + "source_work_units, column_stats, source, computed_at "
                     + "FROM table_control_statistics WHERE table_id=?";
+
+    private static final String OBSERVE_FOR_PLANNING = """
+            SELECT target.target_ordinal, catalog.incarnation_id AS observed_incarnation,
+                   catalog.revision AS observed_revision, stats.table_id, stats.stats_version, stats.version_token,
+                   stats.row_count, stats.data_size, stats.source_work_units, stats.column_stats, stats.source,
+                   stats.computed_at
+            FROM unnest(CAST(? AS uuid[]), CAST(? AS text[]), CAST(? AS text[]),
+                        CAST(? AS text[]), CAST(? AS bigint[])) WITH ORDINALITY
+                AS target(table_id, version_token, catalog_name, incarnation_id, revision, target_ordinal)
+            LEFT JOIN catalog_definitions catalog ON catalog.name=target.catalog_name
+            LEFT JOIN table_control_statistics stats ON stats.table_id=target.table_id
+                AND stats.version_token=target.version_token
+                AND catalog.incarnation_id=target.incarnation_id AND catalog.revision=target.revision
+            """;
 
     private static final String DELETE =
             "DELETE FROM table_control_statistics WHERE table_id=?";
@@ -66,6 +87,61 @@ public final class JdbcTableControlStatisticsStore implements TableControlStatis
             throw new TableControlException(
                     "Failed to load statistics for tableId=" + tableId, e);
         }
+    }
+
+    @Override
+    public Map<TableControlRecord, Observation> observeForPlanning(Set<TableControlRecord> owners) {
+        if (owners.isEmpty()) return Map.of();
+        var ordered = List.copyOf(owners);
+        var typedValues = new Object[][] {
+            ordered.stream().map(TableControlRecord::tableId).toArray(UUID[]::new),
+            ordered.stream().map(TableControlRecord::versionToken).toArray(String[]::new),
+            ordered.stream().map(TableControlRecord::catalog).toArray(String[]::new),
+            ordered.stream().map(TableControlRecord::catalogIncarnationId).toArray(String[]::new),
+            ordered.stream().map(TableControlRecord::catalogRevision).toArray(Long[]::new)
+        };
+        var types = List.of("uuid", "text", "text", "text", "bigint");
+        try (var connection = dataSource.getConnection();
+                var query = connection.prepareStatement(OBSERVE_FOR_PLANNING)) {
+            var arguments = new Array[typedValues.length];
+            try {
+                for (int index = 0; index < arguments.length; index++) {
+                    arguments[index] = connection.createArrayOf(types.get(index), typedValues[index]);
+                    query.setArray(index + 1, arguments[index]);
+                }
+                try (var rows = query.executeQuery()) {
+                    return readStatisticsObservations(ordered, rows);
+                }
+            } finally {
+                for (var argument : arguments) {
+                    if (argument != null) argument.free();
+                }
+            }
+        } catch (SQLException e) {
+            throw new TableControlException("Failed to load planning statistics and catalog deployments", e);
+        }
+    }
+
+    private static Map<TableControlRecord, Observation> readStatisticsObservations(
+            List<TableControlRecord> owners, ResultSet rows) throws SQLException {
+        Map<TableControlRecord, Observation> observations = new LinkedHashMap<>();
+        while (rows.next()) {
+            int ordinal = rows.getInt("target_ordinal") - 1;
+            if (ordinal < 0 || ordinal >= owners.size()) {
+                throw new SQLException("Unexpected planning statistics ordinal");
+            }
+            var deployment = Optional.ofNullable(rows.getString("observed_incarnation"));
+            Optional<CatalogDeploymentIdentity> identity = deployment.isEmpty() ? Optional.empty()
+                    : Optional.of(new CatalogDeploymentIdentity(
+                            deployment.orElseThrow(), rows.getLong("observed_revision")));
+            var statistics = rows.getObject("table_id", UUID.class) == null ? Optional.<TableControlStatistics>empty()
+                    : Optional.of(mapRow(rows));
+            observations.put(owners.get(ordinal), new Observation(identity, statistics));
+        }
+        if (observations.size() != owners.size()) {
+            throw new SQLException("Incomplete planning statistics observations");
+        }
+        return Map.copyOf(observations);
     }
 
     @Override

@@ -23,6 +23,7 @@ import org.pangrova.table.api.ownership.TableControlRecord;
 import org.pangrova.table.api.ownership.TableReadOwnerStore;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.table.statistics.TableControlStatisticsService;
+import org.pangrova.table.api.statistics.TableStatisticsSnapshotStore;
 import org.pangrova.metadata.api.exception.CatalogSuspendedException;
 import org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository;
 import org.slf4j.Logger;
@@ -113,7 +114,10 @@ public class CatalogRegistry implements CatalogReadAccess {
                 java.time.Clock.systemUTC(),
                 joinedOwners == null ? null : table -> identities.observeReadOwner(joinedOwners, table),
                 joinedOwners == null ? null : expected -> identities.matchesReadOwner(joinedOwners, expected));
-        this.tableStatistics = new TableControlStatisticsService(this.tableControl, stores.statistics());
+        var statisticsSnapshots = stores.statistics() instanceof TableStatisticsSnapshotStore joined ? joined : null;
+        this.tableStatistics = new TableControlStatisticsService(this.tableControl, stores.statistics(),
+                java.time.Clock.systemUTC(), statisticsSnapshots == null ? null
+                        : owners -> identities.observePlanningStatistics(statisticsSnapshots, owners));
         this.governance = new TableControlPolicyBinder(tableControl, stores.governance());
         this.tableMaintenance = new TableControlMaintenanceService(stores.maintenance());
     }
@@ -538,6 +542,21 @@ public class CatalogRegistry implements CatalogReadAccess {
                 requireMatching(local, current.incarnationId(), current.revision());
                 return observed;
             });
+        }
+
+        Map<TableControlRecord, TableStatisticsSnapshotStore.Observation> observePlanningStatistics(
+                TableStatisticsSnapshotStore joined, Set<TableControlRecord> owners) {
+            Map<String, CatalogDescriptor> local = new HashMap<>();
+            for (var owner : owners) {
+                local.computeIfAbsent(owner.catalog(), this::localDescriptor);
+            }
+            var observed = joined.observeForPlanning(owners);
+            for (var owner : owners) {
+                var current = observed.get(owner).deployment().orElseThrow(() ->
+                        new CatalogNotFoundException("Catalog '" + owner.catalog() + "' was removed"));
+                requireMatching(local.get(owner.catalog()), current.incarnationId(), current.revision());
+            }
+            return observed;
         }
 
         boolean matchesReadOwner(TableReadOwnerStore joined, TableControlRecord expected) {

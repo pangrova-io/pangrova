@@ -285,6 +285,68 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
         });
     }
 
+    @Test
+    void measuresVersionedStatisticsReadsForRepeatedAndDistinctManagedSources() throws SQLException {
+        String left = "iceberg_catalog.default.statistics_budget_l";
+        String right = "iceberg_catalog.default.statistics_budget_r";
+        for (String table : List.of(left, right)) {
+            sqlRunner.executeDdl("CREATE TABLE " + table + " (id BIGINT, score BIGINT)");
+            sqlRunner.execute("INSERT INTO " + table + " VALUES (1, 11), (2, 12)");
+        }
+        String point = "SELECT id, score FROM " + left + " WHERE id = 1";
+        String join = "SELECT l.id, l.score FROM " + left + " l JOIN " + right + " r ON r.id = l.id "
+                + "JOIN " + left + " repeated ON repeated.id = l.id WHERE l.id = 1";
+        collectStatisticsReads("no_persisted_statistics", point, join);
+        for (String table : List.of(left, right)) {
+            assertThat(sqlRunner.execute("ANALYZE TABLE " + table)).singleElement()
+                    .satisfies(result -> assertThat(result.getLong("row_count")).isEqualTo(2L));
+        }
+        collectStatisticsReads("analyzed", point, join);
+        sqlRunner.execute("INSERT INTO " + left + " VALUES (3, 13)");
+        collectStatisticsReads("one_table_advanced", point, join);
+    }
+
+    private void collectStatisticsReads(String scenario, String point, String join) throws SQLException {
+        String statistics = "SELECT table_id, stats_version, version_token, row_count, data_size, "
+                + "source_work_units, column_stats, source, computed_at "
+                + "FROM table_control_statistics WHERE table_id=$1";
+        String combined = "SELECT target.target_ordinal, catalog.incarnation_id AS observed_incarnation,%"
+                + "FROM unnest(%LEFT JOIN table_control_statistics stats%";
+        for (String query : List.of(point, join)) {
+            long statsBefore = calls(statistics);
+            long combinedBefore = calls(combined);
+            long admissionBefore = calls(READ_ADMISSION_LOOKUP);
+            long catalogBefore = calls(CATALOG_DEPLOYMENT_LOOKUP);
+            long pointerBefore = calls(ICEBERG_POINTER_LOOKUP);
+            var existing = new java.util.HashSet<>(queryManager.getStateMachines().keySet());
+            assertThat(sqlRunner.execute(query)).singleElement().satisfies(result -> {
+                assertThat(result.getLong("id")).isOne();
+                assertThat(result.getLong("score")).isEqualTo(11L);
+            });
+            var issued = new java.util.HashSet<>(queryManager.getStateMachines().keySet());
+            issued.removeAll(existing);
+            assertThat(issued).hasSize(1);
+            String queryId = issued.iterator().next();
+            await().atMost(Duration.ofSeconds(30)).ignoreExceptionsInstanceOf(IllegalStateException.class)
+                    .untilAsserted(() -> {
+                        taskTracker.requireQueryExecutionDrained(queryId);
+                        assertThat(queryManager.getStateMachines().get(queryId).physicalCleanupApplied()).isTrue();
+                    });
+            long standaloneStatistics = calls(statistics) - statsBefore;
+            long standaloneCatalog = calls(CATALOG_DEPLOYMENT_LOOKUP) - catalogBefore;
+            long combinedReads = calls(combined) - combinedBefore;
+            boolean joined = query.equals(join);
+            org.slf4j.LoggerFactory.getLogger(ReadCompletionDatabaseBudgetE2ETest.class).info(
+                    "event=versioned_statistics_read_budget scenario={} join={} statisticsReads={} "
+                            + "initialAdmissions={} standaloneCatalogReads={} icebergPointers={} combinedReads={}",
+                    scenario, joined, standaloneStatistics, calls(READ_ADMISSION_LOOKUP) - admissionBefore,
+                    standaloneCatalog, calls(ICEBERG_POINTER_LOOKUP) - pointerBefore, combinedReads);
+            assertThat(standaloneStatistics).isZero();
+            assertThat(standaloneCatalog).isZero();
+            assertThat(combinedReads).isEqualTo(joined && !scenario.equals("no_persisted_statistics") ? 1 : 0);
+        }
+    }
+
     private static long calls(String sqlPattern) throws SQLException {
         try (var connection = stateStoreDataSource().getConnection();
                 var statement = connection.prepareStatement("""
