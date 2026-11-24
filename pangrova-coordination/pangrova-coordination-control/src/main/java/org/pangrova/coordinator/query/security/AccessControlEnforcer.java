@@ -19,9 +19,11 @@ import org.pangrova.planner.security.ColumnMaskApplier;
 import org.pangrova.planner.security.RowFilterApplier;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.security.api.authorization.AccessControl;
+import org.pangrova.security.api.authorization.TableReadPolicySource;
 import org.pangrova.security.api.exception.AccessDeniedException;
 import org.pangrova.security.api.identity.UserIdentity;
 
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 
@@ -102,6 +104,8 @@ public final class AccessControlEnforcer {
             boolean internalMaterializationExecution) {
         rejectAnonymous(identity);
         var authorization = accessControl.beginReadAuthorization(identity);
+        if (tableReferences.isEmpty()) return authorization;
+        var policyTargets = tableReferences.size() > 1 ? new LinkedHashSet<TableReadPolicySource.Target>() : null;
         for (List<String> qualifiedName : tableReferences) {
             QualifiedTableName ref = QualifiedTableName.resolve(qualifiedName);
             QualifiedTableName logical = physicalToLogical.get(ref);
@@ -110,8 +114,18 @@ public final class AccessControlEnforcer {
                 throw new AccessDeniedException("Direct access to a Dynamic Table generation is forbidden");
             }
             QualifiedTableName authorized = logical == null ? ref : logical;
-            checkRead(authorization, authorized.catalog(), authorized.schema(), authorized.table());
+            String table = authorizedReadTable(authorized.table());
+            if (table.equals(authorized.table())) {
+                authorization.requireSelect(authorized.catalog(), authorized.schema(), table);
+                if (policyTargets != null) {
+                    policyTargets.add(new TableReadPolicySource.Target(
+                            authorized.catalog(), authorized.schema(), table));
+                }
+            } else {
+                authorization.requireUnfilteredMetadata(authorized.catalog(), authorized.schema(), table);
+            }
         }
+        if (policyTargets != null) authorization.preparePolicies(policyTargets);
         return authorization;
     }
 

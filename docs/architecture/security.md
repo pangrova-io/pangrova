@@ -1122,9 +1122,11 @@ The built-in RBAC provider resolves the authenticated subject's effective roles
 and grants once during each protected plan authorization pass. The internal
 `ReadAuthorizationSubjectSource` contract connects that read to the Coordinator's
 PostgreSQL role store. The SELECT check, row filters and column masks use those
-same roles. The PostgreSQL read authority reads the current table identity,
-governance bindings, enabled row policies and column masks from one statement
-snapshot. Governance tags apply to the stable table identity and the local
+same roles. The PostgreSQL read authority reads the current table identities,
+governance bindings, enabled row policies and column masks for the distinct
+authorized tables in one statement snapshot. The statement associates policy rows
+with the exact requested table, including when the query references it under
+multiple aliases. Governance tags apply to the stable table identity and the local
 catalog deployment is checked before applying the policies. A query without
 governed table reads skips role resolution.
 New compilations resolve current membership, grants and policies. The Coordinator
