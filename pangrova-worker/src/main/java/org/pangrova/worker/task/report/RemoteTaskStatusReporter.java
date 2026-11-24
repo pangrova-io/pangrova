@@ -19,7 +19,6 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-import com.google.protobuf.InvalidProtocolBufferException;
 import org.pangrova.common.concurrent.BackoffStrategy;
 import org.pangrova.common.concurrent.GuardedBy;
 import org.pangrova.common.concurrent.ThreadUtils;
@@ -300,7 +299,7 @@ public class RemoteTaskStatusReporter implements TaskStatusReporter, AutoCloseab
     private byte[] serializeReport(TaskStatusReport report) {
         try {
             return TaskStatusWire.encode(report);
-        } catch (InvalidProtocolBufferException | IllegalArgumentException e) {
+        } catch (IllegalArgumentException e) {
             LOG.warn("event=status_report_serialize_failed taskId={} error={}",
                     report.taskId(),
                     e.getMessage());
@@ -380,8 +379,7 @@ public class RemoteTaskStatusReporter implements TaskStatusReporter, AutoCloseab
         return false;
     }
 
-    private static boolean retiredResultNotice(TaskStatusAck.Directive directive, TaskStatusReport report)
-            throws InvalidProtocolBufferException {
+    private static boolean retiredResultNotice(TaskStatusAck.Directive directive, TaskStatusReport report) {
         if (directive != TaskStatusAck.Directive.RETIRED_RESULT_NOTICE
                 || !"OUTPUT".equals(report.taskType()) || !"FINISHED".equals(report.state())
                 || report.writeResult() != null || report.canonicalEvidence() == null) return false;

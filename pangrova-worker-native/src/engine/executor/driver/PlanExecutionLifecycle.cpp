@@ -70,7 +70,7 @@ PlanExecutionDriver::~PlanExecutionDriver() {
   if (runner) runner->releaseTaskAndWaitForDeletion();
 }
 
-void PlanExecutionDriver::executeAsync() {
+void PlanExecutionDriver::executeAsync(std::function<void()> on_result_ready) {
   // Lazy-init: completion_future_ is only valid after executeAsync() is called.
   // Must not be in constructor — tests that skip start() would hang in join().
   completion_future_ = completion_promise_.get_future();
@@ -80,13 +80,15 @@ void PlanExecutionDriver::executeAsync() {
   // the Velox task — completion is signaled via completion_promise_ from
   // the async continuation chain (Prestissimo pattern).
   auto exec = pangrova::jni::NativeEngineLifecycle::instance().executor();
+  auto execute = [this, on_result_ready = std::move(on_result_ready)] {
+    executeVeloxPlan(on_result_ready);
+  };
   if (exec) {
-    exec->add([this]() { executeVeloxPlan(); });
+    exec->add(std::move(execute));
     return;
   }
   // Fallback for unit tests that don't initialize the global lifecycle.
-  fallback_thread_ = std::make_unique<std::thread>(
-      [this]() { executeVeloxPlan(); });
+  fallback_thread_ = std::make_unique<std::thread>(std::move(execute));
 }
 
 void PlanExecutionDriver::join() {

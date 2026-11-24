@@ -1,6 +1,7 @@
 package org.pangrova.worker.task;
 
-import com.google.protobuf.ByteString;
+import org.pangrova.protocol.rest.task.TaskReportEvidence;
+
 import org.pangrova.worker.shuffle.NativeShuffleProducerRegistration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -112,8 +113,8 @@ final class TaskResourceReleaser {
                 return;
             }
             byte[] receipt = releaseActualExecutor(info, handle);
-            var report = validateFinalReceipt(info, receipt);
-            var evidence = new TaskReportEvidence(ByteString.copyFrom(receipt), report);
+            var evidence = validateFinalReceipt(info, receipt);
+            var report = evidence.report();
             info.setReleasedTaskStats(
                     report.hasNativeTaskStats() ? report.getNativeTaskStats() : null);
             if (!info.compareAndSetExecutorHandle(handle, 0)) {
@@ -150,11 +151,9 @@ final class TaskResourceReleaser {
         return receipt;
     }
 
-    private static org.pangrova.protocol.v2.TaskReport validateFinalReceipt(
-            TaskInfo info, byte[] receipt) {
-        var report =
-                TaskCompletionMonitor.requireCanonicalTaskReport(
-                        info.request().taskRequest(), receipt);
+    private static TaskReportEvidence validateFinalReceipt(TaskInfo info, byte[] receipt) {
+        var evidence = TaskCompletionMonitor.validateTerminalEvidence(info.request().taskRequest(), receipt);
+        var report = evidence.report();
         var expectedDrain = !info.isWorkerExecuted()
                 ? org.pangrova.protocol.v2.ExecutionDrainState
                         .EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED
@@ -178,6 +177,6 @@ final class TaskResourceReleaser {
             throw new IllegalStateException(
                     "Released Native task statistics contain unknown fields: " + info.taskId());
         }
-        return report;
+        return evidence;
     }
 }

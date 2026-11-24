@@ -357,9 +357,8 @@ final class TaskIdentityRegistry {
             return false;
         }
         try {
-            var actual = report.canonicalStatus();
-            return matchesDrainReceipt(report, identity, actual);
-        } catch (com.google.protobuf.InvalidProtocolBufferException | IllegalArgumentException malformed) {
+            return matchesDrainReceipt(report, identity, report.canonicalStatus());
+        } catch (IllegalArgumentException invalidDrainEvidence) {
             return false;
         }
     }
@@ -384,16 +383,12 @@ final class TaskIdentityRegistry {
                 || report.stageId() != attempt.getStageId() || report.partitionId() != attempt.getPartitionId()) {
             return false;
         }
-        try {
-            var notice = report.canonicalStatus();
-            return notice.getAttempt().equals(attempt) && notice.getState() == retained.getState()
-                    && notice.getReportOrigin() == org.pangrova.protocol.v2.TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE
-                    && !notice.hasArtifactWork() && !notice.hasError() && notice.getUnknownFields().asMap().isEmpty()
-                    && notice.getExecutionDrainState() == org.pangrova.protocol.v2.ExecutionDrainState
-                            .EXECUTION_DRAIN_STATE_UNSPECIFIED;
-        } catch (com.google.protobuf.InvalidProtocolBufferException malformed) {
-            return false;
-        }
+        var notice = report.canonicalStatus();
+        return notice.getAttempt().equals(attempt) && notice.getState() == retained.getState()
+                && notice.getReportOrigin() == org.pangrova.protocol.v2.TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE
+                && !notice.hasArtifactWork() && !notice.hasError() && notice.getUnknownFields().asMap().isEmpty()
+                && notice.getExecutionDrainState() == org.pangrova.protocol.v2.ExecutionDrainState
+                        .EXECUTION_DRAIN_STATE_UNSPECIFIED;
     }
 
     private boolean hasLiveDrainReceipt(org.pangrova.protocol.rest.task.TaskStatusReport report, Identity identity) {

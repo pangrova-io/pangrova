@@ -22,7 +22,7 @@ public final class TaskStatusWire {
     private TaskStatusWire() {}
 
     /** Encodes the exact terminal evidence or a typed progress update. */
-    public static byte[] encode(TaskStatusReport report) throws InvalidProtocolBufferException {
+    public static byte[] encode(TaskStatusReport report) {
         var role = TaskRole.valueOf("TASK_ROLE_" + report.taskType());
         var state = TaskState.valueOf("TASK_STATE_" + report.state());
         var delivery = TaskStatusDelivery.newBuilder().setRole(role).setWorkerId(report.workerId())
@@ -78,7 +78,7 @@ public final class TaskStatusWire {
         TaskAttemptId attempt;
         TaskState state;
         TaskReport canonical = null;
-        ByteString evidence = null;
+        TaskReportEvidence evidence = null;
         switch (delivery.getStatusCase()) {
             case PROGRESS -> {
                 var progress = delivery.getProgress();
@@ -90,11 +90,12 @@ public final class TaskStatusWire {
                 state = progress.getState();
             }
             case TERMINAL_REPORT -> {
-                evidence = delivery.getTerminalReport();
-                if (evidence.isEmpty() || evidence.size() > TaskStatusReport.MAX_CANONICAL_BYTES) {
+                var bytes = delivery.getTerminalReport();
+                if (bytes.isEmpty() || bytes.size() > TaskStatusReport.MAX_CANONICAL_BYTES) {
                     throw new IllegalArgumentException("Invalid canonical task report size");
                 }
-                canonical = TaskReport.parseFrom(evidence);
+                evidence = TaskReportEvidence.decode(bytes);
+                canonical = evidence.report();
                 if (!canonical.hasAttempt() || !isTerminal(canonical.getState())
                         || !canonical.getUnknownFields().asMap().isEmpty()) {
                     throw new IllegalArgumentException("Invalid canonical terminal task status");
@@ -114,7 +115,7 @@ public final class TaskStatusWire {
                         : new ErrorDetail(error.getCode(), error.getErrorClass().name(), error.getMessage()),
                 delivery.hasWrite() ? decodeWrite(delivery.getWrite()) : null,
                 delivery.getSequence(), delivery.getTimestampMs(), null, null,
-                TaskAttemptDescriptor.from(attempt), evidence, attempt, canonical);
+                TaskAttemptDescriptor.from(attempt), evidence, attempt);
     }
 
     private static NativeTaskStats decodeSupplementalStats(TaskStatusDelivery delivery, TaskReport canonical) {

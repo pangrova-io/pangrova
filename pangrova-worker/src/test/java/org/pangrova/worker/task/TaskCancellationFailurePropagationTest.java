@@ -15,10 +15,7 @@ class TaskCancellationFailurePropagationTest {
              var tasks = new ActualTaskManagerFixture(runtime, "actual-cancel-retired-owner")) {
             var request = runtime.valuesRequest(false);
             var submitted = org.pangrova.protocol.rest.task.SubmitTaskRequest.from(request);
-            var info = new TaskInfo(request.getAttempt().getTaskId(),
-                    request.getAttempt().getQueryOrJobId(), submitted,
-                    org.pangrova.protocol.rest.task.convert.TaskRequestDtoConverter.toTaskDescriptor(submitted),
-                    java.time.Instant.now());
+            var info = new TaskInfo(request.getAttempt().getTaskId(), submitted, java.time.Instant.now());
             info.beginNativeCreation();
             long handle = runtime.createPending(request);
             info.setExecutorHandle(handle);

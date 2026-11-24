@@ -124,7 +124,7 @@ final class SecurityBootstrap {
         // A missing or unavailable authority prevents the process from serving secured traffic.
         roles.listRoles();
         grants.listGrants();
-        return new DynamicRbacAccessControl(grants, roles, policySources.apply(dataSource));
+        return new DynamicRbacAccessControl(grants, roles, policySources.apply(dataSource), roles);
     }
 
     AuthenticationManager authenticationManager() {

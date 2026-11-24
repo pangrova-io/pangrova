@@ -239,6 +239,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     private static org.pangrova.materialization.usecase.ReaderPinLeases readerPinLeases;
     private static ScheduledExecutorService controlEpochObserver;
     private static volatile ExecutorService asyncQueryExecutor;
+    private static ScheduledExecutorService asyncQueryDeadlines;
 
     private static volatile boolean infrastructureInitialized;
     private static volatile Throwable infrastructureStartupFailure;
@@ -614,6 +615,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         if (terminalCleanupWorker != null) terminalCleanupWorker.shutdownNow();
         if (resultBufferExecutor != null) resultBufferExecutor.shutdownNow();
         if (asyncQueryExecutor != null) asyncQueryExecutor.shutdownNow();
+        if (asyncQueryDeadlines != null) asyncQueryDeadlines.shutdownNow();
         if (coordinatorResultBuffer != null) coordinatorResultBuffer.close();
         if (metadataBootstrap != null) {
             try {
@@ -942,7 +944,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                         audit),
                 null,
                 org.pangrova.query.api.submission.AsyncSubmitConfig.defaultEnabled(),
-                sharedAsyncQueryExecutor(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory());
+                sharedAsyncQueryExecutor(), sharedAsyncQueryDeadlines(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory());
     }
 
     private static synchronized ExecutorService sharedAsyncQueryExecutor() {
@@ -951,6 +953,14 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                     .newBoundedThreadPool("e2e-async-query-submit", 4, 128);
         }
         return asyncQueryExecutor;
+    }
+
+    protected static synchronized ScheduledExecutorService sharedAsyncQueryDeadlines() {
+        if (asyncQueryDeadlines == null || asyncQueryDeadlines.isShutdown()) {
+            asyncQueryDeadlines = org.pangrova.common.concurrent.ManagedExecutorFactory
+                    .newSingleThreadScheduledExecutor("e2e-query-submit-deadline");
+        }
+        return asyncQueryDeadlines;
     }
 
     private static CoordinatorHttpServer createCoordinatorHttpServer(

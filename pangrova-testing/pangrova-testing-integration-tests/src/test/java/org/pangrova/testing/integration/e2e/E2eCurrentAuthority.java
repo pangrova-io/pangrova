@@ -81,11 +81,11 @@ final class E2eCurrentAuthority {
                     "STORAGE_PROFILE", "*", null, null, null));
         }
         return new DynamicRbacAccessControl(grants, roles,
-                new PostgresTableReadPolicyAuthority(dataSource, catalogs.tableGovernance(),
+                new PostgresTableReadPolicyAuthority(dataSource,
                         catalogs::requireLocalDeployment,
                         new MetadataTableControlPolicyProjections(),
                         org.pangrova.security.rowfilter.RowLevelSecurityFilter::renderPolicies,
-                        org.pangrova.security.mask.ColumnMaskingProcessor::renderMasks));
+                        org.pangrova.security.mask.ColumnMaskingProcessor::renderMasks), roles);
     }
 
     static void removeDefault(DataSource dataSource, String principal) {

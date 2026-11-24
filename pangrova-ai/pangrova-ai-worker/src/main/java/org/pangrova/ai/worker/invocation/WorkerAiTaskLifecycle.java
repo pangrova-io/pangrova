@@ -14,16 +14,19 @@
 package org.pangrova.ai.worker.invocation;
 
 import org.pangrova.protocol.execution.AiTaskLifecycle;
+import org.pangrova.protocol.v2.ExecutionCallbackContext;
+import org.pangrova.protocol.v2.OperatorBinding;
 import org.pangrova.protocol.v2.ResourceUsage;
 import org.pangrova.protocol.v2.TaskAttemptId;
-import org.pangrova.protocol.v2.TaskRequest;
+
+import java.util.List;
 
 /** Installs the AI provider budget manager as the Worker task lifecycle seam. */
 public final class WorkerAiTaskLifecycle implements AiTaskLifecycle {
 
     @Override
-    public void registerTask(TaskRequest request) {
-        AiInvocationService.registerTask(request);
+    public void registerTask(ExecutionCallbackContext callback, List<OperatorBinding> bindings) {
+        AiInvocationService.registerTask(callback, bindings);
     }
 
     @Override

@@ -365,8 +365,7 @@ class AiFunctionFactoryTest {
                 "tenant", "principal", "query-1", taskId, "trace", java.time.Instant.now()
                         .plusSeconds(30).toEpochMilli()), grant).toBuilder()
                 .addOperatorBindings(binding).build();
-        AiInvocationService.registerTask(task);
-        var context = AiExecutionContext.fromTaskRequest(task);
+        var context = AiTestTaskAuthority.register(task);
         try {
             return AiExecutionContext.callWith(context, () -> action.apply(task));
         } finally {

@@ -57,6 +57,15 @@ WITH (
 
 For a PostgreSQL-backed JDBC catalog, a query that names a table using its exact catalog spelling can resolve it without enumerating the namespace. The planner still binds the selected snapshot and authorizes the source. Case-insensitive aliases use the catalog spelling.
 
+An ordinary JDBC table read shares its catalog table observation between name
+resolution, physical identity checks and snapshot selection within the same SQL
+compilation. Split planning checks the current table identity separately before
+enumerating that selected snapshot.
+
+The selected read schema is encoded once for the connector handle and its
+fingerprint. Historical reads use the selected snapshot's schema even when the
+current table has a different schema.
+
 ### Iceberg Feature Boundaries
 
 | Feature | Status | Notes |

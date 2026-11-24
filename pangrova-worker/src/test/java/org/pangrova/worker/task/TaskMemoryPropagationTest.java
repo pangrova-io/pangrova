@@ -8,7 +8,6 @@ import net.jqwik.api.Provide;
 import net.jqwik.api.Tag;
 import org.junit.jupiter.api.parallel.ResourceLock;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
-import org.pangrova.protocol.rest.task.convert.TaskRequestDtoConverter;
 import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.v2.TaskReportOrigin;
 import org.pangrova.protocol.v2.TaskRequest;
@@ -31,12 +30,10 @@ import static org.awaitility.Awaitility.await;
 @ResourceLock(ActualNativeTaskFixture.RUNTIME_LOCK)
 class TaskMemoryPropagationTest {
     @Property(tries = 200)
-    void memoryLimitResolutionMatchesDescriptor(@ForAll("positiveMemoryLimits") long memoryBytes) {
+    void memoryLimitResolutionMatchesCanonicalGrant(@ForAll("positiveMemoryLimits") long memoryBytes) {
         var submitted = SubmitTaskRequest.from(request(memoryBytes, ActualNativeTaskPlans.values(1, 1)));
-        var descriptor = TaskRequestDtoConverter.toTaskDescriptor(submitted);
-        var info = new TaskInfo("memory-projection", submitted.taskRequest().getAttempt().getQueryOrJobId(),
-                submitted, descriptor, Instant.now());
-        assertThat(descriptor.resourceLimit().maxMemoryBytes()).isEqualTo(memoryBytes);
+        var info = new TaskInfo("memory-projection", submitted, Instant.now());
+        assertThat(submitted.taskRequest().getResourceGrant().getNativeMemoryBytes()).isEqualTo(memoryBytes);
         assertThat(info.memoryAccount().requestedNativeMemoryBytes()).isEqualTo(memoryBytes);
     }
 
@@ -65,7 +62,7 @@ class TaskMemoryPropagationTest {
     void statsCollectionIncludesMemory(@ForAll("executableMemoryLimits") long memoryBytes) throws Exception {
         try (var runtime = new ActualNativeTaskFixture();
              var tasks = new ActualTaskManagerFixture(runtime, "memory-stats")) {
-            var info = tasks.submit(runtime.bindWorker(request(memoryBytes, ActualNativeTaskPlans.values(1, 1))));
+            var info = tasks.submit(runtime.bindWorker(request(memoryBytes, ActualNativeTaskPlans.sortedCross(32))));
             tasks.awaitState(info, org.pangrova.worker.enums.TaskState.RUNNING);
             tasks.consume(info);
             awaitActualTerminal(tasks, info);
@@ -94,17 +91,18 @@ class TaskMemoryPropagationTest {
         try (var runtime = new ActualNativeTaskFixture();
              var tasks = new ActualTaskManagerFixture(runtime, "memory-cap-failure")) {
             long baseline = runtime.arbitrator().getUsedMemory();
-            var request = runtime.bindWorker(request(1024L * 1024, ActualNativeTaskPlans.values(1, 1)));
+            var request = runtime.bindWorker(request(1024L * 1024, ActualNativeTaskPlans.sortedCross(512)));
             var info = tasks.submit(request);
-            tasks.awaitState(info, org.pangrova.worker.enums.TaskState.RUNNING);
-            assertThatThrownBy(() -> ActualNativeResultReader.read(runtime, request))
-                    .hasMessageContaining("MEM_CAP_EXCEEDED");
             tasks.awaitState(info, org.pangrova.worker.enums.TaskState.FAILED);
+            assertThat(tasks.reports().reports()).anyMatch(report ->
+                    report.taskId().equals(request.getAttempt().getTaskId()) && report.state().equals("RUNNING"));
+            assertThatThrownBy(() -> ActualNativeResultReader.read(runtime, request))
+                    .isInstanceOf(org.apache.arrow.flight.FlightRuntimeException.class);
             var report = TaskReport.parseFrom(tasks.terminalReport(info).canonicalTaskReport());
             assertThat(report.getState()).isEqualTo(TaskState.TASK_STATE_FAILED);
             assertThat(report.getReportOrigin())
                     .isEqualTo(TaskReportOrigin.TASK_REPORT_ORIGIN_WORKER_RECONCILED);
-            assertThat(report.getError().getCode()).isEqualTo("RESULT_STREAM_FAILED");
+            assertThat(report.getError().getCode()).isEqualTo("NATIVE_TASK_FAILED");
             assertThat(report.getError().getMessage()).contains("MEM_CAP_EXCEEDED");
             assertThat(report.getCoverage().getCompletedWorkUnits()).isZero();
             assertThat(info.executorHandle()).isZero();

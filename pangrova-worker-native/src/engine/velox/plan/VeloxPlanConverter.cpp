@@ -87,10 +87,23 @@ VeloxPlanConverter::convert(
 
   pangrova::plan::validateSubstraitVersion(substrait_plan);
 
+  return convertValidatedPlan(substrait_plan, splits, operator_bindings,
+      std::move(artifact_build_context), retrieval_split_overrides, shuffle_partition_count);
+}
+
+std::shared_ptr<const facebook::velox::core::PlanNode>
+VeloxPlanConverter::convertValidatedPlan(
+    const substrait::Plan& substrait_plan,
+    const std::vector<split::SplitConfig>& splits,
+    const std::unordered_map<
+        std::string, pangrova::protocol::v2::OperatorBinding>& operator_bindings,
+    std::shared_ptr<ArtifactBuildTaskContext> artifact_build_context,
+    const std::unordered_map<
+        std::string, std::vector<split::SplitConfig>>& retrieval_split_overrides,
+    int32_t shuffle_partition_count) {
+  single_match_join_requirements_.clear();
   if (substrait_plan.relations_size() == 0) {
-    throw std::runtime_error(
-        "VeloxPlanConverter: Substrait plan contains no relations "
-        "(plan_bytes.size=" + std::to_string(plan_bytes.size()) + ")");
+    throw std::runtime_error("VeloxPlanConverter: Substrait plan contains no relations");
   }
 
   // Reset state for each conversion.

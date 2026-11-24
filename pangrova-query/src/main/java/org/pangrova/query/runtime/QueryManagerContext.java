@@ -12,6 +12,7 @@ import org.pangrova.query.lifecycle.QueryJournalLifecyclePort;
 import org.pangrova.query.lifecycle.TenantAdmissionPort;
 
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ScheduledExecutorService;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
@@ -31,12 +32,16 @@ public record QueryManagerContext(
         QueryEventDispatcher eventDispatcher,
         AsyncSubmitConfig asyncSubmitConfig,
         ExecutorService asyncExecutor,
+        ScheduledExecutorService submitDeadlines,
         ExecutionTraceContextFactory traceContexts) {
     public QueryManagerContext {
         checkNotNull(traceContexts, "traceContexts must be selected explicitly");
         checkNotNull(tracingProvider, "tracingProvider must not be null");
         checkNotNull(journal, "stateJournal must be selected explicitly");
         checkNotNull(queryDispatcher, "queryDispatcher must not be null");
+        if (asyncSubmitConfig != null && asyncSubmitConfig.enabled() && asyncExecutor != null) {
+            checkNotNull(submitDeadlines, "async submission requires a deadline scheduler");
+        }
     }
 
     /** Synchronous submission without async executor or event dispatcher. */
@@ -51,6 +56,6 @@ public record QueryManagerContext(
             QueryEventDispatcher eventDispatcher,
             ExecutionTraceContextFactory traceContexts) {
         this(queryDispatcher, tracingProvider, metricsProvider, tenantAdmission,
-                admission, audit, journal, eventDispatcher, null, null, traceContexts);
+                admission, audit, journal, eventDispatcher, null, null, null, traceContexts);
     }
 }

@@ -249,12 +249,16 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
         String catalogTemplate = "SELECT name, type, provider, state, properties, comment, allowed_tenants,"
                 + "%FROM catalog_definitions WHERE name=$1";
         String roleTemplate = "SELECT registered.role_name FROM pangrova_roles registered%";
+        String grantTemplate = "SELECT grant_id, role_name, privilege,%FROM security_grants WHERE role_name = ANY%";
+        String subjectTemplate = "WITH effective AS (%SELECT registered.role_name%LEFT JOIN security_grants grants%";
         String identityTemplate = "SELECT name, incarnation_id, revision FROM catalog_definitions WHERE name=$1";
-        String tableNameTemplate = "SELECT %"
+        String tableNameTemplate = "SELECT table_id, catalog_name, schema_name, table_name, %"
                 + "FROM table_control_registry WHERE state <>%FROM table_control_name_reservation%";
         long tableReadsBefore = statementCalls(tableNameTemplate);
-        String joinedTemplate = "SELECT control.table_id, control.state,%"
-                + "FROM table_control_registry control LEFT JOIN catalog_definitions catalog%";
+        String admissionTemplate = "SELECT control.*, catalog.incarnation_id AS observed_catalog_incarnation%";
+        long readAdmissionBefore = statementCalls(admissionTemplate);
+        String joinedTemplate = "WITH read_target(catalog_name, schema_name, table_name) AS (%"
+                + "FROM table_control_registry%FROM row_policy%FROM column_mask%FROM table_control_governance_binding%";
         String fullOwnerTemplate = "SELECT table_id, catalog_name, schema_name, table_name,%"
                 + "FROM table_control_registry WHERE table_id%$1";
         String compactOwnerTemplate = "SELECT %FROM table_control_name_reservation reservation%"
@@ -265,22 +269,30 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
         long identityBefore = statementCalls(identityTemplate);
         long catalogBefore = statementCalls(catalogTemplate);
         long rolesBefore = statementCalls(roleTemplate);
+        long grantsBefore = statementCalls(grantTemplate);
+        long subjectBefore = statementCalls(subjectTemplate);
         String sql = decimalStateSql(decimalOrders);
         var result = executeWithScanAggregates(sql, "PartialAggregation");
         assertThat(statementCalls(catalogTemplate) - catalogBefore)
                 .as("full catalog descriptor reads for one physical query").isZero();
         assertThat(statementCalls(identityTemplate) - identityBefore)
-                .as("catalog deployment reads outside the table-owner checks").isOne();
+                .as("separate catalog deployment reads for one physical query").isZero();
         assertThat(statementCalls(tableNameTemplate) - tableReadsBefore)
-                .as("current table name reads for one physical query").isPositive().isOne();
+                .as("separate table registration reads for one physical query").isZero();
+        assertThat(statementCalls(admissionTemplate) - readAdmissionBefore)
+                .as("joined table and catalog admissions for one physical query").isOne();
         assertThat(statementCalls(joinedTemplate) - joinedBefore)
-                .as("joined policy identity reads for one physical query").isOne();
+                .as("authoritative table policy snapshot reads for one physical query").isOne();
         assertThat(statementCalls(fullOwnerTemplate) - fullOwnerBefore)
                 .as("complete table control records used for current owner checks").isZero();
         assertThat(statementCalls(compactOwnerTemplate) - compactOwnerBefore)
                 .as("fences before and after snapshot binding and split enumeration").isEqualTo(4);
         assertThat(statementCalls(roleTemplate) - rolesBefore)
-                .as("one effective-role lookup during protected query planning").isOne();
+                .as("separate effective role reads during protected query planning").isZero();
+        assertThat(statementCalls(grantTemplate) - grantsBefore)
+                .as("separate grant reads during protected query planning").isZero();
+        assertThat(statementCalls(subjectTemplate) - subjectBefore)
+                .as("joined role and grant reads during protected query planning").isOne();
         assertThat(result.scannedRows()).isEqualTo(800);
         assertThat(result.exchangeRows()).isPositive().isLessThan(result.scannedRows());
         assertThat(result.exchangeBytes()).isPositive();
@@ -573,6 +585,40 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
         assertThat(fullSplits).isEqualTo(40);
         assertThat(filteredSplits).isEqualTo(4);
         assertThat(filteredBytes).isPositive().isLessThan(fullBytes);
+    }
+
+    @Test
+    void anEligibleEqualityInAConjunctiveJoinPrunesBeforeDispatch() {
+        String probe = orders + "_conjunctive_filter_probe";
+        String build = orders + "_conjunctive_filter_build";
+        sqlRunner.executeDdl("CREATE TABLE " + probe + " (id BIGINT, payload BIGINT) PARTITIONED BY (id)");
+        sqlRunner.executeDdl("CREATE TABLE " + build + " (id BIGINT, payload BIGINT)");
+        String values = java.util.stream.IntStream.range(0, 40)
+                .mapToObj(row -> "(" + row + ", " + (row + 100) + ")")
+                .collect(java.util.stream.Collectors.joining(", "));
+        sqlRunner.execute("INSERT INTO " + probe + " VALUES " + values);
+        sqlRunner.execute("INSERT INTO " + build + " VALUES "
+                + "(2, 102), (2, 102), (2, 999), (35, 135), (36, 136), (NULL, 136), (36, NULL)");
+
+        String join = "SELECT p.id, p.payload FROM " + probe + " p JOIN " + build + " b ON "
+                + "ABS(p.payload) = b.payload AND ";
+        var pruned = executeWithDrainedReports(join + "p.id = b.id ORDER BY p.id");
+        var unpruned = executeWithDrainedReports(join + "ABS(p.id) = b.id ORDER BY p.id");
+
+        assertThat(pruned.rows()).extracting(row -> row.getLong("id")).containsExactly(2L, 2L, 35L, 36L);
+        assertThat(pruned.rows()).extracting(row -> row.getLong("payload")).containsExactly(102L, 102L, 135L, 136L);
+        assertThat(unpruned.rows()).usingRecursiveComparison().isEqualTo(pruned.rows());
+        assertThat(unpruned.sourceSplits(probe)).isEqualTo(40L);
+        assertThat(pruned.sourceSplits(probe)).isEqualTo(3L);
+        assertThat(pruned.sourceReadBytes(probe)).isPositive().isLessThan(unpruned.sourceReadBytes(probe));
+        assertThat(pruned.runtimeFilterWait()).isNotNull();
+        assertThat(pruned.runtimeFilterWait().outcome()).isEqualTo(RuntimeFilterOutcome.APPLIED);
+        assertThat(pruned.buildSummaries()).singleElement().satisfies(summary ->
+                assertThat(summary.getRangesList()).containsExactly(buildKeyRange(2, 2), buildKeyRange(35, 36)));
+        org.slf4j.LoggerFactory.getLogger(PhysicalTwoWorkerShuffleE2ETest.class).info(
+                "event=conjunctive_filter_physical_reads fullSplits={} filteredSplits={} fullBytes={} filteredBytes={}",
+                unpruned.sourceSplits(probe), pruned.sourceSplits(probe),
+                unpruned.sourceReadBytes(probe), pruned.sourceReadBytes(probe));
     }
 
     @Test

@@ -21,7 +21,13 @@ public final class TableCatalogAuthority {
 
     /** Rejects the operation when the record no longer matches the current catalog deployment. */
     public void requireCurrent(TableControlRecord record, String operation) {
-        if (!matches(record, current(record.catalog()))) {
+        requireCurrent(record, current(record.catalog()), operation);
+    }
+
+    /** Verifies a deployment obtained from the same observation as the table record. */
+    public static void requireCurrent(
+            TableControlRecord record, CatalogDeploymentIdentity deployment, String operation) {
+        if (!matches(record, deployment)) {
             throw new AccessDeniedException(operation + " rejected: catalog deployment identity changed or "
                     + "was never registered for " + record.qualifiedName()
                     + "; explicitly reconcile the control record before using its authority");

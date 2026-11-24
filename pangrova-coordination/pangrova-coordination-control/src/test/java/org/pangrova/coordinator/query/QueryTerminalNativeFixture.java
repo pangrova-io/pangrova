@@ -83,6 +83,7 @@ final class QueryTerminalNativeFixture implements AutoCloseable {
                 org.pangrova.coordinator.query.QueryManagerCollaborators.journal(
                         store.journal(), auditPort),
                 null, AsyncSubmitConfig.defaultEnabled(), submissions,
+                org.pangrova.coordinator.testinfra.QueryManagerTestContexts.SUBMIT_DEADLINES,
                 new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory()), clock::get);
         worker.connect(dispatcher, tracker, workers, manager);
         tracker.openQueryIssuance(queryId);

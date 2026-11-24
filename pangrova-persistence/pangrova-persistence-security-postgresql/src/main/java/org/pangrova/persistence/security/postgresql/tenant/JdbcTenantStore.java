@@ -106,6 +106,8 @@ public final class JdbcTenantStore implements TenantStore {
     private static final String SQL_GET_TENANT =
             "SELECT * FROM tenants WHERE tenant_id = ?";
 
+    private static final String SQL_GET_PLACEMENT = "SELECT status, resource_pool FROM tenants WHERE tenant_id = ?";
+
     private static final String SQL_GET_ALL_ACTIVE =
             "SELECT * FROM tenants WHERE status = 'ACTIVE'";
 
@@ -197,6 +199,24 @@ public final class JdbcTenantStore implements TenantStore {
             }
         } catch (SQLException e) {
             throw new TenantPersistenceException("Failed to get tenant=" + tenantId, e);
+        }
+    }
+
+    @Override
+    public Optional<Placement> getPlacement(String tenantId) {
+        Objects.requireNonNull(tenantId, "tenantId must not be null");
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(SQL_GET_PLACEMENT)) {
+            ps.setString(1, tenantId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return Optional.of(new Placement(TenantStatus.valueOf(rs.getString("status")),
+                            rs.getString("resource_pool")));
+                }
+                return Optional.empty();
+            }
+        } catch (SQLException e) {
+            throw new TenantPersistenceException("Failed to get placement for tenant=" + tenantId, e);
         }
     }
 

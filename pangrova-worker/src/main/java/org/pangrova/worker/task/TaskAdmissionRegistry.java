@@ -227,8 +227,7 @@ final class TaskAdmissionRegistry {
             Entry entry = entries.get(canonicalTaskId);
             return entry == null
                             || entry.workerTaskId.isEmpty()
-                            || !entry.admitted.isDone()
-                            || entry.admitted.isCompletedExceptionally()
+                            || !entry.handedOff
                     ? null
                     : entry.workerTaskId;
         }
@@ -267,7 +266,8 @@ final class TaskAdmissionRegistry {
             pending =
                     CompletableFuture.allOf(
                             entries.values().stream()
-                                    .filter(entry -> !entry.admitted.isDone())
+                                    // Handed-off tasks are joined by their lifecycle owners.
+                                    .filter(entry -> !entry.handedOff && !entry.admitted.isDone())
                                     .map(entry -> entry.admitted.handle((result, failure) -> null))
                                     .toArray(CompletableFuture[]::new));
         }
@@ -288,7 +288,7 @@ final class TaskAdmissionRegistry {
         }
     }
 
-    final class Reservation {
+    final class Reservation implements TaskManager.TaskAdmission {
         private final String taskId;
         private final Entry entry;
         private final boolean first;
@@ -299,35 +299,75 @@ final class TaskAdmissionRegistry {
             this.first = first;
         }
 
-        boolean first() {
+        @Override
+        public boolean first() {
             return first;
+        }
+
+        String workerTaskId() {
+            return entry.workerTaskId;
+        }
+
+        @Override
+        public boolean completed() {
+            return entry.admitted.isDone();
+        }
+
+        @Override
+        public java.util.concurrent.CompletionStage<String> completion() {
+            return entry.admitted.minimalCompletionStage();
+        }
+
+        void checkCanPublish() {
+            synchronized (entries) {
+                requireOpen();
+                requireUnexpired(entry.deadline);
+                requireUnsealed();
+            }
         }
 
         void publish(Runnable publication) {
             synchronized (entries) {
                 requireOpen();
                 requireUnexpired(entry.deadline);
-                if (entry.sealed) {
-                    throw new TaskAdmissionException(
-                            TaskAdmissionReason.SEALED,
-                            "Exact task admission is sealed: " + taskId);
-                }
+                requireUnsealed();
                 publication.run();
             }
         }
 
+        // Source preparation and pre-start fixtures have no separate endpoint setup.
         void admitted() {
+            handOff();
+            entry.admitted.complete(entry.workerTaskId);
+        }
+
+        void handOff() {
             synchronized (entries) {
                 requireOpen();
                 requireUnexpired(entry.deadline);
-                if (entry.sealed) {
-                    throw new TaskAdmissionException(
-                            TaskAdmissionReason.SEALED,
-                            "Exact task admission is sealed: " + taskId);
-                }
+                requireUnsealed();
                 entry.handedOff = true;
             }
+        }
+
+        void completeTaskSetup() {
+            synchronized (entries) {
+                requireUnexpired(entry.deadline);
+                requireUnsealed();
+            }
             entry.admitted.complete(entry.workerTaskId);
+        }
+
+        private void requireUnsealed() {
+            if (entry.sealed) {
+                throw new TaskAdmissionException(
+                        TaskAdmissionReason.SEALED,
+                        "Exact task admission is sealed: " + taskId);
+            }
+        }
+
+        void failAfterHandoff(Throwable failure) {
+            entry.admitted.completeExceptionally(failure);
         }
 
         void rejectedBeforeOwnership(Throwable failure) {

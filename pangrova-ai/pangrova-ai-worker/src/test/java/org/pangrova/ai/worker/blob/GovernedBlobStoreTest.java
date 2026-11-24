@@ -77,8 +77,7 @@ class GovernedBlobStoreTest {
                 StageResourceGrant.newBuilder().setGrantId(taskId + ":grant")
                         .setCpuSlots(1).setNativeMemoryBytes(1048576)
                         .setMediaBytes(5).build());
-        AiExecutionContext context = AiExecutionContext.fromTaskRequest(request);
-        AiInvocationService.registerTask(request);
+        AiExecutionContext context = AiTestTaskAuthority.register(request);
         try {
             AiExecutionContext.callWith(context, () -> {
                 store.persist(new byte[] {1, 2, 3}, "image/png");

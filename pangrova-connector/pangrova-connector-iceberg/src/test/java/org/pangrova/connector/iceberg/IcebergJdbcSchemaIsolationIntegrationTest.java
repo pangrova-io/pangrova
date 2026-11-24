@@ -16,6 +16,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.connector.api.commit.DistributedWriteCommitContext;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.metadata.table.TableIdentity;
 import org.pangrova.connector.api.metadata.Constraint;
 import org.pangrova.connector.api.enums.SnapshotRelation;
 import org.pangrova.connector.api.metadata.DynamicFilter;
@@ -36,8 +37,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Real SDK initialization must inspect only the connection's exact catalog and schema. */
 class IcebergJdbcSchemaIsolationIntegrationTest extends ContainerTestBase {
@@ -148,6 +151,30 @@ class IcebergJdbcSchemaIsolationIntegrationTest extends ContainerTestBase {
     }
 
     @Test
+    void jdbcNamedSchemaEvidenceRespectsSpellingAndFirstLevelProjection() throws Exception {
+        try (var schema = DatabaseSchema.create(); var selected = catalog(schema, "V1")) {
+            var metadata = new IcebergMetadata(selected, schema.name());
+            selected.createNamespace(Namespace.of("Exact"));
+            selected.createNamespace(Namespace.of("exact"));
+            selected.createNamespace(Namespace.of("parent", "child"));
+            selected.createNamespace(Namespace.of("axby", "child"));
+
+            assertThat(metadata.hasExactSchemaName(READER, "Exact")).isTrue();
+            assertThat(metadata.hasExactSchemaName(READER, "exact")).isTrue();
+            assertThat(metadata.hasExactSchemaName(READER, "EXACT")).isFalse();
+            assertThat(metadata.hasExactSchemaName(READER, "parent")).isTrue();
+            assertThat(metadata.hasExactSchemaName(READER, "parent.child")).isFalse();
+            assertThat(metadata.hasExactSchemaName(READER, "a_by")).isFalse();
+            assertThat(metadata.hasExactSchemaName(READER, "a%by")).isFalse();
+            assertThat(metadata.listSchemaNames(READER)).contains("Exact", "exact", "parent", "axby");
+
+            assertThat(selected.dropNamespace(Namespace.of("exact"))).isTrue();
+            assertThat(metadata.hasExactSchemaName(READER, "exact")).isFalse();
+            assertThat(metadata.hasExactSchemaName(READER, "Exact")).isTrue();
+        }
+    }
+
+    @Test
     void verifiesTheBoundSnapshotAndEnumeratesWithOneCatalogPointerRead() throws Exception {
         try (var schema = DatabaseSchema.create(); var selected = catalog(schema, "V1")) {
             createTable(selected);
@@ -175,6 +202,33 @@ class IcebergJdbcSchemaIsolationIntegrationTest extends ContainerTestBase {
     }
 
     @Test
+    void namedDeclarationUsesOneCurrentJdbcPointerAndPreservesTheActualSchema() throws Exception {
+        try (var schema = DatabaseSchema.create(); var selected = catalog(schema, "V1")) {
+            createTable(selected);
+            var metadata = new IcebergMetadata(selected, schema.name());
+            var name = new SchemaTableName("data", "events");
+            schema.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public");
+
+            long baseline = schema.catalogPointerLookups();
+            var handle = metadata.getTableHandle(READER, name);
+            var previous = metadata.getTableMetadata(READER, handle);
+            assertThat(schema.catalogPointerLookups() - baseline).isEqualTo(2);
+
+            long first = schema.catalogPointerLookups();
+            assertThat(metadata.describeNamedTable(READER, name)).contains(previous);
+            assertThat(schema.catalogPointerLookups() - first).isEqualTo(1);
+
+            try (var writer = catalog(schema, "V1")) {
+                writer.loadTable(TABLE).updateSchema().addColumn("new_field", Types.LongType.get()).commit();
+            }
+            long second = schema.catalogPointerLookups();
+            assertThat(metadata.describeNamedTable(READER, name)).hasValueSatisfying(declaration ->
+                    assertThat(declaration.columns()).containsExactly("id", "new_field"));
+            assertThat(schema.catalogPointerLookups() - second).isEqualTo(1);
+        }
+    }
+
+    @Test
     void freshJdbcTableResolutionChecksCurrentMetadataPointerOnce() throws Exception {
         try (var schema = DatabaseSchema.create(); var selected = catalog(schema, "V1")) {
             createTable(selected);
@@ -189,6 +243,102 @@ class IcebergJdbcSchemaIsolationIntegrationTest extends ContainerTestBase {
             assertThat(tables.getTableReadMetadata(first).metadata().columns()).contains("new_field");
 
             assertThat(schema.catalogPointerLookups() - before).isEqualTo(1);
+        }
+    }
+
+    @Test
+    void controlledReadChecksTheIdentityAndBindsTheSnapshotInOneCatalogLoad() throws Exception {
+        try (var schema = DatabaseSchema.create(); var catalog = catalog(schema, "V1")) {
+            createTable(catalog);
+            var metadata = new IcebergMetadata(catalog, schema.name());
+            var name = new SchemaTableName("data", "events");
+            var handle = metadata.getTableHandle(READER, name);
+            var expected = metadata.getTableIdentity(READER, handle);
+            assertThat(expected).isPresent();
+            var observed = new AtomicReference<Optional<TableIdentity>>();
+            schema.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public");
+
+            long before = schema.catalogPointerLookups();
+            var binding = metadata.bindReadWithIdentityCheck(READER, handle, handle,
+                    identity -> assertThat(observed.compareAndSet(null, identity)).isTrue());
+            assertThat(schema.catalogPointerLookups() - before).isOne();
+            assertThat(observed.get()).isEqualTo(expected);
+            assertThat(binding.schemaIdentity()).isPresent();
+
+            long beforeRejected = schema.catalogPointerLookups();
+            assertThatThrownBy(() -> metadata.bindReadWithIdentityCheck(READER, handle, handle, identity -> {
+                throw new IllegalStateException("reject observed table");
+            })).isInstanceOf(IllegalStateException.class).hasMessage("reject observed table");
+            assertThat(schema.catalogPointerLookups() - beforeRejected).isOne();
+        }
+    }
+
+    @Test
+    void controlledReadNeverBindsAReplacementDuringTheIdentityCheck() throws Exception {
+        try (var schema = DatabaseSchema.create(); var catalog = catalog(schema, "V1")) {
+            createTable(catalog);
+            var metadata = new IcebergMetadata(catalog, schema.name());
+            var name = new SchemaTableName("data", "events");
+            var handle = metadata.getTableHandle(READER, name);
+            var original = metadata.getTableIdentity(READER, handle).orElseThrow();
+
+            var binding = metadata.bindReadWithIdentityCheck(READER, handle, handle, observed -> {
+                assertThat(observed).contains(original);
+                assertThat(catalog.dropTable(TABLE, false)).isTrue();
+                catalog.buildTable(TABLE, TABLE_SCHEMA).withLocation(warehouse.resolve("replacement").toString())
+                        .create();
+            });
+
+            assertThat(binding.schemaIdentity()).hasValueSatisfying(identity ->
+                    assertThat(identity.tableIdentity()).isEqualTo(original));
+            assertThatThrownBy(() -> metadata.validateReadBinding(READER, binding))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("Selected table or snapshot identity changed");
+        }
+    }
+
+    @Test
+    void discoveryAndControlledBindingReadTheCatalogPointerOnce() throws Exception {
+        try (var schema = DatabaseSchema.create(); var catalog = catalog(schema, "V1")) {
+            createTable(catalog);
+            var metadata = new IcebergMetadata(catalog, schema.name());
+            var name = new SchemaTableName("data", "events");
+            var expected = metadata.getTableIdentity(READER, metadata.getTableHandle(READER, name));
+            assertThat(expected).isPresent();
+            schema.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public");
+            long before = schema.catalogPointerLookups();
+
+            var discovered = java.util.Objects.requireNonNull(metadata.discoverRead(READER, name));
+            var binding = discovered.binder().bind(READER, discovered.handle(),
+                    observed -> assertThat(observed).isEqualTo(expected));
+
+            assertThat(schema.catalogPointerLookups() - before).isOne();
+            assertThat(binding.schemaIdentity()).hasValueSatisfying(identity ->
+                    assertThat(identity.tableIdentity()).isEqualTo(expected.orElseThrow()));
+        }
+    }
+
+    @Test
+    void readDiscoveryRetainsIdentityAndCannotExecuteAgainstAReplacement() throws Exception {
+        try (var schema = DatabaseSchema.create();
+                var reader = catalog(schema, "V1"); var writer = catalog(schema, "V1")) {
+            createTable(reader);
+            var metadata = new IcebergMetadata(reader, schema.name());
+            var name = new SchemaTableName("data", "events");
+            var discovered = java.util.Objects.requireNonNull(metadata.discoverRead(READER, name));
+            var original = metadata.getTableIdentity(READER, discovered.handle()).orElseThrow();
+            assertThat(writer.dropTable(TABLE, false)).isTrue();
+            writer.buildTable(TABLE, TABLE_SCHEMA).withLocation(warehouse.resolve("discovery-replacement").toString())
+                    .create();
+
+            var binding = discovered.binder().bind(READER, discovered.handle(),
+                    observed -> assertThat(observed).contains(original));
+
+            assertThat(binding.schemaIdentity()).hasValueSatisfying(identity ->
+                    assertThat(identity.tableIdentity()).isEqualTo(original));
+            assertThatThrownBy(() -> metadata.validateReadBinding(READER, binding))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("Selected table or snapshot identity changed");
         }
     }
 
@@ -223,7 +373,7 @@ class IcebergJdbcSchemaIsolationIntegrationTest extends ContainerTestBase {
                 metadata.finishDistributedWrite(READER, handle, fragments, context);
             }
             assertThat(schema.catalogPointerLookups() - before).as("exact catalog pointer SELECTs")
-                    .isEqualTo(requiresPublication ? 8 : 7);
+                    .isEqualTo(requiresPublication ? 7 : 6);
             table.refresh();
             assertThat(table.snapshots()).hasSize(1);
             assertThat(table.currentSnapshot().summary()).containsEntry(IcebergDistributedCommitMarker.FINGERPRINT,

@@ -1120,11 +1120,14 @@ that no privilege change committed.
 
 The built-in RBAC provider resolves the authenticated subject's effective roles
 and grants once during each protected plan authorization pass. The SELECT check,
-row filters and column masks use those same roles. Each policy is looked up in
-its authoritative store. A query without governed table reads skips role
-resolution. New compilations resolve current membership and grants. The
-Coordinator requires the same authorization provider for admission and both
-policy transformations.
+row filters and column masks use those same roles. The PostgreSQL read authority
+reads the current table identity, governance bindings, enabled row policies
+and column masks from one statement snapshot. Governance tags apply to the
+stable table identity and the local catalog deployment is checked before
+applying the policies. A query without governed table reads skips role resolution.
+New compilations resolve current membership, grants and policies. The Coordinator
+requires the same authorization provider for admission and both policy
+transformations.
 
 Authorization readers use current database grants rather than process-local
 cached allow decisions. Subsequent checks on another coordinator observe the

@@ -149,8 +149,8 @@ class ResultFlightStreamTest : public ::testing::Test {
     config.is_result_task = true;
     config.serialized_output_buffer_threshold_bytes = windowBytes;
     runner_ = std::make_shared<pangrova::velox::VeloxTaskRunner>(config, source,
-        std::vector<split::SplitConfig>{}, nullptr);
-    runner_->start();
+        nullptr);
+    runner_->start({});
     if (pause) {
       auto pending = runner_->veloxTask()->requestPause();
       runner_pause_owned_ = true;
@@ -237,7 +237,14 @@ TEST_F(ResultFlightStreamTest, SignedFlightWaitsForRealProducerReadiness) {
   });
   ASSERT_EQ(entered.wait_for(std::chrono::seconds(2)), std::future_status::ready);
   EXPECT_EQ(schemaRead.wait_for(std::chrono::milliseconds(17)), std::future_status::timeout);
-  auto completion = runner_->startAsync().via(pangrova::jni::globalExecutor().get());
+  int notifications = 0;
+  auto completion = runner_->startAsync([&] {
+    ++notifications;
+    const auto readable = FlightResultServer::lookupTaskOutputInfo(task_id_);
+    ASSERT_TRUE(readable.has_value());
+    EXPECT_TRUE(readable->ready);
+  }).via(pangrova::jni::globalExecutor().get());
+  ASSERT_EQ(notifications, 1);
   ASSERT_TRUE(FlightResultServer::lookupTaskOutputInfo(task_id_)->ready);
   const auto ready = Clock::now();
   const auto [status, schemaReady] = schemaRead.get();

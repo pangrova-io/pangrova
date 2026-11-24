@@ -23,6 +23,7 @@ import org.pangrova.planner.cost.PangrovaRelMdJoinCost;
 import org.pangrova.planner.cost.PangrovaRelMdSelectivity;
 import org.pangrova.planner.lineage.PangrovaColumnOriginMetadata;
 import org.pangrova.planner.cost.distribution.PangrovaDistributionTraitDef;
+import org.pangrova.planner.metadata.catalog.MetadataSchemaBuilder;
 import org.pangrova.planner.optimization.HepRuleRegistry;
 import org.pangrova.planner.validation.PangrovaSqlOperatorTable;
 
@@ -53,11 +54,19 @@ final class PlannerComponentFactory {
             CalciteSchema rootSchema, List<String> defaultSchemaPath) {
         Properties props = new Properties();
         props.setProperty("caseSensitive", "false");
-        return new CalciteCatalogReader(
-                rootSchema,
-                defaultSchemaPath,
-                typeFactory,
-                new CalciteConnectionConfigImpl(props));
+        var config = new CalciteConnectionConfigImpl(props);
+        if (!MetadataSchemaBuilder.hasCatalogNamespaces(rootSchema) || defaultSchemaPath.isEmpty()) {
+            return new CalciteCatalogReader(rootSchema, defaultSchemaPath, typeFactory, config);
+        }
+        // Only the root can fully resolve a catalog-qualified table. The
+        // session's default namespace remains available for unqualified names.
+        List<List<String>> tableResolutionPaths = List.of(List.of(), List.copyOf(defaultSchemaPath));
+        return new CalciteCatalogReader(rootSchema, defaultSchemaPath, typeFactory, config) {
+            @Override
+            public List<List<String>> getSchemaPaths() {
+                return tableResolutionPaths;
+            }
+        };
     }
 
     static SqlValidator buildValidator(

@@ -77,6 +77,7 @@ final class QueryBootstrap {
     private QueryManager queryManager;
     private final QueryAuditServices queryAuditServices;
     private java.util.concurrent.ExecutorService asyncSubmitExecutor;
+    private ScheduledExecutorService submitDeadlines;
     private TaskStatusReceiver taskStatusReceiver;
     private CoordinatorTaskTracker taskTracker;
     private AuditEventEmitter auditEmitter;
@@ -212,6 +213,7 @@ final class QueryBootstrap {
                         .map(org.pangrova.coordinator.materialization.QueryReaderPinLifecycle::new));
         queryManager = queryManagerResult.queryManager();
         asyncSubmitExecutor = queryManagerResult.asyncExecutor();
+        submitDeadlines = queryManagerResult.submitDeadlines();
         durableRecovery.installShuffleCleanup(queryManager, queryDispatcher);
         taskStatusReceiver = buildTaskStatusReceiver();
         startTimeoutScheduler();
@@ -342,6 +344,7 @@ final class QueryBootstrap {
                                 shuffleCleanupExecutor, EXECUTOR_DRAIN_TIMEOUT_MILLIS);
                     }
                 },
+                () -> CoordinatorShutdownSequence.shutdownSchedulerExecutor(submitDeadlines),
                 () -> CoordinatorShutdownSequence.shutdownSchedulerExecutor(schedulerExecutor),
                 () -> { if (queryDispatcher != null) queryDispatcher.dagEngine().close(); },
                 () -> { if (queryScheduling != null) queryScheduling.close(); });

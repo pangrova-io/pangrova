@@ -2,6 +2,8 @@ package org.pangrova.worker.task;
 
 import org.pangrova.worker.enums.TaskState;
 
+import java.io.ByteArrayInputStream;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -78,7 +80,7 @@ class TaskManagerMemoryAllocationTest {
                                 runtime.resultPort(),
                                 null,
                                 new TaskResource.ResultBinding("grpc", runtime.resultTickets()))) {
-            var response = resource.submitTask(SubmitTaskRequest.from(runtime.bindWorker(request(100 * MB, 60 * MB))).encode(), null);
+            var response = resource.submitTask(new ByteArrayInputStream(SubmitTaskRequest.from(runtime.bindWorker(request(100 * MB, 60 * MB))).encode()), null).toCompletableFuture().join();
             assertThat(response.getStatus()).isEqualTo(503);
             assertUnregistered(tasks);
         }

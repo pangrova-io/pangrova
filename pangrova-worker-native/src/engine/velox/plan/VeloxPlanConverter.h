@@ -36,6 +36,7 @@ namespace facebook::velox::exec { class FunctionRegistrySnapshot; }
 
 // Forward-declare Substrait protobuf types to avoid header pollution.
 namespace substrait {
+class Plan;
 class Rel;
 class ReadRel;
 class FilterRel;
@@ -74,7 +75,7 @@ namespace pangrova::velox {
 
 struct ArtifactBuildTaskContext;
 
-// Converts Substrait plan bytes to a Velox PlanNode tree.
+// Converts Substrait plans to a Velox PlanNode tree.
 // Throws std::runtime_error for unsupported Rel/Expression types.
 // @NotThreadSafe — holds mutable state (next_node_id_, function_map_,
 // scan_node_output_types_). Use one instance per task.
@@ -96,6 +97,17 @@ class VeloxPlanConverter {
           std::string, std::vector<split::SplitConfig>>&
           retrieval_split_overrides = {},
       int32_t shuffle_partition_count = 0);
+
+  // Reuses a plan whose version was checked before preparing retrieval bindings.
+  std::shared_ptr<const facebook::velox::core::PlanNode> convertValidatedPlan(
+      const substrait::Plan& plan,
+      const std::vector<split::SplitConfig>& splits,
+      const std::unordered_map<
+          std::string, pangrova::protocol::v2::OperatorBinding>& operator_bindings,
+      std::shared_ptr<ArtifactBuildTaskContext> artifact_build_context,
+      const std::unordered_map<
+          std::string, std::vector<split::SplitConfig>>& retrieval_split_overrides,
+      int32_t shuffle_partition_count);
 
   const std::optional<ShuffleOutputSpec>& shuffleOutputSpec() const {
     return shuffle_output_spec_;

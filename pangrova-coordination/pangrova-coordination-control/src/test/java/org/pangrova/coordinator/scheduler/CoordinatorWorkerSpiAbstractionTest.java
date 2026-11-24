@@ -42,18 +42,14 @@ class CoordinatorWorkerSpiAbstractionTest {
     }
 
     @Test
-    void submitTaskRequestConverter_isSelfContained() {
-        // Verify the converter does not delegate to worker's TaskRequestConverter
-        // by checking it can convert without any worker dependency at runtime
+    void coordinatorUsesCanonicalTaskEnvelopeWithoutWorkerTypes() throws IOException {
         var request = org.pangrova.coordinator.CanonicalTaskRequestTestFixture.request(
                 "t-1", "q-1", 0, 0,
                 org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ,
                 "plan".getBytes(java.nio.charset.StandardCharsets.UTF_8));
-
-        var descriptor = SubmitTaskRequestConverter.toTaskDescriptor(request);
-
-        assertThat(descriptor.queryId().toString()).isEqualTo("q-1");
-        assertThat(descriptor.taskType()).isEqualTo("COMPUTE");
+        var submitted = org.pangrova.protocol.rest.task.SubmitTaskRequest.decode(request.encode());
+        assertThat(submitted.taskRequest()).isEqualTo(request.taskRequest());
+        assertThat(submitted.taskType()).isEqualTo("COMPUTE");
     }
 
     private static List<String> scanForViolations(Path sourceRoot, String importPrefix)

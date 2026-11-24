@@ -70,7 +70,7 @@ unlisted: true
 
 ## 同条件对标与发布门槛
 
-2026-11-23 复核了发布环境。仓库未登记专用基准 runner，未设置 `TPC_BENCHMARK_CONFIG_DIR`，本机也没有共享 SF100/SF1000 快照。本机可复用的 Docker 镜像持有 macOS Mach-O 测试产物，无法作为 Linux Native 构建证据。现有 TPC 工具通过 114 项自测，正式跨引擎门槛仍待运行。
+2026-11-24 复核了发布环境。已从同一源码构建 macOS arm64 和 Linux arm64 Native 产物并完成各自的打包验证。Linux 独立进程读取用实际 ELF、固定角色清单、真实 PostgreSQL 和客户端。正式跨引擎基准仍缺专用 runner、`TPC_BENCHMARK_CONFIG_DIR` 和同一批 SF100/SF1000 共享快照。现有 TPC 工具的 114 项自测与跨引擎验收分开记录。
 
 | 活动 | 数据与场景 | 必交证据 |
 |---|---|---|
