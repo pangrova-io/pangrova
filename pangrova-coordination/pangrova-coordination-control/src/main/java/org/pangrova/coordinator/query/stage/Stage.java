@@ -7,7 +7,9 @@ import org.pangrova.query.stage.StageStateMachine;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -66,7 +68,7 @@ public final class Stage {
     private boolean clientResultPublished;
     private boolean replayUnsafeWrite;
     private boolean consumerAdmitted;
-    private List<BuildKeyRange> buildKeyRanges;
+    private Map<Integer, List<BuildKeyRange>> buildKeyRanges;
     private int buildKeyReports;
 
     /** Pins this generation when a consumer begins to bind its issued producer records. */
@@ -144,29 +146,35 @@ public final class Stage {
     }
 
     /** Merges the winning summary under the same generation fence as the terminal task. */
-    public boolean onTaskFinished(String taskId, int generation, List<BuildKeyRange> ranges) {
+    public boolean onTaskFinished(String taskId, int generation, Map<Integer, List<BuildKeyRange>> ranges) {
         return applyTaskReport(taskId, generation, true, null, ranges);
     }
 
-    /** Returns a bounded union for a complete cohort, or null if any summary is absent. */
-    public synchronized List<BuildKeyRange> completeBuildKeyRanges() {
-        if (!terminalDecisionClaimed || !failedTaskIds.isEmpty() || buildKeyReports != taskIds.size()) return null;
-        if (buildKeyRanges == null) return List.of();
-        if (buildKeyRanges.size() == 1) return List.of(buildKeyRanges.get(0));
+    /** Returns a bounded per-column union for a complete cohort, or null if any summary is absent. */
+    public synchronized Map<Integer, List<BuildKeyRange>> completeBuildKeyRanges() {
+        if (!terminalDecisionClaimed || !failedTaskIds.isEmpty() || buildKeyReports != taskIds.size()
+                || buildKeyRanges == null) return null;
+        Map<Integer, List<BuildKeyRange>> union = new HashMap<>();
+        buildKeyRanges.forEach((ordinal, ranges) -> union.put(ordinal, unionBuildKeyRanges(ranges)));
+        return Map.copyOf(union);
+    }
 
-        buildKeyRanges.sort(Comparator.comparingLong(BuildKeyRange::minimum));
-        List<BuildKeyRange> union = new ArrayList<>(Math.min(BuildKeyRange.MAX_RANGES, buildKeyRanges.size()));
-        BuildKeyRange current = buildKeyRanges.get(0);
-        for (int index = 1; index < buildKeyRanges.size(); index++) {
-            BuildKeyRange next = buildKeyRanges.get(index);
+    private static List<BuildKeyRange> unionBuildKeyRanges(List<BuildKeyRange> ranges) {
+        if (ranges.size() <= 1) return List.copyOf(ranges);
+
+        ranges.sort(Comparator.comparingLong(BuildKeyRange::minimum));
+        List<BuildKeyRange> union = new ArrayList<>(Math.min(BuildKeyRange.MAX_RANGES, ranges.size()));
+        BuildKeyRange current = ranges.get(0);
+        for (int index = 1; index < ranges.size(); index++) {
+            BuildKeyRange next = ranges.get(index);
             if (current.maximum() == Long.MAX_VALUE || next.minimum() <= current.maximum() + 1) {
                 current = current.merge(next);
                 continue;
             }
             union.add(current);
             if (union.size() == BuildKeyRange.MAX_RANGES) {
-                long maximum = buildKeyRanges.stream().mapToLong(BuildKeyRange::maximum).max().orElseThrow();
-                return List.of(new BuildKeyRange(buildKeyRanges.get(0).minimum(), maximum));
+                long maximum = ranges.stream().mapToLong(BuildKeyRange::maximum).max().orElseThrow();
+                return List.of(new BuildKeyRange(ranges.get(0).minimum(), maximum));
             }
             current = next;
         }
@@ -192,7 +200,7 @@ public final class Stage {
     }
 
     private boolean applyTaskReport(String taskId, int generation, boolean success, QueryFailure error,
-            List<BuildKeyRange> ranges) {
+            Map<Integer, List<BuildKeyRange>> ranges) {
         checkNotNull(taskId, "taskId must not be null");
         boolean allSucceeded;
         synchronized (this) {
@@ -200,11 +208,12 @@ public final class Stage {
                     || finishedTaskIds.contains(taskId) || failedTaskIds.contains(taskId)) return false;
             if (success) {
                 finishedTaskIds.add(taskId);
-                if (ranges != null) {
-                    buildKeyReports++;
-                    if (!ranges.isEmpty()) {
-                        if (buildKeyRanges == null) buildKeyRanges = new ArrayList<>();
-                        buildKeyRanges.addAll(ranges);
+                if (ranges != null && !ranges.isEmpty()) {
+                    if (buildKeyRanges == null) buildKeyRanges = new HashMap<>();
+                    if (buildKeyRanges.isEmpty() || buildKeyRanges.keySet().equals(ranges.keySet())) {
+                        ranges.forEach((ordinal, bounds) -> buildKeyRanges
+                                .computeIfAbsent(ordinal, ignored -> new ArrayList<>()).addAll(bounds));
+                        buildKeyReports++;
                     }
                 }
             } else {

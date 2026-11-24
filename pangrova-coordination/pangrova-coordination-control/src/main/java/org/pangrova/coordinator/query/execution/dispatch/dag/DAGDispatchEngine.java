@@ -9,7 +9,6 @@ import org.pangrova.query.api.enums.StageState;
 import org.pangrova.query.api.stage.StageCompletionCallback;
 import java.util.List;
 import java.util.Map;
-import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
@@ -436,7 +435,7 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
             return new PreparedStage(stage.plan(), new LeafStageDispatcher.LeafDispatch(
                     state.execution(), stage.plan(), null, List.of(), null,
                     state.dag(), state.dispatched(), null, false,
-                    state.durable().control().planEpoch(stage.stageId()), state.durable(), OptionalInt.empty()),
+                    state.durable().control().planEpoch(stage.stageId()), state.durable(), List.of()),
                     durablePlan);
         }
         StageNode plan = stage.plan();
@@ -483,7 +482,7 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
                 state.dag(), state.dispatched(), writeConfig,
                 !compiled.retrievalTopKHints().isEmpty(),
                 Math.addExact(stage.currentGeneration(), 1L), null,
-                state.buildFilter() == null ? OptionalInt.empty() : state.buildFilter().buildOrdinal(stage.stageId()));
+                state.buildFilter() == null ? List.of() : state.buildFilter().buildOrdinals(stage.stageId()));
         return new PreparedStage(plan, dispatch, null);
     }
 
@@ -624,7 +623,7 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
 
     @Override
     public void onSuccessfulTaskTerminal(String queryId, String logicalTaskId, SuccessfulAttempt attempt,
-            List<BuildKeyRange> ranges) {
+            Map<Integer, List<BuildKeyRange>> ranges) {
         lifecycle.onSuccessfulTaskTerminal(queryId, logicalTaskId, attempt, ranges);
     }
 

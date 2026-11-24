@@ -257,11 +257,13 @@ message NativeTaskStats {
   // Worker-local scalar index decisions before Velox split enqueue.
   uint64 index_splits_evaluated = 19;
   uint64 index_splits_skipped = 20;
-  // Present only for a completed requested build-key scan of the exchange output.
-  BuildKeySummary build_keys = 21;
+  reserved 21;
+  reserved "build_keys";
   // Cumulative serialized page bytes accepted by the task-owned Shuffle queue.
   // Transport framing and resend attempts are excluded.
   uint64 shuffle_payload_bytes = 22;
+  // A finished build may report one completed summary for each requested output ordinal.
+  repeated BuildKeySummary build_key_summaries = 23;
   reserved "build_key_range";
 }
 
@@ -269,6 +271,7 @@ message NativeTaskStats {
 // At most 16 inclusive ranges, sorted and separated by at least one value.
 message BuildKeySummary {
   repeated BuildKeyRange ranges = 1;
+  optional uint32 ordinal = 2;
 }
 
 message BuildKeyRange {

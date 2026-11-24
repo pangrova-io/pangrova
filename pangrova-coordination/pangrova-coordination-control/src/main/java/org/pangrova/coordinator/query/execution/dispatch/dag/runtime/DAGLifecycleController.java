@@ -5,6 +5,7 @@ import org.pangrova.query.api.enums.StageState;
 import java.util.ArrayDeque;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -199,7 +200,7 @@ public final class DAGLifecycleController {
 
     /** Routes the selected physical attempt to its still-current logical slot. */
     public void onSuccessfulTaskTerminal(String queryId, String logicalTaskId, SuccessfulAttempt attempt,
-            List<BuildKeyRange> ranges) {
+            Map<Integer, List<BuildKeyRange>> ranges) {
         var owner = queryDags.get(queryId);
         if (owner != null) owner.terminals().onSuccessfulTerminal(queryId, logicalTaskId, attempt, ranges);
     }

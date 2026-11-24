@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <array>
+#include <limits>
 #include <map>
 #include <memory>
 #include <stdexcept>
@@ -209,6 +210,32 @@ TEST(ParseTaskConfigTest, DirectResultRequiresPositiveExactSerializedBufferGrant
   request.mutable_execution_options()->set_direct_result_output(false);
   request.mutable_resource_grant()->set_shuffle_buffer_bytes(0);
   EXPECT_FALSE(parseTaskConfig(serializeRaw(request)).is_result_task);
+}
+
+TEST(ParseTaskConfigTest, AcceptsOnlyBoundedSortedBuildKeyOrdinalsForLeafShuffle) {
+  auto request = validRequest();
+  request.mutable_resource_grant()->set_shuffle_buffer_bytes(16ULL * 1024 * 1024);
+  auto* shuffle = request.mutable_execution_options()->mutable_shuffle();
+  shuffle->set_serde(proto::BATCH_SERDE_ARROW_BATCH);
+  shuffle->set_compression_codec("none");
+  shuffle->set_batch_size(1024);
+  shuffle->set_persistence_mode(proto::SHUFFLE_PERSISTENCE_MODE_MEMORY_ONLY);
+  shuffle->set_partition_count(2);
+  request.add_build_key_ordinals(0);
+  request.add_build_key_ordinals(3);
+
+  EXPECT_EQ(parseTaskConfig(serializeRaw(request)).build_key_ordinals,
+            (std::vector<uint32_t>{0, 3}));
+
+  for (const auto& rejected : std::vector<std::vector<uint32_t>>{
+           {0, 0}, {1, 0}, {0, 1, 2, 3, 4}, {0, std::numeric_limits<uint32_t>::max()}}) {
+    auto malformed = request;
+    malformed.mutable_build_key_ordinals()->Assign(rejected.begin(), rejected.end());
+    EXPECT_THROW(parseTaskConfig(serializeRaw(malformed)), std::invalid_argument);
+  }
+
+  request.mutable_execution_options()->set_direct_result_output(true);
+  EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::invalid_argument);
 }
 
 proto::TaskRequest remoteShuffleRequest() {

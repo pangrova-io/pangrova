@@ -128,6 +128,7 @@ struct ShuffleExecutionConfig {
 
 // Configuration extracted from TaskRequest protobuf for executor construction.
 struct TaskExecutorConfig {
+  static constexpr int kMaximumBuildKeyColumns = 4;
   // Admitted process-local factory owner; never re-read from a live registry.
   std::shared_ptr<const facebook::velox::exec::FunctionRegistrySnapshot> function_registry;
   std::shared_ptr<const capability::FunctionCatalogPublication> function_catalog;
@@ -157,7 +158,7 @@ struct TaskExecutorConfig {
   // replayed through a second JNI command path.
   std::vector<pangrova::protocol::v2::RuntimeFilterBinding>
       initial_runtime_filters;
-  std::optional<uint32_t> build_key_ordinal;
+  std::vector<uint32_t> build_key_ordinals;
   std::vector<split::SplitConfig> splits;
   std::unordered_map<std::string, std::string> session_properties;
   ResourceLimitConfig resource_limit;

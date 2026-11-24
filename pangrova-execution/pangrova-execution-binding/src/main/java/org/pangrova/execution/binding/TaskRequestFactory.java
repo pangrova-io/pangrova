@@ -101,16 +101,16 @@ public final class TaskRequestFactory {
 
     /** Builds a canonical fenced task from one immutable dispatch specification. */
     public static SubmitTaskRequest buildLeafTaskRequest(LeafTask task) {
-        return buildLeafTaskRequest(task, java.util.OptionalInt.empty());
+        return buildLeafTaskRequest(task, List.of());
     }
 
-    /** Collects the requested build-key range from the exact output of a live leaf producer. */
-    public static SubmitTaskRequest buildLeafTaskRequest(LeafTask task, java.util.OptionalInt buildKeyOrdinal) {
+    /** Collects the requested build-key ranges from the exact output of a live leaf producer. */
+    public static SubmitTaskRequest buildLeafTaskRequest(LeafTask task, List<Integer> buildKeyOrdinals) {
         StageExecutionContext execution = task.execution();
         if (execution instanceof StageExecutionContext.Durable) {
             throw new IllegalArgumentException("A durable task requires an exact currently claimed partition");
         }
-        if (buildKeyOrdinal.isPresent() && !(execution instanceof StageExecutionContext.Live)) {
+        if (!buildKeyOrdinals.isEmpty() && !(execution instanceof StageExecutionContext.Live)) {
             throw new IllegalArgumentException("Runtime-filter build key requires live execution");
         }
         TaskStage stage = task.stage();
@@ -134,7 +134,7 @@ public final class TaskRequestFactory {
                         execution.executionProperties(), null, task.shuffleConfig(),
                         execution instanceof StageExecutionContext.Live
                         && stage.purpose() == TaskPurpose.OUTPUT, task.shuffleHandle(),
-                        task.attempt().planEpoch())), buildKeyOrdinal);
+                        task.attempt().planEpoch())), buildKeyOrdinals);
         return SubmitTaskRequest.from(request);
     }
 
@@ -229,10 +229,10 @@ public final class TaskRequestFactory {
     }
 
     private static TaskRequest canonicalRequest(CanonicalTaskSpec spec) {
-        return canonicalRequest(spec, java.util.OptionalInt.empty());
+        return canonicalRequest(spec, List.of());
     }
 
-    private static TaskRequest canonicalRequest(CanonicalTaskSpec spec, java.util.OptionalInt buildKeyOrdinal) {
+    private static TaskRequest canonicalRequest(CanonicalTaskSpec spec, List<Integer> buildKeyOrdinals) {
         FrozenStagePlan plan = spec.plan();
         var splitPlan = SchemaDescriptorDeduplicator.deduplicate(spec.splits());
         TaskRequest.Builder request = TaskRequest.newBuilder()
@@ -262,7 +262,7 @@ public final class TaskRequestFactory {
             request.setExecutionOptions(spec.executionOptions());
         }
         request.addAllSchemaDescriptors(splitPlan.descriptors());
-        buildKeyOrdinal.ifPresent(request::setBuildKeyOrdinal);
+        request.addAllBuildKeyOrdinals(buildKeyOrdinals);
         bindDeferredIdentity(request, spec.execution());
         return request.build();
     }

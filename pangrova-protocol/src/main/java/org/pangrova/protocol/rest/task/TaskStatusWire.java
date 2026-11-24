@@ -132,7 +132,7 @@ public final class TaskStatusWire {
     }
 
     private static void validateSupplementalStats(NativeTaskStats stats) {
-        if (stats.hasBuildKeys() || !stats.getUnknownFields().asMap().isEmpty()) {
+        if (stats.getBuildKeySummariesCount() != 0 || !stats.getUnknownFields().asMap().isEmpty()) {
             throw new IllegalArgumentException("Unexpected evidence in supplemental task statistics");
         }
         for (var op : stats.getOperatorStatsList()) {

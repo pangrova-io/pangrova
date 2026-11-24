@@ -92,7 +92,7 @@ final class LeafStageDispatcher {
             List<StageDispatchRecord> dispatched,
             org.pangrova.protocol.rest.config.WriteConfig writeConfig,
             boolean distributedRetrieval,
-            long planEpoch, DurableStageRuntime durable, java.util.OptionalInt buildKeyOrdinal) {
+            long planEpoch, DurableStageRuntime durable, List<Integer> buildKeyOrdinals) {
         org.pangrova.query.api.session.QuerySession session() {
             return execution.requireLiveSession();
         }
@@ -320,7 +320,7 @@ final class LeafStageDispatcher {
                                 java.time.Duration.ofSeconds(taskTimeoutSeconds), java.time.Instant.now()),
                         attempt, taskBindings,
                         shuffleHandle(input.dag(), input.plan().stageId()),
-                        input.boundPlan().resultColumnTypes()), input.buildKeyOrdinal());
+                        input.boundPlan().resultColumnTypes()), input.buildKeyOrdinals());
     }
 
     private static org.pangrova.protocol.v2.StageResourceGrant dmlResourceGrant(

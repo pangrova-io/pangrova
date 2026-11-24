@@ -91,19 +91,21 @@ public final class StageSplitFetcher {
     }
 
     private static SplitSourceDescriptor prune(
-            SplitSourceDescriptor source, StageRuntimeFilter filter, List<BuildKeyRange> ranges) {
+            SplitSourceDescriptor source, StageRuntimeFilter filter, Map<Integer, List<BuildKeyRange>> ranges) {
         var read = source.readBinding().orElse(null);
         var selected = filter.probeRead();
         if (read == null || !read.snapshotId().equals(selected.snapshotId())
                 || !read.sourceIdentity().equals(selected.sourceIdentity())
-                || !read.schemaIdentity().equals(selected.schemaIdentity())
-                || !source.tableColumns().contains(filter.probeColumn())) {
+                || !read.schemaIdentity().equals(selected.schemaIdentity())) {
             return source;
         }
-        boolean exactField = read.schemaIdentity().stream().flatMap(schema -> schema.fields().stream())
-                .anyMatch(column -> column.name().equals(filter.probeColumn())
-                        && column.fieldId().orElse(-1) == filter.probeFieldId());
-        if (!exactField) return source;
+        for (var key : filter.keys()) {
+            boolean exactField = source.tableColumns().contains(key.column())
+                    && read.schemaIdentity().stream().flatMap(schema -> schema.fields().stream())
+                            .anyMatch(column -> column.name().equals(key.column())
+                                    && column.fieldId().orElse(-1) == key.fieldId());
+            if (!exactField) return source;
+        }
         Constraint constraint = ranges.isEmpty() ? Constraint.NONE
                 : withBuildRanges(source.constraint(), filter, ranges);
         return new SplitSourceDescriptor(source.catalogName(), source.schemaName(), source.tableName(),
@@ -111,13 +113,15 @@ public final class StageSplitFetcher {
     }
 
     private static Constraint withBuildRanges(
-            Constraint original, StageRuntimeFilter filter, List<BuildKeyRange> bounds) {
+            Constraint original, StageRuntimeFilter filter, Map<Integer, List<BuildKeyRange>> bounds) {
         if (original == Constraint.NONE) return original;
         var domains = new LinkedHashMap<>(original.getDomains());
-        var ranges = bounds.stream().map(range -> new Domain.Range(
-                range.minimum(), range.maximum(), true, true)).toList();
-        domains.put(new BuildKeyColumn(filter.probeColumn()),
-                ranges.size() == 1 ? ranges.get(0) : new Domain.RangeUnion(ranges));
+        for (var key : filter.keys()) {
+            var ranges = bounds.get(key.buildOrdinal()).stream().map(range -> new Domain.Range(
+                    range.minimum(), range.maximum(), true, true)).toList();
+            domains.put(new BuildKeyColumn(key.column()),
+                    ranges.size() == 1 ? ranges.get(0) : new Domain.RangeUnion(ranges));
+        }
         Map<ColumnHandle, Domain> immutable = java.util.Collections.unmodifiableMap(domains);
         return () -> immutable;
     }

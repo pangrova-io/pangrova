@@ -50,7 +50,7 @@ unlisted: true
 
 1. 在已有按物理扫描字节分配的基础上分开校准对象打开、解码和删除成本，记录估计缺失。需要 durable cohort 的阶段按固定快照和完整分片覆盖验证限流派发。 [Spark 文件分区](https://spark.apache.org/docs/latest/sql-performance-tuning.html#tuning-partitions)
 2. 先从 manifest、分区/文件统计剪裁开始，基于 Native reader 指标证明 row group/page 的读取量。大文件按不重叠的合法范围拆分，小文件按工作量组包。测试快照演进、删除文件、冷/热缓存、宽表、稀疏与随机访问。索引按成本和实际跳过 bytes 评估。缓存亲和用实际命中与驻留证据，prefetch 按字节预算，避免无效读取把热数据挤出。 [Iceberg 扫描规划](https://iceberg.apache.org/spec/#scan-planning)
-3. **扩大可证明的动态过滤覆盖。** 当前 Iceberg INNER BIGINT 单列路径使用选定快照、稳定 field ID、完整获胜集合和 200 ms 有界等待。已验证多个构建任务与单任务内的稀疏范围。执行图已分别测得单构建与多构建任务的等待和 Probe 读取量。接下来按实际数据分布测量多键、过载及超时成本。在并行探测、迟报、投机和大扫描夹具中验证尚未签发的工作可以安全接收新条件。统计等待、已发 I/O、文件与 row group 跳过及实际字节。 [Trino 动态过滤](https://trino.io/docs/current/admin/dynamic-filtering.html)
+3. **扩大可证明的动态过滤覆盖。** 当前 Iceberg INNER BIGINT 路径使用选定快照、稳定 field ID、完整获胜集合和 200 ms 有界等待。已对同一连接联合多个构建键域，双 Worker 对照验证了分片与实际字节下降。接下来按实际数据分布测量过载及超时成本，验证更多类型和连接器。在并行探测、迟报、投机和大扫描夹具中验证尚未签发的工作可以安全接收新条件。统计等待、已发 I/O、文件与 row group 跳过及实际字节。 [Trino 动态过滤](https://trino.io/docs/current/admin/dynamic-filtering.html)
 
 ### Q3 让 CBO、聚合和 AQE 缩减跨节点工作
 

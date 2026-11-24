@@ -50,11 +50,14 @@ class BuildFilterGateTest {
             assertThat(release).isNotDone();
             assertThat(gate.blocks(PROBE)).isTrue();
 
-            var ranges = List.of(new BuildKeyRange(2, 3), new BuildKeyRange(35, 36));
+            var ranges = Map.of(0, List.of(new BuildKeyRange(2, 3), new BuildKeyRange(35, 36)),
+                    2, List.of(new BuildKeyRange(11, 11)));
             gate.onFinished(completeBuild(dag, ranges));
 
             assertThat(release.join().outcome()).isEqualTo(RuntimeFilterOutcome.APPLIED);
-            assertThat(gate.probeRanges(PROBE)).containsExactlyElementsOf(ranges);
+            assertThat(gate.probeRanges(PROBE)).isEqualTo(ranges);
+            assertThat(release.join().rangeCount()).isEqualTo(3);
+            assertThat(gate.buildOrdinals(BUILD)).containsExactly(0, 2);
             assertThat(gate.blocks(PROBE)).isFalse();
             assertThat(timer.getQueue()).isEmpty();
         }
@@ -69,7 +72,7 @@ class BuildFilterGateTest {
             assertThat(release).isNotDone();
 
             timer.expire();
-            gate.onFinished(completeBuild(dag, List.of(new BuildKeyRange(2, 3))));
+            gate.onFinished(completeBuild(dag, Map.of(0, List.of(new BuildKeyRange(2, 3)), 2, List.of(new BuildKeyRange(11, 11)))));
 
             assertThat(release.join().outcome()).isEqualTo(RuntimeFilterOutcome.TIMED_OUT);
             assertThat(gate.probeRanges(PROBE)).isNull();
@@ -96,7 +99,7 @@ class BuildFilterGateTest {
     void emptyBuildAlreadyAvailableNeedsNoDeadline() {
         var dag = dag();
         var gate = BuildFilterGate.create(dag);
-        gate.onFinished(completeBuild(dag, List.of()));
+        gate.onFinished(completeBuild(dag, Map.of(0, List.of(new BuildKeyRange(2, 3)), 2, List.of())));
         try (var timer = new Deadline()) {
             var release = gate.releaseProbe(new CompletableFuture<>(), timer).toCompletableFuture();
             assertThat(release.join().outcome()).isEqualTo(RuntimeFilterOutcome.EMPTY_BUILD);
@@ -105,7 +108,19 @@ class BuildFilterGateTest {
         }
     }
 
-    private static Stage completeBuild(StageDAG dag, List<BuildKeyRange> ranges) {
+    @Test
+    void incompleteOrdinalsReleaseTheFullProbe() {
+        var dag = dag();
+        var gate = BuildFilterGate.create(dag);
+        gate.onFinished(completeBuild(dag, Map.of(0, List.of())));
+        try (var timer = new Deadline()) {
+            var release = gate.releaseProbe(new CompletableFuture<>(), timer).toCompletableFuture();
+            assertThat(release.join().outcome()).isEqualTo(RuntimeFilterOutcome.MISSING_SUMMARY);
+            assertThat(gate.probeRanges(PROBE)).isNull();
+        }
+    }
+
+    private static Stage completeBuild(StageDAG dag, Map<Integer, List<BuildKeyRange>> ranges) {
         var build = dag.findStage(BUILD);
         build.addTaskId("build-task");
         assertThat(build.stateMachine().tryTransitionTo(StageState.SCHEDULING)).isTrue();
@@ -129,7 +144,9 @@ class BuildFilterGateTest {
                 new ConnectorTableReadMetadata(declaration, TableDeclarationEvidence.EXACT),
                 new TableStatistics(2_048, 32_768, 40, Map.of()),
                 ReadSnapshotState.SNAPSHOT, OptionalLong.of(7), "selected-items", Optional.empty(), Optional.empty());
-        var filter = new StageRuntimeFilter(BUILD, buildEdge.exchangeId(), 0, PROBE, selected, 1, "id");
+        var filter = new StageRuntimeFilter(BUILD, buildEdge.exchangeId(), PROBE, selected,
+                List.of(new StageRuntimeFilter.ProbeKey(0, 1, "id"),
+                        new StageRuntimeFilter.ProbeKey(2, 2, "tag")));
         return new StageDAG(List.of(), List.of(build, probe, output), Map.of(OUTPUT, List.of(BUILD, PROBE)),
                 List.of(buildEdge, probeEdge), Map.of(), Map.of(), Map.of(), Optional.of(filter)).withStages("query");
     }

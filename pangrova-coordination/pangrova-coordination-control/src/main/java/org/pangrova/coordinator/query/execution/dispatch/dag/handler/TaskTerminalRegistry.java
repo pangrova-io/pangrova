@@ -57,12 +57,12 @@ public final class TaskTerminalRegistry {
     }
 
     public void onSuccessfulTerminal(String query, String logicalTaskId, SuccessfulAttempt attempt,
-            List<BuildKeyRange> ranges) {
+            Map<Integer, List<BuildKeyRange>> ranges) {
         onTerminal(query, logicalTaskId, "FINISHED", null, ranges, attempt);
     }
 
     private void onTerminal(String query, String taskId, String state, QueryFailure error,
-            List<BuildKeyRange> ranges, SuccessfulAttempt attempt) {
+            Map<Integer, List<BuildKeyRange>> ranges, SuccessfulAttempt attempt) {
         if (!queryId.equals(query) || !("FINISHED".equals(state) || "FAILED".equals(state)
                 || "CANCELLED".equals(state))) {
             return;
@@ -113,7 +113,8 @@ public final class TaskTerminalRegistry {
         private Event event;
     }
 
-    private record Event(String state, QueryFailure error, List<BuildKeyRange> ranges, SuccessfulAttempt attempt) {
+    private record Event(String state, QueryFailure error,
+            Map<Integer, List<BuildKeyRange>> ranges, SuccessfulAttempt attempt) {
         private boolean deliver(Stage stage, String taskId, int generation) {
             if ("FINISHED".equals(state)) {
                 return stage.onTaskFinished(taskId, generation, ranges);

@@ -74,6 +74,7 @@ import java.util.function.IntUnaryOperator;
 import java.util.function.Supplier;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.protocol.task.CanonicalTaskRequests.MAX_BUILD_KEY_COLUMNS;
 
 /**
  * Splits a physical plan into self-contained producer and consumer fragments.
@@ -771,14 +772,19 @@ final class PlanFragmenter {
             } else if (!List.of(buildStage).equals(dependencies.get(build.downstreamStageId()))) {
                 return Optional.empty();
             }
-            return eligibleRuntimeFilterKey(join, probeInput).map(key -> new StageRuntimeFilter(
-                    buildStage, build.exchangeId(), key.buildOrdinal(), probeStage,
-                    key.probe().read(), key.probe().fieldId(), key.probe().name()));
+            var keys = eligibleRuntimeFilterKeys(join, probeInput, MAX_BUILD_KEY_COLUMNS);
+            if (keys.isEmpty()) return Optional.empty();
+            var probeRead = keys.get(0).probe().read();
+            return Optional.of(new StageRuntimeFilter(buildStage, build.exchangeId(), probeStage, probeRead,
+                    keys.stream().map(key -> new StageRuntimeFilter.ProbeKey(
+                            key.buildOrdinal(), key.probe().fieldId(), key.probe().name())).toList()));
         }
 
         private static RelNode materializeSelectiveBuild(LogicalJoin join) {
-            var probe = eligibleRuntimeFilterKey(join, join.getLeft()).map(RuntimeFilterKey::probe).orElse(null);
-            if (probe == null || !StageRuntimeFilter.enoughProbeWork(probe.read().statistics())) return join;
+            var keys = eligibleRuntimeFilterKeys(join, join.getLeft(), 1);
+            if (keys.isEmpty()) return join;
+            var probe = keys.get(0).probe();
+            if (!StageRuntimeFilter.enoughProbeWork(probe.read().statistics())) return join;
 
             var build = directBuildRead(join.getRight()).orElse(null);
             if (build == null || build.sourceIdentity().equals(probe.read().sourceIdentity())) return join;
@@ -804,11 +810,12 @@ final class PlanFragmenter {
             return node instanceof TableScan scan ? selectedRead(scan) : Optional.empty();
         }
 
-        private static Optional<RuntimeFilterKey> eligibleRuntimeFilterKey(Join join, RelNode probeInput) {
+        private static List<RuntimeFilterKey> eligibleRuntimeFilterKeys(Join join, RelNode probeInput, int limit) {
             if (join.getJoinType() != JoinRelType.INNER || !join.getVariablesSet().isEmpty()) {
-                return Optional.empty();
+                return List.of();
             }
             int leftCount = join.getLeft().getRowType().getFieldCount();
+            var keys = new ArrayList<RuntimeFilterKey>(limit);
             for (var conjunct : RelOptUtil.conjunctions(join.getCondition())) {
                 if (!(conjunct instanceof RexCall equality)
                         || equality.getKind() != SqlKind.EQUALS
@@ -821,13 +828,14 @@ final class PlanFragmenter {
                 int probeOrdinal = Math.min(first.getIndex(), second.getIndex());
                 int buildOrdinal = Math.max(first.getIndex(), second.getIndex()) - leftCount;
                 if (probeOrdinal < leftCount && buildOrdinal >= 0) {
-                    var probe = directProbeColumn(probeInput, probeOrdinal);
-                    if (probe.isPresent()) {
-                        return Optional.of(new RuntimeFilterKey(buildOrdinal, probe.orElseThrow()));
+                    var probe = directProbeColumn(probeInput, probeOrdinal).orElse(null);
+                    if (probe != null && keys.stream().noneMatch(key -> key.probe().fieldId() == probe.fieldId())) {
+                        keys.add(new RuntimeFilterKey(buildOrdinal, probe));
+                        if (keys.size() == limit) break;
                     }
                 }
             }
-            return Optional.empty();
+            return keys;
         }
 
         private record RuntimeFilterKey(int buildOrdinal, ProbeColumn probe) {}
