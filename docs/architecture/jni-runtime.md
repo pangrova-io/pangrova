@@ -100,6 +100,8 @@ binds each admitted predicate to its assigned scan before row filtering.
 | 11 | `catalog` | CatalogExecutionBinding | Exact catalog deployment for Native manifest partitions |
 | 12 | `file_detail` | FileSplitDetail | Typed format-specific scan metadata |
 
+Field number 10 and the former `connector_detail` field name are reserved.
+
 ### 1.6 Task kinds and terminal states
 
 `TaskKind` contains read, write, shuffle read/write and background

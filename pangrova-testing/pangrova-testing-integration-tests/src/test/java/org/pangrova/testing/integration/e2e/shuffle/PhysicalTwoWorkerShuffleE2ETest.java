@@ -15,7 +15,7 @@ import org.pangrova.protocol.v2.ExecutionDrainState;
 import org.pangrova.protocol.v2.OperatorStats;
 import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.v2.WorkerExecutionIdentity;
-import org.pangrova.query.profiling.OperatorStatsSource.RuntimeFilterOutcome;
+import org.pangrova.query.profiling.enums.RuntimeFilterOutcome;
 import org.pangrova.query.profiling.OperatorStatsSource.RuntimeFilterWait;
 import org.pangrova.scheduler.api.enums.HealthState;
 import org.pangrova.types.value.TypedRow;
@@ -932,7 +932,7 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
                     });
                     assertThat(graph.downstreamPreparations()).anySatisfy(preparation ->
                             assertThat(preparation.outcome()).isEqualTo(
-                                    org.pangrova.query.profiling.OperatorStatsSource.PreparationOutcome.COMPLETED));
+                                    org.pangrova.query.profiling.enums.PreparationOutcome.COMPLETED));
                     assertDispatchWork(graph);
                     var attempts = profile.orElseThrow().attempts();
                     assertThat(graph.selectedAttempts()).isNotEmpty().allSatisfy(selection ->

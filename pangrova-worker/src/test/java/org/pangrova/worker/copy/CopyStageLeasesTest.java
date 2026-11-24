@@ -5,8 +5,8 @@ import org.pangrova.protocol.descriptor.CanonicalProtocolIdentity;
 import com.google.protobuf.ByteString;
 import org.junit.jupiter.api.Test;
 import org.pangrova.protocol.rest.copy.CopySourceReadHttp;
-import org.pangrova.protocol.rest.copy.PrepareCopySourceRequest;
-import org.pangrova.protocol.rest.copy.PrepareCopySourceResponse;
+import org.pangrova.protocol.rest.copy.preparation.PrepareCopySourceRequest;
+import org.pangrova.protocol.rest.copy.preparation.PrepareCopySourceResponse;
 import org.pangrova.protocol.v2.SourcePreparationRequest;
 import org.pangrova.protocol.v2.Checksum;
 

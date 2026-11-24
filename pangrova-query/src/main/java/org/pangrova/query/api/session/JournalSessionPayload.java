@@ -1,43 +1,33 @@
 package org.pangrova.query.api.session;
 
-import org.pangrova.common.api.annotation.Internal;
-
-import org.pangrova.common.json.JsonMapperFactory;
-
+import java.io.UncheckedIOException;
+import java.util.Objects;
 import java.util.Optional;
+import org.pangrova.common.api.annotation.Internal;
+import org.pangrova.common.json.CanonicalJsonMapper;
 
-/** Minimal journal recovery context. Planning's exact session configuration remains a separate contract. */
+/** Minimal session identity persisted with query admission. */
 @Internal
 public record JournalSessionPayload(String queryId, String tenantId, String principal) {
-    /**
-     * Serializes the original minimal fields with JSON escaping, preserving null-tenant as empty.
-     *
-     * @param session actual submitting session; planning configuration is not added to this payload
-     * @return JSON containing the exact original query, tenant and principal
-     * @throws NullPointerException if session is null
-     * @throws IllegalStateException if serialization fails before journal ownership transfer
-     */
+    /** Writes the admitted identity without persisting planning configuration. */
     public static String encode(QuerySession session) {
-        java.util.Objects.requireNonNull(session, "session");
+        Objects.requireNonNull(session, "session");
+        String principal = session.userIdentity() == null ? "anonymous" : session.userIdentity().principal();
+        var payload = new JournalSessionPayload(session.queryId(),
+                session.tenantId() != null ? session.tenantId() : "", principal);
         try {
-            String principal = session.userIdentity() == null ? "anonymous" : session.userIdentity().principal();
-            return JsonMapperFactory.writer().writeValueAsString(new JournalSessionPayload(session.queryId(),
-                    session.tenantId() != null ? session.tenantId() : "", principal));
-        } catch (com.fasterxml.jackson.core.JsonProcessingException failure) {
+            return CanonicalJsonMapper.writeValueAsStringUnchecked(payload);
+        } catch (UncheckedIOException failure) {
             throw new IllegalStateException(
-                    "Query journal session serialization failed before event transfer", failure);
+                    "Query journal session serialization failed before event transfer", failure.getCause());
         }
     }
 
-    /** Reads only the principal captured by the canonical admission of this exact query. */
+    /** Reads the principal only for the exact query captured by admission. */
     public static Optional<String> admittedPrincipal(String queryId, String payload) {
-        if (payload == null) return Optional.empty();
-        try {
-            var session = JsonMapperFactory.shared().readTree(payload);
-            if (session == null || !queryId.equals(session.path("queryId").textValue())) return Optional.empty();
-            return Optional.ofNullable(session.path("principal").textValue()).filter(value -> !value.isBlank());
-        } catch (com.fasterxml.jackson.core.JsonProcessingException malformed) {
-            return Optional.empty();
-        }
+        return CanonicalJsonMapper.readObjectTextFields(payload)
+                .filter(fields -> queryId.equals(fields.get("queryId")))
+                .map(fields -> fields.get("principal"))
+                .filter(principal -> !principal.isBlank());
     }
 }

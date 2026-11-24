@@ -1,4 +1,4 @@
-package org.pangrova.planner.analysis;
+package org.pangrova.planner.exchange;
 
 import io.substrait.extension.ExtensionCollector;
 import io.substrait.proto.NamedStruct;
@@ -8,7 +8,7 @@ import org.apache.calcite.rel.core.AggregateCall;
 import org.apache.calcite.rel.logical.LogicalAggregate;
 import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.sql.type.SqlTypeName;
-import org.pangrova.planner.substrait.TypeMapper;
+import org.pangrova.planner.type.DecimalTypeMapping;
 import org.pangrova.protocol.function.catalog.FunctionCatalogView;
 import org.pangrova.protocol.function.declaration.FunctionBindingDeclarations;
 import org.pangrova.protocol.v2.FunctionKind;
@@ -18,9 +18,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.function.Supplier;
 
-final class DecimalAggregateExchange {
-    private static final TypeMapper TYPES = new TypeMapper();
-
+/** Selects a compatible binary state for distributed decimal aggregates. */
+public final class DecimalAggregateExchange {
     private static final int DECIMAL_BYTES = 16;
     // Each global partial Driver can publish one independent Arrow page.
     // Charge its schema, record-batch framing and per-field metadata in
@@ -30,7 +29,8 @@ final class DecimalAggregateExchange {
 
     private DecimalAggregateExchange() {}
 
-    static List<AggregateExchangeBinding> select(LogicalAggregate aggregate,
+    /** Selects bindings when the exchange can reduce Native input traffic. */
+    public static List<AggregateExchangeBinding> select(LogicalAggregate aggregate,
             Supplier<List<FunctionCatalogView>> catalogueSource, int producers, int maxDrivers) {
         var calls = aggregate.getAggCallList();
         if (producers <= 1 || maxDrivers <= 0 || aggregate.getGroupCount() != 0
@@ -68,7 +68,9 @@ final class DecimalAggregateExchange {
         for (var call : calls) {
             var inputType = inputFields.get(call.getArgList().get(0)).getType();
             var raw = NamedStruct.newBuilder().addNames("argument_0")
-                    .setStruct(Type.Struct.newBuilder().addTypes(converter.toProto(TYPES.map(inputType)))).build();
+                    .setStruct(Type.Struct.newBuilder()
+                            .addTypes(converter.toProto(DecimalTypeMapping.toSubstrait(inputType))))
+                    .build();
             var kind = FunctionKind.FUNCTION_KIND_AGGREGATE;
             var declaration = FunctionBindingDeclarations.sqlBinding(kind, "", call.getAggregation().getKind().name())
                     .orElseThrow();

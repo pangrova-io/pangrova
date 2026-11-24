@@ -2,7 +2,7 @@ package org.pangrova.planner.substrait;
 
 import org.pangrova.planner.exception.SubstraitConversionException;
 import org.pangrova.planner.extension.EnforceSingleRowRelDetail;
-import org.pangrova.planner.analysis.StageAggregate;
+import org.pangrova.planner.exchange.StageAggregate;
 import org.pangrova.protocol.v2.AggregatePhaseDetail;
 import org.pangrova.protocol.v2.AggregatePhaseMeasure;
 

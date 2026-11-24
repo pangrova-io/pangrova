@@ -12,7 +12,7 @@ import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.testinfra.SourceFreeQueryFixture;
 import org.pangrova.execution.authority.StageExecutionContext;
 import org.pangrova.query.profiling.OperatorStatsSource.DownstreamPreparation;
-import org.pangrova.query.profiling.OperatorStatsSource.PreparationOutcome;
+import org.pangrova.query.profiling.enums.PreparationOutcome;
 
 import java.util.List;
 import java.util.Map;

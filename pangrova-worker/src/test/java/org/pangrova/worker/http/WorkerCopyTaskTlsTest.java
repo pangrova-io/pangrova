@@ -251,7 +251,7 @@ class WorkerCopyTaskTlsTest {
                 .setSourceCommandSha256(task.getCopySourceStagingCommandSha256())
                 .setResourceGrant(task.getResourceGrant().toBuilder().clearNativeMemoryBytes().setJvmHeapBytes(1024 * 1024))
                 .build();
-        return JsonMapperFactory.shared().writeValueAsBytes(org.pangrova.protocol.rest.copy.PrepareCopySourceRequest
+        return JsonMapperFactory.shared().writeValueAsBytes(org.pangrova.protocol.rest.copy.preparation.PrepareCopySourceRequest
                 .from(preparation, nativeRequest.copySourceRead()));
     }
 

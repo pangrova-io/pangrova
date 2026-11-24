@@ -1,5 +1,6 @@
 package org.pangrova.worker.http.endpoint;
 
+import org.pangrova.worker.exception.TaskBodyTooLargeException;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
 import static org.pangrova.common.util.Preconditions.checkNotNull;
@@ -185,8 +186,6 @@ public final class TaskResource implements Closeable {
         return CompletableFuture.completedFuture(rejectSubmit(
                 Response.Status.REQUEST_ENTITY_TOO_LARGE.getStatusCode(), "Task submission exceeds the HTTP limit"));
     }
-
-    private static final class TaskBodyTooLargeException extends RuntimeException {}
 
     private CompletionStage<Response> submitTask(
             SubmitTaskRequest request, TaskManager.TaskBodyAdmission body, boolean secureTransport) {

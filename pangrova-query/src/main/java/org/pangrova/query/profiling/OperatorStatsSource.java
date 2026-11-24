@@ -1,5 +1,9 @@
 package org.pangrova.query.profiling;
 
+import org.pangrova.query.profiling.enums.DispatchPhase;
+import org.pangrova.query.profiling.enums.PreparationOutcome;
+import org.pangrova.query.profiling.enums.RuntimeFilterOutcome;
+
 import java.util.List;
 
 /** Supplies the latest measured counters for each retained Native task attempt. */
@@ -42,14 +46,6 @@ public interface OperatorStatsSource {
     record DownstreamPreparation(long submittedNanos, Long startedNanos, Long finishedNanos,
             PreparationOutcome outcome) {}
 
-    enum PreparationOutcome {
-        QUEUED, RUNNING, COMPLETED, SKIPPED, FAILED, REJECTED
-    }
-
-    enum DispatchPhase {
-        SERIALIZE_PLAN, ENUMERATE_SPLITS, VALIDATE_AND_BIND_PLAN, SUBMIT_TASKS, OBSERVE_COHORT_ACK
-    }
-
     /** A completed interval measured on the graph's Coordinator, with an item count where applicable. */
     record StageDispatchWork(int stageId, int generation, DispatchPhase phase, long startedNanos,
             long finishedNanos, Integer itemCount, boolean successful) {}
@@ -57,10 +53,6 @@ public interface OperatorStatsSource {
     /** Outcome of the sole cross-stage build gate used before enumerating this probe. */
     record RuntimeFilterWait(int buildStageId, int probeStageId, int probeGeneration,
             long startedNanos, long finishedNanos, RuntimeFilterOutcome outcome, int rangeCount) {}
-
-    enum RuntimeFilterOutcome {
-        APPLIED, EMPTY_BUILD, MISSING_SUMMARY, TIMED_OUT, QUERY_TERMINATED
-    }
 
     /** Coordinates and counters from the latest retained report for one exact attempt. */
     record Attempt(

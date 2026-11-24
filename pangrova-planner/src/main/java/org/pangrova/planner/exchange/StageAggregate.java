@@ -1,4 +1,4 @@
-package org.pangrova.planner.analysis;
+package org.pangrova.planner.exchange;
 
 import com.google.common.collect.ImmutableList;
 import io.substrait.proto.AggregationPhase;
@@ -19,7 +19,8 @@ public final class StageAggregate extends SingleRel {
     private final ImmutableList<AggregateExchangeBinding> bindings;
     private final RelDataType outputType;
 
-    StageAggregate(RelTraitSet traits, RelNode input, List<AggregateCall> calls, RelDataType outputType,
+    /** Creates a typed aggregate stage for the selected phase. */
+    public StageAggregate(RelTraitSet traits, RelNode input, List<AggregateCall> calls, RelDataType outputType,
             AggregationPhase phase, List<AggregateExchangeBinding> bindings) {
         super(input.getCluster(), traits, input);
         if (phase != AggregationPhase.AGGREGATION_PHASE_INITIAL_TO_INTERMEDIATE

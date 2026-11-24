@@ -1,4 +1,4 @@
-package org.pangrova.protocol.rest.copy;
+package org.pangrova.protocol.rest.copy.preparation;
 
 import org.pangrova.common.util.DigestUtils;
 

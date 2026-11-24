@@ -7,6 +7,7 @@ import org.pangrova.query.api.enums.QueryState;
 import org.pangrova.query.api.exception.QueryRejectedException;
 import org.pangrova.query.api.submission.AsyncSubmitConfig;
 import org.pangrova.query.api.session.QuerySession;
+import org.pangrova.query.runtime.enums.SubmissionReadiness;
 
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletionException;
@@ -54,11 +55,11 @@ final class QueryAsyncSubmission {
         var endpoint = state.resultEndpointReady();
         var write = state.writeDispatchReady();
         var terminal = state.terminalStateReady();
-        endpoint.thenRun(() -> context.ready().complete(Readiness.READY));
-        write.thenRun(() -> context.ready().complete(Readiness.READY));
+        endpoint.thenRun(() -> context.ready().complete(SubmissionReadiness.READY));
+        write.thenRun(() -> context.ready().complete(SubmissionReadiness.READY));
         terminal.thenAccept(current -> {
             if ((current == QueryState.FAILED && state.getError().isPresent()) || current == QueryState.CANCELLED) {
-                context.ready().complete(Readiness.READY);
+                context.ready().complete(SubmissionReadiness.READY);
             }
         });
         context.ready().whenComplete((ready, failure) -> {
@@ -68,13 +69,13 @@ final class QueryAsyncSubmission {
         });
         try {
             var timeout = context.ready().isDone() ? null : deadlines.schedule(
-                    () -> { context.ready().complete(Readiness.TIMED_OUT); },
+                    () -> { context.ready().complete(SubmissionReadiness.TIMED_OUT); },
                     config.submitTimeoutMs(), TimeUnit.MILLISECONDS);
             var receipt = context.ready().thenApply(readiness -> {
                 if (timeout != null) timeout.cancel(false);
                 return buildReceipt(context, dispatch, readiness);
             });
-            return new Pending(receipt, () -> context.ready().complete(Readiness.INTERRUPTED));
+            return new Pending(receipt, () -> context.ready().complete(SubmissionReadiness.INTERRUPTED));
         } catch (RejectedExecutionException stopping) {
             dispatch.cancel(true);
             context.ready().completeExceptionally(stopping);
@@ -82,8 +83,8 @@ final class QueryAsyncSubmission {
         }
     }
 
-    private QuerySubmissionResult buildReceipt(Context context, Future<?> dispatch, Readiness readiness) {
-        if (readiness == Readiness.TIMED_OUT) {
+    private QuerySubmissionResult buildReceipt(Context context, Future<?> dispatch, SubmissionReadiness readiness) {
+        if (readiness == SubmissionReadiness.TIMED_OUT) {
             try {
                 fail(context, "QUERY_TIMEOUT", "ASYNC_SUBMIT_TIMEOUT",
                         "Result endpoint or write dispatch was not ready before submit timeout",
@@ -94,7 +95,7 @@ final class QueryAsyncSubmission {
             throw new PangrovaException(PangrovaErrorCode.RUNTIME_QUERY_TIMEOUT,
                     "Result endpoint or write dispatch was not ready before submit timeout: " + context.queryId());
         }
-        if (readiness == Readiness.INTERRUPTED) {
+        if (readiness == SubmissionReadiness.INTERRUPTED) {
             try {
                 fail(context, "QUERY_CANCELLED", "ASYNC_SUBMIT_INTERRUPTED",
                         "Query submission was interrupted", "async_submit_interrupted");
@@ -152,7 +153,7 @@ final class QueryAsyncSubmission {
             }
         } finally {
             LogContext.restore(previousLogContext);
-            context.ready().complete(Readiness.READY);
+            context.ready().complete(SubmissionReadiness.READY);
         }
     }
 
@@ -228,9 +229,7 @@ final class QueryAsyncSubmission {
         }
     }
 
-    private enum Readiness { READY, TIMED_OUT, INTERRUPTED }
-
     private record Context(
             String queryId, String sql, QuerySession session, QueryStateMachine state,
-            CompletableFuture<Readiness> ready, AtomicReference<Throwable> failure) { }
+            CompletableFuture<SubmissionReadiness> ready, AtomicReference<Throwable> failure) { }
 }

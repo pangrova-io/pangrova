@@ -10,7 +10,7 @@ import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.planner.analysis.StageRuntimeFilter;
 import org.pangrova.query.api.stage.StageCompletionCallback.BuildKeyRange;
-import org.pangrova.query.profiling.OperatorStatsSource.RuntimeFilterOutcome;
+import org.pangrova.query.profiling.enums.RuntimeFilterOutcome;
 
 /** Bounds the delay before the single eligible probe root enumerates its pinned splits. */
 public final class BuildFilterGate {

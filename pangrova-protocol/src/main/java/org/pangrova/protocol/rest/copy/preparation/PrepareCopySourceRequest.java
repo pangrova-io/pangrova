@@ -1,10 +1,11 @@
-package org.pangrova.protocol.rest.copy;
+package org.pangrova.protocol.rest.copy.preparation;
 
 import org.pangrova.protocol.checksum.ProtocolChecksums;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.protobuf.InvalidProtocolBufferException;
+import org.pangrova.protocol.rest.copy.CopySourceReadHttp;
 import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.protocol.v2.SourcePreparationRequest;
 

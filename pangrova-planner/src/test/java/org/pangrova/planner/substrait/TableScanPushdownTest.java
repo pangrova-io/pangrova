@@ -13,6 +13,8 @@ import org.apache.calcite.sql.type.SqlTypeName;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -31,16 +33,16 @@ class TableScanPushdownTest {
     }
 
     @Test
-    void selectSubsetColumnsProducesProjectOverNamedScan() {
+    void selectSubsetColumnsUsesNamedScanOutputMapping() {
         PlanResult result = planner.plan("SELECT A, B FROM T");
         Plan plan = converter.convert(result.plan());
 
         Rel root = plan.getRoots().get(0).getInput();
-        NamedScan scan = findNamedScan(root);
-        assertThat(scan).isNotNull();
-        assertThat(root).isInstanceOf(io.substrait.relation.Project.class);
-        io.substrait.relation.Project project = (io.substrait.relation.Project) root;
-        assertThat(project.getExpressions()).hasSize(2);
+        assertThat(root).isInstanceOfSatisfying(NamedScan.class, scan -> {
+            assertThat(scan.getRemap()).contains(Rel.Remap.of(List.of(0, 1)));
+            assertThat(scan.getInitialSchema().names()).containsExactly("A", "B", "C", "D");
+            assertThat(scan.getRecordType().fields()).hasSize(2);
+        });
     }
 
     @Test

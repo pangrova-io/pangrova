@@ -5,7 +5,7 @@ import org.pangrova.worker.exception.CopySourceReadRejectedException;
 import org.pangrova.common.util.DigestUtils;
 import org.pangrova.protocol.rest.copy.CopySourceReadHttp;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
-import org.pangrova.protocol.rest.copy.PrepareCopySourceRequest;
+import org.pangrova.protocol.rest.copy.preparation.PrepareCopySourceRequest;
 import org.pangrova.protocol.v2.SourcePreparationResult;
 import org.pangrova.protocol.v2.PreparedFileSource;
 import org.pangrova.protocol.v2.ExecutionError;
