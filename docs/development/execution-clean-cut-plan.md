@@ -669,6 +669,8 @@ gRPC 单块输入直接复用已校验的 Protobuf payload 和摘要。多块输
 
 补充验证覆盖 SDK 缓存包装器中已过期的快照、当前 owner 变化、历史声明和快照 pin 生命周期。修正本地 Maven 进程的 UTF-8 locale 后，最终代码的 Iceberg 包内 301 项测试和独立双 Worker E2E 通过。
 
+Iceberg 在读绑定阶段验证历史声明及其相邻版本文件，分片枚举继续复核当前表与已选快照，直接从快照的 schema ID 取物理列。含真实 Parquet 文件、列重命名和后续元数据提交的 SDK 对照中，绑定读取 5 份历史元数据，分片阶段的历史元数据读取从 5 次降到 0 次。分片仍携带原快照 ID。Iceberg 模块 416 项测试和 macOS arm64 角色包 43 项端到端测试通过，覆盖实际时间旅行、分支和标签、双 Worker Shuffle 与 PostgreSQL 查询预算。739 项角色清单 SHA-256 为 `3c31c4c2323e1d8383ded1f9c4b204a423ac6c4d0221d6f5da58c64b7571b9e3`。
+
 实施批次 2 移除了 split pull HTTP 路由、Worker 客户端、配置和租约回收器。Worker 拓扑直接更新缓存亲和放置。真实 Coordinator 上两个旧 POST 路由都返回 404，放置、启动、取消和 Shuffle 回收定向测试通过。实时 Stage 在签发前校验整组 split，之后复用已解析的 Protobuf 与冻结的 Substrait 字节和摘要。持久任务使用从已认领分区解析出的同一份 split 绑定产物和构造请求。任务封装与绑定的 51 项定向用例、真实独立双 Worker 的 Join 和全局 Top-K E2E、基准工具的 113 项测试均通过。SF100/SF1000 仍需专用环境中的跨引擎测量。
 
 双 Worker 用例的读查询涉及 3 张 Iceberg 表。首个 Stage 派发前，日志中有 28 次 Iceberg SDK 加载表调用，整个读查询窗口有 36 次，每表 12 次。调用日志暂未给出实际 PostgreSQL SELECT 次数，下一轮用连接级 SQL 计数确定哪些加载跨过了存储边界，并从绑定、快照、统计与 split 枚举逐项归因。

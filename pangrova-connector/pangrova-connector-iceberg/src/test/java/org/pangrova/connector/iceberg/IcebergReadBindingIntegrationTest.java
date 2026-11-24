@@ -2,6 +2,8 @@ package org.pangrova.connector.iceberg;
 
 import org.pangrova.protocol.source.CanonicalConnectorSplit;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.iceberg.CatalogProperties;
+import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
@@ -11,6 +13,8 @@ import org.apache.iceberg.data.GenericRecord;
 import org.apache.iceberg.data.Record;
 import org.apache.iceberg.data.parquet.GenericParquetWriter;
 import org.apache.iceberg.hadoop.HadoopCatalog;
+import org.apache.iceberg.hadoop.HadoopFileIO;
+import org.apache.iceberg.io.InputFile;
 import org.apache.iceberg.parquet.Parquet;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Test;
@@ -21,6 +25,7 @@ import org.pangrova.connector.iceberg.read.IcebergExpressionToSubstrait;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
 import org.pangrova.connector.api.metadata.Constraint;
+import org.pangrova.connector.api.metadata.ConnectorSplitSource;
 import org.pangrova.connector.api.metadata.DynamicFilter;
 import org.pangrova.connector.api.metadata.table.ConnectorReadBinding;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
@@ -30,7 +35,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -173,6 +181,41 @@ class IcebergReadBindingIntegrationTest {
             assertThat(historical.schemaIdentity().orElseThrow().fields()).hasSize(1);
             assertThat(splits(catalog, current)).hasSize(1);
             assertThat(splits(catalog, historical)).hasSize(1);
+        }
+    }
+
+    @Test
+    void boundHistoricalSplitDoesNotReopenDeclarationHistory() throws Exception {
+        try (var catalog = new HadoopCatalog()) {
+            catalog.setConf(new Configuration());
+            catalog.initialize("bound", Map.of(CatalogProperties.WAREHOUSE_LOCATION, warehouse.toString(),
+                    CatalogProperties.FILE_IO_IMPL, CountingFileIO.class.getName()));
+            catalog.createNamespace(Namespace.of("db"));
+            Table table = create(catalog, "historical");
+            write(table, 2);
+            long snapshotId = table.currentSnapshot().snapshotId();
+            table.updateSchema().renameColumn("id", "current_id").commit();
+            for (int i = 0; i < 3; i++) {
+                table.updateProperties().set("test.revision", Integer.toString(i)).commit();
+            }
+            table.refresh();
+            Set<String> predecessors = ((HasTableOperations) table).operations().current().previousFiles().stream()
+                    .map(entry -> entry.file()).collect(Collectors.toUnmodifiableSet());
+            var io = (CountingFileIO) table.io();
+            var metadata = new IcebergMetadata(catalog, "bound");
+            var live = metadata.getTableHandle(SESSION, new SchemaTableName("db", "historical"));
+            long beforeBinding = io.reads(predecessors);
+            var binding = metadata.bindRead(SESSION, live.withTimeTravelSnapshot(snapshotId));
+            assertThat(binding.declaration().requireExactDeclaration().columns()).containsExactly("id");
+            long afterBinding = io.reads(predecessors);
+            assertThat(afterBinding - beforeBinding).isEqualTo(5L);
+
+            var manager = new IcebergSplitManager("bound", catalog, new IcebergExpressionToSubstrait());
+            var planned = drainSplits(manager.getBoundSplits(ConnectorTransactionHandle.empty(), SESSION,
+                    metadata, binding, DynamicFilter.ALL, Constraint.EMPTY));
+            assertThat(planned).singleElement()
+                    .satisfies(split -> assertThat(split.getSourceSnapshot()).isEqualTo(Long.toString(snapshotId)));
+            assertThat(io.reads(predecessors) - afterBinding).isZero();
         }
     }
 
@@ -376,8 +419,11 @@ class IcebergReadBindingIntegrationTest {
     private static List<org.pangrova.protocol.v2.DataSplit> splits(HadoopCatalog catalog,
             ConnectorReadBinding binding) throws Exception {
         var manager = new IcebergSplitManager("bound", catalog, new IcebergExpressionToSubstrait());
-        var source = manager.getSplits(ConnectorTransactionHandle.empty(), SESSION, binding.handle(),
-                DynamicFilter.ALL, Constraint.EMPTY);
+        return drainSplits(manager.getSplits(ConnectorTransactionHandle.empty(), SESSION, binding.handle(),
+                DynamicFilter.ALL, Constraint.EMPTY));
+    }
+
+    private static List<org.pangrova.protocol.v2.DataSplit> drainSplits(ConnectorSplitSource source) throws Exception {
         List<org.pangrova.protocol.v2.DataSplit> result = new ArrayList<>();
         try {
             while (!source.isFinished()) {
@@ -389,5 +435,19 @@ class IcebergReadBindingIntegrationTest {
             source.close();
         }
         return result;
+    }
+
+    public static final class CountingFileIO extends HadoopFileIO {
+        private final ConcurrentLinkedQueue<String> reads = new ConcurrentLinkedQueue<>();
+
+        @Override
+        public InputFile newInputFile(String path) {
+            reads.add(path);
+            return super.newInputFile(path);
+        }
+
+        long reads(Set<String> locations) {
+            return reads.stream().filter(locations::contains).count();
+        }
     }
 }
