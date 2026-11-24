@@ -257,13 +257,11 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
         long tableReadsBefore = statementCalls(tableNameTemplate);
         String admissionTemplate = "SELECT control.*, catalog.incarnation_id AS observed_catalog_incarnation%";
         long readAdmissionBefore = statementCalls(admissionTemplate);
-        String joinedTemplate = "WITH read_target(catalog_name, schema_name, table_name) AS (%"
-                + "FROM table_control_registry%FROM row_policy%FROM column_mask%FROM table_control_governance_binding%";
         String fullOwnerTemplate = "SELECT table_id, catalog_name, schema_name, table_name,%"
                 + "FROM table_control_registry WHERE table_id%$1";
         String compactOwnerTemplate = "SELECT %FROM table_control_name_reservation reservation%"
                 + "JOIN table_control_registry control%JOIN catalog_definitions catalog%";
-        long joinedBefore = statementCalls(joinedTemplate);
+        long joinedBefore = statementCalls(READ_POLICY_SNAPSHOT);
         long fullOwnerBefore = statementCalls(fullOwnerTemplate);
         long compactOwnerBefore = statementCalls(compactOwnerTemplate);
         long identityBefore = statementCalls(identityTemplate);
@@ -281,7 +279,7 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
                 .as("separate table registration reads for one physical query").isZero();
         assertThat(statementCalls(admissionTemplate) - readAdmissionBefore)
                 .as("joined table and catalog admissions for one physical query").isOne();
-        assertThat(statementCalls(joinedTemplate) - joinedBefore)
+        assertThat(statementCalls(READ_POLICY_SNAPSHOT) - joinedBefore)
                 .as("authoritative table policy snapshot reads for one physical query").isOne();
         assertThat(statementCalls(fullOwnerTemplate) - fullOwnerBefore)
                 .as("complete table control records used for current owner checks").isZero();

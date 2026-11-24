@@ -55,9 +55,6 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
             "SELECT registered.role_name FROM pangrova_roles registered%";
     private static final String INDEPENDENT_GRANT_LOOKUP =
             "SELECT grant_id, role_name, privilege,%FROM security_grants WHERE role_name = ANY%";
-    private static final String READ_POLICY_SNAPSHOT =
-            "WITH read_target(catalog_name, schema_name, table_name, target_ordinal) AS (%JOIN table_control_registry%"
-                    + "FROM row_policy%FROM column_mask%FROM table_control_governance_binding%";
     private static final String READ_POLICIES_LOOKUP =
             "WITH read_target(table_id, catalog_name, schema_name, table_name) AS (%UNION ALL%";
     private static final String INDEPENDENT_ROW_POLICY_LOOKUP =
