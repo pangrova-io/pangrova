@@ -54,20 +54,9 @@ public interface ConnectorSplit {
                 connectorProps.isEmpty() ? Map.of() : Map.copyOf(connectorProps));
     }
 
-    /**
-     * Returns the serialized SplitInfo proto bytes for native engine dispatch.
-     *
-     * <p>Connectors must override this method to build a {@code SplitInfo} proto
-     * message directly for native engine consumption.</p>
-     *
-     * <p>The default implementation returns an empty byte array. Callers should
-     * check {@code length > 0} and reject splits that do not implement proto
-     * serialization.</p>
-     *
-     * @return serialized SplitInfo proto bytes, or empty array if not implemented
-     */
-    default byte[] toSplitInfoProto() {
-        return new byte[0];
+    /** Estimates bytes read by this split for scheduling. Zero represents an unknown estimate. */
+    default long estimatedScanBytes() {
+        return Math.max(0L, typedSplitProperties().length());
     }
 
     /**

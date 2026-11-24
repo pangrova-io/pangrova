@@ -3,6 +3,8 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <string_view>
+#include <unordered_map>
 
 #include "pangrova/protocol/v2/capability.pb.h"
 #include "velox/expression/FunctionRegistrySnapshot.h"
@@ -29,10 +31,13 @@ class FunctionCatalogPublication final {
 
   const std::shared_ptr<const Registry>& registry() const { return registry_; }
   const protocol::v2::CapabilityInventory& inventory() const { return inventory_; }
+  const protocol::v2::RegisteredFunctionContract* aggregateRegistration(std::string_view name) const;
 
  private:
   const std::shared_ptr<const Registry> registry_;
   const protocol::v2::CapabilityInventory inventory_;
+  const std::unordered_map<std::string_view, const protocol::v2::RegisteredFunctionContract*>
+      aggregate_registrations_;
 };
 
 // One object per actual Native runtime incarnation. There is deliberately no

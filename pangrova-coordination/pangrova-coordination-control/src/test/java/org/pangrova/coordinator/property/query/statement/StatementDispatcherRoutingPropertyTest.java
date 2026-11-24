@@ -223,7 +223,7 @@ class StatementDispatcherRoutingPropertyTest {
         };
 
         var context = new StatementDispatcherContext(
-                null, null, List.of(metadataFactory, planFactory), List.of(), null);
+                null, List.of(metadataFactory, planFactory), List.of(), null);
         return new StatementDispatcher(context);
     }
 }

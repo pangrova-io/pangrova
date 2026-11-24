@@ -19,6 +19,7 @@ import java.time.Clock;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
+import java.util.function.Predicate;
 
 import static org.pangrova.table.identity.TablePhysicalIdentity.hasFormatUuid;
 import static org.pangrova.table.identity.TablePhysicalIdentity.sameIdentity;
@@ -36,6 +37,7 @@ import static org.pangrova.table.identity.TablePhysicalIdentity.withIdentity;
 public final class TableControlService implements TableReadAuthority {
 
     private final TableControlStore store;
+    private final Predicate<TableControlRecord> joinedReadOwner;
     private final TableCatalogAuthority catalogAuthority;
     private final TableRegistrations registrations;
     private final TableRenames renames;
@@ -55,7 +57,15 @@ public final class TableControlService implements TableReadAuthority {
     /** Creates a control authority using live catalog identities and the supplied observation clock. */
     public TableControlService(TableControlStore store, Function<String, CatalogDeploymentIdentity> catalogs,
             TableControlSettings settings, Clock clock) {
+        this(store, catalogs, settings, clock, null);
+    }
+
+    /** Binds the active read-owner check when table and catalog authority share a backend. */
+    public TableControlService(TableControlStore store, Function<String, CatalogDeploymentIdentity> catalogs,
+            TableControlSettings settings, Clock clock,
+            Predicate<TableControlRecord> joinedReadOwner) {
         this.store = store;
+        this.joinedReadOwner = joinedReadOwner;
         this.catalogAuthority = new TableCatalogAuthority(catalogs);
         this.observations = new TableVersionObservations(store, catalogAuthority, settings);
         this.registrations = new TableRegistrations(store, catalogAuthority, settings, clock);
@@ -148,6 +158,11 @@ public final class TableControlService implements TableReadAuthority {
             return;
         }
         requireCurrentCatalog(record, operation);
+        requireMatchingFormatIdentity(record, operation, observedIdentity);
+    }
+
+    private void requireMatchingFormatIdentity(TableControlRecord record, String operation,
+            Optional<TableIdentity> observedIdentity) {
         Optional<TableIdentity> evidence = observedIdentity
                 .filter(TableIdentity::hasFormatUuid);
         if (!hasFormatUuid(record)) {
@@ -197,24 +212,32 @@ public final class TableControlService implements TableReadAuthority {
             throw new AccessDeniedException(operation + " rejected: missing format identity for "
                     + expected.qualifiedName());
         }
-        requireMatchingIdentity(current, operation, identity);
+        requireMatchingFormatIdentity(current, operation, identity);
     }
 
     /** Fences read admission while allowing a selected immutable snapshot to predate a data-version observation. */
     @Override
     public void requireReadIdentity(TableControlRecord expected, Optional<TableIdentity> identity, String operation) {
+        if (hasFormatUuid(expected) && identity.isPresent() && sameIdentity(expected, identity.orElseThrow())) {
+            requireReadOwner(expected, operation);
+            return;
+        }
         TableControlRecord current = currentReadOwner(expected, operation);
         if (!hasFormatUuid(current) || identity.filter(TableIdentity::hasFormatUuid).isEmpty()) {
             throw new AccessDeniedException(operation + " rejected: missing format identity for "
                     + expected.qualifiedName());
         }
-        requireMatchingIdentity(current, operation, identity);
+        requireMatchingFormatIdentity(current, operation, identity);
     }
 
     /** Revalidates a cached binding's captured owner without treating old evidence as a new observation. */
     @Override
     public void requireReadOwner(TableControlRecord expected, String operation) {
-        currentReadOwner(expected, operation);
+        if (joinedReadOwner == null) {
+            currentReadOwner(expected, operation);
+        } else if (!joinedReadOwner.test(expected)) {
+            throw readOwnerChanged(expected, operation);
+        }
     }
 
     private TableControlRecord currentReadOwner(TableControlRecord expected, String operation) {
@@ -228,11 +251,15 @@ public final class TableControlService implements TableReadAuthority {
                 || !current.format().equals(expected.format())
                 || !java.util.Objects.equals(current.formatTableUuid(), expected.formatTableUuid())
                 || !java.util.Objects.equals(current.formatLocation(), expected.formatLocation())) {
-            throw new AccessDeniedException(operation + " rejected: table ownership or namespace changed for "
-                    + expected.qualifiedName() + "; resolve the table again");
+            throw readOwnerChanged(expected, operation);
         }
         requireCurrentCatalog(current, operation);
         return current;
+    }
+
+    private static AccessDeniedException readOwnerChanged(TableControlRecord expected, String operation) {
+        return new AccessDeniedException(operation + " rejected: table ownership or namespace changed for "
+                + expected.qualifiedName() + "; resolve the table again");
     }
 
     /** Rejects destructive DDL (DROP/ALTER) unless the table is MANAGED and ACTIVE. */

@@ -1,10 +1,14 @@
 package org.pangrova.query.lifecycle;
 
+import org.pangrova.common.enums.QueryWaitTarget;
 import org.pangrova.governance.api.enums.LineageEventType;
 import org.pangrova.query.api.enums.QueryState;
 import org.pangrova.query.api.enums.StageState;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.EnumMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -15,11 +19,13 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
+import org.pangrova.common.concurrent.GuardedBy;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.query.api.lifecycle.QueryOperation;
 import org.pangrova.query.api.error.QueryFailure;
+import org.pangrova.query.api.exception.QueryRejectedException;
 import org.pangrova.common.client.result.ResultEndpoint;
 import org.pangrova.query.api.journal.QueryStateEvent;
 
@@ -51,7 +57,8 @@ public class QueryStateMachine {
             QueryState.CANCELLED, Set.of()
     );
 
-    private final AtomicReference<QueryState> state = new AtomicReference<>(QueryState.QUEUED);
+    private volatile Status status = new Status(0, QueryState.QUEUED, null, null, false);
+    private Map<QueryWaitTarget, Set<CompletableFuture<Status>>> statusWaiters;
     private final Instant createdAt = Instant.now();
     private volatile String tenantId;
     private final String auditPrincipal;
@@ -65,18 +72,18 @@ public class QueryStateMachine {
     public org.pangrova.query.api.session.BranchSelection branchSelection() {
         return branchSelection;
     }
-    private final AtomicReference<QueryFailure> error = new AtomicReference<>();
-    private volatile ResultEndpoint resultEndpoint;
     private final CompletableFuture<ResultEndpoint> resultEndpointReady =
             new CompletableFuture<>();
     private final CompletableFuture<Void> writeDispatchReady = new CompletableFuture<>();
     private final CompletableFuture<QueryState> terminalStateReady = new CompletableFuture<>();
     private final CompletableFuture<QueryState> nativeWriteCompletionReady = new CompletableFuture<>();
     private volatile boolean controlPlaneWriteFinalization;
+    private volatile boolean readOnlyTaskExecution;
     private final AtomicBoolean terminalEffectsApplied = new AtomicBoolean();
-    private final AtomicBoolean physicalCleanupApplied = new AtomicBoolean();
     private final AtomicBoolean journalOwnership = new AtomicBoolean();
     private volatile Runnable admissionRelease;
+    @GuardedBy("this")
+    private boolean admissionHealthProbe;
     private final AtomicReference<org.pangrova.query.api.lineage.QueryLineageFact> lineageStart =
             new AtomicReference<>();
     private final AtomicReference<org.pangrova.query.api.lineage.QueryLineageFact> lineageTerminal =
@@ -122,6 +129,9 @@ public class QueryStateMachine {
     /** Admission owner installs its exact release obligation before attempting acquisition. */
     public void retainAdmissionRelease(Runnable release) { admissionRelease = release; }
 
+    /** Clears the tentative release after admission confirms this request owns no reservation. */
+    public void discardUnacquiredAdmission() { admissionRelease = null; }
+
     /** Serialized admission/cleanup owner releases the reservation; failure retains it for retry. */
     public void releaseAdmission() {
         Runnable release = admissionRelease;
@@ -132,9 +142,19 @@ public class QueryStateMachine {
     }
 
     /** Claims bookkeeping once, only after the cleanup owner has completed physical release. */
-    public boolean claimPhysicalCleanup() { return physicalCleanupApplied.compareAndSet(false, true); }
+    public boolean claimPhysicalCleanup() {
+        StatusChange change;
+        synchronized (this) {
+            Status previous = status;
+            if (previous.drained()) return false;
+            change = publishStatus(previous.state(), previous.error(), previous.endpoint(), true);
+        }
+        change.notifyWaiters();
+        return true;
+    }
+
     /** Logical termination alone never sets this physical completion evidence. */
-    public boolean physicalCleanupApplied() { return physicalCleanupApplied.get(); }
+    public boolean physicalCleanupApplied() { return status.drained(); }
     /** Journal owner records an accepted admission, including an outcome requiring confirmation. */
     public void retainJournalOwnership() { journalOwnership.set(true); }
     /** Whether this query retains responsibility for a potentially accepted journal admission. */
@@ -260,7 +280,7 @@ public class QueryStateMachine {
     }
 
     private boolean tryTransition(QueryState target, QueryFailure failureError) {
-        if (!TRANSITIONS.getOrDefault(state.get(), Set.of()).contains(target)) return false;
+        if (!TRANSITIONS.getOrDefault(status.state(), Set.of()).contains(target)) return false;
         boolean terminal = TRANSITIONS.getOrDefault(target, Set.of()).isEmpty();
         boolean executionOwned = !terminal || awaitOwnership();
         if (!executionOwned && target != QueryState.FAILED) return false;
@@ -268,7 +288,7 @@ public class QueryStateMachine {
         try {
             operation = transitionOperations == null ? null : transitionOperations.get();
         } catch (IllegalStateException closedAdmission) {
-            if (!TRANSITIONS.getOrDefault(state.get(), Set.of()).contains(target)) return false;
+            if (!TRANSITIONS.getOrDefault(status.state(), Set.of()).contains(target)) return false;
             throw closedAdmission;
         }
         try {
@@ -291,7 +311,7 @@ public class QueryStateMachine {
 
     private synchronized Transition reserveTransition(QueryState target) {
         if (terminalTransitionPending != null) return new Transition(null, terminalTransitionPending);
-        QueryState previous = state.get();
+        QueryState previous = status.state();
         if (!TRANSITIONS.getOrDefault(previous, Set.of()).contains(target)) return null;
         var pending = new CompletableFuture<Void>();
         Transition decision = new Transition(previous, pending);
@@ -316,13 +336,17 @@ public class QueryStateMachine {
             decision.pending().complete(null);
             throw failure;
         }
+        StatusChange change;
         synchronized (this) {
-            if (target == QueryState.FAILED && failureError != null) error.compareAndSet(null, failureError);
-            state.set(target);
+            Status previous = status;
+            QueryFailure failure = previous.error();
+            if (target == QueryState.FAILED && failure == null) failure = failureError;
+            change = publishStatus(target, failure, previous.endpoint(), previous.drained());
             terminalTransitionPending = null;
             pendingTransitionTarget = null;
         }
         decision.pending().complete(null);
+        change.notifyWaiters();
         if (TRANSITIONS.getOrDefault(target, Set.of()).isEmpty()) {
             terminalStateReady.complete(target);
             nativeWriteCompletionReady.complete(target);
@@ -357,11 +381,11 @@ public class QueryStateMachine {
     }
 
     public QueryState getState() {
-        return state.get();
+        return status.state();
     }
 
     public boolean isTerminal() {
-        return TRANSITIONS.getOrDefault(state.get(), Set.of()).isEmpty();
+        return TRANSITIONS.getOrDefault(status.state(), Set.of()).isEmpty();
     }
 
     /** Completes when the logical query, including its write commit, reaches a terminal state. */
@@ -408,6 +432,11 @@ public class QueryStateMachine {
         return auditPrincipal;
     }
 
+    /** Compares the exact submitting principal with an authenticated caller. */
+    public boolean isOwnedBy(String principal) {
+        return principal != null && !principal.isBlank() && principal.equals(auditPrincipal);
+    }
+
     /** Sets the tenant identifier for per-tenant quota filtering. */
     public void setTenantId(String tenantId) {
         this.tenantId = tenantId;
@@ -419,35 +448,117 @@ public class QueryStateMachine {
     }
 
     public Optional<QueryFailure> getError() {
-        return Optional.ofNullable(error.get());
+        return Optional.ofNullable(status.error());
     }
 
     /**
-     * Sets the error detail. Uses {@code compareAndSet(null, error)} to ensure
-     * only the first error is recorded — subsequent calls are no-ops. This
-     * prevents a later error from overwriting the original failure trigger
-     * when multiple failure paths race (e.g., stage failure + timeout).
+     * Records the first error detail when multiple failure paths race.
      */
     public void setError(QueryFailure errorDetail) {
-        error.compareAndSet(null, errorDetail);
+        if (errorDetail == null) return;
+        StatusChange change;
+        synchronized (this) {
+            Status previous = status;
+            if (previous.error() != null) return;
+            change = publishStatus(previous.state(), errorDetail, previous.endpoint(), previous.drained());
+        }
+        change.notifyWaiters();
     }
 
     public Optional<ResultEndpoint> getResultEndpoint() {
-        return Optional.ofNullable(resultEndpoint);
+        return Optional.ofNullable(status.endpoint());
     }
 
+    /** Publishes changed result authority in the same status version as the current query state. */
     public void setResultEndpoint(ResultEndpoint resultEndpoint) {
-        this.resultEndpoint = java.util.Objects.requireNonNull(
-                resultEndpoint, "resultEndpoint must not be null");
+        java.util.Objects.requireNonNull(resultEndpoint, "resultEndpoint must not be null");
+        StatusChange change;
+        synchronized (this) {
+            Status previous = status;
+            if (resultEndpoint.equals(previous.endpoint())) return;
+            change = publishStatus(previous.state(), previous.error(), resultEndpoint, previous.drained());
+        }
         completeResultEndpointReadiness();
+        change.notifyWaiters();
     }
 
     private void completeResultEndpointReadiness() {
-        ResultEndpoint endpoint = resultEndpoint;
-        QueryState current = state.get();
+        Status snapshot = status;
+        ResultEndpoint endpoint = snapshot.endpoint();
+        QueryState current = snapshot.state();
         if (endpoint != null && (current == QueryState.RUNNING
                 || current == QueryState.FINISHING || current == QueryState.FINISHED)) {
             resultEndpointReady.complete(endpoint);
+        }
+    }
+
+    /** Coherent state, result authority and physical-release evidence for one query owner. */
+    public record Status(long version, QueryState state, QueryFailure error, ResultEndpoint endpoint,
+                         boolean drained) {
+        /** Checks whether this owner projection can satisfy the client's requested continuation. */
+        public boolean reaches(QueryWaitTarget target, long observedVersion) {
+            boolean terminal = TRANSITIONS.get(state).isEmpty();
+            return switch (target) {
+                case NEXT_VERSION -> version != observedVersion;
+                case RESULT_OR_TERMINAL -> terminal
+                        || (endpoint != null && (state == QueryState.RUNNING || state == QueryState.FINISHING));
+                case TERMINAL -> terminal;
+                case DRAINED -> drained;
+            };
+        }
+    }
+
+    public Status status() {
+        return status;
+    }
+
+    /** Admits a detachable observer in the same section that compares its version. */
+    public synchronized CompletableFuture<Status> awaitStatus(QueryWaitTarget target, long observedVersion) {
+        Status current = status;
+        if (current.reaches(target, observedVersion)) return CompletableFuture.completedFuture(current);
+        var observer = new CompletableFuture<Status>();
+        if (statusWaiters == null) {
+            statusWaiters = new EnumMap<>(QueryWaitTarget.class);
+        }
+        statusWaiters.computeIfAbsent(target, ignored -> new HashSet<>()).add(observer);
+        observer.whenComplete((result, failure) -> removeStatusWaiter(target, observer));
+        return observer;
+    }
+
+    private synchronized void removeStatusWaiter(QueryWaitTarget target, CompletableFuture<Status> observer) {
+        if (statusWaiters == null) return;
+        var waiting = statusWaiters.get(target);
+        if (waiting != null && waiting.remove(observer) && waiting.isEmpty()) statusWaiters.remove(target);
+        if (statusWaiters.isEmpty()) statusWaiters = null;
+    }
+
+    private StatusChange publishStatus(QueryState state, QueryFailure error, ResultEndpoint endpoint,
+            boolean drained) {
+        long previousVersion = status.version();
+        var next = new Status(Math.incrementExact(previousVersion), state, error, endpoint, drained);
+        status = next;
+        if (statusWaiters == null) return StatusChange.UNOBSERVED;
+        List<Set<CompletableFuture<Status>>> released = null;
+        var waiting = statusWaiters.entrySet().iterator();
+        while (waiting.hasNext()) {
+            var entry = waiting.next();
+            if (next.reaches(entry.getKey(), previousVersion)) {
+                if (released == null) released = new ArrayList<>(statusWaiters.size());
+                released.add(entry.getValue());
+                waiting.remove();
+            }
+        }
+        if (statusWaiters.isEmpty()) statusWaiters = null;
+        return released == null ? StatusChange.UNOBSERVED : new StatusChange(released, next);
+    }
+
+    private record StatusChange(List<Set<CompletableFuture<Status>>> waiters, Status status) {
+        private static final StatusChange UNOBSERVED = new StatusChange(List.of(), null);
+
+        void notifyWaiters() {
+            for (var group : waiters) {
+                for (var observer : group) observer.complete(status);
+            }
         }
     }
 
@@ -458,7 +569,7 @@ public class QueryStateMachine {
 
     /** Signals that a resultless write has reached its actual Worker dispatch. */
     public void markWriteDispatchReady() {
-        QueryState current = state.get();
+        QueryState current = status.state();
         if (current == QueryState.RUNNING || current == QueryState.FINISHING || current == QueryState.FINISHED) {
             writeDispatchReady.complete(null);
         }
@@ -472,6 +583,34 @@ public class QueryStateMachine {
     /** True only after the execution owner signals a dispatched write in an executable state. */
     public boolean isWriteDispatchReady() {
         return writeDispatchReady.isDone();
+    }
+
+    /** Records the scheduler's read-only execution before the first task can report. */
+    public void markReadOnlyTaskExecution() {
+        readOnlyTaskExecution = true;
+    }
+
+    /** Requires positive local planning evidence. Recovered executions have no such evidence. */
+    public boolean hasReadOnlyTaskExecution() {
+        return readOnlyTaskExecution;
+    }
+
+    /** Acquires a health probe before dispatch can outlive this local admission. */
+    public synchronized void acquireAdmissionHealthProbe(java.util.function.BooleanSupplier acquire) {
+        if (isTerminal()) {
+            throw new QueryRejectedException("Query ended before admission");
+        }
+        if (admissionHealthProbe) {
+            throw new IllegalStateException("Query already owns an admission health probe");
+        }
+        admissionHealthProbe = acquire.getAsBoolean();
+    }
+
+    /** Transfers this query's health probe to its terminal observer. */
+    public synchronized boolean takeAdmissionHealthProbe() {
+        boolean acquired = admissionHealthProbe;
+        admissionHealthProbe = false;
+        return acquired;
     }
 
     /** Terminal owner claims logical notifications once, after durable terminal recording succeeds. */

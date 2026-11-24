@@ -5,12 +5,16 @@ import org.pangrova.metadata.api.resolution.MetadataService;
 import org.pangrova.metadata.api.session.MetadataSessionContext;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.apache.calcite.jdbc.CalciteSchema;
+import org.apache.calcite.schema.Schema;
 import org.apache.calcite.schema.impl.AbstractSchema;
+import org.apache.calcite.util.LazyReference;
 
 import java.util.List;
 import java.util.Map;
 import java.util.LinkedHashMap;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
+import java.util.function.Supplier;
 
 /**
  * Bridges MetadataService and CatalogReadAccess to Calcite's schema mechanism.
@@ -36,11 +40,9 @@ public final class MetadataSchemaBuilder {
      * Each catalog exposes its schemas as Calcite sub-schemas for table resolution.
      *
      * <p>Uses {@code cache=false} to create a non-caching schema instead of the
-     * default caching variant. The caching variant snapshots table names on first
-     * access and never re-queries the underlying Schema, which prevents newly created
-     * tables from being visible to subsequent queries. With the non-caching variant,
-     * named lookups use the connector's direct table API; explicit table enumeration
-     * uses {@link LazyMetadataSchema#getTableMap()} and honors DDL invalidation.</p>
+     * default caching variant. Each admitted query lazily binds its catalog and
+     * schema names. Unbound metadata sessions continue to observe live namespaces.
+     * Explicit table enumeration honors DDL invalidation.</p>
      */
     public CalciteSchema buildRootSchema(ConnectorSession authenticatedSession) {
         return buildRootSchema(authenticatedSession, catalogRegistry == null ? null
@@ -57,38 +59,36 @@ public final class MetadataSchemaBuilder {
                 null, null, session.getProperties(), session.getProperties().get("tenant_id"), null,
                 session.getQueryAuthority().map(org.pangrova.connector.api.query.ConnectorQueryAuthority::queryId)
                         .orElseGet(() -> session.getProperties().get("queryId")), session.getQueryAuthority());
-        Map<String, org.apache.calcite.schema.Schema> catalogSchemas = new ConcurrentHashMap<>();
-        AbstractSchema root = new AbstractSchema() {
-            @Override
-            protected Map<String, org.apache.calcite.schema.Schema> getSubSchemaMap() {
-                Map<String, org.apache.calcite.schema.Schema> visible = new LinkedHashMap<>();
-                for (String catalog : metadataService.listCatalogs(metadataSession)) {
-                    visible.put(catalog, catalogSchemas.computeIfAbsent(catalog,
-                            name -> catalogSchema(session, metadataSession, name, readBindings)));
-                }
-                return visible;
-            }
-        };
+        AbstractSchema root = schemaWithChildren(session, () -> metadataService.listCatalogs(metadataSession),
+                catalog -> catalogSchema(session, metadataSession, catalog, readBindings));
         return CalciteSchema.createRootSchema(false, false, "", root);
     }
 
     private AbstractSchema catalogSchema(ConnectorSession session, MetadataSessionContext metadataSession,
                                  String catalog, PlanningReadBindings readBindings) {
-        Map<String, org.apache.calcite.schema.Schema> schemaInstances = new ConcurrentHashMap<>();
+        return schemaWithChildren(session, () -> readBindings == null
+                        ? metadataService.listSchemas(metadataSession, catalog) : readBindings.listSchemaNames(catalog),
+                name -> new LazyMetadataSchema(catalog, name, readBindings));
+    }
+
+    private static AbstractSchema schemaWithChildren(ConnectorSession session, Supplier<List<String>> names,
+            Function<String, Schema> createChild) {
+        boolean queryScoped = session.getQueryAuthority().isPresent();
         return new AbstractSchema() {
+            private final LazyReference<Map<String, Schema>> visible = new LazyReference<>();
+            private final Map<String, Schema> instances = new ConcurrentHashMap<>();
+
             @Override
-            protected Map<String, org.apache.calcite.schema.Schema> getSubSchemaMap() {
-                ConnectorSession catalogSession = PlanningConnectorSession.bind(session, catalog, null);
-                List<String> names = catalogRegistry == null
-                        ? metadataService.listSchemas(metadataSession, catalog)
-                        : catalogRegistry.getCatalog(catalog).getMetadata(catalogSession)
-                                .listSchemaNames(catalogSession);
-                Map<String, org.apache.calcite.schema.Schema> visible = new LinkedHashMap<>();
-                for (String name : names) {
-                    visible.put(name, schemaInstances.computeIfAbsent(name,
-                            schema -> new LazyMetadataSchema(catalogRegistry, catalog, schema, session, readBindings)));
+            protected Map<String, Schema> getSubSchemaMap() {
+                return queryScoped ? visible.getOrCompute(this::load) : load();
+            }
+
+            private Map<String, Schema> load() {
+                Map<String, Schema> selected = new LinkedHashMap<>();
+                for (String name : names.get()) {
+                    selected.put(name, instances.computeIfAbsent(name, createChild));
                 }
-                return visible;
+                return java.util.Collections.unmodifiableMap(selected);
             }
         };
     }

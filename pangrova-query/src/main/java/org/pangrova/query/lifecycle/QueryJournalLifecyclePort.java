@@ -16,6 +16,8 @@ public interface QueryJournalLifecyclePort extends QueryStateJournalPort {
 
     Optional<QueryState> lookup(String queryId);
 
+    Optional<QueryState> lookupForPrincipal(String queryId, String principal);
+
     void setOwner(String owner);
 
     void purge(String queryId, QueryStateMachine state);

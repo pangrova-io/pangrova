@@ -2,6 +2,9 @@ package org.pangrova.worker.task.report;
 
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
+
 /**
  * Reports task execution status to the Coordinator.
  *
@@ -11,4 +14,10 @@ import org.pangrova.protocol.rest.task.TaskStatusReport;
 public interface TaskStatusReporter {
 
     void report(TaskStatusReport report);
+
+    /** Completes only after the terminal delivery has been acknowledged. */
+    default CompletionStage<Void> reportTerminal(TaskStatusReport report) {
+        report(report);
+        return CompletableFuture.completedFuture(null);
+    }
 }

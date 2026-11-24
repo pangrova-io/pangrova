@@ -24,8 +24,11 @@ import java.util.function.Function;
 /** Durable stage operations guarded by current authority and the exact backend-issued execution owner. */
 @Internal
 public interface GenerationStageExecutionStore {
-    /** Reads an exact partition after validating its current authority, owner and exchange barriers. */
-    PartitionProgress inspectPartition(GenerationJobKey key, ExecutionAnchor anchor, int stageId, int partitionId);
+    int PARTITION_INSPECTION_WINDOW = 8;
+
+    /** Reads a contiguous, exact window in partition order under one authority and barrier check. */
+    List<PartitionProgress> inspectPartitions(GenerationJobKey key, ExecutionAnchor anchor,
+            int stageId, int firstPartition, int count);
 
     /** Resolves the current job and immutable exchange evidence under the same authority boundary. */
     PreparedExecution prepareExecution(GenerationJobKey key, ExecutionAnchor anchor);

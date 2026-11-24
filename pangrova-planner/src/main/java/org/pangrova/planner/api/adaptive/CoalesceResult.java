@@ -19,6 +19,16 @@ public record CoalesceResult(List<PartitionGroup> groups, int originalCount, int
 
     public CoalesceResult {
         groups = List.copyOf(groups);
+        int nextPartition = 0;
+        for (var group : groups) {
+            if (group.startInclusive() != nextPartition) {
+                throw new IllegalArgumentException("Coalesced ranges must cover each original partition once");
+            }
+            nextPartition = group.endExclusive();
+        }
+        if (nextPartition != originalCount || groups.size() != coalescedCount) {
+            throw new IllegalArgumentException("Coalesced range coverage does not match the partition counts");
+        }
     }
 
     /** Returns true when coalescing reduced the partition count. */

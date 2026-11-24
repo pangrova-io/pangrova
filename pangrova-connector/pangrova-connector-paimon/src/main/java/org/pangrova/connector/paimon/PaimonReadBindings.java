@@ -19,6 +19,8 @@ import org.pangrova.connector.api.metadata.table.ConnectorReadBinding;
 import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 import org.pangrova.connector.api.metadata.table.ConnectorTableReadMetadata;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.metadata.table.TableStatistics;
+import org.pangrova.connector.api.metadata.table.TableVersionToken;
 
 import java.util.LinkedHashMap;
 import java.util.Optional;
@@ -49,7 +51,8 @@ final class PaimonReadBindings {
                 org.apache.paimon.utils.JsonSerdeUtil.toFlatJson(schema.rowType()),
                 table.primaryKeys(), table.partitionKeys(), properties, selector.pushedLimit(),
                 selector.incrementalRange());
-        var statistics = PaimonTableStatisticsReader.build(table, snapshot, schema.rowType());
+        var statistics = snapshot != null && selector.incrementalRange().isPresent()
+                ? TableStatistics.UNKNOWN : PaimonTableStatisticsReader.build(table, snapshot, schema.rowType());
         validateSelected(table, bound);
         return new ConnectorReadBinding(bound, declaration, statistics,
                 snapshot == null ? ReadSnapshotState.EMPTY
@@ -60,7 +63,15 @@ final class PaimonReadBindings {
                                 table.location().toString(), schema.schemaFingerprint()),
                         "paimon.branch-fields.v1:" + table.snapshotManager().branch(), columns,
                         org.pangrova.connector.api.enums.FieldIdStability
-                                .SELECTED_SOURCE)));
+                                .SELECTED_SOURCE)),
+                selector.snapshotId().isEmpty() && selector.incrementalRange().isEmpty()
+                        ? Optional.of(version(table, snapshot)) : Optional.empty());
+    }
+
+    static TableVersionToken version(FileStoreTable table, Snapshot snapshot) {
+        return TableVersionToken.of("PAIMON", table.uuid(),
+                snapshot == null ? "EMPTY" : Long.toString(snapshot.id()),
+                Long.toString(table.schema().id()), DigestUtils.sha256Hex(table.location().toString()));
     }
 
     static void validate(Catalog catalog, ConnectorReadBinding binding) {
@@ -74,8 +85,17 @@ final class PaimonReadBindings {
     }
 
     static void validateSelected(FileStoreTable table, PaimonTableHandle handle) {
+        validateSelected(table, handle, null);
+    }
+
+    static void validateSelected(FileStoreTable table, PaimonTableHandle handle, String bindingIdentity) {
         String expected = handle.properties().get(PaimonTableHandle.SOURCE_IDENTITY_PROPERTY);
-        if (expected != null && !expected.equals(identity(table, selectedSnapshot(table, handle)))) {
+        if (bindingIdentity == null && expected == null) return;
+        String observed = identity(table, selectedSnapshot(table, handle));
+        if (bindingIdentity != null && !bindingIdentity.equals(observed)) {
+            throw new IllegalStateException("Selected source identity changed");
+        }
+        if (expected != null && !expected.equals(observed)) {
             throw new IllegalStateException("Selected snapshot changed during split planning");
         }
     }

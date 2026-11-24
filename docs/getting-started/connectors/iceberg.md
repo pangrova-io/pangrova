@@ -55,6 +55,8 @@ WITH (
 | `rest` | REST catalog (e.g., Polaris, Unity) | `uri` |
 | `jdbc` | JDBC backed catalog | `uri`, `jdbc.user`, `jdbc.password` |
 
+For a PostgreSQL-backed JDBC catalog, a query that names a table using its exact catalog spelling can resolve it without enumerating the namespace. The planner still binds the selected snapshot and authorizes the source. Case-insensitive aliases use the catalog spelling.
+
 ### Iceberg Feature Boundaries
 
 | Feature | Status | Notes |

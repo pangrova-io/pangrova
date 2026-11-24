@@ -13,6 +13,7 @@ import java.util.Arrays;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Real SQL/Native regression for CBO plans containing two different join conditions. */
 class CboJoinEligibilityE2ETest extends SqlE2ETestBase {
@@ -55,6 +56,25 @@ class CboJoinEligibilityE2ETest extends SqlE2ETestBase {
                 + (empty ? " WHERE id > 100" : ""));
         assertThat(rows).singleElement().satisfies(row ->
                 assertThat(row.getRaw("total")).isEqualTo(empty ? null : 41L));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"id = 20", "id = 20 OR id IS NULL", "id = 10 OR id = 20"})
+    void scalarSubqueryRejectsMultipleRowsEvenWhenValuesAreEqualOrNull(String filter) {
+        var sql = "SELECT (SELECT id FROM " + PREFIX + "b WHERE " + filter + ") AS amount"
+                + " FROM " + PREFIX + "a WHERE id = 1";
+        assertThatThrownBy(() -> sqlRunner.execute(sql))
+                .hasMessageContaining("Expected single row of input");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"id = 10", "id = 99", "id IS NULL"})
+    void scalarSubqueryReturnsTheOnlyValueOrSqlNull(String filter) {
+        var sql = "SELECT (SELECT id FROM " + PREFIX + "b WHERE " + filter + ") AS amount"
+                + " FROM " + PREFIX + "a WHERE id = 1";
+        var rows = sqlRunner.execute(sql);
+        assertThat(rows).singleElement().satisfies(row ->
+                assertThat(row.getRaw("amount")).isEqualTo(filter.equals("id = 10") ? 10L : null));
     }
 
     enum Shape { CROSS, THETA, EQUALITY_WITH_RESIDUAL }

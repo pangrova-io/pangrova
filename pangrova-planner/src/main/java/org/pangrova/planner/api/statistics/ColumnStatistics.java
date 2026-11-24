@@ -9,11 +9,11 @@ import java.util.Optional;
  * Per-column statistics used by the CBO cost model.
  *
  * @param rowCount        total row count
- * @param nullCount       number of null values
+ * @param nullCount       number of null values, or -1 when unknown
  * @param min             minimum value
  * @param max             maximum value
- * @param ndv             number of distinct values (HyperLogLog estimate)
- * @param avgSize         average value size in bytes
+ * @param ndv             estimated number of distinct values, or -1 when unknown
+ * @param avgSize         average value size in bytes, or -1 when unknown
  * @param histogram       optional equi-height histogram (256 buckets)
  * @param confidenceScore confidence in [0.1, 1.0] based on staleness
  */

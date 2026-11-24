@@ -57,8 +57,8 @@ class PangrovaResultSetVectorTest {
                 : (childNullable ? Float[].class.getName() : float[].class.getName());
         Array saved;
         Object expected;
-        try (PangrovaResultSet result = new PangrovaResultSet(batch, null);
-             PangrovaResultSet noRows = new PangrovaResultSet(empty, null)) {
+        try (PangrovaResultSet result = ResultSetTestFixtures.fromBatch(batch);
+             PangrovaResultSet noRows = ResultSetTestFixtures.fromBatch(empty)) {
             assertThat(result.getMetaData().getColumnClassName(1)).isEqualTo(className);
             assertThat(noRows.getMetaData().getColumnClassName(1)).isEqualTo(className);
             assertThat(result.getMetaData().isNullable(1)).isEqualTo(parentNullable
@@ -159,7 +159,7 @@ class PangrovaResultSetVectorTest {
                 List.of(new ColumnDescriptor("embedding", Types.ARRAY, "VECTOR(2,DOUBLE)", 2, 0,
                         java.util.Optional.of(VectorLogicalType.create(2, VectorLogicalType.FLOAT64, true, false)))),
                 java.util.Collections.singletonList(new Object[] {coordinates}));
-        try (PangrovaResultSet result = new PangrovaResultSet(batch, null)) {
+        try (PangrovaResultSet result = ResultSetTestFixtures.fromBatch(batch)) {
             assertThat(result.next()).isTrue();
             assertThat(result.getObject(1)).isEqualTo(coordinates);
             assertThat(result.getString(1)).isEqualTo(java.util.Arrays.toString(coordinates));
@@ -185,7 +185,7 @@ class PangrovaResultSetVectorTest {
                         java.util.Optional.of(VectorLogicalType.create(2)))),
                 List.<Object[]>of(new Object[] {vector}));
 
-        try (PangrovaResultSet result = new PangrovaResultSet(batch, null)) {
+        try (PangrovaResultSet result = ResultSetTestFixtures.fromBatch(batch)) {
             assertThat(result.next()).isTrue();
             assertThat(result.getObject(1)).isNotSameAs(vector).isEqualTo(vector);
             assertThat(result.getString(1)).isEqualTo("[0.25, -0.5]");
@@ -213,8 +213,8 @@ class PangrovaResultSetVectorTest {
                 List.<Object[]>of(new Object[] {vector}));
         vector[0] = 100;
 
-        try (PangrovaResultSet first = new PangrovaResultSet(batch, null);
-                PangrovaResultSet second = new PangrovaResultSet(batch, null)) {
+        try (PangrovaResultSet first = ResultSetTestFixtures.fromBatch(batch);
+                PangrovaResultSet second = ResultSetTestFixtures.fromBatch(batch)) {
             assertThat(first.next()).isTrue();
             assertThat(second.next()).isTrue();
             assertThat(first.getObject(1)).isEqualTo(new float[] {0.25f, -0.5f});

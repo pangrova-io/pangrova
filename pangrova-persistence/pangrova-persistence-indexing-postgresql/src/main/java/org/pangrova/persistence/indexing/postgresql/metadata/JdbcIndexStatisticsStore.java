@@ -154,7 +154,7 @@ final class JdbcIndexStatisticsStore extends JdbcStoreSupport {
                 + "WHERE tenant_id=? AND catalog_name=? AND schema_name=? AND table_name=? "
                 + "AND data_file_path = ANY(?)";
         try (Connection connection = dataSource().getConnection();
-                JdbcTextSelection paths = JdbcTextSelection.create(connection, dataFilePaths);
+                JdbcArraySelection paths = JdbcArraySelection.create(connection, dataFilePaths);
                 PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, tenantId);
             statement.setString(2, catalog);
@@ -181,8 +181,8 @@ final class JdbcIndexStatisticsStore extends JdbcStoreSupport {
                 + "WHERE tenant_id=? AND catalog_name=? AND schema_name=? AND table_name=? AND snapshot_id=? "
                 + "AND data_file_path = ANY(?) AND column_name = ANY(?)";
         try (Connection connection = dataSource().getConnection();
-                JdbcTextSelection paths = JdbcTextSelection.create(connection, dataFilePaths);
-                JdbcTextSelection columnNames = JdbcTextSelection.create(connection, columns);
+                JdbcArraySelection paths = JdbcArraySelection.create(connection, dataFilePaths);
+                JdbcArraySelection columnNames = JdbcArraySelection.create(connection, columns);
                 PreparedStatement statement = connection.prepareStatement(sql)) {
             bindFileStatsQuery(statement, tenantId, catalog, schema, table, snapshotId, paths, columnNames);
             try (var result = statement.executeQuery()) {
@@ -195,7 +195,7 @@ final class JdbcIndexStatisticsStore extends JdbcStoreSupport {
 
     private static void bindFileStatsQuery(PreparedStatement ps, String tenantId, String catalog,
                                            String schema, String table, String snapshotId,
-                                           JdbcTextSelection paths, JdbcTextSelection columns) throws SQLException {
+                                           JdbcArraySelection paths, JdbcArraySelection columns) throws SQLException {
         int idx = 1;
         ps.setString(idx++, tenantId);
         ps.setString(idx++, catalog);

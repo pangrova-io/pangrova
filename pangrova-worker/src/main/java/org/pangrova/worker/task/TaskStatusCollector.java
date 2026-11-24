@@ -5,10 +5,10 @@ import org.pangrova.worker.task.report.TaskStatusReporter;
 import org.pangrova.protocol.rest.data.WriteResultDescriptor;
 import org.pangrova.common.client.error.ErrorDetail;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
-import org.pangrova.protocol.rest.task.TaskAttemptDescriptor;
-import org.pangrova.protocol.rest.task.TaskStats;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.protocol.execution.TaskDescriptor;
+import org.pangrova.protocol.v2.NativeTaskStats;
+import org.pangrova.worker.enums.TaskState;
 import org.pangrova.worker.task.memory.TaskMemoryAllocator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -41,7 +41,27 @@ final class TaskStatusCollector {
     }
 
     void reportStatus(TaskInfo info, String state, ErrorDetail error) {
-        reportStatus(info, state, error, info.terminalTaskReport());
+        reportStatus(info, state, error, info.terminalTaskEvidence());
+    }
+
+    /** Reserves the canonical finish sequence before arming result release or awaiting its ACK. */
+    void reportFinishedResult(TaskInfo info, Runnable watchResult, Runnable onAcknowledgement) {
+        if (reporter == null) {
+            watchResult.run();
+            onAcknowledgement.run();
+            return;
+        }
+        boolean released = info.resourcesReleased();
+        info.publishResultStatus(released,
+                () -> prepareTerminalReport(info, "FINISHED", null, info.terminalTaskEvidence(), released),
+                report -> {
+                    watchResult.run();
+                    return reporter.reportTerminal(report);
+                }, onAcknowledgement).whenComplete((ignored, failure) -> {
+                    if (failure != null) {
+                        LOG.error("event=result_finish_publication_pending taskId={}", info.taskId(), failure);
+                    }
+                });
     }
 
     void reportWorkerTerminalStatus(TaskInfo info, String state, ErrorDetail error) {
@@ -54,56 +74,57 @@ final class TaskStatusCollector {
         var taskState = "CANCELLED".equals(state)
                 ? org.pangrova.protocol.v2.TaskState.TASK_STATE_CANCELLED
                 : org.pangrova.protocol.v2.TaskState.TASK_STATE_FAILED;
-        byte[] canonical = org.pangrova.protocol.task.WorkerTerminalTaskReports.unsuccessful(
-                info.request().taskRequest(), taskState, error,
-                info.executorReleaseReport());
-        canonical = withActualDrain(info, canonical);
-        reportStatus(info, state, error, canonical);
+        var canonical = org.pangrova.protocol.task.WorkerTerminalTaskReports.unsuccessful(
+                info.request().taskRequest(), taskState, error, releasedReportMessage(info));
+        reportReconciledStatus(info, state, error, canonical);
     }
 
     void reportWorkerTerminalFailure(TaskInfo info, org.pangrova.protocol.v2.ExecutionError error) {
         if (reporter == null) return;
-        byte[] canonical = org.pangrova.protocol.task.WorkerTerminalTaskReports.unsuccessfulWithError(
+        var canonical = org.pangrova.protocol.task.WorkerTerminalTaskReports.unsuccessfulWithError(
                 info.request().taskRequest(), org.pangrova.protocol.v2.TaskState.TASK_STATE_FAILED,
-                error, info.executorReleaseReport());
-        canonical = withActualDrain(info, canonical);
-        reportStatus(info, "FAILED", new ErrorDetail(error.getCode(), error.getErrorClass().name(),
+                error, releasedReportMessage(info));
+        reportReconciledStatus(info, "FAILED", new ErrorDetail(error.getCode(), error.getErrorClass().name(),
                 error.getMessage()), canonical);
     }
 
-    private static byte[] withActualDrain(TaskInfo info, byte[] canonical) {
-        try {
-            var report = org.pangrova.protocol.v2.TaskReport.parseFrom(canonical).toBuilder()
-                    .setExecutionDrainState(info.executionDrainState());
-            if (info.executorHandle() == 0 && info.executorReleaseReport() == null) {
-                report.getUsageBuilder().setObjectStoreReadBytes(info.preNativeReadBytes());
-            }
-            return report.build().toByteArray();
-        } catch (com.google.protobuf.InvalidProtocolBufferException failure) {
-            throw new IllegalStateException("Worker produced a malformed canonical terminal report", failure);
+    private void reportReconciledStatus(TaskInfo info, String state, ErrorDetail error,
+            org.pangrova.protocol.v2.TaskReport canonical) {
+        var initial = attachActualDrain(info, canonical);
+        boolean released = info.resourcesReleased();
+        info.publishTerminalStatus(released,
+                () -> {
+                    if (released && "CANCELLED".equals(state)) {
+                        return releasedReport(info, state, error, initial);
+                    }
+                    var report = released ? attachActualDrain(info, initial) : initial;
+                    return buildReport(info, state, error, TaskReportEvidence.encode(report));
+                }, reporter::report);
+    }
+
+    private static org.pangrova.protocol.v2.TaskReport releasedReportMessage(TaskInfo info) {
+        var actual = info.executorReleaseReceipt();
+        return actual == null ? null : actual.report();
+    }
+
+    private static TaskReportEvidence withActualDrain(TaskInfo info, org.pangrova.protocol.v2.TaskReport canonical) {
+        return TaskReportEvidence.encode(attachActualDrain(info, canonical));
+    }
+
+    private static org.pangrova.protocol.v2.TaskReport attachActualDrain(
+            TaskInfo info, org.pangrova.protocol.v2.TaskReport canonical) {
+        var report = canonical.toBuilder().setExecutionDrainState(info.executionDrainState());
+        if (info.executorHandle() == 0 && info.executorReleaseReceipt() == null) {
+            report.getUsageBuilder().setObjectStoreReadBytes(info.preNativeReadBytes());
         }
+        return report.build();
     }
 
     /** Reads only the exact successful resource-release checkpoint, never a poll/ACK or handle value. */
     java.util.Optional<org.pangrova.protocol.v2.TaskReport> executionDrainReceipt(TaskInfo info) {
         if (!info.resourcesReleased()) return java.util.Optional.empty();
-        byte[] actual = info.executorReleaseReport();
-        if (actual != null) {
-            var report = TaskCompletionMonitor.requireCanonicalTaskReport(info.request().taskRequest(), actual);
-            var expectedDrain = !TaskCompletionMonitor.isWorkerExecuted(info.request().taskRequest())
-                    ? org.pangrova.protocol.v2.ExecutionDrainState
-                            .EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED
-                    : report.getState() == org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED
-                            ? org.pangrova.protocol.v2.ExecutionDrainState
-                                    .EXECUTION_DRAIN_STATE_WORKER_TASK_COMPLETED
-                            : org.pangrova.protocol.v2.ExecutionDrainState
-                                    .EXECUTION_DRAIN_STATE_ADMISSION_CLOSED_WITHOUT_NATIVE_OWNER;
-            if (report.getExecutionDrainState() != expectedDrain) {
-                throw new IllegalStateException(
-                        "Released task receipt lacks its actual execution drain evidence");
-            }
-            return java.util.Optional.of(report);
-        }
+        var actual = info.executorReleaseReceipt();
+        if (actual != null) return java.util.Optional.of(actual.report());
         if (info.executionDrainState() != org.pangrova.protocol.v2.ExecutionDrainState
                 .EXECUTION_DRAIN_STATE_ADMISSION_CLOSED_WITHOUT_NATIVE_OWNER) {
             throw new IllegalStateException("Resource release lacks verified closed admission");
@@ -115,7 +136,7 @@ final class TaskStatusCollector {
     }
 
     private void reportStatus(
-            TaskInfo info, String state, ErrorDetail error, byte[] terminalReport) {
+            TaskInfo info, String state, ErrorDetail error, TaskReportEvidence terminalReport) {
         if (reporter == null) {
             return;
         }
@@ -129,11 +150,16 @@ final class TaskStatusCollector {
     }
 
     private TaskStatusReport prepareTerminalReport(
-            TaskInfo info, String state, ErrorDetail error, byte[] terminalReport, boolean released) {
+            TaskInfo info, String state, ErrorDetail error, TaskReportEvidence terminalReport, boolean released) {
         if (!released) return buildReport(info, state, error, terminalReport);
-        if (terminalReport == null) return releasedReport(info);
-        // Preserve classified Worker failures as well as Native terminal status; drain comes only from the actual exit.
-        return buildReport(info, state, error, withActualDrain(info, terminalReport));
+        if (terminalReport != null && !"CANCELLED".equals(state)) {
+            if (terminalReport == info.executorReleaseReceipt()
+                    && terminalReport.report().getState() == TaskStateMapper.toProtoState(TaskState.valueOf(state))) {
+                return buildReport(info, state, error, terminalReport);
+            }
+            return buildReport(info, state, error, withActualDrain(info, terminalReport.report()));
+        }
+        return releasedReport(info, state, error, terminalReport == null ? null : terminalReport.report());
     }
 
     /** Publishes the actual later release, without cancelling a successfully consumed result. */
@@ -142,36 +168,70 @@ final class TaskStatusCollector {
         info.publishTerminalStatus(true, () -> releasedReport(info), reporter::report);
     }
 
+    java.util.concurrent.CompletionStage<Void> reportReleasedTerminalAsync(TaskInfo info) {
+        if (reporter == null) return java.util.concurrent.CompletableFuture.completedFuture(null);
+        return info.publishResultStatus(true, () -> releasedReport(info), reporter::reportTerminal, null);
+    }
+
+    void retryInitialResultStatus(TaskInfo info) {
+        if (reporter != null) info.retryInitialResultStatus(reporter::reportTerminal);
+    }
+
     private TaskStatusReport releasedReport(TaskInfo info) {
+        return releasedReport(info, info.getState().name(), null, null);
+    }
+
+    private TaskStatusReport releasedReport(TaskInfo info, String state, ErrorDetail error,
+            org.pangrova.protocol.v2.TaskReport terminalReport) {
         var actual = executionDrainReceipt(info).orElseThrow(() ->
                 new IllegalStateException("Terminal publication lacks actual released execution evidence"));
-        var workerState = info.getState();
-        String state = workerState.name();
+        if ("CANCELLED".equals(state) && actual.getState() == org.pangrova.protocol.v2.TaskState.TASK_STATE_CANCELLED) {
+            // The cancellation response may already have published this exact checkpoint.
+            // Keep the Native classification, including a cancellation without an error.
+            return buildReport(info, state, terminalError(actual), retainedEvidence(info, actual));
+        }
+        if (terminalReport != null) {
+            // A classified Worker failure can differ from the Native execution outcome.
+            return buildReport(info, state, error, withActualDrain(info, terminalReport));
+        }
         if ("FINISHED".equals(state)) {
             if (actual.getState() != org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED) {
                 throw new IllegalStateException("Successful Worker state conflicts with actual release state");
             }
-            return buildReport(info, state, null, actual.toByteArray());
+            return buildReport(info, state, null, retainedEvidence(info, actual));
         } else if ("FAILED".equals(state) || "CANCELLED".equals(state)) {
             if ("FAILED".equals(state) && !actual.hasError()) {
                 throw new IllegalStateException("Failed terminal publication lacks its original classified failure");
             }
-            ErrorDetail error = actual.hasError()
-                    ? new ErrorDetail(actual.getError().getCode(), actual.getError().getErrorClass().name(),
-                            actual.getError().getMessage())
-                    : new ErrorDetail("TASK_CANCELLED", "Cancellation", "Task cancelled by control plane");
-            byte[] canonical = org.pangrova.protocol.task.WorkerTerminalTaskReports.unsuccessful(
-                    info.request().taskRequest(), TaskStateMapper.toProtoState(workerState),
-                    error, info.executorReleaseReport());
-            return buildReport(info, state, error, withActualDrain(info, canonical));
+            ErrorDetail failure = terminalError(actual);
+            if (failure == null) {
+                failure = new ErrorDetail("TASK_CANCELLED", "Cancellation", "Task cancelled by control plane");
+            }
+            var canonical = org.pangrova.protocol.task.WorkerTerminalTaskReports.unsuccessful(
+                    info.request().taskRequest(), TaskStateMapper.toProtoState(TaskState.valueOf(state)),
+                    failure, actual);
+            return buildReport(info, state, failure, withActualDrain(info, canonical));
         } else {
             throw new IllegalStateException("Released task is not terminal: " + state);
         }
     }
 
-    private TaskStatusReport buildReport(TaskInfo info, String state, ErrorDetail error, byte[] terminalReport) {
+    private static TaskReportEvidence retainedEvidence(TaskInfo info, org.pangrova.protocol.v2.TaskReport report) {
+        var actual = info.executorReleaseReceipt();
+        return actual != null ? actual : TaskReportEvidence.encode(report);
+    }
+
+    private static ErrorDetail terminalError(org.pangrova.protocol.v2.TaskReport report) {
+        if (!report.hasError()) return null;
+        var error = report.getError();
+        return new ErrorDetail(error.getCode(), error.getErrorClass().name(), error.getMessage());
+    }
+
+    private TaskStatusReport buildReport(TaskInfo info, String state, ErrorDetail error, TaskReportEvidence terminal) {
         long seq = info.nextReportSequence();
-        TaskStats taskStats = collectTaskStats(info, state);
+        var evidence = terminal == null ? null : terminal.bytes();
+        var canonical = terminal == null ? null : terminal.report();
+        var taskStats = collectTaskStats(info, state, canonical);
         WriteResultDescriptor writeResult = collectWriteResult(info, state);
         SubmitTaskRequest req = info.request();
         if (req == null || !req.taskRequest().hasAttempt()) {
@@ -179,21 +239,13 @@ final class TaskStatusCollector {
                     "Cannot report task status without fenced request identity: task="
                             + info.taskId());
         }
-        var canonical = req.taskRequest();
-        int stageId = canonical.getAttempt().getStageId();
-        int partitionId = canonical.getAttempt().getPartitionId();
-        String taskType = info.descriptor().taskType();
         // Use coordinator's taskId from the request for status reporting.
         // The coordinator registers tasks by this ID in CoordinatorTaskTracker.
         // Using the worker's internal taskId would cause a mismatch and the
         // coordinator's awaitTaskCompletion future would never complete.
-        String reportTaskId = canonical.getAttempt().getTaskId();
-        TaskStatusReport report = new TaskStatusReport(
-                reportTaskId, info.queryId(), stageId, partitionId, taskType,
-                workerId, state, taskStats, error, writeResult,
-                seq, System.currentTimeMillis(), null, null,
-                TaskAttemptDescriptor.from(canonical.getAttempt()),
-                terminalReport);
+        TaskStatusReport report = TaskStatusReport.fromAttempt(req.taskRequest().getAttempt(),
+                info.descriptor().taskType(), workerId, state, taskStats, error, writeResult,
+                seq, System.currentTimeMillis(), evidence, canonical);
         logStatusReport(info, state, seq);
         return report;
     }
@@ -211,11 +263,19 @@ final class TaskStatusCollector {
                 taskId, workerId, cause.getMessage(), cause);
     }
 
-    private TaskStats collectTaskStats(TaskInfo info, String state) {
-        TaskStats captured = decodeCapturedTaskStats(info);
-        if (captured != null) {
-            logCacheUsage(info.taskId(), captured);
-            return captured;
+    private NativeTaskStats collectTaskStats(
+            TaskInfo info, String state, org.pangrova.protocol.v2.TaskReport canonical) {
+        if (canonical != null && canonical.hasNativeTaskStats()) {
+            var stats = canonical.getNativeTaskStats();
+            logCacheUsage(info.taskId(), stats.getCacheHitCount(), stats.getCacheMissCount(),
+                    stats.getCacheEvictionCount(), stats.getCacheAdmissionRejectionCount());
+            return null;
+        }
+        var captured = info.terminalTaskStats();
+        if (captured != null && captured.getSerializedSize() > 0) {
+            logCacheUsage(info.taskId(), captured.getCacheHitCount(), captured.getCacheMissCount(),
+                    captured.getCacheEvictionCount(), captured.getCacheAdmissionRejectionCount());
+            return captured.hasBuildKeys() ? captured.toBuilder().clearBuildKeys().build() : captured;
         }
         if ("FINISHED".equals(state) && info.request() != null
                 && TaskCompletionMonitor.isWorkerExecuted(info.request().taskRequest())) {
@@ -233,28 +293,19 @@ final class TaskStatusCollector {
         return collectInProgressTaskStats(info);
     }
 
-    private static TaskStats decodeCapturedTaskStats(TaskInfo info) {
-        byte[] terminalStats = info.terminalTaskStats();
-        if (terminalStats != null && terminalStats.length > 0) {
-            return NativeOperatorStatsCollector.decodeTaskStats(terminalStats);
-        }
-        return null;
-    }
-
     private static boolean isReleasedTerminalWithoutStats(TaskInfo info, String state) {
         return info.resourcesReleased()
                 && ("FINISHED".equals(state) || "FAILED".equals(state) || "CANCELLED".equals(state));
     }
 
-    private static void logCacheUsage(String taskId, TaskStats taskStats) {
+    private static void logCacheUsage(String taskId, long hits, long misses, long evictions, long rejected) {
         LOG.info("event=native_task_stats taskId={} cache_hit_count={} "
                         + "cache_miss_count={} cache_eviction_count={} "
                         + "cache_admission_rejection_count={}",
-                taskId, taskStats.cacheHitCount(), taskStats.cacheMissCount(),
-                taskStats.cacheEvictionCount(), taskStats.cacheAdmissionRejectionCount());
+                taskId, hits, misses, evictions, rejected);
     }
 
-    private TaskStats collectInProgressTaskStats(TaskInfo info) {
+    private NativeTaskStats collectInProgressTaskStats(TaskInfo info) {
         long elapsed = java.time.Duration.between(info.startTime(), Instant.now()).toMillis();
         long outputRows = info.outputBatches();
         long outputBytes = info.outputBytes();
@@ -264,9 +315,11 @@ final class TaskStatusCollector {
         if (memoryAllocator != null) {
             memoryAllocator.logMemoryWarningIfNeeded(info.memoryAccount(), memoryBytes);
         }
-        return new TaskStats(outputRows, outputBytes, outputRows, outputBytes,
-                elapsed, 0, memoryBytes, peakMemory, 0, 0, 0,
-                0, 0, List.of(), 0, 0, 0, 0, 0);
+        return NativeTaskStats.newBuilder()
+                .setRowsRead(outputRows).setRowsWritten(outputRows)
+                .setBytesRead(outputBytes).setBytesWritten(outputBytes)
+                .setElapsedTimeMs(elapsed).setMemoryBytes(memoryBytes).setPeakMemoryBytes(peakMemory)
+                .build();
     }
 
     private WriteResultDescriptor collectWriteResult(TaskInfo info, String state) {

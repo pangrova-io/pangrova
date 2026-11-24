@@ -115,6 +115,22 @@ TEST_F(CanonicalAggregateExecutionTest, ComputedAndNestedKeysUseDeclarationOrder
   EXPECT_EQ(execute(groupingPlan(false, false)), (Rows{{7, 1, 5}, {8, 2, std::nullopt}}));
 }
 
+TEST_F(CanonicalAggregateExecutionTest, GroupIdLoadsOnlyItsKeysAndMeasureInputs) {
+  const auto encoded = pangrova::test::canonicalTestPlan(groupingPlan(true, false)).SerializeAsString();
+  const auto registry = exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(registry);
+  auto node = converter.convert({encoded.begin(), encoded.end()}, {});
+  while (node && node->name() != "GroupId") {
+    node = node->sources().empty() ? nullptr : node->sources().front();
+  }
+  const auto expansion = std::dynamic_pointer_cast<const core::GroupIdNode>(node);
+  ASSERT_NE(expansion, nullptr);
+  EXPECT_EQ(expansion->sources().at(0)->outputType()->size(), 4u);
+  EXPECT_EQ(expansion->groupingKeyInfos().size(), 2u);
+  EXPECT_EQ(expansion->aggregationInputs().size(), 2u);
+  EXPECT_EQ(expansion->outputType()->size(), 5u);
+}
+
 TEST_F(CanonicalAggregateExecutionTest, GroupingSetsReuseOriginalMaskAndArgumentsAndPreserveSetIdentity) {
   EXPECT_EQ(execute(groupingPlan(true, false)), (Rows{
       {std::nullopt, std::nullopt, 5, 1}, {7, 1, 5, 0}, {8, 2, std::nullopt, 0}}));

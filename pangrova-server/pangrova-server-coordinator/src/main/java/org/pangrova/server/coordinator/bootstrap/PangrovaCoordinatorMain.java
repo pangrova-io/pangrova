@@ -196,7 +196,7 @@ public final class PangrovaCoordinatorMain {
                 config.getBoolean(CoordinatorOptions.TENANT_ENABLED),
                 config.getBoolean(CoordinatorOptions.OPERATIONS_ENABLED),
                 config.getBoolean(CoordinatorOptions.SPECULATION_ENABLED),
-                false, false, false, false, false,
+                false, false, false, false,
                 shuffleMode, shuffleEndpoints, provider, settings);
     }
 

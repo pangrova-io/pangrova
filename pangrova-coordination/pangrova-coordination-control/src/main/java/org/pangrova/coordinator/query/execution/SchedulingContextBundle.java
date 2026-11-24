@@ -1,7 +1,7 @@
 package org.pangrova.coordinator.query.execution;
 
 import org.pangrova.scheduler.api.resource.SpillBudget;
-import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
+import org.pangrova.coordinator.scheduler.placement.CacheAffinityAssigner;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
 import org.pangrova.scheduler.placement.TaskScheduler;
 import org.pangrova.scheduler.speculation.SpeculativeStageHandler;
@@ -21,7 +21,7 @@ public record SchedulingContextBundle(
         TaskScheduler taskScheduler,
         WorkerManager workerManager,
         CoordinatorTaskTracker taskTracker,
-        SplitAssignmentManager splitAssignmentManager,
+        CacheAffinityAssigner cacheAffinityAssigner,
         SpeculativeStageHandler speculativeStageHandler,
         SpillBudget spillBudget,
         ResilienceRegistry resilienceRegistry) {

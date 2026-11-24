@@ -47,7 +47,8 @@ class ExternalShuffleIngress {
   ExternalShuffleIngress(
       size_t normal_buffer_bytes,
       size_t max_batch_bytes,
-      uint64_t deadline_epoch_ms);
+      uint64_t deadline_epoch_ms,
+      int64_t expected_batches);
 
   void push(ExternalShuffleChunk chunk);
   void finish(int64_t last_sequence);
@@ -73,6 +74,7 @@ class ExternalShuffleIngress {
   const size_t normal_buffer_bytes_;
   const size_t max_batch_bytes_;
   const uint64_t deadline_epoch_ms_;
+  const int64_t expected_batches_;
   std::mutex mutex_;
   std::condition_variable not_empty_;
   std::condition_variable not_full_;

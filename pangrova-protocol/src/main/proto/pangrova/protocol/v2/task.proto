@@ -4,7 +4,6 @@ package pangrova.protocol.v2;
 option java_package = "org.pangrova.protocol.v2";
 option java_multiple_files = true;
 
-import "google/protobuf/any.proto";
 import "pangrova/protocol/v2/common.proto";
 import "pangrova/protocol/v2/connector.proto";
 import "pangrova/protocol/v2/execution_binding.proto";
@@ -28,11 +27,13 @@ message PartitionValue {
 }
 
 message DataSplit {
+  reserved 10;
+  reserved "connector_detail";
   string split_id = 1;
   string connector_id = 2;
   // Stable logical source identity (for example catalog.schema.table). It is
-  // part of the generic execution contract and must never be inferred from a
-  // connector-specific Any payload.
+  // part of the generic execution contract and must never be inferred from
+  // format-specific file details.
   string source_id = 3;
   string source_snapshot = 4;
   string data_object_id = 5;
@@ -40,10 +41,10 @@ message DataSplit {
   uint64 start_offset = 7;
   uint64 length = 8;
   repeated PartitionValue partition_values = 9;
-  google.protobuf.Any connector_detail = 10;
   // Exact deployment for Native manifest partitions; credentials are never
   // sent by the Coordinator and are resolved by the receiving Worker.
   CatalogExecutionBinding catalog = 11;
+  FileSplitDetail file_detail = 12;
 }
 
 message SecurityContext {
@@ -110,6 +111,8 @@ message TaskRequest {
   // Exact bounded CDC source range and connector write authority. Worker-local
   // source credentials never enter this message.
   CdcIngestBinding cdc_ingest = 22;
+  // A signed BIGINT column in the producer ExchangeRel output. Zero is a valid ordinal.
+  optional uint32 build_key_ordinal = 23;
 }
 
 // One bounded Worker-side CDC ingest attempt. The binding is admitted once and

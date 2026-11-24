@@ -26,7 +26,7 @@ class ShuffleContractIsolationTest {
                     "org.pangrova.shuffle.api.ShuffleTransport",
                     "org.pangrova.shuffle.nativewire.NativeShuffleWorkerFactory",
                     "org.pangrova.shuffle.exchange.ExchangeTaskAttempt",
-                    "org.pangrova.shuffle.exchange.ExternalShuffleTransport",
+                    "org.pangrova.shuffle.exchange.ExchangeTransport",
                     "org.pangrova.shuffle.pangrova.client.PangrovaPartitionRead",
                     "org.pangrova.shuffle.pangrova.client.coordinator.PangrovaShuffleCoordinator",
                     "org.pangrova.shuffle.api.ShuffleCapabilities",

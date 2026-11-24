@@ -13,6 +13,7 @@ import org.pangrova.metadata.api.enums.CatalogState;
 import org.pangrova.metadata.api.enums.CatalogType;
 import org.pangrova.metadata.connector.ConnectorCatalogHandle;
 import org.pangrova.protocol.v2.DataSplit;
+import org.pangrova.protocol.source.CanonicalConnectorSplit;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.security.api.exception.AccessDeniedException;
 import org.pangrova.security.api.identity.UserIdentity;
@@ -49,34 +50,51 @@ class NativeReadSplitBindingTest {
     @Test
     void bindsOnlyTheCurrentTrustedDeploymentAndPreservesPhysicalIdentity() throws Exception {
         DataSplit source = split();
-        DataSplit bound = DataSplit.parseFrom(NativeReadSplitBinding.bind(
-                source.toByteArray(), catalog, session("tenant-a")));
+        var binding = NativeReadSplitBinding.prepare(catalog, session("tenant-a"));
+        DataSplit bound = binding.bind(source);
         assertThat(bound.getCatalog()).isEqualTo(CatalogExecutionBindings.from(catalog.getDescriptor()));
         assertThat(bound.toBuilder().clearCatalog().build()).isEqualTo(source);
-        assertThat(NativeReadSplitBinding.bind(bound.toByteArray(), catalog, session("tenant-a")))
-                .isEqualTo(bound.toByteArray());
+        assertThat(binding.bind(bound)).isSameAs(bound);
+        var next = binding.bind(source.toBuilder().setSplitId("next-file").build());
+        assertThat(next.getCatalog()).isSameAs(bound.getCatalog());
+        catalog.setState(CatalogState.SUSPENDED);
+        assertThatThrownBy(() -> binding.bind(source))
+                .isInstanceOf(AccessDeniedException.class).hasMessageContaining("changed during enumeration");
+    }
+
+    @Test
+    void bindingRetainsTheConnectorsPhysicalScanEstimate() {
+        DataSplit data = split();
+        CanonicalConnectorSplit source = new CanonicalConnectorSplit() {
+            @Override public DataSplit toDataSplit() { return data; }
+            @Override public long estimatedScanBytes() { return 8_192; }
+        };
+        var bound = NativeReadSplitBinding.prepare(catalog, session("tenant-a")).bind(source);
+        assertThat(SplitFetcher.toSplitWithPaths(java.util.List.of(bound))).singleElement().satisfies(stage -> {
+            assertThat(stage.estimatedScanBytes()).isEqualTo(8_192);
+            assertThat(stage.data().toBuilder().clearCatalog().build()).isEqualTo(data);
+        });
     }
 
     @Test
     void rejectsAStaleOrForgedDeploymentRatherThanOverwritingIt() {
         var stale = CatalogExecutionBindings.from(catalog.getDescriptor()).toBuilder()
                 .setCatalogRevision(catalog.getDescriptor().revision() + 1).build();
-        assertThatThrownBy(() -> NativeReadSplitBinding.bind(
-                split().toBuilder().setCatalog(stale).build().toByteArray(), catalog, session("tenant-a")))
+        var binding = NativeReadSplitBinding.prepare(catalog, session("tenant-a"));
+        assertThatThrownBy(() -> binding.bind(split().toBuilder().setCatalog(stale).build()))
                 .isInstanceOf(AccessDeniedException.class).hasMessageContaining("conflicts");
-        assertThatThrownBy(() -> NativeReadSplitBinding.bind(
-                split().toBuilder().setConnectorId("other").build().toByteArray(), catalog, session("tenant-a")))
+        assertThatThrownBy(() -> binding.bind(split().toBuilder().setConnectorId("other").build()))
                 .isInstanceOf(AccessDeniedException.class);
     }
 
     @Test
     void rejectsSuspendedCatalogUnauthorizedTenantAndAnonymousIdentity() {
-        assertThatThrownBy(() -> NativeReadSplitBinding.bind(split().toByteArray(), catalog, session("tenant-b")))
+        assertThatThrownBy(() -> NativeReadSplitBinding.prepare(catalog, session("tenant-b")))
                 .isInstanceOf(AccessDeniedException.class);
-        assertThatThrownBy(() -> NativeReadSplitBinding.bind(split().toByteArray(), catalog, session(null)))
+        assertThatThrownBy(() -> NativeReadSplitBinding.prepare(catalog, session(null)))
                 .isInstanceOf(AccessDeniedException.class);
         catalog.setState(CatalogState.SUSPENDED);
-        assertThatThrownBy(() -> NativeReadSplitBinding.bind(split().toByteArray(), catalog, session("tenant-a")))
+        assertThatThrownBy(() -> NativeReadSplitBinding.prepare(catalog, session("tenant-a")))
                 .isInstanceOf(AccessDeniedException.class);
     }
 

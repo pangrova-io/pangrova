@@ -1,6 +1,8 @@
 package org.pangrova.protocol.substrait;
 
+import com.google.protobuf.Any;
 import io.substrait.proto.AggregateRel;
+import io.substrait.proto.ExtensionSingleRel;
 import io.substrait.proto.Expression;
 import io.substrait.proto.FilterRel;
 import io.substrait.proto.NamedStruct;
@@ -10,6 +12,8 @@ import io.substrait.proto.Rel;
 import io.substrait.proto.RelCommon;
 import io.substrait.proto.Type;
 import org.junit.jupiter.api.Test;
+import org.pangrova.protocol.v2.EnforceSingleRowDetail;
+import org.pangrova.protocol.v2.RelationDetailEnvelope;
 
 import java.util.List;
 
@@ -18,6 +22,34 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Generated-protocol layout oracles, not a substitute for Native Task execution. */
 class SubstraitRelationLayoutTest {
+    @Test
+    void singleRowSelectsTheExactValueAndMakesOnlyItsTopLevelNullable() {
+        var required = Type.Nullability.NULLABILITY_REQUIRED;
+        var struct = Type.newBuilder().setStruct(Type.Struct.newBuilder()
+                .setNullability(required).addTypes(i64()).addTypes(bool())).build();
+        var schema = NamedStruct.newBuilder().addAllNames(List.of("id", "item", "n", "ok"))
+                .setStruct(Type.Struct.newBuilder().setNullability(required).addTypes(i64()).addTypes(struct))
+                .build();
+        var input = read(schema);
+        var relation = singleRow(input, 1);
+        var output = SubstraitRelationLayout.describe(relation).outputSchema();
+        assertThat(output.getNamesList()).containsExactly("item", "n", "ok");
+        var field = output.getStruct().getTypes(0).getStruct();
+        assertThat(field.getNullability()).isEqualTo(Type.Nullability.NULLABILITY_NULLABLE);
+        assertThat(field.getTypesList()).containsExactly(i64(), bool());
+        assertThatThrownBy(() -> SubstraitRelationLayout.describe(singleRow(input, 2)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("outside the input schema");
+        assertThatThrownBy(() -> SubstraitRelationLayout.describe(singleRow(input, -1)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("outside the input schema");
+    }
+
+    private static Rel singleRow(Rel input, int ordinal) {
+        var detail = RelationDetailEnvelope.newBuilder().setSchemaVersion(1)
+                .setEnforceSingleRow(EnforceSingleRowDetail.newBuilder().setInputOrdinal(ordinal)).build();
+        return Rel.newBuilder().setExtensionSingle(ExtensionSingleRel.newBuilder().setInput(input)
+                .setDetail(Any.pack(detail))).build();
+    }
+
     @Test
     void projectDirectAppendsAndEmitPreservesDuplicatesAndExplicitEmptyOutput() {
         Rel source = read(flatSchema());

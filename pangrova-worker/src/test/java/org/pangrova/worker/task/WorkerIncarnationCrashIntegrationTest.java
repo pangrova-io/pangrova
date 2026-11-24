@@ -66,10 +66,9 @@ class WorkerIncarnationCrashIntegrationTest {
                     HttpResponse.BodyHandlers.ofByteArray());
             assertThat(refused.statusCode()).isEqualTo(409);
             var staleTarget = issued.toBuilder().setAttempt(issued.getAttempt().toBuilder().setControlEpoch(2)).build();
-            byte[] lateBody = org.pangrova.common.json.JsonMapperFactory.shared().writeValueAsBytes(
-                    org.pangrova.protocol.rest.task.SubmitTaskRequest.from(staleTarget));
+            byte[] lateBody = org.pangrova.protocol.rest.task.SubmitTaskRequest.from(staleTarget).encode();
             var late = client.send(HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + original[0] + "/v1/task"))
-                    .header("Content-Type", "application/json").timeout(Duration.ofSeconds(10))
+                    .header("Content-Type", "application/x-protobuf").timeout(Duration.ofSeconds(10))
                     .POST(HttpRequest.BodyPublishers.ofByteArray(lateBody)).build(), HttpResponse.BodyHandlers.ofByteArray());
             assertThat(late.statusCode()).isEqualTo(409);
         } finally {

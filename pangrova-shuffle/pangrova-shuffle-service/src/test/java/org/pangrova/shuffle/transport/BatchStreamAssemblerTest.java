@@ -12,6 +12,7 @@ import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.protocol.v2.shuffle.CompressionCodec;
 import org.pangrova.protocol.v2.shuffle.WriteBatchRequest;
 import org.pangrova.shuffle.checksum.ShuffleChecksums;
+import org.pangrova.shuffle.server.exception.ShuffleServiceException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -39,31 +40,44 @@ class BatchStreamAssemblerTest {
         assertThat(assembler.accept(request(payload, 0, 0, 2, 11))).isNull();
         CompleteWriteBatch complete = assembler.accept(request(payload, 1, 1, 2, 11));
 
-        assertThat(complete.canonicalBytes()).isEqualTo(payload);
+        assertThat(complete.canonicalBytes().toByteArray()).isEqualTo(payload);
         assertThat(complete.rowCount()).isEqualTo(11);
         assembler.requireComplete();
     }
 
     @Test
     void completedBatchOwnsBytesAndOpensIndependentUploadStreams() throws Exception {
-        byte[] source = "canonical-batch".getBytes(java.nio.charset.StandardCharsets.UTF_8);
-        byte[] expected = source.clone();
-        WriteBatchRequest first = request(source, 0, 0, 1, 11);
-        CompleteWriteBatch complete = new CompleteWriteBatch(
-                first.getShuffleId(), first.getPartitionId(), 0, 11,
-                first.getProducerAttempt(), first.getAccessCapability(),
-                source, ShuffleChecksums.sha256(source));
-
-        source[0] ^= 1;
-        byte[] exported = complete.canonicalBytes();
-        exported[0] ^= 1;
+        byte[] expected = "batch".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        WriteBatchRequest first = request(expected, 0, 0, 1, 11);
+        CompleteWriteBatch complete = new BatchStreamAssembler(8, 64).accept(first);
 
         assertThat(complete.canonicalSize()).isEqualTo(expected.length);
-        assertThat(complete.canonicalBytes()).isEqualTo(expected);
+        assertThat(complete.canonicalBytes()).isSameAs(first.getChunk().getData());
         try (var firstUpload = complete.openCanonicalStream();
                 var retryUpload = complete.openCanonicalStream()) {
             assertThat(firstUpload.readAllBytes()).isEqualTo(expected);
             assertThat(retryUpload.readAllBytes()).isEqualTo(expected);
+        }
+    }
+
+    @Test
+    void validatesCompleteDigestForBothSingleAndMultipleChunks() {
+        byte[] payload = "canonical-batch".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        for (byte[] data : List.of(new byte[] {1, 2, 3}, payload)) {
+            int chunkCount = data.length <= 8 ? 1 : 2;
+            var assembler = new BatchStreamAssembler(8, 64);
+            for (int index = 0; index < chunkCount; index++) {
+                var request = request(data, index, index, chunkCount, 11);
+                var corrupt = request.toBuilder().setChunk(request.getChunk().toBuilder()
+                        .setBatchChecksum(ShuffleChecksums.protocol(new byte[32]))).build();
+                if (index + 1 < chunkCount) {
+                    assertThat(assembler.accept(corrupt)).isNull();
+                } else {
+                    assertThatThrownBy(() -> assembler.accept(corrupt))
+                            .isInstanceOf(ShuffleServiceException.class)
+                            .hasMessageContaining("complete batch does not match declared size or checksum");
+                }
+            }
         }
     }
 

@@ -15,7 +15,6 @@ import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.table.source.Split;
 import org.apache.paimon.utils.SnapshotManager;
 
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -70,6 +69,11 @@ public final class PaimonSnapshotAwareMetadata implements SnapshotAwareMetadata 
     }
 
     @Override
+    public Optional<CurrentSnapshotFiles> currentSnapshotFiles() {
+        return currentSnapshotId().map(snapshot -> new CurrentSnapshotFiles(snapshot, listFilesAtSnapshot(snapshot)));
+    }
+
+    @Override
     public List<SnapshotDataFile> listFilesAtSnapshot(String snapshotId) {
         return collectDataFiles(snapshotId).values().stream()
                 .sorted(Comparator.comparing(SnapshotDataFile::path))
@@ -91,6 +95,16 @@ public final class PaimonSnapshotAwareMetadata implements SnapshotAwareMetadata 
     }
 
     @Override
+    public SnapshotAdvance observeAdvance(String fromSnapshotId, String toSnapshotId) {
+        SnapshotRelation lineage = relation(fromSnapshotId, toSnapshotId);
+        if (lineage != SnapshotRelation.LEFT_ANCESTOR) return SnapshotAdvance.noAdvance(lineage);
+        var from = collectDataFiles(fromSnapshotId);
+        var target = collectDataFiles(toSnapshotId);
+        var files = target.values().stream().sorted(Comparator.comparing(SnapshotDataFile::path)).toList();
+        return new SnapshotAdvance(lineage, files, SnapshotFileDelta.between(from, target));
+    }
+
+    @Override
     public SnapshotFileDelta diffFiles(String fromSnapshotId, String toSnapshotId) {
         String cacheKey = fromSnapshotId + ":" + toSnapshotId;
         return diffCache.get(cacheKey, key -> computeDiff(fromSnapshotId, toSnapshotId));
@@ -102,23 +116,7 @@ public final class PaimonSnapshotAwareMetadata implements SnapshotAwareMetadata 
     }
 
     private SnapshotFileDelta computeDiff(String fromSnapshotId, String toSnapshotId) {
-        Map<String, SnapshotDataFile> fromFiles = collectDataFiles(fromSnapshotId);
-        Map<String, SnapshotDataFile> toFiles = collectDataFiles(toSnapshotId);
-        List<SnapshotDataFile> added = new ArrayList<>();
-        for (SnapshotDataFile file : toFiles.values()) {
-            if (!fromFiles.containsKey(file.path())) {
-                added.add(file);
-            }
-        }
-        List<String> removed = new ArrayList<>();
-        for (String path : fromFiles.keySet()) {
-            if (!toFiles.containsKey(path)) {
-                removed.add(path);
-            }
-        }
-        added.sort(Comparator.comparing(SnapshotDataFile::path));
-        removed.sort(String::compareTo);
-        return new SnapshotFileDelta(added, removed);
+        return SnapshotFileDelta.between(collectDataFiles(fromSnapshotId), collectDataFiles(toSnapshotId));
     }
 
     private Map<String, SnapshotDataFile> collectDataFiles(String snapshotId) {

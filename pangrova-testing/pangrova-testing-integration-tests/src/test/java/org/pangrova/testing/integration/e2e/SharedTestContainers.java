@@ -61,6 +61,7 @@ public final class SharedTestContainers {
                 .withUsername("pangrova")
                 .withPassword("pangrova_test")
                 .withCommand("postgres",
+                        "-c", "shared_preload_libraries=pg_stat_statements",
                         "-c", "max_connections=200",
                         "-c", "shared_buffers=256MB",
                         "-c", "work_mem=8MB",

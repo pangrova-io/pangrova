@@ -29,7 +29,7 @@ class QueryAuditServiceTest {
 
         service.persist(record);
 
-        Optional<QueryAuditRecord> found = service.findByQueryId("q-001");
+        Optional<QueryAuditRecord> found = service.findByQueryId("q-001", "user-1");
         assertThat(found).isPresent();
         assertThat(found.get().queryId()).isEqualTo("q-001");
         assertThat(found.get().success()).isTrue();
@@ -40,7 +40,7 @@ class QueryAuditServiceTest {
         var store = new InMemoryAuditStore();
         var service = new QueryAuditService(store);
 
-        assertThat(service.findByQueryId("nonexistent")).isEmpty();
+        assertThat(service.findByQueryId("nonexistent", "user-1")).isEmpty();
     }
 
     @Test
@@ -81,7 +81,7 @@ class QueryAuditServiceTest {
         service.persist(buildRecord("q-dup", true));
         service.persist(buildRecord("q-dup", false));
 
-        Optional<QueryAuditRecord> found = service.findByQueryId("q-dup");
+        Optional<QueryAuditRecord> found = service.findByQueryId("q-dup", "user-1");
         assertThat(found).isPresent();
         assertThat(found.get().success()).isFalse();
     }
@@ -112,8 +112,8 @@ class QueryAuditServiceTest {
         }
 
         @Override
-        public Optional<QueryAuditRecord> findById(String queryId) {
-            return Optional.ofNullable(records.get(queryId));
+        public Optional<QueryAuditRecord> findById(String queryId, String principal) {
+            return Optional.ofNullable(records.get(queryId)).filter(record -> principal.equals(record.userId()));
         }
 
         @Override
@@ -135,7 +135,7 @@ class QueryAuditServiceTest {
         }
 
         @Override
-        public Optional<QueryAuditRecord> findById(String queryId) {
+        public Optional<QueryAuditRecord> findById(String queryId, String principal) {
             return Optional.empty();
         }
 

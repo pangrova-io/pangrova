@@ -2,6 +2,7 @@ package org.pangrova.testing.integration.e2e.security;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import org.junit.jupiter.api.AfterEach;
@@ -99,7 +100,7 @@ class MetadataTableAuthorizationE2ETest extends SqlE2ETestBase {
             else if (restricted) restoreDefaultSqlAuthority();
             if (roles != null) {
                 if (grants != null) {
-                    grants.listGrantsForRole(role).forEach(grant -> grants.revokeGrant(grant.id()));
+                    grants.listGrantsForRoles(Set.of(role)).forEach(grant -> grants.revokeGrant(grant.id()));
                 }
                 roles.dropRole(role);
             }

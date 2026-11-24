@@ -2,7 +2,6 @@ package org.pangrova.server.coordinator.bootstrap;
 
 import java.util.List;
 
-import org.pangrova.planner.metadata.catalog.CatalogStatisticsProvider;
 import org.pangrova.planner.metadata.catalog.MetadataSchemaBuilder;
 import org.pangrova.coordinator.metadata.MetadataBootstrap;
 import org.pangrova.coordinator.materialization.KernelMaterializedViewRewriteCatalog;
@@ -14,8 +13,6 @@ import org.pangrova.planner.cost.CostModelConfig;
 import org.pangrova.planner.mv.DynamicTableRewriter;
 import org.pangrova.planner.mv.MaterializedViewRewriteCatalog;
 import org.pangrova.coordinator.dynamictable.DurableDynamicTableResolver;
-import org.pangrova.planner.runtimefilter.DynamicPartitionPruningConfig;
-import org.pangrova.planner.runtimefilter.RuntimeFilterRegistry;
 import org.pangrova.planner.statistics.StatisticsCollector;
 import org.pangrova.security.api.authorization.AccessControl;
 import org.slf4j.Logger;
@@ -57,7 +54,7 @@ final class SqlCompilerFactory {
      * Builds the compiler. Without a metadata bootstrap the planner has no catalog schema, so it
      * falls back to a bare planner that can still parse and convert but cannot resolve tables.
      */
-    SqlCompiler buildSqlCompiler(RuntimeFilterRegistry reg) {
+    SqlCompiler buildSqlCompiler() {
         SqlCompiler compiler = new SqlCompiler(new PangrovaPlanner(),
                 new org.pangrova.planner.substrait.SubstraitConverter(),
                 new org.pangrova.planner.substrait.SubstraitPlanSerializer());
@@ -65,19 +62,17 @@ final class SqlCompilerFactory {
             return compiler;
         }
         return compiler.withSessionPlanner(
-                session -> buildMetadataAwarePlanner(reg, session));
+                this::buildMetadataAwarePlanner);
     }
 
-    private PangrovaPlanner buildMetadataAwarePlanner(RuntimeFilterRegistry reg,
+    private PangrovaPlanner buildMetadataAwarePlanner(
             org.pangrova.connector.api.session.ConnectorSession session) {
         var readBindings = new org.pangrova.planner.metadata.catalog.PlanningReadBindings(
-                metadataBootstrap.catalogRegistry(), session);
+                metadataBootstrap.catalogRegistry(), session, metadataBootstrap.catalogRegistry().tableStatistics());
         var rootSchema = new MetadataSchemaBuilder(
                 metadataBootstrap.metadataService(), metadataBootstrap.catalogRegistry())
                 .buildRootSchema(session, readBindings);
-        var stats = new StatisticsCollector(
-                new CatalogStatisticsProvider(readBindings,
-                        metadataBootstrap.catalogRegistry().tableStatistics()));
+        var stats = new StatisticsCollector(readBindings::statistics);
         var mvCatalog = buildMaterializedViewRewriteCatalog(session);
         var path = session.getCatalog().map(catalog -> session.getSchema()
                 .map(schema -> List.of(catalog, schema)).orElse(List.of(catalog))).orElse(List.of(""));
@@ -95,7 +90,6 @@ final class SqlCompilerFactory {
         }
         return new PangrovaPlanner(rootSchema, path,
                 new PlannerContext(stats, mvCatalog,
-                        DynamicPartitionPruningConfig.DEFAULT, reg,
                         dynamicTableRewriter, null, CboConfig.DEFAULT, CostModelConfig.SSD_DEFAULT));
     }
 

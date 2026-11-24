@@ -36,7 +36,8 @@ class JdbcQueryAuditStoreTest extends ContainerTestBase {
 
         store.save(record("q-roundtrip", completedAt));
 
-        var loaded = store.findById("q-roundtrip");
+        assertThat(store.findById("q-roundtrip", "another-user")).isEmpty();
+        var loaded = store.findById("q-roundtrip", "user-1");
         assertThat(loaded).isPresent();
         var actual = loaded.orElseThrow();
         assertThat(actual.queryId()).isEqualTo("q-roundtrip");
@@ -68,13 +69,13 @@ class JdbcQueryAuditStoreTest extends ContainerTestBase {
         store.save(record("q-retry", completedAt));
         store.save(record("q-retry", completedAt));
 
-        assertThat(store.findById("q-retry")).isPresent();
+        assertThat(store.findById("q-retry", "user-1")).isPresent();
     }
 
     @Test
     void unknownQueryIsEmpty() throws Exception {
         DataSource source = MigratedPostgres.create();
-        assertThat(new JdbcQueryAuditStore(source).findById("q-absent")).isEmpty();
+        assertThat(new JdbcQueryAuditStore(source).findById("q-absent", "user-1")).isEmpty();
     }
 
     @Test
@@ -88,8 +89,8 @@ class JdbcQueryAuditStoreTest extends ContainerTestBase {
         long deleted = store.deleteOlderThan(30);
 
         assertThat(deleted).isEqualTo(1L);
-        assertThat(store.findById("q-old")).isEmpty();
-        assertThat(store.findById("q-new")).isPresent();
+        assertThat(store.findById("q-old", "user-1")).isEmpty();
+        assertThat(store.findById("q-new", "user-1")).isPresent();
     }
 
     @Test
@@ -109,7 +110,7 @@ class JdbcQueryAuditStoreTest extends ContainerTestBase {
 
         // A fresh instance stands in for a Coordinator restart: the in-memory
         // store would have lost this record entirely.
-        assertThat(new JdbcQueryAuditStore(source).findById("q-durable")).isPresent();
+        assertThat(new JdbcQueryAuditStore(source).findById("q-durable", "user-1")).isPresent();
     }
 
     @Test
@@ -117,7 +118,7 @@ class JdbcQueryAuditStoreTest extends ContainerTestBase {
         DataSource source = MigratedPostgres.create();
         var store = new JdbcQueryAuditStore(source);
         store.save(record("q-no-time", null));
-        assertThat(store.findById("q-no-time").orElseThrow().completedAt()).isNull();
+        assertThat(store.findById("q-no-time", "user-1").orElseThrow().completedAt()).isNull();
     }
 
     @Test
@@ -137,6 +138,6 @@ class JdbcQueryAuditStoreTest extends ContainerTestBase {
                 assertThat(stored).isNotNull();
             }
         }
-        assertThat(store.findById("q-instant").orElseThrow().completedAt()).isEqualTo(expected);
+        assertThat(store.findById("q-instant", "user-1").orElseThrow().completedAt()).isEqualTo(expected);
     }
 }

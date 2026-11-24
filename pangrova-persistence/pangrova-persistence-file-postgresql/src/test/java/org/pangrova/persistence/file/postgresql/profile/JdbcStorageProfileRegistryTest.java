@@ -17,6 +17,7 @@ import org.pangrova.common.enums.StorageType;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
@@ -68,7 +69,7 @@ class JdbcStorageProfileRegistryTest {
                 "STORAGE_PROFILE", "incoming", null, null, null));
 
         assertThat(second.unregister("incoming")).isTrue();
-        assertThat(grants.listGrantsForRole("profile-reader")).isEmpty();
+        assertThat(grants.listGrantsForRoles(Set.of("profile-reader"))).isEmpty();
         assertThat(first.getCurrentRevision("incoming")).isEmpty();
         assertThat(first.findRevision("incoming", original.incarnationId(), 1))
                 .contains(original);
@@ -87,7 +88,7 @@ class JdbcStorageProfileRegistryTest {
                 "STORAGE_PROFILE", "incoming", null, null, null));
         try (var connection = source.getConnection(); var statement = connection.createStatement()) {
             statement.executeUpdate("DELETE FROM storage_profile_definitions WHERE name='incoming'");
-            assertThat(grants.listGrantsForRole("profile-reader")).isEmpty();
+            assertThat(grants.listGrantsForRoles(Set.of("profile-reader"))).isEmpty();
             assertThatThrownBy(() -> statement.executeUpdate(
                     "UPDATE storage_profile_revisions SET bucket='forged' WHERE name='incoming'"))
                     .isInstanceOf(SQLException.class)
@@ -168,7 +169,7 @@ class JdbcStorageProfileRegistryTest {
             assertThat(replacement.isDone()).isFalse();
             drop.commit();
             assertThat(replacement.get(5, TimeUnit.SECONDS)).isTrue();
-            assertThat(grants.listGrantsForRole("reader")).isEmpty();
+            assertThat(grants.listGrantsForRoles(Set.of("reader"))).isEmpty();
             assertThat(first.get("race").orElseThrow().bucket()).isEqualTo("new-bucket");
         } finally {
             executor.shutdownNow();
@@ -219,10 +220,10 @@ class JdbcStorageProfileRegistryTest {
         grants.addGrant(PrivilegeGrant.of("reader", Privilege.OWNER,
                 "STORAGE_PROFILE", "incoming", null, null, null));
         assertThat(registry.unregister("incoming")).isTrue();
-        assertThat(grants.listGrantsForRole("reader"))
+        assertThat(grants.listGrantsForRoles(Set.of("reader")))
                 .extracting(PrivilegeGrant::privilege).containsExactly(Privilege.MANAGE_STORAGE_PROFILE);
         assertThat(registry.createIfAbsent(profile("incoming", "bucket-b", ""))).isTrue();
-        assertThat(grants.listGrantsForRole("reader"))
+        assertThat(grants.listGrantsForRoles(Set.of("reader")))
                 .extracting(PrivilegeGrant::privilege).containsExactly(Privilege.MANAGE_STORAGE_PROFILE);
     }
 
@@ -255,7 +256,7 @@ class JdbcStorageProfileRegistryTest {
             assertThatThrownBy(() -> pregrant.get(5, TimeUnit.SECONDS))
                     .hasStackTraceContaining("requires an existing exact profile");
             assertThat(registry.createIfAbsent(profile("incoming", "new-bucket", ""))).isTrue();
-            assertThat(grants.listGrantsForRole("reader")).isEmpty();
+            assertThat(grants.listGrantsForRoles(Set.of("reader"))).isEmpty();
         } finally {
             executor.shutdownNow();
         }

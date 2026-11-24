@@ -118,16 +118,20 @@ public final class DispatchCanceller {
     }
 
     /**
-     * Wraps a checked exception into a RuntimeException preserving PangrovaException identity.
+     * Converts a dispatch failure into a query exception while retaining the original cause.
      */
-    public static RuntimeException wrapIfNeeded(Exception e, String queryId) {
-        if (e instanceof PangrovaException) {
-            return (PangrovaException) e;
+    public static RuntimeException wrapIfNeeded(Throwable failure, String queryId) {
+        if (failure instanceof RuntimeException runtime) {
+            return runtime;
         }
-        if (e instanceof RuntimeException re) {
-            return re;
+        if (failure instanceof LinkageError linkage) {
+            return new PangrovaException(PangrovaErrorCode.COORDINATOR_DISPATCH_FAILED,
+                    "DAG dispatch could not link a runtime class [queryId=" + queryId + "]: " + linkage, linkage);
+        }
+        if (!(failure instanceof Exception)) {
+            return new RuntimeException(failure);
         }
         return new PangrovaException(PangrovaErrorCode.RUNTIME_TASK_FAILED,
-                "Query execution failed [queryId=" + queryId + "]", e);
+                "Query execution failed [queryId=" + queryId + "]", failure);
     }
 }

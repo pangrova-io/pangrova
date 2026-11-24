@@ -199,7 +199,7 @@ final class StatementCancellationPeer implements AutoCloseable {
             String descriptor = endpoint == null ? "" : ",\"result_endpoint\":{\"host\":\"%s\",\"port\":%d,"
                     .formatted(endpoint.host(), endpoint.port()) + "\"ticket\":\"%s\",\"protocol\":\"%s\"}"
                     .formatted(endpoint.ticket(), endpoint.protocol());
-            return "{\"query_id\":\"%s\",\"state\":\"%s\",\"column_names\":[\"value\"]%s}"
+            return "{\"query_id\":\"%s\",\"state\":\"%s\",\"version\":1,\"column_names\":[\"value\"]%s}"
                     .formatted(id, state.get(), descriptor);
         }
     }

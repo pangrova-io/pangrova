@@ -72,12 +72,9 @@ final class PaimonIndexAccessors {
             Table table = PaimonTableIdentity.loadFresh(catalog, tableId);
             PaimonSnapshotAwareMetadata snapshotMetadata =
                     new PaimonSnapshotAwareMetadata(table);
-            Optional<String> snapshot = snapshotMetadata.currentSnapshotId();
-            return snapshot.isEmpty()
-                    ? List.of()
-                    : snapshotMetadata.listFilesAtSnapshot(snapshot.get()).stream()
-                            .map(SnapshotDataFile::path)
-                            .toList();
+            return snapshotMetadata.currentSnapshotFiles()
+                    .map(snapshot -> snapshot.files().stream().map(SnapshotDataFile::path).toList())
+                    .orElseGet(List::of);
         } catch (Exception e) {
             throw new IllegalStateException(
                     "Failed to list complete Paimon data files for "

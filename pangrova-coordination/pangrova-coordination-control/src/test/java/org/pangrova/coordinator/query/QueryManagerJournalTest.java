@@ -19,7 +19,10 @@ import org.pangrova.query.api.error.QueryFailure;
 import org.pangrova.query.api.journal.JournalEventContext;
 import org.pangrova.persistence.query.api.exception.JournalWriteException;
 import org.pangrova.query.api.journal.QueryStateEvent;
+import org.pangrova.scheduler.api.admission.ClusterAdmissionController;
+import org.pangrova.scheduler.api.resource.AdmissionDecision;
 import org.pangrova.scheduler.api.resource.AdmissionRequest;
+import org.pangrova.security.exception.TenantQuotaExceededException;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -38,7 +41,8 @@ class QueryManagerJournalTest {
             owner.queued(queryId, "SELECT 1", session, state);
             QueryStateEvent committed = store.journal().latestQueryEvent(queryId).orElseThrow();
             var json = org.pangrova.common.json.JsonMapperFactory.shared().readTree(committed.sessionJson());
-            assertThat(json.size()).isEqualTo(2);
+            assertThat(json.size()).isEqualTo(3);
+            assertThat(json.get("principal").asText()).isEqualTo("anonymous");
             assertThat(json.get("queryId").asText()).isEqualTo(queryId);
             assertThat(json.get("tenantId").asText()).isEqualTo(tenant);
             assertThat(committed.queryId()).isEqualTo(queryId);
@@ -62,7 +66,7 @@ class QueryManagerJournalTest {
 
     @Test void failedQueuedJournalWriteRemovesUnownedQuery() throws Exception {
         try (var fixture = new QueryManagerJournalFixture(2)) {
-            assertThat(fixture.admission.admit(AdmissionRequest.of("fixture-tenant", "default", "survivor")).isAdmitted()).isTrue();
+            assertThat(fixture.admission.admit(fixture.admissionRequest("survivor")).isAdmitted()).isTrue();
             fixture.store.journal().close(); // Actual admission seal, before transfer; not an accepted SQL failure.
             assertThatThrownBy(() -> fixture.manager.submitQuery("journal-failure", "SELECT 1",
                     SourceFreeQueryFixture.session("journal-failure"))).isInstanceOf(JournalWriteException.class)
@@ -110,16 +114,53 @@ class QueryManagerJournalTest {
         }
     }
 
-    @Test void deniedClusterAdmissionRemovesLocalReservationExactlyOnce() throws Exception {
+    @Test void deniedClusterAdmissionDiscardsTheUnacquiredReservation() throws Exception {
         try (var fixture = new QueryManagerJournalFixture(0)) {
+            var controller = new CountingController(fixture.admission::admit);
+            fixture.manager.setClusterAdmissionController(controller);
             assertThatThrownBy(() -> fixture.manager.submitQuery("denied-admission", "SELECT 1",
-                    SourceFreeQueryFixture.session("denied-admission"))).isInstanceOf(QueryRejectedException.class)
+                    SourceFreeQueryFixture.session("denied-admission")))
+                    .isInstanceOf(TenantQuotaExceededException.class)
                     .hasMessageContaining("Cluster admission denied");
             assertThat(fixture.manager.getActiveQueryCount()).isZero();
             assertThat(fixture.manager.getQueryState("denied-admission")).isEmpty();
             assertThat(fixture.slots.active("fixture-tenant")).isZero();
             assertThat(fixture.store.committedEvents("denied-admission")).isEmpty();
             assertThat(fixture.store.queryRows("denied-admission")).isZero();
+            assertThat(controller.releases).isZero();
+        }
+    }
+
+    @Test void deniedAdmissionFromThePortRequiresNoRelease() throws Exception {
+        try (var fixture = new QueryManagerJournalFixture(0)) {
+            var controller = new CountingController(request -> AdmissionDecision.reject("tenant at capacity"));
+            fixture.manager.setClusterAdmissionController(controller);
+            assertThatThrownBy(() -> fixture.manager.submitQuery("port-denial", "SELECT 1",
+                    SourceFreeQueryFixture.session("port-denial"))).isInstanceOf(TenantQuotaExceededException.class);
+            assertThat(fixture.manager.getActiveQueryCount()).isZero();
+            assertThat(controller.releases).isZero();
+        }
+    }
+
+    @Test void ambiguousAdmissionRetainsItsExactReleaseUntilCleanup() throws Exception {
+        try (var fixture = new QueryManagerJournalFixture(1)) {
+            var controller = new CountingController(request -> {
+                assertThat(fixture.slots.tryReserve(request.tenantId(), request.queryId(), 1)).isTrue();
+                throw new IllegalStateException("reservation acknowledgement was lost");
+            }) {
+                @Override
+                public void release(String queryId, String tenantId) {
+                    super.release(queryId, tenantId);
+                    fixture.slots.release(tenantId, queryId);
+                }
+            };
+            fixture.manager.setClusterAdmissionController(controller);
+            assertThatThrownBy(() -> fixture.manager.submitQuery("ambiguous-admission", "SELECT 1",
+                    SourceFreeQueryFixture.session("ambiguous-admission")))
+                    .isInstanceOf(IllegalStateException.class).hasMessageContaining("acknowledgement was lost");
+            assertThat(fixture.manager.getActiveQueryCount()).isZero();
+            assertThat(controller.releases).isOne();
+            assertThat(fixture.slots.active("fixture-tenant")).isZero();
         }
     }
 
@@ -178,6 +219,30 @@ class QueryManagerJournalTest {
             assertThat(fixture.store.committedEvents("accepted-failure").stream().filter(event -> event.state().equals("QUEUED"))).hasSize(1);
             assertThat(fixture.store.terminalWrites("accepted-failure", "FAILED")).isEqualTo(1);
             assertThat(fixture.admission.admittedCount("fixture-tenant")).isZero();
+        }
+    }
+
+    private static class CountingController implements ClusterAdmissionController {
+        private final java.util.function.Function<AdmissionRequest, AdmissionDecision> admission;
+        int releases;
+
+        private CountingController(java.util.function.Function<AdmissionRequest, AdmissionDecision> admission) {
+            this.admission = admission;
+        }
+
+        @Override
+        public AdmissionDecision admit(AdmissionRequest request) {
+            return admission.apply(request);
+        }
+
+        @Override
+        public void release(String queryId, String tenantId) {
+            releases++;
+        }
+
+        @Override
+        public int admittedCount(String tenantId) {
+            return 0;
         }
     }
 }

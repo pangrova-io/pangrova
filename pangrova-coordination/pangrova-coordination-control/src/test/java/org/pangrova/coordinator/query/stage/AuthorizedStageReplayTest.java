@@ -10,7 +10,6 @@ import org.apache.calcite.rel.logical.LogicalValues;
 import org.apache.calcite.rex.RexBuilder;
 import org.junit.jupiter.api.Test;
 import org.pangrova.query.api.session.QuerySession;
-import org.pangrova.coordinator.query.execution.dispatch.adaptive.AdaptiveStagePlanResolver;
 import org.pangrova.execution.stage.QueryExecutionScope;
 import org.pangrova.coordinator.query.execution.dispatch.dag.binding.StageSplitFetcher;
 import org.pangrova.planner.analysis.AuthorizedStageGraph;
@@ -43,7 +42,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class AuthorizedStageReplayTest {
     @Test
-    void restoresOpaqueStagesWithoutPlannerCapabilityOrAdaptiveRebinding() throws Exception {
+    void restoresOpaqueStagesWithTheAuthorizedCoordinates() throws Exception {
         var graph = graph();
         var dag = StageDAG.fromAuthorizedStageGraph(graph).withStages("replay-query");
         assertThat(dag.stages()).hasSize(2);
@@ -52,12 +51,8 @@ class AuthorizedStageReplayTest {
             assertThat(stage.stagePlan().mode()).isEqualTo(StagePlanMode.DURABLE_REPLAY);
             assertThat(stage.stagePlan().toSerializedPlan(null, stage.stagePlan().fieldNames()))
                     .isEqualTo(((SerializedStage) stage.stagePlan()).serializedPlan());
-            assertThat(new AdaptiveStagePlanResolver(null).apply(stage, dag, null)).isSameAs(stage);
             assertThatThrownBy(stage.stagePlan()::requireLiveFragment).hasMessageContaining("no live planner");
-            assertThatThrownBy(() -> stage.withParallelism(stage.parallelism() + 1))
-                    .hasMessageContaining("persisted graph identity");
-            assertThatThrownBy(() -> stage.withStagePlan(live()))
-                    .hasMessageContaining("cannot be adaptively replaced");
+            assertCoordinatesEnforced(stage.stagePlan(), stage.stageId(), stage.parallelism(), stage.taskType());
         }
     }
 

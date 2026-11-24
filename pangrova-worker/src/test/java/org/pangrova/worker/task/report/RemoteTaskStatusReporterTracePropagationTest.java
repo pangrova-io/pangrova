@@ -52,10 +52,10 @@ class RemoteTaskStatusReporterTracePropagationTest {
     }
 
     private static TaskStatusReport dummyReport() {
-        return new TaskStatusReport(
-                "task-1", "q-1", 0, 0, "COMPUTE", "w-1", "RUNNING",
-                null, null, null, 1, System.currentTimeMillis(), null, null,
-                org.pangrova.protocol.rest.task.TaskAttemptDescriptor.of(1, 0));
+        var attempt = org.pangrova.protocol.v2.TaskAttemptId.newBuilder().setTaskId("task-1")
+                .setQueryOrJobId("q-1").setPlanEpoch(1).setFencingToken(1).build();
+        return TaskStatusReport.fromAttempt(attempt, "COMPUTE", "w-1", "RUNNING",
+                null, null, null, 1, System.currentTimeMillis(), null);
     }
 
     /**

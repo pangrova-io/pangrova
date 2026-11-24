@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.integration.connector.paimon;
 
+import org.pangrova.protocol.source.CanonicalConnectorSplit;
 import org.pangrova.connector.api.enums.ReadSnapshotState;
 import org.pangrova.connector.paimon.PaimonSplitRegistry;
 import org.pangrova.connector.paimon.PaimonSplitManager;
@@ -23,12 +24,16 @@ import org.pangrova.connector.api.metadata.Constraint;
 import org.pangrova.connector.api.metadata.DynamicFilter;
 import org.pangrova.connector.api.metadata.table.ConnectorReadBinding;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.coordinator.task.TestConnectorQuery;
 
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Proxy;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -47,6 +52,36 @@ class PaimonReadBindingIntegrationTest {
         @Override public Optional<String> getSchema() { return Optional.of("db"); }
         @Override public Map<String, String> getProperties() { return Map.of("queryId", "read", "tenant_id", "tenant"); }
     };
+
+    @Test
+    void validatingABoundScanAndPlanningItsFilesShareOneFreshCatalogLoad() throws Exception {
+        try (var catalog = catalog()) {
+            var table = create(catalog, "counted");
+            write(table, 3);
+            var invalidations = new AtomicInteger();
+            var tableLoads = new AtomicInteger();
+            var counted = (Catalog) Proxy.newProxyInstance(Catalog.class.getClassLoader(),
+                    new Class<?>[] {Catalog.class}, (proxy, method, arguments) -> {
+                        if (method.getName().equals("getTable")) tableLoads.incrementAndGet();
+                        if (method.getName().equals("invalidateTable")) invalidations.incrementAndGet();
+                        try {
+                            return method.invoke(catalog, arguments);
+                        } catch (InvocationTargetException failure) {
+                            throw failure.getCause();
+                        }
+                    });
+            try (var registry = new PaimonSplitRegistry()) {
+                var metadata = new PaimonMetadata(counted, "bound", registry);
+                var selected = bind(metadata, "counted");
+                tableLoads.set(0);
+                invalidations.set(0);
+                assertThat(splits(counted, registry, metadata, selected)).isNotEmpty().allSatisfy(split ->
+                        assertThat(split.getSourceSnapshot()).isEqualTo(Long.toString(selected.snapshotId().orElseThrow())));
+                assertThat(tableLoads.get()).isOne();
+                assertThat(invalidations.get()).isOne();
+            }
+        }
+    }
 
     @Test
     void selectedStatisticsAndSplitsDoNotAdvanceAfterAnotherCommit() throws Exception {
@@ -207,26 +242,36 @@ class PaimonReadBindingIntegrationTest {
 
     private static List<org.pangrova.protocol.v2.DataSplit> splits(Catalog catalog,
             ConnectorReadBinding binding) throws Exception {
-        var registry = new PaimonSplitRegistry();
-        var query = new org.pangrova.coordinator.task.TestConnectorQuery("read", "reader", "tenant", Map.of());
+        try (var registry = new PaimonSplitRegistry()) {
+            return splits(catalog, registry, new PaimonMetadata(catalog, "bound", registry), binding);
+        }
+    }
+
+    private static List<org.pangrova.protocol.v2.DataSplit> splits(Catalog catalog, PaimonSplitRegistry registry,
+            PaimonMetadata metadata, ConnectorReadBinding binding) throws Exception {
+        var query = new TestConnectorQuery("read", "reader", "tenant", Map.of());
         var session = query.session("bound", "db");
         registry.beginQuery(query.authority());
         var manager = new PaimonSplitManager(catalog, registry);
-        var source = manager.getSplits(ConnectorTransactionHandle.empty(), session, binding.handle(),
-                DynamicFilter.ALL, Constraint.EMPTY);
         List<org.pangrova.protocol.v2.DataSplit> result = new ArrayList<>();
         try {
-            while (!source.isFinished()) {
-                for (var split : source.getNextBatch(100)) {
-                    result.add(org.pangrova.protocol.v2.DataSplit.parseFrom(split.toSplitInfoProto()));
+            var source = manager.getBoundSplits(ConnectorTransactionHandle.empty(), session, metadata, binding,
+                    DynamicFilter.ALL, Constraint.EMPTY);
+            try {
+                assertThat(registry.size()).isZero();
+                while (!source.isFinished()) {
+                    for (var split : source.getNextBatch(100)) {
+                        result.add(org.pangrova.protocol.v2.DataSplit.parseFrom(
+                                CanonicalConnectorSplit.from(split).toByteArray()));
+                    }
                 }
+            } finally {
+                source.close();
             }
         } finally {
-            source.close();
             query.seal();
             registry.releaseQuery(query.authority());
             query.retire();
-            registry.close();
         }
         return result;
     }

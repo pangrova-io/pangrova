@@ -17,6 +17,7 @@ import org.pangrova.planner.security.expression.MaskExpressionParser;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.security.api.authorization.AccessControl;
 import org.pangrova.security.api.identity.UserIdentity;
+import org.pangrova.security.api.mask.TableColumnMasks;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.TableScan;
 import org.apache.calcite.rel.logical.LogicalProject;
@@ -28,6 +29,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -63,6 +65,11 @@ public final class ColumnMaskApplier {
                 physicalToLogical);
     }
 
+    /** Verifies the policy provider against the authority that admitted the query. */
+    public boolean usesAuthority(AccessControl authority) {
+        return accessControl == authority;
+    }
+
     /** Uses logical Dynamic Table policy identity for this query's physical scans. */
     public ColumnMaskApplier withAuthorityMapping(
             java.util.Map<QualifiedTableName, QualifiedTableName> mapping) {
@@ -78,28 +85,37 @@ public final class ColumnMaskApplier {
         if (identity == null) {
             return relNode;
         }
-        return applyMasksRecursive(relNode, identity);
+        return applyAuthorizedMasks(relNode, accessControl.beginReadAuthorization(identity));
     }
 
-    private RelNode applyMasksRecursive(RelNode node, UserIdentity identity) {
+    public RelNode applyAuthorizedMasks(RelNode relNode, AccessControl.ReadAuthorization authorization) {
+        return applyMasksRecursive(relNode, authorization, new java.util.HashMap<>());
+    }
+
+    private RelNode applyMasksRecursive(RelNode node, AccessControl.ReadAuthorization authorization,
+            Map<QualifiedTableName, TableColumnMasks> tableMasks) {
         if (node instanceof org.apache.calcite.rel.logical.LogicalTableModify modify
                 && MutationPolicyInputs.modifiesExistingRows(modify)) {
             return MutationPolicyInputs.columnMasks(modify,
-                    input -> applyMasksRecursive(input, identity),
-                    scan -> applyMasksToScan(scan, identity));
+                    input -> applyMasksRecursive(input, authorization, tableMasks),
+                    scan -> applyMasksToScan(scan, authorization, tableMasks));
         }
         if (node instanceof TableScan scan) {
-            return applyMasksToScan(scan, identity);
+            return applyMasksToScan(scan, authorization, tableMasks);
         }
         return PlanNodeTransform.replaceInputs(node,
-                input -> applyMasksRecursive(input, identity));
+                input -> applyMasksRecursive(input, authorization, tableMasks));
     }
 
-    private RelNode applyMasksToScan(TableScan scan, UserIdentity identity) {
+    private RelNode applyMasksToScan(TableScan scan, AccessControl.ReadAuthorization authorization,
+            Map<QualifiedTableName, TableColumnMasks> tableMasks) {
+        List<RelDataTypeField> fields = scan.getRowType().getFieldList();
+        if (fields.isEmpty()) return scan;
         QualifiedTableName ref = PlanNodeTransform.extractTableRef(scan);
         QualifiedTableName authority = policyTable(ref);
+        var masks = tableMasks.computeIfAbsent(authority, table -> authorization.columnMasks(
+                table.catalog(), table.schema(), table.table()));
         RexBuilder rexBuilder = scan.getCluster().getRexBuilder();
-        List<RelDataTypeField> fields = scan.getRowType().getFieldList();
 
         List<RexNode> projects = new ArrayList<>();
         List<String> names = new ArrayList<>();
@@ -108,7 +124,7 @@ public final class ColumnMaskApplier {
         for (int i = 0; i < fields.size(); i++) {
             RelDataTypeField field = fields.get(i);
             hasMask |= collectMaskedProjection(
-                    ref, authority, identity, rexBuilder, scan, field, i, projects);
+                    ref, masks, rexBuilder, scan, field, i, projects);
             names.add(field.getName());
         }
         return hasMask
@@ -116,13 +132,11 @@ public final class ColumnMaskApplier {
                 : scan;
     }
 
-    private boolean collectMaskedProjection(QualifiedTableName ref, QualifiedTableName authority,
-                                            UserIdentity identity,
+    private boolean collectMaskedProjection(QualifiedTableName ref, TableColumnMasks masks,
                                             RexBuilder rexBuilder, TableScan scan,
                                             RelDataTypeField field, int index,
                                             List<RexNode> projects) {
-        Optional<String> mask = accessControl.getColumnMask(
-                identity, authority.catalog(), authority.schema(), authority.table(), field.getName());
+        Optional<String> mask = masks.mask(field.getName());
         if (observations != null) {
             observations.columnMask(ref, field.getName(), mask);
         }

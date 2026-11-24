@@ -7,7 +7,7 @@ import jakarta.ws.rs.core.Response;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.ResourceLock;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
-import org.pangrova.protocol.rest.task.SubmitTaskResponse;
+import org.pangrova.protocol.http.TaskSubmitAck;
 import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
 import org.pangrova.worker.exchange.source.ExchangeSourceRegistry;
 import org.pangrova.worker.task.ActualTaskManagerFixture;
@@ -17,14 +17,14 @@ import org.pangrova.worker.task.TaskManager;
 class TaskResourceEpochFenceTest {
 
     @Test
-    void rejectsBeforeControlHandshakeWithRetryableServiceUnavailable() {
+    void rejectsBeforeControlHandshakeWithRetryableServiceUnavailable() throws Exception {
         try (var runtime = new ActualNativeTaskFixture();
                 var fixture = new ActualTaskManagerFixture(runtime, "epoch-http");
                 var resource = resource(fixture.manager(), runtime)) {
             TaskManager manager = fixture.manager();
             manager.requireControlEpochHandshake();
 
-            Response response = resource.submitTask(request(1L));
+            Response response = resource.submitTask(request(1L).encode(), null);
 
             assertThat(response.getStatus()).isEqualTo(503);
             assertRejected(response, "handshake");
@@ -33,7 +33,7 @@ class TaskResourceEpochFenceTest {
     }
 
     @Test
-    void distinguishesFutureEpochWaitingFromPermanentlyStaleTaskBeforePlanDecode() {
+    void distinguishesFutureEpochWaitingFromPermanentlyStaleTaskBeforePlanDecode() throws Exception {
         try (var runtime = new ActualNativeTaskFixture();
                 var fixture = new ActualTaskManagerFixture(runtime, "epoch-http");
                 var resource = resource(fixture.manager(), runtime)) {
@@ -41,9 +41,9 @@ class TaskResourceEpochFenceTest {
             manager.requireControlEpochHandshake();
             manager.observeControlEpoch(7);
 
-            Response missing = resource.submitTask(request(null));
-            Response stale = resource.submitTask(request(6L));
-            Response future = resource.submitTask(request(8L));
+            Response missing = resource.submitTask(request(null).encode(), null);
+            Response stale = resource.submitTask(request(6L).encode(), null);
+            Response future = resource.submitTask(request(8L).encode(), null);
 
             assertThat(missing.getStatus()).isEqualTo(409);
             assertThat(stale.getStatus()).isEqualTo(409);
@@ -121,10 +121,9 @@ class TaskResourceEpochFenceTest {
         return SubmitTaskRequest.from(canonical.build());
     }
 
-    private static void assertRejected(Response response, String messageFragment) {
-        assertThat(response.getEntity()).isInstanceOf(SubmitTaskResponse.class);
-        SubmitTaskResponse body = (SubmitTaskResponse) response.getEntity();
-        assertThat(body.accepted()).isFalse();
-        assertThat(body.rejectReason()).contains(messageFragment);
+    private static void assertRejected(Response response, String messageFragment) throws Exception {
+        var ack = TaskSubmitAck.parseFrom((byte[]) response.getEntity());
+        assertThat(ack.hasRejected()).isTrue();
+        assertThat(ack.getRejected().getReason()).contains(messageFragment);
     }
 }

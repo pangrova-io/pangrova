@@ -17,8 +17,6 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class AvailabilityWindowPropertyTest {
-    private static final IndexHint HINT = new IndexHint("index", IndexType.BLOOM_FILTER, 0, new EqualTo("id", 1L));
-
     @Property
     void unequalSnapshotIdentitiesBypassEvaluationRegardlessOfNumericOrder(@ForAll long id) {
         String pinned = Long.toString(id);
@@ -51,8 +49,8 @@ class AvailabilityWindowPropertyTest {
         var descriptor = new IndexDescriptor("index", "idx", "lake", "public", "records", List.of("id"),
                 IndexType.BLOOM_FILTER, Map.of(), IndexState.READY, null, 0, indexed, indexed,
                 Instant.EPOCH, Instant.EPOCH, "default");
-        var context = new SplitEvalContext(null, List.of(), Map.of(), Map.of("index", descriptor),
-                query, null, 0, null);
-        return AvailabilityWindowChecker.isOutsideAvailabilityWindow(split, List.of(HINT), context);
+        var context = new SplitEvalContext(null, List.of(), Map.of(), query, null, 0, null);
+        var hint = new IndexHint(descriptor, new EqualTo("id", 1L));
+        return AvailabilityWindowChecker.isOutsideAvailabilityWindow(split, List.of(hint), context);
     }
 }

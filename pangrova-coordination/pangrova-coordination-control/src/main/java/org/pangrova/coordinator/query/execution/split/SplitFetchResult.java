@@ -1,7 +1,6 @@
 package org.pangrova.coordinator.query.execution.split;
 
 import org.pangrova.coordinator.enums.SplitFetchOutcome;
-import org.pangrova.query.api.task.QuerySplit;
 
 import java.util.List;
 

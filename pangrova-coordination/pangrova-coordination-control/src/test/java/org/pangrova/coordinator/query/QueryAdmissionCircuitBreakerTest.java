@@ -54,6 +54,7 @@ class QueryAdmissionCircuitBreakerTest {
 
     private QueryManager queryManager;
     private ResilienceRegistry resilienceRegistry;
+    private org.pangrova.query.lifecycle.QueryAdmissionPort admission;
 
     @BeforeEach
     void setUp() {
@@ -61,19 +62,22 @@ class QueryAdmissionCircuitBreakerTest {
         Map<String, ResiliencePolicyConfig> policies = ResilienceConfigLoader.load(config);
         resilienceRegistry = new ResilienceRegistry(policies);
 
+        admission = QueryManagerCollaborators.admission(resilienceRegistry, null);
+        queryManager = manager(null);
+    }
+
+    private QueryManager manager(org.pangrova.query.lifecycle.TenantAdmissionPort tenant) {
         QueryDispatcher dispatcher = buildDispatcher();
         QueryManagerContext ctx = new QueryManagerContext(
                 dispatcher, TestObservability.TRACING,
-                null, null,
-                org.pangrova.coordinator.query.QueryManagerCollaborators.admission(
-                        resilienceRegistry, null),
+                null, tenant, admission,
                 org.pangrova.coordinator.query.QueryManagerCollaborators.audit(
                         null, null, null, dispatcher, null),
                 org.pangrova.coordinator.query.QueryManagerCollaborators.journal(
                         new org.pangrova.persistence.query.memory.state.InMemoryQueryStateJournal(), null),
                 null,
                 new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory());
-        queryManager = new QueryManager(ctx);
+        return new QueryManager(ctx);
     }
 
     @Test
@@ -105,7 +109,7 @@ class QueryAdmissionCircuitBreakerTest {
         assertThat(resilienceRegistry.allowRequest("coordinator-query-admission"))
                 .isFalse();
 
-        // Verify that checkDegradation (called in submitQuery) rejects with clear message
+        // Verify submission rejects before dispatch when the health circuit is open.
         assertThatThrownBy(() -> queryManager.submitQuery(
                 "rejected-" + UUID.randomUUID(), "SELECT 1",
                 new QuerySession("q1", Map.of(), null, null, java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture())))
@@ -142,9 +146,32 @@ class QueryAdmissionCircuitBreakerTest {
             queryManager.cancelQuery(queryId);
         }
 
-        // Breaker should still be closed since cancellations record as success
-        assertThat(resilienceRegistry.allowRequest("coordinator-query-admission"))
-                .isTrue();
+        var breaker = resilienceRegistry.getCircuitBreaker("coordinator-query-admission");
+        assertThat(breaker.getMetrics().getNumberOfBufferedCalls()).isZero();
+        assertThat(resilienceRegistry.allowRequest("coordinator-query-admission")).isTrue();
+    }
+
+    @Test
+    void quotaRefusalsReturnHalfOpenProbesWithoutRecordingFailures() {
+        var breaker = resilienceRegistry.getCircuitBreaker("coordinator-query-admission");
+        breaker.transitionToOpenState();
+        breaker.transitionToHalfOpenState();
+        var quotaManager = manager((identity, active) -> {
+            throw new org.pangrova.security.exception.TenantQuotaExceededException("tenant concurrency exhausted");
+        });
+        for (int sample = 0; sample < 12; sample++) {
+            String id = "quota-" + sample;
+            var session = new QuerySession(id, Map.of(), null, null, java.util.Optional.empty(),
+                    new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
+            assertThatThrownBy(() -> quotaManager.submitQuery(id, "SELECT 1", session))
+                    .isInstanceOf(org.pangrova.security.exception.TenantQuotaExceededException.class);
+        }
+        assertThat(breaker.getMetrics().getNumberOfBufferedCalls()).isZero();
+        assertThat(breaker.getState()).isEqualTo(io.github.resilience4j.circuitbreaker.CircuitBreaker.State.HALF_OPEN);
+        for (int sample = 0; sample < 3; sample++) {
+            queryManager.onAllTasksFinished(registerRunningQuery());
+        }
+        assertThat(breaker.getState()).isEqualTo(io.github.resilience4j.circuitbreaker.CircuitBreaker.State.CLOSED);
     }
 
     @Test
@@ -188,6 +215,7 @@ class QueryAdmissionCircuitBreakerTest {
     private String registerRunningQuery() {
         String queryId = "test-" + UUID.randomUUID();
         QueryStateMachine sm = new QueryStateMachine();
+        sm.acquireAdmissionHealthProbe(admission::acquireHealthProbe);
         sm.tryTransition(QueryState.PLANNING);
         sm.tryTransition(QueryState.SCHEDULING);
         sm.tryTransition(QueryState.RUNNING);

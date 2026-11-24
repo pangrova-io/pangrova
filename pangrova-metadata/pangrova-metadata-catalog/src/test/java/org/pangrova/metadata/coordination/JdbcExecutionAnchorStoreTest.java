@@ -3,6 +3,8 @@ import org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAncho
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import org.pangrova.execution.api.ownership.ExecutionAnchor;
 
@@ -13,6 +15,7 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.Executors;
@@ -45,6 +48,45 @@ class JdbcExecutionAnchorStoreTest {
         assertThat(second.fencingToken()).isGreaterThan(first.fencingToken());
         assertThat(store.release(first)).isFalse();
         assertThat(store.current("q-1")).contains(second);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"release", "yield", "bulk-yield"})
+    void retirementFencesNewAdmissionAndSuccessorWaitsForReadWindow(String retirement) throws Exception {
+        Duration lease = Duration.ofMinutes(1);
+        String execution = "read-window";
+        var first = store.tryAcquire(execution, "owner", "process", lease).orElseThrow();
+        try (var conn = dataSource.getConnection();
+             var insert = conn.prepareStatement("""
+                     INSERT INTO execution_read_window (read_id, execution_id, protected_until)
+                     VALUES (?, ?, clock_timestamp() + INTERVAL '1 minute')
+                     """)) {
+            insert.setObject(1, UUID.randomUUID());
+            insert.setString(2, execution);
+            assertThat(insert.executeUpdate()).isEqualTo(1);
+        }
+        switch (retirement) {
+            case "release" -> assertThat(store.release(first)).isTrue();
+            case "yield" -> assertThat(store.yield(first)).isTrue();
+            case "bulk-yield" -> assertThat(store.yieldOwned("owner", "process")).isEqualTo(1);
+            default -> throw new IllegalArgumentException(retirement);
+        }
+        assertThat(store.current(execution)).isEmpty();
+        assertThat(store.tryAcquire(execution, "successor", "new", lease)).isEmpty();
+        assertThat(store.claimExpired("successor", "new", lease, 8)).isEmpty();
+
+        try (var conn = dataSource.getConnection();
+             var expire = conn.prepareStatement("""
+                     UPDATE execution_read_window SET protected_until = clock_timestamp() WHERE execution_id = ?
+                     """)) {
+            expire.setString(1, execution);
+            assertThat(expire.executeUpdate()).isEqualTo(1);
+        }
+        var next = "release".equals(retirement)
+                ? store.tryAcquire(execution, "successor", "new", lease).orElseThrow()
+                : store.claimExpired("successor", "new", lease, 8).get(0);
+        assertThat(next.executionId()).isEqualTo(execution);
+        assertThat(next.fencingToken()).isGreaterThan(first.fencingToken());
     }
 
     @Test

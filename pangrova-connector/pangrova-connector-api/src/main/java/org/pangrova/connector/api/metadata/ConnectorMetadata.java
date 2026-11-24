@@ -38,6 +38,11 @@ public interface ConnectorMetadata
      */
     ConnectorTableHandle getTableHandle(ConnectorSession session, SchemaTableName tableName);
 
+    /** Whether an ordinary named lookup can only return the exact catalog spelling. */
+    default boolean supportsExactTableNameLookup() {
+        return false;
+    }
+
     /**
      * Returns the metadata for the specified table.
      *
@@ -67,7 +72,7 @@ public interface ConnectorMetadata
         return new org.pangrova.connector.api.metadata.table.ConnectorReadBinding(table,
                 getTableReadMetadata(session, table), TableStatistics.UNKNOWN,
                 org.pangrova.connector.api.enums.ReadSnapshotState.UNVERSIONED,
-                java.util.OptionalLong.empty(), "", java.util.Optional.empty());
+                java.util.OptionalLong.empty(), "", java.util.Optional.empty(), java.util.Optional.empty());
     }
 
     /**

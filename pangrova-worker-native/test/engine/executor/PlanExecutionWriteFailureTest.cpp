@@ -62,7 +62,7 @@ TEST(PlanExecutionWriteFailureTest, MissingActualMetadataChannelFailsAndJoinsCon
   EXPECT_NO_THROW(executor.release());
   EXPECT_EQ(executor.state(), ExecutorState::FAILED);
   EXPECT_TRUE(executor.hasFinalTaskStats());
-  EXPECT_FALSE(executor.collectTaskStats().empty());
+  EXPECT_TRUE(executor.collectTaskStats().has_value());
   EXPECT_NO_THROW(executor.release());
 }
 

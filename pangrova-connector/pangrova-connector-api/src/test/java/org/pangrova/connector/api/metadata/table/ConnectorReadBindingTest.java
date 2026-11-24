@@ -76,21 +76,21 @@ class ConnectorReadBindingTest {
                 "allocator", List.of(field), FieldIdStability.SELECTED_SOURCE);
         assertThatThrownBy(() -> new ConnectorReadBinding(handle, declaration, TableStatistics.UNKNOWN,
                 ReadSnapshotState.SNAPSHOT, OptionalLong.of(1), "source",
-                java.util.Optional.of(evidence))).isInstanceOf(IllegalArgumentException.class);
+                java.util.Optional.of(evidence), java.util.Optional.empty())).isInstanceOf(IllegalArgumentException.class);
         var metadata = new ConnectorTableMetadata(new SchemaTableName("db", "table"),
                 List.of("email"), List.of(field), Map.of());
         var unavailable = new ConnectorTableReadMetadata(metadata,
                 TableDeclarationEvidence.UNAVAILABLE);
         assertThatThrownBy(() -> new ConnectorReadBinding(handle, unavailable, TableStatistics.UNKNOWN,
                 ReadSnapshotState.SNAPSHOT, OptionalLong.of(1), "source",
-                java.util.Optional.of(evidence))).isInstanceOf(IllegalArgumentException.class);
+                java.util.Optional.of(evidence), java.util.Optional.empty())).isInstanceOf(IllegalArgumentException.class);
         var exact = new ConnectorTableReadMetadata(metadata, TableDeclarationEvidence.EXACT);
         assertThatThrownBy(() -> new ConnectorReadBinding(handle, exact, TableStatistics.UNKNOWN,
                 ReadSnapshotState.UNVERSIONED, OptionalLong.empty(), "",
-                java.util.Optional.of(evidence))).isInstanceOf(IllegalArgumentException.class);
+                java.util.Optional.of(evidence), java.util.Optional.empty())).isInstanceOf(IllegalArgumentException.class);
         assertThat(new ConnectorReadBinding(handle, exact, TableStatistics.UNKNOWN,
                 ReadSnapshotState.SNAPSHOT, OptionalLong.of(1), "source",
-                java.util.Optional.of(evidence)).schemaIdentity()).containsSame(evidence);
+                java.util.Optional.of(evidence), java.util.Optional.empty()).schemaIdentity()).containsSame(evidence);
     }
 
     @Test
@@ -102,7 +102,7 @@ class ConnectorReadBindingTest {
 
     private ConnectorReadBinding binding(ReadSnapshotState state, OptionalLong snapshot,
             TableStatistics statistics, String evidence) {
-        return new ConnectorReadBinding(handle, declaration, statistics, state, snapshot, evidence, java.util.Optional.empty());
+        return new ConnectorReadBinding(handle, declaration, statistics, state, snapshot, evidence, java.util.Optional.empty(), java.util.Optional.empty());
     }
 
     private record SelectedHandle(String identity) implements ConnectorTableHandle {}

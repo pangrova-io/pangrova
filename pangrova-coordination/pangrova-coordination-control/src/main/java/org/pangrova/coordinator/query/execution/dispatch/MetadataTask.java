@@ -1,6 +1,9 @@
 package org.pangrova.coordinator.query.execution.dispatch;
 import org.pangrova.query.dispatch.StatementResult;
 
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
+
 import org.pangrova.parser.api.ast.Statement;
 import org.pangrova.query.dispatch.StatementExecutionContext;
 
@@ -18,4 +21,9 @@ public interface MetadataTask<T extends Statement> {
 
     /** Executes the metadata operation and returns the result. */
     StatementResult execute(T statement, StatementExecutionContext context);
+
+    /** Starts asynchronous work for a metadata operation when it owns distributed execution. */
+    default CompletionStage<StatementResult> start(T statement, StatementExecutionContext context) {
+        return CompletableFuture.completedFuture(execute(statement, context));
+    }
 }

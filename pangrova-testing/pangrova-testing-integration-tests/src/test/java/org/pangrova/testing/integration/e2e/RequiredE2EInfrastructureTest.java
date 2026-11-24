@@ -20,6 +20,7 @@ import org.pangrova.protocol.v2.TaskExecutionOptions;
 import org.pangrova.protocol.v2.StageResourceGrant;
 import org.pangrova.testing.testkit.CanonicalTaskRequestTestFixture;
 import org.pangrova.worker.result.ResultReadTickets;
+import org.pangrova.protocol.task.ValidatedTaskSubmission;
 import com.google.protobuf.ByteString;
 import org.junit.jupiter.api.Test;
 
@@ -152,7 +153,7 @@ class RequiredE2EInfrastructureTest extends SqlE2ETestBase {
         SubmitTaskRequest result = resultRequest("result-task", true);
         tracker.registerTaskRequest("result-task", result);
         ResultEndpoint endpoint = new ResultReadTickets(new byte[32])
-                .endpoint(result.taskRequest(), "worker-2", 12345, "grpc");
+                .endpoint(new ValidatedTaskSubmission(result), "worker-2", 12345, "grpc");
 
         assertThat(endpoint.ticket()).isNotEqualTo("result-task");
         assertThat(SqlE2ETestBase.requireNativeResultTaskId(
@@ -172,7 +173,7 @@ class RequiredE2EInfrastructureTest extends SqlE2ETestBase {
         tracker.registerTaskRequest("result-1", first);
         tracker.registerTaskRequest("result-2", resultRequest("result-2", true));
         ResultEndpoint endpoint = new ResultReadTickets(new byte[32])
-                .endpoint(first.taskRequest(), "worker-2", 12345, "grpc");
+                .endpoint(new ValidatedTaskSubmission(first), "worker-2", 12345, "grpc");
 
         assertThatThrownBy(() -> SqlE2ETestBase.requireNativeResultTaskId(endpoint, "query-1", tracker))
                 .isInstanceOf(IllegalStateException.class)
@@ -204,7 +205,7 @@ class RequiredE2EInfrastructureTest extends SqlE2ETestBase {
         SubmitTaskRequest result = resultRequest("task-1", true);
         tracker.registerTaskRequest("task-1", result);
         ResultEndpoint endpoint = new ResultReadTickets(new byte[32])
-                .endpoint(result.taskRequest(), "localhost", closedPort, "grpc");
+                .endpoint(new ValidatedTaskSubmission(result), "localhost", closedPort, "grpc");
         assertThatThrownBy(() -> SqlE2ETestBase.fetchResultsViaFlight(
                 endpoint, "query-1", tracker))
                 .isInstanceOf(IllegalStateException.class)

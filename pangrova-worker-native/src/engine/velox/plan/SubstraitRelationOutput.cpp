@@ -3,6 +3,7 @@
 #include "engine/velox/plan/VeloxPlanConverter.h"
 
 #include <stdexcept>
+#include <unordered_set>
 
 #include "pangrova/protocol/v2/plan_extension.pb.h"
 #include "engine/velox/plan/CanonicalOrdinalIdentity.h"
@@ -47,6 +48,20 @@ std::vector<const substrait::Rel*> children(const substrait::Rel& relation) {
     }
   }
   return result;
+}
+
+bool projectsDistinctNamedReadFields(const substrait::ReadRel& read) {
+  if (!read.has_named_table() || read.named_table().names_size() != 3 ||
+      read.named_table().names(2).find('$') != std::string::npos || !read.has_base_schema() ||
+      !read.base_schema().has_struct_() || !read.common().has_emit() ||
+      read.has_filter() || read.has_best_effort_filter() ||
+      read.has_projection()) {
+    return false;
+  }
+  const auto& fields = read.common().emit().output_mapping();
+  if (fields.empty() || fields.size() >= read.base_schema().struct_().types_size()) return false;
+  return std::unordered_set<int32_t>(fields.begin(), fields.end()).size() ==
+      static_cast<size_t>(fields.size());
 }
 
 void consumeNestedNames(const TypePtr& type, const substrait::RelRoot& root,
@@ -94,6 +109,18 @@ RowTypePtr VeloxPlanConverter::directLogicalType(
 
 std::shared_ptr<const core::PlanNode> VeloxPlanConverter::convertRel(
     const substrait::Rel& relation, const std::vector<split::SplitConfig>& splits) {
+  if (relation.has_read() && projectsDistinctNamedReadFields(relation.read())) {
+    const auto& read = relation.read();
+    auto base = schema::direct(relation, {});
+    auto projected = schema::emit(base, read.common());
+    auto logicalType = capability::canonicalPhysicalSchema(projected);
+    auto node = namedTableScan(read, capability::canonicalPhysicalSchema(base),
+        logicalType, physicalRowType(logicalType), nullptr);
+    relation_output_types_[&relation] = logicalType;
+    relation_output_schemas_[&relation] = std::move(projected);
+    logical_node_types_[node->id()] = std::move(logicalType);
+    return node;
+  }
   auto node = convertDirectRel(relation, splits);
   const auto logicalType = directLogicalType(relation, node);
   const auto physicalType = node->outputType();

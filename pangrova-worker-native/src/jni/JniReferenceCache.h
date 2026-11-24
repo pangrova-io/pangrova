@@ -26,6 +26,9 @@ struct JniReferenceCache {
   // org.apache.arrow.c.ArrowSchema class + memoryAddress() method.
   jclass arrow_schema_class = nullptr;
   jmethodID arrow_schema_address = nullptr;
+
+  jclass runnable_class = nullptr;
+  jmethodID runnable_run = nullptr;
 };
 
 // Initialize the global JNI reference cache. Must be called from a thread

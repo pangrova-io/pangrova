@@ -44,6 +44,22 @@ class LazyMetadataSchemaSystemTableLookupTest {
     private static final String SCHEMA = "test_schema";
 
     @Test
+    void namedLookupUsesOnlyTheAuthenticatedDeclarationWhenCalciteRequestsColumns() {
+        var metadata = new TestMetadata();
+        var lookup = schema(metadata).tables();
+        var table = lookup.get("Orders");
+        assertThat(table).isNotNull();
+        assertThat(metadata.declarationCalls).isZero();
+        assertThat(table.getRowType(new org.apache.calcite.jdbc.JavaTypeFactoryImpl()).getFieldNames())
+                .containsExactly("id");
+        assertThat(metadata.declarationCalls).isEqualTo(1);
+        assertThat(lookup.getIgnoreCase("ORDERS").entity().getRowType(
+                new org.apache.calcite.jdbc.JavaTypeFactoryImpl()).getFieldNames()).containsExactly("id");
+        assertThat(metadata.lookups).containsExactly("Orders", "ORDERS");
+        assertThat(metadata.declarationCalls).isOne();
+    }
+
+    @Test
     void caseInsensitiveVirtualLookupUsesCanonicalBaseAndSuffixWithoutEnumerating() {
         TestMetadata metadata = new TestMetadata();
         var lookup = schema(metadata).tables();
@@ -95,7 +111,7 @@ class LazyMetadataSchemaSystemTableLookupTest {
     }
 
     @Test
-    void namedTableLookupListsNamesButDoesNotLoadUnrelatedTableMetadata() {
+    void exactSpellingDoesNotEnumerateOrLoadUnrelatedTables() {
         TestMetadata metadata = new TestMetadata();
         for (int i = 0; i < 1_000; i++) {
             metadata.tableNames.add("Unrelated" + i);
@@ -104,8 +120,23 @@ class LazyMetadataSchemaSystemTableLookupTest {
 
         assertThat(lookup.getIgnoreCase("Orders").name()).isEqualTo("Orders");
         assertThat(lookup.get("Orders")).isNotNull();
-        assertThat(metadata.listCalls).isEqualTo(1);
+        assertThat(metadata.listCalls).isZero();
         assertThat(metadata.lookups).containsExactly("Orders", "Orders");
+    }
+
+    @Test
+    void calciteSchemaAccessorsDoNotLoadUnrelatedTableHandles() {
+        TestMetadata metadata = new TestMetadata();
+        for (int i = 0; i < 1_000; i++) {
+            metadata.tableNames.add("Unrelated" + i);
+        }
+        var schema = schema(metadata);
+
+        assertThat(schema.getTable("Orders")).isNotNull();
+        assertThat(metadata.listCalls).isZero();
+        assertThat(schema.getTableNames()).hasSize(1_001);
+        assertThat(metadata.listCalls).isOne();
+        assertThat(metadata.lookups).containsExactly("Orders");
     }
 
     @Test
@@ -180,6 +211,18 @@ class LazyMetadataSchemaSystemTableLookupTest {
         assertThat(snapshots.name()).isEqualTo("Fresh$snapshots");
         assertThat(metadata.lookups).contains("Fresh$snapshots");
         assertThat(metadata.lookups).doesNotContain("FRESH$snapshots");
+        assertThat(metadata.listCalls).isEqualTo(2);
+    }
+
+    @Test
+    void missingBaseTableOnlyEnumeratesOncePerResolution() {
+        TestMetadata metadata = new TestMetadata();
+        var lookup = schema(metadata).tables();
+
+        assertThat(lookup.getIgnoreCase("MISSING$SNAPSHOTS")).isNull();
+        assertThat(metadata.listCalls).isOne();
+        assertThat(lookup.getIgnoreCase("MISSING")).isNull();
+        assertThat(metadata.listCalls).isEqualTo(2);
     }
 
     @Test
@@ -225,6 +268,7 @@ class LazyMetadataSchemaSystemTableLookupTest {
         private final List<String> lookups = new ArrayList<>();
         private final List<String> tableNames = new ArrayList<>(List.of("Orders"));
         private int listCalls;
+        private int declarationCalls;
         private boolean failSystemLookup;
         private boolean failListTables;
 
@@ -240,6 +284,11 @@ class LazyMetadataSchemaSystemTableLookupTest {
                 throw new IllegalStateException("catalog listing unavailable");
             }
             return tableNames.stream().map(name -> new SchemaTableName(SCHEMA, name)).toList();
+        }
+
+        @Override
+        public boolean supportsExactTableNameLookup() {
+            return true;
         }
 
         @Override
@@ -265,6 +314,7 @@ class LazyMetadataSchemaSystemTableLookupTest {
 
         @Override
         public ConnectorTableMetadata getTableMetadata(ConnectorSession session, ConnectorTableHandle table) {
+            declarationCalls++;
             String name = ((TestHandle) table).name();
             String column = name.endsWith("$snapshots") ? "snapshot_id"
                     : name.endsWith("$history") ? "made_current_at"

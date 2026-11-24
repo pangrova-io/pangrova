@@ -1,5 +1,6 @@
 package org.pangrova.connector.api.metadata;
 
+import java.util.List;
 import java.util.Set;
 
 import org.pangrova.common.api.annotation.Experimental;
@@ -24,6 +25,16 @@ public sealed interface Domain {
         public Range {
             if (low == null && high == null) {
                 throw new IllegalArgumentException("Range must have at least one bound");
+            }
+        }
+    }
+
+    /** Values satisfying at least one of the ranges for this column. */
+    record RangeUnion(List<Range> ranges) implements Domain {
+        public RangeUnion {
+            ranges = List.copyOf(ranges);
+            if (ranges.isEmpty()) {
+                throw new IllegalArgumentException("Range union requires at least one range");
             }
         }
     }

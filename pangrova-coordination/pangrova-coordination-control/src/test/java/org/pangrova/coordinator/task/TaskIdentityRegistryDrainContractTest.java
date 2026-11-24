@@ -39,13 +39,50 @@ class TaskIdentityRegistryDrainContractTest {
         issue(registry, request);
         registry.enterDispatch(request);
         registry.sealQuery("query");
+        assertThat(registry.tryClaimQueryCleanup("query")).isFalse();
         assertThatThrownBy(() -> registry.remove("task")).hasMessageContaining("without actual drain evidence");
         assertThatThrownBy(() -> registry.requireQueryDrained("query")).hasMessageContaining("lacks its exact");
         registry.recordExecutionDrain(request, receipt(request));
+        assertThat(registry.tryClaimQueryCleanup("query")).isTrue();
         registry.requireQueryDrained("query");
         registry.retireQuery("query");
         assertThat(registry.request("task")).isNull();
         assertThat(registry.executionDrainReceipt("task")).contains(receipt(request));
+    }
+
+    @Test
+    void exactCancelResponseSignalsCleanupWithoutAnotherOperation() {
+        var tracker = new CoordinatorTaskTracker();
+        var request = request();
+        tracker.openQueryIssuance("query");
+        tracker.registerTaskRequest("task", request);
+        tracker.bindDispatchTarget(request, TestWorkerInfoBuilder.active("worker", "original-host", 9001, 9002));
+        tracker.enterTaskDispatch(request);
+        var ready = new java.util.ArrayList<String>();
+        var execution = new org.pangrova.query.api.lifecycle.QueryExecutionCleanup() {
+            @Override public void cancelDispatchedTasks(String queryId) {
+                throw new AssertionError("A finished query must not request cancellation");
+            }
+            @Override public boolean tryCleanupQuery(String queryId) {
+                return tracker.tryClaimQueryCleanup(queryId);
+            }
+            @Override public boolean tryCleanupUnadmittedQuery(String queryId) {
+                throw new AssertionError("The query already owns execution");
+            }
+        };
+        var cleanup = new org.pangrova.query.lifecycle.QueryTerminalCleanup(execution,
+                ignored -> { }, ignored -> { }, context -> ready.add(context.queryId()), () -> 0L);
+        tracker.addQueryDrainProgressListener(cleanup::onDrainProgress);
+        var state = new org.pangrova.query.lifecycle.QueryStateMachine();
+        state.toFinisher().run();
+        cleanup.complete("query", state, "test");
+        cleanup.retryPending();
+        assertThat(ready).isEmpty();
+
+        tracker.recordExecutionDrain(request, receipt(request));
+        cleanup.retryPending();
+        assertThat(ready).containsExactly("query");
+        tracker.retireQueryIssuance("query");
     }
 
     @Test

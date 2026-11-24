@@ -3,7 +3,7 @@ package org.pangrova.server.coordinator.query.task;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.common.json.JsonMapperFactory;
+import org.pangrova.protocol.rest.task.TaskStatusWire;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.protocol.v2.ExecutionDrainState;
 import org.pangrova.protocol.v2.TaskReport;
@@ -65,7 +65,7 @@ final class StatusReportHttpRelay implements AutoCloseable {
     private void forward(HttpExchange exchange) throws IOException {
         try (exchange) {
             byte[] body = exchange.getRequestBody().readAllBytes();
-            TaskStatusReport report = JsonMapperFactory.shared().readValue(body, TaskStatusReport.class);
+            TaskStatusReport report = TaskStatusWire.decode(body);
             boolean selected = selectedState.equals(report.state()) && (!onlyDrained || drained(report));
             int count = selected ? matched.incrementAndGet() : 0;
             var attempt = new Attempt(body, exchange.getRequestHeaders().getFirst("Authorization"), selected,

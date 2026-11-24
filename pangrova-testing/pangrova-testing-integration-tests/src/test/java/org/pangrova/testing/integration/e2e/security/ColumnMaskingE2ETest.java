@@ -90,7 +90,7 @@ class ColumnMaskingE2ETest extends SqlE2ETestBase {
             EnrichedColumnMaskStore store = buildMaskStore(salaryMask);
             ColumnMaskingProcessor processor = new ColumnMaskingProcessor(store);
 
-            Optional<String> mask = processor.getMask(RESTRICTED_USER, java.util.Set.of("interns"), CATALOG, SCHEMA, tableName, "salary");
+            Optional<String> mask = processor.getMasks(RESTRICTED_USER, java.util.Set.of("interns"), CATALOG, SCHEMA, tableName).mask("salary");
 
             assertThat(mask).isPresent();
             assertThat(mask.get()).isEqualTo("'***'");
@@ -109,7 +109,7 @@ class ColumnMaskingE2ETest extends SqlE2ETestBase {
             EnrichedColumnMaskStore store = buildMaskStore(ssnMask);
             ColumnMaskingProcessor processor = new ColumnMaskingProcessor(store);
 
-            Optional<String> mask = processor.getMask(RESTRICTED_USER, java.util.Set.of("interns"), CATALOG, SCHEMA, tableName, "ssn");
+            Optional<String> mask = processor.getMasks(RESTRICTED_USER, java.util.Set.of("interns"), CATALOG, SCHEMA, tableName).mask("ssn");
 
             assertThat(mask).isPresent();
             assertThat(mask.get()).isEqualTo("'XXX-XX-' || SUBSTRING(\"ssn\", 8)");
@@ -137,7 +137,7 @@ class ColumnMaskingE2ETest extends SqlE2ETestBase {
             EnrichedColumnMaskStore store = buildMaskStore(salaryMask);
             ColumnMaskingProcessor processor = new ColumnMaskingProcessor(store);
 
-            Optional<String> mask = processor.getMask(ADMIN_USER, java.util.Set.of("admins"), CATALOG, SCHEMA, tableName, "salary");
+            Optional<String> mask = processor.getMasks(ADMIN_USER, java.util.Set.of("admins"), CATALOG, SCHEMA, tableName).mask("salary");
 
             // Admin is exempt — no mask applied, sees raw data
             assertThat(mask).isEmpty();
@@ -156,7 +156,7 @@ class ColumnMaskingE2ETest extends SqlE2ETestBase {
             EnrichedColumnMaskStore store = buildMaskStore(ssnMask);
             ColumnMaskingProcessor processor = new ColumnMaskingProcessor(store);
 
-            Optional<String> mask = processor.getMask(ADMIN_USER, java.util.Set.of("admins"), CATALOG, SCHEMA, tableName, "ssn");
+            Optional<String> mask = processor.getMasks(ADMIN_USER, java.util.Set.of("admins"), CATALOG, SCHEMA, tableName).mask("ssn");
 
             assertThat(mask).isEmpty();
         }
@@ -184,12 +184,12 @@ class ColumnMaskingE2ETest extends SqlE2ETestBase {
             ColumnMaskingProcessor processor = new ColumnMaskingProcessor(store);
 
             // Intern — masked
-            Optional<String> internMask = processor.getMask(RESTRICTED_USER, java.util.Set.of("interns"), CATALOG, SCHEMA, tableName, "salary");
+            Optional<String> internMask = processor.getMasks(RESTRICTED_USER, java.util.Set.of("interns"), CATALOG, SCHEMA, tableName).mask("salary");
             assertThat(internMask).isPresent();
             assertThat(internMask.get()).isEqualTo("'REDACTED'");
 
             // Analyst — not in applyToRoles, mask does not apply
-            Optional<String> analystMask = processor.getMask(ANALYST_USER, java.util.Set.of("analysts"), CATALOG, SCHEMA, tableName, "salary");
+            Optional<String> analystMask = processor.getMasks(ANALYST_USER, java.util.Set.of("analysts"), CATALOG, SCHEMA, tableName).mask("salary");
             assertThat(analystMask).isEmpty();
         }
 
@@ -207,15 +207,15 @@ class ColumnMaskingE2ETest extends SqlE2ETestBase {
             ColumnMaskingProcessor processor = new ColumnMaskingProcessor(store);
 
             // Intern — masked
-            assertThat(processor.getMask(RESTRICTED_USER, java.util.Set.of("interns"), CATALOG, SCHEMA, tableName, "salary"))
+            assertThat(processor.getMasks(RESTRICTED_USER, java.util.Set.of("interns"), CATALOG, SCHEMA, tableName).mask("salary"))
                     .isPresent().hasValue("0");
 
             // Analyst — masked
-            assertThat(processor.getMask(ANALYST_USER, java.util.Set.of("analysts"), CATALOG, SCHEMA, tableName, "salary"))
+            assertThat(processor.getMasks(ANALYST_USER, java.util.Set.of("analysts"), CATALOG, SCHEMA, tableName).mask("salary"))
                     .isPresent().hasValue("0");
 
             // Admin — exempt
-            assertThat(processor.getMask(ADMIN_USER, java.util.Set.of("admins"), CATALOG, SCHEMA, tableName, "salary"))
+            assertThat(processor.getMasks(ADMIN_USER, java.util.Set.of("admins"), CATALOG, SCHEMA, tableName).mask("salary"))
                     .isEmpty();
         }
 
@@ -232,7 +232,7 @@ class ColumnMaskingE2ETest extends SqlE2ETestBase {
             EnrichedColumnMaskStore store = buildMaskStore(disabledMask);
             ColumnMaskingProcessor processor = new ColumnMaskingProcessor(store);
 
-            Optional<String> mask = processor.getMask(RESTRICTED_USER, java.util.Set.of("interns"), CATALOG, SCHEMA, tableName, "salary");
+            Optional<String> mask = processor.getMasks(RESTRICTED_USER, java.util.Set.of("interns"), CATALOG, SCHEMA, tableName).mask("salary");
             assertThat(mask).isEmpty();
         }
     }
@@ -266,8 +266,8 @@ class ColumnMaskingE2ETest extends SqlE2ETestBase {
                 NO_RLS,
                 processor);
 
-            Optional<String> mask = ac.getColumnMask(
-                    RESTRICTED_USER, CATALOG, SCHEMA, tableName, "salary");
+            Optional<String> mask = ac.getColumnMasks(
+                    RESTRICTED_USER, CATALOG, SCHEMA, tableName).mask("salary");
             assertThat(mask).isPresent().hasValue("'***'");
         }
 
@@ -292,8 +292,8 @@ class ColumnMaskingE2ETest extends SqlE2ETestBase {
                 NO_RLS,
                 processor);
 
-            Optional<String> mask = ac.getColumnMask(
-                    ADMIN_USER, CATALOG, SCHEMA, tableName, "salary");
+            Optional<String> mask = ac.getColumnMasks(
+                    ADMIN_USER, CATALOG, SCHEMA, tableName).mask("salary");
             assertThat(mask).isEmpty();
         }
 
@@ -319,8 +319,8 @@ class ColumnMaskingE2ETest extends SqlE2ETestBase {
                 processor);
 
             // "name" column has no mask defined
-            Optional<String> mask = ac.getColumnMask(
-                    RESTRICTED_USER, CATALOG, SCHEMA, tableName, "name");
+            Optional<String> mask = ac.getColumnMasks(
+                    RESTRICTED_USER, CATALOG, SCHEMA, tableName).mask("name");
             assertThat(mask).isEmpty();
         }
     }

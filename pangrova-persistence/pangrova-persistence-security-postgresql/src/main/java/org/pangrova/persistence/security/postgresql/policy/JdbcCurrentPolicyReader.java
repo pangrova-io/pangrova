@@ -2,6 +2,7 @@ package org.pangrova.persistence.security.postgresql.policy;
 
 import org.pangrova.persistence.jdbc.api.security.policy.CurrentPolicyReader;
 import org.pangrova.persistence.security.postgresql.codec.PolicyRoleCodec;
+import org.pangrova.persistence.security.postgresql.mask.JdbcColumnMaskStore;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope.TablePermission;
 import org.pangrova.security.api.mask.ColumnMask;
 import org.pangrova.security.api.rowfilter.RowPolicy;
@@ -34,26 +35,10 @@ public final class JdbcCurrentPolicyReader implements CurrentPolicyReader {
     }
 
     @Override
-    public List<ColumnMask> readMasks(
-            Connection connection, TablePermission permission, String column) throws SQLException {
-        try (var statement = connection.prepareStatement(
-                "SELECT * FROM column_mask WHERE catalog_name=? AND schema_name=? AND table_name=? "
-                        + "AND column_name=? AND enabled")) {
-            bindTable(statement, permission);
-            statement.setString(4, column);
-            try (var result = statement.executeQuery()) {
-                var masks = new ArrayList<ColumnMask>();
-                while (result.next()) {
-                    masks.add(new ColumnMask(result.getLong("mask_id"), result.getString("mask_name"),
-                            result.getString("catalog_name"), result.getString("schema_name"),
-                            result.getString("table_name"), column, result.getString("mask_expression"),
-                            PolicyRoleCodec.decodeRoles(result.getString("apply_to_roles")),
-                            PolicyRoleCodec.decodeRoles(result.getString("exempt_roles")), true,
-                            result.getObject("table_id", java.util.UUID.class)));
-                }
-                return masks;
-            }
-        }
+    public List<ColumnMask> readMasks(Connection connection, TablePermission permission) throws SQLException {
+        var table = permission.table();
+        return JdbcColumnMaskStore.listEnabledForColumns(connection, table.catalog(), table.schema(), table.table(),
+                permission.columns());
     }
 
     private static void bindTable(java.sql.PreparedStatement statement, TablePermission permission)

@@ -134,10 +134,11 @@ final class GeneratedBuildTestConnectors {
         }
     }
 
-    record SnapshotSplit(byte[] bytes) implements ConnectorSplit {
+    record SnapshotSplit(org.pangrova.protocol.v2.DataSplit data)
+            implements org.pangrova.protocol.source.CanonicalConnectorSplit {
         @Override
-        public byte[] toSplitInfoProto() {
-            return bytes.clone();
+        public org.pangrova.protocol.v2.DataSplit toDataSplit() {
+            return data;
         }
     }
 
@@ -151,7 +152,7 @@ final class GeneratedBuildTestConnectors {
                         FileSplitDetail.newBuilder()
                                 .setFileFormat(FileFormat.FILE_FORMAT_PARQUET)
                                 .build()));
-        return new SnapshotSplit(dataSplit.toByteArray());
+        return new SnapshotSplit(dataSplit);
     }
 
     static final class FixedSplitSource implements ConnectorSplitSource {

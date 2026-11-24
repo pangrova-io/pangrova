@@ -2,8 +2,6 @@ package org.pangrova.protocol.source;
 
 import org.pangrova.common.util.DigestUtils;
 
-import com.google.protobuf.Any;
-import com.google.protobuf.InvalidProtocolBufferException;
 import org.pangrova.common.util.OrderedMaps;
 import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.protocol.v2.FileSplitDetail;
@@ -19,7 +17,7 @@ import java.util.Objects;
 
 import static org.pangrova.common.util.Preconditions.requireText;
 
-/** Utilities for the generic v2 DataSplit envelope and typed file detail extension. */
+/** Utilities for canonical split identity and typed file details. */
 public final class DataSplitProtoCodec {
 
     private DataSplitProtoCodec() {}
@@ -87,21 +85,11 @@ public final class DataSplitProtoCodec {
             partitionValues = partitionValues == null
                     ? Map.of()
                     : OrderedMaps.immutableCopy(partitionValues);
-            detail = copyDetail(Objects.requireNonNull(detail, "detail must not be null"));
-        }
-
-        @Override
-        public Map<String, String> partitionValues() {
-            return OrderedMaps.immutableCopy(partitionValues);
-        }
-
-        @Override
-        public FileSplitDetail detail() {
-            return copyDetail(detail);
+            Objects.requireNonNull(detail, "detail must not be null");
         }
     }
 
-    /** Builds the common portion of a DataSplit and packs its FileSplitDetail. */
+    /** Builds a DataSplit with its typed file detail. */
     public static DataSplit buildFileSplit(FileSplitInput input) {
         Objects.requireNonNull(input, "input must not be null");
         DataSplit.Builder builder = DataSplit.newBuilder()
@@ -116,21 +104,12 @@ public final class DataSplitProtoCodec {
                 .setOpaqueLocation(input.opaqueLocation())
                 .setStartOffset(input.startOffset())
                 .setLength(input.length())
-                .setConnectorDetail(Any.pack(input.detail()));
+                .setFileDetail(input.detail());
         input.partitionValues().forEach((name, value) -> builder.addPartitionValues(
                 PartitionValue.newBuilder()
                         .setColumnName(name)
                         .setValue(stringValue(value))));
         return builder.build();
-    }
-
-    private static FileSplitDetail copyDetail(FileSplitDetail detail) {
-        try {
-            return FileSplitDetail.parseFrom(detail.toByteArray());
-        } catch (InvalidProtocolBufferException impossible) {
-            throw new IllegalStateException(
-                    "Serialized FileSplitDetail could not be parsed", impossible);
-        }
     }
 
     private static void validateRange(long startOffset, long length) {
@@ -139,18 +118,12 @@ public final class DataSplitProtoCodec {
         }
     }
 
-    /** Unpacks the exact file detail type; unknown connector extensions fail closed. */
+    /** Requires an explicitly supplied file detail. */
     public static FileSplitDetail fileDetail(DataSplit split) {
-        if (!split.hasConnectorDetail()
-                || !split.getConnectorDetail().is(FileSplitDetail.class)) {
-            throw new IllegalArgumentException(
-                    "DataSplit connector_detail must be pangrova.protocol.v2.FileSplitDetail");
+        if (!split.hasFileDetail()) {
+            throw new IllegalArgumentException("DataSplit requires file_detail");
         }
-        try {
-            return split.getConnectorDetail().unpack(FileSplitDetail.class);
-        } catch (InvalidProtocolBufferException failure) {
-            throw new IllegalArgumentException("Malformed FileSplitDetail", failure);
-        }
+        return split.getFileDetail();
     }
 
     /** Returns string partition values, rejecting type drift rather than stringifying it. */
@@ -168,9 +141,9 @@ public final class DataSplitProtoCodec {
         return Map.copyOf(result);
     }
 
-    /** Replaces the packed file detail while preserving the generic split identity fields. */
+    /** Replaces the file detail while preserving the generic split identity fields. */
     public static DataSplit withFileDetail(DataSplit split, FileSplitDetail detail) {
-        return split.toBuilder().setConnectorDetail(Any.pack(detail)).build();
+        return split.toBuilder().setFileDetail(detail).build();
     }
 
     private static TypedValue stringValue(String value) {

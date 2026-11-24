@@ -1,6 +1,8 @@
 package org.pangrova.worker.task;
 
 import org.pangrova.worker.result.ResultTransport;
+import org.pangrova.protocol.v2.ExchangeInputBinding;
+import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.shuffle.exchange.ExchangeTransport;
 import org.pangrova.worker.shuffle.NativeShuffleProducerRegistration;
 
@@ -17,7 +19,7 @@ import org.pangrova.worker.shuffle.NativeShuffleProducerRegistration;
 public record TransportRefs(
         NativeShuffleProducerRegistration shuffleProducers,
         ResultTransport resultTransport,
-        ExchangeTransport exchangeTransport) {
+        ExchangeTransport<TaskAttemptId, ExchangeInputBinding> exchangeTransport) {
 
     /** Returns true if all required transports are wired. */
     public boolean isFullyWired() {

@@ -34,22 +34,23 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class FlightResultFetcherDeadlineTest {
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
-    void liveFlightStreamCannotOutrunCallerQueryDeadline(boolean streaming) throws Exception {
+    void liveFlightStreamCannotOutrunCallerQueryDeadline(boolean afterFirstBatch) throws Exception {
         try (RootAllocator allocator = new RootAllocator(32L * 1024 * 1024)) {
             var producer = new DeadlineProducer(allocator);
-            verifyDeadlineAndRecovery(allocator, producer, streaming);
+            verifyDeadlineAndRecovery(allocator, producer, afterFirstBatch);
             assertThat(allocator.getAllocatedMemory()).isZero();
             assertThat(allocator.getChildAllocators()).isEmpty();
         }
     }
 
     private static void verifyDeadlineAndRecovery(
-            RootAllocator allocator, DeadlineProducer producer, boolean streaming) throws Exception {
+            RootAllocator allocator, DeadlineProducer producer, boolean afterFirstBatch) throws Exception {
         try (FlightServer server = FlightServer.builder(
                      allocator, Location.forGrpcInsecure("127.0.0.1", 0),
                      producer).build().start();
@@ -58,12 +59,19 @@ class FlightResultFetcherDeadlineTest {
             try {
                 var result = executor.submit(() -> {
                     try {
-                        var endpoint = new ResultEndpoint("127.0.0.1", server.getPort(), "deadline",
+                        var endpoint = new ResultEndpoint("127.0.0.1", server.getPort(),
+                                afterFirstBatch ? "deadline-after-batch" : "deadline-before-batch",
                                 ResultProtocol.GRPC.value());
-                        if (streaming) {
-                            fetcher.fetchStream(endpoint, bytes -> { }, System.currentTimeMillis() + 3_000);
-                        } else {
-                            fetcher.fetch(endpoint, System.currentTimeMillis() + 3_000);
+                        try (var cursor = fetcher.open(endpoint, System.currentTimeMillis() + 3_000)) {
+                            assertThat(afterFirstBatch).isTrue();
+                            assertThat(cursor.next()).isTrue();
+                            assertThat(cursor.value(0)).isEqualTo(42);
+                            try {
+                                cursor.next();
+                            } catch (TransportConnectionException failure) {
+                                assertThatThrownBy(cursor::next).isSameAs(failure);
+                                throw failure;
+                            }
                         }
                         return (Throwable) null;
                     } catch (Throwable failure) {
@@ -83,9 +91,13 @@ class FlightResultFetcherDeadlineTest {
                 assertThat(producerExited).isTrue();
                 assertThat(consumerExited).isTrue();
             }
-            var recovered = ArrowBatchDecoder.decode(fetcher.fetch(new ResultEndpoint("127.0.0.1", server.getPort(),
-                    "recovery", ResultProtocol.GRPC.value()), System.currentTimeMillis() + 3_000));
-            assertThat(recovered.rows()).singleElement().satisfies(row -> assertThat(row).containsExactly(42));
+            var recovered = new ResultEndpoint("127.0.0.1", server.getPort(), "recovery",
+                    ResultProtocol.GRPC.value());
+            try (var cursor = fetcher.open(recovered, System.currentTimeMillis() + 3_000)) {
+                assertThat(cursor.next()).isTrue();
+                assertThat(cursor.value(0)).isEqualTo(42);
+                assertThat(cursor.next()).isFalse();
+            }
             fetcher.close();
         }
     }
@@ -100,21 +112,21 @@ class FlightResultFetcherDeadlineTest {
 
         @Override
         public void getStream(FlightProducer.CallContext context, Ticket ticket, FlightProducer.ServerStreamListener listener) {
-            boolean deadline = new String(ticket.getBytes(), StandardCharsets.UTF_8).equals("deadline");
+            String mode = new String(ticket.getBytes(), StandardCharsets.UTF_8);
+            boolean deadline = mode.startsWith("deadline-");
             try {
                 IntVector vector = new IntVector("value", allocator);
                 try (VectorSchemaRoot root = VectorSchemaRoot.of(vector)) {
                     vector.allocateNew();
+                    boolean sendsRow = !mode.equals("deadline-before-batch");
+                    if (sendsRow) vector.setSafe(0, 42);
+                    root.setRowCount(sendsRow ? 1 : 0);
+                    listener.start(root);
+                    if (sendsRow) listener.putNext();
                     if (!deadline) {
-                        vector.setSafe(0, 42);
-                        root.setRowCount(1);
-                        listener.start(root);
-                        listener.putNext();
                         listener.completed();
                         return;
                     }
-                    root.setRowCount(0);
-                    listener.start(root);
                     streamStarted.countDown();
                     if (releaseProducer.await(10, TimeUnit.SECONDS) && !listener.isCancelled()) listener.completed();
                 }

@@ -52,7 +52,10 @@ class TaskRequestDtoConverterTest {
         assertThat(descriptor.resourceLimit().maxMemoryBytes()).isEqualTo(1024);
         var serialized = (TaskRequestDtoConverter.SerializedPlanFragment)
                 descriptor.planFragment();
+        assertThat(serialized.bytes()).isSameAs(canonical.getSubstraitPlan());
         assertThat(serialized.planBytes()).isEqualTo(PLAN);
+        var split = (TaskRequestDtoConverter.SerializedSplit) descriptor.splits().get(0);
+        assertThat(split.split()).isSameAs(canonical.getSplits(0));
     }
 
     @Test
@@ -100,7 +103,8 @@ class TaskRequestDtoConverterTest {
 
     @Test
     void serializedPlanFragmentProvidesStableId() {
-        var fragment = new TaskRequestDtoConverter.SerializedPlanFragment(new byte[]{1});
+        var fragment = new TaskRequestDtoConverter.SerializedPlanFragment(
+                com.google.protobuf.ByteString.copyFrom(new byte[]{1}));
 
         assertThat(fragment.getId().toString()).isEqualTo("serialized-fragment");
         assertThat(fragment.getChildFragmentIds()).isEmpty();

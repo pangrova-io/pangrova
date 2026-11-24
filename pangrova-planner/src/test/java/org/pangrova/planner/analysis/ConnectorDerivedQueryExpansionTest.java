@@ -190,7 +190,7 @@ class ConnectorDerivedQueryExpansionTest {
                 columns.stream().map(ConnectorTableMetadata.Column::name).toList(), columns, Map.of());
         return new ConnectorReadBinding(handle,
                 new ConnectorTableReadMetadata(metadata, TableDeclarationEvidence.EXACT),
-                TableStatistics.UNKNOWN, ReadSnapshotState.METADATA, OptionalLong.empty(), identity, java.util.Optional.empty());
+                TableStatistics.UNKNOWN, ReadSnapshotState.METADATA, OptionalLong.empty(), identity, java.util.Optional.empty(), java.util.Optional.empty());
     }
 
     private static List<TableScan> scans(RelNode root) {

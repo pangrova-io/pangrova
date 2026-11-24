@@ -15,6 +15,7 @@ class TaskFailureReporter {
  public:
   virtual ~TaskFailureReporter() = default;
   virtual void reportExecutionError(int64_t handle, const protocol::v2::ExecutionError& error) const = 0;
+  virtual void reportResultStreamFinished(int64_t handle) const = 0;
   virtual void reportResultStreamFailure(int64_t handle, const std::string& message) const = 0;
 };
 

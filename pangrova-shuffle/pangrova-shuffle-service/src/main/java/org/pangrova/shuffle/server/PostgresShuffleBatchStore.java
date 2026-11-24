@@ -1,7 +1,5 @@
 package org.pangrova.shuffle.server;
 
-import org.pangrova.shuffle.server.enums.ShuffleAllocationState;
-
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -10,19 +8,17 @@ import java.util.List;
 import java.util.UUID;
 import javax.sql.DataSource;
 
+import org.pangrova.protocol.execution.identity.WorkerExecutionIdentity;
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.shuffle.server.authority.ExecutionAnchorFence;
 
 import static org.pangrova.shuffle.server.persistence.JdbcTransactions.transaction;
+import static org.pangrova.shuffle.server.persistence.JdbcTransactions.read;
 import static org.pangrova.shuffle.server.PostgresShuffleRecords.findAllocation;
 import static org.pangrova.shuffle.server.PostgresShuffleRecords.requireOwner;
-import static org.pangrova.shuffle.server.PostgresShuffleRecords.requireRegistered;
-import static org.pangrova.shuffle.server.PostgresShuffleRecords.BATCH_SELECT;
-import static org.pangrova.shuffle.server.PostgresShuffleRecords.readBatch;
 import static org.pangrova.shuffle.server.PostgresShuffleRecords.selectAttemptPage;
 import static org.pangrova.shuffle.server.PostgresShuffleRecords.selectCommittedPage;
-import static org.pangrova.shuffle.server.PostgresShuffleRecords.selectFinalizedPage;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.Allocation;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.BatchIdentity;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CommitCommand;
@@ -39,89 +35,124 @@ final class PostgresShuffleBatchStore implements ShuffleBatchStore {
     }
 
     @Override
-    public String beginWriteIntent(StoredBatch batch, long recoveryDelayMs) {
+    public WriteGrant openWriteWindow(String shuffleId, TaskAttemptId attempt, long recoveryDelayMs) {
         if (recoveryDelayMs <= 0) {
             throw new IllegalArgumentException("write recovery delay must be positive");
         }
         return transaction(dataSource, connection -> {
-            Allocation allocation = lockWritableAllocation(connection,
-                    batch.identity().shuffleId(), batch.producerAttempt().getExecutionOwner());
-            requireAttempt(allocation, batch.producerAttempt(), batch.identity());
-            requireAttemptFence(connection, batch);
-            String reservationId = UUID.randomUUID().toString();
-            try (PreparedStatement statement = connection.prepareStatement(
-                    "INSERT INTO shuffle_write_intent "
-                            + "(reservation_id, shuffle_id, object_key, state, recovery_after) "
-                            + "VALUES (?::uuid, ?, ?, 'IN_PROGRESS', "
-                            + "clock_timestamp() + (? * INTERVAL '1 millisecond'))")) {
-                statement.setString(1, reservationId);
-                statement.setString(2, batch.identity().shuffleId());
-                statement.setString(3, batch.objectKey());
-                statement.setLong(4, recoveryDelayMs);
-                statement.executeUpdate();
-            }
-            return reservationId;
+            int partitions = lockWritableAllocation(connection, shuffleId, attempt);
+            requireAttemptFence(connection, shuffleId, attempt);
+            return reserveWindow(connection, shuffleId, attempt, partitions, recoveryDelayMs);
         });
     }
 
-    @Override
-    public void completeWriteIntent(String reservationId, StoredBatch batch) {
-        transaction(dataSource, connection -> {
-            Allocation allocation = lockWritableAllocation(connection,
-                    batch.identity().shuffleId(), batch.producerAttempt().getExecutionOwner());
-            requireWriteIntent(connection, reservationId, batch);
-            requireAttempt(allocation, batch.producerAttempt(), batch.identity());
-            requireAttemptFence(connection, batch);
-            StoredBatch existing = findBatch(connection, batch.identity());
-            if (existing != null) {
-                requireSameBatch(existing, batch);
-                deleteWriteIntent(connection, reservationId);
-                return null;
-            }
-            requireWritableAttempt(connection, batch);
-            requireNextSequence(connection, batch.identity());
-            insertBatch(connection, batch);
-            incrementVersion(connection, batch.identity().shuffleId());
-            deleteWriteIntent(connection, reservationId);
-            return null;
-        });
-    }
-
-    @Override
-    public void abortWriteIntent(String reservationId) {
-        transaction(dataSource, connection -> {
-            try (PreparedStatement statement = connection.prepareStatement(
-                    "UPDATE shuffle_write_intent SET state = 'ABORTED' "
-                            + "WHERE reservation_id = ?::uuid AND state = 'IN_PROGRESS'")) {
-                statement.setString(1, reservationId);
-                statement.executeUpdate();
-            }
-            return null;
-        });
-    }
-
-    private static void requireWriteIntent(
-            Connection connection, String reservationId, StoredBatch batch) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT shuffle_id, object_key, state FROM shuffle_write_intent "
-                        + "WHERE reservation_id = ?::uuid FOR UPDATE")) {
-            statement.setString(1, reservationId);
+    private static WriteGrant reserveWindow(Connection connection, String shuffleId, TaskAttemptId attempt,
+            int partitions, long recoveryDelayMs) throws SQLException {
+        String sql = """
+                WITH admission AS MATERIALIZED (
+                    SELECT clock_timestamp() AS started, e.expires_at
+                    FROM public.execution_anchor e WHERE e.execution_id = ?
+                      AND NOT EXISTS (SELECT 1 FROM shuffle_cleanup_intent WHERE query_id = e.execution_id)
+                ), permit AS MATERIALIZED (
+                    SELECT started, LEAST(expires_at, started + ? * INTERVAL '1 millisecond') AS allowed_until
+                    FROM admission
+                ), reserved AS (
+                    INSERT INTO shuffle_write_intent (reservation_id, shuffle_id, object_key, recovery_after)
+                    SELECT ?::uuid, ?, ?, allowed_until + ? * INTERVAL '1 millisecond'
+                    FROM permit WHERE allowed_until > started
+                    RETURNING reservation_id
+                )
+                SELECT FLOOR(EXTRACT(EPOCH FROM (allowed_until - started)) * 1000)::bigint
+                FROM permit CROSS JOIN reserved
+                """;
+        String reservation = UUID.randomUUID().toString();
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, attempt.getQueryOrJobId());
+            statement.setLong(2, ShuffleWriteSession.WINDOW_MILLIS);
+            statement.setString(3, reservation);
+            statement.setString(4, shuffleId);
+            statement.setString(5, reservationKey(shuffleId, attempt));
+            statement.setLong(6, recoveryDelayMs);
             try (ResultSet row = statement.executeQuery()) {
-                if (!row.next() || !row.getString(1).equals(batch.identity().shuffleId())
-                        || !row.getString(2).equals(batch.objectKey())
-                        || !"IN_PROGRESS".equals(row.getString(3))) {
-                    throw new SecurityException("shuffle write reservation is invalid");
+                if (!row.next()) {
+                    throw new SecurityException("shuffle write admission is expired or terminally fenced");
                 }
+                return new WriteGrant(reservation, partitions, row.getLong(1));
             }
         }
     }
 
-    private static void deleteWriteIntent(Connection connection, String reservationId)
-            throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement(
-                "DELETE FROM shuffle_write_intent WHERE reservation_id = ?::uuid")) {
-            statement.setString(1, reservationId);
-            statement.executeUpdate();
+    @Override
+    public void publishWriteWindow(WriteGrant grant, String shuffleId, TaskAttemptId attempt,
+            List<StoredBatch> batches) {
+        if (batches.isEmpty() || batches.size() > ShuffleWriteSession.MAX_BATCHES) {
+            throw new IllegalArgumentException("invalid shuffle write window size");
+        }
+        transaction(dataSource, connection -> {
+            int partitions = lockWritableAllocation(connection, shuffleId, attempt);
+            for (StoredBatch batch : batches) {
+                requireWindowBatch(shuffleId, attempt, partitions, batch);
+            }
+            consumeWriteIntent(connection, grant, shuffleId, attempt);
+            PostgresShuffleWindowPublication.publish(connection, shuffleId, attempt, batches);
+            return null;
+        });
+    }
+
+    @Override
+    public void settleWriteWindow(WriteGrant grant, String shuffleId, TaskAttemptId attempt) {
+        transaction(dataSource, connection -> {
+            String sql = """
+                    DELETE FROM shuffle_write_intent
+                    WHERE reservation_id = ?::uuid AND shuffle_id = ? AND object_key = ?
+                    """;
+            try (PreparedStatement statement = connection.prepareStatement(sql)) {
+                statement.setString(1, grant.reservation());
+                statement.setString(2, shuffleId);
+                statement.setString(3, reservationKey(shuffleId, attempt));
+                statement.executeUpdate();
+            }
+            return null;
+        });
+    }
+
+    private static void consumeWriteIntent(
+            Connection connection, WriteGrant grant, String shuffleId, TaskAttemptId attempt) throws SQLException {
+        // A failed publication rolls back the exact reservation deletion as well.
+        String sql = """
+                DELETE FROM shuffle_write_intent i USING shuffle_attempt_fence f
+                WHERE i.reservation_id = ?::uuid AND i.shuffle_id = ? AND i.object_key = ?
+                  AND i.recovery_after > clock_timestamp()
+                  AND f.shuffle_id = i.shuffle_id AND f.producer_partition_id = ?
+                  AND f.producer_attempt_id = ? AND f.canonical_attempt = ?
+                  AND NOT EXISTS (SELECT 1 FROM shuffle_cleanup_intent WHERE query_id = ?)
+                """;
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, grant.reservation());
+            statement.setString(2, shuffleId);
+            statement.setString(3, reservationKey(shuffleId, attempt));
+            statement.setInt(4, attempt.getPartitionId());
+            statement.setInt(5, attempt.getAttemptId());
+            statement.setBytes(6, attempt.toByteArray());
+            statement.setString(7, attempt.getQueryOrJobId());
+            if (statement.executeUpdate() != 1) {
+                throw new SecurityException("shuffle write reservation or attempt fence is invalid");
+            }
+        }
+    }
+
+    private static String reservationKey(String shuffleId, TaskAttemptId attempt) {
+        return BatchIdentity.producerPrefix(shuffleId, attempt.getPartitionId(), attempt.getAttemptId());
+    }
+
+    private static void requireWindowBatch(String shuffleId, TaskAttemptId attempt, int partitions, StoredBatch batch) {
+        BatchIdentity identity = batch.identity();
+        if (!attempt.equals(batch.producerAttempt()) || !shuffleId.equals(identity.shuffleId())
+                || identity.producerPartitionId() != attempt.getPartitionId()
+                || identity.producerAttemptId() != attempt.getAttemptId()
+                || identity.outputPartitionId() < 0 || identity.outputPartitionId() >= partitions
+                || !identity.objectKey().equals(batch.objectKey())) {
+            throw new SecurityException("producer attempt does not match shuffle batch");
         }
     }
 
@@ -142,9 +173,7 @@ final class PostgresShuffleBatchStore implements ShuffleBatchStore {
     @Override
     public CommitResult commitAttempt(CommitCommand command) {
         return transaction(dataSource, connection -> {
-            Allocation allocation = lockWritableAllocation(connection,
-                    command.shuffleId(), command.attempt().getExecutionOwner());
-            requireAttempt(allocation, command.attempt(), null);
+            lockWritableAllocation(connection, command.shuffleId(), command.attempt());
             Winner winner = findWinner(connection, command.shuffleId(),
                     command.attempt().getPartitionId());
             requireAttemptFence(connection, command.shuffleId(), command.attempt());
@@ -160,71 +189,24 @@ final class PostgresShuffleBatchStore implements ShuffleBatchStore {
     }
 
     @Override
-    public long committedMetadataVersion(String shuffleId) {
-        return transaction(dataSource, connection ->
-                requireReadableAllocation(connection, shuffleId, null).metadataVersion());
-    }
-
-    @Override
-    public List<StoredBatch> readCommittedPage(
-            String shuffleId,
-            int partitionId,
-            int producerAfter,
-            long batchAfter,
-            int limit) {
-        return transaction(dataSource, connection -> {
-            requireReadableAllocation(connection, shuffleId, null);
-            if (producerAfter < -1 || batchAfter < -1 || limit <= 0) {
-                throw new IllegalArgumentException("invalid committed batch page");
-            }
-            return selectCommittedPage(connection, shuffleId, partitionId,
-                    producerAfter, batchAfter, limit);
-        });
-    }
-
-    @Override
-    public List<StoredBatch> readFinalizedPage(
-            String shuffleId,
-            int partitionId,
-            long startSequence,
-            int limit) {
-        return transaction(dataSource, connection -> {
-            Allocation allocation = requireReadableAllocation(connection, shuffleId, null);
-            if (allocation.state() != ShuffleAllocationState.FINALIZED) {
-                throw new IllegalStateException("shuffle is not finalized");
-            }
-            if (startSequence < 0 || limit <= 0) {
-                throw new IllegalArgumentException("invalid finalized batch page");
-            }
-            return selectFinalizedPage(
-                    connection, shuffleId, partitionId, startSequence, limit);
-        });
-    }
-
-    private static Allocation lockWritableAllocation(
-            Connection connection,
-            String shuffleId,
-            ExecutionOwnerIdentity owner)
-            throws SQLException {
-        String queryId = ExecutionAnchorFence.queryIdForShuffle(connection, shuffleId);
-        ExecutionAnchorFence.requireLiveOwner(connection, queryId, owner, true);
-        try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT owner_id, owner_incarnation, owner_fencing_token, state "
-                        + "FROM shuffle_query_scope WHERE query_id = ? FOR UPDATE")) {
-            statement.setString(1, queryId);
-            try (ResultSet row = statement.executeQuery()) {
-                if (!row.next() || !"ACTIVE".equals(row.getString(4))
-                        || !owner.getOwnerId().equals(row.getString(1))
-                        || !owner.getOwnerIncarnation().equals(row.getString(2))
-                        || owner.getFencingToken() != row.getLong(3)) {
-                    throw new SecurityException("shuffle query scope is not writable");
-                }
-            }
+    public List<StoredBatch> readCommittedPage(Allocation selected, BatchIdentity after, int limit) {
+        if (limit <= 0 || (after != null && !after.shuffleId().equals(selected.identity().shuffleId()))) {
+            throw new IllegalArgumentException("invalid committed batch page");
         }
-        Allocation allocation = findAllocation(connection, shuffleId, true)
-                .orElseThrow(() -> new IllegalArgumentException("shuffle does not exist"));
-        requireRegistered(allocation);
-        return allocation;
+        return read(dataSource, connection -> selectCommittedPage(connection, selected, after, limit));
+    }
+
+    private static int lockWritableAllocation(Connection connection, String shuffleId, TaskAttemptId attempt)
+            throws SQLException {
+        WorkerExecutionIdentity.from(attempt.getWorkerExecutionIdentity());
+        if (attempt.getPartitionId() < 0 || attempt.getAttemptId() < 0
+                || attempt.getFencingToken() <= 0 || attempt.getControlEpoch() <= 0
+                || attempt.getTaskId().isBlank()) {
+            throw new SecurityException("producer attempt has an incomplete fence");
+        }
+        ExecutionAnchorFence.requireLiveOwner(connection,
+                attempt.getQueryOrJobId(), attempt.getExecutionOwner(), true);
+        return PostgresShuffleRecords.lockWritableAllocation(connection, shuffleId, attempt);
     }
 
     private static Allocation requireReadableAllocation(
@@ -232,60 +214,37 @@ final class PostgresShuffleBatchStore implements ShuffleBatchStore {
             throws SQLException {
         Allocation allocation = findAllocation(connection, shuffleId, false)
                 .orElseThrow(() -> new IllegalArgumentException("shuffle does not exist"));
-        ExecutionOwnerIdentity owner = expectedOwner == null
-                ? allocation.owner() : expectedOwner;
-        requireOwner(allocation, owner);
+        requireOwner(allocation, expectedOwner);
         ExecutionAnchorFence.requireLiveOwner(connection,
-                allocation.identity().queryId(), owner, true);
+                allocation.identity().queryId(), expectedOwner, true);
         return allocation;
-    }
-
-    private static void requireAttempt(
-            Allocation allocation,
-            TaskAttemptId attempt,
-            BatchIdentity identity) {
-        org.pangrova.protocol.execution.identity.WorkerExecutionIdentity.from(
-                attempt.getWorkerExecutionIdentity());
-        requireOwner(allocation, attempt.getExecutionOwner());
-        if (!matchesAllocation(allocation, attempt)
-                || (identity != null && !matchesBatchIdentity(allocation, attempt, identity))) {
-            throw new SecurityException("producer attempt does not match shuffle allocation");
-        }
-    }
-
-    private static boolean matchesAllocation(Allocation allocation, TaskAttemptId attempt) {
-        boolean identity = attempt.getQueryOrJobId().equals(allocation.identity().queryId())
-                && attempt.getStageId() == allocation.identity().stageId()
-                && attempt.getPlanEpoch() == allocation.identity().planEpoch();
-        boolean fence = attempt.getFencingToken() > 0 && attempt.getControlEpoch() > 0
-                && !attempt.getTaskId().isBlank();
-        boolean partition = attempt.getPartitionId() >= 0
-                && attempt.getPartitionId() < allocation.shape().expectedProducerCount();
-        return identity && fence && partition;
-    }
-
-    private static boolean matchesBatchIdentity(
-            Allocation allocation,
-            TaskAttemptId attempt,
-            BatchIdentity identity) {
-        return identity.producerPartitionId() == attempt.getPartitionId()
-                && identity.producerAttemptId() == attempt.getAttemptId()
-                && identity.outputPartitionId() >= 0
-                && identity.outputPartitionId() < allocation.shape().partitionCount();
-    }
-
-    private static void requireAttemptFence(Connection connection, StoredBatch batch)
-            throws SQLException {
-        requireAttemptFence(connection, batch.identity().shuffleId(), batch.producerAttempt());
     }
 
     private static void requireAttemptFence(Connection connection, String shuffleId, TaskAttemptId attempt)
             throws SQLException {
-        String insert = "INSERT INTO shuffle_attempt_fence "
-                + "(shuffle_id, producer_partition_id, producer_attempt_id, "
-                + "producer_fencing_token, task_id, control_epoch, canonical_attempt) VALUES (?, ?, ?, ?, ?, ?, ?) "
-                + "ON CONFLICT DO NOTHING";
-        try (PreparedStatement statement = connection.prepareStatement(insert)) {
+        // The caller holds the allocation row. The existing fence is immutable.
+        String sql = """
+                WITH requested(shuffle_id, producer_partition_id, producer_attempt_id,
+                               producer_fencing_token, task_id, control_epoch, canonical_attempt) AS (
+                    VALUES (?::varchar, ?::integer, ?::integer, ?::bigint, ?::varchar, ?::bigint, ?::bytea)
+                ), existing AS MATERIALIZED (
+                    SELECT f.producer_fencing_token, f.task_id, f.control_epoch, f.canonical_attempt
+                    FROM shuffle_attempt_fence f JOIN requested r
+                        USING (shuffle_id, producer_partition_id, producer_attempt_id)
+                ), created AS (
+                    INSERT INTO shuffle_attempt_fence (
+                        shuffle_id, producer_partition_id, producer_attempt_id,
+                        producer_fencing_token, task_id, control_epoch, canonical_attempt)
+                    SELECT * FROM requested WHERE NOT EXISTS (SELECT 1 FROM existing)
+                    RETURNING 1
+                )
+                SELECT EXISTS (SELECT 1 FROM created)
+                    OR EXISTS (SELECT 1 FROM existing e CROSS JOIN requested r
+                               WHERE e.canonical_attempt = r.canonical_attempt
+                                 AND e.producer_fencing_token = r.producer_fencing_token
+                                 AND e.task_id = r.task_id AND e.control_epoch = r.control_epoch)
+                """;
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, shuffleId);
             statement.setInt(2, attempt.getPartitionId());
             statement.setInt(3, attempt.getAttemptId());
@@ -293,93 +252,12 @@ final class PostgresShuffleBatchStore implements ShuffleBatchStore {
             statement.setString(5, attempt.getTaskId());
             statement.setLong(6, attempt.getControlEpoch());
             statement.setBytes(7, attempt.toByteArray());
-            statement.executeUpdate();
-        }
-        String select = "SELECT producer_fencing_token, task_id, control_epoch, canonical_attempt "
-                + "FROM shuffle_attempt_fence WHERE shuffle_id = ? "
-                + "AND producer_partition_id = ? AND producer_attempt_id = ? FOR UPDATE";
-        try (PreparedStatement statement = connection.prepareStatement(select)) {
-            statement.setString(1, shuffleId);
-            statement.setInt(2, attempt.getPartitionId());
-            statement.setInt(3, attempt.getAttemptId());
             try (ResultSet rows = statement.executeQuery()) {
                 rows.next();
-                if (rows.getLong(1) != attempt.getFencingToken()
-                        || !rows.getString(2).equals(attempt.getTaskId())
-                        || rows.getLong(3) != attempt.getControlEpoch()
-                        || !java.util.Arrays.equals(rows.getBytes(4), attempt.toByteArray())) {
+                if (!rows.getBoolean(1)) {
                     throw new SecurityException("producer attempt identity conflicts with fence");
                 }
             }
-        }
-    }
-
-    private static StoredBatch findBatch(Connection connection, BatchIdentity identity)
-            throws SQLException {
-        String sql = BATCH_SELECT + " WHERE b.shuffle_id = ? AND b.producer_partition_id = ? "
-                + "AND b.producer_attempt_id = ? AND b.output_partition_id = ? "
-                + "AND b.batch_sequence = ?";
-        try (PreparedStatement statement = connection.prepareStatement(sql)) {
-            setBatchKey(statement, identity);
-            try (ResultSet rows = statement.executeQuery()) {
-                return rows.next() ? readBatch(rows) : null;
-            }
-        }
-    }
-
-    private static void requireSameBatch(StoredBatch existing, StoredBatch candidate) {
-        if (!existing.sameContent(candidate)) {
-            throw new IllegalStateException("batch identity conflicts with existing content");
-        }
-    }
-
-    private static void requireWritableAttempt(Connection connection, StoredBatch batch)
-            throws SQLException {
-        Winner winner = findWinner(connection, batch.identity().shuffleId(),
-                batch.identity().producerPartitionId());
-        if (winner != null && (batch.identity().producerAttemptId() <= winner.attemptId()
-                || batch.producerAttempt().getFencingToken() <= winner.fencingToken())) {
-            throw new SecurityException("producer attempt is fenced by committed winner");
-        }
-    }
-
-    private static void requireNextSequence(Connection connection, BatchIdentity identity)
-            throws SQLException {
-        String sql = "SELECT COALESCE(MAX(batch_sequence), -1) FROM shuffle_batch "
-                + "WHERE shuffle_id = ? AND producer_partition_id = ? "
-                + "AND producer_attempt_id = ? AND output_partition_id = ?";
-        try (PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setString(1, identity.shuffleId());
-            statement.setInt(2, identity.producerPartitionId());
-            statement.setInt(3, identity.producerAttemptId());
-            statement.setInt(4, identity.outputPartitionId());
-            try (ResultSet rows = statement.executeQuery()) {
-                rows.next();
-                if (identity.batchSequence() != rows.getLong(1) + 1) {
-                    throw new IllegalStateException("partition batch sequence is not contiguous");
-                }
-            }
-        }
-    }
-
-    private static void insertBatch(Connection connection, StoredBatch batch) throws SQLException {
-        String sql = "INSERT INTO shuffle_batch (shuffle_id, producer_partition_id, "
-                + "producer_attempt_id, producer_fencing_token, output_partition_id, "
-                + "batch_sequence, object_key, batch_size_bytes, row_count, batch_checksum) "
-                + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-        try (PreparedStatement statement = connection.prepareStatement(sql)) {
-            BatchIdentity identity = batch.identity();
-            statement.setString(1, identity.shuffleId());
-            statement.setInt(2, identity.producerPartitionId());
-            statement.setInt(3, identity.producerAttemptId());
-            statement.setLong(4, batch.producerAttempt().getFencingToken());
-            statement.setInt(5, identity.outputPartitionId());
-            statement.setLong(6, identity.batchSequence());
-            statement.setString(7, batch.objectKey());
-            statement.setLong(8, batch.sizeBytes());
-            statement.setLong(9, batch.rowCount());
-            statement.setBytes(10, batch.checksum());
-            statement.executeUpdate();
         }
     }
 
@@ -444,22 +322,6 @@ final class PostgresShuffleBatchStore implements ShuffleBatchStore {
             statement.setString(1, shuffleId);
             statement.executeUpdate();
         }
-    }
-
-    private static void setAttemptKey(
-            PreparedStatement statement,
-            int offset,
-            BatchIdentity identity) throws SQLException {
-        statement.setString(offset, identity.shuffleId());
-        statement.setInt(offset + 1, identity.producerPartitionId());
-        statement.setInt(offset + 2, identity.producerAttemptId());
-    }
-
-    private static void setBatchKey(PreparedStatement statement, BatchIdentity identity)
-            throws SQLException {
-        setAttemptKey(statement, 1, identity);
-        statement.setInt(4, identity.outputPartitionId());
-        statement.setLong(5, identity.batchSequence());
     }
 
     private record Winner(int attemptId, long fencingToken, String taskId, long controlEpoch, byte[] canonicalAttempt) {

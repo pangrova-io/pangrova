@@ -5,6 +5,8 @@ import org.pangrova.worker.resource.ResourceManager;
 import org.pangrova.worker.resource.memory.RootMemoryPool;
 import org.pangrova.worker.resource.memory.NodeMemoryPool;
 import org.pangrova.worker.resource.tenant.TenantResourceTracker;
+import org.pangrova.protocol.v2.ExchangeInputBinding;
+import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.shuffle.exchange.ExchangeTransport;
 import org.pangrova.worker.PangrovaWorker;
 import org.pangrova.worker.bootstrap.registration.WorkerRegistrationClient;
@@ -46,7 +48,7 @@ public final class WorkerComponentRefs {
     private org.pangrova.worker.resource.memory.ShuffleServiceMemoryLease shuffleServiceMemoryLease;
     private TaskManager taskManager;
     private WorkerTaskOwnership taskOwnership;
-    private RemoteTaskStatusReporter statusReporter;
+    private Runnable closeStatusReporter;
     private WorkerHttpServer httpServer;
     private HeartbeatSender heartbeatSender;
     private ScheduledExecutorService heartbeatExecutor;
@@ -108,12 +110,14 @@ public final class WorkerComponentRefs {
         return taskManager;
     }
 
-    public RemoteTaskStatusReporter statusReporter() {
-        return statusReporter;
+    public void retainStatusReporter(RemoteTaskStatusReporter reporter) {
+        closeStatusReporter = reporter::close;
     }
 
-    public void setStatusReporter(RemoteTaskStatusReporter reporter) {
-        statusReporter = reporter;
+    public void closeStatusReporter() {
+        if (closeStatusReporter == null) return;
+        closeStatusReporter.run();
+        closeStatusReporter = null;
     }
 
     public void setTaskManager(TaskManager v) {
@@ -264,7 +268,7 @@ public final class WorkerComponentRefs {
         nativeFunctionResources.close();
     }
 
-    private ExchangeTransport exchangeTransport;
+    private ExchangeTransport<TaskAttemptId, ExchangeInputBinding> exchangeTransport;
 
     private NativeWriteExecutor nativeWriteExecutor;
 
@@ -274,11 +278,11 @@ public final class WorkerComponentRefs {
     // protobuf payload for Coordinator scheduling and HA registry recovery.
     private volatile String nativeCapabilityInventory;
 
-    public ExchangeTransport exchangeTransport() {
+    public ExchangeTransport<TaskAttemptId, ExchangeInputBinding> exchangeTransport() {
         return exchangeTransport;
     }
 
-    public void setExchangeTransport(ExchangeTransport v) {
+    public void setExchangeTransport(ExchangeTransport<TaskAttemptId, ExchangeInputBinding> v) {
         this.exchangeTransport = v;
     }
 

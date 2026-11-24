@@ -48,6 +48,7 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -786,7 +787,7 @@ class PostgresGenerationJobStoreTest {
         var denied = new org.pangrova.security.api.exception.AuthorizationDeniedException("authority backend denied admission");
         var authority = new org.pangrova.persistence.jdbc.api.generation.GenerationTransactionAuthority() {
             @Override
-            public GenerationDispatchSpec requireCurrent(java.sql.Connection connection, String tenant, String job) {
+            public AuthorizedDispatch authorize(java.sql.Connection connection, String tenant, String job) {
                 throw new AssertionError("Creation must validate the explicit compiler-observed specification");
             }
             @Override
@@ -796,7 +797,7 @@ class PostgresGenerationJobStoreTest {
         };
         var guarded = new PostgresGenerationJobStore(dataSource, authority,
                 org.pangrova.persistence.workflow.postgresql.generation.PostgresGenerationStores.executionFence(),
-                PostgresGenerationStores.currentRoles(), PostgresGenerationStores.publicationCandidates());
+                PostgresGenerationStores.publicationCandidates());
         assertThatThrownBy(() -> guarded.createJob(job(1), dispatchSpec(TENANT, pages(1)), pages(1)))
                 .isSameAs(denied);
         assertThat(store.findJob(TENANT, "job-1")).isEmpty();
@@ -814,7 +815,7 @@ class PostgresGenerationJobStoreTest {
             }
             var authority = new org.pangrova.persistence.jdbc.api.generation.GenerationTransactionAuthority() {
                 @Override
-                public GenerationDispatchSpec requireCurrent(java.sql.Connection connection, String tenant, String job) {
+                public AuthorizedDispatch authorize(java.sql.Connection connection, String tenant, String job) {
                     throw new AssertionError("Creation must not reread a nonexistent dispatch specification");
                 }
                 @Override
@@ -826,7 +827,7 @@ class PostgresGenerationJobStoreTest {
                 }
             };
             GenerationJobSubmissionTransactions guardedSubmissions = new PostgresGenerationJobStore(dataSource, authority,
-                    PostgresGenerationStores.executionFence(), PostgresGenerationStores.currentRoles(),
+                    PostgresGenerationStores.executionFence(),
                     PostgresGenerationStores.publicationCandidates());
             assertThatThrownBy(() -> guardedSubmissions.createJob(
                     caller, job(1), dispatchSpec(TENANT, pages(1)), pages(1)))
@@ -904,8 +905,8 @@ class PostgresGenerationJobStoreTest {
         var anchor = executions.takeOwnership(TENANT, "job-1", "coordinator", 1);
         var miswired = new org.pangrova.persistence.jdbc.api.generation.GenerationTransactionAuthority() {
             @Override
-            public GenerationDispatchSpec requireCurrent(java.sql.Connection connection, String tenant, String job) {
-                return dispatchSpec("tenant-2");
+            public AuthorizedDispatch authorize(java.sql.Connection connection, String tenant, String job) {
+                return new AuthorizedDispatch(dispatchSpec("tenant-2"), Set.of("artifact_builder"));
             }
             @Override
             public void requireCurrent(java.sql.Connection connection, GenerationDispatchSpec spec) {
@@ -916,7 +917,7 @@ class PostgresGenerationJobStoreTest {
             connection.setAutoCommit(false);
             assertThatThrownBy(() -> PostgresCurrentGenerationAuthority.resolve(miswired,
                     org.pangrova.persistence.workflow.postgresql.generation.PostgresGenerationStores.executionFence(),
-                    PostgresGenerationStores.currentRoles(), connection,
+                    connection,
                     TENANT, "job-1", org.pangrova.generation.api.execution.GenerationExecutionOwner.from(anchor)))
                     .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("another tenant or job");
             connection.rollback();
@@ -930,28 +931,32 @@ class PostgresGenerationJobStoreTest {
         var calls = new java.util.concurrent.atomic.AtomicInteger();
         try (var caller = dataSource.getConnection()) {
             caller.setAutoCommit(false);
-            var context = PostgresCurrentGenerationAuthority.resolve(GenerationAuthorityFixtures.artifacts().authority(),
-                    PostgresGenerationStores.executionFence(), (connection, principal) -> {
+            var tableAuthority = org.pangrova.metadata.testinfra.TableWriteAuthorityFixture.create();
+            var stores = new PostgresGenerationStores(GenerationAuthorityFixtures.modelAuthority(),
+                    (connection, principal, scope) -> {
                         assertThat(connection).isSameAs(caller);
                         assertThat(connection.getAutoCommit()).isFalse();
                         assertThat(principal).isEqualTo("principal-" + TENANT);
                         calls.incrementAndGet();
-                        return PostgresGenerationStores.currentRoles().requireCurrentRoles(connection, principal);
-                    }, caller, TENANT, "job-1", org.pangrova.generation.api.execution.GenerationExecutionOwner.from(anchor));
-            assertThat(context.currentDirectRoles())
-                    .isEqualTo(PostgresGenerationStores.currentRoles().requireCurrentRoles(caller, "principal-" + TENANT));
+                        return tableAuthority.requireCurrent(connection, principal, scope);
+                    });
+            var context = PostgresCurrentGenerationAuthority.resolve(stores.authority(),
+                    PostgresGenerationStores.executionFence(), caller, TENANT, "job-1",
+                    org.pangrova.generation.api.execution.GenerationExecutionOwner.from(anchor));
+            var roles = new org.pangrova.persistence.security.postgresql.policy.JdbcCurrentDirectRoleReader();
+            assertThat(context.currentDirectRoles()).isEqualTo(roles.requireCurrentRoles(caller, "principal-" + TENANT));
             assertThat(context.executionAnchor()).isEqualTo(anchor);
             assertThat(calls).hasValue(1);
             caller.rollback();
         }
         var failure = new java.sql.SQLException("current roles unavailable");
-        var guarded = new PostgresGenerationJobStore(dataSource, GenerationAuthorityFixtures.artifacts().authority(),
-                PostgresGenerationStores.executionFence(), (connection, principal) -> {
+        var guarded = new PostgresGenerationStores(GenerationAuthorityFixtures.modelAuthority(),
+                (connection, principal, scope) -> {
                     try (var statement = connection.createStatement()) {
                         statement.executeUpdate("UPDATE artifact_build_jobs SET failure_reason='must roll back'");
                     }
                     throw failure;
-                }, PostgresGenerationStores.publicationCandidates());
+                }).builds(dataSource);
         assertThatThrownBy(() -> guarded.claimNextPage(TENANT, "job-1", anchor, 1,
                 Duration.ofMinutes(1), START))
                 .isInstanceOf(org.pangrova.persistence.generation.api.exception.GenerationStorageException.class).hasCause(failure);

@@ -32,7 +32,7 @@ public final class SourceFreeQueryFixture {
         }
         return new QueryDispatcherContext(context.skewDetector(), context.compiler(), policies(), context.scheduling(),
                 context.catalogRegistry(), context.lineageEmitter(), context.taskTimeoutSeconds(),
-                context.runtimeFilterRegistry(), context.adaptiveQueryExecutor(), context.adaptiveQueryConfig(),
+                context.adaptiveQueryExecutor(), context.adaptiveQueryConfig(),
                 context.shuffleLifecycleManager(), context.haService(), context.coordinatorId(),
                 context.stateJournal(), context.indexAwareSplitFetcher(), context.embeddingModelRegistry(), context.artifactBindingResolver(), context.generatedValueReadResolver());
     }

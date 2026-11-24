@@ -121,7 +121,7 @@ final class PlanExecutionFactoryDeleteTestSupport {
                         events.add("dispatch");
                         dispatched.add(nativeStatement);
                         onDispatch.accept(nativeStatement);
-                        return dispatchResult;
+                        return java.util.concurrent.CompletableFuture.completedFuture(dispatchResult);
                     },
                     null,
                     (sql, incomingSession) -> {

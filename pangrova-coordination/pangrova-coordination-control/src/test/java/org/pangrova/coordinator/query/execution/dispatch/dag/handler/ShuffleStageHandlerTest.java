@@ -15,9 +15,16 @@ import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageEdge;
 import org.pangrova.coordinator.query.stage.StageNode;
+import org.pangrova.coordinator.query.execution.dispatch.adaptive.AdaptiveQueryEvaluator;
+import org.pangrova.coordinator.query.execution.dispatch.dag.ExchangeInputTestAccess;
+import org.pangrova.planner.adaptive.AdaptiveQueryConfig;
+import org.pangrova.planner.adaptive.AdaptiveQueryExecutor;
 import org.pangrova.planner.analysis.PlanFragment;
+import org.pangrova.planner.cost.distribution.PangrovaDistribution;
+import org.pangrova.planner.cost.distribution.PangrovaExchangeInput;
 import org.pangrova.planner.enums.ShuffleType;
 import org.pangrova.protocol.v2.BatchSerde;
+import org.pangrova.protocol.v2.ExternalShuffleInput;
 import org.pangrova.shuffle.api.ShuffleAccess;
 import org.pangrova.shuffle.api.ShuffleCommitReceipt;
 import org.pangrova.shuffle.api.ShufflePublication;
@@ -27,6 +34,7 @@ import org.pangrova.shuffle.api.ShuffleLifecycleManager;
 import org.pangrova.shuffle.api.ShuffleRegistration;
 import org.pangrova.shuffle.api.ShuffleServerEndpoint;
 import org.pangrova.shuffle.api.ShuffleServiceAddress;
+import org.pangrova.shuffle.skew.MedianSkewDetector;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -70,9 +78,9 @@ class ShuffleStageHandlerTest {
     @Test
     void registeredExternalOutputCannotScheduleDownstreamBeforeItsReceipt() {
         var producer = stage(3, 1, 100);
-        var consumer = stage(4, 2, 100);
+        var consumer = stage(4, 4, 100);
         var graph = StageDAG.create(List.of(producer, consumer), List.of(producer.plan(), consumer.plan()),
-                Map.of(4, List.of(3)), List.of(edge(3, 4, ShuffleType.HASH, 2)));
+                Map.of(4, List.of(3)), List.of(edge(3, 4, ShuffleType.HASH, 4)));
         var lifecycleEvent = event(producer, graph, "query-ready");
         var handler = new ShuffleStageHandler(new RecordingLifecycle());
         handler.onScheduling(lifecycleEvent);
@@ -82,20 +90,68 @@ class ShuffleStageHandlerTest {
         producer.stateMachine().tryTransitionTo(org.pangrova.query.api.enums.StageState.SCHEDULING);
         producer.stateMachine().tryTransitionTo(org.pangrova.query.api.enums.StageState.RUNNING);
         assertThat(graph.readyStageEntities(java.util.Set.of(3))).doesNotContain(consumer);
-        assertThatThrownBy(() -> org.pangrova.coordinator.query.execution.dispatch.dag.ExchangeInputTestAccess
+        assertThatThrownBy(() -> ExchangeInputTestAccess
                 .build(consumer.plan(), graph, List.of(), 1)).isInstanceOf(IllegalStateException.class);
         handler.onFinished(lifecycleEvent);
         assertThat(graph.readyStageEntities(java.util.Set.of(3))).contains(consumer);
-        var bound = org.pangrova.coordinator.query.execution.dispatch.dag.ExchangeInputTestAccess
-                .build(consumer.plan(), graph, List.of(), 1).get(0).getExternal();
+        var advisor = new AdaptiveQueryEvaluator(new MedianSkewDetector(),
+                AdaptiveQueryConfig.ENABLED, new AdaptiveQueryExecutor());
+        assertThat(advisor.evaluateStageCompletion(producer).coalesceResult().coalescedCount()).isOne();
+        var externalInputs = ExchangeInputTestAccess.buildExternalCohort(consumer.plan(), graph).stream()
+                .map(org.pangrova.protocol.v2.ExchangeInputBinding::getExternal).toList();
+        assertThat(externalInputs).extracting(ExternalShuffleInput::getSourcePartitionStart)
+                .containsExactly(0, 1, 2, 3);
+        assertThat(externalInputs).allSatisfy(input ->
+                assertThat(input.getEndpoints(0)).isSameAs(externalInputs.get(0).getEndpoints(0)));
+        var bound = externalInputs.get(1);
         var expected = producer.requireShuffleReceipt().partitions().get(1);
-        assertThat(bound.getOutputPartitionId()).isEqualTo(1);
-        assertThat(bound.getPublication().getLastSequence()).isEqualTo(expected.lastSequence());
-        assertThat(bound.getPublication().getTotalBytes()).isEqualTo(expected.bytes());
-        assertThat(bound.getPublication().getTotalRows()).isEqualTo(expected.rows());
-        assertThat(bound.getPublication().getManifestSha256().toByteArray())
+        assertThat(bound.getSourcePartitionStart()).isEqualTo(1);
+        assertThat(bound.getPublications(0).getLastSequence()).isEqualTo(expected.lastSequence());
+        assertThat(bound.getPublications(0).getTotalBytes()).isEqualTo(expected.bytes());
+        assertThat(bound.getPublications(0).getTotalRows()).isEqualTo(expected.rows());
+        assertThat(bound.getPublications(0).getManifestSha256().toByteArray())
                 .isEqualTo(java.util.HexFormat.of().parseHex(expected.manifestSha256()));
 
+    }
+
+    @Test
+    void coalescedConsumerPreservesAllFourPublicationsAndRegistersOneProducer() {
+        var lifecycle = new RecordingLifecycle();
+        var handler = new ShuffleStageHandler(lifecycle);
+        var producer = stage(3, 1, 100);
+        var input = new StageEdge(3, 4, ShuffleType.HASH, List.of(0), "hash-input", 4,
+                BatchSerde.BATCH_SERDE_ARROW_BATCH, true);
+        var source = producer.plan().stagePlan().requireLiveFragment().relNode();
+        var scan = new PangrovaExchangeInput(source.getCluster(), source.getTraitSet(), source.getRowType(),
+                new PangrovaExchangeInput.Specification("exchange-input-hash-input", input.exchangeId(),
+                        3, 4, PangrovaDistribution.hash(List.of(0)), 4, input.batchSerde(), true));
+        var consumer = Stage.create(new StageNode(4, new PlanFragment(scan, 100, 4),
+                4, "COMPUTE", List.of()), "q-coalesced");
+        var downstream = Stage.create(new StageNode(5, plan(), 1, "OUTPUT", List.of()), "q-coalesced");
+        var output = edge(4, 5, ShuffleType.SINGLETON, 1);
+        var graph = StageDAG.create(List.of(producer, consumer, downstream),
+                List.of(producer.plan(), consumer.plan(), downstream.plan()),
+                Map.of(4, List.of(3), 5, List.of(4)), List.of(input, output));
+        var producerEvent = event(producer, graph, "q-coalesced");
+        handler.onScheduling(producerEvent);
+        producer.bindShuffleExecutionIdentity(producer.shufflePlanEpoch(),
+                org.pangrova.protocol.v2.ExecutionOwnerIdentity.newBuilder()
+                        .setOwnerId("coordinator").setOwnerIncarnation("incarnation").setFencingToken(1).build());
+        handler.onFinished(producerEvent);
+
+        ExchangeInputTestAccess.freezeCoalescedInputs(consumer, graph);
+        handler.onScheduling(event(consumer, graph, "q-coalesced"));
+        assertThat(consumer.physicalTaskCount()).isEqualTo(1);
+        assertThat(lifecycle.registrations.get(1).expectedProducerCount()).isEqualTo(1);
+        assertThat(input.partitionCount()).isEqualTo(4);
+        var bindings = ExchangeInputTestAccess.buildExternalCohort(consumer.plan(), graph);
+        assertThat(bindings).hasSize(1);
+        assertThat(bindings.get(0).getExternal().getSourcePartitionStart()).isZero();
+        assertThat(bindings.get(0).getExternal().getPublicationsList())
+                .extracting(org.pangrova.protocol.v2.ShufflePartitionPublication::getTotalBytes)
+                .containsExactly(16L, 17L, 18L, 19L);
+        assertThatThrownBy(() -> consumer.freezeCoalescedInputs(
+                org.pangrova.planner.api.adaptive.CoalesceResult.NO_OP)).isInstanceOf(IllegalStateException.class);
     }
 
     @Test

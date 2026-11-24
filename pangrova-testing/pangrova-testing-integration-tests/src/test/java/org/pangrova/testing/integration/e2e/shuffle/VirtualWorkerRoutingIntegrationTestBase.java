@@ -228,9 +228,6 @@ public abstract class VirtualWorkerRoutingIntegrationTestBase extends SqlE2ETest
                         dmlDispatch, queryDispatcherRef, routingTaskTracker,
                         coordinatorResultService, null, routingWorkerManager)
                 : null;
-        if (sd != null) {
-            sd.updateCompiler(compiler);
-        }
         var queryDispatcher = new QueryDispatcher(deps, sd);
         wireE2EOwnership(queryDispatcher);
         queryDispatcherRef.set(queryDispatcher);
@@ -305,7 +302,7 @@ public abstract class VirtualWorkerRoutingIntegrationTestBase extends SqlE2ETest
         }
         return new org.pangrova.protocol.rest.task.TaskStatusReport(
                 report.taskId(), report.queryId(), report.stageId(), report.partitionId(),
-                report.taskType(), assignedWorker, report.state(), report.stats(),
+                report.taskType(), assignedWorker, report.state(), report.supplementalStats(),
                 report.error(), report.writeResult(), report.reportSequence(),
                 report.timestampMs(), report.errorCode(), report.errorMetadata(),
                 report.attempt(), report.canonicalTaskReport());

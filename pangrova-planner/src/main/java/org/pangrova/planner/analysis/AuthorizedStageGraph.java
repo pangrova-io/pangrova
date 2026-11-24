@@ -1,5 +1,6 @@
 package org.pangrova.planner.analysis;
 
+import com.google.protobuf.ByteString;
 import org.pangrova.planner.enums.StagePlanMode;
 import org.pangrova.planner.enums.StageTerminalPurpose;
 import org.pangrova.planner.api.fragment.StageCoordinates;
@@ -163,9 +164,15 @@ public record AuthorizedStageGraph(StageTerminalPurpose terminalPurpose,
     }
 
     /** Binds a live consumer to the canonical schemas of its dispatched producer plans. */
-    public static SerializedPlanFragment bindLiveExchangeInputs(int stageId, SerializedPlanFragment consumer,
-            List<StageTransfer> incoming, Map<Integer, List<byte[]>> producerPlans) {
+    public static CompiledStagePlan bindLiveExchangeInputs(int stageId, CompiledStagePlan consumer,
+            List<StageTransfer> incoming, Map<Integer, List<ByteString>> producerPlans) {
         return AuthorizedStageExchangeBindings.bindLive(stageId, consumer, incoming, producerPlans);
+    }
+
+    /** Reads the verified wire schema of a dispatched producer across every partition. */
+    public static io.substrait.proto.NamedStruct requireLiveProducerSchema(
+            StageTransfer incoming, Map<Integer, List<ByteString>> producerPlans) {
+        return AuthorizedStageExchangeBindings.requireProducerSchema(incoming, producerPlans);
     }
 
     /** Returns a stable digest covering stage payloads, scheduling coordinates, exact sources and exchanges. */

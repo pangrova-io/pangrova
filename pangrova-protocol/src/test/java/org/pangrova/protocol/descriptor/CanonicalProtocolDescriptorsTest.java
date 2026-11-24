@@ -3,6 +3,7 @@ package org.pangrova.protocol.descriptor;
 import com.google.protobuf.DescriptorProtos.FileDescriptorSet;
 import com.google.protobuf.Descriptors.Descriptor;
 import com.google.protobuf.Descriptors.FileDescriptor;
+import com.google.protobuf.UnknownFieldSet;
 import io.substrait.proto.Expression;
 import org.junit.jupiter.api.Test;
 import org.pangrova.protocol.v2.CapabilityInvocation;
@@ -18,6 +19,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class CanonicalProtocolDescriptorsTest {
 
@@ -73,6 +75,26 @@ class CanonicalProtocolDescriptorsTest {
         assertThat(hash).hasSize(32);
         assertThat(CanonicalProtocolDescriptors.sha256())
                 .isEqualTo(hash);
+    }
+
+    @Test
+    void publishedVersionAndDescriptorDigestAreImmutableAcrossCalls() throws Exception {
+        var version = CanonicalProtocolIdentity.current();
+        byte[] bytes = CanonicalProtocolDescriptors.descriptorSetBytes();
+        byte[] hash = CanonicalProtocolDescriptors.sha256();
+        assertThat(hash).isEqualTo(java.security.MessageDigest.getInstance("SHA-256").digest(bytes));
+
+        bytes[0] ^= 1;
+        hash[0] ^= 1;
+        assertThat(CanonicalProtocolDescriptors.descriptorSetBytes()).isNotEqualTo(bytes);
+        assertThat(CanonicalProtocolDescriptors.sha256()).isNotEqualTo(hash);
+        assertThat(CanonicalProtocolIdentity.current()).isSameAs(version);
+        CanonicalProtocolIdentity.validate(version);
+
+        var unknown = UnknownFieldSet.newBuilder()
+                .addField(99, UnknownFieldSet.Field.newBuilder().addVarint(1).build()).build();
+        assertThatThrownBy(() -> CanonicalProtocolIdentity.validate(version.toBuilder().setUnknownFields(unknown).build()))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("canonical v2");
     }
 
     @Test

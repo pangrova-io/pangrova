@@ -1,5 +1,5 @@
 LogicalSort(sort0=[$1], dir0=[DESC])
-  LogicalAggregate(group=[{0}], revenue=[$SUM0($1)])
+  LogicalAggregate(group=[{0}], revenue=[SUM($1)])
     LogicalProject(n_name=[$12], $f1=[*($7, -(1, $8))])
       LogicalJoin(condition=[=($13, $14)], joinType=[inner])
         LogicalJoin(condition=[=($10, $11)], joinType=[inner])

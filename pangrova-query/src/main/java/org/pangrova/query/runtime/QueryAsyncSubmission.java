@@ -8,6 +8,9 @@ import org.pangrova.query.api.exception.QueryRejectedException;
 import org.pangrova.query.api.submission.AsyncSubmitConfig;
 import org.pangrova.query.api.session.QuerySession;
 
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
@@ -16,6 +19,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
+import org.pangrova.observability.logging.LogContext;
 import org.pangrova.query.lifecycle.QueryExecutionPort;
 import org.pangrova.query.lifecycle.QueryDispatchOutcome;
 import org.pangrova.query.api.error.QueryFailure;
@@ -54,33 +58,14 @@ final class QueryAsyncSubmission {
         });
         Future<?> dispatch = submit(context);
         awaitReady(context, dispatch);
-        requireResult(context, dispatch);
+        requireResult(context);
         return new QuerySubmissionResult(queryId, state.getState(), state.getResultEndpoint().orElse(null),
                 dispatcher.removeColumnNames(queryId), state.branchSelection());
     }
 
     private Future<?> submit(Context context) {
         try {
-            return executor.submit(() -> {
-                var previousLogContext = org.pangrova.observability.logging.LogContext.snapshot();
-                try (var scope = context.session().traceContext().makeCurrent()) {
-                    org.pangrova.observability.logging.LogContext.set(
-                            context.session().traceContext().traceId(), context.session().traceContext().spanId());
-                    org.pangrova.observability.logging.LogContext.setQueryId(context.queryId());
-                    resultHandler.accept(context.queryId(), context.state(),
-                            dispatcher.dispatch(context.state(), context.sql(), context.session()));
-                } catch (RuntimeException | Error failure) {
-                    context.failure().set(failure);
-                    LOG.error("event=async_query_execution_failed queryId={}", context.queryId(), failure);
-                    String code = failure instanceof PangrovaException known
-                            ? known.getErrorCode().getCode() : "INTERNAL_ERROR";
-                    fail(context, code, failure.getClass().getSimpleName(),
-                            String.valueOf(failure.getMessage()), "async_dispatch_failed");
-                } finally {
-                    org.pangrova.observability.logging.LogContext.restore(previousLogContext);
-                    context.ready().countDown();
-                }
-            });
+            return executor.submit(() -> start(context));
         } catch (RejectedExecutionException overloaded) {
             fail(context, "RESOURCE_EXHAUSTED", "ASYNC_SUBMIT_QUEUE_FULL",
                     "Coordinator query dispatch queue is full", "async_submit_overloaded");
@@ -88,26 +73,94 @@ final class QueryAsyncSubmission {
         }
     }
 
+    private void start(Context context) {
+        CompletionStage<QueryDispatchOutcome> completion;
+        var previousLogContext = LogContext.snapshot();
+        try (var scope = context.session().traceContext().makeCurrent()) {
+            setLogContext(context);
+            completion = dispatcher.dispatchAsync(context.state(), context.sql(), context.session());
+        } catch (RuntimeException | Error failure) {
+            finish(context, null, failure);
+            return;
+        } finally {
+            LogContext.restore(previousLogContext);
+        }
+        completion.whenComplete((result, failure) -> finish(context, result, failure));
+    }
+
+    private void finish(Context context, QueryDispatchOutcome result, Throwable failure) {
+        var previousLogContext = LogContext.snapshot();
+        try (var scope = context.session().traceContext().makeCurrent()) {
+            setLogContext(context);
+            if (failure == null) {
+                resultHandler.accept(context.queryId(), context.state(), result);
+            } else {
+                reportFailure(context, unwrap(failure));
+            }
+        } catch (RuntimeException | Error callbackFailure) {
+            if (failure == null) {
+                reportFailure(context, callbackFailure);
+            } else {
+                LOG.error("event=async_query_failure_publication_failed queryId={}",
+                        context.queryId(), callbackFailure);
+            }
+        } finally {
+            LogContext.restore(previousLogContext);
+            context.ready().countDown();
+        }
+    }
+
+    private void reportFailure(Context context, Throwable failure) {
+        if (failure instanceof CancellationException && context.state().isTerminal()) return;
+        context.failure().set(failure);
+        LOG.error("event=async_query_execution_failed queryId={}", context.queryId(), failure);
+        String code = failure instanceof PangrovaException known
+                ? known.getErrorCode().getCode() : "INTERNAL_ERROR";
+        try {
+            fail(context, code, failure.getClass().getSimpleName(),
+                    String.valueOf(failure.getMessage()), "async_dispatch_failed");
+        } catch (RuntimeException | Error publication) {
+            if (publication != failure) failure.addSuppressed(publication);
+            LOG.error("event=async_query_failure_publication_failed queryId={}", context.queryId(), publication);
+        }
+    }
+
+    private static Throwable unwrap(Throwable failure) {
+        return failure instanceof CompletionException && failure.getCause() != null ? failure.getCause() : failure;
+    }
+
+    private static void setLogContext(Context context) {
+        var trace = context.session().traceContext();
+        LogContext.set(trace.traceId(), trace.spanId());
+        LogContext.setQueryId(context.queryId());
+    }
+
     private void awaitReady(Context context, Future<?> dispatch) {
         try {
             if (!context.ready().await(config.submitTimeoutMs(), TimeUnit.MILLISECONDS)) {
-                dispatch.cancel(true);
-                fail(context, "QUERY_TIMEOUT", "ASYNC_SUBMIT_TIMEOUT",
-                        "Result endpoint or write dispatch was not ready before submit timeout",
-                        "async_submit_timeout");
+                try {
+                    fail(context, "QUERY_TIMEOUT", "ASYNC_SUBMIT_TIMEOUT",
+                            "Result endpoint or write dispatch was not ready before submit timeout",
+                            "async_submit_timeout");
+                } finally {
+                    dispatch.cancel(true);
+                }
                 throw new PangrovaException(PangrovaErrorCode.RUNTIME_QUERY_TIMEOUT,
                         "Result endpoint or write dispatch was not ready before submit timeout: " + context.queryId());
             }
         } catch (InterruptedException interrupted) {
-            Thread.currentThread().interrupt();
-            dispatch.cancel(true);
-            fail(context, "QUERY_CANCELLED", "ASYNC_SUBMIT_INTERRUPTED",
-                    "Query submission was interrupted", "async_submit_interrupted");
+            try {
+                fail(context, "QUERY_CANCELLED", "ASYNC_SUBMIT_INTERRUPTED",
+                        "Query submission was interrupted", "async_submit_interrupted");
+            } finally {
+                dispatch.cancel(true);
+                Thread.currentThread().interrupt();
+            }
             throw new QueryRejectedException("Query submission was interrupted");
         }
     }
 
-    private void requireResult(Context context, Future<?> dispatch) {
+    private void requireResult(Context context) {
         Throwable failure = context.failure().get();
         if (failure instanceof Error fatal) {
             throw fatal;
@@ -117,7 +170,6 @@ final class QueryAsyncSubmission {
         }
         var state = context.state().getState();
         if (state == QueryState.FAILED || state == QueryState.CANCELLED) {
-            dispatch.cancel(true);
             throw new PangrovaException(PangrovaErrorCode.RUNTIME_TASK_FAILED,
                     context.state().getError().map(QueryFailure::message)
                             .orElse("Query ended before the result endpoint was ready"));

@@ -115,6 +115,7 @@ final class ActualShuffleBackend implements AutoCloseable {
     }
 
     HikariDataSource jdbc() { return jdbc; }
+    int uploadedObjects() { return objects.listObjectsV2(request -> request.bucket(bucket)).keyCount(); }
     JdbcExecutionAnchorStore anchors() { return new JdbcExecutionAnchorStore(jdbc); }
     Path certificate() { return directory.resolve("localhost-cert.pem"); }
     Path privateKey() { return directory.resolve("localhost-key.pem"); }

@@ -32,6 +32,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -222,6 +223,9 @@ class IndexConsistencyCheckerStaleRebuildTest {
             return all.subList(offset, Math.min(offset + limit, all.size()));
         }
 
+        @Override public Set<String> getIndexedDataFilePaths(String id, int generation) {
+            return Set.of();
+        }
         @Override
         public List<IndexFileMapping> getIndexFileMappings(String indexId) {
             return List.of();

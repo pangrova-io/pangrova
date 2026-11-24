@@ -7,10 +7,11 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.LongSupplier;
+import org.pangrova.common.concurrent.GuardedBy;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.query.api.lifecycle.QueryExecutionCleanup;
 import org.slf4j.Logger;
@@ -24,15 +25,14 @@ public final class QueryTerminalCleanup {
     private static final int MAX_RETRIES_PER_TICK = 4;
     private static final int MAX_RETRY_DELAY_SECONDS = 30;
     private final ConcurrentHashMap<String, Completion> pending = new ConcurrentHashMap<>();
-    @org.pangrova.common.concurrent.GuardedBy("tickets")
+    @GuardedBy("tickets")
     private final PriorityQueue<Ticket> tickets = new PriorityQueue<>(java.util.Comparator.comparingLong(Ticket::due));
     private final QueryExecutionCleanup executionCleanup;
     private final Consumer<Context> journal;
     private final Consumer<Context> observability;
     private final Consumer<Context> physicalRelease;
     private final LongSupplier clock;
-    private volatile ScheduledExecutorService retryTimer;
-    private volatile Executor retryWorker;
+    private volatile RetryDispatch dispatch;
 
     /**
      * Borrows cleanup callbacks and a monotonic nanosecond clock for retry deadlines.
@@ -49,15 +49,14 @@ public final class QueryTerminalCleanup {
 
     public boolean isPending(String queryId) { return pending.containsKey(queryId); }
 
-    /** Borrows the timer and worker for delayed cleanup retries; the caller retains shutdown ownership. */
+    /** Borrows the timer and worker for cleanup retries; the caller retains shutdown ownership. */
     public void startRetryDispatch(ScheduledExecutorService timer, Executor worker) {
-        retryTimer = java.util.Objects.requireNonNull(timer, "timer");
-        retryWorker = java.util.Objects.requireNonNull(worker, "worker");
+        dispatch = new RetryDispatch(java.util.Objects.requireNonNull(timer, "timer"),
+                java.util.Objects.requireNonNull(worker, "worker"));
     }
 
     public void stopRetryDispatch() {
-        retryTimer = null;
-        retryWorker = null;
+        dispatch = null;
     }
 
     /** Applies logical terminal effects and retains incomplete physical cleanup under its per-query owner. */
@@ -65,20 +64,51 @@ public final class QueryTerminalCleanup {
         if (!state.isTerminal() || state.physicalCleanupApplied()) return;
         Completion owner = pending.computeIfAbsent(queryId,
                 ignored -> new Completion(new Context(queryId, state, reason)));
-        if (!owner.inProgress.compareAndSet(false, true)) return;
-        boolean retryNeeded = false;
-        try {
-            publishLogicalTerminal(owner.context);
-            cleanup(owner.context);
+        synchronized (owner) {
+            if (owner.context.state() != state || !start(owner)) return;
+            cancelTicket(owner, false);
+        }
+        apply(owner);
+    }
+
+    private boolean start(Completion owner) {
+        String queryId = owner.context.queryId();
+        if (owner.inProgress || pending.get(queryId) != owner) return false;
+        if (owner.context.state().physicalCleanupApplied()) {
             pending.remove(queryId, owner);
+            return false;
+        }
+        owner.inProgress = true;
+        return true;
+    }
+
+    private void apply(Completion owner) {
+        Context context = owner.context;
+        boolean awaitingDrain = false;
+        boolean succeeded = false;
+        try {
+            publishLogicalTerminal(context);
+            awaitingDrain = !tryCleanup(context);
+            succeeded = !awaitingDrain;
         } catch (RuntimeException | Error failure) {
-            retryNeeded = true;
-            LOG.warn("event=query_terminal_cleanup_pending queryId={} state={}", queryId, state.getState(), failure);
-            if (!state.terminalEffectsApplied() || failure instanceof Error) throw failure;
+            LOG.warn("event=query_terminal_cleanup_pending queryId={} state={}",
+                    context.queryId(), context.state().getState(), failure);
+            if (!context.state().terminalEffectsApplied() || failure instanceof Error) throw failure;
         } finally {
-            owner.inProgress.set(false);
-            // Publish after yielding so a dispatcher cannot drop this retry against the failed attempt.
-            if (retryNeeded) schedule(owner);
+            finish(owner, succeeded, awaitingDrain);
+        }
+    }
+
+    private void finish(Completion owner, boolean succeeded, boolean awaitingDrain) {
+        synchronized (owner) {
+            owner.inProgress = false;
+            owner.awaitingDrain = awaitingDrain;
+            if (succeeded) {
+                pending.remove(owner.context.queryId(), owner);
+            } else if (!awaitingDrain || owner.drainProgressObserved) {
+                schedule(owner, awaitingDrain ? 0 : failureDelay(owner));
+            }
+            owner.drainProgressObserved = false;
         }
     }
 
@@ -88,65 +118,64 @@ public final class QueryTerminalCleanup {
         if (context.state().claimTerminalEffects()) observability.accept(context);
     }
 
-    private void cleanup(Context context) {
-        if (!context.state().awaitOwnership()) {
-            executionCleanup.cleanupUnadmittedQuery(context.queryId());
-            physicalRelease.accept(context);
-            return;
-        }
-        if (context.state().getState() != QueryState.FINISHED) {
+    private boolean tryCleanup(Context context) {
+        boolean admitted = context.state().awaitOwnership();
+        if (admitted && context.state().getState() != QueryState.FINISHED) {
             executionCleanup.cancelDispatchedTasks(context.queryId());
         }
-        executionCleanup.cleanupQuery(context.queryId());
-        physicalRelease.accept(context);
+        boolean ready = admitted ? executionCleanup.tryCleanupQuery(context.queryId())
+                : executionCleanup.tryCleanupUnadmittedQuery(context.queryId());
+        if (ready) physicalRelease.accept(context);
+        return ready;
     }
 
-    public void onExecutionDrain(String queryId) {
-        retryAfterDrain(queryId);
-    }
-
-    public void onOperationExit(String queryId) {
-        retryAfterDrain(queryId);
-    }
-
-    private void retryAfterDrain(String queryId) {
+    /** Queues physical cleanup when an operation exits or an exact receipt is retained. */
+    public void onDrainProgress(String queryId) {
         Completion completion = pending.get(queryId);
         if (completion == null) return;
-        // Drain listeners run on the task/frontend exit path. They must never perform
-        // journal or physical cleanup I/O: a blocked database row would hold that
-        // exit path (and can prevent the caller from releasing the row lock).
-        schedule(completion);
+        synchronized (completion) {
+            if (pending.get(queryId) != completion) return;
+            // Record progress that races with the check returning false. The
+            // listener never performs cleanup I/O on the caller thread.
+            if (completion.inProgress) {
+                completion.drainProgressObserved = true;
+            } else if (completion.awaitingDrain) {
+                schedule(completion, 0);
+            }
+        }
     }
 
-    private void schedule(Completion completion) {
-        synchronized (completion) {
-            if (completion.queuedTicket != null) return;
-            long delay = Math.min(TimeUnit.MILLISECONDS.toNanos(100) << completion.failures,
-                    TimeUnit.SECONDS.toNanos(MAX_RETRY_DELAY_SECONDS));
-            completion.failures = Math.min(completion.failures + 1, 8);
-            Ticket ticket = new Ticket(completion, clock.getAsLong() + delay);
-            completion.queuedTicket = ticket;
-            synchronized (tickets) {
-                tickets.add(ticket);
-            }
-            ScheduledExecutorService timer = retryTimer;
-            Executor worker = retryWorker;
-            if (timer != null && worker != null) {
-                try {
-                    timer.schedule(() -> {
-                        if (retryTimer != timer || retryWorker != worker) return;
-                        try {
-                            worker.execute(() -> retryTicket(ticket));
-                        } catch (RejectedExecutionException rejected) {
-                            LOG.warn("event=query_terminal_retry_dispatch_rejected queryId={}",
-                                    completion.context.queryId(), rejected);
-                        }
-                    }, delay, TimeUnit.NANOSECONDS);
-                } catch (RejectedExecutionException rejected) {
-                    LOG.warn("event=query_terminal_retry_timer_rejected queryId={}",
-                            completion.context.queryId(), rejected);
-                }
-            }
+    private static long failureDelay(Completion completion) {
+        long delay = Math.min(TimeUnit.MILLISECONDS.toNanos(100) << completion.failures,
+                TimeUnit.SECONDS.toNanos(MAX_RETRY_DELAY_SECONDS));
+        completion.failures = Math.min(completion.failures + 1, 8);
+        return delay;
+    }
+
+    private void schedule(Completion completion, long delay) {
+        if (completion.queuedTicket != null) return;
+        Ticket ticket = new Ticket(completion, clock.getAsLong() + delay);
+        completion.queuedTicket = ticket;
+        synchronized (tickets) {
+            tickets.add(ticket);
+        }
+        RetryDispatch selected = dispatch;
+        if (selected == null) return;
+        try {
+            completion.scheduledDispatch = selected.timer().schedule(
+                    () -> dispatchTicket(selected, ticket), delay, TimeUnit.NANOSECONDS);
+        } catch (RejectedExecutionException rejected) {
+            LOG.warn("event=query_terminal_retry_timer_rejected queryId={}", completion.context.queryId(), rejected);
+        }
+    }
+
+    private void dispatchTicket(RetryDispatch selected, Ticket ticket) {
+        if (dispatch != selected) return;
+        try {
+            selected.worker().execute(() -> retryTicket(ticket, false));
+        } catch (RejectedExecutionException rejected) {
+            LOG.warn("event=query_terminal_retry_dispatch_rejected queryId={}",
+                    ticket.completion().context.queryId(), rejected);
         }
     }
 
@@ -160,24 +189,36 @@ public final class QueryTerminalCleanup {
                 tickets.remove();
             }
             attempted++;
-            retryTicket(ticket);
+            retryTicket(ticket, true);
         }
     }
 
-    private void retryTicket(Ticket ticket) {
+    private void retryTicket(Ticket ticket, boolean dequeued) {
         Completion completion = ticket.completion();
         synchronized (completion) {
             if (completion.queuedTicket != ticket) return;
-            completion.queuedTicket = null;
+            cancelTicket(completion, dequeued);
+            if (!start(completion)) return;
         }
-        synchronized (tickets) {
-            tickets.remove(ticket);
-        }
-        if (pending.get(completion.context.queryId()) != completion) return;
         try {
-            complete(completion.context.queryId(), completion.context.state(), completion.context.reason());
+            apply(completion);
         } catch (RuntimeException failure) {
             LOG.warn("event=query_terminal_completion_retry_failed queryId={}", completion.context.queryId(), failure);
+        }
+    }
+
+    private void cancelTicket(Completion completion, boolean dequeued) {
+        Ticket ticket = completion.queuedTicket;
+        if (ticket == null) return;
+        completion.queuedTicket = null;
+        if (!dequeued) {
+            synchronized (tickets) {
+                tickets.remove(ticket);
+            }
+        }
+        if (completion.scheduledDispatch != null) {
+            completion.scheduledDispatch.cancel(false);
+            completion.scheduledDispatch = null;
         }
     }
 
@@ -186,12 +227,21 @@ public final class QueryTerminalCleanup {
 
     private record Ticket(Completion completion, long due) { }
 
+    private record RetryDispatch(ScheduledExecutorService timer, Executor worker) { }
+
     private static final class Completion {
         private final Context context;
-        private final AtomicBoolean inProgress = new AtomicBoolean();
-        @org.pangrova.common.concurrent.GuardedBy("this")
+        @GuardedBy("this")
+        private boolean inProgress;
+        @GuardedBy("this")
+        private boolean awaitingDrain;
+        @GuardedBy("this")
+        private boolean drainProgressObserved;
+        @GuardedBy("this")
         private Ticket queuedTicket;
-        @org.pangrova.common.concurrent.GuardedBy("this")
+        @GuardedBy("this")
+        private ScheduledFuture<?> scheduledDispatch;
+        @GuardedBy("this")
         private int failures;
 
         private Completion(Context context) { this.context = context; }

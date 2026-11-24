@@ -1,5 +1,6 @@
 package org.pangrova.planner.analysis;
 
+import com.google.protobuf.ByteString;
 import org.pangrova.planner.enums.StageTerminalPurpose;
 
 import io.substrait.proto.NamedStruct;
@@ -25,17 +26,22 @@ class AuthorizedStageExchangeBindingsTest {
         var source = schema();
         var aliases = source.toBuilder().setNames(0, "display_record").build();
         var producer = plan(producer(values(source, 3)), aliases.getNamesList());
-        var consumer = plan(consumer(aliases), aliases.getNamesList());
+        var wire = ByteString.copyFrom(producer.planBytes());
+        var encoded = plan(consumer(aliases), aliases.getNamesList());
+        var consumer = new CompiledStagePlan(Plan.parseFrom(encoded.planBytes()),
+                encoded.retrievalTopKHints(), encoded.aiInvocationHints());
+        assertThat(consumer.serialize().planBytes()).containsExactly(encoded.planBytes());
         var bound = AuthorizedStageGraph.bindLiveExchangeInputs(0, consumer, List.of(edge()),
-                Map.of(1, List.of(producer.planBytes())));
-        var root = Plan.parseFrom(bound.planBytes()).getRelations(0).getRoot();
+                Map.of(1, List.of(wire, wire, ByteString.copyFrom(producer.planBytes()),
+                        ByteString.copyFrom(plan(producer(values(source, 4)), aliases.getNamesList()).planBytes()))));
+        var root = bound.plan().getRelations(0).getRoot();
         var detail = root.getInput().getExtensionLeaf().getDetail()
                 .unpack(org.pangrova.protocol.v2.RelationDetailEnvelope.class).getExchangeInput();
         assertThat(detail.getOutputSchema()).isEqualTo(source);
         assertThat(root.getNames(0)).isEqualTo("display_record");
         assertThatThrownBy(() -> AuthorizedStageGraph.bindLiveExchangeInputs(0, consumer, List.of(edge()),
-                Map.of(1, List.of(producer.planBytes(), plan(producer(values(aliases, 3)),
-                        aliases.getNamesList()).planBytes()))))
+                Map.of(1, List.of(wire, ByteString.copyFrom(plan(producer(values(aliases, 3)),
+                        aliases.getNamesList()).planBytes())))))
                 .hasMessageContaining("different schemas");
         assertThatThrownBy(() -> AuthorizedStageGraph.bindLiveExchangeInputs(0, consumer, List.of(edge()), Map.of()))
                 .hasMessageContaining("no dispatched producer");

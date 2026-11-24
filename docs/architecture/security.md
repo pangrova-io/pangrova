@@ -228,6 +228,10 @@ public class OAuth2Authenticator implements Authenticator {
 
 ### 3.3 Permission Storage
 
+The PostgreSQL authorization path resolves direct assignments and group mappings
+against the current role registry in one statement. Grant lookup applies the
+effective role set in SQL. A subject with no effective roles requires no grant read.
+
 ```sql
 -- Role definitions
 CREATE TABLE roles (
@@ -397,6 +401,13 @@ public class RowLevelSecurityFilter {
 
 ### 4.4 RLS Multi-Policy Conflict Resolution Rules
 
+For a controlled table, the planner reads policies by current stable table ID in
+the same statement that checks for unbound rows at its current name. An enabled
+unbound policy blocks compilation. Scans of the same authorization target reuse
+the resulting predicate within one compilation and bind it to each scan's column
+order. Publication re-reads the current policy on its existing transaction and
+compares it with the observed predicate.
+
 When a single table has multiple RLS policies, explicit merge rules are required. Pangrova adopts an **AND semantics + priority ordering** model.
 
 #### Merge semantics: AND vs OR
@@ -519,70 +530,22 @@ authority within the existing transaction gate.
 
 ### 5.3 Masking Implementation
 
-```java
-/**
- * Column masking processor
- */
-public class ColumnMaskingProcessor {
+`DynamicRbacAccessControl` reads the subject's direct and group roles in one
+PostgreSQL statement and resolves masks for one authorized table. The policy store
+reads authored masks and projects current tag bindings against the stable table ID.
+An unproven policy binding fails the read.
 
-    private final ColumnMaskStore maskStore;
+`ColumnMaskApplier` keeps the resulting `TableColumnMasks` within one compilation.
+Scans of the same authorization target reuse the captured values, including self-joins.
+The processor evaluates each referenced column in memory. Mandatory classification
+masks retain priority. The first enabled policy applicable to the current roles
+determines the expression or exemption.
 
-    /**
-     * Get the masking expression for a column
-     */
-    public Optional<Expression> getColumnMask(UserIdentity user,
-                                               CatalogSchemaTableName table,
-                                               String column) {
-        List<ColumnMask> masks = maskStore.getMasks(
-            table.getCatalog(), table.getSchema(), table.getTable(), column);
-
-        for (ColumnMask mask : masks) {
-            if (!mask.isEnabled()) continue;
-
-            // Check whether exempt
-            if (mask.isExempt(user)) {
-                return Optional.empty();  // Return the original value
-            }
-
-            // Check whether applicable
-            if (mask.appliesTo(user)) {
-                Expression maskExpr = parseMaskExpression(mask.getMaskExpression(), column);
-                return Optional.of(maskExpr);
-            }
-        }
-
-        return Optional.empty();
-    }
-
-    /**
-     * Built-in masking function implementations
-     */
-    public static class MaskFunctions {
-
-        public static String maskEmail(String email) {
-            if (email == null || !email.contains("@")) return email;
-            int atIndex = email.indexOf('@');
-            return email.charAt(0) + "***" + email.substring(atIndex);
-        }
-
-        public static String maskPhone(String phone) {
-            if (phone == null || phone.length() < 4) return phone;
-            return "****" + phone.substring(phone.length() - 4);
-        }
-
-        public static String maskCard(String card) {
-            if (card == null || card.length() < 4) return card;
-            String last4 = card.substring(card.length() - 4);
-            return "****-****-****-" + last4;
-        }
-
-        public static String maskName(String name) {
-            if (name == null || name.isEmpty()) return name;
-            return name.charAt(0) + "*".repeat(name.length() - 1);
-        }
-    }
-}
-```
+Each new compilation reads current policy state. Index build admission and
+materialization fingerprints use the same table-level mask lookup.
+Deferred publication reads masks for the requested column set on the publication
+transaction and projects stable table tags once per table observation. It renders
+and compares each requested column's effective policy with the captured value.
 
 ---
 
@@ -1154,6 +1117,14 @@ revoked. `CONFIRMED` carries the committed revision, count and timestamp.
 another principal); it is not proof of rollback. Storage read failures propagate
 rather than being reported as unconfirmed. A query failure alone is not proof
 that no privilege change committed.
+
+The built-in RBAC provider resolves the authenticated subject's effective roles
+and grants once during each protected plan authorization pass. The SELECT check,
+row filters and column masks use those same roles. Each policy is looked up in
+its authoritative store. A query without governed table reads skips role
+resolution. New compilations resolve current membership and grants. The
+Coordinator requires the same authorization provider for admission and both
+policy transformations.
 
 Authorization readers use current database grants rather than process-local
 cached allow decisions. Subsequent checks on another coordinator observe the

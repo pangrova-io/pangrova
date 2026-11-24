@@ -5,7 +5,9 @@ import org.pangrova.protocol.execution.AiTaskLifecycle;
 import org.pangrova.worker.function.WorkerCallbackProviders;
 
 import org.pangrova.shuffle.api.worker.ShuffleProducerSession;
+import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.v2.TaskRequest;
+import org.pangrova.protocol.v2.TaskState;
 import org.pangrova.common.concurrent.ThreadSafe;
 
 import org.pangrova.worker.jni.NativeRuntime;
@@ -95,10 +97,9 @@ public final class NativeTaskExecutor implements TaskExecutor, AutoCloseable {
     }
 
     @Override
-    public long createTask(byte[] taskRequestBytes) {
-        org.pangrova.protocol.v2.TaskRequest request;
+    public long createTask(TaskRequest request) {
         try {
-            request = parseTaskRequest(taskRequestBytes);
+            org.pangrova.protocol.task.CanonicalTaskRequests.validateForAdmission(request);
             if (request.hasCopySourceStagingCommandSha256()) {
                 throw new IllegalArgumentException("COPY creation requires its private Worker envelope");
             }
@@ -110,9 +111,10 @@ public final class NativeTaskExecutor implements TaskExecutor, AutoCloseable {
 
     /** Keeps the private ticket in Worker Java; only a verified local request reaches JNI. */
     public long createCopyTask(org.pangrova.protocol.rest.task.SubmitTaskRequest envelope) {
-        org.pangrova.protocol.v2.TaskRequest request;
+        TaskRequest request;
         try {
-            request = parseTaskRequest(envelope.canonicalBytes());
+            request = envelope.taskRequest();
+            org.pangrova.protocol.task.CanonicalTaskRequests.validateForAdmission(request);
         } catch (RuntimeException failure) {
             throw new NativeTaskCreationFailure(0, true, failure);
         }
@@ -313,21 +315,21 @@ public final class NativeTaskExecutor implements TaskExecutor, AutoCloseable {
         }
     }
 
-    /**
-     * Queries native task state to determine if the task has reached a terminal state. Calls {@link
-     * NativeRuntime#nativeGetTaskStatus} and decodes the canonical v2 TaskReport response.
-     *
-     * <p>Terminal states: FINISHED(4), FAILED(5), CANCELLED(6).
-     *
-     * <p>When the task has FAILED (stateValue == 5), throws {@link NativeRuntimeException} with the
-     * error message and native stack trace extracted from the TaskStatus proto.
-     */
+    /** Reads the native lifecycle state. A failed task fetches its original error details. */
     @Override
     public boolean isFinished(long executorHandle) {
+        return awaitFinished(executorHandle, 0);
+    }
+
+    @Override
+    public boolean awaitFinished(long executorHandle, int waitMillis) {
         var lease = acquireHandleLease(executorHandle);
         try {
-            byte[] statusBytes = NativeRuntime.nativeGetTaskStatus(executorHandle);
-            return evaluateNativeStatus(statusBytes, executorHandle);
+            var state = requireNativeTaskState(NativeRuntime.nativeReadTaskState(executorHandle, waitMillis));
+            if (state == TaskState.TASK_STATE_FAILED) {
+                throw nativeTaskFailure(NativeRuntime.nativeGetTaskStatus(executorHandle));
+            }
+            return state == TaskState.TASK_STATE_FINISHED || state == TaskState.TASK_STATE_CANCELLED;
         } finally {
             lease.close();
         }
@@ -365,50 +367,39 @@ public final class NativeTaskExecutor implements TaskExecutor, AutoCloseable {
         }
     }
 
-    /**
-     * Interprets the serialized TaskStatus proto and returns whether the task reached a terminal
-     * state. Throws {@link NativeRuntimeException} when the task has FAILED.
-     */
-    static boolean evaluateNativeStatus(byte[] statusBytes, long executorHandle) {
+    static TaskState requireNativeTaskState(int stateValue) {
+        var state = TaskState.forNumber(stateValue);
+        if (state == null || state == TaskState.TASK_STATE_UNSPECIFIED) {
+            throw new NativeRuntimeException(
+                    org.pangrova.common.enums.PangrovaErrorCode.PROTOCOL_DESERIALIZATION_FAILED,
+                    "Native returned an invalid task state: " + stateValue);
+        }
+        return state;
+    }
+
+    static NativeRuntimeException nativeTaskFailure(byte[] statusBytes) {
         if (statusBytes == null || statusBytes.length == 0) {
             throw new NativeRuntimeException(
                     org.pangrova.common.enums.PangrovaErrorCode.PROTOCOL_DESERIALIZATION_FAILED,
                     "Native returned an empty v2 TaskReport");
         }
-        org.pangrova.protocol.v2.TaskReport status = parseNativeTaskReport(statusBytes);
-        int stateValue = status.getStateValue();
-        if (stateValue < 1 || stateValue > 6) {
+        TaskReport status = parseNativeTaskReport(statusBytes);
+        if (status.getState() != TaskState.TASK_STATE_FAILED) {
             throw new NativeRuntimeException(
                     org.pangrova.common.enums.PangrovaErrorCode.PROTOCOL_DESERIALIZATION_FAILED,
-                    "Native returned an invalid task state: " + stateValue);
+                    "Native failure report has unexpected task state: " + status.getStateValue());
         }
-        boolean finished = stateValue == 4 || stateValue == 6;
-        if (stateValue >= 2) {
-            LOG.debug(
-                    "event=is_finished_poll executorHandle={} stateValue={} finished={}",
-                    executorHandle,
-                    stateValue,
-                    finished);
-        }
-        if (stateValue == 5) {
-            throwNativeFailure(status);
-        }
-        return finished;
-    }
-
-    /** Throws a {@link NativeRuntimeException} carrying the native failure details. */
-    private static void throwNativeFailure(org.pangrova.protocol.v2.TaskReport status) {
         String message =
                 status.hasError() && !status.getError().getMessage().isBlank()
                         ? status.getError().getMessage()
                         : "Native task failed";
-        throw new NativeRuntimeException(
+        return new NativeRuntimeException(
                 org.pangrova.common.enums.PangrovaErrorCode.NATIVE_JNI_EXCEPTION, message);
     }
 
-    private static org.pangrova.protocol.v2.TaskReport parseNativeTaskReport(byte[] statusBytes) {
+    private static TaskReport parseNativeTaskReport(byte[] statusBytes) {
         try {
-            return org.pangrova.protocol.v2.TaskReport.parseFrom(statusBytes);
+            return TaskReport.parseFrom(statusBytes);
         } catch (com.google.protobuf.InvalidProtocolBufferException failure) {
             throw new NativeRuntimeException(
                     org.pangrova.common.enums.PangrovaErrorCode.PROTOCOL_DESERIALIZATION_FAILED,
@@ -422,19 +413,6 @@ public final class NativeTaskExecutor implements TaskExecutor, AutoCloseable {
         if (owner != null && owner.aiRegistered) {
             aiLifecycle.cancelTask(
                     owner.request.getSecurity().getTenantId(), owner.request.getAttempt());
-        }
-    }
-
-    private static org.pangrova.protocol.v2.TaskRequest parseTaskRequest(byte[] taskRequestBytes) {
-        try {
-            var request = org.pangrova.protocol.v2.TaskRequest.parseFrom(taskRequestBytes);
-            org.pangrova.protocol.task.CanonicalTaskRequests.validateForAdmission(request);
-            return request;
-        } catch (com.google.protobuf.InvalidProtocolBufferException failure) {
-            throw new NativeRuntimeException(
-                    org.pangrova.common.enums.PangrovaErrorCode.PROTOCOL_DESERIALIZATION_FAILED,
-                    "TaskRequest is malformed",
-                    failure);
         }
     }
 
@@ -520,6 +498,16 @@ public final class NativeTaskExecutor implements TaskExecutor, AutoCloseable {
         return report.toBuilder().setUsage(report.getUsage().toBuilder().setObjectStoreReadBytes(reads)).build();
     }
 
+    /** Registers one signal for the exact finished Native result owner. */
+    public void watchResultDrain(long executorHandle, Runnable callback) {
+        var lease = acquireHandleLease(executorHandle);
+        try {
+            NativeRuntime.nativeWatchResultDrain(executorHandle, callback);
+        } finally {
+            lease.close();
+        }
+    }
+
     @Override
     public byte[] executeCommand(long executorHandle, byte[] commandProto) {
         requireCommandHandle(executorHandle);
@@ -541,6 +529,16 @@ public final class NativeTaskExecutor implements TaskExecutor, AutoCloseable {
                 }
             }
             return NativeRuntime.nativeCommand(executorHandle, commandProto);
+        } finally {
+            lease.close();
+        }
+    }
+
+    @Override
+    public byte[] pushExchangeChunk(long executorHandle, byte[] metadata, byte[] data) {
+        var lease = acquireHandleLease(executorHandle);
+        try {
+            return NativeRuntime.nativePushExchangeChunk(executorHandle, metadata, data);
         } finally {
             lease.close();
         }

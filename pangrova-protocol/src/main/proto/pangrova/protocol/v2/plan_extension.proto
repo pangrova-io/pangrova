@@ -134,6 +134,24 @@ message ExchangeInputDetail {
   bool require_complete = 9;
 }
 
+// A complete singleton input must yield zero or one row, counting NULL rows.
+message EnforceSingleRowDetail {
+  uint32 input_ordinal = 1;
+}
+
+// Required enhancement on a cross-stage AggregateRel. The standard measures
+// carry the phase, state operand and output type, and retain their ordinal.
+message AggregatePhaseDetail {
+  string implementation_build_id = 1;
+  repeated AggregatePhaseMeasure measures = 2;
+}
+
+message AggregatePhaseMeasure {
+  bytes registration_sha256 = 1;
+  // Present only for input already reduced to a registered intermediate state.
+  substrait.NamedStruct original_raw_arguments = 2;
+}
+
 message RelationDetailEnvelope {
   uint32 schema_version = 1;
   oneof detail {
@@ -145,5 +163,6 @@ message RelationDetailEnvelope {
     ExchangeInputDetail exchange_input = 15;
     TableFunctionDetail table_function = 16;
     ArtifactBuildDetail artifact_build = 17;
+    EnforceSingleRowDetail enforce_single_row = 18;
   }
 }

@@ -54,7 +54,7 @@ final class WorkerBootstrapControlFixture implements AutoCloseable {
         var receiver = new TaskStatusReceiver(
                 TaskStatusReceiverContext.withoutSpeculation(queries, tracker, registrations, new org.pangrova.persistence.query.memory.transaction.InMemoryWriteCommitJournal()));
         server = new CoordinatorHttpServer(0, new CoordinatorHttpServerContext(receiver, queries,
-                null, authentication, null, registrations, null, null, null, null, null, secret, () -> 1L));
+                null, authentication, null, registrations, null, null, null, null, secret, () -> 1L));
         try { server.start(); }
         catch (Exception | Error failure) {
             try { close(); }

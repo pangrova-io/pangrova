@@ -134,6 +134,37 @@ TEST_F(VeloxPlanConverterTest, TableScanProducesTableScanNode) {
   expectLogicalOutputField(converter, output_type, 2, "status");
 }
 
+TEST_F(VeloxPlanConverterTest, DistinctReadEmitNarrowsTheAssignedScanAndKeepsBaseSchema) {
+  substrait::Rel rel;
+  auto* read = rel.mutable_read();
+  auto* names = read->mutable_named_table();
+  names->add_names("catalog");
+  names->add_names("schema");
+  names->add_names("orders");
+  auto* schema = read->mutable_base_schema();
+  addI64Column(schema, "order_id");
+  addI64Column(schema, "customer_id");
+  addStringColumn(schema, "status");
+  auto* emit = read->mutable_common()->mutable_emit();
+  emit->add_output_mapping(2);
+  emit->add_output_mapping(0);
+
+  VeloxPlanConverter converter(facebook::velox::exec::FunctionRegistrySnapshot::capture());
+  auto result = converter.convert(serializePlan(rel, {"state", "id"}), {});
+  auto scan = std::dynamic_pointer_cast<const facebook::velox::core::TableScanNode>(result);
+  ASSERT_NE(scan, nullptr);
+  auto output = scan->outputType();
+  ASSERT_EQ(output->size(), 2);
+  EXPECT_EQ(scan->assignments().at(output->nameOf(0))->name(), "status");
+  EXPECT_EQ(scan->assignments().at(output->nameOf(1))->name(), "order_id");
+  expectLogicalOutputField(converter, output, 0, "state");
+  expectLogicalOutputField(converter, output, 1, "id");
+  auto handle = std::dynamic_pointer_cast<const PangrovaTableHandle>(scan->tableHandle());
+  ASSERT_NE(handle, nullptr);
+  EXPECT_EQ(handle->scanSchema()->names(),
+      (std::vector<std::string>{"order_id", "customer_id", "status"}));
+}
+
 // ---------------------------------------------------------------------------
 // Test: Filter (FilterRel → TableScan)
 // ---------------------------------------------------------------------------
@@ -287,7 +318,7 @@ TEST_F(VeloxPlanConverterTest, GovernedAiExpressionConsumesExactBinding) {
       facebook::velox::exec::FunctionRegistrySnapshot::capture();
   VeloxPlanConverter converter(converter_registry);
   auto result = converter.convert(
-      {bytes.begin(), bytes.end()}, {}, false, "ArrowBatch",
+      {bytes.begin(), bytes.end()}, {},
       {{binding.plan_node_id(), binding}});
 
   auto project_node = std::dynamic_pointer_cast<
@@ -320,7 +351,7 @@ TEST_F(VeloxPlanConverterTest, GovernedAiExpressionConsumesExactBinding) {
   VeloxPlanConverter missing_binding_converter(missing_binding_converter_registry);
   EXPECT_THROW(
       missing_binding_converter.convert(
-          {bytes.begin(), bytes.end()}, {}, false, "ArrowBatch", {}),
+          {bytes.begin(), bytes.end()}, {}, {}),
       std::runtime_error);
 
   auto drifted = binding;
@@ -330,7 +361,7 @@ TEST_F(VeloxPlanConverterTest, GovernedAiExpressionConsumesExactBinding) {
   VeloxPlanConverter drifted_binding_converter(drifted_binding_converter_registry);
   EXPECT_THROW(
       drifted_binding_converter.convert(
-          {bytes.begin(), bytes.end()}, {}, false, "ArrowBatch",
+          {bytes.begin(), bytes.end()}, {},
           {{drifted.plan_node_id(), drifted}}),
       std::runtime_error);
 
@@ -345,7 +376,7 @@ TEST_F(VeloxPlanConverterTest, GovernedAiExpressionConsumesExactBinding) {
   VeloxPlanConverter output_drifted_converter(output_drifted_converter_registry);
   EXPECT_THROW(
       output_drifted_converter.convert(
-          {bytes.begin(), bytes.end()}, {}, false, "ArrowBatch",
+          {bytes.begin(), bytes.end()}, {},
           {{output_drifted.plan_node_id(), output_drifted}}),
       std::runtime_error);
 
@@ -359,7 +390,7 @@ TEST_F(VeloxPlanConverterTest, GovernedAiExpressionConsumesExactBinding) {
       facebook::velox::exec::FunctionRegistrySnapshot::capture();
   VeloxPlanConverter nullable_output_converter(nullable_output_converter_registry);
   EXPECT_NO_THROW(nullable_output_converter.convert(
-      {bytes.begin(), bytes.end()}, {}, false, "ArrowBatch",
+      {bytes.begin(), bytes.end()}, {},
       {{nullable_model_output.plan_node_id(), nullable_model_output}}));
 }
 
@@ -403,7 +434,7 @@ TEST_F(VeloxPlanConverterTest, GovernedAiEmbedCarriesExactVectorDimension) {
       facebook::velox::exec::FunctionRegistrySnapshot::capture();
   VeloxPlanConverter converter(converter_registry);
   auto result = converter.convert(
-      {bytes.begin(), bytes.end()}, {}, false, "ArrowBatch",
+      {bytes.begin(), bytes.end()}, {},
       {{binding.plan_node_id(), binding}});
 
   auto project_node = std::dynamic_pointer_cast<
@@ -438,7 +469,7 @@ TEST_F(VeloxPlanConverterTest, GovernedAiEmbedCarriesExactVectorDimension) {
   VeloxPlanConverter drifted_converter(drifted_converter_registry);
   EXPECT_ANY_THROW(
       drifted_converter.convert(
-          {bytes.begin(), bytes.end()}, {}, false, "ArrowBatch",
+          {bytes.begin(), bytes.end()}, {},
           {{drifted.plan_node_id(), drifted}}));
 }
 
@@ -517,7 +548,7 @@ void addBoolColumn(substrait::NamedStruct* schema, const std::string& name) {
 
 // Builds an AggregateRel plan: group by field 0, sum(field 1) with an
 // optional measure filter referencing filter_field (or -1 for none).
-std::vector<uint8_t> buildAggregateWithFilterPlan(int filter_field) {
+std::vector<uint8_t> buildAggregateWithFilterPlan(int filter_field, bool decimal = false) {
   substrait::Rel rel;
   auto* agg = rel.mutable_aggregate();
 
@@ -525,7 +556,15 @@ std::vector<uint8_t> buildAggregateWithFilterPlan(int filter_field) {
   input_read->mutable_named_table()->add_names("sales");
   auto* schema = input_read->mutable_base_schema();
   addI64Column(schema, "region_id");
-  addI64Column(schema, "amount");
+  if (decimal) {
+    schema->add_names("amount");
+    auto* amount = schema->mutable_struct_()->add_types()->mutable_decimal();
+    amount->set_precision(22);
+    amount->set_scale(7);
+    amount->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
+  } else {
+    addI64Column(schema, "amount");
+  }
   addBoolColumn(schema, "is_valid");
 
   auto* grouping = agg->add_groupings();
@@ -538,7 +577,14 @@ std::vector<uint8_t> buildAggregateWithFilterPlan(int filter_field) {
   agg_func->set_phase(substrait::AGGREGATION_PHASE_INITIAL_TO_RESULT);
   auto* arg = agg_func->add_arguments();
   setFieldRef(arg->mutable_value(), 1);
-  agg_func->mutable_output_type()->mutable_i64()->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
+  if (decimal) {
+    auto* output = agg_func->mutable_output_type()->mutable_decimal();
+    output->set_precision(38);
+    output->set_scale(7);
+    output->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
+  } else {
+    agg_func->mutable_output_type()->mutable_i64()->set_nullability(substrait::Type::NULLABILITY_NULLABLE);
+  }
   if (filter_field >= 0) {
     setFieldRef(measure->mutable_filter(), filter_field);
   }
@@ -547,7 +593,7 @@ std::vector<uint8_t> buildAggregateWithFilterPlan(int filter_field) {
   auto* ext = plan.add_extensions();
   auto* ext_func = ext->mutable_extension_function();
   ext_func->set_function_anchor(1);
-  ext_func->set_name("sum:i64");
+  ext_func->set_name(decimal ? "sum:dec" : "sum:i64");
 
   auto* plan_rel = plan.add_relations();
   *plan_rel->mutable_root()->mutable_input() = rel;
@@ -612,6 +658,12 @@ TEST_F(VeloxPlanConverterTest, AggregateMeasureFilterSetsMask) {
 
   // Deepest aggregation node sees the raw input — mask required there.
   const auto* raw_input_agg = agg_nodes.back();
+  ASSERT_EQ(raw_input_agg->sources().size(), 1u);
+  const auto& rawSource = raw_input_agg->sources()[0];
+  EXPECT_EQ(rawSource->name(), "TableScan");
+  EXPECT_EQ(rawSource->outputType()->size(), 3u);
+  ASSERT_EQ(raw_input_agg->groupingKeys().size(), 1u);
+  EXPECT_EQ(raw_input_agg->groupingKeys()[0]->name(), rawSource->outputType()->nameOf(0));
   ASSERT_EQ(raw_input_agg->aggregates().size(), 1u);
   const auto& aggregate = raw_input_agg->aggregates()[0];
   ASSERT_NE(aggregate.mask, nullptr);
@@ -626,6 +678,25 @@ TEST_F(VeloxPlanConverterTest, AggregateMeasureFilterSetsMask) {
   }
 }
 
+
+TEST_F(VeloxPlanConverterTest, DecimalSumUsesBoundAccumulatorAndPreservesRawInputType) {
+  using namespace facebook::velox;
+  const auto registry = exec::FunctionRegistrySnapshot::capture();
+  VeloxPlanConverter converter(registry);
+  const auto result = converter.convert(buildAggregateWithFilterPlan(-1, true), {});
+  const auto nodes = collectAggregationNodes(result);
+  ASSERT_EQ(nodes.size(), 2u);
+  using Step = core::AggregationNode::Step;
+  EXPECT_EQ(nodes.front()->step(), Step::kFinal);
+  EXPECT_EQ(nodes.back()->step(), Step::kPartial);
+  const auto& final = nodes.front()->aggregates().at(0);
+  const auto& partial = nodes.back()->aggregates().at(0);
+  EXPECT_TRUE(partial.call->type()->isVarbinary());
+  EXPECT_TRUE(final.call->inputs().at(0)->type()->isVarbinary());
+  EXPECT_TRUE(final.call->type()->equivalent(*DECIMAL(38, 7)));
+  ASSERT_EQ(final.rawInputTypes.size(), 1u);
+  EXPECT_TRUE(final.rawInputTypes.at(0)->equivalent(*DECIMAL(22, 7)));
+}
 
 TEST_F(VeloxPlanConverterTest, AggregateWithoutMeasureFilterHasNoMask) {
   auto plan_bytes = buildAggregateWithFilterPlan(/*filter_field=*/-1);

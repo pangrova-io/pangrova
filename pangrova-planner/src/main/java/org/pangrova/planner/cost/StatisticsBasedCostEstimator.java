@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 /**
  * Bridges {@link StatisticsCollector} data into Calcite CBO cost estimation.
@@ -99,20 +100,22 @@ public class StatisticsBasedCostEstimator {
      * Prefers index-derived NDV when available, falls back to connector statistics.
      */
     public double estimateSelectivity(QualifiedTableName tableName, String column) {
-        Optional<ColumnStatistics> indexCol = indexColumnStats(tableName, column);
-        if (indexCol.isPresent()) {
-            ColumnStatistics cs = indexCol.get();
-            if (cs.ndv() > 0) {
-                LOG.debug("event=index_selectivity_used table={} column={} ndv={}",
-                        tableName, column, cs.ndv());
-                return 1.0 / cs.ndv();
-            }
+        OptionalLong ndv = distinctValues(tableName, column);
+        return ndv.isPresent() ? 1.0 / ndv.getAsLong() : DEFAULT_SELECTIVITY;
+    }
+
+    /** Returns a positive NDV backed by index or connector evidence. */
+    OptionalLong distinctValues(QualifiedTableName tableName, String column) {
+        Optional<ColumnStatistics> index = indexColumnStats(tableName, column).filter(cs -> cs.ndv() > 0);
+        if (index.isPresent()) {
+            long ndv = index.orElseThrow().ndv();
+            LOG.debug("event=index_selectivity_used table={} column={} ndv={}", tableName, column, ndv);
+            return OptionalLong.of(ndv);
         }
-        return columnStats(tableName, column)
+        Optional<ColumnStatistics> stats = columnStats(tableName, column)
                 .filter(cs -> cs.confidenceScore() >= MIN_CONFIDENCE_THRESHOLD)
-                .filter(cs -> cs.ndv() > 0)
-                .map(cs -> 1.0 / cs.ndv())
-                .orElse(DEFAULT_SELECTIVITY);
+                .filter(cs -> cs.ndv() > 0);
+        return stats.isPresent() ? OptionalLong.of(stats.orElseThrow().ndv()) : OptionalLong.empty();
     }
 
     /**

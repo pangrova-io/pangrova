@@ -30,6 +30,11 @@ RegisteredAggregateBinding bindRegisteredRawAggregate(
     const std::string& name, const facebook::velox::TypePtr& output,
     FunctionArguments arguments, bool intermediateOutput);
 
+RegisteredAggregateBinding bindRegisteredStateAggregate(
+    const facebook::velox::exec::FunctionRegistrySnapshot& registry,
+    const std::string& name, const facebook::velox::TypePtr& output,
+    FunctionArguments states, const std::vector<facebook::velox::TypePtr>& rawTypes);
+
 facebook::velox::core::CallTypedExprPtr bindRegisteredWindow(
     const facebook::velox::exec::FunctionRegistrySnapshot& registry,
     const std::string& name, const facebook::velox::TypePtr& output,

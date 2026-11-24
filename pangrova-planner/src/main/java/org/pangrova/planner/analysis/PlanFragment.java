@@ -101,6 +101,11 @@ public final class PlanFragment implements StagePlanAccess {
         return hasWindow(planNode);
     }
 
+    /** Proves source partition coalescing preserves the stage's row or grouped semantics. */
+    public boolean supportsCoalescedHashInput(String exchangeId, List<Integer> hashKeys) {
+        return PartitionLocalPlanInspector.supportsCoalescedHashInput(planNode, exchangeId, hashKeys);
+    }
+
     private static boolean hasWindow(RelNode node) {
         if (node instanceof Window) {
             return true;
@@ -126,6 +131,11 @@ public final class PlanFragment implements StagePlanAccess {
      */
     public List<String> queryOutputColumns() {
         return PlanSplitSourceExtractor.queryOutputColumns(planNode);
+    }
+
+    /** Prepares live split selection and the matching post-I/O owner fence. */
+    public PlanSplitSourceExtractor.PreparedSources prepareSplitSources() {
+        return PlanSplitSourceExtractor.prepare(planNode);
     }
 
     /** An eligible single-table predicate scope for index selection. */
@@ -206,6 +216,11 @@ public final class PlanFragment implements StagePlanAccess {
      */
     public byte[] toSubstraitBytes(SqlCompiler compiler, java.util.List<String> columnNames) {
         return toSerializedPlan(compiler, columnNames).planBytes();
+    }
+
+    /** Compiles this live fragment without crossing a wire boundary. */
+    public CompiledStagePlan compileStagePlan(SqlCompiler compiler, List<String> columnNames) {
+        return compiler.compileStagePlan(planNode, columnNames);
     }
 
     /** Serializes this fragment and retains typed relation intents for protocol binding. */

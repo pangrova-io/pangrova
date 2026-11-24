@@ -69,6 +69,28 @@ class RbacAccessControlRoleStoreTest {
     }
 
     @Test
+    void freshReadAuthorizationObservesRoleAndGrantRevocation() {
+        roleStore.createRole(Role.of("reader"));
+        roleStore.grantRoleToUser(UserRoleAssignment.of("alice", "reader"));
+        grantStore.addGrant(PrivilegeGrant.of("reader", Privilege.SELECT, "TABLE", "lake", "public", "orders", null));
+        var alice = userWithGroups("alice");
+
+        var first = accessControl.beginReadAuthorization(alice);
+        assertThatCode(() -> first.requireSelect("lake", "public", "orders")).doesNotThrowAnyException();
+        assertThat(first.rowFilter("lake", "public", "orders")).isEmpty();
+        assertThat(first.columnMasks("lake", "public", "orders").mask("email")).isEmpty();
+
+        roleStore.revokeRoleFromUser("alice", "reader");
+        assertThatThrownBy(() -> accessControl.beginReadAuthorization(alice)
+                .requireSelect("lake", "public", "orders")).isInstanceOf(AccessDeniedException.class);
+
+        roleStore.grantRoleToUser(UserRoleAssignment.of("alice", "reader"));
+        grantStore.revokeGrants("reader", Privilege.SELECT, "lake", "public", "orders");
+        assertThatThrownBy(() -> accessControl.beginReadAuthorization(alice)
+                .requireSelect("lake", "public", "orders")).isInstanceOf(AccessDeniedException.class);
+    }
+
+    @Test
     void catalogReadAndTableOwnershipCannotAuthorizeCatalogMutation() {
         roleStore.createRole(Role.of("reader"));
         roleStore.grantRoleToUser(UserRoleAssignment.of("alice", "reader"));
@@ -303,8 +325,8 @@ class RbacAccessControlRoleStoreTest {
         }
 
         @Override
-        public synchronized List<PrivilegeGrant> listGrantsForRole(String roleName) {
-            return grants.stream().filter(g -> g.roleName().equals(roleName)).toList();
+        public synchronized List<PrivilegeGrant> listGrantsForRoles(Set<String> roleNames) {
+            return grants.stream().filter(g -> roleNames.contains(g.roleName())).toList();
         }
 
         @Override

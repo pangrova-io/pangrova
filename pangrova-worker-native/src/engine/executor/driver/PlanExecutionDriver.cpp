@@ -86,9 +86,9 @@ PlanExecutionDriver::prepareExecution(observability::SpanScope* span) {
       static_cast<uint64_t>(
           std::max<int64_t>(0, config_.resource_limit.max_object_store_read_bytes)),
       execution->artifactContext->read_budget);
-  velox::VeloxPlanConverter converter(config_.function_registry);
+  velox::VeloxPlanConverter converter(config_.function_registry, config_.function_catalog);
   auto plan = converter.convert(config_.substrait_plan, execution->retrieval->splits,
-      config_.is_result_task, "ArrowBatch", config_.operator_bindings,
+      config_.operator_bindings,
       execution->artifactContext, execution->retrieval->split_overrides,
       config_.num_shuffle_partitions);
   if (!plan) throw std::runtime_error("Failed to convert Substrait plan to Velox PlanNode");
@@ -108,10 +108,7 @@ PlanExecutionDriver::prepareExecution(observability::SpanScope* span) {
 
 bool PlanExecutionDriver::publishRunner(const std::shared_ptr<Execution>& execution) {
   for (const auto& binding : config_.initial_runtime_filters) {
-    protocol::v2::InjectRuntimeFilterRequest payload;
-    payload.set_plan_node_id(binding.plan_node_id());
-    payload.mutable_filters()->CopyFrom(binding.filters());
-    injectDynamicFilter(binding.plan_node_id(), payload.SerializeAsString());
+    injectDynamicFilter(binding.plan_node_id(), binding.filters());
   }
   std::vector<PendingDynamicFilter> filters;
   {

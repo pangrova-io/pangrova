@@ -14,6 +14,7 @@ import org.pangrova.governance.api.quality.WriteValidationResult;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.connector.ConnectorCatalogHandle;
+import org.pangrova.planner.mv.DynamicTableRewriter;
 import org.pangrova.protocol.rest.data.WriteResultDescriptor;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.connector.api.metadata.ConnectorMetadata;
@@ -95,7 +96,7 @@ final class NativeTaskWriteCompletion {
      * <p>Integrates with {@link WriteCommitJournal} for idempotent recovery:
      * already-committed writes (detected via journal) are skipped.</p>
      */
-    boolean commitDistributedWriteIfNeeded(String queryId) {
+    boolean commitDistributedWriteIfNeeded(String queryId, boolean readOnlyTaskExecution) {
         if (writeCommitTracker == null || catalogRegistry == null) {
             return true;
         }
@@ -103,14 +104,18 @@ final class NativeTaskWriteCompletion {
         WriteCommitFencer fencer = this.writeCommitFencer;
         ExecutionAnchor anchor = fencer != null
                 ? fencer.currentAnchor(queryId) : null;
-        if (!isCurrentExecutionOwner(queryId, fencer, anchor, "before_journal_read")) {
+        if (!isCurrentExecutionOwner(queryId, fencer, anchor, "before_query_finalization")) {
             return false;
         }
+        if (readOnlyTaskExecution) {
+            return true;
+        }
 
-        // Idempotent recovery: skip if the journal says this write is already committed
-        if (writeCommitJournal.isCommitted(queryId)) {
-            WriteCommitEntry committed = writeCommitJournal.getEntry(queryId).orElseThrow(() ->
-                    new IllegalStateException("COMMITTED write lost its durable intent"));
+        // The same durable entry proves COMMITTED and carries its acknowledgement identity.
+        WriteCommitEntry committed = writeCommitJournal.getEntry(queryId)
+                .filter(entry -> entry.state() == WriteCommitState.COMMITTED)
+                .orElse(null);
+        if (committed != null) {
             if (committed.copyFile() != null) {
                 DefaultWriteCommitReconciler reconciler = new DefaultWriteCommitReconciler(
                         writeCommitJournal, name -> {
@@ -123,7 +128,7 @@ final class NativeTaskWriteCompletion {
                 }
             }
             LOG.info("event=distributed_write_already_committed queryId={}", queryId);
-            retireCommittedWrite(queryId);
+            retireCommittedWrite(committed);
             return true;
         }
 
@@ -151,10 +156,10 @@ final class NativeTaskWriteCompletion {
         if (!isCurrentExecutionOwner(queryId, fencer, anchor, "after_catalog_commit")) return false;
         if (copyPublication != null) {
             writeCommitJournal.recordCopyFilePublication(intent, copyPublication);
+            if (!isCurrentExecutionOwner(queryId, fencer, anchor, "after_copy_publication")) return false;
         }
-        if (!isCurrentExecutionOwner(queryId, fencer, anchor, "after_copy_publication")) return false;
         writeCommitJournal.markCommitted(queryId);
-        retireCommittedWrite(queryId);
+        retireCommittedWrite(intent);
         LOG.info("event=distributed_write_committed queryId={} catalog={} fragmentCount={}",
                 queryId, writeState.catalogName(), fragments.size());
         return true;
@@ -171,7 +176,10 @@ final class NativeTaskWriteCompletion {
                 intent, writeState.outputHandle().targetTable().orElseThrow(),
                 connectorCatalog);
         ConnectorMetadata metadata = catalogHandle.getMetadata(writeState.session());
-        RequiredWritePublication.commit(writeCommitJournal, metadata, writeState.session(), boundHandle, intent);
+        boolean required = DynamicTableRewriter.isInternalExecution(writeState.session())
+                && writeCommitJournal.requiresPublication(intent);
+        RequiredWritePublication.commit(writeCommitJournal, metadata, writeState.session(), boundHandle, intent,
+                required);
         if (intent.copyFile() == null) {
             return null;
         }
@@ -220,18 +228,12 @@ final class NativeTaskWriteCompletion {
         }
     }
 
-    private void retireCommittedWrite(String queryId) {
-        acknowledgeOrdinaryWrite(queryId);
-        writeCommitTracker.removeWriteState(queryId);
-        writeCommitJournal.purge(queryId);
-    }
-
-    private void acknowledgeOrdinaryWrite(String queryId) {
-        var entry = writeCommitJournal.getEntry(queryId).orElseThrow(() ->
-                new IllegalStateException("COMMITTED write lost its declaration receipt"));
+    private void retireCommittedWrite(WriteCommitEntry entry) {
         if (!entry.authorizationReceipt().declaration().hasGeneratedColumns()) {
             writeCommitJournal.acknowledgeNoDeferredWork(entry.commitFingerprint());
         }
+        writeCommitTracker.removeWriteState(entry.queryId());
+        writeCommitJournal.purge(entry.queryId());
     }
 
     private static WriteCommitEntry createWriteCommitIntent(

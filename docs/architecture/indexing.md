@@ -90,6 +90,8 @@ names are rejected before dispatch.
 Retries reuse stable work-unit identities while attempt IDs and fencing tokens
 advance. No in-memory build state is authoritative.
 
+Incremental index maintenance observes lineage before opening the snapshot file inventories. For a forward commit, the Connector uses one bound table observation, reads each immutable inventory once and derives the file delta from the same target inventory used for coverage validation. Replayed or superseded snapshots require only the lineage decision. Coverage verification reads only source file paths from the exact generation under review. PostgreSQL filters by index and generation using the existing mapping index.
+
 ## Query flow
 
 1. The planner recognizes `ORDER BY <distance>(vector, literal) LIMIT k` and
@@ -134,6 +136,13 @@ A delayed write by an expired owner can finish in its own directory after takeov
 without changing the replacement’s bytes. Collecting files left by an attempt
 that lost ownership before recording its mapping requires separate orphan tracking.
 
+The collector prepares one mutation per index and binds typed arrays for each cohort. Cohort size changes only the bound data.
+
+Obsolete mappings are removed in bounded batches under the observed descriptor
+row lock. Removal checks the exact mapping identity and verification timestamp.
+The transaction reports only the paths with no remaining mapping, so a current
+generation can keep using a shared physical file. File deletion follows commit.
+
 ## JVM encoded-data ownership
 
 Indexing API owns encoded index data and pruning hints. Bloom and N-gram arrays,
@@ -175,6 +184,8 @@ paths use their own durable artifact formats.
 
 ## Scalar file-pruning query path
 
+Predicate analysis retains the selected immutable index descriptor. Split evaluation uses it alongside the exact active artifact generation and selected source snapshot. It reads published file mappings in batches and reuses the selected descriptor for availability checks and Worker hints.
+
 The Coordinator evaluates connector file statistics and native connector
 capabilities, then attaches snapshot-bound `IndexEvalHintDetail` values to
 surviving canonical v2 file splits. It does not load scalar index artifacts.
@@ -212,6 +223,9 @@ connector decisions must be measured separately.
 ## Distributed correctness invariants
 
 - Every query and build uses one immutable source snapshot.
+- Index builds that enumerate the current files select the snapshot and read its
+  file set through one connector observation. Iceberg opens the catalog table
+  once. Explicit historical reads continue to use the requested snapshot.
 - Artifact generations are immutable and atomically published.
 - Every object checksum, format identity and row-locator schema is validated.
 - Workers must advertise the exact capability signature and compatible format.

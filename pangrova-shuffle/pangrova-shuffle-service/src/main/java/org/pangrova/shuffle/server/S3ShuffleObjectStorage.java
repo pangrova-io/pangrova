@@ -2,6 +2,7 @@ package org.pangrova.shuffle.server;
 
 import org.pangrova.shuffle.checksum.ShuffleChecksums;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.security.MessageDigest;
 import java.util.ArrayList;
@@ -10,11 +11,14 @@ import java.util.List;
 import java.util.function.Supplier;
 
 import org.pangrova.shuffle.config.ShuffleServiceConfig;
+import org.pangrova.shuffle.server.enums.FailureKind;
+import org.pangrova.shuffle.server.exception.ShuffleServiceException;
 
 import software.amazon.awssdk.awscore.AwsRequestOverrideConfiguration;
-import software.amazon.awssdk.core.ResponseBytes;
 import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
+import software.amazon.awssdk.core.retry.RetryPolicy;
 import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.http.AbortableInputStream;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3ClientBuilder;
@@ -57,6 +61,7 @@ final class S3ShuffleObjectStorage implements ShuffleObjectStorage {
                 .overrideConfiguration(ClientOverrideConfiguration.builder()
                         .apiCallTimeout(config.apiCallTimeout())
                         .apiCallAttemptTimeout(config.apiCallAttemptTimeout())
+                        .retryPolicy(requestSafeRetries())
                         .build())
                 .serviceConfiguration(S3Configuration.builder()
                         .pathStyleAccessEnabled(config.pathStyleAccess())
@@ -66,6 +71,17 @@ final class S3ShuffleObjectStorage implements ShuffleObjectStorage {
         }
         return new S3ShuffleObjectStorage(
                 builder.build(), config.bucket(), config.prefix());
+    }
+
+    static RetryPolicy requestSafeRetries() {
+        RetryPolicy defaults = RetryPolicy.defaultRetryPolicy();
+        return defaults.toBuilder()
+                .additionalRetryConditionsAllowed(false)
+                // A timed-out PUT can finish after a replay succeeds. Keep the single
+                // submission's uncertain outcome attached to its durable reservation.
+                .retryCondition(context -> !(context.originalRequest() instanceof PutObjectRequest)
+                        && defaults.retryCondition().shouldRetry(context))
+                .build();
     }
 
     static S3ShuffleObjectStorage testing(
@@ -95,7 +111,7 @@ final class S3ShuffleObjectStorage implements ShuffleObjectStorage {
                     && conflict.statusCode() != HTTP_PRECONDITION_FAILED) {
                 throw conflict;
             }
-            byte[] existing = get(key);
+            byte[] existing = get(key, sizeBytes);
             if (!MessageDigest.isEqual(sha256, ShuffleChecksums.sha256(existing))) {
                 throw new IllegalStateException(
                         "immutable shuffle object conflicts with existing content", conflict);
@@ -104,10 +120,32 @@ final class S3ShuffleObjectStorage implements ShuffleObjectStorage {
     }
 
     @Override
-    public byte[] get(String key) {
-        ResponseBytes<GetObjectResponse> response = client.getObjectAsBytes(
-                GetObjectRequest.builder().bucket(bucket).key(objectKey(key)).build());
-        return response.asByteArray();
+    public byte[] get(String key, long sizeBytes) {
+        int size = Math.toIntExact(sizeBytes);
+        if (size <= 0) {
+            throw new IllegalArgumentException("shuffle object size must be positive");
+        }
+        byte[] data = client.getObject(
+                GetObjectRequest.builder().bucket(bucket).key(objectKey(key)).build(),
+                (response, input) -> readExact(response, input, size));
+        if (data.length != size) {
+            throw new ShuffleServiceException(FailureKind.CORRUPT, "stored shuffle object has an unexpected length");
+        }
+        return data;
+    }
+
+    private static byte[] readExact(GetObjectResponse response, AbortableInputStream input, int size)
+            throws IOException {
+        if (response.contentLength() == null || response.contentLength() != size) {
+            input.abort();
+            return new byte[0];
+        }
+        byte[] bytes = new byte[size];
+        if (input.readNBytes(bytes, 0, size) != size || input.read() != -1) {
+            input.abort();
+            return new byte[0];
+        }
+        return bytes;
     }
 
     @Override

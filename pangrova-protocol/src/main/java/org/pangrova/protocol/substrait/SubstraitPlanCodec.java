@@ -1,5 +1,6 @@
 package org.pangrova.protocol.substrait;
 
+import com.google.protobuf.ByteString;
 import com.google.protobuf.CodedInputStream;
 import com.google.protobuf.InvalidProtocolBufferException;
 import io.substrait.proto.Plan;
@@ -21,8 +22,16 @@ public final class SubstraitPlanCodec {
 
     /** Parses a Substrait plan with a bounded recursion limit. */
     public static Plan parse(byte[] bytes) throws InvalidProtocolBufferException {
+        return parse(CodedInputStream.newInstance(bytes));
+    }
+
+    /** Parses an immutable execution plan without materializing a byte array. */
+    public static Plan parse(ByteString bytes) throws InvalidProtocolBufferException {
+        return parse(bytes.newCodedInput());
+    }
+
+    private static Plan parse(CodedInputStream input) throws InvalidProtocolBufferException {
         try {
-            CodedInputStream input = CodedInputStream.newInstance(bytes);
             input.setRecursionLimit(RECURSION_LIMIT);
             return Plan.parseFrom(input);
         } catch (InvalidProtocolBufferException failure) {

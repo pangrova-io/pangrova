@@ -24,6 +24,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -171,6 +172,9 @@ class IndexingBootstrapStartOrderingTest {
         @Override public void dropIndex(String id, Instant t) {}
         @Override public void purgeIndex(String id) {}
         @Override public void batchRegisterIndexFiles(String owner, List<IndexFileMapping> m) {}
+        @Override public Set<String> getIndexedDataFilePaths(String id, int generation) {
+            return Set.of();
+        }
         @Override public List<IndexFileMapping> getIndexFileMappings(String id) { return List.of(); }
         @Override public Map<String, Map<String, String>> batchGetIndexFileMappings(
                 List<String> ids, List<String> paths) { return Map.of(); }

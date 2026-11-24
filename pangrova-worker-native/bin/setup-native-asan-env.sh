@@ -18,7 +18,8 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     PANGROVA_BREW="$(command -v brew || true)"
   fi
   HOMEBREW_PREFIX="$("$PANGROVA_BREW" --prefix 2>/dev/null || true)"
-  OPENSSL_PREFIX="$("$PANGROVA_BREW" --prefix openssl@3 2>/dev/null || true)"
+  source "$ASAN_SCRIPT_DIR/resolve-darwin-openssl.sh"
+  configure_darwin_openssl "$PANGROVA_BREW"
   BISON_PREFIX="$("$PANGROVA_BREW" --prefix bison 2>/dev/null || true)"
   FLEX_PREFIX="$("$PANGROVA_BREW" --prefix flex 2>/dev/null || true)"
 fi
@@ -163,7 +164,7 @@ build_asan_dependency "$RE2_SOURCE" "$RE2_SOURCE/build-asan-ci" \
 
 asan_ssl_args=()
 if [[ "$(uname -s)" == "Darwin" ]]; then
-  [[ -n "$OPENSSL_PREFIX" ]] && asan_ssl_args+=("-DOPENSSL_ROOT_DIR=$OPENSSL_PREFIX")
+  asan_ssl_args+=("-DOPENSSL_ROOT_DIR=$OPENSSL_PREFIX")
 fi
 build_asan_dependency "$GRPC_SOURCE" "$GRPC_SOURCE/build-asan-ci" \
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
@@ -229,7 +230,7 @@ configure_asan_velox() {
   velox_platform_args+=(-Dfolly_SOURCE=SYSTEM "-Dfolly_DIR:PATH=$folly_config")
   if [[ "$(uname -s)" == "Darwin" ]]; then
     [[ -n "$HOMEBREW_PREFIX" ]] && velox_prefix_path+=";$HOMEBREW_PREFIX"
-    [[ -n "$OPENSSL_PREFIX" ]] && velox_platform_args+=("-DOPENSSL_ROOT_DIR=$OPENSSL_PREFIX")
+    velox_platform_args+=("-DOPENSSL_ROOT_DIR=$OPENSSL_PREFIX")
     [[ -n "$BISON_PREFIX" ]] && velox_platform_args+=("-DBISON_EXECUTABLE=$BISON_PREFIX/bin/bison")
     [[ -n "$FLEX_PREFIX" ]] && velox_platform_args+=("-DFLEX_EXECUTABLE=$FLEX_PREFIX/bin/flex")
     [[ -n "$FLEX_PREFIX" ]] && velox_platform_args+=("-DFLEX_INCLUDE_DIR=$FLEX_PREFIX/include")
@@ -362,5 +363,8 @@ export PANGROVA_ASAN_PROTOBUF_LIB="$ASAN_PREFIX/lib/libprotobuf.a"
 export PANGROVA_ASAN_ABSL_DIR="$ASAN_PREFIX/lib/cmake/absl"
 export PANGROVA_ASAN_FOLLY_PREFIX="$PANGROVA_ASAN_FOLLY_PREFIX"
 EOF
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  printf 'export OPENSSL_ROOT_DIR="%s"\n' "$OPENSSL_PREFIX" >> "$PANGROVA_HOME/asan-env.sh"
+fi
 
 printf 'ASan dependencies ready: %s\n' "$ASAN_VELOX_BUILD_DIR"

@@ -33,7 +33,7 @@ class PangrovaResultSetUuidTest {
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void uuidValuesAndMetadataComeFromTheActualWireDeclaration(boolean empty) throws Exception {
-        try (var result = new PangrovaResultSet(batch(empty, true), null)) {
+        try (var result = ResultSetTestFixtures.fromBatch(batch(empty, true))) {
             var metadata = result.getMetaData();
             assertThat(metadata.getColumnType(1)).isEqualTo(Types.OTHER);
             assertThat(metadata.getColumnTypeName(1)).isEqualTo("UUID");
@@ -60,7 +60,7 @@ class PangrovaResultSetUuidTest {
         var original = java.util.Locale.getDefault();
         try {
             java.util.Locale.setDefault(java.util.Locale.forLanguageTag("tr-TR"));
-            try (var result = new PangrovaResultSet(batch(false, true), null)) {
+            try (var result = ResultSetTestFixtures.fromBatch(batch(false, true))) {
                 assertThat(result.findColumn("ID")).isOne();
                 assertThat(result.next()).isTrue();
                 assertThat(result.getObject("iD")).isEqualTo(VALUES[0]);
@@ -72,7 +72,7 @@ class PangrovaResultSetUuidTest {
 
     @Test
     void unannotatedSixteenByteBinaryDoesNotBecomeUuid() throws Exception {
-        try (var result = new PangrovaResultSet(batch(false, false), null)) {
+        try (var result = ResultSetTestFixtures.fromBatch(batch(false, false))) {
             assertThat(result.getMetaData().getColumnTypeName(1)).isNotEqualTo("UUID");
             assertThat(result.getMetaData().getColumnClassName(1)).isNotEqualTo(UUID.class.getName());
             assertThat(result.next()).isTrue();

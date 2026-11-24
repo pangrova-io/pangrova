@@ -40,7 +40,7 @@ class FlightResultFetcherTlsAdmissionTest {
     @Test
     void tlsRequiredRejectsActualPlaintextEndpointBeforeConnecting() {
         try (var fetcher = new FlightResultFetcher(ResultTransportSecurity.systemTrust(true))) {
-            assertThatThrownBy(() -> fetcher.fetch(endpoint(ResultProtocol.GRPC)))
+            assertThatThrownBy(() -> fetcher.open(endpoint(ResultProtocol.GRPC), Long.MAX_VALUE).close())
                     .isInstanceOf(TransportConnectionException.class)
                     .satisfies(error -> org.assertj.core.api.Assertions.assertThat(
                             ((TransportConnectionException) error).transportErrorCode())
@@ -49,20 +49,10 @@ class FlightResultFetcherTlsAdmissionTest {
     }
 
     @Test
-    void streamingHasTheSameTlsAdmissionWithoutCallingConsumer() {
-        try (var fetcher = new FlightResultFetcher(ResultTransportSecurity.systemTrust(true))) {
-            assertThatThrownBy(() -> fetcher.fetchStream(endpoint(ResultProtocol.GRPC),
-                    batch -> { throw new AssertionError("Rejected endpoint cannot produce a batch"); }))
-                    .isInstanceOf(TransportConnectionException.class)
-                    .hasMessageContaining("TLS is required");
-        }
-    }
-
-    @Test
     void tlsDescriptorDoesNotBypassUnreadablePemPolicy() {
         var policy = new ResultTransportSecurity(false, materialDirectory.resolve("private-root.pem"), null, null);
         try (var fetcher = new FlightResultFetcher(policy)) {
-            assertThatThrownBy(() -> fetcher.fetch(endpoint(ResultProtocol.GRPC_TLS)))
+            assertThatThrownBy(() -> fetcher.open(endpoint(ResultProtocol.GRPC_TLS), Long.MAX_VALUE).close())
                     .isInstanceOf(TransportConnectionException.class)
                     .satisfies(error -> assertThat(((TransportConnectionException) error).transportErrorCode())
                             .isEqualTo("TRANSPORT_TLS_CONFIGURATION_INVALID"))
@@ -74,7 +64,7 @@ class FlightResultFetcherTlsAdmissionTest {
     void requiredTlsRejectsMalformedPemMaterialWithoutPretendingInitializationSucceeded() throws Exception {
         Path invalid = Files.writeString(materialDirectory.resolve("invalid-root.pem"), "not a PEM certificate");
         try (var fetcher = new FlightResultFetcher(new ResultTransportSecurity(true, invalid, null, null))) {
-            assertThatThrownBy(() -> fetcher.fetch(endpoint(ResultProtocol.GRPC_TLS)))
+            assertThatThrownBy(() -> fetcher.open(endpoint(ResultProtocol.GRPC_TLS), Long.MAX_VALUE).close())
                     .isInstanceOf(TransportConnectionException.class)
                     .satisfies(error -> assertThat(((TransportConnectionException) error).transportErrorCode())
                             .isEqualTo("TRANSPORT_TLS_CONFIGURATION_INVALID"));

@@ -268,7 +268,7 @@ TEST_F(GeneratedValuesOverlayExecutionTest,
     const auto converter_registry =
         facebook::velox::exec::FunctionRegistrySnapshot::capture();
     VeloxPlanConverter converter(converter_registry);
-    auto converted = converter.convert(overlayPlan(), {split}, false, "ArrowBatch",
+    auto converted = converter.convert(overlayPlan(), {split},
                                        {{binding.plan_node_id(), binding}}, readContext(binding));
     auto overlay =
         std::dynamic_pointer_cast<const GeneratedValuesOverlayNode>(converted);
@@ -350,7 +350,7 @@ TEST_F(GeneratedValuesOverlayExecutionTest,
   const auto row_count_converter_registry =
       facebook::velox::exec::FunctionRegistrySnapshot::capture();
   VeloxPlanConverter row_count_converter(row_count_converter_registry);
-  EXPECT_THROW(row_count_converter.convert(overlayPlan(), {}, false, "ArrowBatch",
+  EXPECT_THROW(row_count_converter.convert(overlayPlan(), {},
                                            {{binding.plan_node_id(), binding}}, readContext(binding)),
                std::runtime_error);
 
@@ -376,7 +376,7 @@ TEST_F(GeneratedValuesOverlayExecutionTest,
       facebook::velox::exec::FunctionRegistrySnapshot::capture();
   VeloxPlanConverter option_converter(option_converter_registry);
   EXPECT_THROW(
-      option_converter.convert(option_bytes, {}, false, "ArrowBatch",
+      option_converter.convert(option_bytes, {},
                                {{valid_binding.plan_node_id(), valid_binding}}, readContext(valid_binding)),
       std::runtime_error);
 
@@ -387,7 +387,7 @@ TEST_F(GeneratedValuesOverlayExecutionTest,
       facebook::velox::exec::FunctionRegistrySnapshot::capture();
   VeloxPlanConverter capability_converter(capability_converter_registry);
   EXPECT_THROW(capability_converter.convert(
-                   overlayPlan(), {}, false, "ArrowBatch",
+                   overlayPlan(), {},
                    {{wrong_capability.plan_node_id(), wrong_capability}}, readContext(wrong_capability)),
                std::runtime_error);
 }
@@ -400,7 +400,7 @@ TEST_F(GeneratedValuesOverlayExecutionTest,
   const auto converter_registry =
       facebook::velox::exec::FunctionRegistrySnapshot::capture();
   VeloxPlanConverter converter(converter_registry);
-  auto converted = converter.convert(overlayPlan(), {}, false, "ArrowBatch",
+  auto converted = converter.convert(overlayPlan(), {},
                                      {{binding.plan_node_id(), binding}}, readContext(binding));
   auto overlay =
       std::dynamic_pointer_cast<const GeneratedValuesOverlayNode>(converted);
@@ -454,12 +454,12 @@ TEST_F(GeneratedValuesOverlayExecutionTest, MissingOrOversizedReadOwnerRejectsBe
   auto binding = overlayBinding(directory.path());
   auto registry = facebook::velox::exec::FunctionRegistrySnapshot::capture();
   VeloxPlanConverter absent(registry);
-  EXPECT_THROW(absent.convert(overlayPlan(), {}, false, "ArrowBatch",
+  EXPECT_THROW(absent.convert(overlayPlan(), {},
                               {{binding.plan_node_id(), binding}}), std::runtime_error);
   auto context = readContext(binding);
   context->max_object_store_read_bytes = binding.resources().object_store_read_bytes() - 1;
   VeloxPlanConverter oversized(registry);
-  EXPECT_THROW(oversized.convert(overlayPlan(), {}, false, "ArrowBatch",
+  EXPECT_THROW(oversized.convert(overlayPlan(), {},
                                  {{binding.plan_node_id(), binding}}, context), std::runtime_error);
   EXPECT_EQ(context->read_budget->requestedBytes(), 0u);
   EXPECT_EQ(context->read_budget->activeReads(), 0u);

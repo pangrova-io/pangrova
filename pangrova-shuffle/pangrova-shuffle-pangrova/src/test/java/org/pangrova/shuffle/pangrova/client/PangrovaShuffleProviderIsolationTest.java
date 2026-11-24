@@ -15,7 +15,7 @@ class PangrovaShuffleProviderIsolationTest {
     @Test
     void providerLinksWithoutCoreWorkerNativePlannerOrCoordinatorImplementations() throws Exception {
         ClassLoader loader = PangrovaShuffleClient.class.getClassLoader();
-        for (String excluded : List.of("org.pangrova.shuffle.exchange.ExternalShuffleTransport",
+        for (String excluded : List.of("org.pangrova.shuffle.exchange.ExchangeTransport",
                 "org.pangrova.shuffle.exchange.SpoolBackedExchangeManager",
                 "org.pangrova.shuffle.exchange.enums.PartitionMergeStrategy",
                 "org.pangrova.shuffle.exchange.ExchangeTaskAttempt",

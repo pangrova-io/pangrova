@@ -2,8 +2,8 @@ package org.pangrova.coordinator.query.execution.phase;
 
 import org.pangrova.query.api.enums.QueryState;
 
-import org.pangrova.execution.task.DispatchResult;
 import org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher;
+import org.pangrova.parser.api.ast.Statement;
 
 /**
  * Phase 1: DDL/DML statement dispatch.
@@ -40,12 +40,15 @@ public final class StatementDispatchPhase implements QueryExecutionPhase {
             LOG.debug("event=ddl_dml_skip reason=metadata_disabled");
             return new PhaseResult.Continue(context);
         }
-        org.pangrova.parser.api.ast.Statement parsed = null;
+        Statement parsed;
         try {
             parsed = context.compiler().parseToAst(context.sql());
         } catch (RuntimeException parseFailure) {
             // Preserve the existing dispatch fallback for SQL handled directly
             // by Calcite; CompilationPhase will report unsupported syntax.
+            LOG.debug("event=parser_fallback sql_length={} error={}",
+                    context.sql().length(), parseFailure.getMessage());
+            parsed = null;
         }
         var metadataQuery = ShowMetadataQueryExpander.expand(parsed,
                 (name, kind) -> {
@@ -58,20 +61,18 @@ public final class StatementDispatchPhase implements QueryExecutionPhase {
             LOG.debug("event=show_metadata_expanded queryId={}", context.session().queryId());
             return new PhaseResult.Continue(context.withMetadataQuery(metadataQuery));
         }
-        DispatchResult result = statementDispatcher.tryDispatch(
+        var completion = statementDispatcher.tryDispatch(
                 context.stateMachine(),
-                context.sql(),
+                parsed,
                 context.session().queryId(),
                 context.session());
-        if (result != null) {
-            return new PhaseResult.Terminal(result);
+        if (completion != null) {
+            return new PhaseResult.Terminal(completion);
         }
-        // DDL/DML may complete without a DispatchResult (no resultService).
-        // If the state machine already reached a terminal state, stop here.
         var state = context.stateMachine().getState();
         if (state == QueryState.FINISHED
                 || state == QueryState.FAILED) {
-            return new PhaseResult.Terminal(null);
+            return PhaseResult.Terminal.completed(null);
         }
         return new PhaseResult.Continue(context);
     }

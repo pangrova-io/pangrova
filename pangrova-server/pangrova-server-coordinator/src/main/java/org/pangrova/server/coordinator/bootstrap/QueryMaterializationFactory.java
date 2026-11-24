@@ -16,7 +16,7 @@ import org.pangrova.coordinator.feature.DurableFeatureExportService;
 import org.pangrova.coordinator.feature.FeatureViewStatementService;
 import org.pangrova.coordinator.feature.FeatureSourceCompiler;
 import org.pangrova.coordinator.scheduler.placement.DefaultWorkerSelector;
-import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
+import org.pangrova.coordinator.scheduler.placement.CacheAffinityAssigner;
 import org.pangrova.scheduler.placement.TaskScheduler;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.persistence.ai.postgresql.assembly.AiInfrastructureStores;
@@ -68,16 +68,14 @@ final class QueryMaterializationFactory {
         return coordinator;
     }
 
-    org.pangrova.coordinator.generation.read.GeneratedValueReadResolver createGeneratedValueReads(
-            CatalogRegistry catalog) {
+    org.pangrova.coordinator.generation.read.GeneratedValueReadResolver createGeneratedValueReads() {
         if (dependencies.artifactBuildStore() == null) {
             return null;
         }
-        java.util.Objects.requireNonNull(catalog, "Published generation reads require the catalog registry");
         java.util.Objects.requireNonNull(dependencies.metadataDataSource(),
                 "Published generation reads require their configured persistence provider");
         return new org.pangrova.coordinator.generation.read.GeneratedValueReadResolver(
-                catalog, dependencies.artifactBuildStore(),
+                dependencies.artifactBuildStore(),
                 artifactStores.generatedPublications(dependencies.metadataDataSource()));
     }
 
@@ -100,7 +98,7 @@ final class QueryMaterializationFactory {
     private DefaultWorkerSelector workerSelector() {
         return new DefaultWorkerSelector(
                 dependencies.workerManager(), dependencies.taskScheduler(),
-                dependencies.splitAssignmentManager().cacheAffinityAssigner(), dependencies.config().spillBudget(),
+                dependencies.cacheAffinityAssigner(), dependencies.config().spillBudget(),
                 dependencies.embeddingModelRegistry());
     }
 
@@ -111,7 +109,7 @@ final class QueryMaterializationFactory {
             GenerationJobStore artifactBuildStore,
             WorkerManager workerManager,
             TaskScheduler taskScheduler,
-            SplitAssignmentManager splitAssignmentManager,
+            CacheAffinityAssigner cacheAffinityAssigner,
             AiInfrastructureStores aiInfrastructureStores,
             AccessControl accessControl,
             org.pangrova.ai.control.embedding.EmbeddingModelRegistry

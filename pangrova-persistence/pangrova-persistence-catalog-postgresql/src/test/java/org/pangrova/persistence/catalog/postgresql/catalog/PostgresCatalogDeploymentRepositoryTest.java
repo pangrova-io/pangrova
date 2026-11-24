@@ -87,11 +87,13 @@ class PostgresCatalogDeploymentRepositoryTest {
         store.saveCatalogDescriptor(second);
         assertThat(store.deleteCatalogDescriptor(first.identity())).isFalse();
         assertThat(store.getCatalogDescriptor(first.name())).contains(second);
+        assertThat(store.findCurrentDeployment(first.name())).contains(second.identity());
         assertThat(store.deleteCatalogDescriptor(second.identity())).isTrue();
         var staleUpdate = new CatalogDescriptor(first.name(), first.type(), first.provider(), first.state(),
                 first.properties(), first.comment(), first.allowedTenants(), first.incarnationId(), 3);
         assertThatThrownBy(() -> store.saveCatalogDescriptor(staleUpdate)).hasMessageContaining("revision fence");
         assertThat(store.getCatalogDescriptor(first.name())).isEmpty();
+        assertThat(store.findCurrentDeployment(first.name())).isEmpty();
         assertThat(store.findCatalogDescriptorRevision(first.name(), first.incarnationId(), 3)).isEmpty();
 
         var replacement = new CatalogDescriptor(first.name(), first.type(), first.provider(),
@@ -99,6 +101,7 @@ class PostgresCatalogDeploymentRepositoryTest {
         store.saveCatalogDescriptor(replacement);
         assertThat(store.deleteCatalogDescriptor(first.identity())).isFalse();
         assertThat(store.getCatalogDescriptor(first.name())).contains(replacement);
+        assertThat(store.findCurrentDeployment(first.name())).contains(replacement.identity());
     }
 
     @Test

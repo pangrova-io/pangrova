@@ -34,7 +34,7 @@ class FilteredAnnSourceScopeTest {
         }
         var merging = FileSplitDetail.newBuilder().setFileFormat(FileFormat.FILE_FORMAT_PARQUET)
                 .setPaimon(PaimonSplitDetail.newBuilder().setNeedsMerge(true)).build();
-        var merge = valid.toBuilder().setConnectorDetail(com.google.protobuf.Any.pack(merging)).build();
+        var merge = valid.toBuilder().setFileDetail(merging).build();
         assertThat(FilteredAnnSourceScope.supports(List.of(merge), "source", "snapshot")).isFalse();
     }
 

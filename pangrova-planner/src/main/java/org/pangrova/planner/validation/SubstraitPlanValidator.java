@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.BiConsumer;
 import org.pangrova.planner.exchange.ExchangeInputLeafDetail;
+import org.pangrova.planner.extension.EnforceSingleRowRelDetail;
 import org.pangrova.planner.extension.UnnestRelDetail;
 import org.pangrova.planner.extension.GenerateSeriesRelDetail;
 
@@ -94,11 +95,15 @@ public final class SubstraitPlanValidator {
         this.capabilities = java.util.Objects.requireNonNull(capabilities, "capabilities");
     }
 
+    public NativeCapabilityRegistry capabilitySnapshot() {
+        return java.util.Objects.requireNonNull(capabilities.get(), "capability snapshot");
+    }
+
     /**
      * Validates every root in the plan and returns an aggregate result.
      */
     public PlanValidationResult validate(Plan plan) {
-        NativeCapabilityRegistry registry = java.util.Objects.requireNonNull(capabilities.get(), "capability snapshot");
+        NativeCapabilityRegistry registry = capabilitySnapshot();
         List<UnsupportedNode> unsupported = new ArrayList<>();
         int[] relCount = {0};
         for (Plan.Root root : plan.getRoots()) {
@@ -123,7 +128,8 @@ public final class SubstraitPlanValidator {
                 && !(leaf.getDetail() instanceof ExchangeInputLeafDetail)
                 && !(leaf.getDetail() instanceof GenerateSeriesRelDetail))
                 || (rel instanceof ExtensionSingle single
-                        && !(single.getDetail() instanceof UnnestRelDetail));
+                        && !(single.getDetail() instanceof UnnestRelDetail)
+                        && !(single.getDetail() instanceof EnforceSingleRowRelDetail));
         if (registryName == null || !registry.isRelSupported(registryName)
                 || unsupportedDetail) {
             unsupported.add(new UnsupportedNode(

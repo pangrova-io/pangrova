@@ -70,8 +70,11 @@ class FlightResultFetcherMutualTlsTest {
     void mutualTlsDeliversActualRowsAndEofWithExactAdvertisedHostname() throws Exception {
         try (var server = new ServerOwner(true);
              var fetcher = new FlightResultFetcher(mutualSecurity())) {
-            var decoded = ArrowBatchDecoder.decode(fetcher.fetch(server.endpoint("localhost"), deadline()));
-            assertThat(decoded.rows()).singleElement().satisfies(row -> assertThat(row).containsExactly(42));
+            try (var cursor = fetcher.open(server.endpoint("localhost"), deadline())) {
+                assertThat(cursor.next()).isTrue();
+                assertThat(cursor.value(0)).isEqualTo(42);
+                assertThat(cursor.next()).isFalse();
+            }
             assertThat(server.delivered()).isEqualTo(1);
         }
     }
@@ -80,8 +83,11 @@ class FlightResultFetcherMutualTlsTest {
     void trustedTlsDescriptorIsNotDowngradedWhenCallerDidNotRequireTls() throws Exception {
         try (var server = new ServerOwner(false);
              var fetcher = new FlightResultFetcher(new ResultTransportSecurity(false, authority.root(), null, null))) {
-            var decoded = ArrowBatchDecoder.decode(fetcher.fetch(server.endpoint("localhost"), deadline()));
-            assertThat(decoded.rows()).singleElement().satisfies(row -> assertThat(row).containsExactly(42));
+            try (var cursor = fetcher.open(server.endpoint("localhost"), deadline())) {
+                assertThat(cursor.next()).isTrue();
+                assertThat(cursor.value(0)).isEqualTo(42);
+                assertThat(cursor.next()).isFalse();
+            }
             assertThat(server.delivered()).isEqualTo(1);
         }
     }
@@ -90,7 +96,7 @@ class FlightResultFetcherMutualTlsTest {
     void mutualTlsRejectsClientWithoutCertificateBeforeServingRows() throws Exception {
         try (var server = new ServerOwner(true);
              var fetcher = new FlightResultFetcher(new ResultTransportSecurity(true, authority.root(), null, null))) {
-            assertThatThrownBy(() -> fetcher.fetch(server.endpoint("localhost"), deadline()))
+            assertThatThrownBy(() -> fetcher.open(server.endpoint("localhost"), deadline()).close())
                     .isInstanceOf(TransportConnectionException.class);
             assertThat(server.delivered()).isZero();
         }
@@ -101,7 +107,7 @@ class FlightResultFetcherMutualTlsTest {
         try (var server = new ServerOwner(true);
              var fetcher = new FlightResultFetcher(new ResultTransportSecurity(true, unrelatedAuthority.root(),
                      clientIdentity.certificateChain(), clientIdentity.privateKey()))) {
-            assertThatThrownBy(() -> fetcher.fetch(server.endpoint("localhost"), deadline()))
+            assertThatThrownBy(() -> fetcher.open(server.endpoint("localhost"), deadline()).close())
                     .isInstanceOf(TransportConnectionException.class);
             assertThat(server.delivered()).isZero();
         }
@@ -111,7 +117,7 @@ class FlightResultFetcherMutualTlsTest {
     void trustedCertificateCannotBypassActualEndpointHostnameVerification() throws Exception {
         try (var server = new ServerOwner(true);
              var fetcher = new FlightResultFetcher(mutualSecurity())) {
-            assertThatThrownBy(() -> fetcher.fetch(server.endpoint("127.0.0.1"), deadline()))
+            assertThatThrownBy(() -> fetcher.open(server.endpoint("127.0.0.1"), deadline()).close())
                     .isInstanceOf(TransportConnectionException.class);
             assertThat(server.delivered()).isZero();
         }
@@ -121,7 +127,7 @@ class FlightResultFetcherMutualTlsTest {
     void validTrustAnchorRejectsActuallyExpiredCaSignedServerLeafBeforeServingRows() throws Exception {
         try (var server = new ServerOwner(false, expiredIdentity);
              var fetcher = new FlightResultFetcher(mutualSecurity())) {
-            assertThatThrownBy(() -> fetcher.fetch(server.endpoint("localhost"), deadline()))
+            assertThatThrownBy(() -> fetcher.open(server.endpoint("localhost"), deadline()).close())
                     .isInstanceOf(TransportConnectionException.class);
             assertThat(server.delivered()).isZero();
         }
@@ -158,18 +164,21 @@ class FlightResultFetcherMutualTlsTest {
         var executor = ManagedExecutorFactory.newSingleThreadExecutor("result-tls-owned-consumer");
         try (var server = new ServerOwner(true);
              var fetcher = new FlightResultFetcher(mutualSecurity())) {
-            var result = executor.submit(() -> fetcher.fetchStream(server.endpoint("localhost"), bytes -> {
-                assertThat(ArrowBatchDecoder.decode(bytes).rows()).singleElement()
-                        .satisfies(row -> assertThat(row).containsExactly(42));
-                entered.countDown();
-                try { assertThat(release.await(5, TimeUnit.SECONDS)).isTrue(); }
-                catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); throw new AssertionError(interrupted); }
-            }));
+            var result = executor.submit(() -> {
+                try (var cursor = fetcher.open(server.endpoint("localhost"), deadline())) {
+                    assertThat(cursor.next()).isTrue();
+                    assertThat(cursor.value(0)).isEqualTo(42);
+                    entered.countDown();
+                    assertThat(release.await(5, TimeUnit.SECONDS)).isTrue();
+                    assertThat(cursor.next()).isFalse();
+                }
+                return null;
+            });
             try {
                 assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
                 assertThatThrownBy(fetcher::close).isInstanceOf(TransportConnectionException.class)
                         .hasMessageContaining("still owned");
-                assertThatThrownBy(() -> fetcher.fetch(server.endpoint("localhost"), deadline()))
+                assertThatThrownBy(() -> fetcher.open(server.endpoint("localhost"), deadline()).close())
                         .isInstanceOf(TransportConnectionException.class).hasMessageContaining("admission is closed");
             } finally { release.countDown(); }
             result.get(5, TimeUnit.SECONDS);

@@ -14,6 +14,7 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.stream.Collectors;
 import java.util.Map;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
@@ -142,44 +143,22 @@ public final class IndexGarbageCollector implements AutoCloseable {
 
     private int processOrphanMappings(IndexMetadataStore store, List<IndexFileMapping> staleMappings,
                                       Map<String, IndexDescriptor> descriptorMap) {
-        int totalOrphaned = 0;
-        for (IndexFileMapping mapping : staleMappings) {
-            IndexDescriptor descriptor = descriptorMap.get(mapping.indexId());
-            if (shouldSkipMapping(mapping, descriptor)) {
-                continue;
+        var candidatesByIndex = staleMappings.stream()
+                .filter(mapping -> !shouldSkipMapping(mapping, descriptorMap.get(mapping.indexId())))
+                .collect(Collectors.groupingBy(IndexFileMapping::indexId));
+        int removed = 0;
+        for (var entry : candidatesByIndex.entrySet()) {
+            var descriptor = descriptorMap.get(entry.getKey());
+            var result = store.removeOrphanMappings(descriptor.indexId(), descriptor.state(),
+                    descriptor.generation(), entry.getValue());
+            for (String path : result.pathsToDelete()) {
+                if (!deleteIndexFile(path, descriptor)) {
+                    LOG.warn("action=gc_orphan_file_retained indexId={} file={}", descriptor.indexId(), path);
+                }
             }
-            if (tryRemoveOrphan(store, mapping, descriptor)) {
-                totalOrphaned++;
-            }
+            removed += result.mappingsRemoved();
         }
-        return totalOrphaned;
-    }
-
-    private boolean tryRemoveOrphan(IndexMetadataStore store, IndexFileMapping mapping,
-                                    IndexDescriptor descriptor) {
-        IndexState observedState = descriptor.state();
-        int observedGeneration = descriptor.generation();
-        // Older v1 layouts can refer to one physical path from several generations.
-        // Never delete a file while another mapping still owns that path.
-        boolean sharedFile = store.getIndexFileMappings(mapping.indexId()).stream()
-                .anyMatch(other -> other.generation() != mapping.generation()
-                        && other.indexFilePath().equals(mapping.indexFilePath()));
-        // Fence the durable mapping before touching the file. If the descriptor
-        // changed after observation, deleting first would leave a live index
-        // pointing at a missing artifact.
-        boolean removed = store.removeIndexFileMappingIfState(
-                mapping, observedState, observedGeneration);
-        if (!removed) {
-            LOG.info("action=gc_skip_state_changed indexId={} file={} observedState={}",
-                    mapping.indexId(), mapping.dataFilePath(), observedState);
-            return false;
-        }
-        if (!sharedFile && !deleteIndexFile(mapping.indexFilePath(), descriptor)) {
-            // The mapping is already gone; the unreferenced file is an operator-visible leak.
-            LOG.warn("action=gc_orphan_file_retained indexId={} file={}",
-                    mapping.indexId(), mapping.indexFilePath());
-        }
-        return true;
+        return removed;
     }
 
     private boolean shouldSkipMapping(IndexFileMapping mapping, IndexDescriptor descriptor) {

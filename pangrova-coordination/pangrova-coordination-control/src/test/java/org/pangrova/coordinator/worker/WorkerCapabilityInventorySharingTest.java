@@ -20,7 +20,8 @@ class WorkerCapabilityInventorySharingTest {
             String id = "density-worker-" + index;
             WorkerInfo template = TestWorkerInfoBuilder.active(id, "host-" + index, 8080, 9090);
             WorkerInfo original = template.withCapabilityInventory(
-                    CapabilityInventory.parseFrom(template.capabilityInventory().toByteArray()));
+                    new WorkerInfo.AdmittedInventory(
+                            CapabilityInventory.parseFrom(template.capabilityInventory().toByteArray())));
             if (first != null) assertThat(original.capabilityInventory()).isNotSameAs(first);
             manager.registerWorker(original);
             WorkerInfo registered = manager.getWorker(id);
@@ -80,7 +81,7 @@ class WorkerCapabilityInventorySharingTest {
                         .setRolloutEpoch("different-rollout-control-contract"))
                 .build();
         WorkerInfo other = TestWorkerInfoBuilder.active("rollout-b", "host-b", 8081, 9091)
-                .withCapabilityInventory(otherRollout);
+                .withCapabilityInventory(new WorkerInfo.AdmittedInventory(otherRollout));
         manager.registerWorker(original);
         manager.registerWorker(other);
         assertThat(manager.getWorker("rollout-a").capabilityInventory()).isSameAs(original.capabilityInventory());

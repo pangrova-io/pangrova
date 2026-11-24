@@ -1,5 +1,6 @@
 package org.pangrova.indexing.pruning;
 
+import org.pangrova.protocol.source.CanonicalConnectorSplit;
 import org.pangrova.connector.iceberg.enums.IcebergSystemTableKind;
 import org.pangrova.indexing.codec.data.TypeSerializerRegistry;
 import org.pangrova.indexing.api.strategy.IndexStrategyProvider;
@@ -52,6 +53,8 @@ import org.pangrova.connector.api.index.predicate.EqualTo;
 import org.pangrova.security.api.identity.UserIdentity;
 
 import java.io.UncheckedIOException;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Proxy;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -63,6 +66,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -224,16 +228,17 @@ class IndexEvaluationAuthorityIntegrationTest {
         var table = new QualifiedTableName("lake", "public", "items");
         GenerationAuthorityFixtures.provision(dataSource, "split-tenant", "builder",
                 DeferredAuthorizationScope.raw(table, Set.of("id"), table));
-        metadata.registerIndexWithBuildAuthority(new IndexDescriptor(indexId, "split_idx", "lake", "public", "items",
+        var initial = new IndexDescriptor(indexId, "split_idx", "lake", "public", "items",
                 List.of("id"), IndexType.BLOOM_FILTER, Map.of(), IndexState.BUILDING, null, 0,
-                "snap-0", "snap-0", Instant.EPOCH, Instant.EPOCH, "split-tenant"), "builder");
+                "snap-0", "snap-0", Instant.EPOCH, Instant.EPOCH, "split-tenant");
+        metadata.registerIndexWithBuildAuthority(initial, "builder");
         assertThat(claims.tryClaim(indexId, 0, "builder", Instant.now())).isTrue();
         metadata.registerIndexFile("builder", new IndexFileMapping(indexId, path, "published-0", 1, 12,
                 "a".repeat(64), 0, "object-snapshot", 0, Instant.EPOCH, 0));
         var format = new IndexGenerationFormat("pangrova.index-file", 1, 0, "b".repeat(64), "test-writer");
         var predicate = new EqualTo("id", 7L);
-        var first = new IndexHint(indexId, IndexType.BLOOM_FILTER, 0, predicate);
-        var next = new IndexHint(indexId, IndexType.BLOOM_FILTER, 1, predicate);
+        var first = new IndexHint(initial, predicate);
+        var next = new IndexHint(initial.withGeneration(1, Instant.EPOCH.plusSeconds(1)), predicate);
         var splits = List.of(split);
         try (var filter = filter(10_000)) {
             assertThat(filter.filterSplits(splits, List.of(first), "lake", null, "snap-0")).isSameAs(splits);
@@ -249,8 +254,9 @@ class IndexEvaluationAuthorityIntegrationTest {
             assertThat(filter.filterSplits(splits, List.of(next), "lake", null, "snap-1")).isSameAs(splits);
             var active = (IndexEvaluatedSplit) filter.filterSplits(splits, List.of(first), "lake",
                     null, "snap-0").get(0);
-            var wireHints = IndexEvalHintProtoCodec.extractHints(
-                    DataSplit.parseFrom(IndexEvalHintProtoCodec.serializeWithHints(active)));
+            var enriched = IndexEvalHintProtoCodec.withHints(
+                    DataSplit.parseFrom(CanonicalConnectorSplit.from(active.unwrap()).toByteArray()), active.evalResult());
+            var wireHints = IndexEvalHintProtoCodec.extractHints(DataSplit.parseFrom(enriched.toByteArray()));
             assertThat(wireHints).singleElement().satisfies(hint -> {
                 assertThat(hint.indexFilePath()).isEqualTo("published-0");
                 assertThat(hint.indexSizeBytes()).isEqualTo(12L);
@@ -261,12 +267,17 @@ class IndexEvaluationAuthorityIntegrationTest {
                     "BLOOM_FILTER", format, 1, stagedAt, stagedAt.plusSeconds(1)));
             assertThat(filter.filterSplits(splits, List.of(first), "lake", null, "snap-0")).isSameAs(splits);
             assertThat(filter.filterSplits(splits, List.of(next), "lake", null, "snap-0")).isSameAs(splits);
-            var published = (IndexEvaluatedSplit) filter.filterSplits(splits, List.of(next), "lake",
-                    null, "snap-1").get(0);
-            assertThat(published.evalResult().hintsForFile(path)).singleElement().satisfies(hint -> {
-                assertThat(hint.indexFilePath()).isEqualTo("published-1");
-                assertThat(hint.generation()).isEqualTo(1);
-            });
+            var metadataReads = new AtomicInteger();
+            try (var readOnly = new IndexSplitFilter(countedMetadata(metadataReads),
+                    new IndexEvalConfig(null, 10_000, 0))) {
+                var published = (IndexEvaluatedSplit) readOnly.filterSplits(splits, List.of(next), "lake",
+                        null, "snap-1").get(0);
+                assertThat(published.evalResult().hintsForFile(path)).singleElement().satisfies(hint -> {
+                    assertThat(hint.indexFilePath()).isEqualTo("published-1");
+                    assertThat(hint.generation()).isEqualTo(1);
+                });
+            }
+            assertThat(metadataReads).as("only the active artifact lookup borrows a connection").hasValue(1);
         }
     }
 
@@ -326,7 +337,20 @@ class IndexEvaluationAuthorityIntegrationTest {
     }
 
     private IndexSplitFilter filter(long timeoutMillis) {
-        return new IndexSplitFilter(metadata, null, new IndexEvalConfig(null, timeoutMillis, 0));
+        return new IndexSplitFilter(metadata, new IndexEvalConfig(null, timeoutMillis, 0));
+    }
+
+    private JdbcIndexMetadataStore countedMetadata(AtomicInteger count) {
+        var source = (javax.sql.DataSource) Proxy.newProxyInstance(getClass().getClassLoader(),
+                new Class<?>[] {javax.sql.DataSource.class}, (proxy, method, arguments) -> {
+                    if (method.getName().equals("getConnection")) count.incrementAndGet();
+                    try {
+                        return method.invoke(dataSource, arguments);
+                    } catch (InvocationTargetException failure) {
+                        throw failure.getCause();
+                    }
+                });
+        return new JdbcIndexMetadataStore(source, TableWriteAuthorityFixture.create()::requireCurrent);
     }
 
     private CompletableFuture<ConnectorSplit> authorizedRead() {

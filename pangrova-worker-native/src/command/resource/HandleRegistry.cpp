@@ -61,6 +61,10 @@ void HandleRegistry::reportExecutionError(int64_t handle, const protocol::v2::Ex
   acquire(handle)->recordExecutionError(error);
 }
 
+void HandleRegistry::reportResultStreamFinished(int64_t handle) const {
+  acquire(handle)->recordResultStreamFinished();
+}
+
 void HandleRegistry::reportResultStreamFailure(int64_t handle, const std::string& message) const {
   acquire(handle)->recordResultStreamFailure(message);
 }

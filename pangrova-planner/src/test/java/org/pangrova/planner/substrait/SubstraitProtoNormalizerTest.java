@@ -3,6 +3,7 @@ package org.pangrova.planner.substrait;
 import com.google.protobuf.Message;
 import io.substrait.proto.ComparisonJoinKey;
 import io.substrait.proto.Expression;
+import io.substrait.proto.FetchRel;
 import io.substrait.proto.HashJoinRel;
 import io.substrait.proto.MergeJoinRel;
 import io.substrait.proto.Plan;
@@ -10,6 +11,7 @@ import io.substrait.proto.PlanRel;
 import io.substrait.proto.ProjectRel;
 import io.substrait.proto.Rel;
 import io.substrait.proto.RelRoot;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
@@ -36,7 +38,7 @@ class SubstraitProtoNormalizerTest {
         assertThat(actualJoin.getRepeatedField(descriptor(actualJoin, "keys"), 0)).isEqualTo(equalKey());
         assertThat(getNestedJoin(input, relationField)
                 .getRepeatedFieldCount(descriptor(actualJoin, "left_keys"))).isOne();
-        assertThat(SubstraitProtoNormalizer.normalize(normalized)).isEqualTo(normalized);
+        assertThat(SubstraitProtoNormalizer.normalize(normalized)).isSameAs(normalized);
     }
 
     @ParameterizedTest
@@ -54,7 +56,7 @@ class SubstraitProtoNormalizerTest {
                 ComparisonJoinKey.ComparisonType.newBuilder().setCustomFunctionReference(17)).build());
         Plan input = nestedPlan(join.build(), relationField);
 
-        assertThat(SubstraitProtoNormalizer.normalize(input)).isEqualTo(input);
+        assertThat(SubstraitProtoNormalizer.normalize(input)).isSameAs(input);
     }
 
     @ParameterizedTest
@@ -112,6 +114,27 @@ class SubstraitProtoNormalizerTest {
         addDeprecatedKey(join, "right_keys", field(1));
 
         assertRejected(join, relationField, "Deprecated join keys require canonical EQ comparison");
+    }
+
+    @Test
+    @SuppressWarnings("deprecation")
+    void normalizesFetchInsideSubqueryAndReusesUnchangedRelation() {
+        Rel read = Rel.newBuilder().setRead(io.substrait.proto.ReadRel.getDefaultInstance()).build();
+        var fetch = Rel.newBuilder().setFetch(FetchRel.newBuilder().setInput(read).setCount(3));
+        var scalar = Expression.Subquery.Scalar.newBuilder().setInput(fetch);
+        var expression = Expression.newBuilder().setSubquery(Expression.Subquery.newBuilder().setScalar(scalar));
+        var projection = Rel.newBuilder().setProject(ProjectRel.newBuilder().setInput(read)
+                .addExpressions(expression));
+        var input = Plan.newBuilder().addRelations(PlanRel.newBuilder().setRoot(
+                RelRoot.newBuilder().setInput(projection))).build();
+
+        var normalized = SubstraitProtoNormalizer.normalize(input);
+        var project = normalized.getRelations(0).getRoot().getInput().getProject();
+        assertThat(project.getInput()).isSameAs(read);
+        var normalizedFetch = project.getExpressions(0).getSubquery().getScalar().getInput().getFetch();
+        assertThat(normalizedFetch.getCountExpr().getLiteral().getI64()).isEqualTo(3);
+        assertThat(normalizedFetch.getInput()).isSameAs(read);
+        assertThat(SubstraitProtoNormalizer.normalize(normalized)).isSameAs(normalized);
     }
 
     private static void assertRejected(Message.Builder join, String relationField, String expectedMessage) {

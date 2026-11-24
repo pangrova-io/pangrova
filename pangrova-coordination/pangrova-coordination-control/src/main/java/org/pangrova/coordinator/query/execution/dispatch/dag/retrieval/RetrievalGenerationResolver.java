@@ -5,7 +5,7 @@ import org.pangrova.protocol.constants.BuiltInCapabilityIdentifiers;
 import org.pangrova.generation.publication.enums.GenerationSourceCoverage;
 import org.pangrova.execution.stage.binding.RetrievalGenerationIntent;
 import org.pangrova.execution.stage.binding.RetrievalMergeIntent;
-import org.pangrova.query.api.task.QuerySplit;
+import org.pangrova.coordinator.query.execution.split.QuerySplit;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -20,6 +20,7 @@ import org.pangrova.planner.api.retrieval.RetrievalTopKPlanHint;
 import org.pangrova.planner.api.fragment.SerializedPlanFragment;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.pangrova.protocol.v2.DataSplit;
 
 /** Resolves immutable retrieval artifacts against the query snapshot. */
 public final class RetrievalGenerationResolver {
@@ -43,13 +44,13 @@ public final class RetrievalGenerationResolver {
             return Map.of();
         }
         Map<String, RetrievalGenerationIntent> intents = indexIntents(artifacts);
-        List<String> serializedSplits = splits.stream()
-                .map(QuerySplit::serializedData)
+        List<DataSplit> sourceSplits = splits.stream()
+                .map(QuerySplit::data)
                 .toList();
         if (merge.isPresent()) {
-            return resolveMergeArtifacts(artifacts, merge, intents, serializedSplits);
+            return resolveMergeArtifacts(artifacts, merge, intents, sourceSplits);
         }
-        return resolveStageArtifacts(fragment, intents, serializedSplits);
+        return resolveStageArtifacts(fragment, intents, sourceSplits);
     }
 
     private static boolean requiresResolution(
@@ -76,7 +77,7 @@ public final class RetrievalGenerationResolver {
     private Map<String, ResolvedRetrievalGeneration> resolveMergeArtifacts(
             List<RetrievalGenerationIntent> artifacts, Optional<RetrievalMergeIntent> merge,
             Map<String, RetrievalGenerationIntent> intents,
-            List<String> serializedSplits) {
+            List<DataSplit> sourceSplits) {
         Set<String> mergeSources = merge.orElseThrow()
                 .sources().stream()
                 .map(RetrievalMergeIntent.Source::sourceId)
@@ -91,7 +92,7 @@ public final class RetrievalGenerationResolver {
         }
         Map<String, ResolvedRetrievalGeneration> resolved = new LinkedHashMap<>();
         for (RetrievalGenerationIntent intent : artifacts) {
-            resolveOne(intent, serializedSplits)
+            resolveOne(intent, sourceSplits)
                     .ifPresent(artifact -> resolved.put(
                             intent.planSourceKey(), artifact));
         }
@@ -101,11 +102,11 @@ public final class RetrievalGenerationResolver {
     private Map<String, ResolvedRetrievalGeneration> resolveStageArtifacts(
             SerializedPlanFragment fragment,
             Map<String, RetrievalGenerationIntent> intents,
-            List<String> serializedSplits) {
+            List<DataSplit> sourceSplits) {
         Map<String, ResolvedRetrievalGeneration> resolved = new LinkedHashMap<>();
         Set<String> consumed = new HashSet<>();
         for (RetrievalTopKPlanHint hint : fragment.retrievalTopKHints()) {
-            resolveHint(hint, intents, serializedSplits, consumed)
+            resolveHint(hint, intents, sourceSplits, consumed)
                     .ifPresent(artifact -> resolved.put(hint.sourceKey(), artifact));
         }
         List<String> unconsumed = intents.keySet().stream()
@@ -122,7 +123,7 @@ public final class RetrievalGenerationResolver {
     private Optional<ResolvedRetrievalGeneration> resolveHint(
             RetrievalTopKPlanHint hint,
             Map<String, RetrievalGenerationIntent> intents,
-            List<String> serializedSplits,
+            List<DataSplit> sourceSplits,
             Set<String> consumed) {
         if (hint.kind() == RetrievalKind.EXACT) {
             return Optional.empty();
@@ -133,16 +134,16 @@ public final class RetrievalGenerationResolver {
             return Optional.empty();
         }
         consumed.add(intent.planSourceKey());
-        return resolveOne(intent, serializedSplits);
+        return resolveOne(intent, sourceSplits);
     }
 
     private Optional<ResolvedRetrievalGeneration> resolveOne(
-            RetrievalGenerationIntent intent, List<String> serializedSplits) {
+            RetrievalGenerationIntent intent, List<DataSplit> sourceSplits) {
         if (bindingResolver == null) {
             requireBm25Artifact(intent);
             return Optional.empty();
         }
-        Optional<ResolvedRetrievalGeneration> artifact = resolvePublished(intent, serializedSplits);
+        Optional<ResolvedRetrievalGeneration> artifact = resolvePublished(intent, sourceSplits);
         if (artifact.isEmpty()) {
             requireBm25Artifact(intent);
             LOG.info("event=retrieval_artifact_exact_fallback artifactId={}"
@@ -153,19 +154,20 @@ public final class RetrievalGenerationResolver {
     }
 
     private Optional<ResolvedRetrievalGeneration> resolvePublished(
-            RetrievalGenerationIntent intent, List<String> serializedSplits) {
-        if (BuiltInCapabilityIdentifiers.FILTERED_DISKANN_RETRIEVAL_ID.equals(intent.capability().getCapabilityId())
-                && !FilteredAnnSourceScope.supports(
-                        org.pangrova.generation.codec.source.GenerationSourceSplitCodec.decode(serializedSplits),
-                        intent.sourceId(), intent.sourceSnapshot())) {
-            return Optional.empty();
+            RetrievalGenerationIntent intent, List<DataSplit> sourceSplits) {
+        if (BuiltInCapabilityIdentifiers.FILTERED_DISKANN_RETRIEVAL_ID.equals(intent.capability().getCapabilityId())) {
+            sourceSplits.forEach(org.pangrova.generation.codec.source.GenerationSourceSplitValidator::validateSplit);
+            if (!FilteredAnnSourceScope.supports(sourceSplits, intent.sourceId(), intent.sourceSnapshot())) {
+                return Optional.empty();
+            }
         }
         return bindingResolver.resolveTemplate(
                 new PublishedGenerationBindingResolver.GenerationResolutionIntent(
                         intent.tenantId(), intent.artifactId(), intent.artifactType(), intent.generation(),
                         intent.sourceId(), intent.sourceSnapshot(),
-                        GenerationSourceCoverage.COMPLETE_GENERATION), serializedSplits)
-                .map(binding -> new ResolvedRetrievalGeneration(intent, binding, serializedSplits.size()));
+                        GenerationSourceCoverage.COMPLETE_GENERATION), sourceSplits)
+                .map(resolved -> new ResolvedRetrievalGeneration(
+                        intent, resolved.binding(), sourceSplits.size(), resolved.rowCount()));
     }
 
     private static void requireFullTextIntent(RetrievalTopKPlanHint hint) {

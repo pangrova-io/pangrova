@@ -7,7 +7,6 @@ import java.util.HexFormat;
 
 import org.pangrova.protocol.v2.BatchChunk;
 import org.pangrova.protocol.v2.shuffle.ReadBatchResponse;
-import org.pangrova.shuffle.exchange.ExternalShuffleTransport;
 import org.pangrova.shuffle.pangrova.client.BaselinePangrovaPartitionRead;
 import org.pangrova.shuffle.pangrova.client.BaselineRemoteShuffleExchangeSource;
 import org.pangrova.shuffle.pangrova.client.RemoteShuffleByteEgress;
@@ -62,7 +61,7 @@ public final class ShuffleReadComparison {
     }
 
     private static void readSample(ActualShuffleService service, RemoteShuffleClientPool pool,
-            ExternalShuffleTransport binding, boolean baseline, int pair, int order, long expectedBytes) {
+            ActualShuffleService.ReadBinding binding, boolean baseline, int pair, int order, long expectedBytes) {
         var relay = service.wire(0);
         relay.requests.clear();
         relay.responses.clear();

@@ -549,7 +549,7 @@ class NativeSpillMemoryE2ETest extends SqlE2ETestBase {
     class OperatorTelemetry {
 
         @Test
-        @DisplayName("Profile aggregates operator stats reported by real Native tasks")
+        @DisplayName("Profile reports operators for exact Native task attempts")
         void profileUsesNativeOperatorStatsFromAcceptedReports() {
             Set<String> before = Set.copyOf(queryManager.getStateMachines().keySet());
             sqlRunner.execute("SELECT COUNT(*) FROM lineitem");
@@ -560,14 +560,18 @@ class NativeSpillMemoryE2ETest extends SqlE2ETestBase {
 
             org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(30))
                     .untilAsserted(() -> {
-                        assertThat(operatorStatsRegistry().operatorStats(queryId))
+                        assertThat(operatorStatsRegistry().attemptStats(queryId))
                                 .as("native operator telemetry reached the Coordinator")
                                 .isNotEmpty();
-                        var profile = queryProfileService().getProfile(queryId);
+                        var profile = queryProfileService().getProfile(queryId, E2E_USER_PRINCIPAL);
                         assertThat(profile).isPresent();
                         assertThat(profile.get().telemetryAvailable()).isTrue();
-                        assertThat(profile.get().operatorTree()).isNotEmpty();
-                        assertThat(profile.get().flameGraph()).isNotEmpty();
+                        assertThat(profile.get().attempts()).isNotEmpty().allSatisfy(attempt -> {
+                            assertThat(attempt.taskId()).isNotBlank();
+                            assertThat(attempt.workerId()).isNotBlank();
+                            assertThat(attempt.planEpoch()).isPositive();
+                            assertThat(attempt.operators()).isNotEmpty();
+                        });
                     });
         }
     }

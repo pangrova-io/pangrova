@@ -5,7 +5,6 @@ import org.pangrova.protocol.descriptor.CanonicalProtocolIdentity;
 import org.pangrova.protocol.checksum.ProtocolChecksums;
 import org.pangrova.protocol.substrait.SubstraitProtocolVersion;
 
-import com.google.protobuf.Any;
 import com.google.protobuf.ByteString;
 import io.substrait.proto.NamedStruct;
 import io.substrait.proto.Plan;
@@ -158,7 +157,7 @@ final class CopyNativeInputAssertions {
                 });
         assertThat(localInputs(stagingRoot)).hasSize(1);
         long handle = manager.getExecutorHandle(id).orElseThrow();
-        readExactValues(runtime, accepted.taskRequest());
+        readExactValues(runtime, accepted);
         org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(20))
                 .until(() -> manager.getTaskState(id).orElseThrow()
                         == org.pangrova.worker.enums.TaskState.FINISHED);
@@ -208,7 +207,7 @@ final class CopyNativeInputAssertions {
         }
     }
 
-    private static void readExactValues(ActualNativeTaskFixture runtime, TaskRequest request) throws Exception {
+    private static void readExactValues(ActualNativeTaskFixture runtime, SubmitTaskRequest request) throws Exception {
         int rows = 0;
         try (var allocator = new RootAllocator(ActualNativeTaskFixture.TASK_MEMORY_BYTES);
              var client = FlightClient.builder(allocator,
@@ -249,8 +248,8 @@ final class CopyNativeInputAssertions {
                 .addSplits(DataSplit.newBuilder().setSplitId("copy-input").setConnectorId("copy")
                         .setSourceId(scope.stagingAttemptId()).setDataObjectId(scope.canonicalSourceUrl())
                         .setOpaqueLocation(scope.canonicalSourceUrl()).setSourceSnapshot(proof.sourceVersionId())
-                        .setLength(proof.contentSize()).setConnectorDetail(Any.pack(FileSplitDetail.newBuilder()
-                                .setFileFormat(FileFormat.FILE_FORMAT_PARQUET).build()))).build();
+                        .setLength(proof.contentSize()).setFileDetail(FileSplitDetail.newBuilder()
+                                .setFileFormat(FileFormat.FILE_FORMAT_PARQUET).build())).build();
         return SubmitTaskRequest.from(request);
     }
 

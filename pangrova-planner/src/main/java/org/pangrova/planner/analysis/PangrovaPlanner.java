@@ -23,9 +23,6 @@ import java.util.List;
 import java.util.Map;
 
 import org.pangrova.planner.cost.StatisticsBasedCostEstimator;
-import org.pangrova.planner.runtimefilter.DynamicPartitionPruningConfig;
-import org.pangrova.planner.runtimefilter.RuntimeFilterDescriptor;
-import org.pangrova.planner.runtimefilter.RuntimeFilterRegistry;
 import org.pangrova.planner.optimization.CascadesCboPass;
 import org.pangrova.planner.optimization.HepOptimizationPass;
 import org.pangrova.planner.optimization.MaterializedViewRewritePass;
@@ -107,9 +104,7 @@ public final class PangrovaPlanner {
         this.materializedViewRewritePass = new MaterializedViewRewritePass(
                 mvCatalog == null ? null : new org.pangrova.planner.mv.CalciteMaterializedViewRewriter(
                         mvCatalog, this::compileMaterializationDefinition, this::resolveTable,
-                        java.time.Instant::now),
-                deps.dynamicPartitionPruningConfig(),
-                deps.runtimeFilterRegistry());
+                        java.time.Instant::now));
         DynamicTableSqlRewriter dynamicTableSqlRewriter = deps.dynamicTableRewriter() != null
                 ? new DynamicTableSqlRewriter(this.parserFactory, deps.dynamicTableRewriter())
                 : null;
@@ -172,12 +167,10 @@ public final class PangrovaPlanner {
         List<String> preOptColumnNames = List.copyOf(relNode.getRowType().getFieldNames());
         if (containsMutation(relNode)) {
             verifyMetadataVersions(pinnedVersions);
-            return new PlanResult(relNode, preOptColumnNames, List.of(),
+            return new PlanResult(relNode, preOptColumnNames,
                     rewrite.physicalToLogical());
         }
         RelNode optimized = optimizationRunner.optimize(relNode);
-        List<RuntimeFilterDescriptor> filterDescriptors =
-                materializedViewRewritePass.analyzeForRuntimeFilters(optimized);
         RelNode materializedViewRewritten = allowMaterializationRewrite
                 ? materializedViewRewritePass.tryMaterializedViewRewrite(optimized) : optimized;
         recordConstantFold(materializedViewRewritten);
@@ -185,7 +178,7 @@ public final class PangrovaPlanner {
         // Verify metadata versions unchanged after compilation
         verifyMetadataVersions(pinnedVersions);
 
-        return new PlanResult(materializedViewRewritten, preOptColumnNames, filterDescriptors,
+        return new PlanResult(materializedViewRewritten, preOptColumnNames,
                 rewrite.physicalToLogical());
     }
 
@@ -199,7 +192,7 @@ public final class PangrovaPlanner {
         RelNode relation = convert(validator, buildCluster(), validated);
         Map<String, Long> pinnedVersions = pinMetadataVersions(relation);
         verifyMetadataVersions(pinnedVersions);
-        return new PlanResult(relation, relation.getRowType().getFieldNames(), List.of(),
+        return new PlanResult(relation, relation.getRowType().getFieldNames(),
                 rewrite.physicalToLogical());
     }
 
@@ -210,7 +203,7 @@ public final class PangrovaPlanner {
         RelNode relation = convert(validator, buildCluster(), validated);
         Map<String, Long> pinnedVersions = pinMetadataVersions(relation);
         verifyMetadataVersions(pinnedVersions);
-        return new PlanResult(relation, relation.getRowType().getFieldNames(), List.of());
+        return new PlanResult(relation, relation.getRowType().getFieldNames());
     }
 
     /** Optimizes only after authorization and policies; mutations retain their physical target until COW. */
@@ -231,12 +224,11 @@ public final class PangrovaPlanner {
             return query;
         }
         RelNode optimized = optimizationRunner.optimize(query.plan());
-        List<RuntimeFilterDescriptor> descriptors = materializedViewRewritePass.analyzeForRuntimeFilters(optimized);
         if (allowMaterializationRewrite) {
             optimized = materializedViewRewritePass.tryMaterializedViewRewrite(optimized);
         }
         recordConstantFold(optimized);
-        return new PlannedQuery(optimized, query.columnNames(), descriptors,
+        return new PlannedQuery(optimized, query.columnNames(),
                 query.physicalToLogicalDynamicTables());
     }
 
@@ -315,17 +307,15 @@ public final class PangrovaPlanner {
         List<String> preOptColumnNames = List.copyOf(relNode.getRowType().getFieldNames());
         if (containsMutation(relNode)) {
             verifyMetadataVersions(pinnedVersions);
-            return new PlanResult(relNode, preOptColumnNames, List.of(),
+            return new PlanResult(relNode, preOptColumnNames,
                     rewrite.physicalToLogical());
         }
         RelNode optimized = optimizationRunner.optimize(relNode);
-        List<RuntimeFilterDescriptor> filterDescriptors =
-                materializedViewRewritePass.analyzeForRuntimeFilters(optimized);
         RelNode materializedViewRewritten =
                 materializedViewRewritePass.tryMaterializedViewRewrite(optimized);
         recordConstantFold(materializedViewRewritten);
         verifyMetadataVersions(pinnedVersions);
-        return new PlanResult(materializedViewRewritten, preOptColumnNames, filterDescriptors,
+        return new PlanResult(materializedViewRewritten, preOptColumnNames,
                 rewrite.physicalToLogical());
     }
 
@@ -413,28 +403,6 @@ public final class PangrovaPlanner {
     /** Returns the cost estimator, or null if statistics not wired. Package-private. */
     StatisticsBasedCostEstimator getCostEstimator() {
         return costEstimator;
-    }
-
-    /** Returns the query result cache, or null if not wired. */
-
-    // ---- DPP (Dynamic Partition Pruning) ----
-
-    /** Returns the runtime filter registry for DPP. */
-    public RuntimeFilterRegistry getRuntimeFilterRegistry() {
-        return materializedViewRewritePass.getRuntimeFilterRegistry();
-    }
-
-    /** Returns the DPP configuration. */
-    public DynamicPartitionPruningConfig getDynamicPartitionPruningConfig() {
-        return materializedViewRewritePass.getDynamicPartitionPruningConfig();
-    }
-
-    /**
-     * Analyze a plan for partition-pruning-eligible joins without registering filters.
-     * Useful for testing and inspection.
-     */
-    public List<RuntimeFilterDescriptor> analyzeJoinsForPartitionPruning(RelNode plan) {
-        return materializedViewRewritePass.analyzeJoinsForPartitionPruning(plan);
     }
 
     private SqlNode parse(String sql) {

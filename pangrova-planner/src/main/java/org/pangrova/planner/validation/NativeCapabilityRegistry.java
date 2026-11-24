@@ -4,8 +4,14 @@ import org.pangrova.common.concurrent.ThreadSafe;
 
 import java.util.Set;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.function.Supplier;
 import org.pangrova.protocol.capability.inventory.CapabilityInventoryCodec;
+import org.pangrova.protocol.function.catalog.FunctionCatalogView;
 import org.pangrova.protocol.v2.CapabilityInventory;
 
 /**
@@ -39,12 +45,19 @@ public final class NativeCapabilityRegistry {
     }
 
     private volatile CapabilitySnapshot snapshot;
+    private final boolean supportsUpdates;
+    private final List<CapabilityInventory> functionInventories;
+    private volatile List<FunctionCatalogView> functionCatalogues;
 
     private NativeCapabilityRegistry(
             Set<String> relTypes,
             Set<String> exprTypes,
-            Set<String> functions) {
+            Set<String> functions,
+            boolean supportsUpdates,
+            List<CapabilityInventory> functionInventories) {
         this.snapshot = new CapabilitySnapshot(relTypes, exprTypes, functions);
+        this.supportsUpdates = supportsUpdates;
+        this.functionInventories = List.copyOf(functionInventories);
     }
 
     /**
@@ -59,13 +72,71 @@ public final class NativeCapabilityRegistry {
         Set<String> relations = new HashSet<>();
         Set<String> expressions = new HashSet<>();
         Set<String> functions = new HashSet<>();
+        var catalogues = new LinkedHashMap<com.google.protobuf.ByteString, CapabilityInventory>();
+        Set<CapabilityInventory> distinct = Collections.newSetFromMap(new IdentityHashMap<>());
         for (var inventory : inventories) {
+            if (!distinct.add(inventory)) continue;
             CapabilityInventoryCodec.validate(inventory);
+            catalogues.putIfAbsent(inventory.getFunctionCatalog().getManifestSha256(), inventory);
             relations.addAll(inventory.getSupportedSubstraitRelTypesList());
             expressions.addAll(inventory.getSupportedSubstraitExpressionTypesList());
             inventory.getFunctionsList().forEach(function -> functions.add(function.getRef().getName()));
         }
-        return new NativeCapabilityRegistry(relations, expressions, functions);
+        return new NativeCapabilityRegistry(relations, expressions, functions, false,
+                List.copyOf(catalogues.values()));
+    }
+
+    public List<FunctionCatalogView> functionCatalogues() {
+        var captured = functionCatalogues;
+        return captured == null ? captureFunctionCatalogues() : captured;
+    }
+
+    private synchronized List<FunctionCatalogView> captureFunctionCatalogues() {
+        if (functionCatalogues == null) {
+            functionCatalogues = functionInventories.stream().map(FunctionCatalogView::new).toList();
+        }
+        return functionCatalogues;
+    }
+
+    /** Reuses one validated union while the live immutable inventory identities remain the same. */
+    public static Supplier<NativeCapabilityRegistry> live(Supplier<List<CapabilityInventory>> inventorySource) {
+        return new LiveInventoryRegistry(inventorySource);
+    }
+
+    private static final class LiveInventoryRegistry implements Supplier<NativeCapabilityRegistry> {
+        private final Supplier<List<CapabilityInventory>> source;
+        private volatile CapturedInventory captured;
+
+        private LiveInventoryRegistry(Supplier<List<CapabilityInventory>> source) {
+            this.source = java.util.Objects.requireNonNull(source, "inventorySource");
+        }
+
+        @Override
+        public NativeCapabilityRegistry get() {
+            List<CapabilityInventory> inventories = source.get();
+            var current = captured;
+            return current != null && current.matches(inventories) ? current.registry() : refresh();
+        }
+
+        private synchronized NativeCapabilityRegistry refresh() {
+            List<CapabilityInventory> latest = List.copyOf(source.get());
+            var current = captured;
+            if (current == null || !current.matches(latest)) {
+                current = new CapturedInventory(latest, fromInventories(latest));
+                captured = current;
+            }
+            return current.registry();
+        }
+    }
+
+    private record CapturedInventory(List<CapabilityInventory> inventories, NativeCapabilityRegistry registry) {
+        boolean matches(List<CapabilityInventory> active) {
+            if (inventories.size() != active.size()) return false;
+            for (int i = 0; i < active.size(); i++) {
+                if (inventories.get(i) != active.get(i)) return false;
+            }
+            return true;
+        }
     }
 
     /**
@@ -144,7 +215,7 @@ public final class NativeCapabilityRegistry {
         );
 
         return new NativeCapabilityRegistry(
-                defaultRelTypes, defaultExprTypes, defaultFunctions);
+                defaultRelTypes, defaultExprTypes, defaultFunctions, true, List.of());
     }
 
     /**
@@ -160,6 +231,7 @@ public final class NativeCapabilityRegistry {
     public void update(Set<String> relTypes,
                        Set<String> exprTypes,
                        Set<String> functions) {
+        if (!supportsUpdates) throw new IllegalStateException("An admitted Worker inventory is immutable");
         this.snapshot = new CapabilitySnapshot(relTypes, exprTypes, functions);
     }
 

@@ -107,7 +107,7 @@ class LifecycleCoordinatorPropertyTest {
                 phases, startCount::incrementAndGet, endCount::incrementAndGet);
 
         QueryExecutionContext ctx = createContext();
-        DispatchResult result = coordinator.execute(ctx);
+        DispatchResult result = coordinator.execute(ctx).toCompletableFuture().join();
 
         assertThat(result).isNotNull();
         assertThat(startCount.get()).isEqualTo(1);
@@ -146,7 +146,7 @@ class LifecycleCoordinatorPropertyTest {
     private record TerminalPhase(String phaseName) implements QueryExecutionPhase {
         @Override
         public PhaseResult execute(QueryExecutionContext context) {
-            return new PhaseResult.Terminal(TERMINAL_RESULT);
+            return PhaseResult.Terminal.completed(TERMINAL_RESULT);
         }
 
         @Override

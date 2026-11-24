@@ -192,7 +192,7 @@ class MetadataTagOperationsTest {
         tags.setTag(current(orders), "email", "pii_type", "PII_EMAIL", "alice");
         var user = new org.pangrova.security.api.identity.UserIdentity("alice", Set.of(), Map.of(), java.time.Instant.now());
         assertThat(new org.pangrova.security.mask.ColumnMaskingProcessor(masks)
-                .getMask(user, Set.of("reader"), "cat", "db", "orders", "email"))
+                .getMasks(user, Set.of("reader"), "cat", "db", "orders").mask("email"))
                 .hasValueSatisfying(expression -> assertThat(expression).contains("***@***"));
     }
 

@@ -16,8 +16,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * E2E: Native Flight result serving end-to-end.
- * Proves results flow through Velox PartitionedOutputNode → OutputBufferManager →
- * C++ FlightResultServer → coordinator fetch → client.
+ * Proves Velox OUTPUT batches reach the client through C++ FlightResultServer.
  *
  * <p>Validates: Requirements 1.1, 1.2, 1.3, 1.6, 2.1, 2.2, 2.3</p>
  */

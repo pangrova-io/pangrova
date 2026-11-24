@@ -129,9 +129,10 @@ class TaskRequestFactoryPropertyTest {
             StageResourceGrant resourceGrant) {
         return new TaskRequestFactory.LeafTask(
                 new org.pangrova.execution.authority.StageExecutionContext.Live(session),
-                planBytes, new org.pangrova.execution.api.stage.TaskStage(stage.stageId(),
+                new TaskRequestFactory.FrozenStagePlan(planBytes),
+                new org.pangrova.execution.api.stage.TaskStage(stage.stageId(),
                         org.pangrova.execution.api.enums.TaskPurpose.valueOf(stage.taskType())), partition, resourceGrant,
-                List.of(), List.of(), null, List.of(),
+                List.of(), null, List.of(),
                 org.pangrova.execution.api.deadline.StageTaskDeadline.after(
                         java.time.Duration.ofMinutes(5), java.time.Instant.now()),
                 org.pangrova.protocol.rest.task.TaskAttemptDescriptor.of(1L, 0),

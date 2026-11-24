@@ -1,10 +1,12 @@
 package org.pangrova.protocol.rest.task.convert;
 
+import com.google.protobuf.ByteString;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
+import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.protocol.v2.StageResourceGrant;
 import org.pangrova.protocol.v2.TaskKind;
 import org.pangrova.protocol.v2.TaskRequest;
@@ -32,9 +34,9 @@ public final class TaskRequestDtoConverter {
         TaskRequest canonical = request.taskRequest();
         QueryId queryId = new QueryId(canonical.getAttempt().getQueryOrJobId());
         PlanFragment fragment = new SerializedPlanFragment(
-                canonical.getSubstraitPlan().toByteArray());
+                canonical.getSubstraitPlan());
         List<Split> splits = canonical.getSplitsList().stream()
-                .map(split -> (Split) new SerializedSplit(split.toByteArray()))
+                .<Split>map(SerializedSplit::new)
                 .toList();
         Map<String, String> props = canonical.hasExecutionOptions()
                 ? canonical.getExecutionOptions().getSessionPropertiesMap()
@@ -89,7 +91,12 @@ public final class TaskRequestDtoConverter {
     }
 
     /** Wraps serialized plan bytes as a PlanFragment. */
-    public record SerializedPlanFragment(byte[] planBytes) implements PlanFragment, PlanBytesProvider {
+    public record SerializedPlanFragment(ByteString bytes) implements PlanFragment, PlanBytesProvider {
+
+        @Override
+        public byte[] planBytes() {
+            return bytes.toByteArray();
+        }
 
         @Override
         public PlanNodeId getId() {
@@ -103,6 +110,9 @@ public final class TaskRequestDtoConverter {
     }
 
     /** Wraps serialized split bytes as a Split marker. */
-    public record SerializedSplit(byte[] splitBytes) implements Split {
+    public record SerializedSplit(DataSplit split) implements Split {
+        public byte[] splitBytes() {
+            return split.toByteArray();
+        }
     }
 }

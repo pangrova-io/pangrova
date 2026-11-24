@@ -13,15 +13,18 @@ import org.pangrova.connector.api.metadata.NativeDatasetControlPlane;
 import org.pangrova.connector.api.metadata.NativeWriteAllocation;
 import org.pangrova.connector.api.commit.NativeWriteFinalization;
 import org.pangrova.connector.api.metadata.table.ColumnHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorReadBinding;
 import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
 import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 import org.pangrova.connector.api.metadata.table.ConnectorTableReadMetadata;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.pangrova.connector.api.metadata.table.TableStatistics;
+import org.pangrova.connector.api.metadata.table.TableVersionToken;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.UUID;
 import java.util.function.Supplier;
 
@@ -76,11 +79,14 @@ public final class LanceMetadata implements ConnectorMetadata {
     }
 
     @Override
-    public java.util.Optional<org.pangrova.connector.api.metadata.table.TableVersionToken> observeVersion(
+    public Optional<TableVersionToken> observeVersion(
             ConnectorSession session, ConnectorTableHandle table) {
-        var live = requireTable(session, table);
-        return java.util.Optional.of(org.pangrova.connector.api.metadata.table.TableVersionToken.of(
-                "LANCE", live.tableId(), Long.toString(live.version()), Long.toString(live.revision())));
+        return Optional.of(version(requireTable(session, table)));
+    }
+
+    private static TableVersionToken version(LanceTableHandle table) {
+        return TableVersionToken.of(
+                "LANCE", table.tableId(), Long.toString(table.version()), Long.toString(table.revision()));
     }
 
     @Override
@@ -91,7 +97,10 @@ public final class LanceMetadata implements ConnectorMetadata {
                 : org.pangrova.connector.api.metadata.table.TableCapabilities.UNSUPPORTED;
     }
     @Override public ConnectorTableMetadata getTableMetadata(ConnectorSession session, ConnectorTableHandle table) {
-        var pinned = snapshots.resolve(session, requireTable(session, table));
+        return declaration(snapshots.resolve(session, requireTable(session, table)));
+    }
+
+    private static ConnectorTableMetadata declaration(LanceTableHandle pinned) {
         return new ConnectorTableMetadata(pinned.table(), pinned.columns().stream().map(LanceColumn::name).toList(),
                 pinned.columns().stream().map(LanceColumn::metadata).toList(), pinned.properties());
     }
@@ -109,18 +118,17 @@ public final class LanceMetadata implements ConnectorMetadata {
         return new TableStatistics(snapshots.resolve(session, requireTable(session, table)).rowCount(),
                 -1, -1, java.util.Map.of());
     }
-    @Override public org.pangrova.connector.api.metadata.table.ConnectorReadBinding bindRead(
+    @Override public ConnectorReadBinding bindRead(
             ConnectorSession session, ConnectorTableHandle table) {
         var selected = snapshots.resolve(session, requireTable(session, table));
-        return new org.pangrova.connector.api.metadata.table.ConnectorReadBinding(selected,
-                getTableReadMetadata(session, selected),
+        return new ConnectorReadBinding(selected,
+                new ConnectorTableReadMetadata(declaration(selected), TableDeclarationEvidence.EXACT),
                 new TableStatistics(selected.rowCount(), -1, -1, java.util.Map.of()),
                 selected.version() == 0
                         ? org.pangrova.connector.api.enums.ReadSnapshotState.EMPTY
                         : org.pangrova.connector.api.enums.ReadSnapshotState.SNAPSHOT,
-                selected.version() == 0 ? java.util.OptionalLong.empty()
-                        : java.util.OptionalLong.of(selected.version()),
-                selected.tableId() + ":" + selected.version(), java.util.Optional.empty());
+                selected.version() == 0 ? OptionalLong.empty() : OptionalLong.of(selected.version()),
+                selected.tableId() + ":" + selected.version(), Optional.empty(), Optional.of(version(selected)));
     }
     @Override public void validateReadBinding(ConnectorSession session,
             org.pangrova.connector.api.metadata.table.ConnectorReadBinding binding) {

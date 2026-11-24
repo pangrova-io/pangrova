@@ -235,6 +235,7 @@ void PangrovaVeloxDataSource::addSplit(
   // Populate partition values, schema evolution, delete filters,
   // changelog mode flag, and Paimon deletion vectors.
   prepareSplitState(splitConfig);
+  receivePendingDynamicFilters();
 
   // Reset merge reader from any previous split.
   merge_reader_.reset();
@@ -454,23 +455,9 @@ void PangrovaVeloxDataSource::prepareSplitState(
     }
   }
 
-  // Paimon MOW deletion vector: when DV is enabled, read the DV file
-  // and create a DeletionVectorRowFilter. The existing applyDeleteFilter()
-  // in next() applies it automatically.
-  if (config.paimon.has_value()) {
-    loadPaimonDeletionVector(config);
-  }
-}
-
-void PangrovaVeloxDataSource::loadPaimonDeletionVector(
-    const split::SplitConfig& split) {
-  protocol::v2::FileSplitDetail detail;
-  if (!detail.ParseFromString(split.file_scan_detail)) {
-    throw std::invalid_argument("Paimon split requires canonical physical file metadata");
-  }
-  if (detail.physical_file_scan().has_deletion_vector()) {
+  if (config.deletion_vector) {
     delete_filters_.push_back(std::make_unique<delete_filter::PaimonSnapshotDeletionFilter>(
-        detail.physical_file_scan().deletion_vector(), split.storage_binding));
+        *config.deletion_vector, config.storage_binding));
   }
 }
 
@@ -478,7 +465,6 @@ void PangrovaVeloxDataSource::createReaderPair(
     const split::SplitConfig& splitConfig,
     std::unique_ptr<facebook::velox::dwio::common::Reader>& outReader,
     std::unique_ptr<facebook::velox::dwio::common::RowReader>& outRowReader,
-    std::shared_ptr<facebook::velox::common::ScanSpec>* outScanSpec,
     facebook::velox::RowTypePtr requestedType,
     std::unique_ptr<ParquetUuidReadPlan>* uuidReadPlan,
     bool allowPredicatePushdown) {
@@ -490,6 +476,16 @@ void PangrovaVeloxDataSource::createReaderPair(
 
   facebook::velox::dwio::common::ReaderOptions readerOpts(pool_);
   readerOpts.setFileFormat(format);
+
+  // The SDK defaults preload up to 8 MiB during footer lookup. A narrow
+  // scan must be able to fetch the footer and selected chunks independently.
+  static constexpr uint64_t kProjectedParquetFooterBytes = 64L * 1024;
+  const bool sparseParquet = format == facebook::velox::dwio::common::FileFormat::PARQUET
+      && target_type->size() <= scan_schema_->size() / 2;
+  if (sparseParquet) {
+    readerOpts.setFilePreloadThreshold(kProjectedParquetFooterBytes);
+    readerOpts.setFooterSpeculativeIoSize(kProjectedParquetFooterBytes);
+  }
 
   // IO executor for async prefetch. Velox uses this to overlap IO with
   // computation: while the current batch is being processed, the next row
@@ -674,7 +670,8 @@ void PangrovaVeloxDataSource::createReaderPair(
   bool isSmallFile =
       fileSize > 0 && eager_first_stripe_threshold_bytes_ > 0 &&
       fileSize < static_cast<uint64_t>(eager_first_stripe_threshold_bytes_);
-  rowOpts.setEagerFirstStripeLoad(isSmallFile);
+  rowOpts.setEagerFirstStripeLoad(isSmallFile
+      && (!sparseParquet || fileSize <= kProjectedParquetFooterBytes));
 
   // Task 2.16 (Parquet Page Index): Enable column index filtering for
   // page-level data skipping. When SubfieldFilters are present on the
@@ -764,11 +761,10 @@ void PangrovaVeloxDataSource::createReaderPair(
   }
 
 
-  rowOpts.setScanSpec(scanSpec);
-
-  if (outScanSpec) {
-    *outScanSpec = scanSpec;
+  if (allowPredicatePushdown) {
+    bindDynamicFiltersToReader(*scanSpec, readerType);
   }
+  rowOpts.setScanSpec(scanSpec);
 
   checkCancelled();
   outRowReader = outReader->createRowReader(rowOpts);
@@ -789,11 +785,10 @@ void PangrovaVeloxDataSource::openVeloxReader(
   auto filePath = split::normalizeToS3Uri(
       split::stripFilePrefix(split.file_path));
 
-  std::shared_ptr<facebook::velox::common::ScanSpec> scanSpec;
   try {
     // Positional deletes use the original file row numbers. The outer
     // FilterNode still evaluates the predicate after the delete filter.
-    createReaderPair(split, velox_reader_, velox_row_reader_, &scanSpec, nullptr,
+    createReaderPair(split, velox_reader_, velox_row_reader_, nullptr,
                      &parquet_uuid_read_plan_, delete_filters_.empty());
   } catch (const std::exception& e) {
     PANGROVA_LOG_ERROR << "velox_reader_open_failed"
@@ -806,9 +801,6 @@ void PangrovaVeloxDataSource::openVeloxReader(
         ", error=" + e.what());
   }
 
-  // L2-1: Store the ScanSpec for dynamic filter pushdown later.
-  current_scan_spec_ = scanSpec;
-  dynamic_filters_pushed_to_scan_ = false;
 #else
   reader_exhausted_ = true;
   throw std::runtime_error(
@@ -907,7 +899,7 @@ void PangrovaVeloxDataSource::openLanceReader(
   try {
     lance_reader_ = std::make_unique<pangrova::lance::LanceBatchReader>(
         pool_, physicalType, filePath, version, physicalNames,
-        split.storage_binding, split.file_scan_detail, split.physical_lance_file ? split.length : 0);
+        split.storage_binding, split.lance_read_unit, split.physical_lance_file ? split.length : 0);
     current_reader_output_type_ = lance_reader_->outputType();
   } catch (const std::exception& e) {
     PANGROVA_LOG_ERROR << "lance_reader_open_failed"
@@ -983,28 +975,25 @@ void PangrovaVeloxDataSource::initializeMergeReader(
         PhysicalFileSchema schema(merge_reader_output_type_, file.column_mappings, file.type_promotions);
         const auto& physical_type = schema.physicalType();
         if (file.file_format == split::FileFormatType::LANCE) {
-          protocol::v2::FileSplitDetail read;
-          if (!read.ParseFromString(file.file_scan_detail)) throw std::invalid_argument("Malformed physical file read unit");
           std::unique_ptr<delete_filter::RowDeleteFilter> deletion;
-          if (read.physical_file_scan().has_deletion_vector()) {
+          if (file.deletion_vector) {
             deletion = std::make_unique<delete_filter::PaimonSnapshotDeletionFilter>(
-                read.physical_file_scan().deletion_vector(), split.storage_binding);
+                *file.deletion_vector, split.storage_binding);
           }
           readers.push_back(std::make_unique<EvolvedMergeBatchReader>(
               std::make_unique<LanceMergeBatchReader>(
                   std::make_unique<pangrova::lance::LanceBatchReader>(pool_, physical_type, path,
                       paimon.snapshot_id, physical_type->names(), split.storage_binding,
-                      file.file_scan_detail, file.file_size), std::move(deletion)), std::move(schema)));
+                      file.lance_read_unit, file.file_size), std::move(deletion)), std::move(schema)));
           continue;
         }
         std::unique_ptr<facebook::velox::dwio::common::Reader> reader;
         std::unique_ptr<facebook::velox::dwio::common::RowReader> rowReader;
-        std::shared_ptr<facebook::velox::common::ScanSpec> scanSpec;
         std::unique_ptr<ParquetUuidReadPlan> uuidPlan;
         split::SplitConfig fileConfig;
         fileConfig.file_path = path;
         fileConfig.file_format = file.file_format;
-        createReaderPair(fileConfig, reader, rowReader, &scanSpec, physical_type, &uuidPlan);
+        createReaderPair(fileConfig, reader, rowReader, physical_type, &uuidPlan);
         // Filtering an update before primary-key merge can resurrect older rows.
         // Keep non-key predicates in the relational FilterNode after the merge.
         readers.push_back(std::make_unique<EvolvedMergeBatchReader>(
@@ -1068,6 +1057,7 @@ std::optional<facebook::velox::RowVectorPtr> PangrovaVeloxDataSource::next(
     facebook::velox::ContinueFuture& future) {
   checkCancelled();
 #if PANGROVA_HAS_VELOX_DWIO
+  receivePendingDynamicFilters();
   // Use adaptive batch size, respecting Velox's requested upper bound.
   auto effectiveSize =
       static_cast<uint64_t>(batch_sizer_.getCurrentBatchSize());
@@ -1151,7 +1141,8 @@ std::optional<facebook::velox::RowVectorPtr> PangrovaVeloxDataSource::next(
       return merged;
     }
     auto rowVector = merged.value();
-    return injectPartitionColumns(rowVector, current_partition_values_, output_type_, pool_);
+    return applyDynamicFilters(
+        injectPartitionColumns(rowVector, current_partition_values_, output_type_, pool_));
   }
 
   // Lance file format path: pull from Lance reader when present.
@@ -1178,13 +1169,6 @@ std::optional<facebook::velox::RowVectorPtr> PangrovaVeloxDataSource::next(
     }
     rowVector = applyLancePostProcessing(std::move(rowVector));
     rowVector = applyLanceIdentity(std::move(rowVector), std::move(datasetPositions));
-    if (!task_id_.empty() && !plan_node_id_.empty()) {
-      auto pending = PendingFilterRegistry::instance().drain(task_id_, plan_node_id_);
-      std::lock_guard<std::mutex> lock(dynamic_filter_mutex_);
-      for (auto& entry : pending) dynamic_filters_.emplace_back(entry.column_index, std::move(entry.filter));
-    }
-    if (!rowVector) return std::dynamic_pointer_cast<facebook::velox::RowVector>(
-        facebook::velox::BaseVector::create(output_type_, 0, pool_));
     return applyDynamicFilters(std::move(rowVector));
   }
 
@@ -1275,19 +1259,8 @@ std::optional<facebook::velox::RowVectorPtr> PangrovaVeloxDataSource::next(
   // benefits from larger batches to amortize per-request overhead.
   batch_sizer_.adjustForIOLatency(io_elapsed_ms);
 
-  // Apply dynamic filters (runtime bloom/range filters from hash join build).
-  // First drain any externally injected filters from the PendingFilterRegistry
-  // (Java → JNI → VeloxTaskRunner path). Then apply all accumulated filters.
-  //
-  // IMPORTANT: Delete filters (position delete, equality delete, deletion
-  // vectors) MUST be applied BEFORE dynamic filters. Position delete filters
-  // use row_index_offset_ to map file-level row numbers to local vector
-  // indices — this mapping requires the vector to be the raw reader output
-  // with rows in file order. Dynamic filters produce dictionary-wrapped
-  // vectors where local indices no longer correspond to file positions.
-  //
-  // Ordering: read → delete filter → dynamic filter → post-processing.
-
+  // File positions refer to the original batch. Apply deletion before
+  // interpreting a dynamic filter on the evolved logical columns.
   // Apply Iceberg/Paimon delete filter on the raw reader output first.
   // row_index_offset_ tracks the file-level position and must advance
   // by the original batch size (before any filtering).
@@ -1320,52 +1293,7 @@ std::optional<facebook::velox::RowVectorPtr> PangrovaVeloxDataSource::next(
     row_index_offset_ += originalBatchSize;
   }
 
-  // Now apply dynamic filters on the (possibly delete-filtered) vector.
-  // Dynamic filter column indices use output_type_ which matches the raw
-  // reader schema. After delete filter compaction (dictionary wrapping),
-  // column structure is preserved — only row count changes.
-  if (!task_id_.empty() && !plan_node_id_.empty()) {
-    auto pending = PendingFilterRegistry::instance().drain(
-        task_id_, plan_node_id_);
-    if (!pending.empty()) {
-      std::lock_guard<std::mutex> lock(dynamic_filter_mutex_);
-      for (auto& entry : pending) {
-        dynamic_filters_.emplace_back(entry.column_index, std::move(entry.filter));
-      }
-
-      // L2-1: Push dynamic filters to ScanSpec for reader-level row-group
-      // skipping. This is in addition to the row-level evaluation below.
-      // The reader uses column statistics to skip entire row groups where
-      // the filter cannot match, reducing IO by 50-90%.
-      if (delete_filters_.empty() && current_scan_spec_ && velox_row_reader_ &&
-          !dynamic_filters_pushed_to_scan_) {
-        for (const auto& [colIdx, filter] : dynamic_filters_) {
-          if (colIdx < output_type_->size()) {
-            auto colName = output_type_->nameOf(colIdx);
-            auto* fieldSpec = current_scan_spec_->getOrCreateChild(
-                facebook::velox::common::Subfield(colName));
-            // Only push if the column doesn't already have a static filter
-            // (from predicate pushdown). setFilter() replaces, so we avoid
-            // clobbering the existing filter.
-            if (fieldSpec && !fieldSpec->filter()) {
-              fieldSpec->setFilter(filter);
-            }
-          }
-        }
-        velox_row_reader_->resetFilterCaches();
-        dynamic_filters_pushed_to_scan_ = true;
-      }
-    }
-  }
-  rowVector = applyDynamicFilters(rowVector);
-  if (!rowVector || rowVector->size() == 0) {
-    auto emptyVector = facebook::velox::BaseVector::create(
-        output_type_, 0, pool_);
-    return std::dynamic_pointer_cast<facebook::velox::RowVector>(
-        emptyVector);
-  }
-
-  return applyPostProcessing(std::move(rowVector));
+  return applyDynamicFilters(applyPostProcessing(std::move(rowVector)));
 #else
   // No DWIO support — signal split completion immediately.
   return facebook::velox::RowVectorPtr(nullptr);
@@ -1635,26 +1563,55 @@ void PangrovaVeloxDataSource::addDynamicFilter(
   }
   std::lock_guard<std::mutex> lock(dynamic_filter_mutex_);
   dynamic_filters_.emplace_back(outputChannel, filter);
+  has_dynamic_filters_.store(true, std::memory_order_release);
   PANGROVA_LOG_INFO << "dynamic_filter_added"
                   << " output_channel=" << outputChannel
                   << " column_name=" << output_type_->nameOf(outputChannel)
                   << " file_path=" << current_file_path_;
 }
 
+void PangrovaVeloxDataSource::receivePendingDynamicFilters() {
+  if (task_id_.empty() || plan_node_id_.empty()) return;
+  auto pending = PendingFilterRegistry::instance().readAfter(task_id_, plan_node_id_, pending_filter_cursor_);
+  if (pending.empty()) return;
+  std::lock_guard<std::mutex> lock(dynamic_filter_mutex_);
+  for (auto& entry : pending) {
+    dynamic_filters_.emplace_back(entry.column_index, std::move(entry.filter));
+  }
+  has_dynamic_filters_.store(true, std::memory_order_release);
+}
+
+void PangrovaVeloxDataSource::bindDynamicFiltersToReader(
+    facebook::velox::common::ScanSpec& scan_spec, const facebook::velox::RowTypePtr& reader_type) {
+#if PANGROVA_HAS_VELOX_DWIO
+  if (!has_dynamic_filters_.load(std::memory_order_acquire) ||
+      artifact_candidate_filter_enabled_ || !current_partition_values_.empty() ||
+      !current_column_mappings_.empty() || !current_type_promotions_.empty() ||
+      reader_type->names() != output_type_->names() || !reader_type->equivalent(*output_type_)) {
+    return;
+  }
+  std::lock_guard<std::mutex> lock(dynamic_filter_mutex_);
+  for (const auto& [column, filter] : dynamic_filters_) {
+    if (column >= output_type_->size()) continue;
+    auto* field = scan_spec.childByName(output_type_->nameOf(column));
+    if (field && !field->filter()) field->setFilter(filter);
+  }
+#endif
+}
+
 facebook::velox::RowVectorPtr PangrovaVeloxDataSource::applyDynamicFilters(
     facebook::velox::RowVectorPtr rowVector) {
+  if (!has_dynamic_filters_.load(std::memory_order_acquire)) return rowVector;
   std::vector<std::pair<facebook::velox::column_index_t,
-                        std::shared_ptr<facebook::velox::common::Filter>>>
-      filters;
+                        std::shared_ptr<facebook::velox::common::Filter>>> filters;
   {
     std::lock_guard<std::mutex> lock(dynamic_filter_mutex_);
-    if (dynamic_filters_.empty()) {
-      return rowVector;
-    }
     filters = dynamic_filters_;
   }
-  return evaluateDynamicFilters(
-      std::move(rowVector), filters, output_type_, pool_);
+  auto filtered = evaluateDynamicFilters(std::move(rowVector), filters, output_type_, pool_);
+  // An empty logical batch leaves the current split open for the next read.
+  return filtered ? filtered : std::dynamic_pointer_cast<facebook::velox::RowVector>(
+      facebook::velox::BaseVector::create(output_type_, 0, pool_));
 }
 
 void PangrovaVeloxDataSource::setCancellationToken(folly::CancellationToken token) {

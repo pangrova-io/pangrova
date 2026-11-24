@@ -236,6 +236,10 @@ int TaskExecutor::getNextBatch(
 }
 
 ExecutorState TaskExecutor::state() const { return lifecycle_.state(); }
+
+ExecutorState TaskExecutor::awaitTerminal(std::chrono::milliseconds timeout) const {
+  return lifecycle_.awaitTerminal(timeout);
+}
 std::string TaskExecutor::taskId() const { return config_.task_id; }
 
 std::string TaskExecutor::queryId() const { return config_.query_id; }
@@ -313,6 +317,12 @@ void TaskExecutor::recordExecutionError(
   lifecycle_.recordExecutionError(error);
 }
 
+void TaskExecutor::recordResultStreamFinished() {
+  if (!config_.is_result_task || !lifecycle_.finishResultStream()) {
+    throw std::logic_error("Cannot finish delivery for an inactive result task");
+  }
+}
+
 void TaskExecutor::recordResultStreamFailure(const std::string& message) {
   protocol::v2::ExecutionError error;
   error.set_error_class(protocol::v2::ERROR_CLASS_RESULT_VALIDATION);
@@ -337,12 +347,12 @@ TaskExecutor::artifactWorkReport() const {
 
 void TaskExecutor::injectDynamicFilter(
     const std::string& plan_node_id,
-    const std::string& filter_proto) {
+    const google::protobuf::RepeatedPtrField<protocol::v2::RuntimeFilter>& filters) {
   if (!execution_driver_) {
     throw std::runtime_error(
         "TaskExecutor: Native execution driver is unavailable");
   }
-  execution_driver_->injectDynamicFilter(plan_node_id, filter_proto);
+  execution_driver_->injectDynamicFilter(plan_node_id, filters);
 }
 
 void TaskExecutor::updateMemoryLimit(int64_t new_limit_bytes) {
@@ -407,31 +417,20 @@ uint64_t TaskExecutor::requestedObjectReadBytes() const {
   return execution_driver_ ? execution_driver_->requestedObjectReadBytes() : 0;
 }
 
-std::vector<uint8_t> TaskExecutor::collectTaskStats() const {
-  if (execution_driver_) {
-    auto serialized = execution_driver_->collectTaskStats();
-    if (serialized.empty()) return {};
-    protocol::v2::NativeTaskStats stats;
-    if (!serialized.empty() &&
-        !stats.ParseFromArray(
-            serialized.data(), static_cast<int>(serialized.size()))) {
-      throw std::runtime_error("Native task stats protobuf is invalid");
-    }
-    const auto cache_usage =
-        cache::SemanticResultCache::instance().taskUsage(config_.task_id);
-    stats.set_cache_hit_bytes(cache_usage.hit_bytes);
-    stats.set_cache_miss_bytes(cache_usage.miss_bytes);
-    stats.set_cache_hit_count(cache_usage.hits);
-    stats.set_cache_miss_count(cache_usage.misses);
-    stats.set_cache_eviction_count(cache_usage.evictions);
-    stats.set_cache_admission_rejection_count(
-        cache_usage.admission_rejections);
-    serialized.resize(stats.ByteSizeLong());
-    stats.SerializeToArray(
-        serialized.data(), static_cast<int>(serialized.size()));
-    return serialized;
-  }
-  return {};
+std::optional<protocol::v2::NativeTaskStats> TaskExecutor::collectTaskStats() const {
+  auto stats = execution_driver_ ? execution_driver_->collectTaskStats() : std::nullopt;
+  if (!stats) return std::nullopt;
+  if (state() != ExecutorState::FINISHED) stats->clear_build_keys();
+  const auto cache_usage =
+      cache::SemanticResultCache::instance().taskUsage(config_.task_id);
+  stats->set_cache_hit_bytes(cache_usage.hit_bytes);
+  stats->set_cache_miss_bytes(cache_usage.miss_bytes);
+  stats->set_cache_hit_count(cache_usage.hits);
+  stats->set_cache_miss_count(cache_usage.misses);
+  stats->set_cache_eviction_count(cache_usage.evictions);
+  stats->set_cache_admission_rejection_count(cache_usage.admission_rejections);
+  stats->set_shuffle_payload_bytes(router_.shufflePayloadBytes());
+  return stats;
 }
 
 bool TaskExecutor::hasFinalTaskStats() const {
@@ -443,6 +442,13 @@ velox::VeloxTaskRunner* TaskExecutor::veloxTaskRunner() const {
     return nullptr;
   }
   return execution_driver_->veloxTaskRunner();
+}
+
+void TaskExecutor::watchResultDrain(std::function<void()> listener) const {
+  if (!isResultTask() || state() != ExecutorState::FINISHED || isExecutionReleased()) {
+    throw std::logic_error("Result drain listener requires a finished, live result executor");
+  }
+  execution_driver_->watchResultDrain(std::move(listener));
 }
 
 }  // namespace pangrova::executor

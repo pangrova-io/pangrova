@@ -1,14 +1,17 @@
 package org.pangrova.coordinator.query.execution.phase;
 
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 
+import org.pangrova.common.lifecycle.ResourceCloser;
 import org.pangrova.execution.task.DispatchResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
  * Coordinates query lifecycle: ensures onQueryStart/onQueryEnd are always paired.
- * Runs the phase pipeline and guarantees cleanup via try-finally.
+ * Runs planning phases inline and observes the final phase until it settles.
  */
 public final class QueryLifecycleCoordinator {
 
@@ -29,30 +32,32 @@ public final class QueryLifecycleCoordinator {
 
     /**
      * Executes the phase pipeline with guaranteed lifecycle pairing.
-     * Returns null if no phase produces a Terminal result.
+     * Completes with null if no phase produces a terminal result.
      */
-    public DispatchResult execute(QueryExecutionContext initialContext) {
+    public CompletionStage<DispatchResult> execute(QueryExecutionContext initialContext) {
         onQueryStart.run();
         try {
-            return runPipeline(initialContext);
-        } finally {
-            onQueryEnd.run();
+            return runPipeline(initialContext).whenComplete((result, failure) ->
+                    ResourceCloser.closeAll(failure, onQueryEnd));
+        } catch (RuntimeException | Error failure) {
+            ResourceCloser.closeAll(failure, onQueryEnd);
+            throw failure;
         }
     }
 
-    private DispatchResult runPipeline(QueryExecutionContext ctx) {
+    private CompletionStage<DispatchResult> runPipeline(QueryExecutionContext ctx) {
         for (QueryExecutionPhase phase : phases) {
             PhaseResult result = phase.execute(ctx);
             if (result instanceof PhaseResult.Terminal t) {
                 LOG.debug("event=phase_terminal phase={} queryId={}",
                         phase.name(), ctx.session().queryId());
-                return t.result();
+                return t.completion();
             } else if (result instanceof PhaseResult.Continue c) {
                 ctx = c.updated();
             }
         }
         LOG.warn("event=pipeline_no_terminal queryId={} phasesExecuted={}",
                 ctx.session().queryId(), phases.size());
-        return null;
+        return CompletableFuture.completedFuture(null);
     }
 }

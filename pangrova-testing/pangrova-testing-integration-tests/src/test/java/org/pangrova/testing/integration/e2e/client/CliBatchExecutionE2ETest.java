@@ -158,6 +158,57 @@ class CliBatchExecutionE2ETest extends PangrovaE2ETestBase {
         assertSanitized(report, log, directory, invalidToken);
     }
 
+    @Test
+    void catalogProbeListsSchemasInARegisteredCatalogWithoutLocalYaml() throws Exception {
+        Path directory = Files.createDirectory(tempDir.resolve("catalog-probe-" + UUID.randomUUID()));
+        Path log = directory.resolve("probe.log");
+
+        assertThat(runCatalogProbe(directory, log, CATALOG, "e2e-user-token")).isZero();
+
+        String output = Files.readString(log);
+        assertThat(output).contains("schema_name", SCHEMA, "connection test passed");
+        assertThat(output.contains("e2e-user-token")).isFalse();
+    }
+
+    @Test
+    void catalogProbeDoesNotReportSuccessForAnUnknownCatalog() throws Exception {
+        Path directory = Files.createDirectory(tempDir.resolve("catalog-probe-" + UUID.randomUUID()));
+        Path log = directory.resolve("probe.log");
+        String missing = "missing_catalog_" + UUID.randomUUID().toString().replace("-", "");
+
+        assertThat(runCatalogProbe(directory, log, missing, "e2e-user-token")).isNotZero();
+
+        assertThat(Files.readString(log)).contains(missing).doesNotContain("connection test passed");
+    }
+
+    @Test
+    void catalogProbeFailsWithAnInvalidBearerToken() throws Exception {
+        Path directory = Files.createDirectory(tempDir.resolve("catalog-probe-" + UUID.randomUUID()));
+        Path log = directory.resolve("probe.log");
+        String invalidToken = "invalid-catalog-credential-" + UUID.randomUUID();
+
+        assertThat(runCatalogProbe(directory, log, CATALOG, invalidToken)).isNotZero();
+
+        String output = Files.readString(log);
+        assertThat(output).doesNotContain("connection test passed");
+        assertThat(output.contains(invalidToken)).isFalse();
+    }
+
+    private static int runCatalogProbe(Path config, Path log, String catalog, String token) throws Exception {
+        Path root = repositoryRoot();
+        var builder = new ProcessBuilder("bash", root.resolve("bin/pangrova.sh").toString(),
+                "catalog", "test", catalog, "--coordinator-url",
+                "http://127.0.0.1:" + coordinatorHttpServer.getPort(), "--token-env", TOKEN_VARIABLE)
+                .directory(root.toFile()).redirectErrorStream(true).redirectOutput(log.toFile());
+        builder.environment().put(TOKEN_VARIABLE, token);
+        builder.environment().put("JAVA_HOME", System.getProperty("java.home"));
+        builder.environment().put("PANGROVA_HOME", root.toString());
+        builder.environment().put("PANGROVA_CONF_DIR", config.toString());
+        Process process = builder.start();
+        process.getOutputStream().close();
+        return awaitExit(process, "catalog probe", 45);
+    }
+
     private static int runTpcProcesses(Path root, Path directory, Path report, Path log, String token)
             throws Exception {
         Path launcher = root.resolve("bin/pangrova-cli.sh");
@@ -184,15 +235,20 @@ class CliBatchExecutionE2ETest extends PangrovaE2ETestBase {
         builder.environment().remove("PANGROVA_COORDINATOR_URL");
         Process process = builder.start();
         process.getOutputStream().close();
+        return awaitExit(process, "TPC runner", 150);
+    }
+
+    private static int awaitExit(Process process, String owner, int timeoutSeconds) throws Exception {
         try {
-            assertThat(process.waitFor(150, TimeUnit.SECONDS)).as("TPC runner process completed").isTrue();
+            assertThat(process.waitFor(timeoutSeconds, TimeUnit.SECONDS))
+                    .as("%s process completed", owner).isTrue();
             return process.exitValue();
         } finally {
             if (process.isAlive()) {
                 var descendants = process.descendants().toList();
                 descendants.forEach(ProcessHandle::destroyForcibly);
                 process.destroyForcibly();
-                assertThat(process.waitFor(10, TimeUnit.SECONDS)).as("TPC runner process reaped").isTrue();
+                assertThat(process.waitFor(10, TimeUnit.SECONDS)).as("%s process reaped", owner).isTrue();
                 for (var child : descendants) {
                     child.onExit().get(10, TimeUnit.SECONDS);
                 }

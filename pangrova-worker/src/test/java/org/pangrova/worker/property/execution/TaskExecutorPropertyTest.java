@@ -10,14 +10,15 @@ import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import net.jqwik.api.Tag;
 
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.ResourceLock;
 import org.pangrova.protocol.v2.TaskReport;
+import org.pangrova.protocol.v2.TaskState;
 import org.pangrova.worker.execution.TaskExecutor;
 import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
 import org.pangrova.worker.execution.NativeTaskExecutor;
 import org.pangrova.worker.exception.JniCallException;
 import org.pangrova.worker.jni.NativeRuntime;
-import org.pangrova.worker.exception.NativeRuntimeException;
 
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
@@ -38,16 +39,27 @@ class TaskExecutorPropertyTest {
                     Map.entry("releaseTask", "nativeReleaseExecutor"),
                     Map.entry("cancelTask", "nativeCancelTask"),
                     Map.entry("executeCommand", "nativeCommand"),
-                    Map.entry("isFinished", "nativeGetTaskStatus"),
+                    Map.entry("pushExchangeChunk", "nativePushExchangeChunk"),
+                    Map.entry("isFinished", "nativeReadTaskState"),
+                    Map.entry("awaitFinished", "nativeReadTaskState"),
                     Map.entry("getTaskStatus", "nativeGetTaskStatus"),
                     Map.entry("getTaskStats", "nativeGetTaskStats"));
 
     @Property(tries = 10)
-    void createTaskEitherReturnsHandleOrThrows(@ForAll("taskRequestBytes") byte[] input) {
+    void invalidCanonicalRequestsDoNotAcquireNativeOwnership(
+            @ForAll("missingAdmissionFields") String field) {
         try (var runtime = new ActualNativeTaskFixture()) {
-            assertThatThrownBy(() -> runtime.executor().createTask(input))
+            var input = runtime.valuesRequest(false).toBuilder();
+            switch (field) {
+                case "attempt" -> input.clearAttempt();
+                case "plan" -> input.clearSubstraitPlan();
+                case "checksum" -> input.clearSubstraitPlanChecksum();
+                case "grant" -> input.clearResourceGrant();
+                default -> throw new AssertionError(field);
+            }
+            assertThatThrownBy(() -> runtime.executor().createTask(input.build()))
                     .isInstanceOf(org.pangrova.worker.exception.NativeTaskCreationFailure.class)
-                    .hasCauseInstanceOf(NativeRuntimeException.class)
+                    .hasCauseInstanceOf(IllegalArgumentException.class)
                     .satisfies(
                             failure -> {
                                 var creation =
@@ -71,10 +83,11 @@ class TaskExecutorPropertyTest {
                 var request = runtime.valuesRequest(false);
                 long handle = runtime.createPending(request);
                 handles.add(handle);
-                assertThat(
-                                TaskReport.parseFrom(NativeRuntime.nativeGetTaskStatus(handle))
-                                        .getAttempt())
-                        .isEqualTo(request.getAttempt());
+                var report = TaskReport.parseFrom(NativeRuntime.nativeGetTaskStatus(handle));
+                assertThat(report.getAttempt()).isEqualTo(request.getAttempt());
+                assertThat(report.getState()).isEqualTo(TaskState.TASK_STATE_PENDING);
+                assertThat(NativeRuntime.nativeReadTaskState(handle, 0)).isEqualTo(report.getStateValue());
+                assertThat(runtime.executor().isFinished(handle)).isFalse();
             }
             for (long handle : handles) {
                 runtime.executor().releaseTask(handle);
@@ -94,12 +107,30 @@ class TaskExecutorPropertyTest {
             assertThat(runtime.executor()).isInstanceOf(TaskExecutor.class);
             for (int index = 0; index < count; index++) {
                 long handle = runtime.createStarted(runtime.valuesRequest(false));
-                assertThat(runtime.awaitFinished(handle).getState())
-                        .isEqualTo(org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED);
+                var report = runtime.awaitFinished(handle);
+                assertThat(report.getState()).isEqualTo(TaskState.TASK_STATE_FINISHED);
+                assertThat(NativeRuntime.nativeReadTaskState(handle, 0)).isEqualTo(report.getStateValue());
+                assertThat(runtime.executor().isFinished(handle)).isTrue();
                 assertThat(runtime.executor().getTaskStats(handle)).isNotEmpty();
                 runtime.executor().releaseTask(handle);
                 assertNativeHandleGone(handle);
             }
+        }
+    }
+
+    @Test
+    void nativeStateProbeObservesCancellationAndRejectsReleasedHandles() throws Exception {
+        try (var runtime = new ActualNativeTaskFixture()) {
+            long handle = runtime.createPending(runtime.valuesRequest(false));
+            runtime.executor().cancelTask(handle);
+            var report = TaskReport.parseFrom(runtime.executor().getTaskStatus(handle));
+            assertThat(report.getState()).isEqualTo(TaskState.TASK_STATE_CANCELLED);
+            assertThat(NativeRuntime.nativeReadTaskState(handle, 50)).isEqualTo(report.getStateValue());
+            assertThat(runtime.executor().awaitFinished(handle, 50)).isTrue();
+            runtime.executor().releaseTask(handle);
+            assertThatThrownBy(() -> NativeRuntime.nativeReadTaskState(handle, 0))
+                    .isInstanceOf(JniCallException.class)
+                    .hasMessageContaining("not found");
         }
     }
 
@@ -121,8 +152,12 @@ class TaskExecutorPropertyTest {
     void taskExecutorSpiDeclaresExactlyRequiredMethods(@ForAll("spiMethodNames") String name)
             throws Exception {
         assertThat(TaskExecutor.class.getMethod(name, parameters(name)).isDefault()).isFalse();
-        assertThat(Arrays.stream(TaskExecutor.class.getDeclaredMethods()).map(Method::getName))
+        assertThat(Arrays.stream(TaskExecutor.class.getDeclaredMethods())
+                .filter(method -> !method.isDefault()).map(Method::getName))
                 .containsExactlyInAnyOrderElementsOf(SPI_TO_NATIVE_RUNTIME.keySet());
+        assertThat(Arrays.stream(TaskExecutor.class.getDeclaredMethods())
+                .filter(Method::isDefault).map(Method::getName))
+                .containsExactlyInAnyOrder("isWorkerExecuted", "getTaskCommitFragments");
     }
 
     @Property(tries = 10)
@@ -133,11 +168,13 @@ class TaskExecutorPropertyTest {
     }
 
     private static Class<?>[] parameters(String name) {
-        return name.equals("createTask")
-                ? new Class<?>[] {byte[].class}
-                : name.equals("executeCommand")
-                        ? new Class<?>[] {long.class, byte[].class}
-                        : new Class<?>[] {long.class};
+        return switch (name) {
+            case "createTask" -> new Class<?>[] {org.pangrova.protocol.v2.TaskRequest.class};
+            case "executeCommand" -> new Class<?>[] {long.class, byte[].class};
+            case "pushExchangeChunk" -> new Class<?>[] {long.class, byte[].class, byte[].class};
+            case "awaitFinished" -> new Class<?>[] {long.class, int.class};
+            default -> new Class<?>[] {long.class};
+        };
     }
 
     private static void assertNativeHandleGone(long handle) {
@@ -147,16 +184,8 @@ class TaskExecutorPropertyTest {
     }
 
     @Provide
-    Arbitrary<byte[]> taskRequestBytes() {
-        // An unterminated protobuf varint is malformed for every generated size.
-        return Arbitraries.integers()
-                .between(1, 512)
-                .map(
-                        size -> {
-                            byte[] input = new byte[size];
-                            Arrays.fill(input, (byte) 0x80);
-                            return input;
-                        });
+    Arbitrary<String> missingAdmissionFields() {
+        return Arbitraries.of("attempt", "plan", "checksum", "grant");
     }
 
     @Provide

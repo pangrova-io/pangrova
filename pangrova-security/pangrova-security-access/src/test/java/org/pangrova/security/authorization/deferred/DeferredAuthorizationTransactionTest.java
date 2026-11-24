@@ -17,6 +17,8 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -99,13 +101,42 @@ class DeferredAuthorizationTransactionTest {
             }
 
             @Override
-            public List<ColumnMask> readMasks(Connection connection, TablePermission permission, String column) {
+            public List<ColumnMask> readMasks(Connection connection, TablePermission permission) {
                 throw new AssertionError("mask read after unstable row policy");
             }
         });
         assertThatThrownBy(() -> reader.observe(borrowedConnection(), "alice", ROLES, SCOPE.permissions().get(0)))
                 .isInstanceOf(AuthorizationDeniedException.class);
         assertThat(calls).containsExactly("rows");
+    }
+
+    @Test
+    void requestedMaskColumnsShareOneReadOnTheBorrowedTransaction() throws Exception {
+        var connection = borrowedConnection();
+        var columns = Set.of("email", "phone");
+        var scope = DeferredAuthorizationScope.raw(TABLE, columns, TABLE);
+        var calls = new ArrayList<String>();
+        var reader = new DeferredPolicyReader(new CurrentPolicyReader() {
+            @Override
+            public List<RowPolicy> readRows(Connection supplied, TablePermission permission) {
+                assertThat(supplied).isSameAs(connection);
+                calls.add("rows");
+                return List.of();
+            }
+
+            @Override
+            public List<ColumnMask> readMasks(Connection supplied, TablePermission permission) {
+                assertThat(supplied).isSameAs(connection);
+                assertThat(permission.columns()).isEqualTo(columns);
+                calls.add("masks");
+                return List.of(new ColumnMask(1, "hidden", "lake", "public", "orders",
+                        "email", "NULL", List.of("reader"), List.of(), true, null));
+            }
+        });
+
+        assertThat(reader.observe(connection, "alice", ROLES, scope.permissions().get(0)).columnMasks())
+                .isEqualTo(Map.of("email", Optional.of("NULL"), "phone", Optional.empty()));
+        assertThat(calls).containsExactly("rows", "masks");
     }
 
     @Test
@@ -117,7 +148,7 @@ class DeferredAuthorizationTransactionTest {
             }
 
             @Override
-            public List<ColumnMask> readMasks(Connection connection, TablePermission permission, String column) {
+            public List<ColumnMask> readMasks(Connection connection, TablePermission permission) {
                 throw new AssertionError("mask read before subject validation");
             }
         });

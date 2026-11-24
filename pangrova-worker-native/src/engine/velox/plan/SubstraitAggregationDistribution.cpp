@@ -1,6 +1,5 @@
 #include "engine/velox/plan/VeloxPlanConverter.h"
 
-#include "velox/expression/FunctionRegistrySnapshot.h"
 #include "velox/exec/HashPartitionFunction.h"
 
 namespace pangrova::velox {
@@ -36,28 +35,23 @@ std::shared_ptr<const facebook::velox::core::PlanNode>
 VeloxPlanConverter::buildParallelAggregation(
     const std::vector<std::shared_ptr<const facebook::velox::core::FieldAccessTypedExpr>>& grouping_keys,
     const std::vector<std::shared_ptr<const facebook::velox::core::FieldAccessTypedExpr>>& pre_grouped_keys,
-    const std::vector<std::string>& aggregate_names,
-    const std::vector<facebook::velox::core::AggregationNode::Aggregate>& aggregates,
+    const PreparedAggregate& aggregate,
     std::shared_ptr<const facebook::velox::core::PlanNode> input,
     const std::vector<facebook::velox::vector_size_t>& globalGroupingSets,
     const std::optional<facebook::velox::core::FieldAccessTypedExprPtr>& groupId) {
-  // Build partial aggregates with INTERMEDIATE output types.
-  // Velox's extractAccumulators casts to RowVector — wrong type causes SIGSEGV.
+  // Partial calls publish the accumulator types bound with the raw inputs.
+  const auto& aggregates = aggregate.measures;
   std::vector<facebook::velox::core::AggregationNode::Aggregate> partialAggs;
   partialAggs.reserve(aggregates.size());
   for (size_t i = 0; i < aggregates.size(); ++i) {
-    auto pa = aggregates[i];
-    const auto resolved = function_registry_->bindAggregate(
-        aggregates[i].call->name(), aggregates[i].rawInputTypes);
-    if (!resolved) throw std::runtime_error("Parallel aggregate has no admitted raw-input signature");
-    pa.call = std::make_shared<facebook::velox::core::CallTypedExpr>(
-        resolved->intermediateType,
-        aggregates[i].call->inputs(), aggregates[i].call->name());
-    partialAggs.push_back(std::move(pa));
+    auto partial = aggregates[i];
+    partial.call = std::make_shared<facebook::velox::core::CallTypedExpr>(
+        aggregate.intermediate_types[i], partial.call->inputs(), partial.call->name());
+    partialAggs.push_back(std::move(partial));
   }
   auto partialNode = std::make_shared<facebook::velox::core::AggregationNode>(
       nextNodeId(), facebook::velox::core::AggregationNode::Step::kPartial,
-      grouping_keys, pre_grouped_keys, aggregate_names, partialAggs,
+      grouping_keys, pre_grouped_keys, aggregate.names, std::move(partialAggs),
       globalGroupingSets, groupId,
       false, false, input);
 
@@ -102,7 +96,7 @@ VeloxPlanConverter::buildParallelAggregation(
   std::vector<facebook::velox::core::FieldAccessTypedExprPtr> noPreGrouped;
   return std::make_shared<facebook::velox::core::AggregationNode>(
       nextNodeId(), facebook::velox::core::AggregationNode::Step::kFinal,
-      finalGK, noPreGrouped, aggregate_names, finalAggs, false, false, exchange);
+      finalGK, noPreGrouped, aggregate.names, std::move(finalAggs), false, false, exchange);
 }
 
 }  // namespace pangrova::velox

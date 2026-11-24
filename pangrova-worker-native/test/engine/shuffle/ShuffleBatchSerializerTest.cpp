@@ -6,6 +6,7 @@
 
 #include "TestMemoryHelper.h"
 #include "engine/shuffle/ShuffleBatchSerializer.h"
+#include "engine/shuffle/ShufflePartitionAccumulator.h"
 #include "engine/velox/plan/CanonicalPlanSchema.h"
 
 #include "velox/common/memory/Memory.h"
@@ -67,6 +68,91 @@ TEST_F(ShuffleBatchSerializerTest, SerializeDeserializeRoundTrip) {
     EXPECT_EQ(resultInt->valueAt(i), intVector->valueAt(i));
     EXPECT_EQ(resultStr->valueAt(i), strVector->valueAt(i));
   }
+}
+
+TEST_F(ShuffleBatchSerializerTest, AccumulatedSmallVectorsShareOneWirePage) {
+  ShuffleBatchSerializer writer(declaredConfig({"none", 10000}, {
+      schema::computed("id", schema::primitive("i64", substrait::Type::NULLABILITY_REQUIRED))}));
+  SerializedShuffleQueue queue(16);
+  ShufflePartitionAccumulator accumulator(2, &writer, &queue, std::chrono::milliseconds(50));
+  facebook::velox::test::VectorMaker maker(leafPool_.get());
+  const auto type = facebook::velox::ROW({"id"}, {facebook::velox::BIGINT()});
+  for (int64_t batch = 0; batch < 8; ++batch) {
+    std::vector<int64_t> values;
+    std::vector<facebook::velox::vector_size_t> selected;
+    for (int64_t row = 0; row < 32; ++row) {
+      values.push_back(batch * 32 + row);
+      if (row % 2 == 1) selected.push_back(row);
+    }
+    ASSERT_TRUE(accumulator.accumulate(1, maker.rowVector({"id"}, {maker.flatVector<int64_t>(values)}),
+        std::move(selected)));
+  }
+  ASSERT_TRUE(accumulator.flushAll(leafPool_.get()));
+
+  ShuffleBatch page;
+  size_t pages = 0;
+  size_t bytes = 0;
+  int64_t next = 1;
+  while (queue.pop(page, std::chrono::milliseconds(0)) == pangrova::executor::PopResult::DATA) {
+    ++pages;
+    bytes += page.data->computeChainDataLength();
+    ASSERT_EQ(page.partition_id, 1);
+    auto decoded = writer.deserialize(std::move(*page.data), type, leafPool_.get());
+    ASSERT_EQ(decoded->size(), page.row_count);
+    const auto* ids = decoded->childAt(0)->asFlatVector<int64_t>();
+    ASSERT_NE(ids, nullptr);
+    for (int32_t row = 0; row < decoded->size(); ++row, next += 2) {
+      EXPECT_EQ(ids->valueAt(row), next);
+    }
+  }
+  RecordProperty("wire_bytes", std::to_string(bytes));
+  EXPECT_EQ(next, 257);
+  EXPECT_EQ(pages, 1) << bytes << " wire bytes";
+}
+
+TEST_F(ShuffleBatchSerializerTest, SparseFixedWidthSelectionsShareOneWirePage) {
+  ShuffleBatchSerializer writer(declaredConfig({"none", 10000}, {
+      schema::computed("id", schema::primitive("i64", substrait::Type::NULLABILITY_REQUIRED))}));
+  SerializedShuffleQueue queue(16, 128 * 1024);
+  ShufflePartitionAccumulator accumulator(2, &writer, &queue, std::chrono::milliseconds(50));
+  facebook::velox::test::VectorMaker maker(leafPool_.get());
+  const auto type = facebook::velox::ROW({"id"}, {facebook::velox::BIGINT()});
+  constexpr int64_t kSourceRows = 16 * 1024;
+  constexpr int64_t kSelectionStep = 1024;
+  constexpr int64_t kBatches = 8;
+  for (int64_t batch = 0; batch < kBatches; ++batch) {
+    std::vector<int64_t> values(kSourceRows);
+    std::vector<facebook::velox::vector_size_t> selection;
+    for (int64_t row = 0; row < kSourceRows; ++row) {
+      values[row] = batch * kSourceRows + row;
+      if (row % kSelectionStep == 0) selection.push_back(row);
+    }
+    auto source = maker.rowVector({"id"}, {maker.flatVector<int64_t>(values)});
+    ASSERT_GT(source->estimateFlatSize(), queue.maximumPayloadBytes());
+    ASSERT_TRUE(accumulator.accumulate(1, std::move(source), std::move(selection)));
+  }
+  ASSERT_TRUE(accumulator.flushAll(leafPool_.get()));
+
+  ShuffleBatch page;
+  int64_t next = 0;
+  size_t pages = 0;
+  size_t bytes = 0;
+  while (queue.pop(page, std::chrono::milliseconds(0)) == pangrova::executor::PopResult::DATA) {
+    ++pages;
+    bytes += page.data->computeChainDataLength();
+    ASSERT_EQ(page.partition_id, 1);
+    const auto decoded = writer.deserialize(std::move(*page.data), type, leafPool_.get());
+    ASSERT_EQ(decoded->size(), page.row_count);
+    const auto* ids = decoded->childAt(0)->asFlatVector<int64_t>();
+    ASSERT_NE(ids, nullptr);
+    for (int32_t row = 0; row < decoded->size(); ++row, next += kSelectionStep) {
+      EXPECT_EQ(ids->valueAt(row), next);
+    }
+  }
+  RecordProperty("wire_pages", std::to_string(pages));
+  RecordProperty("wire_bytes", std::to_string(bytes));
+  EXPECT_EQ(next, kBatches * kSourceRows);
+  EXPECT_EQ(pages, 1) << bytes << " wire bytes";
 }
 
 TEST_F(ShuffleBatchSerializerTest, ReplicatedUnnestSourceArrayRoundTripsAcrossStage) {

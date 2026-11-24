@@ -110,7 +110,7 @@ NamedStruct set(const substrait::SetRel& relation, const std::vector<NamedStruct
   return named(output, &inputs[0].struct_());
 }
 
-NamedStruct extension(const substrait::Rel& relation) {
+NamedStruct extension(const substrait::Rel& relation, const std::vector<NamedStruct>& inputs) {
   const auto& detail = relation.has_extension_leaf() ? relation.extension_leaf().detail()
       : relation.has_extension_single() ? relation.extension_single().detail() : relation.extension_multi().detail();
   protocol::v2::RelationDetailEnvelope envelope;
@@ -127,6 +127,18 @@ NamedStruct extension(const substrait::Rel& relation) {
     case protocol::v2::RelationDetailEnvelope::kExchangeInput: result = envelope.exchange_input().output_schema(); break;
     case protocol::v2::RelationDetailEnvelope::kTableFunction: result = envelope.table_function().output_schema(); break;
     case protocol::v2::RelationDetailEnvelope::kArtifactBuild: return named({});
+    case protocol::v2::RelationDetailEnvelope::kEnforceSingleRow: {
+      if (!relation.has_extension_single() || inputs.size() != 1) {
+        throw std::invalid_argument("Single-row enforcement requires one complete input");
+      }
+      const auto& input = inputs.front();
+      auto values = fields(input);
+      const auto ordinal = envelope.enforce_single_row().input_ordinal();
+      if (ordinal >= values.size()) throw std::invalid_argument("Single-row value is outside the input schema");
+      auto selected = std::move(values[ordinal]);
+      selected.type = withNullability(std::move(selected.type), Type::NULLABILITY_NULLABLE);
+      return named({std::move(selected)}, &input.struct_());
+    }
     default: throw std::invalid_argument("Relation envelope has no canonical output schema");
   }
   fields(result);
@@ -161,7 +173,7 @@ substrait::NamedStruct direct(const substrait::Rel& relation, const std::vector<
   }
   if (relation.has_set()) return set(relation.set(), inputs);
   if (relation.has_cross()) return concatenate(inputs);
-  if (relation.has_extension_leaf() || relation.has_extension_single() || relation.has_extension_multi()) return extension(relation);
+  if (relation.has_extension_leaf() || relation.has_extension_single() || relation.has_extension_multi()) return extension(relation, inputs);
   if (relation.has_filter() || relation.has_fetch() || relation.has_sort() || relation.has_exchange()) return inputs.at(0);
   throw std::invalid_argument("Relation has no supported canonical output schema");
 }

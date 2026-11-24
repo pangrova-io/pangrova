@@ -19,6 +19,8 @@ import org.pangrova.persistence.table.api.provider.TableStores;
 import org.pangrova.table.maintenance.TableControlMaintenanceService;
 import org.pangrova.table.policy.TableControlPolicyBinder;
 import org.pangrova.table.ownership.TableControlService;
+import org.pangrova.table.api.ownership.TableControlRecord;
+import org.pangrova.table.api.ownership.TableReadOwnerStore;
 import org.pangrova.table.statistics.TableControlStatisticsService;
 import org.pangrova.metadata.api.exception.CatalogSuspendedException;
 import org.pangrova.persistence.catalog.api.catalog.CatalogDeploymentRepository;
@@ -96,7 +98,8 @@ public class CatalogRegistry implements CatalogReadAccess {
             FederationHandleFactory federationHandleFactory,
             MetadataEventDispatcher eventDispatcher) {
         this.store = store;
-        this.catalogIdentities = new CatalogDeploymentResolver(store, catalogs);
+        var identities = new CatalogDeploymentResolver(store, catalogs);
+        this.catalogIdentities = identities;
         this.connectorHandleFactory = connectorHandleFactory;
         this.federationHandleFactory = federationHandleFactory;
         this.eventDispatcher = eventDispatcher;
@@ -104,7 +107,10 @@ public class CatalogRegistry implements CatalogReadAccess {
         this.tableControl = new TableControlService(
                 stores.control(),
                 catalogIdentities,
-                org.pangrova.table.config.TableControlSettings.fromSystemProperties());
+                org.pangrova.table.config.TableControlSettings.fromSystemProperties(),
+                java.time.Clock.systemUTC(),
+                stores.control() instanceof TableReadOwnerStore joined
+                        ? expected -> identities.matchesReadOwner(joined, expected) : null);
         this.tableStatistics = new TableControlStatisticsService(this.tableControl, stores.statistics());
         this.governance = new TableControlPolicyBinder(tableControl, stores.governance());
         this.tableMaintenance = new TableControlMaintenanceService(stores.maintenance());
@@ -343,6 +349,11 @@ public class CatalogRegistry implements CatalogReadAccess {
         return governance;
     }
 
+    /** Fences an already observed PostgreSQL deployment against the serving catalog handle. */
+    public void requireLocalDeployment(org.pangrova.metadata.api.catalog.CatalogDeploymentIdentity observed) {
+        catalogIdentities.requireLocal(observed);
+    }
+
     /** Statistics collected for controlled tables, keyed by stable table ID. */
     public TableControlStatisticsService tableStatistics() {
         return tableStatistics;
@@ -504,6 +515,25 @@ public class CatalogRegistry implements CatalogReadAccess {
 
         @Override
         public CatalogDeploymentIdentity apply(String name) {
+            var local = localDescriptor(name);
+            var current = store.findCurrentDeployment(name)
+                    .orElseThrow(() -> new CatalogNotFoundException("Catalog '" + name + "' was removed"));
+            requireMatching(local, current.incarnationId(), current.revision());
+            return new CatalogDeploymentIdentity(current.incarnationId(), current.revision());
+        }
+
+        void requireLocal(org.pangrova.metadata.api.catalog.CatalogDeploymentIdentity observed) {
+            requireMatching(localDescriptor(observed.catalogName()), observed.incarnationId(), observed.revision());
+        }
+
+        boolean matchesReadOwner(TableReadOwnerStore joined, TableControlRecord expected) {
+            if (!joined.matchesCurrentReadOwner(expected)) return false;
+            requireMatching(localDescriptor(expected.catalog()),
+                    expected.catalogIncarnationId(), expected.catalogRevision());
+            return true;
+        }
+
+        private CatalogDescriptor localDescriptor(String name) {
             CatalogHandle handle = handles.get(name);
             if (handle == null) {
                 throw new CatalogNotFoundException("Catalog '" + name + "' not found");
@@ -511,15 +541,15 @@ public class CatalogRegistry implements CatalogReadAccess {
             if (handle.getState() == CatalogState.SUSPENDED) {
                 throw new CatalogSuspendedException("Catalog '" + name + "' is suspended");
             }
-            CatalogDescriptor local = handle.getDescriptor();
-            CatalogDescriptor current = store.getCatalogDescriptor(name)
-                    .orElseThrow(() -> new CatalogNotFoundException("Catalog '" + name + "' was removed"));
-            if (!current.incarnationId().equals(local.incarnationId())
-                    || current.revision() != local.revision()) {
+            return handle.getDescriptor();
+        }
+
+        private static void requireMatching(CatalogDescriptor local, String incarnation, long revision) {
+            if (!incarnation.equals(local.incarnationId()) || revision != local.revision()) {
                 throw new org.pangrova.security.api.exception.AccessDeniedException(
-                        "Catalog deployment changed for " + name + "; reload the local catalog before admission");
+                        "Catalog deployment changed for " + local.name()
+                                + "; reload the local catalog before admission");
             }
-            return new CatalogDeploymentIdentity(current.incarnationId(), current.revision());
         }
     }
 

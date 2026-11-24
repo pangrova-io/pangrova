@@ -226,7 +226,7 @@ class RbacAccessControlTest {
                 mappedRoles(java.util.Map.ofEntries(java.util.Map.entry("analyst", "analyst"), java.util.Map.entry("admin", "admin"))),
                 rlsFilter,
                 maskProcessor);
-        Optional<String> mask = ac.getColumnMask(ANALYST, "iceberg", "default", "orders", "email");
+        Optional<String> mask = ac.getColumnMasks(ANALYST, "iceberg", "default", "orders").mask("email");
         assertThat(mask).isEmpty();
     }
 }

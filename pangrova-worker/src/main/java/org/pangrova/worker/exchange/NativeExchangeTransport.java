@@ -9,20 +9,17 @@ import org.pangrova.protocol.v2.BatchChunk;
 import org.pangrova.protocol.v2.ConnectExchangeSourceRequest;
 import org.pangrova.protocol.v2.ErrorClass;
 import org.pangrova.protocol.v2.ExecutionError;
+import org.pangrova.protocol.v2.ExchangeInputBinding;
 import org.pangrova.protocol.v2.FinishExchangeSourceRequest;
 import org.pangrova.protocol.v2.NoMoreExchangeSourcesRequest;
 import org.pangrova.protocol.v2.PushExchangeBatchRequest;
 import org.pangrova.protocol.v2.RuntimeCommandType;
-import org.pangrova.shuffle.exchange.DirectExchangeTransport;
-import org.pangrova.shuffle.exchange.ExchangeEndpoint;
-import org.pangrova.shuffle.exchange.ExchangeInput;
-import org.pangrova.shuffle.api.identity.ExchangeTaskAttempt;
+import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.shuffle.exchange.ExchangeTransport;
-import org.pangrova.shuffle.exchange.ExternalShuffleTransport;
 import org.pangrova.worker.execution.TaskExecutor;
 import org.pangrova.shuffle.api.exception.ShuffleReadException;
+import org.pangrova.shuffle.nativewire.NativeExchangeAttempts;
 import org.pangrova.shuffle.nativewire.NativeShuffleReaders;
-import org.pangrova.shuffle.api.worker.ShuffleReader;
 import org.pangrova.worker.jni.NativeCommandBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,7 +35,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /** Binds canonical direct or external exchange inputs to one Native executor. */
-public final class NativeExchangeTransport implements ExchangeTransport, AutoCloseable {
+public final class NativeExchangeTransport
+        implements ExchangeTransport<TaskAttemptId, ExchangeInputBinding>, AutoCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(NativeExchangeTransport.class);
     private static final int DEFAULT_READER_THREADS = Math.max(
@@ -81,8 +79,8 @@ public final class NativeExchangeTransport implements ExchangeTransport, AutoClo
     @Override
     public void bindInputs(
             long executorHandle,
-            ExchangeTaskAttempt consumerAttempt,
-            List<ExchangeInput> inputs) {
+            TaskAttemptId consumerAttempt,
+            List<ExchangeInputBinding> inputs) {
         requireOpenHandle(executorHandle);
         checkNotNull(consumerAttempt, "consumerAttempt must not be null");
         checkNotNull(inputs, "inputs must not be null");
@@ -91,7 +89,6 @@ public final class NativeExchangeTransport implements ExchangeTransport, AutoClo
         }
         int externalCount = countExternalInputs(inputs);
         requireExternalReader(externalCount);
-        validateExternalAttempts(inputs, consumerAttempt);
         ExternalShuffleInputSession session = installSession(executorHandle, externalCount);
         try {
             try {
@@ -115,30 +112,24 @@ public final class NativeExchangeTransport implements ExchangeTransport, AutoClo
 
     private void bindAll(
             long handle,
-            ExchangeTaskAttempt attempt,
-            List<ExchangeInput> inputs,
+            TaskAttemptId attempt,
+            List<ExchangeInputBinding> inputs,
             ExternalShuffleInputSession session) {
-        List<PendingExternalInput> pending = connectInputs(
-                handle, attempt, inputs, session);
+        List<PendingExternalInput> pending = connectInputs(handle, attempt, inputs);
         sealInputs(handle, attempt, inputs);
         startExternalReaders(handle, attempt, pending, session);
     }
 
     private List<PendingExternalInput> connectInputs(
             long handle,
-            ExchangeTaskAttempt attempt,
-            List<ExchangeInput> inputs,
-            ExternalShuffleInputSession session) {
+            TaskAttemptId attempt,
+            List<ExchangeInputBinding> inputs) {
         List<PendingExternalInput> pending = new ArrayList<>();
-        for (ExchangeInput input : inputs) {
-            if (input.transport() instanceof DirectExchangeTransport direct) {
-                connectDirect(handle, attempt, input, direct);
-            } else if (input.transport() instanceof ExternalShuffleTransport external) {
-                pending.add(connectExternal(
-                        handle, attempt, input, external, session));
-            } else {
-                throw new IllegalArgumentException(
-                        "Unsupported exchange transport: " + input.transport().getClass());
+        for (ExchangeInputBinding input : inputs) {
+            switch (input.getTransportCase()) {
+                case DIRECT -> connectDirect(handle, attempt, input);
+                case EXTERNAL -> pending.add(connectExternal(handle, attempt, input));
+                default -> throw new IllegalArgumentException("Exchange input transport is required");
             }
         }
         return pending;
@@ -146,59 +137,51 @@ public final class NativeExchangeTransport implements ExchangeTransport, AutoClo
 
     private void connectDirect(
             long handle,
-            ExchangeTaskAttempt attempt,
-            ExchangeInput input,
-            DirectExchangeTransport direct) {
-        for (ExchangeEndpoint source : direct.sources()) {
-            ConnectExchangeSourceRequest payload = ConnectExchangeSourceRequest.newBuilder()
-                    .setPlanNodeId(input.planNodeId())
-                    .setExchangeId(input.exchangeId())
-                    .setDirect(ExchangeProtocolMapper.directSource(source))
-                    .build();
-            execute(handle, attempt,
-                    RuntimeCommandType.RUNTIME_COMMAND_TYPE_CONNECT_EXCHANGE_SOURCE,
-                    payload, "connect direct exchange source " + source.sourceTaskId());
+            TaskAttemptId attempt,
+            ExchangeInputBinding input) {
+        for (var source : input.getDirect().getSourcesList()) {
+            byte[] command = NativeCommandBuilder.connectDirectExchange(attempt, input, source);
+            NativeCommandBuilder.requireSuccess(taskExecutor.executeCommand(handle, command),
+                    "connect direct exchange source " + source.getSourceTaskId());
         }
     }
 
     private PendingExternalInput connectExternal(
             long handle,
-            ExchangeTaskAttempt attempt,
-            ExchangeInput input,
-            ExternalShuffleTransport external,
-            ExternalShuffleInputSession session) {
+            TaskAttemptId attempt,
+            ExchangeInputBinding input) {
+        var external = input.getExternal();
+        var partitions = readers.prepare(external, NativeExchangeAttempts.decode(attempt));
         ConnectExchangeSourceRequest payload = ConnectExchangeSourceRequest.newBuilder()
-                .setPlanNodeId(input.planNodeId())
-                .setExchangeId(input.exchangeId())
-                .setExternal(ExchangeProtocolMapper.externalInput(external))
+                .setPlanNodeId(input.getPlanNodeId())
+                .setExchangeId(input.getExchangeId())
+                .setExternal(external)
                 .build();
         execute(handle, attempt,
                 RuntimeCommandType.RUNTIME_COMMAND_TYPE_CONNECT_EXCHANGE_SOURCE,
-                payload, "connect external shuffle " + external.shuffleId());
-        var source = readers.open(payload.getExternal(), attempt);
-        session.addSource(source);
-        return new PendingExternalInput(input, source);
+                payload, "connect external shuffle " + external.getShuffleId());
+        return new PendingExternalInput(input, partitions);
     }
 
     private void sealInputs(
             long handle,
-            ExchangeTaskAttempt attempt,
-            List<ExchangeInput> inputs) {
-        for (ExchangeInput input : inputs) {
+            TaskAttemptId attempt,
+            List<ExchangeInputBinding> inputs) {
+        for (ExchangeInputBinding input : inputs) {
             NoMoreExchangeSourcesRequest payload = NoMoreExchangeSourcesRequest.newBuilder()
-                    .setPlanNodeId(input.planNodeId())
-                    .setExchangeId(input.exchangeId())
-                    .setExpectedSourcePartitions(input.expectedSourcePartitions())
+                    .setPlanNodeId(input.getPlanNodeId())
+                    .setExchangeId(input.getExchangeId())
+                    .setExpectedSourcePartitions(input.getExpectedSourcePartitions())
                     .build();
             execute(handle, attempt,
                     RuntimeCommandType.RUNTIME_COMMAND_TYPE_NO_MORE_EXCHANGE_SOURCES,
-                    payload, "seal exchange input " + input.planNodeId());
+                    payload, "seal exchange input " + input.getPlanNodeId());
         }
     }
 
     private void startExternalReaders(
             long handle,
-            ExchangeTaskAttempt attempt,
+            TaskAttemptId attempt,
             List<PendingExternalInput> pending,
             ExternalShuffleInputSession session) {
         for (PendingExternalInput input : pending) {
@@ -216,48 +199,64 @@ public final class NativeExchangeTransport implements ExchangeTransport, AutoClo
 
     private void pumpExternalInput(
             long handle,
-            ExchangeTaskAttempt attempt,
+            TaskAttemptId attempt,
             PendingExternalInput pending,
             ExternalShuffleInputSession session) {
-        try (ShuffleReader<BatchChunk> source = pending.source()) {
-            BatchChunk chunk;
-            while ((chunk = source.nextVerifiedChunk()) != null) {
-                if (session.isClosed()) {
-                    break;
+        long sequenceBase = 0;
+        var input = pending.input();
+        var publications = input.getExternal().getPublicationsList();
+        try {
+            for (int index = 0; index < publications.size() && !session.isClosed(); index++) {
+                var source = pending.partitions().open(index);
+                try (source) {
+                    session.addSource(source);
+                    BatchChunk chunk;
+                    while (!session.isClosed() && (chunk = source.nextVerifiedChunk()) != null
+                            && !session.isClosed()) {
+                        pushChunk(handle, attempt, input, chunk, sequenceBase);
+                    }
+                    if (!session.isClosed()
+                            && source.lastCompletedSequence() != publications.get(index).getLastSequence()) {
+                        throw new IllegalStateException("External shuffle partition ended before its publication");
+                    }
                 }
-                pushChunk(handle, attempt, pending.input(), chunk);
+                session.removeClosedSource(source);
+                sequenceBase = Math.addExact(sequenceBase, publications.get(index).getLastSequence() + 1);
             }
             if (!session.isClosed()) {
-                finishInput(handle, attempt, pending.input(),
-                        source.lastCompletedSequence(), null);
+                finishInput(handle, attempt, input, sequenceBase - 1, null);
             }
         } catch (RuntimeException failure) {
-            finishFailedInput(
-                    handle, attempt, pending.input(),
-                    pending.source().lastCompletedSequence(), failure, session);
+            finishFailedInput(handle, attempt, input, sequenceBase - 1, failure, session);
         }
     }
 
     private void pushChunk(
             long handle,
-            ExchangeTaskAttempt attempt,
-            ExchangeInput input,
-            BatchChunk chunk) {
+            TaskAttemptId attempt,
+            ExchangeInputBinding input,
+            BatchChunk chunk,
+            long sequenceBase) {
+        var chunkMetadata = chunk.toBuilder().clearData();
+        if (sequenceBase != 0) {
+            chunkMetadata.setBatchSequence(Math.addExact(sequenceBase, chunk.getBatchSequence()));
+        }
         PushExchangeBatchRequest payload = PushExchangeBatchRequest.newBuilder()
-                .setPlanNodeId(input.planNodeId())
-                .setExchangeId(input.exchangeId())
-                .setChunk(chunk)
+                .setPlanNodeId(input.getPlanNodeId())
+                .setExchangeId(input.getExchangeId())
+                .setChunk(chunkMetadata)
                 .build();
-        execute(handle, attempt,
+        var metadata = NativeCommandBuilder.buildCommand(
                 RuntimeCommandType.RUNTIME_COMMAND_TYPE_PUSH_EXCHANGE_BATCH,
-                payload, "push external exchange batch chunk "
-                        + chunk.getChunkIndex() + "/" + chunk.getChunkCount());
+                attempt, payload);
+        byte[] response = taskExecutor.pushExchangeChunk(handle, metadata, chunk.getData().toByteArray());
+        NativeCommandBuilder.requireSuccess(response, "push external exchange batch chunk");
     }
 
     private void finishFailedInput(
             long handle,
-            ExchangeTaskAttempt attempt,
-            ExchangeInput input,
+            TaskAttemptId attempt,
+            ExchangeInputBinding input,
             long lastSequence,
             RuntimeException failure,
             ExternalShuffleInputSession session) {
@@ -269,27 +268,27 @@ public final class NativeExchangeTransport implements ExchangeTransport, AutoClo
         } catch (RuntimeException finishFailure) {
             failure.addSuppressed(finishFailure);
             LOG.error("event=external_exchange_finish_failed executorHandle={} planNodeId={} error={}",
-                    handle, input.planNodeId(), finishFailure.getMessage(), failure);
+                    handle, input.getPlanNodeId(), finishFailure.getMessage(), failure);
             cancelNativeTask(handle, failure);
         }
     }
 
     private void finishInput(
             long handle,
-            ExchangeTaskAttempt attempt,
-            ExchangeInput input,
+            TaskAttemptId attempt,
+            ExchangeInputBinding input,
             long lastSequence,
             ExecutionError failure) {
         FinishExchangeSourceRequest.Builder payload = FinishExchangeSourceRequest.newBuilder()
-                .setPlanNodeId(input.planNodeId())
-                .setExchangeId(input.exchangeId())
+                .setPlanNodeId(input.getPlanNodeId())
+                .setExchangeId(input.getExchangeId())
                 .setLastSequence(lastSequence);
         if (failure != null) {
             payload.setFailure(failure);
         }
         execute(handle, attempt,
                 RuntimeCommandType.RUNTIME_COMMAND_TYPE_FINISH_EXCHANGE_SOURCE,
-                payload.build(), "finish external exchange source " + input.planNodeId());
+                payload.build(), "finish external exchange source " + input.getPlanNodeId());
     }
 
     private void cancelNativeTask(long handle, RuntimeException failure) {
@@ -382,21 +381,10 @@ public final class NativeExchangeTransport implements ExchangeTransport, AutoClo
         }
     }
 
-    private static int countExternalInputs(List<ExchangeInput> inputs) {
+    private static int countExternalInputs(List<ExchangeInputBinding> inputs) {
         return Math.toIntExact(inputs.stream()
-                .filter(input -> input.transport() instanceof ExternalShuffleTransport)
+                .filter(ExchangeInputBinding::hasExternal)
                 .count());
-    }
-
-    private static void validateExternalAttempts(
-            List<ExchangeInput> inputs, ExchangeTaskAttempt attempt) {
-        for (ExchangeInput input : inputs) {
-            if (input.transport() instanceof ExternalShuffleTransport external
-                    && !external.consumerAttempt().equals(attempt)) {
-                throw new IllegalArgumentException(
-                        "External shuffle consumer attempt does not match command envelope");
-            }
-        }
     }
 
     private static ExecutionError toExecutionError(RuntimeException failure) {
@@ -418,12 +406,12 @@ public final class NativeExchangeTransport implements ExchangeTransport, AutoClo
 
     private void execute(
             long executorHandle,
-            ExchangeTaskAttempt attempt,
+            TaskAttemptId attempt,
             RuntimeCommandType type,
             Message payload,
             String operation) {
         byte[] command = NativeCommandBuilder.buildCommand(
-                type, org.pangrova.shuffle.nativewire.NativeExchangeAttempts.encode(attempt), payload);
+                type, attempt, payload);
         byte[] response = taskExecutor.executeCommand(executorHandle, command);
         NativeCommandBuilder.requireSuccess(response, operation);
     }
@@ -445,6 +433,6 @@ public final class NativeExchangeTransport implements ExchangeTransport, AutoClo
     }
 
     private record PendingExternalInput(
-            ExchangeInput input, ShuffleReader<BatchChunk> source) {}
+            ExchangeInputBinding input, NativeShuffleReaders.PartitionReaders partitions) {}
 
 }

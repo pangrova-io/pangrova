@@ -3,6 +3,7 @@ package org.pangrova.persistence.indexing.api.metadata;
 import org.pangrova.common.api.annotation.Experimental;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /** Fenced writes and reads of data-file to index-artifact mappings. */
 @Experimental
@@ -44,6 +45,9 @@ public interface IndexFileMappings {
 
     /** Returns all file mappings for an index. */
     List<IndexFileMapping> getIndexFileMappings(String indexId);
+
+    /** Reads only source file paths from one exact index generation for maintenance. */
+    Set<String> getIndexedDataFilePaths(String indexId, int generation);
 
     /**
      * Batch-fetches index file mappings for multiple indexes and data file paths.

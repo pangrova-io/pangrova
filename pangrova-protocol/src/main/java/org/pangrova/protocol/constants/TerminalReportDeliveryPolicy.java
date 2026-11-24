@@ -5,7 +5,6 @@ import java.time.Duration;
 /** Finite metadata-delivery bounds; none of these durations authorize task execution. */
 public final class TerminalReportDeliveryPolicy {
     /** The exact already retired result has a separate, verified Native release receipt. */
-    public static final String RETIRED_RESULT_NOTICE = "RETIRED_RESULT_NOTICE";
     public static final int ATTEMPTS_PER_ROUND = 5;
     public static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(30);
     public static final Duration INITIAL_BACKOFF = Duration.ofSeconds(1);

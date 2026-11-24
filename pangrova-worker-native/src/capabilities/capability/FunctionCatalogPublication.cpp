@@ -4,14 +4,34 @@
 #include <utility>
 
 namespace pangrova::capability {
+namespace {
+
+auto indexAggregateRegistrations(const protocol::v2::FunctionCatalogManifest& catalogue) {
+  std::unordered_map<std::string_view, const protocol::v2::RegisteredFunctionContract*> result;
+  for (const auto& registration : catalogue.registered_functions()) {
+    if (registration.kind() == protocol::v2::FUNCTION_KIND_AGGREGATE) {
+      result.emplace(registration.implementation_name(), &registration);
+    }
+  }
+  return result;
+}
+
+}  // namespace
 
 FunctionCatalogPublication::FunctionCatalogPublication(
     std::shared_ptr<const Registry> registry,
     protocol::v2::CapabilityInventory inventory, ConstructionAuthority)
-    : registry_(std::move(registry)), inventory_(std::move(inventory)) {
+    : registry_(std::move(registry)), inventory_(std::move(inventory)),
+      aggregate_registrations_(indexAggregateRegistrations(inventory_.function_catalog())) {
   if (!registry_ || !inventory_.has_function_catalog()) {
     throw std::invalid_argument("Actual function publication requires its SDK owner and validated typed catalogue");
   }
+}
+
+const protocol::v2::RegisteredFunctionContract* FunctionCatalogPublication::aggregateRegistration(
+    std::string_view name) const {
+  const auto found = aggregate_registrations_.find(name);
+  return found == aggregate_registrations_.end() ? nullptr : found->second;
 }
 
 FunctionCatalogStartup::Registration::Registration(std::shared_ptr<State> state)

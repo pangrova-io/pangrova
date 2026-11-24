@@ -18,6 +18,8 @@ import org.pangrova.protocol.v2.ResourceUsage;
 import org.pangrova.protocol.v2.SourceSnapshotReport;
 import org.pangrova.protocol.v2.StageResourceGrant;
 import org.pangrova.protocol.v2.TaskReport;
+import org.pangrova.protocol.v2.TaskReportOrigin;
+import org.pangrova.query.api.stage.StageCompletionCallback.BuildKeyRange;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.protocol.v2.TaskState;
 
@@ -31,7 +33,7 @@ import java.util.Set;
 /** Validates the canonical v2 task report carried by the REST control channel. */
 public final class CanonicalTaskReportValidator {
 
-    private static final int MAX_STATUS_BYTES = 4 * 1024 * 1024;
+    private static final int MAX_STATUS_BYTES = TaskStatusReport.MAX_CANONICAL_BYTES;
     private static final int MAX_COVERAGE_ENTRIES =
             CanonicalTaskRequests.MAX_COVERAGE_IDENTITIES;
     private static final double COVERAGE_EPSILON = 1.0e-12;
@@ -40,18 +42,26 @@ public final class CanonicalTaskReportValidator {
     public Optional<TaskReport> validate(
             TaskStatusReport report, SubmitTaskRequest expectedRequest) {
         validateOuterIdentity(report, expectedRequest);
-        byte[] encoded = report.canonicalTaskReport();
-        if (encoded == null || encoded.length == 0) {
+        var encoded = report.canonicalEvidence();
+        if (encoded == null || encoded.isEmpty()) {
             if (isTerminalState(report.state())) {
                 throw invalid("terminal task is missing its canonical TaskReport");
             }
             return Optional.empty();
         }
-        if (encoded.length > MAX_STATUS_BYTES) {
+        if (encoded.size() > MAX_STATUS_BYTES) {
             throw invalid("TaskReport exceeds the control-plane size limit");
         }
 
-        TaskReport status = parse(encoded);
+        TaskReport status;
+        try {
+            status = report.canonicalStatus();
+        } catch (InvalidProtocolBufferException e) {
+            throw new IllegalArgumentException("Malformed canonical Native TaskReport", e);
+        }
+        if (!status.hasAttempt()) {
+            throw invalid("Native status is missing its fenced attempt identity");
+        }
         if (!status.getUnknownFields().asMap().isEmpty()) {
             throw invalid("TaskReport contains fields outside the negotiated descriptor");
         }
@@ -60,6 +70,7 @@ public final class CanonicalTaskReportValidator {
         validateOrigin(status);
         validateCoverage(status, expectedRequest);
         validateTaskUsage(status, expectedRequest);
+        validateBuildKeys(status, expectedRequest);
         GenerationTaskReportValidator.validate(status, report, expectedRequest);
         PhysicalWriteTaskReportValidator.validate(status, report, expectedRequest);
         return Optional.of(status);
@@ -72,7 +83,33 @@ public final class CanonicalTaskReportValidator {
         }
         TaskReport status = parse(encoded);
         CanonicalExecutionDrainReports.validateReceipt(status, expected);
+        validateBuildKeys(status, expected);
         return status;
+    }
+
+    private static void validateBuildKeys(TaskReport status, SubmitTaskRequest request) {
+        var stats = status.getNativeTaskStats();
+        if (!stats.hasBuildKeys()) return;
+        var summary = stats.getBuildKeys();
+        if (!request.taskRequest().hasBuildKeyOrdinal()
+                || status.getState() != TaskState.TASK_STATE_FINISHED
+                || status.getReportOrigin() != TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE
+                || !summary.getUnknownFields().asMap().isEmpty()
+                || summary.getRangesCount() > BuildKeyRange.MAX_RANGES) {
+            throw invalid("Native build key summary does not match its issued request");
+        }
+        for (int index = 0; index < summary.getRangesCount(); index++) {
+            var range = summary.getRanges(index);
+            if (!range.getUnknownFields().asMap().isEmpty() || range.getMinimum() > range.getMaximum()) {
+                throw invalid("Native build key summary contains an invalid range");
+            }
+            if (index > 0) {
+                long priorMaximum = summary.getRanges(index - 1).getMaximum();
+                if (priorMaximum == Long.MAX_VALUE || range.getMinimum() <= priorMaximum + 1) {
+                    throw invalid("Native build key ranges are not sorted and separated");
+                }
+            }
+        }
     }
 
     private static TaskReport parse(byte[] encoded) {
@@ -94,6 +131,9 @@ public final class CanonicalTaskReportValidator {
         }
         var canonical = expected.taskRequest();
         var attempt = canonical.getAttempt();
+        if (report.reportedAttempt() != null && !report.reportedAttempt().equals(attempt)) {
+            throw invalid("Reported attempt differs from the exact dispatched request");
+        }
         if (!report.taskId().equals(attempt.getTaskId())
                 || !report.queryId().equals(attempt.getQueryOrJobId())
                 || report.stageId() != attempt.getStageId()

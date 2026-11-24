@@ -13,6 +13,7 @@ import org.pangrova.query.api.enums.QueryState;
 import org.pangrova.query.api.exception.QueryRejectedException;
 import org.pangrova.query.api.submission.AsyncSubmitConfig;
 import org.pangrova.query.api.session.QuerySession;
+import org.pangrova.security.api.tenant.ResolvedTenantContext;
 
 import java.time.Duration;
 import java.util.List;
@@ -31,6 +32,7 @@ import org.slf4j.LoggerFactory;
 import org.pangrova.query.api.retention.ReaderPinLifecycle;
 import org.pangrova.query.retention.ReaderPinRenewal;
 import org.pangrova.query.lifecycle.QueryDispatchOutcome;
+import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.query.api.error.QueryFailure;
 import org.pangrova.common.client.result.ResultEndpoint;
 import org.pangrova.query.api.submission.QuerySubmissionResult;
@@ -100,8 +102,7 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
         this.terminalCleanup = new QueryTerminalCleanup(queryDispatcher, this::appendTerminalJournal,
                 this::emitTerminalEvents,
                 this::releasePhysicalQuery, nanoClock);
-        this.queryDispatcher.addExecutionDrainListener(terminalCleanup::onExecutionDrain);
-        this.queryDispatcher.addQueryOperationExitListener(terminalCleanup::onOperationExit);
+        this.queryDispatcher.addQueryDrainProgressListener(terminalCleanup::onDrainProgress);
         this.cleanupScheduler = new QueryRetentionScheduler(queries,
                 terminalCleanup::isPending, this::retryPendingTerminalCompletions);
         this.auditBridge = java.util.Objects.requireNonNull(deps.audit(), "audit");
@@ -167,7 +168,7 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
                     incrementCounter(querySubmitCounter);
                     LOG.info("event=query_submitted queryId={}", queryId);
                     auditBridge.emitAuditSubmitted(queryId, stateMachine.getSql(), submittedSession, stateMachine);
-                    admission.checkDegradation();
+                    stateMachine.acquireAdmissionHealthProbe(admission::acquireHealthProbe);
                     return executeQuery(queryId, sql, submittedSession, stateMachine);
                 } finally {
                     LogContext.restore(previousLogContext);
@@ -178,8 +179,7 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
             submissionFailure = failure;
             stateMachine.resolveOwnership(false);
             try {
-                failQuery(queryId, new QueryFailure("QUERY_SUBMISSION_FAILED", failure.getClass().getSimpleName(),
-                        String.valueOf(failure.getMessage())), "submission_failed");
+                failQuery(queryId, submissionError("QUERY_SUBMISSION_FAILED", failure), "submission_failed");
             } catch (RuntimeException | Error cleanup) {
                 if (cleanup != failure) {
                     failure.addSuppressed(cleanup);
@@ -189,6 +189,11 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
         } finally {
             finishSubmission(submission, queryId, stateMachine, submissionFailure);
         }
+    }
+
+    private static QueryFailure submissionError(String defaultCode, Throwable failure) {
+        String code = failure instanceof PangrovaException domain ? domain.getErrorCode().getCode() : defaultCode;
+        return new QueryFailure(code, failure.getClass().getSimpleName(), String.valueOf(failure.getMessage()));
     }
 
     private void finishSubmission(org.pangrova.query.api.lifecycle.QueryOperation submission,
@@ -208,10 +213,14 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
         try {
             registerJournalListener(queryId, sm);
 
-            enriched = enrichTenant(session.withQueryAuthority(sm.connectorAuthority()), sm);
+            ResolvedTenantContext tenant = tenantAdmission == null ? null
+                    : tenantAdmission.resolveTenant(session.userIdentity(), queries.states());
+            String tenantId = tenant == null ? unscopedTenantId(session) : tenant.tenantId();
+            sm.setTenantId(tenantId);
+            enriched = session.withQueryAuthority(sm.connectorAuthority()).withTenantId(tenantId);
             admission.checkThrottle(queryId, enriched);
 
-            admission.checkCluster(queryId, enriched.tenantId(), sm);
+            admission.checkCluster(queryId, tenant, sm);
 
             acquireOwnershipOrReject(queryId);
 
@@ -221,8 +230,7 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
         } catch (RuntimeException | Error failure) {
             sm.resolveOwnership(false);
             try {
-                failQuery(queryId, new QueryFailure("QUERY_ADMISSION_FAILED", failure.getClass().getSimpleName(),
-                        String.valueOf(failure.getMessage())), "admission_failed");
+                failQuery(queryId, submissionError("QUERY_ADMISSION_FAILED", failure), "admission_failed");
             } catch (RuntimeException | Error cleanupFailure) {
                 if (cleanupFailure != failure) failure.addSuppressed(cleanupFailure);
             }
@@ -237,9 +245,7 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
         try {
             result = queryDispatcher.dispatch(sm, sql, enriched);
         } catch (RuntimeException failure) {
-            failQuery(queryId, new QueryFailure(
-                    "INTERNAL_ERROR", failure.getClass().getSimpleName(),
-                    failure.getMessage()), "dispatch_failed");
+            failQuery(queryId, submissionError("INTERNAL_ERROR", failure), "dispatch_failed");
             throw failure;
         }
         applyDispatchResult(queryId, sm, result);
@@ -250,15 +256,6 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
                                                  QuerySession session, QueryStateMachine state) {
         return new QueryAsyncSubmission(queryDispatcher, asyncSubmitConfig, asyncExecutor,
                 this::failQuery, this::applyDispatchResult).execute(queryId, sql, session, state);
-    }
-
-    private QuerySession enrichTenant(
-            QuerySession session, QueryStateMachine sm) {
-        QuerySession enriched = enrichWithTenant(session);
-        if (enriched.tenantId() != null) {
-            sm.setTenantId(enriched.tenantId());
-        }
-        return enriched;
     }
 
     private void acquireOwnershipOrReject(String queryId) {
@@ -297,12 +294,8 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
         }
     }
 
-    private QuerySession enrichWithTenant(QuerySession session) {
-        String tenantId = tenantAdmission != null
-                ? tenantAdmission.resolveTenant(session.userIdentity(), queries.states())
-                : (session.tenantId() != null && !session.tenantId().isBlank()
-                        ? session.tenantId() : "default");
-        return session.withTenantId(tenantId);
+    private static String unscopedTenantId(QuerySession session) {
+        return session.tenantId() == null || session.tenantId().isBlank() ? "default" : session.tenantId();
     }
 
     public void setClusterAdmissionController(
@@ -334,6 +327,12 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
             return local;
         }
         return journalLifecycle.lookup(queryId);
+    }
+
+    /** One scoped history lookup for the explicit journal diagnostic path. */
+    public Optional<QueryState> getHistoricalQueryState(String queryId, String principal) {
+        if (principal == null || principal.isBlank()) return Optional.empty();
+        return journalLifecycle.lookupForPrincipal(queryId, principal);
     }
 
     public void setLocalCoordinatorId(String coordinatorId) {

@@ -45,7 +45,7 @@ class OutputBufferResetBetweenTasksTest {
             assertThatThrownBy(() -> runtime.executor().getTaskStatus(oldHandle))
                     .isInstanceOf(IllegalStateException.class);
             assertThat(runtime.executor().releaseTask(oldHandle)).isEmpty();
-            assertThat(first.executorReleaseReport()).isNotEmpty();
+            assertThat(first.executorReleaseReceipt().bytes().toByteArray()).isNotEmpty();
             assertThat(first.allocatedBufferMemory()).isZero();
         }
     }
@@ -65,7 +65,7 @@ class OutputBufferResetBetweenTasksTest {
             tasks.awaitState(second, TaskState.FINISHED);
             assertThat(received.rows()).isZero();
             assertThat(received.values()).isEmpty();
-            assertThat(first.terminalTaskReport()).isNotEqualTo(second.terminalTaskReport());
+            assertThat(first.terminalTaskEvidence().report()).isNotEqualTo(second.terminalTaskEvidence().report());
             assertThat(second.allocatedBufferMemory()).isZero();
         }
     }

@@ -24,12 +24,68 @@ http://<coordinator-host>:<port>/v1
 | `GET` | `/v1/query/{queryId}/state` | Get query execution state |
 | `POST` | `/v1/query/{queryId}/cancel` | Cancel a running query |
 | `GET` | `/v1/query/profile/{queryId}` | Get query flame graph (SVG) |
-| `GET` | `/v1/query/profile/{queryId}/json` | Get structured query profile (JSON); operator tree comes from real task telemetry and is empty with `telemetryAvailable=false` when none was retained |
+| `GET` | `/v1/query/profile/{queryId}/json` | Get audit totals and retained Native task-attempt counters |
 | `GET` | `/v1/health` | Health check (`503` when not ready) |
 | `POST` | `/v1/workers/register` | Worker registration (internal) |
 | `POST` | `/v1/worker/heartbeat` | Worker heartbeat (internal) |
 | `POST` | `/v1/streaming/cdc/register` | Register a CDC stream consumer (internal) |
 | `POST` | `/v1/streaming/cdc/heartbeat` | CDC stream heartbeat (internal) |
+
+### Query Profile
+
+Query profiles are scoped to the authenticated submitting principal. The Web UI lists
+that principal’s active queries. An available SVG profile requires a live local query.
+The JSON profile returns query audit timing and memory totals. Each element of `attempts`
+identifies an issued stage, partition, plan epoch, task attempt, and Worker. `reportState`
+and `reportSequence` identify the measured snapshot. The attempt includes measured output
+backpressure and per-operator counters in nanoseconds, bytes, and rows. Attempts for a
+retry and its predecessor appear separately. If the Coordinator retains no attempt
+counters, `attempts` is empty and `telemetryAvailable` is false.
+
+Each operator reports `blockedNanos` and the selected reasons
+`waitForProducerNanos`, `waitForConsumerNanos`, `waitForSplitNanos`, and
+`waitForConnectorNanos`. Velox accumulates these intervals across that
+operator's drivers. Drivers and operators can overlap, so the counters are
+distinct from query wall time. An Exchange can report split wait while it
+can still receive either an input announcement or a data page. The connector
+counter measures time awaiting a connector future. Object request latency
+and decoding time use their own measurements.
+
+`executionGraph` describes the physical Stage and Exchange topology registered by the
+owning Coordinator. It includes planned parallelism, Exchange distribution and read
+mode, and observed stage transitions with retry generation. Transition `elapsedNanos`
+uses one Coordinator monotonic clock and starts at graph registration. The graph is
+retained with the in-process telemetry and can be absent from historical profiles.
+Planned widths and observed attempt counts are separate measurements.
+`selectedAttempts` identifies physical successes accepted by a logical task slot
+and stage generation. A speculative copy can settle its original logical slot.
+The record carries both task IDs and the physical attempt’s plan epoch. It can
+include earlier stage generations from a retried query.
+
+`runtimeFilterWait` records the single cross-stage build decision before the probe
+begins enumerating splits. It identifies the build and probe stages, the probe
+generation, and the range count. The wait runs from `startedNanos` to
+`finishedNanos` on the graph's Coordinator clock. Outcomes are `APPLIED`,
+`EMPTY_BUILD`, `MISSING_SUMMARY`, `TIMED_OUT`, and `QUERY_TERMINATED`. An absent
+entry means the graph recorded no completed build wait. The interval can overlap
+Native execution and the acknowledgement of already-issued tasks.
+
+`downstreamPreparations` describes work submitted to the live read preparation
+executor. Each entry covers one executor submission, which can handle multiple
+coalesced wakeups. The `submittedNanos`, `startedNanos` and `finishedNanos`
+offsets share the graph's monotonic origin. A queued entry has only a submission
+offset. A rejected entry also has a finish offset. The other outcomes are
+`RUNNING`, `COMPLETED`, `SKIPPED` (inactive when drained), and `FAILED`.
+Queue time is the start minus submission, and execution time is the finish
+minus start. Parallel work can overlap these intervals.
+
+`stageDispatchWork` contains measured intervals for each live stage and
+generation. The phases are `SERIALIZE_PLAN`, `ENUMERATE_SPLITS`,
+`VALIDATE_AND_BIND_PLAN`, `SUBMIT_TASKS`, and `OBSERVE_COHORT_ACK`.
+The item count identifies enumerated splits or submitted task partitions as
+applicable. The ACK interval starts after submission and measures how long the
+Coordinator still waits for the cohort; it uses the same clock as the stage
+transitions. The interval reports whether the cohort acknowledged successfully.
 
 ### Submit a Query
 
@@ -71,7 +127,7 @@ A retry with the same SQL and session properties returns that receipt, including
 original state and result endpoint. Poll the state endpoint for later transitions.
 Changing the SQL or session properties with the same key returns HTTP 409. Each
 principal has an independent key space. Concurrent matching requests share the first
-submission.
+submission. Receipt expiry is processed in bounded batches during subsequent submissions.
 
 A rejection before query registration, such as a draining Coordinator, releases the
 key. If the submission throws after registration or registration cannot be confirmed,
@@ -183,13 +239,40 @@ For queries returning large result sets, the REST API returns a `result_endpoint
 
 ```
 1. POST /v1/query/submit and retain query_id.
-2. Poll /v1/query/{queryId}/state until a readable result_endpoint is available.
+2. Use the submit response if it has a readable result endpoint. Otherwise wait
+   on the accepting Coordinator for that endpoint or the terminal outcome.
 3. Consume Arrow Flight batches through EOF while the query is RUNNING or FINISHING.
-4. Confirm FINISHED; treat FAILED or CANCELLED as failure, even after partial output.
+4. Confirm FINISHED on the owner. FAILED or CANCELLED can arrive after partial output.
 5. Close the result reader and client.
 ```
 
-This architecture avoids loading entire result sets into Coordinator memory.
+The Java SDK uses `beginQuery(sql, sessionProperties)` for a query execution
+handle. Its status and cancellation requests stay on the endpoint that accepted
+the submission. `awaitStatus(target, deadlineEpochMs)` takes a
+`org.pangrova.common.enums.QueryWaitTarget` and requests that owner event. `drained` becomes true after the Coordinator records physical resource
+release.
+
+HTTP callers can use `GET /v1/query/{queryId}/state?afterVersion=0&waitMs=0`
+to read the live owner's current version. Supply a positive `waitMs` up to 5000
+and a stable UUID in `X-Pangrova-Query-Observer` to suspend the request. With
+`until=NEXT_VERSION`, supply the last observed version in `afterVersion`.
+`RESULT_OR_TERMINAL`, `TERMINAL`, and `DRAINED` wait for a readable result or
+terminal state, the logical terminal state, or physical release, respectively.
+Use `afterVersion=0` when starting a targeted wait without a prior status read.
+Timeout returns the current snapshot. The Coordinator
+allows one pending wait per observer, principal and query, with additional
+principal, tenant and process limits. A request on a different Coordinator
+receives `QUERY_OWNER_UNAVAILABLE`. Use the plain `GET /v1/query/{queryId}/state`
+for diagnostic reads. State, wait, and cancellation requests are scoped to the
+submitting principal. Historical diagnostics verify the original journal admission
+and return the recorded state with version and drain evidence omitted.
+
+Java SDK applications use `client.openResult(endpoint, deadlineEpochMs)` in
+try-with-resources. Read the schema with `columns()`, advance with `next()`,
+and read values with zero-based `value(column)`. The cursor decodes values
+from the active Flight batch and returned values can outlive the batch.
+After closing the cursor at EOF, use the query ID to confirm the terminal
+outcome before reporting success.
 
 For the Java REST client, `useTls(true)` with `trustStorePath` loads the configured
 JKS/PKCS12 trust store into the HTTPS context. A store requires HTTPS; an orphan

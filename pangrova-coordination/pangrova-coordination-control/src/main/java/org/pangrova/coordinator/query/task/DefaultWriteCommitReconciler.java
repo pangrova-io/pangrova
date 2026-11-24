@@ -101,7 +101,8 @@ public final class DefaultWriteCommitReconciler implements WriteCommitReconciler
                 confirmRecordedCopyPublication(metadata, session, handle, entry, recorded.orElseThrow());
                 return WriteRecoveryOutcome.COMMITTED;
             }
-            RequiredWritePublication.commit(journal, metadata, session, handle, entry);
+            RequiredWritePublication.commit(journal, metadata, session, handle, entry,
+                    journal.requiresPublication(entry));
             if (entry.copyFile() != null) {
                 if (!(metadata instanceof CopyFilePublicationMetadata copyMetadata)) {
                     throw new IllegalStateException("COPY target connector cannot prove snapshot publication");

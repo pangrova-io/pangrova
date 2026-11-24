@@ -16,7 +16,6 @@
 #   Arrow off-heap (MaxDMem)      16 GB   (jvm-worker.config)
 #   Velox in-memory cache          32 GB   (worker.native.cache.memory-bytes)
 #   Velox SSD cache               200 GB  (worker.native.cache.ssd-bytes)
-#   Shuffle buffer                  4 GB   (worker.shuffle.max-memory-bytes)
 #
 # All keys below are defined in WorkerOptions (pangrova-config).
 # See docs/configuration/worker.md for the full reference.
@@ -108,15 +107,6 @@ worker:
     # This can share the node's configured spill mount when sized for both quotas.
     service:
       spill-directory: "${PANGROVA_SHUFFLE_SERVICE_SPILL_DIRECTORY:-/mnt/spill/pangrova}"
-
-    # Maximum number of batches per shuffle partition buffer.
-    buffer-capacity: 500
-
-    # Total memory budget for all in-flight shuffle data.
-    max-memory-bytes: 4294967296    # 4 GB
-
-    # Spill to disk when shuffle memory usage reaches this ratio.
-    spill-threshold: 0.75
 
   # ── Spill ────────────────────────────────────────────────────
   #

@@ -11,10 +11,20 @@ import org.pangrova.scheduler.api.exception.NoAvailableWorkerException;
 /** One live DAG's placement. All stages lease data from one exact process until query cleanup. */
 public final class LocalShufflePlacement implements WorkerSelector {
     private final WorkerSelector cluster;
-    private WorkerInfo original;
+    private final LocalOwner owner;
 
     public LocalShufflePlacement(WorkerSelector cluster) {
+        this(cluster, new LocalOwner());
+    }
+
+    private LocalShufflePlacement(WorkerSelector cluster, LocalOwner owner) {
         this.cluster = Objects.requireNonNull(cluster);
+        this.owner = owner;
+    }
+
+    @Override
+    public WorkerSelector bindStagePlacement(String tenantId) {
+        return new LocalShufflePlacement(cluster.bindStagePlacement(tenantId), owner);
     }
 
     @Override
@@ -26,16 +36,18 @@ public final class LocalShufflePlacement implements WorkerSelector {
     }
 
     @Override
-    public synchronized WorkerInfo selectForBindings(String tenant, List<String> paths,
+    public WorkerInfo selectForBindings(String tenant, List<String> paths,
             List<OperatorBinding> bindings) {
-        if (original != null) return cluster.requireLocalWorker(tenant, original, bindings);
-        var selected = cluster.selectForBindings(tenant, paths, bindings);
-        if (selected.workerExecutionIdentity() == null || selected.shuffleDeployment() == null
-                || !"LOCAL".equals(selected.shuffleDeployment().mode())) {
-            throw new NoAvailableWorkerException("Local shuffle requires a Worker incarnation with Local storage");
+        synchronized (owner) {
+            if (owner.original != null) return cluster.requireLocalWorker(tenant, owner.original, bindings);
+            var selected = cluster.selectForBindings(tenant, paths, bindings);
+            if (selected.workerExecutionIdentity() == null || selected.shuffleDeployment() == null
+                    || !"LOCAL".equals(selected.shuffleDeployment().mode())) {
+                throw new NoAvailableWorkerException("Local shuffle requires a Worker incarnation with Local storage");
+            }
+            owner.original = selected;
+            return selected;
         }
-        original = selected;
-        return original;
     }
 
     @Override
@@ -55,5 +67,9 @@ public final class LocalShufflePlacement implements WorkerSelector {
     @Override
     public WorkerInfo selectExcluding(String tenant, String excluded) {
         throw new NoAvailableWorkerException("Local shuffle cannot relocate or retry the selected producer");
+    }
+
+    private static final class LocalOwner {
+        private WorkerInfo original;
     }
 }

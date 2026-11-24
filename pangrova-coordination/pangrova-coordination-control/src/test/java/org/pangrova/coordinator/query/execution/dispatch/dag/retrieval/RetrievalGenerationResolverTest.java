@@ -8,7 +8,8 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.planner.api.fragment.SerializedPlanFragment;
 import org.pangrova.planner.api.retrieval.RetrievalTopKPlanHint;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
-import org.pangrova.query.api.task.QuerySplit;
+import org.pangrova.coordinator.query.execution.split.QuerySplit;
+import org.pangrova.protocol.v2.DataSplit;
 
 import java.util.List;
 import java.util.Optional;
@@ -20,7 +21,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class RetrievalGenerationResolverTest {
     private final RetrievalGenerationResolver resolver = new RetrievalGenerationResolver(null);
     // If any path unexpectedly tries to read an artifact, decoding this sentinel fails.
-    private static final List<QuerySplit> SPLITS = List.of(new QuerySplit("must-not-decode", List.of()));
+    private static final List<QuerySplit> SPLITS = List.of(new QuerySplit(split("must-not-decode"), List.of()));
 
     @Test
     void exactRetrievalAndEmptyStageNeedNoArtifactOwner() {
@@ -63,4 +64,8 @@ class RetrievalGenerationResolverTest {
                 fullText ? BuiltInCapabilityCatalog.bm25RetrievalPlanRef() : BuiltInCapabilityCatalog.hnswRetrievalPlanRef(),
                 List.of(), 10);
     }
+    private static DataSplit split(String id) {
+        return DataSplit.newBuilder().setSplitId(id).build();
+    }
+
 }

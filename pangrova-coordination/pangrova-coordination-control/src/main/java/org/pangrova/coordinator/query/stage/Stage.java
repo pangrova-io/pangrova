@@ -5,6 +5,8 @@ import org.pangrova.query.api.enums.StageState;
 import org.pangrova.query.api.stage.StageRetryPolicy;
 import org.pangrova.query.stage.StageStateMachine;
 
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -16,6 +18,7 @@ import org.pangrova.query.api.error.QueryFailure;
 import org.pangrova.protocol.rest.shuffle.ShuffleStageStatsReport;
 import org.pangrova.shuffle.api.ShuffleHandle;
 import org.pangrova.shuffle.api.ShuffleCommitReceipt;
+import org.pangrova.query.api.stage.StageCompletionCallback.BuildKeyRange;
 import org.pangrova.shuffle.api.ShufflePublication;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -53,6 +56,7 @@ public final class Stage {
     private volatile ShuffleCommitReceipt shuffleReceipt;
     private volatile org.pangrova.protocol.v2.ExecutionOwnerIdentity shuffleExecutionOwner;
     private volatile AdaptiveDecision adaptiveDecision;
+    private volatile org.pangrova.planner.api.adaptive.CoalesceResult coalescedInputs;
 
     /** Per-task retry counters for task-level retry before stage-level retry. */
     private final ConcurrentHashMap<String, AtomicInteger> taskRetryCounters =
@@ -62,6 +66,8 @@ public final class Stage {
     private boolean clientResultPublished;
     private boolean replayUnsafeWrite;
     private boolean consumerAdmitted;
+    private List<BuildKeyRange> buildKeyRanges;
+    private int buildKeyReports;
 
     /** Pins this generation when a consumer begins to bind its issued producer records. */
     public synchronized boolean admitDownstream() {
@@ -73,6 +79,27 @@ public final class Stage {
         if (!exchangeReadyForConsumers()) return false;
         consumerAdmitted = true;
         return true;
+    }
+
+    /** Freeze the physical cohort before allocating its shuffle output or issuing any task. */
+    public synchronized void freezeCoalescedInputs(org.pangrova.planner.api.adaptive.CoalesceResult inputs) {
+        if (inputs.isCoalesced() && inputs.originalCount() != plan.parallelism()) {
+            throw new IllegalArgumentException("Coalesced inputs must cover the original stage partitions");
+        }
+        if (coalescedInputs != null && !coalescedInputs.equals(inputs)) {
+            throw new IllegalStateException("A stage retry cannot change its admitted input ranges");
+        }
+        coalescedInputs = inputs;
+    }
+
+    public java.util.List<org.pangrova.planner.api.adaptive.PartitionGroup> coalescedInputRanges() {
+        var inputs = coalescedInputs;
+        return inputs == null ? java.util.List.of() : inputs.groups();
+    }
+
+    public int physicalTaskCount() {
+        var inputs = coalescedInputs;
+        return inputs == null || !inputs.isCoalesced() ? plan.parallelism() : inputs.coalescedCount();
     }
 
     /** A client can already hold this endpoint; transparent retries cannot redirect a Flight stream. */
@@ -113,7 +140,38 @@ public final class Stage {
      * @param generation the attempt generation at dispatch time
      */
     public void onTaskFinished(String taskId, int generation) {
-        applyTaskReport(taskId, generation, true, null);
+        onTaskFinished(taskId, generation, null);
+    }
+
+    /** Merges the winning summary under the same generation fence as the terminal task. */
+    public boolean onTaskFinished(String taskId, int generation, List<BuildKeyRange> ranges) {
+        return applyTaskReport(taskId, generation, true, null, ranges);
+    }
+
+    /** Returns a bounded union for a complete cohort, or null if any summary is absent. */
+    public synchronized List<BuildKeyRange> completeBuildKeyRanges() {
+        if (!terminalDecisionClaimed || !failedTaskIds.isEmpty() || buildKeyReports != taskIds.size()) return null;
+        if (buildKeyRanges == null) return List.of();
+        if (buildKeyRanges.size() == 1) return List.of(buildKeyRanges.get(0));
+
+        buildKeyRanges.sort(Comparator.comparingLong(BuildKeyRange::minimum));
+        List<BuildKeyRange> union = new ArrayList<>(Math.min(BuildKeyRange.MAX_RANGES, buildKeyRanges.size()));
+        BuildKeyRange current = buildKeyRanges.get(0);
+        for (int index = 1; index < buildKeyRanges.size(); index++) {
+            BuildKeyRange next = buildKeyRanges.get(index);
+            if (current.maximum() == Long.MAX_VALUE || next.minimum() <= current.maximum() + 1) {
+                current = current.merge(next);
+                continue;
+            }
+            union.add(current);
+            if (union.size() == BuildKeyRange.MAX_RANGES) {
+                long maximum = buildKeyRanges.stream().mapToLong(BuildKeyRange::maximum).max().orElseThrow();
+                return List.of(new BuildKeyRange(buildKeyRanges.get(0).minimum(), maximum));
+            }
+            current = next;
+        }
+        union.add(current);
+        return List.copyOf(union);
     }
 
     /** Convenience overload for callers that do not track generation (defaults to current). */
@@ -130,22 +188,30 @@ public final class Stage {
      * @param generation the attempt generation at dispatch time
      */
     public void onTaskFailed(String taskId, QueryFailure error, int generation) {
-        applyTaskReport(taskId, generation, false, error);
+        applyTaskReport(taskId, generation, false, error, null);
     }
 
-    private void applyTaskReport(String taskId, int generation, boolean success, QueryFailure error) {
+    private boolean applyTaskReport(String taskId, int generation, boolean success, QueryFailure error,
+            List<BuildKeyRange> ranges) {
         checkNotNull(taskId, "taskId must not be null");
         boolean allSucceeded;
         synchronized (this) {
             if (generation != attemptGeneration.get() || !taskIds.contains(taskId) || terminalDecisionClaimed
-                    || finishedTaskIds.contains(taskId) || failedTaskIds.contains(taskId)) return;
+                    || finishedTaskIds.contains(taskId) || failedTaskIds.contains(taskId)) return false;
             if (success) {
                 finishedTaskIds.add(taskId);
+                if (ranges != null) {
+                    buildKeyReports++;
+                    if (!ranges.isEmpty()) {
+                        if (buildKeyRanges == null) buildKeyRanges = new ArrayList<>();
+                        buildKeyRanges.addAll(ranges);
+                    }
+                }
             } else {
                 failedTaskIds.add(taskId);
                 lastError = error;
             }
-            if (!allTasksReported()) return;
+            if (!allTasksReported()) return true;
             terminalDecisionClaimed = true;
             allSucceeded = failedTaskIds.isEmpty();
         }
@@ -155,6 +221,7 @@ public final class Stage {
         } else {
             stateMachine.tryTransitionTo(StageState.FAILED);
         }
+        return true;
     }
 
     /** Convenience overload for callers that do not track generation (defaults to current). */
@@ -175,6 +242,8 @@ public final class Stage {
         retryCount.incrementAndGet();
         attemptGeneration.incrementAndGet();
         finishedTaskIds.clear();
+        buildKeyRanges = null;
+        buildKeyReports = 0;
         failedTaskIds.clear();
         taskIds.clear();
         taskRetryCounters.clear();

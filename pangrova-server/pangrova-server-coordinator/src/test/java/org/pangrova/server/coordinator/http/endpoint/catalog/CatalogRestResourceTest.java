@@ -62,7 +62,7 @@ class CatalogRestResourceTest {
         var receiver = new TaskStatusReceiver(receiverContext);
 
         var serverContext = new CoordinatorHttpServerContext(
-                receiver, null, null, null, null, null, null, null, null, null, stubService);
+                receiver, null, null, null, null, null, null, null, null, stubService);
 
         httpServer = new CoordinatorHttpServer(0, serverContext);
         httpServer.start();

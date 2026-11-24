@@ -4,7 +4,19 @@ import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.junit.jupiter.api.TestReporter;
+import org.pangrova.connector.api.metadata.table.TableStatistics;
 import org.pangrova.coordinator.worker.WorkerInfo;
+import org.pangrova.protocol.v2.BuildKeyRange;
+import org.pangrova.protocol.v2.BuildKeySummary;
+import org.pangrova.protocol.v2.ExecutionDrainState;
+import org.pangrova.protocol.v2.OperatorStats;
+import org.pangrova.protocol.v2.TaskReport;
+import org.pangrova.protocol.v2.WorkerExecutionIdentity;
+import org.pangrova.query.profiling.OperatorStatsSource.RuntimeFilterOutcome;
+import org.pangrova.query.profiling.OperatorStatsSource.RuntimeFilterWait;
 import org.pangrova.scheduler.api.enums.HealthState;
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
@@ -14,10 +26,15 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.SQLException;
 import java.time.Duration;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.StringJoiner;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -34,6 +51,7 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
     private static Path workerLog;
     private static Path workerSpillDirectory;
     private static String orders;
+    private static String decimalOrders;
     private static String customers;
     private static String regions;
 
@@ -49,9 +67,11 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
                 CATALOG, SCHEMA, icebergWarehouse().toString())));
         String suffix = Long.toHexString(System.nanoTime());
         orders = CATALOG + "." + SCHEMA + ".two_worker_orders_" + suffix;
+        decimalOrders = CATALOG + "." + SCHEMA + ".two_worker_decimal_" + suffix;
         customers = CATALOG + "." + SCHEMA + ".two_worker_customers_" + suffix;
         regions = CATALOG + "." + SCHEMA + ".two_worker_regions_" + suffix;
         seedTablesBeforeSecondWorkerJoins();
+        seedDecimalTable();
 
         workerConfig = Files.createTempFile("pangrova-physical-worker-", ".yml");
         workerLog = Files.createTempFile("pangrova-physical-worker-", ".log");
@@ -72,6 +92,7 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
                     port: 0
                   shuffle:
                     service:
+                      spill-bytes: 268435456
                       spill-directory: "%s"
                   cdc:
                     enabled: false
@@ -146,6 +167,614 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
 
     @Test
     void joinAndGlobalTopKUseBothPhysicalWorkers() {
+        var expected = Set.of(workerManager.getWorker(WORKER_ID).workerExecutionIdentity().toProto(),
+                workerManager.getWorker(SECOND_WORKER_ID).workerExecutionIdentity().toProto());
+        var drainedWorkers = new ConcurrentHashMap<String, Set<WorkerExecutionIdentity>>();
+        var capture = new AtomicReference<>(drainedWorkers);
+        taskTracker.addExecutionDrainListener(receipt -> {
+            var targets = capture.get();
+            if (targets != null
+                    && receipt.getExecutionDrainState() == ExecutionDrainState.EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED) {
+                var attempt = receipt.getAttempt();
+                targets.computeIfAbsent(attempt.getQueryOrJobId(), ignored -> ConcurrentHashMap.newKeySet())
+                        .add(attempt.getWorkerExecutionIdentity());
+            }
+        });
+        try {
+            requireDistributedResultAndDrain(drainedWorkers, expected);
+        } finally {
+            capture.set(null);
+        }
+    }
+
+    @Test
+    void scalarAggregatesReduceOnEachScanWorkerBeforeGather() {
+        var result = executeWithScanAggregates("SELECT COUNT(*) AS total, "
+                + "COUNT(CASE WHEN score >= 40 THEN score END) AS matched, "
+                + "MIN(score) FILTER (WHERE score >= 80) AS no_match, MAX(score) AS highest FROM " + orders);
+        assertThat(result.rows()).singleElement().satisfies(row -> {
+            assertThat(row.getLong("total")).isEqualTo(80L);
+            assertThat(row.getLong("matched")).isEqualTo(40L);
+            assertThat(row.getRaw("no_match")).isNull();
+            assertThat(row.getLong("highest")).isEqualTo(79L);
+        });
+        assertThat(result.scannedRows()).isEqualTo(80);
+        assertThat(result.localAggregates()).allSatisfy(stat -> assertThat(stat.getOutputRows()).isOne());
+    }
+
+    @Test
+    void scalarSubqueryEnforcesOneRowAcrossBothPhysicalWorkers() {
+        Set<String> existing = new HashSet<>(queryManager.getStateMachines().keySet());
+        var error = sqlRunner.executeExpectingError("SELECT (SELECT score FROM " + orders
+                + " WHERE MOD(score, 50) = 0) AS amount FROM " + regions + " WHERE id = 0");
+        assertThat(error.message()).contains("Expected single row of input");
+        Set<String> issued = new HashSet<>(queryManager.getStateMachines().keySet());
+        issued.removeAll(existing);
+        assertThat(issued).hasSize(1);
+        String queryId = issued.iterator().next();
+        Awaitility.await("both physical Workers release the scalar subquery")
+                .atMost(Duration.ofSeconds(90))
+                .ignoreExceptionsInstanceOf(IllegalStateException.class)
+                .untilAsserted(() -> {
+                    taskTracker.requireQueryExecutionDrained(queryId);
+                    assertThat(queryManager.getStateMachines().get(queryId).physicalCleanupApplied()).isTrue();
+                    var profile = queryProfileService().getProfile(queryId, E2E_USER_PRINCIPAL);
+                    assertThat(profile).isPresent();
+                    var graph = profile.orElseThrow().executionGraph();
+                    assertThat(graph).isNotNull();
+                    assertThat(graph.exchanges()).isNotEmpty();
+                    assertThat(profile.orElseThrow().attempts()).extracting(attempt -> attempt.workerId())
+                            .contains(WORKER_ID, SECOND_WORKER_ID);
+                });
+        assertThat(secondWorker.isAlive()).isTrue();
+    }
+
+    @Test
+    void decimalAvgKeepsTheNativeExactScaleAcrossTwoWorkers() {
+        var result = executeWithScanAggregates(
+                "SELECT AVG(CAST(score AS DECIMAL(22,7))) AS mean, "
+                        + "AVG(CAST(score AS DECIMAL(9,2))) AS short_mean FROM " + decimalOrders, "PartialAggregation");
+        assertThat(result.scannedRows()).isEqualTo(800);
+        assertThat(result.rows()).singleElement().satisfies(row -> {
+            assertThat(row.getRaw("mean")).isEqualTo(new java.math.BigDecimal("399.5000000"));
+            assertThat(row.getRaw("short_mean")).isEqualTo(new java.math.BigDecimal("399.50"));
+        });
+    }
+
+    @Test
+    void decimalSumAndAvgShareOneTypedStageAndKeepNullableStates(TestReporter metrics) throws SQLException {
+        try (var connection = stateStoreDataSource().getConnection(); var statement = connection.createStatement()) {
+            statement.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public");
+        }
+        String catalogTemplate = "SELECT name, type, provider, state, properties, comment, allowed_tenants,"
+                + "%FROM catalog_definitions WHERE name=$1";
+        String roleTemplate = "SELECT registered.role_name FROM pangrova_roles registered%";
+        String identityTemplate = "SELECT name, incarnation_id, revision FROM catalog_definitions WHERE name=$1";
+        String tableNameTemplate = "SELECT %"
+                + "FROM table_control_registry WHERE state <>%FROM table_control_name_reservation%";
+        long tableReadsBefore = statementCalls(tableNameTemplate);
+        String joinedTemplate = "SELECT control.table_id, control.state,%"
+                + "FROM table_control_registry control LEFT JOIN catalog_definitions catalog%";
+        String fullOwnerTemplate = "SELECT table_id, catalog_name, schema_name, table_name,%"
+                + "FROM table_control_registry WHERE table_id%$1";
+        String compactOwnerTemplate = "SELECT %FROM table_control_name_reservation reservation%"
+                + "JOIN table_control_registry control%JOIN catalog_definitions catalog%";
+        long joinedBefore = statementCalls(joinedTemplate);
+        long fullOwnerBefore = statementCalls(fullOwnerTemplate);
+        long compactOwnerBefore = statementCalls(compactOwnerTemplate);
+        long identityBefore = statementCalls(identityTemplate);
+        long catalogBefore = statementCalls(catalogTemplate);
+        long rolesBefore = statementCalls(roleTemplate);
+        String sql = decimalStateSql(decimalOrders);
+        var result = executeWithScanAggregates(sql, "PartialAggregation");
+        assertThat(statementCalls(catalogTemplate) - catalogBefore)
+                .as("full catalog descriptor reads for one physical query").isZero();
+        assertThat(statementCalls(identityTemplate) - identityBefore)
+                .as("catalog deployment reads outside the table-owner checks").isOne();
+        assertThat(statementCalls(tableNameTemplate) - tableReadsBefore)
+                .as("current table name reads for one physical query").isPositive().isOne();
+        assertThat(statementCalls(joinedTemplate) - joinedBefore)
+                .as("joined policy identity reads for one physical query").isOne();
+        assertThat(statementCalls(fullOwnerTemplate) - fullOwnerBefore)
+                .as("complete table control records used for current owner checks").isZero();
+        assertThat(statementCalls(compactOwnerTemplate) - compactOwnerBefore)
+                .as("fences before and after snapshot binding and split enumeration").isEqualTo(4);
+        assertThat(statementCalls(roleTemplate) - rolesBefore)
+                .as("one effective-role lookup during protected query planning").isOne();
+        assertThat(result.scannedRows()).isEqualTo(800);
+        assertThat(result.exchangeRows()).isPositive().isLessThan(result.scannedRows());
+        assertThat(result.exchangeBytes()).isPositive();
+        assertThat(result.rows()).singleElement().satisfies(row -> {
+            assertThat(row.getRaw("total")).isEqualTo(new java.math.BigDecimal("319600.0000000"));
+            assertThat(row.getRaw("mean")).isEqualTo(new java.math.BigDecimal("1.50"));
+            assertThat(row.getRaw("empty_total")).isNull();
+        });
+        org.slf4j.LoggerFactory.getLogger(PhysicalTwoWorkerShuffleE2ETest.class).info(
+                "event=decimal_aggregate_exchange scans={} stateRows={} payloadBytes={}",
+                result.scannedRows(), result.exchangeRows(), result.exchangeBytes());
+        metrics.publishEntry(Map.of("scan_rows", Long.toString(result.scannedRows()),
+                "state_rows", Long.toString(result.exchangeRows()),
+                "shuffle_payload_bytes", Long.toString(result.exchangeBytes())));
+    }
+
+    @Test
+    void decimalAggregateKeepsRawPagesForSmallInput() {
+        var result = executeWithScanAggregates(decimalStateSql(orders), false);
+        assertThat(result.scannedRows()).isEqualTo(80);
+        assertThat(result.exchangeRows()).isEqualTo(80);
+        assertThat(result.exchangeBytes()).isPositive();
+        assertThat(result.rows()).singleElement().satisfies(row -> {
+            assertThat(row.getRaw("total")).isEqualTo(new java.math.BigDecimal("3160.0000000"));
+            assertThat(row.getRaw("mean")).isEqualTo(new java.math.BigDecimal("1.50"));
+            assertThat(row.getRaw("empty_total")).isNull();
+        });
+    }
+
+    private static long statementCalls(String template) throws SQLException {
+        try (var connection = stateStoreDataSource().getConnection(); var statement = connection.prepareStatement("""
+                SELECT COALESCE(SUM(calls), 0)
+                FROM public.pg_stat_statements
+                WHERE dbid=(SELECT oid FROM pg_database WHERE datname=current_database())
+                  AND toplevel AND query LIKE ?
+                """)) {
+            statement.setString(1, template);
+            try (var result = statement.executeQuery()) {
+                assertThat(result.next()).isTrue();
+                return result.getLong(1);
+            }
+        }
+    }
+
+    private static String decimalStateSql(String table) {
+        String decimal = "CAST(score AS DECIMAL(22,7))";
+        return "SELECT SUM(" + decimal + ") AS total, "
+                + "AVG(CAST(score AS DECIMAL(9,2))) FILTER (WHERE score < 4) AS mean, "
+                + "SUM(" + decimal + ") FILTER (WHERE score < 0) AS empty_total FROM " + table;
+    }
+
+    @Test
+    void decimalSumMergesOppositeOverflowStatesAcrossWorkers() {
+        String maximum = "99999999999999999999999999999999999999";
+        String decimal = "CASE WHEN score < 400 THEN CAST('" + maximum + "' AS DECIMAL(38,0))"
+                + " ELSE CAST('-" + maximum + "' AS DECIMAL(38,0)) END";
+        var result = executeWithScanAggregates("SELECT SUM(" + decimal + ") AS total FROM " + decimalOrders,
+                "PartialAggregation");
+        assertThat(result.scannedRows()).isEqualTo(800);
+        assertThat(result.exchangeRows()).isPositive().isLessThan(result.scannedRows());
+        assertThat(result.exchangeBytes()).isPositive();
+        assertThat(result.rows()).singleElement().satisfies(row ->
+                assertThat(row.getRaw("total")).isEqualTo(java.math.BigDecimal.ZERO));
+    }
+
+    @Test
+    void decimalAvgSupportsFiltersEmptyInputAndMixedAggregates() {
+        var result = executeWithDrainedReports("SELECT "
+                + "AVG(CAST(score AS DECIMAL(22,7))) FILTER (WHERE score < 4) AS sampled_mean, "
+                + "AVG(CAST(score AS DECIMAL(22,7))) FILTER (WHERE score < 0) AS empty_mean, "
+                + "COUNT(*) AS row_count FROM " + orders);
+        assertThat(result.rows()).singleElement().satisfies(row -> {
+            assertThat(row.getRaw("sampled_mean")).isEqualTo(new java.math.BigDecimal("1.5000000"));
+            assertThat(row.getRaw("empty_mean")).isNull();
+            assertThat(row.getRaw("row_count")).isEqualTo(80L);
+        });
+
+        var empty = executeWithDrainedReports(
+                "SELECT AVG(CAST(score AS DECIMAL(22,7))) AS mean FROM " + orders + " WHERE score < 0");
+        assertThat(empty.rows()).singleElement().satisfies(row -> assertThat(row.getRaw("mean")).isNull());
+    }
+
+    @Test
+    void observedLowCardinalityGroupsReduceBeforeHashExchange(TestReporter metrics) {
+        StringBuilder insert = new StringBuilder("INSERT INTO " + regions + " VALUES (1000, NULL)");
+        for (int row = 0; row < 80; row++) {
+            insert.append(", (").append(1001 + row).append(", 'region-").append(row % 4).append("')");
+        }
+        sqlRunner.execute(insert.toString());
+        var observed = sqlRunner.execute("SELECT COUNT(*) AS rows, COUNT(DISTINCT region) AS ndv, "
+                + "COUNT(region) AS nonnull FROM " + regions).get(0);
+        long rows = observed.getLong("rows");
+        var groups = new TableStatistics.ColumnStatistics(rows - observed.getLong("nonnull"),
+                observed.getLong("ndv"), null, null, -1);
+        var analyzed = sqlRunner.execute("ANALYZE TABLE " + regions).get(0);
+        assertThat(analyzed.getLong("row_count")).isEqualTo(rows);
+        metadataBootstrap.catalogRegistry().tableStatistics().record(CATALOG, SCHEMA,
+                regions.substring(regions.lastIndexOf('.') + 1), new TableStatistics(rows, -1, Map.of("region", groups)),
+                "ANALYZE", analyzed.getString("version_token"));
+
+        var result = executeWithScanAggregates(
+                "SELECT region, COUNT(*) AS total, MAX(id) AS highest FROM " + regions + " GROUP BY region");
+        assertThat(result.rows()).hasSize(5).allSatisfy(row -> {
+            String region = row.getString("region");
+            if (region == null) {
+                assertThat(row.getLong("total")).isEqualTo(1L);
+                assertThat(row.getLong("highest")).isEqualTo(1000L);
+            } else {
+                assertThat(row.getLong("total")).isEqualTo(40L);
+                assertThat(row.getLong("highest")).isEqualTo(1077L + Integer.parseInt(region.substring(7)));
+            }
+        });
+        long shuffledRows = result.localAggregates().stream().mapToLong(OperatorStats::getOutputRows).sum();
+        assertThat(result.scannedRows()).isEqualTo(161);
+        assertThat(shuffledRows).isBetween(5L, 5L * result.localAggregates().size()).isLessThan(result.scannedRows());
+        metrics.publishEntry(Map.of("scan_rows", Long.toString(result.scannedRows()),
+                "partial_shuffle_rows", Long.toString(shuffledRows)));
+    }
+
+    @Test
+    void observedLowCardinalityCompositeGroupsReduceBeforeHashExchange(TestReporter metrics) {
+        String table = orders + "_joint_groups";
+        sqlRunner.executeDdl("CREATE TABLE " + table + " (id BIGINT, region VARCHAR, segment VARCHAR)");
+        var regionLabels = List.of("'east'", "'east'", "'west'", "NULL");
+        var segmentLabels = List.of("'retail'", "NULL", "'retail'", "'wholesale'");
+        for (int first = 0; first < 192; first += 48) {
+            String values = java.util.stream.IntStream.range(first, first + 48)
+                    .mapToObj(id -> "(" + id + ", " + regionLabels.get(id % 4) + ", " + segmentLabels.get(id % 4) + ")")
+                    .collect(java.util.stream.Collectors.joining(", "));
+            sqlRunner.execute("INSERT INTO " + table + " VALUES " + values);
+        }
+        String sql = "SELECT region, segment, COUNT(*) AS total, MIN(id) AS lowest, MAX(id) AS highest FROM "
+                + table + " GROUP BY region, segment";
+        var raw = executeWithScanAggregates(sql, false);
+        var observed = sqlRunner.execute("SELECT COUNT(*) AS rows, COUNT(DISTINCT region) AS r_ndv, "
+                + "COUNT(region) AS r_nonnull, COUNT(DISTINCT segment) AS s_ndv, COUNT(segment) AS s_nonnull FROM "
+                + table).get(0);
+        long rows = observed.getLong("rows");
+        Map<String, TableStatistics.ColumnStatistics> columns = Map.of(
+                "region", new TableStatistics.ColumnStatistics(rows - observed.getLong("r_nonnull"),
+                        observed.getLong("r_ndv"), null, null, -1),
+                "segment", new TableStatistics.ColumnStatistics(rows - observed.getLong("s_nonnull"),
+                        observed.getLong("s_ndv"), null, null, -1));
+        var analyzed = sqlRunner.execute("ANALYZE TABLE " + table).get(0);
+        assertThat(analyzed.getLong("row_count")).isEqualTo(rows);
+        metadataBootstrap.catalogRegistry().tableStatistics().record(CATALOG, SCHEMA,
+                table.substring(table.lastIndexOf('.') + 1), new TableStatistics(rows, -1, columns),
+                "ANALYZE", analyzed.getString("version_token"));
+
+        var planned = executeWithScanAggregates(sql);
+        assertThat(planned.rows()).hasSize(4).allSatisfy(row -> {
+            int group = Math.toIntExact(row.getLong("lowest"));
+            assertThat(group).isBetween(0, 3);
+            assertThat(row.getLong("total")).isEqualTo(48L);
+            assertThat(row.getLong("highest")).isEqualTo(group + 188L);
+            assertThat(row.getString("region")).isEqualTo(group == 3 ? null : regionLabels.get(group).replace("'", ""));
+            assertThat(row.getString("segment")).isEqualTo(group == 1 ? null : segmentLabels.get(group).replace("'", ""));
+        });
+        assertThat(planned.rows()).containsExactlyInAnyOrderElementsOf(raw.rows());
+        assertThat(raw.scannedRows()).isEqualTo(192);
+        assertThat(planned.scannedRows()).isEqualTo(raw.scannedRows());
+        assertThat(raw.exchangeRows()).isEqualTo(192);
+        long aggregateRows = planned.localAggregates().stream().mapToLong(OperatorStats::getOutputRows).sum();
+        assertThat(planned.exchangeRows()).isEqualTo(aggregateRows).isBetween(4L, 16L);
+        metrics.publishEntry(Map.of("scan_rows", Long.toString(planned.scannedRows()),
+                "raw_shuffle_rows", Long.toString(raw.exchangeRows()),
+                "planned_shuffle_rows", Long.toString(planned.exchangeRows())));
+        org.slf4j.LoggerFactory.getLogger(PhysicalTwoWorkerShuffleE2ETest.class).info(
+                "event=composite_group_shuffle_rows raw={} stat_bound={} scan={}",
+                raw.exchangeRows(), planned.exchangeRows(), planned.scannedRows());
+    }
+
+    @Test
+    void completedBuildPrunesPinnedIcebergPartitionsBeforeWorkerDispatch(TestReporter metrics) {
+        String prefix = orders + "_filter";
+        String probe = prefix + "_probe";
+        String build = prefix + "_build";
+        sqlRunner.executeDdl("CREATE TABLE " + probe + " (id BIGINT, payload BIGINT) PARTITIONED BY (id)");
+        sqlRunner.executeDdl("CREATE TABLE " + build + " (id BIGINT)");
+        String values = java.util.stream.IntStream.range(0, 40)
+                .mapToObj(row -> "(" + row + ", " + (row + 100) + ")")
+                .collect(java.util.stream.Collectors.joining(", "));
+        sqlRunner.execute("INSERT INTO " + probe + " VALUES " + values);
+        sqlRunner.execute("INSERT INTO " + build + " VALUES (13), (13), (14), (NULL)");
+
+        String projected = "SELECT p.id, p.payload FROM " + probe + " p";
+        String join = " JOIN " + build + " b ON ";
+        String condition = "p.id = b.id ORDER BY p.id";
+        var unpruned = executeWithDrainedReports(projected + join + "ABS(p.id) = b.id ORDER BY p.id");
+        var pruned = executeWithDrainedReports(projected + join + condition);
+        var outer = executeWithDrainedReports(projected + " LEFT" + join + condition);
+        assertThat(pruned.rows()).extracting(row -> row.getLong("id")).containsExactly(13L, 13L, 14L);
+        assertThat(pruned.rows()).extracting(row -> row.getLong("payload")).containsExactly(113L, 113L, 114L);
+        assertThat(unpruned.rows()).usingRecursiveComparison().isEqualTo(pruned.rows());
+        assertThat(outer.rows()).hasSize(41);
+        assertThat(outer.buildSummaries()).isEmpty();
+        assertThat(outer.sourceSplits(probe)).isEqualTo(40L);
+        assertThat(unpruned.buildSummaries()).isEmpty();
+        assertThat(pruned.buildSummaries()).singleElement().satisfies(summary ->
+                assertThat(summary.getRangesList()).containsExactly(buildKeyRange(13, 14)));
+        assertThat(unpruned.sourceSplits(probe)).isEqualTo(40L);
+        assertThat(pruned.sourceSplits(probe)).isEqualTo(2L);
+        org.slf4j.LoggerFactory.getLogger(PhysicalTwoWorkerShuffleE2ETest.class).info(
+                "event=runtime_filter_probe_comparison fullSplits={} filteredSplits={} fullBytes={} filteredBytes={}",
+                unpruned.sourceSplits(probe), pruned.sourceSplits(probe),
+                unpruned.sourceReadBytes(probe), pruned.sourceReadBytes(probe));
+        assertThat(unpruned.sourceReadBytes(probe)).isGreaterThan(pruned.sourceReadBytes(probe));
+        assertThat(pruned.sourceReadBytes(probe)).isPositive();
+        metrics.publishEntry(Map.of("full_probe_splits", Long.toString(unpruned.sourceSplits(probe)),
+                "filtered_probe_splits", Long.toString(pruned.sourceSplits(probe)),
+                "full_probe_read_bytes", Long.toString(unpruned.sourceReadBytes(probe)),
+                "filtered_probe_read_bytes", Long.toString(pruned.sourceReadBytes(probe))));
+
+        String allNull = prefix + "_null_build";
+        sqlRunner.executeDdl("CREATE TABLE " + allNull + " (id BIGINT)");
+        sqlRunner.execute("INSERT INTO " + allNull + " VALUES (NULL)");
+        var empty = executeWithDrainedReports(projected + " JOIN " + allNull + " b ON " + condition);
+        assertThat(empty.rows()).isEmpty();
+        assertThat(empty.sourceSplits(probe)).isZero();
+        assertThat(empty.runtimeFilterWait()).isNotNull();
+        assertThat(empty.runtimeFilterWait().outcome()).isEqualTo(RuntimeFilterOutcome.EMPTY_BUILD);
+        assertThat(empty.runtimeFilterWait().rangeCount()).isZero();
+        assertThat(empty.buildSummaries()).singleElement().satisfies(summary ->
+                assertThat(summary.getRangesList()).isEmpty());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void separatedBuildRangesPruneOnlyMatchingProbePartitions(boolean oneBuildTask, TestReporter metrics) {
+        String suffix = oneBuildTask ? "_single_sparse" : "_multi_sparse";
+        String probe = orders + suffix + "_probe";
+        String build = orders + suffix + "_build";
+        sqlRunner.executeDdl("CREATE TABLE " + probe + " (id BIGINT, payload BIGINT) PARTITIONED BY (id)");
+        sqlRunner.executeDdl("CREATE TABLE " + build + " (id BIGINT)");
+        String values = java.util.stream.IntStream.range(0, 40)
+                .mapToObj(row -> "(" + row + ", " + (row + 100) + ")")
+                .collect(java.util.stream.Collectors.joining(", "));
+        sqlRunner.execute("INSERT INTO " + probe + " VALUES " + values);
+        String valuesBeforeGap = "(2), (2), (3)";
+        String valuesAfterGap = "(35), (36), (NULL)";
+        if (oneBuildTask) {
+            sqlRunner.execute("INSERT INTO " + build + " VALUES " + valuesBeforeGap + ", " + valuesAfterGap);
+        } else {
+            sqlRunner.execute("INSERT INTO " + build + " VALUES " + valuesBeforeGap);
+            sqlRunner.execute("INSERT INTO " + build + " VALUES " + valuesAfterGap);
+        }
+
+        String join = "SELECT p.id, p.payload FROM " + probe + " p JOIN " + build + " b ON ";
+        // Measure the pruned read before the full scan can warm its file ranges.
+        var pruned = executeWithDrainedReports(join + "p.id = b.id ORDER BY p.id");
+        var unpruned = executeWithDrainedReports(join + "ABS(p.id) = b.id ORDER BY p.id");
+        assertThat(pruned.rows()).extracting(row -> row.getLong("id")).containsExactly(2L, 2L, 3L, 35L, 36L);
+        assertThat(pruned.rows()).extracting(row -> row.getLong("payload"))
+                .containsExactly(102L, 102L, 103L, 135L, 136L);
+        assertThat(unpruned.rows()).usingRecursiveComparison().isEqualTo(pruned.rows());
+        assertThat(unpruned.buildSummaries()).isEmpty();
+        assertThat(unpruned.runtimeFilterWait()).isNull();
+        var wait = pruned.runtimeFilterWait();
+        assertThat(wait).isNotNull();
+        assertThat(wait.outcome()).isEqualTo(RuntimeFilterOutcome.APPLIED);
+        assertThat(wait.rangeCount()).isEqualTo(2);
+        assertThat(wait.buildStageId()).isNotEqualTo(wait.probeStageId());
+        assertThat(wait.finishedNanos()).isGreaterThanOrEqualTo(wait.startedNanos());
+        long waitNanos = wait.finishedNanos() - wait.startedNanos();
+        metrics.publishEntry("runtime_filter_wait_ns", Long.toString(waitNanos));
+        org.slf4j.LoggerFactory.getLogger(PhysicalTwoWorkerShuffleE2ETest.class).info(
+                "event=runtime_filter_wait_evidence oneBuildTask={} waitNanos={} fullSplits={} filteredSplits={} "
+                        + "fullBytes={} filteredBytes={}", oneBuildTask, waitNanos,
+                unpruned.sourceSplits(probe), pruned.sourceSplits(probe),
+                unpruned.sourceReadBytes(probe), pruned.sourceReadBytes(probe));
+        var lower = buildKeyRange(2, 3);
+        var upper = buildKeyRange(35, 36);
+        if (oneBuildTask) {
+            assertThat(pruned.buildSummaries()).singleElement().satisfies(summary ->
+                    assertThat(summary.getRangesList()).containsExactly(lower, upper));
+        } else {
+            assertThat(pruned.buildSummaries()).extracting(BuildKeySummary::getRangesList)
+                    .containsExactlyInAnyOrder(List.of(lower), List.of(upper));
+        }
+        long fullSplits = unpruned.sourceSplits(probe);
+        long filteredSplits = pruned.sourceSplits(probe);
+        long fullBytes = unpruned.sourceReadBytes(probe);
+        long filteredBytes = pruned.sourceReadBytes(probe);
+        org.slf4j.LoggerFactory.getLogger(PhysicalTwoWorkerShuffleE2ETest.class).info(
+                "event=sparse_build_probe oneBuildTask={} fullSplits={} filteredSplits={} fullBytes={} filteredBytes={}",
+                oneBuildTask, fullSplits, filteredSplits, fullBytes, filteredBytes);
+        metrics.publishEntry(Map.of("full_probe_splits", Long.toString(fullSplits),
+                "filtered_probe_splits", Long.toString(filteredSplits), "full_probe_read_bytes", Long.toString(fullBytes),
+                "filtered_probe_read_bytes", Long.toString(filteredBytes)));
+        assertThat(fullSplits).isEqualTo(40);
+        assertThat(filteredSplits).isEqualTo(4);
+        assertThat(filteredBytes).isPositive().isLessThan(fullBytes);
+    }
+
+    @Test
+    void directProjectionReadsOnlyRequestedColumnsInBothPhysicalWorkers(TestReporter metrics) {
+        var narrow = executeWithDrainedReports("SELECT id FROM " + orders + " ORDER BY id");
+        var wide = executeWithDrainedReports("SELECT id, score FROM " + orders + " ORDER BY id");
+
+        assertThat(narrow.rows()).extracting(row -> row.getLong("id"))
+                .containsExactlyElementsOf(wide.rows().stream().map(row -> row.getLong("id")).toList());
+        assertThat(narrow.rows()).hasSize(80);
+        assertThat(narrow.sourceSplits(orders)).isEqualTo(wide.sourceSplits(orders)).isEqualTo(8);
+        var workers = narrow.reports().stream().filter(report -> report.getCoverage().getSourceSnapshotsList()
+                .stream().anyMatch(coverage -> coverage.getSourceId().equals(orders))).toList();
+        assertThat(workers).extracting(report -> report.getAttempt().getWorkerExecutionIdentity())
+                .contains(workerManager.getWorker(WORKER_ID).workerExecutionIdentity().toProto(),
+                        workerManager.getWorker(SECOND_WORKER_ID).workerExecutionIdentity().toProto());
+        assertThat(narrow.scanOutputBytes()).isPositive().isLessThan(wide.scanOutputBytes());
+        var first = executeWithDrainedReports("SELECT id FROM " + orders + " ORDER BY id DESC LIMIT 5");
+        assertThat(first.rows()).extracting(row -> row.getLong("id")).containsExactly(79L, 78L, 77L, 76L, 75L);
+        var offset = executeWithDrainedReports("SELECT id FROM " + orders + " ORDER BY id DESC LIMIT 5 OFFSET 3");
+        assertThat(offset.rows()).extracting(row -> row.getLong("id")).containsExactly(76L, 75L, 74L, 73L, 72L);
+        metrics.publishEntry(Map.of("narrow_scan_output_bytes", Long.toString(narrow.scanOutputBytes()),
+                "wide_scan_output_bytes", Long.toString(wide.scanOutputBytes()),
+                "narrow_file_read_bytes", Long.toString(narrow.sourceReadBytes(orders)),
+                "wide_file_read_bytes", Long.toString(wide.sourceReadBytes(orders))));
+    }
+
+    @Test
+    void sparseParquetProjectionReadsOnlyItsFileRanges(TestReporter metrics) {
+        String table = orders + "_projection";
+        var definitions = new StringJoiner(", ");
+        var expression = new StringJoiner(", ");
+        definitions.add("id BIGINT");
+        expression.add("id");
+        for (int column = 0; column < 32; column++) {
+            definitions.add("data_" + column + " BIGINT");
+            expression.add("MOD(id*id*" + (104729 + column * 571)
+                    + "+id*" + (65537 + column * 983) + ",2147483647)");
+        }
+        sqlRunner.executeDdl("CREATE TABLE " + table + " (" + definitions + ")");
+        try {
+            sqlRunner.execute("INSERT INTO " + table + " SELECT " + expression
+                    + " FROM GENERATE_SERIES(1, 12000) AS s(id)");
+            sqlRunner.execute("INSERT INTO " + table + " SELECT " + expression
+                    + " FROM GENERATE_SERIES(12001, 24000) AS s(id)");
+            var narrow = executeWithDrainedReports("SELECT id FROM " + table + " ORDER BY id");
+            var wide = executeWithDrainedReports("SELECT * FROM " + table + " ORDER BY id");
+            assertThat(narrow.rows()).hasSize(24000);
+            assertThat(narrow.rows()).extracting(row -> row.getLong("id"))
+                    .containsExactlyElementsOf(wide.rows().stream().map(row -> row.getLong("id")).toList());
+            assertThat(narrow.sourceSplits(table)).isEqualTo(2).isEqualTo(wide.sourceSplits(table));
+            long narrowBytes = narrow.sourceReadBytes(table);
+            long wideBytes = wide.sourceReadBytes(table);
+            assertThat(narrowBytes).as("sparse Parquet file bytes").isPositive().isLessThan(wideBytes / 4);
+            metrics.publishEntry(Map.of("narrow_parquet_file_bytes", Long.toString(narrowBytes),
+                    "wide_parquet_file_bytes", Long.toString(wideBytes)));
+
+
+            var filtered = executeWithDrainedReports("SELECT id FROM " + table
+                    + " WHERE data_0 BETWEEN 300000000 AND 400000000 ORDER BY id");
+            assertThat(filtered.rows()).hasSize(1122).extracting(row -> row.getLong("id"))
+                    .containsExactlyElementsOf(wide.rows().stream()
+                            .filter(row -> row.getLong("data_0") >= 300000000L
+                                    && row.getLong("data_0") <= 400000000L)
+                            .map(row -> row.getLong("id")).toList());
+            assertThat(filtered.sourceSplits(table)).isEqualTo(narrow.sourceSplits(table));
+            long filteredBytes = filtered.sourceReadBytes(table);
+            assertThat(filteredBytes).as("filtered Parquet file bytes").isPositive().isLessThan(wideBytes / 4);
+            metrics.publishEntry("filtered_parquet_file_bytes", Long.toString(filteredBytes));
+        } finally {
+            sqlRunner.executeDdl("DROP TABLE " + table);
+        }
+    }
+
+    private static BuildKeyRange buildKeyRange(long minimum, long maximum) {
+        return BuildKeyRange.newBuilder().setMinimum(minimum).setMaximum(maximum).build();
+    }
+
+    private static DrainedQuery executeWithDrainedReports(String sql) {
+        var capture = new AtomicReference<>(new ConcurrentHashMap<String, TaskReport>());
+        taskTracker.addExecutionDrainListener(report -> {
+            var reports = capture.get();
+            if (reports != null && report.hasNativeTaskStats()) {
+                reports.put(report.getAttempt().getTaskId(), report);
+            }
+        });
+        var before = new HashSet<>(queryManager.getStateMachines().keySet());
+        try {
+            var rows = sqlRunner.execute(sql);
+            var issued = new HashSet<>(queryManager.getStateMachines().keySet());
+            issued.removeAll(before);
+            assertThat(issued).hasSize(1);
+            String queryId = issued.iterator().next();
+            Awaitility.await("Native execution drained").atMost(Duration.ofSeconds(30))
+                    .ignoreExceptionsInstanceOf(IllegalStateException.class).untilAsserted(() -> {
+                        taskTracker.requireQueryExecutionDrained(queryId);
+                        assertThat(queryManager.getStateMachines().get(queryId).physicalCleanupApplied()).isTrue();
+                        assertThat(queryProfileService().getProfile(queryId, E2E_USER_PRINCIPAL)).isPresent();
+                    });
+            var graph = queryProfileService().getProfile(queryId, E2E_USER_PRINCIPAL).orElseThrow()
+                    .executionGraph();
+            return new DrainedQuery(rows, capture.get().values().stream()
+                    .filter(report -> report.getAttempt().getQueryOrJobId().equals(queryId)).toList(),
+                    graph.runtimeFilterWait());
+        } finally {
+            capture.set(null);
+        }
+    }
+
+    private record DrainedQuery(List<TypedRow> rows, List<TaskReport> reports,
+            RuntimeFilterWait runtimeFilterWait) {
+        List<BuildKeySummary> buildSummaries() {
+            return reports.stream().map(TaskReport::getNativeTaskStats)
+                    .filter(org.pangrova.protocol.v2.NativeTaskStats::hasBuildKeys)
+                    .map(org.pangrova.protocol.v2.NativeTaskStats::getBuildKeys).toList();
+        }
+
+        long sourceSplits(String source) {
+            return reports.stream().flatMap(report -> report.getCoverage().getSourceSnapshotsList().stream())
+                    .filter(coverage -> coverage.getSourceId().equals(source))
+                    .mapToLong(org.pangrova.protocol.v2.SourceSnapshotReport::getCompletedWorkUnits).sum();
+        }
+
+        long scanOutputBytes() {
+            return reports.stream().flatMap(report -> report.getNativeTaskStats().getOperatorStatsList().stream())
+                    .filter(stat -> stat.getOperatorType().equals("TableScan"))
+                    .mapToLong(OperatorStats::getOutputBytes).sum();
+        }
+
+        long sourceReadBytes(String source) {
+            return reports.stream().filter(report -> report.getCoverage().getSourceSnapshotsList().stream()
+                            .anyMatch(coverage -> coverage.getSourceId().equals(source)))
+                    .mapToLong(report -> report.getUsage().getObjectStoreReadBytes()).sum();
+        }
+    }
+
+    private static ScanAggregates executeWithScanAggregates(String sql) {
+        return executeWithScanAggregates(sql, true);
+    }
+
+    private static ScanAggregates executeWithScanAggregates(String sql, boolean reduce) {
+        return executeWithScanAggregates(sql, reduce ? "Aggregation" : null);
+    }
+
+    private static ScanAggregates executeWithScanAggregates(String sql, String reductionOperator) {
+        var capture = new AtomicReference<>(new ConcurrentHashMap<String, TaskReport>());
+        taskTracker.addExecutionDrainListener(report -> {
+            var reports = capture.get();
+            if (reports != null && report.hasNativeTaskStats()) {
+                reports.put(report.getAttempt().getTaskId(), report);
+            }
+        });
+        var before = new HashSet<>(queryManager.getStateMachines().keySet());
+        try {
+            var rows = sqlRunner.execute(sql);
+            var issued = new HashSet<>(queryManager.getStateMachines().keySet());
+            issued.removeAll(before);
+            assertThat(issued).hasSize(1);
+            String queryId = issued.iterator().next();
+            var aggregateResult = new AtomicReference<ScanAggregates>();
+            Awaitility.await("Native scan and aggregation receipts").atMost(Duration.ofSeconds(30))
+                    .ignoreExceptionsInstanceOf(IllegalStateException.class)
+                    .untilAsserted(() -> {
+                        taskTracker.requireQueryExecutionDrained(queryId);
+                        var scanWorkers = capture.get().values().stream()
+                                .filter(report -> report.getAttempt().getQueryOrJobId().equals(queryId))
+                                .filter(report -> report.getNativeTaskStats().getOperatorStatsList().stream()
+                                        .anyMatch(stat -> stat.getOperatorType().equals("TableScan")))
+                                .toList();
+                        assertThat(scanWorkers).extracting(report -> report.getAttempt().getWorkerExecutionIdentity())
+                                .contains(workerManager.getWorker(WORKER_ID).workerExecutionIdentity().toProto(),
+                                        workerManager.getWorker(SECOND_WORKER_ID).workerExecutionIdentity().toProto());
+                        var scanStats = scanWorkers.stream().flatMap(report ->
+                                report.getNativeTaskStats().getOperatorStatsList().stream()).toList();
+                        long scannedRows = scanStats.stream().filter(stat -> stat.getOperatorType().equals("TableScan"))
+                                .mapToLong(OperatorStats::getOutputRows).sum();
+                        var localReductions = scanStats.stream()
+                                .filter(stat -> reductionOperator == null
+                                        ? stat.getOperatorType().equals("Aggregation")
+                                                || stat.getOperatorType().equals("PartialAggregation")
+                                        : stat.getOperatorType().equals(reductionOperator))
+                                .toList();
+                        assertThat(localReductions).hasSize(reductionOperator == null ? 0 : scanWorkers.size());
+                        long exchangeRows = scanStats.stream().filter(stat -> stat.getOperatorType().equals(
+                                "CallbackSink")).mapToLong(OperatorStats::getInputRows).sum();
+                        long exchangeBytes = scanWorkers.stream()
+                                .mapToLong(report -> report.getNativeTaskStats().getShufflePayloadBytes()).sum();
+                        aggregateResult.set(new ScanAggregates(
+                                rows, scannedRows, localReductions, exchangeRows, exchangeBytes));
+                    });
+            return aggregateResult.get();
+        } finally {
+            capture.set(null);
+        }
+    }
+
+    private record ScanAggregates(
+            List<TypedRow> rows, long scannedRows, List<OperatorStats> localAggregates,
+            long exchangeRows, long exchangeBytes) {}
+
+    private void requireDistributedResultAndDrain(Map<String, Set<WorkerExecutionIdentity>> drainedWorkers,
+            Set<WorkerExecutionIdentity> expected) {
         Set<String> before = queryManager.getStateMachines().keySet();
         String sql = "SELECT o.id, MAX(o.score) AS score, c.label, r.region FROM "
                         + orders + " o JOIN " + customers + " c ON o.id = c.id "
@@ -189,16 +818,92 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
         assertThat(queryManager.getStateMachines().get(queryId).getStageStates())
                 .as("public SQL must plan multiple distributed stages")
                 .hasSizeGreaterThanOrEqualTo(2);
-        Set<String> taskWorkers = new HashSet<>();
-        for (String taskId : taskTracker.getTaskIds(queryId)) {
-            taskWorkers.add(taskTracker.getWorkerForTask(taskId));
-        }
-        assertThat(taskWorkers).contains(WORKER_ID, SECOND_WORKER_ID);
         Awaitility.await("both physical Workers release every issued task")
                 .atMost(Duration.ofSeconds(90))
                 .pollInterval(Duration.ofMillis(100))
                 .ignoreExceptionsInstanceOf(IllegalStateException.class)
-                .untilAsserted(() -> taskTracker.requireQueryExecutionDrained(queryId));
+                .untilAsserted(() -> {
+                    taskTracker.requireQueryExecutionDrained(queryId);
+                    assertThat(drainedWorkers.getOrDefault(queryId, Set.of())).containsAll(expected);
+                    assertThat(queryManager.getStateMachines().get(queryId).physicalCleanupApplied()).isTrue();
+                    var profile = queryProfileService().getProfile(queryId, E2E_USER_PRINCIPAL);
+                    assertThat(profile).isPresent();
+                    var graph = profile.orElseThrow().executionGraph();
+                    assertThat(graph).isNotNull();
+                    assertThat(graph.exchanges()).isNotEmpty().allSatisfy(edge -> {
+                        assertThat(graph.stages()).extracting(stage -> stage.stageId())
+                                .contains(edge.producerStageId(), edge.consumerStageId());
+                        assertThat(edge.plannedPartitions()).isPositive();
+                    });
+                    assertThat(graph.transitions().stream().filter(event -> "FINISHED".equals(event.state())))
+                            .extracting(event -> event.stageId())
+                            .containsExactlyInAnyOrderElementsOf(graph.stages().stream()
+                                    .map(stage -> stage.stageId()).toList());
+                    assertThat(graph.transitions()).allSatisfy(event -> {
+                        assertThat(event.elapsedNanos()).isNotNegative();
+                        assertThat(event.generation()).isNotNegative();
+                    });
+                    assertThat(graph.downstreamPreparations()).isNotEmpty().allSatisfy(preparation -> {
+                        assertThat(preparation.startedNanos()).isGreaterThanOrEqualTo(preparation.submittedNanos());
+                        assertThat(preparation.finishedNanos()).isGreaterThanOrEqualTo(preparation.startedNanos());
+                    });
+                    assertThat(graph.downstreamPreparations()).anySatisfy(preparation ->
+                            assertThat(preparation.outcome()).isEqualTo(
+                                    org.pangrova.query.profiling.OperatorStatsSource.PreparationOutcome.COMPLETED));
+                    assertDispatchWork(graph);
+                    var attempts = profile.orElseThrow().attempts();
+                    assertThat(graph.selectedAttempts()).isNotEmpty().allSatisfy(selection ->
+                            assertThat(attempts).anySatisfy(attempt -> {
+                                assertThat(attempt.stageId()).isEqualTo(selection.stageId());
+                                assertThat(attempt.partitionId()).isEqualTo(selection.partitionId());
+                                assertThat(attempt.planEpoch()).isEqualTo(selection.planEpoch());
+                                assertThat(attempt.attemptId()).isEqualTo(selection.attemptId());
+                                assertThat(attempt.taskId()).isEqualTo(selection.taskId());
+                            }));
+                    assertThat(attempts.stream().mapToInt(attempt -> attempt.stageId()).distinct().count())
+                            .isGreaterThanOrEqualTo(2);
+                    assertThat(attempts).extracting(attempt -> attempt.workerId())
+                            .contains(WORKER_ID, SECOND_WORKER_ID);
+                    var timings = new java.util.TreeMap<String, String>();
+                    for (var interval : graph.stageDispatchWork()) {
+                        String key = "stage." + interval.stageId() + "." + interval.phase();
+                        timings.put(key + ".nanos", Long.toString(interval.finishedNanos() - interval.startedNanos()));
+                        if (interval.itemCount() != null) {
+                            timings.put(key + ".items", Integer.toString(interval.itemCount()));
+                        }
+                    }
+                    System.out.println("[E2E-DIAG] Observed stage dispatch work: " + timings);
+                });
+    }
+
+    private static void assertDispatchWork(org.pangrova.query.profiling.OperatorStatsSource.ExecutionGraph graph) {
+        var work = graph.stageDispatchWork();
+        assertThat(work).isNotEmpty().allSatisfy(interval -> {
+            assertThat(interval.startedNanos()).isNotNegative();
+            assertThat(interval.finishedNanos()).isGreaterThanOrEqualTo(interval.startedNanos());
+            assertThat(interval.successful()).isTrue();
+        });
+        for (var stage : graph.stages()) {
+            var intervals = work.stream().filter(interval -> interval.stageId() == stage.stageId()).toList();
+            assertThat(intervals).extracting(interval -> interval.phase().name()).containsExactly(
+                    "SERIALIZE_PLAN", "ENUMERATE_SPLITS", "VALIDATE_AND_BIND_PLAN", "SUBMIT_TASKS",
+                    "OBSERVE_COHORT_ACK");
+            for (int index = 1; index < intervals.size(); index++) {
+                assertThat(intervals.get(index).startedNanos()).isGreaterThanOrEqualTo(
+                        intervals.get(index - 1).finishedNanos());
+                assertThat(intervals.get(index).generation()).isEqualTo(intervals.get(0).generation());
+            }
+            assertThat(intervals.get(3).itemCount()).isPositive();
+            assertThat(intervals.get(4).itemCount()).isEqualTo(intervals.get(3).itemCount());
+            var running = graph.transitions().stream().filter(transition ->
+                    transition.stageId() == stage.stageId() && "RUNNING".equals(transition.state()))
+                    .findFirst().orElseThrow();
+            assertThat(intervals.get(4).finishedNanos()).isLessThanOrEqualTo(running.elapsedNanos());
+        }
+        assertThat(work).anySatisfy(interval -> {
+            assertThat(interval.phase().name()).isEqualTo("ENUMERATE_SPLITS");
+            assertThat(interval.itemCount()).isPositive();
+        });
     }
 
     private static void seedTablesBeforeSecondWorkerJoins() {
@@ -225,6 +930,17 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
             sqlRunner.execute(ordersInsert.toString());
             sqlRunner.execute(customersInsert.toString());
             sqlRunner.execute(regionsInsert.toString());
+        }
+    }
+
+    private static void seedDecimalTable() {
+        sqlRunner.executeDdl("CREATE TABLE " + decimalOrders + " (score BIGINT)");
+        for (int first = 0; first < 800; first += 100) {
+            var rows = new StringJoiner(",");
+            for (int score = first; score < first + 100; score++) {
+                rows.add("(" + score + ")");
+            }
+            sqlRunner.execute("INSERT INTO " + decimalOrders + " VALUES " + rows);
         }
     }
 

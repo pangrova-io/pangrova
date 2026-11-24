@@ -154,7 +154,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
             "e2e-internal-service-credential-key";
     protected static final String E2E_USER_BEARER_TOKEN = "e2e-user-token";
     protected static final String E2E_SECOND_USER_BEARER_TOKEN = "e2e-second-user-token";
-    private static final String E2E_USER_PRINCIPAL = "e2e-user";
+    protected static final String E2E_USER_PRINCIPAL = "e2e-user";
     private static final String E2E_SECOND_USER_PRINCIPAL = "e2e-second-user";
     private static final String E2E_TENANT_ID = "e2e-tenant";
     private static final long WORKER_MEMORY_BYTES = 2L * 1024 * 1024 * 1024; // 2GB — balances Velox memory needs vs OS process limits
@@ -277,6 +277,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     // Coordinator-side resources that leak HttpClient thread pools if not closed.
     private static volatile RemoteTaskDispatcher sharedTaskDispatcher;
     private static volatile QueryDispatcher sharedQueryDispatcher;
+    private static java.util.concurrent.ScheduledThreadPoolExecutor workerCleanupTimer;
     private static volatile org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher
             sharedStatementDispatcher;
     private static volatile org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher
@@ -607,6 +608,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         stopCoordinatorTransportQuietly();
         stopQuietly(coordinatorHttpServer);
         if (queryManager != null) queryManager.stopPeriodicCleanup();
+        if (sharedQueryDispatcher != null) sharedQueryDispatcher.dagEngine().close();
         stopReaderPinRenewalWorker();
         if (terminalCleanupTimer != null) terminalCleanupTimer.shutdownNow();
         if (terminalCleanupWorker != null) terminalCleanupWorker.shutdownNow();
@@ -626,6 +628,10 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
             } catch (Exception e) {
                 LOG.warn("event=task_manager_close_error error={}", e.getMessage());
             }
+        }
+        if (workerCleanupTimer != null) {
+            org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(workerCleanupTimer, 10_000);
+            workerCleanupTimer = null;
         }
         closeQuietly(coordinatorArrowAllocator, "arrow_allocator");
         closeQuietly(sharedStatusReporter, "status_reporter");
@@ -871,6 +877,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         if (queryManager != null) {
             queryManager.stopPeriodicCleanup();
         }
+        if (sharedQueryDispatcher != null) sharedQueryDispatcher.dagEngine().close();
         QueryDispatcher dispatcher = buildQueryDispatcher();
         queryManager = new QueryManager(queryManagerContext(dispatcher), java.util.Optional.of(
                 new org.pangrova.coordinator.materialization.QueryReaderPinLifecycle(readerPinLeases())));
@@ -961,8 +968,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                         workerManager,
                         null,
                         null,
-                        null,
-                        null,
+                        metadataDataSource() == null ? null : queryProfileService(),
                         metadataBootstrap.metadataService(),
                         E2E_INTERNAL_AUTH_SECRET,
                         () -> requireE2ECoordination().getCurrentEpoch()));
@@ -1516,7 +1522,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
      * <p>This follows the industry-standard pattern used by Trino, Dremio, and
      * Spark Connect for server-streaming RPCs.</p>
      */
-    private static final long FLIGHT_BATCH_IDLE_TIMEOUT_SECONDS = 60;
+    private static final long FLIGHT_BATCH_IDLE_TIMEOUT_SECONDS =
+            org.pangrova.transport.client.FlightResultFetcher.BATCH_IDLE_TIMEOUT_SECONDS;
 
     /**
      * Daemon-thread executor for async {@code stream.next()} calls.
@@ -1543,7 +1550,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
      * This means:</p>
      * <ul>
      *   <li>Large result sets that continuously produce batches — never timeout</li>
-     *   <li>Stuck tasks that stop producing data — detected within 60s</li>
+     *   <li>Stuck tasks that stop producing data — detected within the production client idle window</li>
      * </ul>
      *
      * <h4>Retry strategy</h4>
@@ -1556,9 +1563,9 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
      *
      * <h4>Cleanup (F-DOGET-03)</h4>
      * <p>On final failure, cancels the native task via WorkerTaskManager and
-     * always releases the task executor to prevent resource leaks
-     * (stuck result tasks hold folly threads and native memory pools
-     * indefinitely because PartitionedOutputNode waits for DoGet).</p>
+     * releases the task executor after its ready messages and reader have
+     * drained. A full byte window suspends the producer until Flight returns
+     * credit or the task is cancelled.</p>
      */
     protected static List<TypedRow> fetchResultsViaFlight(
             ResultEndpoint endpoint, String queryId, CoordinatorTaskTracker tracker) {
@@ -2139,6 +2146,11 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         TaskManager manager = new TaskManager(deps, WORKER_ID, 0.0, workerAdmissionIncarnation);
         manager.requireControlEpochHandshake();
         manager.observeControlEpoch(requireE2ECoordination().getCurrentEpoch());
+        workerCleanupTimer = (java.util.concurrent.ScheduledThreadPoolExecutor)
+                org.pangrova.common.concurrent.ManagedExecutorFactory.newSingleThreadScheduledExecutor(
+                        "e2e-worker-task-cleanup");
+        workerCleanupTimer.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
+        manager.startPeriodicCleanup(workerCleanupTimer, Duration.ofMinutes(5), Duration.ofSeconds(1));
         return manager;
     }
 
@@ -2197,14 +2209,13 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 E2E_INTERNAL_AUTH_SECRET, "grpc").withBindHost(IN_PROCESS_WORKER_HOST);
         closeQuietly(fileSpaceAccessors, "file_space_accessors");
         fileSpaceAccessors = org.pangrova.worker.file.ObjectStoreAccessorFactory.discover();
-        var catalogs = java.util.Objects.requireNonNull(sharedWorkerCatalogRuntime, "Worker catalog runtime");
         WorkerHttpServer server = new WorkerHttpServer(
                 httpConfig, taskManager, exchangeTransport, healthEndpoint,
-                new org.pangrova.worker.dataset.NativeDatasetControlService(taskManager, catalogs),
+                new org.pangrova.worker.dataset.NativeDatasetControlService(taskManager,
+                        java.util.Objects.requireNonNull(sharedWorkerCatalogRuntime, "Worker catalog runtime")),
                 java.util.Objects.requireNonNull(sharedResultReadTickets, "Worker result signing authority"),
                 null, new org.pangrova.worker.file.FileSpaceFileResource(
-                        fileSpaceAccessors, E2E_INTERNAL_AUTH_SECRET, event -> {}),
-                new org.pangrova.worker.http.endpoint.ReclusterStageResource(catalogs));
+                        fileSpaceAccessors, E2E_INTERNAL_AUTH_SECRET, event -> {}));
         startServerOrFail(server);
         sharedWorkerHttpPort = server.getPort();
         return server;
@@ -2224,7 +2235,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                     if (qd == null) {
                         throw new IllegalStateException("QueryDispatcher not initialized");
                     }
-                    return qd.executeDmlStatement(sm, stmt, session);
+                    return qd.startDmlStatement(sm, stmt, session);
                 };
         // Build CoordinatorResultService BEFORE StatementDispatcher so DDL/metadata
         // results (SHOW INDEXES, DESCRIBE, etc.) are buffered and returned to clients.
@@ -2263,7 +2274,6 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         registerDurableMaterializationTasks();
         var indexAwareSplitFetcher = registerIndexHandlers(statementDispatcher);
         SqlCompiler compiler = buildSqlCompiler();
-        statementDispatcher.updateCompiler(compiler);
         closeQuietly(sharedTaskDispatcher, "task_dispatcher");
         RemoteTaskDispatcher httpDispatcher = createE2ETaskDispatcher();
         sharedTaskDispatcher = httpDispatcher;
@@ -2277,15 +2287,16 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         var deps = new QueryDispatcherContext(new org.pangrova.shuffle.skew.MedianSkewDetector(),
                 compiler, security, scheduling,
                 metadataBootstrap.catalogRegistry(), null, 0L,
-                null, null, null, null, null, null, null, indexAwareSplitFetcher, embeddingRegistry,
+                null, null, null, null, null, null, indexAwareSplitFetcher, embeddingRegistry,
                 new org.pangrova.generation.publication.read.PublishedGenerationBindingResolver(
                         sharedArtifactBuildStore),
                 new org.pangrova.coordinator.generation.read.GeneratedValueReadResolver(
-                        metadataBootstrap.catalogRegistry(), sharedArtifactBuildStore,
+                        sharedArtifactBuildStore,
                         ModelAuthorityFixtures.artifacts().generatedPublications(stateStoreDataSource)));
         var queryDispatcher = new QueryDispatcher(
                 deps, statementDispatcher, null, sharedWriteAuthoritySupplier);
         queryDispatcher.setWriteCommitTracker(writeCommitTracker);
+        queryDispatcher.dagEngine().setOperatorStatsRegistry(OPERATOR_STATS);
         sharedQueryDispatcher = queryDispatcher;
         wireE2EOwnership(queryDispatcher);
         queryDispatcherRef.set(queryDispatcher);
@@ -2480,7 +2491,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
             org.pangrova.coordinator.task.CoordinatorTaskTracker tt,
             org.pangrova.coordinator.result.CoordinatorResultService resultSvc,
             org.pangrova.ai.control.embedding.EmbeddingModelRegistry embeddingRegistry,
-            WorkerManager workers) {
+            WorkerManager embeddingWorkers) {
         var catalog = metadataBootstrap.catalogRegistry();
         var ddlExecutor = new org.pangrova.coordinator.query.statement.DdlExecutor(catalog, null,
                 org.pangrova.planner.metadata.catalog.MetadataSchemaBuilder::invalidateTableCaches);
@@ -2496,8 +2507,6 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 catalog, maintenancePolicyService,
                 new org.pangrova.persistence.coordination.postgresql.lease.JdbcDistributedLease(stateStoreDataSource),
                 E2E_COORDINATOR_ID, new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory());
-        controlledMaintenance.setReclusterDispatcher(new org.pangrova.coordinator.clustering.WorkerReclusterDispatcher(
-                workers::getActiveWorkers, E2E_INTERNAL_AUTH_SECRET));
         var maintenanceExecutor = new org.pangrova.coordinator.query.statement.MaintenanceExecutor(
                 controlledMaintenance);
         ddlExecutor.setMaintenancePolicyService(maintenancePolicyService);
@@ -2547,15 +2556,6 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 new org.pangrova.coordinator.query.execution.dispatch.task.VacuumTask(maintenanceExecutor));
         tasks.put(org.pangrova.parser.api.ast.statement.maintenance.OptimizeStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.OptimizeTask(maintenanceExecutor));
-        tasks.put(org.pangrova.parser.api.ast.statement.SetClusteringOrderStatement.class,
-                new org.pangrova.coordinator.query.execution.dispatch.task.SetClusteringOrderTask(
-                        controlledMaintenance::setClusteringOrder));
-        tasks.put(org.pangrova.parser.api.ast.statement.ReclusterTableStatement.class,
-                new org.pangrova.coordinator.query.execution.dispatch.task.ReclusterTableTask(
-                        controlledMaintenance::recluster));
-        tasks.put(org.pangrova.parser.api.ast.statement.ShowClusteringStatusStatement.class,
-                new org.pangrova.coordinator.query.execution.dispatch.task.ShowClusteringStatusTask(
-                        controlledMaintenance::showClusteringStatus));
         // CTAS: create table from derived schema, then INSERT SELECT via native DML pipeline
         tasks.put(org.pangrova.parser.api.ast.statement.CreateTableAsSelectStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.CtasTask(
@@ -2642,7 +2642,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         }
         if (embeddingRegistry != null) {
             org.pangrova.server.coordinator.bootstrap.EmbeddingModelTaskRegistration.register(
-                    metadataFactory, embeddingRegistry, workers);
+                    metadataFactory, embeddingRegistry, embeddingWorkers);
         }
         var planFactory = new org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactory(
                 new org.pangrova.coordinator.query.execution.dispatch.PlanExecutionFactoryContext(
@@ -2666,7 +2666,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         factories.add(planFactory);
 
         var context = new org.pangrova.coordinator.query.execution.dispatch.StatementDispatcherContext(
-                null, resultSvc, List.copyOf(factories), List.of(), currentAccessControl);
+                resultSvc, List.copyOf(factories), List.of(), currentAccessControl);
         return new org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher(context);
     }
 
@@ -2689,7 +2689,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 metadataBootstrap.catalogRegistry(), e2eCoordinationService,
                 java.util.Objects.requireNonNull(sharedDdlExecutor),
                 (sm, session, stmt) -> java.util.Objects.requireNonNull(sharedQueryDispatcher)
-                        .executeDmlStatement(sm, stmt, session),
+                        .startDmlStatement(sm, stmt, session),
                 SqlE2ETestBase::buildSqlCompiler,
                 stateStoreDataSource, currentAccessControl);
         dispatcher.registerFactory(factory);
@@ -2783,13 +2783,13 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         PangrovaPlanner template = new PangrovaPlanner(
                 CalciteSchema.createRootSchema(false, false), schemaPath);
         return new SqlCompiler(template, new SubstraitConverter(), new SubstraitPlanSerializer())
-                .withNativeCapabilities(() ->
-                        org.pangrova.planner.validation.NativeCapabilityRegistry.fromInventories(
-                                workerManager.getActiveWorkers().stream().map(
-                                        org.pangrova.coordinator.worker.WorkerInfo::capabilityInventory).toList()))
+                .withNativeCapabilities(org.pangrova.planner.validation.NativeCapabilityRegistry.live(() ->
+                        workerManager.getActiveWorkers().stream().map(
+                                org.pangrova.coordinator.worker.WorkerInfo::capabilityInventory).toList()))
                 .withSessionPlanner(session -> {
                     var bindings = new org.pangrova.planner.metadata.catalog.PlanningReadBindings(
-                            metadataBootstrap.catalogRegistry(), session);
+                            metadataBootstrap.catalogRegistry(), session,
+                            metadataBootstrap.catalogRegistry().tableStatistics());
                     var readerPin = new org.pangrova.coordinator.materialization.MaterializationReadPin(
                             java.util.Optional.of(readerPinLeases()), session);
                     var durableRewriter = new org.pangrova.planner.mv.DynamicTableRewriter(
@@ -2809,12 +2809,9 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                                             session, currentAccessControl,
                                             java.time.Instant.now(), readerPin).orElse(null);
                     var deps = new org.pangrova.planner.analysis.PlannerContext(
-                            new org.pangrova.planner.statistics.StatisticsCollector(
-                                    new org.pangrova.planner.metadata.catalog.CatalogStatisticsProvider(
-                                            bindings)),
+                            new org.pangrova.planner.statistics.StatisticsCollector(bindings::statistics),
                             mvCatalog,
-                            org.pangrova.planner.runtimefilter.DynamicPartitionPruningConfig.DEFAULT,
-                            null, durableRewriter, null,
+                            durableRewriter, null,
                             org.pangrova.planner.cost.CboConfig.DEFAULT,
                             org.pangrova.planner.cost.CostModelConfig.SSD_DEFAULT);
                     return new PangrovaPlanner(new MetadataSchemaBuilder(

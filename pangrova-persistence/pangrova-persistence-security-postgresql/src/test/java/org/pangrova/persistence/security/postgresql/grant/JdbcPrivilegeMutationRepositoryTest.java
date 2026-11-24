@@ -95,7 +95,7 @@ class JdbcPrivilegeMutationRepositoryTest extends ContainerTestBase {
         assertThatThrownBy(() -> repository.apply(actor("admin"), other)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> repository.apply(actor("alice"), command))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThat(grants.listGrantsForRole("analyst")).singleElement()
+        assertThat(grants.listGrantsForRoles(Set.of("analyst"))).singleElement()
                 .satisfies(grant -> assertThat(grant.privilege()).isEqualTo(Privilege.SELECT));
     }
 
@@ -124,7 +124,7 @@ class JdbcPrivilegeMutationRepositoryTest extends ContainerTestBase {
         roles.mapGroupToRole(GroupRoleMapping.of("finance", "owners"));
         var groupActor = new UserIdentity("group-user", Set.of("finance"), Map.of(), Instant.now());
         repository.apply(groupActor, grant("analyst", false));
-        assertThat(grants.listGrantsForRole("analyst")).hasSize(1);
+        assertThat(grants.listGrantsForRoles(Set.of("analyst"))).hasSize(1);
         roles.unmapGroupFromRole("finance", "owners");
         assertThatThrownBy(() -> repository.apply(groupActor, grant("reader", false)))
                 .isInstanceOf(AuthorizationDeniedException.class);
@@ -138,13 +138,13 @@ class JdbcPrivilegeMutationRepositoryTest extends ContainerTestBase {
         repository.apply(actor("bob"), grant("analyst", false));
         assertThatThrownBy(() -> repository.apply(actor("admin"), revoke("delegator", false)))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("Dependent");
-        assertThat(grants.listGrantsForRole("analyst")).hasSize(2);
+        assertThat(grants.listGrantsForRoles(Set.of("analyst"))).hasSize(2);
         assertThat(receipts()).isEqualTo(4);
         var result = repository.apply(actor("admin"), revoke("delegator", true));
         assertThat(result.changedGrants()).isEqualTo(2);
-        assertThat(grants.listGrantsForRole("analyst")).singleElement()
+        assertThat(grants.listGrantsForRoles(Set.of("analyst"))).singleElement()
                 .satisfies(grant -> assertThat(grant.grantedBy()).isEqualTo("bob"));
-        assertThat(grants.listGrantsForRole("owners")).hasSize(1);
+        assertThat(grants.listGrantsForRoles(Set.of("owners"))).hasSize(1);
     }
 
     @Test
@@ -157,9 +157,9 @@ class JdbcPrivilegeMutationRepositoryTest extends ContainerTestBase {
         var cascade = command(REVOKE_GRANT_OPTION, Set.of(Privilege.SELECT), TABLE_SCOPE,
                 Set.of("delegator"), false, CASCADE);
         assertThat(repository.apply(actor("admin"), cascade).changedGrants()).isEqualTo(2);
-        assertThat(grants.listGrantsForRole("delegator")).singleElement()
+        assertThat(grants.listGrantsForRoles(Set.of("delegator"))).singleElement()
                 .satisfies(grant -> assertThat(grant.withGrantOption()).isFalse());
-        assertThat(grants.listGrantsForRole("analyst")).isEmpty();
+        assertThat(grants.listGrantsForRoles(Set.of("analyst"))).isEmpty();
         assertThatThrownBy(() -> repository.apply(actor("alice"), grant("reader", false)))
                 .isInstanceOf(AuthorizationDeniedException.class);
     }
@@ -171,8 +171,8 @@ class JdbcPrivilegeMutationRepositoryTest extends ContainerTestBase {
         var revoke = command(REVOKE_GRANT_OPTION, Set.of(Privilege.SELECT), TABLE_SCOPE,
                 Set.of("delegator", "analyst"), false, CASCADE);
         assertThat(repository.apply(actor("admin"), revoke).changedGrants()).isEqualTo(2);
-        assertThat(grants.listGrantsForRole("analyst")).isEmpty();
-        assertThat(grants.listGrantsForRole("delegator")).hasSize(1);
+        assertThat(grants.listGrantsForRoles(Set.of("analyst"))).isEmpty();
+        assertThat(grants.listGrantsForRoles(Set.of("delegator"))).hasSize(1);
     }
 
     @Test
@@ -182,7 +182,7 @@ class JdbcPrivilegeMutationRepositoryTest extends ContainerTestBase {
         assertThat(repository.apply(actor("alice"), revoke("analyst", true)).changedGrants()).isZero();
         repository.apply(actor("alice"), grant("analyst", false));
         assertThat(repository.apply(actor("alice"), revoke("analyst", true)).changedGrants()).isEqualTo(1);
-        assertThat(grants.listGrantsForRole("analyst")).singleElement()
+        assertThat(grants.listGrantsForRoles(Set.of("analyst"))).singleElement()
                 .satisfies(grant -> assertThat(grant.grantedBy()).isEqualTo("admin"));
     }
 
@@ -195,7 +195,7 @@ class JdbcPrivilegeMutationRepositoryTest extends ContainerTestBase {
         grants.addGrant(PrivilegeGrant.of("analyst", Privilege.SELECT, "COLUMN", "lake", "sales", "orders", "id"));
         var revoke = command(REVOKE, Set.of(Privilege.SELECT), schema, Set.of("analyst"), false, CASCADE);
         assertThat(repository.apply(actor("admin"), revoke).changedGrants()).isEqualTo(1);
-        assertThat(grants.listGrantsForRole("analyst")).hasSize(2);
+        assertThat(grants.listGrantsForRoles(Set.of("analyst"))).hasSize(2);
     }
 
     @Test
@@ -221,7 +221,7 @@ class JdbcPrivilegeMutationRepositoryTest extends ContainerTestBase {
         repository.apply(actor("admin"), grant("delegator", false));
         assertThat(repository.apply(actor("admin"), grant("delegator", true)).changedGrants()).isEqualTo(1);
         assertThat(repository.apply(actor("admin"), grant("delegator", false)).changedGrants()).isZero();
-        assertThat(grants.listGrantsForRole("delegator")).singleElement()
+        assertThat(grants.listGrantsForRoles(Set.of("delegator"))).singleElement()
                 .satisfies(grant -> assertThat(grant.withGrantOption()).isTrue());
     }
 
@@ -229,8 +229,8 @@ class JdbcPrivilegeMutationRepositoryTest extends ContainerTestBase {
     void directTrustedGrantRemovalCannotLeaveChildren() {
         repository.apply(actor("admin"), grant("delegator", true));
         repository.apply(actor("alice"), grant("analyst", false));
-        grants.revokeGrant(grants.listGrantsForRole("delegator").get(0).id());
-        assertThat(grants.listGrantsForRole("analyst")).isEmpty();
+        grants.revokeGrant(grants.listGrantsForRoles(Set.of("delegator")).get(0).id());
+        assertThat(grants.listGrantsForRoles(Set.of("analyst"))).isEmpty();
     }
 
     @Test
@@ -241,9 +241,9 @@ class JdbcPrivilegeMutationRepositoryTest extends ContainerTestBase {
             update.executeUpdate("UPDATE security_grants SET table_name='renamed_orders' "
                     + "WHERE object_type='TABLE' AND catalog_name='lake' AND schema_name='sales' AND table_name='orders'");
         }
-        assertThat(grants.listGrantsForRole("delegator")).singleElement()
+        assertThat(grants.listGrantsForRoles(Set.of("delegator"))).singleElement()
                 .satisfies(grant -> assertThat(grant.table()).isEqualTo("renamed_orders"));
-        assertThat(grants.listGrantsForRole("analyst")).singleElement()
+        assertThat(grants.listGrantsForRoles(Set.of("analyst"))).singleElement()
                 .satisfies(grant -> assertThat(grant.table()).isEqualTo("renamed_orders"));
     }
 
@@ -254,8 +254,8 @@ class JdbcPrivilegeMutationRepositoryTest extends ContainerTestBase {
         try (var connection = source.getConnection(); var update = connection.createStatement()) {
             update.executeUpdate("UPDATE security_grants SET table_name='other_table' WHERE role_name='delegator'");
         }
-        assertThat(grants.listGrantsForRole("analyst")).isEmpty();
-        assertThat(grants.listGrantsForRole("delegator")).hasSize(1);
+        assertThat(grants.listGrantsForRoles(Set.of("analyst"))).isEmpty();
+        assertThat(grants.listGrantsForRoles(Set.of("delegator"))).hasSize(1);
     }
 
     @Test
@@ -265,7 +265,7 @@ class JdbcPrivilegeMutationRepositoryTest extends ContainerTestBase {
         try (var connection = source.getConnection(); var update = connection.createStatement()) {
             update.executeUpdate("UPDATE security_grants SET with_grant_option=FALSE WHERE role_name='delegator'");
         }
-        assertThat(grants.listGrantsForRole("analyst")).isEmpty();
+        assertThat(grants.listGrantsForRoles(Set.of("analyst"))).isEmpty();
     }
 
     @Test
@@ -278,7 +278,7 @@ class JdbcPrivilegeMutationRepositoryTest extends ContainerTestBase {
         }
         assertThatThrownBy(() -> repository.apply(actor("admin"), grant("analyst", false)))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("Failed applying");
-        assertThat(grants.listGrantsForRole("analyst")).isEmpty();
+        assertThat(grants.listGrantsForRoles(Set.of("analyst"))).isEmpty();
         assertThat(receipts()).isZero();
     }
 
@@ -300,7 +300,7 @@ class JdbcPrivilegeMutationRepositoryTest extends ContainerTestBase {
         assertThat(repository.findReceipt(actor("admin"), command.requestId())).isPresent();
         assertThat(repository.findReceipt(actor("alice"), command.requestId())).isEmpty();
         assertThat(repository.apply(actor("admin"), command).replayed()).isTrue();
-        assertThat(grants.listGrantsForRole("analyst")).hasSize(1);
+        assertThat(grants.listGrantsForRoles(Set.of("analyst"))).hasSize(1);
         assertThat(receipts()).isEqualTo(1);
     }
 
@@ -334,7 +334,7 @@ class JdbcPrivilegeMutationRepositoryTest extends ContainerTestBase {
             holder.commit();
             assertThatThrownBy(() -> future.get(10, TimeUnit.SECONDS))
                     .hasCauseInstanceOf(AuthorizationDeniedException.class);
-            assertThat(grants.listGrantsForRole("analyst")).isEmpty();
+            assertThat(grants.listGrantsForRoles(Set.of("analyst"))).isEmpty();
         } finally {
             executor.shutdownNow();
             assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();

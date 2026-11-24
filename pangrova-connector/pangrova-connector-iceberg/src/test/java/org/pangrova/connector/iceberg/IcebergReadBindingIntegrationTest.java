@@ -1,5 +1,6 @@
 package org.pangrova.connector.iceberg;
 
+import org.pangrova.protocol.source.CanonicalConnectorSplit;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
@@ -77,6 +78,9 @@ class IcebergReadBindingIntegrationTest {
             write(table, 3);
             var metadata = new IcebergMetadata(catalog, "bound");
             var binding = bind(metadata, "rows");
+            var handle = metadata.getTableHandle(SESSION, new SchemaTableName("db", "rows"));
+            var version = metadata.observeVersion(SESSION, handle).orElseThrow();
+            assertThat(binding.statisticsVersion()).contains(version);
             long selected = table.currentSnapshot().snapshotId();
             write(table, 5);
             metadata.validateReadBinding(SESSION, binding);
@@ -89,8 +93,48 @@ class IcebergReadBindingIntegrationTest {
             var splits = splits(catalog, binding);
             assertThat(splits).hasSize(1);
             assertThat(splits).allSatisfy(split -> assertThat(split.getSourceSnapshot()).isEqualTo(Long.toString(selected)));
-            assertThat(bind(metadata, "rows").statistics().rowCount()).isEqualTo(8);
-            assertThat(bind(metadata, "rows").statistics().sourceWorkUnits()).isEqualTo(2);
+            var current = bind(metadata, "rows");
+            assertThat(current.statistics().rowCount()).isEqualTo(8);
+            assertThat(current.statistics().sourceWorkUnits()).isEqualTo(2);
+            assertThat(current.statisticsVersion())
+                    .hasValueSatisfying(currentVersion -> assertThat(currentVersion).isNotEqualTo(version));
+            assertThat(metadata.bindRead(SESSION, handle.withTimeTravelSnapshot(selected))
+                    .statisticsVersion()).isEmpty();
+        }
+    }
+
+    @Test
+    void readBindingUsesExactEmbeddedNdvAndLeavesFileAggregationToStatisticsCollection() throws Exception {
+        try (var catalog = catalog()) {
+            Table table = create(catalog, "metadata_statistics");
+            write(table, 3);
+            var snapshot = table.currentSnapshot();
+            long id = snapshot.snapshotId();
+            long sequence = snapshot.sequenceNumber();
+            String theta = org.apache.iceberg.puffin.StandardBlobTypes.APACHE_DATASKETCHES_THETA_V1;
+            var exact = new org.apache.iceberg.GenericBlobMetadata(theta, id, sequence, List.of(1), Map.of("ndv", "3"));
+            var stale = new org.apache.iceberg.GenericBlobMetadata(
+                    theta, id, sequence + 1, List.of(1), Map.of("ndv", "40"));
+            var composite = new org.apache.iceberg.GenericBlobMetadata(
+                    theta, id, sequence, List.of(1, 2), Map.of("ndv", "80"));
+            table.updateStatistics().setStatistics(new org.apache.iceberg.GenericStatisticsFile(id,
+                    table.location() + "/metadata/statistics.puffin", 128, 32, List.of(exact, stale, composite))).commit();
+
+            var metadata = new IcebergMetadata(catalog, "bound");
+            var planning = bind(metadata, "metadata_statistics").statistics();
+            assertThat(planning.rowCount()).isEqualTo(3);
+            assertThat(planning.columnStats().get("id").ndv()).isEqualTo(3);
+            assertThat(planning.columnStats().get("id").min()).isNull();
+            assertThat(planning.columnStats().get("id").max()).isNull();
+            var handle = metadata.getTableHandle(SESSION, new SchemaTableName("db", "metadata_statistics"));
+            var detailed = metadata.getTableStatistics(SESSION, handle).columnStats().get("id");
+            assertThat(detailed.ndv()).isEqualTo(3);
+            assertThat(detailed.min()).isEqualTo(0L);
+            assertThat(detailed.max()).isEqualTo(2L);
+
+            table.refresh();
+            write(table, 1);
+            assertThat(bind(metadata, "metadata_statistics").statistics().columnStats().get("id").ndv()).isEqualTo(-1);
         }
     }
 
@@ -185,6 +229,24 @@ class IcebergReadBindingIntegrationTest {
     }
 
     @Test
+    void aCatalogWrapperCannotServeAnExpiredBoundSnapshotFromItsCache() throws Exception {
+        try (var catalog = catalog()) {
+            Table table = create(catalog, "cached_expired");
+            write(table, 2);
+            var cached = org.apache.iceberg.CachingCatalog.wrap(catalog);
+            var metadata = new IcebergMetadata(cached, "bound");
+            var selected = bind(metadata, "cached_expired");
+            write(table, 4);
+            table.expireSnapshots().expireSnapshotId(selected.snapshotId().orElseThrow()).commit();
+            var manager = new IcebergSplitManager("bound", cached, new IcebergExpressionToSubstrait());
+
+            assertThatThrownBy(() -> manager.getBoundSplits(ConnectorTransactionHandle.empty(),
+                    SESSION, metadata, selected, DynamicFilter.ALL, Constraint.EMPTY))
+                    .isInstanceOf(IllegalStateException.class).hasMessageContaining("unavailable");
+        }
+    }
+
+    @Test
     void refsBindingPinsMetadataObjectAcrossReferenceChanges() throws Exception {
         try (var catalog = catalog()) {
             Table table = create(catalog, "reference_rows");
@@ -198,7 +260,7 @@ class IcebergReadBindingIntegrationTest {
                     "name", "type", "snapshot_id", "max_reference_age_in_ms",
                     "min_snapshots_to_keep", "max_snapshot_age_in_ms");
             var original = splits(catalog, selected).get(0);
-            var detail = original.getConnectorDetail().unpack(org.pangrova.protocol.v2.FileSplitDetail.class);
+            var detail = original.getFileDetail();
             assertThat(detail.getSystemTable().getKind())
                     .isEqualTo(org.pangrova.protocol.v2.SystemTableSplitDetail.Kind.ICEBERG_REFS);
             assertThat(original.getSourceId()).endsWith("reference_rows$refs");
@@ -311,7 +373,7 @@ class IcebergReadBindingIntegrationTest {
         try {
             while (!source.isFinished()) {
                 for (var split : source.getNextBatch(100)) {
-                    result.add(org.pangrova.protocol.v2.DataSplit.parseFrom(split.toSplitInfoProto()));
+                    result.add(org.pangrova.protocol.v2.DataSplit.parseFrom(CanonicalConnectorSplit.from(split).toByteArray()));
                 }
             }
         } finally {

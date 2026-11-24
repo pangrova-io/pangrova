@@ -105,7 +105,7 @@ class ArrowBatchDecoderVectorTest {
             fillVector(root.getVector(0), true, true);
             root.setRowCount(2);
             assertThatThrownBy(() -> ArrowBatchDecoder.decode(writeRoot(root)))
-                    .isInstanceOf(TransportException.class).hasMessageContaining("nullability");
+                    .isInstanceOf(TransportException.class).hasMessageContaining("required Double VECTOR coordinate is null");
             root.getVector(0).setNull(0);
             assertThatThrownBy(() -> ArrowBatchDecoder.decode(writeRoot(root)))
                     .isInstanceOf(TransportException.class).hasMessageContaining("required VECTOR row");

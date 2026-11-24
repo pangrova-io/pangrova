@@ -202,19 +202,19 @@ TEST(DynamicFilterConverterTest, BatchSkipsDppAndRejectsInvalidNativeFilter) {
   auto* row = payload.add_filters();
   *row = rowFilter("id");
   *row->mutable_in_list()->add_values() = intValue(1);
-  auto converted = convertDynamicFilters(payload);
+  auto converted = convertDynamicFilters(payload.filters());
   ASSERT_EQ(converted.size(), 1);
   EXPECT_EQ(converted[0].column_name, "id");
 
   auto* invalid = payload.add_filters();
   invalid->set_column_name("bad");
   invalid->set_scope(proto::RUNTIME_FILTER_SCOPE_ROW_FILTER);
-  EXPECT_THROW(convertDynamicFilters(payload), std::invalid_argument);
+  EXPECT_THROW(convertDynamicFilters(payload.filters()), std::invalid_argument);
 }
 
-TEST(DynamicFilterConverterTest, EmptyPayloadReturnsEmpty) {
+TEST(DynamicFilterConverterTest, EmptyFilterListReturnsEmpty) {
   proto::InjectRuntimeFilterRequest payload;
-  EXPECT_TRUE(convertDynamicFilters(payload).empty());
+  EXPECT_TRUE(convertDynamicFilters(payload.filters()).empty());
 }
 
 }  // namespace

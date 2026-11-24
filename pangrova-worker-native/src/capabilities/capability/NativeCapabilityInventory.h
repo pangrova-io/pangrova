@@ -5,6 +5,9 @@
 
 namespace pangrova::capability {
 
+/** Exact protocol identity shared by the startup inventory and Native admission. */
+const protocol::v2::ProtocolVersion& canonicalProtocolVersion();
+
 // Runtime readiness and protocol identity, projected once from the same actual
 // function owner that the assembler freezes. No factory is instantiated.
 protocol::v2::CapabilityInventory runtimeCapabilityInventory(

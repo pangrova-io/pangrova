@@ -14,12 +14,15 @@ namespace pangrova::velox {
 ExternalShuffleIngress::ExternalShuffleIngress(
     size_t normal_buffer_bytes,
     size_t max_batch_bytes,
-    uint64_t deadline_epoch_ms)
+    uint64_t deadline_epoch_ms,
+    int64_t expected_batches)
     : normal_buffer_bytes_(normal_buffer_bytes),
       max_batch_bytes_(max_batch_bytes),
-      deadline_epoch_ms_(deadline_epoch_ms) {
+      deadline_epoch_ms_(deadline_epoch_ms),
+      expected_batches_(expected_batches) {
   if (normal_buffer_bytes_ == 0 || max_batch_bytes_ == 0 ||
-      normal_buffer_bytes_ > max_batch_bytes_ || deadline_epoch_ms_ == 0) {
+      normal_buffer_bytes_ > max_batch_bytes_ || deadline_epoch_ms_ == 0 ||
+      expected_batches_ < 0) {
     throw std::invalid_argument(
         "external shuffle ingress requires valid buffer, batch, and deadline bounds");
   }
@@ -53,7 +56,8 @@ void ExternalShuffleIngress::push(ExternalShuffleChunk chunk) {
   }
 
   std::unique_lock<std::mutex> lock(mutex_);
-  if (chunk.batch_sequence != next_sequence_) {
+  if (chunk.batch_sequence != next_sequence_ ||
+      chunk.batch_sequence >= expected_batches_) {
     throw std::logic_error("external shuffle batch sequence is not contiguous");
   }
   const auto deadline = std::chrono::system_clock::time_point(
@@ -156,7 +160,7 @@ void ExternalShuffleIngress::finish(int64_t last_sequence) {
     not_full_.notify_all();
     throw std::logic_error("external shuffle terminal arrived mid-batch");
   }
-  if (last_sequence != next_sequence_ - 1) {
+  if (last_sequence != next_sequence_ - 1 || next_sequence_ != expected_batches_) {
     throw std::logic_error("external shuffle terminal sequence mismatch");
   }
   finished_ = true;

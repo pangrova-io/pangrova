@@ -75,6 +75,9 @@ SHOW INDEXES ON prod.analytics.events;
 - Use `ALTER INDEX ... REBUILD` for an explicit rebuild. The JVM strategy
   contract builds a payload from the supplied file rows. Commit-driven
   maintenance and checkpointing belong to the Coordinator lifecycle.
+  The Coordinator checks the active snapshot and its lineage before listing
+  files for an incremental rebuild. Events for the active snapshot or a
+  known ancestor complete without enumerating their file sets.
 - Scalar index rebuilds write each generation under a distinct `v2/.../gN/`
   storage prefix. Publication selects the new generation only after its files
   are complete; retained older mappings continue to refer to their original

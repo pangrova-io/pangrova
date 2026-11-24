@@ -81,6 +81,28 @@ class JdbcRoleStoreTest extends ContainerTestBase {
     }
 
     @Test
+    void effectiveRolesUnifyCurrentDirectAndGroupMembership() {
+        store.createRole(Role.of("direct"));
+        store.createRole(Role.of("grouped"));
+        store.createRole(Role.of("other"));
+        store.grantRoleToUser(UserRoleAssignment.of("alice", "direct"));
+        store.grantRoleToUser(UserRoleAssignment.of("bob", "other"));
+        store.mapGroupToRole(GroupRoleMapping.of("readers", "direct"));
+        store.mapGroupToRole(GroupRoleMapping.of("readers", "grouped"));
+        store.mapGroupToRole(GroupRoleMapping.of("external", "other"));
+
+        assertThat(store.effectiveRoles("alice", java.util.Set.of("readers", "missing")))
+                .containsExactlyInAnyOrder("direct", "grouped");
+        assertThat(store.effectiveRoles("alice", java.util.Set.of())).containsExactly("direct");
+        assertThat(store.effectiveRoles("nobody", java.util.Set.of())).isEmpty();
+        assertThat(store.dropRole("grouped")).isTrue();
+        assertThat(store.effectiveRoles("alice", java.util.Set.of("readers"))).containsExactly("direct");
+        assertThat(store.revokeRoleFromUser("alice", "direct")).isTrue();
+        assertThat(store.effectiveRoles("alice", java.util.Set.of())).isEmpty();
+        assertThat(store.effectiveRoles("alice", java.util.Set.of("readers"))).containsExactly("direct");
+    }
+
+    @Test
     void dropRoleRemovesRoleAndCascadesBindings() {
         store.createRole(Role.of("analyst"));
         store.grantRoleToUser(UserRoleAssignment.of("alice", "analyst"));
@@ -111,7 +133,7 @@ class JdbcRoleStoreTest extends ContainerTestBase {
         assertThat(store.dropRole("analyst")).isTrue();
         store.createRole(Role.of("analyst"));
         store.grantRoleToUser(UserRoleAssignment.of("alice", "analyst"));
-        assertThat(grants.listGrantsForRole("analyst")).isEmpty();
+        assertThat(grants.listGrantsForRoles(Set.of("analyst"))).isEmpty();
     }
 
     @Test
@@ -126,7 +148,7 @@ class JdbcRoleStoreTest extends ContainerTestBase {
         }
         store.createRole(Role.of("analyst"));
         assertThat(store.rolesForUser("alice")).isEmpty();
-        assertThat(grants.listGrantsForRole("analyst")).isEmpty();
+        assertThat(grants.listGrantsForRoles(Set.of("analyst"))).isEmpty();
     }
 
     // ---- user -> role bindings ----------------------------------------------
@@ -295,14 +317,14 @@ class JdbcRoleStoreTest extends ContainerTestBase {
         grants.addGrant(org.pangrova.security.api.policy.PrivilegeGrant.of("analyst",
                 org.pangrova.security.api.enums.Privilege.SELECT, "TABLE", "lake", "sales", "orders", null));
         var originalRole = store.findRole("analyst");
-        var originalGrants = grants.listGrantsForRole("analyst");
+        var originalGrants = grants.listGrantsForRoles(Set.of("analyst"));
         var originalUsers = store.listUserRoles();
         var originalGroups = store.listGroupRoles();
         var failingStore = new JdbcRoleStore(JdbcMutationFault.afterMutation(dataSource,
                 "DELETE FROM pangrova_group_roles ", failure, rollbackFailure));
         Throwable caught = catchThrowable(() -> failingStore.dropRole("analyst"));
         assertThat(store.findRole("analyst")).isEqualTo(originalRole);
-        assertThat(grants.listGrantsForRole("analyst")).containsExactlyElementsOf(originalGrants);
+        assertThat(grants.listGrantsForRoles(Set.of("analyst"))).containsExactlyElementsOf(originalGrants);
         assertThat(store.listUserRoles()).containsExactlyElementsOf(originalUsers);
         assertThat(store.listGroupRoles()).containsExactlyElementsOf(originalGroups);
         assertFailure(caught, failure, rollbackFailure);

@@ -6,7 +6,6 @@ import java.util.Map;
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.query.lifecycle.QueryStateMachine;
 import org.pangrova.planner.analysis.SqlCompiler;
-import org.pangrova.planner.runtimefilter.RuntimeFilterDescriptor;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
@@ -24,7 +23,6 @@ public record QueryExecutionContext(
         String cacheKey,
         Map<String, Long> snapshotOverrides,
         String originalSql,
-        List<RuntimeFilterDescriptor> runtimeFilterDescriptors,
         org.pangrova.planner.analysis.MetadataTableQuery metadataQuery) {
 
     public QueryExecutionContext {
@@ -33,8 +31,6 @@ public record QueryExecutionContext(
         checkNotNull(session, "session");
         preOptColumnNames = preOptColumnNames != null ? List.copyOf(preOptColumnNames) : List.of();
         snapshotOverrides = snapshotOverrides != null ? Map.copyOf(snapshotOverrides) : Map.of();
-        runtimeFilterDescriptors = runtimeFilterDescriptors != null
-                ? List.copyOf(runtimeFilterDescriptors) : List.of();
     }
 
     /** Creates initial context at pipeline entry. */
@@ -42,29 +38,19 @@ public record QueryExecutionContext(
             QueryStateMachine sm, String sql,
             QuerySession session, SqlCompiler compiler) {
         return new QueryExecutionContext(sm, sql, session, compiler,
-                null, List.of(), null, Map.of(), sql, List.of(), null);
+                null, List.of(), null, Map.of(), sql, null);
     }
 
     /** Returns a copy with the compiled plan and pre-optimization column names set. */
     public QueryExecutionContext withCompiler(SqlCompiler queryCompiler) {
         return new QueryExecutionContext(stateMachine, sql, session, queryCompiler,
-                compiledPlan, preOptColumnNames, cacheKey, snapshotOverrides, originalSql,
-                runtimeFilterDescriptors, metadataQuery);
+                compiledPlan, preOptColumnNames, cacheKey, snapshotOverrides, originalSql, metadataQuery);
     }
 
     /** Returns a copy with the compiled plan and pre-optimization column names set. */
     public QueryExecutionContext withCompiledPlan(Object plan, List<String> columnNames) {
         return new QueryExecutionContext(stateMachine, sql, session, compiler,
-                plan, columnNames, cacheKey, snapshotOverrides, originalSql,
-                runtimeFilterDescriptors, metadataQuery);
-    }
-
-    /** Returns a copy with the compiled plan and runtime filter descriptors set. */
-    public QueryExecutionContext withCompiledPlan(Object plan, List<String> columnNames,
-                                                  List<RuntimeFilterDescriptor> filterDescriptors) {
-        return new QueryExecutionContext(stateMachine, sql, session, compiler,
-                plan, columnNames, cacheKey, snapshotOverrides, originalSql,
-                filterDescriptors, metadataQuery);
+                plan, columnNames, cacheKey, snapshotOverrides, originalSql, metadataQuery);
     }
 
     /** Returns a copy with the compiled plan set (preserves existing pre-opt column names). */
@@ -76,27 +62,24 @@ public record QueryExecutionContext(
     public QueryExecutionContext withMetadataQuery(org.pangrova.planner.analysis.MetadataTableQuery query) {
         return new QueryExecutionContext(stateMachine, sql, session, compiler,
                 compiledPlan, preOptColumnNames, cacheKey, snapshotOverrides,
-                originalSql, runtimeFilterDescriptors, checkNotNull(query, "metadataQuery"));
+                originalSql, checkNotNull(query, "metadataQuery"));
     }
 
     /** Returns a copy with snapshot overrides and stripped SQL set. */
     public QueryExecutionContext withTimeTravelResult(String strippedSql, Map<String, Long> overrides) {
         return new QueryExecutionContext(stateMachine, strippedSql, session, compiler,
-                compiledPlan, preOptColumnNames, cacheKey, overrides, originalSql,
-                runtimeFilterDescriptors, metadataQuery);
+                compiledPlan, preOptColumnNames, cacheKey, overrides, originalSql, metadataQuery);
     }
 
     /** Returns a copy with the cache key set. */
     public QueryExecutionContext withCacheKey(String newCacheKey) {
         return new QueryExecutionContext(stateMachine, sql, session, compiler,
-                compiledPlan, preOptColumnNames, newCacheKey, snapshotOverrides, originalSql,
-                runtimeFilterDescriptors, metadataQuery);
+                compiledPlan, preOptColumnNames, newCacheKey, snapshotOverrides, originalSql, metadataQuery);
     }
 
     /** Returns a copy with the stripped SQL and cache key set. */
     public QueryExecutionContext withStrippedSql(String strippedSql, String newCacheKey) {
         return new QueryExecutionContext(stateMachine, strippedSql, session, compiler,
-                compiledPlan, preOptColumnNames, newCacheKey, snapshotOverrides, originalSql,
-                runtimeFilterDescriptors, metadataQuery);
+                compiledPlan, preOptColumnNames, newCacheKey, snapshotOverrides, originalSql, metadataQuery);
     }
 }

@@ -1,5 +1,6 @@
 package org.pangrova.connector.iceberg.handle;
 
+import org.pangrova.protocol.source.CanonicalConnectorSplit;
 import org.junit.jupiter.api.Test;
 import org.pangrova.protocol.source.DataSplitProtoCodec;
 import org.pangrova.protocol.v2.DataSplit;
@@ -73,11 +74,11 @@ class IcebergSplitProtoSerializationTest {
                 .specId(1).readMode("TIME_TRAVEL").build();
         assertThat(detail(historical).getIceberg().getReadMode())
                 .isEqualTo(IcebergReadMode.ICEBERG_READ_MODE_SNAPSHOT);
-        assertThat(historical.toSplitInfoProto()).isEqualTo(full.toSplitInfoProto());
+        assertThat(historical.toDataSplit().toByteArray()).isEqualTo(full.toDataSplit().toByteArray());
         var differentSnapshot = IcebergSplit.builder("/data/file.parquet", 17, 512, "PARQUET")
                 .tableName("catalog.schema.table").snapshotId(101).dataSequenceNumber(5)
                 .specId(1).readMode("TIME_TRAVEL").build();
-        assertThat(differentSnapshot.toSplitInfoProto()).isNotEqualTo(full.toSplitInfoProto());
+        assertThat(differentSnapshot.toDataSplit().toByteArray()).isNotEqualTo(full.toDataSplit().toByteArray());
     }
 
     @Test
@@ -129,7 +130,7 @@ class IcebergSplitProtoSerializationTest {
     void generatedV2MessageRoundTripsByteForByte() throws Exception {
         byte[] bytes = IcebergSplit.builder("/data/file.parquet", 1, 2, "PARQUET")
                 .tableName("catalog.schema.table")
-                .snapshotId(99).build().toSplitInfoProto();
+                .snapshotId(99).build().toDataSplit().toByteArray();
         assertThat(DataSplit.parseFrom(bytes).toByteArray()).isEqualTo(bytes);
     }
 
@@ -143,7 +144,7 @@ class IcebergSplitProtoSerializationTest {
     }
 
     private static DataSplit parse(IcebergSplit split) throws Exception {
-        return DataSplit.parseFrom(split.toSplitInfoProto());
+        return DataSplit.parseFrom(CanonicalConnectorSplit.from(split).toByteArray());
     }
 
     private static FileSplitDetail detail(IcebergSplit split) throws Exception {

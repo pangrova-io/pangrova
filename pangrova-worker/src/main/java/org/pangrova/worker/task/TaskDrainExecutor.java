@@ -39,6 +39,7 @@ final class TaskDrainExecutor {
 
     private final Object terminalChanges = new Object();
     private volatile boolean draining;
+    private volatile ScheduledExecutorService cleanupExecutor;
 
     TaskDrainExecutor(
             WorkerTaskRegistry tasks,
@@ -187,11 +188,31 @@ final class TaskDrainExecutor {
 
     int cleanupTerminalTasks(Duration retention) {
         return TaskCleanupScheduler.cleanupTerminalTasks(
-                tasks, retention, this::releaseTerminalTask, this::resultResourcesDrained);
+                tasks, retention, this::releaseTerminalTask);
     }
 
-    boolean resultResourcesDrained(TaskInfo info) {
-        return lifecycleManager != null && lifecycleManager.resultResourcesDrained(info);
+    void watchFinishedResult(TaskInfo info, org.pangrova.worker.execution.TaskExecutor taskExecutor,
+                             Consumer<TaskInfo> removeIndex) {
+        ScheduledExecutorService scheduler = cleanupExecutor;
+        var submitted = info.request();
+        long handle = info.executorHandle();
+        if (scheduler == null || draining || submitted == null || handle == 0
+                || !submitted.taskRequest().getExecutionOptions().getDirectResultOutput()) return;
+        var nativeOwner = org.pangrova.worker.execution.NativeTaskExecutor.ownerOf(taskExecutor).orElseThrow(() ->
+                new IllegalStateException("Direct result task has no Native result owner"));
+        var registration = new TaskResultRelease(info, tasks, scheduler, task ->
+                lifecycleManager.releaseResultTaskExecutor(task, removeIndex),
+                () -> lifecycleManager.retryInitialResultStatus(info));
+        if (!info.installResultRelease(registration)) return;
+        if (tasks.get(info.taskId()) != info) {
+            registration.cancel();
+            return;
+        }
+        try {
+            nativeOwner.watchResultDrain(handle, registration::drained);
+        } finally {
+            registration.expireAt(submitted.taskRequest().getDeadlineEpochMs());
+        }
     }
 
     void releaseTerminalTask(TaskInfo info) {
@@ -211,6 +232,7 @@ final class TaskDrainExecutor {
             Duration retention,
             Duration interval,
             Consumer<TaskInfo> removeIndex) {
+        cleanupExecutor = executor;
         TaskCleanupScheduler.startPeriodicCleanup(
                 executor,
                 tasks,
@@ -219,7 +241,6 @@ final class TaskDrainExecutor {
                 info -> {
                     releaseTerminalTask(info);
                     removeIndex.accept(info);
-                },
-                this::resultResourcesDrained);
+                });
     }
 }

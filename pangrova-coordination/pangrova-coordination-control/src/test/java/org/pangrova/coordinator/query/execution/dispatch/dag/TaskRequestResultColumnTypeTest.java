@@ -61,14 +61,15 @@ class TaskRequestResultColumnTypeTest {
                 "tenant", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
         var request = TaskRequestFactory.buildLeafTaskRequest(
                 new TaskRequestFactory.LeafTask(
-                        new StageExecutionContext.Live(session), new byte[] {1}, new org.pangrova.execution.api.stage.TaskStage(stage.stageId(),
+                        new StageExecutionContext.Live(session), new TaskRequestFactory.FrozenStagePlan(new byte[] {1}),
+                        new org.pangrova.execution.api.stage.TaskStage(stage.stageId(),
                         org.pangrova.execution.api.enums.TaskPurpose.valueOf(stage.taskType())), 0,
                         StageResourceGrant.newBuilder()
                                 .setGrantId("grant")
                                 .setNativeMemoryBytes(1024)
                                 .setCpuSlots(1)
                                 .build(),
-                        List.of(), List.of(), null, List.of(),
+                        List.of(), null, List.of(),
                         org.pangrova.execution.api.deadline.StageTaskDeadline.after(
                                 java.time.Duration.ofSeconds(30), java.time.Instant.now()),
                         TaskAttemptDescriptor.of(1L, 0), List.of(), null,

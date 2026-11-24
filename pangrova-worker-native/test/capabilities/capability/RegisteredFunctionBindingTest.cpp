@@ -60,6 +60,22 @@ TEST(RegisteredFunctionBindingTest, RawAggregateChecksResultAndIntermediateSepar
   EXPECT_THROW(bindRegisteredRawAggregate(*registry, "sum", BIGINT(), {field(VARBINARY())}, false), std::runtime_error);
 }
 
+TEST(RegisteredFunctionBindingTest, FinalDecimalAggregateRequiresExactOriginalTypesAndState) {
+  pangrova::test::detail::ensureRuntimeInitialized();
+  const auto registry = exec::FunctionRegistrySnapshot::capture();
+  const auto raw = DECIMAL(22, 7);
+  const auto final = bindRegisteredStateAggregate(*registry, "sum", DECIMAL(38, 7),
+      {field(VARBINARY())}, {raw});
+  EXPECT_TRUE(final.call->type()->equivalent(*DECIMAL(38, 7)));
+  EXPECT_TRUE(final.call->inputs().at(0)->type()->equivalent(*VARBINARY()));
+  EXPECT_THROW(bindRegisteredStateAggregate(*registry, "sum", DECIMAL(38, 7),
+      {field(VARBINARY())}, {DECIMAL(22, 2)}), std::runtime_error);
+  EXPECT_THROW(bindRegisteredStateAggregate(*registry, "sum", DECIMAL(38, 7),
+      {field(raw)}, {raw}), std::runtime_error);
+  EXPECT_THROW(bindRegisteredStateAggregate(*registry, "sum", DECIMAL(38, 7),
+      {field(VARBINARY())}, {}), std::invalid_argument);
+}
+
 TEST(RegisteredFunctionBindingTest, WindowPreservesExactInputsAndReturnType) {
   pangrova::test::detail::ensureRuntimeInitialized();
   const auto registry = exec::FunctionRegistrySnapshot::capture();

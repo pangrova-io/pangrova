@@ -4,6 +4,8 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -43,6 +45,9 @@ class TaskLifecycle {
   // Current state (atomic load).
   ExecutorState state() const;
 
+  // Returns on terminal publication or timeout with the state then observed.
+  ExecutorState awaitTerminal(std::chrono::milliseconds timeout) const;
+
   // Whether the current state is terminal (FINISHED/FAILED/CANCELLED).
   bool isTerminal() const;
 
@@ -63,6 +68,9 @@ class TaskLifecycle {
   // Convenience: transition to FLUSHING.
   void notifyTaskComplete();
 
+  // Publish successful delivery only from the authorized Flight close.
+  bool finishResultStream();
+
   // Convenience: set error + transition to FAILED.
   // Captures C++ stack trace at the call site for propagation to Java.
   void notifyTaskFailed(const std::string& message);
@@ -74,6 +82,7 @@ class TaskLifecycle {
 
   std::atomic<ExecutorState> state_{ExecutorState::PENDING};
   mutable std::mutex error_mutex_;
+  mutable std::condition_variable terminal_signal_;
   std::optional<protocol::v2::ExecutionError> error_;
   std::string native_stack_trace_;
 };

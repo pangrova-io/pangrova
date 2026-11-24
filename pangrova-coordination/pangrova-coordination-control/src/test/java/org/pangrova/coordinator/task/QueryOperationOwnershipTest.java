@@ -23,7 +23,7 @@ class QueryOperationOwnershipTest {
         var tracker = new CoordinatorTaskTracker();
         tracker.openQueryIssuance("concurrent-close");
         var exits = new AtomicInteger();
-        tracker.addQueryOperationExitListener(query -> exits.incrementAndGet());
+        tracker.addQueryDrainProgressListener(query -> exits.incrementAndGet());
         QueryOperation operation = tracker.enterQueryOperation("concurrent-close");
         tracker.sealQueryIssuance("concurrent-close");
         assertThatThrownBy(() -> tracker.retireQueryIssuance("concurrent-close"))
@@ -63,7 +63,7 @@ class QueryOperationOwnershipTest {
         var tracker = new CoordinatorTaskTracker();
         tracker.openQueryIssuance("two-operations");
         var exits = new AtomicInteger();
-        tracker.addQueryOperationExitListener(query -> exits.incrementAndGet());
+        tracker.addQueryDrainProgressListener(query -> exits.incrementAndGet());
         QueryOperation frontend = tracker.enterQueryOperation("two-operations");
         QueryOperation metadata = tracker.enterQueryMetadataOperation("two-operations");
         tracker.sealQueryIssuance("two-operations");
@@ -86,7 +86,7 @@ class QueryOperationOwnershipTest {
         tracker.openQueryIssuance("notification-failure");
         var notifications = new AtomicInteger();
         var failure = new IllegalStateException("Exit listener failed after release");
-        tracker.addQueryOperationExitListener(query -> {
+        tracker.addQueryDrainProgressListener(query -> {
             notifications.incrementAndGet();
             throw failure;
         });

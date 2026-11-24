@@ -141,7 +141,7 @@ TEST_F(PendingEndpointRegistryTest, ExternalIngressSurvivesSealAndBindingTake) {
           .count() +
       600'000);
   registry.registerExternalSource(91, "exchange-input-external", "external",
-                                  deadline, 64 * 1024 * 1024);
+                                  deadline, 64 * 1024 * 1024, 1);
   registry.sealInput(91, "exchange-input-external", "external", 1);
 
   auto binding = registry.takeSealedInput(91, "exchange-input-external");
@@ -181,7 +181,7 @@ TEST_F(PendingEndpointRegistryTest, ClearCancelsTakenExternalIngress) {
           .count() +
       600'000);
   registry.registerExternalSource(92, "exchange-input-clear", "external-clear",
-                                  deadline, 64 * 1024 * 1024);
+                                  deadline, 64 * 1024 * 1024, 1);
   registry.sealInput(92, "exchange-input-clear", "external-clear", 1);
   auto binding = registry.takeSealedInput(92, "exchange-input-clear");
   ASSERT_TRUE(binding.has_value());
@@ -203,7 +203,7 @@ TEST_F(PendingEndpointRegistryTest, RejectsMixedDirectAndExternalTransport) {
           .count() +
       600'000);
   registry.registerExternalSource(93, "exchange-input-mixed", "mixed",
-                                  deadline, 64 * 1024 * 1024);
+                                  deadline, 64 * 1024 * 1024, 1);
   EXPECT_THROW(registry.registerSource(93, "exchange-input-mixed", "mixed",
                                        endpoint("producer", 0)),
                std::logic_error);

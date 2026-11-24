@@ -58,6 +58,12 @@ public final class DefaultWorkerSelector implements WorkerSelector {
     }
 
     @Override
+    public WorkerSelector bindStagePlacement(String tenantId) {
+        return new DefaultWorkerSelector(workerManager, taskScheduler.bindTenant(tenantId),
+                cacheAffinityAssigner, spillBudget, embeddingModelRegistry);
+    }
+
+    @Override
     public WorkerInfo selectForCdc(String tenantId) {
         List<WorkerInfo> candidates = workerManager.getActiveWorkers().stream()
                 .filter(WorkerInfo::cdcIngestSupported)
@@ -70,6 +76,15 @@ public final class DefaultWorkerSelector implements WorkerSelector {
     @Override
     public int activeWorkerCount() {
         return schedulableWorkers().size();
+    }
+
+    @Override
+    public int estimateMaximumTaskDrivers(int activeWorkers, int parallelism) {
+        return taskCpuSlots(activeWorkers, parallelism, parallelism);
+    }
+
+    private static int taskCpuSlots(int workerCount, int parallelism, int totalParallelism) {
+        return parallelism > 1 ? Math.max(2, workerCount * 4 / totalParallelism) : 2;
     }
 
     @Override
@@ -94,9 +109,7 @@ public final class DefaultWorkerSelector implements WorkerSelector {
         // serialized producer queue; reserving both at their full size would
         // oversubscribe a worker whose available capacity equals this grant.
         long shuffleBufferBytes = Math.min(perTaskMemory / 4, MAX_SHUFFLE_BUFFER_BYTES);
-        int perTaskThreads = (parallelism > 1)
-                ? Math.max(2, workerCount * 4 / totalParallelism)
-                : 2;
+        int perTaskThreads = taskCpuSlots(workerCount, parallelism, totalParallelism);
         return StageResourceGrant.newBuilder()
                 .setGrantId("unbound-stage-grant")
                 .setCpuSlots(perTaskThreads)
@@ -155,7 +168,8 @@ public final class DefaultWorkerSelector implements WorkerSelector {
         if (preferred != null) {
             return preferred;
         }
-        return select(tenantId);
+        return taskScheduler.selectWorker(MIN_TASK_MEMORY_BYTES, active)
+                .orElseThrow(NoAvailableWorkerException::new);
     }
 
     private static WorkerInfo findPreferred(

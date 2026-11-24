@@ -15,26 +15,26 @@
 #include <cstdint>
 #include <chrono>
 #include <limits>
-#include <map>
+#include <memory>
 #include <set>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <unordered_set>
 #include <utility>
+#include <vector>
 
-#include <google/protobuf/descriptor.pb.h>
 #include <google/protobuf/io/coded_stream.h>
 #include <google/protobuf/io/zero_copy_stream_impl_lite.h>
 
 #include "capabilities/capability/LogicalTypeContract.h"
 #include "capabilities/capability/NativeCapabilityCatalog.h"
+#include "capabilities/capability/NativeCapabilityInventory.h"
 #include "engine/shuffle/ShuffleTransferLimits.h"
 #include "engine/split/PaimonLocalFileUri.h"
 #include "engine/split/SplitConfig.h"
 
 #include "pangrova/protocol/v2/connector.pb.h"
-#include "pangrova/protocol/v2/runtime.pb.h"
 #include "pangrova/protocol/v2/task.pb.h"
 
 namespace pangrova::jni {
@@ -49,10 +49,6 @@ using split::IcebergConfig;
 using split::PaimonConfig;
 using split::SplitConfig;
 using split::TypePromotionConfig;
-
-constexpr uint32_t kProtocolMajor = 2;
-constexpr uint32_t kProtocolMinor = 0;
-constexpr const char* kRolloutEpoch = "ai-native-function-resource-r3";
 
 int64_t checkedInt64(uint64_t value, const char* field) {
   if (value > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
@@ -91,47 +87,6 @@ std::vector<split::IcebergManifestPartitionSpec> parseManifestPartitionSpecs(
     result.push_back(std::move(parsed));
   }
   return result;
-}
-
-void collectDescriptorFiles(
-    const google::protobuf::FileDescriptor* descriptor,
-    std::map<std::string, const google::protobuf::FileDescriptor*>& files) {
-  if (!files.emplace(descriptor->name(), descriptor).second) {
-    return;
-  }
-  for (int i = 0; i < descriptor->dependency_count(); ++i) {
-    collectDescriptorFiles(descriptor->dependency(i), files);
-  }
-}
-
-void clearDerivedFields(google::protobuf::DescriptorProto* message) {
-  for (auto& field : *message->mutable_field()) {
-    field.clear_json_name();
-  }
-  for (auto& extension : *message->mutable_extension()) {
-    extension.clear_json_name();
-  }
-  for (auto& nested : *message->mutable_nested_type()) {
-    clearDerivedFields(&nested);
-  }
-}
-
-std::string canonicalDescriptorSet() {
-  std::map<std::string, const google::protobuf::FileDescriptor*> files;
-  collectDescriptorFiles(proto::RuntimeCommand::descriptor()->file(), files);
-  google::protobuf::FileDescriptorSet result;
-  for (const auto& [name, descriptor] : files) {
-    (void)name;
-    auto* output = result.add_file();
-    descriptor->CopyTo(output);
-    for (auto& message : *output->mutable_message_type()) {
-      clearDerivedFields(&message);
-    }
-    for (auto& extension : *output->mutable_extension()) {
-      extension.clear_json_name();
-    }
-  }
-  return result.SerializeAsString();
 }
 
 std::string sha256(const void* data, size_t size) {
@@ -379,17 +334,16 @@ void validateProtocol(const proto::ProtocolVersion& version) {
   if (version.GetReflection()->GetUnknownFields(version).field_count() != 0) {
     throw std::runtime_error("TaskRequest protocol contains unknown fields");
   }
-  if (version.major() != kProtocolMajor || version.minor() != kProtocolMinor) {
+  const auto& expected = capability::canonicalProtocolVersion();
+  if (version.major() != expected.major() || version.minor() != expected.minor()) {
     throw std::runtime_error(
         "Unsupported TaskRequest protocol " + std::to_string(version.major()) +
         "." + std::to_string(version.minor()));
   }
-  if (version.rollout_epoch() != kRolloutEpoch) {
+  if (version.rollout_epoch() != expected.rollout_epoch()) {
     throw std::runtime_error("TaskRequest rollout epoch mismatch");
   }
-  const auto descriptor_set = canonicalDescriptorSet();
-  const auto expected = sha256(descriptor_set.data(), descriptor_set.size());
-  if (!constantTimeEqual(version.descriptor_set_sha256(), expected)) {
+  if (!constantTimeEqual(version.descriptor_set_sha256(), expected.descriptor_set_sha256())) {
     throw std::runtime_error("TaskRequest canonical descriptor hash mismatch");
   }
 }
@@ -632,10 +586,16 @@ PaimonConfig parsePaimon(const proto::PaimonSplitDetail& detail) {
       parseSchemaEvolution(file.scan().schema_evolution(), evolution);
       physical.column_mappings = std::move(evolution.column_mappings);
       physical.type_promotions = std::move(evolution.type_promotions);
-      proto::FileSplitDetail read;
-      read.set_file_format(file.file_format());
-      *read.mutable_physical_file_scan() = file.scan();
-      physical.file_scan_detail = read.SerializeAsString();
+      if (physical.file_format == split::FileFormatType::LANCE) {
+        proto::FileSplitDetail read;
+        read.set_file_format(file.file_format());
+        *read.mutable_physical_file_scan() = file.scan();
+        physical.lance_read_unit = read.SerializeAsString();
+        if (file.scan().has_deletion_vector()) {
+          physical.deletion_vector = std::make_shared<const proto::DeletionVectorReference>(
+              file.scan().deletion_vector());
+        }
+      }
       parsed.files.push_back(std::move(physical));
     }
     parsed.total_record_count = level.total_record_count();
@@ -675,12 +635,10 @@ SplitConfig parseSplit(const proto::DataSplit& split, const proto::TaskRequest& 
     throw std::runtime_error(
         "DataSplit requires split, connector, source, snapshot, object and location identities");
   }
-  proto::FileSplitDetail detail;
-  if (!split.has_connector_detail() ||
-      !split.connector_detail().UnpackTo(&detail)) {
-    throw std::runtime_error(
-        "DataSplit connector_detail must be v2 FileSplitDetail");
+  if (!split.has_file_detail()) {
+    throw std::runtime_error("DataSplit requires file_detail");
   }
+  const auto& detail = split.file_detail();
 
   SplitConfig config;
   config.split_id = split.split_id();
@@ -690,7 +648,14 @@ SplitConfig parseSplit(const proto::DataSplit& split, const proto::TaskRequest& 
   config.data_object_id = split.data_object_id();
   config.file_path = split.opaque_location();
   config.file_format = parseFileFormat(detail.file_format());
-  config.file_scan_detail = detail.SerializeAsString();
+  if (config.file_format == split::FileFormatType::LANCE) {
+    config.lance_read_unit = detail.SerializeAsString();
+  }
+  if (!detail.index_eval_hints().empty()) {
+    const auto& hints = detail.index_eval_hints();
+    config.index_hints = std::make_shared<const std::vector<proto::IndexEvalHintDetail>>(
+        hints.begin(), hints.end());
+  }
   if (detail.has_system_table()) {
     const bool directory = detail.system_table().kind() ==
         proto::SystemTableSplitDetail::PAIMON_BRANCHES;
@@ -991,7 +956,6 @@ SplitConfig parseSplit(const proto::DataSplit& split, const proto::TaskRequest& 
         || detail.scan_partition().physical_schema_sha256().digest().size() != 32) {
       throw std::runtime_error("Lance DataSplit requires exact catalog and manifest partition, not a byte range");
     }
-    config.file_scan_detail = detail.SerializeAsString();
     uint64_t version = 0;
     const auto& snapshot = config.source_snapshot;
     const auto [end, error] = std::from_chars(
@@ -1043,6 +1007,10 @@ SplitConfig parseSplit(const proto::DataSplit& split, const proto::TaskRequest& 
   } else if (detail.has_paimon()) {
     config.paimon = parsePaimon(detail.paimon());
     config.paimon->partition_values = config.partition_values;
+    if (detail.physical_file_scan().has_deletion_vector()) {
+      config.deletion_vector = std::make_shared<const proto::DeletionVectorReference>(
+          detail.physical_file_scan().deletion_vector());
+    }
   }
   return config;
 }
@@ -1911,11 +1879,8 @@ executor::TaskExecutorConfig parseFromProto(const proto::TaskRequest& request) {
       throw std::runtime_error("TaskRequest contains duplicate DataSplit split_id");
     }
     auto parsed = parseSplit(split, request);
+    const auto& detail = split.file_detail();
     if (parsed.file_format == split::FileFormatType::LANCE) {
-      proto::FileSplitDetail detail;
-      if (!detail.ParseFromString(parsed.file_scan_detail)) {
-        throw std::runtime_error("Malformed canonical file read unit");
-      }
       const auto partition_key = split.source_id() + '\0' + split.source_snapshot() + '\0' +
           split.opaque_location() + '\0' + (detail.has_scan_partition()
           ? std::to_string(detail.scan_partition().partition_id()) : detail.physical_file_scan().SerializeAsString());
@@ -1926,16 +1891,15 @@ executor::TaskExecutorConfig parseFromProto(const proto::TaskRequest& request) {
           split.catalog(), request.security().tenant_id(), split.opaque_location());
     }
     if (parsed.paimon.has_value()) {
-      for (const auto& level : parsed.paimon->lsm_levels) {
-        for (const auto& file : level.files) {
-          proto::FileSplitDetail read;
-          if (!read.ParseFromString(file.file_scan_detail)) throw std::invalid_argument("Malformed Paimon file read unit");
-          if (file.file_format == split::FileFormatType::LANCE || read.physical_file_scan().has_deletion_vector()) {
+      for (const auto& level : detail.paimon().lsm_levels()) {
+        for (const auto& file : level.files()) {
+          const auto& scan = file.scan();
+          if (file.file_format() == proto::FILE_FORMAT_LANCE || scan.has_deletion_vector()) {
             parsed.storage_binding = pangrova::resource::workerLocalStorage(request.worker_local_storage_bindings(),
-                split.catalog(), request.security().tenant_id(), file.file_path);
-            if (read.physical_file_scan().has_deletion_vector()) {
+                split.catalog(), request.security().tenant_id(), file.opaque_location());
+            if (scan.has_deletion_vector()) {
               pangrova::resource::workerLocalStorage(request.worker_local_storage_bindings(), split.catalog(),
-                  request.security().tenant_id(), read.physical_file_scan().deletion_vector().opaque_location());
+                  request.security().tenant_id(), scan.deletion_vector().opaque_location());
             }
           }
         }
@@ -1947,6 +1911,14 @@ executor::TaskExecutorConfig parseFromProto(const proto::TaskRequest& request) {
   applyWorkerCopyInput(request, config);
   validateOperatorBindings(request, config);
   validateRuntimeFilterBindings(request, config);
+  if (request.has_build_key_ordinal()) {
+    if (request.build_key_ordinal() > static_cast<uint32_t>(std::numeric_limits<int32_t>::max()) ||
+        request.task_kind() != proto::TASK_KIND_READ || !request.execution_options().has_shuffle() ||
+        request.execution_options().direct_result_output() || request.exchange_inputs_size() != 0) {
+      throw std::invalid_argument("Runtime-filter build key requires a leaf shuffle producer");
+    }
+    config.build_key_ordinal = request.build_key_ordinal();
+  }
   if (request.has_execution_options()) {
     const auto& options = request.execution_options();
     config.session_properties.insert(

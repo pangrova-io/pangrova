@@ -121,6 +121,26 @@ class IdempotencyKeyRegistryTest {
         assertThatThrownBy(() -> registry.submit("alice", "key", REQUEST, () -> RECEIPT)).isSameAs(failure);
     }
 
+    @Test
+    void drainingAnExpiredReceiptPreservesItsSameKeyReplacement() {
+        var clock = new TestClock(Instant.EPOCH);
+        var registry = new IdempotencyKeyRegistry(Duration.ofMillis(100), clock);
+        for (int index = 0; index < 32; index++) {
+            registry.submit("alice", "prior-" + index, REQUEST, () -> RECEIPT);
+        }
+        clock.advance(Duration.ofMillis(1));
+        registry.submit("alice", "reused", REQUEST, () -> RECEIPT);
+        clock.advance(Duration.ofMillis(100));
+        var replacement = new SubmitQueryResponse("q-replacement", "RUNNING", null, List.of());
+        assertThat(registry.submit("alice", "reused", REQUEST, () -> replacement)).isSameAs(replacement);
+
+        registry.submit("alice", "fresh-1", REQUEST, () -> RECEIPT);
+        registry.submit("alice", "fresh-2", REQUEST, () -> RECEIPT);
+        assertThat(registry.submit("alice", "reused", REQUEST, () -> {
+            throw new AssertionError("expired receipt removed its replacement");
+        })).isSameAs(replacement);
+    }
+
     /** Minimal advanceable clock for deterministic TTL testing. */
     private static final class TestClock extends Clock {
         private volatile Instant now;

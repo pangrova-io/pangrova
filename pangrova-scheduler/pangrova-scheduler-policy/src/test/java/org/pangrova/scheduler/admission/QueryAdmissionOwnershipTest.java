@@ -3,6 +3,7 @@ package org.pangrova.scheduler.admission;
 import org.junit.jupiter.api.Test;
 import org.pangrova.scheduler.api.resource.AdmissionDecision;
 import org.pangrova.scheduler.api.resource.AdmissionRequest;
+import org.pangrova.scheduler.api.resource.AdmissionRequest.TenantLimits;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -11,6 +12,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Direct lifecycle tests for the admission owner, not SQL/Native execution evidence. */
 class QueryAdmissionOwnershipTest {
+    private static final TenantLimits QUOTA = new TenantLimits(1000, 2);
 
     @Test
     void failedAdmissionRetainsItsEnteredReservationForCleanup() {
@@ -57,7 +59,7 @@ class QueryAdmissionOwnershipTest {
             reservation.retain(returned::incrementAndGet);
             return AdmissionDecision.admit();
         });
-        var changed = AdmissionRequest.of("different-tenant", "default", "query");
+        var changed = AdmissionRequest.of("different-tenant", "default", "query", QUOTA);
         assertThat(ownership.admit(changed, reservation -> {
             throw new AssertionError("conflicting admission action must not enter");
         }).isAdmitted()).isFalse();
@@ -68,20 +70,23 @@ class QueryAdmissionOwnershipTest {
     }
 
     @Test
-    void memoryRejectionReturnsCapacityOnceBeforeRemovingOwner() {
+    void refusalWithoutReservationCanRetryWithTheSameIdentity() {
         var ownership = new QueryAdmissionOwnership();
         var returned = new AtomicInteger();
-        var decision = ownership.admit(request("query"), reservation -> {
-            reservation.retain(returned::incrementAndGet);
-            reservation.returnCapacity();
-            return AdmissionDecision.reject("memory limit");
-        });
+        var decision = ownership.admit(request("query"), reservation -> AdmissionDecision.reject("memory limit"));
         assertThat(decision.isAdmitted()).isFalse();
-        ownership.release("query", "tenant");
+        assertThat(ownership.release("query", "tenant")).isFalse();
+
+        var accepted = ownership.admit(request("query"), reservation -> {
+            reservation.retain(returned::incrementAndGet);
+            return AdmissionDecision.admit();
+        });
+        assertThat(accepted.isAdmitted()).isTrue();
+        assertThat(ownership.release("query", "tenant")).isTrue();
         assertThat(returned.get()).isEqualTo(1);
     }
 
     private static AdmissionRequest request(String queryId) {
-        return AdmissionRequest.of("tenant", "default", queryId);
+        return AdmissionRequest.of("tenant", "default", queryId, QUOTA);
     }
 }

@@ -7,7 +7,6 @@ import java.time.Instant;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -15,54 +14,51 @@ import static org.assertj.core.api.Assertions.assertThat;
 /** Scheduling/ownership components only; predicates do not represent Native drain evidence. */
 class TaskCleanupSchedulingTest {
     @Test
-    void incrementalProbeIsBoundedAndRetainsFailedReleaseUntilRetry() {
-        var tasks = new WorkerTaskRegistry(256);
-        int owners = TaskCleanupScheduler.MAX_CONSUMED_RESULT_PROBES + 1;
-        for (int i = 0; i < owners; i++) tasks.register(finishedTask("owner-" + i));
-        var attempted = new java.util.concurrent.atomic.AtomicInteger();
-        var fail = new AtomicBoolean(true);
-        var sweep = new TaskCleanupScheduler.ConsumedResultSweep(tasks, actual -> {
-            attempted.incrementAndGet();
-            if (fail.get()) throw new IllegalStateException("actual release rejected");
-        }, actual -> true);
-
-        sweep.run();
-        assertThat(attempted).hasValue(TaskCleanupScheduler.MAX_CONSUMED_RESULT_PROBES);
-        assertThat(tasks.values()).hasSize(owners);
-        fail.set(false);
-        sweep.run(); // Finish this walk rather than starving the last owner.
-        assertThat(attempted).hasValue(owners);
-        assertThat(tasks.values()).hasSize(owners - 1);
-        sweep.run(); // Begin the next walk; retained failures are still owned and retryable.
-        assertThat(tasks.values()).isEmpty();
-        assertThat(attempted).hasValue(owners + owners - 1);
+    void resultDrainReleasesExactOwnerAndCancelsItsDeadline() throws Exception {
+        var tasks = new WorkerTaskRegistry(2);
+        var task = finishedTask("consumed");
+        tasks.register(task);
+        var timer = new java.util.concurrent.ScheduledThreadPoolExecutor(1);
+        timer.setRemoveOnCancelPolicy(true);
+        var called = new CountDownLatch(1);
+        try {
+            var registration = new TaskResultRelease(task, tasks, timer, actual -> {
+                assertThat(actual).isSameAs(task);
+                called.countDown();
+                return java.util.concurrent.CompletableFuture.completedFuture(null);
+            }, () -> { });
+            assertThat(task.installResultRelease(registration)).isTrue();
+            registration.expireAt(System.currentTimeMillis() + TimeUnit.HOURS.toMillis(1));
+            assertThat(tasks.get(task.taskId())).isSameAs(task);
+            registration.drained();
+            registration.drained();
+            assertThat(called.await(2, TimeUnit.SECONDS)).isTrue();
+            timer.submit(() -> { }).get(2, TimeUnit.SECONDS);
+            assertThat(tasks.values()).isEmpty();
+            assertThat(timer.getQueue()).isEmpty();
+        } finally {
+            timer.shutdownNow();
+            assertThat(timer.awaitTermination(2, TimeUnit.SECONDS)).isTrue();
+        }
     }
 
     @Test
-    void consumedResultIsReleasedWithoutWaitingForRetentionSweep() throws Exception {
-        var tasks = new WorkerTaskRegistry(256);
-        var info = finishedTask("consumed");
-        tasks.register(info);
-        var release = new CountDownLatch(1);
-        var consumed = new AtomicBoolean();
-        var probed = new CountDownLatch(1);
-        var timer = Executors.newSingleThreadScheduledExecutor();
+    void anUnclaimedResultStillHasAnExactDeadlineWithoutScanning() throws Exception {
+        var tasks = new WorkerTaskRegistry(2);
+        var task = finishedTask("expires");
+        tasks.register(task);
+        var timer = new java.util.concurrent.ScheduledThreadPoolExecutor(1);
+        timer.setRemoveOnCancelPolicy(true);
+        var called = new CountDownLatch(1);
         try {
-            TaskCleanupScheduler.startPeriodicCleanup(timer, tasks, Duration.ofHours(1), Duration.ofHours(1),
-                    actual -> {
-                        assertThat(actual).isSameAs(info);
-                        assertThat(consumed).isTrue();
-                        release.countDown();
-                    }, actual -> {
-                        assertThat(actual).isSameAs(info);
-                        probed.countDown();
-                        return consumed.get();
-                    });
-            assertThat(probed.await(2, TimeUnit.SECONDS)).isTrue();
-            assertThat(tasks.get(info.taskId())).isSameAs(info);
-            assertThat(release.getCount()).isEqualTo(1);
-            consumed.set(true);
-            assertThat(release.await(2, TimeUnit.SECONDS)).isTrue();
+            var registration = new TaskResultRelease(task, tasks, timer, actual -> {
+                assertThat(actual).isSameAs(task);
+                called.countDown();
+                return java.util.concurrent.CompletableFuture.completedFuture(null);
+            }, () -> { });
+            assertThat(task.installResultRelease(registration)).isTrue();
+            registration.expireAt(System.currentTimeMillis());
+            assertThat(called.await(2, TimeUnit.SECONDS)).isTrue();
             timer.submit(() -> { }).get(2, TimeUnit.SECONDS);
             assertThat(tasks.values()).isEmpty();
         } finally {
@@ -80,11 +76,11 @@ class TaskCleanupSchedulingTest {
         tasks.register(terminal);
         tasks.register(running);
         var released = new java.util.ArrayList<TaskInfo>();
-        assertThat(TaskCleanupScheduler.cleanupTerminalTasks(tasks, Duration.ZERO, released::add, task -> false))
+        assertThat(TaskCleanupScheduler.cleanupTerminalTasks(tasks, Duration.ZERO, released::add))
                 .isEqualTo(1);
         assertThat(released).containsExactly(terminal);
         assertThat(tasks.values()).containsExactly(running);
-        assertThat(TaskCleanupScheduler.cleanupTerminalTasks(tasks, Duration.ZERO, released::add, task -> false))
+        assertThat(TaskCleanupScheduler.cleanupTerminalTasks(tasks, Duration.ZERO, released::add))
                 .isZero();
         assertThat(released).containsExactly(terminal);
     }
@@ -99,10 +95,10 @@ class TaskCleanupSchedulingTest {
         org.assertj.core.api.Assertions.assertThatThrownBy(() ->
                 TaskCleanupScheduler.cleanupTerminalTasks(tasks, Duration.ZERO, task -> {
                     if (task == failed) throw new IllegalStateException("owner has not drained");
-                }, task -> false)).isInstanceOf(IllegalStateException.class)
+                })).isInstanceOf(IllegalStateException.class)
                 .hasMessage("Task resource cleanup sweep failed");
         assertThat(tasks.values()).containsExactly(failed);
-        assertThat(TaskCleanupScheduler.cleanupTerminalTasks(tasks, Duration.ZERO, task -> {}, task -> false))
+        assertThat(TaskCleanupScheduler.cleanupTerminalTasks(tasks, Duration.ZERO, task -> {}))
                 .isEqualTo(1);
         assertThat(tasks.values()).isEmpty();
     }
@@ -117,7 +113,7 @@ class TaskCleanupSchedulingTest {
                 task -> {
                     assertThat(tasks.remove(task)).isTrue();
                     tasks.register(replacement);
-                }, task -> false)).isZero();
+                })).isZero();
         assertThat(tasks.get(old.taskId())).isSameAs(replacement);
     }
 

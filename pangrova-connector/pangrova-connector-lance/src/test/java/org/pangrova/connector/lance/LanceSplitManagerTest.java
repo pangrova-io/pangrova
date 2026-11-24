@@ -1,5 +1,6 @@
 package org.pangrova.connector.lance;
 
+import org.pangrova.protocol.source.CanonicalConnectorSplit;
 import org.junit.jupiter.api.Test;
 import org.pangrova.protocol.source.DataSplitProtoCodec;
 import org.pangrova.protocol.v2.DataSplit;
@@ -49,7 +50,7 @@ class LanceSplitManagerTest extends org.pangrova.testing.testkit.ContainerTestBa
         var split = new LanceDataSplit(pinned, new NativeDatasetScanPage.Partition(actualPartition.getPartitionId(), actualPartition.getPhysicalRows()),
                 catalog.toByteArray(), accepted.getManifestSha256().getDigest().toByteArray(),
                 org.pangrova.protocol.source.SourceSnapshotBindings.decode(accepted, catalog));
-        var proto = DataSplit.parseFrom(split.toSplitInfoProto());
+        var proto = DataSplit.parseFrom(CanonicalConnectorSplit.from(split).toByteArray());
         assertThat(proto.getSourceSnapshot()).isEqualTo("7");
         assertThat(proto.getOpaqueLocation()).isEqualTo(pinned.datasetUri());
         assertThat(DataSplitProtoCodec.fileDetail(proto).getFileFormat()).isEqualTo(FileFormat.FILE_FORMAT_LANCE);

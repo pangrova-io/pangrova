@@ -6,6 +6,8 @@ import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.container.ContainerRequestContext;
+import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import org.pangrova.query.runtime.QueryManager;
@@ -24,8 +26,8 @@ import java.util.Map;
  *
  * <p>Provides three endpoints:
  * <ul>
- *   <li>{@code GET /api/queries} — list all queries with status, duration, user</li>
- *   <li>{@code GET /api/queries/{id}/profile} — operator tree and timing for a query</li>
+ *   <li>{@code GET /api/queries} — submitting principal's active queries</li>
+ *   <li>{@code GET /api/queries/{id}/profile} — the submitting principal's query profile</li>
  *   <li>{@code GET /api/workers} — worker status dashboard (health, memory, tasks)</li>
  * </ul>
  */
@@ -44,12 +46,14 @@ public final class WebUiResource {
         this.queryProfileService = queryProfileService;
     }
 
-    /** Lists summaries of all active queries for the web UI. */
+    /** Lists active queries submitted by the caller. */
     @GET
     @Path("/queries")
-    public Response listQueries() {
+    public Response listQueries(@Context ContainerRequestContext requestContext) {
+        String principal = AuthenticationFilter.queryPrincipal(requestContext);
         Map<String, QueryStateMachine> machines = queryManager.getStateMachines();
         List<QuerySummary> summaries = machines.entrySet().stream()
+                .filter(entry -> entry.getValue().isOwnedBy(principal))
                 .map(entry -> toQuerySummary(entry.getKey(), entry.getValue()))
                 .toList();
         return Response.ok(summaries).build();
@@ -58,19 +62,26 @@ public final class WebUiResource {
     /** Returns the stored profile for a query, or an error when unavailable. */
     @GET
     @Path("/queries/{queryId}/profile")
-    public Response getQueryProfile(@PathParam("queryId") String queryId) {
+    public Response getQueryProfile(@PathParam("queryId") String queryId,
+            @Context ContainerRequestContext requestContext) {
         if (queryProfileService == null) {
             return Response.status(Response.Status.SERVICE_UNAVAILABLE)
                     .entity(Map.of("error", "Profile service not available"))
                     .build();
         }
-        var profile = queryProfileService.getProfile(queryId);
-        if (profile.isEmpty()) {
-            return Response.status(Response.Status.NOT_FOUND)
-                    .entity(Map.of("error", "No profile for query: " + queryId))
-                    .build();
+        var owner = queryManager.getStateMachine(queryId);
+        String principal = AuthenticationFilter.queryPrincipal(requestContext);
+        if (owner != null && !owner.isOwnedBy(principal)) {
+            return profileNotFound(queryId);
         }
-        return Response.ok(profile.get()).build();
+        return queryProfileService.getProfile(queryId, principal)
+                .map(profile -> Response.ok(profile).build()).orElseGet(() -> profileNotFound(queryId));
+    }
+
+    private static Response profileNotFound(String queryId) {
+        return Response.status(Response.Status.NOT_FOUND)
+                .entity(Map.of("error", "No profile for query: " + queryId))
+                .build();
     }
 
     /** Lists summaries of all registered workers for the web UI. */

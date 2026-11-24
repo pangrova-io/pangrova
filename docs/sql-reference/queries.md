@@ -227,6 +227,8 @@ FROM prod.analytics.orders;
 
 **Scalar subquery:**
 
+A scalar subquery returns its value for one row and SQL NULL for zero rows. More than one row raises a cardinality error, including repeated values and rows containing NULL.
+
 ```sql
 SELECT user_id, name,
   (SELECT COUNT(*) FROM prod.analytics.orders o WHERE o.user_id = u.user_id) AS order_count

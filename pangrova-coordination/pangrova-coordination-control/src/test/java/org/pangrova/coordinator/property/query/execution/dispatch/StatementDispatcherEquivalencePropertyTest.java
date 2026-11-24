@@ -141,7 +141,7 @@ class StatementDispatcherEquivalencePropertyTest {
         tasks.put(InsertOverwriteStatement.class, noOp);
         var factory = new MetadataExecutionFactory(tasks);
         var context = new StatementDispatcherContext(
-                null, null, List.of(factory), List.of(), null);
+                null, List.of(factory), List.of(), null);
         return new StatementDispatcher(context);
     }
 }

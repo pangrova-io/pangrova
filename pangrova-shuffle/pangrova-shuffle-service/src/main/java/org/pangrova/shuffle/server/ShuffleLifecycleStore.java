@@ -5,6 +5,8 @@ import java.util.Optional;
 import java.util.UUID;
 
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
+import org.pangrova.protocol.v2.TaskAttemptId;
+import org.pangrova.shuffle.security.enums.CapabilityOperation;
 
 import static org.pangrova.shuffle.server.ShuffleServiceModel.Allocation;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupCommand;
@@ -15,15 +17,22 @@ import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupPlan;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupShufflePage;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.FinalizeCommand;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.FinalizeResult;
+import static org.pangrova.shuffle.server.ShuffleServiceModel.PublishedPartition;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.RegisterCommand;
 
 /** Durable allocation, finalization, and cleanup transaction boundary. */
 interface ShuffleLifecycleStore extends ShuffleCleanupStore, AutoCloseable {
 
-    /** Pins a query's objects for one authorized read until release or its bounded expiry. */
-    UUID pinRead(String queryId, ExecutionOwnerIdentity owner, long readUntilMs, long drainMillis);
+    /** Opens the exact finalized partition and durably pins its objects in one transaction. */
+    ReadAdmission openRead(String queryId, ExecutionOwnerIdentity owner, String shuffleId, int partitionId,
+            long startSequence, long readUntilMs, long drainMillis);
 
-    void requirePinnedRead(String queryId, ExecutionOwnerIdentity owner, UUID id);
+    /** Renews frame and object-read admission under the exact live owner and pin. */
+    long grantReadWindow(String queryId, ExecutionOwnerIdentity owner, UUID id);
+
+    record ReadPin(UUID id, long protectedForMillis) {}
+
+    record ReadAdmission(PublishedPartition published, ReadPin pin) {}
 
     void releaseRead(UUID id);
 
@@ -45,13 +54,19 @@ interface ShuffleLifecycleStore extends ShuffleCleanupStore, AutoCloseable {
             ExecutionOwnerIdentity owner,
             long expiresAtMs);
 
+    /** Validates an exact task against the locked allocation and renews both durable expiries. */
+    void renewTaskAccess(String shuffleId, ExecutionOwnerIdentity owner, long expiresAtMs,
+            TaskAttemptId attempt, CapabilityOperation operation);
+
     Allocation register(RegisterCommand command);
 
     Optional<Allocation> findAllocation(String shuffleId);
 
     FinalizeResult finalizeShuffle(FinalizeCommand command);
 
-    Optional<FinalizeResult> findFinalization(String shuffleId);
+    String beginManifestWrite(Allocation allocation, String objectKey, long recoveryDelayMs);
+
+    void settleManifestWrite(String reservation, String shuffleId, String objectKey);
 
     @Override
     void close();

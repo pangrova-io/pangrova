@@ -8,6 +8,6 @@ import java.util.Optional;
 @Internal
 public interface QueryAuditStore {
     void save(QueryAuditRecord record);
-    Optional<QueryAuditRecord> findById(String queryId);
+    Optional<QueryAuditRecord> findById(String queryId, String principal);
     long deleteOlderThan(int retentionDays);
 }

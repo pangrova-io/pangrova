@@ -5,6 +5,7 @@ import org.pangrova.scheduler.api.exception.TaskDispatchException;
 import org.pangrova.scheduler.api.enums.ErrorCategory;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
+import static org.pangrova.common.util.Preconditions.checkPort;
 
 import java.io.IOException;
 import java.net.ConnectException;
@@ -22,7 +23,8 @@ import java.util.concurrent.TimeoutException;
 import java.util.function.Function;
 import java.util.function.LongSupplier;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.protobuf.InvalidProtocolBufferException;
+import org.pangrova.common.client.result.ResultEndpoint;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.transport.http.client.HttpClientFactory;
@@ -30,8 +32,10 @@ import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.execution.task.DispatchResult;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.transport.ShuffleTlsConfig;
+import org.pangrova.protocol.http.TaskAdmitted;
+import org.pangrova.protocol.http.TaskShuffleEndpoint;
+import org.pangrova.protocol.http.TaskSubmitAck;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
-import org.pangrova.protocol.rest.task.SubmitTaskResponse;
 import org.pangrova.protocol.rest.task.ExecutionOwnerIdentity;
 import org.pangrova.execution.binding.TaskControlBinding;
 import org.pangrova.observability.api.tracing.TracingProvider;
@@ -41,7 +45,7 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Dispatches tasks to Worker via real HTTP POST /v1/task.
- * Uses java.net.http.HttpClient (JDK 11+), Jackson for JSON serialization.
+ * Task submissions and acknowledgements use the internal Protobuf transport.
  * Wraps dispatch with CircuitBreaker for fail-fast on repeated Worker failures.
  * Injects W3C trace context into outgoing HTTP headers for distributed tracing.
  * Client side only — no Jetty dependency needed.
@@ -70,7 +74,6 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
     private final HttpClient httpClient;
     private volatile HttpClient copyTaskTlsClient;
     private final org.pangrova.transport.http.client.ManagedHttpClient managedClient;
-    private final ObjectMapper mapper;
     private final CircuitBreakerPolicy circuitBreakerPolicy;
     private final TracingProvider tracingProvider;
     private final String internalAuthSecret;
@@ -86,6 +89,7 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
     public void configureCopyTaskTls(ShuffleTlsConfig config) {
         checkNotNull(config, "config must not be null");
         this.copyTaskTlsClient = HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
                 .sslContext(org.pangrova.transport.http.tls.PemMutualTls.context(
                         config.certificateChain(), config.privateKey(), config.rootCa()))
                 .connectTimeout(Duration.ofSeconds(10))
@@ -104,12 +108,11 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
         org.pangrova.transport.http.client.ManagedHttpClient managed = HttpClientFactory.createDefault();
         this.managedClient = managed;
         this.httpClient = managed.httpClient();
-        this.mapper = JsonMapperFactory.shared();
         this.circuitBreakerPolicy = checkNotNull(circuitBreakerPolicy, "circuitBreakerPolicy must not be null");
         this.tracingProvider = checkNotNull(tracingProvider, "tracingProvider must not be null");
         this.internalAuthSecret = internalAuthSecret;
         this.taskControlClient = new WorkerTaskControlClient(
-                httpClient, mapper, tracingProvider, internalAuthSecret);
+                httpClient, JsonMapperFactory.shared(), tracingProvider, internalAuthSecret);
     }
 
     public RemoteTaskDispatcher(HttpClient httpClient, CircuitBreakerPolicy circuitBreakerPolicy,
@@ -125,12 +128,11 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
             String internalAuthSecret) {
         this.httpClient = checkNotNull(httpClient, "httpClient must not be null");
         this.managedClient = null; // externally provided — caller owns lifecycle
-        this.mapper = JsonMapperFactory.shared();
         this.circuitBreakerPolicy = checkNotNull(circuitBreakerPolicy, "circuitBreakerPolicy must not be null");
         this.tracingProvider = checkNotNull(tracingProvider, "tracingProvider must not be null");
         this.internalAuthSecret = internalAuthSecret;
         this.taskControlClient = new WorkerTaskControlClient(
-                httpClient, mapper, tracingProvider, internalAuthSecret);
+                httpClient, JsonMapperFactory.shared(), tracingProvider, internalAuthSecret);
     }
 
     /**
@@ -206,14 +208,14 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
     private DispatchResult doDispatch(SubmitTaskRequest request, WorkerInfo worker) {
         SubmitTaskRequest stamped = bindSourceInput(bindControlIdentity(bindWorkerIdentity(request, worker)));
         requireEncryptedCopyTaskTransport(stamped, worker);
-        byte[] body = serializeRequest(stamped);
+        byte[] body = stamped.encode();
         long deadline = System.nanoTime() + EPOCH_CATCHUP_TIMEOUT_NANOS;
         while (true) {
             if (System.nanoTime() >= deadline) {
                 throw epochCatchupExpired(worker);
             }
             verifyControlIdentityStillCurrent(stamped, worker);
-            HttpResponse<String> response = sendPost(stamped, worker, body, deadline);
+            HttpResponse<byte[]> response = sendPost(stamped, worker, body, deadline);
             if (response.statusCode() != HTTP_EPOCH_AHEAD) {
                 return handleResponse(worker, response, stamped);
             }
@@ -280,31 +282,11 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
         this.executionOwnerResolver = checkNotNull(resolver, "resolver must not be null");
     }
 
-    private byte[] serializeRequest(SubmitTaskRequest request) {
-        try {
-            return mapper.writeValueAsBytes(request);
-        } catch (IOException e) {
-            throw new PangrovaException(PangrovaErrorCode.PROTOCOL_SERIALIZATION_FAILED,
-                    "Failed to serialize SubmitTaskRequest", e);
-        }
-    }
-
-    private HttpResponse<String> sendPost(SubmitTaskRequest request, WorkerInfo worker,
+    private HttpResponse<byte[]> sendPost(SubmitTaskRequest request, WorkerInfo worker,
                                           byte[] body, long deadline) {
-        String url = taskUrl(request, worker);
-        LOG.debug("event=task_dispatch url={}", url);
-
-        HttpRequest.Builder builder = HttpRequest.newBuilder()
-                .uri(URI.create(url))
-                .header("Content-Type", "application/json")
-                .timeout(remainingDispatchTime(deadline, worker))
-                .POST(HttpRequest.BodyPublishers.ofByteArray(body));
-
-        injectTraceContext(builder);
-        injectInternalAuth(builder);
-
         try {
-            return taskClient(request).send(builder.build(), HttpResponse.BodyHandlers.ofString());
+            return taskClient(request).send(buildSubmitRequest(request, worker, body, deadline),
+                    HttpResponse.BodyHandlers.ofByteArray());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new PangrovaException(PangrovaErrorCode.COORDINATOR_DISPATCH_INTERRUPTED,
@@ -328,40 +310,92 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
         }
     }
 
-    private DispatchResult handleResponse(WorkerInfo worker, HttpResponse<String> response,
+    private DispatchResult handleResponse(WorkerInfo worker, HttpResponse<byte[]> response,
                                           SubmitTaskRequest submitted) {
         int statusCode = response.statusCode();
         if (statusCode != HTTP_OK) {
             PangrovaErrorCode errorCode = (statusCode == HTTP_SERVICE_UNAVAILABLE)
                     ? PangrovaErrorCode.COORDINATOR_DISPATCH_REJECTED
                     : PangrovaErrorCode.COORDINATOR_DISPATCH_FAILED;
-            throw new PangrovaException(errorCode,
-                    "Worker returned HTTP " + statusCode + ": " + response.body());
+            String message = "Worker returned HTTP " + statusCode;
+            if (hasBinaryAck(response)) {
+                var ack = deserializeResponse(response.body());
+                if (!ack.hasRejected()) {
+                    throw new PangrovaException(PangrovaErrorCode.PROTOCOL_DESERIALIZATION_FAILED,
+                            "Worker submission error must carry a rejected acknowledgement");
+                }
+                message += ": " + ack.getRejected().getReason();
+            }
+            throw new PangrovaException(errorCode, message);
         }
 
-        SubmitTaskResponse taskResponse = deserializeResponse(response.body());
-        if (!taskResponse.accepted()) {
-            throw new PangrovaException(PangrovaErrorCode.COORDINATOR_DISPATCH_REJECTED,
-                    "Worker rejected task: " + taskResponse.rejectReason());
+        if (!hasBinaryAck(response)) {
+            throw new PangrovaException(PangrovaErrorCode.PROTOCOL_DESERIALIZATION_FAILED,
+                    "Worker did not return a binary task acknowledgement");
+        }
+        var ack = deserializeResponse(response.body());
+        var admitted = ack.getAdmitted();
+        if (!ack.hasAdmitted() || !admitted.getTaskId().equals(submitted.taskRequest().getAttempt().getTaskId())) {
+            throw new PangrovaException(PangrovaErrorCode.PROTOCOL_DESERIALIZATION_FAILED,
+                    "Worker acknowledgement does not match the submitted task identity");
         }
         boolean resultTask = submitted.taskRequest().getExecutionOptions().getDirectResultOutput();
-        if (resultTask != (taskResponse.resultEndpoint() != null)) {
+        if (resultTask != admitted.hasResultEndpoint()) {
             throw new PangrovaException(PangrovaErrorCode.PROTOCOL_DESERIALIZATION_FAILED,
                     "Worker result endpoint does not match the admitted result task scope");
         }
 
-        return new DispatchResult(
-                worker.host(), taskResponse.taskId(), taskResponse.resultEndpoint(),
-                worker.workerId())
-                .withShuffleEndpoint(taskResponse.shuffleEndpoint());
+        try {
+            return new DispatchResult(worker.host(), admitted.getTaskId(), resultEndpoint(admitted),
+                    worker.workerId(), shuffleEndpoint(admitted));
+        } catch (IllegalArgumentException failure) {
+            throw new PangrovaException(PangrovaErrorCode.PROTOCOL_DESERIALIZATION_FAILED,
+                    "Worker returned an invalid task endpoint", failure);
+        }
     }
 
-    private SubmitTaskResponse deserializeResponse(String body) {
+    private static boolean hasBinaryAck(HttpResponse<byte[]> response) {
+        return response.headers().firstValue("Content-Type")
+                .filter(SubmitTaskRequest.MEDIA_TYPE::equalsIgnoreCase).isPresent();
+    }
+
+    private static ResultEndpoint resultEndpoint(TaskAdmitted admitted) {
+        if (!admitted.hasResultEndpoint()) return null;
+        var endpoint = admitted.getResultEndpoint();
+        int port = checkPort(endpoint.getPort(), "Invalid result endpoint");
+        if (endpoint.getHost().isBlank() || endpoint.getTicket().isBlank() || endpoint.getProtocol().isBlank()) {
+            throw new IllegalArgumentException("Invalid result endpoint");
+        }
+        return new ResultEndpoint(endpoint.getHost(), port, endpoint.getTicket(), endpoint.getProtocol());
+    }
+
+    private static TaskShuffleEndpoint shuffleEndpoint(TaskAdmitted admitted) {
+        if (!admitted.hasShuffleEndpoint()) return null;
+        var endpoint = admitted.getShuffleEndpoint();
+        checkPort(endpoint.getPort(), "Invalid shuffle endpoint");
+        if (endpoint.getHost().isBlank() || endpoint.getPartitionTicketsCount() == 0) {
+            throw new IllegalArgumentException("Invalid shuffle endpoint");
+        }
+        for (int partition = 0; partition < endpoint.getPartitionTicketsCount(); partition++) {
+            var ticket = endpoint.getPartitionTickets(partition);
+            if (ticket.getPartitionId() != partition || ticket.getSignedTicket().isEmpty()
+                    || ticket.getExpiresAtEpochMs() <= 0) {
+                throw new IllegalArgumentException("Invalid shuffle ticket for partition " + partition);
+            }
+        }
+        return endpoint;
+    }
+
+    private static TaskSubmitAck deserializeResponse(byte[] body) {
         try {
-            return mapper.readValue(body, SubmitTaskResponse.class);
-        } catch (IOException e) {
+            var ack = TaskSubmitAck.parseFrom(body);
+            if (!ack.getUnknownFields().asMap().isEmpty()) {
+                throw new IllegalArgumentException("Unexpected fields in task acknowledgement");
+            }
+            return ack;
+        } catch (InvalidProtocolBufferException | IllegalArgumentException e) {
             throw new PangrovaException(PangrovaErrorCode.PROTOCOL_DESERIALIZATION_FAILED,
-                    "Failed to deserialize SubmitTaskResponse", e);
+                    "Failed to decode task acknowledgement", e);
         }
     }
 
@@ -382,7 +416,7 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
         // F-COORD-HA-04: Stamp epoch before async dispatch (same as sync path).
         SubmitTaskRequest stamped = bindSourceInput(bindControlIdentity(bindWorkerIdentity(request, worker)));
         requireEncryptedCopyTaskTransport(stamped, worker);
-        byte[] body = serializeRequest(stamped);
+        byte[] body = stamped.encode();
         long deadline = System.nanoTime() + EPOCH_CATCHUP_TIMEOUT_NANOS;
 
         return sendAsyncWithEpochCatchup(stamped, worker, body, deadline)
@@ -427,8 +461,8 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
         } catch (RuntimeException e) {
             return CompletableFuture.failedFuture(e);
         }
-        return taskClient(stamped).sendAsync(buildAsyncRequest(stamped, worker, body, deadline),
-                        HttpResponse.BodyHandlers.ofString())
+        return taskClient(stamped).sendAsync(buildSubmitRequest(stamped, worker, body, deadline),
+                        HttpResponse.BodyHandlers.ofByteArray())
                 .thenCompose(response -> {
                     if (response.statusCode() != HTTP_EPOCH_AHEAD) {
                         try {
@@ -450,14 +484,15 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
                 });
     }
 
-    private HttpRequest buildAsyncRequest(SubmitTaskRequest request, WorkerInfo worker,
+    private HttpRequest buildSubmitRequest(SubmitTaskRequest request, WorkerInfo worker,
                                           byte[] body, long deadline) {
         String url = taskUrl(request, worker);
-        LOG.debug("event=async_task_dispatch url={}", url);
+        LOG.debug("event=task_dispatch url={}", url);
 
         HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(url))
-                .header("Content-Type", "application/json")
+                .header("Content-Type", SubmitTaskRequest.MEDIA_TYPE)
+                .header("Accept", SubmitTaskRequest.MEDIA_TYPE)
                 .timeout(remainingDispatchTime(deadline, worker))
                 .POST(HttpRequest.BodyPublishers.ofByteArray(body));
 

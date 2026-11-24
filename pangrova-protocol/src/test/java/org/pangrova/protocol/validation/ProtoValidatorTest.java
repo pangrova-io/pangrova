@@ -2,7 +2,6 @@ package org.pangrova.protocol.validation;
 
 import org.pangrova.protocol.exception.ProtoValidationException;
 
-import com.google.protobuf.Any;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
 import org.junit.jupiter.api.Test;
@@ -118,9 +117,9 @@ class ProtoValidatorTest {
                 .setConnectorId("files")
                 .setOpaqueLocation("/data/file.parquet")
                 .setLength(100)
-                .setConnectorDetail(Any.pack(FileSplitDetail.newBuilder()
+                .setFileDetail(FileSplitDetail.newBuilder()
                         .setFileFormat(FileFormat.FILE_FORMAT_PARQUET)
-                        .build()))
+                        .build())
                 .build();
     }
 }

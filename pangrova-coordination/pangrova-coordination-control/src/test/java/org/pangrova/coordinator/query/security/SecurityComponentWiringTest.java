@@ -26,6 +26,7 @@ import java.util.Set;
 import static org.pangrova.coordinator.testinfra.CoordinatorRoleFixtures.mappedRoles;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Verifies security components wire AccessControl for column masking and row filtering.
@@ -70,6 +71,17 @@ class SecurityComponentWiringTest {
 
         RelNode result = filterApplier.applyRowFilters(plan, user);
         assertThat(result).isSameAs(plan);
+    }
+
+    @Test
+    void protectedCompilationRejectsPolicyFromAnotherProvider() {
+        var access = buildAccessControlWithEmptyPolicies();
+        var foreign = buildAccessControlWithMaskStore(buildMaskStore("***"));
+        assertThatThrownBy(() -> new org.pangrova.coordinator.query.execution.security.SecurityPolicyApplier(
+                COMPILER, new AccessControlEnforcer(access), new ColumnMaskApplier(foreign),
+                new RowFilterApplier(access)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("require one authority");
     }
 
     @Test

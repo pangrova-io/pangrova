@@ -24,6 +24,10 @@ final class ExternalShuffleInputSession implements AutoCloseable {
         }
     }
 
+    void removeClosedSource(ShuffleReader<?> source) {
+        sources.remove(source);
+    }
+
     void addPump(ExternalShuffleInputPump pump) {
         pumps.add(pump);
         if (closed.get()) pump.cancel();

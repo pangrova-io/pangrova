@@ -108,13 +108,18 @@ TEST(ShuffleOutputTest, SerializedQueueOwnsSubmittedBytes) {
   submitted.row_count = 1;
   submitted.data = folly::IOBuf::copyBuffer("page", 4);
   const auto* producer_bytes = submitted.data->data();
+  EXPECT_EQ(queue.enqueuedPayloadBytes(), 0);
   ASSERT_TRUE(queue.push(std::move(submitted), milliseconds(100)));
+  EXPECT_EQ(queue.enqueuedPayloadBytes(), 4);
+  EXPECT_FALSE(queue.tryPush({0, folly::IOBuf::copyBuffer("rejected", 8), 1}));
+  EXPECT_EQ(queue.enqueuedPayloadBytes(), 4);
 
   pangrova::shuffle::ShuffleBatch received;
   ASSERT_EQ(queue.pop(received, milliseconds(100)), PopResult::DATA);
   ASSERT_NE(received.data, nullptr);
   EXPECT_NE(received.data->data(), producer_bytes);
   EXPECT_EQ(received.data->computeChainDataLength(), 4);
+  EXPECT_EQ(queue.enqueuedPayloadBytes(), 4);
   EXPECT_EQ(std::string_view(
                 reinterpret_cast<const char*>(received.data->data()), 4),
             "page");

@@ -17,10 +17,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Verifies the integration status of Planner advanced sub-modules
- * (AQE, DPP, Materialized View) with the coordinator and worker runtime.
+ * (AQE, Materialized View) with the coordinator and worker runtime.
  *
  * <p>These sub-modules are now wired into the query execution pipeline
- * via QueryDispatcherContext (AQE, DPP) and PangrovaPlanner (Materialized View).
+ * via QueryDispatcherContext (AQE) and PangrovaPlanner (Materialized View).
  * This test documents the current integration state and serves as a
  * regression gate to ensure they remain wired.</p>
  *
@@ -70,38 +70,6 @@ class PlannerAdvancedFeatureIntegrationStatusTest {
                     "AQE ReOptimizationResult not yet used in QueryDispatcher");
             assertFalse(allTypes.contains("ShuffleStageStats"),
                     "AQE ShuffleStageStats not yet consumed by QueryDispatcher");
-        }
-    }
-
-    // ----------------------------------------------------------------
-    // DPP — Dynamic Partition Pruning
-    // ----------------------------------------------------------------
-    @Nested
-    @DisplayName("DPP: RuntimeFilterRegistry ↔ Worker runtime")
-    class DynamicPartitionPruningIntegrationStatus {
-
-        @Test
-        @DisplayName("QueryDispatcherContext references RuntimeFilterRegistry")
-        void dependenciesContainDpp() {
-            Set<String> fieldTypeNames = Arrays.stream(QueryDispatcherContext.class.getDeclaredFields())
-                    .map(f -> f.getType().getSimpleName())
-                    .collect(Collectors.toSet());
-
-            assertTrue(fieldTypeNames.contains("RuntimeFilterRegistry"),
-                    "DPP RuntimeFilterRegistry should be integrated into QueryDispatcherContext");
-        }
-
-        @Test
-        @DisplayName("PangrovaPlanner uses MaterializedViewRewritePass for DPP analysis")
-        void plannerUsesDppRegistry() {
-            Set<String> fieldTypeNames = Arrays.stream(PangrovaPlanner.class.getDeclaredFields())
-                    .map(f -> f.getType().getSimpleName())
-                    .collect(Collectors.toSet());
-
-            assertFalse(fieldTypeNames.contains("RuntimeFilterGenerator"),
-                    "DPP RuntimeFilterGenerator not yet wired into PangrovaPlanner");
-            assertTrue(fieldTypeNames.contains("MaterializedViewRewritePass"),
-                    "MaterializedViewRewritePass (which contains RuntimeFilterRegistry) should be wired into PangrovaPlanner");
         }
     }
 
@@ -163,16 +131,6 @@ class PlannerAdvancedFeatureIntegrationStatusTest {
             Class.forName("org.pangrova.planner.adaptive.SkewJoinHandler");
             Class.forName("org.pangrova.planner.adaptive.ShuffleStageStats");
             Class.forName("org.pangrova.planner.api.adaptive.ReOptimizationResult");
-        }
-
-        @Test
-        @DisplayName("DPP classes are loadable")
-        void dynamicPartitionPruningClassesExist() throws ClassNotFoundException {
-            Class.forName("org.pangrova.planner.runtimefilter.RuntimeFilterGenerator");
-            Class.forName("org.pangrova.planner.runtimefilter.RuntimeFilterApplicator");
-            Class.forName("org.pangrova.planner.runtimefilter.RuntimeFilterRegistry");
-            Class.forName("org.pangrova.planner.runtimefilter.RuntimeFilter");
-            Class.forName("org.pangrova.planner.runtimefilter.PartitionRange");
         }
 
         @Test

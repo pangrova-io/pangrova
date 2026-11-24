@@ -6,6 +6,7 @@ import org.pangrova.security.api.enums.Privilege;
 import org.pangrova.security.api.policy.PrivilegeGrant;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * Abstraction over the backing store for privilege grants. Implementations may be static
@@ -20,9 +21,9 @@ public interface GrantStore {
     List<PrivilegeGrant> listGrants();
 
     /**
-     * Returns all grants for the given principal (role name).
+     * Returns a single snapshot of grants held by any of the supplied roles.
      */
-    List<PrivilegeGrant> listGrantsForRole(String roleName);
+    List<PrivilegeGrant> listGrantsForRoles(Set<String> roleNames);
 
     /**
      * Persists a new grant. Throws if the grant already exists.

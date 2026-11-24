@@ -18,7 +18,7 @@ class CompositeTaskExecutorTest {
         RecordingBackend backend = new RecordingBackend();
         CompositeTaskExecutor executor = new CompositeTaskExecutor(nativeExecutor, backend);
 
-        long workerHandle = executor.createTask(cdcRequest().toByteArray());
+        long workerHandle = executor.createTask(cdcRequest());
         assertThat(executor.isWorkerExecuted(workerHandle)).isTrue();
         assertThat(nativeExecutor.created).isZero();
         assertThat(backend.created).isEqualTo(1);
@@ -31,7 +31,7 @@ class CompositeTaskExecutorTest {
                 .isInstanceOf(UnsupportedOperationException.class);
         assertThat(executor.releaseTask(workerHandle)).contains(new byte[]{7});
 
-        long nativeHandle = executor.createTask(nativeRequest().toByteArray());
+        long nativeHandle = executor.createTask(nativeRequest());
         assertThat(executor.isWorkerExecuted(nativeHandle)).isFalse();
         assertThat(nativeExecutor.created).isEqualTo(1);
         executor.close();
@@ -94,6 +94,11 @@ class CompositeTaskExecutorTest {
         }
 
         @Override
+        public boolean awaitFinished(long handle, int waitMillis) {
+            return isFinished(handle);
+        }
+
+        @Override
         public byte[] getTaskStatus(long handle) {
             return new byte[]{7};
         }
@@ -122,7 +127,7 @@ class CompositeTaskExecutorTest {
         private int created;
 
         @Override
-        public long createTask(byte[] taskRequestBytes) {
+        public long createTask(TaskRequest request) {
             created++;
             return 11;
         }
@@ -146,8 +151,18 @@ class CompositeTaskExecutorTest {
         }
 
         @Override
+        public byte[] pushExchangeChunk(long executorHandle, byte[] metadata, byte[] data) {
+            return new byte[0];
+        }
+
+        @Override
         public boolean isFinished(long executorHandle) {
             return true;
+        }
+
+        @Override
+        public boolean awaitFinished(long executorHandle, int waitMillis) {
+            return isFinished(executorHandle);
         }
 
         @Override

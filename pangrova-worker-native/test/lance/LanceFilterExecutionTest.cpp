@@ -139,8 +139,8 @@ class LanceFilterExecutionTest : public LanceDatasetTestFixture {
       LanceStorageContext storage(split.storage_binding);
       std::unique_ptr<LanceCReader, decltype(&lance_ffi_reader_close)> reader(
           lance_ffi_reader_open(storage.get(), path.c_str(), 1,
-              reinterpret_cast<const uint8_t*>(split.file_scan_detail.data()),
-              split.file_scan_detail.size(), 0), lance_ffi_reader_close);
+              reinterpret_cast<const uint8_t*>(split.lance_read_unit.data()),
+              split.lance_read_unit.size(), 0), lance_ffi_reader_close);
       if (!reader) throw std::runtime_error(lance_ffi_last_error());
       uint64_t split_bytes = 0;
       while (true) {
@@ -228,7 +228,7 @@ class LanceFilterExecutionTest : public LanceDatasetTestFixture {
         split.data_object_id = "table-a:" + split.source_snapshot + ":" +
             std::to_string(partition.partition_id());
         split.storage_binding = storage;
-        split.file_scan_detail = pangrova::test::testReadDetail(partition);
+        split.lance_read_unit = pangrova::test::testReadDetail(partition);
         splits.push_back(std::move(split));
       }
       has_cursor = page.has_more();

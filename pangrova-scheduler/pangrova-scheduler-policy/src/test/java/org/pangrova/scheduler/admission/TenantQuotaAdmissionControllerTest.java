@@ -1,18 +1,11 @@
 package org.pangrova.scheduler.admission;
 
-import org.pangrova.security.api.tenant.ResourceQuota;
-import org.pangrova.security.api.tenant.Tenant;
-import org.pangrova.security.api.enums.TenantStatus;
-import org.pangrova.persistence.security.memory.tenant.InMemoryTenantStore;
 import org.pangrova.scheduler.api.resource.AdmissionDecision;
 import org.pangrova.scheduler.api.resource.AdmissionRequest;
+import org.pangrova.scheduler.api.resource.AdmissionRequest.TenantLimits;
 import org.pangrova.scheduler.api.enums.AdmissionVerdict;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.time.Instant;
-import java.util.List;
-import java.util.Map;
 import java.util.OptionalLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -22,90 +15,62 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class TenantQuotaAdmissionControllerTest {
 
-    private static final ResourceQuota QUOTA = new ResourceQuota(
-            10737418240L,   // 10 GB maxMemory
-            3,              // maxConcurrentQueries
-            5,              // maxQueuedQueries
-            3600000L,       // maxCpuTimePerQueryMs
-            107374182400L,  // maxScanBytesPerQuery
-            10000L,         // maxDailyQueryCount
-            1099511627776L, // maxDailyScanBytes
-            1099511627776L  // maxStorageBytes
-    );
-
-    private InMemoryTenantStore tenantStore;
-    private TenantQuotaAdmissionController controller;
-
-    @BeforeEach
-    void setUp() {
-        tenantStore = new InMemoryTenantStore();
-        controller = new TenantQuotaAdmissionController(tenantStore);
-
-        Tenant tenant = new Tenant("t1", "Test Tenant", TenantStatus.ACTIVE,
-                QUOTA, List.of(), List.of(), null, Map.of(), Instant.now(), "admin");
-        tenantStore.createTenant(tenant);
-    }
+    private static final TenantLimits QUOTA = new TenantLimits(10L << 30, 3);
+    private final TenantQuotaAdmissionController controller = new TenantQuotaAdmissionController(null, null);
 
     @Test
     void admitsQueryWithinConcurrencyLimit() {
-        AdmissionRequest req = AdmissionRequest.of("t1", "default", "q1");
+        AdmissionRequest req = AdmissionRequest.of("t1", "default", "q1", QUOTA);
         AdmissionDecision decision = controller.admit(req);
         assertThat(decision.isAdmitted()).isTrue();
         assertThat(controller.admittedCount("t1")).isEqualTo(1);
     }
 
     @Test
-    void rejectsUnknownTenant() {
-        AdmissionRequest req = AdmissionRequest.of("unknown", "default", "q1");
-        AdmissionDecision decision = controller.admit(req);
-        assertThat(decision.verdict()).isEqualTo(AdmissionVerdict.REJECT);
-        assertThat(decision.reason()).contains("tenant not found");
+    void reservesAgainstTheLatestLimitsSuppliedForEachQuery() {
+        assertThat(controller.admit(AdmissionRequest.of("t1", "default", "q1", QUOTA)).isAdmitted()).isTrue();
+
+        var lowered = new TenantLimits(QUOTA.maxMemoryBytes(), 1);
+        assertThat(controller.admit(AdmissionRequest.of("t1", "default", "q2", lowered)).verdict())
+                .isEqualTo(AdmissionVerdict.REJECT);
+        assertThat(controller.admittedCount("t1")).isOne();
+
+        controller.release("q1", "t1");
+        assertThat(controller.admit(AdmissionRequest.of("t1", "default", "q2", lowered)).isAdmitted()).isTrue();
     }
 
     @Test
-    void rejectsSuspendedTenant() {
-        Tenant suspended = new Tenant("t2", "Suspended", TenantStatus.SUSPENDED,
-                QUOTA, List.of(), List.of(), null, Map.of(), Instant.now(), "admin");
-        tenantStore.createTenant(suspended);
-
-        AdmissionRequest req = AdmissionRequest.of("t2", "default", "q1");
-        AdmissionDecision decision = controller.admit(req);
-        assertThat(decision.verdict()).isEqualTo(AdmissionVerdict.REJECT);
-        assertThat(decision.reason()).contains("SUSPENDED");
-    }
-
-    @Test
-    void queuesWhenConcurrencyLimitReached() {
+    void rejectsWhenConcurrencyLimitReached() {
         // Admit 3 queries (maxConcurrentQueries = 3)
-        controller.admit(AdmissionRequest.of("t1", "default", "q1"));
-        controller.admit(AdmissionRequest.of("t1", "default", "q2"));
-        controller.admit(AdmissionRequest.of("t1", "default", "q3"));
+        controller.admit(AdmissionRequest.of("t1", "default", "q1", QUOTA));
+        controller.admit(AdmissionRequest.of("t1", "default", "q2", QUOTA));
+        controller.admit(AdmissionRequest.of("t1", "default", "q3", QUOTA));
         assertThat(controller.admittedCount("t1")).isEqualTo(3);
 
-        // 4th query should be queued
-        AdmissionDecision decision = controller.admit(AdmissionRequest.of("t1", "default", "q4"));
-        assertThat(decision.verdict()).isEqualTo(AdmissionVerdict.QUEUE);
+        // A full controller leaves the fourth query without a reservation.
+        AdmissionDecision decision = controller.admit(AdmissionRequest.of("t1", "default", "q4", QUOTA));
+        assertThat(decision.verdict()).isEqualTo(AdmissionVerdict.REJECT);
     }
 
     @Test
     void releasedSlotAllowsNewAdmission() {
-        controller.admit(AdmissionRequest.of("t1", "default", "q1"));
-        controller.admit(AdmissionRequest.of("t1", "default", "q2"));
-        controller.admit(AdmissionRequest.of("t1", "default", "q3"));
+        controller.admit(AdmissionRequest.of("t1", "default", "q1", QUOTA));
+        controller.admit(AdmissionRequest.of("t1", "default", "q2", QUOTA));
+        controller.admit(AdmissionRequest.of("t1", "default", "q3", QUOTA));
         assertThat(controller.admittedCount("t1")).isEqualTo(3);
 
         controller.release("q1", "t1");
         assertThat(controller.admittedCount("t1")).isEqualTo(2);
 
         // Now admission should succeed again
-        AdmissionDecision decision = controller.admit(AdmissionRequest.of("t1", "default", "q4"));
+        AdmissionDecision decision = controller.admit(AdmissionRequest.of("t1", "default", "q4", QUOTA));
         assertThat(decision.isAdmitted()).isTrue();
     }
 
     @Test
     void rejectsQueryExceedingMemoryEstimate() {
         long overLimit = QUOTA.maxMemoryBytes() + 1;
-        AdmissionRequest req = new AdmissionRequest("t1", "default", "q1",
+        AdmissionRequest req = new AdmissionRequest("t1", "default", "q1", QUOTA,
                 OptionalLong.of(overLimit));
         AdmissionDecision decision = controller.admit(req);
         assertThat(decision.verdict()).isEqualTo(AdmissionVerdict.REJECT);
@@ -114,7 +79,7 @@ class TenantQuotaAdmissionControllerTest {
 
     @Test
     void admitsQueryWithMemoryEstimateWithinLimit() {
-        AdmissionRequest req = new AdmissionRequest("t1", "default", "q1",
+        AdmissionRequest req = new AdmissionRequest("t1", "default", "q1", QUOTA,
                 OptionalLong.of(1024L * 1024 * 1024)); // 1 GB
         AdmissionDecision decision = controller.admit(req);
         assertThat(decision.isAdmitted()).isTrue();

@@ -42,7 +42,7 @@ public final class ShuffleStageHandler implements StageLifecycleHandler {
         long planEpoch = event.execution()
                 instanceof StageExecutionContext.Durable durable
                 ? durable.planEpoch(stage.stageId()) : Math.addExact(stage.currentGeneration(), 1L);
-        int expectedProducerCount = stage.plan().parallelism();
+        int expectedProducerCount = stage.physicalTaskCount();
         long estimatedBytesPerPartition = estimatedBytesPerPartition(
                 stage.plan().estimatedShuffleBytes(), outputEdge.partitionCount());
         var handle = shuffleLifecycleManager.registerShuffle(

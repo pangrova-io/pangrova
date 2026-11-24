@@ -127,29 +127,6 @@ public final class WorkerOptions {
                     + "earlier authority expiry or consumption may release them")
             .build();
 
-    // ---- Shuffle ----
-
-    public static final ConfigOption<Integer> SHUFFLE_BUFFER_CAPACITY =
-            ConfigOptions.key("worker.shuffle.buffer-capacity")
-            .intType()
-            .defaultValue(100)
-            .withDescription("Maximum number of batches per shuffle partition buffer")
-            .build();
-
-    public static final ConfigOption<Long> SHUFFLE_MAX_MEMORY_BYTES =
-            ConfigOptions.key("worker.shuffle.max-memory-bytes")
-            .longType()
-            .defaultValue(512L * 1024 * 1024)
-            .withDescription("Total memory budget in bytes for all shuffle partitions combined")
-            .build();
-
-    public static final ConfigOption<Double> SHUFFLE_SPILL_THRESHOLD =
-            ConfigOptions.key("worker.shuffle.spill-threshold")
-            .doubleType()
-            .defaultValue(0.8)
-            .withDescription("Memory usage ratio (0.0-1.0) that triggers shuffle spill to disk")
-            .build();
-
     // ---- Memory / Resources ----
     public static final ConfigOption<Integer> SHUFFLE_CLIENT_MAX_OWNED_CHANNELS =
             ConfigOptions.key("worker.shuffle.client.max-owned-channels")

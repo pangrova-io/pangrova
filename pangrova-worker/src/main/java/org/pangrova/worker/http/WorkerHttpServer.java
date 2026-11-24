@@ -6,6 +6,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.ws.rs.ext.ContextResolver;
 import org.pangrova.transport.http.EmbeddedHttpServerFactory;
 import org.pangrova.common.json.JsonMapperFactory;
+import org.pangrova.protocol.v2.ExchangeInputBinding;
+import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.shuffle.exchange.ExchangeTransport;
 import org.pangrova.worker.http.endpoint.InternalAuthFilter;
 import org.pangrova.worker.http.endpoint.WorkerExceptionMapper;
@@ -98,27 +100,29 @@ public final class WorkerHttpServer {
     }
 
     public WorkerHttpServer(WorkerHttpConfig config, TaskManager taskManager,
-                            ExchangeTransport exchangeTransport) {
+                            ExchangeTransport<TaskAttemptId, ExchangeInputBinding> exchangeTransport) {
         this(config, taskManager, exchangeTransport, null);
     }
 
     /** Creates a server with an explicit health check endpoint. */
     public WorkerHttpServer(WorkerHttpConfig config, TaskManager taskManager,
-                            ExchangeTransport exchangeTransport,
+                            ExchangeTransport<TaskAttemptId, ExchangeInputBinding> exchangeTransport,
                             HealthCheckEndpoint healthCheckEndpoint) {
         this(config, taskManager, exchangeTransport, healthCheckEndpoint, null);
     }
 
     /** Creates a Worker server with its bounded Native dataset metadata control service. */
     public WorkerHttpServer(WorkerHttpConfig config, TaskManager taskManager,
-                            ExchangeTransport exchangeTransport, HealthCheckEndpoint healthCheckEndpoint,
+                            ExchangeTransport<TaskAttemptId, ExchangeInputBinding> exchangeTransport,
+                            HealthCheckEndpoint healthCheckEndpoint,
                             org.pangrova.worker.dataset.NativeDatasetControlService datasetControl) {
         this(config, taskManager, exchangeTransport, healthCheckEndpoint, datasetControl, null);
     }
 
     /** Installs process-local result authority without exposing the key to HTTP callers. */
     public WorkerHttpServer(WorkerHttpConfig config, TaskManager taskManager,
-                            ExchangeTransport exchangeTransport, HealthCheckEndpoint healthCheckEndpoint,
+                            ExchangeTransport<TaskAttemptId, ExchangeInputBinding> exchangeTransport,
+                            HealthCheckEndpoint healthCheckEndpoint,
                             org.pangrova.worker.dataset.NativeDatasetControlService datasetControl,
                             org.pangrova.worker.result.ResultReadTickets resultTickets) {
         this(config, taskManager, exchangeTransport, healthCheckEndpoint, datasetControl,
@@ -127,7 +131,8 @@ public final class WorkerHttpServer {
 
     /** Optionally serves the separate pre-claim COPY staging operation. */
     public WorkerHttpServer(WorkerHttpConfig config, TaskManager taskManager,
-                            ExchangeTransport exchangeTransport, HealthCheckEndpoint healthCheckEndpoint,
+                            ExchangeTransport<TaskAttemptId, ExchangeInputBinding> exchangeTransport,
+                            HealthCheckEndpoint healthCheckEndpoint,
                             org.pangrova.worker.dataset.NativeDatasetControlService datasetControl,
                             org.pangrova.worker.result.ResultReadTickets resultTickets,
                             org.pangrova.worker.copy.CopyStageLeases copyStageLeases) {
@@ -137,7 +142,8 @@ public final class WorkerHttpServer {
 
     /** Optionally serves authorized Volume and Stage file operations. */
     public WorkerHttpServer(WorkerHttpConfig config, TaskManager taskManager,
-                            ExchangeTransport exchangeTransport, HealthCheckEndpoint healthCheckEndpoint,
+                            ExchangeTransport<TaskAttemptId, ExchangeInputBinding> exchangeTransport,
+                            HealthCheckEndpoint healthCheckEndpoint,
                             org.pangrova.worker.dataset.NativeDatasetControlService datasetControl,
                             org.pangrova.worker.result.ResultReadTickets resultTickets,
                             org.pangrova.worker.copy.CopyStageLeases copyStageLeases,

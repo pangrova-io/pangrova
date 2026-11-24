@@ -1,5 +1,8 @@
 package org.pangrova.scheduler.admission;
 
+import org.pangrova.scheduler.api.resource.AdmissionRequest;
+import org.pangrova.scheduler.api.resource.AdmissionRequest.TenantLimits;
+
 import org.pangrova.persistence.coordination.api.admission.ClusterConcurrencySlots;
 import org.pangrova.testing.testkit.coordination.admission.InMemoryClusterConcurrencySlots;
 
@@ -189,8 +192,7 @@ class ClusterConcurrencySlotsTest extends ContainerTestBase {
         var source = (PGSimpleDataSource) postgres("controller_release_retry");
         var slots = new JdbcClusterConcurrencySlots(source);
         var controller = controller(slots);
-        assertThat(controller.admit(org.pangrova.scheduler.api.resource.AdmissionRequest
-                .of("t", "default", "query")).isAdmitted()).isTrue();
+        assertThat(controller.admit(request("query")).isAdmitted()).isTrue();
         var password = source.getPassword();
         source.setPassword("invalid-password");
         try {
@@ -210,10 +212,8 @@ class ClusterConcurrencySlotsTest extends ContainerTestBase {
     void replacementControllerCanReturnOnlyThePersistedQueryReservation() {
         var source = postgres("controller_replacement");
         var original = controller(new JdbcClusterConcurrencySlots(source));
-        assertThat(original.admit(org.pangrova.scheduler.api.resource.AdmissionRequest
-                .of("t", "default", "first")).isAdmitted()).isTrue();
-        assertThat(original.admit(org.pangrova.scheduler.api.resource.AdmissionRequest
-                .of("t", "default", "second")).isAdmitted()).isTrue();
+        assertThat(original.admit(request("first")).isAdmitted()).isTrue();
+        assertThat(original.admit(request("second")).isAdmitted()).isTrue();
         var replacement = controller(new JdbcClusterConcurrencySlots(source));
 
         replacement.release("first", "wrong-tenant");
@@ -245,12 +245,11 @@ class ClusterConcurrencySlotsTest extends ContainerTestBase {
         }
     }
 
+    private static AdmissionRequest request(String queryId) {
+        return AdmissionRequest.of("t", "default", queryId, new TenantLimits(1000, 2));
+    }
+
     private static TenantQuotaAdmissionController controller(ClusterConcurrencySlots slots) {
-        var tenants = new org.pangrova.persistence.security.memory.tenant.InMemoryTenantStore();
-        var quota = new org.pangrova.security.api.tenant.ResourceQuota(1000, 2, 1, 100, 100, 100, 100, 100);
-        tenants.createTenant(new org.pangrova.security.api.tenant.Tenant("t", "Tenant",
-                org.pangrova.security.api.enums.TenantStatus.ACTIVE, quota, java.util.List.of(),
-                java.util.List.of(), null, java.util.Map.of(), java.time.Instant.EPOCH, "admin"));
-        return new TenantQuotaAdmissionController(tenants, null, slots);
+        return new TenantQuotaAdmissionController(null, slots);
     }
 }

@@ -356,16 +356,16 @@ TEST_P(NativeDynamicFilterReceptionTest, PendingFilterRegistryCoexistsWithNative
       taskId, planNodeId, /*column_index=*/0, externalFilter);
 
   // Step 3: Verify PendingFilterRegistry has the external filter.
-  auto drained = PendingFilterRegistry::instance().drain(taskId, planNodeId);
-  EXPECT_EQ(drained.size(), 1u)
+  PendingFilterCursor cursor;
+  auto received = PendingFilterRegistry::instance().readAfter(taskId, planNodeId, cursor);
+  ASSERT_EQ(received.size(), 1u)
       << "PendingFilterRegistry must hold exactly 1 external filter for "
       << param.name;
-  EXPECT_EQ(drained[0].column_index, 0);
-  EXPECT_NE(drained[0].filter, nullptr);
+  EXPECT_EQ(received[0].column_index, 0);
+  EXPECT_NE(received[0].filter, nullptr);
 
-  // Step 4: After drain, registry should be empty for this task.
-  auto drainedAgain = PendingFilterRegistry::instance().drain(taskId, planNodeId);
-  EXPECT_TRUE(drainedAgain.empty());
+  // The same cursor does not see that publication twice.
+  EXPECT_TRUE(PendingFilterRegistry::instance().readAfter(taskId, planNodeId, cursor).empty());
 
   // Step 5: Verify native DF path still works after external injection.
   auto nativeFilter2 = makeFilterForType(param.key_type, param.cardinality);
@@ -375,29 +375,44 @@ TEST_P(NativeDynamicFilterReceptionTest, PendingFilterRegistryCoexistsWithNative
   PendingFilterRegistry::instance().remove(taskId);
 }
 
-TEST(PendingFilterRegistryTest, IsolatesSiblingScanNodesWithinTask) {
+TEST(PendingFilterRegistryTest, EachDriverSeesEveryPublicationForItsOwnScan) {
   const std::string taskId = "test-task-two-scans";
   auto first = std::make_shared<common::BigintRange>(
       1, 10, false);
   auto second = std::make_shared<common::BigintRange>(
       20, 30, false);
 
-  PendingFilterRegistry::instance().push(taskId, "node_0", 0, first);
-  PendingFilterRegistry::instance().push(taskId, "node_1", 1, second);
+  auto& registry = PendingFilterRegistry::instance();
+  PendingFilterCursor driver0;
+  PendingFilterCursor driver1;
+  PendingFilterCursor sibling;
+  PendingFilterCursor missing;
+  registry.push(taskId, "node_0", 0, first);
+  registry.push(taskId, "node_1", 1, second);
 
-  auto node0 = PendingFilterRegistry::instance().drain(taskId, "node_0");
+  auto node0 = registry.readAfter(taskId, "node_0", driver0);
   ASSERT_EQ(node0.size(), 1u);
-  EXPECT_EQ(node0.front().column_index, 0);
-  EXPECT_TRUE(PendingFilterRegistry::instance()
-                  .drain(taskId, "node_missing")
-                  .empty());
+  EXPECT_EQ(node0.front().filter, first);
+  EXPECT_TRUE(registry.readAfter(taskId, "node_missing", missing).empty());
 
-  auto node1 = PendingFilterRegistry::instance().drain(taskId, "node_1");
+  auto node1 = registry.readAfter(taskId, "node_1", sibling);
   ASSERT_EQ(node1.size(), 1u);
-  EXPECT_EQ(node1.front().column_index, 1);
-  EXPECT_TRUE(PendingFilterRegistry::instance()
-                  .drain(taskId, "node_0")
-                  .empty());
+  EXPECT_EQ(node1.front().filter, second);
+  EXPECT_TRUE(registry.readAfter(taskId, "node_0", driver0).empty());
+
+  registry.push(taskId, "node_0", 0, second);
+  auto late = registry.readAfter(taskId, "node_0", driver0);
+  ASSERT_EQ(late.size(), 1u);
+  EXPECT_EQ(late.front().filter, second);
+  auto otherDriver = registry.readAfter(taskId, "node_0", driver1);
+  ASSERT_EQ(otherDriver.size(), 2u);
+  EXPECT_EQ(otherDriver[0].filter, first);
+  EXPECT_EQ(otherDriver[1].filter, second);
+  EXPECT_TRUE(registry.readAfter(taskId, "node_1", sibling).empty());
+
+  registry.remove(taskId);
+  PendingFilterCursor retired;
+  EXPECT_TRUE(registry.readAfter(taskId, "node_0", retired).empty());
 }
 
 // ===========================================================================

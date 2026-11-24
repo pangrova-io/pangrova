@@ -85,7 +85,7 @@ TEST_F(VeloxPlanConverterTest, ProducerExchangeUsesCallbackSink) {
       facebook::velox::exec::FunctionRegistrySnapshot::capture();
   VeloxPlanConverter converter(converter_registry);
   auto result = converter.convert(
-      plan_bytes, {}, false, "ArrowBatch", {}, nullptr, {}, 4);
+      plan_bytes, {}, {}, nullptr, {}, 4);
 
   ASSERT_NE(result, nullptr);
   EXPECT_EQ(result->name(), "TableScan");
@@ -112,7 +112,7 @@ TEST_F(VeloxPlanConverterTest, ProducerExchangeRejectsUnboundPartitionCount) {
   VeloxPlanConverter converter(converter_registry);
   EXPECT_THROW(converter.convert(plan_bytes, {}), std::runtime_error);
   EXPECT_THROW(converter.convert(
-      plan_bytes, {}, false, "ArrowBatch", {}, nullptr, {}, 2),
+      plan_bytes, {}, {}, nullptr, {}, 2),
       std::runtime_error);
 }
 

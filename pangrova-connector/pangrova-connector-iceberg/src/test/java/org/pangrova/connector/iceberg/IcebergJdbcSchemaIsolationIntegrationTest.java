@@ -2,6 +2,9 @@ package org.pangrova.connector.iceberg;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogUtil;
+import org.apache.iceberg.ContentFileParser;
+import org.apache.iceberg.DataFiles;
+import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -9,13 +12,29 @@ import org.apache.iceberg.jdbc.JdbcCatalog;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.pangrova.connector.api.commit.DistributedWriteCommitContext;
+import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.metadata.Constraint;
+import org.pangrova.connector.api.enums.SnapshotRelation;
+import org.pangrova.connector.api.metadata.DynamicFilter;
+import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
+import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
+import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
+import org.pangrova.connector.iceberg.read.IcebergExpressionToSubstrait;
+import org.pangrova.persistence.query.api.commit.WriteCommitFingerprint;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -25,9 +44,192 @@ class IcebergJdbcSchemaIsolationIntegrationTest extends ContainerTestBase {
     private static final Schema TABLE_SCHEMA = new Schema(
             Types.NestedField.required(1, "id", Types.LongType.get()));
     private static final TableIdentifier TABLE = TableIdentifier.of("data", "events");
+    private static final ConnectorSession READER = new ConnectorSession() {
+        @Override public String getUser() { return "reader"; }
+        @Override public Optional<String> getCatalog() { return Optional.empty(); }
+        @Override public Optional<String> getSchema() { return Optional.of("data"); }
+        @Override public Map<String, String> getProperties() { return Map.of("tenant_id", "jdbc-budget"); }
+        @Override public Optional<org.pangrova.connector.api.query.ConnectorQueryAuthority> getQueryAuthority() {
+            return Optional.empty();
+        }
+    };
 
     @TempDir
     Path warehouse;
+
+    @Test
+    void currentIndexFilesUseOneCatalogReadPerObservation() throws Exception {
+        try (var schema = DatabaseSchema.create(); var selected = catalog(schema, "V1")) {
+            createTable(selected);
+            var table = selected.loadTable(TABLE);
+            var metadata = new IcebergMetadata(selected, schema.name());
+            schema.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public");
+            long emptyBefore = schema.catalogPointerLookups();
+            assertThat(metadata.listDataFiles(schema.name(), "data", "events")).isEmpty();
+            assertThat(schema.catalogPointerLookups() - emptyBefore).isEqualTo(1);
+
+            String first = table.location() + "/data/first.parquet";
+            table.newAppend().appendFile(DataFiles.builder(PartitionSpec.unpartitioned())
+                    .withPath(first).withFileSizeInBytes(128).withRecordCount(7).build()).commit();
+            var pin = metadata.getSnapshotAwareMetadata("data", "events").orElseThrow();
+            String originalSnapshot = pin.currentSnapshotId().orElseThrow();
+            for (int sample = 0; sample < 3; sample++) {
+                long before = schema.catalogPointerLookups();
+                assertThat(metadata.listDataFiles(schema.name(), "data", "events")).containsExactly(first);
+                long selects = schema.catalogPointerLookups() - before;
+                assertThat(selects).isEqualTo(1);
+                System.out.printf("event=index_snapshot_files sample=%d pointer_selects=%d files=1%n",
+                        sample, selects);
+            }
+            String second = table.location() + "/data/second.parquet";
+            table.newAppend().appendFile(DataFiles.builder(PartitionSpec.unpartitioned())
+                    .withPath(second).withFileSizeInBytes(64).withRecordCount(3).build()).commit();
+            assertThat(metadata.listDataFiles(schema.name(), "data", "events")).containsExactly(first, second);
+            assertThat(pin.listFilesAtSnapshot(originalSnapshot)).extracting(file -> file.path()).containsExactly(first);
+
+            String appended = pin.currentSnapshotId().orElseThrow();
+            for (int sample = 0; sample < 3; sample++) {
+                long baselineStart = schema.catalogPointerLookups();
+                var relation = pin.relation(originalSnapshot, appended);
+                var expectedFiles = pin.listFilesAtSnapshot(appended);
+                var expectedDelta = pin.diffFiles(originalSnapshot, appended);
+                long baselineSelects = schema.catalogPointerLookups() - baselineStart;
+
+                long candidateStart = schema.catalogPointerLookups();
+                var observed = pin.observeAdvance(originalSnapshot, appended);
+                long candidateSelects = schema.catalogPointerLookups() - candidateStart;
+
+                assertThat(relation).isEqualTo(SnapshotRelation.LEFT_ANCESTOR);
+                assertThat(observed.relation()).isEqualTo(relation);
+                assertThat(observed.targetFiles()).isEqualTo(expectedFiles);
+                assertThat(observed.delta()).isEqualTo(expectedDelta);
+                assertThat(observed.delta().added()).extracting(file -> file.path()).containsExactly(second);
+                assertThat(observed.delta().removed()).isEmpty();
+                assertThat(baselineSelects).isEqualTo(3);
+                assertThat(candidateSelects).isOne();
+                System.out.printf("event=index_snapshot_advance sample=%d baseline_pointer_selects=%d "
+                        + "fused_pointer_selects=%d target_files=%d%n",
+                        sample, baselineSelects, candidateSelects, observed.targetFiles().size());
+            }
+            long predecessorStart = schema.catalogPointerLookups();
+            var predecessor = pin.observeAdvance(appended, originalSnapshot);
+            assertThat(schema.catalogPointerLookups() - predecessorStart).isOne();
+            assertThat(predecessor.relation()).isEqualTo(SnapshotRelation.RIGHT_ANCESTOR);
+            assertThat(predecessor.targetFiles()).isEmpty();
+        }
+    }
+
+    @Test
+    void postgresConnectorUsesTheExactSpellingWithoutListingTheNamespace() throws Exception {
+        try (var schema = DatabaseSchema.create(); var selected = catalog(schema, "V1")) {
+            selected.createNamespace(Namespace.of("data"));
+            selected.createTable(TableIdentifier.of("data", "CamelEvents"), TABLE_SCHEMA);
+            var connector = new IcebergConnectorFactory().create(schema.name(), jdbcProperties(schema, "V1"), null);
+            try {
+                var metadata = connector.getMetadata(READER);
+                assertThat(metadata.supportsExactTableNameLookup()).isTrue();
+                schema.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public");
+                long listings = schema.namespaceListings();
+                long lookups = schema.catalogPointerLookups();
+
+                assertThat(metadata.getTableHandle(READER, new SchemaTableName("data", "CamelEvents")))
+                        .isInstanceOf(IcebergTableHandle.class);
+                assertThat(schema.catalogPointerLookups() - lookups).isEqualTo(1);
+                assertThat(metadata.getTableHandle(READER, new SchemaTableName("data", "camelevents"))).isNull();
+                assertThat(schema.namespaceListings()).isEqualTo(listings);
+
+                assertThat(metadata.listTables(READER, Optional.of("data")))
+                        .containsExactly(new SchemaTableName("data", "CamelEvents"));
+                assertThat(schema.namespaceListings()).isGreaterThan(listings);
+            } finally {
+                connector.shutdown();
+            }
+        }
+    }
+
+    @Test
+    void verifiesTheBoundSnapshotAndEnumeratesWithOneCatalogPointerRead() throws Exception {
+        try (var schema = DatabaseSchema.create(); var selected = catalog(schema, "V1")) {
+            createTable(selected);
+            var table = selected.loadTable(TABLE);
+            table.newAppend().appendFile(DataFiles.builder(PartitionSpec.unpartitioned())
+                    .withPath(table.location() + "/data/bound.parquet").withFileSizeInBytes(128)
+                    .withRecordCount(1).build()).commit();
+            var metadata = new IcebergMetadata(selected, "bound");
+            var name = new SchemaTableName("data", "events");
+            var binding = metadata.bindRead(READER, metadata.getTableHandle(READER, name));
+            var manager = new IcebergSplitManager("bound", selected, new IcebergExpressionToSubstrait());
+            schema.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public");
+            long before = schema.catalogPointerLookups();
+
+            var source = manager.getBoundSplits(ConnectorTransactionHandle.empty(),
+                    READER, metadata, binding, DynamicFilter.ALL, Constraint.EMPTY);
+            try {
+                assertThat(source.getNextBatch(10)).hasSize(1);
+                assertThat(source.isFinished()).isTrue();
+            } finally {
+                source.close();
+            }
+            assertThat(schema.catalogPointerLookups() - before).isEqualTo(1);
+        }
+    }
+
+    @Test
+    void freshJdbcTableResolutionChecksCurrentMetadataPointerOnce() throws Exception {
+        try (var schema = DatabaseSchema.create(); var selected = catalog(schema, "V1")) {
+            createTable(selected);
+            var tables = new IcebergCatalogTables(selected);
+            var first = (IcebergTableHandle) tables.getTableHandle(new SchemaTableName("data", "events"));
+            try (var writer = catalog(schema, "V1")) {
+                writer.loadTable(TABLE).updateSchema().addColumn("new_field", Types.LongType.get()).commit();
+            }
+            schema.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public");
+            long before = schema.catalogPointerLookups();
+
+            assertThat(tables.getTableReadMetadata(first).metadata().columns()).contains("new_field");
+
+            assertThat(schema.catalogPointerLookups() - before).isEqualTo(1);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void distributedWriteCatalogPointerBudget(boolean requiresPublication) throws Exception {
+        try (var schema = DatabaseSchema.create(); var catalog = catalog(schema, "V1")) {
+            createTable(catalog);
+            var metadata = new IcebergMetadata(catalog, schema.name());
+            var name = new SchemaTableName("data", "events");
+            var handle = (IcebergOutputTableHandle) metadata.beginInsert(READER, metadata.getTableHandle(READER, name));
+            var table = catalog.loadTable(TABLE);
+            var data = DataFiles.builder(table.spec()).withPath(table.location() + "/data/committed.parquet")
+                    .withFileSizeInBytes(128).withRecordCount(1).build();
+            var fragments = List.of(("[" + ContentFileParser.toJson(data, table.spec()) + "]")
+                    .getBytes(StandardCharsets.UTF_8));
+            var binding = IcebergWriteBindingFixtures.binding(handle);
+            var receipt = IcebergWriteReceiptFixtures.receipt();
+            var tenant = READER.getProperties().get("tenant_id");
+            var fingerprint = WriteCommitFingerprint.compute(new WriteCommitFingerprint.Intent(
+                    "exact-write", tenant, schema.name(), name.toString(), handle.writeMode(),
+                    handle.baseSnapshotId(), binding, READER.getUser(), receipt, null), fragments);
+            var context = new DistributedWriteCommitContext("exact-write", tenant, handle.baseSnapshotId(),
+                    binding, fingerprint, READER.getUser(), receipt, null);
+            schema.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public");
+            long before = schema.catalogPointerLookups();
+
+            if (requiresPublication) {
+                assertThat(metadata.finishDistributedWriteWithPublication(READER, handle, fragments, context)
+                        .manifestSha256()).hasSize(32);
+            } else {
+                metadata.finishDistributedWrite(READER, handle, fragments, context);
+            }
+            assertThat(schema.catalogPointerLookups() - before).as("exact catalog pointer SELECTs")
+                    .isEqualTo(requiresPublication ? 8 : 7);
+            table.refresh();
+            assertThat(table.snapshots()).hasSize(1);
+            assertThat(table.currentSnapshot().summary()).containsEntry(IcebergDistributedCommitMarker.FINGERPRINT,
+                    context.commitFingerprint());
+        }
+    }
 
     @Test
     void anotherInitializedSchemaDoesNotPreventCreatingCatalogTables() throws Exception {
@@ -103,16 +305,18 @@ class IcebergJdbcSchemaIsolationIntegrationTest extends ContainerTestBase {
     }
 
     private JdbcCatalog catalog(DatabaseSchema schema, String version) {
-        var postgres = IcebergJdbcTestDatabase.instance();
-        Map<String, String> properties = Map.of(
-                "type", "jdbc", "uri", schema.uri(),
-                "warehouse", warehouse.resolve(schema.name()).toString(),
-                "jdbc.user", postgres.getUsername(), "jdbc.password", postgres.getPassword(),
-                "jdbc.schema-version", version);
         var configuration = new Configuration();
         configuration.set("fs.file.impl", "org.apache.hadoop.fs.RawLocalFileSystem");
         configuration.setBoolean("fs.file.impl.disable.cache", true);
-        return (JdbcCatalog) CatalogUtil.buildIcebergCatalog(schema.name(), properties, configuration);
+        return (JdbcCatalog) CatalogUtil.buildIcebergCatalog(schema.name(), jdbcProperties(schema, version), configuration);
+    }
+
+    private Map<String, String> jdbcProperties(DatabaseSchema schema, String version) {
+        var postgres = IcebergJdbcTestDatabase.instance();
+        return Map.of("type", "jdbc", "uri", schema.uri(),
+                "warehouse", warehouse.resolve(schema.name()).toString(),
+                "jdbc.user", postgres.getUsername(), "jdbc.password", postgres.getPassword(),
+                "jdbc.schema-version", version);
     }
 
     private static void createTable(JdbcCatalog catalog) {
@@ -158,6 +362,31 @@ class IcebergJdbcSchemaIsolationIntegrationTest extends ContainerTestBase {
                     rows.next();
                     return rows.getLong(1) == 1;
                 }
+            }
+        }
+
+        long catalogPointerLookups() throws SQLException {
+            try (var statement = connection.createStatement();
+                    var rows = statement.executeQuery("""
+                            SELECT COALESCE(SUM(calls), 0) FROM public.pg_stat_statements
+                            WHERE query LIKE 'SELECT * FROM iceberg_tables WHERE catalog_name = %'
+                              AND query LIKE '%AND table_name = %'
+                            """)) {
+                rows.next();
+                return rows.getLong(1);
+            }
+        }
+
+        long namespaceListings() throws SQLException {
+            try (var statement = connection.createStatement();
+                    var rows = statement.executeQuery("""
+                            SELECT COALESCE(SUM(calls), 0) FROM public.pg_stat_statements
+                            WHERE query LIKE 'SELECT * FROM iceberg_tables WHERE catalog_name = %'
+                              AND query LIKE '%AND table_namespace = %'
+                              AND query NOT LIKE '%AND table_name = %'
+                            """)) {
+                rows.next();
+                return rows.getLong(1);
             }
         }
 

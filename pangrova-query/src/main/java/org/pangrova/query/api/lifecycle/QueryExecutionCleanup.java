@@ -30,14 +30,16 @@ public interface QueryExecutionCleanup {
     /**
      * Cleans an execution-owned terminal query after actual drain, including connector
      * scopes and required shuffle cleanup, before releasing its execution ownership.
-     * Throws when drain or cleanup is incomplete; the caller retains pending cleanup.
+     * Returns false while local operations, report publication or exact task drain
+     * receipts are outstanding. Physical progress signals another cleanup attempt.
+     * Cleanup or ownership failures propagate to the caller.
      */
-    void cleanupQuery(String queryId);
+    boolean tryCleanupQuery(String queryId);
 
     /**
      * Cleans only the local creation scope of a query that did not acquire execution
      * ownership. Must not cancel or release a foreign execution owner or its resources.
-     * Local operations still require actual drain before their resources are released.
+     * Returns false while local operations or issued task evidence are outstanding.
      */
-    void cleanupUnadmittedQuery(String queryId);
+    boolean tryCleanupUnadmittedQuery(String queryId);
 }

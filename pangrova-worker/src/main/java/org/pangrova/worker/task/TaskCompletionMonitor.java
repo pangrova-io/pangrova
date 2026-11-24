@@ -66,7 +66,7 @@ public final class TaskCompletionMonitor {
                             Thread.currentThread().setName("completion-monitor-" + taskId);
                             boolean metadataCaptureAttempted = false;
                             try {
-                                pollUntilFinished(taskId, info, handle);
+                                awaitTerminal(taskId, info, handle);
                                 metadataCaptureAttempted = true;
                                 captureTerminalMetadata(info, handle);
                             } catch (InterruptedException e) {
@@ -119,26 +119,16 @@ public final class TaskCompletionMonitor {
      */
     private void captureTerminalMetadata(TaskInfo info, long handle) {
         if (info.executorHandle() == 0) {
-            var released =
-                    requireCanonicalTaskReport(
-                            info.request().taskRequest(), info.executorReleaseReport());
+            var released = requireReleasedReport(info);
             if (released.getState() != org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED) {
                 throw new IllegalStateException(
                         "Released Native task did not finish successfully: " + released.getState());
             }
             return;
         }
-        byte[] status;
-        try {
-            status = deps.taskExecutor().getTaskStatus(handle);
-        } catch (IllegalStateException failure) {
-            if (info.executorHandle() != 0) {
-                throw failure;
-            }
-            status = info.executorReleaseReport();
-        }
-        var parsed = requireCanonicalTaskReport(info.request().taskRequest(), status);
-        info.setTerminalTaskReport(status);
+        var evidence = readTerminalEvidence(info, handle);
+        var parsed = evidence.report();
+        info.setTerminalTaskEvidence(evidence);
         boolean workerExecuted = isWorkerExecuted(info.request().taskRequest());
         if (!workerExecuted) {
             captureTaskStats(info, handle, parsed);
@@ -156,40 +146,70 @@ public final class TaskCompletionMonitor {
         }
     }
 
+    private TaskReportEvidence readTerminalEvidence(TaskInfo info, long handle) {
+        byte[] status;
+        try {
+            status = deps.taskExecutor().getTaskStatus(handle);
+        } catch (IllegalStateException failure) {
+            if (info.executorHandle() != 0) throw failure;
+            return requireReleasedEvidence(info);
+        }
+        return validateTerminalEvidence(info.request().taskRequest(), status);
+    }
+
+    static TaskReportEvidence validateTerminalEvidence(
+            org.pangrova.protocol.v2.TaskRequest request, byte[] status) {
+        var report = requireCanonicalTaskReport(request, status);
+        return new TaskReportEvidence(com.google.protobuf.ByteString.copyFrom(status), report);
+    }
+
     private void captureTaskStats(
             TaskInfo info, long handle, org.pangrova.protocol.v2.TaskReport report) {
-        byte[] stats =
-                report.hasNativeTaskStats() ? report.getNativeTaskStats().toByteArray() : null;
-        if (stats == null) {
-            try {
-                stats = deps.taskExecutor().getTaskStats(handle);
-            } catch (IllegalStateException failure) {
-                if (info.executorHandle() != 0) {
-                    throw failure;
-                }
-                var receipt =
-                        requireCanonicalTaskReport(
-                                info.request().taskRequest(), info.executorReleaseReport());
-                if (receipt.hasNativeTaskStats()) {
-                    stats = receipt.getNativeTaskStats().toByteArray();
-                }
-            }
-        }
-        if (stats == null || stats.length == 0) {
+        var stats = report.hasNativeTaskStats() ? report.getNativeTaskStats() : readUncapturedTaskStats(info, handle);
+        if (stats == null || stats.getSerializedSize() == 0) {
             throw new IllegalStateException(
                     "Native task completed without actual statistics: " + info.taskId());
         }
+        if (!stats.getUnknownFields().asMap().isEmpty()) {
+            throw new IllegalStateException(
+                    "Native task statistics contain unknown fields: " + info.taskId());
+        }
+        info.setTerminalTaskStats(stats);
+    }
+
+    private org.pangrova.protocol.v2.NativeTaskStats readUncapturedTaskStats(TaskInfo info, long handle) {
+        byte[] encoded;
         try {
-            var parsed = org.pangrova.protocol.v2.NativeTaskStats.parseFrom(stats);
-            if (!parsed.getUnknownFields().asMap().isEmpty()) {
-                throw new IllegalStateException(
-                        "Native task statistics contain unknown fields: " + info.taskId());
+            encoded = deps.taskExecutor().getTaskStats(handle);
+        } catch (IllegalStateException failure) {
+            if (info.executorHandle() != 0) {
+                throw failure;
             }
-            info.setTerminalTaskStats(stats);
+            var receipt = requireReleasedReport(info);
+            return receipt.hasNativeTaskStats() ? receipt.getNativeTaskStats() : null;
+        }
+        if (encoded == null || encoded.length == 0) {
+            return null;
+        }
+        try {
+            return org.pangrova.protocol.v2.NativeTaskStats.parseFrom(encoded);
         } catch (com.google.protobuf.InvalidProtocolBufferException failure) {
             throw new IllegalStateException(
                     "Native task statistics are malformed: " + info.taskId(), failure);
         }
+    }
+
+    private static org.pangrova.protocol.v2.TaskReport requireReleasedReport(TaskInfo info) {
+        return requireReleasedEvidence(info).report();
+    }
+
+    private static TaskReportEvidence requireReleasedEvidence(TaskInfo info) {
+        var receipt = info.executorReleaseReceipt();
+        if (receipt == null) {
+            throw new IllegalStateException("Task completed without a canonical TaskReport: "
+                    + info.request().taskRequest().getAttempt().getTaskId());
+        }
+        return receipt;
     }
 
     static org.pangrova.protocol.v2.TaskReport requireCanonicalTaskReport(
@@ -291,7 +311,21 @@ public final class TaskCompletionMonitor {
         // Retain the actual Native drain before a terminal HTTP report can wait for ACK.
         // The Coordinator may concurrently seal this exact attempt to cancel a losing copy.
         callback.clearCoordinatorIndex(info);
-        reportStatus(info, "FINISHED");
+        if (statusCollector != null) {
+            if (!info.resourcesReleased() && info.request() != null
+                    && info.request().taskRequest().getExecutionOptions().getDirectResultOutput()) {
+                statusCollector.reportFinishedResult(info, () -> callback.watchFinishedResult(info), () -> {
+                    try {
+                        logTaskCompleted(taskId);
+                        callback.notifyCompletion(info.queryId());
+                    } catch (RuntimeException | Error failure) {
+                        LOG.error("event=result_finish_callback_failed taskId={}", taskId, failure);
+                    }
+                });
+                return;
+            }
+            statusCollector.reportStatus(info, "FINISHED", null);
+        }
         logTaskCompleted(taskId);
         callback.notifyCompletion(info.queryId());
     }
@@ -363,50 +397,50 @@ public final class TaskCompletionMonitor {
     /** Upper bound for the transient-failure retry backoff. */
     private static final long MAX_TRANSIENT_BACKOFF_MS = 8_000;
 
-    /**
-     * Poll interval for checking native task completion. Must be low (50ms) because the native
-     * memory pool is only freed when releaseAllResources executes after isFinished returns true. A
-     * long poll interval causes subsequent tasks to block in PangrovaArbitrator::growCapacity()
-     * waiting for the previous task's pool to be removed.
-     */
-    private static final long INITIAL_BACKOFF_MS = 50;
+    /** Live quota checks keep their cadence while the Native state wait wakes on completion. */
+    private static final int QUOTA_CHECK_INTERVAL_MS = 50;
 
-    private void pollUntilFinished(String taskId, TaskInfo info, long handle) throws Exception {
+    private void awaitTerminal(String taskId, TaskInfo info, long handle) throws Exception {
         int transientRetries = 0;
-        long backoffMs = INITIAL_BACKOFF_MS;
+        long backoffMs = QUOTA_CHECK_INTERVAL_MS;
+        int waitMillis = 0;
         while (!Thread.currentThread().isInterrupted()) {
             try {
-                if (isFinishedOrReleased(info, handle)) {
+                boolean finished = isFinishedOrReleased(info, handle, waitMillis);
+                if (Thread.currentThread().isInterrupted()) {
+                    break;
+                }
+                if (finished) {
                     return;
                 }
-                // Stage boundary quota check: verify tenant hasn't exceeded runtime limits
                 checkExecutionQuota(taskId);
                 transientRetries = 0;
-                backoffMs = INITIAL_BACKOFF_MS;
-                sleepInterruptibly(INITIAL_BACKOFF_MS);
+                backoffMs = QUOTA_CHECK_INTERVAL_MS;
+                waitMillis = QUOTA_CHECK_INTERVAL_MS;
             } catch (InterruptedException e) {
                 throw e;
             } catch (Exception e) {
                 transientRetries++;
                 backoffMs = handlePollFailure(handle, e, transientRetries, backoffMs);
+                waitMillis = 0;
             }
         }
         throw new InterruptedException(
                 "Task completion monitor interrupted before Native termination");
     }
 
-    private boolean isFinishedOrReleased(TaskInfo info, long handle) {
+    private boolean isFinishedOrReleased(TaskInfo info, long handle, int waitMillis) throws InterruptedException {
         if (info.executorHandle() == 0) {
-            requireCanonicalTaskReport(info.request().taskRequest(), info.executorReleaseReport());
+            requireReleasedReport(info);
             return true;
         }
         try {
-            return deps.taskExecutor().isFinished(handle);
+            return deps.taskExecutor().awaitFinished(handle, waitMillis);
         } catch (IllegalStateException failure) {
             if (info.executorHandle() != 0) {
                 throw failure;
             }
-            requireCanonicalTaskReport(info.request().taskRequest(), info.executorReleaseReport());
+            requireReleasedReport(info);
             return true;
         }
     }
@@ -481,12 +515,6 @@ public final class TaskCompletionMonitor {
         }
     }
 
-    private void reportStatus(TaskInfo info, String status) {
-        if (statusCollector != null) {
-            statusCollector.reportStatus(info, status, null);
-        }
-    }
-
     private void logTaskCompleted(String taskId) {
         if (statusCollector != null) {
             statusCollector.logTaskCompleted(taskId);
@@ -556,26 +584,17 @@ public final class TaskCompletionMonitor {
     }
 
     private static ErrorDetail nativeFailureDetail(TaskInfo info) {
-        byte[] encoded = info.terminalTaskReport();
-        if (encoded == null || encoded.length == 0 || info.request() == null) {
+        var evidence = info.terminalTaskEvidence();
+        if (evidence == null || info.request() == null) return null;
+        var status = evidence.report();
+        if (status.getState() != org.pangrova.protocol.v2.TaskState.TASK_STATE_FAILED
+                || !status.hasError()
+                || !status.getAttempt().equals(info.request().taskRequest().getAttempt())
+                || status.getError().getCode().isBlank()) {
             return null;
         }
-        try {
-            var status = org.pangrova.protocol.v2.TaskReport.parseFrom(encoded);
-            if (status.getState() != org.pangrova.protocol.v2.TaskState.TASK_STATE_FAILED
-                    || !status.hasError()
-                    || !status.getAttempt().equals(info.request().taskRequest().getAttempt())
-                    || status.getError().getCode().isBlank()) {
-                return null;
-            }
-            var nativeError = status.getError();
-            return new ErrorDetail(
-                    nativeError.getCode(),
-                    nativeError.getErrorClass().name(),
-                    nativeError.getMessage());
-        } catch (com.google.protobuf.InvalidProtocolBufferException malformed) {
-            return null;
-        }
+        var nativeError = status.getError();
+        return new ErrorDetail(nativeError.getCode(), nativeError.getErrorClass().name(), nativeError.getMessage());
     }
 
     static boolean isNativeUnsupportedFeature(Exception cause) {

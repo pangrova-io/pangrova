@@ -158,7 +158,7 @@ class FeatureViewSqlIntegrationTest {
         var tasks = new HashMap<Class<? extends Statement>, org.pangrova.coordinator.query.execution.dispatch.MetadataTask<?>>();
         var factory = new MetadataExecutionFactory(tasks);
         FeatureViewMetadataTasks.register(factory, service);
-        var statements = new StatementDispatcher(new StatementDispatcherContext(compiler, null, List.of(factory),
+        var statements = new StatementDispatcher(new StatementDispatcherContext(null, List.of(factory),
                 List.of(event -> completed.set(event.result())), access));
         queryDispatcher = new QueryDispatcher(dispatcherContext, statements);
         queryManager = new QueryManager(QueryManagerTestContexts.minimal(
@@ -315,7 +315,7 @@ class FeatureViewSqlIntegrationTest {
                     .findFirst().orElseThrow();
             assertThat(terminal.parallelism()).isEqualTo(1);
             var key = new org.pangrova.generation.api.identity.GenerationJobKey(TENANT, jobId);
-            var progress = stages.inspectPartition(key, anchor, terminal.stageId(), 0);
+            var progress = stages.inspectPartitions(key, anchor, terminal.stageId(), 0, 1).get(0);
             assertThat(progress.pageOrdinal()).isPositive();
             assertThat(stages.preparePartition(new org.pangrova.persistence.generation.api.execution
                     .GenerationStageExecutionStore.PartitionClaim(

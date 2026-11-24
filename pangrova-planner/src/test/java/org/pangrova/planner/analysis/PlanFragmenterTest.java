@@ -617,7 +617,11 @@ class PlanFragmenterTest {
                 .findFirst().orElseThrow();
         assertThat(hash.distributionKeys()).containsExactly(0);
         assertThat(hash.partitionCount()).isEqualTo(4);
-        RelNode consumer = stage(fragmented, hash.downstreamStageId()).fragment().relNode();
+        var fragment = stage(fragmented, hash.downstreamStageId()).fragment();
+        assertThat(fragment.supportsCoalescedHashInput(hash.exchangeId(), hash.distributionKeys())).isTrue();
+        assertThat(fragment.supportsCoalescedHashInput("another-exchange", hash.distributionKeys())).isFalse();
+        assertThat(fragment.supportsCoalescedHashInput(hash.exchangeId(), List.of(1))).isFalse();
+        RelNode consumer = fragment.relNode();
         if (consumer instanceof PangrovaExchange exchange) {
             consumer = exchange.getInput();
         }

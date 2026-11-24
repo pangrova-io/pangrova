@@ -10,26 +10,99 @@ exporter catalogue used by function-contract tests.
 
 ## Current capture
 
-The macOS arm64 build exported both fixtures after the CDC task and Worker
-registration descriptors changed. `NativeCapabilityHandshakeE2ETest` verified
-the packaged JNI inventory and captured the complete Worker publication. The
-function exporter captured the cache-disabled catalogue from the same build.
+On 2026-11-23 the packaged macOS arm64 Worker handshake and function exporter
+captured the protocol for typed cross-stage aggregate states and Native Shuffle
+payload statistics. Function availability, registered signatures, vector
+companions and type projections match the prior capture. Both fixtures carry
+descriptor SHA-256 `0a3ecc5a87007cd1d7cd2d0693c3355bfa7b7ce904e9ff212ece2f4cd2c58e66`.
 
-| Artifact | Bytes | SHA-256 |
-| --- | ---: | --- |
-| Native library | 322893173 | `462cf6d3118cbff602ded5a73b2548dde3b1ab027bfcdd8a696a8850f7c9d526` |
-| Worker inventory | 796871 | `86c8805331d4db57e5650e42ae50f345b4a962200830ebcf1f89ec6d9f85ec06` |
-| Function exporter executable | 332386357 | `1c10b903e46d1c8acbb003b014337ea81503a8f3a23d6a917659fcc2eecab7c6` |
-| Function exporter catalogue | 784252 | `0bb91bd03d72930ca531e645ab11c16835fdec9392baf29fc2de7e1377f174d8` |
+| Artifact | Bytes | SHA-256 | Capabilities / functions / models |
+| --- | ---: | --- | --- |
+| Native library | 322931637 | `d9378b7ebde16375f5b379aa952353e7cf9efd6400019d4aeeed470d3cdd1caa` |  |
+| Worker inventory | 796871 | `b3f643e25b50fe20697fc616831ffbd1366c7a8ebf9f6d1635bdc9866c6f0787` | 19 / 108 / 2 |
+| Function exporter catalogue | 784252 | `295db4d5277df7fec91db8ba9192705c64b604a2ff29a695cf9dc00ee38338af` | 9 / 92 / 0 |
 
-Both fixtures carry canonical descriptor SHA-256
-`fb9a9dbf187459abe8a3b530ab1997e156d0a5d2d13ec65fad242a5c40f99aaf`.
-The Worker published 19 capabilities, 108 functions and two deployed models.
-The exporter reported nine capabilities and 92 functions.
+## November 23 scalar subquery capture
+
+On 2026-11-23 the packaged macOS arm64 Worker handshake and matching function
+exporter captured the typed scalar subquery relation. The function definitions,
+registered signatures, vector companions and type projections match the prior capture.
+Both fixtures carry descriptor SHA-256 `af6dc87f7a3364cce8618001c6a1d223b110d5a52fd0038c76039e695a3eed83`.
+
+| Artifact | Bytes | SHA-256 | Capabilities / functions / models |
+| --- | ---: | --- | --- |
+| Native library | 322902117 | `2445a748f1c0f11e0b8e241669850d668d1fe551a2f73ac03d1251b72892b5f9` |  |
+| Worker inventory | 796871 | `99b9e47647c2d2e22e9a090cf678034fcc028658c29a9a43ddd30a0fc53ea360` | 19 / 108 / 2 |
+| Function exporter catalogue | 784252 | `9b0733d62d378bf5e1188bedc7684bfc8c04736166e0b42af31dd28bdf4b7391` | 9 / 92 / 0 |
+
+## Earlier November 23 operator wait capture
+
+On 2026-11-23 the packaged macOS arm64 Worker handshake and matching function
+exporter captured the task-report protocol with per-operator blocked time and
+selected wait causes. Both fixtures carry descriptor SHA-256
+`584ccf8d14fd47a231c009051615d3d559c694cd03025cc12d1ce7ce3c0203a3`.
+
+| Artifact | Bytes | SHA-256 | Capabilities / functions / models |
+| --- | ---: | --- | --- |
+| Native library | 322897797 | `746ca93308ac46d33f923ecc182fe81d437595b00c1bd637593925f5cc2ca38a` | |
+| Worker inventory | 796871 | `431651966b187974912be8f4bf390c614daa28fb6e292c1bd9109186a7cf6ea9` | 19 / 108 / 2 |
+| Function exporter catalogue | 784252 | `82ece65ae65d4feff6b8f5b9c3850614d78ff976796a889175d4eebe17f959fd` | 9 / 92 / 0 |
+
+## Earlier November 23 sparse-key capture
+
+On 2026-11-23 the packaged macOS arm64 Worker handshake and matching function
+exporter captured the protocol for bounded disjoint build-key ranges used by
+cross-stage Iceberg pruning. Both fixtures carry descriptor SHA-256
+`37f4135b6b03274ca856e45c14238b44c476c8ebead26a3fe2d3bbebf25c571a`.
+
+| Artifact | Bytes | SHA-256 | Capabilities / functions / models |
+| --- | ---: | --- | --- |
+| Native library | 322897717 | `8e85b615bfdce500145f4d6c98dd91ae228b30a5fab6e773d3a4410e5b172cbf` | |
+| Worker inventory | 796871 | `8261167dc59c96fd96d9a2df3fa28d74a4b493460c0a3dd4a3baf572362089a8` | 19 / 108 / 2 |
+| Function exporter catalogue | 784252 | `b7c7ef05a4f07a60b004a60741fb65ca04efe995e72ee8f597468221936170f5` | 9 / 92 / 0 |
+
+## Earlier November 23 external Shuffle capture
+
+On 2026-11-23 the packaged macOS arm64 handshake and function exporter captured
+the protocol for reading contiguous groups of committed external Shuffle
+partitions. Both fixtures carry descriptor SHA-256
+`a15b8c21a150880296a1f9f942009e69fcbf1fec730fb1357d59d28cc459ab3a`.
+
+| Artifact | Bytes | SHA-256 | Capabilities / functions / models |
+| --- | ---: | --- | --- |
+| Native library | 322896581 | `3c7475121ba3eb9c18a1af2dd0afd84ebf50e1211ba2491a1030e94ab2f82c67` | |
+| Worker inventory | 796871 | `c5c4c7f05b54731056510e76c230cebe23888e6b1f56a880829d0edd95b5d882` | 19 / 108 / 2 |
+| Function exporter catalogue | 784252 | `e660a45599823f027f1d56f6287556b75769d8cc87c664b36256259ae9f5a719` | 9 / 92 / 0 |
+
+## November 22 build-key capture
+
+On 2026-11-22 the packaged macOS arm64 handshake and function exporter captured
+the protocol that carries the optional build-key ordinal and terminal range for
+cross-stage Iceberg pruning. Both fixtures carry descriptor SHA-256
+`f4678c47cbd8d809ae3ca4af404793664ad1d37875ffdde6a41e182eb752f4f9`.
+
+| Artifact | Bytes | SHA-256 | Capabilities / functions / models |
+| --- | ---: | --- | --- |
+| Native library | 322896533 | `e5a39846999af429968696658114d045aaf017af0d1a4d71edc2edc326ff8820` | |
+| Worker inventory | 796871 | `7ae52d8f18ea4292d261f8593b9cfa46de44888d2579e6301a8f99d348821b88` | 19 / 108 / 2 |
+| Function exporter catalogue | 784252 | `243696b73fcb0187c34ba2946555fed89195d81366a7b915abe54430fb6b3561` | 9 / 92 / 0 |
+
+## Earlier November 22 capture
+
+On 2026-11-22 the packaged macOS arm64 handshake and function exporter captured
+the protocol that carries typed file details in `DataSplit.file_detail`. Both
+fixtures carry descriptor SHA-256
+`9807e183c7e8e898eba126e76edf5c5340b5e1e8cd362adbb80909c36379f2f8`.
+
+| Artifact | Bytes | SHA-256 | Capabilities / functions / models |
+| --- | ---: | --- | ---: |
+| Native library | 322875461 | `9bda01fe69b969102ee20daf9756522d88a3561485698351a35658ec70dc626d` | |
+| Worker inventory | 796871 | `2bbef365dedbb9a90e6530532da414d114dc765c8c17f926f0a9d1c78bc98e92` | 19 / 108 / 2 |
+| Function exporter catalogue | 784252 | `0a7561649d9f1989fd651ee746a3615de1710b3fb9c9627d761abd812660655d` | 9 / 92 / 0 |
 
 ## November 14 capture
 
-On 2026-11-14 the macOS arm64 Worker handshake exported the inventory
+On 2026-11-14 the macOS arm64 Worker handshake exported the current inventory
 from the packaged JNI runtime with the immutable cache, governed FILE callbacks
 and both configured models. The runtime exports 21 Worker native methods
 under `org.pangrova.worker.jni.NativeRuntime`. The split descriptor includes

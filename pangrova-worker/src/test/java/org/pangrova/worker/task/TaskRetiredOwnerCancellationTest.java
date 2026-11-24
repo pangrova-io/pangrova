@@ -27,7 +27,7 @@ class TaskRetiredOwnerCancellationTest {
             assertThat(tasks.reports().reports()).noneMatch(report -> report.state().equals("CANCELLED"));
             tasks.manager().releaseTaskExecutor(info.taskId());
             assertThat(info.executorHandle()).isZero();
-            assertThat(info.executorReleaseReport()).isEqualTo(actualReceipt);
+            assertThat(info.executorReleaseReceipt().bytes().toByteArray()).isEqualTo(actualReceipt);
             assertThat(runtime.arbitrator().getUsedMemory()).isZero();
             assertThat(runtime.nodePool().getUsedBytes()).isZero();
         }
@@ -65,7 +65,7 @@ class TaskRetiredOwnerCancellationTest {
             info.stageExecutorReleaseReceipt(ownReceipt);
             tasks.manager().releaseTaskExecutor(info.taskId());
             assertThat(info.executorHandle()).isZero();
-            assertThat(info.executorReleaseReport()).isEqualTo(ownReceipt);
+            assertThat(info.executorReleaseReceipt().bytes().toByteArray()).isEqualTo(ownReceipt);
             assertThat(runtime.arbitrator().getUsedMemory()).isZero();
             assertThat(runtime.nodePool().getUsedBytes()).isZero();
         }

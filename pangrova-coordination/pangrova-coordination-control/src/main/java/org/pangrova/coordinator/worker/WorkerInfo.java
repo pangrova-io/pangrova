@@ -37,12 +37,36 @@ public record WorkerInfo(
         String rackId,
         List<String> dataLocality,
         CacheCatalogSummary cacheSummary,
-        CapabilityInventory capabilityInventory,
+        AdmittedInventory admittedInventory,
         int copyTaskTlsPort,
         WorkerExecutionIdentity workerExecutionIdentity,
         org.pangrova.coordination.api.membership.WorkerShuffleDeployment shuffleDeployment,
         boolean cdcIngestSupported) implements PlacementWorker {
     private static final int MAX_TCP_PORT = 65535;
+
+    /** Retains the one verified catalogue across health and heartbeat snapshots. */
+    public record AdmittedInventory(CapabilityInventory inventory) {
+        public AdmittedInventory {
+            CapabilityInventoryCodec.validate(checkNotNull(inventory, "capabilityInventory must not be null"));
+        }
+    }
+
+    /** Admits an immutable catalogue for a new Worker snapshot. */
+    public WorkerInfo(String workerId, String host, int httpPort, int transportPort,
+                      int resultServerPort, HealthState healthState, MemoryPressure memoryPressure,
+                      double cpuUtilization, int runningTaskCount, long availableMemoryBytes,
+                      Instant lastHeartbeat, double performanceScore, String resourcePoolId,
+                      int protocolVersion, String rackId, List<String> dataLocality,
+                      CacheCatalogSummary cacheSummary, CapabilityInventory capabilityInventory,
+                      int copyTaskTlsPort, WorkerExecutionIdentity workerExecutionIdentity,
+                      org.pangrova.coordination.api.membership.WorkerShuffleDeployment shuffleDeployment,
+                      boolean cdcIngestSupported) {
+        this(workerId, host, httpPort, transportPort, resultServerPort, healthState,
+                memoryPressure, cpuUtilization, runningTaskCount, availableMemoryBytes, lastHeartbeat,
+                performanceScore, resourcePoolId, protocolVersion, rackId, dataLocality, cacheSummary,
+                new AdmittedInventory(capabilityInventory), copyTaskTlsPort, workerExecutionIdentity,
+                shuffleDeployment, cdcIngestSupported);
+    }
 
     /** Creates a Worker view without a registered JVM CDC backend. */
     public WorkerInfo(String workerId, String host, int httpPort, int transportPort,
@@ -121,10 +145,11 @@ public record WorkerInfo(
         } else {
             dataLocality = List.copyOf(dataLocality);
         }
-        CapabilityInventoryCodec.validate(
-                checkNotNull(capabilityInventory,
-                        "capabilityInventory must not be null"));
+        checkNotNull(admittedInventory, "admittedInventory must not be null");
     }
+
+    /** Returns the actual Native capability message retained by the Worker view. */
+    public CapabilityInventory capabilityInventory() { return admittedInventory.inventory(); }
 
     /** Returns a Worker snapshot with the updated health state. */
     public WorkerInfo withHealthState(HealthState newState) {
@@ -132,7 +157,7 @@ public record WorkerInfo(
                 newState, memoryPressure, cpuUtilization, runningTaskCount,
                 availableMemoryBytes, lastHeartbeat, performanceScore,
                 resourcePoolId, protocolVersion,
-                rackId, dataLocality, cacheSummary, capabilityInventory, copyTaskTlsPort, workerExecutionIdentity,
+                rackId, dataLocality, cacheSummary, admittedInventory, copyTaskTlsPort, workerExecutionIdentity,
                         shuffleDeployment, cdcIngestSupported);
     }
 
@@ -142,11 +167,11 @@ public record WorkerInfo(
                 healthState, memoryPressure, cpuUtilization, runningTaskCount,
                 availableMemoryBytes, lastHeartbeat, performanceScore,
                 resourcePoolId, protocolVersion,
-                rackId, dataLocality, summary, capabilityInventory, copyTaskTlsPort, workerExecutionIdentity,
+                rackId, dataLocality, summary, admittedInventory, copyTaskTlsPort, workerExecutionIdentity,
                         shuffleDeployment, cdcIngestSupported);
     }
 
-    WorkerInfo withCapabilityInventory(CapabilityInventory inventory) {
+    WorkerInfo withCapabilityInventory(AdmittedInventory inventory) {
         return new WorkerInfo(workerId, host, httpPort, transportPort, resultServerPort,
                 healthState, memoryPressure, cpuUtilization, runningTaskCount,
                 availableMemoryBytes, lastHeartbeat, performanceScore, resourcePoolId,

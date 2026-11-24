@@ -100,7 +100,7 @@ class DeleteTargetedPathTest {
         var factory = new MetadataExecutionFactory(tasks);
         StatementCompletionListener listener = events::add;
         var context = new StatementDispatcherContext(
-                null, null, List.of(factory), List.of(listener), null);
+                null, List.of(factory), List.of(listener), null);
         return new StatementDispatcher(context);
     }
 }

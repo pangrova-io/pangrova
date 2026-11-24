@@ -20,12 +20,20 @@ import io.substrait.relation.Rel;
 import org.pangrova.planner.analysis.PangrovaPlanner;
 import org.pangrova.planner.analysis.PlanResult;
 import org.apache.calcite.jdbc.CalciteSchema;
+import org.apache.calcite.rel.RelCollations;
+import org.apache.calcite.rel.core.AggregateCall;
+import org.apache.calcite.rel.logical.LogicalAggregate;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
 import org.apache.calcite.schema.impl.AbstractTable;
+import org.apache.calcite.sql.fun.SqlStdOperatorTable;
+import org.apache.calcite.sql.parser.SqlParserPos;
 import org.apache.calcite.sql.type.SqlTypeName;
+import org.apache.calcite.util.ImmutableBitSet;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -86,7 +94,7 @@ class AggregateFilterSubstraitConversionTest {
     }
 
     @Test
-    void filterWithGroupingSetsRemapsFilterColumn() {
+    void filterWithGroupingSetsUsesItsInputColumn() {
         Aggregate agg = planAggregate(
                 "SELECT A, COUNT(*) FILTER (WHERE B > 10) FROM T "
                         + "GROUP BY GROUPING SETS ((A), ())");
@@ -96,6 +104,34 @@ class AggregateFilterSubstraitConversionTest {
         assertThat(measure.getPreMeasureFilter()).isPresent();
         assertThat(measure.getPreMeasureFilter().get())
                 .isInstanceOf(FieldReference.class);
+    }
+
+    @Test
+    void groupingSetsBindSparseInputOrdinalsWithoutACompactionProject() {
+        var input = planner.plan("SELECT A, B, C, D, B > 10 AS MASK FROM T").plan();
+        assertThat(input.getRowType().getFieldCount()).isEqualTo(5);
+        var key = ImmutableBitSet.of(3);
+        var maximum = AggregateCall.create(SqlParserPos.ZERO, SqlStdOperatorTable.MAX,
+                false, false, false, List.of(), List.of(1), 4, null, RelCollations.EMPTY,
+                input.getCluster().getTypeFactory().createTypeWithNullability(
+                        input.getRowType().getFieldList().get(1).getType(), true), "MAX_B");
+        var aggregate = LogicalAggregate.create(input, List.of(), key, List.of(key, ImmutableBitSet.of()),
+                List.of(maximum));
+        var converted = findAggregate(converter.convert(aggregate).getRoots().get(0).getInput());
+
+        assertThat(converted).isNotNull();
+        assertThat(converted.getInput().getRecordType().fields()).hasSize(5);
+        var grouped = converted.getGroupings().stream()
+                .flatMap(grouping -> grouping.getExpressions().stream()).toList();
+        assertThat(grouped).hasSize(1);
+        assertThat(ordinal((FieldReference) grouped.get(0))).isEqualTo(3);
+        var measure = converted.getMeasures().get(0);
+        assertThat(ordinal((FieldReference) measure.getFunction().arguments().get(0))).isOne();
+        assertThat(ordinal((FieldReference) measure.getPreMeasureFilter().orElseThrow())).isEqualTo(4);
+    }
+
+    private static int ordinal(FieldReference reference) {
+        return ((FieldReference.StructField) reference.segments().get(0)).offset();
     }
 
     @Test

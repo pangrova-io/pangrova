@@ -182,7 +182,7 @@ class JoinAlgorithmEligibilityTest {
     }
 
     private static SqlCompiler compiler(CalciteSchema schema) {
-        var context = new PlannerContext(null, null, null, null, null, null,
+        var context = new PlannerContext(null, null, null, null,
                 CboConfig.DEFAULT, CostModelConfig.SSD_DEFAULT);
         return new SqlCompiler(new PangrovaPlanner(schema, List.of(), context),
                 new SubstraitConverter(), new SubstraitPlanSerializer());

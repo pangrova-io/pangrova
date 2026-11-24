@@ -12,9 +12,8 @@ import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.planner.analysis.SqlCompiler;
 import org.pangrova.planner.adaptive.AdaptiveQueryConfig;
 import org.pangrova.planner.adaptive.AdaptiveQueryExecutor;
-import org.pangrova.planner.runtimefilter.RuntimeFilterRegistry;
 import org.pangrova.coordinator.resilience.resilience4j.ResilienceRegistry;
-import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
+import org.pangrova.coordinator.scheduler.placement.CacheAffinityAssigner;
 import org.pangrova.coordinator.query.security.AccessControlEnforcer;
 import org.pangrova.planner.security.ColumnMaskApplier;
 import org.pangrova.planner.security.RowFilterApplier;
@@ -39,7 +38,6 @@ public record QueryDispatcherContext(
         CatalogRegistry catalogRegistry,
         LineageEventEmitter lineageEmitter,
         long taskTimeoutSeconds,
-        RuntimeFilterRegistry runtimeFilterRegistry,
         AdaptiveQueryExecutor adaptiveQueryExecutor,
         AdaptiveQueryConfig adaptiveQueryConfig,
         ShuffleLifecycleManager shuffleLifecycleManager,
@@ -95,8 +93,8 @@ public record QueryDispatcherContext(
         return scheduling.taskTracker();
     }
 
-    public SplitAssignmentManager splitAssignmentManager() {
-        return scheduling.splitAssignmentManager();
+    public CacheAffinityAssigner cacheAffinityAssigner() {
+        return scheduling.cacheAffinityAssigner();
     }
 
     public SpeculativeStageHandler speculativeStageHandler() {
@@ -138,6 +136,6 @@ public record QueryDispatcherContext(
                 null,
                 compiler, security, scheduling,
                 catalogRegistry, lineageEmitter, taskTimeoutSeconds,
-                null, null, null, null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null, null);
     }
 }

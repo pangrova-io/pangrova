@@ -6,7 +6,6 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
 import org.pangrova.persistence.query.api.lifecycle.ShuffleCleanupIntentStore;
-import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
 import java.util.concurrent.ConcurrentHashMap;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.task.TaskCancelRetrier;
@@ -32,7 +31,6 @@ public final class QueryOwnershipTracker {
     private static final Logger LOG = LoggerFactory.getLogger(QueryOwnershipTracker.class);
 
     private final CoordinatorTaskTracker taskTracker;
-    private final SplitAssignmentManager splitAssignmentManager;
     private final TaskCancelRetrier cancelRetrier;
     private final AtomicReference<OwnershipSnapshot> ownershipSnapshot = new AtomicReference<>();
     private final ConcurrentHashMap<String, ConnectorMetadataScope> queryAuthorities =
@@ -49,11 +47,9 @@ public final class QueryOwnershipTracker {
     public QueryOwnershipTracker(CoordinatorTaskTracker taskTracker,
                                  WorkerManager workerManager,
                                  CatalogRegistry catalogRegistry,
-                                 SplitAssignmentManager splitAssignmentManager,
                                  TaskCancelRetrier cancelRetrier) {
         this.taskTracker = checkNotNull(taskTracker, "taskTracker must not be null");
         checkNotNull(workerManager, "workerManager must not be null");
-        this.splitAssignmentManager = splitAssignmentManager;
         this.cancelRetrier = checkNotNull(cancelRetrier, "cancelRetrier must not be null");
     }
 
@@ -110,19 +106,17 @@ public final class QueryOwnershipTracker {
     }
 
     /** Cleans up split assignment state, releases ownership, and notifies connectors. */
-    public void cleanupQuery(String queryId) {
-        cleanupLocalQuery(queryId);
+    public boolean tryCleanupQuery(String queryId) {
+        if (!tryCleanupLocalQuery(queryId)) return false;
         cleanupExecutionOwnership(queryId);
+        return true;
     }
 
     /** Drains only this process's creation owner; no execution anchor grant is implied. */
-    public void cleanupLocalQuery(String queryId) {
-        taskTracker.sealQueryIssuance(queryId);
-        taskTracker.requireQueryExecutionDrained(queryId);
+    public boolean tryCleanupLocalQuery(String queryId) {
+        if (!taskTracker.tryClaimQueryCleanup(queryId)) return false;
         notifyConnectorsCleanupQuery(queryId);
-        if (splitAssignmentManager != null) {
-            splitAssignmentManager.cleanup(queryId);
-        }
+        return true;
     }
 
     private void cleanupExecutionOwnership(String queryId) {
@@ -135,10 +129,6 @@ public final class QueryOwnershipTracker {
             // would make cleanup loop forever.
             if (intents.isPending(queryId)) {
                 cleanup.recovery().recoverCleanupShuffle(queryId);
-                if (intents.isPending(queryId)) {
-                    throw new IllegalStateException(
-                            "shuffle cleanup is still pending: " + queryId);
-                }
             }
         }
         OwnershipSnapshot snapshot = ownershipSnapshot.get();

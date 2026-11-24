@@ -36,7 +36,7 @@ class HaLeaseBackendFallbackTest {
                             CoordinatorBootstrapConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS,
                             org.pangrova.server.coordinator.enums.CoordinatorDeploymentRole.COMBINED, "127.0.0.1"),
                     new CoordinatorBootstrapConfig.FeatureFlags(false, false, false, false, false, false,
-                            false, false, false, false, false, false),
+                            false, false, false, false, false),
                     CoordinatorBootstrapConfig.QueryConfig.defaults(),
                     new CoordinatorBootstrapConfig.TransportConfig(0, 1024L, "localhost", null),
                     CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(), null, null, null);
@@ -60,7 +60,7 @@ class HaLeaseBackendFallbackTest {
                         "coord-1", 0, CoordinatorBootstrapConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.server.coordinator.enums.CoordinatorDeploymentRole.COMBINED, "0.0.0.0"),
                 new CoordinatorBootstrapConfig.FeatureFlags(
                         false, false, false, false, false, false, false, false,
-                        false, false, false, false),
+                        false, false, false),
                 CoordinatorBootstrapConfig.QueryConfig.defaults(),
                 new CoordinatorBootstrapConfig.TransportConfig(0, 256L * 1024 * 1024,
                         "10.0.0.5", null),  // non-loopback → multi-node
@@ -84,7 +84,7 @@ class HaLeaseBackendFallbackTest {
                         "coord-2", 0, CoordinatorBootstrapConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.server.coordinator.enums.CoordinatorDeploymentRole.COMBINED, "0.0.0.0"),
                 new CoordinatorBootstrapConfig.FeatureFlags(
                         false, false, false, false, false, false, false, false,
-                        false, false, false, false),
+                        false, false, false),
                 CoordinatorBootstrapConfig.QueryConfig.defaults(),
                 new CoordinatorBootstrapConfig.TransportConfig(0, 256L * 1024 * 1024,
                         "192.168.1.100", null),  // non-loopback → multi-node
@@ -120,7 +120,7 @@ class HaLeaseBackendFallbackTest {
                         "coord-4", 0, CoordinatorBootstrapConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, org.pangrova.server.coordinator.enums.CoordinatorDeploymentRole.COMBINED, "0.0.0.0"),
                 new CoordinatorBootstrapConfig.FeatureFlags(
                         false, false, false, false, false, false, false, false,
-                        false, false, false, false),
+                        false, false, false),
                 CoordinatorBootstrapConfig.QueryConfig.defaults(),
                 new CoordinatorBootstrapConfig.TransportConfig(0, 256L * 1024 * 1024,
                         "localhost", null),  // loopback → single-node

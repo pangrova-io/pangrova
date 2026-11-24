@@ -15,6 +15,7 @@ package org.pangrova.planner.analysis;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * The result of fragmenting a compiled query plan at Exchange boundaries into
@@ -24,11 +25,13 @@ import java.util.Map;
 public record FragmentedPlan(
         List<PlanStage> stages,
         List<StageTransfer> transfers,
-        Map<Integer, List<Integer>> stageDependencies
+        Map<Integer, List<Integer>> stageDependencies,
+        Optional<StageRuntimeFilter> runtimeFilter
 ) {
     public FragmentedPlan {
         stages = List.copyOf(stages);
         transfers = List.copyOf(transfers);
         stageDependencies = Map.copyOf(stageDependencies);
+        runtimeFilter = java.util.Objects.requireNonNull(runtimeFilter, "runtimeFilter");
     }
 }

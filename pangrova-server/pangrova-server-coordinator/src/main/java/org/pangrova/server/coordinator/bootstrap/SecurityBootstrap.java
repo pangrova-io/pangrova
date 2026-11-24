@@ -11,14 +11,15 @@ import org.pangrova.security.rowfilter.RowLevelSecurityFilter;
 import org.pangrova.persistence.coordination.api.admission.ClusterConcurrencySlots;
 import org.pangrova.persistence.coordination.postgresql.admission.JdbcClusterConcurrencySlots;
 import org.pangrova.scheduler.admission.TenantQuotaAdmissionController;
-import org.pangrova.persistence.security.api.tenant.TenantStore;
 import org.pangrova.scheduler.api.quota.GlobalTenantUsageView;
 import org.pangrova.security.api.authorization.AccessControl;
+import org.pangrova.security.api.authorization.TableReadPolicySource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 
 import javax.sql.DataSource;
 
@@ -32,11 +33,7 @@ final class SecurityBootstrap {
 
     private final CoordinatorBootstrapConfig config;
     private final DataSource dataSource;
-    private final java.util.function.Function<DataSource,
-            org.pangrova.persistence.security.api.mask.EnrichedColumnMaskStore> maskStores;
-
-    private final java.util.function.Function<DataSource,
-            org.pangrova.persistence.security.api.rowfilter.RowPolicyStore> rowPolicyStores;
+    private final Function<DataSource, TableReadPolicySource> policySources;
 
     private AuthenticationManager authenticationManager;
     private AccessControl accessControl;
@@ -46,10 +43,16 @@ final class SecurityBootstrap {
                     org.pangrova.persistence.security.api.mask.EnrichedColumnMaskStore> maskStores,
             java.util.function.Function<DataSource,
                     org.pangrova.persistence.security.api.rowfilter.RowPolicyStore> rowPolicyStores) {
+        this(config, dataSource, source -> TableReadPolicySource.separate(
+                new RowLevelSecurityFilter(rowPolicyStores.apply(source)),
+                new ColumnMaskingProcessor(maskStores.apply(source))));
+    }
+
+    SecurityBootstrap(CoordinatorBootstrapConfig config, DataSource dataSource,
+            Function<DataSource, TableReadPolicySource> policySources) {
         this.config = config;
         this.dataSource = dataSource;
-        this.maskStores = java.util.Objects.requireNonNull(maskStores, "maskStores");
-        this.rowPolicyStores = java.util.Objects.requireNonNull(rowPolicyStores, "rowPolicyStores");
+        this.policySources = java.util.Objects.requireNonNull(policySources, "policySources");
     }
 
     void start() {
@@ -121,10 +124,7 @@ final class SecurityBootstrap {
         // A missing or unavailable authority prevents the process from serving secured traffic.
         roles.listRoles();
         grants.listGrants();
-        var maskStore = maskStores.apply(dataSource);
-        return new DynamicRbacAccessControl(grants, roles,
-                new RowLevelSecurityFilter(rowPolicyStores.apply(dataSource)),
-                new ColumnMaskingProcessor(maskStore));
+        return new DynamicRbacAccessControl(grants, roles, policySources.apply(dataSource));
     }
 
     AuthenticationManager authenticationManager() {
@@ -156,16 +156,11 @@ final class SecurityBootstrap {
      * Without a shared database (dev / in-memory) the slot store stays null and the controller
      * falls back to the view alone.</p>
      *
-     * @return {@code null} when tenant awareness is not configured, meaning no admission control
      */
     static TenantQuotaAdmissionController createClusterAdmissionController(
-            TenantStore tenantStore, GlobalTenantUsageView usageView, DataSource metadataDataSource) {
-        if (tenantStore == null || usageView == null) {
-            return null;
-        }
+            GlobalTenantUsageView usageView, DataSource metadataDataSource) {
         ClusterConcurrencySlots clusterSlots = metadataDataSource != null
                 ? new JdbcClusterConcurrencySlots(metadataDataSource) : null;
-        return new TenantQuotaAdmissionController(
-                tenantStore, usageView, clusterSlots);
+        return new TenantQuotaAdmissionController(usageView, clusterSlots);
     }
 }

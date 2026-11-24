@@ -14,8 +14,6 @@ namespace pangrova::shuffle {
 
 namespace {
 
-constexpr size_t kSerializedPageOverheadBytes = 64 * 1024;
-
 // Map compression codec string to CompressionKind.
 facebook::velox::common::CompressionKind resolveCompressionKind(
     const std::string& codec) {
@@ -91,67 +89,69 @@ std::unique_ptr<folly::IOBuf> ShuffleBatchSerializer::serialize(
   VELOX_CHECK_NOT_NULL(vector, "Input vector must not be null");
   VELOX_CHECK_NOT_NULL(pool, "Memory pool must not be null");
 
-  return serializeRange(vector, 0, vector->size(), pool);
+  return serializeRange(vector, 0, vector->size(), pool, config_.max_serialized_batch_bytes);
 }
 
 std::unique_ptr<folly::IOBuf> ShuffleBatchSerializer::serializeRange(
     const facebook::velox::RowVectorPtr& vector,
     facebook::velox::vector_size_t begin,
     facebook::velox::vector_size_t size,
-    facebook::velox::memory::MemoryPool* pool) {
+    facebook::velox::memory::MemoryPool* pool, size_t maximum_page_bytes) {
 
   // Serializer ownership is scoped to this call; no driver-local cache retains
   // a raw pool pointer after its task has terminated.
   auto effective_compression = compression_kind_;
-  const auto selected = std::dynamic_pointer_cast<facebook::velox::RowVector>(vector->slice(begin, size));
-  const auto estimated_bytes = selected->estimateFlatSize();
-  if (config_.compression_min_bytes > 0 &&
-      estimated_bytes < static_cast<uint64_t>(config_.compression_min_bytes)) {
+  const auto selected = begin == 0 && size == vector->size() ? vector
+      : std::dynamic_pointer_cast<facebook::velox::RowVector>(vector->slice(begin, size));
+  VELOX_CHECK_NOT_NULL(selected);
+  if (effective_compression != facebook::velox::common::CompressionKind::CompressionKind_NONE &&
+      config_.compression_min_bytes > 0 &&
+      selected->estimateFlatSize() < static_cast<uint64_t>(config_.compression_min_bytes)) {
     effective_compression = facebook::velox::common::CompressionKind::
         CompressionKind_NONE;
   }
 
   pangrova::velox::ArrowBatchVectorSerde::StreamOptions options;
   options.compressionKind = effective_compression;
-  options.maximum_bytes = config_.max_serialized_batch_bytes;
+  options.maximum_bytes = maximum_page_bytes;
   options.canonical_schema = config_.canonical_schema;
   auto serializer = serde_.createBatchSerializer(pool, &options);
 
-  facebook::velox::IndexRange range{
-      begin, size};
-  std::vector<facebook::velox::IndexRange> ranges = {range};
+  const facebook::velox::IndexRange range{0, size};
 
   auto outputStream =
       std::make_unique<facebook::velox::IOBufOutputStream>(*pool);
 
   serializer->serialize(
-      vector,
-      folly::Range<const facebook::velox::IndexRange*>(
-          ranges.data(), ranges.size()),
+      selected,
+      folly::Range(&range, 1),
       outputStream.get());
 
   return outputStream->getIOBuf();
 }
 
 std::vector<uint64_t> ShuffleBatchSerializer::estimateRowBytes(
-    const facebook::velox::RowVectorPtr& vector) {
+    const facebook::velox::RowVectorPtr& vector, size_t maximum_page_bytes) {
   const auto average = vector->estimateFlatSize() / std::max(1, vector->size());
   // A planning hint only: compressed output size is checked by the bounded
   // Arrow sink, not inferred from a row's uncompressed representation.
-  const auto budget = config_.max_serialized_batch_bytes - kSerializedPageOverheadBytes;
+  const auto budget = maximum_page_bytes - kSerializedPageOverheadBytes;
   return std::vector<uint64_t>(vector->size(), std::min<uint64_t>(average, budget));
 }
 
 std::vector<SerializedShuffleSlice> ShuffleBatchSerializer::serializeBatches(
     const facebook::velox::RowVectorPtr& vector,
-    facebook::velox::memory::MemoryPool* pool) {
+    facebook::velox::memory::MemoryPool* pool, size_t maximum_page_bytes) {
   VELOX_CHECK_NOT_NULL(vector, "Input vector must not be null");
   VELOX_CHECK_NOT_NULL(pool, "Memory pool must not be null");
   if (vector->size() == 0) {
     return {};
   }
+  maximum_page_bytes = std::min(maximum_page_bytes, config_.max_serialized_batch_bytes);
+  VELOX_USER_CHECK_GT(maximum_page_bytes, kSerializedPageOverheadBytes,
+      "Shuffle batch limit must exceed serialization overhead");
   const auto row_counts = planShuffleBatchRowCounts(
-      estimateRowBytes(vector), config_.max_serialized_batch_bytes);
+      estimateRowBytes(vector, maximum_page_bytes), maximum_page_bytes);
   std::vector<SerializedShuffleSlice> result;
   result.reserve(row_counts.size());
   facebook::velox::vector_size_t begin = 0;
@@ -160,7 +160,7 @@ std::vector<SerializedShuffleSlice> ShuffleBatchSerializer::serializeBatches(
         static_cast<facebook::velox::vector_size_t>(row_count);
     for (facebook::velox::vector_size_t offset = 0; offset < size;) {
       const auto count = std::min(config_.batch_size, size - offset);
-      serializeBoundedRange(vector, begin + offset, count, pool, result);
+      serializeBoundedRange(vector, begin + offset, count, pool, maximum_page_bytes, result);
       offset += count;
     }
     begin += size;
@@ -173,20 +173,21 @@ void ShuffleBatchSerializer::serializeBoundedRange(
     facebook::velox::vector_size_t begin,
     facebook::velox::vector_size_t size,
     facebook::velox::memory::MemoryPool* pool,
+    size_t maximum_page_bytes,
     std::vector<SerializedShuffleSlice>& output) {
   try {
-    auto data = serializeRange(vector, begin, size, pool);
+    auto data = serializeRange(vector, begin, size, pool, maximum_page_bytes);
     output.push_back({std::move(data), size});
     return;
   } catch (const pangrova::velox::ArrowBatchWireLimitException&) {
     VELOX_USER_CHECK_GT(size, 1,
         "SHUFFLE_ROW_EXCEEDS_BATCH_LIMIT: complete Arrow row exceeds the {} byte batch limit",
-        config_.max_serialized_batch_bytes);
+        maximum_page_bytes);
   }
   const auto first_size = size / 2;
-  serializeBoundedRange(vector, begin, first_size, pool, output);
+  serializeBoundedRange(vector, begin, first_size, pool, maximum_page_bytes, output);
   serializeBoundedRange(
-      vector, begin + first_size, size - first_size, pool, output);
+      vector, begin + first_size, size - first_size, pool, maximum_page_bytes, output);
 }
 
 facebook::velox::RowVectorPtr ShuffleBatchSerializer::deserialize(

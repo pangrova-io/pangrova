@@ -2,7 +2,6 @@ package org.pangrova.connector.iceberg;
 
 import org.apache.iceberg.HasTableOperations;
 import org.apache.iceberg.SchemaParser;
-import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
@@ -46,10 +45,13 @@ abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRe
     protected final IcebergNativeIndexEvaluator nativeIndexEvaluator = new IcebergNativeIndexEvaluator();
     protected final IcebergColumnAccessGuard encryptionGuard;
     private final Catalog catalog;
+    private final boolean exactTableNameLookup;
     private final CatalogExceptionClassifier exceptionClassifier = new CatalogExceptionClassifier();
 
-    IcebergReadMetadata(Catalog catalog, String catalogName, long pinTtlMs, Set<String> accessibleKeys) {
+    IcebergReadMetadata(Catalog catalog, String catalogName, long pinTtlMs, Set<String> accessibleKeys,
+            boolean exactTableNameLookup) {
         this.catalog = catalog;
+        this.exactTableNameLookup = exactTableNameLookup;
         this.catalogTables = new IcebergCatalogTables(catalog);
         this.pinManager = new IcebergSnapshotPinManager(catalogName, pinTtlMs, nativeIndexEvaluator::clearCache);
         this.encryptionGuard = new IcebergColumnAccessGuard(
@@ -114,6 +116,11 @@ abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRe
     }
 
     @Override
+    public boolean supportsExactTableNameLookup() {
+        return exactTableNameLookup;
+    }
+
+    @Override
     public Optional<TableIdentity> getTableIdentity(
             ConnectorSession session, ConnectorTableHandle table) {
         if (!(table instanceof IcebergTableHandle handle)) {
@@ -131,15 +138,7 @@ abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRe
         if (!(table instanceof IcebergTableHandle handle)) {
             return Optional.empty();
         }
-        var metadata = currentMetadata(catalogTables.resolveTable(handle));
-        Snapshot current = metadata.currentSnapshot();
-        return Optional.of(TableVersionToken.of(
-                "ICEBERG",
-                metadata.uuid(),
-                current == null ? "EMPTY" : Long.toString(current.snapshotId()),
-                current == null ? "0" : Long.toString(current.sequenceNumber()),
-                Integer.toString(metadata.schema().schemaId()),
-                Integer.toString(metadata.spec().specId())));
+        return Optional.of(IcebergReadBindings.currentVersion(currentMetadata(catalogTables.resolveTable(handle))));
     }
 
     @Override

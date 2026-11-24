@@ -102,10 +102,11 @@ class OllamaAiSqlE2ETest extends PangrovaE2ETestBase {
     }
 
     @Test
-    @DisplayName("non-deterministic AI_COMPLETE performs a real provider call on each execution")
+    @DisplayName("identical AI_COMPLETE queries each perform a real provider call")
     void repeatedAiCompleteInvokesTheProviderForEachExecution() {
+        // Use structured output so this request-count test does not depend on free-text sampling.
         String sql = "SELECT AI_COMPLETE('" + LOGICAL_MODEL
-                + "', 'Reply with exactly this cache marker: pangrova-r7-cache.') AS response";
+                + "', 'Return a JSON object with marker set to pangrova-r7-cache.', 'true') AS response";
         long before = completionRequestCount();
 
         String first = scalarString(executeQuery(sql));
@@ -314,10 +315,24 @@ class OllamaAiSqlE2ETest extends PangrovaE2ETestBase {
                 GeneratedSqlPublicationAssertions.requirePublished(stateStoreDataSource(), table);
                 assertThat(embeddingRequestCount()).isGreaterThan(before);
             });
+            try (var connection = stateStoreDataSource().getConnection();
+                    var statement = connection.createStatement()) {
+                statement.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public");
+            }
+            long queries = generatedPublicationReads();
             assertQueryReturnsRows("SELECT id, content FROM " + qualified, 1);
+            assertThat(generatedPublicationReads() - queries).as("ordinary projection publication reads").isZero();
+            queries = generatedPublicationReads();
+            assertQueryReturnsRows("SELECT id FROM " + qualified + " WHERE id=1", 1);
+            assertThat(generatedPublicationReads() - queries).as("ordinary filter publication reads").isZero();
+            queries = generatedPublicationReads();
+            assertQueryReturnsRows("SELECT id FROM " + qualified + " WHERE embedding IS NOT NULL", 1);
+            assertThat(generatedPublicationReads() - queries).as("generated filter publication reads").isOne();
+            queries = generatedPublicationReads();
             var visible = executeQuery("SELECT embedding FROM " + qualified + " WHERE id=1");
             assertThat(visible).hasSize(1);
             assertEmbedding(visible.get(0).get("embedding"), expected);
+            assertThat(generatedPublicationReads() - queries).as("generated projection publication reads").isOne();
         } finally {
             executeDdl("DROP TABLE " + qualified);
         }
@@ -345,6 +360,20 @@ class OllamaAiSqlE2ETest extends PangrovaE2ETestBase {
                     assertThat(embeddingRequestCount()).isEqualTo(before));
         } finally {
             executeDdl("DROP TABLE " + qualified);
+        }
+    }
+
+    private static long generatedPublicationReads() throws Exception {
+        try (var connection = stateStoreDataSource().getConnection(); var statement = connection.createStatement();
+                var rows = statement.executeQuery("""
+                        SELECT COALESCE(SUM(calls), 0) FROM public.pg_stat_statements
+                        WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+                          AND toplevel
+                          AND query LIKE 'SELECT tenant_id,artifact_id,generation,source_id,source_snapshot,target_column%'
+                          AND query LIKE '%FROM generated_value_generation_manifests%'
+                        """)) {
+            assertThat(rows.next()).isTrue();
+            return rows.getLong(1);
         }
     }
 

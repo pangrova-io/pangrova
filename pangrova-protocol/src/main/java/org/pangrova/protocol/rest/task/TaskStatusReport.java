@@ -1,83 +1,65 @@
 package org.pangrova.protocol.rest.task;
 
-import org.pangrova.protocol.rest.data.WriteResultDescriptor;
+import com.google.protobuf.ByteString;
+import com.google.protobuf.InvalidProtocolBufferException;
 import org.pangrova.common.client.error.ErrorDetail;
-
-import com.fasterxml.jackson.annotation.JsonInclude;
-import com.fasterxml.jackson.annotation.JsonProperty;
+import org.pangrova.protocol.rest.data.WriteResultDescriptor;
+import org.pangrova.protocol.v2.NativeTaskStats;
+import org.pangrova.protocol.v2.TaskAttemptId;
+import org.pangrova.protocol.v2.TaskReport;
 
 import java.util.Map;
 
-/**
- * Worker-to-Coordinator task status report sent via POST /v1/task/status-report.
- *
- * <p>Identity fields are report projections of the canonical v2 task attempt.
- * {@link SubmitTaskRequest} deliberately does not mirror them in REST; the
- * Coordinator validates every projection against its retained canonical task.</p>
- *
- * <h3>Field validation strategy</h3>
- * <ul>
- *   <li><b>Mandatory</b> ({@code taskId}, {@code queryId}, {@code workerId},
- *       {@code state}): must not be {@code null} or blank. Construction with
- *       any of these missing throws {@link IllegalArgumentException}.
- *       During Jackson deserialization, a missing mandatory field results in
- *       {@code null} being passed to the constructor, which triggers the same
- *       rejection — consumers should catch the exception and log a warning
- *       before discarding the malformed report.</li>
- *   <li><b>Optional</b> ({@code stats}, {@code error}, {@code writeResult}):
- *       default to {@code null} when absent during deserialization.</li>
- *   <li><b>Primitive</b> ({@code stageId}, {@code partitionId},
- *       {@code reportSequence}, {@code timestampMs}): default to {@code 0}
- *       per Java primitive semantics when absent.</li>
- * </ul>
- *
- * @see SubmitTaskRequest
- */
-@JsonInclude(JsonInclude.Include.NON_NULL)
+/** In-process task status view used by publication, completion and diagnostics. */
 public record TaskStatusReport(
-    @JsonProperty("task_id") String taskId,
-    @JsonProperty("query_id") String queryId,
-    @JsonProperty("stage_id") int stageId,
-    @JsonProperty("partition_id") int partitionId,
-    @JsonProperty("task_type") String taskType,
-    @JsonProperty("worker_id") String workerId,
-    @JsonProperty("state") String state,
-    @JsonProperty("stats") TaskStats stats,
-    @JsonProperty("error") ErrorDetail error,
-    @JsonProperty("write_result") WriteResultDescriptor writeResult,
-    @JsonProperty("report_sequence") long reportSequence,
-    @JsonProperty("timestamp_ms") long timestampMs,
-    @JsonProperty("error_code") String errorCode,
-    @JsonProperty("error_metadata") Map<String, String> errorMetadata,
-    @JsonProperty("attempt") TaskAttemptDescriptor attempt,
-    @JsonProperty("canonical_task_report") byte[] canonicalTaskReport
-) {
+        String taskId,
+        String queryId,
+        int stageId,
+        int partitionId,
+        String taskType,
+        String workerId,
+        String state,
+        NativeTaskStats supplementalStats,
+        ErrorDetail error,
+        WriteResultDescriptor writeResult,
+        long reportSequence,
+        long timestampMs,
+        String errorCode,
+        Map<String, String> errorMetadata,
+        TaskAttemptDescriptor attempt,
+        ByteString canonicalEvidence,
+        TaskAttemptId reportedAttempt,
+        TaskReport decodedStatus) {
 
-    /** Bounded JSON envelope for a 4 MiB canonical report after Base64 encoding. */
+    /** Maximum binary HTTP delivery, including any write commit fragments. */
     public static final int MAX_HTTP_BODY_BYTES = 8 * 1024 * 1024;
 
-    /** Source-compatible constructor for callers without a Native status. */
+    /** Maximum canonical terminal evidence accepted at the control boundary. */
+    public static final int MAX_CANONICAL_BYTES = 4 * 1024 * 1024;
+
     public TaskStatusReport(
             String taskId, String queryId, int stageId, int partitionId,
-            String taskType, String workerId, String state, TaskStats stats,
+            String taskType, String workerId, String state, NativeTaskStats stats,
             ErrorDetail error, WriteResultDescriptor writeResult,
             long reportSequence, long timestampMs, String errorCode,
             Map<String, String> errorMetadata, TaskAttemptDescriptor attempt) {
         this(taskId, queryId, stageId, partitionId, taskType, workerId, state,
-                stats, error, writeResult, reportSequence, timestampMs,
-                errorCode, errorMetadata, attempt, null);
+                stats, error, writeResult, reportSequence, timestampMs, errorCode,
+                errorMetadata, attempt, null, null, null);
     }
 
-    /**
-     * Compact constructor enforcing mandatory field contracts.
-     *
-     * <p>Rejects reports where any mandatory identity/state field is missing,
-     * ensuring the Coordinator never processes a report it cannot correlate
-     * back to a known task.</p>
-     *
-     * <p>errorMetadata is defensively copied to an unmodifiable map when
-     * non-null, preserving immutability.</p>
-     */
+    public TaskStatusReport(
+            String taskId, String queryId, int stageId, int partitionId,
+            String taskType, String workerId, String state, NativeTaskStats stats,
+            ErrorDetail error, WriteResultDescriptor writeResult,
+            long reportSequence, long timestampMs, String errorCode,
+            Map<String, String> errorMetadata, TaskAttemptDescriptor attempt,
+            byte[] canonicalTaskReport) {
+        this(taskId, queryId, stageId, partitionId, taskType, workerId, state,
+                stats, error, writeResult, reportSequence, timestampMs, errorCode,
+                errorMetadata, attempt, copyEvidence(canonicalTaskReport), null, null);
+    }
+
     public TaskStatusReport {
         if (taskId == null || taskId.isBlank()) {
             throw new IllegalArgumentException("taskId must not be null or blank");
@@ -95,12 +77,42 @@ public record TaskStatusReport(
             throw new IllegalArgumentException("attempt must not be null");
         }
         errorMetadata = errorMetadata == null ? null : Map.copyOf(errorMetadata);
-        canonicalTaskReport = canonicalTaskReport == null
-                ? null : canonicalTaskReport.clone();
     }
 
-    @Override
+    /** Builds a Worker report using the complete issued attempt identity. */
+    public static TaskStatusReport fromAttempt(TaskAttemptId identity, String taskType, String workerId,
+                                              String state, NativeTaskStats stats, ErrorDetail error,
+                                              WriteResultDescriptor writeResult, long sequence, long timestampMs,
+                                              byte[] terminalEvidence) {
+        return fromAttempt(identity, taskType, workerId, state, stats, error, writeResult, sequence,
+                timestampMs, copyEvidence(terminalEvidence), null);
+    }
+
+    /** Reuses evidence already parsed by the producer. */
+    public static TaskStatusReport fromAttempt(TaskAttemptId identity, String taskType, String workerId,
+                                              String state, NativeTaskStats stats, ErrorDetail error,
+                                              WriteResultDescriptor writeResult, long sequence, long timestampMs,
+                                              ByteString terminalEvidence, TaskReport decodedStatus) {
+        return new TaskStatusReport(identity.getTaskId(), identity.getQueryOrJobId(), identity.getStageId(),
+                identity.getPartitionId(), taskType, workerId, state, stats, error, writeResult, sequence,
+                timestampMs, null, null, TaskAttemptDescriptor.from(identity),
+                terminalEvidence, identity, decodedStatus);
+    }
+
+    /** Returns owned bytes for callers that pass the exact evidence to an external sink. */
     public byte[] canonicalTaskReport() {
-        return canonicalTaskReport == null ? null : canonicalTaskReport.clone();
+        return canonicalEvidence == null ? null : canonicalEvidence.toByteArray();
+    }
+
+    /** Reuses the ingress parse when present. Internal report producers may supply raw evidence. */
+    public TaskReport canonicalStatus() throws InvalidProtocolBufferException {
+        if (decodedStatus != null) {
+            return decodedStatus;
+        }
+        return canonicalEvidence == null ? null : TaskReport.parseFrom(canonicalEvidence);
+    }
+
+    private static ByteString copyEvidence(byte[] bytes) {
+        return bytes == null ? null : ByteString.copyFrom(bytes);
     }
 }

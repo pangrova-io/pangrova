@@ -11,6 +11,7 @@ import org.pangrova.generation.api.page.GenerationLease;
 import org.pangrova.generation.api.output.GenerationOutput;
 import org.pangrova.generation.api.enums.GenerationOutputScope;
 import org.pangrova.generation.api.enums.GenerationPageKind;
+import org.pangrova.generation.api.graph.GenerationStageGraph.StagePlan;
 import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.PreparedPartition;
 import org.pangrova.generation.execution.validation.GenerationDispatchProtocolValidator;
 import org.pangrova.generation.publication.read.PublishedGenerationBindingResolver;
@@ -23,11 +24,14 @@ import org.pangrova.protocol.v2.ArtifactWorkKind;
 import org.pangrova.protocol.v2.ArtifactWriteBinding;
 import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.protocol.v2.CoveragePolicy;
+import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.protocol.v2.ExecutionPolicy;
 import org.pangrova.protocol.v2.FallbackPolicy;
 import org.pangrova.protocol.v2.OperatorBinding;
 import org.pangrova.protocol.v2.OperatorResourceRequirement;
 import org.pangrova.protocol.v2.RetryClass;
+import org.pangrova.protocol.v2.ResultColumnLogicalType;
+import org.pangrova.security.api.authorization.DeferredAuthorizationScope.ModelSnapshot;
 
 import java.nio.ByteBuffer;
 import java.security.MessageDigest;
@@ -44,8 +48,45 @@ import java.util.stream.Collectors;
 public final class GenerationPartitionBindings {
     private GenerationPartitionBindings() {}
 
+    public record BoundPartition(List<OperatorBinding> operatorBindings, List<DataSplit> splits) {
+        public BoundPartition {
+            operatorBindings = List.copyOf(operatorBindings);
+            splits = List.copyOf(splits);
+        }
+    }
+
+    /** Canonically decoded and validated stage content shared across exact partition claims. */
+    public static final class StageBindings {
+        private final StagePlan stage;
+        private final List<ModelSnapshot> models;
+        private final BoundExecutionPlan templates;
+
+        /** Decodes one persisted stage against its captured model declarations. */
+        public StageBindings(StagePlan stage, List<ModelSnapshot> models) {
+            this.stage = stage;
+            this.models = List.copyOf(models);
+            templates = FrozenStageBindings.read(stage, this.models);
+            GenerationDispatchProtocolValidator.validatePlan(templates.planBytes());
+        }
+
+        public byte[] planBytes() {
+            return templates.planBytes();
+        }
+
+        public List<ResultColumnLogicalType> resultColumnTypes() {
+            return templates.resultColumnTypes();
+        }
+
+        List<OperatorBinding> requireStage(StagePlan current, List<ModelSnapshot> currentModels) {
+            if (!stage.equals(current) || !models.equals(currentModels)) {
+                throw new IllegalArgumentException("Partition authority differs from its validated stage contract");
+            }
+            return templates.operatorBindings();
+        }
+    }
+
     /** Does not borrow a connection, discover a model, resolve a publication, or perform any network I/O. */
-    public static BoundExecutionPlan bind(PreparedPartition prepared, Instant now) {
+    public static BoundPartition bind(PreparedPartition prepared, StageBindings frozen, Instant now) {
         var lease = prepared.lease();
         var job = prepared.job();
         var spec = prepared.authority().dispatchSpec();
@@ -53,15 +94,13 @@ public final class GenerationPartitionBindings {
         if (stage.pageKind() != lease.kind() || lease.partitionId() >= stage.parallelism()) {
             throw new IllegalArgumentException("claimed page differs from its persisted stage contract");
         }
-        GenerationDispatchProtocolValidator.validatePlan(stage);
-        GenerationDispatchProtocolValidator.validateSplits(job, lease.splits());
-        var frozen = FrozenStageBindings.read(stage, spec.stageGraph().modelSnapshots());
-        var materialized = PublishedGenerationBindingResolver.materializePrepared(frozen.operatorBindings(),
-                lease.splits().stream().map(split -> java.util.Base64.getEncoder()
-                        .encodeToString(split.canonicalSplitBytes())).toList(), prepared.publications());
+        var templates = frozen.requireStage(stage, spec.stageGraph().modelSnapshots());
+        var splits = GenerationDispatchProtocolValidator.parseSplits(job, lease.splits());
+        var materialized = PublishedGenerationBindingResolver.materializePrepared(templates,
+                splits, prepared.publications());
         List<OperatorBinding> bindings = bindAttempt(job, spec, lease, now,
                 GenerationPartitionResources.bind(materialized), prepared.dependencyOutputs());
-        return new BoundExecutionPlan(frozen.planBytes(), bindings, frozen.resultColumnTypes());
+        return new BoundPartition(bindings, splits);
     }
 
     private static List<OperatorBinding> bindAttempt(

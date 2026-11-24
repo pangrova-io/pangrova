@@ -28,7 +28,9 @@
 #include "engine/shuffle/SerializedShuffleQueue.h"
 #include "substrait/algebra.pb.h"
 #include "substrait/plan.pb.h"
+#include "velox/exec/BlockingReason.h"
 #include "velox/exec/ExchangeClient.h"
+#include "velox/exec/Task.h"
 #include "velox/exec/ExchangeQueue.h"
 #include "engine/velox/exchange/PangrovaExchangeSource.h"
 #include "engine/velox/exchange/PendingEndpointRegistry.h"
@@ -230,6 +232,21 @@ struct TransportSecurityReset {
   }
 };
 
+void writeParquetFixture(const std::filesystem::path& path, const facebook::velox::RowVectorPtr& rows,
+                         facebook::velox::memory::MemoryPool* root,
+                         facebook::velox::memory::MemoryPool* pool) {
+  namespace sdk = facebook::velox;
+  auto properties = std::make_shared<const sdk::config::ConfigBase>(
+      std::unordered_map<std::string, std::string>{});
+  sdk::parquet::WriterOptions options;
+  options.memoryPool = root;
+  sdk::dwio::common::FileSink::Options sink{.connectorProperties = properties, .pool = pool};
+  sdk::parquet::Writer writer(std::make_unique<sdk::dwio::common::LocalFileSink>(path.string(), sink),
+      options, rows->rowType());
+  writer.write(rows);
+  writer.close();
+}
+
 class NativeExchangeDataPlaneE2ETest : public ::testing::Test {
  protected:
   void SetUp() override {
@@ -341,6 +358,86 @@ TEST_F(NativeExchangeDataPlaneE2ETest, NonEmptyBatchTraversesFlightAndVelox) {
   registry.discardExecutor(kConsumerHandle);
 }
 
+TEST_F(NativeExchangeDataPlaneE2ETest, ReportsWaitForTheActualFlightProducer) {
+  using Clock = std::chrono::steady_clock;
+  using facebook::velox::exec::BlockingReason;
+
+  auto& registry = PendingEndpointRegistry::instance();
+  registry.clear();
+  auto rootPool = pangrova::test::testRootPool("FlightProducerWaitE2E");
+  auto pool = rootPool->addLeafChild("producer");
+  facebook::velox::test::VectorMaker maker(pool.get());
+  auto input = maker.rowVector(
+      {physicalFieldAlias(0)}, {maker.flatVector<int64_t>({42, 7, 99})});
+  shuffle::ShuffleBatchSerializer serializer(serializerConfig());
+  shuffle::ShuffleBatch batch;
+  batch.partition_id = 0;
+  batch.data = serializer.serialize(input, pool.get());
+  batch.row_count = input->size();
+
+  shuffle::SerializedShuffleQueue producerQueue(8);
+  shuffle::FlightShuffleServerConfig config;
+  config.port = 0;
+  shuffle::FlightShuffleServer server(config);
+  const int port = server.start();
+  ASSERT_GT(port, 0);
+  server.registerHandle(
+      kProducerHandle, &producerQueue, "query-native-e2e", 1, 1,
+      kPlanEpoch, kAttemptId, kFencingToken);
+
+  registry.registerSource(kConsumerHandle, kPlanNodeId, kExchangeId, localEndpoint(port));
+  registry.sealInput(kConsumerHandle, kPlanNodeId, kExchangeId, 1);
+  SCOPE_EXIT {
+    server.unregisterHandle(kProducerHandle);
+    server.stop();
+    registry.discardExecutor(kConsumerHandle);
+  };
+  executor::OutputQueue outputQueue(8);
+  auto runner = makeConsumer(&outputQueue);
+  ASSERT_NO_THROW(runner->start());
+  auto completion = runner->startAsync();
+  SCOPE_EXIT {
+    if (!runner->isFinished()) runner->cancel();
+    runner->cleanup();
+  };
+
+  auto awaitingProducer = [&] {
+    return runner->veloxTask()->taskStats().numBlockedDrivers.contains(BlockingReason::kWaitForProducer);
+  };
+  const auto deadline = Clock::now() + std::chrono::seconds(5);
+  while (!awaitingProducer() && Clock::now() < deadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  ASSERT_TRUE(awaitingProducer());
+  std::this_thread::sleep_for(std::chrono::milliseconds(30));
+  ASSERT_TRUE(producerQueue.push(std::move(batch), std::chrono::seconds(1)));
+  ASSERT_TRUE(producerQueue.commit());
+  ASSERT_TRUE(std::move(completion).get()) << runner->errorMessage();
+  facebook::velox::RowVectorPtr output;
+  ASSERT_EQ(outputQueue.pop(output, std::chrono::seconds(1)), executor::PopResult::DATA);
+  ASSERT_NE(output, nullptr);
+  const auto* ids = output->childAt(0)->asFlatVector<int64_t>();
+  ASSERT_NE(ids, nullptr);
+  ASSERT_EQ(ids->size(), 3);
+  EXPECT_EQ(ids->valueAt(0), 42);
+  EXPECT_EQ(ids->valueAt(1), 7);
+  EXPECT_EQ(ids->valueAt(2), 99);
+
+  const auto report = runner->collectTaskStats();
+  ASSERT_TRUE(report.has_value());
+  for (const auto& op : report->operator_stats()) {
+    if (op.plan_node_id() != kPlanNodeId) continue;
+    RecordProperty("producer_wait_driver_nanos", std::to_string(op.wait_for_producer_nanos()));
+    RecordProperty("blocked_driver_nanos", std::to_string(op.blocked_nanos()));
+    EXPECT_GE(op.wait_for_producer_nanos(), 25'000'000);
+    EXPECT_GE(op.blocked_nanos(), op.wait_for_producer_nanos());
+    EXPECT_EQ(op.wait_for_consumer_nanos(), 0);
+    EXPECT_EQ(op.wait_for_connector_nanos(), 0);
+    return;
+  }
+  ADD_FAILURE() << "real exchange input was missing from terminal task stats";
+}
+
 TEST_F(NativeExchangeDataPlaneE2ETest, PublishedBuildFiltersTheLocalJoinProbe) {
   namespace sdk = facebook::velox;
   auto root = pangrova::test::testRootPool("PublishedBuildFilter");
@@ -350,15 +447,7 @@ TEST_F(NativeExchangeDataPlaneE2ETest, PublishedBuildFiltersTheLocalJoinProbe) {
   const auto path = std::filesystem::temp_directory_path() /
       ("pangrova-published-build-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".parquet");
   auto remove = folly::makeGuard([&] { std::filesystem::remove(path); });
-  auto properties = std::make_shared<const sdk::config::ConfigBase>(
-      std::unordered_map<std::string, std::string>{});
-  sdk::parquet::WriterOptions writerOptions;
-  writerOptions.memoryPool = root.get();
-  sdk::dwio::common::FileSink::Options sinkOptions{.connectorProperties = properties, .pool = pool.get()};
-  sdk::parquet::Writer writer(std::make_unique<sdk::dwio::common::LocalFileSink>(path.string(), sinkOptions),
-      writerOptions, input->rowType());
-  writer.write(input);
-  writer.close();
+  writeParquetFixture(path, input, root.get(), pool.get());
   const auto connector = PangrovaVeloxConnector::kConnectorId;
   const auto handle = std::make_shared<PangrovaTableHandle>(connector, "probe", "probe-scan", input->rowType());
   sdk::connector::ColumnHandleMap assignments{
@@ -399,9 +488,9 @@ TEST_F(NativeExchangeDataPlaneE2ETest, PublishedBuildFiltersTheLocalJoinProbe) {
   auto runner = makeConsumer(&output, probe, {file});
   runner->start();
   ASSERT_TRUE(runner->waitForCompletion()) << runner->errorMessage();
-  auto rawStats = runner->collectTaskStats();
-  pangrova::protocol::v2::NativeTaskStats stats;
-  ASSERT_TRUE(stats.ParseFromArray(rawStats.data(), rawStats.size()));
+  const auto report_stats = runner->collectTaskStats();
+  ASSERT_TRUE(report_stats.has_value());
+  const auto& stats = *report_stats;
   const auto scan = std::find_if(stats.operator_stats().begin(), stats.operator_stats().end(),
       [](const auto& op) { return op.plan_node_id() == "probe-scan"; });
   ASSERT_NE(scan, stats.operator_stats().end());
@@ -415,6 +504,86 @@ TEST_F(NativeExchangeDataPlaneE2ETest, PublishedBuildFiltersTheLocalJoinProbe) {
   runner->cleanup();
   std::sort(actual.begin(), actual.end());
   EXPECT_EQ(actual, std::vector<int64_t>({2, 4, 4}));
+}
+
+TEST_F(NativeExchangeDataPlaneE2ETest, BothScanDriversApplyTheSamePublishedFilter) {
+  namespace sdk = facebook::velox;
+  auto root = pangrova::test::testRootPool("SharedBuildFilter");
+  auto pool = root->addLeafChild("file");
+  sdk::test::VectorMaker maker(pool.get());
+  auto rows = maker.rowVector({"probe_key"}, {maker.flatVector<int64_t>({1, 2, 3, 4})});
+  const auto path = std::filesystem::temp_directory_path() /
+      ("pangrova-driver-filter-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
+       ".parquet");
+  auto remove = folly::makeGuard([&] { std::filesystem::remove(path); });
+  writeParquetFixture(path, rows, root.get(), pool.get());
+
+  const std::string task_id = "same-task-two-drivers";
+  const std::string plan_node = "same-table-scan";
+  const auto connector = PangrovaVeloxConnector::kConnectorId;
+  split::SplitConfig split;
+  split.split_id = "probe";
+  split.table_name = "probe";
+  split.connector_id = connector;
+  split.file_format = split::FileFormatType::PARQUET;
+  split.file_path = path.string();
+  split.length = std::filesystem::file_size(path);
+
+  auto& filters = PendingFilterRegistry::instance();
+  auto clear = folly::makeGuard([&] { filters.remove(task_id); });
+  filters.push(task_id, plan_node, 0, std::make_shared<sdk::common::BigintRange>(2, 3, false));
+  for (int driver = 0; driver < 2; ++driver) {
+    PangrovaVeloxDataSource source(pool.get(), rows->rowType(), rows->rowType(), task_id, plan_node);
+    source.addSplit(std::make_shared<PangrovaConnectorSplit>(connector, split));
+    auto future = sdk::ContinueFuture::makeEmpty();
+    auto batch = source.next(16, future);
+    ASSERT_TRUE(batch.has_value() && *batch);
+    ASSERT_EQ((*batch)->size(), 2) << "driver=" << driver;
+    sdk::DecodedVector keys(*(*batch)->childAt(0));
+    EXPECT_EQ(keys.valueAt<int64_t>(0), 2);
+    EXPECT_EQ(keys.valueAt<int64_t>(1), 3);
+  }
+}
+
+TEST_F(NativeExchangeDataPlaneE2ETest, EvolvedKeyFilterUsesLogicalTypeAndKeepsReadingAfterAnEmptyBatch) {
+  namespace sdk = facebook::velox;
+  auto root = pangrova::test::testRootPool("EvolvedBuildFilter");
+  auto pool = root->addLeafChild("file");
+  sdk::test::VectorMaker maker(pool.get());
+  auto rows = maker.rowVector({"old_key"}, {maker.flatVector<int32_t>({1, 2, 3, 4})});
+  auto logical = sdk::ROW({"probe_key"}, {sdk::BIGINT()});
+  const auto path = std::filesystem::temp_directory_path() /
+      ("pangrova-evolved-filter-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
+       ".parquet");
+  auto remove = folly::makeGuard([&] { std::filesystem::remove(path); });
+  writeParquetFixture(path, rows, root.get(), pool.get());
+
+  const auto connector = PangrovaVeloxConnector::kConnectorId;
+  split::SplitConfig split;
+  split.split_id = "probe";
+  split.table_name = "probe";
+  split.connector_id = connector;
+  split.file_format = split::FileFormatType::PARQUET;
+  split.file_path = path.string();
+  split.length = std::filesystem::file_size(path);
+  split.column_mappings = {{1, 1, "old_key", "probe_key", ""}};
+  split.type_promotions = {{1, "INTEGER", "BIGINT", "probe_key"}};
+  PangrovaVeloxDataSource source(pool.get(), logical, logical);
+  source.addDynamicFilter(0, std::make_shared<sdk::common::BigintRange>(3, 4, false));
+  source.addSplit(std::make_shared<PangrovaConnectorSplit>(connector, split));
+  auto future = sdk::ContinueFuture::makeEmpty();
+  auto filtered = source.next(2, future);
+  ASSERT_TRUE(filtered.has_value() && *filtered);
+  EXPECT_EQ((*filtered)->size(), 0);
+  auto batch = source.next(2, future);
+  ASSERT_TRUE(batch.has_value() && *batch);
+  ASSERT_EQ((*batch)->size(), 2);
+  sdk::DecodedVector keys(*(*batch)->childAt(0));
+  EXPECT_EQ(keys.valueAt<int64_t>(0), 3);
+  EXPECT_EQ(keys.valueAt<int64_t>(1), 4);
+  auto finished = source.next(2, future);
+  ASSERT_TRUE(finished.has_value());
+  EXPECT_EQ(*finished, nullptr);
 }
 
 TEST_F(NativeExchangeDataPlaneE2ETest, CompressedBatchTraversesFlightAndVelox) {
@@ -687,7 +856,7 @@ TEST_F(
           .count() +
       60'000);
   registry.registerExternalSource(
-      consumerHandle, planNode, exchangeId, deadline, 4 * 1024 * 1024);
+      consumerHandle, planNode, exchangeId, deadline, 4 * 1024 * 1024, 1);
   registry.sealInput(consumerHandle, planNode, exchangeId, 1);
   auto binding = registry.takeSealedInput(consumerHandle, planNode);
   ASSERT_TRUE(binding.has_value());

@@ -4,16 +4,10 @@ import org.pangrova.testing.testkit.coordination.admission.InMemoryClusterConcur
 
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.pangrova.security.api.tenant.ResourceQuota;
-import org.pangrova.security.api.tenant.Tenant;
-import org.pangrova.security.api.enums.TenantStatus;
-import org.pangrova.persistence.security.memory.tenant.InMemoryTenantStore;
 import org.pangrova.scheduler.api.resource.AdmissionRequest;
+import org.pangrova.scheduler.api.resource.AdmissionRequest.TenantLimits;
 import org.pangrova.scheduler.api.enums.AdmissionVerdict;
 
-import java.time.Instant;
-import java.util.List;
-import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -33,7 +27,7 @@ class TenantAdmissionOwnershipTest {
         controller.release("never-admitted", "tenant");
 
         assertThat(controller.admittedCount("tenant")).isEqualTo(2);
-        assertThat(controller.admit(request("third")).verdict()).isEqualTo(AdmissionVerdict.QUEUE);
+        assertThat(controller.admit(request("third")).verdict()).isEqualTo(AdmissionVerdict.REJECT);
     }
 
     @ParameterizedTest
@@ -66,31 +60,30 @@ class TenantAdmissionOwnershipTest {
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
-    void wrongTenantReleaseCannotConsumeTheQueuedOwner(boolean shared) {
+    void wrongTenantReleaseCannotConsumeTheAdmittedOwner(boolean shared) {
         var controller = controller(shared);
         admit(controller, "first");
         admit(controller, "second");
-        assertThat(controller.admit(request("queued")).verdict()).isEqualTo(AdmissionVerdict.QUEUE);
-
-        controller.release("queued", "another-tenant");
-        controller.release("queued", "tenant");
+        controller.release("first", "another-tenant");
 
         assertThat(controller.admittedCount("tenant")).isEqualTo(2);
-        assertThat(controller.admit(request("next-queued")).verdict()).isEqualTo(AdmissionVerdict.QUEUE);
+        assertThat(controller.admit(request("third")).verdict()).isEqualTo(AdmissionVerdict.REJECT);
+        controller.release("first", "tenant");
+        admit(controller, "third");
     }
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
-    void replayedQueueDecisionConsumesExactlyOneQueuePosition(boolean shared) {
+    void repeatedRefusalsLeaveTheQueryEligibleForLaterAdmission(boolean shared) {
         var controller = controller(shared);
         admit(controller, "first");
         admit(controller, "second");
 
-        assertThat(controller.admit(request("queued")).verdict()).isEqualTo(AdmissionVerdict.QUEUE);
-        assertThat(controller.admit(request("queued")).verdict()).isEqualTo(AdmissionVerdict.QUEUE);
-        controller.release("queued", "tenant");
-
-        assertThat(controller.admit(request("next-queued")).verdict()).isEqualTo(AdmissionVerdict.QUEUE);
+        assertThat(controller.admit(request("third")).verdict()).isEqualTo(AdmissionVerdict.REJECT);
+        assertThat(controller.admit(request("third")).verdict()).isEqualTo(AdmissionVerdict.REJECT);
+        assertThat(controller.admittedCount("tenant")).isEqualTo(2);
+        controller.release("first", "tenant");
+        admit(controller, "third");
         assertThat(controller.admittedCount("tenant")).isEqualTo(2);
     }
 
@@ -109,20 +102,16 @@ class TenantAdmissionOwnershipTest {
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
-    void concurrentQueueAdmissionNeverOversellsTheSinglePosition(boolean shared) throws Exception {
+    void concurrentAdmissionsAtCapacityNeverAcquireAdditionalSlots(boolean shared) throws Exception {
         var controller = controller(shared);
         admit(controller, "first");
         admit(controller, "second");
-        var queued = new java.util.concurrent.atomic.AtomicInteger();
-        concurrent(24, index -> {
-            var decision = controller.admit(request("queue-" + index));
-            if (decision.verdict() == AdmissionVerdict.QUEUE) {
-                queued.incrementAndGet();
-            } else {
-                assertThat(decision.verdict()).isEqualTo(AdmissionVerdict.REJECT);
-            }
-        });
-        assertThat(queued.get()).isEqualTo(1);
+
+        concurrent(24, index -> assertThat(controller.admit(request("query-" + index)).verdict())
+                .isEqualTo(AdmissionVerdict.REJECT));
+        assertThat(controller.admittedCount("tenant")).isEqualTo(2);
+        controller.release("first", "tenant");
+        admit(controller, "query-0");
         assertThat(controller.admittedCount("tenant")).isEqualTo(2);
     }
 
@@ -156,7 +145,7 @@ class TenantAdmissionOwnershipTest {
     }
 
     private static AdmissionRequest request(String queryId) {
-        return AdmissionRequest.of("tenant", "default", queryId);
+        return AdmissionRequest.of("tenant", "default", queryId, new TenantLimits(1000, 2));
     }
 
     private static void admit(TenantQuotaAdmissionController controller, String queryId) {
@@ -164,11 +153,6 @@ class TenantAdmissionOwnershipTest {
     }
 
     private static TenantQuotaAdmissionController controller(boolean shared) {
-        var store = new InMemoryTenantStore();
-        var quota = new ResourceQuota(1000, 2, 1, 1000, 1000, 1000, 1000, 1000);
-        store.createTenant(new Tenant("tenant", "Tenant", TenantStatus.ACTIVE, quota,
-                List.of(), List.of(), null, Map.of(), Instant.EPOCH, "admin"));
-        return new TenantQuotaAdmissionController(store, null,
-                shared ? new InMemoryClusterConcurrencySlots() : null);
+        return new TenantQuotaAdmissionController(null, shared ? new InMemoryClusterConcurrencySlots() : null);
     }
 }

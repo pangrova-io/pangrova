@@ -129,6 +129,14 @@ JNIEXPORT jbyteArray JNICALL
 Java_org_pangrova_worker_jni_NativeRuntime_nativeReleaseExecutor0(
     JNIEnv* env, jclass clazz, jlong executorHandle);
 
+JNIEXPORT void JNICALL
+Java_org_pangrova_worker_jni_NativeRuntime_nativeWatchResultDrain0(
+    JNIEnv* env, jclass clazz, jlong executorHandle, jobject callback);
+
+JNIEXPORT jint JNICALL
+Java_org_pangrova_worker_jni_NativeRuntime_nativeReadTaskState0(
+    JNIEnv* env, jclass clazz, jlong executorHandle, jint waitMillis);
+
 JNIEXPORT jbyteArray JNICALL
 Java_org_pangrova_worker_jni_NativeRuntime_nativeGetTaskStatus0(
     JNIEnv* env, jclass clazz, jlong executorHandle);
@@ -145,6 +153,10 @@ Java_org_pangrova_worker_jni_NativeRuntime_nativeStartTaskWithTrace0(
 JNIEXPORT jbyteArray JNICALL
 Java_org_pangrova_worker_jni_NativeRuntime_nativeCommand0(
     JNIEnv* env, jclass clazz, jlong executorHandle, jbyteArray commandProto);
+
+JNIEXPORT jbyteArray JNICALL
+Java_org_pangrova_worker_jni_NativeRuntime_nativePushExchangeChunk0(
+    JNIEnv* env, jclass clazz, jlong executorHandle, jbyteArray metadata, jbyteArray data);
 
 // Write bridge: serialize Arrow C Data Interface pointers into IPC bytes.
 JNIEXPORT jbyteArray JNICALL

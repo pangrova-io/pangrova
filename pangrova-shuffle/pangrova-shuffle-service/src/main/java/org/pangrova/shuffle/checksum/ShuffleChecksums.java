@@ -4,6 +4,7 @@ import org.pangrova.common.util.DigestUtils;
 
 import java.security.MessageDigest;
 
+import com.google.protobuf.ByteString;
 import org.pangrova.protocol.v2.Checksum;
 
 /** Canonical SHA-256 operations used by remote shuffle storage and protocol checks. */
@@ -16,6 +17,20 @@ public final class ShuffleChecksums {
     /** Returns the SHA-256 digest of the supplied bytes. */
     public static byte[] sha256(byte[] data) {
         return sha256Digest().digest(data);
+    }
+
+    /** Hashes a byte range directly from its immutable owner. */
+    public static byte[] sha256(byte[] data, int offset, int length) {
+        MessageDigest digest = sha256Digest();
+        digest.update(data, offset, length);
+        return digest.digest();
+    }
+
+    /** Hashes immutable Protobuf buffers without flattening the payload. */
+    public static byte[] sha256(ByteString data) {
+        MessageDigest digest = sha256Digest();
+        data.asReadOnlyByteBufferList().forEach(digest::update);
+        return digest.digest();
     }
 
     static MessageDigest sha256Digest() {

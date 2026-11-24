@@ -548,7 +548,7 @@ TEST(ArtifactRetrievalPlannerTest, HnswAndIvfPqExecuteInNativeWithExactRescore) 
         facebook::velox::exec::FunctionRegistrySnapshot::capture();
     pangrova::velox::VeloxPlanConverter converter(converter_registry);
     auto converted = converter.convert(
-        buildPlan(algorithm), prepared->splits, false, "ArrowBatch",
+        buildPlan(algorithm), prepared->splits,
         {{plan_node, binding}}, nullptr, prepared->split_overrides);
     auto final_topn = std::dynamic_pointer_cast<
         const facebook::velox::core::TopNNode>(converted);

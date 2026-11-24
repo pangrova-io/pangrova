@@ -1,5 +1,6 @@
 package org.pangrova.connector.paimon.property.handle;
 
+import org.pangrova.protocol.source.CanonicalConnectorSplit;
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
 import net.jqwik.api.Combinators;
@@ -34,7 +35,7 @@ class PaimonSplitPayloadPropertyTest {
     @Property(tries = 10)
     void cowSplitProtoCarriesRealFilePath(
             @ForAll("cowSplits") PaimonSplit split) throws Exception {
-        byte[] protoBytes = split.toSplitInfoProto();
+        byte[] protoBytes = CanonicalConnectorSplit.from(split).toByteArray();
         DataSplit info = DataSplit.parseFrom(protoBytes);
 
         assertThat(info.getOpaqueLocation())
@@ -48,7 +49,7 @@ class PaimonSplitPayloadPropertyTest {
     @Property(tries = 10)
     void morSplitProtoHasPopulatedLsmLevels(
             @ForAll("morSplits") PaimonSplit split) throws Exception {
-        byte[] protoBytes = split.toSplitInfoProto();
+        byte[] protoBytes = CanonicalConnectorSplit.from(split).toByteArray();
         DataSplit info = DataSplit.parseFrom(protoBytes);
 
         assertThat(DataSplitProtoCodec.fileDetail(info).getPaimon().getLsmLevelsList())
@@ -74,7 +75,7 @@ class PaimonSplitPayloadPropertyTest {
 
     @Property(tries = 10)
     void splitProtoAlwaysHasSourceIdentity(@ForAll("allSplits") PaimonSplit split) throws Exception {
-        byte[] protoBytes = split.toSplitInfoProto();
+        byte[] protoBytes = CanonicalConnectorSplit.from(split).toByteArray();
         DataSplit info = DataSplit.parseFrom(protoBytes);
 
         assertThat(info.getSourceId())

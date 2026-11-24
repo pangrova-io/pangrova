@@ -18,7 +18,7 @@ import org.pangrova.protocol.v2.shuffle.ReadPartitionTerminal;
 import org.pangrova.shuffle.config.ShuffleServiceConfig;
 
 import static org.pangrova.shuffle.server.ShuffleServiceModel.FinalizedPartition;
-import static org.pangrova.shuffle.server.ShuffleServiceModel.StoredBatch;
+import static org.pangrova.shuffle.server.ShuffleServiceModel.ReadBatch;
 
 /** Backpressure-aware reader for one finalized output partition. */
 final class ShuffleReadPump implements Runnable {
@@ -30,10 +30,12 @@ final class ShuffleReadPump implements Runnable {
     private final ServerCallStreamObserver<ReadBatchResponse> response;
     private final Executor executor;
     private final Semaphore memoryBytes;
+    private final Semaphore indexMemoryBytes;
+    private final int indexReservation;
     private final ShuffleServiceConfig.Limits limits;
     private final AtomicBoolean scheduled = new AtomicBoolean();
     private final AtomicBoolean closed = new AtomicBoolean();
-    private List<StoredBatch> page = List.of();
+    private List<ReadBatch> page = List.of();
     private int pageIndex;
     private long sequence;
     private byte[] payload;
@@ -43,6 +45,7 @@ final class ShuffleReadPump implements Runnable {
     private int reservedBytes;
     private boolean running;
     private boolean pinReleased;
+    private boolean indexReleased;
 
     ShuffleReadPump(
             ShuffleServiceEngine engine,
@@ -50,14 +53,27 @@ final class ShuffleReadPump implements Runnable {
             ServerCallStreamObserver<ReadBatchResponse> response,
             Executor executor,
             Semaphore memoryBytes,
+            Semaphore indexMemoryBytes,
             ShuffleServiceConfig.Limits limits) {
         this.engine = engine;
         this.result = result;
         this.response = response;
         this.executor = executor;
         this.memoryBytes = memoryBytes;
+        this.indexMemoryBytes = indexMemoryBytes;
+        this.indexReservation = result.manifest().memoryReservation(result.startSequence());
         this.limits = limits;
         this.sequence = result.startSequence();
+        if (!indexMemoryBytes.tryAcquire(indexReservation)) {
+            var failure = Status.RESOURCE_EXHAUSTED
+                    .withDescription("shuffle read index memory quota exhausted").asRuntimeException();
+            try {
+                result.close();
+            } catch (RuntimeException closeFailure) {
+                failure.addSuppressed(closeFailure);
+            }
+            throw failure;
+        }
     }
 
     void schedule() {
@@ -96,10 +112,12 @@ final class ShuffleReadPump implements Runnable {
         int emitted = 0;
         while (!closed.get() && response.isReady() && emitted < MAX_FRAMES_PER_PUMP) {
             if (!preparePayload()) {
-                // All object reads have drained. A consumer may request cleanup as soon as the RPC completes.
-                releaseRead();
+                var terminal = terminal();
+                engine.requireReadAuthority(result);
                 if (closed.get()) return;
-                response.onNext(terminal());
+                response.onNext(terminal);
+                // Keep the successor fence through the last frame and drain the pin before RPC completion.
+                releaseRead();
                 response.onCompleted();
                 closed.set(true);
                 return;
@@ -107,7 +125,11 @@ final class ShuffleReadPump implements Runnable {
             if (closed.get()) {
                 return;
             }
-            response.onNext(batchFrame(sequence, payload, checksum, rowCount, chunkIndex++));
+            var frame = batchFrame(sequence, payload, checksum, rowCount, chunkIndex);
+            engine.requireReadAuthority(result);
+            if (closed.get()) return;
+            response.onNext(frame);
+            chunkIndex++;
             emitted++;
             if (chunkIndex == chunkCount(payload.length)) {
                 releaseLease();
@@ -123,17 +145,23 @@ final class ShuffleReadPump implements Runnable {
         if (payload != null) {
             return true;
         }
+        if (sequence > result.partition().committedLastSequence()) {
+            if (pageIndex != page.size()) {
+                throw new IllegalStateException("finalized shuffle partition exceeds its committed sequence");
+            }
+            return false;
+        }
         if (pageIndex == page.size()) {
             page = engine.readPage(result, sequence);
             pageIndex = 0;
             if (page.isEmpty()) {
-                if (sequence <= finalPartition().committedLastSequence()) {
-                    throw new IllegalStateException("finalized shuffle partition is missing committed batches");
-                }
-                return false;
+                throw new IllegalStateException("finalized shuffle partition is missing committed batches");
             }
         }
-        StoredBatch stored = page.get(pageIndex++);
+        ReadBatch stored = page.get(pageIndex++);
+        if (stored.outputSequence() != sequence) {
+            throw new IllegalStateException("finalized shuffle output sequence differs from read cursor");
+        }
         reserve(stored.sizeBytes());
         payload = engine.readPayload(result, stored);
         checksum = stored.checksum();
@@ -167,7 +195,7 @@ final class ShuffleReadPump implements Runnable {
                 .setBatchSequence(batchSequence).setChunkIndex(index).setChunkCount(chunks)
                 .setBatchSizeBytes(canonicalBytes.length).setData(data)
                 .setChunkChecksum(ShuffleChecksums.protocol(
-                        ShuffleChecksums.sha256(data.toByteArray())))
+                        ShuffleChecksums.sha256(canonicalBytes, offset, length)))
                 .setBatchChecksum(ShuffleChecksums.protocol(batchChecksum)).build();
         return ReadBatchResponse.newBuilder().setChunk(chunk)
                 .setRowCount(batchRowCount).build();
@@ -179,24 +207,16 @@ final class ShuffleReadPump implements Runnable {
     }
 
     private ReadBatchResponse terminal() {
-        FinalizedPartition partition = finalPartition();
+        FinalizedPartition partition = result.partition();
         return ReadBatchResponse.newBuilder().setTerminal(
                 ReadPartitionTerminal.newBuilder()
                         .setCommittedLastSequence(partition.committedLastSequence())
                         .setOutputChecksum(ShuffleChecksums.protocol(partition.checksum()))
-                        .setCommittedProducerCount(result.finalization().committedProducerCount())
+                        .setCommittedProducerCount(result.committedProducerCount())
                         .setTotalBytes(partition.totalBytes()).setTotalRows(partition.totalRows())
                         .setProducerSetChecksum(ShuffleChecksums.protocol(
-                                result.finalization().producerSetChecksum()))
-                        .setGenerationPlanEpoch(
-                                result.allocation().identity().planEpoch())).build();
-    }
-
-    private FinalizedPartition finalPartition() {
-        return result.finalization().partitions().stream()
-                .filter(candidate -> candidate.partitionId() == result.partitionId())
-                .findFirst().orElseThrow(() -> new IllegalStateException(
-                        "finalized shuffle lacks requested partition"));
+                                result.producerSetChecksum()))
+                        .setGenerationPlanEpoch(result.planEpoch())).build();
     }
 
     private void fail(RuntimeException failure) {
@@ -221,9 +241,19 @@ final class ShuffleReadPump implements Runnable {
 
     private void releaseRead() {
         releaseLease();
-        if (!pinReleased) {
-            result.close();
-            pinReleased = true;
+        try {
+            if (!pinReleased) {
+                result.close();
+                pinReleased = true;
+            }
+        } finally {
+            if (!indexReleased) {
+                page = List.of();
+                payload = null;
+                checksum = null;
+                indexMemoryBytes.release(indexReservation);
+                indexReleased = true;
+            }
         }
     }
 

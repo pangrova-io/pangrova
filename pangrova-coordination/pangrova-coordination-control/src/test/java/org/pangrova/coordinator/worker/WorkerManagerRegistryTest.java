@@ -14,6 +14,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Unit tests for WorkerManager registry integration (write-through and loadFromRegistry).
@@ -133,6 +134,16 @@ class WorkerManagerRegistryTest {
         assertThat(snapshot.copyTaskTlsPort()).isEqualTo(8443);
         assertThat(snapshot.admissionDomainId()).isEqualTo(info.workerExecutionIdentity().admissionDomainId());
         assertThat(snapshot.incarnationId()).isEqualTo(info.workerExecutionIdentity().incarnationId());
+        var after = manager.getWorker("w-2");
+        assertThat(after.admittedInventory()).isSameAs(info.admittedInventory());
+        assertThat(after.withHealthState(HealthState.SUSPECT).admittedInventory()).isSameAs(info.admittedInventory());
+    }
+
+    @Test
+    void admittedInventoryStillRejectsAnInvalidPublication() {
+        assertThatThrownBy(() -> new WorkerInfo.AdmittedInventory(
+                org.pangrova.protocol.v2.CapabilityInventory.getDefaultInstance()))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     /**

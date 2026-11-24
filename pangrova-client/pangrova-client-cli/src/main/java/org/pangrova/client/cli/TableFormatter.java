@@ -1,6 +1,7 @@
 package org.pangrova.client.cli;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -14,7 +15,6 @@ import java.util.List;
  * | 1    | Alice  |
  * | 2    | Bob    |
  * +------+--------+
- * 2 rows
  * </pre>
  */
 final class TableFormatter {
@@ -23,17 +23,8 @@ final class TableFormatter {
 
     private TableFormatter() {}
 
-    /**
-     * Formats column names and data rows into an ASCII table string.
-     *
-     * @param columnNames column header names
-     * @param rows        data rows; each row must have the same size as columnNames
-     * @return formatted ASCII table
-     */
-    static String format(List<String> columnNames, List<List<String>> rows) {
-        if (columnNames.isEmpty()) {
-            return "(no columns)\n";
-        }
+    static String formatPage(List<String> columnNames, List<List<String>> rows) {
+        if (columnNames.isEmpty()) return "(no columns)\n";
 
         int columnCount = columnNames.size();
         List<Integer> widths = computeColumnWidths(columnNames, rows);
@@ -51,8 +42,35 @@ final class TableFormatter {
         }
 
         sb.append(separator);
-        sb.append(rows.size()).append(rows.size() == 1 ? " row" : " rows").append('\n');
         return sb.toString();
+    }
+
+    static final int MAX_CELL_WIDTH = 64;
+
+    static String formatCell(Object value) {
+        if (value == null) {
+            return "NULL";
+        }
+        if (value instanceof float[] vector) {
+            return truncate(Arrays.toString(vector));
+        }
+        if (value instanceof double[] vector) {
+            return truncate(Arrays.toString(vector));
+        }
+        if (value instanceof Float[] vector) {
+            return truncate(Arrays.toString(vector));
+        }
+        if (value instanceof Double[] vector) {
+            return truncate(Arrays.toString(vector));
+        }
+        return truncate(value.toString());
+    }
+
+    private static String truncate(String value) {
+        if (value.length() <= MAX_CELL_WIDTH) {
+            return value;
+        }
+        return value.substring(0, MAX_CELL_WIDTH - 3) + "...";
     }
 
     private static List<Integer> computeColumnWidths(List<String> headers, List<List<String>> rows) {

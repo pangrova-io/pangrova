@@ -61,6 +61,29 @@ class RuntimeCapabilityValidationTest {
                 List.of(CapabilityInventory.getDefaultInstance()))).isInstanceOf(IllegalArgumentException.class);
     }
 
+    @Test
+    void reusesOnlyTheCurrentValidatedImmutableInventory() throws Exception {
+        var actual = CapabilityInventory.parseFrom(Files.readAllBytes(TestProjectPaths.findProjectRoot().resolve(
+                "pangrova-protocol/src/test/resources/function-contracts/actual-native-catalogue.bin")));
+        var active = new AtomicReference<>(List.of(actual));
+        var view = NativeCapabilityRegistry.live(active::get);
+        var original = view.get();
+        active.set(List.of(actual));
+        assertThat(view.get()).isSameAs(original);
+        assertThatThrownBy(() -> original.update(Set.of(), Set.of(), Set.of()))
+                .isInstanceOf(IllegalStateException.class);
+
+        active.set(List.of(CapabilityInventory.getDefaultInstance()));
+        assertThatThrownBy(view::get).isInstanceOf(IllegalArgumentException.class);
+        active.set(List.of());
+        assertThatThrownBy(view::get).isInstanceOf(IllegalStateException.class);
+
+        var replacement = CapabilityInventory.parseFrom(actual.toByteArray());
+        active.set(List.of(replacement));
+        assertThat(view.get()).isNotSameAs(original);
+        assertThat(view.get().isFunctionSupported("year")).isTrue();
+    }
+
     private static SqlCompiler compiler() {
         CalciteSchema schema = CalciteSchema.createRootSchema(false);
         schema.add("orders", new AbstractTable() {

@@ -12,4 +12,10 @@ import java.util.UUID;
 public interface IdentityRowPolicyStore extends RowPolicyStore {
     /** Returns enabled policies for the captured identity, including after a table rename. */
     List<RowPolicy> getPolicies(UUID tableId);
+
+    /**
+     * Reads enabled policies for the captured identity and unbound policies at the current name
+     * in one snapshot. A null identity returns only the unbound policies.
+     */
+    List<RowPolicy> getPoliciesForCurrentTable(String catalog, String schema, String table, UUID tableId);
 }

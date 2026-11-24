@@ -8,6 +8,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 namespace pangrova::jni {
@@ -22,6 +23,12 @@ std::vector<uint8_t> dispatchCommand(const std::vector<uint8_t>& command_proto);
 std::vector<uint8_t> dispatchCommandWithHandle(
     const std::vector<uint8_t>& command_proto,
     int64_t executor_handle);
+
+// The frame's data has already been copied into Native-owned storage by JNI.
+std::vector<uint8_t> dispatchExchangeChunk(
+    const std::vector<uint8_t>& metadata,
+    int64_t executor_handle,
+    std::string data);
 
 // Stops the per-worker FlightResultServer singleton if running.
 // Must be called BEFORE Velox runtime shutdown because FlightResultServer

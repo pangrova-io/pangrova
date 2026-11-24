@@ -9,7 +9,9 @@ import org.pangrova.protocol.v2.TaskKind;
 import org.pangrova.protocol.v2.WriteOutputBinding;
 import org.pangrova.testing.testkit.CanonicalTaskRequestTestFixture;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
-import org.pangrova.protocol.rest.task.SubmitTaskResponse;
+import org.pangrova.protocol.http.TaskSubmitAck;
+import org.pangrova.protocol.v2.ExchangeInputBinding;
+import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.shuffle.exchange.ExchangeTransport;
 import org.pangrova.testing.testkit.TestExchangeTransport;
 import org.pangrova.worker.exchange.source.ExchangeSourceRegistry;
@@ -21,7 +23,7 @@ import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Verifies R10.2: TaskResource returns structured SubmitTaskResponse on error
+ * Verifies R10.2: TaskResource returns binary task acknowledgement on error
  * instead of propagating raw exceptions.
  */
 class TaskResourceSubmitErrorTest {
@@ -32,7 +34,7 @@ class TaskResourceSubmitErrorTest {
     @BeforeEach
     void setUp() {
         taskManager = TaskManager.forHttpWiringOnly();
-        ExchangeTransport exchangeTransport = TestExchangeTransport.INSTANCE;
+        ExchangeTransport<TaskAttemptId, ExchangeInputBinding> exchangeTransport = TestExchangeTransport.INSTANCE;
         ExchangeSourceRegistry sourceRegistry = new ExchangeSourceRegistry();
 
         resource = new TaskResource(
@@ -47,7 +49,7 @@ class TaskResourceSubmitErrorTest {
     }
 
     @Test
-    void submitTask_invalidChecksumReturnsBadRequestBeforeAdmission() {
+    void submitTask_invalidChecksumReturnsBadRequestBeforeAdmission() throws Exception {
         var canonical =
                 org.pangrova.testing.testkit.CanonicalTaskRequestTestFixture.builder(
                         "task-1", "query-1", 0, 1,
@@ -57,38 +59,34 @@ class TaskResourceSubmitErrorTest {
                         .build();
         SubmitTaskRequest request = SubmitTaskRequest.from(canonical);
 
-        Response response = resource.submitTask(request);
+        Response response = resource.submitTask(request.encode(), null);
 
         assertThat(response.getStatus()).isEqualTo(400);
-        Object entity = response.getEntity();
-        assertThat(entity).isInstanceOf(SubmitTaskResponse.class);
-
-        SubmitTaskResponse errorResponse = (SubmitTaskResponse) entity;
-        assertThat(errorResponse.accepted()).isFalse();
-        assertThat(errorResponse.rejectReason()).contains("checksum is invalid");
-        assertThat(errorResponse.taskId()).isNull();
-        assertThat(errorResponse.resultEndpoint()).isNull();
+        var errorResponse = TaskSubmitAck.parseFrom((byte[]) response.getEntity());
+        assertThat(errorResponse.hasRejected()).isTrue();
+        assertThat(errorResponse.getRejected().getReason()).contains("checksum is invalid");
+        assertThat(errorResponse.hasAdmitted()).isFalse();
         assertThat(taskManager.resolveWorkerTaskId("task-1")).isNull();
     }
 
     @Test
-    void submitTask_missingGrantReturnsBadRequestBeforeAdmission() {
+    void submitTask_missingGrantReturnsBadRequestBeforeAdmission() throws Exception {
         var canonical = org.pangrova.testing.testkit.CanonicalTaskRequestTestFixture.builder(
                 "task-1", "query-1", 0, 1, org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ,
                 "plan-fragment".getBytes(java.nio.charset.StandardCharsets.UTF_8)).clearResourceGrant().build();
         var request = SubmitTaskRequest.from(canonical);
-        try (Response response = resource.submitTask(request)) {
+        try (Response response = resource.submitTask(request.encode(), null)) {
             assertThat(response.getStatus()).isEqualTo(400);
-            var error = (SubmitTaskResponse) response.getEntity();
-            assertThat(error.accepted()).isFalse();
-            assertThat(error.rejectReason()).contains("resource grant is incomplete");
-            assertThat(error.taskId()).isNull();
+            var error = TaskSubmitAck.parseFrom((byte[]) response.getEntity());
+            assertThat(error.hasRejected()).isTrue();
+            assertThat(error.getRejected().getReason()).contains("resource grant is incomplete");
+            assertThat(error.hasAdmitted()).isFalse();
             assertThat(taskManager.resolveWorkerTaskId("task-1")).isNull();
         }
     }
 
     @Test
-    void submitTask_internalSigningFailureRemainsServerErrorBeforeAdmission() {
+    void submitTask_internalSigningFailureRemainsServerErrorBeforeAdmission() throws Exception {
         var canonical = org.pangrova.testing.testkit.CanonicalTaskRequestTestFixture.builder(
                 "task-1", "query-1", 0, 1, org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ,
                 "plan-fragment".getBytes(java.nio.charset.StandardCharsets.UTF_8))
@@ -99,17 +97,17 @@ class TaskResourceSubmitErrorTest {
                         .setDirectResultOutput(true))
                 .build();
         org.pangrova.protocol.task.CanonicalTaskRequests.validateForAdmission(canonical);
-        try (Response response = resource.submitTask(SubmitTaskRequest.from(canonical))) {
+        try (Response response = resource.submitTask(SubmitTaskRequest.from(canonical).encode(), null)) {
             assertThat(response.getStatus()).isEqualTo(500);
-            var error = (SubmitTaskResponse) response.getEntity();
-            assertThat(error.accepted()).isFalse();
-            assertThat(error.rejectReason()).contains("signing authority");
+            var error = TaskSubmitAck.parseFrom((byte[]) response.getEntity());
+            assertThat(error.hasRejected()).isTrue();
+            assertThat(error.getRejected().getReason()).contains("signing authority");
             assertThat(taskManager.resolveWorkerTaskId("task-1")).isNull();
         }
     }
 
     @Test
-    void submitTask_validCdcRequestRequiresInstalledBackend() {
+    void submitTask_validCdcRequestRequiresInstalledBackend() throws Exception {
         var request = CanonicalTaskRequestTestFixture.builder(
                 "cdc-task", "cdc-job", 0, 1, TaskKind.TASK_KIND_CDC_INGEST, new byte[0]);
         request.setAttempt(request.getAttempt().toBuilder()
@@ -128,18 +126,18 @@ class TaskResourceSubmitErrorTest {
                         .setDigest(ByteString.copyFrom(new byte[32])))
                 .setWrite(WriteOutputBinding.getDefaultInstance())
                 .addRanges(CdcSourceRange.newBuilder().setTopic("orders").setEndOffset(1)));
-        try (Response response = resource.submitTask(SubmitTaskRequest.from(request.build()))) {
+        try (Response response = resource.submitTask(SubmitTaskRequest.from(request.build()).encode(), null)) {
             assertThat(response.getStatus()).isEqualTo(503);
-            var error = (SubmitTaskResponse) response.getEntity();
-            assertThat(error.accepted()).isFalse();
-            assertThat(error.rejectReason()).contains("no configured CDC ingestion backend");
+            var error = TaskSubmitAck.parseFrom((byte[]) response.getEntity());
+            assertThat(error.hasRejected()).isTrue();
+            assertThat(error.getRejected().getReason()).contains("no configured CDC ingestion backend");
             assertThat(taskManager.resolveWorkerTaskId("cdc-task")).isNull();
         }
     }
 
     @Test
     void submitTask_nullRequest_returnsBadRequest() {
-        Response response = resource.submitTask(null);
+        Response response = resource.submitTask(null, null);
         assertThat(response.getStatus()).isEqualTo(400);
     }
 }

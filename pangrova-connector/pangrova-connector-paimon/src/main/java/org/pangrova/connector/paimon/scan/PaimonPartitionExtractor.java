@@ -4,7 +4,7 @@ import org.pangrova.common.api.annotation.Internal;
 import org.pangrova.connector.api.metadata.table.ColumnMapping;
 import org.pangrova.connector.api.metadata.table.TypePromotion;
 import org.apache.paimon.data.BinaryRow;
-import org.apache.paimon.io.DataFileMeta;
+import org.apache.paimon.schema.SchemaManager;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.source.DataSplit;
@@ -15,6 +15,7 @@ import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.connector.api.exception.ConnectorException;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -93,27 +94,42 @@ public final class PaimonPartitionExtractor {
 
     // ── Schema evolution extraction (R13.1–R13.4) ──
 
-    /**
-     * Extracts schema evolution column mappings and type promotions for a split.
-     */
-    public static SchemaEvolutionResult extractSchemaEvolution(DataFileMeta file, Table target) {
-        if (!(target instanceof FileStoreTable table) || !table.schemaManager().schemaExists(file.schemaId())) {
-            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_READ_ERROR,
-                    "Paimon physical file has no exact schema-id=" + file.schemaId());
+    /** Maps each physical schema once against the selected target of a single scan. */
+    public static final class SchemaEvolution {
+        private final SchemaManager schemas;
+        private final RowType targetType;
+        private final Map<String, String> targetOptions;
+        private final Map<Long, SchemaEvolutionResult> bySourceId = new HashMap<>();
+
+        public SchemaEvolution(FileStoreTable target) {
+            this.schemas = target.schemaManager();
+            this.targetType = target.rowType();
+            this.targetOptions = target.options();
         }
-        var source = table.schemaManager().schema(file.schemaId());
-        Map<Integer, DataField> sourceFields = new LinkedHashMap<>();
-        source.fields().forEach(field -> sourceFields.put(field.id(), field));
-        List<ColumnMapping> mappings = new ArrayList<>();
-        List<TypePromotion> promotions = new ArrayList<>();
-        for (var field : target.rowType().getFields()) {
-            var physical = sourceFields.get(field.id());
-            requireRepresentedMissingColumn(physical, field, target.options());
-            mappings.add(new ColumnMapping(physical == null ? -1 : physical.id(), field.id(),
-                    physical == null ? field.name() : physical.name(), field.name()));
-            addTypePromotion(physical, field, promotions);
+
+        public SchemaEvolutionResult forSource(long schemaId) {
+            return bySourceId.computeIfAbsent(schemaId, this::load);
         }
-        return new SchemaEvolutionResult(mappings, promotions);
+
+        private SchemaEvolutionResult load(long schemaId) {
+            if (!schemas.schemaExists(schemaId)) {
+                throw new ConnectorException(PangrovaErrorCode.CONNECTOR_READ_ERROR,
+                        "Paimon physical file has no exact schema-id=" + schemaId);
+            }
+            var source = schemas.schema(schemaId);
+            Map<Integer, DataField> sourceFields = new HashMap<>();
+            source.fields().forEach(field -> sourceFields.put(field.id(), field));
+            List<ColumnMapping> mappings = new ArrayList<>();
+            List<TypePromotion> promotions = new ArrayList<>();
+            for (var field : targetType.getFields()) {
+                var physical = sourceFields.get(field.id());
+                requireRepresentedMissingColumn(physical, field, targetOptions);
+                mappings.add(new ColumnMapping(physical == null ? -1 : physical.id(), field.id(),
+                        physical == null ? field.name() : physical.name(), field.name()));
+                addTypePromotion(physical, field, promotions);
+            }
+            return new SchemaEvolutionResult(mappings, promotions);
+        }
     }
 
     private static void requireRepresentedMissingColumn(DataField physical, DataField target,
@@ -161,8 +177,5 @@ public final class PaimonPartitionExtractor {
             columnMappings = List.copyOf(columnMappings);
             typePromotions = List.copyOf(typePromotions);
         }
-
-        static final SchemaEvolutionResult EMPTY =
-                new SchemaEvolutionResult(List.of(), List.of());
     }
 }

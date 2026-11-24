@@ -70,7 +70,8 @@ public final class SharedPostgresContainer {
         PostgreSQLContainer<?> container = new PostgreSQLContainer<>("postgres:16-alpine")
                 .withDatabaseName("pangrova_test")
                 .withUsername("pangrova")
-                .withPassword("pangrova");
+                .withPassword("pangrova")
+                .withCommand("postgres", "-c", "shared_preload_libraries=pg_stat_statements");
         container.start();
         return container;
     }

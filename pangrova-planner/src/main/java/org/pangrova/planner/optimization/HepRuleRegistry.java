@@ -6,8 +6,13 @@ import org.apache.calcite.plan.hep.HepRelVertex;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.Calc;
 import org.apache.calcite.rel.core.Join;
+import org.apache.calcite.rel.core.JoinRelType;
+import org.apache.calcite.rel.logical.LogicalJoin;
 import org.apache.calcite.rel.core.Values;
+import org.apache.calcite.rel.rules.FilterJoinRule;
+import org.apache.calcite.rel.rules.JoinAssociateRule;
 import org.apache.calcite.rel.rules.JoinPushTransitivePredicatesRule;
+import org.apache.calcite.rel.rules.AggregateReduceFunctionsRule;
 import org.apache.calcite.rel.rules.CoreRules;
 import org.apache.calcite.rel.core.Filter;
 import org.apache.calcite.rel.core.Project;
@@ -16,6 +21,9 @@ import org.apache.calcite.rex.RexUtil;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import org.apache.calcite.sql.SqlKind;
+import org.apache.calcite.sql.type.SqlTypeName;
+
 import java.util.List;
 
 /**
@@ -30,6 +38,13 @@ import java.util.List;
  * excluded — they belong in the cost-based Cascades/Volcano planner.
  */
 public final class HepRuleRegistry {
+
+    // The Native accumulators preserve DECIMAL SUM and AVG semantics.
+    private static final RelOptRule REDUCE_AGGREGATES = AggregateReduceFunctionsRule.Config.DEFAULT
+            .withExtraCondition(call -> call.getType().getSqlTypeName() != SqlTypeName.DECIMAL
+                    || (call.getAggregation().getKind() != SqlKind.AVG
+                        && call.getAggregation().getKind() != SqlKind.SUM))
+            .toRule();
 
     private HepRuleRegistry() {
         // utility class
@@ -168,7 +183,7 @@ public final class HepRuleRegistry {
     }
 
     // ---- Join Rules (4 rules) ----
-    // JOIN_COMMUTE and JOIN_ASSOCIATE are excluded: they cause infinite loops in HEP.
+    // Unrestricted JOIN_COMMUTE and JOIN_ASSOCIATE can loop in HEP.
     // JOIN_EXTRACT_FILTER is excluded: it extracts the join condition into a Filter
     // above the Join, creating a cross join. This conflicts with FILTER_INTO_JOIN and
     // breaks Substrait conversion (the JoinRel loses its equi-condition). The rule is
@@ -192,6 +207,18 @@ public final class HepRuleRegistry {
                 CoreRules.JOIN_PUSH_EXPRESSIONS,
                 CoreRules.JOIN_TO_SEMI_JOIN
         );
+    }
+
+    private static boolean isUnconditionedInnerJoin(LogicalJoin join) {
+        return join.getJoinType() == JoinRelType.INNER && join.getCondition().isAlwaysTrue()
+                && join.getVariablesSet().isEmpty() && join.getHints().isEmpty();
+    }
+
+    private static boolean canReassociateInnerJoin(LogicalJoin join) {
+        return join.getJoinType() == JoinRelType.INNER && !join.getCondition().isAlwaysTrue()
+                && join.getVariablesSet().isEmpty() && join.getHints().isEmpty()
+                && RexUtil.isDeterministic(join.getCondition())
+                && !RexUtil.containsCorrelation(join.getCondition());
     }
 
     private static boolean isLiteralRelation(RelNode node) {
@@ -218,7 +245,7 @@ public final class HepRuleRegistry {
         // the native engine cannot execute. The native engine handles DISTINCT invocation natively via
         // AggregationNode's per-measure distinct and BOOLEAN masks.
         return List.of(
-                CoreRules.AGGREGATE_REDUCE_FUNCTIONS,
+                REDUCE_AGGREGATES,
                 CoreRules.AGGREGATE_PROJECT_MERGE,
                 CoreRules.AGGREGATE_REMOVE,
                 CoreRules.AGGREGATE_JOIN_TRANSPOSE,
@@ -309,7 +336,7 @@ public final class HepRuleRegistry {
         );
     }
 
-    // ---- Correlate Rules (2 rules) ----
+    // ---- Correlate and late join rules ----
 
     public static void registerCorrelateRules(HepProgramBuilder builder) {
         for (RelOptRule rule : correlateRules()) {
@@ -320,7 +347,21 @@ public final class HepRuleRegistry {
     static List<RelOptRule> correlateRules() {
         return List.of(
                 CoreRules.PROJECT_CORRELATE_TRANSPOSE,
-                CoreRules.FILTER_CORRELATE
+                CoreRules.FILTER_CORRELATE,
+                // FILTER_CORRELATE can expose ordinary predicates after the main filter rules.
+                CoreRules.FILTER_INTO_JOIN.config.withDescription("FilterIntoLateCartesianJoin")
+                        .withOperandSupplier(top -> top.operand(Filter.class)
+                                .oneInput(input -> input.operand(LogicalJoin.class)
+                                        .predicate(HepRuleRegistry::isUnconditionedInnerJoin).anyInputs()))
+                        .as(FilterJoinRule.FilterIntoJoinRule.FilterIntoJoinRuleConfig.class).toRule(),
+                // A successful application removes one cartesian join, so there is no reverse match.
+                JoinAssociateRule.Config.DEFAULT.withAllowAlwaysTrueCondition(false)
+                        .withOperandSupplier(top -> top.operand(LogicalJoin.class)
+                                .predicate(HepRuleRegistry::canReassociateInnerJoin)
+                                .inputs(left -> left.operand(LogicalJoin.class)
+                                                .predicate(HepRuleRegistry::isUnconditionedInnerJoin).anyInputs(),
+                                        right -> right.operand(RelNode.class).anyInputs()))
+                        .as(JoinAssociateRule.Config.class).toRule()
         );
     }
 }

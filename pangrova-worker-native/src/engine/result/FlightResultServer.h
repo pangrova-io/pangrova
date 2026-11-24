@@ -1,15 +1,9 @@
-// FlightResultServer: Arrow Flight server that pulls pre-serialized
-// SerializedPage from Velox's OutputBufferManager and serves them
-// to the authorized client-facing data-plane consumer via Arrow Flight DoGet.
-//
-// Velox's PartitionedOutputNode serializes one canonical Arrow stream per
-// payload and routes it through OutputBufferManager.
-// This server pulls from OutputBufferManager::getData() directly.
-//
-// Placement: result/ — Native result output path components.
+// Authorizes and streams the exact Worker result attempt over Arrow Flight.
 #pragma once
 
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <functional>
 #include <mutex>
@@ -32,40 +26,12 @@
 #include "engine/result/ResultColumnType.h"
 #include "engine/result/ResultOwnershipState.h"
 
-namespace facebook::velox::exec { class OutputBufferManager; }
-
 namespace pangrova::result {
 
 // ---------------------------------------------------------------------------
 // detail:: — extracted helpers exposed for unit-testing (F-NATIVE-SHUF-01).
 // ---------------------------------------------------------------------------
 namespace detail {
-
-// Fetch-wait decision policy: determines whether to keep waiting, time out, or
-// report a dead producer.
-enum class FetchWaitDecision {
-  kKeepWaiting,
-  kTimedOut,
-  kProducerDead,
-};
-
-// Evaluates the fetch-wait policy.
-//   alive: whether the producing task is still alive.
-//   elapsed_seconds: seconds since the fetch started.
-//   timeout_seconds: configured deadline (<=0 means unbounded).
-FetchWaitDecision decideFetchWait(
-    bool alive,
-    int64_t elapsed_seconds,
-    int64_t timeout_seconds);
-
-// Copies a borrowed source into the actual task allocator, then decodes every
-// batch through the sole canonical stream codec and validates its exact schema.
-arrow::Result<std::vector<std::shared_ptr<arrow::RecordBatch>>>
-parseArrowBatchFrames(
-    const std::shared_ptr<arrow::Schema>& schema,
-    const uint8_t* data,
-    int64_t length,
-    const std::shared_ptr<memory::ColumnarMemoryPool>& pool);
 
 // Adds exact logical type metadata to fields whose physical storage matches
 // the validated result contract. Leaves ordinary lists untouched.
@@ -83,8 +49,6 @@ struct FlightResultServerConfig {
   std::string bind_host = "0.0.0.0";
   // Number of server threads for handling DoGet requests.
   int num_threads = 4;
-  // Maximum bytes per getData() call to OutputBufferManager.
-  int64_t max_bytes_per_response = 4 * 1024 * 1024; // 4MB
   // TLS certificate chain file path (PEM). Empty = no TLS.
   std::string tls_cert_chain_path;
   // TLS private key file path (PEM). Required when tls_cert_chain_path is set.
@@ -98,7 +62,7 @@ struct FlightResultServerConfig {
   int64_t result_fetch_timeout_seconds = 300;
 };
 
-// Arrow Flight server that serves query result data from Velox OutputBufferManager.
+// Arrow Flight server for the task-owned result payload queue.
 //
 // Lifecycle:
 //   1. Construct with config
@@ -112,6 +76,8 @@ struct FlightResultServerConfig {
 // Thread safety: start/stop are serialized via NativeCommandDispatcher
 // (single command channel per executor handle). DoGet handlers are
 // thread-safe (Arrow Flight server manages concurrency).
+class ResultPayloadQueue;
+
 class FlightResultServer : public arrow::flight::FlightServerBase {
  public:
   struct TaskOutputInfo {
@@ -124,11 +90,13 @@ class FlightResultServer : public arrow::flight::FlightServerBase {
     std::vector<std::string> column_labels;
     std::shared_ptr<memory::ColumnarMemoryPool> pool;
     std::shared_ptr<ResultOwnershipState> ownership;
-    std::shared_ptr<facebook::velox::exec::OutputBufferManager> buffers;
+    std::shared_ptr<ResultPayloadQueue> queue;
     protocol::v2::ExecutionCallbackContext authority;
     // A streaming failure is terminal for the exact Native task before the
-    // reader releases its OutputBuffer and unblocks producer completion.
+    // reader releases its credits and unblocks suspended Drivers.
     std::function<void(const std::string&)> report_stream_failure;
+    std::function<void()> report_stream_finished;
+    bool ready = false;
     bool claimed = false;
   };
 
@@ -153,21 +121,27 @@ class FlightResultServer : public arrow::flight::FlightServerBase {
   // Returns true if the server is running.
   bool isRunning() const { return running_.load(); }
 
-  // Registers the output RowType for a task so DoGet can deserialize results
-  // even after the Velox task has completed and left getRunningTasks().
+  // Registers the exact result schema and owned delivery queue before Driver start.
   static void registerTaskOutputType(
       const std::string& task_id,
       TaskOutputInfo info);
 
+  // Activates the registration after Velox has successfully started its Drivers.
+  static bool markTaskOutputReady(const std::string& task_id);
+
   // Removes the cached output type for a task (called during task cleanup).
-  static void unregisterTaskOutputType(const std::string& task_id);
+  static void unregisterTaskOutputType(const std::string& task_id,
+      const std::shared_ptr<ResultOwnershipState>& owner);
 
   // Returns physical and logical result types in one atomic cache lookup.
   static std::optional<TaskOutputInfo> lookupTaskOutputInfo(
       const std::string& task_id);
 
-  static arrow::Result<TaskOutputInfo> claimTaskOutputInfo(
-      const protocol::v2::ResultReadGrant& grant);
+  // Checks the complete immutable grant before claiming the result reader.
+  arrow::Result<std::unique_ptr<arrow::flight::FlightDataStream>> openTaskOutput(
+      const protocol::v2::ResultReadGrant& grant,
+      std::chrono::milliseconds wait = std::chrono::milliseconds::zero(),
+      const arrow::flight::ServerCallContext* context = nullptr);
 
   // Singleton instance accessor. Set during start(), cleared during stop().
   static FlightResultServer* instance();
@@ -192,6 +166,7 @@ class FlightResultServer : public arrow::flight::FlightServerBase {
   // F-NATIVE-SHUF-08: Per-instance caches instead of process-global statics.
   // Guarded by their respective mutexes; accessed via instance().
   mutable std::mutex output_type_mutex_;
+  std::condition_variable output_ready_;
   std::unordered_map<std::string, TaskOutputInfo> output_type_cache_;
   static std::atomic<FlightResultServer*> instance_;
   // Pins the actual service during short registration operations. Never held

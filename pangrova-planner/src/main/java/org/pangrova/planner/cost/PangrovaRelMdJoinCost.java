@@ -17,11 +17,8 @@ import org.apache.calcite.util.BuiltInMethod;
 public final class PangrovaRelMdJoinCost
         implements MetadataHandler<BuiltInMetadata.NonCumulativeCost> {
 
-    private final CostModelConfig config;
-
-    public PangrovaRelMdJoinCost(CostModelConfig config) {
-        this.config = java.util.Objects.requireNonNull(config);
-    }
+    private static final RelMetadataProvider PROVIDER = ReflectiveRelMetadataProvider.reflectiveSource(
+            new PangrovaRelMdJoinCost(), BuiltInMethod.NON_CUMULATIVE_COST.method);
 
     @Override
     public org.apache.calcite.rel.metadata.MetadataDef<BuiltInMetadata.NonCumulativeCost>
@@ -29,9 +26,8 @@ public final class PangrovaRelMdJoinCost
         return BuiltInMetadata.NonCumulativeCost.DEF;
     }
 
-    public RelMetadataProvider asProvider() {
-        return ReflectiveRelMetadataProvider.reflectiveSource(
-                this, BuiltInMethod.NON_CUMULATIVE_COST.method);
+    public static RelMetadataProvider provider() {
+        return PROVIDER;
     }
 
     /** Estimates nested-loop comparisons from the actual logical join cardinalities. */
@@ -46,7 +42,9 @@ public final class PangrovaRelMdJoinCost
         }
         double comparisons = Math.min(1.0e18,
                 Math.max(1.0, left) * Math.max(1.0, right));
-        return join.getCluster().getPlanner().getCostFactory().makeCost(
+        var planner = join.getCluster().getPlanner();
+        var config = planner.getContext().unwrapOrThrow(CostModelConfig.class);
+        return planner.getCostFactory().makeCost(
                 output, comparisons * config.cpuOperatorCost(), 0);
     }
 }

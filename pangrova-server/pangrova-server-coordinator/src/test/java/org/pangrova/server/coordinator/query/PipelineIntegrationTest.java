@@ -53,7 +53,8 @@ class PipelineIntegrationTest {
     private static final String QUERY_ID = "q1";
     private static final String WORKER_ID = "worker-1";
     private static final String LOOPBACK_HOST = "127.0.0.1";
-    private static final int TRANSPORT_PORT = 0;
+    // This wiring fixture validates the advertised route and leaves result consumption to Flight E2E tests.
+    private static final int ADVERTISED_RESULT_PORT = 8082;
     private static final TracingProvider TRACING = TestObservability.TRACING;
     private static final TracingHttpFilter TRACING_FILTER = new TracingHttpFilter(TRACING);
 
@@ -111,6 +112,7 @@ class PipelineIntegrationTest {
         assertThat(response.queryId()).isEqualTo(QUERY_ID);
         // Unified path: all results go through resultEndpoint (transport-based retrieval)
         assertThat(response.resultEndpoint()).isNotNull();
+        assertThat(response.resultEndpoint().port()).isEqualTo(ADVERTISED_RESULT_PORT);
         assertThat(queryState()).isEqualTo(QueryState.RUNNING);
     }
 
@@ -139,7 +141,7 @@ class PipelineIntegrationTest {
         TaskStatusReport valid = finishedReport(taskId);
         TaskStatusReport missingEvidence = new TaskStatusReport(
                 valid.taskId(), valid.queryId(), valid.stageId(), valid.partitionId(), valid.taskType(),
-                valid.workerId(), valid.state(), valid.stats(), valid.error(), valid.writeResult(),
+                valid.workerId(), valid.state(), valid.supplementalStats(), valid.error(), valid.writeResult(),
                 valid.reportSequence(), valid.timestampMs(), valid.errorCode(), valid.errorMetadata(),
                 valid.attempt(), null);
 
@@ -331,7 +333,7 @@ class PipelineIntegrationTest {
     // --- factories ---
 
     private static WorkerHttpServer createWorkerHttpServer(TaskManager taskManager) {
-        var config = new WorkerHttpServer.WorkerHttpConfig(0, LOOPBACK_HOST, TRANSPORT_PORT);
+        var config = new WorkerHttpServer.WorkerHttpConfig(0, LOOPBACK_HOST, ADVERTISED_RESULT_PORT);
         return new WorkerHttpServer(config, taskManager, TestExchangeTransport.INSTANCE,
                 null, null, new org.pangrova.worker.result.ResultReadTickets(new byte[32]));
     }
@@ -340,7 +342,7 @@ class PipelineIntegrationTest {
             org.pangrova.protocol.execution.identity.WorkerExecutionIdentity identity) {
         WorkerManager wm = new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry());
         wm.registerWorker(TestWorkerInfoBuilder.active(
-                WORKER_ID, LOOPBACK_HOST, httpPort, TRANSPORT_PORT, identity));
+                WORKER_ID, LOOPBACK_HOST, httpPort, ADVERTISED_RESULT_PORT, identity));
         return wm;
     }
 
@@ -351,7 +353,7 @@ class PipelineIntegrationTest {
     }
 
     private static WorkerInfo workerWithPort(int httpPort) {
-        return TestWorkerInfoBuilder.active(WORKER_ID, LOOPBACK_HOST, httpPort, TRANSPORT_PORT);
+        return TestWorkerInfoBuilder.active(WORKER_ID, LOOPBACK_HOST, httpPort, ADVERTISED_RESULT_PORT);
     }
 
     private TaskStatusReport finishedReport(String taskId) {
@@ -385,7 +387,7 @@ class PipelineIntegrationTest {
                     .build().toByteArray();
         } else if ("FAILED".equals(state)) {
             canonical = org.pangrova.protocol.task.WorkerTerminalTaskReports.unsuccessful(request,
-                    org.pangrova.protocol.v2.TaskState.TASK_STATE_FAILED, error);
+                    org.pangrova.protocol.v2.TaskState.TASK_STATE_FAILED, error).toByteArray();
         }
         return new TaskStatusReport(
                 taskId, QUERY_ID, attempt.getStageId(), attempt.getPartitionId(),

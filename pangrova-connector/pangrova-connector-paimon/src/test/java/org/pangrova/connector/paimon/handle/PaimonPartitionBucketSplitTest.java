@@ -1,5 +1,6 @@
 package org.pangrova.connector.paimon.handle;
 
+import org.pangrova.protocol.source.CanonicalConnectorSplit;
 import java.util.List;
 import java.util.Map;
 
@@ -34,7 +35,7 @@ class PaimonPartitionBucketSplitTest {
                 Map.of("dt", "2024-06-01"),
                 List.of(), List.of(), physicalFile(), new PaimonMergePolicy(false, false));
 
-        DataSplit info = DataSplit.parseFrom(split.toSplitInfoProto());
+        DataSplit info = DataSplit.parseFrom(CanonicalConnectorSplit.from(split).toByteArray());
 
         assertThat(DataSplitProtoCodec.fileDetail(info).getPaimon().getBucketId()).isEqualTo(5);
     }
@@ -53,7 +54,7 @@ class PaimonPartitionBucketSplitTest {
                 false, false, Map.of(), false,
                 partitions, List.of(), List.of(), physicalFile(), new PaimonMergePolicy(false, false));
 
-        DataSplit info = DataSplit.parseFrom(split.toSplitInfoProto());
+        DataSplit info = DataSplit.parseFrom(CanonicalConnectorSplit.from(split).toByteArray());
 
         assertThat(DataSplitProtoCodec.stringPartitionValues(info))
                 .hasSize(3)
@@ -71,7 +72,7 @@ class PaimonPartitionBucketSplitTest {
                 false, false, Map.of(), false,
                 Map.of(), List.of(), List.of(), physicalFile(), new PaimonMergePolicy(false, false));
 
-        DataSplit info = DataSplit.parseFrom(split.toSplitInfoProto());
+        DataSplit info = DataSplit.parseFrom(CanonicalConnectorSplit.from(split).toByteArray());
 
         assertThat(DataSplitProtoCodec.stringPartitionValues(info)).isEmpty();
     }
@@ -94,8 +95,8 @@ class PaimonPartitionBucketSplitTest {
                 true, false, Map.of(), false,
                 partition, List.of(), List.of(), physicalFile(), new PaimonMergePolicy(false, false));
 
-        DataSplit info0 = DataSplit.parseFrom(bucket0.toSplitInfoProto());
-        DataSplit info1 = DataSplit.parseFrom(bucket1.toSplitInfoProto());
+        DataSplit info0 = DataSplit.parseFrom(CanonicalConnectorSplit.from(bucket0).toByteArray());
+        DataSplit info1 = DataSplit.parseFrom(CanonicalConnectorSplit.from(bucket1).toByteArray());
 
         // Each bucket produces an independent split with its own bucket ID
         assertThat(DataSplitProtoCodec.fileDetail(info0).getPaimon().getBucketId()).isZero();
@@ -117,7 +118,7 @@ class PaimonPartitionBucketSplitTest {
                 Map.of("country", "CN", "year", "2024"),
                 List.of(), List.of(), physicalFile(), new PaimonMergePolicy(false, false));
 
-        DataSplit info = DataSplit.parseFrom(split.toSplitInfoProto());
+        DataSplit info = DataSplit.parseFrom(CanonicalConnectorSplit.from(split).toByteArray());
 
         var paimon = DataSplitProtoCodec.fileDetail(info).getPaimon();
         // Partition values preserved alongside table metadata

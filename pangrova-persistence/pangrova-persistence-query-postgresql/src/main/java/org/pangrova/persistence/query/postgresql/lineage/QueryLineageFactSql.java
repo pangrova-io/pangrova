@@ -56,7 +56,9 @@ public final class QueryLineageFactSql {
             insert.setString(4, fact.phase() == LineageEventType.START ? "START" : "TERMINAL");
             insert.setString(5, payload);
             insert.setLong(6, fact.timestampMs());
-            insert.executeUpdate();
+            if (insert.executeUpdate() == 1) {
+                return;
+            }
         }
         try (PreparedStatement select = connection.prepareStatement(
                 "SELECT payload::text FROM query_lineage_outbox WHERE event_id = ?")) {

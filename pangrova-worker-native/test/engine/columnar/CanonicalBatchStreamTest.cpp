@@ -1,8 +1,12 @@
 #include <gtest/gtest.h>
 #include <arrow/array.h>
+#include <arrow/array/builder_binary.h>
+#include <arrow/array/builder_nested.h>
 #include <arrow/array/builder_primitive.h>
 #include <arrow/io/memory.h>
 #include <arrow/ipc/reader.h>
+#include <arrow/ipc/writer.h>
+#include <arrow/util/compression.h>
 #include <cstring>
 #include <limits>
 
@@ -49,6 +53,28 @@ TEST_F(CanonicalBatchStreamTest, PlainArrowStreamPreservesEveryBatchAndExactSche
   EXPECT_EQ(first->Value(0), 1);
   EXPECT_EQ(first->Value(1), 2);
   EXPECT_EQ(second->Value(0), 3);
+}
+
+TEST_F(CanonicalBatchStreamTest, AdmittedDecodeChecksExactSchemaAndRequiredValues) {
+  const auto source = batch(pool_, {42});
+  const auto encoded = encodeBatchStream({source}, pool_);
+  ASSERT_TRUE(encoded.ok()) << encoded.status().ToString();
+  const auto decoded = decodeBatchStream(*encoded, pool_, kMaximumBatchStreamBytes, source->schema().get());
+  ASSERT_TRUE(decoded.ok()) << decoded.status().ToString();
+  ASSERT_EQ(decoded->size(), 1u);
+  EXPECT_TRUE(decoded->front()->Equals(*source));
+  const auto wrongName = arrow::schema({arrow::field("wrong", arrow::int64())});
+  EXPECT_TRUE(decodeBatchStream(*encoded, pool_, kMaximumBatchStreamBytes, wrongName.get()).status().IsTypeError());
+
+  arrow::Int64Builder builder(pool_.get());
+  ASSERT_TRUE(builder.AppendNull().ok());
+  std::shared_ptr<arrow::Array> values;
+  ASSERT_TRUE(builder.Finish(&values).ok());
+  const auto required = arrow::schema({arrow::field("id", arrow::int64(), false)});
+  const auto sourceNull = arrow::RecordBatch::Make(required, 1, arrow::ArrayVector{values});
+  const auto encodedNull = encodeBatchStream({sourceNull}, pool_);
+  ASSERT_TRUE(encodedNull.ok()) << encodedNull.status().ToString();
+  EXPECT_TRUE(decodeBatchStream(*encodedNull, pool_, kMaximumBatchStreamBytes, required.get()).status().IsInvalid());
 }
 
 TEST_F(CanonicalBatchStreamTest, ZeroColumnBatchesRetainIndependentRowCounts) {
@@ -153,6 +179,99 @@ TEST_F(CanonicalBatchStreamTest, StandardCompressedStreamsAreReadableWithoutPriv
     ASSERT_TRUE((*reader)->ReadNext(&actual).ok());
     EXPECT_EQ(actual, nullptr);
   }
+}
+
+TEST_F(CanonicalBatchStreamTest, PreparedBytesMatchArrowWriterAndOverlimitLeavesSinkEmpty) {
+  auto values = std::make_shared<arrow::StringBuilder>(pool_.get());
+  arrow::ListBuilder lists(pool_.get(), values);
+  for (int row = 0; row < 64; ++row) {
+    if (row % 3 == 0) {
+      ASSERT_TRUE(lists.AppendNull().ok());
+    } else {
+      ASSERT_TRUE(lists.Append().ok());
+      ASSERT_TRUE(values->Append(std::string(256, 'a')).ok());
+      ASSERT_TRUE(values->AppendNull().ok());
+    }
+  }
+  std::shared_ptr<arrow::Array> nested;
+  ASSERT_TRUE(lists.Finish(&nested).ok());
+  const auto schema = arrow::schema({arrow::field("labels", nested->type())});
+  const auto rows = arrow::RecordBatch::Make(schema, nested->length(), {nested});
+  const auto emptySchema = arrow::schema({});
+  const auto zeroColumns = arrow::RecordBatch::Make(emptySchema, 9, arrow::ArrayVector{});
+  using BatchList = std::vector<std::shared_ptr<arrow::RecordBatch>>;
+  for (const auto& inputs : {BatchList{rows->Slice(1, 17), rows->Slice(24, 33)},
+                            BatchList{zeroColumns, zeroColumns}}) {
+    for (const auto codec : {arrow::Compression::UNCOMPRESSED, arrow::Compression::LZ4_FRAME,
+             arrow::Compression::ZSTD}) {
+      SCOPED_TRACE(codec);
+      BatchStreamOptions config;
+      config.compression = codec;
+      auto options = arrow::ipc::IpcWriteOptions::Defaults();
+      options.memory_pool = pool_.get();
+      options.use_threads = false;
+      if (codec != arrow::Compression::UNCOMPRESSED) {
+        auto codecResult = arrow::util::Codec::Create(codec);
+        ASSERT_TRUE(codecResult.ok()) << codecResult.status();
+        options.codec = std::move(*codecResult);
+        options.min_space_savings = config.minimum_space_savings;
+      }
+      auto stockSink = arrow::io::BufferOutputStream::Create(0, pool_.get());
+      ASSERT_TRUE(stockSink.ok()) << stockSink.status();
+      auto writer = arrow::ipc::MakeStreamWriter(*stockSink, inputs.front()->schema(), options);
+      ASSERT_TRUE(writer.ok()) << writer.status();
+      for (const auto& input : inputs) ASSERT_TRUE((*writer)->WriteRecordBatch(*input).ok());
+      ASSERT_TRUE((*writer)->Close().ok());
+      auto stock = (*stockSink)->Finish();
+      ASSERT_TRUE(stock.ok()) << stock.status();
+
+      const auto sink = arrow::io::BufferOutputStream::Create(0, pool_.get());
+      ASSERT_TRUE(sink.ok()) << sink.status();
+      config.maximum_bytes = (*stock)->size() - 1;
+      const auto excessive = PreparedBatchStream::prepare(inputs, pool_, config);
+      EXPECT_TRUE(excessive.status().IsCapacityError()) << excessive.status();
+      EXPECT_EQ((*sink)->Tell().ValueOrDie(), 0);
+
+      config.maximum_bytes = (*stock)->size();
+      const auto prepared = PreparedBatchStream::prepare(inputs, pool_, config);
+      ASSERT_TRUE(prepared.ok()) << prepared.status();
+      EXPECT_EQ((*prepared)->size(), (*stock)->size());
+      const auto written = (*prepared)->writeTo(**sink);
+      ASSERT_TRUE(written.ok()) << written;
+      const auto direct = (*sink)->Finish();
+      ASSERT_TRUE(direct.ok()) << direct.status();
+      EXPECT_TRUE((*direct)->Equals(**stock));
+    }
+  }
+}
+
+TEST_F(CanonicalBatchStreamTest, PreparedPageKeepsAllocatorAndInputsAliveUntilWrite) {
+  std::weak_ptr<ColumnarMemoryPool> owner;
+  std::unique_ptr<PreparedBatchStream> prepared;
+  {
+    auto pool = std::make_shared<ColumnarMemoryPool>(leaf_);
+    owner = pool;
+    BatchStreamOptions options;
+    options.compression = arrow::Compression::ZSTD;
+    auto result = PreparedBatchStream::prepare(
+        {batch(pool, std::vector<int64_t>(4096, 11))}, pool, options);
+    ASSERT_TRUE(result.ok()) << result.status();
+    prepared = std::move(*result);
+  }
+  EXPECT_FALSE(owner.expired());
+  auto sink = arrow::io::BufferOutputStream::Create(0, pool_.get());
+  ASSERT_TRUE(sink.ok()) << sink.status();
+  EXPECT_TRUE(prepared->writeTo(**sink).ok());
+  auto payload = (*sink)->Finish();
+  ASSERT_TRUE(payload.ok()) << payload.status();
+  const auto decoded = decodeBatchStream(*payload, pool_);
+  ASSERT_TRUE(decoded.ok()) << decoded.status();
+  ASSERT_EQ(decoded->size(), 1);
+  const auto values = std::static_pointer_cast<arrow::Int64Array>(decoded->front()->column(0));
+  ASSERT_EQ(values->length(), 4096);
+  EXPECT_EQ(values->Value(4095), 11);
+  prepared.reset();
+  EXPECT_TRUE(owner.expired());
 }
 
 TEST_F(CanonicalBatchStreamTest, RejectsUnsupportedCodecInvalidSavingsAndNullBatch) {

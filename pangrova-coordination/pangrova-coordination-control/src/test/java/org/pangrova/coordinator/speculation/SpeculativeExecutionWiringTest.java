@@ -574,7 +574,7 @@ class SpeculativeExecutionWiringTest {
         TaskStatusReport status = fin(taskId, workerId);
         return new TaskStatusReport(
                 status.taskId(), status.queryId(), status.stageId(), status.partitionId(),
-                status.taskType(), status.workerId(), status.state(), status.stats(),
+                status.taskType(), status.workerId(), status.state(), status.supplementalStats(),
                 status.error(), new WriteResultDescriptor(List.of(), 1, 1,
                         new byte[]{fragment}, java.util.List.of()), status.reportSequence(), status.timestampMs(),
                 status.errorCode(), status.errorMetadata(), status.attempt(),

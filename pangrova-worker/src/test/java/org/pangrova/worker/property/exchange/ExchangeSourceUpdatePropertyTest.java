@@ -3,7 +3,6 @@ package org.pangrova.worker.property.exchange;
 import static org.assertj.core.api.Assertions.assertThat;
 import com.google.protobuf.ByteString;
 
-import java.util.List;
 import java.util.stream.IntStream;
 
 import net.jqwik.api.Arbitraries;
@@ -18,59 +17,48 @@ import org.pangrova.protocol.v2.ExchangePartitionSource;
 import org.pangrova.protocol.v2.ExchangeReadMode;
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
 import org.pangrova.protocol.v2.TaskAttemptId;
-import org.pangrova.shuffle.exchange.DirectExchangeTransport;
-import org.pangrova.worker.exchange.source.ExchangeSourceConverter;
+import org.pangrova.protocol.v2.ConnectExchangeSourceRequest;
+import org.pangrova.protocol.v2.RuntimeCommand;
+import org.pangrova.worker.jni.NativeCommandBuilder;
 
-/** Properties for canonical task-scoped exchange source conversion. */
+/** Properties for direct source identities in actual JNI commands. */
 @Tag("Feature: architecture-remediation")
 class ExchangeSourceUpdatePropertyTest {
 
     @Property(tries = 50)
-    void conversionPreservesEveryLogicalProducerExactlyOnce(
+    void commandPreservesEveryLogicalProducerExactlyOnce(
             @ForAll("sourceCounts") int count,
-            @ForAll("planEpochs") long planEpoch) {
-        var inputs = ExchangeSourceConverter.toExchangeInputs(
-                List.of(binding(count, planEpoch, 0)), attempt(), deadline());
-
-        assertThat(inputs).hasSize(1);
-        assertThat(inputs.get(0).expectedSourcePartitions()).isEqualTo(count);
-        var sources = ((DirectExchangeTransport) inputs.get(0).transport()).sources();
-        assertThat(sources).hasSize(count);
-        assertThat(sources)
-                .extracting(source -> source.sourceStageId() + "#" + source.sourcePartitionId())
-                .doesNotHaveDuplicates();
-        assertThat(sources)
-                .allSatisfy(source -> {
-                    assertThat(source.planEpoch()).isEqualTo(planEpoch);
-                    assertThat(source.fencingToken()).isEqualTo(fence(planEpoch, 0));
-                    assertThat(source.signedTicket()).containsExactly(1, 2, 3);
-                });
+            @ForAll("planEpochs") long planEpoch) throws Exception {
+        var input = binding(count, planEpoch, 0);
+        var sources = new java.util.ArrayList<ExchangePartitionSource>();
+        for (var source : input.getDirect().getSourcesList()) {
+            sources.add(delivered(input, source));
+        }
+        assertThat(sources).containsExactlyElementsOf(input.getDirect().getSourcesList());
+        assertThat(sources).hasSize(count).extracting(source -> source.getSourceStageId() + "#"
+                + source.getSourcePartitionId()).doesNotHaveDuplicates();
     }
 
     @Property(tries = 25)
     void newerAttemptCarriesStrictlyGreaterFence(
             @ForAll("planEpochs") long planEpoch,
-            @ForAll("attempts") int attempt) {
-        var oldSource = ExchangeSourceConverter.toExchangeInputs(
-                List.of(binding(1, planEpoch, attempt)), attempt(), deadline());
-        var retry = ExchangeSourceConverter.toExchangeInputs(
-                List.of(binding(1, planEpoch, attempt + 1)), attempt(), deadline());
-        var oldEndpoint = ((DirectExchangeTransport)
-                oldSource.get(0).transport()).sources().get(0);
-        var retryEndpoint = ((DirectExchangeTransport)
-                retry.get(0).transport()).sources().get(0);
-
-        assertThat(retryEndpoint.sourceStageId()).isEqualTo(oldEndpoint.sourceStageId());
-        assertThat(retryEndpoint.sourcePartitionId()).isEqualTo(oldEndpoint.sourcePartitionId());
-        assertThat(retryEndpoint.attemptId()).isGreaterThan(oldEndpoint.attemptId());
-        assertThat(retryEndpoint.fencingToken()).isGreaterThan(oldEndpoint.fencingToken());
+            @ForAll("attempts") int attempt) throws Exception {
+        var previous = binding(1, planEpoch, attempt);
+        var replacement = binding(1, planEpoch, attempt + 1);
+        var oldEndpoint = delivered(previous, previous.getDirect().getSources(0));
+        var retryEndpoint = delivered(replacement, replacement.getDirect().getSources(0));
+        assertThat(retryEndpoint.getSourceStageId()).isEqualTo(oldEndpoint.getSourceStageId());
+        assertThat(retryEndpoint.getSourcePartitionId()).isEqualTo(oldEndpoint.getSourcePartitionId());
+        assertThat(retryEndpoint.getAttemptId()).isGreaterThan(oldEndpoint.getAttemptId());
+        assertThat(retryEndpoint.getFencingToken()).isGreaterThan(oldEndpoint.getFencingToken());
     }
 
-    @Property(tries = 10)
-    void nullAndEmptyInputsProduceNoBindings(
-            @ForAll("emptyInputs") List<ExchangeInputBinding> input) {
-        assertThat(ExchangeSourceConverter.toExchangeInputs(
-                input, attempt(), deadline())).isEmpty();
+    private static ExchangePartitionSource delivered(ExchangeInputBinding input, ExchangePartitionSource source)
+            throws Exception {
+        var consumer = attempt();
+        var command = RuntimeCommand.parseFrom(NativeCommandBuilder.connectDirectExchange(consumer, input, source));
+        assertThat(command.getAttempt()).isEqualTo(consumer);
+        return command.getPayload().unpack(ConnectExchangeSourceRequest.class).getDirect();
     }
 
     private static ExchangeInputBinding binding(
@@ -95,10 +83,6 @@ class ExchangeSourceUpdatePropertyTest {
 
     private static long fence(long planEpoch, int attempt) {
         return (planEpoch << 32) + attempt + 1L;
-    }
-
-    private static long deadline() {
-        return 4_102_444_800_000L;
     }
 
     private static TaskAttemptId attempt() {
@@ -128,8 +112,4 @@ class ExchangeSourceUpdatePropertyTest {
         return Arbitraries.integers().between(0, 1_000);
     }
 
-    @Provide
-    Arbitrary<List<ExchangeInputBinding>> emptyInputs() {
-        return Arbitraries.of(null, List.of());
-    }
 }

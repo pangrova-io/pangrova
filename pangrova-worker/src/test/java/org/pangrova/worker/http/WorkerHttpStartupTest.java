@@ -57,10 +57,30 @@ class WorkerHttpStartupTest {
     @Test
     void authenticationRejectsTheFirstUnauthenticatedSubmission() throws Exception {
         var response = http.httpClient().send(HttpRequest.newBuilder(taskUri())
-                .timeout(Duration.ofSeconds(5)).header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString("{}")).build(), HttpResponse.BodyHandlers.ofString());
+                .timeout(Duration.ofSeconds(5)).header("Content-Type", "application/x-protobuf")
+                .POST(HttpRequest.BodyPublishers.ofByteArray(new byte[]{(byte) 0x80})).build(),
+                HttpResponse.BodyHandlers.ofString());
         assertThat(response.statusCode()).isEqualTo(401);
         assertThat(response.body()).contains("INTERNAL_AUTH");
+    }
+
+    @Test
+    void taskIngressRejectsLegacyJsonAndMalformedProtobuf() throws Exception {
+        var json = http.httpClient().send(HttpRequest.newBuilder(taskUri()).timeout(Duration.ofSeconds(5))
+                .header("X-Internal-Auth", SECRET).header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString("{\"canonical_task_request\":\"CgA=\"}")).build(),
+                HttpResponse.BodyHandlers.discarding());
+        assertThat(json.statusCode()).isEqualTo(415);
+
+        var malformed = http.httpClient().send(HttpRequest.newBuilder(taskUri()).timeout(Duration.ofSeconds(5))
+                .header("X-Internal-Auth", SECRET).header("Content-Type", "application/x-protobuf")
+                .POST(HttpRequest.BodyPublishers.ofByteArray(new byte[]{(byte) 0x80})).build(),
+                HttpResponse.BodyHandlers.ofByteArray());
+        assertThat(malformed.statusCode()).isEqualTo(400);
+        assertThat(malformed.headers().firstValue("Content-Type")).contains("application/x-protobuf");
+        var ack = org.pangrova.protocol.http.TaskSubmitAck.parseFrom(malformed.body());
+        assertThat(ack.hasRejected()).isTrue();
+        assertThat(ack.getRejected().getCode()).isEqualTo("BAD_REQUEST");
     }
 
     @Test

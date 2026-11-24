@@ -17,12 +17,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * Tests for the cluster admission control SPI contracts (Task 145, G-RES-04).
  */
 class ClusterAdmissionControllerSpiTest {
+    private static final AdmissionRequest.TenantLimits QUOTA = new AdmissionRequest.TenantLimits(2048, 3);
 
     // --- AdmissionRequest ---
 
     @Test
     void admissionRequestStoresFields() {
-        var req = new AdmissionRequest("t1", "group-a", "q-123", OptionalLong.of(1024));
+        var req = new AdmissionRequest("t1", "group-a", "q-123", QUOTA, OptionalLong.of(1024));
         assertThat(req.tenantId()).isEqualTo("t1");
         assertThat(req.resourceGroupId()).isEqualTo("group-a");
         assertThat(req.queryId()).isEqualTo("q-123");
@@ -31,41 +32,41 @@ class ClusterAdmissionControllerSpiTest {
 
     @Test
     void admissionRequestWithoutMemoryEstimate() {
-        var req = AdmissionRequest.of("t1", "default", "q-456");
+        var req = AdmissionRequest.of("t1", "default", "q-456", QUOTA);
         assertThat(req.estimatedMemoryBytes()).isEmpty();
     }
 
     @Test
     void admissionRequestRejectsBlankTenantId() {
-        assertThatThrownBy(() -> new AdmissionRequest("", "g", "q", OptionalLong.empty()))
+        assertThatThrownBy(() -> new AdmissionRequest("", "g", "q", QUOTA, OptionalLong.empty()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("tenantId");
     }
 
     @Test
     void admissionRequestRejectsNullQueryId() {
-        assertThatThrownBy(() -> new AdmissionRequest("t", "g", null, OptionalLong.empty()))
+        assertThatThrownBy(() -> new AdmissionRequest("t", "g", null, QUOTA, OptionalLong.empty()))
                 .isInstanceOf(NullPointerException.class);
     }
 
     @Test
     void admissionRequestRejectsBlankQueryId() {
-        assertThatThrownBy(() -> new AdmissionRequest("t", "g", " ", OptionalLong.empty()))
+        assertThatThrownBy(() -> new AdmissionRequest("t", "g", " ", QUOTA, OptionalLong.empty()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("queryId");
     }
 
     @Test
     void admissionRequestRejectsNegativeMemoryEstimate() {
-        assertThatThrownBy(() -> new AdmissionRequest("tenant", "group", "query", OptionalLong.of(-1)))
+        assertThatThrownBy(() -> new AdmissionRequest("tenant", "group", "query", QUOTA, OptionalLong.of(-1)))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("estimatedMemoryBytes");
     }
 
     @Test
     void admissionRequestAcceptsZeroAndMaximumRepresentableEstimate() {
-        assertThat(new AdmissionRequest("tenant", "group", "query", OptionalLong.of(0))
+        assertThat(new AdmissionRequest("tenant", "group", "query", QUOTA, OptionalLong.of(0))
                 .estimatedMemoryBytes()).hasValue(0);
-        assertThat(new AdmissionRequest("tenant", "group", "query", OptionalLong.of(Long.MAX_VALUE))
+        assertThat(new AdmissionRequest("tenant", "group", "query", QUOTA, OptionalLong.of(Long.MAX_VALUE))
                 .estimatedMemoryBytes()).hasValue(Long.MAX_VALUE);
     }
 
@@ -74,16 +75,9 @@ class ClusterAdmissionControllerSpiTest {
     @Test
     void admitDecision() {
         AdmissionDecision d = AdmissionDecision.admit();
+        assertThat(d).isSameAs(AdmissionDecision.admit());
         assertThat(d.verdict()).isEqualTo(AdmissionVerdict.ADMIT);
         assertThat(d.isAdmitted()).isTrue();
-    }
-
-    @Test
-    void queueDecision() {
-        AdmissionDecision d = AdmissionDecision.queue("group at capacity");
-        assertThat(d.verdict()).isEqualTo(AdmissionVerdict.QUEUE);
-        assertThat(d.isAdmitted()).isFalse();
-        assertThat(d.reason()).isEqualTo("group at capacity");
     }
 
     @Test
@@ -137,12 +131,12 @@ class ClusterAdmissionControllerSpiTest {
 
         // admit 3 queries
         for (int i = 0; i < 3; i++) {
-            var req = AdmissionRequest.of("t1", "default", "q-" + i);
+            var req = AdmissionRequest.of("t1", "default", "q-" + i, QUOTA);
             assertThat(controller.admit(req).isAdmitted()).isTrue();
         }
 
         // 4th query rejected
-        var req4 = AdmissionRequest.of("t1", "default", "q-3");
+        var req4 = AdmissionRequest.of("t1", "default", "q-3", QUOTA);
         assertThat(controller.admit(req4).isAdmitted()).isFalse();
         assertThat(controller.admittedCount("t1")).isEqualTo(3);
 

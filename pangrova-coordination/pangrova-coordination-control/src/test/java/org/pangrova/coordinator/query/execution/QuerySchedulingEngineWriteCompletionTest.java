@@ -6,7 +6,6 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.query.lifecycle.QueryStateMachine;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** DML waits for the logical commit owner, which survives physical attempt retirement. */
@@ -14,16 +13,14 @@ class QuerySchedulingEngineWriteCompletionTest {
     @Test
     void successfulWriteWaitsForLogicalTerminalState() {
         var query = runningQuery();
-        assertThat(query.terminalStateReady()).isNotDone();
+        var commit = QuerySchedulingEngine.requireWriteCompletion(query, "write-query", "retired-original-attempt");
+        assertThat(commit).isNotDone();
 
         assertThat(query.tryTransition(QueryState.FINISHING)).isTrue();
-        assertThat(query.terminalStateReady()).isNotDone();
+        assertThat(commit).isNotDone();
         assertThat(query.tryTransition(QueryState.FINISHED)).isTrue();
 
-        assertThatCode(() -> QuerySchedulingEngine.awaitWriteCompletion(
-                query, "write-query", "retired-original-attempt", 1_000))
-                .doesNotThrowAnyException();
-        assertThat(query.terminalStateReady()).isCompletedWithValue(QueryState.FINISHED);
+        assertThat(commit).isCompletedWithValue(QueryState.FINISHED);
     }
 
     @Test
@@ -31,10 +28,23 @@ class QuerySchedulingEngineWriteCompletionTest {
         var query = runningQuery();
         assertThat(query.tryTransition(QueryState.FAILED)).isTrue();
 
-        assertThatThrownBy(() -> QuerySchedulingEngine.awaitWriteCompletion(
-                query, "write-query", "retired-original-attempt", 1_000))
+        assertThatThrownBy(() -> QuerySchedulingEngine.requireWriteCompletion(
+                query, "write-query", "retired-original-attempt").join())
                 .hasMessageContaining("state=FAILED")
                 .hasMessageContaining("queryId=write-query");
+    }
+
+    @Test
+    void controlPlaneWriteFollowsTheCommitSignalBeforePublicQueryTermination() {
+        var query = runningQuery();
+        query.deferTerminalUntilControlPlaneResult();
+        var commit = QuerySchedulingEngine.requireWriteCompletion(query, "write-query", "original-attempt");
+        assertThat(commit).isNotDone();
+
+        assertThat(query.signalNativeWriteCompletedForControlPlane()).isTrue();
+        assertThat(commit).isCompletedWithValue(QueryState.FINISHED);
+        assertThat(query.terminalStateReady()).isNotDone();
+        assertThat(query.getState()).isEqualTo(QueryState.RUNNING);
     }
 
     private static QueryStateMachine runningQuery() {

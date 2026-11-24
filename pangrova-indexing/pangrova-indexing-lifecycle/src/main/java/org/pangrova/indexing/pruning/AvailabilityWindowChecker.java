@@ -19,9 +19,6 @@ final class AvailabilityWindowChecker {
         if (context.querySnapshotToken() != null) {
             return !snapshot.equals(context.querySnapshotToken());
         }
-        return hints.stream().anyMatch(hint -> {
-            var descriptor = context.descriptorsByIndex().get(hint.indexId());
-            return descriptor == null || !snapshot.equals(descriptor.lastIndexedSnapshotId());
-        });
+        return hints.stream().anyMatch(hint -> !snapshot.equals(hint.descriptor().lastIndexedSnapshotId()));
     }
 }
