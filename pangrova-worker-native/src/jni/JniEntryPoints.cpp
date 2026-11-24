@@ -734,7 +734,7 @@ Java_org_pangrova_worker_jni_NativeRuntime_nativeGetTaskStats0(
 // nativeUpdateMemoryLimit — REMOVED: migrated to unified command channel.
 
 JNIEXPORT void JNICALL
-Java_org_pangrova_worker_jni_NativeRuntime_nativeStartTaskWithTrace0(
+Java_org_pangrova_worker_jni_NativeRuntime_nativeStartTaskWithReadiness0(
     JNIEnv* env, jclass, jlong executorHandle, jstring traceId, jobject onResultReady) {
   pangrova::jni::JniLocalFrameGuard frame(env, 4);
   if (!frame.valid()) {

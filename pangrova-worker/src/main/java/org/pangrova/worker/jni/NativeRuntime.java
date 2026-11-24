@@ -128,7 +128,7 @@ public final class NativeRuntime {
     public static void nativeStartTaskWithTrace(
             long executorHandle, String traceId, Runnable onResultReady) {
         requireInitialized();
-        nativeStartTaskWithTrace0(executorHandle, traceId, onResultReady);
+        nativeStartTaskWithReadiness0(executorHandle, traceId, onResultReady);
     }
 
     public static void nativeCancelTask(long executorHandle) {
@@ -281,7 +281,7 @@ public final class NativeRuntime {
     private static native long nativeCreateTaskExecutorWithTraceContext0(byte[] taskRequestProto, String traceId,
             String spanId);
     private static native void nativeStartTask0(long executorHandle);
-    private static native void nativeStartTaskWithTrace0(
+    private static native void nativeStartTaskWithReadiness0(
             long executorHandle, String traceId, Runnable onResultReady);
     private static native void nativeCancelTask0(long executorHandle);
     private static native byte[] nativeReleaseExecutor0(long executorHandle);
