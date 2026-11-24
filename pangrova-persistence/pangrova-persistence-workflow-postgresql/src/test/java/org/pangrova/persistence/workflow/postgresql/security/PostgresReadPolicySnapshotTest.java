@@ -5,6 +5,7 @@ import org.pangrova.persistence.security.postgresql.mask.JdbcColumnMaskStore;
 import org.pangrova.persistence.security.postgresql.rowfilter.JdbcRowPolicyStore;
 import org.pangrova.persistence.table.postgresql.control.JdbcTableControlStore;
 import org.pangrova.persistence.table.postgresql.policy.PostgresTablePolicyRepository;
+import org.pangrova.security.api.authorization.TableReadPolicySource.Target;
 import org.pangrova.security.api.exception.AuthorizationDeniedException;
 import org.pangrova.security.api.mask.ColumnMask;
 import org.pangrova.security.api.rowfilter.RowPolicy;
@@ -21,6 +22,7 @@ import java.sql.SQLException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -57,7 +59,12 @@ class PostgresReadPolicySnapshotTest {
         bindings.save(new GovernanceBinding(UUID.randomUUID(), UUID.randomUUID(), GovernanceBindingType.COLUMN_TAG,
                 "foreign", Map.of(), "alice", NOW, NOW));
 
-        var managed = readPolicies.read("cat", "db", "orders");
+        var orders = new Target("cat", "db", "orders");
+        var other = new Target("cat", "db", "other_table");
+        var absent = new Target("cat", "db", "absent");
+        var batch = readPolicies.read(Set.of(orders, other, absent));
+        assertThat(batch).containsOnlyKeys(orders, other, absent);
+        var managed = batch.get(orders);
         assertThat(managed.identity()).get().extracting(PostgresPolicyTableIdentity.VerifiedTable::tableId)
                 .isEqualTo(current);
         assertThat(managed.bindings()).containsExactly(expected);
@@ -68,14 +75,21 @@ class PostgresReadPolicySnapshotTest {
         assertThat(managed.masks()).hasSize(1);
 
         execute(source, "DELETE FROM table_control_name_reservation WHERE table_id='" + current + "'");
-        var external = readPolicies.read("cat", "db", "orders");
+        var otherPolicies = batch.get(other);
+        assertThat(otherPolicies.identity()).isEmpty();
+        assertThat(otherPolicies.bindings()).isEmpty();
+        assertThat(otherPolicies.rows()).extracting(RowPolicy::filterExpression).containsExactly("id > 30");
+        assertThat(otherPolicies.masks()).extracting(ColumnMask::maskName).containsExactly("other_table");
+
+        var external = readPolicies.read(Set.of(orders)).get(orders);
         assertThat(external.identity()).isEmpty();
         assertThat(external.bindings()).isEmpty();
         assertThat(external.rows()).extracting(RowPolicy::filterExpression).containsExactly("id > 20");
         assertThat(external.masks()).isEqualTo(managed.masks());
-        var absent = readPolicies.read("cat", "db", "absent");
-        assertThat(absent.rows()).isEmpty();
-        assertThat(absent.masks()).isEmpty();
+        assertThat(batch.get(absent).identity()).isEmpty();
+        assertThat(batch.get(absent).rows()).isEmpty();
+        assertThat(batch.get(absent).masks()).isEmpty();
+        assertThat(batch.get(absent).bindings()).isEmpty();
     }
 
     @Test
@@ -84,7 +98,8 @@ class PostgresReadPolicySnapshotTest {
         register(source);
         execute(source, "UPDATE catalog_definitions SET revision=8 WHERE name='cat'");
 
-        assertThatThrownBy(() -> new PostgresReadPolicySnapshot(source).read("cat", "db", "orders"))
+        assertThatThrownBy(() -> new PostgresReadPolicySnapshot(source).read(
+                Set.of(new Target("cat", "db", "orders"), new Target("cat", "db", "absent"))))
                 .isInstanceOf(AuthorizationDeniedException.class);
     }
 

@@ -8,6 +8,7 @@ import org.pangrova.security.api.mask.TableColumnMasks;
 import org.pangrova.security.api.rowfilter.RowPolicy;
 
 import javax.sql.DataSource;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -51,12 +52,18 @@ public final class PostgresTableReadPolicyAuthority implements TableReadPolicySo
     }
 
     @Override
-    public PolicyRead bind(UserIdentity user, Set<String> roles, String catalog, String schema, String table) {
-        var policies = policyStore.read(catalog, schema, table);
-        policies.identity().ifPresent(identity -> localCatalog.accept(
-                new CatalogDeploymentIdentity(catalog, identity.incarnation(), identity.revision())));
-        UUID tableId = policies.identity().map(PostgresPolicyTableIdentity.VerifiedTable::tableId).orElse(null);
-        return new BoundPolicies(user, Set.copyOf(roles), new PolicyTable(catalog, schema, table, tableId), policies);
+    public Map<Target, PolicyRead> bind(UserIdentity user, Set<String> roles, Set<Target> targets) {
+        var snapshots = policyStore.read(targets);
+        var subjectRoles = Set.copyOf(roles);
+        Map<Target, PolicyRead> reads = new LinkedHashMap<>();
+        snapshots.forEach((target, policies) -> {
+            policies.identity().ifPresent(identity -> localCatalog.accept(
+                    new CatalogDeploymentIdentity(target.catalog(), identity.incarnation(), identity.revision())));
+            UUID tableId = policies.identity().map(PostgresPolicyTableIdentity.VerifiedTable::tableId).orElse(null);
+            var table = new PolicyTable(target.catalog(), target.schema(), target.table(), tableId);
+            reads.put(target, new BoundPolicies(user, subjectRoles, table, policies));
+        });
+        return Map.copyOf(reads);
     }
 
     private record PolicyTable(String catalog, String schema, String name, UUID id) {}

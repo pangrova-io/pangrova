@@ -6,16 +6,20 @@ import org.pangrova.security.api.mask.ColumnMaskSource;
 import org.pangrova.security.api.mask.TableColumnMasks;
 import org.pangrova.security.api.rowfilter.RowFilterSource;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
-/** Captures the authority for a table during one synchronous protected read. */
+/** Captures table policy authority during one synchronous protected read. */
 @Internal
 @FunctionalInterface
 public interface TableReadPolicySource {
-    /** Binds row and column policy evaluation to one table and one known subject. */
-    PolicyRead bind(UserIdentity user, Set<String> roles, String catalog, String schema, String table);
+    /** Binds the exact requested tables to one known subject. */
+    Map<Target, PolicyRead> bind(UserIdentity user, Set<String> roles, Set<Target> targets);
+
+    record Target(String catalog, String schema, String table) {}
 
     /** Evaluates one table under the authority captured for this read. */
     interface PolicyRead {
@@ -33,21 +37,27 @@ public interface TableReadPolicySource {
     static TableReadPolicySource separate(RowFilterSource filters, ColumnMaskSource masks) {
         Objects.requireNonNull(filters, "filters");
         Objects.requireNonNull(masks, "masks");
-        return (user, roles, catalog, schema, table) -> new PolicyRead() {
-            @Override
-            public Optional<String> rowFilter() {
-                return filters.getFilter(user, roles, catalog, schema, table);
-            }
+        return (user, roles, targets) -> {
+            Map<Target, PolicyRead> policies = new LinkedHashMap<>();
+            for (var target : targets) {
+                policies.put(target, new PolicyRead() {
+                    @Override
+                    public Optional<String> rowFilter() {
+                        return filters.getFilter(user, roles, target.catalog(), target.schema(), target.table());
+                    }
 
-            @Override
-            public TableColumnMasks columnMasks() {
-                return masks.getMasks(user, roles, catalog, schema, table);
-            }
+                    @Override
+                    public TableColumnMasks columnMasks() {
+                        return masks.getMasks(user, roles, target.catalog(), target.schema(), target.table());
+                    }
 
-            @Override
-            public boolean hasApplicableMask() {
-                return masks.hasApplicableMask(user, roles, catalog, schema, table);
+                    @Override
+                    public boolean hasApplicableMask() {
+                        return masks.hasApplicableMask(user, roles, target.catalog(), target.schema(), target.table());
+                    }
+                });
             }
+            return Map.copyOf(policies);
         };
     }
 }
