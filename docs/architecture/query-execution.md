@@ -630,6 +630,8 @@ the local execution request at that boundary. Worker admission, memory accountin
 and progress reports read task metadata from the canonical request. Scan split
 messages are passed to Native as the task's canonical split list. The HTTP
 contract carries the attempt identity, resource grant and task kind directly.
+Worker validation reads generated resource grant fields directly. Unsigned
+values beyond Java accounting range and unknown grant fields are rejected.
 
 The Worker decodes the binary HTTP request directly from a bounded stream.
 It rejects a declared or observed body over 128 MiB. COPY retains the exact
