@@ -8,6 +8,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.pangrova.connector.api.metadata.table.TableStatistics.ColumnStatistics;
@@ -46,7 +47,7 @@ public class StatisticsCollector {
         // Try real connector statistics first
         if (connectorProvider != null) {
             org.pangrova.connector.api.metadata.table.TableStatistics spiStats =
-                    connectorProvider.getTableStatistics(tableName);
+                    connectorProvider.statistics(tableName);
             if (spiStats != null && spiStats.rowCount() >= 0) {
                 for (String col : columns) {
                     ColumnStatistics spiCol = spiStats.columnStats().get(col);
@@ -128,7 +129,7 @@ public class StatisticsCollector {
         if (connectorProvider != null) {
             try {
                 org.pangrova.connector.api.metadata.table.TableStatistics spiStats =
-                        connectorProvider.getTableStatistics(tableName);
+                        connectorProvider.statistics(tableName);
                 if (spiStats != null && spiStats.rowCount() >= 0) {
                     Map<String, org.pangrova.planner.api.statistics.ColumnStatistics> colStats = new HashMap<>();
                     for (var entry : spiStats.columnStats().entrySet()) {
@@ -219,6 +220,13 @@ public class StatisticsCollector {
         LOG.info("event=statistics_invalidate_all");
     }
 
+    /** Lets the query source share the lookup for two uncached join inputs. */
+    public void prepareJoinStatistics(QualifiedTableName left, QualifiedTableName right) {
+        if (connectorProvider != null && !left.equals(right) && !store.containsKey(left) && !store.containsKey(right)) {
+            connectorProvider.prepareStatistics(Set.of(left, right));
+        }
+    }
+
     /** Invalidates cached statistics for the given table. */
     public void invalidate(QualifiedTableName tableName) {
         if (tableName != null && store.remove(tableName) != null) {
@@ -283,6 +291,8 @@ public class StatisticsCollector {
      */
     @FunctionalInterface
     public interface ConnectorStatisticsProvider {
-        org.pangrova.connector.api.metadata.table.TableStatistics getTableStatistics(QualifiedTableName tableName);
+        org.pangrova.connector.api.metadata.table.TableStatistics statistics(QualifiedTableName tableName);
+
+        default void prepareStatistics(Set<QualifiedTableName> tables) { }
     }
 }

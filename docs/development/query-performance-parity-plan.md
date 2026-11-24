@@ -55,7 +55,7 @@ unlisted: true
 ### Q3 让 CBO、聚合和 AQE 缩减跨节点工作
 
 1. **统计与 Join。** 用表/列和快照版本绑定统计来源，保留采样信息和 unknown。根据真实误判优先补少量高频值、NDV 和选择性证据，之后再评估多列统计。广播门槛受每 Worker build 上界、并发内存和复制字节约束。运行反馈按可比较的谓词、query scope 和数据身份使用。为实际热点 Join 完成 partition/broadcast 的覆盖证明。 [Trino CBO](https://trino.io/docs/current/optimizer/cost-based-optimizations.html)
-   - 普通 Iceberg 规划从选定快照的摘要读取行数、文件数和字节量。列统计复用版本匹配的 `ANALYZE` 发布结果或快照匹配的 Puffin 元数据，重型 manifest 聚合留在显式采集。已删除按名称预查统计的中间层。`PlanningReadBindings` 为同一编译中的合格表源按授权表 ID 读取一次统计，并同时匹配选定快照版本。历史 Iceberg 和 Paimon 快照用对应快照的统计，增量范围和缺少证据的统计保留 unknown。
+   - 普通 Iceberg 规划从选定快照的摘要读取行数、文件数和字节量。列统计复用版本匹配的 `ANALYZE` 发布结果或快照匹配的 Puffin 元数据，重型 manifest 聚合留在显式采集。已删除按名称预查统计的中间层。`PlanningReadBindings` 按授权表 ID 和选定快照版本复用统计。等值连接的两侧可用一条语句联合读取 匹配的 `ANALYZE` 统计和当前目录版本。已用 PostgreSQL 分别计量这类统计读取、初始读准入和目录指针。历史 Iceberg 和 Paimon 快照用对应快照的统计，增量范围和缺少证据的统计保留 unknown。
    - 用同一查询分别测量目录指针 SQL、表所有权 SQL、统计读取 SQL 和 manifest I/O。验证提交新快照、并发 `ANALYZE`、历史快照及撤销访问后的估计和物理计划。基线已观测到 20 个 manifest、10,000 个文件描述时，统计阶段开启 41 个 Avro 读取流，分片规划又开启 20 个。
    - Calcite 的行类型和行数访问复用查询内的不可变绑定，可选表能力探测直接判断类型。受控 Paimon 自连接加分组的规划探针每轮所有权 SQL 从 31 次降到 5 次，物理计划指纹一致。连接器声明和读绑定的交接仍检查当前所有权。
    - 相关子查询和逗号连接混用时，先把晚暴露的确定性外层条件下推，再消除两条新连接都可得到条件的笛卡尔分支。已复核 Q2 的最大 Native 算子输出、完整 Flight 结果、空与非空结果和实际物理退出。真实规模的 Join 顺序与分布仍按同一硬件和快照验收。

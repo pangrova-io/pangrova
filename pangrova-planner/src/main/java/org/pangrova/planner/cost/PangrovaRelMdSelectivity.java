@@ -212,12 +212,8 @@ public final class PangrovaRelMdSelectivity
         if (leftCol == null || rightCol == null) {
             return null;
         }
-        var leftNdv = costEstimator.distinctValues(leftCol.tableName, leftCol.columnName);
-        var rightNdv = costEstimator.distinctValues(rightCol.tableName, rightCol.columnName);
-        if (leftNdv.isEmpty() || rightNdv.isEmpty()) {
-            return null;
-        }
-        return 1.0 / Math.max(leftNdv.getAsLong(), rightNdv.getAsLong());
+        return costEstimator.estimateJoinEquality(leftCol.tableName, leftCol.columnName,
+                rightCol.tableName, rightCol.columnName);
     }
 
     private static ColumnRef extractColumnRef(RelNode input, RexCall call, RelMetadataQuery mq) {

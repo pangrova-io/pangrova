@@ -502,7 +502,12 @@ Pangrova implements `ANALYZE TABLE` for tables with an ACTIVE LINKED or MANAGED
 control record. The collected statistics are persisted against the stable
 `table_id` and the version token observed during collection; the planner uses them
 only while the control record still carries that token. OBSERVED tables have no
-stable identity and are rejected.
+stable identity and are rejected. When an equality estimate needs connector
+statistics for two uncached inputs, the Coordinator requests both together.
+PostgreSQL reads the eligible estimates and current catalog deployments in one statement. The Coordinator verifies those
+deployments against its local handles and the admitted table records before using
+any estimates. Missing or out-of-date statistics use the connector's estimates
+for the selected snapshot.
 
 ```sql
 -- Full statistics collection

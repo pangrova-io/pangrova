@@ -72,7 +72,7 @@ final class SqlCompilerFactory {
         var rootSchema = new MetadataSchemaBuilder(
                 metadataBootstrap.metadataService(), metadataBootstrap.catalogRegistry())
                 .buildRootSchema(session, readBindings);
-        var stats = new StatisticsCollector(readBindings::statistics);
+        var stats = new StatisticsCollector(readBindings);
         var mvCatalog = buildMaterializedViewRewriteCatalog(session);
         var path = session.getCatalog().map(catalog -> session.getSchema()
                 .map(schema -> List.of(catalog, schema)).orElse(List.of(catalog))).orElse(List.of(""));

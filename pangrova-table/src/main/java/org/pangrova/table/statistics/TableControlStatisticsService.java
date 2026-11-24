@@ -7,6 +7,8 @@ import org.pangrova.table.api.enums.TableControlState;
 import org.pangrova.table.api.statistics.CurrentTableStatistics;
 import org.pangrova.table.api.statistics.TableControlStatistics;
 import org.pangrova.table.api.statistics.TableControlStatisticsStore;
+import org.pangrova.table.api.statistics.TableStatisticsSnapshotStore.Observation;
+import org.pangrova.table.identity.TableCatalogAuthority;
 import org.pangrova.table.ownership.TableControlService;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
@@ -14,9 +16,13 @@ import org.pangrova.connector.api.metadata.table.TableStatistics;
 import org.pangrova.security.api.exception.AccessDeniedException;
 
 import java.time.Clock;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
 
 /**
  * Persists statistics collected by {@code ANALYZE TABLE} for controlled tables.
@@ -31,6 +37,7 @@ public final class TableControlStatisticsService implements CurrentTableStatisti
     private final TableControlService control;
     private final TableControlStatisticsStore store;
     private final Clock clock;
+    private final Function<Set<TableControlRecord>, Map<TableControlRecord, Observation>> planningSnapshot;
 
     public TableControlStatisticsService(
             TableControlService control, TableControlStatisticsStore store) {
@@ -39,9 +46,16 @@ public final class TableControlStatisticsService implements CurrentTableStatisti
 
     public TableControlStatisticsService(TableControlService control,
             TableControlStatisticsStore store, Clock clock) {
+        this(control, store, clock, null);
+    }
+
+    /** Binds a shared snapshot when statistics and catalog authority use the same store. */
+    public TableControlStatisticsService(TableControlService control, TableControlStatisticsStore store,
+            Clock clock, Function<Set<TableControlRecord>, Map<TableControlRecord, Observation>> planningSnapshot) {
         this.control = Objects.requireNonNull(control, "control");
         this.store = Objects.requireNonNull(store, "store");
         this.clock = clock == null ? Clock.systemUTC() : clock;
+        this.planningSnapshot = planningSnapshot;
     }
 
     /**
@@ -148,6 +162,25 @@ public final class TableControlStatisticsService implements CurrentTableStatisti
         return store.find(record.tableId())
                 .filter(stats -> stats.tableId().equals(record.tableId())
                         && stats.matchesVersion(record.versionToken()));
+    }
+
+    @Override
+    public Map<TableControlRecord, TableControlStatistics> freshBatch(Set<TableControlRecord> owners) {
+        if (planningSnapshot == null) return CurrentTableStatistics.super.freshBatch(owners);
+        Set<TableControlRecord> active = owners.stream().filter(owner -> owner.state() == TableControlState.ACTIVE)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        if (active.isEmpty()) return Map.of();
+        var observations = planningSnapshot.apply(active);
+        Map<TableControlRecord, TableControlStatistics> results = new HashMap<>();
+        for (var owner : active) {
+            var observation = observations.get(owner);
+            var deployment = observation.deployment().orElseThrow();
+            TableCatalogAuthority.requireCurrent(owner, deployment, "Statistics resolution");
+            observation.statistics().filter(statistics -> statistics.tableId().equals(owner.tableId())
+                    && statistics.matchesVersion(owner.versionToken()))
+                    .ifPresent(statistics -> results.put(owner, statistics));
+        }
+        return Map.copyOf(results);
     }
 
     /** Removes statistics for a table that was unlinked or dropped. */

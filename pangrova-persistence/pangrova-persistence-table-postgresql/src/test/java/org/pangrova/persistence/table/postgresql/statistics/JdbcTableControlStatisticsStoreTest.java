@@ -1,5 +1,10 @@
 package org.pangrova.persistence.table.postgresql.statistics;
 
+import org.pangrova.table.api.enums.OwnershipMode;
+import org.pangrova.table.api.enums.TableControlProvenance;
+import org.pangrova.table.api.enums.TableControlState;
+import org.pangrova.table.api.identity.CatalogDeploymentIdentity;
+import org.pangrova.table.api.ownership.TableControlRecord;
 import org.pangrova.table.api.statistics.TableControlStatistics;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -13,6 +18,7 @@ import javax.sql.DataSource;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -22,11 +28,12 @@ class JdbcTableControlStatisticsStoreTest extends ContainerTestBase {
 
     private static final Instant NOW = Instant.parse("2026-06-01T00:00:00Z");
 
+    private DataSource dataSource;
     private JdbcTableControlStatisticsStore store;
 
     @BeforeEach
     void setUp() throws SQLException {
-        DataSource dataSource = MigratedPostgres.create();
+        dataSource = MigratedPostgres.create();
         store = new JdbcTableControlStatisticsStore(dataSource);
     }
 
@@ -82,6 +89,37 @@ class JdbcTableControlStatisticsStoreTest extends ContainerTestBase {
         store.delete(tableId);
 
         assertThat(store.find(tableId)).isEmpty();
+    }
+
+    @Test
+    void planningObservesDeploymentAndOnlyReturnsVersionMatchedStatistics() throws SQLException {
+        try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
+            statement.executeUpdate("""
+                    INSERT INTO catalog_definitions (name, type, provider, state, properties, incarnation_id, revision)
+                    VALUES ('cat', 'CONNECTOR', 'iceberg', 'ACTIVE', '{}', 'active-incarnation', 2)
+                    """);
+        }
+        UUID tableId = UUID.randomUUID();
+        var matched = new TableControlStatistics(tableId, 0, "v1", new TableStatistics(10, 100), "ANALYZE", NOW);
+        store.save(matched);
+        var owner = TableControlRecord.builder().tableId(tableId).name("cat", "db", "table")
+                .format("ICEBERG").ownershipMode(OwnershipMode.MANAGED).state(TableControlState.ACTIVE)
+                .provenance(TableControlProvenance.CREATED)
+                .catalogIncarnationId("active-incarnation").catalogRevision(2L)
+                .version("v1", NOW).createdAt(NOW).updatedAt(NOW).build();
+        var changedTable = owner.toBuilder().version("v2", NOW).build();
+        var changedCatalog = owner.toBuilder().catalogRevision(1L).build();
+        var missingCatalog = owner.toBuilder().name("missing", "db", "table").build();
+        var observations = store.observeForPlanning(Set.of(owner, changedTable, changedCatalog, missingCatalog));
+
+        assertThat(observations.get(owner).statistics()).contains(matched);
+        var deployment = new CatalogDeploymentIdentity("active-incarnation", 2L);
+        for (var stale : Set.of(changedTable, changedCatalog)) {
+            assertThat(observations.get(stale).deployment()).contains(deployment);
+            assertThat(observations.get(stale).statistics()).isEmpty();
+        }
+        assertThat(observations.get(missingCatalog).deployment()).isEmpty();
+        assertThat(observations.get(missingCatalog).statistics()).isEmpty();
     }
 
     @Test

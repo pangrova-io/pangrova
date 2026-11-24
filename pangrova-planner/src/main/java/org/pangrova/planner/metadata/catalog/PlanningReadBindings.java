@@ -10,10 +10,15 @@ import org.pangrova.connector.api.metadata.table.ConnectorReadSchemaIdentity;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.pangrova.connector.api.metadata.table.TableStatistics;
+import org.pangrova.planner.statistics.StatisticsCollector.ConnectorStatisticsProvider;
+import org.pangrova.table.api.enums.TableControlState;
 import org.pangrova.table.api.statistics.CurrentTableStatistics;
+import org.pangrova.table.api.statistics.TableControlStatistics;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
@@ -22,7 +27,7 @@ import java.util.function.Function;
 
 /** Query-local owner of immutable read bindings shared by schema and cost-statistic lookup. */
 @org.pangrova.common.concurrent.ThreadSafe
-public final class PlanningReadBindings {
+public final class PlanningReadBindings implements ConnectorStatisticsProvider {
     private final CatalogReadAccess catalogs;
     private final ConnectorSession authenticatedSession;
     private final CurrentTableStatistics persistedStatistics;
@@ -108,6 +113,7 @@ public final class PlanningReadBindings {
     }
 
     /** Memoizes optimizer estimates for this compilation, including absent statistics. */
+    @Override
     public TableStatistics statistics(QualifiedTableName table) {
         var admitted = resolveAdmitted(table, null);
         var memo = admitted.statistics();
@@ -127,18 +133,60 @@ public final class PlanningReadBindings {
         return proposed.join();
     }
 
-    private TableStatistics loadStatistics(AdmittedRead admitted) {
-        var binding = admitted.binding().orElse(null);
-        if (binding == null) return TableStatistics.UNKNOWN;
-        var owner = admitted.owner().orElse(null);
-        var version = binding.statisticsVersion().orElse(null);
-        if (persistedStatistics != null && owner != null && version != null
-                && version.format().equals(owner.format()) && version.token().equals(owner.versionToken())) {
-            var analyzed = persistedStatistics.fresh(owner)
-                    .filter(stats -> stats.tableId().equals(owner.tableId()) && stats.matchesVersion(version.token()));
-            if (analyzed.isPresent()) return analyzed.orElseThrow().statistics();
+    /** Claims the exact sources requested together by a cost estimate. */
+    @Override
+    public void prepareStatistics(Set<QualifiedTableName> tables) {
+        if (persistedStatistics == null) return;
+        var pending = new ArrayList<PendingEstimate>();
+        try {
+            for (var table : tables) {
+                var admitted = resolveAdmitted(table, null);
+                var owner = statisticsOwner(admitted);
+                if (owner == null || admitted.statistics().get() != null) continue;
+                var future = new CompletableFuture<TableStatistics>();
+                if (admitted.statistics().compareAndSet(null, future)) {
+                    pending.add(new PendingEstimate(admitted, owner, future));
+                }
+            }
+            if (pending.isEmpty()) return;
+            var owners = pending.stream().map(PendingEstimate::owner)
+                    .collect(java.util.stream.Collectors.toUnmodifiableSet());
+            var estimates = persistedStatistics.freshBatch(owners);
+            for (var request : pending) {
+                var estimate = estimates.get(request.owner());
+                request.future().complete(selectedEstimate(request.admitted(), request.owner(), estimate));
+            }
+        } catch (RuntimeException | Error failure) {
+            pending.forEach(request -> request.future().completeExceptionally(failure));
+            throw failure;
         }
-        return binding.statistics();
+    }
+
+    private record PendingEstimate(AdmittedRead admitted, TableControlRecord owner,
+            CompletableFuture<TableStatistics> future) { }
+
+    private TableStatistics loadStatistics(AdmittedRead admitted) {
+        var owner = statisticsOwner(admitted);
+        var estimate = persistedStatistics == null || owner == null ? null
+                : persistedStatistics.freshBatch(Set.of(owner)).get(owner);
+        return selectedEstimate(admitted, owner, estimate);
+    }
+
+    private static TableStatistics selectedEstimate(AdmittedRead admitted, TableControlRecord owner,
+            TableControlStatistics estimate) {
+        if (estimate != null && estimate.tableId().equals(owner.tableId())
+                && estimate.matchesVersion(owner.versionToken())) {
+            return estimate.statistics();
+        }
+        return admitted.binding().map(ConnectorReadBinding::statistics).orElse(TableStatistics.UNKNOWN);
+    }
+
+    private static TableControlRecord statisticsOwner(AdmittedRead admitted) {
+        var owner = admitted.owner().orElse(null);
+        var version = admitted.binding().flatMap(ConnectorReadBinding::statisticsVersion).orElse(null);
+        return owner != null && owner.state() == TableControlState.ACTIVE && version != null
+                && version.format().equals(owner.format())
+                && version.token().equals(owner.versionToken()) ? owner : null;
     }
 
     private AdmittedRead resolveAdmitted(QualifiedTableName key, ConnectorReadDiscovery discovery) {
