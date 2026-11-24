@@ -205,7 +205,7 @@ public class IcebergSplitManager implements ConnectorSplitManager {
         if (snapshot == null) return new FixedSplitSource(List.of());
         long snapshotId = snapshot.snapshotId();
         boolean cacheable = constraint == null || constraint == Constraint.EMPTY || constraint.getDomains().isEmpty();
-        Schema readSchema = IcebergReadSchema.resolve(handle, table).schema();
+        Schema readSchema = IcebergReadSchema.scanSchema(handle, table);
         String tableName = sourceId(handle);
         String cacheKey = cacheable ? tableName + "|" + snapshotId + "|"
                 + org.pangrova.common.util.DigestUtils.sha256Hex(
@@ -385,7 +385,7 @@ public class IcebergSplitManager implements ConnectorSplitManager {
         LOG.debug("event=time_travel_scan_start table={}.{} snapshot_id={}",
                 handle.schemaName(), handle.tableName(), snapshotId);
 
-        Schema readSchema = IcebergReadSchema.resolve(handle, table).schema();
+        Schema readSchema = IcebergReadSchema.scanSchema(handle, table);
         TableScan scan = applyConstraintFilter(table.newScan().useSnapshot(snapshotId).project(readSchema), constraint);
         var columnMappings = IcebergTaskToSplit.computeColumnMappings(table, readSchema);
         return new IcebergSplitSource(table.name(), scan::planFiles,
