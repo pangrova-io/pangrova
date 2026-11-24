@@ -15,15 +15,13 @@ unlisted: true
 ## 2026-11-24 收尾检查
 
 原始提交超时、DAG 中断和 `ExchangeInputLeafDetail` 运行时缺类的修复已进入 `main`。
-四表策略读取合并也已进入 `main`，同一测试 SQL 的 PostgreSQL 策略读取从 4 次降到 1 次。
-[#78](https://github.com/pangrova-io/pangrova/pull/78) · [#80](https://github.com/pangrova-io/pangrova/pull/80) · [#83](https://github.com/pangrova-io/pangrova/pull/83)
+四表策略读取合并、Iceberg 多键剪裁和 CBO 统计批读均已进入 `main`，各项样本计数和独立回归见[验证记录](#验证记录与覆盖边界)。
+[#78](https://github.com/pangrova-io/pangrova/pull/78) · [#80](https://github.com/pangrova-io/pangrova/pull/80) · [#83](https://github.com/pangrova-io/pangrova/pull/83) · [#84](https://github.com/pangrova-io/pangrova/pull/84) · [#85](https://github.com/pangrova-io/pangrova/pull/85)
 
 | 事项 | 检查状态与续做条件 |
 |---|---|
-| 多键 Iceberg 剪裁 | 双 Worker 同一等值连接返回 48 行，探测分片从 15 个降到 6 个。两轮候选读取分别为 6,416 B 和 7,846 B。macOS 和 Linux arm64 各通过 4,368 项 Release Native 检查，另通过 51 项 macOS 端到端、6 项独立 Shuffle 和 9 项 Linux 独立进程用例。收尾检查时托管 Native 验证仍在进行，合入状态以 PR 为准。[#84](https://github.com/pangrova-io/pangrova/pull/84) |
-| CBO 统计和目录批读 | 双表连接的 2 次统计与 2 次目录读取合为 1 次，点查样本为 0 次。49 项定向、65 项 macOS 端到端和 9 项 Linux 独立进程回归通过。收尾检查时托管 Native 验证仍在进行，合入状态以 PR 为准。[#85](https://github.com/pangrova-io/pangrova/pull/85) |
 | 初始读准入、目录指针和命名空间 | 双表连接实测 2 次初始读准入和 4 次 Iceberg JDBC 目录指针读取，单表限定名另有 1 次命名空间检查。逐笔区分名称发现、选定快照和 split 前的身份核验。验证同名表重建、目录版本变化、外部快照到期、时间旅行、引号、CTE、视图和显式目录枚举后，再收敛可共享的读取。验收同时记录 SQL 次数、实际元数据对象打开和物理释放。Trino JDBC 在查询关联的目录对象内复用元数据，split 枚举继续使用已选定的快照；借鉴前应验证 Pangrova 现有的 split 前权威检查。[Trino JDBC 目录](https://github.com/trinodb/trino/blob/master/plugin/trino-iceberg/src/main/java/io/trino/plugin/iceberg/catalog/jdbc/TrinoJdbcCatalog.java) · [Trino split 枚举](https://github.com/trinodb/trino/blob/master/plugin/trino-iceberg/src/main/java/io/trino/plugin/iceberg/IcebergSplitManager.java) |
-| 合入后的组合回归 | 多键剪裁修改了 Java/Native 协议。以上 PR 合入后，以同一 `main` 提交重新打包 Coordinator、Worker、Native 和 CLI，复测物理裁剪、策略拒绝、Flight 首批与 EOF、写入 fence，以及租户槽位实际归还。托管 CI 的 `Validation result` 提供发布检查记录。 |
+| 正式发布回归 | 以当前发布提交的 GitHub Actions `Validation result` 为准，包含 Linux 生产镜像回归与适用的 Native 检查。已通过的本地组合范围见下方验证记录。主分支 `833a8d8c6` 的运行记录可查询各任务状态。[GitHub Actions](https://github.com/pangrova-io/pangrova/actions/runs/45387103711) |
 | 同类引擎性能验收 | TPC-H/TPC-DS SF100/SF1000 仍需共享硬件、同一快照及对应配置。收尾检查时仓库没有注册专用 runner，当前会话也缺少受控 TPC 配置。可运行时按独立窗口采集 Trino、Spark 和 Pangrova 的吞吐、P95、首批、完整消费、读写量和结果摘要。 |
 
 下表保留逐阶段验收条件。多 Coordinator 混合负载、跨主机 Shuffle、AQE 偏斜、Velox spill 和高并发写入仍在验收范围。
@@ -106,6 +104,10 @@ unlisted: true
 每一个删除项验收同时看生产调用归零、注册/配置被移除、相邻行为经过真实入口，以及对应的性能或正确性证据。生产 rollout 只有整套新版本和全新运行环境，故障恢复用同版本状态机演练。目录现有的业务数据与历史实验保留为可重现输入。
 
 ## 验证记录与覆盖边界
+
+基于主分支 `833a8d8c6` 重新打包 Coordinator、Worker 和 CLI，并依据相同的 Native 运行时源码、构建配置和 Protobuf 输入复用已验证的 Native 库。macOS arm64 和 Linux arm64 的角色包分别校验 739 个文件，清单 SHA-256 分别为 `df98c71f8a09101faf6845cc73b8da1f976c50aea3b03e706bcf8773bd81dbf9` 和 `e0e7c9c7f6acf29c6d9a58a35852aa7df0c32efce64a865c389c7bf8e9feeae9`。
+
+首轮同组回归发现 COW 写入测试恢复表控制服务时，丢失了共享夹具的统计批读配置，令随后的 JOIN 独立查询统计和目录各两次。夹具恢复时复用原来配好的统计服务，366 项元数据测试和 63 项 macOS 端到端组合回归全部通过。真实 PostgreSQL 记录显示，运行过 `ANALYZE` 的两表 JOIN 只发出一次合并读取，独立统计和目录查询均为零。回归同时验证四表策略批读、双 Worker 多键剪裁、Flight 首批与 EOF、取消、COPY、CDC 和租户槽位归还。Linux arm64 的 9 项独立进程回归全部通过，覆盖过载、Iceberg/Paimon/Lance 写入恢复，并从发布包定位了 `ExchangeInputLeafDetail`。
 
 一次编译中已经通过授权的不同表，在同一条 PostgreSQL 语句读取表身份、当前目录版本、行策略、列掩码和治理绑定。基线和候选都执行四张 Iceberg 表加一个重复别名的相同 SQL，真实 PostgreSQL 策略读取从 4 次降到 1 次，授权主体读取仍为 1 次，初始读准入仍为 4 次。Flight 逐列结果一致，候选确认 Native 执行和物理资源清理。112 项定向、53 项同源 macOS 端到端和 9 项 Linux 独立进程回归通过。首轮 Linux 在该过载夹具的状态上报代理记录一次连接写入失败，相同产物的定向复测和整组串行复测均通过。角色清单 SHA-256 分别为 750ed7d7346971fb5f964918456f3cb52e5502e2a8c2da6634d9ebbd2242bb53 和 3f921b07d5fefebb986b976af05380f57bc5f3d18b1dffbb4bcd2c0dd88b1993。
 
