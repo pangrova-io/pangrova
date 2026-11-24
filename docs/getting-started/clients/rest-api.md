@@ -249,8 +249,9 @@ For queries returning large result sets, the REST API returns a `result_endpoint
 The Java SDK uses `beginQuery(sql, sessionProperties)` for a query execution
 handle. Its status and cancellation requests stay on the endpoint that accepted
 the submission. `awaitStatus(target, deadlineEpochMs)` takes a
-`org.pangrova.common.enums.QueryWaitTarget` and requests that owner event. `drained` becomes true after the Coordinator records physical resource
-release.
+`org.pangrova.common.enums.QueryWaitTarget` and requests that owner event. Live
+status responses include `version` and `drained`. The `drained` flag becomes
+true after the Coordinator records physical resource release.
 
 HTTP callers can use `GET /v1/query/{queryId}/state?afterVersion=0&waitMs=0`
 to read the live owner's current version. Supply a positive `waitMs` up to 5000
@@ -265,7 +266,7 @@ principal, tenant and process limits. A request on a different Coordinator
 receives `QUERY_OWNER_UNAVAILABLE`. Use the plain `GET /v1/query/{queryId}/state`
 for diagnostic reads. State, wait, and cancellation requests are scoped to the
 submitting principal. Historical diagnostics verify the original journal admission
-and return the recorded state with version and drain evidence omitted.
+and return the recorded state with `version` and `drained` omitted.
 
 Java SDK applications use `client.openResult(endpoint, deadlineEpochMs)` in
 try-with-resources. Read the schema with `columns()`, advance with `next()`,
