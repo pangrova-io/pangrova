@@ -5,6 +5,7 @@
 #include <arrow/builder.h>
 #include <arrow/record_batch.h>
 #include <arrow/type.h>
+#include <arrow/util/align_util.h>
 
 #include <atomic>
 #include <barrier>
@@ -251,7 +252,11 @@ TEST_F(ResultFlightStreamTest, SignedFlightClaimsOnlyAnAlreadyReadableRegistrati
   auto data = stream->Next();
   ASSERT_TRUE(data.ok()) << data.status().ToString();
   ASSERT_NE(data->data, nullptr);
-  const auto values = std::static_pointer_cast<arrow::Int64Array>(data->data->column(0));
+  // Flight may reuse a gRPC buffer that is unaligned for typed reads.
+  auto aligned = arrow::util::EnsureAlignment(
+      data->data->column(0), arrow::util::kValueAlignment, arrow::default_memory_pool());
+  ASSERT_TRUE(aligned.ok()) << aligned.status().ToString();
+  const auto values = std::static_pointer_cast<arrow::Int64Array>(*aligned);
   ASSERT_EQ(values->length(), 1);
   EXPECT_EQ(values->Value(0), 42);
   completion.wait(std::chrono::seconds(2));
@@ -304,7 +309,10 @@ TEST_F(ResultFlightStreamTest, ActualRunnerKeepsLogicalWireNamesRequiredFlagsAnd
     ASSERT_TRUE(data.ok()) << data.status().ToString();
     if (!data->data) break;
     EXPECT_EQ(data->data->schema()->field(0)->name(), "client_alias");
-    auto column = std::static_pointer_cast<arrow::Int64Array>(data->data->column(0));
+    auto aligned = arrow::util::EnsureAlignment(
+        data->data->column(0), arrow::util::kValueAlignment, arrow::default_memory_pool());
+    ASSERT_TRUE(aligned.ok()) << aligned.status().ToString();
+    auto column = std::static_pointer_cast<arrow::Int64Array>(*aligned);
     for (int64_t row = 0; row < column->length(); ++row) actual.push_back(column->Value(row));
   }
   EXPECT_EQ(actual, (std::vector<int64_t>{42, 73}));
