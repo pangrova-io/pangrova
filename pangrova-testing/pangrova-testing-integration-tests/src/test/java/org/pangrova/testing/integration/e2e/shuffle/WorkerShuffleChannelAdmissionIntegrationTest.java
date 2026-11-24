@@ -10,7 +10,6 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.ResourceLock;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
-import org.pangrova.protocol.rest.task.convert.TaskRequestDtoConverter;
 import org.pangrova.protocol.v2.ErrorClass;
 import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.v2.TaskReportOrigin;
@@ -52,7 +51,7 @@ class WorkerShuffleChannelAdmissionIntegrationTest extends ContainerTestBase {
                     new MemoryRefs(resources, runtime.nodePool(), null), runtime.transports(), monitor),
                     "actual-channel-admission-worker", 0.0, runtime.admissionIncarnation())) {
                 var envelope = SubmitTaskRequest.from(request);
-                var id = manager.submitTask(TaskRequestDtoConverter.toTaskDescriptor(envelope), envelope);
+                var id = manager.submitTask(envelope);
                 assertThat(manager.getReportedTaskState(id)).contains(org.pangrova.protocol.enums.ReportedTaskState.FAILED);
                 assertThat(manager.getExecutorHandle(id)).isEmpty();
                 var failed = observed.stream().filter(report -> "FAILED".equals(report.state())).findFirst().orElseThrow();

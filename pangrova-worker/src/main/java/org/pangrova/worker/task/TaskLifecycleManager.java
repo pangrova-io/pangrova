@@ -229,8 +229,7 @@ final class TaskLifecycleManager {
         //   - Write tasks execute autonomously
         if (resultTransport != null) {
             LOG.info("event=native_transport_task_start taskId={} taskType={}",
-                    taskId, info.descriptor() != null
-                            ? info.descriptor().taskType() : "unknown");
+                    taskId, info.taskType());
             if (isResultTask(info)) {
                 monitorResultTask(taskId, info, handle, callback);
             } else {
@@ -285,9 +284,7 @@ final class TaskLifecycleManager {
     }
 
     private boolean isComputeTaskWithShuffle(TaskInfo info) {
-        var desc = info.descriptor();
-        return desc != null
-                && "COMPUTE".equalsIgnoreCase(desc.taskType())
+        return "COMPUTE".equalsIgnoreCase(info.taskType())
                 && info.request() != null
                 && info.request().taskRequest().hasExecutionOptions()
                 && info.request().taskRequest().getExecutionOptions().hasShuffle();
@@ -512,8 +509,8 @@ final class TaskLifecycleManager {
         Span span = tracing.startSpan("pangrova.task.execute", SpanKind.INTERNAL);
         span.setAttribute("queryId", info.queryId() != null ? info.queryId() : "")
             .setAttribute("taskId", taskId);
-        if (info.descriptor() != null) {
-            span.setAttribute("stageId", info.descriptor().stageId());
+        if (info.hasTaskMetadata()) {
+            span.setAttribute("stageId", info.stageId());
         }
         span.end();
     }

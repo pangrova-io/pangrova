@@ -26,11 +26,6 @@ import org.pangrova.worker.resource.ResourceManager;
 import org.pangrova.worker.resource.memory.MemoryArbitrator;
 import org.pangrova.worker.resource.spill.SpillManager;
 import org.pangrova.worker.resource.thread.ThreadBudgetTracker;
-import org.pangrova.protocol.execution.PlanFragment;
-import org.pangrova.protocol.execution.PlanNodeId;
-import org.pangrova.execution.api.identity.QueryId;
-import org.pangrova.protocol.execution.TaskDescriptor;
-import org.pangrova.protocol.execution.TaskResourceLimit;
 import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
 import org.pangrova.testing.testkit.constants.TestObservability;
 import org.pangrova.worker.task.memory.MemoryRefs;
@@ -41,7 +36,6 @@ import java.net.InetSocketAddress;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Executors;
@@ -85,7 +79,7 @@ class OutputTaskMemoryReleaseTest {
         runtime = new ActualNativeTaskFixture();
         long availableBeforeTask = runtime.arbitrator().getAvailableMemory();
         TaskRequest request = runtime.valuesRequest(true);
-        TaskInfo info = submit(request, "OUTPUT", reports);
+        TaskInfo info = submit(request, reports);
         awaitUnconsumedResult(info, request);
         long handle = info.executorHandle();
         assertThat(handle).isPositive();
@@ -131,7 +125,7 @@ class OutputTaskMemoryReleaseTest {
                 throw new IllegalStateException("Actual released-report observation interrupted");
             }
         };
-        TaskInfo info = submit(request, "OUTPUT", observer);
+        TaskInfo info = submit(request, observer);
         awaitUnconsumedResult(info, request);
         startResultCleanup();
         consumeActualResult(request);
@@ -158,7 +152,7 @@ class OutputTaskMemoryReleaseTest {
         var failures = new java.util.concurrent.atomic.AtomicBoolean(true);
         var retryAcknowledgement = new CompletableFuture<Void>();
         var retryStarted = new CountDownLatch(1);
-        TaskInfo info = submit(request, "OUTPUT", new TaskStatusReporter() {
+        TaskInfo info = submit(request, new TaskStatusReporter() {
             @Override
             public void report(TaskStatusReport report) {
                 reports.report(report);
@@ -230,7 +224,7 @@ class OutputTaskMemoryReleaseTest {
         endpoint.start();
         try (var reporter = new RemoteTaskStatusReporter("http://127.0.0.1:" + endpoint.getAddress().getPort(),
                 TestObservability.TRACING, TestObservability.METRICS, null)) {
-            TaskInfo info = submit(request, "OUTPUT", reporter);
+            TaskInfo info = submit(request, reporter);
             try {
                 awaitUnconsumedResult(info, request);
                 startResultCleanup();
@@ -241,7 +235,7 @@ class OutputTaskMemoryReleaseTest {
                 assertThat(reports.reports()).filteredOn(OutputTaskMemoryReleaseTest::isNativeReleased)
                         .hasSize(holdReleasedReport ? 1 : 0);
 
-                String next = manager.submitTask(descriptor(secondRequest, "OUTPUT"), SubmitTaskRequest.from(secondRequest));
+                String next = manager.submitTask(SubmitTaskRequest.from(secondRequest));
                 TaskInfo second = manager.tasks.get(next);
                 consumeActualResult(secondRequest);
                 await().atMost(Duration.ofSeconds(5)).until(() -> manager.tasks.get(second.taskId()) == null);
@@ -277,8 +271,7 @@ class OutputTaskMemoryReleaseTest {
         var arbitrator = new MemoryArbitrator(ActualNativeTaskFixture.TOTAL_MEMORY_BYTES, 0);
         var requestor = new TaskMemoryRequestor(arbitrator, 0.0);
         var request = ActualNativeTaskFixture.valuesTaskRequest(true);
-        var info = new TaskInfo("idempotent-release", request.getAttempt().getQueryOrJobId(),
-                SubmitTaskRequest.from(request), descriptor(request, "OUTPUT"), Instant.now());
+        var info = new TaskInfo("idempotent-release", SubmitTaskRequest.from(request), Instant.now());
         requestor.requestMemoryForTask(info.memoryAccount());
         requestor.requestBufferMemory(info.memoryAccount());
         assertThat(arbitrator.getAvailableMemory()).isLessThan(ActualNativeTaskFixture.TOTAL_MEMORY_BYTES);
@@ -295,7 +288,7 @@ class OutputTaskMemoryReleaseTest {
     void outputTaskReportsOneCanonicalFinishOnlyAfterNativeCompletion() throws Exception {
         runtime = new ActualNativeTaskFixture();
         TaskRequest request = runtime.valuesRequest(true);
-        TaskInfo info = submit(request, "OUTPUT", reports);
+        TaskInfo info = submit(request, reports);
         awaitUnconsumedResult(info, request);
         consumeActualResult(request);
         awaitFinishedReport();
@@ -330,7 +323,7 @@ class OutputTaskMemoryReleaseTest {
             }
             reports.report(report);
         };
-        TaskInfo info = submit(runtime.valuesRequest(false), "COMPUTE", observation);
+        TaskInfo info = submit(runtime.valuesRequest(false), observation);
         awaitFinishedReport();
         assertThat(info.executorHandle()).isZero();
         assertThat(info.allocatedMemory()).isZero();
@@ -344,7 +337,7 @@ class OutputTaskMemoryReleaseTest {
         runtime = new ActualNativeTaskFixture();
         long availableBeforeTask = runtime.arbitrator().getAvailableMemory();
         var request = runtime.valuesRequest(true);
-        TaskInfo info = submit(request, "OUTPUT", reports);
+        TaskInfo info = submit(request, reports);
         awaitUnconsumedResult(info, request);
         assertThat(info.executorHandle()).isPositive();
         assertThat(info.allocatedBufferMemory()).isPositive();
@@ -370,7 +363,7 @@ class OutputTaskMemoryReleaseTest {
                 new MemoryRefs(resources, runtime.nodePool(), null), new TransportRefs(null, null, null), monitor),
                 "unavailable-result-worker", 0.0, runtime.admissionIncarnation());
         var request = runtime.valuesRequest(true);
-        String id = manager.submitTask(descriptor(request, "OUTPUT"), SubmitTaskRequest.from(request));
+        String id = manager.submitTask(SubmitTaskRequest.from(request));
         var info = manager.tasks.get(id);
         assertThat(info.getState()).isEqualTo(org.pangrova.worker.enums.TaskState.FAILED);
         assertThat(info.executorHandle()).isZero();
@@ -388,7 +381,7 @@ class OutputTaskMemoryReleaseTest {
         runtime = new ActualNativeTaskFixture();
         long availableBeforeTask = runtime.arbitrator().getAvailableMemory();
         var request = runtime.valuesRequest(true);
-        var info = submit(request, "OUTPUT", reports);
+        var info = submit(request, reports);
         awaitUnconsumedResult(info, request);
         assertThat(info.executorHandle()).isPositive();
         assertThat(info.allocatedBufferMemory()).isPositive();
@@ -400,7 +393,7 @@ class OutputTaskMemoryReleaseTest {
         assertThat(info.allocatedBufferMemory()).isZero();
         assertThat(runtime.transports().resultTransport().boundPort()).isEqualTo(-1);
         assertThat(runtime.arbitrator().getAvailableMemory()).isEqualTo(availableBeforeTask);
-        assertThatThrownBy(() -> manager.submitTask(descriptor(request, "OUTPUT"), SubmitTaskRequest.from(request)))
+        assertThatThrownBy(() -> manager.submitTask(SubmitTaskRequest.from(request)))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("draining");
         manager.close();
         assertThat(runtime.arbitrator().getAvailableMemory()).isEqualTo(availableBeforeTask);
@@ -411,7 +404,7 @@ class OutputTaskMemoryReleaseTest {
         runtime = new ActualNativeTaskFixture();
         long availableBeforeTask = runtime.arbitrator().getAvailableMemory();
         var request = runtime.valuesRequest(true);
-        var info = submit(request, "OUTPUT", reports);
+        var info = submit(request, reports);
         awaitUnconsumedResult(info, request);
         consumeActualResult(request);
         awaitFinishedReport();
@@ -475,13 +468,13 @@ class OutputTaskMemoryReleaseTest {
                 });
     }
 
-    private TaskInfo submit(TaskRequest request, String taskType, TaskStatusReporter reporter) {
+    private TaskInfo submit(TaskRequest request, TaskStatusReporter reporter) {
         var resources = new ResourceManager(runtime.arbitrator(), new ThreadBudgetTracker(8, 4, 2), new SpillManager());
         var monitor = Executors.newFixedThreadPool(2, task -> new Thread(task, "actual-native-completion"));
         manager = new TaskManager(new TaskManagerContext(reporter, runtime.executor(),
                 new MemoryRefs(resources, runtime.nodePool(), null), runtime.transports(), monitor),
                 "actual-native-budget-worker", 0.0, runtime.admissionIncarnation());
-        String id = manager.submitTask(descriptor(request, taskType), SubmitTaskRequest.from(request));
+        String id = manager.submitTask(SubmitTaskRequest.from(request));
         return manager.tasks.get(id);
     }
 
@@ -510,15 +503,5 @@ class OutputTaskMemoryReleaseTest {
             assertThat(stream.getRoot().getVector(0).getObject(0)).isEqualTo(42L);
             assertThat(stream.next()).isFalse();
         }
-    }
-
-    private static TaskDescriptor descriptor(TaskRequest request, String taskType) {
-        PlanFragment fragment = new PlanFragment() {
-            @Override public PlanNodeId getId() { return new PlanNodeId("actual-values"); }
-            @Override public List<PlanNodeId> getChildFragmentIds() { return List.of(); }
-        };
-        return new TaskDescriptor(new QueryId(request.getAttempt().getQueryOrJobId()), fragment,
-                List.of(), Map.of(), 0, 0, taskType,
-                new TaskResourceLimit(request.getResourceGrant().getNativeMemoryBytes(), 1, 0, ""));
     }
 }

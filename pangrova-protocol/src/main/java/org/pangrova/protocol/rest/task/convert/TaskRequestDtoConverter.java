@@ -8,7 +8,6 @@ import java.util.Map;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.protocol.v2.StageResourceGrant;
-import org.pangrova.protocol.v2.TaskKind;
 import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.protocol.execution.PlanFragment;
 import org.pangrova.protocol.execution.PlanNodeId;
@@ -41,7 +40,7 @@ public final class TaskRequestDtoConverter {
         Map<String, String> props = canonical.hasExecutionOptions()
                 ? canonical.getExecutionOptions().getSessionPropertiesMap()
                 : Map.of();
-        String taskType = taskType(canonical.getTaskKind(), canonical);
+        String taskType = taskType(canonical);
         TaskResourceLimit limit = toResourceLimit(canonical.hasResourceGrant()
                 ? canonical.getResourceGrant() : null);
         return new TaskDescriptor(queryId, fragment, splits, props,
@@ -65,12 +64,13 @@ public final class TaskRequestDtoConverter {
         return (map != null) ? map : Map.of();
     }
 
-    private static String taskType(TaskKind kind, TaskRequest request) {
+    /** Classifies the admitted task for scheduling and progress reporting. */
+    public static String taskType(TaskRequest request) {
         if (request.hasExecutionOptions()
                 && request.getExecutionOptions().getDirectResultOutput()) {
             return "OUTPUT";
         }
-        return switch (kind) {
+        return switch (request.getTaskKind()) {
             case TASK_KIND_READ, TASK_KIND_SHUFFLE_READ, TASK_KIND_SHUFFLE_WRITE ->
                     "COMPUTE";
             case TASK_KIND_WRITE -> "WRITE";
@@ -79,7 +79,7 @@ public final class TaskRequestDtoConverter {
             case TASK_KIND_BACKGROUND_EXPORT -> "BACKGROUND_EXPORT";
             case TASK_KIND_CDC_INGEST -> "CDC_INGEST";
             default -> throw new IllegalArgumentException(
-                    "Unsupported canonical task kind: " + kind);
+                    "Unsupported canonical task kind: " + request.getTaskKind());
         };
     }
 

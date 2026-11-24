@@ -26,8 +26,6 @@ import org.pangrova.protocol.http.TaskSubmitAck;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.task.ValidatedTaskSubmission;
 import org.pangrova.protocol.rest.task.UpstreamCommitNotification;
-import org.pangrova.protocol.rest.task.convert.TaskRequestDtoConverter;
-import org.pangrova.protocol.execution.TaskDescriptor;
 import org.pangrova.protocol.v2.ExchangeInputBinding;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.shuffle.exchange.ExchangeTransport;
@@ -229,8 +227,7 @@ public final class TaskResource implements Closeable {
         }
         taskManager.verifyExecutionOwnerForAdmission(request);
         ResultEndpoint endpoint = resultEndpoint(validated);
-        TaskDescriptor descriptor = TaskRequestDtoConverter.toTaskDescriptor(request);
-        var ownership = taskManager.submitValidatedTask(descriptor, validated, body);
+        var ownership = taskManager.submitValidatedTask(validated, body);
         var attempt = request.taskRequest().getAttempt();
         String taskId = attempt.getTaskId();
         String query = attempt.getQueryOrJobId();

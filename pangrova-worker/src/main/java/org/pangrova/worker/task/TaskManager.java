@@ -267,8 +267,9 @@ public class TaskManager implements AutoCloseable {
 
     SourcePreparationControl sourcePreparations() { return sourcePreparationControl; }
 
-    public String submitTask(TaskDescriptor descriptor, SubmitTaskRequest request) {
-        return submissionHandler.submitTask(descriptor, request);
+    /** Direct canonical submission for in-process Worker execution. */
+    public String submitTask(SubmitTaskRequest request) {
+        return submissionHandler.submitTask(request);
     }
 
     /** Observes the actual admission without transferring or cancelling its ownership. */
@@ -322,8 +323,8 @@ public class TaskManager implements AutoCloseable {
     }
 
     public TaskAdmission submitValidatedTask(
-            TaskDescriptor descriptor, ValidatedTaskSubmission request, TaskBodyAdmission body) {
-        return submissionHandler.submitValidatedTask(descriptor, request, body);
+            ValidatedTaskSubmission request, TaskBodyAdmission body) {
+        return submissionHandler.submitValidatedTask(request, body);
     }
 
     void scheduleTaskSetup(TaskBodyAdmission body, Runnable setup) {
@@ -351,7 +352,7 @@ public class TaskManager implements AutoCloseable {
         }
     }
 
-    public String submitTask(TaskDescriptor descriptor) {
+    String submitTask(TaskDescriptor descriptor) {
         return submissionHandler.submitTask(descriptor);
     }
 

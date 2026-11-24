@@ -4,7 +4,6 @@ import org.pangrova.worker.enums.TaskState;
 
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
-import org.pangrova.protocol.rest.task.convert.TaskRequestDtoConverter;
 import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.worker.resource.ResourceManager;
 import org.pangrova.worker.resource.spill.SpillManager;
@@ -53,9 +52,8 @@ public final class ActualTaskManagerFixture implements AutoCloseable {
     /** Real admission and executor ownership, with completion deliberately driven by its actual controller test. */
     public TaskInfo preparePending(TaskRequest request) {
         var submitted = SubmitTaskRequest.from(request);
-        var descriptor = TaskRequestDtoConverter.toTaskDescriptor(submitted);
         var info = new TaskInfo("pending-" + request.getAttempt().getTaskId(),
-                request.getAttempt().getQueryOrJobId(), submitted, descriptor, java.time.Instant.now());
+                submitted, java.time.Instant.now());
         // Same canonical reservation as production submission, while retaining the real not-started boundary.
         manager.verifyControlEpochForAdmission(request.getAttempt().getControlEpoch());
         manager.verifyExecutionOwnerForAdmission(submitted);
@@ -91,7 +89,7 @@ public final class ActualTaskManagerFixture implements AutoCloseable {
 
     public TaskInfo submit(TaskRequest request) {
         var submitted = SubmitTaskRequest.from(request);
-        String id = manager.submitTask(TaskRequestDtoConverter.toTaskDescriptor(submitted), submitted);
+        String id = manager.submitTask(submitted);
         return manager.tasks.get(id);
     }
 

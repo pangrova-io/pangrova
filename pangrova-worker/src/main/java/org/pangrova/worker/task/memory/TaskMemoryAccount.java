@@ -4,6 +4,7 @@ import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.protocol.execution.TaskDescriptor;
 import org.pangrova.protocol.execution.TaskResourceLimit;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
+import org.pangrova.protocol.rest.task.convert.TaskRequestDtoConverter;
 
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -50,9 +51,13 @@ public final class TaskMemoryAccount {
         return request.taskRequest().getResourceGrant().getShuffleBufferBytes();
     }
 
-    int stageId() { return descriptor.stageId(); }
+    int stageId() {
+        return request == null ? descriptor.stageId() : request.taskRequest().getAttempt().getStageId();
+    }
 
-    String taskType() { return descriptor.taskType(); }
+    String taskType() {
+        return request == null ? descriptor.taskType() : TaskRequestDtoConverter.taskType(request.taskRequest());
+    }
 
     /** Resolves the canonical grant first; descriptor-only tasks are test wiring. */
     public long requestedNativeMemoryBytes() {

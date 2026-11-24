@@ -2,7 +2,6 @@ package org.pangrova.worker.task;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
-import org.pangrova.protocol.rest.task.convert.TaskRequestDtoConverter;
 import org.pangrova.protocol.task.WorkerTerminalTaskReports;
 import org.pangrova.common.client.error.ErrorDetail;
 import org.pangrova.protocol.v2.ErrorClass;
@@ -133,8 +132,7 @@ class TaskTerminalEvidenceContractTest {
         var request = ActualNativeTaskFixture.valuesTaskRequest(true).toBuilder()
                 .setTaskKind(TaskKind.TASK_KIND_CDC_INGEST).build();
         var submitted = SubmitTaskRequest.from(request);
-        var info = new TaskInfo(request.getAttempt().getTaskId(), request.getAttempt().getQueryOrJobId(),
-                submitted, TaskRequestDtoConverter.toTaskDescriptor(submitted), Instant.now());
+        var info = new TaskInfo(request.getAttempt().getTaskId(), submitted, Instant.now());
         long retiredHandle = Long.MAX_VALUE / 2;
         info.setExecutorHandle(retiredHandle);
         var receipt = TaskReport.newBuilder().setAttempt(request.getAttempt())

@@ -197,8 +197,7 @@ final class CopyNativeInputAssertions {
 
     private static String submit(org.pangrova.worker.task.TaskManager manager, SubmitTaskRequest request) {
         manager.observeControlEpoch(request.taskRequest().getAttempt().getControlEpoch());
-        return manager.submitTask(org.pangrova.protocol.rest.task.convert.TaskRequestDtoConverter
-                .toTaskDescriptor(request), request);
+        return manager.submitTask(request);
     }
 
     private static List<Path> localInputs(Path root) throws Exception {

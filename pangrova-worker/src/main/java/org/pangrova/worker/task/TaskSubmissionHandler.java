@@ -41,25 +41,25 @@ final class TaskSubmissionHandler {
         this.owner = owner;
     }
 
-    String submitTask(TaskDescriptor descriptor, SubmitTaskRequest request) {
-        requireSubmissionAuthority(descriptor, request);
+    String submitTask(SubmitTaskRequest request) {
+        requireSubmissionAuthority(request);
         var admission = new ValidatedTaskSubmission(request);
-        var reservation = reserveSubmission(descriptor, request);
+        var reservation = reserveSubmission(request);
         if (!reservation.first()) return reservation.awaitAdmission();
-        submitReserved(descriptor, admission, reservation.workerTaskId(), reservation);
+        submitReserved(admission, reservation.workerTaskId(), reservation);
         return reservation.workerTaskId();
     }
 
     TaskManager.TaskAdmission submitValidatedTask(
-            TaskDescriptor descriptor, ValidatedTaskSubmission admission, TaskManager.TaskBodyAdmission body) {
+            ValidatedTaskSubmission admission, TaskManager.TaskBodyAdmission body) {
         var request = admission.submission();
-        requireSubmissionAuthority(descriptor, request);
-        var reservation = reserveSubmission(descriptor, request);
+        requireSubmissionAuthority(request);
+        var reservation = reserveSubmission(request);
         if (!reservation.first()) return reservation;
 
         var result = new java.util.concurrent.CompletableFuture<String>();
         try {
-            owner.scheduleTaskSetup(body, () -> runTaskSetup(descriptor, admission, reservation, result));
+            owner.scheduleTaskSetup(body, () -> runTaskSetup(admission, reservation, result));
         } catch (RuntimeException | Error rejected) {
             reservation.rejectedBeforeOwnership(rejected);
             throw rejected;
@@ -67,7 +67,7 @@ final class TaskSubmissionHandler {
         return new FirstTaskSubmission(result);
     }
 
-    private void runTaskSetup(TaskDescriptor descriptor, ValidatedTaskSubmission admission,
+    private void runTaskSetup(ValidatedTaskSubmission admission,
             TaskAdmissionRegistry.Reservation reservation, java.util.concurrent.CompletableFuture<String> result) {
         boolean entered = false;
         try {
@@ -78,7 +78,7 @@ final class TaskSubmissionHandler {
             owner.verifyControlEpochForAdmission(request.getAttempt().getControlEpoch());
             owner.verifyExecutionOwnerForAdmission(admission.submission());
             entered = true;
-            var failure = submitReserved(descriptor, admission, reservation.workerTaskId(), reservation);
+            var failure = submitReserved(admission, reservation.workerTaskId(), reservation);
             if (failure == null) {
                 result.complete(reservation.workerTaskId());
             } else {
@@ -107,8 +107,7 @@ final class TaskSubmissionHandler {
         }
     }
 
-    private void requireSubmissionAuthority(TaskDescriptor descriptor, SubmitTaskRequest request) {
-        checkNotNull(descriptor, "descriptor must not be null");
+    private void requireSubmissionAuthority(SubmitTaskRequest request) {
         checkNotNull(request, "request must not be null");
         // A stale leader must not reach an existing reservation or setup side effect.
         var canonical = request.taskRequest();
@@ -117,7 +116,7 @@ final class TaskSubmissionHandler {
         owner.taskAdmissions.requireUnexpired(canonical.getDeadlineEpochMs());
     }
 
-    private TaskAdmissionRegistry.Reservation reserveSubmission(TaskDescriptor descriptor, SubmitTaskRequest request) {
+    private TaskAdmissionRegistry.Reservation reserveSubmission(SubmitTaskRequest request) {
         var canonical = request.taskRequest();
         owner.verifyExecutionOwnerForAdmission(request);
         if (canonical.getTaskKind() == org.pangrova.protocol.v2.TaskKind.TASK_KIND_CDC_INGEST
@@ -138,24 +137,22 @@ final class TaskSubmissionHandler {
             throw new TaskAdmissionException(TaskAdmissionReason.CLOSED,
                     "Worker is draining — new tasks are rejected");
         }
-        String taskId =
-                owner.tasks.nextId(descriptor.queryId().toString());
+        String taskId = owner.tasks.nextId(canonical.getAttempt().getQueryOrJobId());
         return owner.taskAdmissions.reserve(canonical, taskId);
     }
 
     private RuntimeException submitReserved(
-            TaskDescriptor descriptor,
             ValidatedTaskSubmission admission,
             String taskId,
             TaskAdmissionRegistry.Reservation reservation) {
         var request = admission.submission();
-        String queryId = descriptor.queryId().toString();
+        String queryId = request.taskRequest().getAttempt().getQueryOrJobId();
         TaskInfo info = null;
         try {
             // The queued setup cannot outlive its admission deadline or an exact seal.
             reservation.checkCanPublish();
             owner.tasks.requireCapacity();
-            info = new TaskInfo(taskId, queryId, request, descriptor, Instant.now());
+            info = new TaskInfo(taskId, request, Instant.now());
             reserveTenantQuota(info);
             if (owner.lifecycleManager != null) {
                 owner.lifecycleManager.reserveAdmissionResources(info);
@@ -233,7 +230,7 @@ final class TaskSubmissionHandler {
         String taskId =
                 owner.tasks.nextId(descriptor.queryId().toString());
         String queryId = descriptor.queryId().toString();
-        TaskInfo info = new TaskInfo(taskId, queryId, null, descriptor, Instant.now());
+        TaskInfo info = new TaskInfo(taskId, queryId, descriptor, Instant.now());
         owner.tasks.register(info);
         owner.transition(taskId, TaskState.INITIALIZING);
         QueryCancellationPropagator prop = owner.cancellationPropagator;
@@ -308,7 +305,7 @@ final class TaskSubmissionHandler {
                         queryId,
                         canonical.getAttempt().getStageId(),
                         canonical.getAttempt().getPartitionId(),
-                        owner.tasks.get(taskId).descriptor().taskType(),
+                        owner.tasks.get(taskId).taskType(),
                         "auto-finish-worker",
                         "FINISHED",
                         null,

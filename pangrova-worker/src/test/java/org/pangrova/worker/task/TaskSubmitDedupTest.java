@@ -5,14 +5,9 @@ import org.pangrova.worker.enums.TaskState;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import java.util.List;
 
 import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
-import org.pangrova.protocol.execution.PlanFragment;
-import org.pangrova.protocol.execution.PlanNodeId;
-import org.pangrova.execution.api.identity.QueryId;
-import org.pangrova.protocol.execution.TaskDescriptor;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -28,12 +23,28 @@ class TaskSubmitDedupTest {
         TaskManager manager = TaskManager.forHttpWiringOnly();
 
         SubmitTaskRequest request = buildRequest("coord-task-1", "q-dedup-1", manager);
-        TaskDescriptor descriptor = toDescriptor(request);
 
-        String firstId = manager.submitTask(descriptor, request);
-        String secondId = manager.submitTask(descriptor, request);
+        String firstId = manager.submitTask(request);
+        String secondId = manager.submitTask(request);
 
         assertThat(secondId).isEqualTo(firstId);
+    }
+
+    @Test
+    void recordsStageAndPartitionFromTheCanonicalAttempt() {
+        try (var manager = TaskManager.forHttpWiringOnly()) {
+            var request = buildRequest("task-metadata", "query-metadata", manager).taskRequest();
+            var attempt = request.getAttempt().toBuilder().setStageId(4).setPartitionId(7);
+            var submitted = SubmitTaskRequest.from(request.toBuilder().setAttempt(attempt).build());
+
+            var admitted = manager.tasks.get(manager.submitTask(submitted));
+
+            assertThat(admitted.request()).isSameAs(submitted);
+            assertThat(admitted.queryId()).isEqualTo("query-metadata");
+            assertThat(admitted.stageId()).isEqualTo(4);
+            assertThat(admitted.partitionId()).isEqualTo(7);
+            assertThat(admitted.taskType()).isEqualTo("COMPUTE");
+        }
     }
 
     @Test
@@ -42,11 +53,9 @@ class TaskSubmitDedupTest {
 
         SubmitTaskRequest req1 = buildRequest("coord-task-1", "q-dedup-2", manager);
         SubmitTaskRequest req2 = buildRequest("coord-task-2", "q-dedup-2", manager);
-        TaskDescriptor desc1 = toDescriptor(req1);
-        TaskDescriptor desc2 = toDescriptor(req2);
 
-        String id1 = manager.submitTask(desc1, req1);
-        String id2 = manager.submitTask(desc2, req2);
+        String id1 = manager.submitTask(req1);
+        String id2 = manager.submitTask(req2);
 
         assertThat(id2).isNotEqualTo(id1);
     }
@@ -83,12 +92,11 @@ class TaskSubmitDedupTest {
         TaskManager manager = TaskManager.forHttpWiringOnly();
 
         SubmitTaskRequest request = buildRequest("coord-task-cancel", "q-dedup-5", manager);
-        TaskDescriptor descriptor = toDescriptor(request);
 
-        String firstId = manager.submitTask(descriptor, request);
+        String firstId = manager.submitTask(request);
         manager.cancelTask(firstId);
 
-        String secondId = manager.submitTask(descriptor, request);
+        String secondId = manager.submitTask(request);
         assertThat(secondId).isEqualTo(firstId);
         assertThat(manager.getTaskState(secondId)).contains(TaskState.CANCELLED);
         assertThat(manager.tasks.values()).hasSize(1);
@@ -99,12 +107,11 @@ class TaskSubmitDedupTest {
         TaskManager manager = TaskManager.forHttpWiringOnly();
 
         SubmitTaskRequest request = buildRequest("coord-task-count", "q-dedup-6", manager);
-        TaskDescriptor descriptor = toDescriptor(request);
 
-        manager.submitTask(descriptor, request);
+        manager.submitTask(request);
         int countAfterFirst = manager.getRunningTaskCount();
 
-        manager.submitTask(descriptor, request);
+        manager.submitTask(request);
         int countAfterSecond = manager.getRunningTaskCount();
 
         assertThat(countAfterSecond).isEqualTo(countAfterFirst);
@@ -122,18 +129,5 @@ class TaskSubmitDedupTest {
                         .build();
         return SubmitTaskRequest.from(builder.toBuilder().setAttempt(builder.getAttempt().toBuilder()
                 .setWorkerExecutionIdentity(manager.workerExecutionIdentity().toProto())).build());
-    }
-
-    private static TaskDescriptor toDescriptor(SubmitTaskRequest request) {
-        PlanFragment fragment = new PlanFragment() {
-            @Override
-            public PlanNodeId getId() { return new PlanNodeId("test"); }
-            @Override
-            public List<PlanNodeId> getChildFragmentIds() { return List.of(); }
-        };
-        return new TaskDescriptor(
-                new QueryId(request.taskRequest().getAttempt().getQueryOrJobId()),
-                fragment, List.of(),
-                request.taskRequest().getExecutionOptions().getSessionPropertiesMap(), 0, 0, "COMPUTE", org.pangrova.protocol.execution.TaskResourceLimit.NONE);
     }
 }
