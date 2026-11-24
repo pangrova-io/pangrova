@@ -235,7 +235,7 @@ class OutputTaskMemoryReleaseTest {
                 assertThat(reports.reports()).filteredOn(OutputTaskMemoryReleaseTest::isNativeReleased)
                         .hasSize(holdReleasedReport ? 1 : 0);
 
-                String next = ActualTaskManagerFixture.submitReadable(manager, SubmitTaskRequest.from(secondRequest));
+                String next = ActualNativeTaskFixture.submitReadable(manager, SubmitTaskRequest.from(secondRequest));
                 TaskInfo second = manager.tasks.get(next);
                 consumeActualResult(secondRequest);
                 await().atMost(Duration.ofSeconds(5)).until(() -> manager.tasks.get(second.taskId()) == null);
@@ -474,7 +474,7 @@ class OutputTaskMemoryReleaseTest {
         manager = new TaskManager(new TaskManagerContext(reporter, runtime.executor(),
                 new MemoryRefs(resources, runtime.nodePool(), null), runtime.transports(), monitor),
                 "actual-native-budget-worker", 0.0, runtime.admissionIncarnation());
-        String id = ActualTaskManagerFixture.submitReadable(manager, SubmitTaskRequest.from(request));
+        String id = ActualNativeTaskFixture.submitReadable(manager, SubmitTaskRequest.from(request));
         return manager.tasks.get(id);
     }
 

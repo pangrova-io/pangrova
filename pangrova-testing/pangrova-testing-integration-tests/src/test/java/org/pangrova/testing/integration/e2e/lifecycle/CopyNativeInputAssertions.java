@@ -148,7 +148,7 @@ final class CopyNativeInputAssertions {
 
         var accepted = tasks.apply(Math.addExact(8 * fileSize, 1024 * 1024));
         manager.observeControlEpoch(accepted.taskRequest().getAttempt().getControlEpoch());
-        String id = org.pangrova.worker.task.ActualTaskManagerFixture.submitReadable(manager, accepted);
+        String id = ActualNativeTaskFixture.submitReadable(manager, accepted);
         org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(20))
                 .until(() -> {
                     assertThat(manager.getTaskState(id).orElseThrow())
