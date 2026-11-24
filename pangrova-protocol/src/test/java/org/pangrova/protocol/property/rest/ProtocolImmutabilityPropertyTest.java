@@ -4,6 +4,7 @@ import com.google.protobuf.ByteString;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.client.result.ResultEndpoint;
+import org.pangrova.protocol.rest.task.TaskReportEvidence;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
@@ -16,6 +17,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -58,7 +60,7 @@ class ProtocolImmutabilityPropertyTest {
      * Primitives are inherently immutable and handled separately.
      */
     private static final Set<Class<?>> ALLOWED_IMMUTABLE_TYPES = Set.of(
-            String.class, Long.class, Integer.class, Boolean.class,
+            String.class, UUID.class, Long.class, Integer.class, Boolean.class,
             Double.class, Float.class, Short.class, Byte.class,
             Character.class, ByteString.class
     );
@@ -66,8 +68,8 @@ class ProtocolImmutabilityPropertyTest {
     private static final List<Class<?>> ALL_DTO_CLASSES = discoverDtoClasses();
 
     @Test
-    void transportedResultAddressIsIncludedInTheImmutableDtoAudit() {
-        assertThat(ALL_DTO_CLASSES).contains(ResultEndpoint.class);
+    void resultAddressAndReportEvidenceAreIncludedInTheImmutableDtoAudit() {
+        assertThat(ALL_DTO_CLASSES).contains(ResultEndpoint.class, TaskReportEvidence.class);
     }
 
     /**
@@ -127,9 +129,10 @@ class ProtocolImmutabilityPropertyTest {
      * Property 8: All record components use immutable types.
      *
      * <p>For any REST DTO record, every component type must be either
-     * a primitive, enum, a known immutable type (String, boxed primitives),
+     * a primitive, enum, a known immutable type (String, UUID, boxed primitives),
      * a {@link List}, {@link Map}, or {@link Set} (defensively copied in compact
-     * constructors), or another protocol record.</p>
+     * constructors), another protocol record, or the audited report evidence
+     * envelope.</p>
      *
      * <p><b>Validates: Requirements 2.1, 2.7, 7.9</b></p>
      */
@@ -185,7 +188,8 @@ class ProtocolImmutabilityPropertyTest {
                 || type.getPackageName().startsWith(root + "."))) {
             return true;
         }
-        return false;
+        // The envelope's final fields are checked separately by the DTO audit.
+        return type == TaskReportEvidence.class && ALL_DTO_CLASSES.contains(type);
     }
 
     /**

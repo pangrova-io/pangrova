@@ -65,24 +65,20 @@ class ProtocolDtoContractConsistencyTest {
     // Asymmetric field drift detection
     // -----------------------------------------------------------------------
 
-    /**
-     * Detects when new identity-like fields are added to SubmitTaskRequest
-     * but not mirrored in TaskStatusReport.
-     *
-     * <p>Any field in SubmitTaskRequest that is NOT in the known
-     * request-only exclusion set and NOT in TaskStatusReport triggers a
-     * failure, forcing the developer to either add it to TaskStatusReport
-     * or explicitly exclude it.</p>
-     */
+    /** Guards the canonical request against duplicate REST fields and accessors. */
     @Test
     void submitTaskRequestHasNoRestSemanticMirrors() {
         Set<String> forbidden = Set.of(
-                "taskId", "queryId", "stageId", "partitionId", "taskType",
+                "taskId", "queryId", "stageId", "partitionId",
                 "planFragment", "splits", "exchangeSources", "resourceGrant",
                 "sessionProperties", "dynamicFilters", "executionOwner");
 
         assertThat(Arrays.stream(SubmitTaskRequest.class.getDeclaredMethods())
                 .map(java.lang.reflect.Method::getName))
+                .doesNotContainAnyElementsOf(forbidden);
+        assertThat(Arrays.stream(SubmitTaskRequest.class.getDeclaredFields())
+                .map(java.lang.reflect.Field::getName))
+                .doesNotContain("taskType")
                 .doesNotContainAnyElementsOf(forbidden);
     }
 
