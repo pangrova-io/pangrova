@@ -12,6 +12,22 @@ unlisted: true
 
 查询性能对齐的对标引擎、扫描权重反例、跨 Stage 动态过滤、阶段聚合缺口和性能验收，见 [查询性能对齐与执行引擎修正计划](./query-performance-parity-plan.md)。
 
+## 2026-11-24 收尾检查
+
+原始提交超时、DAG 中断和 `ExchangeInputLeafDetail` 运行时缺类的修复已进入 `main`。
+四表策略读取合并也已进入 `main`，同一测试 SQL 的 PostgreSQL 策略读取从 4 次降到 1 次。
+[#78](https://github.com/pangrova-io/pangrova/pull/78) · [#80](https://github.com/pangrova-io/pangrova/pull/80) · [#83](https://github.com/pangrova-io/pangrova/pull/83)
+
+| 事项 | 检查状态与续做条件 |
+|---|---|
+| 多键 Iceberg 剪裁 | 双 Worker 同一等值连接返回 48 行，探测分片从 15 个降到 6 个。两轮候选读取分别为 6,416 B 和 7,846 B。macOS 和 Linux arm64 各通过 4,368 项 Release Native 检查，另通过 51 项 macOS 端到端、6 项独立 Shuffle 和 9 项 Linux 独立进程用例。收尾检查时托管 Native 验证仍在进行，合入状态以 PR 为准。[#84](https://github.com/pangrova-io/pangrova/pull/84) |
+| CBO 统计和目录批读 | 双表连接的 2 次统计与 2 次目录读取合为 1 次，点查样本为 0 次。49 项定向、65 项 macOS 端到端和 9 项 Linux 独立进程回归通过。收尾检查时托管 Native 验证仍在进行，合入状态以 PR 为准。[#85](https://github.com/pangrova-io/pangrova/pull/85) |
+| 初始读准入、目录指针和命名空间 | 双表连接实测 2 次初始读准入和 4 次 Iceberg JDBC 目录指针读取，单表限定名另有 1 次命名空间检查。逐笔区分名称发现、选定快照和 split 前的身份核验。验证同名表重建、目录版本变化、外部快照到期、时间旅行、引号、CTE、视图和显式目录枚举后，再收敛可共享的读取。验收同时记录 SQL 次数、实际元数据对象打开和物理释放。Trino JDBC 在查询关联的目录对象内复用元数据，split 枚举继续使用已选定的快照；借鉴前应验证 Pangrova 现有的 split 前权威检查。[Trino JDBC 目录](https://github.com/trinodb/trino/blob/master/plugin/trino-iceberg/src/main/java/io/trino/plugin/iceberg/catalog/jdbc/TrinoJdbcCatalog.java) · [Trino split 枚举](https://github.com/trinodb/trino/blob/master/plugin/trino-iceberg/src/main/java/io/trino/plugin/iceberg/IcebergSplitManager.java) |
+| 合入后的组合回归 | 多键剪裁修改了 Java/Native 协议。以上 PR 合入后，以同一 `main` 提交重新打包 Coordinator、Worker、Native 和 CLI，复测物理裁剪、策略拒绝、Flight 首批与 EOF、写入 fence，以及租户槽位实际归还。托管 CI 的 `Validation result` 提供发布检查记录。 |
+| 同类引擎性能验收 | TPC-H/TPC-DS SF100/SF1000 仍需共享硬件、同一快照及对应配置。收尾检查时仓库没有注册专用 runner，当前会话也缺少受控 TPC 配置。可运行时按独立窗口采集 Trino、Spark 和 Pangrova 的吞吐、P95、首批、完整消费、读写量和结果摘要。 |
+
+下表保留逐阶段验收条件。多 Coordinator 混合负载、跨主机 Shuffle、AQE 偏斜、Velox spill 和高并发写入仍在验收范围。
+
 ## 证据口径
 
 - **已验证调用链**表示能从 HTTP/SQL 接入、生产组装到调用点闭合，或已检查引用、注册和配置并确认有一侧断开。删除前还要通过全仓编译及真实入口，防止遗漏 SPI、反射注册或外部部署脚本。
