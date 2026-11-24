@@ -91,6 +91,10 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
+已受理的 Native 扫描分片从 JNI 移交执行器，再由实际扫描任务取得，移除了两份暂存分片列表和一次重复集合去重。现有分片 ID 校验、绑定、顺序和扫描覆盖继续验证。在实际 SplitConfig 类型的受控构造探针中，1、128 和 4,096 个分片的线程分配量分别从 6,936 B 降至 1,624 B、1,044,424 B 降至 209,760 B、33,486,792 B 降至 6,717,280 B。macOS 和 Linux arm64 各通过 117 项定向测试和 4,367 项 Native 全量测试，零失败和跳过。
+
+删除了只服务于旧任务转换的 Protocol 和 Coordinator 转换器。任务种类直接来自 canonical request，真实 HTTP 断言保留计划、分片、attempt、属性和资源配额，以及缺失配额的拒绝。82 项定向回归证实协议、Coordinator 派发、Worker 准入和实际释放。共同打包的 41 项 macOS 回归和 9 项 Linux 独立进程回归通过，覆盖双 Worker、真实向量检索、COPY、PostgreSQL 查询预算、租户过载与 Iceberg、Paimon、Lance 写入恢复。739 项角色清单 SHA-256 分别为 413e57c638d89fc3c6f247a3fe6c365e1fce0d7980429e46bb758882eeb75783 和 399475854324e6442962df5fc82841ad1b002529d7c796da8fab655abc704156。
+
 Worker HTTP 准入、内存和回报直接读取已经校验的 canonical task。移除每份扫描 split 到 Java 描述对象的转换。Corretto 17 按相同的 1、128 和 4,096 个分片隔离测量，分别去掉 400 B、3,968 B 和 115,072 B 线程分配。定向回归验证原始任务身份、内存 grant、COPY、RESULT 和终态。1 MiB 上限用有实质内存需求的 Velox 排序负载复现 MEM_CAP_EXCEEDED，确认失败与实际资源归还。85 项定向回归、27 项同源端到端回归和 1 项隔离 JNI/远端 Shuffle 通道准入通过。角色清单 SHA-256 为 1790c778b4c7cea12ba7897b0327343210da41539e9dca09f6b034ceff7abdd9。
 
 受控真实 Jetty/JNI/Flight 把 OUTPUT 的 Native 启动暂停在 HTTP ACK 之后。原始 HTTP 返回带有效票据的 200，首次 Flight 在客户端计时 897 ms 后返回 UNAUTHORIZED。放行后用同一票据读到一行、值 42 和准确 EOF，随后任务完成且 Native 内存归零。单独的真实 Native 重复实验得到同一现象。待验证 ACK 根据 Native 注册信号完成后，首批等待、取消和容量归还仍符合合同。
