@@ -5,8 +5,6 @@ import org.pangrova.query.dispatch.StatementCompletionListener;
 
 import org.pangrova.execution.task.DispatchResult;
 
-import org.pangrova.query.api.enums.QueryState;
-
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletionStage;
@@ -166,7 +164,7 @@ public final class StatementDispatcher {
         if (sm == null) {
             return null;
         }
-        if (resultService != null) {
+        if (resultService != null && (!result.rows().isEmpty() || !result.columnNames().isEmpty())) {
             var control = resultService.dispatchControlPlaneRows(
                     queryId, result.rows(), result.columnNames(), () -> { });
             // The response bytes and endpoint must be visible before FINISHED:
@@ -176,10 +174,8 @@ public final class StatementDispatcher {
             sm.toFinisher().run();
             return control;
         }
-        sm.tryTransition(QueryState.SCHEDULING);
-        sm.tryTransition(QueryState.RUNNING);
-        sm.tryTransition(QueryState.FINISHING);
-        sm.tryTransition(QueryState.FINISHED);
+        sm.markNoResult();
+        sm.toFinisher().run();
         return null;
     }
 

@@ -206,6 +206,21 @@ class BiToolConnectionIntegrationTest {
     }
 
     @Test
+    void emptySelectReturnsAnEmptyResultSetRatherThanNoResult() throws Exception {
+        resultServer = new TestResultEndpoint(
+                List.of(new TestResultEndpoint.Column("value", ResultScalarType.INTEGER)), List.of());
+        registerSubmitEndpoint(new AtomicReference<>());
+        httpServer.start();
+
+        try (var conn = DriverManager.getConnection("jdbc:pangrova://127.0.0.1:" + httpPort);
+             var statement = conn.createStatement();
+             var result = statement.executeQuery("SELECT 1 WHERE false")) {
+            assertThat(result.getMetaData().getColumnCount()).isEqualTo(1);
+            assertThat(result.next()).isFalse();
+        }
+    }
+
+    @Test
     void flightEofChecksTerminalFailureAfterRowsHaveBeenDelivered() throws Exception {
         startOrdersResultServer();
         registerSubmitEndpoint(new AtomicReference<>(), "RUNNING");
@@ -216,9 +231,12 @@ class BiToolConnectionIntegrationTest {
             if (path[4].equals("state")) {
                 terminalReads.incrementAndGet();
                 sendJsonResponse(exchange, 200, """
-                        {"query_id":"%s","state":"FAILED","version":1,
+                        {"query_id":"%s","state":"FAILED","version":1,"drained":false,
+                         "result_disposition":"STREAM",
+                         "result_endpoint":{"host":"127.0.0.1","port":%d,
+                                            "ticket":"%s","protocol":"grpc"},
                          "error":{"error_code":"OUTPUT_FAILED","message":"Late output failure"}}
-                        """.formatted(path[3]));
+                        """.formatted(path[3], resultServer.endpoint().port(), resultServer.endpoint().ticket()));
             } else {
                 cancels.incrementAndGet();
                 sendJsonResponse(exchange, 200, """
@@ -326,6 +344,7 @@ class BiToolConnectionIntegrationTest {
                     {
                       "query_id": "%s",
                       "state": "%s",
+                      "result_disposition": "STREAM",
                       "result_endpoint": {
                         "host": "127.0.0.1",
                         "port": %d,

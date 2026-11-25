@@ -162,7 +162,7 @@ class DAGDispatchEngineShuffleCleanupTest {
         @Override
         public DispatchResult dispatch(SubmitTaskRequest request, WorkerInfo worker) {
             return new DispatchResult("localhost", "task-noop",
-                    new ResultEndpoint("localhost", 8080, "ticket-noop", "http"));
+                    new ResultEndpoint("localhost", 8080, "ticket-noop", "grpc"));
         }
     }
 

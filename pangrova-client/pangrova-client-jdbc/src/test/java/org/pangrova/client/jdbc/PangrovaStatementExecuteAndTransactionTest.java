@@ -53,7 +53,7 @@ class PangrovaStatementExecuteAndTransactionTest {
     class ExecuteTests {
 
         @Test
-        @DisplayName("execute() rejects a completed SELECT without a Flight result endpoint")
+        @DisplayName("execute() rejects an explicit NONE disposition for a SELECT")
         void executeSelectRequiresFlightEndpoint() throws Exception {
             AtomicReference<String> capturedSql = new AtomicReference<>();
             registerFinishedQueryEndpoint(capturedSql, "q-exec-select");
@@ -65,7 +65,7 @@ class PangrovaStatementExecuteAndTransactionTest {
                  Statement stmt = conn.createStatement()) {
                 assertThatThrownBy(() -> stmt.execute("SELECT 1"))
                         .isInstanceOf(SQLException.class)
-                        .hasMessageContaining("no result endpoint available");
+                        .hasMessageContaining("does not return a result set");
                 assertThat(stmt.getResultSet()).isNull();
                 assertThat(capturedSql.get()).contains("SELECT 1");
             }
@@ -203,7 +203,8 @@ class PangrovaStatementExecuteAndTransactionTest {
             AtomicInteger cancellations = registerCancelEndpoint("q-upd-timeout", true);
             server.createContext("/v1/query/q-upd-timeout/state", exchange ->
                     sendJson(exchange, 200,
-                            "{\"query_id\":\"q-upd-timeout\",\"state\":\"RUNNING\",\"version\":1}"));
+                            "{\"query_id\":\"q-upd-timeout\",\"state\":\"RUNNING\","
+                                    + "\"result_disposition\":\"PENDING\",\"version\":1,\"drained\":false}"));
             server.start();
 
             try (PangrovaConnection conn = createConnection();
@@ -457,6 +458,7 @@ class PangrovaStatementExecuteAndTransactionTest {
                     {
                       "query_id": "%s",
                       "state": "FINISHED",
+                      "result_disposition": "NONE",
                       "column_names": []
                     }
                     """.formatted(queryId);
@@ -473,7 +475,9 @@ class PangrovaStatementExecuteAndTransactionTest {
                     {
                       "query_id": "%s",
                       "state": "FINISHED",
+                      "result_disposition": "NONE",
                       "version": 2,
+                      "drained": false,
                       "stats": {
                         "elapsed_time_ms": 100,
                         "queued_time_ms": 10,
@@ -494,7 +498,9 @@ class PangrovaStatementExecuteAndTransactionTest {
                     {
                       "query_id": "%s",
                       "state": "FINISHED",
-                      "version": 2
+                      "result_disposition": "NONE",
+                      "version": 2,
+                      "drained": false
                     }
                     """.formatted(queryId);
             sendJson(exchange, 200, response);

@@ -11,6 +11,7 @@ import org.pangrova.client.http.PangrovaRestClient;
 import org.pangrova.client.http.QueryExecution;
 import org.pangrova.common.client.exception.PangrovaServerException;
 import org.pangrova.common.client.query.QueryStatusResponse;
+import org.pangrova.common.enums.ResultDisposition;
 import org.pangrova.transport.client.ResultCursor;
 import org.pangrova.transport.client.exception.TransportConnectionException;
 import org.pangrova.transport.client.exception.TransportException;
@@ -131,6 +132,9 @@ public final class PangrovaStatement implements java.sql.Statement {
         String queryId = query.submission().queryId();
         QueryCompletionWaiter.ReadyEndpoint ready =
                 QueryCompletionWaiter.awaitReadableEndpoint(query, deadlineMs, queryTimeoutSeconds);
+        if (ready.disposition() != ResultDisposition.STREAM) {
+            throw new SQLException("Query does not return a result set, queryId=" + queryId);
+        }
         int timeoutSeconds = queryTimeoutSeconds;
         ResultCursor cursor;
         try {

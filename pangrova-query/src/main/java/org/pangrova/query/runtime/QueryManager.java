@@ -296,7 +296,7 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
         }
         applyDispatchResult(queryId, sm, result);
         return QueryAsyncSubmission.Pending.completed(
-                buildResponse(queryId, sm, result, queryDispatcher.removeColumnNames(queryId)));
+                buildResponse(queryId, sm, queryDispatcher.removeColumnNames(queryId)));
     }
 
     private QueryAsyncSubmission.Pending executeQueryAsync(String queryId, String sql,
@@ -333,8 +333,13 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
     }
 
     private void applyDispatchResult(String queryId, QueryStateMachine sm, QueryDispatchOutcome result) {
-        if (result != null) {
-            sm.setResultEndpoint(result.resultEndpoint());
+        java.util.Objects.requireNonNull(result, "dispatch outcome");
+        switch (result.resultDisposition()) {
+            case STREAM -> sm.setResultEndpoint(result.resultEndpoint());
+            case NONE -> sm.markNoResult();
+            case PENDING -> { }
+            default -> throw new IllegalArgumentException(
+                    "Unknown result disposition: " + result.resultDisposition());
         }
         if (sm.getState() == QueryState.FINISHED) {
             completeFinishedQuery(queryId, sm);
@@ -592,11 +597,9 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
     }
 
     private static QuerySubmissionResult buildResponse(
-            String queryId, QueryStateMachine sm, QueryDispatchOutcome result, List<String> columnNames) {
-        var endpoint = (result != null)
-                ? result.resultEndpoint()
-                : sm.getResultEndpoint().orElse(null);
-        return new QuerySubmissionResult(
-                queryId, sm.getState(), endpoint, columnNames, sm.branchSelection());
+            String queryId, QueryStateMachine sm, List<String> columnNames) {
+        var status = sm.status();
+        return new QuerySubmissionResult(queryId, status.state(), status.disposition(),
+                status.endpoint(), columnNames, sm.branchSelection());
     }
 }

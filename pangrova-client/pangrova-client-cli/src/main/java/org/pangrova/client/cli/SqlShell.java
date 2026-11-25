@@ -5,6 +5,7 @@ import org.pangrova.client.http.QueryClient;
 import org.pangrova.client.http.QueryExecution;
 import org.pangrova.common.client.exception.PangrovaClientException;
 import org.pangrova.common.client.query.QueryStatusResponse;
+import org.pangrova.common.enums.ResultDisposition;
 import org.pangrova.common.enums.QueryWaitTarget;
 import org.pangrova.common.client.query.SubmitQueryResponse;
 import org.pangrova.transport.client.ColumnDescriptor;
@@ -154,13 +155,13 @@ final class SqlShell {
             QueryStatusResponse ready = readableSubmission(submitResp);
             if (ready == null) ready = waitForStatus(query, deadlineMs, true);
             ResultDisplay result = null;
-            if (ready.resultEndpoint() != null && !isFailedOrCancelled(ready.state())) {
+            if (ready.resultDisposition() == ResultDisposition.STREAM && !isFailedOrCancelled(ready.state())) {
                 result = consumeResult(query, ready, deadlineMs);
                 checkDeadline(queryId, deadlineMs);
             }
             QueryStatusResponse terminal = isTerminalState(ready.state())
                     ? ready : waitForStatus(query, deadlineMs, false);
-            handleQueryResult(submitResp, terminal, result);
+            handleQueryResult(terminal, result);
             success = "FINISHED".equalsIgnoreCase(terminal.state());
         } catch (PangrovaClientException failure) {
             if ("TRANSPORT_QUERY_DEADLINE_EXCEEDED".equals(failure.errorCode())
@@ -179,21 +180,24 @@ final class SqlShell {
     }
 
     private static QueryStatusResponse readableSubmission(SubmitQueryResponse receipt) {
-        if ("FINISHED".equalsIgnoreCase(receipt.state())
-                && (receipt.resultEndpoint() != null || receipt.columnNames().isEmpty())
-                || readable(receipt.state()) && receipt.resultEndpoint() != null) {
-            return QueryStatusResponse.of(receipt.queryId(), receipt.state(), null, receipt.resultEndpoint());
+        boolean streamReady = receipt.resultDisposition() == ResultDisposition.STREAM
+                && (readable(receipt.state()) || "FINISHED".equalsIgnoreCase(receipt.state()));
+        boolean noResultReady = receipt.resultDisposition() == ResultDisposition.NONE
+                && "FINISHED".equalsIgnoreCase(receipt.state());
+        if (streamReady || noResultReady) {
+            return QueryStatusResponse.of(receipt.queryId(), receipt.state(), null,
+                    receipt.resultDisposition(), receipt.resultEndpoint());
         }
         return null;
     }
 
-    private void handleQueryResult(SubmitQueryResponse submitResp, QueryStatusResponse status, ResultDisplay result) {
+    private void handleQueryResult(QueryStatusResponse status, ResultDisplay result) {
         if (isFailedOrCancelled(status.state())) {
             throw queryFailure(status, null);
         }
         if (result != null) {
             result.finish();
-        } else if (submitResp.columnNames() == null || submitResp.columnNames().isEmpty()) {
+        } else if (status.resultDisposition() == ResultDisposition.NONE) {
             out.println("OK (no result set)");
         } else {
             throw new PangrovaClientException("RESULT_ENDPOINT_MISSING", "Query finished without its result endpoint");
@@ -262,7 +266,8 @@ final class SqlShell {
             checkDeadline(queryId, deadlineMs);
             QueryStatusResponse status = query.awaitStatus(target, deadlineMs);
             String state = status.state();
-            if (isTerminalState(state) || allowReadable && status.resultEndpoint() != null && readable(state)) {
+            if (isTerminalState(state) || allowReadable
+                    && status.resultDisposition() == ResultDisposition.STREAM && readable(state)) {
                 return status;
             }
         }

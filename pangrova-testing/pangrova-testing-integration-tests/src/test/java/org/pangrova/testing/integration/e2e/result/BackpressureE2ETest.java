@@ -270,8 +270,12 @@ class BackpressureE2ETest extends SqlE2ETestBase {
         while (endpoint == null) {
             var status = query.awaitStatus(QueryWaitTarget.RESULT_OR_TERMINAL, deadline);
             assertThat(status.state()).isNotIn("FAILED", "CANCELLED");
+            if (status.resultDisposition() == org.pangrova.common.enums.ResultDisposition.PENDING) {
+                continue;
+            }
+            assertThat(status.resultDisposition())
+                    .isEqualTo(org.pangrova.common.enums.ResultDisposition.STREAM);
             endpoint = status.resultEndpoint();
-            if ("FINISHED".equals(status.state())) assertThat(endpoint).isNotNull();
         }
         return endpoint;
     }

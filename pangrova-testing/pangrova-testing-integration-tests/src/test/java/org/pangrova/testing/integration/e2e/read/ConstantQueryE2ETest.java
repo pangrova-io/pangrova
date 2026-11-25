@@ -80,7 +80,7 @@ class ConstantQueryE2ETest extends SqlE2ETestBase {
     void nativeResultIsNotFinishedBeforeDoGet() throws Exception {
         var submitted = submitQueryViaHttp("SELECT CAST(42 AS BIGINT)");
         String queryId = submitted.queryId();
-        var endpoint = awaitResultEndpoint(queryId, submitted.resultEndpoint());
+        var endpoint = awaitResultEndpoint(queryId, submitted);
         String canonicalTaskId = requireNativeResultTaskId(endpoint, queryId, taskTracker);
         String workerTaskId = null;
         boolean finished = false;

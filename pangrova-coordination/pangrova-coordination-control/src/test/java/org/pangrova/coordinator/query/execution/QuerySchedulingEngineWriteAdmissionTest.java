@@ -473,7 +473,7 @@ class QuerySchedulingEngineWriteAdmissionTest extends ContainerTestBase {
     void nativeWriteReadinessDoesNotPublishAnUnreadableFlightEndpoint() {
         QueryStateMachine write = schedulingState();
         ResultEndpoint nativeEndpoint = new ResultEndpoint(
-                "worker", 9000, "write-task", "arrow-flight");
+                "worker", 9000, "write-task", "grpc");
         DispatchQueryContext writeContext = new DispatchQueryContext(
                 Map.of(), "INSERT INTO catalog.schema.table VALUES (1)", null)
                 .withDmlWriteContext(context(new QualifiedTableName("catalog", "schema", "table")));
@@ -482,13 +482,16 @@ class QuerySchedulingEngineWriteAdmissionTest extends ContainerTestBase {
 
         assertThat(write.getState()).isEqualTo(QueryState.RUNNING);
         assertThat(write.getResultEndpoint()).isEmpty();
+        assertThat(write.status().disposition()).isEqualTo(
+                org.pangrova.common.enums.ResultDisposition.PENDING);
+        assertThat(write.isWriteDispatchReady()).isTrue();
     }
 
     @Test
     void readTaskStillPublishesItsFlightEndpoint() {
         QueryStateMachine read = schedulingState();
         ResultEndpoint nativeEndpoint = new ResultEndpoint(
-                "worker", 9000, "read-task", "arrow-flight");
+                "worker", 9000, "read-task", "grpc");
 
         QuerySchedulingEngine.onTaskReady(read,
                 new DispatchQueryContext(Map.of(), "SELECT 1", null), nativeEndpoint);

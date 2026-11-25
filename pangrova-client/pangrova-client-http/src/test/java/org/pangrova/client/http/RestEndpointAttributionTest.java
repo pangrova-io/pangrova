@@ -211,7 +211,8 @@ class RestEndpointAttributionTest {
                 String queryId = exchange.getRequestURI().getPath().split("/")[3];
                 String payload = unavailable
                         ? "{\"error_code\":\"UNAVAILABLE\",\"message\":\"actual endpoint unavailable\"}"
-                        : "{\"query_id\":\"%s\",\"state\":\"RUNNING\"}".formatted(queryId);
+                        : ("{\"query_id\":\"%s\",\"state\":\"RUNNING\","
+                                + "\"result_disposition\":\"PENDING\"}").formatted(queryId);
                 byte[] bytes = payload.getBytes(StandardCharsets.UTF_8);
                 exchange.getResponseHeaders().set("Content-Type", "application/json");
                 exchange.sendResponseHeaders(unavailable ? 503 : 200, bytes.length);

@@ -55,7 +55,7 @@ class ApiVersionHeadersTest {
                             case "/v1/query/unsupported/state" -> """
                                     {"error_code":"API_VERSION_UNSUPPORTED","message":"rejected"}""";
                             default -> """
-                                    {"query_id":"q","state":"RUNNING"}""";
+                                    {"query_id":"q","state":"RUNNING","result_disposition":"PENDING"}""";
                         };
                         var body = payload.getBytes(StandardCharsets.UTF_8);
                         if (!path.equals("/v1/health")) {

@@ -3,6 +3,7 @@ package org.pangrova.client.jdbc;
 import org.pangrova.client.http.QueryExecution;
 import org.pangrova.common.client.exception.PangrovaConnectionException;
 import org.pangrova.common.client.query.QueryStatusResponse;
+import org.pangrova.common.enums.ResultDisposition;
 import org.pangrova.common.enums.QueryWaitTarget;
 import org.pangrova.common.client.result.ResultEndpoint;
 import org.pangrova.common.client.query.SubmitQueryResponse;
@@ -11,7 +12,7 @@ import java.sql.SQLException;
 import java.sql.SQLTimeoutException;
 
 /**
- * Waits for a readable result endpoint, then for the query's terminal outcome.
+ * Waits for a readable result stream or resultless completion, then for terminal outcome.
  *
  * Maps the owner-published query status to JDBC results and errors.
  */
@@ -33,7 +34,7 @@ final class QueryCompletionWaiter {
      * need the client to consume its Flight stream before it can finish.
      *
      * @param queryTimeoutSeconds JDBC query timeout; {@code 0} or less means no timeout
-     * @return the endpoint and whether the query was already terminal
+     * @return the result disposition, endpoint when streaming, and whether the query was terminal
      * @throws SQLTimeoutException if the timeout elapses first; the execution owner cancels the query
      * @throws SQLException        if the query fails or is cancelled server-side
      */
@@ -86,9 +87,12 @@ final class QueryCompletionWaiter {
             throw new SQLException("Query " + response.state().toLowerCase()
                     + ", queryId=" + queryId);
         }
-        if (response.resultEndpoint() != null && isReadableState(response.state())) {
-            return new ReadyEndpoint(response.resultEndpoint(),
+        if (response.resultDisposition() == ResultDisposition.STREAM && isReadableState(response.state())) {
+            return new ReadyEndpoint(ResultDisposition.STREAM, response.resultEndpoint(),
                     STATE_FINISHED.equals(response.state()));
+        }
+        if (response.resultDisposition() == ResultDisposition.NONE && STATE_FINISHED.equals(response.state())) {
+            return new ReadyEndpoint(ResultDisposition.NONE, null, true);
         }
         return null;
     }
@@ -105,7 +109,7 @@ final class QueryCompletionWaiter {
     /**
      * Maps a status response onto either a readable endpoint or a failure.
      *
-     * @return the endpoint when readable, or {@code null} while still scheduling
+     * @return the result when readable, or {@code null} while still scheduling
      */
     private static ReadyEndpoint handleReadableState(QueryStatusResponse status,
                                                      String queryId) throws SQLException {
@@ -116,13 +120,16 @@ final class QueryCompletionWaiter {
         if (STATE_CANCELLED.equals(state)) {
             throw new SQLException("Query was cancelled, queryId=" + queryId);
         }
-        if (STATE_FINISHED.equals(state)) {
-            return new ReadyEndpoint(requireEndpoint(status.resultEndpoint(), queryId), true);
-        }
-        if (status.resultEndpoint() != null && isReadableState(state)) {
-            return new ReadyEndpoint(status.resultEndpoint(), false);
-        }
-        return null;
+        return switch (status.resultDisposition()) {
+            case STREAM -> isReadableState(state)
+                    ? new ReadyEndpoint(ResultDisposition.STREAM, status.resultEndpoint(),
+                        STATE_FINISHED.equals(state))
+                    : null;
+            case NONE -> STATE_FINISHED.equals(state)
+                    ? new ReadyEndpoint(ResultDisposition.NONE, null, true)
+                    : null;
+            case PENDING -> null;
+        };
     }
 
     private static boolean isReadableState(String state) {
@@ -130,16 +137,7 @@ final class QueryCompletionWaiter {
                 || STATE_FINISHED.equals(state);
     }
 
-    record ReadyEndpoint(ResultEndpoint endpoint, boolean terminal) {}
-
-    private static ResultEndpoint requireEndpoint(ResultEndpoint endpoint,
-                                                  String queryId) throws SQLException {
-        if (endpoint == null) {
-            throw new SQLException(
-                    "Query finished but no result endpoint available, queryId=" + queryId);
-        }
-        return endpoint;
-    }
+    record ReadyEndpoint(ResultDisposition disposition, ResultEndpoint endpoint, boolean terminal) {}
 
     private static SQLException failedQueryException(QueryStatusResponse status, String queryId) {
         String errorMsg = status.error() != null

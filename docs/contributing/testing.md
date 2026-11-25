@@ -936,12 +936,13 @@ Preconditions:
 
 Test steps:
   1. Client submits SELECT * FROM orders ORDER BY amount LIMIT 10
-  2. Verify SubmitQueryResponse contains resultEndpoint (Output Worker address)
-  3. Client connects directly to the Output Worker Arrow Flight endpoint
+  2. If result_disposition is PENDING, poll live state until STREAM; NONE is invalid for this SELECT
+  3. Verify STREAM carries result_endpoint (Output Worker address) and connect to that Arrow Flight endpoint
   4. Verify the Coordinator process memory has no RecordBatch allocations
 
 Verification points:
-  - [02 §3.3] resultEndpoint points to the Output Worker, not the Coordinator
+  - [02 §3.3] result_endpoint points to the Output Worker, not the Coordinator
+  - [02 §3.3] endpoint publication and STREAM are visible in the same status version
   - [02 §3.3] Coordinator does zero data processing (monitor JVM heap for no Arrow buffer allocations)
   - [02 §3.3] Backpressure propagation: Client pauses consumption → Output Worker pauses → Compute Worker pauses
 

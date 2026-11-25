@@ -197,7 +197,7 @@ class DAGDispatchEngineCompleteWithLastResultTest {
 
     private static DispatchResult dispatchResult(String workerHost, String taskId) {
         return new DispatchResult(workerHost, taskId,
-                new ResultEndpoint("localhost", 8080, "ticket-1", "http"));
+                new ResultEndpoint("localhost", 8080, "ticket-1", "grpc"));
     }
 
     private static org.pangrova.planner.analysis.PlanFragment dummyFragment() {

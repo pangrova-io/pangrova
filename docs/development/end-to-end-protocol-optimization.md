@@ -10,7 +10,7 @@ unlisted: true
 
 优先改造两个会随数据量或流量放大的路径。**第一，远端 Shuffle 消费每个 batch 都同步查 PostgreSQL，连读请求也会拿 execution anchor 共享锁和 query scope 排他行锁。第二，任务控制面以 JSON 承载 Base64 Protobuf，在绑定、HTTP、Worker Java 与 JNI 之间重复编解码。** 紧随其后的是跨 Coordinator 状态轮询读 journal、Worker ACK 和报告线程耦合，以及大结果整段解码。真正的 AQE、扫描和分布式输出决定大查询的吞吐上限，先建立正确的分区覆盖和字节预算，再做结构性改造。
 
-代码证据来自 2026-11-21 当前 Pangrova 工作树。同步往返、复制点和事务粒度可静态确认。生产关键路径占比和收益须用同源部署归因。既有线性分片微测和 Worker 线程池隔离实验见 [全链路性能分析与修复方案](./performance-remediation-plan.md)。
+代码证据来自 2026-11-21 的 Pangrova 工作树，属于历史调用链基线。同步往返、复制点和当时事务粒度可静态确认，但后续 lease/window、事件驱动 drain、owner fencing 和 Profile 实现已改变部分路径。当前未完成项以 [执行链路计划](./execution-clean-cut-plan.md#2026-11-25-代码审计与剩余工作) 的 A/B/C 审计为准；生产关键路径占比和收益仍须用同源部署归因。既有线性分片微测和 Worker 线程池隔离实验见 [全链路性能分析与修复方案](./performance-remediation-plan.md)。
 
 ## 逐节点审查
 
@@ -35,13 +35,13 @@ unlisted: true
 
 ## 改造一 让 PostgreSQL 只承担需要持久权威的工作
 
-### 可复核的数据库调用
+### 可复核的数据库调用（历史基线与当前边界）
 
-- **Shuffle 读取。** `ShuffleServiceEngine.readPayload` 每个 batch 调一次 `PostgresShuffleStore.requirePinnedRead`。在 PostgreSQL provider，这个事务执行 execution anchor SELECT、query scope 锁定读取、pin expiry SELECT。含 `B` 个 batch 的单次成功分区读取，仅这个检查就产生 `B` 笔事务和 `3B` 条读取语句。每个 metadata page 另有同一个 pin 检查和 `PostgresShuffleBatchStore.readFinalizedPage` 的事务，打开流还要检查 allocation/finalization 并建立 pin。读端的热锁与写入或清理会竞争。该计数来自调用链，需以 JDBC trace 在不同模式、缓存和失败路径复核。
-- **Shuffle 写入。** `beginWriteIntent` 与 `completeWriteIntent` 每 batch 各一个事务。两者经 `lockWritableAllocation` 共享锁范围，完成事务还读已存在 batch、winner 和 next sequence。逐 batch 所有权与顺序保证有必要，持久化单位可以在证明等价后调整。
-- **查询状态。** `QueryManager.getQueryStateWithJournalFallback` 对本地 miss 走 `JdbcQueryStateJournal.latestQueryEvent`，每个 miss 一条按 queryId 查末条事件的 SELECT。每秒 `R` 次 peer 轮询可产生约 `R` 次读，客户端退避只改变斜率。Profile/audit 诊断异步查历史数据，单独计量。
-- **持久 journal 的写后读。** `JournalEventSql.write` 对 query 和 task 事件执行 `INSERT ... ON CONFLICT DO NOTHING` 后总是按 event ID 查回整行。无冲突时同样读取并解析 payload。虽然 flush 把多个事件放在同一笔事务，现有实现仍为每个常规事件逐条送出 INSERT 和 SELECT。
-- **目录与提交。** 固定快照已有显式 read binding，审核是否在 connector 中继续重复加载同一目录状态。 `NativeTaskWriteCompletion` 的已提交 fast path 将 `isCommitted` 和 `getEntry` 合并为一次读取，保留 COPY 发布证明和状态机。Worker `ExecutionOwnerFence` 与 Coordinator 调度的本地 anchor 校验均是内存路径，单列而不计为数据库热点。
+- **Shuffle 读取。** 历史调用链中，`ShuffleServiceEngine.readPayload` 每个 batch 调一次 `PostgresShuffleStore.requirePinnedRead`，PostgreSQL provider 执行 execution anchor SELECT、query scope 锁定读取和 pin expiry SELECT，因此 `B` 个 batch 对应 `B` 笔检查事务和 `3B` 条读取语句。该形态已被后续 read lease/window 取代，不再作为当前逐 batch 成本。当前硬门槛是已建立流的数据面逐 batch/chunk 零授权 SQL；建流、续租、关闭、恢复和 durable revocation 单独计数，后者仍见 A11。
+- **Shuffle 写入。** 历史基线为 `beginWriteIntent` 与 `completeWriteIntent` 每 batch 各一个事务、每窗口八条 SQL。当前生产端按最多 128 batch 的 publication window 预留和发布，SQL 成本必须按窗口/流统计，不能继续标为“每 batch 八 SQL”。逐 batch 所有权、顺序和对象完整性约束仍保留。
+- **查询状态。** 本地 owner 的状态读走内存；本地 miss 或显式历史读取可能调用 journal。当前非 owner live wait 尚无可信 owner directory/forward，直接返回 `QUERY_OWNER_UNAVAILABLE`，不能声称跨 Coordinator directed wait 已零读取。Profile/audit 历史读取单独计量。
+- **持久 journal。** 当前 `JournalEventSql` 对 query/task 事件执行 `INSERT ... ON CONFLICT DO NOTHING`，通过 `executeUpdate()` 判断插入；只有 event ID 冲突时才 SELECT 整行核对。正常新事件没有独立读回。`INSERT ... RETURNING` 是历史设计验证和 A1 的可选方案，不是当前实现。
+- **目录与提交。** 固定快照已有显式 read binding。`NativeTaskWriteCompletion` 的已提交 fast path 合并状态读取并保留 COPY 发布证明；Worker `ExecutionOwnerFence` 与 Coordinator 本地 anchor 校验是内存路径。普通 distributed write 的长期 receipt retention 仍见 A12。
 
 ### 目标设计
 

@@ -385,7 +385,7 @@ class QueryManagerDrainConcurrencyTest {
                                       QuerySession session) {
             sm.toFinisher().run();
             return CompletableFuture.completedFuture(new DispatchResult(
-                    "local", "task-local", new ResultEndpoint("local", 0, "/results/local", "http")));
+                    "local", "task-local", new ResultEndpoint("local", 0, "/results/local", "grpc")));
         }
     }
 

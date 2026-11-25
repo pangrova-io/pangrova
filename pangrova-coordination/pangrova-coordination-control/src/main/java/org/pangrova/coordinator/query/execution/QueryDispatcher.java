@@ -288,17 +288,19 @@ public class QueryDispatcher implements org.pangrova.query.lifecycle.QueryExecut
 
     @Override
     public QueryDispatchOutcome dispatch(QueryStateMachine sm, String sql, QuerySession session) {
-        return dispatchOutcome(execute(sm, sql, session));
+        execute(sm, sql, session);
+        return dispatchOutcome(sm);
     }
 
     @Override
     public CompletionStage<QueryDispatchOutcome> dispatchAsync(
             QueryStateMachine sm, String sql, QuerySession session) {
-        return executeAsync(sm, sql, session).thenApply(QueryDispatcher::dispatchOutcome);
+        return executeAsync(sm, sql, session).thenApply(ignored -> dispatchOutcome(sm));
     }
 
-    private static QueryDispatchOutcome dispatchOutcome(DispatchResult result) {
-        return result == null ? null : new QueryDispatchOutcome(result.resultEndpoint());
+    private static QueryDispatchOutcome dispatchOutcome(QueryStateMachine state) {
+        var status = state.status();
+        return new QueryDispatchOutcome(status.disposition(), status.endpoint());
     }
 
     @Override

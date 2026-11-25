@@ -21,6 +21,7 @@ import org.pangrova.server.coordinator.exception.RecordedSubmissionException;
 
 import jakarta.ws.rs.ClientErrorException;
 import org.junit.jupiter.api.Test;
+import org.pangrova.common.enums.ResultDisposition;
 import org.pangrova.common.client.query.SubmitQueryRequest;
 import org.pangrova.common.client.query.SubmitQueryResponse;
 import org.pangrova.common.client.result.ResultEndpoint;
@@ -42,7 +43,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class IdempotencyKeyRegistryTest {
     private static final SubmitQueryRequest REQUEST = new SubmitQueryRequest("SELECT 1", Map.of());
     private static final SubmitQueryResponse RECEIPT = new SubmitQueryResponse("q-1", "FINISHED",
-            new ResultEndpoint("worker", 10, "original-ticket", "flight"), List.of("column"));
+            ResultDisposition.STREAM, new ResultEndpoint("worker", 10, "original-ticket", "grpc"),
+            List.of("column"));
 
     @Test
     void sharesFullReceiptAndSeparatesPrincipalsAndKeys() {
@@ -93,7 +95,8 @@ class IdempotencyKeyRegistryTest {
         assertThat(retry).isCompletedWithValue(RECEIPT);
 
         clock.advance(Duration.ofMillis(101));
-        var fresh = new SubmitQueryResponse("q-2", "RUNNING", null, List.of());
+        var fresh = new SubmitQueryResponse(
+                "q-2", "RUNNING", ResultDisposition.PENDING, null, List.of());
         assertThat(registry.submit("alice", "key", REQUEST, () -> CompletableFuture.completedFuture(fresh))
                 .toCompletableFuture()).isCompletedWithValue(fresh);
     }
@@ -123,7 +126,8 @@ class IdempotencyKeyRegistryTest {
         clock.advance(Duration.ofMillis(1));
         registry.submit("alice", "reused", REQUEST, () -> CompletableFuture.completedFuture(RECEIPT));
         clock.advance(Duration.ofMillis(100));
-        var replacement = new SubmitQueryResponse("q-replacement", "RUNNING", null, List.of());
+        var replacement = new SubmitQueryResponse(
+                "q-replacement", "RUNNING", ResultDisposition.PENDING, null, List.of());
         assertThat(registry.submit("alice", "reused", REQUEST, () -> CompletableFuture.completedFuture(replacement))
                 .toCompletableFuture()).isCompletedWithValue(replacement);
 

@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.client.http.PangrovaRestClient;
 import org.pangrova.common.client.session.RetryPolicy;
 import org.pangrova.common.enums.QueryWaitTarget;
+import org.pangrova.common.enums.ResultDisposition;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.query.api.enums.QueryState;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
@@ -109,11 +110,9 @@ class AsyncSubmitSaturationE2ETest extends SqlE2ETestBase {
             long deadline = System.currentTimeMillis() + Duration.ofSeconds(20).toMillis();
             var terminal = execution.awaitStatus(QueryWaitTarget.TERMINAL, deadline);
             assertThat(terminal.state()).isEqualTo("FINISHED");
-            if (terminal.resultEndpoint() != null) {
-                try (var result = client.openResult(terminal.resultEndpoint(), deadline)) {
-                    assertThat(result.next()).isFalse();
-                }
-            }
+            assertThat(terminal.resultDisposition()).isEqualTo(
+                    org.pangrova.common.enums.ResultDisposition.NONE);
+            assertThat(terminal.resultEndpoint()).isNull();
             return execution.submission().queryId();
         }
     }
@@ -181,10 +180,15 @@ class AsyncSubmitSaturationE2ETest extends SqlE2ETestBase {
 
     private static String readConstant(PangrovaRestClient client, long value) throws Exception {
         var execution = client.beginQuery("SELECT CAST(" + value + " AS BIGINT) AS answer", Map.of());
-        var endpoint = execution.submission().resultEndpoint();
-        assertThat(endpoint).isNotNull();
         long deadline = System.currentTimeMillis() + Duration.ofSeconds(20).toMillis();
-        try (var result = client.openResult(endpoint, deadline)) {
+        var ready = execution.awaitStatus(QueryWaitTarget.RESULT_OR_TERMINAL, deadline);
+        while (ready.resultDisposition() == ResultDisposition.PENDING) {
+            assertThat(ready.state()).isNotIn("FAILED", "CANCELLED", "FINISHED");
+            ready = execution.awaitStatus(QueryWaitTarget.RESULT_OR_TERMINAL, deadline);
+        }
+        assertThat(ready.resultDisposition()).isEqualTo(ResultDisposition.STREAM);
+        assertThat(ready.resultEndpoint()).isNotNull();
+        try (var result = client.openResult(ready.resultEndpoint(), deadline)) {
             assertThat(result.next()).isTrue();
             assertThat(((Number) result.value(0)).longValue()).isEqualTo(value);
             assertThat(result.next()).isFalse();

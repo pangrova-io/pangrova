@@ -194,7 +194,8 @@ public final class QueryResource {
         }
         Optional<QueryState> state = queryManager.getHistoricalQueryState(queryId, principal);
         if (state.isPresent()) {
-            response.resume(Response.ok(QueryStatusResponse.of(queryId, state.get().name(), null, null)).build());
+            response.resume(Response.ok(QueryStatusResponse.historical(
+                    queryId, state.get().name())).build());
         } else {
             response.resume(queryNotFound(queryId));
         }
@@ -208,7 +209,7 @@ public final class QueryResource {
     private static Response statusResponse(String queryId, QueryStateMachine.Status status) {
         ErrorDetail error = status.error() == null ? null : QueryResponseMapper.failure(status.error());
         return Response.ok(new QueryStatusResponse(queryId, status.state().name(),
-                error, null, status.endpoint(), status.version(), status.drained())).build();
+                error, null, status.disposition(), status.endpoint(), status.version(), status.drained())).build();
     }
 
     /** Requests cancellation of a running query. */

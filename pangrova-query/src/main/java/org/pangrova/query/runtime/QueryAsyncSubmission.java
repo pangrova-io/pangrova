@@ -19,6 +19,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import org.pangrova.common.enums.ResultDisposition;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.observability.logging.LogContext;
@@ -58,7 +59,10 @@ final class QueryAsyncSubmission {
         endpoint.thenRun(() -> context.ready().complete(SubmissionReadiness.READY));
         write.thenRun(() -> context.ready().complete(SubmissionReadiness.READY));
         terminal.thenAccept(current -> {
-            if ((current == QueryState.FAILED && state.getError().isPresent()) || current == QueryState.CANCELLED) {
+            if ((current == QueryState.FAILED && state.getError().isPresent())
+                    || current == QueryState.CANCELLED
+                    || current == QueryState.FINISHED
+                        && state.status().disposition() == ResultDisposition.NONE) {
                 context.ready().complete(SubmissionReadiness.READY);
             }
         });
@@ -106,8 +110,9 @@ final class QueryAsyncSubmission {
         }
         requireResult(context);
         var state = context.state();
-        return new QuerySubmissionResult(context.queryId(), state.getState(), state.getResultEndpoint().orElse(null),
-                dispatcher.removeColumnNames(context.queryId()), state.branchSelection());
+        var status = state.status();
+        return new QuerySubmissionResult(context.queryId(), status.state(), status.disposition(),
+                status.endpoint(), dispatcher.removeColumnNames(context.queryId()), state.branchSelection());
     }
 
     private Future<?> submit(Context context) {
@@ -190,22 +195,25 @@ final class QueryAsyncSubmission {
         if (failure instanceof RuntimeException rejected) {
             throw rejected;
         }
-        var state = context.state().getState();
+        var status = context.state().status();
+        var state = status.state();
         if (state == QueryState.FAILED || state == QueryState.CANCELLED) {
             throw new PangrovaException(PangrovaErrorCode.RUNTIME_TASK_FAILED,
                     context.state().getError().map(QueryFailure::message)
-                            .orElse("Query ended before the result endpoint was ready"));
+                            .orElse("Query ended before its result disposition was ready"));
         }
-        if (context.state().getResultEndpoint().isEmpty() && !context.state().isWriteDispatchReady()
+        boolean pendingWriteDispatch = status.disposition() == ResultDisposition.PENDING
+                && context.state().isWriteDispatchReady();
+        if (status.disposition() == ResultDisposition.PENDING && !pendingWriteDispatch
                 || state != QueryState.RUNNING && state != QueryState.FINISHING
                     && state != QueryState.FINISHED) {
             if (!context.state().isTerminal()) {
                 fail(context, "INTERNAL_ERROR", "RESULT_ENDPOINT_UNAVAILABLE",
-                        "Query dispatch completed without a ready result endpoint or write dispatch",
+                        "Query dispatch completed without a resolved result disposition",
                         "async_result_endpoint_unavailable");
             }
             throw new IllegalStateException(
-                    "Query dispatch completed without a ready result endpoint or write dispatch: " + context.queryId());
+                    "Query dispatch completed without a resolved result disposition: " + context.queryId());
         }
     }
 

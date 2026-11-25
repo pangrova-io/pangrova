@@ -4,6 +4,7 @@ import org.pangrova.common.client.result.ResultEndpoint;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.client.error.ErrorDetail;
+import org.pangrova.common.enums.ResultDisposition;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -40,7 +41,7 @@ class ClientProtocolDtoImmutabilityTest {
     void submitQueryResponseColumnNamesIsDefensivelyCopied() {
         List<String> mutable = new ArrayList<>(List.of("col1", "col2"));
         SubmitQueryResponse resp = new SubmitQueryResponse(
-                "q-1", "RUNNING", null, mutable);
+                "q-1", "RUNNING", ResultDisposition.PENDING, null, mutable);
 
         mutable.add("injected");
 
@@ -52,7 +53,7 @@ class ClientProtocolDtoImmutabilityTest {
     @Test
     void submitQueryResponseNullColumnNamesBecomesEmptyList() {
         SubmitQueryResponse resp = new SubmitQueryResponse(
-                "q-1", "RUNNING", null, null);
+                "q-1", "RUNNING", ResultDisposition.PENDING, null, null);
         assertThat(resp.columnNames()).isEmpty();
     }
 

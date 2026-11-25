@@ -26,6 +26,7 @@ import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.query.api.lifecycle.QueryOperation;
 import org.pangrova.query.api.error.QueryFailure;
 import org.pangrova.query.api.exception.QueryRejectedException;
+import org.pangrova.common.enums.ResultDisposition;
 import org.pangrova.common.client.result.ResultEndpoint;
 import org.pangrova.query.api.journal.QueryStateEvent;
 
@@ -57,7 +58,8 @@ public class QueryStateMachine {
             QueryState.CANCELLED, Set.of()
     );
 
-    private volatile Status status = new Status(0, QueryState.QUEUED, null, null, false);
+    private volatile Status status =
+            new Status(0, QueryState.QUEUED, null, ResultDisposition.PENDING, null, false);
     private Map<QueryWaitTarget, Set<CompletableFuture<Status>>> statusWaiters;
     private final Instant createdAt = Instant.now();
     private volatile String tenantId;
@@ -147,7 +149,8 @@ public class QueryStateMachine {
         synchronized (this) {
             Status previous = status;
             if (previous.drained()) return false;
-            change = publishStatus(previous.state(), previous.error(), previous.endpoint(), true);
+            change = publishStatus(previous.state(), previous.error(), previous.disposition(),
+                    previous.endpoint(), true);
         }
         change.notifyWaiters();
         return true;
@@ -341,7 +344,8 @@ public class QueryStateMachine {
             Status previous = status;
             QueryFailure failure = previous.error();
             if (target == QueryState.FAILED && failure == null) failure = failureError;
-            change = publishStatus(target, failure, previous.endpoint(), previous.drained());
+            change = publishStatus(target, failure, previous.disposition(),
+                    previous.endpoint(), previous.drained());
             terminalTransitionPending = null;
             pendingTransitionTarget = null;
         }
@@ -460,7 +464,8 @@ public class QueryStateMachine {
         synchronized (this) {
             Status previous = status;
             if (previous.error() != null) return;
-            change = publishStatus(previous.state(), errorDetail, previous.endpoint(), previous.drained());
+            change = publishStatus(previous.state(), errorDetail, previous.disposition(),
+                    previous.endpoint(), previous.drained());
         }
         change.notifyWaiters();
     }
@@ -476,32 +481,64 @@ public class QueryStateMachine {
         synchronized (this) {
             Status previous = status;
             if (resultEndpoint.equals(previous.endpoint())) return;
-            change = publishStatus(previous.state(), previous.error(), resultEndpoint, previous.drained());
+            if (previous.disposition() == ResultDisposition.NONE) {
+                throw new IllegalStateException("A resultless query cannot publish a result endpoint");
+            }
+            change = publishStatus(previous.state(), previous.error(), ResultDisposition.STREAM,
+                    resultEndpoint, previous.drained());
         }
         completeResultEndpointReadiness();
         change.notifyWaiters();
     }
 
+    /** Publishes that this query intentionally has no client result stream. */
+    public void markNoResult() {
+        StatusChange change;
+        synchronized (this) {
+            Status previous = status;
+            if (previous.disposition() == ResultDisposition.NONE) {
+                return;
+            }
+            if (previous.disposition() == ResultDisposition.STREAM) {
+                throw new IllegalStateException("A streaming query cannot discard its result endpoint");
+            }
+            change = publishStatus(previous.state(), previous.error(), ResultDisposition.NONE,
+                    null, previous.drained());
+        }
+        change.notifyWaiters();
+    }
+
     private void completeResultEndpointReadiness() {
         Status snapshot = status;
-        ResultEndpoint endpoint = snapshot.endpoint();
         QueryState current = snapshot.state();
-        if (endpoint != null && (current == QueryState.RUNNING
+        if (snapshot.disposition() == ResultDisposition.STREAM
+                && (current == QueryState.RUNNING
                 || current == QueryState.FINISHING || current == QueryState.FINISHED)) {
-            resultEndpointReady.complete(endpoint);
+            resultEndpointReady.complete(snapshot.endpoint());
         }
     }
 
-    /** Coherent state, result authority and physical-release evidence for one query owner. */
-    public record Status(long version, QueryState state, QueryFailure error, ResultEndpoint endpoint,
-                         boolean drained) {
+    /** Coherent state, result disposition, authority and physical-release evidence for one query owner. */
+    public record Status(long version, QueryState state, QueryFailure error,
+                         ResultDisposition disposition, ResultEndpoint endpoint, boolean drained) {
+        public Status {
+            if (disposition == null) {
+                throw new IllegalArgumentException("disposition must not be null");
+            }
+            disposition.validateEndpoint(endpoint);
+            if (disposition == ResultDisposition.PENDING && TRANSITIONS.get(state).isEmpty()) {
+                throw new IllegalArgumentException("PENDING must not survive terminal completion");
+            }
+        }
+
         /** Checks whether this owner projection can satisfy the client's requested continuation. */
         public boolean reaches(QueryWaitTarget target, long observedVersion) {
             boolean terminal = TRANSITIONS.get(state).isEmpty();
             return switch (target) {
                 case NEXT_VERSION -> version != observedVersion;
                 case RESULT_OR_TERMINAL -> terminal
-                        || (endpoint != null && (state == QueryState.RUNNING || state == QueryState.FINISHING));
+                        || (disposition == ResultDisposition.STREAM
+                            && (state == QueryState.RUNNING || state == QueryState.FINISHING));
                 case TERMINAL -> terminal;
                 case DRAINED -> drained;
             };
@@ -532,10 +569,15 @@ public class QueryStateMachine {
         if (statusWaiters.isEmpty()) statusWaiters = null;
     }
 
-    private StatusChange publishStatus(QueryState state, QueryFailure error, ResultEndpoint endpoint,
-            boolean drained) {
+    private StatusChange publishStatus(QueryState state, QueryFailure error,
+            ResultDisposition disposition, ResultEndpoint endpoint, boolean drained) {
         long previousVersion = status.version();
-        var next = new Status(Math.incrementExact(previousVersion), state, error, endpoint, drained);
+        ResultDisposition publishedDisposition =
+                TRANSITIONS.get(state).isEmpty() && disposition == ResultDisposition.PENDING
+                        ? ResultDisposition.NONE
+                        : disposition;
+        var next = new Status(Math.incrementExact(previousVersion), state, error,
+                publishedDisposition, endpoint, drained);
         status = next;
         if (statusWaiters == null) return StatusChange.UNOBSERVED;
         List<Set<CompletableFuture<Status>>> released = null;

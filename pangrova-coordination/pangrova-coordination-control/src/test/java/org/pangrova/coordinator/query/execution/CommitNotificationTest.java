@@ -60,7 +60,7 @@ class CommitNotificationTest {
         List<StageDispatchRecord> dispatched = List.of(
                 new StageDispatchRecord(1,
                         new DispatchResult("worker-b", "task-1-0",
-                                new ResultEndpoint("worker-b", 8816, "q-commit", "grpc-transport")),
+                                new ResultEndpoint("worker-b", 8816, "q-commit", "grpc")),
                         8080, 8816)
         );
 
