@@ -20,7 +20,7 @@ CREATE TABLE artifact_snapshot_pins (
     CONSTRAINT uq_snapshot_pin_generation UNIQUE
         (tenant_id, index_id, generation, source_snapshot),
     CONSTRAINT fk_snapshot_pin_job FOREIGN KEY (tenant_id, job_id)
-        REFERENCES artifact_build_jobs(tenant_id, job_id) ON DELETE SET NULL,
+        REFERENCES artifact_build_jobs(tenant_id, job_id) ON DELETE SET NULL (job_id),
     CONSTRAINT chk_snapshot_pin_generation CHECK (generation >= 0),
     CONSTRAINT chk_snapshot_pin_state CHECK
         (state IN ('INTENDED', 'PINNED', 'RELEASING', 'RELEASED')),
