@@ -390,6 +390,15 @@ class RuntimeScopeTest(unittest.TestCase):
                                 job.index('Setup native build environment'))
                 self.assertIn('--prepared-java "$RUNNER_TEMP/native-java-fixture"', job)
 
+    def test_native_fixture_uses_bounded_maven_transport_backoff(self):
+        action = (ROOT / '.github/actions/prepare-native-java-fixture/action.yml').read_text()
+        self.assertIn('-Daether.connector.basic.threads=2', action)
+        self.assertIn('-Daether.connector.http.retryHandler.count=3', action)
+        self.assertIn('-Daether.connector.http.retryHandler.interval=30000', action)
+        self.assertIn('-Daether.connector.http.retryHandler.intervalMax=120000', action)
+        self.assertEqual(action.count('--prepare-java '), 1)
+        self.assertNotIn('continue-on-error', action)
+
     @staticmethod
     def _cache_steps(section):
         steps = re.split(r'\n      - name: ', section)[1:]
