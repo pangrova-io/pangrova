@@ -33,6 +33,8 @@ public final class IndexBuildCoordinator implements AutoCloseable {
     private final ExecutorService executor;
     private final boolean ownsExecutor;
     private final int maxConcurrentBuilds;
+    private final int maxConcurrentBuildsPerTenant;
+    private final java.util.Map<String, Integer> activeBuildsByTenant = new java.util.HashMap<>();
     private final int batchFlushSize;
     private final AtomicInteger activeBuilds = new AtomicInteger();
     private final Object lifecycleLock = new Object();
@@ -54,6 +56,7 @@ public final class IndexBuildCoordinator implements AutoCloseable {
                 ? ManagedExecutorFactory.newFixedThreadPool("index-build", context.config().buildThreadPoolSize())
                 : context.buildExecutor();
         maxConcurrentBuilds = context.config().buildParallelism();
+        maxConcurrentBuildsPerTenant = context.config().runtime().build().maxConcurrentPerTenant();
         batchFlushSize = context.config().batchFlushSize();
     }
 
@@ -93,19 +96,65 @@ public final class IndexBuildCoordinator implements AutoCloseable {
                 return rejectedFuture(descriptor.indexId(), "coordinator_closed");
             }
             builds.add(attempt);
-            if (paused) {
+            if (paused || !hasCapacity(attempt.request.descriptor().tenantId())) {
                 pendingBuilds.add(attempt);
-                LOG.info("event=index_build_deferred indexId={} reason=paused", descriptor.indexId());
-                return attempt.future;
+                LOG.info("event=index_build_deferred indexId={} tenant={} reason=paused_or_at_capacity",
+                        descriptor.indexId(), descriptor.tenantId());
+            } else {
+                attempt.markStarted();
+                attempt.markCapacityReserved();
+                reserveCapacity(attempt.request.descriptor().tenantId());
+                dispatch(attempt);
             }
+            return attempt.future;
         }
-        dispatch(attempt);
-        return attempt.future;
     }
 
     /** Returns whether a new build can be dispatched immediately. */
     public boolean canAcceptBuild() {
         return !closed && !paused && activeBuilds.get() < maxConcurrentBuilds;
+    }
+
+    /** Returns whether a tenant build can be dispatched immediately. */
+    public boolean canAcceptBuild(String tenantId) {
+        synchronized (lifecycleLock) {
+            return canAcceptBuild() && activeBuildsByTenant.getOrDefault(tenantId, 0)
+                    < maxConcurrentBuildsPerTenant;
+        }
+    }
+
+    private boolean hasCapacity(String tenantId) {
+        return activeBuilds.get() < maxConcurrentBuilds
+                && activeBuildsByTenant.getOrDefault(tenantId, 0) < maxConcurrentBuildsPerTenant;
+    }
+
+    private void reserveCapacity(String tenantId) {
+        synchronized (lifecycleLock) {
+            activeBuilds.incrementAndGet();
+            activeBuildsByTenant.merge(tenantId, 1, Integer::sum);
+        }
+    }
+
+    private void releaseCapacity(BuildAttempt attempt) {
+        synchronized (attempt.lifecycleLock) {
+            if (!attempt.capacityReserved) {
+                return;
+            }
+            attempt.capacityReserved = false;
+        }
+        releaseCapacity(attempt.request.descriptor().tenantId());
+    }
+
+    private void releaseCapacity(String tenantId) {
+        synchronized (lifecycleLock) {
+            activeBuilds.decrementAndGet();
+            int remaining = activeBuildsByTenant.getOrDefault(tenantId, 0) - 1;
+            if (remaining <= 0) {
+                activeBuildsByTenant.remove(tenantId);
+            } else {
+                activeBuildsByTenant.put(tenantId, remaining);
+            }
+        }
     }
 
     /** Cancels queued work and marks active work for cooperative cancellation. */
@@ -120,6 +169,7 @@ public final class IndexBuildCoordinator implements AutoCloseable {
                     .toList();
         }
         selected.forEach(this::cancelAttempt);
+        dispatchPendingBuilds();
         LOG.info("event=index_build_cancelled indexId={}", indexId);
     }
 
@@ -135,19 +185,36 @@ public final class IndexBuildCoordinator implements AutoCloseable {
 
     /** Resumes dispatch of the requests already queued when this call acquires the lifecycle lock. */
     public void resumePendingBuilds() {
-        List<BuildAttempt> resumed = new ArrayList<>();
         synchronized (lifecycleLock) {
             if (closed) {
                 return;
             }
             paused = false;
-            BuildAttempt pending;
-            while ((pending = pendingBuilds.poll()) != null) {
-                resumed.add(pending);
+        }
+        dispatchPendingBuilds();
+        LOG.info("event=index_build_resumed pendingBuilds={}", pendingBuilds.size());
+    }
+
+    private void dispatchPendingBuilds() {
+        List<BuildAttempt> ready = new ArrayList<>();
+        synchronized (lifecycleLock) {
+            int pending = pendingBuilds.size();
+            for (int index = 0; index < pending; index++) {
+                BuildAttempt attempt = pendingBuilds.poll();
+                if (attempt == null) break;
+                if (attempt.future.isDone() || attempt.stopped()) {
+                    forget(attempt);
+                } else if (!paused && hasCapacity(attempt.request.descriptor().tenantId())) {
+                    attempt.markStarted();
+                    attempt.markCapacityReserved();
+                    reserveCapacity(attempt.request.descriptor().tenantId());
+                    ready.add(attempt);
+                } else {
+                    pendingBuilds.add(attempt);
+                }
             }
         }
-        resumed.forEach(this::dispatch);
-        LOG.info("event=index_build_resumed resumedBuilds={}", resumed.size());
+        ready.forEach(this::dispatch);
     }
 
     @Override
@@ -177,7 +244,13 @@ public final class IndexBuildCoordinator implements AutoCloseable {
 
     private void cancelAttempt(BuildAttempt attempt) {
         if (attempt.cancel()) {
-            forget(attempt);
+            if (attempt.waiting()) {
+                releaseCapacity(attempt);
+                forget(attempt);
+            }
+        }
+        if (!closed) {
+            dispatchPendingBuilds();
         }
     }
 
@@ -190,28 +263,25 @@ public final class IndexBuildCoordinator implements AutoCloseable {
 
     private void dispatch(BuildAttempt attempt) {
         if (attempt.future.isDone()) {
+            releaseCapacity(attempt);
             forget(attempt);
+            dispatchPendingBuilds();
             return;
         }
-        activeBuilds.incrementAndGet();
         try {
             executor.execute(() -> runAndComplete(attempt));
         } catch (RejectedExecutionException rejectedExecutionException) {
-            activeBuilds.decrementAndGet();
+            releaseCapacity(attempt);
             recordError(0, IndexBuildError.REJECTED);
             LOG.warn("event=index_build_rejected indexId={} reason=executor_rejected",
                     attempt.request.descriptor().indexId());
             attempt.complete(IndexBuildResult.rejected());
             forget(attempt);
+            dispatchPendingBuilds();
         }
     }
 
     private void runAndComplete(BuildAttempt attempt) {
-        if (!attempt.start()) {
-            activeBuilds.decrementAndGet();
-            forget(attempt);
-            return;
-        }
         long startedAt = System.currentTimeMillis();
         buildStarted();
         try {
@@ -231,8 +301,9 @@ public final class IndexBuildCoordinator implements AutoCloseable {
             attempt.fail(runtimeException);
         } finally {
             buildFinished();
-            activeBuilds.decrementAndGet();
+            releaseCapacity(attempt);
             forget(attempt);
+            dispatchPendingBuilds();
         }
     }
 
@@ -263,7 +334,7 @@ public final class IndexBuildCoordinator implements AutoCloseable {
                 recordError(System.currentTimeMillis() - startedAt, IndexBuildError.STALE_GENERATION);
                 return IndexBuildResult.staleGeneration();
             }
-            pinBuildSnapshot(descriptor);
+            pinBuildSnapshot(attempt);
             return buildFiles(attempt);
         } catch (RuntimeException | Error buildFailure) {
             failure = buildFailure;
@@ -401,7 +472,8 @@ public final class IndexBuildCoordinator implements AutoCloseable {
         return checker == null || checker.isCurrentGeneration(descriptor.indexId(), descriptor.generation());
     }
 
-    private void pinBuildSnapshot(IndexDescriptor descriptor) {
+    private void pinBuildSnapshot(BuildAttempt attempt) {
+        IndexDescriptor descriptor = attempt.request.descriptor();
         if (context.snapshotPinProvider() == null || descriptor.buildSnapshotId() == null
                 || descriptor.buildSnapshotId().isEmpty()) {
             return;
@@ -411,8 +483,9 @@ public final class IndexBuildCoordinator implements AutoCloseable {
                     descriptor.catalogName(),
                     descriptor.schemaName(),
                     descriptor.tableName(),
-                    Long.parseLong(descriptor.buildSnapshotId()),
-                    descriptor.indexId());
+                    descriptor.buildSnapshotId(),
+                    new org.pangrova.connector.api.index.SnapshotPinOwner(
+                            descriptor.indexId(), descriptor.generation(), attempt.attemptId.toString()));
         } catch (RuntimeException runtimeException) {
             LOG.error(
                     "event=index_build_pin_failed indexId={} snapshotId={} error={}",
@@ -459,39 +532,48 @@ public final class IndexBuildCoordinator implements AutoCloseable {
         private final UUID attemptId = UUID.randomUUID();
         private final String ownerId = attemptId.toString();
         private final CompletableFuture<IndexBuildResult> future = new CompletableFuture<>();
+        private final Object lifecycleLock = new Object();
         private boolean started;
         private boolean cancelled;
         private boolean terminalChosen;
+        private boolean capacityReserved;
 
         private BuildAttempt(BuildRequest request) {
             this.request = request;
         }
 
-        synchronized boolean start() {
-            if (terminalChosen || cancelled || future.isDone()) {
-                return false;
+        void markStarted() {
+            synchronized (lifecycleLock) {
+                started = true;
             }
-            started = true;
-            return true;
         }
 
         boolean cancel() {
-            boolean queued;
             synchronized (this) {
-                if (terminalChosen) {
-                    return !started;
+                if (cancelled || future.isDone()) {
+                    return false;
                 }
                 cancelled = true;
-                queued = !started;
-                if (queued) {
+                if (!started) {
                     terminalChosen = true;
                 }
             }
-            // CompletableFuture callbacks may reenter the coordinator or other attempts.
-            if (queued) {
+            if (!started) {
                 future.complete(IndexBuildResult.cancelled());
             }
-            return queued;
+            return true;
+        }
+
+        void markCapacityReserved() {
+            synchronized (lifecycleLock) {
+                capacityReserved = true;
+            }
+        }
+
+        boolean waiting() {
+            synchronized (lifecycleLock) {
+                return !started;
+            }
         }
 
         synchronized boolean stopped() {

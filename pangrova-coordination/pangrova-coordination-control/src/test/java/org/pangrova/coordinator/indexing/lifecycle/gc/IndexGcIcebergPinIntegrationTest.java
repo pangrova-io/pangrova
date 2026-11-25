@@ -92,10 +92,15 @@ class IndexGcIcebergPinIntegrationTest {
                     null, 0, Long.toString(firstSnapshot), Long.toString(firstSnapshot),
                     buildTime, buildTime, "tenant-a");
             indexes.registerIndexWithBuildAuthority(descriptor, "alice");
-            pin.pinSnapshot("cat", "db", "items", firstSnapshot, descriptor.indexId());
-            pin.pinSnapshot("cat", "db", "items", rebuiltSnapshot, descriptor.indexId());
-            assertThat(pin.getPinnedSnapshotsForIndex("cat", "db", "items", descriptor.indexId()))
-                    .containsExactlyInAnyOrder(firstSnapshot, rebuiltSnapshot);
+            var firstOwner = new org.pangrova.connector.api.index.SnapshotPinOwner(
+                    descriptor.indexId(), 0, "attempt-1");
+            var secondOwner = new org.pangrova.connector.api.index.SnapshotPinOwner(
+                    descriptor.indexId(), 1, "attempt-2");
+            pin.pinSnapshot("cat", "db", "items", Long.toString(firstSnapshot), firstOwner);
+            pin.pinSnapshot("cat", "db", "items", Long.toString(rebuiltSnapshot), secondOwner);
+            assertThat(pin.getSnapshotPinsForIndex("cat", "db", "items", descriptor.indexId()))
+                    .extracting(org.pangrova.connector.api.index.SnapshotPinReference::snapshotToken)
+                    .containsExactlyInAnyOrder(Long.toString(firstSnapshot), Long.toString(rebuiltSnapshot));
             Path firstIndexFile = warehouse.resolve("index-files/g0/one.idx");
             Path rebuiltIndexFile = warehouse.resolve("index-files/g1/two.idx");
             Files.createDirectories(firstIndexFile.getParent());
@@ -136,7 +141,7 @@ class IndexGcIcebergPinIntegrationTest {
             assertThat(indexes.getIndexFileMappings(descriptor.indexId())).isEmpty();
             assertThat(Files.exists(firstIndexFile)).isFalse();
             assertThat(Files.exists(rebuiltIndexFile)).isFalse();
-            assertThat(pin.getPinnedSnapshotsForIndex("cat", "db", "items", descriptor.indexId()))
+            assertThat(pin.getSnapshotPinsForIndex("cat", "db", "items", descriptor.indexId()))
                     .isEmpty();
         }
     }
@@ -183,7 +188,9 @@ class IndexGcIcebergPinIntegrationTest {
                         "a".repeat(64), 0, Long.toString(snapshot), 0, old, 0));
                 var directPin = connector.getMetadata(null).getIndexSupport().orElseThrow()
                         .getSnapshotPinProvider().orElseThrow();
-                directPin.pinSnapshot("cat", "db", "items", snapshot, descriptor.indexId());
+                directPin.pinSnapshot("cat", "db", "items", Long.toString(snapshot),
+                        new org.pangrova.connector.api.index.SnapshotPinOwner(
+                                descriptor.indexId(), 0, "attempt-1"));
                 indexes.dropIndex(descriptor.indexId(), old);
                 try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
                     statement.execute("DELETE FROM security_grants WHERE privilege='SELECT'");
@@ -199,7 +206,7 @@ class IndexGcIcebergPinIntegrationTest {
                 }
                 assertThat(indexes.findIndex(descriptor.indexId())).isEmpty();
                 assertThat(Files.exists(indexFile)).isFalse();
-                assertThat(directPin.getPinnedSnapshotsForIndex("cat", "db", "items", descriptor.indexId()))
+                assertThat(directPin.getSnapshotPinsForIndex("cat", "db", "items", descriptor.indexId()))
                         .isEmpty();
             } finally {
                 connector.shutdown();

@@ -1,6 +1,7 @@
 package org.pangrova.testing.testkit.postgres;
 
 import org.flywaydb.core.Flyway;
+import org.flywaydb.core.api.FlywayException;
 import org.junit.jupiter.api.Test;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
@@ -101,6 +102,67 @@ class SchemaMigrationBundleTest extends ContainerTestBase {
             assertThat(rows.next()).isTrue();
             assertThat(rows.getString(1)).isEqualTo("iceberg");
             assertThat(rows.next()).isFalse();
+        }
+    }
+
+    @Test
+    void version121AdoptsPublishedNativeJobsWithPersistedAuthority() throws Exception {
+        var source = SharedPostgres.isolatedDataSource();
+        Flyway.configure().dataSource(source).locations("classpath:db/migration").target("120").load().migrate();
+        insertPublishedNativeJob(source, true);
+
+        var upgraded = Flyway.configure().dataSource(source).locations("classpath:db/migration").load();
+        assertThat(upgraded.migrate().migrationsExecuted).isOne();
+        try (var connection = source.getConnection(); var statement = connection.createStatement();
+                var rows = statement.executeQuery("SELECT state,principal,job_id,attempt_id "
+                        + "FROM artifact_snapshot_pins WHERE tenant_id='tenant-a' AND index_id='artifact-a'")) {
+            assertThat(rows.next()).isTrue();
+            assertThat(rows.getString("state")).isEqualTo("INTENDED");
+            assertThat(rows.getString("principal")).isEqualTo("alice");
+            assertThat(rows.getString("job_id")).isEqualTo("job-a");
+            assertThat(rows.getString("attempt_id")).startsWith("legacy-");
+            assertThat(rows.next()).isFalse();
+        }
+    }
+
+    @Test
+    void version121RejectsPublishedNativeJobsWithoutReplayAuthority() throws Exception {
+        var source = SharedPostgres.isolatedDataSource();
+        Flyway.configure().dataSource(source).locations("classpath:db/migration").target("120").load().migrate();
+        insertPublishedNativeJob(source, false);
+
+        var upgraded = Flyway.configure().dataSource(source).locations("classpath:db/migration").load();
+        assertThatThrownBy(upgraded::migrate)
+                .isInstanceOf(FlywayException.class)
+                .hasMessageContaining("must be resubmitted before V121");
+    }
+
+    private static void insertPublishedNativeJob(javax.sql.DataSource source, boolean scoped) throws Exception {
+        try (var connection = source.getConnection(); var statement = connection.prepareStatement(
+                "INSERT INTO artifact_build_jobs (tenant_id,job_id,artifact_id,artifact_type,"
+                        + "staging_generation,source_id,source_snapshot,staging_uri,format_id,format_major,"
+                        + "format_minor,schema_sha256,writer_build_id,idempotency_key,expected_pages,state,"
+                        + "created_at,updated_at,publication_expected_updated_at,dependency_set_sha256) "
+                        + "VALUES ('tenant-a','job-a','artifact-a','TEXT_INDEX','0','lake.raw.items',"
+                        + "'snapshot-a','s3://warehouse/staging','pangrova.bm25.segment',1,0,"
+                        + "?,'writer-a','job-a',0,'PUBLISHED',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,"
+                        + "CURRENT_TIMESTAMP,?)")) {
+            statement.setString(1, "a".repeat(64));
+            statement.setString(2, "b".repeat(64));
+            statement.executeUpdate();
+        }
+        try (var connection = source.getConnection(); var statement = connection.prepareStatement(
+                "INSERT INTO artifact_build_dispatch_specs (tenant_id,job_id,stage_graph_bytes,"
+                        + "stage_graph_sha256,principal,max_memory_bytes,max_threads,max_spill_bytes,"
+                        + "task_timeout_millis,authorization_scope_bytes) "
+                        + "VALUES ('tenant-a','job-a',decode('00','hex'),?,'alice',1024,1,1024,60000,?)")) {
+            statement.setString(1, "c".repeat(64));
+            if (scoped) {
+                statement.setBytes(2, new byte[] {1});
+            } else {
+                statement.setNull(2, java.sql.Types.BINARY);
+            }
+            statement.executeUpdate();
         }
     }
 

@@ -3,6 +3,7 @@ package org.pangrova.server.coordinator.bootstrap;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.coordination.api.leadership.MaintenanceLeaderAware;
 import org.pangrova.coordinator.resilience.resilience4j.ResilienceRegistry;
+import org.pangrova.coordinator.generation.DurableGenerationPublisher.PollSettings;
 import org.pangrova.governance.api.quality.QualityRuleStore;
 import org.pangrova.governance.runtime.GovernanceContext;
 import org.pangrova.governance.runtime.GovernanceDeps;
@@ -322,10 +323,17 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
     }
 
     void startIndexQuery(org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore metadataStore,
-                         org.pangrova.observability.api.metrics.MetricsProvider metricsProvider) {
+                         org.pangrova.observability.api.metrics.MetricsProvider metricsProvider,
+                         GenerationJobStore artifactBuildStore) {
         try {
+            var accessors = new org.pangrova.coordinator.indexing.connector.ConnectorAccessorResolver(
+                    java.util.Objects.requireNonNull(catalogRegistry, "catalogRegistry"));
+            var snapshotValidator = new org.pangrova.coordinator.indexing.ddl.ArtifactSnapshotPinValidator(
+                    artifactBuildStore,
+                    session -> accessors.forSession(session).resolveSnapshotPinProvider());
             indexQueryBootstrap = new IndexQueryBootstrap(
-                    metadataStore, metricsProvider, INDEX_EVAL_TIMEOUT_MS, 0);
+                    metadataStore, metricsProvider, INDEX_EVAL_TIMEOUT_MS, 0,
+                    catalogRegistry, snapshotValidator::validate);
             LOG.info("Phase: index-query — initialized (query-only split filter)");
         } catch (Exception e) {
             LOG.warn("event=index_query_start_failed error={} action=skip_index_filtering",
@@ -368,7 +376,7 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
                        GenerationPublicationStore artifactPublicationStore) {
         startIndexing(metadataStore, buildClaims, catalog, metricsProvider, accessControl,
                 baseIndexPath, lease, artifactBuildStore,
-                artifactPublicationStore, null);
+                artifactPublicationStore, null, null);
     }
 
     void startIndexing(org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore metadataStore,
@@ -381,10 +389,45 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
                        GenerationJobStore artifactBuildStore,
                        GenerationPublicationStore artifactPublicationStore,
                        org.pangrova.coordinator.indexing.lifecycle.MaintenanceLeaderElection leaderElection) {
+        startIndexing(metadataStore, buildClaims, catalog, metricsProvider, accessControl,
+                baseIndexPath, lease, artifactBuildStore,
+                artifactPublicationStore, leaderElection, null,
+                org.pangrova.coordinator.generation.DurableGenerationPublisher.defaultSettings());
+    }
+
+    void startIndexing(org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore metadataStore,
+                       org.pangrova.persistence.indexing.api.build.IndexBuildClaimRepository buildClaims,
+                       org.pangrova.metadata.catalog.registry.CatalogRegistry catalog,
+                       org.pangrova.observability.api.metrics.MetricsProvider metricsProvider,
+                       org.pangrova.security.api.authorization.AccessControl accessControl,
+                       String baseIndexPath,
+                       org.pangrova.persistence.coordination.api.lease.DistributedLease lease,
+                       GenerationJobStore artifactBuildStore,
+                       GenerationPublicationStore artifactPublicationStore,
+                       org.pangrova.coordinator.indexing.lifecycle.MaintenanceLeaderElection leaderElection,
+                       org.pangrova.indexing.config.IndexingConfig indexingConfig) {
+        startIndexing(metadataStore, buildClaims, catalog, metricsProvider, accessControl,
+                baseIndexPath, lease, artifactBuildStore, artifactPublicationStore,
+                leaderElection, indexingConfig,
+                org.pangrova.coordinator.generation.DurableGenerationPublisher.defaultSettings());
+    }
+
+    void startIndexing(org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore metadataStore,
+                       org.pangrova.persistence.indexing.api.build.IndexBuildClaimRepository buildClaims,
+                       org.pangrova.metadata.catalog.registry.CatalogRegistry catalog,
+                       org.pangrova.observability.api.metrics.MetricsProvider metricsProvider,
+                       org.pangrova.security.api.authorization.AccessControl accessControl,
+                       String baseIndexPath,
+                       org.pangrova.persistence.coordination.api.lease.DistributedLease lease,
+                       GenerationJobStore artifactBuildStore,
+                       GenerationPublicationStore artifactPublicationStore,
+                       org.pangrova.coordinator.indexing.lifecycle.MaintenanceLeaderElection leaderElection,
+                       org.pangrova.indexing.config.IndexingConfig indexingConfig,
+                       PollSettings publicationSettings) {
         try {
             indexingBootstrap = new IndexingBootstrap(
                     baseIndexPath, lease, artifactBuildStore,
-                    artifactPublicationStore, leaderElection);
+                    artifactPublicationStore, leaderElection, indexingConfig, publicationSettings);
             indexingBootstrap.start(metadataStore, buildClaims, catalog, metricsProvider, accessControl);
             LOG.info("Phase: indexing — initialized");
         } catch (Exception e) {

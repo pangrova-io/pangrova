@@ -41,7 +41,7 @@ WITH (
 );
 ```
 
-**With FORCE (rebuild even if exists):**
+**With FORCE (override a conflicting connector-native index capability):**
 
 ```sql
 CREATE INDEX idx_orders_status
@@ -72,13 +72,17 @@ SHOW INDEXES ON prod.analytics.events;
 
 - The index type name after `USING` is an identifier; options in `WITH (...)` are
   type-specific — see each index type's page.
+- `CREATE INDEX IF NOT EXISTS` returns the existing index ID and current state;
+  it does not start a duplicate build. `FORCE` only overrides a conflicting
+  connector-native capability. Use `ALTER INDEX ... REBUILD` to replace an
+  existing index generation.
 - Use `ALTER INDEX ... REBUILD` for an explicit rebuild. The JVM strategy
   contract builds a payload from the supplied file rows. Commit-driven
   maintenance and checkpointing belong to the Coordinator lifecycle.
   The Coordinator checks the active snapshot and its lineage before listing
   files for an incremental rebuild. Events for the active snapshot or a
   known ancestor complete without enumerating their file sets.
-- Scalar index rebuilds write each generation under a distinct `v2/.../gN/`
+- Scalar index rebuilds write each generation under a distinct `v3/.../gN/`
   storage prefix. Publication selects the new generation only after its files
   are complete; retained older mappings continue to refer to their original
   paths until garbage collection. Previously written `v1` paths remain readable

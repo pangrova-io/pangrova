@@ -5,6 +5,8 @@ import org.pangrova.coordinator.indexing.connector.ConnectorAccessorResolver;
 import org.pangrova.persistence.generation.api.job.GenerationJobStore;
 import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
 import org.pangrova.connector.api.index.SnapshotPinProvider;
+import org.pangrova.connector.api.index.SnapshotPinOwner;
+import org.pangrova.connector.api.index.SnapshotPinReference;
 import org.pangrova.indexing.api.enums.IndexState;
 import org.pangrova.security.api.exception.AccessDeniedException;
 
@@ -26,30 +28,38 @@ public final class DeferredSnapshotPinProvider implements SnapshotPinProvider {
     }
 
     @Override
-    public void pinSnapshot(String catalog, String schema, String table, long snapshot, String indexId) {
+    public void pinSnapshot(String catalog, String schema, String table, String snapshot,
+                            SnapshotPinOwner owner) {
+        String indexId = owner.indexId();
         indexes.withIndexLifecycleLock(indexId, () -> {
-            if (!indexes.isIndexSnapshotBuildable(indexId, Long.toString(snapshot))) {
-                throw new AccessDeniedException("Snapshot is not reserved by an exact building index generation");
-            }
             var provider = requireProvider(catalog, schema, table, indexId);
-            provider.pinSnapshot(catalog, schema, table, snapshot, indexId);
+            provider.pinSnapshot(catalog, schema, table, snapshot, owner);
         });
     }
 
     @Override
-    public void unpinSnapshot(String catalog, String schema, String table, long snapshot, String indexId) {
-        var provider = requireProvider(catalog, schema, table, indexId);
-        provider.unpinSnapshot(catalog, schema, table, snapshot, indexId);
+    public void unpinSnapshot(String catalog, String schema, String table, String snapshot,
+                              SnapshotPinOwner owner) {
+        var provider = requireProvider(catalog, schema, table, owner.indexId());
+        provider.unpinSnapshot(catalog, schema, table, snapshot, owner);
     }
 
     @Override
-    public List<Long> getPinnedSnapshotsForIndex(String catalog, String schema, String table, String indexId) {
+    public void validateSnapshotPin(String catalog, String schema, String table, String snapshot,
+                                    SnapshotPinOwner owner) {
+        var provider = requireProvider(catalog, schema, table, owner.indexId());
+        provider.validateSnapshotPin(catalog, schema, table, snapshot, owner);
+    }
+
+    @Override
+    public List<SnapshotPinReference> getSnapshotPinsForIndex(
+            String catalog, String schema, String table, String indexId) {
         return requireProvider(catalog, schema, table, indexId)
-                .getPinnedSnapshotsForIndex(catalog, schema, table, indexId);
+                .getSnapshotPinsForIndex(catalog, schema, table, indexId);
     }
 
     @Override
-    public List<Long> getPinnedSnapshots(String catalog, String schema, String table) {
+    public List<String> getPinnedSnapshots(String catalog, String schema, String table) {
         throw new AccessDeniedException("Deferred snapshot enumeration requires an exact authorized index subject");
     }
 

@@ -1,8 +1,12 @@
 package org.pangrova.persistence.indexing.api.metadata;
 
 import org.pangrova.common.api.annotation.Experimental;
+import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.indexing.api.enums.IndexState;
 import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 
 /** Staging reservations and exact build-generation fences. */
 @Experimental
@@ -23,10 +27,11 @@ public interface IndexBuildGenerations {
             int expectedGeneration);
 
     /**
-     * Fences and records a failed staging generation. Implementations must not
-     * retire or otherwise mutate the active generation.
+     * Fences and records a failed initial or staging generation. Initial builds move
+     * the exact BUILDING descriptor to STALE; online builds fail only the staging row
+     * and leave the active generation untouched.
      *
-     * @return true when the matching BUILDING generation was failed
+     * @return true when the matching initial or staging BUILDING generation was failed
      */
     default boolean failIndexGeneration(
             String indexId,
@@ -45,5 +50,77 @@ public interface IndexBuildGenerations {
     /** Confirms that the exact snapshot is reserved by a currently building generation. */
     default boolean isIndexSnapshotBuildable(String indexId, String snapshotId) {
         throw new UnsupportedOperationException("Durable index build generation fences are required");
+    }
+
+    /**
+     * Lists initial BUILDING descriptors and online BUILDING or failed staging rows.
+     * The claim heartbeat is included so recovery does not mistake a live attempt for
+     * an abandoned one. DROPPED descriptors are never returned.
+     */
+    default List<IndexBuildCandidate> findIndexBuildRecoveryCandidates() {
+        throw new UnsupportedOperationException("Durable index build recovery lookup is required");
+    }
+
+    /**
+     * Atomically fences an abandoned initial or online generation, expires its claim,
+     * and snapshots staging mappings. The cutoff is rechecked against the claim heartbeat
+     * while holding the descriptor and claim locks. No physical file is deleted here.
+     */
+    default Optional<IndexBuildAbandonment> abandonIndexGeneration(
+            String indexId,
+            int generation,
+            Instant expectedUpdatedAt,
+            Instant cutoff,
+            Instant abandonedAt,
+            String reason) {
+        throw new UnsupportedOperationException("Atomic fenced index build abandonment is required");
+    }
+
+    /**
+     * Removes mappings and the FAILED staging row only after physical cleanup and only
+     * while the exact descriptor and failed-generation fences still match. A replacement
+     * attempt or DROP therefore cannot be cleaned up by an older recovery pass.
+     */
+    default boolean completeIndexBuildCleanup(
+            String indexId,
+            int generation,
+            Instant expectedUpdatedAt,
+            Instant expectedBuildUpdatedAt,
+            IndexState expectedState,
+            int expectedGeneration) {
+        throw new UnsupportedOperationException("Fenced index build cleanup is required");
+    }
+
+    /** One durable recovery candidate; initial builds have no separate staging row. */
+    record IndexBuildCandidate(
+            IndexDescriptor descriptor,
+            int generation,
+            String state,
+            Instant updatedAt,
+            Instant claimHeartbeatAt) {
+
+        public IndexBuildCandidate {
+            if (descriptor == null || generation < 0 || state == null || updatedAt == null) {
+                throw new IllegalArgumentException("A complete index build recovery candidate is required");
+            }
+        }
+
+        public Instant lastActivityAt() {
+            return claimHeartbeatAt == null || claimHeartbeatAt.isBefore(updatedAt)
+                    ? updatedAt : claimHeartbeatAt;
+        }
+    }
+
+    /** Committed abandonment evidence; paths exclude objects still referenced by another generation. */
+    record IndexBuildAbandonment(
+            IndexDescriptor descriptor,
+            List<IndexFileMapping> mappings,
+            Set<String> pathsToDelete) {
+
+        public IndexBuildAbandonment {
+            descriptor = java.util.Objects.requireNonNull(descriptor, "descriptor");
+            mappings = List.copyOf(mappings);
+            pathsToDelete = Set.copyOf(pathsToDelete);
+        }
     }
 }

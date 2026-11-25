@@ -9,6 +9,41 @@ description: "Index contracts, build and maintenance paths, and pruning boundari
 > indexes and durable Native retrieval artifacts are implemented paths; lifecycle,
 > provider, and maintenance items explicitly marked remaining are target design.
 
+## Index storage
+
+PostgreSQL is the control-plane authority for descriptors, mappings, generation
+manifests and durable artifact job/page/output metadata. It never stores index
+payload bytes.
+
+- Scalar `.idx` objects live under `indexing.base-path` using
+  `v3/{catalog}/{schema}/{table}/{indexId}/g{generation}/{attemptId}/{hash}.idx`.
+  The Coordinator JVM builds them; the Native Worker reads the exact mapped path
+  and validates size, SHA-256, envelope and CRC.
+- HNSW, IVF-PQ, DiskANN and BM25 segments are written by Native Workers to the
+  generation's staging URI under `indexing.base-path`. Objects are named
+  `{role}-{sha256}.bin`; only their immutable metadata returns to the Coordinator.
+- `worker.native.cache.artifact-path` is a per-Worker, content-addressed local
+  cache at `{sha256-prefix}/{sha256}.bin`. It is quota-bounded and disposable;
+  warm entries are revalidated against the published binding before use.
+- Native build scratch is task-local. Index payloads never become JVM heap
+  objects, and the Worker cache is never a metadata authority.
+
+The base path must be durable and shared by every process that reads or writes
+scalar artifacts. Native artifact staging must use a filesystem/object-store URI
+supported by the Worker. Production installations must isolate tenant access,
+configure retention and backups, and keep automatic maintenance disabled until
+the lifecycle gates pass. Schema V121 adopts already-published Native jobs that
+carry exact persisted dispatch authority as `INTENDED`; maintenance must acquire
+and validate their real connector pins before query retention can use them.
+Published jobs without that authority must be resubmitted before upgrade rather
+than receiving synthetic privileges.
+
+Current hard bounds are 50 MiB per scalar Bloom artifact, 100,000 retrieval
+candidate rows per plan and 1,000,000 source objects per Native build. These are
+fail-closed resource limits, not capacity claims. Oversized inputs retain the
+ordinary SQL path where one exists or fail before dispatch with a specific
+validation error; they never produce a silently partial result.
+
 ## Scope and execution boundary
 
 Pangrova has two deliberately separate index families:
@@ -77,8 +112,12 @@ names are rejected before dispatch.
 2. `DurableIndexBuildService` validates the indexed column and resolves the
    declared algorithm to a canonical build `CapabilityRef` and
    `ArtifactFormatRef`.
-3. The service pins an immutable table snapshot, enumerates source splits and
-   persists source-map, reduction and finalization pages in `GenerationJobStore`.
+3. The service records a durable snapshot-pin intent, pins the immutable table
+   snapshot through the authorized connector, validates the pin, enumerates source
+   splits and persists source-map, reduction and finalization pages in
+   `GenerationJobStore`. An empty table uses a logical empty-snapshot pin without
+   connector I/O. Job creation and the PINNED ledger binding commit in one
+   transaction.
 4. `DurableGenerationDispatcher` leases pages and dispatches normal v2
    `TaskRequest` objects with an `ArtifactWriteBinding`.
 5. A Native worker verifies capability, format, fencing token and resource
@@ -88,9 +127,15 @@ names are rejected before dispatch.
    publish.
 
 Retries reuse stable work-unit identities while attempt IDs and fencing tokens
-advance. No in-memory build state is authoritative.
+advance. No in-memory build state is authoritative. Publication revalidates the
+exact durable and connector pin; cancellation of an expired or revoked job is
+fenced by the current publication owner, epoch and token. Pin cleanup first moves
+a reference-free ledger row to `RELEASING`, so a concurrent execution retention
+either inserts its reference before release or fails closed before dispatch.
 
-Incremental index maintenance observes lineage before opening the snapshot file inventories. For a forward commit, the Connector uses one bound table observation, reads each immutable inventory once and derives the file delta from the same target inventory used for coverage validation. Replayed or superseded snapshots require only the lineage decision. Coverage verification reads only source file paths from the exact generation under review. PostgreSQL filters by index and generation using the existing mapping index.
+Incremental index maintenance observes lineage before opening the snapshot file inventories. For a forward commit, the Connector uses one bound table observation, reads each immutable inventory once and derives the file delta from the same target inventory used for coverage validation. Replayed or superseded snapshots require only the lineage decision.
+
+`IndexGenerationCoverageReader` is the shared coverage authority for periodic consistency checks and commit-driven refresh. Scalar indexes read exact `index_file_mappings` for the active generation. VECTOR and INVERTED indexes instead read the active generation's atomically published `artifact_build_jobs` record and validate its pages, source allocations, output roles, counters and canonical manifest digest before returning source-object paths. Zero-row source partitions remain part of that coverage; scalar mapping counts are never used for Native indexes. Missing, unpublished, corrupt or incomplete Native evidence fails closed and cannot be interpreted as exact coverage. A READY Native generation whose source snapshot and validated source inventory are unchanged does not schedule a replacement on repeated consistency cycles. Forward commits still use connector lineage and file deltas, falling back to a complete replacement only when the predicted target inventory differs.
 
 ## Query flow
 
@@ -135,6 +180,33 @@ relative to the index root. Reads and mapped-file cleanup use the stored path.
 A delayed write by an expired owner can finish in its own directory after takeover
 without changing the replacement’s bytes. Collecting files left by an attempt
 that lost ownership before recording its mapping requires separate orphan tracking.
+
+### Scalar failure and recovery
+
+Initial and online scalar build failures use one reason-preserving generation
+fence. An initial failure moves only the exact `BUILDING` descriptor to `STALE`;
+an online failure marks only the matching staging row `FAILED` and leaves the
+active manifest readable. A DROP, publication, or replacement that wins the race
+causes the late failure to lose its fence, with no unconditional state-update
+fallback.
+
+Startup and periodic recovery inspect initial `BUILDING` descriptors, failed
+initial-generation rows left by a committed failure fence, and `READY`/`STALE`
+descriptors with online `BUILDING` rows. The stuck threshold uses
+the later of the generation timestamp and claim heartbeat. PostgreSQL rechecks
+that threshold while locking the descriptor, staging row and claim, then commits
+the failure fence and claim expiration atomically. Mapping writes and publication
+serialize on the same descriptor authority, so an old attempt cannot write a
+mapping or publish after takeover.
+
+Physical cleanup starts only after that transaction commits. It deletes only
+paths not referenced by another generation, retains mappings and the failed row
+until cleanup succeeds, and removes them under the exact descriptor/failed-row
+fence. Restarting the same generation or dropping the index invalidates an older
+cleanup pass. Recovery then submits a full snapshot-pinned replacement through
+`IndexGenerationRefresher`; concurrent transitions defer safely. Startup recovery
+runs before GC, consistency and commit-driven refresh schedulers start. Native
+retrieval jobs retain their own durable dispatcher/publisher recovery protocol.
 
 The collector prepares one mutation per index and binds typed arrays for each cohort. Cohort size changes only the bound data.
 
@@ -230,6 +302,10 @@ connector decisions must be measured separately.
 - Every object checksum, format identity and row-locator schema is validated.
 - Workers must advertise the exact capability signature and compatible format.
 - Work-page leases and publication fencing reject stale attempts.
+- Durable snapshot-pin intents survive connector/job crash windows. Published
+  retrieval pins are retained by exact live execution anchors while candidates
+  hydrate source rows; superseded, dropped and terminal builds release them only
+  after references drain.
 - Candidate and merge budgets are bounded by the task resource grant.
 - Global Top-K completeness is explicit; partial results are never silently
   presented as complete.

@@ -46,6 +46,7 @@ public final class IndexCommitHandler implements CommitListener, MetadataEventLi
     private final MaintenanceLeaderElection leaderElection;
     private final CommitLogPoller commitLogPoller;
     private final IndexGenerationRefresher generationRefresher;
+    private final IndexGenerationCoverageReader coverageReader;
     private final java.util.concurrent.CopyOnWriteArrayList<CommitListener>
             durableCommitProcessors = new java.util.concurrent.CopyOnWriteArrayList<>();
     private volatile boolean running = true;
@@ -67,6 +68,7 @@ public final class IndexCommitHandler implements CommitListener, MetadataEventLi
             throw new IllegalArgumentException("pollBatchSize must be positive");
         }
         this.generationRefresher = new IndexGenerationRefresher(deps, lifecycleMetrics);
+        this.coverageReader = new IndexGenerationCoverageReader(deps.metadataStore());
         this.commitLogPoller = new CommitLogPoller(
                 deps, leaderElection, pollBatchSize, this::processTableCommit);
     }
@@ -168,7 +170,7 @@ public final class IndexCommitHandler implements CommitListener, MetadataEventLi
         return true;
     }
 
-    private IndexRefreshInput resolveRefreshInput(
+    IndexRefreshInput resolveRefreshInput(
             IndexMetadataStore store,
             SnapshotAwareMetadata snapshotMetadata,
             IndexDescriptor descriptor,
@@ -185,7 +187,7 @@ public final class IndexCommitHandler implements CommitListener, MetadataEventLi
         boolean replace = active.sourceSnapshot().isBlank();
         SnapshotFileDelta delta;
         if (replace) {
-            delta = fullReplacement(store, descriptor, snapshotMetadata.listFilesAtSnapshot(event.snapshotId));
+            delta = fullReplacement(descriptor, active, snapshotMetadata.listFilesAtSnapshot(event.snapshotId));
         } else {
             var advance = snapshotMetadata.observeAdvance(active.sourceSnapshot(), event.snapshotId);
             if (advance.relation() == SnapshotRelation.SAME) return null;
@@ -198,21 +200,20 @@ public final class IndexCommitHandler implements CommitListener, MetadataEventLi
                 markIndexStale(store, descriptor, "source_snapshot_lineage_diverged");
                 return null;
             }
-            delta = validatedDelta(store, descriptor, active, event, advance);
+            delta = validatedDelta(descriptor, active, event, advance);
         }
         return new IndexRefreshInput(event.snapshotId,
                 delta.added().stream().map(IndexCommitHandler::toDataFileInfo).toList(), delta.removed(), replace);
     }
 
     private SnapshotFileDelta validatedDelta(
-            IndexMetadataStore store,
             IndexDescriptor descriptor,
             IndexGenerationManifest active,
             MergedCommitFiles event,
             SnapshotAwareMetadata.SnapshotAdvance advance) {
         var delta = advance.delta();
         var targetFiles = advance.targetFiles();
-        Set<String> indexed = store.getIndexedDataFilePaths(descriptor.indexId(), active.generation());
+        Set<String> indexed = coverageReader.read(descriptor, active);
         Set<String> predicted = new HashSet<>(indexed);
         predicted.removeAll(delta.removed());
         predicted.addAll(delta.added().stream().map(SnapshotDataFile::path).toList());
@@ -225,19 +226,18 @@ public final class IndexCommitHandler implements CommitListener, MetadataEventLi
             if (descriptor.generation() == active.generation()) {
                 return new SnapshotFileDelta(targetFiles, List.copyOf(indexed));
             }
-            return fullReplacement(store, descriptor, targetFiles);
+            return fullReplacement(descriptor, active, targetFiles);
         }
         logEventDrift(descriptor.indexId(), event, delta);
         return delta;
     }
 
-    private static SnapshotFileDelta fullReplacement(
-            IndexMetadataStore store,
+    private SnapshotFileDelta fullReplacement(
             IndexDescriptor descriptor,
+            IndexGenerationManifest active,
             List<SnapshotDataFile> targetFiles) {
-        return new SnapshotFileDelta(
-                targetFiles,
-                List.copyOf(store.getIndexedDataFilePaths(descriptor.indexId(), descriptor.generation())));
+        Set<String> indexed = coverageReader.read(descriptor, active);
+        return new SnapshotFileDelta(targetFiles, List.copyOf(indexed));
     }
 
     private static DataFileInfo toDataFileInfo(SnapshotDataFile file) {

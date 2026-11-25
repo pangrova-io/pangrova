@@ -167,7 +167,7 @@ class DurableGenerationPublisherTest {
     private DurableGenerationPublisher publisher(
             String owner, GenerationPublicationStore adapter) {
         return new DurableGenerationPublisher(
-                store, adapter, executions.ownership(owner),
+                store, adapter, executions.ownership(owner), ignored -> {},
                 new DurableGenerationPublisher.PollSettings(Duration.ofSeconds(30), Duration.ofSeconds(15),
                         Duration.ofSeconds(1), 8, clock),
                 Executors.newSingleThreadScheduledExecutor());

@@ -22,11 +22,13 @@ import org.pangrova.generation.api.enums.GenerationPageKind;
 import org.pangrova.generation.api.page.GenerationSplit;
 import org.pangrova.generation.api.page.GenerationPageCompletion;
 import org.pangrova.generation.api.constants.GenerationOutputTypeIds;
+import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.indexing.api.enums.IndexState;
 import org.pangrova.indexing.api.enums.IndexType;
 
+import javax.sql.DataSource;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Duration;
@@ -38,7 +40,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-class JdbcIndexGenerationPublicationStoreTest {
+class JdbcIndexGenerationPublicationStoreTest extends ContainerTestBase {
 
     private org.pangrova.metadata.testinfra.GenerationExecutionFixtures executions;
 
@@ -48,6 +50,7 @@ class JdbcIndexGenerationPublicationStoreTest {
     private PostgresGenerationJobStore buildStore;
     private JdbcIndexGenerationPublicationStore publicationStore;
     private JdbcIndexMetadataStore indexStore;
+    private DataSource dataSource;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -56,6 +59,7 @@ class JdbcIndexGenerationPublicationStoreTest {
 
     private void initialize(IndexDescriptor descriptor) throws Exception {
         var dataSource = SharedPostgresContainer.isolatedDataSource("artifact_publication");
+        this.dataSource = dataSource;
         Flyway.configure().dataSource(dataSource)
                 .locations("classpath:db/migration")
                 .load().migrate();
@@ -95,6 +99,11 @@ class JdbcIndexGenerationPublicationStoreTest {
                             .isEqualTo(manifest.manifestSha256());
                     assertThat(generation.objectCount()).isEqualTo(3);
                 });
+        assertThat(indexStore.getNativeIndexSourcePaths(
+                indexStore.findIndex("index-1").orElseThrow(),
+                indexStore.findActiveIndexGeneration("index-1").orElseThrow()))
+                .containsExactly("data-object-1");
+        assertThat(indexStore.getIndexedDataFilePaths("index-1", 0)).isEmpty();
     }
 
     @Test
@@ -171,6 +180,10 @@ class JdbcIndexGenerationPublicationStoreTest {
                 .isEqualTo(IndexState.READY);
         assertThat(buildStore.findJob(TENANT, "job-1").orElseThrow().state())
                 .isEqualTo(GenerationJobState.PUBLISHED);
+        assertThat(indexStore.getNativeIndexSourcePaths(
+                indexStore.findIndex("index-1").orElseThrow(),
+                indexStore.findActiveIndexGeneration("index-1").orElseThrow()))
+                .isEmpty();
     }
 
     @Test
@@ -224,6 +237,115 @@ class JdbcIndexGenerationPublicationStoreTest {
                     assertThat(index.indexType()).isEqualTo(IndexType.INVERTED);
                     assertThat(index.state()).isEqualTo(IndexState.READY);
                 });
+        assertThat(indexStore.getNativeIndexSourcePaths(
+                indexStore.findIndex("index-1").orElseThrow(),
+                indexStore.findActiveIndexGeneration("index-1").orElseThrow()))
+                .containsExactly("data-object-1");
+    }
+
+    @Test
+    void coverageIncludesZeroRowSourcePartition() {
+        GenerationJob job = new GenerationJob(
+                TENANT, "job-1", "index-1", GenerationOutputTypeIds.VECTOR_INDEX,
+                "0", "catalog.schema.items", "snapshot-1",
+                org.pangrova.generation.api.enums.GenerationExecutionKind.BUILD,
+                org.pangrova.generation.api.dependency.GenerationDependencySet.sourceSnapshot(
+                        "catalog.schema.items", "snapshot-1"),
+                org.pangrova.generation.api.enums.GenerationEmptyPartitionPolicy.ALLOW_ZERO_ROWS,
+                "s3://bucket/staging/index-1/0", "pangrova.diskann.segment", 2, 0,
+                "a".repeat(64), "native-build-1", "kms/key-1", "create-index-request-1",
+                1, 0, GenerationJobState.QUEUED, 0, START, START, START);
+        buildStore.createJob(job, dispatch(), List.of(page()));
+        var lease = buildStore.claimNextPage(
+                TENANT, "job-1", executions.takeOwnership(TENANT, "job-1", "maintenance-a", 7),
+                7, Duration.ofSeconds(30), START).orElseThrow();
+        byte[] report = "empty-partition-report".getBytes(StandardCharsets.UTF_8);
+        assertThat(completePage(buildStore, lease.jobId(), lease.pageId(), lease.fencingToken(),
+                lease.ownerEpoch(), report, sha256(report), List.of(
+                        new GenerationOutput("graph", "s3://bucket/graph", "DISKANN_GRAPH",
+                                "data-object-1", 0, GenerationOutputScope.SOURCE_OBJECT, 100, 0,
+                                "b".repeat(64), "kms/key-1"),
+                        new GenerationOutput("vectors", "s3://bucket/vectors", "RAW_VECTORS",
+                                "data-object-1", 1, GenerationOutputScope.SOURCE_OBJECT, 100, 0,
+                                "b".repeat(64), "kms/key-1"),
+                        new GenerationOutput("locators", "s3://bucket/locators", "ROW_LOCATORS",
+                                "data-object-1", 2, GenerationOutputScope.SOURCE_OBJECT, 100, 0,
+                                "b".repeat(64), "kms/key-1")), START.plusSeconds(1))).isTrue();
+        var claim = buildStore.claimReadyForPublication(
+                TENANT, "job-1", executions.takeOwnership(TENANT, "job-1", "maintenance-a", 7),
+                7, Duration.ofSeconds(30), START.plusSeconds(2)).orElseThrow();
+        publicationStore.publishClaimed(claim, "maintenance-a", 7, START.plusSeconds(3));
+
+        assertThat(indexStore.getNativeIndexSourcePaths(
+                indexStore.findIndex("index-1").orElseThrow(),
+                indexStore.findActiveIndexGeneration("index-1").orElseThrow()))
+                .containsExactly("data-object-1");
+    }
+
+    @Test
+    void coverageFailsClosedForMissingPublication() throws Exception {
+        GenerationJob claim = completedAndClaimedJob(completeBundle());
+        publicationStore.publishClaimed(claim, "maintenance-a", 7, START.plusSeconds(3));
+        try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
+            statement.executeUpdate("DELETE FROM artifact_build_jobs WHERE tenant_id='tenant-1' AND job_id='job-1'");
+        }
+
+        assertThatThrownBy(() -> indexStore.getNativeIndexSourcePaths(
+                indexStore.findIndex("index-1").orElseThrow(),
+                indexStore.findActiveIndexGeneration("index-1").orElseThrow()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("no durable publication");
+    }
+
+    @Test
+    void coverageFailsClosedForCorruptManifest() throws Exception {
+        var manifest = publishCompleteBundle();
+        try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
+            statement.executeUpdate("UPDATE index_generation_manifests SET manifest_sha256='"
+                    + "c".repeat(64) + "' WHERE index_id='index-1' AND generation=0");
+        }
+
+        assertThatThrownBy(() -> indexStore.getNativeIndexSourcePaths(
+                indexStore.findIndex("index-1").orElseThrow(),
+                indexStore.findActiveIndexGeneration("index-1").orElseThrow()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("differs from its durable publication");
+        assertThat(manifest.manifestSha256()).isNotEqualTo("c".repeat(64));
+    }
+
+    @Test
+    void coverageFailsClosedForIncompleteOutputs() throws Exception {
+        publishCompleteBundle();
+        try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
+            statement.executeUpdate("DELETE FROM artifact_build_outputs WHERE tenant_id='tenant-1' "
+                    + "AND job_id='job-1' AND object_role='ROW_LOCATORS'");
+        }
+
+        assertThatThrownBy(() -> indexStore.getNativeIndexSourcePaths(
+                indexStore.findIndex("index-1").orElseThrow(),
+                indexStore.findActiveIndexGeneration("index-1").orElseThrow()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("roles are incomplete");
+    }
+
+    @Test
+    void coverageFailsClosedWhenPublishedOutputsChangeAfterManifestDigest() throws Exception {
+        publishCompleteBundle();
+        try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
+            statement.executeUpdate("UPDATE artifact_build_outputs SET opaque_uri='s3://bucket/corrupt' "
+                    + "WHERE tenant_id='tenant-1' AND job_id='job-1' AND object_role='DISKANN_GRAPH'");
+        }
+
+        assertThatThrownBy(() -> indexStore.getNativeIndexSourcePaths(
+                indexStore.findIndex("index-1").orElseThrow(),
+                indexStore.findActiveIndexGeneration("index-1").orElseThrow()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("manifest digest is corrupt");
+    }
+
+    private org.pangrova.generation.api.publication.GenerationManifest publishCompleteBundle() {
+        GenerationJob claim = completedAndClaimedJob(completeBundle());
+        return publicationStore.publishClaimed(claim, "maintenance-a", 7, START.plusSeconds(3));
     }
 
     private GenerationJob completedAndClaimedJob(List<GenerationOutput> outputs) {

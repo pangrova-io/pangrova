@@ -13,6 +13,7 @@ import org.pangrova.connector.api.index.SnapshotFileDelta;
 import org.pangrova.connector.api.enums.SnapshotRelation;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.indexing.api.enums.IndexState;
+import org.pangrova.indexing.api.enums.IndexType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -39,6 +40,7 @@ public final class IndexConsistencyChecker implements AutoCloseable {
     private final IndexConsistencyContext deps;
     private final IndexLifecycleMetrics lifecycleMetrics;
     private final IndexGenerationRefresher generationRefresher;
+    private final IndexGenerationCoverageReader coverageReader;
     private final ScheduledExecutorService scheduler;
     private volatile ScheduledFuture<?> scheduledTask;
 
@@ -47,6 +49,7 @@ public final class IndexConsistencyChecker implements AutoCloseable {
                                    IndexLifecycleMetrics lifecycleMetrics) {
         this.deps = deps;
         this.lifecycleMetrics = lifecycleMetrics;
+        this.coverageReader = new IndexGenerationCoverageReader(deps.metadataStore());
         this.generationRefresher = new IndexGenerationRefresher(
                 new IndexCommitContext(
                         deps.metadataStore(), deps.buildServices(), deps.accessorResolver()),
@@ -210,10 +213,7 @@ public final class IndexConsistencyChecker implements AutoCloseable {
             IndexGenerationManifest active) {
         List<SnapshotDataFile> snapshotFiles =
                 snapshotMetadata.listFilesAtSnapshot(currentSnapshot);
-        int activeGeneration = active == null
-                ? descriptor.generation() : active.generation();
-        Set<String> indexedFiles = deps.metadataStore().getIndexedDataFilePaths(
-                descriptor.indexId(), activeGeneration);
+        Set<String> indexedFiles = coverageReader.read(descriptor, active);
         Set<String> currentFiles = snapshotFiles.stream()
                 .map(SnapshotDataFile::path)
                 .collect(java.util.stream.Collectors.toUnmodifiableSet());
@@ -318,9 +318,13 @@ public final class IndexConsistencyChecker implements AutoCloseable {
         IndexMetadataStore store = deps.metadataStore();
         IndexGenerationManifest active = store.findActiveIndexGeneration(
                 descriptor.indexId()).orElse(null);
-        int generation = active == null ? descriptor.generation() : active.generation();
-        Set<String> indexedFiles = store.getIndexedDataFilePaths(
-                descriptor.indexId(), generation);
+        if (active == null && descriptor.state() == IndexState.READY
+                && (descriptor.indexType() == IndexType.VECTOR
+                || descriptor.indexType() == IndexType.INVERTED)) {
+            markReadyIndexStale(descriptor, "missing_active_generation_manifest");
+            return;
+        }
+        Set<String> indexedFiles = coverageReader.read(descriptor, active);
         List<String> currentDataFiles = resolveDataFiles(
                 descriptor.catalogName(), descriptor.schemaName(), descriptor.tableName());
         if (!indexedFiles.equals(Set.copyOf(currentDataFiles))

@@ -1,5 +1,7 @@
 package org.pangrova.persistence.generation.postgresql.job;
 
+import org.pangrova.generation.api.job.GenerationJob;
+
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.time.Instant;
@@ -26,6 +28,29 @@ public final class PostgresGenerationRevocation {
             }
         }
         cancelLocked(connection, tenantId, jobId, reason, now);
+        return true;
+    }
+
+    /** Cancels only the exact current publication claim, never a newer claimant's work. */
+    public static boolean cancelPublication(
+            Connection connection, GenerationJob claim, String owner, long ownerEpoch,
+            String reason, Instant now) throws SQLException {
+        try (var statement = connection.prepareStatement(
+                "SELECT job_id FROM artifact_build_jobs WHERE tenant_id=? AND job_id=? "
+                        + "AND state='READY_TO_PUBLISH' AND publication_owner=? "
+                        + "AND publication_owner_epoch=? AND publication_fencing_token=? FOR UPDATE")) {
+            statement.setString(1, claim.tenantId());
+            statement.setString(2, claim.jobId());
+            statement.setString(3, owner);
+            statement.setLong(4, ownerEpoch);
+            statement.setLong(5, claim.publicationFencingToken());
+            try (var rows = statement.executeQuery()) {
+                if (!rows.next()) {
+                    return false;
+                }
+            }
+        }
+        cancelLocked(connection, claim.tenantId(), claim.jobId(), reason, now);
         return true;
     }
 

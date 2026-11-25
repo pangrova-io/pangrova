@@ -149,6 +149,12 @@ class CatalogExportTransactionIntegrationTest extends org.pangrova.testing.testk
                 }
                 ModelAuthorityFixtures.artifacts().authority().requireCurrent(connection, spec);
             }
+
+            @Override
+            public void requireCurrent(Connection connection, String tenant, String principal,
+                    DeferredAuthorizationScope authorizationScope) {
+                throw new AssertionError("Catalog export creation validates the supplied specification");
+            }
         };
         var guardedBuilds = new PostgresGenerationJobStore(dataSource, authority, PostgresGenerationStores.executionFence(),
                 PostgresGenerationStores.publicationCandidates());

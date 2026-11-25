@@ -57,8 +57,7 @@ import java.util.concurrent.atomic.AtomicLong;
  *
  * <p>Initialization: IndexEngineRegistry → IndexCache → IndexStorageManager →
  * IndexBuildCoordinator → IndexEvaluationService → IndexSplitFilter →
- * IndexCommitHandler → GC → ConsistencyChecker → StuckBuildRecovery →
- * DDL executor registration.</p>
+ * StuckBuildRecovery → GC → ConsistencyChecker → DDL executor registration.</p>
  *
  * <p>The coordinator performs L0 (min/max metadata) and L1 (native connector)
  * pruning only. L2 evaluation (actual index data loading) is delegated to
@@ -93,6 +92,8 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
     // Stuck build recovery (periodic)
     private StuckBuildRecovery stuckBuildRecovery;
     private ScheduledExecutorService stuckBuildRecoveryScheduler;
+    private ScheduledExecutorService snapshotPinRecoveryScheduler;
+    private org.pangrova.coordinator.indexing.ddl.DurableIndexBuildService nativeIndexBuildService;
 
     // Cache invalidation polling
     private ScheduledExecutorService cacheInvalidationScheduler;
@@ -103,12 +104,15 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
     private IndexLifecycleMetrics lifecycleMetrics;
 
     private final String baseIndexPath;
+    private final IndexingConfig indexingConfig;
     private final DistributedLease distributedLease;
     private final GenerationJobStore artifactBuildStore;
     private final GenerationPublicationStore artifactPublicationStore;
     private final MaintenanceLeaderElection configuredLeaderElection;
     private MaintenanceLeaderElection leaderElection;
     private DurableGenerationPublisher artifactPublisher;
+    private org.pangrova.coordinator.generation.DurableGenerationPublisher.PollSettings artifactPublicationSettings =
+            org.pangrova.coordinator.generation.DurableGenerationPublisher.defaultSettings();
 
     /**
      * Creates an IndexingBootstrap with an externally-configured base index path
@@ -118,24 +122,33 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
      * @param distributedLease lease backend for leader election (must not be null)
      */
     IndexingBootstrap(String baseIndexPath, DistributedLease distributedLease) {
-        this(baseIndexPath, distributedLease, null, null, null);
+        this(baseIndexPath, distributedLease, null, null,
+                (MaintenanceLeaderElection) null, null);
     }
 
-    IndexingBootstrap(
-            String baseIndexPath,
-            DistributedLease distributedLease,
-            GenerationJobStore artifactBuildStore) {
-        this(baseIndexPath, distributedLease, artifactBuildStore, null, null);
+    IndexingBootstrap(String baseIndexPath, DistributedLease distributedLease,
+                      GenerationJobStore artifactBuildStore) {
+        this(baseIndexPath, distributedLease, artifactBuildStore, null,
+                (MaintenanceLeaderElection) null, null);
     }
 
-    /** Creates the complete production lifecycle with one durable build/publication state machine. */
     public IndexingBootstrap(
             String baseIndexPath,
             DistributedLease distributedLease,
             GenerationJobStore artifactBuildStore,
             GenerationPublicationStore artifactPublicationStore) {
         this(baseIndexPath, distributedLease, artifactBuildStore,
-                artifactPublicationStore, null);
+                artifactPublicationStore, (MaintenanceLeaderElection) null, null);
+    }
+
+    public IndexingBootstrap(
+            String baseIndexPath,
+            DistributedLease distributedLease,
+            GenerationJobStore artifactBuildStore,
+            GenerationPublicationStore artifactPublicationStore,
+            IndexingConfig indexingConfig) {
+        this(baseIndexPath, distributedLease, artifactBuildStore,
+                artifactPublicationStore, (MaintenanceLeaderElection) null, indexingConfig);
     }
 
     IndexingBootstrap(
@@ -144,6 +157,42 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
             GenerationJobStore artifactBuildStore,
             GenerationPublicationStore artifactPublicationStore,
             MaintenanceLeaderElection configuredLeaderElection) {
+        this(baseIndexPath, distributedLease, artifactBuildStore,
+                artifactPublicationStore, configuredLeaderElection, null);
+    }
+
+    public IndexingBootstrap(
+            String baseIndexPath,
+            DistributedLease distributedLease,
+            GenerationJobStore artifactBuildStore,
+            GenerationPublicationStore artifactPublicationStore,
+            IndexingConfig indexingConfig,
+            org.pangrova.coordinator.generation.DurableGenerationPublisher.PollSettings publicationSettings) {
+        this(baseIndexPath, distributedLease, artifactBuildStore,
+                artifactPublicationStore, (MaintenanceLeaderElection) null,
+                indexingConfig, publicationSettings);
+    }
+
+    IndexingBootstrap(
+            String baseIndexPath,
+            DistributedLease distributedLease,
+            GenerationJobStore artifactBuildStore,
+            GenerationPublicationStore artifactPublicationStore,
+            MaintenanceLeaderElection configuredLeaderElection,
+            IndexingConfig indexingConfig) {
+        this(baseIndexPath, distributedLease, artifactBuildStore,
+                artifactPublicationStore, configuredLeaderElection, indexingConfig,
+                org.pangrova.coordinator.generation.DurableGenerationPublisher.defaultSettings());
+    }
+
+    IndexingBootstrap(
+            String baseIndexPath,
+            DistributedLease distributedLease,
+            GenerationJobStore artifactBuildStore,
+            GenerationPublicationStore artifactPublicationStore,
+            MaintenanceLeaderElection configuredLeaderElection,
+            IndexingConfig indexingConfig,
+            org.pangrova.coordinator.generation.DurableGenerationPublisher.PollSettings publicationSettings) {
         if (baseIndexPath == null || baseIndexPath.isBlank()) {
             throw new IllegalStateException(
                     "IndexingBootstrap requires baseIndexPath but received null or blank value");
@@ -153,9 +202,12 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
                     "IndexingBootstrap requires distributedLease but received null");
         }
         this.baseIndexPath = baseIndexPath;
+        this.indexingConfig = indexingConfig == null
+                ? new IndexingConfig(baseIndexPath, true, null, null) : indexingConfig;
         this.distributedLease = distributedLease;
         this.artifactBuildStore = artifactBuildStore;
         this.artifactPublicationStore = artifactPublicationStore;
+        this.artifactPublicationSettings = publicationSettings;
         this.configuredLeaderElection = configuredLeaderElection;
     }
 
@@ -184,12 +236,13 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
         }
 
         this.metadataStore = indexMetadata;
-        IndexingConfig config = new IndexingConfig(
-                baseIndexPath, true, null, null);
+        IndexingConfig config = indexingConfig;
         IndexSerializer serializer = initializeEngine(config, metricsProvider);
         var buildServices = initializeBuildServices(config, catalogRegistry, serializer, buildClaims);
         startLifecycle(config, buildServices);
-        startRecovery();
+        startRecovery(buildServices);
+        garbageCollector.start();
+        consistencyChecker.start();
         if (config.commitListenerEnabled()) {
             registerCommitListeners(accessorResolver, catalogRegistry);
         } else {
@@ -255,7 +308,9 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
         // Scalar indexes use the Java builder; vector/BM25 artifacts use durable Native jobs.
         var aiNativeBuildService = artifactBuildStore == null ? null
                 : new org.pangrova.coordinator.indexing.ddl.DurableIndexBuildService(
-                        artifactBuildStore, catalogRegistry, baseIndexPath);
+                        artifactBuildStore, catalogRegistry, baseIndexPath,
+                        session -> accessorResolver.forSession(session).resolveSnapshotPinProvider());
+        nativeIndexBuildService = aiNativeBuildService;
         return new org.pangrova.coordinator.indexing.ddl.IndexBuildServices(
                 buildCoordinator, aiNativeBuildService);
     }
@@ -294,34 +349,72 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
         }
 
         garbageCollector = new IndexGarbageCollector(gcDeps, lifecycleMetrics, leaderElection);
-        garbageCollector.start();
 
         IndexConsistencyContext consistencyDeps = new IndexConsistencyContext(
                 metadataStore, buildServices, accessorResolver, config, leaderElection);
         consistencyChecker = new IndexConsistencyChecker(consistencyDeps, lifecycleMetrics);
-        consistencyChecker.start();
     }
 
-    private void startRecovery() {
+    private void startRecovery(
+            org.pangrova.coordinator.indexing.ddl.IndexBuildServices buildServices) {
+        startSnapshotPinRecovery();
+        Duration buildTimeout = CoordinatorIndexingConfiguration.buildTimeout(indexingConfig);
         stuckBuildRecovery = new StuckBuildRecovery(
-                metadataStore, DEFAULT_BUILD_TIMEOUT, DEFAULT_STUCK_DETECTION_MULTIPLIER,
+                new IndexCommitContext(metadataStore, buildServices, accessorResolver),
+                buildTimeout, indexingConfig.lifecycle().consistency().buildStuckDetectionMultiplier(),
                 leaderElection);
         int recovered = stuckBuildRecovery.recoverStuckBuilds();
         if (recovered > 0) {
             LOG.info("event=indexing_phase phase=stuck_recovery recovered={}", recovered);
         }
 
-        long recoveryIntervalMinutes = DEFAULT_BUILD_TIMEOUT.toMinutes() / 2;
+        long recoveryIntervalMinutes = buildTimeout.toMinutes() / 2;
         if (recoveryIntervalMinutes < 1) {
             recoveryIntervalMinutes = 1;
         }
         stuckBuildRecoveryScheduler = ManagedExecutorFactory
                 .newSingleThreadScheduledExecutor("pangrova-stuck-build-recovery");
         stuckBuildRecoveryScheduler.scheduleWithFixedDelay(
-                stuckBuildRecovery::recoverStuckBuilds,
+                this::recoverStuckBuildsSafe,
                 recoveryIntervalMinutes, recoveryIntervalMinutes, TimeUnit.MINUTES);
         LOG.info("event=indexing_phase phase=stuck_recovery_scheduled intervalMinutes={}",
                 recoveryIntervalMinutes);
+    }
+
+    private void startSnapshotPinRecovery() {
+        if (nativeIndexBuildService == null) {
+            return;
+        }
+        nativeIndexBuildService.adoptLegacySnapshotPins();
+        nativeIndexBuildService.cleanupSnapshotPins();
+        snapshotPinRecoveryScheduler = ManagedExecutorFactory
+                .newSingleThreadScheduledExecutor("pangrova-snapshot-pin-recovery");
+        snapshotPinRecoveryScheduler.scheduleWithFixedDelay(() -> {
+            try {
+                nativeIndexBuildService.adoptLegacySnapshotPins();
+                nativeIndexBuildService.cleanupSnapshotPins();
+            } catch (RuntimeException failure) {
+                LOG.error("event=index_snapshot_pin_recovery_failed error={}",
+                        failure.getMessage(), failure);
+            }
+        }, 5, 5, TimeUnit.MINUTES);
+    }
+
+    /** Revalidates Native source pins at dispatch and publication without synthesizing authority. */
+    public void validateSnapshotPin(org.pangrova.generation.api.job.GenerationJob job) {
+        if (nativeIndexBuildService == null) {
+            throw new IllegalStateException("Native artifact work has no snapshot lifecycle owner");
+        }
+        nativeIndexBuildService.validateSnapshotPin(job);
+    }
+
+    private void recoverStuckBuildsSafe() {
+        try {
+            stuckBuildRecovery.recoverStuckBuilds();
+        } catch (RuntimeException failure) {
+            LOG.error("event=stuck_build_recovery_cycle_failed error={}",
+                    failure.getMessage(), failure);
+        }
     }
 
     private void startCacheInvalidation() {
@@ -359,7 +452,8 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
         }
         artifactPublisher = new DurableGenerationPublisher(artifactBuildStore,
                 artifactPublicationStore,
-                new org.pangrova.coordinator.generation.GenerationExecutionOwnership(authority));
+                new org.pangrova.coordinator.generation.GenerationExecutionOwnership(authority),
+                this::validateSnapshotPin, artifactPublicationSettings);
         artifactPublisher.start();
     }
 
@@ -456,6 +550,10 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
         safeClose("DdlExecutor", ddlExecutor);
         safeClose("ArtifactPublisher", artifactPublisher);
         safeClose("ConsistencyChecker", consistencyChecker);
+        if (snapshotPinRecoveryScheduler != null) {
+            snapshotPinRecoveryScheduler.shutdownNow();
+            LOG.info("event=indexing_phase_closed phase=SnapshotPinRecoveryScheduler");
+        }
         if (stuckBuildRecoveryScheduler != null) {
             stuckBuildRecoveryScheduler.shutdownNow();
             LOG.info("event=indexing_phase_closed phase=StuckBuildRecoveryScheduler");

@@ -78,6 +78,10 @@ spec:
             # source below (emptyDir vs volumeClaimTemplate).
             - name: data
               mountPath: /opt/pangrova/data
+            {{- if .Values.indexing.persistence.enabled }}
+            - name: index-data
+              mountPath: /opt/pangrova/indexes
+            {{- end }}
       volumes:
         - name: config
           configMap:
@@ -87,6 +91,11 @@ spec:
         {{- if not .Values.persistence.enabled }}
         - name: data
           emptyDir: {}
+        {{- end }}
+        {{- if .Values.indexing.persistence.enabled }}
+        - name: index-data
+          persistentVolumeClaim:
+            claimName: {{ default "pangrova-coordinator-index-data" .Values.indexing.persistence.existingClaim | quote }}
         {{- end }}
   {{- if .Values.persistence.enabled }}
   volumeClaimTemplates:

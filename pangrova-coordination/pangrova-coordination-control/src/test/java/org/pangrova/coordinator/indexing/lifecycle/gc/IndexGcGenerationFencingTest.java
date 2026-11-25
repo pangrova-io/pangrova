@@ -17,6 +17,8 @@ import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.indexing.api.enums.IndexState;
 import org.pangrova.indexing.api.enums.IndexType;
 import org.pangrova.connector.api.index.SnapshotPinProvider;
+import org.pangrova.connector.api.index.SnapshotPinOwner;
+import org.pangrova.connector.api.index.SnapshotPinReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -291,18 +293,21 @@ class IndexGcGenerationFencingTest {
         private int unpins;
 
         @Override public void pinSnapshot(String catalog, String schema, String table,
-                                          long snapshot, String indexId) {}
+                                          String snapshot, SnapshotPinOwner owner) {}
         @Override public void unpinSnapshot(String catalog, String schema, String table,
-                                            long snapshot, String indexId) {
+                                            String snapshot, SnapshotPinOwner owner) {
             unpins++;
             if (fail) throw new IllegalStateException("pin store unavailable");
         }
-        @Override public List<Long> getPinnedSnapshots(String catalog, String schema, String table) {
+        @Override public void validateSnapshotPin(String catalog, String schema, String table,
+                                                  String snapshot, SnapshotPinOwner owner) {}
+        @Override public List<String> getPinnedSnapshots(String catalog, String schema, String table) {
             return List.of();
         }
-        @Override public List<Long> getPinnedSnapshotsForIndex(
+        @Override public List<SnapshotPinReference> getSnapshotPinsForIndex(
                 String catalog, String schema, String table, String indexId) {
-            return List.of(42L);
+            return List.of(new SnapshotPinReference("42",
+                    new SnapshotPinOwner(indexId, 0, "legacy")));
         }
     }
 

@@ -26,6 +26,39 @@ public interface GenerationJobStore {
             GenerationJob job, GenerationDispatchSpec dispatchSpec,
             List<GenerationPage> pages);
 
+    /** Records and reauthorizes a stable pin intent before any connector effect or source read. */
+    SnapshotPinIntent reserveSnapshotPin(SnapshotPinReservation reservation);
+
+    /** Atomically records that the exact connector pin is known to exist. */
+    boolean markSnapshotPinPinned(String tenantId, String pinOwner, Instant now);
+
+    /** Fences connector release against new execution references; retries remain idempotent. */
+    boolean beginSnapshotPinRelease(String tenantId, String pinOwner, Instant now);
+
+    /** Atomically records successful idempotent connector release. */
+    boolean markSnapshotPinReleased(String tenantId, String pinOwner, Instant now);
+
+    Optional<SnapshotPinIntent> findSnapshotPin(String tenantId, String pinOwner);
+
+    Optional<SnapshotPinIntent> findSnapshotPinForJob(String tenantId, String jobId);
+
+    /** Creates the job and binds its exact PINNED ledger row in one transaction. */
+    void createSnapshotPinnedJob(
+            GenerationJob job, GenerationDispatchSpec dispatchSpec,
+            List<GenerationPage> pages, String pinOwner);
+
+    /** Lists orphaned, terminal, or dropped-generation pins whose durable read references have drained. */
+    List<SnapshotPinIntent> listSnapshotPinCleanupCandidates(
+            int limit, Instant orphanGraceCutoff, Instant droppedGraceCutoff);
+
+    /** Lists adopted legacy jobs that still need their real connector snapshot pin. */
+    List<SnapshotPinIntent> listSnapshotPinsForAdoption(int limit);
+
+    /** Retains a published pin for one exact live execution that may hydrate source rows. */
+    void retainSnapshotPinForExecution(
+            String tenantId, String artifactId, String generation,
+            String sourceSnapshot, String executionId);
+
     /** Returns runnable jobs in stable age order; page claiming remains fenced and atomic. */
     List<GenerationJobKey> listRunnableJobs(int limit, Instant now);
 
@@ -111,6 +144,10 @@ public interface GenerationJobStore {
     boolean markPublished(
             String tenantId, String jobId, String owner, long ownerEpoch,
             long publicationFencingToken, Instant now);
+
+    /** Cancels only while the exact publication claim and fencing token remain current. */
+    boolean cancelPublicationClaim(
+            GenerationJob claim, String owner, long ownerEpoch, String reason, Instant now);
 
     /** Cancels every non-terminal generation for an artifact and fences its work pages. */
     int cancelArtifactBuilds(String tenantId, String artifactId, Instant now);

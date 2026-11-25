@@ -6,6 +6,8 @@ import org.pangrova.indexing.config.IndexingConfig;
 import org.pangrova.indexing.codec.data.IndexSerializer;
 import org.pangrova.indexing.storage.IndexStorageManager;
 import org.pangrova.connector.api.index.SnapshotPinProvider;
+import org.pangrova.connector.api.index.SnapshotPinOwner;
+import org.pangrova.connector.api.index.SnapshotPinReference;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.indexing.api.enums.IndexState;
 import org.pangrova.indexing.api.enums.IndexType;
@@ -34,13 +36,26 @@ class IndexBuildSnapshotPinTest {
     }
 
     @Test
-    void invalidSnapshotIdentifierPreventsSuccessfulBuildResult() {
+    void connectorRejectionPreventsSuccessfulBuildResult() {
         var provider = new RecordingPinProvider();
+        provider.fail = true;
         try (var builder = builder(provider)) {
             assertThatThrownBy(() -> builder.submitBuildTask(descriptor("bad-id"), List.of(), null, null).join())
                     .isInstanceOf(CompletionException.class)
-                    .hasRootCauseInstanceOf(NumberFormatException.class);
-            assertThat(provider.pins.get()).isZero();
+                    .hasRootCauseMessage("pin denied");
+            assertThat(provider.snapshot).isEqualTo("bad-id");
+        }
+    }
+
+    void opaqueSnapshotIdentifierIsPassedToTheConnectorWithoutNumericCoercion() {
+        var provider = new RecordingPinProvider();
+        try (var builder = builder(provider)) {
+            assertThat(builder.submitBuildTask(descriptor("snapshot/opaque"), List.of(), null, null).join()
+                    .isFullySuccessful()).isTrue();
+            assertThat(provider.snapshot).isEqualTo("snapshot/opaque");
+            assertThat(provider.owner.indexId()).isEqualTo("index-1");
+            assertThat(provider.owner.generation()).isZero();
+            assertThat(provider.owner.attemptId()).isNotBlank();
         }
     }
 
@@ -95,22 +110,39 @@ class IndexBuildSnapshotPinTest {
 
     private static final class RecordingPinProvider implements SnapshotPinProvider {
         private final AtomicInteger pins = new AtomicInteger();
+        private String snapshot;
+        private SnapshotPinOwner owner;
         private boolean fail;
 
         @Override
-        public void pinSnapshot(String catalog, String schema, String table, long snapshot, String indexId) {
+        public void pinSnapshot(String catalog, String schema, String table, String snapshotToken,
+                                SnapshotPinOwner pinOwner) {
             pins.incrementAndGet();
+            snapshot = snapshotToken;
+            owner = pinOwner;
             if (fail) {
                 throw new IllegalStateException("pin denied");
             }
         }
 
         @Override
-        public void unpinSnapshot(String catalog, String schema, String table, long snapshot, String indexId) {
+        public void unpinSnapshot(String catalog, String schema, String table, String snapshotToken,
+                                  SnapshotPinOwner pinOwner) {
         }
 
         @Override
-        public List<Long> getPinnedSnapshots(String catalog, String schema, String table) {
+        public void validateSnapshotPin(String catalog, String schema, String table, String snapshotToken,
+                                        SnapshotPinOwner pinOwner) {
+        }
+
+        @Override
+        public List<String> getPinnedSnapshots(String catalog, String schema, String table) {
+            return List.of();
+        }
+
+        @Override
+        public List<SnapshotPinReference> getSnapshotPinsForIndex(
+                String catalog, String schema, String table, String indexId) {
             return List.of();
         }
     }

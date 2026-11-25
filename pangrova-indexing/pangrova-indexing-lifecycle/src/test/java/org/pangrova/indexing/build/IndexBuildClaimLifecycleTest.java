@@ -268,9 +268,6 @@ class IndexBuildClaimLifecycleTest {
             if (releaseFailure != null) throw releaseFailure;
             return acceptRelease;
         }
-        @Override public int expireBefore(Instant cutoff) {
-            throw new AssertionError("Builder does not own recovery");
-        }
     }
 
     private static final class Rows implements ColumnValueReader {

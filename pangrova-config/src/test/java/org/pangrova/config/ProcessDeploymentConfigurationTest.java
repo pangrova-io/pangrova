@@ -46,6 +46,17 @@ class ProcessDeploymentConfigurationTest {
                 .isEqualTo(environment.get("PANGROVA_DB_USERNAME"));
         assertThat(config.getString(CoordinatorOptions.METADATA_JDBC_PASSWORD))
                 .isEqualTo(environment.get("PANGROVA_DB_PASSWORD"));
+        assertThat(config.getBoolean(CoordinatorOptions.INDEXING_ENABLED)).isFalse();
+        assertThat(config.getString(CoordinatorOptions.INDEX_BASE_PATH))
+                .isEqualTo("/var/lib/pangrova/indexes");
+
+        Map<String, String> sharedRootEnvironment = new java.util.HashMap<>(environment);
+        sharedRootEnvironment.put("PANGROVA_INDEX_BASE_PATH", "s3a://bucket/pangrova/indexes");
+        var sharedRootConfig = PangrovaConfiguration.fromYamlWithEnvOverride(
+                YamlConfigLoader.load(productionTemplate("coordinator.yml"), sharedRootEnvironment),
+                sharedRootEnvironment);
+        assertThat(sharedRootConfig.getString(CoordinatorOptions.INDEX_BASE_PATH))
+                .isEqualTo("s3a://bucket/pangrova/indexes");
     }
 
     @Test
@@ -71,6 +82,11 @@ class ProcessDeploymentConfigurationTest {
         assertThat(config.getString(WorkerOptions.WORKER_ADVERTISED_HOST)).isEqualTo("worker-2");
         assertThat(config.getString(WorkerOptions.INTERNAL_AUTH_SECRET))
                 .isEqualTo(environment.get("PANGROVA_INTERNAL_AUTH_SECRET"));
+        assertThat(config.getBoolean(WorkerOptions.CACHE_ENABLED)).isTrue();
+        assertThat(config.getString(WorkerOptions.CACHE_ARTIFACT_PATH))
+                .isEqualTo("/mnt/nvme0/pangrova-artifacts");
+        assertThat(config.getLong(WorkerOptions.CACHE_ARTIFACT_BYTES)).isPositive();
+        assertThat(config.getLong(WorkerOptions.CACHE_ARTIFACT_INDEX_MEMORY_BYTES)).isPositive();
     }
 
     private static Path productionTemplate(String name) {
