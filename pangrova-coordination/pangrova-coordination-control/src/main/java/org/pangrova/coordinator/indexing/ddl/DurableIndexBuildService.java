@@ -6,10 +6,14 @@ import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.generation.SnapshotGenerationSplitPlanner;
 import org.pangrova.generation.api.job.GenerationDispatchSpec;
+import org.pangrova.generation.api.job.GenerationJob;
+import org.pangrova.generation.api.job.GenerationSubmissionAuthority;
 import org.pangrova.generation.api.page.GenerationPage;
 import org.pangrova.generation.api.enums.GenerationPageKind;
 import org.pangrova.generation.api.page.GenerationSplit;
 import org.pangrova.persistence.generation.api.job.GenerationJobStore;
+import org.pangrova.persistence.generation.api.job.SnapshotPinIntent;
+import org.pangrova.persistence.generation.api.job.SnapshotPinReservation;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.query.api.session.QuerySession;
@@ -30,8 +34,13 @@ import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
 import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.index.SnapshotPinOwner;
+import org.pangrova.connector.api.index.SnapshotPinProvider;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.indexing.api.enums.IndexType;
+import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -40,10 +49,14 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.function.Function;
 
 /** Maintenance compiler for snapshot-pinned Native index work; persists canonical control metadata, never row bytes. */
 public final class DurableIndexBuildService {
 
+    private static final Logger LOG = LoggerFactory.getLogger(DurableIndexBuildService.class);
+    private static final String SUBMISSION_ATTEMPT = "submission";
     private static final int MAX_REDUCTION_FAN_IN = 64;
     // Leave headroom for the Worker system pool and concurrent service leases.
     // The grant is a task limit, not the Worker's total process memory budget.
@@ -64,11 +77,14 @@ public final class DurableIndexBuildService {
     private final CatalogRegistry catalogRegistry;
     private final SnapshotGenerationSplitPlanner splitPlanner;
     private final String baseArtifactUri;
+    private final Function<ConnectorSession, SnapshotPinProvider> pinProviders;
+    private final ArtifactSnapshotPinValidator snapshotValidator;
 
     /** Creates the sole durable Native index compiler over catalog and metadata authority. */
     public DurableIndexBuildService(
             GenerationJobStore store, CatalogRegistry catalogRegistry,
-            String baseArtifactUri) {
+            String baseArtifactUri,
+            Function<ConnectorSession, SnapshotPinProvider> pinProviders) {
         this.store = Objects.requireNonNull(store, "store must not be null");
         this.catalogRegistry = Objects.requireNonNull(
                 catalogRegistry, "catalogRegistry must not be null");
@@ -77,6 +93,8 @@ public final class DurableIndexBuildService {
             throw new IllegalArgumentException("baseArtifactUri must not be blank");
         }
         this.baseArtifactUri = stripTrailingSlash(baseArtifactUri);
+        this.pinProviders = Objects.requireNonNull(pinProviders, "pinProviders");
+        this.snapshotValidator = new ArtifactSnapshotPinValidator(store, pinProviders);
     }
 
     /** Returns whether this descriptor belongs to the Native artifact build plane. */
@@ -121,11 +139,31 @@ public final class DurableIndexBuildService {
     private String submitScoped(IndexDescriptor descriptor, QualifiedTableName table,
                                 String tenantId, ConnectorSession session) {
         NativeBuildSpec build = prepareBuild(descriptor, table, session);
-        GenerationPlan plan = build.plan();
-        List<GenerationSplit> splits = splitPlanner.enumerate(
-                table, descriptor.buildSnapshotId(),
-                session);
         String jobId = jobId(tenantId, descriptor);
+        String sourceId = String.join(".", table.catalog(), table.schema(), table.table());
+        var authority = new GenerationSubmissionAuthority(tenantId, session.getUser(),
+                DeferredAuthorizationScope.raw(table, Set.copyOf(descriptor.columnNames()), table));
+        SnapshotPinIntent intent = store.reserveSnapshotPin(new SnapshotPinReservation(
+                tenantId, descriptor.indexId(), descriptor.generation(), SUBMISSION_ATTEMPT,
+                sourceId, descriptor.buildSnapshotId(), authority, Instant.now()));
+        SnapshotPinOwner owner = new SnapshotPinOwner(
+                intent.indexId(), intent.generation(), intent.attemptId());
+        boolean emptySnapshot = SnapshotGenerationSplitPlanner.EMPTY_SNAPSHOT.equals(intent.sourceSnapshot());
+        if (!emptySnapshot) {
+            SnapshotPinProvider pinProvider = requirePinProvider(session);
+            pinProvider.pinSnapshot(table.catalog(), table.schema(), table.table(),
+                    intent.sourceSnapshot(), owner);
+        }
+        if (!store.markSnapshotPinPinned(tenantId, intent.pinOwner(), Instant.now())) {
+            throw new IllegalStateException("Snapshot pin could not transition to PINNED");
+        }
+        if (!emptySnapshot) {
+            requirePinProvider(session).validateSnapshotPin(table.catalog(), table.schema(), table.table(),
+                    intent.sourceSnapshot(), owner);
+        }
+        List<GenerationSplit> splits = splitPlanner.enumerate(
+                table, intent.sourceSnapshot(), session);
+        GenerationPlan plan = build.plan();
         String generation = Integer.toString(descriptor.generation());
         String stagingUri = stagingUri(tenantId, descriptor);
         String idempotencyKey = jobId + ":snapshot:" + descriptor.buildSnapshotId();
@@ -147,7 +185,8 @@ public final class DurableIndexBuildService {
                         tenantId, session.getUser(), jobId, descriptor, table, plan,
                         build.artifactType(), build.properties(), pages, generation,
                         stagingUri, idempotencyKey, grant, now));
-        store.createJob(submission.job(), submission.dispatch(), pages);
+        store.createSnapshotPinnedJob(
+                submission.job(), submission.dispatch(), pages, intent.pinOwner());
         return jobId;
     }
 
@@ -229,6 +268,92 @@ public final class DurableIndexBuildService {
 
     public int cancel(String artifactId, String tenantId, Instant now) {
         return store.cancelArtifactBuilds(requireTenantId(tenantId), artifactId, now);
+    }
+
+    /** Revalidates the durable and connector pin before publication can expose a generation. */
+    public void validateSnapshotPin(GenerationJob job) {
+        snapshotValidator.validate(job);
+    }
+
+    /** Releases one exact ledger pin after its durable source references have drained. */
+    public void releaseSnapshotPin(SnapshotPinIntent intent) {
+        Instant now = Instant.now();
+        if (!store.beginSnapshotPinRelease(intent.tenantId(), intent.pinOwner(), now)) {
+            return;
+        }
+        if (!SnapshotGenerationSplitPlanner.EMPTY_SNAPSHOT.equals(intent.sourceSnapshot())) {
+            var resolved = DeferredIndexAuthorityResolver.resolveSubmission(intent.authority());
+            requirePinProvider(resolved.session()).unpinSnapshot(
+                    resolved.table().catalog(), resolved.table().schema(), resolved.table().table(),
+                    intent.sourceSnapshot(), owner(intent));
+        }
+        if (!store.markSnapshotPinReleased(intent.tenantId(), intent.pinOwner(), now)) {
+            throw new IllegalStateException("Released snapshot pin is absent from the durable ledger");
+        }
+        LOG.info("event=index_snapshot_pin_released indexId={} generation={} attemptId={} snapshotId={}",
+                intent.indexId(), intent.generation(), intent.attemptId(), intent.sourceSnapshot());
+    }
+
+    /** Acquires real connector pins for published jobs adopted by the V121 ledger backfill. */
+    public int adoptLegacySnapshotPins() {
+        int adopted = 0;
+        for (SnapshotPinIntent intent : store.listSnapshotPinsForAdoption(100)) {
+            try {
+                if (SnapshotGenerationSplitPlanner.EMPTY_SNAPSHOT.equals(intent.sourceSnapshot())) {
+                    if (!store.markSnapshotPinPinned(intent.tenantId(), intent.pinOwner(), Instant.now())) {
+                        throw new IllegalStateException("Legacy empty snapshot pin could not transition to PINNED");
+                    }
+                } else {
+                    var resolved = DeferredIndexAuthorityResolver.resolveSubmission(intent.authority());
+                    SnapshotPinProvider provider = requirePinProvider(resolved.session());
+                    provider.pinSnapshot(
+                            resolved.table().catalog(), resolved.table().schema(), resolved.table().table(),
+                            intent.sourceSnapshot(), owner(intent));
+                    if (!store.markSnapshotPinPinned(intent.tenantId(), intent.pinOwner(), Instant.now())) {
+                        throw new IllegalStateException("Legacy snapshot pin could not transition to PINNED");
+                    }
+                    provider.validateSnapshotPin(
+                            resolved.table().catalog(), resolved.table().schema(), resolved.table().table(),
+                            intent.sourceSnapshot(), owner(intent));
+                }
+                adopted++;
+            } catch (RuntimeException failure) {
+                LOG.warn("event=index_snapshot_pin_adoption_retry indexId={} generation={} attemptId={} error={}",
+                        intent.indexId(), intent.generation(), intent.attemptId(), failure.getMessage());
+            }
+        }
+        return adopted;
+    }
+
+    /** Runs bounded idempotent cleanup for ambiguous pin/job and terminal build crash windows. */
+    public int cleanupSnapshotPins() {
+        Instant now = Instant.now();
+        List<SnapshotPinIntent> candidates = store.listSnapshotPinCleanupCandidates(
+                100, now.minus(Duration.ofHours(1)), now.minus(Duration.ofHours(1)));
+        int released = 0;
+        for (SnapshotPinIntent candidate : candidates) {
+            try {
+                releaseSnapshotPin(candidate);
+                released++;
+            } catch (RuntimeException failure) {
+                LOG.warn("event=index_snapshot_pin_cleanup_retry indexId={} generation={} attemptId={} error={}",
+                        candidate.indexId(), candidate.generation(), candidate.attemptId(),
+                        failure.getMessage(), failure);
+            }
+        }
+        return released;
+    }
+
+    private SnapshotPinProvider requirePinProvider(ConnectorSession session) {
+        SnapshotPinProvider provider = pinProviders.apply(session);
+        if (provider == null) {
+            throw new IllegalStateException("Authorized catalog does not support durable snapshot pinning");
+        }
+        return provider;
+    }
+
+    private static SnapshotPinOwner owner(SnapshotPinIntent intent) {
+        return new SnapshotPinOwner(intent.indexId(), intent.generation(), intent.attemptId());
     }
 
     private VectorShape resolveVectorShape(

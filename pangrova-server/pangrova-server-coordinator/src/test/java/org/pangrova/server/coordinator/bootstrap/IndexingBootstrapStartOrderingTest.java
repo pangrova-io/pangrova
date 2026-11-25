@@ -1,5 +1,7 @@
 package org.pangrova.server.coordinator.bootstrap;
 
+import org.pangrova.persistence.coordination.memory.lease.InMemoryDistributedLease;
+import org.pangrova.coordinator.indexing.lifecycle.MaintenanceLeaderElection;
 import org.pangrova.metadata.api.catalog.CatalogDeploymentIdentity;
 
 import static org.pangrova.metadata.testinfra.TableStoreFixtures.memoryTableStores;
@@ -83,6 +85,24 @@ class IndexingBootstrapStartOrderingTest {
     }
 
     @Test
+    @DisplayName("startup performs fenced recovery before starting maintenance schedulers")
+    void startupRecoveryRunsBeforeMaintenanceSchedulers() {
+        var store = new NoOpIndexMetadataStore();
+        var leader = new MaintenanceLeaderElection(new InMemoryDistributedLease(), "startup-recovery");
+        IndexingBootstrap bootstrap = new IndexingBootstrap(
+                indexDir.toString(), new NoOpLease(), null, null, leader);
+        try {
+            bootstrap.start(store, new UnusedBuildClaims(),
+                    new CatalogRegistry(memoryTableStores(), new EmptyCatalogDeployments()),
+                    null, null);
+            assertThat(store.recoveryLookups).isOne();
+            assertThat(bootstrap.getDdlExecutor()).isNotNull();
+        } finally {
+            bootstrap.close();
+        }
+    }
+
+    @Test
     @DisplayName("ModuleIntegrationBootstrap.getIndexingBootstrap() is non-null after startIndexing()")
     void indexingBootstrapNonNullAfterStart() {
         wiring = new ModuleIntegrationBootstrap();
@@ -117,11 +137,6 @@ class IndexingBootstrapStartOrderingTest {
         public boolean heartbeat(String index, int generation, String owner, java.time.Instant now) {
             throw new AssertionError("Startup must not renew a build claim");
         }
-
-        @Override
-        public int expireBefore(java.time.Instant cutoff) {
-            throw new AssertionError("Startup must not expire build claims");
-        }
     }
 
     // ── Fakes ───────────────────────────────────────────────────────────
@@ -155,6 +170,15 @@ class IndexingBootstrapStartOrderingTest {
 
     /** IndexMetadataStore implementing only the abstract surface as no-ops. */
     static final class NoOpIndexMetadataStore implements IndexMetadataStore {
+        private int recoveryLookups;
+
+        @Override
+        public List<org.pangrova.persistence.indexing.api.metadata.IndexBuildGenerations.IndexBuildCandidate>
+                findIndexBuildRecoveryCandidates() {
+            recoveryLookups++;
+            return List.of();
+        }
+
         @Override public void registerIndex(IndexDescriptor d) {}
         @Override public void updateIndexState(String id, String s, Instant t) {}
         @Override public boolean beginIndexGeneration(String id, int next, String snapshot,

@@ -4,6 +4,9 @@ import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFai
 
 import org.pangrova.persistence.jdbc.api.security.policy.CurrentTableAuthorization;
 
+import org.pangrova.persistence.indexing.api.metadata.IndexBuildGenerations.IndexBuildAbandonment;
+import org.pangrova.persistence.indexing.api.metadata.IndexBuildGenerations.IndexBuildCandidate;
+import org.pangrova.persistence.indexing.api.metadata.IndexFileMapping;
 import org.pangrova.indexing.api.exception.IndexAlreadyExistsException;
 import org.pangrova.persistence.catalog.api.exception.MetastoreException;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
@@ -23,6 +26,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -320,19 +324,358 @@ final class JdbcIndexDescriptorStore extends JdbcStoreSupport {
             Instant failedAt,
             String failureReason) {
         String reason = truncateReason(failureReason);
-        String sql = "UPDATE index_generation_builds SET state='FAILED', "
-                + "failure_reason=?, updated_at=? WHERE index_id=? AND generation=? "
-                + "AND state='BUILDING' AND updated_at=?";
-        try (Connection conn = dataSource().getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, reason);
-            setInstant(ps, 2, failedAt);
-            ps.setString(3, indexId);
-            ps.setInt(4, generation);
-            setInstant(ps, 5, expectedBuildUpdatedAt);
-            return ps.executeUpdate() == 1;
+        try (Connection conn = dataSource().getConnection()) {
+            conn.setAutoCommit(false);
+            try {
+                FailureTarget target = lockFailureTarget(conn, indexId, generation, expectedBuildUpdatedAt);
+                if (target == null) {
+                    conn.rollback();
+                    return false;
+                }
+                boolean failed = target.initial()
+                        ? failInitialGeneration(conn, indexId, generation, target.snapshot(), reason, failedAt)
+                        : failStagingGeneration(conn, indexId, generation, reason, failedAt);
+                if (!failed) {
+                    conn.rollback();
+                    return false;
+                }
+                conn.commit();
+                return true;
+            } catch (SQLException | RuntimeException failure) {
+                rollbackAfterFailure(conn, failure);
+                throw failure;
+            }
         } catch (SQLException e) {
             throw new MetastoreException("Failed to fence failed index generation", e);
+        }
+    }
+
+    private static FailureTarget lockFailureTarget(
+            Connection conn, String indexId, int generation, Instant expectedBuildUpdatedAt)
+            throws SQLException {
+        IndexState state;
+        int activeGeneration;
+        String snapshot;
+        Instant descriptorUpdatedAt;
+        try (PreparedStatement statement = conn.prepareStatement(
+                "SELECT state,generation,build_snapshot_id,updated_at FROM index_descriptors "
+                        + "WHERE index_id=? FOR UPDATE")) {
+            statement.setString(1, indexId);
+            try (ResultSet row = statement.executeQuery()) {
+                if (!row.next()) {
+                    return null;
+                }
+                state = IndexState.valueOf(row.getString("state"));
+                activeGeneration = row.getInt("generation");
+                snapshot = row.getString("build_snapshot_id");
+                descriptorUpdatedAt = getInstant(row, "updated_at");
+            }
+        }
+        if (state == IndexState.BUILDING && activeGeneration == generation
+                && descriptorUpdatedAt.equals(expectedBuildUpdatedAt)) {
+            return new FailureTarget(true, snapshot);
+        }
+        if ((state != IndexState.READY && state != IndexState.STALE)
+                || activeGeneration != generation - 1) {
+            return null;
+        }
+        try (PreparedStatement statement = conn.prepareStatement(
+                "SELECT 1 FROM index_generation_builds WHERE index_id=? AND generation=? "
+                        + "AND base_generation=? AND state='BUILDING' AND updated_at=? FOR UPDATE")) {
+            statement.setString(1, indexId);
+            statement.setInt(2, generation);
+            statement.setInt(3, activeGeneration);
+            setInstant(statement, 4, expectedBuildUpdatedAt);
+            try (ResultSet row = statement.executeQuery()) {
+                return row.next() ? new FailureTarget(false, snapshot) : null;
+            }
+        }
+    }
+
+    private record FailureTarget(boolean initial, String snapshot) {}
+
+    private static boolean failInitialGeneration(
+            Connection conn, String indexId, int generation, String snapshot,
+            String reason, Instant failedAt) throws SQLException {
+        try (PreparedStatement statement = conn.prepareStatement(
+                "UPDATE index_descriptors SET state='STALE', stale_reason=?, updated_at=? "
+                        + "WHERE index_id=? AND state='BUILDING' AND generation=?")) {
+            statement.setString(1, reason);
+            setInstant(statement, 2, failedAt);
+            statement.setString(3, indexId);
+            statement.setInt(4, generation);
+            if (statement.executeUpdate() != 1) {
+                return false;
+            }
+        }
+        String insert = "INSERT INTO index_generation_builds "
+                + "(index_id,generation,base_generation,source_snapshot,state,failure_reason,started_at,updated_at) "
+                + "VALUES (?,?,?,?,?,?,?,?) ON CONFLICT (index_id,generation) DO UPDATE "
+                + "SET state='FAILED', failure_reason=EXCLUDED.failure_reason, updated_at=EXCLUDED.updated_at "
+                + "WHERE index_generation_builds.state IN ('BUILDING','FAILED')";
+        try (PreparedStatement statement = conn.prepareStatement(insert)) {
+            statement.setString(1, indexId);
+            statement.setInt(2, generation);
+            statement.setInt(3, generation);
+            statement.setString(4, snapshot == null ? "" : snapshot);
+            statement.setString(5, "FAILED");
+            statement.setString(6, reason);
+            setInstant(statement, 7, failedAt);
+            setInstant(statement, 8, failedAt);
+            return statement.executeUpdate() == 1;
+        }
+    }
+
+    List<IndexBuildCandidate> findIndexBuildRecoveryCandidates() {
+        String sql = """
+                SELECT d.*, COALESCE(b.generation,d.generation) AS recovery_generation,
+                       COALESCE(b.state,'BUILDING') AS recovery_state,
+                       COALESCE(b.updated_at,d.updated_at) AS recovery_updated_at,
+                       c.heartbeat_at AS claim_heartbeat_at
+                FROM index_descriptors d
+                LEFT JOIN index_generation_builds b ON b.index_id=d.index_id AND (
+                    (d.state='BUILDING' AND b.generation=d.generation) OR
+                    (d.state='READY' AND b.generation=d.generation+1) OR
+                    (d.state='STALE' AND (b.generation=d.generation+1 OR
+                        (b.generation=d.generation AND b.state='FAILED'))))
+                LEFT JOIN index_build_claims c ON c.index_id=d.index_id
+                    AND c.generation=COALESCE(b.generation,d.generation)
+                WHERE d.state IN ('BUILDING','READY','STALE')
+                  AND (d.state='BUILDING' OR b.state IN ('BUILDING','FAILED'))
+                ORDER BY COALESCE(b.updated_at,d.updated_at), d.index_id
+                """;
+        return executeQuery(sql, statement -> { }, rows -> {
+            List<IndexBuildCandidate> candidates = new java.util.ArrayList<>();
+            while (rows.next()) {
+                candidates.add(new IndexBuildCandidate(mapDescriptor(rows),
+                        rows.getInt("recovery_generation"), rows.getString("recovery_state"),
+                        getInstant(rows, "recovery_updated_at"),
+                        rows.getTimestamp("claim_heartbeat_at") == null ? null
+                                : rows.getTimestamp("claim_heartbeat_at").toInstant()));
+            }
+            return List.copyOf(candidates);
+        });
+    }
+
+    Optional<IndexBuildAbandonment> abandonIndexGeneration(
+            String indexId, int generation, Instant expectedUpdatedAt,
+            Instant cutoff, Instant abandonedAt, String reason) {
+        Objects.requireNonNull(expectedUpdatedAt, "expectedUpdatedAt");
+        Objects.requireNonNull(cutoff, "cutoff");
+        Objects.requireNonNull(abandonedAt, "abandonedAt");
+        try (Connection conn = dataSource().getConnection()) {
+            conn.setAutoCommit(false);
+            try {
+                Optional<IndexBuildAbandonment> abandoned = abandonExactGeneration(
+                        conn, indexId, generation, expectedUpdatedAt, cutoff, abandonedAt,
+                        truncateReason(reason));
+                if (abandoned.isEmpty()) {
+                    conn.rollback();
+                } else {
+                    conn.commit();
+                }
+                return abandoned;
+            } catch (SQLException | RuntimeException failure) {
+                rollbackAfterFailure(conn, failure);
+                throw failure;
+            }
+        } catch (SQLException failure) {
+            throw new MetastoreException("Failed to abandon fenced index generation", failure);
+        }
+    }
+
+    private static Optional<IndexBuildAbandonment> abandonExactGeneration(
+            Connection conn, String indexId, int generation, Instant expectedUpdatedAt,
+            Instant cutoff, Instant abandonedAt, String reason) throws SQLException {
+        IndexState state;
+        int activeGeneration;
+        String snapshot;
+        try (PreparedStatement statement = conn.prepareStatement(
+                "SELECT state,generation,build_snapshot_id FROM index_descriptors "
+                        + "WHERE index_id=? AND updated_at=? FOR UPDATE")) {
+            statement.setString(1, indexId);
+            setInstant(statement, 2, expectedUpdatedAt);
+            try (ResultSet row = statement.executeQuery()) {
+                if (!row.next()) {
+                    return Optional.empty();
+                }
+                state = IndexState.valueOf(row.getString("state"));
+                activeGeneration = row.getInt("generation");
+                snapshot = row.getString("build_snapshot_id");
+            }
+        }
+        boolean initial = state == IndexState.BUILDING && activeGeneration == generation;
+        if (!initial && !((state == IndexState.READY || state == IndexState.STALE)
+                && activeGeneration == generation - 1)) {
+            return Optional.empty();
+        }
+        Instant heartbeat = lockClaimHeartbeat(conn, indexId, generation);
+        Instant buildUpdatedAt = initial ? expectedUpdatedAt
+                : lockBuildingGeneration(conn, indexId, generation, activeGeneration);
+        if (buildUpdatedAt == null) {
+            return Optional.empty();
+        }
+        Instant lastActivity = heartbeat == null || heartbeat.isBefore(buildUpdatedAt)
+                ? buildUpdatedAt : heartbeat;
+        if (!lastActivity.isBefore(cutoff)) {
+            return Optional.empty();
+        }
+        if (initial) {
+            if (!failInitialGeneration(conn, indexId, generation, snapshot, reason, abandonedAt)) {
+                return Optional.empty();
+            }
+        } else if (!failStagingGeneration(conn, indexId, generation, reason, abandonedAt)) {
+            return Optional.empty();
+        }
+        deleteGenerationClaim(conn, indexId, generation);
+        List<IndexFileMapping> mappings = loadGenerationMappings(conn, indexId, generation);
+        Set<String> paths = findUnreferencedPaths(conn, indexId, generation);
+        IndexDescriptor descriptor;
+        try (PreparedStatement statement = conn.prepareStatement(
+                "SELECT * FROM index_descriptors WHERE index_id=?")) {
+            statement.setString(1, indexId);
+            try (ResultSet row = statement.executeQuery()) {
+                if (!row.next()) {
+                    return Optional.empty();
+                }
+                descriptor = mapDescriptor(row);
+            }
+        }
+        return Optional.of(new IndexBuildAbandonment(descriptor, mappings, paths));
+    }
+
+    private static Instant lockClaimHeartbeat(
+            Connection conn, String indexId, int generation) throws SQLException {
+        try (PreparedStatement statement = conn.prepareStatement(
+                "SELECT heartbeat_at FROM index_build_claims "
+                        + "WHERE index_id=? AND generation=? FOR UPDATE")) {
+            statement.setString(1, indexId);
+            statement.setInt(2, generation);
+            try (ResultSet row = statement.executeQuery()) {
+                return row.next() ? row.getTimestamp(1).toInstant() : null;
+            }
+        }
+    }
+
+    private static Instant lockBuildingGeneration(
+            Connection conn, String indexId, int generation, int baseGeneration) throws SQLException {
+        try (PreparedStatement statement = conn.prepareStatement(
+                "SELECT updated_at FROM index_generation_builds WHERE index_id=? AND generation=? "
+                        + "AND base_generation=? AND state='BUILDING' FOR UPDATE")) {
+            statement.setString(1, indexId);
+            statement.setInt(2, generation);
+            statement.setInt(3, baseGeneration);
+            try (ResultSet row = statement.executeQuery()) {
+                return row.next() ? getInstant(row, "updated_at") : null;
+            }
+        }
+    }
+
+    private static boolean failStagingGeneration(
+            Connection conn, String indexId, int generation, String reason, Instant failedAt)
+            throws SQLException {
+        try (PreparedStatement statement = conn.prepareStatement(
+                "UPDATE index_generation_builds SET state='FAILED', failure_reason=?, updated_at=? "
+                        + "WHERE index_id=? AND generation=? AND state='BUILDING'")) {
+            statement.setString(1, reason);
+            setInstant(statement, 2, failedAt);
+            statement.setString(3, indexId);
+            statement.setInt(4, generation);
+            return statement.executeUpdate() == 1;
+        }
+    }
+
+    private static void deleteGenerationClaim(
+            Connection conn, String indexId, int generation) throws SQLException {
+        try (PreparedStatement statement = conn.prepareStatement(
+                "DELETE FROM index_build_claims WHERE index_id=? AND generation=?")) {
+            statement.setString(1, indexId);
+            statement.setInt(2, generation);
+            statement.executeUpdate();
+        }
+    }
+
+    private static List<IndexFileMapping> loadGenerationMappings(
+            Connection conn, String indexId, int generation) throws SQLException {
+        try (PreparedStatement statement = conn.prepareStatement(
+                "SELECT * FROM index_file_mappings WHERE index_id=? AND generation=? "
+                        + "ORDER BY data_file_path")) {
+            statement.setString(1, indexId);
+            statement.setInt(2, generation);
+            try (ResultSet rows = statement.executeQuery()) {
+                return IndexMetadataMapper.mapMappingList(rows);
+            }
+        }
+    }
+
+    private static Set<String> findUnreferencedPaths(
+            Connection conn, String indexId, int generation) throws SQLException {
+        String sql = "SELECT DISTINCT mapping.index_file_path FROM index_file_mappings mapping "
+                + "WHERE mapping.index_id=? AND mapping.generation=? AND NOT EXISTS ("
+                + "SELECT 1 FROM index_file_mappings owner WHERE owner.index_id=mapping.index_id "
+                + "AND owner.index_file_path=mapping.index_file_path AND owner.generation<>?)";
+        try (PreparedStatement statement = conn.prepareStatement(sql)) {
+            statement.setString(1, indexId);
+            statement.setInt(2, generation);
+            statement.setInt(3, generation);
+            try (ResultSet rows = statement.executeQuery()) {
+                Set<String> paths = new java.util.LinkedHashSet<>();
+                while (rows.next()) {
+                    paths.add(rows.getString(1));
+                }
+                return Set.copyOf(paths);
+            }
+        }
+    }
+
+    boolean completeIndexBuildCleanup(
+            String indexId, int generation, Instant expectedUpdatedAt,
+            Instant expectedBuildUpdatedAt, IndexState expectedState, int expectedGeneration) {
+        try (Connection conn = dataSource().getConnection()) {
+            conn.setAutoCommit(false);
+            try {
+                if (!lockExpectedDescriptor(conn, indexId, expectedUpdatedAt,
+                        expectedState, expectedGeneration)
+                        || !lockFailedGeneration(conn, indexId, generation, expectedBuildUpdatedAt)) {
+                    conn.rollback();
+                    return false;
+                }
+                deleteGenerationClaim(conn, indexId, generation);
+                try (PreparedStatement statement = conn.prepareStatement(
+                        "DELETE FROM index_file_mappings WHERE index_id=? AND generation=?")) {
+                    statement.setString(1, indexId);
+                    statement.setInt(2, generation);
+                    statement.executeUpdate();
+                }
+                try (PreparedStatement statement = conn.prepareStatement(
+                        "DELETE FROM index_generation_builds WHERE index_id=? AND generation=?")) {
+                    statement.setString(1, indexId);
+                    statement.setInt(2, generation);
+                    statement.executeUpdate();
+                }
+                conn.commit();
+                return true;
+            } catch (SQLException | RuntimeException failure) {
+                rollbackAfterFailure(conn, failure);
+                throw failure;
+            }
+        } catch (SQLException failure) {
+            throw new MetastoreException("Failed to complete fenced index build cleanup", failure);
+        }
+    }
+
+    private static boolean lockFailedGeneration(
+            Connection conn, String indexId, int generation, Instant expectedUpdatedAt)
+            throws SQLException {
+        try (PreparedStatement statement = conn.prepareStatement(
+                "SELECT 1 FROM index_generation_builds WHERE index_id=? AND generation=? "
+                        + "AND state='FAILED' AND updated_at=? FOR UPDATE")) {
+            statement.setString(1, indexId);
+            statement.setInt(2, generation);
+            setInstant(statement, 3, expectedUpdatedAt);
+            try (ResultSet row = statement.executeQuery()) {
+                return row.next();
+            }
         }
     }
 

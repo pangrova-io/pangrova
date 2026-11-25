@@ -253,15 +253,15 @@ public final class IndexGarbageCollector implements AutoCloseable {
             }
             return;
         }
-        List<Long> snapshots = pinProvider.getPinnedSnapshotsForIndex(
+        List<org.pangrova.connector.api.index.SnapshotPinReference> snapshots = pinProvider.getSnapshotPinsForIndex(
                 descriptor.catalogName(), descriptor.schemaName(),
                 descriptor.tableName(), descriptor.indexId());
-        for (long snapshotId : snapshots) {
+        for (var snapshot : snapshots) {
             pinProvider.unpinSnapshot(
                     descriptor.catalogName(), descriptor.schemaName(),
-                    descriptor.tableName(), snapshotId, descriptor.indexId());
-            LOG.info("action=snapshot_unpinned indexId={} snapshotId={}",
-                    descriptor.indexId(), snapshotId);
+                    descriptor.tableName(), snapshot.snapshotToken(), snapshot.owner());
+            LOG.info("action=snapshot_unpinned indexId={} snapshotId={} owner={}",
+                    descriptor.indexId(), snapshot.snapshotToken(), snapshot.owner().id());
         }
     }
 

@@ -15,6 +15,8 @@ import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.utils.SnapshotManager;
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.connector.api.exception.SnapshotExpiredException;
+import org.pangrova.connector.api.index.SnapshotPinOwner;
+import org.pangrova.connector.api.index.SnapshotPinReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -107,15 +109,21 @@ class PaimonExpireSnapshotsTest {
         FileStoreTable table = (FileStoreTable) catalog.getTable(tableId);
         long oldSnapshot = table.snapshotManager().latestSnapshotId();
         var pins = metadata.getIndexSupport().orElseThrow().getSnapshotPinProvider().orElseThrow();
-        pins.pinSnapshot("test_catalog", "db", "test_expire", oldSnapshot, "index-one");
-        pins.pinSnapshot("test_catalog", "db", "test_expire", oldSnapshot, "index-one");
-        pins.pinSnapshot("test_catalog", "db", "test_expire", oldSnapshot, "index-two");
+        String oldToken = Long.toString(oldSnapshot);
+        String currentToken;
+        var firstOwner = new SnapshotPinOwner("index-one", 0, "attempt-1");
+        var replacementOwner = new SnapshotPinOwner("index-one", 1, "attempt-2");
+        var secondIndexOwner = new SnapshotPinOwner("index-two", 0, "attempt-1");
+        pins.pinSnapshot("test_catalog", "db", "test_expire", oldToken, firstOwner);
+        pins.pinSnapshot("test_catalog", "db", "test_expire", oldToken, firstOwner);
+        pins.pinSnapshot("test_catalog", "db", "test_expire", oldToken, secondIndexOwner);
         for (int i = 2; i < 5; i++) {
             commitData(i);
         }
         long currentSnapshot = ((FileStoreTable) catalog.getTable(tableId))
                 .snapshotManager().latestSnapshotId();
-        pins.pinSnapshot("test_catalog", "db", "test_expire", currentSnapshot, "index-one");
+        currentToken = Long.toString(currentSnapshot);
+        pins.pinSnapshot("test_catalog", "db", "test_expire", currentToken, replacementOwner);
 
         metadata.executeProcedure(null, "expire_snapshots",
                 Map.of("arg0", "db.test_expire", "retain_max", "1"));
@@ -124,22 +132,25 @@ class PaimonExpireSnapshotsTest {
         var reopened = new PaimonMetadata(catalog, "test_catalog", new PaimonSplitRegistry());
         var reopenedPins = reopened.getIndexSupport().orElseThrow()
                 .getSnapshotPinProvider().orElseThrow();
-        assertThat(reopenedPins.getPinnedSnapshotsForIndex(
+        assertThat(reopenedPins.getSnapshotPinsForIndex(
                 "test_catalog", "db", "test_expire", "index-one"))
-                .containsExactly(oldSnapshot, currentSnapshot);
+                .containsExactlyInAnyOrder(
+                        new SnapshotPinReference(oldToken, firstOwner),
+                        new SnapshotPinReference(currentToken, replacementOwner));
         assertThat(reopened.getSnapshotAwareMetadata("db", "test_expire")
-                .orElseThrow().listFilesAtSnapshot(Long.toString(oldSnapshot))).isNotEmpty();
+                .orElseThrow().listFilesAtSnapshot(oldToken)).isNotEmpty();
 
-        reopenedPins.unpinSnapshot("test_catalog", "db", "test_expire", oldSnapshot, "index-one");
-        assertThat(reopenedPins.getPinnedSnapshotsForIndex(
+        reopenedPins.unpinSnapshot("test_catalog", "db", "test_expire", oldToken, firstOwner);
+        assertThat(reopenedPins.getSnapshotPinsForIndex(
                 "test_catalog", "db", "test_expire", "index-two"))
-                .containsExactly(oldSnapshot);
-        reopenedPins.unpinSnapshot("test_catalog", "db", "test_expire", oldSnapshot, "index-two");
-        reopenedPins.unpinSnapshot("test_catalog", "db", "test_expire", currentSnapshot, "index-one");
-        assertThat(reopenedPins.getPinnedSnapshotsForIndex(
+                .containsExactly(new SnapshotPinReference(oldToken, secondIndexOwner));
+        reopenedPins.unpinSnapshot("test_catalog", "db", "test_expire", oldToken, secondIndexOwner);
+        reopenedPins.unpinSnapshot("test_catalog", "db", "test_expire", currentToken, replacementOwner);
+        assertThat(reopenedPins.getSnapshotPinsForIndex(
                 "test_catalog", "db", "test_expire", "index-one")).isEmpty();
         assertThatThrownBy(() -> reopenedPins.pinSnapshot(
-                "test_catalog", "db", "test_expire", 0, "index-one"))
+                "test_catalog", "db", "test_expire", "0",
+                new SnapshotPinOwner("index-one", 2, "attempt-3")))
                 .isInstanceOf(SnapshotExpiredException.class);
     }
 

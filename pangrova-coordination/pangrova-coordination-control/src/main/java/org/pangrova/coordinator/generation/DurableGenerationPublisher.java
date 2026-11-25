@@ -15,6 +15,7 @@ import java.util.Objects;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 
 import static org.pangrova.common.util.Preconditions.requirePositiveDuration;
 
@@ -38,6 +39,7 @@ public final class DurableGenerationPublisher implements AutoCloseable {
     private final GenerationPublicationStore publicationStore;
     private final String owner;
     private final GenerationExecutionOwnership executionOwnership;
+    private final Consumer<GenerationJob> snapshotValidator;
     private final Duration claimTtl;
     private final Duration retryDelay;
     private final Duration pollInterval;
@@ -46,27 +48,38 @@ public final class DurableGenerationPublisher implements AutoCloseable {
     private final ScheduledExecutorService scheduler;
     private final AtomicBoolean started = new AtomicBoolean();
 
+    public DurableGenerationPublisher(
+            GenerationJobStore buildStore,
+            GenerationPublicationStore publicationStore,
+            GenerationExecutionOwnership executionOwnership,
+            Consumer<GenerationJob> snapshotValidator,
+            PollSettings settings) {
+        this(buildStore, publicationStore, executionOwnership, snapshotValidator,
+                settings, ManagedExecutorFactory.newSingleThreadScheduledExecutor(
+                        "artifact-publication"));
+    }
+
     /** Creates a production publication loop using bounded default claim and retry intervals. */
     public DurableGenerationPublisher(
             GenerationJobStore buildStore,
             GenerationPublicationStore publicationStore,
-            GenerationExecutionOwnership executionOwnership) {
-        this(buildStore, publicationStore, executionOwnership,
-                new PollSettings(DEFAULT_CLAIM_TTL, DEFAULT_RETRY_DELAY, DEFAULT_POLL_INTERVAL,
-                        DEFAULT_BATCH_SIZE, Clock.systemUTC()),
-                ManagedExecutorFactory.newSingleThreadScheduledExecutor(
-                        "artifact-publication"));
+            GenerationExecutionOwnership executionOwnership,
+            Consumer<GenerationJob> snapshotValidator) {
+        this(buildStore, publicationStore, executionOwnership, snapshotValidator,
+                DurableGenerationPublisher.defaultSettings());
     }
 
     DurableGenerationPublisher(
             GenerationJobStore buildStore,
             GenerationPublicationStore publicationStore,
             GenerationExecutionOwnership executionOwnership,
+            Consumer<GenerationJob> snapshotValidator,
             PollSettings settings,
             ScheduledExecutorService scheduler) {
         this.buildStore = Objects.requireNonNull(buildStore, "buildStore must not be null");
         this.publicationStore = Objects.requireNonNull(publicationStore, "publicationStore");
         this.executionOwnership = Objects.requireNonNull(executionOwnership, "executionOwnership");
+        this.snapshotValidator = Objects.requireNonNull(snapshotValidator, "snapshotValidator");
         this.owner = executionOwnership.coordinatorId();
         Objects.requireNonNull(settings, "settings must not be null");
         this.claimTtl = requirePositiveDuration(settings.claimTtl(), "claimTtl");
@@ -93,7 +106,13 @@ public final class DurableGenerationPublisher implements AutoCloseable {
         LOG.info("event=artifact_publisher_started owner={} batchSize={}", owner, batchSize);
     }
 
-    record PollSettings(Duration claimTtl, Duration retryDelay, Duration pollInterval, int batchSize, Clock clock) {}
+    public static PollSettings defaultSettings() {
+        return new PollSettings(DEFAULT_CLAIM_TTL, DEFAULT_RETRY_DELAY, DEFAULT_POLL_INTERVAL,
+                DEFAULT_BATCH_SIZE, Clock.systemUTC());
+    }
+
+    public record PollSettings(
+            Duration claimTtl, Duration retryDelay, Duration pollInterval, int batchSize, Clock clock) {}
 
     void publishAvailable() {
         Instant now = clock.instant();
@@ -114,6 +133,7 @@ public final class DurableGenerationPublisher implements AutoCloseable {
             claim = buildStore.claimReadyForPublication(
                     tenantId, jobId, anchor.orElseThrow(), ownerEpoch, claimTtl, now).orElse(null);
             if (claim == null) return;
+            snapshotValidator.accept(claim);
             GenerationManifest manifest = publicationStore.publishClaimed(
                     claim, owner, ownerEpoch, clock.instant());
             LOG.info("event=artifact_published jobId={} artifactId={} generation={} "
@@ -122,11 +142,18 @@ public final class DurableGenerationPublisher implements AutoCloseable {
                     manifest.manifestSha256(), manifest.objectCount(), manifest.rowCount(),
                     manifest.totalBytes());
             executionOwnership.release(key);
-        } catch (org.pangrova.security.api.exception.AuthorizationDeniedException revoked) {
-            buildStore.cancelJob(tenantId, jobId, revoked.getMessage(), clock.instant());
+        } catch (org.pangrova.connector.api.exception.SnapshotExpiredException expired) {
+            boolean cancelled = claim != null && buildStore.cancelPublicationClaim(
+                    claim, owner, ownerEpoch, expired.getMessage(), clock.instant());
             executionOwnership.release(key);
-            LOG.warn("event=artifact_publication_revoked jobId={} tenantId={} reason={}",
-                    jobId, tenantId, revoked.getMessage());
+            LOG.warn("event=artifact_publication_snapshot_expired jobId={} tenantId={} cancelled={} reason={}",
+                    jobId, tenantId, cancelled, expired.getMessage());
+        } catch (org.pangrova.security.api.exception.AuthorizationDeniedException revoked) {
+            boolean cancelled = claim != null && buildStore.cancelPublicationClaim(
+                    claim, owner, ownerEpoch, revoked.getMessage(), clock.instant());
+            executionOwnership.release(key);
+            LOG.warn("event=artifact_publication_revoked jobId={} tenantId={} cancelled={} reason={}",
+                    jobId, tenantId, cancelled, revoked.getMessage());
         } catch (org.pangrova.generation.api.exception.GenerationExecutionOwnerLostException staleOwner) {
             LOG.warn("event=artifact_publication_owner_lost jobId={} tenantId={}", jobId, tenantId);
         } catch (RuntimeException failure) {

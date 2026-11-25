@@ -136,7 +136,43 @@ tenant:
   enabled: true
 
 indexing:
-  enabled: true
+  enabled: false
+  # Durable scalar index and Native artifact staging root. PostgreSQL stores
+  # only descriptors/mappings/manifests. Set this before enabling indexing;
+  # production deployments should use a shared filesystem or object-store URI.
+  base-path: "${PANGROVA_INDEX_BASE_PATH:-/var/lib/pangrova/indexes}"
+  build:
+    thread-pool-size: 4
+    parallelism: 4
+    batch-flush-size: 500
+    max-concurrent-per-tenant: 2
+  cache:
+    size-bytes: -1
+  eval:
+    parallelism: 8
+    timeout-ms: 5000
+    circuit-failure-threshold: 5
+    circuit-open-seconds: 60
+    include-stale: true
+  gc:
+    interval-minutes: 60
+    grace-period-minutes: 1440
+  commit-listener:
+    enabled: false
+    poll-batch-size: 64
+  consistency:
+    check-interval-minutes: 30
+    rebuild-threshold: 0.8
+    auto-rebuild-enabled: false
+    stuck-detection-multiplier: 2
+  artifact:
+    dispatch-lease: "2m"
+    dispatch-retry-delay: "5s"
+    dispatch-max-in-flight: 32
+    publish-claim-ttl: "30s"
+    publish-retry-delay: "15s"
+    publish-poll-interval: "1s"
+    publish-batch-size: 64
 
 operations:
   enabled: true

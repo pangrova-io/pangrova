@@ -3,6 +3,7 @@ package org.pangrova.coordinator.indexing.ddl;
 import org.pangrova.common.util.DigestUtils;
 
 import org.pangrova.persistence.generation.api.job.GenerationJobStore;
+import org.pangrova.generation.api.job.GenerationSubmissionAuthority;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
@@ -44,6 +45,16 @@ final class DeferredIndexAuthorityResolver {
             throw new AccessDeniedException("Index metadata differs from its persisted exact authorization scope");
         }
         return new Resolved(tenant, table, new DeferredIndexSession(authority.principal(), tenant, table));
+    }
+
+    static Resolved resolveSubmission(GenerationSubmissionAuthority authority) {
+        var table = authority.authorizationScope().permissions().stream()
+                .filter(permission -> permission.privilege() == org.pangrova.security.api.enums.Privilege.SELECT)
+                .map(permission -> permission.table())
+                .findFirst().orElseThrow(() -> new AccessDeniedException(
+                        "Snapshot maintenance has no exact persisted source scope"));
+        return new Resolved(authority.tenantId(), table,
+                new DeferredIndexSession(authority.principal(), authority.tenantId(), table));
     }
 
     static Resolved resolveScalar(IndexDescriptor descriptor, String principal) {

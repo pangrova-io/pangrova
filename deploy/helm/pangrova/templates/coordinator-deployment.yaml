@@ -16,6 +16,13 @@
 {{- fail "config.coordinator security.auth.type must be OAUTH2 or LDAP, or explicit developmentMode=true with NOOP" -}}
 {{- end -}}
 {{- $coordinator := get $config "coordinator" | default dict -}}
+{{- $indexing := get $config "indexing" | default dict -}}
+{{- $indexingEnabled := eq (get $indexing "enabled" | toString | lower) "true" -}}
+{{- $indexBasePath := get $indexing "base-path" | default "" -}}
+{{- $localIndexRoot := or (hasPrefix "/" $indexBasePath) (hasPrefix "file:" $indexBasePath) (not (contains "://" $indexBasePath)) -}}
+{{- if and $indexingEnabled (not .Values.indexing.persistence.enabled) $localIndexRoot -}}
+{{- fail "enabling indexing with a local base path requires indexing.persistence.enabled=true and a shared ReadWriteMany PVC" -}}
+{{- end -}}
 {{- $ha := get $coordinator "ha" | default dict -}}
 {{- $multiple := gt (int .Values.coordinator.replicas) 1 -}}
 {{- $identityMode := .Values.coordinator.identityMode -}}
@@ -122,9 +129,37 @@ spec:
               subPath: coordinator.yml
             - name: logs
               mountPath: /opt/pangrova/logs
+            {{- if .Values.indexing.persistence.enabled }}
+            - name: index-data
+              mountPath: /opt/pangrova/indexes
+            {{- end }}
       volumes:
         - name: config
           configMap:
             name: pangrova-config
         - name: logs
           emptyDir: {}
+        {{- if .Values.indexing.persistence.enabled }}
+        - name: index-data
+          persistentVolumeClaim:
+            claimName: {{ default "pangrova-coordinator-index-data" .Values.indexing.persistence.existingClaim | quote }}
+        {{- end }}
+{{- if and .Values.indexing.persistence.enabled (not .Values.indexing.persistence.existingClaim) }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pangrova-coordinator-index-data
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: pangrova
+    component: coordinator
+spec:
+  accessModes: ["ReadWriteMany"]
+  {{- if .Values.indexing.persistence.storageClass }}
+  storageClassName: {{ .Values.indexing.persistence.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.indexing.persistence.size }}
+{{- end }}

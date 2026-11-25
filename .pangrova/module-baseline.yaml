@@ -2710,10 +2710,13 @@ artifacts:
         - pangrova-security-codec
       test:
         - pangrova-common
+        - pangrova-connector-api
         - pangrova-execution-api
         - pangrova-generation-api
         - pangrova-persistence-generation-api
         - pangrova-persistence-jdbc-api
+        - pangrova-security-api
+        - pangrova-security-codec
         - pangrova-testing-kit
     exportedPackages:
       - org.pangrova.persistence.generation.postgresql.exchange
@@ -2756,7 +2759,8 @@ artifacts:
         - pangrova-common
         - pangrova-connector-api
         - pangrova-indexing-api
-      test: []
+      test:
+        - pangrova-indexing-api
     exportedPackages:
       - org.pangrova.persistence.indexing.api.build
       - org.pangrova.persistence.indexing.api.metadata

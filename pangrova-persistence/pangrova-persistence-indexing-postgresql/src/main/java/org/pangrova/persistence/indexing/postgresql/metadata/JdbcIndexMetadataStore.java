@@ -7,6 +7,8 @@ import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
 import org.pangrova.persistence.indexing.api.metadata.BreakerState;
 import org.pangrova.persistence.indexing.api.metadata.CacheEvent;
 import org.pangrova.persistence.indexing.api.metadata.CommitLogEntry;
+import org.pangrova.persistence.indexing.api.metadata.IndexBuildGenerations.IndexBuildAbandonment;
+import org.pangrova.persistence.indexing.api.metadata.IndexBuildGenerations.IndexBuildCandidate;
 import org.pangrova.persistence.indexing.api.metadata.IndexFileMapping;
 import org.pangrova.persistence.indexing.api.metadata.IndexFileSelection;
 import org.pangrova.persistence.indexing.api.metadata.IndexGenerationManifest;
@@ -47,6 +49,7 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
     private final JdbcIndexGcStore gcStore;
     private final JdbcIndexCommitQueue commitQueue;
     private final JdbcIndexPublicationStore publicationStore;
+    private final JdbcIndexGenerationCoverageStore coverageStore;
     private final ThreadLocal<Set<String>> heldLifecycleLocks = ThreadLocal.withInitial(HashSet::new);
 
     /** Creates the facade over the focused JDBC sub-stores backed by the given data source. */
@@ -58,6 +61,7 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
         this.gcStore = new JdbcIndexGcStore(dataSource);
         this.commitQueue = new JdbcIndexCommitQueue(dataSource);
         this.publicationStore = new JdbcIndexPublicationStore(dataSource, descriptorStore);
+        this.coverageStore = new JdbcIndexGenerationCoverageStore(dataSource);
     }
 
     // --- IndexDescriptor CRUD (delegate to descriptorStore) ---
@@ -173,6 +177,27 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
     @Override
     public boolean isIndexSnapshotBuildable(String indexId, String snapshotId) {
         return descriptorStore.isIndexSnapshotBuildable(indexId, snapshotId);
+    }
+
+    @Override
+    public List<IndexBuildCandidate> findIndexBuildRecoveryCandidates() {
+        return descriptorStore.findIndexBuildRecoveryCandidates();
+    }
+
+    @Override
+    public Optional<IndexBuildAbandonment> abandonIndexGeneration(
+            String indexId, int generation, Instant expectedUpdatedAt,
+            Instant cutoff, Instant abandonedAt, String reason) {
+        return descriptorStore.abandonIndexGeneration(
+                indexId, generation, expectedUpdatedAt, cutoff, abandonedAt, reason);
+    }
+
+    @Override
+    public boolean completeIndexBuildCleanup(
+            String indexId, int generation, Instant expectedUpdatedAt,
+            Instant expectedBuildUpdatedAt, IndexState expectedState, int expectedGeneration) {
+        return descriptorStore.completeIndexBuildCleanup(indexId, generation, expectedUpdatedAt,
+                expectedBuildUpdatedAt, expectedState, expectedGeneration);
     }
 
     @Override
@@ -293,6 +318,12 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
     @Override
     public Set<String> getIndexedDataFilePaths(String indexId, int generation) {
         return fileMappingStore.getIndexedDataFilePaths(indexId, generation);
+    }
+
+    @Override
+    public Set<String> getNativeIndexSourcePaths(
+            IndexDescriptor descriptor, IndexGenerationManifest active) {
+        return coverageStore.getNativeIndexSourcePaths(descriptor, active);
     }
 
     @Override

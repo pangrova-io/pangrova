@@ -118,6 +118,31 @@ class IndexDdlReadAuthorizationTest {
         assertThat(checkedColumns.get()).containsExactly("col1");
     }
 
+    @Test
+    void createIfNotExistsReturnsTheExistingDescriptorIdentity() {
+        executor = executor(accessControl(new AtomicReference<>(), false, false, false),
+                metadataStore(index(), true));
+
+        var rows = executor.executeCreateIndex(new CreateIndexStatement(
+                "idx", TABLE, List.of("col1"), "BLOOM_FILTER", true, Map.of()), SESSION);
+
+        assertThat(rows).hasSize(1);
+        assertThat(rows.get(0).getString("index_id")).isEqualTo("index-1");
+        assertThat(rows.get(0).getString("state")).isEqualTo("READY");
+    }
+
+    @Test
+    void showIndexesAlwaysReturnsAlgorithmAndMetricColumns() {
+        executor = executor(accessControl(new AtomicReference<>(), false, false, false), metadataStore(index()));
+
+        var rows = executor.executeShowIndexes(
+                new org.pangrova.parser.api.ast.statement.ShowIndexesStatement(TABLE), SESSION);
+
+        assertThat(rows).hasSize(1);
+        assertThat(rows.get(0).getString("algorithm")).isEmpty();
+        assertThat(rows.get(0).getString("metric")).isEmpty();
+    }
+
     private IndexDdlExecutor executor(AccessControl accessControl, IndexMetadataStore store) {
         builder = new IndexBuildCoordinator(new IndexBuildContext(
                 new IndexingConfig("index-ddl-authorization", false, null, null),
@@ -140,11 +165,19 @@ class IndexDdlReadAuthorizationTest {
     }
 
     private static IndexMetadataStore metadataStore(IndexDescriptor descriptor) {
+        return metadataStore(descriptor, false);
+    }
+
+    private static IndexMetadataStore metadataStore(IndexDescriptor descriptor, boolean duplicate) {
         return (IndexMetadataStore) Proxy.newProxyInstance(
                 IndexMetadataStore.class.getClassLoader(), new Class<?>[] {IndexMetadataStore.class},
                 (proxy, method, arguments) -> {
                     if (method.getName().equals("findIndexesByTable")) {
                         return descriptor == null ? List.of() : List.of(descriptor);
+                    }
+                    if (duplicate && method.getName().equals("registerIndexWithBuildAuthority")) {
+                        throw new org.pangrova.indexing.api.exception.IndexAlreadyExistsException(
+                                "idx", "cat.sch.tbl");
                     }
                     throw new AssertionError("Unexpected metadata access: " + method.getName());
                 });
@@ -160,6 +193,28 @@ class IndexDdlReadAuthorizationTest {
                 (proxy, method, arguments) -> switch (method.getName()) {
                     case "getTableHandle" -> tableHandle;
                     case "getTableMetadata" -> table;
+                    case "getIndexSupport" -> java.util.Optional.empty();
+                    case "nativeIndexCapabilities" -> List.of();
+                    case "getSnapshotAwareMetadata" -> java.util.Optional.of(
+                            new org.pangrova.connector.api.index.SnapshotAwareMetadata() {
+                                @Override public java.util.Optional<String> currentSnapshotId() {
+                                    return java.util.Optional.of("snap-1");
+                                }
+                                @Override public java.util.Optional<CurrentSnapshotFiles> currentSnapshotFiles() {
+                                    return java.util.Optional.empty();
+                                }
+                                @Override public List<org.pangrova.connector.api.index.SnapshotDataFile>
+                                        listFilesAtSnapshot(String snapshotId) { return List.of(); }
+                                @Override public org.pangrova.connector.api.enums.SnapshotRelation relation(
+                                        String left, String right) {
+                                    return org.pangrova.connector.api.enums.SnapshotRelation.SAME;
+                                }
+                                @Override public SnapshotAdvance observeAdvance(String from, String to) {
+                                    return SnapshotAdvance.noAdvance(org.pangrova.connector.api.enums.SnapshotRelation.SAME);
+                                }
+                                @Override public org.pangrova.connector.api.index.SnapshotFileDelta diffFiles(
+                                        String from, String to) { return new org.pangrova.connector.api.index.SnapshotFileDelta(List.of(), List.of()); }
+                            });
                     default -> throw new AssertionError("Unexpected connector metadata access: " + method.getName());
                 });
         var connector = (Connector) Proxy.newProxyInstance(
@@ -188,6 +243,7 @@ class IndexDdlReadAuthorizationTest {
                 AccessControl.class.getClassLoader(), new Class<?>[] {AccessControl.class},
                 (proxy, method, arguments) -> switch (method.getName()) {
                     case "checkCanAlterTable" -> null;
+                    case "checkCanSelectFromTable" -> null;
                     case "checkCanSelectFromColumns" -> {
                         @SuppressWarnings("unchecked")
                         Set<String> columns = (Set<String>) arguments[4];

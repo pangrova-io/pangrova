@@ -141,7 +141,7 @@ public final class IndexDdlExecutor implements AutoCloseable {
                 buildInput.sourceSnapshot(), tenantId);
         requireNativeBuildSupport(descriptor);
 
-        List<TypedRow> earlyResult = registerIndexOrSkip(descriptor, stmt, user);
+        List<TypedRow> earlyResult = registerIndexOrSkip(descriptor, stmt, user, tableRef, tenantId);
         if (earlyResult != null) {
             return earlyResult;
         }
@@ -152,7 +152,8 @@ public final class IndexDdlExecutor implements AutoCloseable {
     }
 
     private List<TypedRow> registerIndexOrSkip(
-            IndexDescriptor descriptor, CreateIndexStatement stmt, UserIdentity user) {
+            IndexDescriptor descriptor, CreateIndexStatement stmt, UserIdentity user,
+            QualifiedTableName tableRef, String tenantId) {
         try {
             if (requiresNativeArtifact(descriptor.indexType())) {
                 deps.indexMetadataStore().registerIndex(descriptor);
@@ -167,7 +168,11 @@ public final class IndexDdlExecutor implements AutoCloseable {
             if (stmt.ifNotExists()) {
                 LOG.info("action=create_index_skip_exists index={} table={}",
                         stmt.indexName(), descriptor.tableName());
-                return buildCreateResult(descriptor.indexId(), IndexState.BUILDING);
+                IndexDescriptor existing = findActiveIndex(stmt.indexName(), tableRef, tenantId);
+                if (existing == null) {
+                    throw e;
+                }
+                return buildCreateResult(existing.indexId(), existing.state());
             }
             throw e;
         }
@@ -465,27 +470,21 @@ public final class IndexDdlExecutor implements AutoCloseable {
                 result.failureCount(), newState);
     }
 
-    private void recordBuildFailure(IndexDescriptor building, Exception failure) {
+    @org.pangrova.common.VisibleForTesting
+    void recordBuildFailure(IndexDescriptor building, Exception failure) {
         try {
             String reason = failure.getMessage() == null
                     ? "build_error" : failure.getMessage();
-            boolean onlineFailed = deps.indexMetadataStore().failIndexGeneration(
+            boolean failed = deps.indexMetadataStore().failIndexGeneration(
                     building.indexId(), building.generation(), building.updatedAt(),
                     Instant.now(), reason);
-            if (onlineFailed) {
-                return;
-            }
-            Optional<IndexDescriptor> current =
-                    deps.indexMetadataStore().findIndex(building.indexId());
-            if (current.isPresent()
-                    && current.get().state() == IndexState.BUILDING
-                    && current.get().generation() == building.generation()) {
-                deps.indexMetadataStore().updateIndexState(
-                        building.indexId(), IndexState.STALE.name(), Instant.now(), reason);
+            if (!failed) {
+                LOG.warn("event=build_failure_fence_lost indexId={} generation={}",
+                        building.indexId(), building.generation());
             }
         } catch (Exception stateFailure) {
             LOG.warn("event=build_error_state_update_failed indexId={} error={}",
-                    building.indexId(), stateFailure.getMessage());
+                    building.indexId(), stateFailure.getMessage(), stateFailure);
         }
     }
 
@@ -598,6 +597,12 @@ public final class IndexDdlExecutor implements AutoCloseable {
         if (d.indexType() == IndexType.VECTOR) {
             builder.putString("algorithm", d.properties().getOrDefault("algorithm", ""));
             builder.putString("metric", d.properties().getOrDefault("metric", ""));
+        } else if (d.indexType() == IndexType.INVERTED) {
+            builder.putString("algorithm", d.properties().getOrDefault("analyzer", ""));
+            builder.putString("metric", "");
+        } else {
+            builder.putString("algorithm", "");
+            builder.putString("metric", "");
         }
         return builder.build();
     }

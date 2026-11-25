@@ -269,6 +269,10 @@ kubectl describe hpa pangrova-worker -n pangrova
 | `persistence.enabled` | bool | `false` | Enable Worker persistent volumes |
 | `persistence.size` | string | `100Gi` | PVC size per Worker |
 | `persistence.storageClass` | string | `""` | Storage class (empty = default) |
+| `indexing.persistence.enabled` | bool | `false` | Mount one shared index PVC at `/opt/pangrova/indexes` on every Coordinator and Worker; required for a local index root |
+| `indexing.persistence.existingClaim` | string | `""` | Existing ReadWriteMany PVC; when empty the chart creates one |
+| `indexing.persistence.size` | string | `100Gi` | Shared index PVC size |
+| `indexing.persistence.storageClass` | string | `""` | Shared index PVC storage class; must support ReadWriteMany |
 | `autoscaling.enabled` | bool | `true` | Enable Worker HPA |
 | `autoscaling.minReplicas` | int | `3` | HPA minimum replicas |
 | `autoscaling.maxReplicas` | int | `10` | HPA maximum replicas |

@@ -45,7 +45,7 @@ final class IndexGenerationRefresher {
         IndexBuildCoordinator coordinator = deps.buildServices().dataSkipping();
         boolean nativeArtifact = DurableIndexBuildService.supports(descriptor);
         if (!nativeArtifact && !input.addedFiles().isEmpty()
-                && !coordinator.canAcceptBuild()) {
+                && !coordinator.canAcceptBuild(descriptor.tenantId())) {
             return false;
         }
         int nextGeneration = Math.addExact(descriptor.generation(), 1);
@@ -89,9 +89,15 @@ final class IndexGenerationRefresher {
                     descriptor.indexId(), rebuilding.generation(), input.sourceSnapshot());
             return true;
         }
-        long reused = store.copyIndexGenerationMappings(
-                descriptor.indexId(), descriptor.generation(), rebuilding.generation(),
-                List.copyOf(new LinkedHashSet<>(input.removedFiles())));
+        long reused = store.findActiveIndexGeneration(descriptor.indexId())
+                .map(active -> {
+                    if (active.generation() != descriptor.generation()) {
+                        throw new IllegalStateException(
+                                "Active index generation differs from refresh base: " + descriptor.indexId());
+                    }
+                    return copyReusableMappings(store, descriptor, rebuilding, input);
+                })
+                .orElse(0L);
         long built = buildAddedFiles(store, coordinator, rebuilding, input.addedFiles());
         if (store.findIndex(descriptor.indexId()).isEmpty()) {
             throw new IllegalStateException(
@@ -103,6 +109,14 @@ final class IndexGenerationRefresher {
                 descriptor.indexId(), rebuilding.generation(), reused, built,
                 input.sourceSnapshot());
         return true;
+    }
+
+    private static long copyReusableMappings(
+            IndexMetadataStore store, IndexDescriptor descriptor,
+            IndexDescriptor rebuilding, IndexRefreshInput input) {
+        return store.copyIndexGenerationMappings(
+                descriptor.indexId(), descriptor.generation(), rebuilding.generation(),
+                List.copyOf(new LinkedHashSet<>(input.removedFiles())));
     }
 
     private void submitNativeGeneration(IndexDescriptor previous, IndexDescriptor rebuilding) {
