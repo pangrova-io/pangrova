@@ -261,16 +261,34 @@ runner ships about 14 GB free and the repository cache limit is 10 GB, so:
   `PANGROVA_DEPENDENCY_BUILD` in the lock whenever dependency build flags or
   install options change. Keys never fall back to another image, compiler
   configuration or pre-patch dependency tree.
-- `.github/workflows/native-deps-baseline.yml` warms exactly those keys weekly
-  and when the dependency lock changes. macOS publishes a
-  `native-deps-<platform>.tar.zst` artifact; Linux can additionally publish an
+- `.github/workflows/native-deps-baseline.yml` warms the layered keys weekly
+  and when the dependency lock changes. Linux can additionally publish an
   OCI image to GHCR when the repository variable
   `PANGROVA_NATIVE_DEPS_IMAGE=ghcr` is set and package write permission is
-  granted. This mirrors Gluten's prebuilt-dependency images without adding
-  credentials or registry dependencies to pull-request runs; CI consumes
-  them only when `PANGROVA_NATIVE_DEPS_ARTIFACT=true` (macOS artifact) or
-  `PANGROVA_NATIVE_DEPS_IMAGE=ghcr` (Linux image) is set, otherwise the
-  layered caches above are the only dependency input.
+  granted. Linux CI consumes that image only when the variable is set. The
+  baseline workflow still publishes the macOS dependency archive for
+  diagnostics and separate qualification.
+- Hosted macOS CI separates canonical and Velox prerequisite packages,
+  Velox/Arrow Flight SDK construction and the Native build/test into three
+  jobs per selected architecture using a per-platform reusable workflow.
+  Linux platform builds have no macOS-stage dependency. The six-hour
+  **per-job** limit must not put cold dependency builds and Native tests in
+  the same time budget. Each consumer
+  checks the same-run, source revision, architecture, runner image, compiler
+  and SDK identity and verifies the archive checksum and required outputs
+  before using it. The SDK artifact retains the source provenance checkout,
+  headers, generated configuration and libraries, but excludes object files
+  and download archives. Artifacts are short-lived, not cross-run dependency
+  caches; partitioning adds transfer overhead. macOS no longer restores an
+  optional last-successful baseline artifact in CI.
+- macOS explicitly installs and verifies ccache and exports its compiler
+  launchers to every CMake invocation. Stage-specific compiler cache keys
+  preserve completed work even when a later stage fails. The Native job
+  still runs all of its original build, JNI, Docker provisioning, CTest and
+  packaging steps. A successful CTest without a report is an error; if the
+  build never reaches tests, the report publisher does not manufacture a
+  second, misleading missing-file failure.
+
 
 ## Apache Gluten Reference
 
