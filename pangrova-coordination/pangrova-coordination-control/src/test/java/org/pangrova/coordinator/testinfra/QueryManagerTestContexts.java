@@ -45,6 +45,14 @@ public final class QueryManagerTestContexts {
     public static QueryManagerContext minimalAsync(
             QueryDispatcher queryDispatcher, TracingProvider tracingProvider,
             AsyncSubmitConfig asyncSubmitConfig, ExecutorService asyncExecutor) {
+        return minimalAsync(queryDispatcher, tracingProvider, asyncSubmitConfig, asyncExecutor,
+                new InMemoryQueryStateJournal());
+    }
+
+    public static QueryManagerContext minimalAsync(
+            QueryDispatcher queryDispatcher, TracingProvider tracingProvider,
+            AsyncSubmitConfig asyncSubmitConfig, ExecutorService asyncExecutor,
+            QueryStateJournal journal) {
         var audit = org.pangrova.coordinator.query.QueryManagerCollaborators.audit(
                 null, null, null, queryDispatcher, null);
         return new QueryManagerContext(queryDispatcher, tracingProvider,
@@ -52,7 +60,7 @@ public final class QueryManagerTestContexts {
                 org.pangrova.coordinator.query.QueryManagerCollaborators.admission(null, null),
                 audit,
                 org.pangrova.coordinator.query.QueryManagerCollaborators.journal(
-                        new InMemoryQueryStateJournal(), audit),
+                        journal, audit),
                 null, asyncSubmitConfig, asyncExecutor, SUBMIT_DEADLINES,
                 new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory());
     }

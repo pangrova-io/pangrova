@@ -11,7 +11,11 @@ public final class JournalPayloadConflictException extends SQLException {
     private boolean rollbackConfirmed;
 
     public JournalPayloadConflictException(JournalEventKey key) {
-        super("Journal event ID has a different durable payload: " + key, "23505");
+        this(key, "Journal event ID has a different durable payload: " + key);
+    }
+
+    public JournalPayloadConflictException(JournalEventKey key, String message) {
+        super(message, "23505");
         this.key = key;
     }
 

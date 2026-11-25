@@ -1,42 +1,64 @@
 package org.pangrova.persistence.query.postgresql.state;
 
+import org.pangrova.common.json.CanonicalJsonMapper;
 import org.pangrova.persistence.query.postgresql.exception.JournalPayloadConflictException;
-
 import org.pangrova.persistence.query.postgresql.exception.LineagePayloadConflictException;
+import org.pangrova.persistence.query.postgresql.journal.JournalEventKey;
+import org.pangrova.query.api.journal.JournalEventContext;
+import org.pangrova.query.api.journal.QueryAcceptance;
+import org.pangrova.query.api.journal.QueryAcceptanceAdmission;
+import org.pangrova.query.api.journal.QueryStateEvent;
+import org.pangrova.query.api.journal.TaskStateEvent;
+import org.pangrova.query.api.submission.QuerySubmissionResult;
+import org.pangrova.persistence.query.postgresql.lineage.QueryLineageFactSql;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-import org.pangrova.persistence.query.postgresql.lineage.QueryLineageFactSql;
-import org.pangrova.query.api.journal.JournalEventContext;
-import org.pangrova.query.api.journal.QueryStateEvent;
-import org.pangrova.query.api.journal.TaskStateEvent;
 
 /** Single SQL encoding and exact event reconciliation for the two authoritative journal tables. */
 final class JournalEventSql {
     static final String QUERY_COLUMNS =
-            "event_id, query_id, sql_text, session_json, state, timestamp_ms, coordinator_id, lineage_payload";
+            "event_id, query_id, sql_text, session_json, state, timestamp_ms, coordinator_id, lineage_payload, "
+                    + "principal, idempotency_key_digest, request_fingerprint, acceptance_receipt_json, retention_ms";
     static final String TASK_COLUMNS =
             "event_id, query_id, task_id, worker_id, state, stage_id, report_sequence, timestamp_ms, coordinator_id";
     private static final String QUERY_INSERT = "INSERT INTO query_state_journal (" + QUERY_COLUMNS
-            + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?::jsonb) ON CONFLICT (event_id) DO NOTHING";
+            + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING";
     private static final String TASK_INSERT = "INSERT INTO task_state_journal (" + TASK_COLUMNS
             + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (event_id) DO NOTHING";
     private static final String SELECT_QUERY_EVENT = "SELECT " + QUERY_COLUMNS
             + " FROM query_state_journal WHERE event_id = ?";
+    private static final String SELECT_ACCEPTANCE = "SELECT " + QUERY_COLUMNS
+            + " FROM query_state_journal WHERE principal = ? AND idempotency_key_digest = ? "
+            + "AND state = 'QUEUED' ORDER BY id LIMIT 1";
     private static final String SELECT_TASK_EVENT = "SELECT " + TASK_COLUMNS
             + " FROM task_state_journal WHERE event_id = ?";
+    private static final String SELECT_TERMINAL_TIMESTAMP = "SELECT MAX(timestamp_ms) FROM query_state_journal "
+            + "WHERE query_id = ? AND state IN ('FINISHED', 'FAILED', 'CANCELLED')";
+    private static final int REQUEST_FINGERPRINT_PARAMETER = 11;
+    private static final int ACCEPTANCE_RECEIPT_PARAMETER = 12;
+    private static final int RETENTION_PARAMETER = 13;
 
     private JournalEventSql() { }
 
     static void commit(Connection connection, List<JournalPendingWrites.Write> batch) throws SQLException {
         connection.setAutoCommit(false);
         try {
-            for (JournalPendingWrites.Write event : batch) write(connection, event);
+            List<QueryAcceptanceAdmission> admissions = new ArrayList<>(batch.size());
+            for (JournalPendingWrites.Write event : batch) {
+                admissions.add(write(connection, event));
+            }
             connection.commit();
+            for (int index = 0; index < batch.size(); index++) {
+                batch.get(index).acceptanceResult(admissions.get(index));
+            }
         } catch (SQLException failure) {
             try {
                 connection.rollback();
@@ -48,43 +70,127 @@ final class JournalEventSql {
         }
     }
 
-    private static void write(Connection connection, JournalPendingWrites.Write event) throws SQLException {
-        int inserted;
+    private static QueryAcceptanceAdmission write(Connection connection, JournalPendingWrites.Write event)
+            throws SQLException {
         if (event.query != null) {
-            try (PreparedStatement statement = connection.prepareStatement(QUERY_INSERT)) {
-                bindQuery(statement, event.query);
-                inserted = statement.executeUpdate();
+            for (int attempt = 0; attempt < 2; attempt++) {
+                int inserted;
+                try (PreparedStatement statement = connection.prepareStatement(QUERY_INSERT)) {
+                    bindQuery(statement, event.query);
+                    inserted = statement.executeUpdate();
+                }
+                if (inserted > 0) {
+                    appendLineage(connection, event.query);
+                    return event.query.acceptance() == null ? null
+                            : new QueryAcceptanceAdmission(true, event.query.acceptance());
+                }
+                var reconciliation = reconcileQuery(connection, event);
+                if (!reconciliation.retryInsert()) {
+                    appendLineage(connection, event.query);
+                    return reconciliation.admission();
+                }
+                if (event.query.acceptance() == null || !deleteExpiredAcceptance(connection, event.query)) {
+                    throw new JournalPayloadConflictException(event.key());
+                }
             }
-            if (inserted == 0) {
-                reconcileQuery(connection, event);
-            }
-        } else {
-            try (PreparedStatement statement = connection.prepareStatement(TASK_INSERT)) {
-                bindTask(statement, event.task);
-                inserted = statement.executeUpdate();
-            }
-            if (inserted == 0) {
-                reconcileTask(connection, event);
+            throw new JournalPayloadConflictException(event.key());
+        }
+        int inserted;
+        try (PreparedStatement statement = connection.prepareStatement(TASK_INSERT)) {
+            bindTask(statement, event.task);
+            inserted = statement.executeUpdate();
+        }
+        if (inserted == 0) {
+            reconcileTask(connection, event);
+        }
+        return null;
+    }
+
+    private static void appendLineage(Connection connection, QueryStateEvent event) throws SQLException {
+        if (event.lineage() == null) return;
+        try {
+            QueryLineageFactSql.append(connection, event.lineage());
+        } catch (LineagePayloadConflictException conflict) {
+            var rejected = new JournalPayloadConflictException(
+                    new JournalEventKey(true, event.context().eventId()));
+            rejected.addSuppressed(conflict);
+            throw rejected;
+        }
+    }
+
+    private record QueryReconciliation(QueryAcceptanceAdmission admission, boolean retryInsert) { }
+
+    private static QueryReconciliation reconcileQuery(Connection connection,
+            JournalPendingWrites.Write event) throws SQLException {
+        try (PreparedStatement select = connection.prepareStatement(SELECT_QUERY_EVENT)) {
+            select.setObject(1, event.context().eventId());
+            try (ResultSet rows = select.executeQuery()) {
+                if (rows.next()) {
+                    var stored = readQuery(rows);
+                    boolean exact = event.query.equals(stored);
+                    if (!exact || rows.next()) {
+                        throw new JournalPayloadConflictException(event.key(),
+                                "Journal event mismatch expected=" + event.query + " actual=" + stored);
+                    }
+                    return event.query.acceptance() == null
+                            ? new QueryReconciliation(null, false)
+                            : new QueryReconciliation(
+                                    new QueryAcceptanceAdmission(true, event.query.acceptance()), false);
+                }
             }
         }
-        if (event.query != null && event.query.lineage() != null) {
-            try {
-                QueryLineageFactSql.append(connection, event.query.lineage());
-            } catch (LineagePayloadConflictException conflict) {
-                var rejected = new JournalPayloadConflictException(event.key());
-                rejected.addSuppressed(conflict);
-                throw rejected;
+        if (event.query.acceptance() == null) throw new JournalPayloadConflictException(event.key());
+        try (PreparedStatement select = connection.prepareStatement(SELECT_ACCEPTANCE)) {
+            select.setString(1, event.query.acceptance().principal());
+            select.setString(2, event.query.acceptance().idempotencyKeyDigest());
+            try (ResultSet rows = select.executeQuery()) {
+                if (!rows.next()) throw new JournalPayloadConflictException(event.key());
+                var existing = readQuery(rows);
+                if (rows.next()) throw new JournalPayloadConflictException(event.key());
+                var accepted = existing.acceptance();
+                if (!event.query.acceptance().principal().equals(accepted.principal())
+                        || !event.query.acceptance().idempotencyKeyDigest().equals(accepted.idempotencyKeyDigest())
+                        || !event.query.acceptance().requestFingerprint().equals(accepted.requestFingerprint())) {
+                    throw new JournalPayloadConflictException(event.key(),
+                            "Idempotency key was already used for a different request");
+                }
+                if (existing.queryId().equals(event.query.queryId())) {
+                    return new QueryReconciliation(new QueryAcceptanceAdmission(true, accepted), false);
+                }
+                if (isExpired(connection, existing)) {
+                    return new QueryReconciliation(null, true);
+                }
+                return new QueryReconciliation(new QueryAcceptanceAdmission(false, accepted), false);
             }
         }
     }
 
-    private static void reconcileQuery(Connection connection, JournalPendingWrites.Write event)
-            throws SQLException {
-        try (PreparedStatement select = connection.prepareStatement(SELECT_QUERY_EVENT)) {
-            select.setObject(1, event.context().eventId());
+    private static boolean isExpired(Connection connection, QueryStateEvent acceptance) throws SQLException {
+        Long terminal;
+        try (PreparedStatement select = connection.prepareStatement(SELECT_TERMINAL_TIMESTAMP)) {
+            select.setString(1, acceptance.queryId());
             try (ResultSet rows = select.executeQuery()) {
-                boolean exact = rows.next() && event.query.equals(readQuery(rows));
-                if (!exact || rows.next()) throw new JournalPayloadConflictException(event.key());
+                terminal = rows.next() ? rows.getLong(1) : null;
+            }
+        }
+        if (terminal == null) return false;
+        long retainedFrom = Math.max(acceptance.context().timestampMs(), terminal);
+        long now = System.currentTimeMillis();
+        return now >= retainedFrom && acceptance.acceptance().retentionMs() <= now - retainedFrom;
+    }
+
+    private static boolean deleteExpiredAcceptance(Connection connection, QueryStateEvent candidate)
+            throws SQLException {
+        try (PreparedStatement select = connection.prepareStatement(SELECT_ACCEPTANCE)) {
+            select.setString(1, candidate.acceptance().principal());
+            select.setString(2, candidate.acceptance().idempotencyKeyDigest());
+            try (ResultSet rows = select.executeQuery()) {
+                if (!rows.next()) return false;
+                var existing = readQuery(rows);
+                if (!isExpired(connection, existing)) return false;
+                deleteQueryState(connection, existing.queryId());
+                deleteTaskState(connection, existing.queryId());
+                return true;
             }
         }
     }
@@ -109,6 +215,18 @@ final class JournalEventSql {
         statement.setLong(6, event.context().timestampMs());
         statement.setString(7, event.context().coordinatorId());
         statement.setString(8, event.lineage() == null ? null : QueryLineageFactSql.encode(event.lineage()));
+        var acceptance = event.acceptance();
+        statement.setString(9, acceptance == null ? null : acceptance.principal());
+        statement.setString(10, acceptance == null ? null : acceptance.idempotencyKeyDigest());
+        statement.setString(REQUEST_FINGERPRINT_PARAMETER,
+                acceptance == null ? null : acceptance.requestFingerprint());
+        statement.setString(ACCEPTANCE_RECEIPT_PARAMETER, acceptance == null ? null
+                : CanonicalJsonMapper.writeValueAsStringUnchecked(acceptance.receipt()));
+        if (acceptance == null) {
+            statement.setNull(RETENTION_PARAMETER, java.sql.Types.BIGINT);
+        } else {
+            statement.setLong(RETENTION_PARAMETER, acceptance.retentionMs());
+        }
     }
 
     private static void bindTask(PreparedStatement statement, TaskStateEvent event) throws SQLException {
@@ -124,10 +242,26 @@ final class JournalEventSql {
     }
 
     static QueryStateEvent readQuery(ResultSet rows) throws SQLException {
+        var acceptance = readAcceptance(rows);
         return new QueryStateEvent(context(rows), rows.getString("query_id"), rows.getString("sql_text"),
                 rows.getString("session_json"), rows.getString("state"),
                 rows.getString("lineage_payload") == null ? null
-                        : QueryLineageFactSql.decode(rows.getString("lineage_payload")));
+                        : QueryLineageFactSql.decode(rows.getString("lineage_payload")), acceptance);
+    }
+
+    private static QueryAcceptance readAcceptance(ResultSet rows) throws SQLException {
+        String digest = rows.getString("idempotency_key_digest");
+        if (digest == null) return null;
+        String receipt = rows.getString("acceptance_receipt_json");
+        if (receipt == null) throw new SQLException("Acceptance receipt is missing");
+        try {
+            return new QueryAcceptance(rows.getString("principal"), digest,
+                    rows.getString("request_fingerprint"),
+                    CanonicalJsonMapper.readValue(receipt.getBytes(StandardCharsets.UTF_8),
+                            QuerySubmissionResult.class), rows.getLong("retention_ms"));
+        } catch (IOException | RuntimeException malformed) {
+            throw new SQLException("Stored query acceptance is malformed", malformed);
+        }
     }
 
     static TaskStateEvent readTask(ResultSet rows) throws SQLException {
@@ -141,4 +275,19 @@ final class JournalEventSql {
                 rows.getString("coordinator_id"));
     }
 
+    static void deleteQueryState(Connection connection, String queryId) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "DELETE FROM query_state_journal WHERE query_id = ?")) {
+            statement.setString(1, queryId);
+            statement.executeUpdate();
+        }
+    }
+
+    static void deleteTaskState(Connection connection, String queryId) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "DELETE FROM task_state_journal WHERE query_id = ?")) {
+            statement.setString(1, queryId);
+            statement.executeUpdate();
+        }
+    }
 }

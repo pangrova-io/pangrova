@@ -1,6 +1,10 @@
 package org.pangrova.coordinator.query;
 
 import org.pangrova.persistence.query.api.enums.JournalAdmissionOutcome;
+import org.pangrova.query.api.exception.IdempotencyConflictException;
+import org.pangrova.query.api.journal.QueryAcceptance;
+import org.pangrova.query.api.journal.QueryAcceptanceAdmission;
+import org.pangrova.query.api.journal.QueryAcceptanceRequest;
 import org.pangrova.query.lifecycle.QueryTerminalCleanup;
 
 import org.pangrova.query.lifecycle.QueryStateMachine;
@@ -67,6 +71,50 @@ final class QueryJournalLifecycle
                         org.pangrova.query.api.session.JournalSessionPayload.encode(session),
                         QueryState.QUEUED.name(), state.lineageStart()));
         record(state, () -> journal.appendQueryEventSync(fact));
+    }
+
+    @Override
+    public QueryAcceptanceAdmission accept(String queryId, String sql, QuerySession session,
+            QueryStateMachine state, QueryAcceptanceRequest request, long retentionMs) {
+        var acceptance = QueryAcceptance.pending(request, queryId, retentionMs);
+        QueryStateEvent fact = state.journalEvent(QueryState.QUEUED,
+                () -> new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(
+                        System.currentTimeMillis(), coordinatorId), queryId, sql,
+                        org.pangrova.query.api.session.JournalSessionPayload.encode(session),
+                        QueryState.QUEUED.name(), state.lineageStart(), acceptance));
+        try {
+            var admission = journal.acceptQuerySync(fact);
+            if (admission.newExecution()) state.retainJournalOwnership();
+            return admission;
+        } catch (JournalWriteException failure) {
+            if (failure.admissionOutcome() == JournalAdmissionOutcome.ACCEPTED_UNESTABLISHED) {
+                var existing = journal.findAcceptance(request.principal(), request.idempotencyKeyDigest());
+                if (existing.isPresent()) {
+                    if (!existing.get().requestFingerprint().equals(request.requestFingerprint())) {
+                        throw new IdempotencyConflictException();
+                    }
+                    boolean newExecution = queryId.equals(existing.get().receipt().queryId());
+                    if (newExecution) state.retainJournalOwnership();
+                    return new QueryAcceptanceAdmission(newExecution, existing.get());
+                }
+            }
+            if (isUniqueConflict(failure)) throw new IdempotencyConflictException();
+            throw failure;
+        }
+    }
+
+    @Override
+    public Optional<QueryAcceptance> findAcceptance(String principal, String idempotencyKeyDigest) {
+        return journal.findAcceptance(principal, idempotencyKeyDigest);
+    }
+
+    private static boolean isUniqueConflict(Throwable failure) {
+        Throwable current = failure;
+        while (current != null) {
+            if (current instanceof java.sql.SQLException sql && "23505".equals(sql.getSQLState())) return true;
+            current = current.getCause();
+        }
+        return false;
     }
 
     @Override

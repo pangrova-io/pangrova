@@ -4128,7 +4128,6 @@ artifacts:
       - org.pangrova.server.coordinator.bootstrap.query.state
       - org.pangrova.server.coordinator.embedding
       - org.pangrova.server.coordinator.enums
-      - org.pangrova.server.coordinator.exception
       - org.pangrova.server.coordinator.http
       - org.pangrova.server.coordinator.http.endpoint
       - org.pangrova.server.coordinator.http.endpoint.catalog

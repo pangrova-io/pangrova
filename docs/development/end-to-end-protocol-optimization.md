@@ -17,7 +17,7 @@ unlisted: true
 | 节点与协议 | 当前耗时来源及读库情况 | 处置 |
 |---|---|---|
 | 1 客户端 → Coordinator HTTP JSON | 连接、认证、提交响应、就绪等待分属不同阶段。CLI/JDBC/TPC 各自轮询 `/v1/query/{id}/state`，短查询可能主要在等待下一次 HTTP | **深改等待协议**。复用连接和提交响应，由 owner 推送状态增量或支持有界等待 |
-| 2 鉴权、幂等和租户准入 | `AuthenticationFilter` 调认证 SPI，后端与配置决定外部 I/O。`IdempotencyKeyRegistry` 主路径为进程内 map。失败后判断提交是否已记录可能查 journal。租户排队与规划线程占用要独立计时 | **局部修复**。认证、幂等、准入分别计数。只在确有 I/O 的后端复用具备版本、有效期和撤销事件的权威快照。连接复用后也逐请求校验身份 |
+| 2 鉴权、幂等和租户准入 | `AuthenticationFilter` 调认证 SPI，后端与配置决定外部 I/O。幂等键与请求指纹由无状态 canonicalization 生成，初始 `QUEUED` journal 行承载 durable acceptance；正常一次 INSERT，冲突/未知提交才 SELECT。租户排队与规划线程占用要独立计时 | **A1 已实现**。认证、幂等、准入分别计数；跨 Coordinator 重放不依赖进程内缓存。生产 phase/capacity 归因见 A4/WP2 |
 | 3 SQL → AST → Calcite | `StatementDispatchPhase` 先解析类型，`CompilationPhase` 随后做语法/Time Travel、绑定、策略、优化。目录、统计或策略后端访问是 I/O 候选，语义改写本身是 CPU | **先测再改**。消除同查询等价的重复解析，限制慢目录调用的并发，单独记录 stats 缺失和估计误差 |
 | 4 目录、快照、策略 → split source | `SplitFetcher` 优先使用规划提供的 `readBinding`，缺失才再次取 handle 和 bind。`IcebergSplitManager` 进入自己的目录加载及 manifest 规划路径。一次 Iceberg SDK 调用可能对应目录数据库、REST、对象存储或缓存，须在各 provider 内计数 | **深改查询级元数据复用**。认证一次绑定，split/CBO 复用固定快照的只读元数据，保留当前 authority、reader pin 和证据校验 |
 | 5 Substrait → 任务模板 | `TaskRequestFactory` 对各任务复制并计算 plan digest。多个分区携带同一计划；后续绑定与请求包装可重复编码。直连 exchange 每个 consumer 嵌入各 producer 的描述和票据 | **先改构建边界，再按证据改 ABI**。stage bytes/digest 按阶段计算，分区差量最后绑定。测量共享模板和票据描述的扩展性 |

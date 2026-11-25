@@ -1,8 +1,12 @@
 package org.pangrova.persistence.query.api.state;
 
+import org.pangrova.query.api.journal.QueryAcceptance;
+import org.pangrova.query.api.journal.QueryAcceptanceAdmission;
 import org.pangrova.query.api.journal.QueryStateEvent;
 import org.pangrova.query.api.journal.QueryStateJournalReader;
 import org.pangrova.query.api.journal.TaskStateEvent;
+
+import java.util.Optional;
 
 import org.pangrova.common.api.annotation.Stable;
 
@@ -18,6 +22,10 @@ public interface QueryStateJournal extends QueryStateJournalReader, AutoCloseabl
     void appendQueryEvent(QueryStateEvent event);
     /** Commits the exact frozen query event or reports an unestablished outcome for retry. */
     void appendQueryEventSync(QueryStateEvent event);
+    /** Atomically accepts or replays the initial QUEUED event carrying idempotency authority. */
+    QueryAcceptanceAdmission acceptQuerySync(QueryStateEvent event);
+    /** Reads one principal-scoped acceptance only for conflict or uncertain-outcome reconciliation. */
+    Optional<QueryAcceptance> findAcceptance(String principal, String idempotencyKeyDigest);
     /** Admits a task event or throws without accepting it; accepted failures remain owned. */
     void appendTaskEvent(TaskStateEvent event);
     /** Commits the exact frozen task event or reports an unestablished outcome for retry. */

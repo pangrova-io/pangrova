@@ -47,11 +47,16 @@ SDK, Coordinator, Worker, Client DTOs or provider implementations.
 
 ### Query submission and execution completion
 
-The HTTP submission exchange suspends while the query waits for readiness.
-Concurrent retries with the same authenticated principal, idempotency key and
-request fingerprint observe the same owned receipt. They release their HTTP
-threads while the original request is pending, and cancelling an observer
-does not cancel the admitted query.
+The HTTP submission exchange suspends while a non-idempotent query waits for
+readiness. With an authenticated `Idempotency-Key`, the candidate query first
+passes admission and execution-owner acquisition, then atomically commits its initial
+`QUEUED` journal fact with principal, key digest, request fingerprint, lineage, and a
+`QUEUED`/`PENDING` acceptance receipt. Only that durable acceptance publishes the
+query into the executable registry. Matching retries return the stored receipt and
+query ID without a second execution; different fingerprints fail with HTTP 409.
+Unknown commit outcomes reconcile the same authoritative row. Acceptance survives
+restart and remains for ten minutes after the later of acceptance or terminal
+completion. Cancelling an observer does not cancel the admitted query.
 
 The bounded asynchronous submission executor runs SQL planning and starts the
 distributed DAG. The DAG publishes its OUTPUT endpoint after Worker acknowledgement
@@ -1145,9 +1150,10 @@ For resultless DML, the submit response may return `RUNNING` after the actual
 WRITE task is dispatched, with no Flight endpoint. The client waits on the owner status through the final catalog commit. The 30-second submit timeout
 bounds compilation and initial dispatch, not data-file writing or commit.
 
-`Statement.execute()` and `executeQuery()` use this same Flight endpoint path.
-An absent endpoint is waited for while the query runs and is an error if the
-query finishes without one. The JDBC result set holds the current Flight batch,
+`Statement.execute()` and `executeQuery()` use the explicit disposition contract.
+`PENDING` waits for endpoint publication or terminal completion. `executeQuery()`
+requires `STREAM`; update paths accept terminal `NONE` without opening Flight. The
+JDBC result set holds the current Flight batch,
 while the Arrow allocator bounds the transport receive window. Closing a partial
 result closes the Flight call and requests cancellation for its active query
 identity. Cancellation acknowledgement and physical release are separate events.

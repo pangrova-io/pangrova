@@ -49,14 +49,19 @@ final class QueryAuditDispatcher implements org.pangrova.query.lifecycle.QueryAu
     }
 
     @Override
+    public QueryLineageFact prepareSubmittedLineage(String queryId, String sql, QuerySession session,
+            QueryStateMachine state) {
+        if (!lineageEnabled) return null;
+        return state.freezeLineage(LineageEventType.START,
+                () -> new QueryLineageFact(lineageEmitter.namespace(), queryId, LineageEventType.START,
+                        state.getCreatedAt().toEpochMilli(), sql, null, QueryLineageMetadata.empty()));
+    }
+
+    @Override
     public void emitAuditSubmitted(String queryId, String sql, QuerySession session, QueryStateMachine state) {
         String principal = session.userIdentity() == null ? "anonymous" : session.userIdentity().principal();
-        if (lineageEnabled) {
-            QueryLineageFact fact = state.freezeLineage(LineageEventType.START,
-                    () -> new QueryLineageFact(lineageEmitter.namespace(), queryId, LineageEventType.START,
-                            state.getCreatedAt().toEpochMilli(), sql, null, QueryLineageMetadata.empty()));
-            lineageEmitter.record(fact);
-        }
+        QueryLineageFact fact = prepareSubmittedLineage(queryId, sql, session, state);
+        if (fact != null) lineageEmitter.record(fact);
         events.fireQueryCreated(new QueryCreatedEvent(queryId, sql, principal, state.getCreatedAt().toEpochMilli()));
         if (auditEmitter != null) auditEmitter.emitQuerySubmitted(queryId, sql, session);
     }
