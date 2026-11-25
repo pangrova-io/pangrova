@@ -111,7 +111,7 @@ class SchemaMigrationBundleTest extends ContainerTestBase {
         Flyway.configure().dataSource(source).locations("classpath:db/migration").target("120").load().migrate();
         insertPublishedNativeJob(source, true);
 
-        var upgraded = Flyway.configure().dataSource(source).locations("classpath:db/migration").load();
+        var upgraded = Flyway.configure().dataSource(source).locations("classpath:db/migration").target("121").load();
         assertThat(upgraded.migrate().migrationsExecuted).isOne();
         try (var connection = source.getConnection(); var statement = connection.createStatement();
                 var rows = statement.executeQuery("SELECT state,principal,job_id,attempt_id "
@@ -131,7 +131,7 @@ class SchemaMigrationBundleTest extends ContainerTestBase {
         Flyway.configure().dataSource(source).locations("classpath:db/migration").target("120").load().migrate();
         insertPublishedNativeJob(source, false);
 
-        var upgraded = Flyway.configure().dataSource(source).locations("classpath:db/migration").load();
+        var upgraded = Flyway.configure().dataSource(source).locations("classpath:db/migration").target("121").load();
         assertThatThrownBy(upgraded::migrate)
                 .isInstanceOf(FlywayException.class)
                 .hasMessageContaining("must be resubmitted before V121");
@@ -163,6 +163,44 @@ class SchemaMigrationBundleTest extends ContainerTestBase {
                 statement.setNull(2, java.sql.Types.BINARY);
             }
             statement.executeUpdate();
+        }
+    }
+
+    @Test
+    void version122FencesUnboundIndexesOnUpgrade() throws Exception {
+        var source = SharedPostgres.isolatedDataSource();
+        Flyway.configure().dataSource(source).locations("classpath:db/migration").target("121").load().migrate();
+        try (var connection = source.getConnection(); var statement = connection.prepareStatement(
+                "INSERT INTO index_descriptors (index_id,index_name,catalog_name,schema_name,table_name,"
+                        + "column_names,index_type,properties,state,generation,created_at,updated_at,tenant_id) "
+                        + "VALUES (?,?,'lake','raw','items','[\"value\"]','BLOOM_FILTER',"
+                        + "'{}',?,0,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,'tenant')")) {
+            for (String state : List.of("READY", "STALE", "BUILDING")) {
+                statement.setString(1, "unbound-" + state.toLowerCase(java.util.Locale.ROOT));
+                statement.setString(2, "index-" + state.toLowerCase(java.util.Locale.ROOT));
+                statement.setString(3, state);
+                statement.executeUpdate();
+            }
+        }
+
+        Flyway.configure().dataSource(source).locations("classpath:db/migration").load().migrate();
+
+        try (var connection = source.getConnection(); var statement = connection.createStatement();
+                var rows = statement.executeQuery("SELECT index_id,state,stale_reason,source_schema_fingerprint "
+                        + "FROM index_descriptors WHERE index_id LIKE 'unbound-%' ORDER BY index_id")) {
+            assertThat(rows.next()).isTrue();
+            assertThat(rows.getString("index_id")).isEqualTo("unbound-building");
+            assertThat(rows.getString("state")).isEqualTo("BUILDING");
+            assertThat(rows.next()).isTrue();
+            assertThat(rows.getString("index_id")).isEqualTo("unbound-ready");
+            assertThat(rows.getString("state")).isEqualTo("STALE");
+            assertThat(rows.getString("stale_reason")).isEqualTo("source_schema_fingerprint_required");
+            assertThat(rows.getString("source_schema_fingerprint")).isNull();
+            assertThat(rows.next()).isTrue();
+            assertThat(rows.getString("index_id")).isEqualTo("unbound-stale");
+            assertThat(rows.getString("state")).isEqualTo("STALE");
+            assertThat(rows.getString("stale_reason")).isEqualTo("source_schema_fingerprint_required");
+            assertThat(rows.next()).isFalse();
         }
     }
 

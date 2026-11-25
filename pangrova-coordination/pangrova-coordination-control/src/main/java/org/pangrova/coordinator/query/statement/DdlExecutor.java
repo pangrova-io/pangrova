@@ -172,12 +172,18 @@ public final class DdlExecutor {
             record.ifPresent(captured -> tableControl.requireCurrentCatalog(captured, "DROP TABLE"));
         }
         List<String> columns = tableColumns(metadata, session, handle);
-        metadata.dropTable(session, handle);
+        java.util.UUID schemaOperation = prepareDropTableEvent(context.tenantId(), ref);
+        try {
+            metadata.dropTable(session, handle);
+        } catch (RuntimeException | Error failure) {
+            abortSchemaChange(schemaOperation, failure);
+            throw failure;
+        }
+        commitSchemaChange(schemaOperation);
         record.ifPresent(tableControl.registrations()::markDropped);
         record.ifPresent(target -> tableControlOperations.purgeTableState(target, context));
         record.ifPresent(target -> tableControlOperations.purgeColumnMasks(target, columns));
         invalidateSchemaCache();
-        fireDropTableEvent(context.tenantId(), ref);
         LOG.info("event=table_dropped table={}", ref);
         return List.of();
     }
@@ -222,7 +228,14 @@ public final class DdlExecutor {
         }
         // An exception can follow a committed or still-running connector rename.
         // Keep both names reserved until reconciliation proves the outcome.
-        applyAlterOperation(metadata, session, handle, stmt);
+        java.util.UUID schemaOperation = prepareSchemaChangeEvent(context.tenantId(), ref, stmt);
+        try {
+            applyAlterOperation(metadata, session, handle, stmt);
+        } catch (RuntimeException | Error failure) {
+            abortSchemaChange(schemaOperation, failure);
+            throw failure;
+        }
+        commitSchemaChange(schemaOperation);
         if (renameTarget != null) {
             tableControlOperations.moveNameScopedGovernance(ref, renameTarget, columns, context);
             if (movedControl != null) {
@@ -232,7 +245,6 @@ public final class DdlExecutor {
             }
         }
         invalidateSchemaCache();
-        fireSchemaChangeEvent(context.tenantId(), ref, stmt);
         LOG.info("event=table_altered table={} operation={}", ref, stmt.getClass().getSimpleName());
         return List.of();
     }
@@ -433,50 +445,66 @@ public final class DdlExecutor {
                    ConnectorTableHandle h, AlterTableStatement stmt);
     }
 
-    private void fireSchemaChangeEvent(
+    private java.util.UUID prepareSchemaChangeEvent(
             String tenantId, QualifiedTableName ref, AlterTableStatement stmt) {
         var handler = schemaEvolutionHandler;
         if (handler == null) {
-            return;
+            return null;
         }
-        org.pangrova.indexing.evolution.SchemaChangeEvent event =
-                toSchemaChangeEvent(tenantId, ref, stmt);
-        if (event != null) {
-            handler.onSchemaChange(event);
-        }
+        var event = toSchemaChangeEvent(tenantId, ref, stmt);
+        return event == null ? null : handler.prepare(event);
     }
 
-    private static org.pangrova.indexing.evolution.SchemaChangeEvent toSchemaChangeEvent(
+    private static org.pangrova.indexing.api.evolution.SchemaChangeEvent toSchemaChangeEvent(
             String tenantId, QualifiedTableName ref, AlterTableStatement stmt) {
         if (stmt instanceof AlterTableStatement.AddColumn add) {
-            return org.pangrova.indexing.evolution.SchemaChangeEvent.addColumn(
+            return org.pangrova.indexing.api.evolution.SchemaChangeEvent.addColumn(
                     tenantId, ref.catalog(), ref.schema(), ref.table(),
                     add.columnName(), add.columnType().toCanonicalString());
         }
         if (stmt instanceof AlterTableStatement.DropColumn drop) {
-            return org.pangrova.indexing.evolution.SchemaChangeEvent.dropColumn(
+            return org.pangrova.indexing.api.evolution.SchemaChangeEvent.dropColumn(
                     tenantId, ref.catalog(), ref.schema(), ref.table(), drop.columnName());
         }
         if (stmt instanceof AlterTableStatement.RenameColumn rename) {
-            return org.pangrova.indexing.evolution.SchemaChangeEvent.renameColumn(
+            return org.pangrova.indexing.api.evolution.SchemaChangeEvent.renameColumn(
                     tenantId, ref.catalog(), ref.schema(), ref.table(),
                     rename.oldName(), rename.newName());
         }
         if (stmt instanceof AlterTableStatement.ChangeColumnType change) {
-            return org.pangrova.indexing.evolution.SchemaChangeEvent.modifyColumnType(
+            return org.pangrova.indexing.api.evolution.SchemaChangeEvent.modifyColumnType(
                     tenantId, ref.catalog(), ref.schema(), ref.table(),
                     change.columnName(), null, change.newType().toCanonicalString());
+        }
+        if (stmt instanceof AlterTableStatement.RenameTable rename) {
+            var target = QualifiedTableNames.resolveRenameTarget(rename.newName().parts(), ref);
+            return org.pangrova.indexing.api.evolution.SchemaChangeEvent.renameTable(
+                    tenantId, ref.catalog(), ref.schema(), ref.table(), target.schema(), target.table());
         }
         return null;
     }
 
-    private void fireDropTableEvent(String tenantId, QualifiedTableName ref) {
+    private java.util.UUID prepareDropTableEvent(String tenantId, QualifiedTableName ref) {
         var handler = schemaEvolutionHandler;
-        if (handler == null) {
-            return;
+        return handler == null ? null : handler.prepare(
+                org.pangrova.indexing.api.evolution.SchemaChangeEvent.dropTable(
+                        tenantId, ref.catalog(), ref.schema(), ref.table()));
+    }
+
+    private void commitSchemaChange(java.util.UUID operationId) {
+        if (operationId != null) {
+            schemaEvolutionHandler.committed(operationId);
         }
-        handler.onSchemaChange(org.pangrova.indexing.evolution.SchemaChangeEvent.dropTable(
-                tenantId, ref.catalog(), ref.schema(), ref.table()));
+    }
+
+    private void abortSchemaChange(java.util.UUID operationId, Throwable failure) {
+        if (operationId != null) {
+            try {
+                schemaEvolutionHandler.aborted(operationId);
+            } catch (RuntimeException abortFailure) {
+                failure.addSuppressed(abortFailure);
+            }
+        }
     }
 
     /** Creates a schema in the resolved catalog. */

@@ -162,6 +162,22 @@ public final class ConnectorAccessorResolver implements CatalogIndexEvaluation {
         catalogRegistry.registerCommitListener(catalogName, listener);
     }
 
+    /** Resolves current table metadata under the exact authorized connector scope. */
+    public org.pangrova.connector.api.metadata.table.ConnectorTableMetadata resolveTableMetadata(
+            String catalogName, String schemaName, String tableName) {
+        var metadata = getMetadata(catalogName, schemaName);
+        var name = new org.pangrova.connector.api.metadata.table.SchemaTableName(schemaName, tableName);
+        try {
+            var handle = metadata.getTableHandle(session, name);
+            return handle == null ? null : metadata.getTableMetadata(session, handle);
+        } catch (org.pangrova.connector.api.exception.ConnectorException missing) {
+            if (missing.getErrorCode() == org.pangrova.common.enums.PangrovaErrorCode.CONNECTOR_TABLE_NOT_FOUND) {
+                return null;
+            }
+            throw missing;
+        }
+    }
+
     /**
      * Resolves snapshot-aware metadata for the given catalog and table, or null if not supported.
      *

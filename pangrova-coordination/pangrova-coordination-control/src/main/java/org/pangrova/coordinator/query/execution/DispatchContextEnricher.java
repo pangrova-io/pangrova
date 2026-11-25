@@ -57,11 +57,13 @@ final class DispatchContextEnricher {
             String queryId, String tenantId) {
         var vectorNode = VectorSearchRewriter.tryRewrite(
                 plannedQuery,
-                (table, column) -> lookupVectorIndexes(tenantId, table, column));
+                (table, column) -> lookupVectorIndexes(
+                        tenantId, table, column, plannedQuery.splitSources()));
         if (vectorNode.isEmpty()) {
             return ctx;
         }
-        var vsNode = bindVectorSearchMetadata(vectorNode.get(), ctx, tenantId);
+        var vsNode = bindVectorSearchMetadata(
+                vectorNode.get(), ctx, tenantId, plannedQuery.splitSources());
         LOG.info("event=vector_search_detected queryId={} table={} column={} topK={} metric={} indexId={}",
                 queryId, vsNode.tableName(), vsNode.vectorColumn(),
                 vsNode.topK(), vsNode.metric(), vsNode.indexId());
@@ -69,6 +71,7 @@ final class DispatchContextEnricher {
     }
 
     DispatchQueryContext enrichWithReranker(
+            List<org.pangrova.planner.analysis.SplitSourceDescriptor> sources,
             DispatchQueryContext ctx, String queryId, String tenantId) {
         if (ctx.originalSql() == null || ctx.originalSql().isBlank()) {
             return ctx;
@@ -92,7 +95,8 @@ final class DispatchContextEnricher {
                 rerankerPlan.get().sources().size(),
                 rerankerPlan.get().topK(),
                 rerankerPlan.get().isHybrid());
-        return ctx.withRerankerPlan(bindFullTextIndexes(rerankerPlan.get(), ctx, tenantId));
+        return ctx.withRerankerPlan(bindFullTextIndexes(
+                rerankerPlan.get(), ctx, tenantId, sources));
     }
 
     private static String extractTableName(Query query) {
@@ -116,16 +120,18 @@ final class DispatchContextEnricher {
     }
 
     private List<IndexDescriptor> lookupVectorIndexes(
-            String tenantId, String tableName, String columnName) {
-        return lookupIndexes(tenantId, tableName, columnName);
+            String tenantId, String tableName, String columnName,
+            List<org.pangrova.planner.analysis.SplitSourceDescriptor> sources) {
+        return lookupIndexes(tenantId, tableName, columnName, sources);
     }
 
     private VectorSearchNode bindVectorSearchMetadata(
             VectorSearchNode node,
             DispatchQueryContext ctx,
-            String tenantId) {
+            String tenantId,
+            List<org.pangrova.planner.analysis.SplitSourceDescriptor> sources) {
         IndexDescriptor descriptor = lookupIndexes(
-                tenantId, node.tableName(), node.vectorColumn()).stream()
+                tenantId, node.tableName(), node.vectorColumn(), sources).stream()
                 .filter(index -> index.indexType() == IndexType.VECTOR)
                 .filter(index -> index.state() == IndexState.READY)
                 .filter(index -> node.indexId() == null || node.indexId().equals(index.indexId()))
@@ -141,9 +147,10 @@ final class DispatchContextEnricher {
     }
 
     private RerankerPlanNode bindFullTextIndexes(
-            RerankerPlanNode plan, DispatchQueryContext ctx, String tenantId) {
+            RerankerPlanNode plan, DispatchQueryContext ctx, String tenantId,
+            List<org.pangrova.planner.analysis.SplitSourceDescriptor> sources) {
         List<RerankerPlanNode.RetrievalSource> boundSources = plan.sources().stream()
-                .map(source -> bindFullTextSource(source, ctx, tenantId))
+                .map(source -> bindFullTextSource(source, ctx, tenantId, sources))
                 .toList();
         return new RerankerPlanNode(
                 plan.strategy(), boundSources, plan.topK(),
@@ -153,13 +160,14 @@ final class DispatchContextEnricher {
     private RerankerPlanNode.RetrievalSource bindFullTextSource(
             RerankerPlanNode.RetrievalSource source,
             DispatchQueryContext ctx,
-            String tenantId) {
+            String tenantId,
+            List<org.pangrova.planner.analysis.SplitSourceDescriptor> sources) {
         if (!(source instanceof RerankerPlanNode.FullTextSource fullText)) {
             return source;
         }
         FullTextScoringNode node = fullText.scoringNode();
         IndexDescriptor descriptor = lookupIndexes(
-                tenantId, node.tableName(), node.column()).stream()
+                tenantId, node.tableName(), node.column(), sources).stream()
                 .filter(index -> index.indexType() == IndexType.INVERTED)
                 .filter(index -> index.state() == IndexState.READY)
                 .filter(DispatchContextEnricher::isNativeBm25)
@@ -181,11 +189,13 @@ final class DispatchContextEnricher {
     }
 
     private List<IndexDescriptor> lookupIndexes(
-            String tenantId, String tableName, String columnName) {
+            String tenantId, String tableName, String columnName,
+            List<org.pangrova.planner.analysis.SplitSourceDescriptor> sources) {
         if (indexAwareSplitFetcher == null) {
             return List.of();
         }
-        return indexAwareSplitFetcher.lookupIndexes(tenantId, tableName, columnName);
+        return indexAwareSplitFetcher.lookupIndexesForQuery(
+                tenantId, tableName, columnName, sources);
     }
 
     private static boolean isNativeBm25(IndexDescriptor descriptor) {

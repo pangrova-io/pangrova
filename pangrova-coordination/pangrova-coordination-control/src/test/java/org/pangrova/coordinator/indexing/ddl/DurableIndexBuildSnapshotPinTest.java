@@ -26,7 +26,7 @@ import org.pangrova.indexing.api.enums.IndexState;
 import org.pangrova.indexing.api.enums.IndexType;
 import org.pangrova.metadata.testinfra.GenerationAuthorityFixtures;
 import org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory;
-import org.pangrova.persistence.generation.api.job.SnapshotPinState;
+import org.pangrova.persistence.generation.api.enums.SnapshotPinState;
 import org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStore;
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope;

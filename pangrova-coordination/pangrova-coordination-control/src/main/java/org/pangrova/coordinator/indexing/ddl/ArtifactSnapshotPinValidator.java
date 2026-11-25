@@ -8,7 +8,7 @@ import org.pangrova.generation.api.constants.GenerationOutputTypeIds;
 import org.pangrova.generation.api.job.GenerationJob;
 import org.pangrova.persistence.generation.api.job.GenerationJobStore;
 import org.pangrova.persistence.generation.api.job.SnapshotPinIntent;
-import org.pangrova.persistence.generation.api.job.SnapshotPinState;
+import org.pangrova.persistence.generation.api.enums.SnapshotPinState;
 
 import java.util.Objects;
 import java.util.function.Function;

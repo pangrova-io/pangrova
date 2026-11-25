@@ -3,8 +3,6 @@ package org.pangrova.coordinator.indexing.lifecycle;
 import org.pangrova.indexing.build.DataFileInfo;
 import org.pangrova.coordinator.indexing.connector.ConnectorAccessorResolver;
 import org.pangrova.coordinator.indexing.ddl.IndexSourceAuthority;
-import org.pangrova.metadata.api.event.MetadataEvent;
-import org.pangrova.metadata.api.event.MetadataEventListener;
 import org.pangrova.persistence.indexing.api.metadata.CommitEventRequest;
 import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
 import org.pangrova.persistence.indexing.api.metadata.IndexGenerationManifest;
@@ -15,7 +13,6 @@ import org.pangrova.connector.api.index.SnapshotAwareMetadata;
 import org.pangrova.connector.api.index.SnapshotDataFile;
 import org.pangrova.connector.api.index.SnapshotFileDelta;
 import org.pangrova.connector.api.enums.SnapshotRelation;
-import org.pangrova.metadata.api.schema.SchemaChange;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.indexing.api.enums.IndexState;
 import org.slf4j.Logger;
@@ -24,7 +21,6 @@ import org.slf4j.LoggerFactory;
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 
 /**
@@ -37,7 +33,7 @@ import java.util.Set;
  *
  * <p>Implements {@link AutoCloseable} for graceful shutdown.</p>
  */
-public final class IndexCommitHandler implements CommitListener, MetadataEventListener, AutoCloseable {
+public final class IndexCommitHandler implements CommitListener, AutoCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(IndexCommitHandler.class);
 
@@ -343,101 +339,6 @@ public final class IndexCommitHandler implements CommitListener, MetadataEventLi
         }
         LOG.info("action=commit_build_deferred catalog={} schema={} table={} reason=pool_saturated",
                 files.catalog, files.schema, files.table);
-    }
-
-    // ---- Schema evolution listener ----
-
-    /**
-     * Handles metadata events. On {@link MetadataEvent.SchemaEvolutionEvent}, marks
-     * all indexes on the affected table for rebuild so they reflect the new schema.
-     */
-    @Override
-    public void onEvent(MetadataEvent event) {
-        if (event instanceof MetadataEvent.SchemaEvolutionEvent evolution) {
-            markIndexesForRebuildOnSchemaChange(evolution);
-        }
-    }
-
-    private void markIndexesForRebuildOnSchemaChange(MetadataEvent.SchemaEvolutionEvent evolution) {
-        try {
-            IndexMetadataStore metadataStore = deps.metadataStore();
-            List<IndexDescriptor> indexes = evolution.tenantScope().allTenants()
-                    ? metadataStore.findIndexesByTableForGlobalMaintenance(
-                            evolution.tableRef().catalog(), evolution.tableRef().schema(),
-                            evolution.tableRef().table())
-                    : evolution.tenantScope().tenantIds().stream()
-                            .flatMap(tenantId -> metadataStore.findIndexesByTable(
-                                    tenantId, evolution.tableRef().catalog(),
-                                    evolution.tableRef().schema(),
-                                    evolution.tableRef().table()).stream())
-                            .toList();
-            Set<String> affectedColumns = collectAffectedColumns(evolution.schemaChanges());
-            for (IndexDescriptor idx : indexes) {
-                if (idx.state() != IndexState.READY && idx.state() != IndexState.BUILDING) {
-                    continue;
-                }
-                if (!intersectsIndexColumns(idx, affectedColumns)) {
-                    LOG.debug("event=index_unaffected_by_schema_change index={} indexCols={} "
-                                    + "affected={}",
-                            idx.indexId(), idx.columnNames(), affectedColumns);
-                    continue;
-                }
-                boolean updated = metadataStore.updateIndexState(
-                        idx.indexId(), IndexState.STALE.name(), Instant.now(),
-                        "schema_evolution", idx.updatedAt(), idx.state().name(),
-                        idx.generation());
-                LOG.info("event=index_marked_stale_schema_evolution index={} table={}.{}.{} "
-                                + "affectedColumns={} updated={}",
-                        idx.indexId(), evolution.catalogName(),
-                        evolution.tableRef().schema(), evolution.tableRef().table(),
-                        affectedColumns, updated);
-            }
-        } catch (Exception e) {
-            LOG.warn("event=schema_evolution_index_mark_failed table={} error={}",
-                    evolution.tableRef(), e.getMessage());
-        }
-    }
-
-    /**
-     * Collects the lower-cased column names touched by a list of schema changes.
-     * AddColumn alone never invalidates an existing index (new column was not indexed),
-     * but is still recorded so callers may track structural drift.
-     */
-    static Set<String> collectAffectedColumns(List<SchemaChange> changes) {
-        Set<String> affected = new HashSet<>();
-        if (changes == null) {
-            return affected;
-        }
-        for (SchemaChange change : changes) {
-            if (change instanceof SchemaChange.DropColumn drop) {
-                affected.add(normalize(drop.name()));
-            } else if (change instanceof SchemaChange.RenameColumn rename) {
-                affected.add(normalize(rename.oldName()));
-                affected.add(normalize(rename.newName()));
-            } else if (change instanceof SchemaChange.ChangeType change2) {
-                affected.add(normalize(change2.name()));
-            } else if (change instanceof SchemaChange.ChangeNullability change3) {
-                affected.add(normalize(change3.name()));
-            }
-            // AddColumn intentionally omitted: it never affects existing index builds.
-        }
-        return affected;
-    }
-
-    private static boolean intersectsIndexColumns(IndexDescriptor idx, Set<String> affected) {
-        if (affected.isEmpty()) {
-            return false;
-        }
-        for (String col : idx.columnNames()) {
-            if (affected.contains(normalize(col))) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static String normalize(String name) {
-        return name == null ? "" : name.toLowerCase(Locale.ROOT);
     }
 
     @Override

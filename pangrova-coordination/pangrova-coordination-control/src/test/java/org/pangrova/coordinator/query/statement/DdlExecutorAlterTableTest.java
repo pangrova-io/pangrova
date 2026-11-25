@@ -1,6 +1,10 @@
 package org.pangrova.coordinator.query.statement;
 
 import org.pangrova.metadata.api.catalog.CatalogDeploymentIdentity;
+import org.pangrova.indexing.api.evolution.SchemaChangeEvent;
+import org.pangrova.indexing.api.enums.SchemaChangeType;
+import org.pangrova.indexing.evolution.IndexSchemaEvolutionHandler;
+import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
 
 import static org.pangrova.metadata.testinfra.TableStoreFixtures.memoryTableStores;
 
@@ -28,6 +32,7 @@ import org.pangrova.types.enums.PangrovaType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Proxy;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -36,9 +41,11 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.pangrova.coordinator.query.statement.StatementTestSessions.context;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.catchThrowable;
 
 /**
  * Verifies ALTER TABLE DDL operations propagate to ConnectorMetadata.
@@ -105,6 +112,67 @@ class DdlExecutorAlterTableTest {
     }
 
     @Test
+    void dropColumn_fencesIndexesBeforeConnectorMutationAndCommitsAfterward() {
+        var observed = new AtomicReference<SchemaChangeEvent>();
+        ddlExecutor.setSchemaEvolutionHandler(schemaHandler(recordingMetadata.operations, observed, null));
+        AlterTableStatement stmt = new AlterTableStatement.DropColumn(
+                Identifier.of("test_cat", "default", "users"), "name");
+
+        ddlExecutor.executeAlterTable(stmt, statementSession());
+
+        assertThat(recordingMetadata.operations).containsExactly("prepare", "dropColumn(name)", "commit");
+        assertThat(observed.get().type()).isEqualTo(SchemaChangeType.DROP_COLUMN);
+        assertThat(observed.get().oldColumnName()).isEqualTo("name");
+    }
+
+    @Test
+    void abortFailureIsSuppressedWithoutMaskingTheConnectorFailure() {
+        var connectorFailure = new IllegalArgumentException("connector failed");
+        recordingMetadata.dropFailure = connectorFailure;
+        ddlExecutor.setSchemaEvolutionHandler(schemaHandler(
+                recordingMetadata.operations, new AtomicReference<>(), new IllegalStateException("abort failed")));
+        AlterTableStatement stmt = new AlterTableStatement.DropColumn(
+                Identifier.of("test_cat", "default", "users"), "name");
+
+        Throwable failure = catchThrowable(() -> ddlExecutor.executeAlterTable(stmt, statementSession()));
+
+        assertThat(failure).isSameAs(connectorFailure);
+        assertThat(failure.getSuppressed()).singleElement().satisfies(suppressed ->
+                assertThat(suppressed).isInstanceOf(IllegalStateException.class).hasMessage("abort failed"));
+    }
+
+    private static IndexSchemaEvolutionHandler schemaHandler(
+            List<String> operations, AtomicReference<SchemaChangeEvent> observed,
+            RuntimeException abortFailure) {
+        IndexMetadataStore store = (IndexMetadataStore) Proxy.newProxyInstance(
+                DdlExecutorAlterTableTest.class.getClassLoader(), new Class<?>[] {IndexMetadataStore.class},
+                (proxy, method, arguments) -> switch (method.getName()) {
+                    case "prepareSchemaEvolution" -> {
+                        operations.add("prepare");
+                        observed.set((SchemaChangeEvent) arguments[0]);
+                        yield UUID.randomUUID();
+                    }
+                    case "markSchemaEvolutionCommitted" -> {
+                        operations.add("commit");
+                        yield null;
+                    }
+                    case "markSchemaEvolutionAborted" -> {
+                        operations.add("abort");
+                        if (abortFailure != null) {
+                            throw abortFailure;
+                        }
+                        yield null;
+                    }
+                    case "toString" -> "IndexMetadataStoreTestDouble";
+                    case "hashCode" -> System.identityHashCode(proxy);
+                    case "equals" -> proxy == arguments[0];
+                    default -> throw new AssertionError(
+                            "Unexpected IndexMetadataStore call: " + method.getName());
+                });
+        return new IndexSchemaEvolutionHandler(store, (descriptor, event) -> Optional.empty());
+    }
+
+    @Test
     void renameColumn_callsConnectorMetadataRenameColumn() {
         AlterTableStatement stmt = new AlterTableStatement.RenameColumn(
                 Identifier.of("test_cat", "default", "users"), "name", "full_name");
@@ -164,6 +232,7 @@ class DdlExecutorAlterTableTest {
 
         final List<String> operations = new CopyOnWriteArrayList<>();
         final Map<String, Object> defaults = new LinkedHashMap<>();
+        RuntimeException dropFailure;
         final Map<String, String> columns = new LinkedHashMap<>(Map.of(
                 "id", "INTEGER",
                 "name", "VARCHAR"
@@ -217,6 +286,9 @@ class DdlExecutorAlterTableTest {
         public void dropColumn(ConnectorSession session, ConnectorTableHandle table,
                                String columnName) {
             operations.add("dropColumn(" + columnName + ")");
+            if (dropFailure != null) {
+                throw dropFailure;
+            }
             columns.remove(columnName);
         }
 

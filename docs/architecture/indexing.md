@@ -38,6 +38,15 @@ and validate their real connector pins before query retention can use them.
 Published jobs without that authority must be resubmitted before upgrade rather
 than receiving synthetic privileges.
 
+Schema V122 adds the exact indexed-column schema fingerprint and the durable
+schema-evolution outbox. New indexes bind the connector column names, canonical
+types, parameterized type details and source field IDs at creation. Existing
+`READY` or `STALE` descriptors without that binding become `STALE` with
+`source_schema_fingerprint_required`; `ALTER INDEX ... REBUILD` establishes the
+binding before the replacement generation can be published. An interrupted
+initial `BUILDING` descriptor remains recoverable through the existing stuck-build
+path and cannot become query-eligible without the binding.
+
 Current hard bounds are 50 MiB per scalar Bloom artifact, 100,000 retrieval
 candidate rows per plan and 1,000,000 source objects per Native build. These are
 fail-closed resource limits, not capacity claims. Oversized inputs retain the
@@ -156,6 +165,42 @@ An unindexed SQL distance query remains an ordinary Native Substrait scan/sort.
 It does not enter a Java brute-force implementation. Missing, stale,
 incompatible or incomplete artifacts follow the explicit `ExecutionPolicy`;
 they never silently return an empty or partial Top-K.
+
+## Schema evolution fencing
+
+Index schema changes use a PostgreSQL write-ahead journal rather than the
+in-memory metadata event dispatcher:
+
+1. Before connector DDL starts, the Coordinator inserts an `INTENDED` operation
+   and moves every affected non-dropped descriptor to `STALE` with
+   `schema_change_pending` in the same transaction.
+2. A successful connector mutation advances the operation to `COMMITTED`.
+   Maintenance applies descriptor transitions only while the observed state,
+   generation and update timestamp still match. A concurrent rebuild, publication
+   or DROP therefore wins without being overwritten.
+3. The maintenance leader applies bounded pending batches every minute. Recovery
+   also observes the current connector declaration, so an `INTENDED` operation
+   left by a process crash can distinguish an applied rename from an operation
+   that never reached the connector.
+4. Table and column renames rebind descriptor coordinates. Dropped tables or
+   indexed columns drop the index. Compatible type changes keep it `STALE` for
+   rebuild; text-sensitive `INVERTED` and `GIN` indexes are dropped on incompatible
+   type changes. Cross-schema table renames update both descriptor coordinates.
+
+The journal states are `INTENDED`, `COMMITTED`, `APPLIED` and `ABORTED`. A
+connector failure aborts the intent but leaves its descriptors conservatively
+fenced; an explicit rebuild is required before they can be used again. Periodic
+reconciliation also inspects external schema drift that bypassed Pangrova DDL
+and durably fences missing tables, missing indexed columns and mismatched types.
+
+Query dispatch independently verifies the descriptor fingerprint against the
+exact `ConnectorReadSchemaIdentity` captured by the planned scan. Scalar pruning,
+vector search and Native BM25 all use this guard. Missing schema evidence, a
+missing indexed column or a fingerprint mismatch excludes the index; a proven
+mismatch also persists a fenced `SCHEMA_MISMATCH` journal entry. Multiple scans
+of the same table are eligible only when their selected schemas agree, so a
+self-join across different snapshots or declarations never borrows the first
+scan's index binding.
 
 ## Algorithm and format identities
 

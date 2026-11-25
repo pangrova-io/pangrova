@@ -1,191 +1,250 @@
 package org.pangrova.indexing.evolution;
 
-import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
-
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
+import org.pangrova.indexing.api.descriptor.IndexSchemaFingerprint;
 import org.pangrova.indexing.api.enums.IndexState;
 import org.pangrova.indexing.api.enums.IndexType;
+import org.pangrova.indexing.api.evolution.SchemaChangeEvent;
+import org.pangrova.indexing.api.enums.SchemaChangeType;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
+import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
+import org.pangrova.persistence.indexing.api.metadata.IndexSchemaEvolutionStore.IndexSchemaEvolutionRecord;
+import org.pangrova.persistence.indexing.api.metadata.IndexSchemaEvolutionStore.IndexSchemaTransition;
+import org.pangrova.persistence.indexing.api.enums.IndexSchemaEvolutionState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
-import java.util.Locale;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
+import java.util.function.BiFunction;
 
-/**
- * Handles schema change events and updates affected indexes accordingly.
- *
- * <p>Dispatch rules by event type:</p>
- * <ul>
- *   <li>ADD_COLUMN — no index impact (new columns have no indexes)</li>
- *   <li>DROP_COLUMN — mark all indexes containing the column as DROPPED</li>
- *   <li>RENAME_COLUMN — update columnNames in affected indexes</li>
- *   <li>MODIFY_COLUMN_TYPE — STALE for widening-compatible types, DROPPED for incompatible</li>
- *   <li>DROP_TABLE — cascade DROPPED for all table indexes</li>
- *   <li>RENAME_TABLE — update tableName in all table indexes</li>
- * </ul>
- */
+/** Durable, fenced schema evolution for index descriptors. */
 public final class IndexSchemaEvolutionHandler {
-
     private static final Logger LOG = LoggerFactory.getLogger(IndexSchemaEvolutionHandler.class);
-
-    /** Index types that require exact token/text semantics — always incompatible with type changes. */
     private static final Set<IndexType> TEXT_SENSITIVE_TYPES = Set.of(
             IndexType.INVERTED, IndexType.GIN);
 
     private final IndexMetadataStore metadataStore;
+    private final BiFunction<IndexDescriptor, SchemaChangeEvent, Optional<ConnectorTableMetadata>> sourceObserver;
 
-    public IndexSchemaEvolutionHandler(IndexMetadataStore metadataStore) {
-        this.metadataStore = metadataStore;
+    public IndexSchemaEvolutionHandler(
+            IndexMetadataStore metadataStore,
+            BiFunction<IndexDescriptor, SchemaChangeEvent, Optional<ConnectorTableMetadata>> sourceObserver) {
+        this.metadataStore = java.util.Objects.requireNonNull(metadataStore, "metadataStore");
+        this.sourceObserver = java.util.Objects.requireNonNull(sourceObserver, "sourceObserver");
     }
 
-    /**
-     * Processes a schema change event and updates affected indexes.
-     */
-    public void onSchemaChange(SchemaChangeEvent event) {
-        switch (event.type()) {
-            case ADD_COLUMN -> handleAddColumn(event);
-            case DROP_COLUMN -> handleDropColumn(event);
-            case RENAME_COLUMN -> handleRenameColumn(event);
-            case MODIFY_COLUMN_TYPE -> handleModifyColumnType(event);
-            case DROP_TABLE -> handleDropTable(event);
-            case RENAME_TABLE -> handleRenameTable(event);
-            default -> throw new IllegalStateException("Unhandled schema change type: " + event.type());
-        }
+    /** Persists the write-ahead fence before connector schema mutation starts. */
+    public UUID prepare(SchemaChangeEvent event) {
+        return metadataStore.prepareSchemaEvolution(event, Instant.now());
     }
 
-    private void handleAddColumn(SchemaChangeEvent event) {
-        LOG.debug("action=schema_evolution type=ADD_COLUMN table={}.{}.{} column={} impact=none",
-                event.catalogName(), event.schemaName(), event.tableName(), event.newColumnName());
+    public void committed(UUID operationId) {
+        metadataStore.markSchemaEvolutionCommitted(operationId, Instant.now());
     }
 
-    private void handleDropColumn(SchemaChangeEvent event) {
-        List<IndexDescriptor> affected = metadataStore.findIndexesByColumn(
-                event.tenantId(), event.catalogName(), event.schemaName(), event.tableName(),
-                event.oldColumnName());
+    public void aborted(UUID operationId) {
+        metadataStore.markSchemaEvolutionAborted(operationId, Instant.now());
+    }
 
-        Instant now = Instant.now();
-        for (IndexDescriptor idx : affected) {
-            if (idx.state() == IndexState.DROPPED) {
-                continue;
+    /** Reconciles external schema drift that never passed through Pangrova's DDL journal. */
+    public int reconcile() {
+        int fenced = 0;
+        for (IndexDescriptor descriptor : metadataStore.findIndexesByState(IndexState.READY)) {
+            try {
+                if (reconcileDescriptor(descriptor)) {
+                    fenced++;
+                }
+            } catch (RuntimeException failure) {
+                LOG.warn("event=index_schema_reconcile_retry indexId={} table={} error={}",
+                        descriptor.indexId(), descriptor.tableName(), failure.getMessage(), failure);
             }
-            metadataStore.updateIndexState(idx.indexId(), IndexState.DROPPED.name(), now, idx.updatedAt());
-            emitCacheEvent(idx.indexId(), event, now);
-            LOG.info("action=schema_evolution type=DROP_COLUMN index={} table={}.{}.{} "
-                            + "column={} newState=DROPPED",
-                    idx.indexName(), event.catalogName(), event.schemaName(),
-                    event.tableName(), event.oldColumnName());
         }
+        return fenced;
     }
 
-    private void emitCacheEvent(String indexId, SchemaChangeEvent event, Instant now) {
-        try {
-            metadataStore.insertCacheEvent("SCHEMA_CHANGE", indexId,
-                    event.catalogName(), event.schemaName(), event.tableName(), now);
-        } catch (Exception e) {
-            LOG.warn("action=cache_event_insert_failed eventType=SCHEMA_CHANGE indexId={} error={}",
-                    indexId, e.getMessage());
-        }
-    }
-
-    private void handleRenameColumn(SchemaChangeEvent event) {
-        metadataStore.renameColumnInIndexes(
-                event.tenantId(), event.catalogName(), event.schemaName(), event.tableName(),
-                event.oldColumnName(), event.newColumnName());
-        LOG.info("action=schema_evolution type=RENAME_COLUMN table={}.{}.{} "
-                        + "oldColumn={} newColumn={}",
-                event.catalogName(), event.schemaName(), event.tableName(),
-                event.oldColumnName(), event.newColumnName());
-    }
-
-    private void handleModifyColumnType(SchemaChangeEvent event) {
-        List<IndexDescriptor> affected = metadataStore.findIndexesByColumn(
-                event.tenantId(), event.catalogName(), event.schemaName(), event.tableName(),
-                event.oldColumnName());
-
-        Instant now = Instant.now();
-        for (IndexDescriptor idx : affected) {
-            if (idx.state() == IndexState.DROPPED) {
-                continue;
-            }
-            applyTypeChange(idx, event, now);
-            emitCacheEvent(idx.indexId(), event, now);
-        }
-    }
-
-    private void applyTypeChange(IndexDescriptor idx, SchemaChangeEvent event, Instant now) {
-        boolean compatible = isTypeCompatible(
-                idx.indexType(), event.oldColumnType(), event.newColumnType());
-        IndexState newState = compatible ? IndexState.STALE : IndexState.DROPPED;
-        metadataStore.updateIndexState(idx.indexId(), newState.name(), now);
-        LOG.info("action=schema_evolution type=MODIFY_COLUMN_TYPE index={} "
-                        + "column={} oldType={} newType={} newState={}{}",
-                idx.indexName(), event.oldColumnName(),
-                event.oldColumnType(), event.newColumnType(), newState,
-                compatible ? "" : " reason=incompatible_type_change");
-    }
-
-    private void handleDropTable(SchemaChangeEvent event) {
-        Instant now = Instant.now();
-        metadataStore.dropAllIndexesForTable(
-                event.tenantId(), event.catalogName(), event.schemaName(), event.tableName(), now);
-        try {
-            metadataStore.insertCacheEvent("SCHEMA_CHANGE", "",
-                    event.catalogName(), event.schemaName(), event.tableName(), now);
-        } catch (Exception e) {
-            LOG.warn("action=cache_event_insert_failed eventType=SCHEMA_CHANGE table={}.{}.{} error={}",
-                    event.catalogName(), event.schemaName(), event.tableName(), e.getMessage());
-        }
-        LOG.info("action=schema_evolution type=DROP_TABLE table={}.{}.{} newState=DROPPED",
-                event.catalogName(), event.schemaName(), event.tableName());
-    }
-
-    private void handleRenameTable(SchemaChangeEvent event) {
-        metadataStore.renameTable(
-                event.tenantId(), event.catalogName(), event.schemaName(),
-                event.oldTableName(), event.tableName());
-        LOG.info("action=schema_evolution type=RENAME_TABLE table={}.{}.{} oldTable={}",
-                event.catalogName(), event.schemaName(), event.tableName(),
-                event.oldTableName());
-    }
-
-    /**
-     * Determines if a column type change is compatible with the given index type.
-     *
-     * <p>Inverted and GIN indexes depend on exact token/text semantics and are
-     * always incompatible with type changes. Other index types tolerate widening
-     * changes (e.g., INT → BIGINT, FLOAT → DOUBLE) but not narrowing.</p>
-     */
-    static boolean isTypeCompatible(IndexType indexType, String oldType, String newType) {
-        if (TEXT_SENSITIVE_TYPES.contains(indexType)) {
-            return false;
-        }
-        if (oldType == null || newType == null) {
-            return false;
-        }
-        return isWideningChange(oldType.toUpperCase(Locale.ROOT), newType.toUpperCase(Locale.ROOT));
-    }
-
-    private static boolean isWideningChange(String oldType, String newType) {
-        if (oldType.equals(newType)) {
+    private boolean reconcileDescriptor(IndexDescriptor descriptor) {
+        SchemaChangeEvent event = new SchemaChangeEvent(
+                SchemaChangeType.SCHEMA_MISMATCH, descriptor.tenantId(), descriptor.catalogName(),
+                descriptor.schemaName(), descriptor.tableName(), null, null, null, null, null, null);
+        Optional<ConnectorTableMetadata> source = sourceObserver.apply(descriptor, event);
+        if (source.isEmpty()) {
+            metadataStore.fenceIndexSchemaMismatch(descriptor, "source_table_missing", Instant.now());
             return true;
         }
-        return numericRank(oldType) >= 0
-                && numericRank(newType) >= 0
-                && numericRank(newType) >= numericRank(oldType);
+        String fingerprint;
+        try {
+            fingerprint = IndexSchemaFingerprint.of(
+                    descriptor.columnNames(), source.orElseThrow().typedColumns());
+        } catch (IllegalArgumentException missing) {
+            metadataStore.fenceIndexSchemaMismatch(
+                    descriptor, "indexed_column_missing", Instant.now());
+            return true;
+        }
+        if (!fingerprint.equals(descriptor.sourceSchemaFingerprint())) {
+            metadataStore.fenceIndexSchemaMismatch(
+                    descriptor, "source_schema_mismatch", Instant.now());
+            return true;
+        }
+        return false;
     }
 
-    private static int numericRank(String type) {
-        return switch (type) {
-            case "TINYINT", "INT8" -> 0;
-            case "SMALLINT", "INT16" -> 1;
-            case "INT", "INTEGER", "INT32" -> 2;
-            case "BIGINT", "INT64" -> 3;
-            case "FLOAT", "REAL" -> 4;
-            case "DOUBLE" -> 5;
-            case "DECIMAL" -> 6;
-            default -> -1;
-        };
+    /** Applies a bounded durable batch; failed operations remain pending for the next cycle. */
+    public int recoverPending() {
+        int applied = 0;
+        for (IndexSchemaEvolutionRecord record : metadataStore.listPendingSchemaEvolution(100)) {
+            try {
+                if (record.state() == IndexSchemaEvolutionState.INTENDED) {
+                    metadataStore.markSchemaEvolutionCommitted(record.operationId(), Instant.now());
+                }
+                List<IndexSchemaTransition> transitions = transitions(record);
+                metadataStore.applySchemaEvolution(
+                        record.operationId(), transitions, Instant.now());
+                applied++;
+            } catch (RuntimeException failure) {
+                LOG.warn("event=index_schema_evolution_retry operationId={} indexId={} error={}",
+                        record.operationId(), record.indexId(), failure.getMessage(), failure);
+            }
+        }
+        return applied;
+    }
+
+    private List<IndexSchemaTransition> transitions(IndexSchemaEvolutionRecord record) {
+        List<IndexDescriptor> descriptors = descriptors(record);
+        List<IndexSchemaTransition> transitions = new ArrayList<>();
+        for (IndexDescriptor descriptor : descriptors) {
+            if (descriptor.state() == IndexState.DROPPED) {
+                continue;
+            }
+            transitions.add(transition(record.event(), descriptor));
+        }
+        return transitions;
+    }
+
+    private List<IndexDescriptor> descriptors(IndexSchemaEvolutionRecord record) {
+        if (record.indexId() != null) {
+            return metadataStore.findIndex(record.indexId()).map(List::of).orElseGet(List::of);
+        }
+        Set<String> indexIds = new HashSet<>();
+        if (SchemaChangeType.RENAME_TABLE.equals(record.event().type())) {
+            indexIds.addAll(indexIds(record.event().tenantId(), record.event().catalogName(),
+                    record.event().schemaName(), record.event().oldTableName()));
+        }
+        indexIds.addAll(indexIds(record.event().tenantId(), record.event().catalogName(),
+                targetSchema(record.event()), record.event().tableName()));
+        return indexIds.stream()
+                .flatMap(indexId -> metadataStore.findIndex(indexId).stream())
+                .toList();
+    }
+
+    private List<String> indexIds(String tenantId, String catalog, String schema, String table) {
+        return metadataStore.findIndexesByTable(tenantId, catalog, schema, table).stream()
+                .map(IndexDescriptor::indexId)
+                .toList();
+    }
+
+    private IndexSchemaTransition transition(SchemaChangeEvent event, IndexDescriptor descriptor) {
+        Optional<ConnectorTableMetadata> source = sourceObserver.apply(descriptor, event);
+        if (source.isEmpty()) {
+            return dropped(event, descriptor);
+        }
+        if (mutationNotObserved(event, source.orElseThrow())) {
+            return unchanged(descriptor);
+        }
+        List<String> columns = new ArrayList<>(descriptor.columnNames());
+        if (SchemaChangeType.RENAME_COLUMN.equals(event.type())) {
+            columns.replaceAll(name -> IndexSchemaFingerprint.normalizeColumnName(name).equals(
+                    IndexSchemaFingerprint.normalizeColumnName(event.oldColumnName()))
+                    ? event.newColumnName() : name);
+        }
+        if (SchemaChangeType.DROP_COLUMN.equals(event.type())
+                && containsColumn(columns, event.oldColumnName())) {
+            return dropped(event, descriptor);
+        }
+        String fingerprint;
+        try {
+            fingerprint = IndexSchemaFingerprint.of(columns, source.orElseThrow().typedColumns());
+        } catch (IllegalArgumentException missing) {
+            return dropped(event, descriptor);
+        }
+        boolean unchanged = fingerprint.equals(descriptor.sourceSchemaFingerprint())
+                && columns.equals(descriptor.columnNames())
+                && descriptor.tableName().equals(event.tableName())
+                && descriptor.schemaName().equals(targetSchema(event));
+        String schemaName = SchemaChangeType.RENAME_TABLE.equals(event.type())
+                ? targetSchema(event) : descriptor.schemaName();
+        IndexState state = unchanged && metadataStore.findActiveIndexGeneration(descriptor.indexId()).isPresent()
+                ? IndexState.READY : IndexState.STALE;
+        if (!unchanged && TEXT_SENSITIVE_TYPES.contains(descriptor.indexType())
+                && SchemaChangeType.MODIFY_COLUMN_TYPE.equals(event.type())) {
+            state = IndexState.DROPPED;
+        }
+        String tableName = SchemaChangeType.RENAME_TABLE.equals(event.type())
+                ? event.tableName() : descriptor.tableName();
+        return new IndexSchemaTransition(
+                descriptor.indexId(), descriptor.catalogName(), descriptor.schemaName(),
+                state, tableName, columns, fingerprint,
+                state == IndexState.STALE ? "schema_evolution" : null,
+                descriptor.updatedAt(), descriptor.state(), descriptor.generation(), schemaName);
+    }
+
+    private static boolean mutationNotObserved(
+            SchemaChangeEvent event, ConnectorTableMetadata source) {
+        if (SchemaChangeType.DROP_TABLE.equals(event.type())) {
+            return true;
+        }
+        if (SchemaChangeType.RENAME_TABLE.equals(event.type())) {
+            return !event.tableName().equals(source.table().table())
+                    || !targetSchema(event).equals(source.table().schema());
+        }
+        if (SchemaChangeType.RENAME_COLUMN.equals(event.type())) {
+            String renamed = IndexSchemaFingerprint.normalizeColumnName(event.newColumnName());
+            boolean renamedPresent = source.typedColumns().stream().anyMatch(column ->
+                    IndexSchemaFingerprint.normalizeColumnName(column.name()).equals(renamed));
+            if (renamedPresent) {
+                return false;
+            }
+            String original = IndexSchemaFingerprint.normalizeColumnName(event.oldColumnName());
+            return source.typedColumns().stream().anyMatch(column ->
+                    IndexSchemaFingerprint.normalizeColumnName(column.name()).equals(original));
+        }
+        return false;
+    }
+
+    private IndexSchemaTransition unchanged(IndexDescriptor descriptor) {
+        IndexState state = metadataStore.findActiveIndexGeneration(descriptor.indexId()).isPresent()
+                ? IndexState.READY : IndexState.STALE;
+        return new IndexSchemaTransition(
+                descriptor.indexId(), descriptor.catalogName(), descriptor.schemaName(), state,
+                descriptor.tableName(), descriptor.columnNames(), descriptor.sourceSchemaFingerprint(),
+                state == IndexState.STALE ? "schema_change_pending" : null,
+                descriptor.updatedAt(), descriptor.state(), descriptor.generation(), descriptor.schemaName());
+    }
+
+    private static IndexSchemaTransition dropped(SchemaChangeEvent event, IndexDescriptor descriptor) {
+        return new IndexSchemaTransition(
+                descriptor.indexId(), descriptor.catalogName(), descriptor.schemaName(),
+                IndexState.DROPPED,
+                SchemaChangeType.RENAME_TABLE.equals(event.type())
+                        ? event.tableName() : descriptor.tableName(),
+                descriptor.columnNames(), descriptor.sourceSchemaFingerprint(), null,
+                descriptor.updatedAt(), descriptor.state(), descriptor.generation(),
+                SchemaChangeType.RENAME_TABLE.equals(event.type())
+                        ? targetSchema(event) : descriptor.schemaName());
+    }
+
+    private static String targetSchema(SchemaChangeEvent event) {
+        return event.newSchemaName() == null ? event.schemaName() : event.newSchemaName();
+    }
+
+    private static boolean containsColumn(List<String> columns, String name) {
+        String normalized = IndexSchemaFingerprint.normalizeColumnName(name);
+        return columns.stream().anyMatch(column ->
+                IndexSchemaFingerprint.normalizeColumnName(column).equals(normalized));
     }
 }

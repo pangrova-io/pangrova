@@ -135,10 +135,12 @@ public final class IndexDdlExecutor implements AutoCloseable {
 
         boolean nativeArtifact = requiresNativeArtifact(indexType);
         IndexBuildInput buildInput = resolveBuildInput(tableRef, !nativeArtifact, context);
+        String schemaFingerprint = org.pangrova.indexing.api.descriptor.IndexSchemaFingerprint.of(
+                columns, tableMetadata.typedColumns());
         IndexDescriptor descriptor = buildDescriptor(
                 stmt.indexName(), tableRef, columns, indexType,
                 IndexBuildProperties.canonicalize(indexType, stmt.properties()),
-                buildInput.sourceSnapshot(), tenantId);
+                buildInput.sourceSnapshot(), tenantId, schemaFingerprint);
         requireNativeBuildSupport(descriptor);
 
         List<TypedRow> earlyResult = registerIndexOrSkip(descriptor, stmt, user, tableRef, tenantId);
@@ -282,11 +284,18 @@ public final class IndexDdlExecutor implements AutoCloseable {
         var tableMetadata = IndexDdlValidation.resolveTable(tableRef, deps.catalogRegistry(), session);
         List<String> columns = IndexDdlValidation.validateColumns(
                 tableRef, target.columnNames(), target.indexType(), tableMetadata);
+        String schemaFingerprint = org.pangrova.indexing.api.descriptor.IndexSchemaFingerprint.of(
+                columns, tableMetadata.typedColumns());
+        if (target.sourceSchemaFingerprint() != null
+                && !schemaFingerprint.equals(target.sourceSchemaFingerprint())) {
+            throw new PangrovaException(PangrovaErrorCode.METADATA_INDEX_VALIDATION_ERROR,
+                    "Index source schema changed; wait for fenced schema reconciliation before rebuild");
+        }
         checkRawBuildRead(tableRef, user, columns);
 
         boolean nativeArtifact = requiresNativeArtifact(target.indexType());
         IndexBuildInput buildInput = resolveBuildInput(tableRef, !nativeArtifact, context);
-        IndexDescriptor rebuilt = prepareRebuild(target, buildInput.sourceSnapshot());
+        IndexDescriptor rebuilt = prepareRebuild(target, buildInput.sourceSnapshot(), schemaFingerprint);
         requireNativeBuildSupport(rebuilt);
         submitAsyncBuild(rebuilt, tableRef, buildInput.dataFiles(), context);
         emitRebuildCacheEvent(target, tableRef);
@@ -310,7 +319,7 @@ public final class IndexDdlExecutor implements AutoCloseable {
     }
 
     private IndexDescriptor prepareRebuild(
-            IndexDescriptor target, String sourceSnapshot) {
+            IndexDescriptor target, String sourceSnapshot, String sourceSchemaFingerprint) {
         // Retry with fresh read on optimistic lock failure. CREATE INDEX completes
         // asynchronously and may update updatedAt between findRebuildableIndex()
         // and the CAS below — a benign race that we resolve by re-reading.
@@ -319,11 +328,13 @@ public final class IndexDdlExecutor implements AutoCloseable {
         for (int attempt = 0; attempt < 3; attempt++) {
             Instant now = Instant.now();
             int newGeneration = current.generation() + 1;
-            IndexDescriptor rebuilt = IndexDescriptorTransitions.transition(current.withGeneration(newGeneration, now)
+            IndexDescriptor rebuilt = IndexDescriptorTransitions.transition(current
+                    .withSourceSchemaFingerprint(sourceSchemaFingerprint)
+                    .withGeneration(newGeneration, now)
                     .withBuildSnapshotId(sourceSnapshot, now), IndexState.BUILDING, now);
             boolean updated = deps.indexMetadataStore().beginIndexGeneration(
                     current.indexId(), newGeneration, sourceSnapshot,
-                    now, current.updatedAt(), current.state(), current.generation());
+                    now, current.updatedAt(), current.state(), current.generation(), sourceSchemaFingerprint);
             if (updated) {
                 return rebuilt;
             }
@@ -340,6 +351,11 @@ public final class IndexDdlExecutor implements AutoCloseable {
                     .findFirst()
                     .orElseThrow(() -> new PangrovaException(PangrovaErrorCode.METADATA_INDEX_NOT_FOUND,
                             "Index '" + indexName + "' was dropped during rebuild"));
+            if (current.sourceSchemaFingerprint() != null
+                    && !sourceSchemaFingerprint.equals(current.sourceSchemaFingerprint())) {
+                throw new PangrovaException(PangrovaErrorCode.METADATA_INDEX_VALIDATION_ERROR,
+                        "Index source schema changed during rebuild");
+            }
         }
         throw new PangrovaException(PangrovaErrorCode.METADATA_INDEX_VALIDATION_ERROR,
                 "ALTER INDEX REBUILD failed: concurrent modification on index '"
@@ -492,12 +508,14 @@ public final class IndexDdlExecutor implements AutoCloseable {
             String indexName, QualifiedTableName ref,
             List<String> columns, IndexType indexType,
             Map<String, String> properties, String sourceSnapshot,
-            String tenantId) {
+            String tenantId, String schemaFingerprint) {
         Instant now = Instant.now();
+        var boundProperties = new java.util.LinkedHashMap<>(properties);
+        boundProperties.put(IndexDescriptor.SOURCE_SCHEMA_FINGERPRINT_PROPERTY, schemaFingerprint);
         return new IndexDescriptor(
                 UUID.randomUUID().toString(), indexName,
                 ref.catalog(), ref.schema(), ref.table(),
-                columns, indexType, properties,
+                columns, indexType, boundProperties,
                 IndexState.BUILDING, null, 0, sourceSnapshot, null, now, now, tenantId);
     }
 

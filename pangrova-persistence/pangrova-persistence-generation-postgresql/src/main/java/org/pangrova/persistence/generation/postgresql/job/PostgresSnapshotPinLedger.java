@@ -3,7 +3,7 @@ package org.pangrova.persistence.generation.postgresql.job;
 import org.pangrova.generation.api.job.GenerationSubmissionAuthority;
 import org.pangrova.persistence.generation.api.job.SnapshotPinIntent;
 import org.pangrova.persistence.generation.api.job.SnapshotPinReservation;
-import org.pangrova.persistence.generation.api.job.SnapshotPinState;
+import org.pangrova.persistence.generation.api.enums.SnapshotPinState;
 import org.pangrova.persistence.jdbc.api.generation.GenerationTransactionAuthority;
 import org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec;
 

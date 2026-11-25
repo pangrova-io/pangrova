@@ -26,6 +26,7 @@ import org.pangrova.indexing.strategy.IndexEngineRegistry;
 import org.pangrova.indexing.build.IndexBuildCoordinator;
 import org.pangrova.indexing.build.IndexBuildContext;
 import org.pangrova.indexing.config.IndexingConfig;
+import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.indexing.evaluation.IndexEvaluationService;
 import org.pangrova.indexing.build.IndexBuildMetrics;
 import org.pangrova.indexing.codec.data.IndexSerializer;
@@ -85,6 +86,8 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
     private IndexGarbageCollector garbageCollector;
     private IndexConsistencyChecker consistencyChecker;
     private IndexDdlExecutor ddlExecutor;
+    private org.pangrova.indexing.evolution.IndexSchemaEvolutionHandler schemaEvolutionHandler;
+    private ScheduledExecutorService schemaEvolutionScheduler;
     private IndexMetadataStore metadataStore;
     private ConnectorAccessorResolver accessorResolver;
     private volatile java.util.Set<String> commitListenerCatalogs = java.util.Set.of();
@@ -240,6 +243,7 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
         IndexSerializer serializer = initializeEngine(config, metricsProvider);
         var buildServices = initializeBuildServices(config, catalogRegistry, serializer, buildClaims);
         startLifecycle(config, buildServices);
+        startSchemaEvolutionRecovery(buildServices);
         startRecovery(buildServices);
         garbageCollector.start();
         consistencyChecker.start();
@@ -353,6 +357,32 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
         IndexConsistencyContext consistencyDeps = new IndexConsistencyContext(
                 metadataStore, buildServices, accessorResolver, config, leaderElection);
         consistencyChecker = new IndexConsistencyChecker(consistencyDeps, lifecycleMetrics);
+    }
+
+    private void startSchemaEvolutionRecovery(
+            org.pangrova.coordinator.indexing.ddl.IndexBuildServices buildServices) {
+        schemaEvolutionHandler = new org.pangrova.indexing.evolution.IndexSchemaEvolutionHandler(
+                metadataStore, (descriptor, event) -> observeSourceSchema(buildServices, descriptor, event));
+        recoverSchemaEvolutionSafe();
+        schemaEvolutionScheduler = ManagedExecutorFactory.newSingleThreadScheduledExecutor(
+                "index-schema-evolution");
+        schemaEvolutionScheduler.scheduleWithFixedDelay(
+                this::recoverSchemaEvolutionSafe, 1, 1, TimeUnit.MINUTES);
+    }
+
+    private void recoverSchemaEvolutionSafe() {
+        try {
+            if (leaderElection != null && !leaderElection.tryAcquireOrRenew()) {
+                return;
+            }
+            int fenced = schemaEvolutionHandler.reconcile();
+            int applied = schemaEvolutionHandler.recoverPending();
+            if (fenced > 0 || applied > 0) {
+                LOG.info("event=index_schema_evolution_recovered fenced={} applied={}", fenced, applied);
+            }
+        } catch (RuntimeException failure) {
+            LOG.warn("event=index_schema_evolution_recovery_failed error={}", failure.getMessage(), failure);
+        }
     }
 
     private void startRecovery(
@@ -480,6 +510,32 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
     /** Returns the DDL executor for statement router registration. */
     public IndexDdlExecutor getDdlExecutor() { return ddlExecutor; }
 
+    public org.pangrova.indexing.evolution.IndexSchemaEvolutionHandler getSchemaEvolutionHandler() {
+        return schemaEvolutionHandler;
+    }
+
+    private java.util.Optional<org.pangrova.connector.api.metadata.table.ConnectorTableMetadata>
+            observeSourceSchema(
+                    org.pangrova.coordinator.indexing.ddl.IndexBuildServices buildServices,
+                    IndexDescriptor descriptor,
+                    org.pangrova.indexing.api.evolution.SchemaChangeEvent event) {
+        boolean rename = org.pangrova.indexing.api.enums.SchemaChangeType.RENAME_TABLE
+                .equals(event.type());
+        String schemaName = rename && event.newSchemaName() != null
+                ? event.newSchemaName() : descriptor.schemaName();
+        String tableName = rename ? event.tableName() : descriptor.tableName();
+        var resolver = org.pangrova.coordinator.indexing.ddl.IndexSourceAuthority.forDescriptor(
+                metadataStore, buildServices, accessorResolver, descriptor);
+        var source = rename
+                ? resolver.resolveTableMetadata(
+                        descriptor.catalogName(), descriptor.schemaName(), descriptor.tableName())
+                : resolver.resolveTableMetadata(descriptor.catalogName(), schemaName, tableName);
+        if (source == null && rename) {
+            source = resolver.resolveTableMetadata(descriptor.catalogName(), schemaName, tableName);
+        }
+        return java.util.Optional.ofNullable(source);
+    }
+
     /** Returns the index cache for DDL executor. */
     IndexCache getIndexCache() { return indexCache; }
 
@@ -550,6 +606,10 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
         safeClose("DdlExecutor", ddlExecutor);
         safeClose("ArtifactPublisher", artifactPublisher);
         safeClose("ConsistencyChecker", consistencyChecker);
+        if (schemaEvolutionScheduler != null) {
+            schemaEvolutionScheduler.shutdownNow();
+            LOG.info("event=indexing_phase_closed phase=SchemaEvolutionScheduler");
+        }
         if (snapshotPinRecoveryScheduler != null) {
             snapshotPinRecoveryScheduler.shutdownNow();
             LOG.info("event=indexing_phase_closed phase=SnapshotPinRecoveryScheduler");
