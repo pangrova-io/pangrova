@@ -63,6 +63,7 @@ def needs_runtime(paths):
                 ".pangrova/scripts/ci_change_scope.py",
                 ".pangrova/scripts/stage-production-regression-native.sh",
                 ".pangrova/scripts/build-iceberg-sdk-candidate.sh",
+                ".pangrova/scripts/setup-macos-native-test-docker.",
                 ".pangrova/scripts/proto-descriptors/")):
             continue
         if name.startswith("config/checkstyle/") or name.startswith("config/spotbugs/"):

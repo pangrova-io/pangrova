@@ -329,6 +329,14 @@ class StructuralPolicyTest(unittest.TestCase):
 
 
 class RuntimeScopeTest(unittest.TestCase):
+    def test_macos_native_fixture_bootstrap_selects_native_checks(self):
+        for path in ('.pangrova/scripts/setup-macos-native-test-docker.sh',
+                     '.pangrova/scripts/setup-macos-native-test-docker.yaml'):
+            with self.subTest(path=path):
+                self.assertTrue(scope.needs_runtime([path]))
+                self.assertTrue(scope.needs_native_checks([path]))
+                self.assertFalse(scope.needs_performance([path]))
+
     def test_native_checks_follow_native_inputs_and_java_boundary_owners(self):
         for path in ['pangrova-worker-native/src/executor/Executor.cpp',
                      'pangrova-worker/src/main/java/example/NativeRuntime.java',
