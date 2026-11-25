@@ -119,7 +119,7 @@ jobs:
 
       - name: Retain same-source CLI for benchmark transport checks
         if: matrix.java == '17'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: tpc-client-cli
           path: pangrova-client/pangrova-client-cli/target/pangrova-client-cli-0.1.0-SNAPSHOT-exec.jar
@@ -232,7 +232,7 @@ jobs:
 
       - name: Upload full regression reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: production-regression-reports
           path: |
@@ -240,7 +240,7 @@ jobs:
 
       - name: Upload production runtime provenance and process diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: production-runtime-provenance
           if-no-files-found: warn
@@ -489,7 +489,7 @@ jobs:
 
       - name: Upload sanitizer fixture diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: native-fixture-${{ matrix.sanitizer.name }}
           path: |
@@ -544,7 +544,7 @@ jobs:
 
       - name: Upload JMH results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: jmh-benchmark-results
           path: target/jmh-results.json

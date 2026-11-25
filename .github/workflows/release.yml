@@ -162,14 +162,14 @@ jobs:
             -DskipTests
 
       - name: Upload classifier JAR
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-native-bundle-${{ matrix.platform.classifier }}
           path: pangrova-native-bundle/target/pangrova-native-bundle-*-${{ matrix.platform.classifier }}.jar
           retention-days: 1
 
       - name: Upload raw native library
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-native-lib-${{ matrix.platform.name }}
           path: native-lib/libpangrova_native.*
