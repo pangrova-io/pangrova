@@ -10,6 +10,9 @@ import org.postgresql.ds.PGSimpleDataSource;
 import org.pangrova.query.api.journal.QueryAcceptance;
 import org.pangrova.query.api.journal.QueryAcceptanceRequest;
 import org.pangrova.query.api.journal.QueryStateEvent;
+import org.pangrova.query.api.lineage.QueryLineageFact;
+import org.pangrova.query.api.lineage.QueryLineageMetadata;
+import org.pangrova.governance.api.enums.LineageEventType;
 import org.pangrova.testing.testkit.PostgresCommitWireFault;
 import org.pangrova.persistence.query.api.state.StateJournalConfig;
 import org.pangrova.query.api.journal.TaskStateEvent;
@@ -343,12 +346,49 @@ class JdbcQueryStateJournalIntegrationTest {
     @Test
     void acceptanceFingerprintConflictIsRejectedWithoutASecondQueryRow() throws Exception {
         journal.acceptQuerySync(acceptanceEvent("q-accept", "alice", "a", "b", 60_000));
-        stickyConflict = true;
         assertThrows(org.pangrova.persistence.query.api.exception.JournalWriteException.class,
                 () -> journal.acceptQuerySync(acceptanceEvent("q-conflict", "alice", "a", "c", 60_000)));
         assertThat(countQueryRows("query_state_journal", "q-accept")).isEqualTo(1);
         assertThat(countQueryRows("query_state_journal", "q-conflict")).isEqualTo(0);
         assertThat(journal.findAcceptance("alice", "a".repeat(64))).isPresent();
+        assertThat(journal.acceptQuerySync(acceptanceEvent("q-healthy", "alice", "d", "b", 60_000))
+                .newExecution()).isTrue();
+    }
+
+    @Test
+    void activeAcceptanceDoesNotExpireBeforeTerminalCompletion() throws Exception {
+        journal.acceptQuerySync(acceptanceEvent("q-active-accept", "alice", "a", "b", 1));
+        Thread.sleep(20);
+        var replay = journal.acceptQuerySync(acceptanceEvent("q-active-retry", "alice", "a", "b", 1));
+        assertThat(replay.newExecution()).isFalse();
+        assertThat(replay.acceptance().receipt().queryId()).isEqualTo("q-active-accept");
+        journal.purgeExpiredAcceptances();
+        assertThat(countQueryRows("query_state_journal", "q-active-accept")).isEqualTo(1);
+        assertThat(countQueryRows("query_state_journal", "q-active-retry")).isEqualTo(0);
+    }
+
+    @Test
+    void expiredAcceptanceSweepRemovesTerminalFacts() throws Exception {
+        journal.acceptQuerySync(acceptanceEvent("q-sweep", "alice", "a", "b", 1));
+        journal.appendQueryEventSync(new QueryStateEvent(
+                org.pangrova.query.api.journal.JournalEventContext.create(System.currentTimeMillis(), "issuer"),
+                "q-sweep", null, null, "FINISHED"));
+        executeSql("UPDATE query_state_journal SET timestamp_ms = timestamp_ms - 120000 WHERE query_id = 'q-sweep'");
+        journal.purgeExpiredAcceptances();
+        assertThat(countQueryRows("query_state_journal", "q-sweep")).isEqualTo(0);
+    }
+
+    @Test
+    void replayDoesNotPublishLineageForTheCandidateQuery() throws Exception {
+        var original = acceptanceEvent("q-lineage-original", "alice", "a", "b", 60_000);
+        var lineage = new QueryLineageFact("test", original.queryId(), LineageEventType.START,
+                original.context().timestampMs(), original.sql(), null, QueryLineageMetadata.empty());
+        journal.acceptQuerySync(new QueryStateEvent(original.context(), original.queryId(), original.sql(),
+                original.sessionJson(), original.state(), lineage, original.acceptance()));
+        var replay = journal.acceptQuerySync(acceptanceEvent("q-lineage-replay", "alice", "a", "b", 60_000));
+        assertThat(replay.newExecution()).isFalse();
+        assertThat(lineageRows("q-lineage-original")).isEqualTo(1);
+        assertThat(lineageRows("q-lineage-replay")).isZero();
     }
 
     @Test
@@ -423,6 +463,18 @@ class JdbcQueryStateJournalIntegrationTest {
         var acceptance = QueryAcceptance.pending(request, queryId, retentionMs);
         return new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(
                 System.currentTimeMillis(), "issuer"), queryId, "SELECT 1", "{}", "QUEUED", null, acceptance);
+    }
+
+    private long lineageRows(String queryId) throws Exception {
+        try (var connection = dataSource.getConnection();
+                var statement = connection.prepareStatement(
+                        "SELECT count(*) FROM query_lineage_outbox WHERE query_id = ?")) {
+            statement.setString(1, queryId);
+            try (var rows = statement.executeQuery()) {
+                rows.next();
+                return rows.getLong(1);
+            }
+        }
     }
 
     private long acceptanceInserts() throws Exception {

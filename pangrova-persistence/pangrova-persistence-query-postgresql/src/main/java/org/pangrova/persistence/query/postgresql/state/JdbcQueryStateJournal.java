@@ -24,6 +24,7 @@ import org.pangrova.query.api.session.JournalSessionPayload;
 @ThreadSafe
 public final class JdbcQueryStateJournal implements QueryStateJournal {
     private static final long DRAIN_MS = 5000;
+    private static final int MAX_EXPIRED_ACCEPTANCES_PER_SWEEP = 1000;
     private static final String ACTIVE = "query_id NOT IN (SELECT query_id FROM query_state_journal "
             + "WHERE state IN ('FINISHED','FAILED','CANCELLED'))";
     private final DataSource dataSource;
@@ -173,6 +174,45 @@ public final class JdbcQueryStateJournal implements QueryStateJournal {
             });
         } catch (SQLException failure) {
             throw JournalPendingWrites.failure("Failed to reconcile durable query acceptance", failure);
+        }
+    }
+
+    @Override public void purgeExpiredAcceptances() {
+        try {
+            pending.enterSql().perform(dataSource, connection -> {
+                connection.setAutoCommit(false);
+                try (PreparedStatement statement = connection.prepareStatement("""
+                        WITH expired AS (
+                          SELECT a.query_id FROM query_state_journal a
+                          WHERE a.idempotency_key_digest IS NOT NULL
+                            AND EXISTS (
+                              SELECT 1 FROM query_state_journal t
+                              WHERE t.query_id = a.query_id
+                                AND t.state IN ('FINISHED', 'FAILED', 'CANCELLED')
+                            )
+                            AND a.retention_ms <= ? - GREATEST(a.timestamp_ms, (
+                              SELECT MAX(t.timestamp_ms) FROM query_state_journal t
+                              WHERE t.query_id = a.query_id
+                                AND t.state IN ('FINISHED', 'FAILED', 'CANCELLED')
+                            ))
+                          ORDER BY a.timestamp_ms LIMIT ?
+                        ),
+                        removed_tasks AS (
+                          DELETE FROM task_state_journal t USING expired e
+                          WHERE t.query_id = e.query_id
+                        )
+                        DELETE FROM query_state_journal q USING expired e
+                        WHERE q.query_id = e.query_id
+                        """)) {
+                    statement.setLong(1, System.currentTimeMillis());
+                    statement.setInt(2, MAX_EXPIRED_ACCEPTANCES_PER_SWEEP);
+                    statement.executeUpdate();
+                }
+                connection.commit();
+                return null;
+            });
+        } catch (SQLException failure) {
+            throw JournalPendingWrites.failure("Failed to sweep expired query acceptances", failure);
         }
     }
 

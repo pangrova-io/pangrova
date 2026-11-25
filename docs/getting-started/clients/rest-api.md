@@ -150,7 +150,8 @@ executing the SQL again; changing the SQL or session properties returns HTTP 409
 Each principal has an independent key space.
 
 Acceptance facts remain until ten minutes after the later of acceptance or terminal
-completion. Conflict and uncertain-commit paths read the authoritative row and
+completion. A bounded periodic sweep removes expired terminal acceptances; active
+queries never expire. Conflict and uncertain-commit paths read the authoritative row and
 compare its fingerprint; restart and failover do not discard idempotency state.
 Poll the state endpoint for later transitions. A rejection before durable acceptance
 releases the key, while a failure after acceptance remains attached to the accepted

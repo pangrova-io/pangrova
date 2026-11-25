@@ -81,6 +81,24 @@ class QueryManagerDurableAcceptanceTest {
     }
 
     @Test
+    void replayReleasesCandidateAdmissionAndThrottle() throws Exception {
+        var journal = new InMemoryQueryStateJournal();
+        var first = manager(firstDispatcher, journal);
+        var admission = new CountingAdmission();
+        var second = manager(secondDispatcher, journal, admission);
+        var request = acceptance("alice", FINGERPRINT);
+        first.submitQueryAsync("q-original", "SELECT 1", session("q-original", "alice"), request)
+                .toCompletableFuture().get(5, TimeUnit.SECONDS);
+        assertThat(firstDispatcher.started.await(5, TimeUnit.SECONDS)).isTrue();
+
+        second.submitQueryAsync("q-replay", "SELECT 1", session("q-replay", "alice"), request)
+                .toCompletableFuture().get(5, TimeUnit.SECONDS);
+        assertThat(admission.throttleReleases).hasValue(1);
+        assertThat(admission.clusterReleases).hasValue(1);
+        assertThat(secondDispatcher.calls).hasValue(0);
+    }
+
+    @Test
     void sameKeyWithDifferentFingerprintConflicts() {
         var journal = new InMemoryQueryStateJournal();
         var first = manager(firstDispatcher, journal);
@@ -119,8 +137,14 @@ class QueryManagerDurableAcceptanceTest {
     }
 
     private QueryManager manager(CountingDispatcher dispatcher, QueryStateJournal journal) {
+        return manager(dispatcher, journal,
+                org.pangrova.coordinator.query.QueryManagerCollaborators.admission(null, null));
+    }
+
+    private QueryManager manager(CountingDispatcher dispatcher, QueryStateJournal journal,
+            org.pangrova.query.lifecycle.QueryAdmissionPort admission) {
         return new QueryManager(QueryManagerTestContexts.minimalAsync(dispatcher, TestObservability.TRACING,
-                AsyncSubmitConfig.defaultEnabled(), executor, journal));
+                AsyncSubmitConfig.defaultEnabled(), executor, journal, admission));
     }
 
     private static QueryAcceptanceRequest acceptance(String principal, String fingerprint) {
@@ -131,6 +155,41 @@ class QueryManagerDurableAcceptanceTest {
         return new QuerySession(queryId, Map.of(),
                 new UserIdentity(principal, Set.of(), Map.of(), Instant.EPOCH), null,
                 Optional.empty(), new OtelExecutionTraceContextFactory().capture());
+    }
+
+    private static final class CountingAdmission implements org.pangrova.query.lifecycle.QueryAdmissionPort {
+        private final AtomicInteger throttleReleases = new AtomicInteger();
+        private final AtomicInteger clusterReleases = new AtomicInteger();
+
+        @Override
+        public boolean acquireHealthProbe() {
+            return true;
+        }
+
+        @Override
+        public void recordOutcome(org.pangrova.query.api.enums.QueryState state,
+                org.pangrova.query.api.error.QueryFailure failure) {
+        }
+
+        @Override
+        public void checkCluster(String queryId, org.pangrova.security.api.tenant.ResolvedTenantContext tenant,
+                QueryStateMachine state) {
+            state.retainAdmissionRelease(clusterReleases::incrementAndGet);
+        }
+
+        @Override
+        public void checkThrottle(String queryId, QuerySession session) {
+        }
+
+        @Override
+        public void releaseThrottle(String queryId) {
+            throttleReleases.incrementAndGet();
+        }
+
+        @Override
+        public void setClusterController(
+                org.pangrova.scheduler.api.admission.ClusterAdmissionController controller) {
+        }
     }
 
     private static final class CountingDispatcher extends QueryManagerAsyncSubmitTest.SlowQueryDispatcher {
@@ -214,6 +273,11 @@ class QueryManagerDurableAcceptanceTest {
         @Override
         public void purgeQuery(String queryId) {
             delegate.purgeQuery(queryId);
+        }
+
+        @Override
+        public void purgeExpiredAcceptances() {
+            delegate.purgeExpiredAcceptances();
         }
 
         @Override

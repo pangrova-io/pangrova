@@ -19,6 +19,7 @@ public final class QueryRegistry {
     private final ConcurrentHashMap<String, QueryStateMachine> queries = new ConcurrentHashMap<>();
     // Initializers may call external services. Reserve the identity outside shared map operations.
     private final ConcurrentHashMap<String, QueryStateMachine> registering = new ConcurrentHashMap<>();
+    private final Set<String> pendingSubmissions = ConcurrentHashMap.newKeySet();
     private final AtomicInteger outstanding = new AtomicInteger();
     private final ReentrantLock drainLock = new ReentrantLock();
     private final Condition progressed = drainLock.newCondition();
@@ -39,11 +40,27 @@ public final class QueryRegistry {
         }
     }
 
+    /** Reserves drain accountability before a candidate performs blocking admission work. */
+    public boolean reserveSubmission(String id) {
+        return pendingSubmissions.add(id);
+    }
+
+    /** Releases a candidate reservation after registration or definitive cleanup. */
+    public void releaseSubmission(String id) {
+        if (pendingSubmissions.remove(id)) signalDrained();
+    }
+
     /** Called after physical resources have been released. The lifetime owns the once-only transition. */
     public void complete(String id, QueryStateMachine state) {
         if (!state.claimPhysicalCleanup()) return;
         if (state.discardUnadmittedQuery()) queries.remove(id, state);
         if (outstanding.decrementAndGet() == 0) {
+            signalDrained();
+        }
+    }
+
+    private void signalDrained() {
+        if (outstanding.get() == 0 && pendingSubmissions.isEmpty()) {
             drainLock.lock();
             try {
                 progressed.signalAll();
@@ -76,18 +93,18 @@ public final class QueryRegistry {
     }
 
     public int outstandingCount() {
-        return outstanding.get();
+        return outstanding.get() + pendingSubmissions.size();
     }
 
     /** Admission is sealed by the caller. Pending cleanup is retried without holding the wait lock. */
     public boolean awaitDrain(long timeoutMillis, Runnable retryPending) {
         long started = System.nanoTime();
         long budget = TimeUnit.MILLISECONDS.toNanos(Math.max(0, timeoutMillis));
-        while (outstanding.get() > 0) {
+        while (outstanding.get() > 0 || !pendingSubmissions.isEmpty()) {
             retryPending.run();
             drainLock.lock();
             try {
-                if (outstanding.get() == 0) return true;
+                if (outstanding.get() == 0 && pendingSubmissions.isEmpty()) return true;
                 long remaining = budget - (System.nanoTime() - started);
                 if (remaining <= 0) return false;
                 progressed.awaitNanos(Math.min(remaining, TimeUnit.MILLISECONDS.toNanos(100)));

@@ -136,14 +136,14 @@ final class JournalPendingWrites {
         batch.attempts().forEach(attempt -> attempt.complete(null));
     }
 
-    void failed(Batch batch, Throwable error, JournalEventKey confirmedRejected) {
+    void failed(Batch batch, Throwable error, JournalEventKey confirmedRejected, boolean sticky) {
         JournalWriteException failure = failure("Journal commit not established", error);
         synchronized (this) {
             for (Write owner : batch.writes()) {
                 owner.lastFailure = error;
                 if (owner.key().equals(confirmedRejected)) {
                     removeOwned(owner);
-                    if (semanticFailure == null) semanticFailure = error;
+                    if (sticky && semanticFailure == null) semanticFailure = error;
                 }
             }
             notifyAll();

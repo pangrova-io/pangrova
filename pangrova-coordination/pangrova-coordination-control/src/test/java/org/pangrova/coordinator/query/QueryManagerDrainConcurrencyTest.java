@@ -215,7 +215,25 @@ class QueryManagerDrainConcurrencyTest {
         submission.get(3, TimeUnit.SECONDS);
         assertThat(manager.getQueryState("anchor-race"))
                 .contains(QueryState.CANCELLED);
-        assertThat(dispatcher.cleanupCount.get()).isEqualTo(1);
+        org.awaitility.Awaitility.await().atMost(3, TimeUnit.SECONDS)
+                .until(() -> dispatcher.cleanupCount.get() == 1);
+    }
+
+    @Test
+    void drainWaitsForCandidateAdmissionBeforeRegistration() throws Exception {
+        BlockingOwnershipDispatcher dispatcher = new BlockingOwnershipDispatcher();
+        QueryManager manager = new QueryManager(
+                QueryManagerTestContexts.minimal(dispatcher, TestObservability.TRACING));
+        Future<?> submission = executor.submit(() -> manager.submitQuery(
+                "pending-drain", "SELECT 1", testSession()));
+        assertThat(dispatcher.acquireEntered.await(3, TimeUnit.SECONDS)).isTrue();
+        Future<Boolean> drain = executor.submit(() -> manager.awaitAllQueries(5000));
+        assertThatThrownBy(() -> drain.get(100, TimeUnit.MILLISECONDS))
+                .isInstanceOf(TimeoutException.class);
+        dispatcher.allowAcquire.countDown();
+        submission.get(3, TimeUnit.SECONDS);
+        assertThat(manager.getActiveQueryCount()).isZero();
+        assertThat(drain.get(3, TimeUnit.SECONDS)).isTrue();
     }
 
     @Test
@@ -422,13 +440,15 @@ class QueryManagerDrainConcurrencyTest {
         @Override
         public CompletionStage<DispatchResult> executeAsync(QueryStateMachine sm, String sql,
                                       QuerySession session) {
+            if (!sm.isTerminal()) sm.toFinisher().run();
             return CompletableFuture.completedFuture(null);
         }
 
         @Override
         public boolean tryCleanupQuery(String queryId) {
-            cleanupCount.incrementAndGet();
-            return true;
+            boolean cleaned = super.tryCleanupQuery(queryId);
+            if (cleaned) cleanupCount.incrementAndGet();
+            return cleaned;
         }
     }
 }

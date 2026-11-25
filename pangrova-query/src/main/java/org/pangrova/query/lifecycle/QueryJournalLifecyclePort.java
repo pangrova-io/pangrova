@@ -18,6 +18,8 @@ public interface QueryJournalLifecyclePort extends QueryStateJournalPort {
 
     Optional<QueryAcceptance> findAcceptance(String principal, String idempotencyKeyDigest);
 
+    void purgeExpiredAcceptances();
+
     void terminal(QueryTerminalCleanup.Context context);
 
     void registerListener(String queryId, QueryStateMachine state);

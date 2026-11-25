@@ -150,6 +150,17 @@ public final class InMemoryQueryStateJournal implements QueryStateJournal {
     @Override public synchronized void close() { closed = true; }
     @Override public synchronized boolean isDrained() { return closed; }
 
+    @Override public synchronized void purgeExpiredAcceptances() {
+        requireOpen();
+        var expired = queries.values().stream()
+                .filter(event -> event.acceptance() != null && isExpired(event))
+                .map(QueryStateEvent::queryId).toList();
+        for (String queryId : expired) {
+            tasks.values().removeIf(event -> queryId.equals(event.queryId()));
+            queries.values().removeIf(event -> queryId.equals(event.queryId()));
+        }
+    }
+
     private QueryStateEvent findAcceptanceEvent(String principal, String idempotencyKeyDigest) {
         for (QueryStateEvent event : queries.values()) {
             if (event.acceptance() != null && event.acceptance().principal().equals(principal)

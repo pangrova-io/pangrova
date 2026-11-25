@@ -1,6 +1,7 @@
 package org.pangrova.persistence.query.postgresql.state;
 
 import org.pangrova.common.json.CanonicalJsonMapper;
+import org.pangrova.persistence.query.postgresql.exception.JournalAcceptanceConflictException;
 import org.pangrova.persistence.query.postgresql.exception.JournalPayloadConflictException;
 import org.pangrova.persistence.query.postgresql.exception.LineagePayloadConflictException;
 import org.pangrova.persistence.query.postgresql.journal.JournalEventKey;
@@ -63,6 +64,7 @@ final class JournalEventSql {
             try {
                 connection.rollback();
                 if (failure instanceof JournalPayloadConflictException conflict) conflict.confirmRollback();
+                if (failure instanceof JournalAcceptanceConflictException conflict) conflict.confirmRollback();
             } catch (SQLException rollback) {
                 if (rollback != failure) failure.addSuppressed(rollback);
             }
@@ -86,7 +88,7 @@ final class JournalEventSql {
                 }
                 var reconciliation = reconcileQuery(connection, event);
                 if (!reconciliation.retryInsert()) {
-                    appendLineage(connection, event.query);
+                    if (reconciliation.publishLineage()) appendLineage(connection, event.query);
                     return reconciliation.admission();
                 }
                 if (event.query.acceptance() == null || !deleteExpiredAcceptance(connection, event.query)) {
@@ -118,7 +120,8 @@ final class JournalEventSql {
         }
     }
 
-    private record QueryReconciliation(QueryAcceptanceAdmission admission, boolean retryInsert) { }
+    private record QueryReconciliation(
+            QueryAcceptanceAdmission admission, boolean retryInsert, boolean publishLineage) { }
 
     private static QueryReconciliation reconcileQuery(Connection connection,
             JournalPendingWrites.Write event) throws SQLException {
@@ -133,9 +136,9 @@ final class JournalEventSql {
                                 "Journal event mismatch expected=" + event.query + " actual=" + stored);
                     }
                     return event.query.acceptance() == null
-                            ? new QueryReconciliation(null, false)
+                            ? new QueryReconciliation(null, false, true)
                             : new QueryReconciliation(
-                                    new QueryAcceptanceAdmission(true, event.query.acceptance()), false);
+                                    new QueryAcceptanceAdmission(true, event.query.acceptance()), false, true);
                 }
             }
         }
@@ -151,16 +154,16 @@ final class JournalEventSql {
                 if (!event.query.acceptance().principal().equals(accepted.principal())
                         || !event.query.acceptance().idempotencyKeyDigest().equals(accepted.idempotencyKeyDigest())
                         || !event.query.acceptance().requestFingerprint().equals(accepted.requestFingerprint())) {
-                    throw new JournalPayloadConflictException(event.key(),
+                    throw new JournalAcceptanceConflictException(event.key(),
                             "Idempotency key was already used for a different request");
                 }
                 if (existing.queryId().equals(event.query.queryId())) {
-                    return new QueryReconciliation(new QueryAcceptanceAdmission(true, accepted), false);
+                    return new QueryReconciliation(new QueryAcceptanceAdmission(true, accepted), false, false);
                 }
                 if (isExpired(connection, existing)) {
-                    return new QueryReconciliation(null, true);
+                    return new QueryReconciliation(null, true, false);
                 }
-                return new QueryReconciliation(new QueryAcceptanceAdmission(false, accepted), false);
+                return new QueryReconciliation(new QueryAcceptanceAdmission(false, accepted), false, false);
             }
         }
     }
@@ -171,6 +174,7 @@ final class JournalEventSql {
             select.setString(1, acceptance.queryId());
             try (ResultSet rows = select.executeQuery()) {
                 terminal = rows.next() ? rows.getLong(1) : null;
+                if (terminal != null && rows.wasNull()) terminal = null;
             }
         }
         if (terminal == null) return false;

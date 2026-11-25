@@ -56,7 +56,9 @@ query into the executable registry. Matching retries return the stored receipt a
 query ID without a second execution; different fingerprints fail with HTTP 409.
 Unknown commit outcomes reconcile the same authoritative row. Acceptance survives
 restart and remains for ten minutes after the later of acceptance or terminal
-completion. Cancelling an observer does not cancel the admitted query.
+completion. Pending candidates reserve drain capacity before blocking admission work;
+cancellation requests are recorded until acceptance and registration complete, and a
+replay releases its candidate admission and throttle reservations. Cancelling an observer does not cancel the admitted query.
 
 The bounded asynchronous submission executor runs SQL planning and starts the
 distributed DAG. The DAG publishes its OUTPUT endpoint after Worker acknowledgement

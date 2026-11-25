@@ -88,7 +88,14 @@ final class QueryJournalLifecycle
             return admission;
         } catch (JournalWriteException failure) {
             if (failure.admissionOutcome() == JournalAdmissionOutcome.ACCEPTED_UNESTABLISHED) {
-                var existing = journal.findAcceptance(request.principal(), request.idempotencyKeyDigest());
+                Optional<QueryAcceptance> existing;
+                try {
+                    existing = journal.findAcceptance(request.principal(), request.idempotencyKeyDigest());
+                } catch (RuntimeException lookupFailure) {
+                    failure.addSuppressed(lookupFailure);
+                    state.retainJournalOwnership();
+                    throw failure;
+                }
                 if (existing.isPresent()) {
                     if (!existing.get().requestFingerprint().equals(request.requestFingerprint())) {
                         throw new IdempotencyConflictException();
@@ -97,6 +104,7 @@ final class QueryJournalLifecycle
                     if (newExecution) state.retainJournalOwnership();
                     return new QueryAcceptanceAdmission(newExecution, existing.get());
                 }
+                state.retainJournalOwnership();
             }
             if (isUniqueConflict(failure)) throw new IdempotencyConflictException();
             throw failure;
@@ -106,6 +114,11 @@ final class QueryJournalLifecycle
     @Override
     public Optional<QueryAcceptance> findAcceptance(String principal, String idempotencyKeyDigest) {
         return journal.findAcceptance(principal, idempotencyKeyDigest);
+    }
+
+    @Override
+    public void purgeExpiredAcceptances() {
+        journal.purgeExpiredAcceptances();
     }
 
     private static boolean isUniqueConflict(Throwable failure) {

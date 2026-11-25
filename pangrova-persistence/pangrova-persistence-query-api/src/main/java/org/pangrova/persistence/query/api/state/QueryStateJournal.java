@@ -26,6 +26,8 @@ public interface QueryStateJournal extends QueryStateJournalReader, AutoCloseabl
     QueryAcceptanceAdmission acceptQuerySync(QueryStateEvent event);
     /** Reads one principal-scoped acceptance only for conflict or uncertain-outcome reconciliation. */
     Optional<QueryAcceptance> findAcceptance(String principal, String idempotencyKeyDigest);
+    /** Bounded sweep of terminal acceptances whose retention has elapsed. */
+    void purgeExpiredAcceptances();
     /** Admits a task event or throws without accepting it; accepted failures remain owned. */
     void appendTaskEvent(TaskStateEvent event);
     /** Commits the exact frozen task event or reports an unestablished outcome for retry. */

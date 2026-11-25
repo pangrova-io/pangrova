@@ -27,6 +27,31 @@ class QueryRegistryTest {
     }
 
     @Test
+    void pendingSubmissionReservationBlocksDrainUntilReleased() {
+        var registry = new QueryRegistry();
+        assertThat(registry.reserveSubmission("candidate")).isTrue();
+        assertThat(registry.reserveSubmission("candidate")).isFalse();
+        assertThat(registry.outstandingCount()).isOne();
+        assertThat(registry.awaitDrain(0, () -> {})).isFalse();
+        registry.releaseSubmission("candidate");
+        assertThat(registry.outstandingCount()).isZero();
+        assertThat(registry.awaitDrain(0, () -> {})).isTrue();
+    }
+
+    @Test
+    void registrationTransfersPendingReservationWithoutDrainGap() {
+        var registry = new QueryRegistry();
+        var state = new QueryStateMachine();
+        assertThat(registry.reserveSubmission("candidate")).isTrue();
+        assertThat(registry.register("candidate", state, () -> {})).isNull();
+        registry.releaseSubmission("candidate");
+        assertThat(registry.outstandingCount()).isOne();
+        assertThat(registry.awaitDrain(0, () -> {})).isFalse();
+        registry.complete("candidate", state);
+        assertThat(registry.awaitDrain(0, () -> {})).isTrue();
+    }
+
+    @Test
     void readersCannotCancelHalfBoundQueryAndACompetitorCannotReopenIssuance() throws Exception {
         var registry = new QueryRegistry();
         var state = new QueryStateMachine();
