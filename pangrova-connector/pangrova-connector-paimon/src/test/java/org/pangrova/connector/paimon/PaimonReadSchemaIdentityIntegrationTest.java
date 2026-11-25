@@ -25,7 +25,7 @@ class PaimonReadSchemaIdentityIntegrationTest extends PaimonDeleteTestSupport {
             var metadata = new PaimonMetadata(catalog, "delete_catalog", registry);
             var current = bind(metadata);
             var historical = metadata.bindRead(SESSION, metadata.getTableHandle(SESSION,
-                    new SchemaTableName(DATABASE, TABLE_NAME)).withTimeTravelSnapshot(snapshot));
+                    new SchemaTableName(DATABASE, TABLE_NAME)).withTimeTravelSnapshot(Long.toString(snapshot)));
             var selected = historical.schemaIdentity().orElseThrow();
             assertThat(selected.fields()).extracting(column -> column.fieldId().orElseThrow())
                     .containsExactly(0, 1, 2, 3);

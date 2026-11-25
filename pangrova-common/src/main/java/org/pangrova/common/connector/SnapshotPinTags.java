@@ -3,14 +3,13 @@ package org.pangrova.common.connector;
 import org.pangrova.common.util.DigestUtils;
 
 import java.nio.charset.StandardCharsets;
-import java.util.Base64;
+import java.util.HexFormat;
 
 /** Persistent tag names shared by connectors that pin snapshots for a Pangrova index. */
 public final class SnapshotPinTags {
     public static final String PREFIX = "pangrova_index_";
     private static final String VERSIONED_PREFIX = "_v2_";
-    private static final Base64.Encoder ENCODER = Base64.getEncoder();
-    private static final Base64.Decoder DECODER = Base64.getDecoder();
+    private static final HexFormat HEX = HexFormat.of();
 
     private SnapshotPinTags() {}
 
@@ -82,12 +81,13 @@ public final class SnapshotPinTags {
         }
     }
 
+    /** Hex keeps components delimiter-safe and valid as Paimon tag file names. */
     private static String encode(String value) {
-        return ENCODER.encodeToString(value.getBytes(StandardCharsets.UTF_8));
+        return HEX.formatHex(value.getBytes(StandardCharsets.UTF_8));
     }
 
     private static String decode(String value) {
-        return new String(DECODER.decode(value), StandardCharsets.UTF_8);
+        return new String(HEX.parseHex(value), StandardCharsets.UTF_8);
     }
 
     public record DecodedSnapshotPin(int generation, String attemptId, String snapshotToken) {}

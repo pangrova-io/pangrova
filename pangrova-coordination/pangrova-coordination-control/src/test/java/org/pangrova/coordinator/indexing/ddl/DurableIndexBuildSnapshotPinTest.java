@@ -127,6 +127,27 @@ class DurableIndexBuildSnapshotPinTest extends ContainerTestBase {
     }
 
     @Test
+    void opaqueSnapshotTokenIsPreservedThroughPinAndSplitPlanning() {
+        String snapshot = "snapshot:opaque/42";
+        var opaqueConnector = new GeneratedBuildTestConnectors.SnapshotConnector(
+                Map.of(), snapshot, pins::requirePinned);
+        var catalog = new org.pangrova.metadata.connector.ConnectorCatalogHandle(
+                new org.pangrova.metadata.api.catalog.CatalogDescriptor(
+                        "lake", org.pangrova.metadata.api.enums.CatalogType.CONNECTOR, "test",
+                        org.pangrova.metadata.api.enums.CatalogState.ACTIVE, Map.of(), "", Set.of()),
+                opaqueConnector);
+        var opaqueService = new DurableIndexBuildService(store,
+                new GeneratedBuildTestConnectors.FixedCatalogRegistry(catalog),
+                "s3://warehouse/indexes", session -> pins);
+
+        String jobId = opaqueService.submit(descriptor(snapshot), TABLE, session());
+
+        assertThat(pins.tokens).containsExactly(snapshot);
+        assertThat(opaqueConnector.enumerations()).isOne();
+        assertThat(store.findJob(TENANT, jobId).orElseThrow().sourceSnapshot()).isEqualTo(snapshot);
+    }
+
+    @Test
     void legacyPublishedJobAcquiresARealPinBeforeRetention() throws Exception {
         var scope = authorizationScope();
         var page = new GenerationPage(

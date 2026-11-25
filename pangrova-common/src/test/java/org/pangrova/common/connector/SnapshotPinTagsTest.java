@@ -11,7 +11,7 @@ class SnapshotPinTagsTest {
         String prefix = "pangrova_index_5f39c6d9f5fd069a7d6a2a74e5d0a8d66d10bfb08cd1854110a4a0faad8f2bc1";
         assertThat(SnapshotPinTags.indexPrefix("索引/a")).isEqualTo(prefix);
         assertThat(SnapshotPinTags.forSnapshot("索引/a", 7, "attempt-1", "snapshot/opaque"))
-                .isEqualTo(prefix + "_v2_7_YXR0ZW1wdC0x_c25hcHNob3Qvb3BhcXVl");
+                .isEqualTo(prefix + "_v2_7_617474656d70742d31_736e617073686f742f6f7061717565");
         assertThat(SnapshotPinTags.indexPrefix(" 索引/a")).isNotEqualTo(prefix);
         assertThat(SnapshotPinTags.decode(
                 SnapshotPinTags.forSnapshot("索引/a", 7, "attempt-1", "snapshot/opaque"), "索引/a"))

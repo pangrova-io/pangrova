@@ -137,8 +137,9 @@ class PaimonExpireSnapshotsTest {
                 .containsExactlyInAnyOrder(
                         new SnapshotPinReference(oldToken, firstOwner),
                         new SnapshotPinReference(currentToken, replacementOwner));
-        assertThat(reopened.getSnapshotAwareMetadata("db", "test_expire")
-                .orElseThrow().listFilesAtSnapshot(oldToken)).isNotEmpty();
+        var snapshots = reopened.getSnapshotAwareMetadata("db", "test_expire").orElseThrow();
+        assertThat(snapshots.currentSnapshotId()).contains(currentToken);
+        assertThat(snapshots.listFilesAtSnapshot(oldToken)).isNotEmpty();
 
         reopenedPins.unpinSnapshot("test_catalog", "db", "test_expire", oldToken, firstOwner);
         assertThat(reopenedPins.getSnapshotPinsForIndex(
@@ -148,6 +149,8 @@ class PaimonExpireSnapshotsTest {
         reopenedPins.unpinSnapshot("test_catalog", "db", "test_expire", currentToken, replacementOwner);
         assertThat(reopenedPins.getSnapshotPinsForIndex(
                 "test_catalog", "db", "test_expire", "index-one")).isEmpty();
+        assertThatThrownBy(() -> snapshots.listFilesAtSnapshot(oldToken))
+                .isInstanceOf(SnapshotExpiredException.class);
         assertThatThrownBy(() -> reopenedPins.pinSnapshot(
                 "test_catalog", "db", "test_expire", "0",
                 new SnapshotPinOwner("index-one", 2, "attempt-3")))

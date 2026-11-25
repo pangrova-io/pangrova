@@ -91,6 +91,9 @@ class IcebergReadBindingIntegrationTest {
             var version = metadata.observeVersion(SESSION, handle).orElseThrow();
             assertThat(binding.statisticsVersion()).contains(version);
             long selected = table.currentSnapshot().snapshotId();
+            String selectedToken = new org.pangrova.connector.iceberg.index.IcebergSnapshotAwareMetadata(
+                    catalog, "db", "rows").currentSnapshotId().orElseThrow();
+            assertThat(selectedToken).isEqualTo(Long.toString(selected));
             write(table, 5);
             metadata.validateReadBinding(SESSION, binding);
             assertThat(binding.statistics().rowCount()).isEqualTo(3);
@@ -101,13 +104,13 @@ class IcebergReadBindingIntegrationTest {
             assertThat(binding.snapshotId().orElseThrow()).isEqualTo(selected);
             var splits = splits(catalog, binding);
             assertThat(splits).hasSize(1);
-            assertThat(splits).allSatisfy(split -> assertThat(split.getSourceSnapshot()).isEqualTo(Long.toString(selected)));
+            assertThat(splits).allSatisfy(split -> assertThat(split.getSourceSnapshot()).isEqualTo(selectedToken));
             var current = bind(metadata, "rows");
             assertThat(current.statistics().rowCount()).isEqualTo(8);
             assertThat(current.statistics().sourceWorkUnits()).isEqualTo(2);
             assertThat(current.statisticsVersion())
                     .hasValueSatisfying(currentVersion -> assertThat(currentVersion).isNotEqualTo(version));
-            assertThat(metadata.bindRead(SESSION, handle.withTimeTravelSnapshot(selected))
+            assertThat(metadata.bindRead(SESSION, handle.withTimeTravelSnapshot(selectedToken))
                     .statisticsVersion()).isEmpty();
         }
     }
@@ -153,6 +156,9 @@ class IcebergReadBindingIntegrationTest {
             Table table = create(catalog, "schema");
             write(table, 2);
             long selected = table.currentSnapshot().snapshotId();
+            String selectedToken = new org.pangrova.connector.iceberg.index.IcebergSnapshotAwareMetadata(
+                    catalog, "db", "schema").currentSnapshotId().orElseThrow();
+            assertThat(selectedToken).isEqualTo(Long.toString(selected));
             table.updateSchema().addColumn("added", Types.StringType.get()).commit();
             var metadata = new IcebergMetadata(catalog, "bound");
             var liveHandle = metadata.getTableHandle(SESSION, new SchemaTableName("db", "schema"));
@@ -169,7 +175,7 @@ class IcebergReadBindingIntegrationTest {
             assertThat(selectedHandle.withSnapshotId(selected).properties()).doesNotContainKey(identityKey);
             assertThat(selectedHandle.withoutSnapshotId().properties()).doesNotContainKey(identityKey);
             assertThat(selectedHandle.withIncrementalRead(selected, selected).properties()).doesNotContainKey(identityKey);
-            var oldHandle = liveHandle.withTimeTravelSnapshot(selected);
+            var oldHandle = liveHandle.withTimeTravelSnapshot(selectedToken);
             var historical = metadata.bindReadWithIdentityCheck(SESSION, liveHandle, oldHandle,
                     actual -> assertThat(actual).isEqualTo(liveIdentity));
             assertThat(historical.declaration().requireExactDeclaration().columns()).containsExactly("id");
@@ -194,6 +200,9 @@ class IcebergReadBindingIntegrationTest {
             Table table = create(catalog, "historical");
             write(table, 2);
             long snapshotId = table.currentSnapshot().snapshotId();
+            String snapshotToken = new org.pangrova.connector.iceberg.index.IcebergSnapshotAwareMetadata(
+                    catalog, "db", "historical").currentSnapshotId().orElseThrow();
+            assertThat(snapshotToken).isEqualTo(Long.toString(snapshotId));
             table.updateSchema().renameColumn("id", "current_id").commit();
             for (int i = 0; i < 3; i++) {
                 table.updateProperties().set("test.revision", Integer.toString(i)).commit();
@@ -205,7 +214,7 @@ class IcebergReadBindingIntegrationTest {
             var metadata = new IcebergMetadata(catalog, "bound");
             var live = metadata.getTableHandle(SESSION, new SchemaTableName("db", "historical"));
             long beforeBinding = io.reads(predecessors);
-            var binding = metadata.bindRead(SESSION, live.withTimeTravelSnapshot(snapshotId));
+            var binding = metadata.bindRead(SESSION, live.withTimeTravelSnapshot(snapshotToken));
             assertThat(binding.declaration().requireExactDeclaration().columns()).containsExactly("id");
             long afterBinding = io.reads(predecessors);
             assertThat(afterBinding - beforeBinding).isEqualTo(5L);
@@ -214,7 +223,7 @@ class IcebergReadBindingIntegrationTest {
             var planned = drainSplits(manager.getBoundSplits(ConnectorTransactionHandle.empty(), SESSION,
                     metadata, binding, DynamicFilter.ALL, Constraint.EMPTY));
             assertThat(planned).singleElement()
-                    .satisfies(split -> assertThat(split.getSourceSnapshot()).isEqualTo(Long.toString(snapshotId)));
+                    .satisfies(split -> assertThat(split.getSourceSnapshot()).isEqualTo(snapshotToken));
             assertThat(io.reads(predecessors) - afterBinding).isZero();
         }
     }
