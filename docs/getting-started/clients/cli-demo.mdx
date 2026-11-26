@@ -1,0 +1,44 @@
+---
+title: "CLI Workflow Demo"
+description: "Watch a real Pangrova CLI session register a catalog, create a table, write rows, and query the results"
+---
+
+import useBaseUrl from '@docusaurus/useBaseUrl';
+
+# CLI Workflow Demo
+
+Watch a complete SQL workflow executed by the Pangrova CLI against a local
+Standalone instance. The demo uses a current source build of the Coordinator,
+Worker, and Velox runtime.
+
+<video
+  controls
+  preload="metadata"
+  poster={useBaseUrl('/media/pangrova-cli-demo-poster.png')}
+  src={useBaseUrl('/media/pangrova-cli-demo.mp4')}
+  style={{width: '100%', borderRadius: '12px'}}
+>
+  Your browser does not support embedded video.
+</video>
+
+<a href={useBaseUrl('/media/pangrova-cli-demo.mp4')}>Download the MP4</a> · 1080p · English narration and captions
+
+## What the demo covers
+
+1. Register a local Apache Iceberg catalog.
+2. Create an analytics schema and a partitioned events table.
+3. Inspect the table with `DESCRIBE`.
+4. Insert six rows in one statement.
+5. Query the detail rows and aggregate them by region and event type.
+
+The matching SQL is available in
+[`examples/cli-workflow.sql`](https://github.com/pangrova-io/pangrova/blob/main/examples/cli-workflow.sql).
+Run it only against an isolated development instance with permission to create
+catalogs, schemas, and tables.
+
+```bash
+bin/pangrova-cli.sh --host localhost --port 8080 < examples/cli-workflow.sql
+```
+
+Piped input runs the interactive shell and continues after statement errors.
+Use `--file` when an automation must stop on the first failed statement.
