@@ -98,7 +98,14 @@ final class IcebergWriteCommitter {
     Snapshot publishedSnapshotOrCommitEmptyInsert(Table table, IcebergOutputTableHandle handle, boolean emptyInsert,
             String tenant, DistributedWriteCommitContext context) {
         Snapshot published = IcebergDistributedCommitMarker.publishedSnapshot(table, context);
-        if (published != null) return published;
+        if (published != null) {
+            if (emptyInsert) {
+                // Empty INSERTs bypass the ordinary commit task, including its notification.
+                // Replay the exact marker even when the snapshot itself is already committed.
+                notifyObservedCommit(published, handle, List.of(), CommitEventType.APPEND, tenant, context);
+            }
+            return published;
+        }
         if (!emptyInsert) {
             throw new IllegalStateException("Required nonempty write has no exact published snapshot marker");
         }
@@ -493,6 +500,14 @@ final class IcebergWriteCommitter {
                                    String tenantId,
                                    DistributedWriteCommitContext context) {
         Snapshot snapshot = committedSnapshot(icebergTable, context);
+        notifyObservedCommit(snapshot, handle, dataFiles, eventType, tenantId, context);
+        return snapshot;
+    }
+
+    /** Delivers the already-proven snapshot without another catalog observation. */
+    private void notifyObservedCommit(Snapshot snapshot, IcebergOutputTableHandle handle,
+            List<DataFile> dataFiles, CommitEventType eventType, String tenantId,
+            DistributedWriteCommitContext context) {
         String snapshotId = snapshot != null ? String.valueOf(snapshot.snapshotId()) : "";
         List<String> addedPaths = dataFiles.stream()
                 .map(df -> df.path().toString())
@@ -500,7 +515,6 @@ final class IcebergWriteCommitter {
         notifier.notifyCommit(tenantId, handle.schemaName(), handle.tableName(),
                 addedPaths, List.of(), snapshotId, eventType,
                 context != null ? context.commitFingerprint() : null);
-        return snapshot;
     }
 
     private static Snapshot committedSnapshot(
