@@ -213,10 +213,22 @@ jobs:
           cache: maven
       - uses: ./.github/actions/setup-iceberg-sdk
       - name: Run file transfer and authorization tests
-        run: >-
-          mvn -B -Pfull-regression -pl :pangrova-worker -am
-          -Dtest=FileSpaceLargeObjectIntegrationTest,FileTransferDeadlineTest,FileSpaceFileResourceTest
-          -Dsurefire.failIfNoSpecifiedTests=false test
+        run: |
+          cat >"$RUNNER_TEMP/maven-global.xml" <<'XML'
+          <settings>
+            <mirrors>
+              <mirror>
+                <id>google-maven-central</id>
+                <url>https://maven-central.storage-download.googleapis.com/maven2/</url>
+                <mirrorOf>central</mirrorOf>
+              </mirror>
+            </mirrors>
+          </settings>
+          XML
+          mvn -B -C --global-settings "$RUNNER_TEMP/maven-global.xml" \
+            -Pfull-regression -pl :pangrova-worker -am \
+            -Dtest=FileSpaceLargeObjectIntegrationTest,FileTransferDeadlineTest,FileSpaceFileResourceTest \
+            -Dsurefire.failIfNoSpecifiedTests=false test
       - name: Upload file test reports
         if: always()
         uses: actions/upload-artifact@v7
