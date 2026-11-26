@@ -74,6 +74,16 @@ connector metadata call propagates as a resolution error rather than being
 reported as a missing table. Iceberg table-handle lookup loads current catalog
 state so an external drop or recreation is visible immediately.
 
+Snapshot selection uses an opaque string token at the Connector SPI boundary.
+`ConnectorTableHandle.withTimeTravelSnapshot`, `SnapshotAwareMetadata`, and
+`SnapshotPinProvider` all carry that token unchanged; the Coordinator does not
+parse or order it. SQL `FOR SYSTEM_TIME` / `FOR SYSTEM_VERSION` remains a numeric
+user syntax and converts to the connector token at the handle boundary. Iceberg
+and Paimon currently issue canonical decimal snapshot IDs, while Lance uses its
+canonical decimal version; each connector validates its own syntax. Snapshot-pin
+tag components are hex-encoded so opaque UTF-8 tokens remain delimiter-safe and
+safe as Paimon tag file names.
+
 ---
 
 ## 2. ClassLoader Isolation Design

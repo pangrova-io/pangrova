@@ -215,7 +215,7 @@ public final class SplitFetcher {
             return handle;
         }
         LOG.info("event=time_travel_snapshot_override table={} snapshotId={}", fqn, snapshotId);
-        return handle.withTimeTravelSnapshot(snapshotId);
+        return handle.withTimeTravelSnapshot(Long.toString(snapshotId));
     }
 
     private static Map<List<String>, SplitSourceDescriptor> deduplicateSources(

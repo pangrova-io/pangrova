@@ -791,6 +791,11 @@ class PostgresGenerationJobStoreTest {
                 throw new AssertionError("Creation must validate the explicit compiler-observed specification");
             }
             @Override
+            public void requireCurrent(java.sql.Connection connection, String tenant, String principal,
+                    org.pangrova.security.api.authorization.DeferredAuthorizationScope scope) {
+                throw new AssertionError("Creation must validate the explicit compiler-observed specification");
+            }
+            @Override
             public void requireCurrent(java.sql.Connection connection, GenerationDispatchSpec spec) {
                 throw denied;
             }
@@ -816,6 +821,12 @@ class PostgresGenerationJobStoreTest {
             var authority = new org.pangrova.persistence.jdbc.api.generation.GenerationTransactionAuthority() {
                 @Override
                 public AuthorizedDispatch authorize(java.sql.Connection connection, String tenant, String job) {
+                    throw new AssertionError("Creation must not reread a nonexistent dispatch specification");
+                }
+                @Override
+                public void requireCurrent(java.sql.Connection connection, String tenant, String principal,
+                        org.pangrova.security.api.authorization.DeferredAuthorizationScope scope)
+                        throws java.sql.SQLException {
                     throw new AssertionError("Creation must not reread a nonexistent dispatch specification");
                 }
                 @Override
@@ -907,6 +918,11 @@ class PostgresGenerationJobStoreTest {
             @Override
             public AuthorizedDispatch authorize(java.sql.Connection connection, String tenant, String job) {
                 return new AuthorizedDispatch(dispatchSpec("tenant-2"), Set.of("artifact_builder"));
+            }
+            @Override
+            public void requireCurrent(java.sql.Connection connection, String tenant, String principal,
+                    org.pangrova.security.api.authorization.DeferredAuthorizationScope scope) {
+                throw new AssertionError("Resolution must use persisted scoped authority");
             }
             @Override
             public void requireCurrent(java.sql.Connection connection, GenerationDispatchSpec spec) {

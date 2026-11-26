@@ -38,7 +38,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Set up function-contract Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
@@ -46,13 +46,13 @@ jobs:
         uses: ./.github/actions/setup-iceberg-sdk
 
       - name: Cache dependency archives
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.pangrova/velox/archive-cache
           key: pangrova-v1-archives-${{ matrix.platform.runner }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt') }}
 
       - name: Cache native dependency prefixes
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.pangrova/native-deps
@@ -60,7 +60,7 @@ jobs:
           key: pangrova-v1-deps-${{ matrix.platform.runner }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt', '.github/actions/setup-native-build/action.yml', 'pangrova-worker-native/patches/*') }}
 
       - name: Cache Velox build layer
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.pangrova/velox/_build/release/_deps
@@ -69,7 +69,7 @@ jobs:
           key: pangrova-v1-velox-${{ matrix.platform.runner }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt', 'pangrova-worker-native/patches/velox-*.patch', 'pangrova-protocol/src/main/resources/function-contracts/execution-selection.json') }}
 
       - name: Cache compiler results
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ccache
           key: pangrova-ccache-${{ runner.os }}-${{ runner.arch }}-baseline-${{ github.sha }}
@@ -105,7 +105,7 @@ jobs:
 
       - name: Upload dependency baseline artifact (macOS)
         if: matrix.platform.os == 'osx'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: native-deps-${{ matrix.platform.name }}
           path: ${{ runner.temp }}/native-deps-${{ matrix.platform.name }}.tar.zst
@@ -130,7 +130,7 @@ jobs:
 
       - name: Restore dependency baseline
         id: baseline
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: |
             ~/.pangrova/native-deps

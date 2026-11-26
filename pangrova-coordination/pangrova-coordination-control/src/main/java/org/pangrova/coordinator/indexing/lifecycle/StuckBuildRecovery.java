@@ -1,54 +1,61 @@
 package org.pangrova.coordinator.indexing.lifecycle;
 
-import org.pangrova.persistence.indexing.api.metadata.IndexDescriptors;
+import org.pangrova.coordinator.indexing.ddl.IndexSourceAuthority;
+import org.pangrova.connector.api.index.SnapshotAwareMetadata;
+import org.pangrova.connector.api.index.SnapshotDataFile;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.indexing.api.enums.IndexState;
+import org.pangrova.indexing.build.DataFileInfo;
+import org.pangrova.persistence.indexing.api.metadata.IndexBuildGenerations.IndexBuildAbandonment;
+import org.pangrova.persistence.indexing.api.metadata.IndexBuildGenerations.IndexBuildCandidate;
+import org.pangrova.persistence.indexing.api.metadata.IndexGenerationManifest;
+import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 
 /**
- * Recovers indexes stuck in BUILDING state after a Coordinator crash.
+ * Recovers abandoned scalar initial and online builds through the existing
+ * descriptor, staging-generation, mapping, publication and claim fences.
  *
- * <p>Finds indexes that have been in BUILDING state longer than
- * {@code buildTimeout × stuckDetectionMultiplier} and transitions them to
- * STALE so the consistency checker will trigger a rebuild.</p>
- *
- * <p>In multi-coordinator deployments, uses {@link MaintenanceLeaderElection}
- * to ensure only one coordinator runs recovery at a time.</p>
+ * <p>Recovery first commits the generation fence and expires the old claim. Only
+ * then may it atomically retire the exact failed generation's mappings and ask
+ * the normal generation refresher to rebuild. The mapped artifact collector owns
+ * physical deletion. A DROP or replacement that wins a fence race is never resurrected.</p>
  */
 public final class StuckBuildRecovery {
 
     private static final Logger LOG = LoggerFactory.getLogger(StuckBuildRecovery.class);
+    private static final String RECOVERY_REASON = "scalar_build_timeout";
 
-    private final IndexDescriptors metadataStore;
+    private final IndexCommitContext deps;
     private final Duration buildTimeout;
     private final int stuckDetectionMultiplier;
     private final MaintenanceLeaderElection leaderElection;
+    private final IndexGenerationRefresher generationRefresher;
 
-    /**
-     * Creates a recovery instance with leader election for distributed coordination.
-     */
+    /** Creates scalar recovery over the same maintenance dependencies used by refresh. */
     public StuckBuildRecovery(
-            IndexDescriptors metadataStore,
+            IndexCommitContext deps,
             Duration buildTimeout,
             int stuckDetectionMultiplier,
             MaintenanceLeaderElection leaderElection) {
-        this.metadataStore = metadataStore;
+        this.deps = deps;
         this.buildTimeout = buildTimeout;
         this.stuckDetectionMultiplier = stuckDetectionMultiplier;
         this.leaderElection = leaderElection;
+        this.generationRefresher = new IndexGenerationRefresher(deps, null);
     }
 
     /**
-     * Finds BUILDING indexes exceeding the stuck threshold and transitions
-     * them to STALE with a warning log. Acquires leader lease first in
-     * multi-coordinator deployments; skips if another coordinator is leader.
+     * Fences abandoned scalar builds, cleans their staging objects and rebuilds
+     * through the ordinary immutable generation path.
      *
-     * @return number of indexes recovered
+     * @return number of generation fences committed or failed-build cleanups completed
      */
     public int recoverStuckBuilds() {
         if (leaderElection != null && !leaderElection.tryAcquireOrRenew()) {
@@ -56,8 +63,25 @@ public final class StuckBuildRecovery {
             return 0;
         }
         Instant cutoff = computeStuckCutoff();
-        List<IndexDescriptor> buildingIndexes = metadataStore.findIndexesByState(IndexState.BUILDING);
-        int recovered = recoverStuckIndexes(buildingIndexes, cutoff);
+        IndexMetadataStore store = deps.metadataStore();
+        List<IndexBuildCandidate> candidates = store.findIndexBuildRecoveryCandidates().stream()
+                .filter(candidate -> isScalar(candidate.descriptor()))
+                .filter(candidate -> candidate.lastActivityAt().isBefore(cutoff))
+                .toList();
+        int recovered = 0;
+        for (IndexBuildCandidate candidate : candidates) {
+            try {
+                if ("BUILDING".equals(candidate.state())) {
+                    recovered += recoverBuilding(candidate, cutoff) ? 1 : 0;
+                } else if ("FAILED".equals(candidate.state())) {
+                    recovered += recoverFailedCleanup(candidate) ? 1 : 0;
+                }
+            } catch (RuntimeException failure) {
+                LOG.error("event=stuck_build_recovery_failed indexId={} generation={} error={}",
+                        candidate.descriptor().indexId(), candidate.generation(),
+                        failure.getMessage(), failure);
+            }
+        }
         if (recovered > 0) {
             LOG.info("event=stuck_build_recovery_completed recoveredCount={}", recovered);
         }
@@ -69,30 +93,88 @@ public final class StuckBuildRecovery {
         return Instant.now().minusMillis(stuckThresholdMillis);
     }
 
-    private int recoverStuckIndexes(List<IndexDescriptor> indexes, Instant cutoff) {
-        int recovered = 0;
-        for (IndexDescriptor idx : indexes) {
-            if (idx.updatedAt().isBefore(cutoff) && tryRecoverIndex(idx)) {
-                recovered++;
-            }
-        }
-        return recovered;
-    }
-
-    private boolean tryRecoverIndex(IndexDescriptor idx) {
-        boolean updated = metadataStore.updateIndexState(
-                idx.indexId(), IndexState.STALE.name(), Instant.now(), idx.updatedAt());
-        if (!updated) {
-            LOG.debug("event=stuck_build_recovery_skipped indexId={} reason=concurrent_update",
-                    idx.indexId());
+    private boolean recoverBuilding(IndexBuildCandidate candidate, Instant cutoff) {
+        IndexMetadataStore store = deps.metadataStore();
+        IndexDescriptor descriptor = candidate.descriptor();
+        Instant abandonedAt = Instant.now();
+        var abandonment = store.abandonIndexGeneration(
+                descriptor.indexId(), candidate.generation(), descriptor.updatedAt(),
+                cutoff, abandonedAt, RECOVERY_REASON);
+        if (abandonment.isEmpty()) {
+            LOG.debug("event=stuck_build_recovery_skipped indexId={} generation={} reason=fence_or_heartbeat_changed",
+                    descriptor.indexId(), candidate.generation());
             return false;
         }
-        long stuckDurationMs = Instant.now().toEpochMilli() - idx.updatedAt().toEpochMilli();
-        LOG.warn("event=stuck_build_recovered indexId={} indexName={} "
-                        + "table={}.{}.{} stuckDurationMs={}",
-                idx.indexId(), idx.indexName(),
-                idx.catalogName(), idx.schemaName(), idx.tableName(),
-                stuckDurationMs);
+        IndexBuildAbandonment fenced = abandonment.orElseThrow();
+        LOG.warn("event=stuck_build_recovered indexId={} generation={} state={} stuckDurationMs={}",
+                descriptor.indexId(), candidate.generation(), descriptor.state(),
+                Duration.between(candidate.lastActivityAt(), abandonedAt).toMillis());
+        if (!cleanup(fenced.descriptor(), candidate.generation(), abandonedAt)) {
+            return true;
+        }
+        rebuild(fenced.descriptor().indexId());
         return true;
+    }
+
+    private boolean recoverFailedCleanup(IndexBuildCandidate candidate) {
+        if (!cleanup(candidate.descriptor(), candidate.generation(), candidate.updatedAt())) {
+            return false;
+        }
+        rebuild(candidate.descriptor().indexId());
+        return true;
+    }
+
+    private boolean cleanup(IndexDescriptor descriptor, int generation, Instant buildUpdatedAt) {
+        boolean completed = deps.metadataStore().completeIndexBuildCleanup(
+                descriptor.indexId(), generation, descriptor.updatedAt(), buildUpdatedAt,
+                descriptor.state(), descriptor.generation());
+        if (!completed) {
+            LOG.debug("event=stuck_build_cleanup_deferred indexId={} generation={} reason=fence_changed",
+                    descriptor.indexId(), generation);
+        }
+        return completed;
+    }
+
+    private static boolean isScalar(IndexDescriptor descriptor) {
+        return !descriptor.indexType().requiresNativeArtifact();
+    }
+
+    private void rebuild(String indexId) {
+        IndexMetadataStore store = deps.metadataStore();
+        IndexDescriptor current = store.findIndex(indexId)
+                .filter(descriptor -> descriptor.state() != IndexState.DROPPED)
+                .filter(StuckBuildRecovery::isScalar)
+                .orElse(null);
+        if (current == null) {
+            return;
+        }
+        SnapshotAwareMetadata snapshotMetadata = IndexSourceAuthority.forDescriptor(
+                store, deps.buildServices(), deps.connectorAccessorResolver(), current)
+                .resolveSnapshotAwareMetadata(current.catalogName(), current.schemaName(), current.tableName());
+        if (snapshotMetadata == null) {
+            LOG.warn("event=stuck_build_rebuild_deferred indexId={} reason=snapshot_metadata_unavailable", indexId);
+            return;
+        }
+        String snapshot = snapshotMetadata.currentSnapshotId().filter(value -> !value.isBlank()).orElse(null);
+        if (snapshot == null) {
+            LOG.warn("event=stuck_build_rebuild_deferred indexId={} reason=no_current_snapshot", indexId);
+            return;
+        }
+        List<SnapshotDataFile> files = snapshotMetadata.listFilesAtSnapshot(snapshot);
+        IndexGenerationManifest active = store.findActiveIndexGeneration(indexId).orElse(null);
+        Set<String> indexed = active == null ? Set.of()
+                : store.getIndexedDataFilePaths(indexId, active.generation());
+        if (active != null && active.generation() != current.generation()) {
+            throw new IllegalStateException("Active generation differs from recovery base: " + indexId);
+        }
+        List<DataFileInfo> added = files.stream()
+                .map(file -> new DataFileInfo(file.path(), file.rowCount(), file.sizeBytes(), file.format()))
+                .toList();
+        boolean started = generationRefresher.refresh(current,
+                new IndexRefreshInput(snapshot, added, List.copyOf(indexed), true));
+        if (!started) {
+            LOG.info("event=stuck_build_rebuild_deferred indexId={} generation={} reason=concurrent_transition",
+                    indexId, current.generation());
+        }
     }
 }

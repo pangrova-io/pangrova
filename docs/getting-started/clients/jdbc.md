@@ -184,6 +184,11 @@ server. The current Coordinator discovery implementation still requires real tab
 enumeration, complete connector schema declarations, and authenticated tenant/RBAC
 session wiring; HTTP fixture tests do not establish that server-side chain.
 
+`DatabaseMetaData.getIndexInfo` is not implemented. It throws
+`SQLFeatureNotSupportedException` instead of returning an empty result that could be
+misread as “no indexes.” Use `SHOW INDEXES` for the stable index descriptor contract
+documented in [Index DDL](../../indexing/index-ddl.md#show-indexes).
+
 ```java
 Properties props = new Properties();
 props.put("ssl", "true");

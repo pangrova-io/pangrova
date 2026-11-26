@@ -32,11 +32,11 @@ class JdbcIndexBuildClaimOwnershipTest extends ContainerTestBase {
     }
 
     @Test
-    void delayedOldReleaseMustNotDeleteReplacementClaim() {
+    void delayedOldReleaseMustNotDeleteReplacementClaim() throws SQLException {
         String index = UUID.randomUUID().toString();
         Instant now = Instant.parse("2026-01-01T00:00:00Z");
         assertThat(claims.tryClaim(index, 0, "old-attempt", now)).isTrue();
-        assertThat(claims.expireBefore(now.plusSeconds(1))).isEqualTo(1);
+        deleteClaim(index, 0);
         assertThat(claims.tryClaim(index, 0, "new-attempt", now.plusSeconds(2))).isTrue();
         // Represents the finally block of the old attempt returning after replacement.
         assertThat(claims.release(index, 0, "old-attempt")).isFalse();
@@ -84,14 +84,16 @@ class JdbcIndexBuildClaimOwnershipTest extends ContainerTestBase {
     }
 
     @Test
-    void delayedHeartbeatDoesNotMoveClockBackAndExpiryIsStrict() {
+    void delayedHeartbeatDoesNotMoveClockBackAndReplacementKeepsItsOwnership() throws SQLException {
         Instant now = Instant.parse("2026-01-03T00:00:00Z");
         assertThat(claims.tryClaim("index", 0, "attempt", now)).isTrue();
         assertThat(claims.heartbeat("index", 0, "attempt", now.plusSeconds(20))).isTrue();
         assertThat(claims.heartbeat("index", 0, "attempt", now.plusSeconds(10))).isTrue();
-        assertThat(claims.expireBefore(now.plusSeconds(20))).isZero();
-        assertThat(claims.expireBefore(now.plusSeconds(21))).isEqualTo(1);
-        assertThat(claims.expireBefore(now.plusSeconds(21))).isZero();
+        deleteClaim("index", 0);
+        assertThat(claims.tryClaim("index", 0, "replacement", now.plusSeconds(21))).isTrue();
+        assertThat(claims.heartbeat("index", 0, "attempt", now.plusSeconds(30))).isFalse();
+        assertThat(claims.release("index", 0, "attempt")).isFalse();
+        assertThat(claims.heartbeat("index", 0, "replacement", now.plusSeconds(22))).isTrue();
     }
 
     @Test
@@ -130,7 +132,15 @@ class JdbcIndexBuildClaimOwnershipTest extends ContainerTestBase {
         assertThatThrownBy(() -> claims.tryClaim("index", 0, "attempt", now)).isInstanceOf(MetastoreException.class);
         assertThatThrownBy(() -> claims.heartbeat("index", 0, "attempt", now)).isInstanceOf(MetastoreException.class);
         assertThatThrownBy(() -> claims.release("index", 0, "attempt")).isInstanceOf(MetastoreException.class);
-        assertThatThrownBy(() -> claims.expireBefore(now)).isInstanceOf(MetastoreException.class);
+    }
+    private void deleteClaim(String index, int generation) throws SQLException {
+        try (var connection = dataSource.getConnection();
+                var delete = connection.prepareStatement(
+                        "DELETE FROM index_build_claims WHERE index_id=? AND generation=?")) {
+            delete.setString(1, index);
+            delete.setInt(2, generation);
+            assertThat(delete.executeUpdate()).isEqualTo(1);
+        }
     }
 
 }

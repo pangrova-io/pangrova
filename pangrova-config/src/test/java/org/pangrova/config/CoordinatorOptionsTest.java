@@ -54,7 +54,6 @@ class CoordinatorOptionsTest {
                 CoordinatorOptions.GOVERNANCE_ENABLED,
                 CoordinatorOptions.RESILIENCE_ENABLED,
                 CoordinatorOptions.STREAMING_ENABLED,
-                CoordinatorOptions.INDEXING_ENABLED,
                 CoordinatorOptions.OPERATIONS_ENABLED,
                 CoordinatorOptions.OBSERVABILITY_ENABLED);
 
@@ -71,6 +70,14 @@ class CoordinatorOptionsTest {
         assertThat(CoordinatorOptions.SECURITY_ENABLED.defaultValue()).isFalse();
         assertThat(CoordinatorOptions.SECURITY_ENABLED.key()).isEqualTo("security.enabled");
         assertThat(CoordinatorOptions.SECURITY_ENABLED.typeClass()).isEqualTo(Boolean.class);
+    }
+
+    @Test
+    void indexingCanBeExplicitlyEnabled() {
+        assertThat(CoordinatorOptions.INDEXING_ENABLED.defaultValue()).isFalse();
+        PangrovaConfiguration configured = PangrovaConfiguration.fromYaml(
+                Map.of("indexing.enabled", "true"));
+        assertThat(configured.getBoolean(CoordinatorOptions.INDEXING_ENABLED)).isTrue();
     }
 
     @Test
@@ -164,7 +171,7 @@ class CoordinatorOptionsTest {
         assertThat(emptyConfig.getBoolean(CoordinatorOptions.RESILIENCE_ENABLED)).isTrue();
         assertThat(emptyConfig.getBoolean(CoordinatorOptions.STREAMING_ENABLED)).isTrue();
         assertThat(emptyConfig.getBoolean(CoordinatorOptions.TENANT_ENABLED)).isFalse();
-        assertThat(emptyConfig.getBoolean(CoordinatorOptions.INDEXING_ENABLED)).isTrue();
+        assertThat(emptyConfig.getBoolean(CoordinatorOptions.INDEXING_ENABLED)).isFalse();
         assertThat(emptyConfig.getBoolean(CoordinatorOptions.OPERATIONS_ENABLED)).isTrue();
         assertThat(emptyConfig.getBoolean(CoordinatorOptions.OBSERVABILITY_ENABLED)).isTrue();
         assertThat(emptyConfig.getBoolean(CoordinatorOptions.SECURITY_ENABLED)).isFalse();

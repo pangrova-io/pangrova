@@ -3,8 +3,6 @@ package org.pangrova.coordinator.indexing.lifecycle;
 import org.pangrova.indexing.build.DataFileInfo;
 import org.pangrova.coordinator.indexing.connector.ConnectorAccessorResolver;
 import org.pangrova.coordinator.indexing.ddl.IndexSourceAuthority;
-import org.pangrova.metadata.api.event.MetadataEvent;
-import org.pangrova.metadata.api.event.MetadataEventListener;
 import org.pangrova.persistence.indexing.api.metadata.CommitEventRequest;
 import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
 import org.pangrova.persistence.indexing.api.metadata.IndexGenerationManifest;
@@ -15,7 +13,6 @@ import org.pangrova.connector.api.index.SnapshotAwareMetadata;
 import org.pangrova.connector.api.index.SnapshotDataFile;
 import org.pangrova.connector.api.index.SnapshotFileDelta;
 import org.pangrova.connector.api.enums.SnapshotRelation;
-import org.pangrova.metadata.api.schema.SchemaChange;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.indexing.api.enums.IndexState;
 import org.slf4j.Logger;
@@ -24,7 +21,6 @@ import org.slf4j.LoggerFactory;
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 
 /**
@@ -37,7 +33,7 @@ import java.util.Set;
  *
  * <p>Implements {@link AutoCloseable} for graceful shutdown.</p>
  */
-public final class IndexCommitHandler implements CommitListener, MetadataEventListener, AutoCloseable {
+public final class IndexCommitHandler implements CommitListener, AutoCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(IndexCommitHandler.class);
 
@@ -46,6 +42,7 @@ public final class IndexCommitHandler implements CommitListener, MetadataEventLi
     private final MaintenanceLeaderElection leaderElection;
     private final CommitLogPoller commitLogPoller;
     private final IndexGenerationRefresher generationRefresher;
+    private final IndexGenerationCoverageReader coverageReader;
     private final java.util.concurrent.CopyOnWriteArrayList<CommitListener>
             durableCommitProcessors = new java.util.concurrent.CopyOnWriteArrayList<>();
     private volatile boolean running = true;
@@ -67,6 +64,7 @@ public final class IndexCommitHandler implements CommitListener, MetadataEventLi
             throw new IllegalArgumentException("pollBatchSize must be positive");
         }
         this.generationRefresher = new IndexGenerationRefresher(deps, lifecycleMetrics);
+        this.coverageReader = new IndexGenerationCoverageReader(deps.metadataStore());
         this.commitLogPoller = new CommitLogPoller(
                 deps, leaderElection, pollBatchSize, this::processTableCommit);
     }
@@ -168,7 +166,7 @@ public final class IndexCommitHandler implements CommitListener, MetadataEventLi
         return true;
     }
 
-    private IndexRefreshInput resolveRefreshInput(
+    IndexRefreshInput resolveRefreshInput(
             IndexMetadataStore store,
             SnapshotAwareMetadata snapshotMetadata,
             IndexDescriptor descriptor,
@@ -185,7 +183,7 @@ public final class IndexCommitHandler implements CommitListener, MetadataEventLi
         boolean replace = active.sourceSnapshot().isBlank();
         SnapshotFileDelta delta;
         if (replace) {
-            delta = fullReplacement(store, descriptor, snapshotMetadata.listFilesAtSnapshot(event.snapshotId));
+            delta = fullReplacement(descriptor, active, snapshotMetadata.listFilesAtSnapshot(event.snapshotId));
         } else {
             var advance = snapshotMetadata.observeAdvance(active.sourceSnapshot(), event.snapshotId);
             if (advance.relation() == SnapshotRelation.SAME) return null;
@@ -198,21 +196,20 @@ public final class IndexCommitHandler implements CommitListener, MetadataEventLi
                 markIndexStale(store, descriptor, "source_snapshot_lineage_diverged");
                 return null;
             }
-            delta = validatedDelta(store, descriptor, active, event, advance);
+            delta = validatedDelta(descriptor, active, event, advance);
         }
         return new IndexRefreshInput(event.snapshotId,
                 delta.added().stream().map(IndexCommitHandler::toDataFileInfo).toList(), delta.removed(), replace);
     }
 
     private SnapshotFileDelta validatedDelta(
-            IndexMetadataStore store,
             IndexDescriptor descriptor,
             IndexGenerationManifest active,
             MergedCommitFiles event,
             SnapshotAwareMetadata.SnapshotAdvance advance) {
         var delta = advance.delta();
         var targetFiles = advance.targetFiles();
-        Set<String> indexed = store.getIndexedDataFilePaths(descriptor.indexId(), active.generation());
+        Set<String> indexed = coverageReader.read(descriptor, active);
         Set<String> predicted = new HashSet<>(indexed);
         predicted.removeAll(delta.removed());
         predicted.addAll(delta.added().stream().map(SnapshotDataFile::path).toList());
@@ -225,19 +222,18 @@ public final class IndexCommitHandler implements CommitListener, MetadataEventLi
             if (descriptor.generation() == active.generation()) {
                 return new SnapshotFileDelta(targetFiles, List.copyOf(indexed));
             }
-            return fullReplacement(store, descriptor, targetFiles);
+            return fullReplacement(descriptor, active, targetFiles);
         }
         logEventDrift(descriptor.indexId(), event, delta);
         return delta;
     }
 
-    private static SnapshotFileDelta fullReplacement(
-            IndexMetadataStore store,
+    private SnapshotFileDelta fullReplacement(
             IndexDescriptor descriptor,
+            IndexGenerationManifest active,
             List<SnapshotDataFile> targetFiles) {
-        return new SnapshotFileDelta(
-                targetFiles,
-                List.copyOf(store.getIndexedDataFilePaths(descriptor.indexId(), descriptor.generation())));
+        Set<String> indexed = coverageReader.read(descriptor, active);
+        return new SnapshotFileDelta(targetFiles, List.copyOf(indexed));
     }
 
     private static DataFileInfo toDataFileInfo(SnapshotDataFile file) {
@@ -343,101 +339,6 @@ public final class IndexCommitHandler implements CommitListener, MetadataEventLi
         }
         LOG.info("action=commit_build_deferred catalog={} schema={} table={} reason=pool_saturated",
                 files.catalog, files.schema, files.table);
-    }
-
-    // ---- Schema evolution listener ----
-
-    /**
-     * Handles metadata events. On {@link MetadataEvent.SchemaEvolutionEvent}, marks
-     * all indexes on the affected table for rebuild so they reflect the new schema.
-     */
-    @Override
-    public void onEvent(MetadataEvent event) {
-        if (event instanceof MetadataEvent.SchemaEvolutionEvent evolution) {
-            markIndexesForRebuildOnSchemaChange(evolution);
-        }
-    }
-
-    private void markIndexesForRebuildOnSchemaChange(MetadataEvent.SchemaEvolutionEvent evolution) {
-        try {
-            IndexMetadataStore metadataStore = deps.metadataStore();
-            List<IndexDescriptor> indexes = evolution.tenantScope().allTenants()
-                    ? metadataStore.findIndexesByTableForGlobalMaintenance(
-                            evolution.tableRef().catalog(), evolution.tableRef().schema(),
-                            evolution.tableRef().table())
-                    : evolution.tenantScope().tenantIds().stream()
-                            .flatMap(tenantId -> metadataStore.findIndexesByTable(
-                                    tenantId, evolution.tableRef().catalog(),
-                                    evolution.tableRef().schema(),
-                                    evolution.tableRef().table()).stream())
-                            .toList();
-            Set<String> affectedColumns = collectAffectedColumns(evolution.schemaChanges());
-            for (IndexDescriptor idx : indexes) {
-                if (idx.state() != IndexState.READY && idx.state() != IndexState.BUILDING) {
-                    continue;
-                }
-                if (!intersectsIndexColumns(idx, affectedColumns)) {
-                    LOG.debug("event=index_unaffected_by_schema_change index={} indexCols={} "
-                                    + "affected={}",
-                            idx.indexId(), idx.columnNames(), affectedColumns);
-                    continue;
-                }
-                boolean updated = metadataStore.updateIndexState(
-                        idx.indexId(), IndexState.STALE.name(), Instant.now(),
-                        "schema_evolution", idx.updatedAt(), idx.state().name(),
-                        idx.generation());
-                LOG.info("event=index_marked_stale_schema_evolution index={} table={}.{}.{} "
-                                + "affectedColumns={} updated={}",
-                        idx.indexId(), evolution.catalogName(),
-                        evolution.tableRef().schema(), evolution.tableRef().table(),
-                        affectedColumns, updated);
-            }
-        } catch (Exception e) {
-            LOG.warn("event=schema_evolution_index_mark_failed table={} error={}",
-                    evolution.tableRef(), e.getMessage());
-        }
-    }
-
-    /**
-     * Collects the lower-cased column names touched by a list of schema changes.
-     * AddColumn alone never invalidates an existing index (new column was not indexed),
-     * but is still recorded so callers may track structural drift.
-     */
-    static Set<String> collectAffectedColumns(List<SchemaChange> changes) {
-        Set<String> affected = new HashSet<>();
-        if (changes == null) {
-            return affected;
-        }
-        for (SchemaChange change : changes) {
-            if (change instanceof SchemaChange.DropColumn drop) {
-                affected.add(normalize(drop.name()));
-            } else if (change instanceof SchemaChange.RenameColumn rename) {
-                affected.add(normalize(rename.oldName()));
-                affected.add(normalize(rename.newName()));
-            } else if (change instanceof SchemaChange.ChangeType change2) {
-                affected.add(normalize(change2.name()));
-            } else if (change instanceof SchemaChange.ChangeNullability change3) {
-                affected.add(normalize(change3.name()));
-            }
-            // AddColumn intentionally omitted: it never affects existing index builds.
-        }
-        return affected;
-    }
-
-    private static boolean intersectsIndexColumns(IndexDescriptor idx, Set<String> affected) {
-        if (affected.isEmpty()) {
-            return false;
-        }
-        for (String col : idx.columnNames()) {
-            if (affected.contains(normalize(col))) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static String normalize(String name) {
-        return name == null ? "" : name.toLowerCase(Locale.ROOT);
     }
 
     @Override

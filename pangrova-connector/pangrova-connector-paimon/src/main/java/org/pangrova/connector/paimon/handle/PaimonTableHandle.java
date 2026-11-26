@@ -114,8 +114,20 @@ public record PaimonTableHandle(
     }
 
     @Override
-    public PaimonTableHandle withTimeTravelSnapshot(long targetSnapshotId) {
-        return withSnapshotId(targetSnapshotId);
+    public PaimonTableHandle withTimeTravelSnapshot(String snapshotToken) {
+        return withSnapshotId(snapshotId(snapshotToken));
+    }
+
+    private static long snapshotId(String snapshotToken) {
+        try {
+            long id = Long.parseLong(snapshotToken);
+            if (id < 0 || !Long.toString(id).equals(snapshotToken)) {
+                throw new NumberFormatException("non-canonical Paimon snapshot");
+            }
+            return id;
+        } catch (NumberFormatException invalid) {
+            throw new IllegalArgumentException("Invalid Paimon snapshot token", invalid);
+        }
     }
 
     /**

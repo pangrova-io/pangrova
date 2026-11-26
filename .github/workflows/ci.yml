@@ -67,7 +67,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Set up function-contract Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
@@ -120,7 +120,7 @@ jobs:
 
       - name: Retain same-source CLI for benchmark transport checks
         if: matrix.java == '17'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: tpc-client-cli
           path: pangrova-client/pangrova-client-cli/target/pangrova-client-cli-0.1.0-SNAPSHOT-exec.jar
@@ -144,7 +144,7 @@ jobs:
       - uses: ./.github/actions/restore-java-native-test-runtime
 
       - name: Set up function-contract Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
@@ -233,7 +233,7 @@ jobs:
 
       - name: Upload full regression reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: production-regression-reports
           path: |
@@ -241,7 +241,7 @@ jobs:
 
       - name: Upload production runtime provenance and process diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: production-runtime-provenance
           if-no-files-found: warn
@@ -258,7 +258,7 @@ jobs:
     if: github.event_name == 'pull_request' && needs.change-scope.outputs.performance == 'true'
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - name: Install pinned benchmark tooling
@@ -302,7 +302,7 @@ jobs:
           distribution: temurin
 
       - name: Set up function-contract Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
@@ -310,13 +310,13 @@ jobs:
         uses: ./.github/actions/prepare-native-java-fixture
 
       - name: Cache dependency archives
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.pangrova/velox/archive-cache
           key: pangrova-v1-archives-ubuntu-24.04-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt') }}
 
       - name: Cache native dependency prefixes
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.pangrova/native-deps
@@ -325,7 +325,7 @@ jobs:
 
       - name: Cache ASan Velox + ABI dependencies
         if: matrix.sanitizer.name == 'asan'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.pangrova/native-deps-asan
@@ -336,7 +336,7 @@ jobs:
           key: pangrova-v1-native-asan-ubuntu-24.04-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt', '.github/actions/setup-native-build/action.yml', 'pangrova-worker-native/bin/setup-native-asan-env.sh', 'pangrova-worker-native/patches/*') }}
 
       - name: Cache compiler results
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ccache
           key: pangrova-ccache-${{ runner.os }}-${{ runner.arch }}-${{ matrix.sanitizer.name }}-${{ github.sha }}
@@ -490,7 +490,7 @@ jobs:
 
       - name: Upload sanitizer fixture diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: native-fixture-${{ matrix.sanitizer.name }}
           path: |
@@ -507,7 +507,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Set up function-contract Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
@@ -545,7 +545,7 @@ jobs:
 
       - name: Upload JMH results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: jmh-benchmark-results
           path: target/jmh-results.json
@@ -587,7 +587,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Set up function-contract Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
@@ -686,7 +686,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 

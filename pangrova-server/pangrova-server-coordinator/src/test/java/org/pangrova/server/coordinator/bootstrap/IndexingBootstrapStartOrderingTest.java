@@ -1,5 +1,7 @@
 package org.pangrova.server.coordinator.bootstrap;
 
+import org.pangrova.persistence.coordination.memory.lease.InMemoryDistributedLease;
+import org.pangrova.coordinator.indexing.lifecycle.MaintenanceLeaderElection;
 import org.pangrova.metadata.api.catalog.CatalogDeploymentIdentity;
 
 import static org.pangrova.metadata.testinfra.TableStoreFixtures.memoryTableStores;
@@ -83,6 +85,24 @@ class IndexingBootstrapStartOrderingTest {
     }
 
     @Test
+    @DisplayName("startup performs fenced recovery before starting maintenance schedulers")
+    void startupRecoveryRunsBeforeMaintenanceSchedulers() {
+        var store = new NoOpIndexMetadataStore();
+        var leader = new MaintenanceLeaderElection(new InMemoryDistributedLease(), "startup-recovery");
+        IndexingBootstrap bootstrap = new IndexingBootstrap(
+                indexDir.toString(), new NoOpLease(), null, null, leader);
+        try {
+            bootstrap.start(store, new UnusedBuildClaims(),
+                    new CatalogRegistry(memoryTableStores(), new EmptyCatalogDeployments()),
+                    null, null);
+            assertThat(store.recoveryLookups).isOne();
+            assertThat(bootstrap.getDdlExecutor()).isNotNull();
+        } finally {
+            bootstrap.close();
+        }
+    }
+
+    @Test
     @DisplayName("ModuleIntegrationBootstrap.getIndexingBootstrap() is non-null after startIndexing()")
     void indexingBootstrapNonNullAfterStart() {
         wiring = new ModuleIntegrationBootstrap();
@@ -101,6 +121,44 @@ class IndexingBootstrapStartOrderingTest {
         assertThat(wiring.getIndexingBootstrap().getAccessorResolver()).isNotNull();
     }
 
+    @Test
+    void schemaRecoveryWaitsForElectedMaintenanceLifecycle() throws Exception {
+        var store = new NoOpIndexMetadataStore();
+        var leader = new MaintenanceLeaderElection(new InMemoryDistributedLease(), "schema-recovery");
+        IndexingBootstrap bootstrap = new IndexingBootstrap(
+                indexDir.toString(), new NoOpLease(), null, null, leader);
+        try {
+            bootstrap.start(store, new UnusedBuildClaims(),
+                    new CatalogRegistry(memoryTableStores(), new EmptyCatalogDeployments()), null, null);
+            assertThat(bootstrap.getSchemaEvolutionHandler()).isNotNull();
+            assertThat(store.schemaRecoveryStarted.getCount()).isOne();
+            assertThat(store.schemaDiagnosticsStarted.getCount()).isOne();
+            assertThat(leader.tryAcquireOrRenew()).isTrue();
+            bootstrap.onLeaderElected();
+            assertThat(store.schemaRecoveryStarted.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            assertThat(store.schemaDiagnosticsStarted.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            bootstrap.onLeadershipLost();
+        } finally {
+            bootstrap.close();
+            leader.release();
+        }
+    }
+
+    @Test
+    void failedStartupDoesNotPublishPartialBootstrapOrRetainLease() {
+        wiring = new ModuleIntegrationBootstrap();
+        var store = new NoOpIndexMetadataStore();
+        store.failRecovery = true;
+        var lease = new InMemoryDistributedLease();
+
+        wiring.startIndexing(store, new UnusedBuildClaims(),
+                new CatalogRegistry(memoryTableStores(), new EmptyCatalogDeployments()),
+                null, null, indexDir.toString(), lease);
+
+        assertThat(wiring.getIndexingBootstrap()).isNull();
+        assertThat(lease.currentHolder("maintenance-control")).isEmpty();
+    }
+
     private static final class UnusedBuildClaims
             implements org.pangrova.persistence.indexing.api.build.IndexBuildClaimRepository {
         @Override
@@ -117,11 +175,6 @@ class IndexingBootstrapStartOrderingTest {
         public boolean heartbeat(String index, int generation, String owner, java.time.Instant now) {
             throw new AssertionError("Startup must not renew a build claim");
         }
-
-        @Override
-        public int expireBefore(java.time.Instant cutoff) {
-            throw new AssertionError("Startup must not expire build claims");
-        }
     }
 
     // ── Fakes ───────────────────────────────────────────────────────────
@@ -134,6 +187,25 @@ class IndexingBootstrapStartOrderingTest {
         @Override public boolean tryRenew(String k, String h, long e, Duration d) { return false; }
         @Override public boolean release(String k, String h, long e) { return true; }
         @Override public Optional<LeaseEntry> currentHolder(String k) { return Optional.empty(); }
+    }
+
+    @Test
+    void schemaDiagnosticReadFailureDoesNotBlockConfirmedRecovery() throws Exception {
+        var store = new NoOpIndexMetadataStore();
+        store.failSchemaDiagnostics = true;
+        var leader = new MaintenanceLeaderElection(new InMemoryDistributedLease(), "schema-diagnostics");
+        IndexingBootstrap bootstrap = new IndexingBootstrap(indexDir.toString(), new NoOpLease(), null, null, leader);
+        try {
+            bootstrap.start(store, new UnusedBuildClaims(),
+                    new CatalogRegistry(memoryTableStores(), new EmptyCatalogDeployments()), null, null);
+            assertThat(leader.tryAcquireOrRenew()).isTrue();
+            bootstrap.onLeaderElected();
+            assertThat(store.schemaDiagnosticsStarted.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            assertThat(store.schemaRecoveryStarted.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        } finally {
+            bootstrap.close();
+            leader.release();
+        }
     }
 
     /** CatalogDeploymentRepository with no catalogs — CatalogRegistry has nothing to load. */
@@ -155,6 +227,42 @@ class IndexingBootstrapStartOrderingTest {
 
     /** IndexMetadataStore implementing only the abstract surface as no-ops. */
     static final class NoOpIndexMetadataStore implements IndexMetadataStore {
+        private int recoveryLookups;
+        private boolean failRecovery;
+        private boolean failSchemaDiagnostics;
+        private final java.util.concurrent.CountDownLatch schemaRecoveryStarted =
+                new java.util.concurrent.CountDownLatch(1);
+
+        private final java.util.concurrent.CountDownLatch schemaDiagnosticsStarted =
+                new java.util.concurrent.CountDownLatch(1);
+
+        @Override
+        public List<org.pangrova.persistence.indexing.api.metadata.IndexSchemaEvolutionStore.IndexSchemaEvolutionRecord>
+                listUnresolvedSchemaEvolution(int limit) {
+            schemaDiagnosticsStarted.countDown();
+            if (failSchemaDiagnostics) {
+                throw new IllegalStateException("Injected diagnostic read failure");
+            }
+            return List.of();
+        }
+
+        @Override
+        public List<org.pangrova.persistence.indexing.api.metadata.IndexSchemaEvolutionStore.IndexSchemaEvolutionRecord>
+                listPendingSchemaEvolution(int limit) {
+            schemaRecoveryStarted.countDown();
+            return List.of();
+        }
+
+        @Override
+        public List<org.pangrova.persistence.indexing.api.metadata.IndexBuildGenerations.IndexBuildCandidate>
+                findIndexBuildRecoveryCandidates() {
+            recoveryLookups++;
+            if (failRecovery) {
+                throw new IllegalStateException("Injected startup recovery failure");
+            }
+            return List.of();
+        }
+
         @Override public void registerIndex(IndexDescriptor d) {}
         @Override public void updateIndexState(String id, String s, Instant t) {}
         @Override public boolean beginIndexGeneration(String id, int next, String snapshot,

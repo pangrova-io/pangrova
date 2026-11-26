@@ -87,7 +87,7 @@ class LanceCatalogStoreTest extends ContainerTestBase {
         var secondPrepared = prepare("history", "history-second", LanceWriteOperation.LANCE_WRITE_OPERATION_APPEND, 1, 3, 4, 5);
         secondPrepared.accept();
         var current = store.load(initial.catalog(), initial.tenantId(), initial.table());
-        var selector = (LanceTableHandle) current.withTimeTravelSnapshot(1);
+        var selector = (LanceTableHandle) current.withTimeTravelSnapshot("1");
         assertThat(selector).isNotSameAs(current);
         var restarted = new LanceManagedSourceFixture(catalog, warehouse).store();
         var historical = restarted.loadSnapshot(selector);
@@ -99,10 +99,10 @@ class LanceCatalogStoreTest extends ContainerTestBase {
         byte originalByte = firstDigest[0]; firstDigest[0] ^= 1;
         assertThat(historical.manifestDigest()[0]).isEqualTo(originalByte);
         assertThat(first.version()).isEqualTo(1);
-        assertThatThrownBy(() -> restarted.loadSnapshot((LanceTableHandle) current.withTimeTravelSnapshot(3)))
+        assertThatThrownBy(() -> restarted.loadSnapshot((LanceTableHandle) current.withTimeTravelSnapshot("3")))
                 .hasMessageContaining("Exact accepted source membership is absent");
-        assertThatThrownBy(() -> current.withTimeTravelSnapshot(0)).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> current.withTimeTravelSnapshot(-1)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> current.withTimeTravelSnapshot("0")).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> current.withTimeTravelSnapshot("-1")).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new LanceSnapshotResolver(() -> restarted, Optional.empty(), catalog, warehouse.toString())
                 .resolve(LanceSplitManagerTest.session("tenant-a"), selector)).hasMessageContaining("requires Native control");
         assertThatThrownBy(() -> new LanceSnapshotResolver(() -> restarted, Optional.empty(), catalog, warehouse.toString())

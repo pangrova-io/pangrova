@@ -27,6 +27,14 @@ class IndexPersistenceGuaranteesTest {
                 .isInstanceOf(UnsupportedOperationException.class);
         assertThatThrownBy(() -> store.failIndexGeneration("i", 2, Instant.EPOCH, Instant.EPOCH, "lost"))
                 .isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> store.findIndexBuildRecoveryCandidates())
+                .isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> store.abandonIndexGeneration(
+                "i", 2, Instant.EPOCH, Instant.EPOCH, Instant.EPOCH, "lost"))
+                .isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> store.completeIndexBuildCleanup(
+                "i", 2, Instant.EPOCH, Instant.EPOCH, org.pangrova.indexing.api.enums.IndexState.READY, 1))
+                .isInstanceOf(UnsupportedOperationException.class);
         assertThatThrownBy(() -> store.batchInsertFileStatistics("tenant", "c", "s", "t", List.of()))
                 .isInstanceOf(UnsupportedOperationException.class);
         assertThatThrownBy(() -> store.deleteFileStatistics("tenant", "c", "s", "t", List.of("data")))

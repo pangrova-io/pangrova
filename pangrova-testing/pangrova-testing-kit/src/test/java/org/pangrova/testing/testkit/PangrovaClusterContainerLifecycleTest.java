@@ -15,8 +15,6 @@ class PangrovaClusterContainerLifecycleTest {
         Network borrowed = new Network() {
             @Override public String getId() { throw new AssertionError("unused network was opened"); }
             @Override public void close() { throw new AssertionError("borrowed network was closed"); }
-            @Override public org.junit.runners.model.Statement apply(org.junit.runners.model.Statement base,
-                    org.junit.runner.Description description) { return base; }
         };
         try (var cluster = new PangrovaClusterContainer(DockerImageName.parse("pangrova/engine:test"), 1, borrowed)) {
             assertThat(cluster.getNetwork()).isSameAs(borrowed);

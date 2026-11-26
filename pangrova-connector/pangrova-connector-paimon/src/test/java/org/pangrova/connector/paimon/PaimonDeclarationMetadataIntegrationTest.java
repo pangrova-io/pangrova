@@ -91,7 +91,7 @@ class PaimonDeclarationMetadataIntegrationTest {
             assertThat(currentMetadata.typedColumns().get(2).type()).isEqualTo(PangrovaType.ARRAY);
             assertThat(metadata.beginInsert(SESSION, current))
                     .isInstanceOf(org.pangrova.connector.paimon.handle.PaimonOutputTableHandle.class);
-            var historical = metadata.getTableReadMetadata(SESSION, current.withTimeTravelSnapshot(1))
+            var historical = metadata.getTableReadMetadata(SESSION, current.withTimeTravelSnapshot("1"))
                     .requireExactDeclaration();
             assertThat(GeneratedColumnMetadataCodec.decode(historical.properties())).isEqualTo(definitions);
             assertThat(historical.properties()).containsAllEntriesOf(properties)

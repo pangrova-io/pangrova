@@ -26,6 +26,7 @@ import org.pangrova.indexing.config.GcConfig;
 import org.pangrova.indexing.config.IndexingConfig;
 import org.pangrova.indexing.config.LifecycleConfig;
 import org.pangrova.indexing.storage.IndexStorageManager;
+import org.pangrova.indexing.storage.IndexStorageLayout;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.enums.CatalogType;
@@ -57,7 +58,10 @@ class IndexGcIcebergPinIntegrationTest {
 
     @Test
     void droppedIndexReleasesAllGenerationTagsAndFilesBeforePurgingPostgresIdentity() throws Exception {
-        var dataSource = SharedPostgresContainer.migratedDataSource("index_gc_pin");
+        verifyDroppedIndexCleanup(SharedPostgresContainer.migratedDataSource("index_gc_pin"));
+    }
+
+    private void verifyDroppedIndexCleanup(javax.sql.DataSource dataSource) throws Exception {
         var indexes = new JdbcIndexMetadataStore(dataSource, TableWriteAuthorityFixture.create()::requireCurrent);
         var source = new QualifiedTableName("cat", "db", "items");
         GenerationAuthorityFixtures.provision(dataSource, "tenant-a", "alice",
@@ -86,18 +90,27 @@ class IndexGcIcebergPinIntegrationTest {
             var pin = new IcebergMetadata(catalog, "cat").getIndexSupport().orElseThrow()
                     .getSnapshotPinProvider().orElseThrow();
             var old = Instant.now().minusSeconds(3600);
-            var buildTime = Instant.now();
+            var buildTime = org.pangrova.persistence.jdbc.support.JdbcSupport.canonicalInstant(Instant.now());
             var descriptor = new IndexDescriptor("index-gc", "idx", "cat", "db", "items",
                     List.of("id"), IndexType.BLOOM_FILTER, Map.of(), IndexState.BUILDING,
                     null, 0, Long.toString(firstSnapshot), Long.toString(firstSnapshot),
                     buildTime, buildTime, "tenant-a");
             indexes.registerIndexWithBuildAuthority(descriptor, "alice");
-            pin.pinSnapshot("cat", "db", "items", firstSnapshot, descriptor.indexId());
-            pin.pinSnapshot("cat", "db", "items", rebuiltSnapshot, descriptor.indexId());
-            assertThat(pin.getPinnedSnapshotsForIndex("cat", "db", "items", descriptor.indexId()))
-                    .containsExactlyInAnyOrder(firstSnapshot, rebuiltSnapshot);
-            Path firstIndexFile = warehouse.resolve("index-files/g0/one.idx");
-            Path rebuiltIndexFile = warehouse.resolve("index-files/g1/two.idx");
+            var firstOwner = new org.pangrova.connector.api.index.SnapshotPinOwner(
+                    descriptor.indexId(), 0, "attempt-1");
+            var secondOwner = new org.pangrova.connector.api.index.SnapshotPinOwner(
+                    descriptor.indexId(), 1, "attempt-2");
+            pin.pinSnapshot("cat", "db", "items", Long.toString(firstSnapshot), firstOwner);
+            pin.pinSnapshot("cat", "db", "items", Long.toString(rebuiltSnapshot), secondOwner);
+            assertThat(pin.getSnapshotPinsForIndex("cat", "db", "items", descriptor.indexId()))
+                    .extracting(org.pangrova.connector.api.index.SnapshotPinReference::snapshotToken)
+                    .containsExactlyInAnyOrder(Long.toString(firstSnapshot), Long.toString(rebuiltSnapshot));
+            var layout = new IndexStorageLayout(config.baseIndexPath());
+            Path firstIndexFile = Path.of(layout.indexFilePath(descriptor, java.util.UUID.randomUUID(),
+                    file.path().toString()));
+            Path rebuiltIndexFile = Path.of(layout.indexFilePath(
+                    descriptor.withGeneration(1, descriptor.updatedAt()), java.util.UUID.randomUUID(),
+                    nextFile.path().toString()));
             Files.createDirectories(firstIndexFile.getParent());
             Files.createDirectories(rebuiltIndexFile.getParent());
             byte[] firstBytes = {1, 2, 3};
@@ -130,26 +143,33 @@ class IndexGcIcebergPinIntegrationTest {
                     descriptorForFile -> new org.pangrova.indexing.storage.LocalFileSystemAccessor(),
                     config, pin);
             try (var gc = new IndexGarbageCollector(context, null)) {
+                assertThat(gc.runGc().purgedCount()).isZero();
+                assertThat(firstIndexFile).exists();
+                assertThat(rebuiltIndexFile).exists();
+                assertThat(indexes.hasPendingMappedArtifactRetirements(descriptor.indexId())).isTrue();
                 assertThat(gc.runGc().purgedCount()).isEqualTo(1);
             }
             assertThat(indexes.findIndex(descriptor.indexId())).isEmpty();
             assertThat(indexes.getIndexFileMappings(descriptor.indexId())).isEmpty();
             assertThat(Files.exists(firstIndexFile)).isFalse();
             assertThat(Files.exists(rebuiltIndexFile)).isFalse();
-            assertThat(pin.getPinnedSnapshotsForIndex("cat", "db", "items", descriptor.indexId()))
+            assertThat(pin.getSnapshotPinsForIndex("cat", "db", "items", descriptor.indexId()))
                     .isEmpty();
         }
     }
 
     @Test
     void revokedSourceReadGrantDoesNotBlockDroppedIndexPinCleanup() throws Exception {
-        var dataSource = SharedPostgresContainer.migratedDataSource("index_gc_revoked_cleanup");
+        verifyRevokedSourceReadCleanup(SharedPostgresContainer.migratedDataSource("index_gc_revoked_cleanup"));
+    }
+
+    private void verifyRevokedSourceReadCleanup(javax.sql.DataSource dataSource) throws Exception {
         var indexes = new JdbcIndexMetadataStore(dataSource, TableWriteAuthorityFixture.create()::requireCurrent);
         var source = new QualifiedTableName("cat", "db", "items");
         GenerationAuthorityFixtures.provision(dataSource, "tenant-a", "alice",
                 DeferredAuthorizationScope.raw(source, Set.of("id"), source));
         var lifecycle = new LifecycleConfig(new GcConfig(1, 0), null, null);
-        var config = new IndexingConfig(warehouse.toString(), false, null, lifecycle);
+        var config = new IndexingConfig(warehouse.toUri().toString(), false, null, lifecycle);
 
         try (var catalog = new HadoopCatalog(new Configuration(), warehouse.toString())) {
             catalog.createNamespace(Namespace.of("db"));
@@ -173,17 +193,21 @@ class IndexGcIcebergPinIntegrationTest {
                         List.of("id"), IndexType.BLOOM_FILTER, Map.of(), IndexState.BUILDING,
                         null, 0, Long.toString(snapshot), null, old, old, "tenant-a");
                 indexes.registerIndexWithBuildAuthority(descriptor, "alice");
-                Path indexFile = warehouse.resolve("index-files/g0/one.idx");
+                String artifactPath = new IndexStorageLayout(config.baseIndexPath()).indexFilePath(
+                        descriptor, java.util.UUID.randomUUID(), file.path().toString());
+                Path indexFile = Path.of(java.net.URI.create(artifactPath));
                 Files.createDirectories(indexFile.getParent());
                 Files.write(indexFile, new byte[]{1, 2, 3});
                 assertThat(new JdbcIndexBuildClaimRepository(dataSource).tryClaim(
                         descriptor.indexId(), 0, OWNER, Instant.now())).isTrue();
                 indexes.registerIndexFile(OWNER, new IndexFileMapping(descriptor.indexId(),
-                        file.path().toString(), indexFile.toUri().toString(), 1, 3,
+                        file.path().toString(), artifactPath, 1, 3,
                         "a".repeat(64), 0, Long.toString(snapshot), 0, old, 0));
                 var directPin = connector.getMetadata(null).getIndexSupport().orElseThrow()
                         .getSnapshotPinProvider().orElseThrow();
-                directPin.pinSnapshot("cat", "db", "items", snapshot, descriptor.indexId());
+                directPin.pinSnapshot("cat", "db", "items", Long.toString(snapshot),
+                        new org.pangrova.connector.api.index.SnapshotPinOwner(
+                                descriptor.indexId(), 0, "attempt-1"));
                 indexes.dropIndex(descriptor.indexId(), old);
                 try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
                     statement.execute("DELETE FROM security_grants WHERE privilege='SELECT'");
@@ -195,12 +219,113 @@ class IndexGcIcebergPinIntegrationTest {
                                 .resolve(dropped.catalogName()),
                         config, new DeferredSnapshotPinProvider(indexes, null, resolver)), null);
                 try (gc) {
+                    assertThat(gc.runGc().purgedCount()).isZero();
+                    assertThat(indexFile).exists();
+                    assertThat(indexes.hasPendingMappedArtifactRetirements(descriptor.indexId())).isTrue();
                     assertThat(gc.runGc().purgedCount()).isEqualTo(1);
                 }
                 assertThat(indexes.findIndex(descriptor.indexId())).isEmpty();
                 assertThat(Files.exists(indexFile)).isFalse();
-                assertThat(directPin.getPinnedSnapshotsForIndex("cat", "db", "items", descriptor.indexId()))
+                assertThat(directPin.getSnapshotPinsForIndex("cat", "db", "items", descriptor.indexId()))
                         .isEmpty();
+            } finally {
+                connector.shutdown();
+            }
+        }
+    }
+
+    @Test
+    void drainedConstructionPinReleasesOnlyAfterPublicationAndNeverReleasesAnUnprovedAttempt() throws Exception {
+        verifyScalarConstructionPinRelease(SharedPostgresContainer.migratedDataSource("scalar_pin_publication"));
+    }
+
+    private void verifyScalarConstructionPinRelease(javax.sql.DataSource dataSource) throws Exception {
+        var indexes = new JdbcIndexMetadataStore(dataSource, TableWriteAuthorityFixture.create()::requireCurrent);
+        var source = new QualifiedTableName("cat", "db", "items");
+        GenerationAuthorityFixtures.provision(dataSource, "tenant-a", "alice",
+                DeferredAuthorizationScope.raw(source, Set.of("id"), source));
+        try (var catalog = new HadoopCatalog(new Configuration(), warehouse.toString())) {
+            catalog.createNamespace(Namespace.of("db"));
+            var table = catalog.createTable(TableIdentifier.of("db", "items"), new Schema(
+                    Types.NestedField.required(1, "id", Types.LongType.get())));
+            table.newAppend().commit();
+            long snapshot = table.currentSnapshot().snapshotId();
+            table.newAppend().commit();
+            long userSnapshot = table.currentSnapshot().snapshotId();
+            table.manageSnapshots().createTag("user_keep", userSnapshot).commit();
+            table.newAppend().commit();
+
+            var connector = new IcebergConnector("cat", catalog,
+                    new org.apache.iceberg.hadoop.HadoopFileIO(new Configuration()), Set.of());
+            try {
+                var registry = new CatalogRegistry(memoryTableStores(),
+                        new PostgresCatalogDeploymentRepository(dataSource),
+                        descriptor -> new ConnectorCatalogHandle(descriptor, connector), null, null);
+                registry.register(new CatalogDescriptor("cat", CatalogType.CONNECTOR,
+                        "iceberg", CatalogState.ACTIVE, Map.of(), "", Set.of("tenant-a")));
+                var provider = new DeferredSnapshotPinProvider(indexes, null, new ConnectorAccessorResolver(registry));
+                var direct = new IcebergMetadata(catalog, "cat").getIndexSupport().orElseThrow()
+                        .getSnapshotPinProvider().orElseThrow();
+                Instant now = Instant.now().minusSeconds(2);
+                String token = Long.toString(snapshot);
+                var descriptor = new IndexDescriptor("scalar-pin-index", "idx", "cat", "db", "items",
+                        List.of("id"), IndexType.BLOOM_FILTER, Map.of(), IndexState.BUILDING,
+                        null, 0, token, null, now, now, "tenant-a");
+                indexes.registerIndexWithBuildAuthority(descriptor, "alice");
+                var claims = new JdbcIndexBuildClaimRepository(dataSource);
+                var unknown = new org.pangrova.connector.api.index.SnapshotPinOwner(
+                        descriptor.indexId(), 0, java.util.UUID.randomUUID().toString());
+                var drained = new org.pangrova.connector.api.index.SnapshotPinOwner(
+                        descriptor.indexId(), 0, java.util.UUID.randomUUID().toString());
+                assertThat(claims.tryClaim(descriptor.indexId(), 0, unknown.attemptId(), now)).isTrue();
+                provider.pinSnapshot("cat", "db", "items", token, unknown);
+                // Simulate a lost claim while its source-reading stack has not acknowledged drain.
+                assertThat(claims.release(descriptor.indexId(), 0, unknown.attemptId())).isTrue();
+                assertThat(claims.tryClaim(descriptor.indexId(), 0, drained.attemptId(), now)).isTrue();
+                provider.pinSnapshot("cat", "db", "items", token, drained);
+                provider.markBuildDrained(drained, token);
+                assertThat(provider.cleanupDrainedScalarPins(() -> true)).isZero();
+                assertThat(claims.release(descriptor.indexId(), 0, drained.attemptId())).isTrue();
+                assertThat(provider.cleanupDrainedScalarPins(() -> true)).isZero();
+                table.refresh();
+                table.expireSnapshots().expireOlderThan(System.currentTimeMillis() + 1)
+                        .retainLast(1).cleanExpiredFiles(false).commit();
+                table.refresh();
+                assertThat(table.snapshot(snapshot)).isNotNull();
+
+                indexes.publishIndexGeneration(new IndexPublicationRequest(
+                        descriptor.indexId(), descriptor.indexId(), 0, token, IndexType.BLOOM_FILTER.name(),
+                        new IndexGenerationFormat("pangrova.index-file", 1, 0, "b".repeat(64), "test-writer"),
+                        0, indexes.findIndex(descriptor.indexId()).orElseThrow().updatedAt(), Instant.now()));
+                assertThat(provider.cleanupDrainedScalarPins(() -> false)).isZero();
+                assertThat(provider.cleanupDrainedScalarPins(() -> true)).isEqualTo(1);
+                assertThat(indexes.findScalarSnapshotPin(drained).orElseThrow().state()).isEqualTo("RELEASED");
+                assertThat(indexes.findScalarSnapshotPin(unknown).orElseThrow().state()).isEqualTo("INTENDED");
+                assertThat(direct.getSnapshotPinsForIndex("cat", "db", "items", descriptor.indexId()))
+                        .extracting(org.pangrova.connector.api.index.SnapshotPinReference::owner)
+                        .containsExactly(unknown);
+                assertThat(indexes.findActiveIndexGeneration(descriptor.indexId())).isPresent();
+                table.refresh();
+                assertThat(table.refs()).containsKey("user_keep");
+                assertThat(table.snapshot(userSnapshot)).isNotNull();
+                indexes.dropIndex(descriptor.indexId(), Instant.now());
+                org.assertj.core.api.Assertions.assertThatThrownBy(() -> indexes.purgeIndex(descriptor.indexId()))
+                        .hasMessageContaining("cleanup is incomplete");
+                // A durable release claim whose connector outcome was uncertain must not
+                // be retried until its due timestamp, then the real connector retry is safe.
+                Instant previousAttempt = Instant.now().minus(java.time.Duration.ofMinutes(16));
+                indexes.markScalarSnapshotPinDrained(unknown, token, previousAttempt.minusSeconds(1));
+                assertThat(indexes.claimScalarSnapshotPinCleanup(unknown, previousAttempt)).isPresent();
+                assertThat(indexes.claimScalarSnapshotPinCleanup(unknown, previousAttempt.plusSeconds(1)))
+                        .isEmpty();
+                assertThat(indexes.listScalarSnapshotPinCleanupCandidates(Instant.now(), 10))
+                        .extracting(org.pangrova.persistence.indexing.api.metadata.ScalarSnapshotPins.ScalarPin::owner)
+                        .containsExactly(unknown);
+                assertThat(provider.cleanupDrainedScalarPins(() -> true)).isEqualTo(1);
+                assertThat(direct.getSnapshotPinsForIndex("cat", "db", "items", descriptor.indexId())).isEmpty();
+                indexes.purgeIndex(descriptor.indexId());
+                table.refresh();
+                assertThat(table.refs()).containsKey("user_keep");
             } finally {
                 connector.shutdown();
             }

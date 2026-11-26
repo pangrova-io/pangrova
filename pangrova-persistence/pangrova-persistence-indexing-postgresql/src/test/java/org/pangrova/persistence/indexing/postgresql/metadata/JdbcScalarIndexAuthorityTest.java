@@ -106,8 +106,7 @@ class JdbcScalarIndexAuthorityTest extends ContainerTestBase {
 
     @Test
     void publicationChecksCurrentGrantOnItsOwnTransaction() throws Exception {
-        var descriptor = descriptor("index-publication");
-        indexes.registerIndexWithBuildAuthority(descriptor, PRINCIPAL);
+        var descriptor = registerForPublication("index-publication");
         try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
             statement.execute("DELETE FROM security_grants WHERE privilege='SELECT'");
         }
@@ -121,8 +120,7 @@ class JdbcScalarIndexAuthorityTest extends ContainerTestBase {
 
     @Test
     void authorizedEmptyGenerationPublishesReady() {
-        var descriptor = descriptor("index-empty");
-        indexes.registerIndexWithBuildAuthority(descriptor, PRINCIPAL);
+        var descriptor = registerForPublication("index-empty");
 
         assertThat(indexes.publishIndexGeneration(publication(descriptor)).generation()).isZero();
         assertThat(indexes.findIndex(descriptor.indexId()).orElseThrow().state())
@@ -130,9 +128,23 @@ class JdbcScalarIndexAuthorityTest extends ContainerTestBase {
     }
 
     @Test
+    void publicationRejectsDifferentFenceEvenAfterSuccessfulAdmission() {
+        var descriptor = registerForPublication("index-other-fence");
+        var incorrectFence = descriptor.withBuildSnapshotId(
+                descriptor.buildSnapshotId(), descriptor.updatedAt().plusMillis(1));
+
+        assertThatThrownBy(() -> indexes.publishIndexGeneration(publication(incorrectFence)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("publication fence");
+        assertThat(indexes.findIndex(descriptor.indexId()).orElseThrow().state())
+                .isEqualTo(IndexState.BUILDING);
+        assertThat(indexes.findActiveIndexGeneration(descriptor.indexId())).isEmpty();
+        assertThat(indexes.publishIndexGeneration(publication(descriptor)).generation()).isZero();
+    }
+
+    @Test
     void injectedAuthorityUsesPublicationTransactionAndFailureRollsBack() throws Exception {
-        var descriptor = descriptor("index-authority-participant");
-        indexes.registerIndexWithBuildAuthority(descriptor, PRINCIPAL);
+        var descriptor = registerForPublication("index-authority-participant");
         var observed = new java.util.concurrent.atomic.AtomicReference<java.sql.Connection>();
         var calls = new java.util.concurrent.atomic.AtomicInteger();
         var participantStore = new JdbcIndexMetadataStore(dataSource, (connection, principal, scope) -> {
@@ -167,8 +179,7 @@ class JdbcScalarIndexAuthorityTest extends ContainerTestBase {
 
     @Test
     void onlyExactBuildingSnapshotCanBePinned() {
-        var descriptor = descriptor("index-generation");
-        indexes.registerIndexWithBuildAuthority(descriptor, PRINCIPAL);
+        var descriptor = registerForPublication("index-generation");
         assertThat(indexes.isIndexSnapshotBuildable(descriptor.indexId(), "42")).isTrue();
         assertThat(indexes.isIndexSnapshotBuildable(descriptor.indexId(), "43")).isFalse();
 
@@ -205,7 +216,7 @@ class JdbcScalarIndexAuthorityTest extends ContainerTestBase {
     }
 
     @Test
-    void purgeRequiresDroppedStateAndDeletesMappingsAtomically() {
+    void purgeRequiresDroppedStateAndDurableMappingRetirement() {
         var descriptor = descriptor("index-purge");
         indexes.registerIndexWithBuildAuthority(descriptor, PRINCIPAL);
         assertThat(new JdbcIndexBuildClaimRepository(dataSource).tryClaim(descriptor.indexId(), 0, OWNER, Instant.now())).isTrue();
@@ -219,9 +230,27 @@ class JdbcScalarIndexAuthorityTest extends ContainerTestBase {
         assertThat(indexes.getIndexFileMappings(descriptor.indexId())).hasSize(1);
 
         indexes.dropIndex(descriptor.indexId(), Instant.now());
+        assertThatThrownBy(() -> indexes.purgeIndex(descriptor.indexId()))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("remaining mappings");
+        var dropped = indexes.findIndex(descriptor.indexId()).orElseThrow();
+        assertThat(indexes.retireDroppedIndexMappings(dropped.indexId(), dropped.updatedAt(), dropped.generation()))
+                .isTrue();
+        assertThat(indexes.getIndexFileMappings(descriptor.indexId())).isEmpty();
+        var retirement = indexes.pollMappedArtifactRetirements(10).get(0);
+        assertThatThrownBy(() -> indexes.purgeIndex(descriptor.indexId()))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("retirement");
+        // Database-only fixture; no physical artifact was created.
+        assertThat(indexes.beginMappedArtifactReclaim(retirement)).isTrue();
+        indexes.completeMappedArtifactReclaim(retirement);
         indexes.purgeIndex(descriptor.indexId());
         assertThat(indexes.findIndex(descriptor.indexId())).isEmpty();
-        assertThat(indexes.getIndexFileMappings(descriptor.indexId())).isEmpty();
+    }
+
+    private IndexDescriptor registerForPublication(String id) {
+        var descriptor = descriptor(id);
+        indexes.registerIndexWithBuildAuthority(descriptor, PRINCIPAL);
+        // Admission stores a microsecond timestamp. Keep this exact fence for the whole build.
+        return indexes.findIndex(id).orElseThrow();
     }
 
     private static IndexPublicationRequest publication(IndexDescriptor descriptor) {

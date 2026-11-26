@@ -25,6 +25,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import static org.pangrova.generation.api.constants.GenerationOutputTypeIds.TEXT_INDEX;
+import static org.pangrova.generation.api.constants.GenerationOutputTypeIds.VECTOR_INDEX;
 import static org.pangrova.persistence.jdbc.support.JdbcSupport.getInstant;
 
 /** Same-connection immutable publication reads, shared by query resolution and durable claim preparation. */
@@ -81,7 +83,8 @@ final class PostgresGenerationPublishedInputs {
     }
 
     static Map<PublicationRead, PublishedInput> load(Connection connection,
-            String tenantId, List<PublicationRead> reads, List<GenerationSplit> splits) throws SQLException {
+            String tenantId, String executionId, List<PublicationRead> reads,
+            List<GenerationSplit> splits) throws SQLException {
         Map<PublicationRead, PublishedInput> result = new LinkedHashMap<>();
         var requested = splits.stream().map(GenerationSplit::dataObjectId).sorted().distinct().toList();
         for (var read : reads) {
@@ -91,6 +94,10 @@ final class PostgresGenerationPublishedInputs {
             if (!manifest.sourceId().equals(read.sourceId())
                     || !manifest.manifestSha256().equals(read.manifestSha256())) {
                 throw new IllegalStateException("Pinned stage publication identity or digest differs");
+            }
+            if (VECTOR_INDEX.equals(manifest.artifactType()) || TEXT_INDEX.equals(manifest.artifactType())) {
+                PostgresSnapshotPinLedger.retainForExecution(connection, tenantId, read.artifactId(),
+                        read.generation(), read.sourceSnapshot(), executionId);
             }
             var outputs = PostgresGenerationOutputQueries.loadLockedPublishedOutputs(
                     connection, tenantId, manifest.jobId(), requested);

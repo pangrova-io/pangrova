@@ -3,6 +3,7 @@ package org.pangrova.server.coordinator.bootstrap;
 import org.pangrova.persistence.generation.api.publication.GenerationPublicationStore;
 
 import org.pangrova.persistence.generation.api.job.GenerationJobStore;
+import org.pangrova.persistence.generation.api.job.SnapshotPinPressure;
 
 import org.pangrova.coordinator.indexing.ddl.IndexDdlExecutor;
 import org.pangrova.indexing.evaluation.IndexEvalMetrics;
@@ -17,6 +18,7 @@ import org.pangrova.coordinator.indexing.lifecycle.IndexConsistencyContext;
 import org.pangrova.coordinator.indexing.lifecycle.gc.IndexGarbageCollector;
 import org.pangrova.coordinator.indexing.lifecycle.gc.IndexGcContext;
 import org.pangrova.coordinator.indexing.lifecycle.IndexLifecycleMetrics;
+import org.pangrova.coordinator.indexing.lifecycle.NativeSnapshotPinPressureMetrics;
 import org.pangrova.coordinator.indexing.lifecycle.MaintenanceLeaderElection;
 import org.pangrova.persistence.indexing.api.build.IndexBuildClaimRepository;
 import org.pangrova.coordinator.indexing.lifecycle.MetadataBackedGenerationChecker;
@@ -26,6 +28,7 @@ import org.pangrova.indexing.strategy.IndexEngineRegistry;
 import org.pangrova.indexing.build.IndexBuildCoordinator;
 import org.pangrova.indexing.build.IndexBuildContext;
 import org.pangrova.indexing.config.IndexingConfig;
+import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.indexing.evaluation.IndexEvaluationService;
 import org.pangrova.indexing.build.IndexBuildMetrics;
 import org.pangrova.indexing.codec.data.IndexSerializer;
@@ -36,6 +39,7 @@ import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
 import org.pangrova.persistence.indexing.api.metadata.CacheEvent;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.lifecycle.ResourceCloser;
 import org.pangrova.persistence.coordination.api.lease.DistributedLease;
 import org.pangrova.coordination.api.leadership.MaintenanceLeaderAware;
 import org.pangrova.observability.api.metrics.MetricsProvider;
@@ -44,6 +48,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import org.pangrova.generation.api.constants.GenerationOutputTypeIds;
@@ -57,8 +62,7 @@ import java.util.concurrent.atomic.AtomicLong;
  *
  * <p>Initialization: IndexEngineRegistry → IndexCache → IndexStorageManager →
  * IndexBuildCoordinator → IndexEvaluationService → IndexSplitFilter →
- * IndexCommitHandler → GC → ConsistencyChecker → StuckBuildRecovery →
- * DDL executor registration.</p>
+ * StuckBuildRecovery → GC → ConsistencyChecker → DDL executor registration.</p>
  *
  * <p>The coordinator performs L0 (min/max metadata) and L1 (native connector)
  * pruning only. L2 evaluation (actual index data loading) is delegated to
@@ -86,6 +90,8 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
     private IndexGarbageCollector garbageCollector;
     private IndexConsistencyChecker consistencyChecker;
     private IndexDdlExecutor ddlExecutor;
+    private org.pangrova.indexing.evolution.IndexSchemaEvolutionHandler schemaEvolutionHandler;
+    private ScheduledExecutorService schemaEvolutionScheduler;
     private IndexMetadataStore metadataStore;
     private ConnectorAccessorResolver accessorResolver;
     private volatile java.util.Set<String> commitListenerCatalogs = java.util.Set.of();
@@ -93,6 +99,9 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
     // Stuck build recovery (periodic)
     private StuckBuildRecovery stuckBuildRecovery;
     private ScheduledExecutorService stuckBuildRecoveryScheduler;
+    private SnapshotPinRecoveryScheduler snapshotPinRecoveryScheduler;
+    private org.pangrova.coordinator.indexing.ddl.DeferredSnapshotPinProvider scalarSnapshotPins;
+    private org.pangrova.coordinator.indexing.ddl.DurableIndexBuildService nativeIndexBuildService;
 
     // Cache invalidation polling
     private ScheduledExecutorService cacheInvalidationScheduler;
@@ -101,14 +110,17 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
     private IndexBuildMetrics buildMetrics;
     private IndexEvalMetrics evalMetrics;
     private IndexLifecycleMetrics lifecycleMetrics;
+    private NativeSnapshotPinPressureMetrics nativePinPressureMetrics;
 
-    private final String baseIndexPath;
+    private final IndexingConfig indexingConfig;
     private final DistributedLease distributedLease;
     private final GenerationJobStore artifactBuildStore;
     private final GenerationPublicationStore artifactPublicationStore;
     private final MaintenanceLeaderElection configuredLeaderElection;
     private MaintenanceLeaderElection leaderElection;
     private DurableGenerationPublisher artifactPublisher;
+    private org.pangrova.coordinator.generation.DurableGenerationPublisher.PollSettings artifactPublicationSettings =
+            org.pangrova.coordinator.generation.DurableGenerationPublisher.defaultSettings();
 
     /**
      * Creates an IndexingBootstrap with an externally-configured base index path
@@ -118,24 +130,33 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
      * @param distributedLease lease backend for leader election (must not be null)
      */
     IndexingBootstrap(String baseIndexPath, DistributedLease distributedLease) {
-        this(baseIndexPath, distributedLease, null, null, null);
+        this(baseIndexPath, distributedLease, null, null,
+                (MaintenanceLeaderElection) null, null);
     }
 
-    IndexingBootstrap(
-            String baseIndexPath,
-            DistributedLease distributedLease,
-            GenerationJobStore artifactBuildStore) {
-        this(baseIndexPath, distributedLease, artifactBuildStore, null, null);
+    IndexingBootstrap(String baseIndexPath, DistributedLease distributedLease,
+                      GenerationJobStore artifactBuildStore) {
+        this(baseIndexPath, distributedLease, artifactBuildStore, null,
+                (MaintenanceLeaderElection) null, null);
     }
 
-    /** Creates the complete production lifecycle with one durable build/publication state machine. */
     public IndexingBootstrap(
             String baseIndexPath,
             DistributedLease distributedLease,
             GenerationJobStore artifactBuildStore,
             GenerationPublicationStore artifactPublicationStore) {
         this(baseIndexPath, distributedLease, artifactBuildStore,
-                artifactPublicationStore, null);
+                artifactPublicationStore, (MaintenanceLeaderElection) null, null);
+    }
+
+    public IndexingBootstrap(
+            String baseIndexPath,
+            DistributedLease distributedLease,
+            GenerationJobStore artifactBuildStore,
+            GenerationPublicationStore artifactPublicationStore,
+            IndexingConfig indexingConfig) {
+        this(baseIndexPath, distributedLease, artifactBuildStore,
+                artifactPublicationStore, (MaintenanceLeaderElection) null, indexingConfig);
     }
 
     IndexingBootstrap(
@@ -144,6 +165,42 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
             GenerationJobStore artifactBuildStore,
             GenerationPublicationStore artifactPublicationStore,
             MaintenanceLeaderElection configuredLeaderElection) {
+        this(baseIndexPath, distributedLease, artifactBuildStore,
+                artifactPublicationStore, configuredLeaderElection, null);
+    }
+
+    public IndexingBootstrap(
+            String baseIndexPath,
+            DistributedLease distributedLease,
+            GenerationJobStore artifactBuildStore,
+            GenerationPublicationStore artifactPublicationStore,
+            IndexingConfig indexingConfig,
+            org.pangrova.coordinator.generation.DurableGenerationPublisher.PollSettings publicationSettings) {
+        this(baseIndexPath, distributedLease, artifactBuildStore,
+                artifactPublicationStore, (MaintenanceLeaderElection) null,
+                indexingConfig, publicationSettings);
+    }
+
+    IndexingBootstrap(
+            String baseIndexPath,
+            DistributedLease distributedLease,
+            GenerationJobStore artifactBuildStore,
+            GenerationPublicationStore artifactPublicationStore,
+            MaintenanceLeaderElection configuredLeaderElection,
+            IndexingConfig indexingConfig) {
+        this(baseIndexPath, distributedLease, artifactBuildStore,
+                artifactPublicationStore, configuredLeaderElection, indexingConfig,
+                org.pangrova.coordinator.generation.DurableGenerationPublisher.defaultSettings());
+    }
+
+    IndexingBootstrap(
+            String baseIndexPath,
+            DistributedLease distributedLease,
+            GenerationJobStore artifactBuildStore,
+            GenerationPublicationStore artifactPublicationStore,
+            MaintenanceLeaderElection configuredLeaderElection,
+            IndexingConfig indexingConfig,
+            org.pangrova.coordinator.generation.DurableGenerationPublisher.PollSettings publicationSettings) {
         if (baseIndexPath == null || baseIndexPath.isBlank()) {
             throw new IllegalStateException(
                     "IndexingBootstrap requires baseIndexPath but received null or blank value");
@@ -152,10 +209,16 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
             throw new IllegalStateException(
                     "IndexingBootstrap requires distributedLease but received null");
         }
-        this.baseIndexPath = baseIndexPath;
+        if (indexingConfig != null && !baseIndexPath.equals(indexingConfig.baseIndexPath())) {
+            throw new IllegalArgumentException(
+                    "IndexingBootstrap requires one consistent indexing.base-path");
+        }
+        this.indexingConfig = indexingConfig == null
+                ? new IndexingConfig(baseIndexPath, true, null, null) : indexingConfig;
         this.distributedLease = distributedLease;
         this.artifactBuildStore = artifactBuildStore;
         this.artifactPublicationStore = artifactPublicationStore;
+        this.artifactPublicationSettings = publicationSettings;
         this.configuredLeaderElection = configuredLeaderElection;
     }
 
@@ -184,21 +247,24 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
         }
 
         this.metadataStore = indexMetadata;
-        IndexingConfig config = new IndexingConfig(
-                baseIndexPath, true, null, null);
+        IndexingConfig config = indexingConfig;
         IndexSerializer serializer = initializeEngine(config, metricsProvider);
         var buildServices = initializeBuildServices(config, catalogRegistry, serializer, buildClaims);
         startLifecycle(config, buildServices);
-        startRecovery();
+        initializeSchemaEvolutionRecovery(buildServices);
+        startRecovery(buildServices);
+        garbageCollector.start();
+        consistencyChecker.start();
+        startCacheInvalidation();
+        IndexDdlContext ddlDeps = new IndexDdlContext(
+                metadataStore, buildServices, catalogRegistry, accessorResolver);
+        ddlExecutor = new IndexDdlExecutor(ddlDeps, indexCache, accessControl);
+        // Register external callbacks only after local resources are initialized.
         if (config.commitListenerEnabled()) {
             registerCommitListeners(accessorResolver, catalogRegistry);
         } else {
             LOG.info("event=commit_listener_skipped reason=disabled_by_config");
         }
-        startCacheInvalidation();
-        IndexDdlContext ddlDeps = new IndexDdlContext(
-                metadataStore, buildServices, catalogRegistry, accessorResolver);
-        ddlExecutor = new IndexDdlExecutor(ddlDeps, indexCache, accessControl);
         LOG.info("event=indexing_bootstrap_completed");
     }
 
@@ -216,6 +282,13 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
             buildMetrics = new IndexBuildMetrics(metricsProvider);
             evalMetrics = new IndexEvalMetrics(metricsProvider);
             lifecycleMetrics = new IndexLifecycleMetrics(metricsProvider);
+            if (artifactBuildStore != null) {
+                try {
+                    nativePinPressureMetrics = new NativeSnapshotPinPressureMetrics(metricsProvider);
+                } catch (RuntimeException failure) {
+                    LOG.warn("event=native_snapshot_pin_pressure_metrics_unavailable", failure);
+                }
+            }
             new org.pangrova.indexing.storage.IndexCacheMetrics(metricsProvider, indexCache);
         }
         return serializer;
@@ -226,13 +299,12 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
             IndexBuildClaimRepository buildClaims) {
         accessorResolver = new ConnectorAccessorResolver(catalogRegistry);
         var generationChecker = new MetadataBackedGenerationChecker(metadataStore);
-        org.pangrova.connector.api.index.SnapshotPinProvider snapshotPinProvider =
-                new org.pangrova.coordinator.indexing.ddl.DeferredSnapshotPinProvider(
-                        metadataStore, artifactBuildStore, accessorResolver);
+        scalarSnapshotPins = new org.pangrova.coordinator.indexing.ddl.DeferredSnapshotPinProvider(
+                metadataStore, artifactBuildStore, accessorResolver);
         IndexBuildContext buildDeps = new IndexBuildContext(
                 config, engineRegistry, storageManager, serializer,
-                buildClaims, generationChecker, snapshotPinProvider, null);
-        buildCoordinator = new IndexBuildCoordinator(buildDeps, buildMetrics);
+                buildClaims, generationChecker, scalarSnapshotPins, null);
+        buildCoordinator = new IndexBuildCoordinator(buildDeps, buildMetrics, metadataStore);
 
         // F-IDX-BREAKER: back the breaker with the shared metadata store so a
         // tripped circuit is observed cluster-wide (multi-coordinator Active-Active),
@@ -255,7 +327,9 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
         // Scalar indexes use the Java builder; vector/BM25 artifacts use durable Native jobs.
         var aiNativeBuildService = artifactBuildStore == null ? null
                 : new org.pangrova.coordinator.indexing.ddl.DurableIndexBuildService(
-                        artifactBuildStore, catalogRegistry, baseIndexPath);
+                        artifactBuildStore, metadataStore, catalogRegistry, indexingConfig.baseIndexPath(),
+                        session -> accessorResolver.forSession(session).resolveSnapshotPinProvider());
+        nativeIndexBuildService = aiNativeBuildService;
         return new org.pangrova.coordinator.indexing.ddl.IndexBuildServices(
                 buildCoordinator, aiNativeBuildService);
     }
@@ -294,34 +368,168 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
         }
 
         garbageCollector = new IndexGarbageCollector(gcDeps, lifecycleMetrics, leaderElection);
-        garbageCollector.start();
 
         IndexConsistencyContext consistencyDeps = new IndexConsistencyContext(
                 metadataStore, buildServices, accessorResolver, config, leaderElection);
         consistencyChecker = new IndexConsistencyChecker(consistencyDeps, lifecycleMetrics);
-        consistencyChecker.start();
     }
 
-    private void startRecovery() {
+    private void initializeSchemaEvolutionRecovery(
+            org.pangrova.coordinator.indexing.ddl.IndexBuildServices buildServices) {
+        schemaEvolutionHandler = new org.pangrova.indexing.evolution.IndexSchemaEvolutionHandler(
+                metadataStore, (descriptor, event) -> observeSourceSchema(buildServices, descriptor, event));
+    }
+
+    private void startSchemaEvolutionRecovery() {
+        if (schemaEvolutionHandler == null || schemaEvolutionScheduler != null) {
+            return;
+        }
+        long epoch = leaderElection.verifiedHeldEpoch().orElseThrow(
+                () -> new IllegalStateException("Schema evolution recovery requires verified maintenance leadership"));
+        var scheduler = ManagedExecutorFactory.newSingleThreadScheduledExecutor("index-schema-evolution");
+        schemaEvolutionScheduler = scheduler;
+        scheduler.scheduleWithFixedDelay(
+                () -> recoverSchemaEvolutionSafe(scheduler, epoch), 0, 1, TimeUnit.MINUTES);
+    }
+
+    private void stopSchemaEvolutionRecovery() {
+        if (schemaEvolutionScheduler != null) {
+            schemaEvolutionScheduler.shutdown();
+            schemaEvolutionScheduler = null;
+        }
+    }
+
+    private void recoverSchemaEvolutionSafe(ScheduledExecutorService scheduler, long epoch) {
+        java.util.function.BooleanSupplier stillLeader =
+                () -> !scheduler.isShutdown() && leaderElection.holdsEpoch(epoch);
+        // Diagnostics must not delay confirmed operation recovery beyond their
+        // own bounded metadata query, or prevent recovery when observation fails.
+        try {
+            schemaEvolutionHandler.reportUnresolved(stillLeader, Instant.now());
+        } catch (RuntimeException failure) {
+            LOG.warn("event=index_schema_diagnostics_failed error={}", failure.getMessage(), failure);
+        }
+        try {
+            if (!stillLeader.getAsBoolean()) {
+                return;
+            }
+            int fenced = schemaEvolutionHandler.reconcile(stillLeader);
+            int applied = schemaEvolutionHandler.recoverPending(stillLeader);
+            if (fenced > 0 || applied > 0) {
+                LOG.info("event=index_schema_evolution_recovered fenced={} applied={}", fenced, applied);
+            }
+        } catch (RuntimeException failure) {
+            LOG.warn("event=index_schema_evolution_recovery_failed error={}", failure.getMessage(), failure);
+        }
+    }
+
+    private void startRecovery(
+            org.pangrova.coordinator.indexing.ddl.IndexBuildServices buildServices) {
+        Duration buildTimeout = CoordinatorIndexingConfiguration.buildTimeout(indexingConfig);
         stuckBuildRecovery = new StuckBuildRecovery(
-                metadataStore, DEFAULT_BUILD_TIMEOUT, DEFAULT_STUCK_DETECTION_MULTIPLIER,
+                new IndexCommitContext(metadataStore, buildServices, accessorResolver),
+                buildTimeout, indexingConfig.lifecycle().consistency().buildStuckDetectionMultiplier(),
                 leaderElection);
         int recovered = stuckBuildRecovery.recoverStuckBuilds();
         if (recovered > 0) {
             LOG.info("event=indexing_phase phase=stuck_recovery recovered={}", recovered);
         }
 
-        long recoveryIntervalMinutes = DEFAULT_BUILD_TIMEOUT.toMinutes() / 2;
+        long recoveryIntervalMinutes = buildTimeout.toMinutes() / 2;
         if (recoveryIntervalMinutes < 1) {
             recoveryIntervalMinutes = 1;
         }
         stuckBuildRecoveryScheduler = ManagedExecutorFactory
                 .newSingleThreadScheduledExecutor("pangrova-stuck-build-recovery");
         stuckBuildRecoveryScheduler.scheduleWithFixedDelay(
-                stuckBuildRecovery::recoverStuckBuilds,
+                this::recoverStuckBuildsSafe,
                 recoveryIntervalMinutes, recoveryIntervalMinutes, TimeUnit.MINUTES);
         LOG.info("event=indexing_phase phase=stuck_recovery_scheduled intervalMinutes={}",
                 recoveryIntervalMinutes);
+    }
+
+    private void startSnapshotPinRecovery() {
+        if ((nativeIndexBuildService == null && scalarSnapshotPins == null)
+                || snapshotPinRecoveryScheduler != null) {
+            return;
+        }
+        long epoch = leaderElection.verifiedHeldEpoch().orElseThrow(
+                () -> new IllegalStateException("Snapshot pin recovery requires verified maintenance leadership"));
+        if (nativePinPressureMetrics != null) {
+            nativePinPressureMetrics.beginEpoch(epoch);
+        }
+        var scheduler = new SnapshotPinRecoveryScheduler(
+                () -> leaderElection.holdsEpoch(epoch),
+                stillLeader -> {
+                    if (scalarSnapshotPins != null && stillLeader.getAsBoolean()) {
+                        try {
+                            scalarSnapshotPins.cleanupDrainedScalarPins(stillLeader);
+                        } catch (RuntimeException failure) {
+                            LOG.error("event=scalar_snapshot_pin_maintenance_failed", failure);
+                        }
+                    }
+                    if (nativeIndexBuildService != null && stillLeader.getAsBoolean()) {
+                        nativeIndexBuildService.adoptLegacySnapshotPins(stillLeader);
+                        if (stillLeader.getAsBoolean()) {
+                            nativeIndexBuildService.recoverUnboundSnapshotPins(stillLeader);
+                        }
+                        if (stillLeader.getAsBoolean()) {
+                            nativeIndexBuildService.fenceAbandonedNativeReservations(stillLeader);
+                        }
+                        if (stillLeader.getAsBoolean()) {
+                            nativeIndexBuildService.cleanupSnapshotPins(stillLeader);
+                        }
+                    }
+                    observeNativePinPressure(epoch, stillLeader);
+                });
+        snapshotPinRecoveryScheduler = scheduler;
+        scheduler.start();
+    }
+
+    private void observeNativePinPressure(long epoch, java.util.function.BooleanSupplier stillLeader) {
+        if (nativePinPressureMetrics == null || artifactBuildStore == null) {
+            return;
+        }
+        try {
+            if (!stillLeader.getAsBoolean()) {
+                nativePinPressureMetrics.record(epoch, java.util.Optional.empty());
+                return;
+            }
+            var sample = artifactBuildStore.observeSnapshotPinPressure(
+                    SnapshotPinPressure.MAX_PER_STATE, Instant.now());
+            nativePinPressureMetrics.record(epoch,
+                    stillLeader.getAsBoolean() ? sample : java.util.Optional.empty());
+        } catch (RuntimeException failure) {
+            nativePinPressureMetrics.record(epoch, java.util.Optional.empty());
+            LOG.warn("event=native_snapshot_pin_pressure_observation_failed", failure);
+        }
+    }
+
+    private void stopSnapshotPinRecovery() {
+        if (nativePinPressureMetrics != null) {
+            nativePinPressureMetrics.endEpoch();
+        }
+        if (snapshotPinRecoveryScheduler != null) {
+            snapshotPinRecoveryScheduler.close();
+            snapshotPinRecoveryScheduler = null;
+        }
+    }
+
+    /** Revalidates Native source pins at dispatch and publication without synthesizing authority. */
+    public void validateSnapshotPin(org.pangrova.generation.api.job.GenerationJob job) {
+        if (nativeIndexBuildService == null) {
+            throw new IllegalStateException("Native artifact work has no snapshot lifecycle owner");
+        }
+        nativeIndexBuildService.validateSnapshotPin(job);
+    }
+
+    private void recoverStuckBuildsSafe() {
+        try {
+            stuckBuildRecovery.recoverStuckBuilds();
+        } catch (RuntimeException failure) {
+            LOG.error("event=stuck_build_recovery_cycle_failed error={}",
+                    failure.getMessage(), failure);
+        }
     }
 
     private void startCacheInvalidation() {
@@ -359,7 +567,8 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
         }
         artifactPublisher = new DurableGenerationPublisher(artifactBuildStore,
                 artifactPublicationStore,
-                new org.pangrova.coordinator.generation.GenerationExecutionOwnership(authority));
+                new org.pangrova.coordinator.generation.GenerationExecutionOwnership(authority),
+                this::validateSnapshotPin, artifactPublicationSettings);
         artifactPublisher.start();
     }
 
@@ -385,6 +594,26 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
 
     /** Returns the DDL executor for statement router registration. */
     public IndexDdlExecutor getDdlExecutor() { return ddlExecutor; }
+
+    public org.pangrova.indexing.evolution.IndexSchemaEvolutionHandler getSchemaEvolutionHandler() {
+        return schemaEvolutionHandler;
+    }
+
+    private org.pangrova.indexing.evolution.IndexSchemaEvolutionHandler.SchemaObservation observeSourceSchema(
+                    org.pangrova.coordinator.indexing.ddl.IndexBuildServices buildServices,
+                    IndexDescriptor descriptor,
+                    org.pangrova.indexing.api.evolution.SchemaChangeEvent event) {
+        boolean rename = org.pangrova.indexing.api.enums.SchemaChangeType.RENAME_TABLE
+                .equals(event.type());
+        String schemaName = rename && event.newSchemaName() != null
+                ? event.newSchemaName() : descriptor.schemaName();
+        String tableName = rename ? event.tableName() : descriptor.tableName();
+        var resolver = org.pangrova.coordinator.indexing.ddl.IndexSourceAuthority.forDescriptor(
+                metadataStore, buildServices, accessorResolver, descriptor);
+        // Recovery observes only the intended target under the persisted index
+        // subject; it never substitutes a different user's authorization.
+        return resolver.resolveTableObservation(descriptor.catalogName(), schemaName, tableName);
+    }
 
     /** Returns the index cache for DDL executor. */
     IndexCache getIndexCache() { return indexCache; }
@@ -425,7 +654,9 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
      * Mirrors {@link StreamingBootstrap#onLeaderElected()}.
      */
     @Override
-    public void onLeaderElected() {
+    public synchronized void onLeaderElected() {
+        startSnapshotPinRecovery();
+        startSchemaEvolutionRecovery();
         if (commitHandler != null) {
             commitHandler.startPolling();
         }
@@ -441,49 +672,43 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
      * Mirrors {@link StreamingBootstrap#onLeadershipLost()}.
      */
     @Override
-    public void onLeadershipLost() {
-        if (commitHandler != null) {
-            commitHandler.stopPolling();
-        }
-        garbageCollector.stopSchedule();
-        buildCoordinator.pauseBuilds();
+    public synchronized void onLeadershipLost() {
+        ResourceCloser.closeAll(null, this::stopSchemaEvolutionRecovery, this::stopSnapshotPinRecovery,
+                ResourceCloser.present(commitHandler, IndexCommitHandler::stopPolling),
+                ResourceCloser.present(garbageCollector, IndexGarbageCollector::stopSchedule),
+                ResourceCloser.present(buildCoordinator, IndexBuildCoordinator::pauseBuilds));
         LOG.info("event=indexing_leadership_lost");
     }
 
     @Override
-    public void close() {
-        // LIFO shutdown order
-        safeClose("DdlExecutor", ddlExecutor);
-        safeClose("ArtifactPublisher", artifactPublisher);
-        safeClose("ConsistencyChecker", consistencyChecker);
-        if (stuckBuildRecoveryScheduler != null) {
-            stuckBuildRecoveryScheduler.shutdownNow();
-            LOG.info("event=indexing_phase_closed phase=StuckBuildRecoveryScheduler");
-        }
-        safeClose("GarbageCollector", garbageCollector);
-        if (cacheInvalidationScheduler != null) {
-            cacheInvalidationScheduler.shutdownNow();
-            LOG.info("event=indexing_phase_closed phase=CacheInvalidationScheduler");
-        }
-        safeClose("CommitHandler", commitHandler);
-        safeClose("SplitFilter", splitFilter);
-        safeClose("BuildCoordinator", buildCoordinator);
-        if (leaderElection != null && configuredLeaderElection == null) {
-            leaderElection.release();
-        }
-        if (indexCache != null) {
-            indexCache = null;
-        }
+    public synchronized void close() {
+        ResourceCloser.closeAll(null,
+                this::stopSchemaEvolutionRecovery, this::stopSnapshotPinRecovery,
+                ResourceCloser.present(nativePinPressureMetrics, NativeSnapshotPinPressureMetrics::close),
+                ResourceCloser.present(ddlExecutor, resource -> closeResource("DdlExecutor", resource)),
+                ResourceCloser.present(artifactPublisher, resource -> closeResource("ArtifactPublisher", resource)),
+                ResourceCloser.present(consistencyChecker, resource -> closeResource("ConsistencyChecker", resource)),
+                ResourceCloser.present(stuckBuildRecoveryScheduler, ScheduledExecutorService::shutdownNow),
+                ResourceCloser.present(garbageCollector, resource -> closeResource("GarbageCollector", resource)),
+                ResourceCloser.present(cacheInvalidationScheduler, ScheduledExecutorService::shutdownNow),
+                ResourceCloser.present(commitHandler, resource -> closeResource("CommitHandler", resource)),
+                ResourceCloser.present(splitFilter, resource -> closeResource("SplitFilter", resource)),
+                ResourceCloser.present(buildCoordinator, resource -> closeResource("BuildCoordinator", resource)),
+                () -> {
+                    if (leaderElection != null && configuredLeaderElection == null) {
+                        leaderElection.release();
+                    }
+                });
+        indexCache = null;
         LOG.info("event=indexing_shutdown_completed");
     }
 
-    private static void safeClose(String name, AutoCloseable closeable) {
-        if (closeable == null) return;
+    private static void closeResource(String name, AutoCloseable closeable) {
         try {
             closeable.close();
             LOG.info("event=indexing_phase_closed phase={}", name);
-        } catch (Exception e) {
-            LOG.warn("event=indexing_close_failed phase={} error={}", name, e.getMessage());
+        } catch (Exception failure) {
+            throw new IllegalStateException("Indexing resource has not closed: " + name, failure);
         }
     }
 }

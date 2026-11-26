@@ -136,7 +136,7 @@ final class PaimonIndexAccessors {
             }
             List<FileColumnStatistics> colStats = extractPaimonColumnStats(fileMeta, fields);
             result.add(new DataFileStatistics(
-                    filePath, String.valueOf(fileMeta.creationTime()),
+                    filePath, String.valueOf(dataSplit.snapshotId()),
                     fileMeta.rowCount(), fileMeta.fileSize(), colStats));
         }
     }

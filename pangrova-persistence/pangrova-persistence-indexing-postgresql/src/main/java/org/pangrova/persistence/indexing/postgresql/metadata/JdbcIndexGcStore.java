@@ -6,6 +6,7 @@ import org.pangrova.persistence.indexing.api.metadata.BreakerState;
 import org.pangrova.persistence.indexing.api.metadata.CacheEvent;
 import org.pangrova.persistence.indexing.api.metadata.IndexFileMapping;
 import org.pangrova.persistence.indexing.api.metadata.IndexCleanup.OrphanRemoval;
+import org.pangrova.persistence.indexing.postgresql.metadata.JdbcMappedArtifactRetirementStore.RetiredPath;
 import org.pangrova.indexing.api.enums.IndexState;
 
 import java.sql.Connection;
@@ -39,19 +40,26 @@ final class JdbcIndexGcStore extends JdbcStoreSupport {
               AND mapping.generation = candidates.generation
               AND mapping.last_verified_at = candidates.last_verified_at
               AND mapping.created_at = candidates.created_at
-            RETURNING mapping.id, mapping.index_file_path
+              AND NOT EXISTS (SELECT 1 FROM scalar_index_artifact_intents i
+                  WHERE md5(i.artifact_path)=md5(mapping.index_file_path)
+                    AND i.artifact_path=mapping.index_file_path)
+            RETURNING mapping.id, mapping.index_file_path, mapping.data_file_path, mapping.generation
         ),
         removed_paths AS (
-            SELECT index_file_path, count(*) AS removed_count FROM removed GROUP BY index_file_path
+            SELECT index_file_path, min(data_file_path) AS data_file_path,
+                   max(generation) AS generation, count(*) AS removed_count
+            FROM removed GROUP BY index_file_path
         ),
         surviving_paths AS (
             SELECT DISTINCT owner.index_file_path
             FROM index_file_mappings AS owner
-            JOIN removed_paths AS path ON owner.index_file_path = path.index_file_path
+            JOIN removed_paths AS path ON md5(owner.index_file_path)=md5(path.index_file_path)
+                AND owner.index_file_path = path.index_file_path
             LEFT JOIN removed AS deleted ON owner.id = deleted.id
-            WHERE owner.index_id = ? AND deleted.id IS NULL
+            WHERE deleted.id IS NULL
         )
-        SELECT path.index_file_path, path.removed_count, survivor.index_file_path IS NULL AS can_delete
+        SELECT path.index_file_path, path.data_file_path, path.generation, path.removed_count,
+               survivor.index_file_path IS NULL AS can_delete
         FROM removed_paths AS path
         LEFT JOIN surviving_paths AS survivor USING (index_file_path)
         """;
@@ -111,7 +119,7 @@ final class JdbcIndexGcStore extends JdbcStoreSupport {
             connection.setAutoCommit(false);
             try {
                 var removed = lockOrphanOwner(connection, indexId, state, generation)
-                        ? removeOrphanBatches(connection, indexId, mappings) : new OrphanRemoval(0, Set.of());
+                        ? retireObservedMappings(connection, indexId, mappings) : new OrphanRemoval(0, Set.of());
                 connection.commit();
                 return removed;
             } catch (SQLException | RuntimeException failure) {
@@ -143,8 +151,12 @@ final class JdbcIndexGcStore extends JdbcStoreSupport {
         }
     }
 
-    private static OrphanRemoval removeOrphanBatches(Connection connection, String indexId,
-                                                     List<IndexFileMapping> mappings) throws SQLException {
+    /** Caller owns the descriptor/generation fence and transaction; all path retirement uses this handoff. */
+    static OrphanRemoval retireObservedMappings(Connection connection, String indexId,
+            List<IndexFileMapping> mappings) throws SQLException {
+        if (mappings.isEmpty()) return new OrphanRemoval(0, Set.of());
+        JdbcMappedArtifactRetirementStore.lockPaths(connection,
+                mappings.stream().map(IndexFileMapping::indexFilePath).distinct().sorted().toList());
         int removed = 0;
         Set<String> unreferenced = new LinkedHashSet<>();
         // Prepare once for all cohorts. Each statement snapshot sees earlier removals in this transaction.
@@ -153,13 +165,14 @@ final class JdbcIndexGcStore extends JdbcStoreSupport {
                 var batch = mappings.subList(offset, Math.min(offset + BATCH_PARTITION_SIZE, mappings.size()));
                 var result = removeOrphanBatch(connection, statement, indexId, batch);
                 removed += result.mappingsRemoved();
-                unreferenced.addAll(result.pathsToDelete());
+                JdbcMappedArtifactRetirementStore.record(connection, indexId, result.paths());
+                result.paths().stream().map(RetiredPath::artifactPath).forEach(unreferenced::add);
             }
         }
         return new OrphanRemoval(removed, unreferenced);
     }
 
-    private static OrphanRemoval removeOrphanBatch(Connection connection, PreparedStatement statement,
+    private static BatchRemoval removeOrphanBatch(Connection connection, PreparedStatement statement,
             String indexId, List<IndexFileMapping> candidates) throws SQLException {
         int size = candidates.size();
         String[] dataPaths = new String[size];
@@ -186,23 +199,27 @@ final class JdbcIndexGcStore extends JdbcStoreSupport {
             statement.setArray(4, verified.array());
             statement.setArray(5, created.array());
             statement.setString(6, indexId);
-            statement.setString(7, indexId);
             return readOrphanRemoval(statement);
         }
     }
 
-    private static OrphanRemoval readOrphanRemoval(PreparedStatement statement) throws SQLException {
+    private static BatchRemoval readOrphanRemoval(PreparedStatement statement) throws SQLException {
         // The data-modifying CTE and its SELECT share a snapshot. The query excludes the exact removed IDs.
         try (var rows = statement.executeQuery()) {
             int removed = 0;
-            Set<String> unreferenced = new LinkedHashSet<>();
+            List<RetiredPath> unreferenced = new ArrayList<>();
             while (rows.next()) {
                 removed += rows.getInt("removed_count");
-                if (rows.getBoolean("can_delete")) unreferenced.add(rows.getString("index_file_path"));
+                if (rows.getBoolean("can_delete")) {
+                    unreferenced.add(new RetiredPath(rows.getString("index_file_path"),
+                            rows.getString("data_file_path"), rows.getInt("generation")));
+                }
             }
-            return new OrphanRemoval(removed, unreferenced);
+            return new BatchRemoval(removed, unreferenced);
         }
     }
+
+    private record BatchRemoval(int mappingsRemoved, List<RetiredPath> paths) {}
 
     // --- Cache events ---
 

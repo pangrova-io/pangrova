@@ -17,26 +17,26 @@ jobs:
   # to the existing Native test matrix. A cold cache must not consume the
   # same job's compile/test budget.
   macos-native-core:
-    name: macOS Native prerequisites (${{ fromJSON(inputs.platform).name }})
+    name: macOS Native prerequisites
     runs-on: ${{ fromJSON(inputs.platform).runner }}
     if: fromJSON(inputs.platform).os == 'osx'
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - uses: ./.github/actions/setup-native-build
       - uses: ./.github/actions/setup-macos-native-cache
       - name: Cache macOS prerequisite compiler results
         id: core-compiler-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: ~/.cache/ccache
           key: pangrova-macos-core-ccache-v1-${{ runner.arch }}-${{ github.sha }}
           restore-keys: |
             pangrova-macos-core-ccache-v1-${{ runner.arch }}-
       - name: Cache macOS prerequisite source archives
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.pangrova/velox/archive-cache
           key: pangrova-v1-archives-${{ fromJSON(inputs.platform).runner }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt') }}
@@ -48,14 +48,14 @@ jobs:
           command: PANGROVA_NATIVE_BUILD_PHASE=dependencies bash pangrova-worker-native/bin/setup-native-build-env.sh
       - name: Save completed macOS prerequisite compiler results
         if: steps.core-compiler-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: ~/.cache/ccache
           key: ${{ steps.core-compiler-cache.outputs.cache-primary-key }}
       - name: Package same-run prerequisite outputs
         run: bash .pangrova/scripts/macos-native-stage.sh pack core "$RUNNER_TEMP/macos-core"
       - name: Upload macOS prerequisite outputs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: macos-core-${{ fromJSON(inputs.platform).name }}
           path: ${{ runner.temp }}/macos-core/
@@ -65,13 +65,13 @@ jobs:
           retention-days: 1
 
   macos-native-sdk:
-    name: macOS Native SDK (${{ fromJSON(inputs.platform).name }})
+    name: macOS Native SDK
     runs-on: ${{ fromJSON(inputs.platform).runner }}
     needs: macos-native-core
     if: fromJSON(inputs.platform).os == 'osx'
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - uses: ./.github/actions/setup-native-build
@@ -85,14 +85,14 @@ jobs:
         run: bash .pangrova/scripts/macos-native-stage.sh restore core "$RUNNER_TEMP/macos-core"
       - name: Cache macOS SDK compiler results
         id: sdk-compiler-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: ~/.cache/ccache
           key: pangrova-macos-sdk-ccache-v1-${{ runner.arch }}-${{ github.sha }}
           restore-keys: |
             pangrova-macos-sdk-ccache-v1-${{ runner.arch }}-
       - name: Cache macOS dependency archives
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.pangrova/velox/archive-cache
           key: pangrova-v1-archives-${{ fromJSON(inputs.platform).runner }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt') }}
@@ -104,14 +104,14 @@ jobs:
           command: SKIP_DEPS=1 PANGROVA_NATIVE_BUILD_PHASE=prepared-velox bash pangrova-worker-native/bin/setup-native-build-env.sh
       - name: Save completed macOS SDK compiler results
         if: steps.sdk-compiler-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: ~/.cache/ccache
           key: ${{ steps.sdk-compiler-cache.outputs.cache-primary-key }}
       - name: Package same-run Native SDK outputs
         run: bash .pangrova/scripts/macos-native-stage.sh pack sdk "$RUNNER_TEMP/macos-sdk"
       - name: Upload macOS Native SDK outputs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: macos-sdk-${{ fromJSON(inputs.platform).name }}
           path: ${{ runner.temp }}/macos-sdk/
@@ -121,7 +121,7 @@ jobs:
           retention-days: 1
 
   native-build:
-    name: Native Build (${{ fromJSON(inputs.platform).name }})
+    name: Build and test
     runs-on: ${{ fromJSON(inputs.platform).runner }}
     needs: macos-native-sdk
     if: >-
@@ -137,7 +137,7 @@ jobs:
           distribution: temurin
 
       - name: Set up function-contract Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
@@ -146,14 +146,14 @@ jobs:
 
       - name: Cache dependency archives
         if: runner.os == 'Linux'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.pangrova/velox/archive-cache
           key: pangrova-v1-archives-${{ fromJSON(inputs.platform).runner }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt') }}
 
       - name: Cache native dependency prefixes
         if: runner.os == 'Linux'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.pangrova/native-deps
@@ -162,7 +162,7 @@ jobs:
 
       - name: Cache Velox build layer
         if: runner.os == 'Linux'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.pangrova/velox/_build/release/_deps
@@ -172,7 +172,7 @@ jobs:
 
       - name: Cache compiler results
         if: runner.os == 'Linux'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ccache
           key: pangrova-ccache-${{ runner.os }}-${{ runner.arch }}-native-${{ github.sha }}
@@ -182,7 +182,7 @@ jobs:
       - name: Restore macOS Native compiler results
         if: runner.os == 'macOS'
         id: macos-native-compiler-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: ~/.cache/ccache
           key: pangrova-macos-native-ccache-v1-${{ runner.arch }}-${{ github.sha }}
@@ -318,7 +318,7 @@ jobs:
 
       - name: Save completed macOS Native compiler results
         if: runner.os == 'macOS' && steps.macos-native-compiler-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: ~/.cache/ccache
           key: ${{ steps.macos-native-compiler-cache.outputs.cache-primary-key }}
@@ -361,7 +361,7 @@ jobs:
 
       - name: Upload native test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: native-test-results-${{ fromJSON(inputs.platform).name }}
           path: |
@@ -407,7 +407,7 @@ jobs:
             -DskipTests
 
       - name: Upload native library
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: native-library-${{ fromJSON(inputs.platform).name }}
           path: pangrova-worker-native/build/libpangrova_native.*
@@ -423,7 +423,7 @@ jobs:
 
       - name: Upload Java Native test runtime
         if: fromJSON(inputs.platform).name == 'linux-x86_64'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: java-native-test-runtime-linux-x86_64
           path: ${{ runner.temp }}/java-native-test-runtime.tar.gz
@@ -431,7 +431,7 @@ jobs:
           retention-days: 1
 
       - name: Upload classifier JAR
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: native-bundle-${{ fromJSON(inputs.platform).classifier }}
           path: pangrova-native-bundle/target/pangrova-native-bundle-*-${{ fromJSON(inputs.platform).classifier }}.jar

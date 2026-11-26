@@ -449,6 +449,15 @@ class RuntimeScopeTest(unittest.TestCase):
         for module in ('api', 'bundled-guava', 'common', 'core', 'orc', 'parquet'):
             self.assertEqual(script.count(f':iceberg-{module}:publishToMavenLocal'), 1)
 
+    def test_native_fixture_uses_bounded_maven_transport_backoff(self):
+        action = (ROOT / '.github/actions/prepare-native-java-fixture/action.yml').read_text()
+        self.assertIn('-Daether.connector.basic.threads=2', action)
+        self.assertIn('-Daether.connector.http.retryHandler.count=3', action)
+        self.assertIn('-Daether.connector.http.retryHandler.interval=30000', action)
+        self.assertIn('-Daether.connector.http.retryHandler.intervalMax=120000', action)
+        self.assertEqual(action.count('--prepare-java '), 1)
+        self.assertNotIn('continue-on-error', action)
+
     @staticmethod
     def _cache_steps(section):
         steps = re.split(r'\n      - name: ', section)[1:]
@@ -489,6 +498,18 @@ class RuntimeScopeTest(unittest.TestCase):
         self.assertIn('matrix.sanitizer.name',
                       sanitizer_caches['Cache compiler results'])
 
+    def test_native_platform_stage_names_do_not_depend_on_skipped_input_evaluation(self):
+        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
+        platform_workflow = (ROOT / '.github/workflows/native-platform.yml').read_text()
+        self.assertIn('name: Native Build (${{ matrix.platform.name }})', workflow)
+        for job, name in (('macos-native-core', 'macOS Native prerequisites'),
+                          ('macos-native-sdk', 'macOS Native SDK'),
+                          ('native-build', 'Build and test')):
+            with self.subTest(job=job):
+                # The caller already names the platform. Skipped child jobs can
+                # be displayed before their input expressions are evaluated.
+                self.assertIn(f'  {job}:\n    name: {name}\n', platform_workflow)
+
     def test_macos_cold_build_stages_preserve_native_test_and_report_gates(self):
         workflow = (ROOT / '.github/workflows/ci.yml').read_text()
         platform_workflow = (ROOT / '.github/workflows/native-platform.yml').read_text()
@@ -507,9 +528,9 @@ class RuntimeScopeTest(unittest.TestCase):
         self.assertIn('PANGROVA_NATIVE_BUILD_PHASE=dependencies bash pangrova-worker-native/bin/setup-native-build-env.sh', core)
         self.assertIn('macos-native-stage.sh pack core', core)
         self.assertLess(core.index('Build canonical prerequisite packages'),
-                        core.index('actions/cache/save@v4'))
+                        core.index('actions/cache/save@'))
         self.assertLess(sdk.index('Build Velox and Arrow Flight from verified prerequisites'),
-                        sdk.index('actions/cache/save@v4'))
+                        sdk.index('actions/cache/save@'))
         self.assertLess(native.index('Save completed macOS Native compiler results'),
                         native.index('Run native tests (GTest via CTest)'))
         self.assertIn('needs: macos-native-core', sdk)
