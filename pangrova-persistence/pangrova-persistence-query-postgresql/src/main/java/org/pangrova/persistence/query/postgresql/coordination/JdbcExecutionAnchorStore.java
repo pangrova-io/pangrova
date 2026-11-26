@@ -108,7 +108,7 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
     private static final String PUBLICATION_REVISION =
             "COALESCE((SELECT epoch FROM materialization.registry_epochs WHERE tenant_id=?), 0)";
     private static final String REFRESH_INSERTED_QUERY =
-            REFRESH_INSERTED.stripTrailing() + ", " + PUBLICATION_REVISION + " AS publication_revision";
+            REFRESH_INSERTED + ", " + PUBLICATION_REVISION + " AS publication_revision";
     private static final String SELECT_PUBLICATION_REVISION = "SELECT " + PUBLICATION_REVISION;
 
     private static final String SELECT_EXPIRED =
@@ -393,8 +393,9 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
 
     private static Optional<QueryAcquisition> refreshInserted(Connection connection, String executionId, long token,
             String interval, String tenantId) throws SQLException {
-        String sql = tenantId == null ? REFRESH_INSERTED : REFRESH_INSERTED_QUERY;
-        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+        try (PreparedStatement statement = tenantId == null
+                ? connection.prepareStatement(REFRESH_INSERTED)
+                : connection.prepareStatement(REFRESH_INSERTED_QUERY)) {
             statement.setString(1, interval);
             statement.setString(2, executionId);
             statement.setLong(3, token);
