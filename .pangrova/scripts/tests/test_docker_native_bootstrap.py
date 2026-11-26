@@ -40,6 +40,14 @@ class DockerNativeBootstrapTest(unittest.TestCase):
                 self.assertIn('export ARROW_LZ4_URL="${ARROW_LZ4_URL:-' + url[0] + '}"',
                               script.read_text())
 
+    def test_release_and_asan_bootstrap_use_the_same_upstream_snappy_archive(self):
+        url = "https://codeload.github.com/google/snappy/tar.gz/refs/tags/1.1.10"
+        for mode in ("build", "asan"):
+            with self.subTest(mode=mode):
+                script = ROOT / f"pangrova-worker-native/bin/setup-native-{mode}-env.sh"
+                self.assertIn('export ARROW_SNAPPY_URL="${ARROW_SNAPPY_URL:-' + url + '}"',
+                              script.read_text())
+
     def test_folly_source_and_bootstrap_patches_are_staged_before_velox(self):
         velox_bootstrap = next(i for i, line in enumerate(self.instructions)
                                if line.startswith("RUN ") and "PANGROVA_NATIVE_BUILD_PHASE=velox" in line)

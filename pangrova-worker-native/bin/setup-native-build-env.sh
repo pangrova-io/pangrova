@@ -995,6 +995,9 @@ main() {
   verify_build_tools
   configure_compiler
   [[ "$#" == 0 ]] || return 0
+  # Arrow's retired JFrog mirror can be the only Snappy URL selected on macOS.
+  # Use the byte-identical upstream tag archive and keep Arrow's SHA-256 check.
+  export ARROW_SNAPPY_URL="${ARROW_SNAPPY_URL:-https://codeload.github.com/google/snappy/tar.gz/refs/tags/1.1.10}"
   if [[ "$PANGROVA_PRODUCTION_BUILD" == "OFF" ]]; then
     # Arrow still verifies the pinned archive's SHA-256 in its ExternalProject.
     export ARROW_LZ4_URL="${ARROW_LZ4_URL:-https://codeload.github.com/lz4/lz4/tar.gz/refs/tags/v1.10.0}"
