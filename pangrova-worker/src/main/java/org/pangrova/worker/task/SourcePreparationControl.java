@@ -122,10 +122,7 @@ final class SourcePreparationControl implements AutoCloseable {
             if (active.admission != null) active.admission.cancel();
             finish(authority, active);
         }
-        var sealed = owner.taskAdmissions.seal(authority, true);
-        if (sealed.receipt().isPresent()) return sealed.receipt();
-        return sealed.noOwnerExited() ? Optional.of(CanonicalTaskAdmissionSeals.closedWithoutOwner(authority))
-                : Optional.empty();
+        return owner.taskAdmissions.seal(authority, true).exitReceipt(authority);
     }
 
     private void finish(TaskAdmissionSealRequest authority, Resources active) {

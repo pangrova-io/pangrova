@@ -92,12 +92,30 @@ public final class CanonicalTaskAdmissionSeals {
      */
     public static TaskReport closedWithoutOwner(TaskAdmissionSealRequest request) {
         validate(request, request.getAttempt().getTaskId());
+        return noOwnerReceipt(request, "TASK_ADMISSION_CLOSED", "Worker admission closed without Native ownership");
+    }
+
+    /**
+     * Projects the admission authority's proof that an expired request has no remaining execution owner.
+     * @param request exact admission seal bound to the Worker incarnation that established absence
+     * @return exit-only receipt describing current absence
+     * @throws IllegalArgumentException for an invalid or unbound admission seal
+     */
+    public static TaskReport expiredWithoutLiveOwner(TaskAdmissionSealRequest request) {
+        validate(request, request.getAttempt().getTaskId());
+        if (!request.getAttempt().hasWorkerExecutionIdentity()) {
+            throw new IllegalArgumentException("Expired admission receipt requires exact Worker execution identity");
+        }
+        return noOwnerReceipt(request, "TASK_ADMISSION_EXPIRED_WITHOUT_LIVE_OWNER",
+                "Worker admission expired and no execution owner remains");
+    }
+
+    private static TaskReport noOwnerReceipt(TaskAdmissionSealRequest request, String code, String message) {
         return TaskReport.newBuilder().setAttempt(request.getAttempt()).setState(TaskState.TASK_STATE_CANCELLED)
                 .setReportOrigin(TaskReportOrigin.TASK_REPORT_ORIGIN_WORKER_RECONCILED)
                 .setExecutionDrainState(ExecutionDrainState.EXECUTION_DRAIN_STATE_ADMISSION_CLOSED_WITHOUT_NATIVE_OWNER)
                 .setError(ExecutionError.newBuilder().setErrorClass(ErrorClass.ERROR_CLASS_CANCELLED)
-                        .setCode("TASK_ADMISSION_CLOSED").setMessage("Worker admission closed without Native ownership")
-                        .setFailedComponent("worker-admission")).build();
+                        .setCode(code).setMessage(message).setFailedComponent("worker-admission")).build();
     }
 
     /** Caller must prove retirement of the exact durable target incarnation before invoking this. */

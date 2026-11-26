@@ -22,7 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class RemoteTaskDispatcherRecoveryTest {
     @Test
-    void durableSealGetsExactClosureReceiptButPendingAndMismatchedIssuanceProveNothing() throws Exception {
+    void durableSealsProveCurrentAndExpiredOldEpochClosureButRejectMismatchedIssuance() throws Exception {
         try (var worker = TaskManager.forHttpWiringOnly();
                 var dispatcher = new RemoteTaskDispatcher(CircuitBreakerPolicy.noOp(), new NoOpTracingProvider())) {
             worker.requireControlEpochHandshake();
@@ -39,11 +39,14 @@ class RemoteTaskDispatcherRecoveryTest {
                 assertThat(drained.executionDrainReceipt().getExecutionDrainState())
                         .isEqualTo(ExecutionDrainState.EXECUTION_DRAIN_STATE_ADMISSION_CLOSED_WITHOUT_NATIVE_OWNER);
 
+                worker.observeControlEpoch(2);
                 var expired = request(worker, "expired").toBuilder().setDeadlineEpochMs(1).build();
-                var pending = dispatcher.recoverTaskDrain(issuance(expired,
+                var recovered = dispatcher.recoverTaskDrain(issuance(expired,
                         server.getPort(), "execution")).get(5, TimeUnit.SECONDS);
-                assertThat(pending.status()).isEqualTo(SchedulerCancellationStatus.PENDING);
-                assertThat(pending.executionDrainReceipt()).isNull();
+                assertThat(recovered.status()).isEqualTo(SchedulerCancellationStatus.DRAINED);
+                assertThat(recovered.executionDrainReceipt().getAttempt()).isEqualTo(expired.getAttempt());
+                assertThat(recovered.executionDrainReceipt().getError().getCode())
+                        .isEqualTo("TASK_ADMISSION_EXPIRED_WITHOUT_LIVE_OWNER");
 
                 var mismatched = dispatcher.recoverTaskDrain(issuance(request, server.getPort(), "other"))
                         .get(5, TimeUnit.SECONDS);

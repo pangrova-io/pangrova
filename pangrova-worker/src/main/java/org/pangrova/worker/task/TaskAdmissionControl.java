@@ -23,15 +23,16 @@ final class TaskAdmissionControl {
             return Optional.of(CanonicalTaskAdmissionSeals.retiredIncarnation(request));
         }
         owner.verifyWorkerExecutionIdentity(attempt);
-        boolean known = owner.taskAdmissions.knownIdentity(request);
-        if (known) owner.verifyExistingCleanupControlEpoch(attempt.getControlEpoch());
+        boolean existingCleanup = owner.taskAdmissions.deadlineExpired(request.getDeadlineEpochMs())
+                || owner.taskAdmissions.knownIdentity(request);
+        if (existingCleanup) owner.verifyExistingCleanupControlEpoch(attempt.getControlEpoch());
         else {
             owner.verifyControlEpochForAdmission(attempt.getControlEpoch());
             owner.verifyExecutionOwnerForControl(attempt.getQueryOrJobId(), attempt.getExecutionOwner());
         }
-        var sealed = owner.taskAdmissions.seal(request, known);
-        if (sealed.receipt().isPresent()) return sealed.receipt();
-        if (sealed.noOwnerExited()) return Optional.of(CanonicalTaskAdmissionSeals.closedWithoutOwner(request));
+        var sealed = owner.taskAdmissions.seal(request, existingCleanup);
+        var receipt = sealed.exitReceipt(request);
+        if (receipt.isPresent()) return receipt;
         var source = owner.sourcePreparations();
         if (source != null && source.owns(request)) return source.seal(request);
         TaskInfo info = owner.tasks.get(sealed.workerTaskId());

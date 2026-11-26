@@ -116,6 +116,11 @@ The journal writes a page of verified receipts in one statement under the
 current claim. A later attempt or takeover skips the proofs already recorded.
 HTTP 202, an unavailable Worker, and mismatched evidence leave the attempt
 pending. Pending attempts yield to later pages before they are checked again.
+The original live Worker can prove exit for an expired exact attempt absent
+from its admission registry. It checks for an owner and advances the admission
+deadline cutoff under the same lock. A late delivery of that request remains
+ineligible after a wall-clock rollback. An expired attempt with a registered
+owner still requires actual drain evidence.
 The collector has no idle database polls. Releasing the query's resources still
 requires complete attempt coverage and the result and Shuffle drain gates.
 
@@ -785,7 +790,10 @@ the returned identity and endpoint scope before recording the dispatch result.
 
 `DELETE /v1/task/{taskId}` seals the exact issued attempt using a binary
 `TaskAdmissionSealRequest`. HTTP 202 leaves physical release pending. HTTP 200
-returns the canonical `TaskReport` receipt for completed release.
+returns a canonical exit-only `TaskReport`. The
+`TASK_ADMISSION_EXPIRED_WITHOUT_LIVE_OWNER` receipt identifies present absence
+after the exact deadline. It carries the original attempt and Worker
+incarnation and contains no Native execution results.
 
 The canonical task carries the Substrait plan, splits, resource grant, security
 context and fenced exchange bindings. A producer retry uses a new downstream

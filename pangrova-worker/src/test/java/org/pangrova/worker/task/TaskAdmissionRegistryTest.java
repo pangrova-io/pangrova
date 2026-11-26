@@ -147,9 +147,17 @@ class TaskAdmissionRegistryTest {
         assertThatThrownBy(reservation::admitted).isInstanceOf(TaskAdmissionException.class)
                 .hasMessageContaining("deadline has expired");
         assertThat(registry.resolve("task")).isNull();
-        assertThat(registry.seal(sealRequest(task), true).noOwnerExited()).isFalse();
+        var pending = registry.seal(sealRequest(task), true);
+        assertThat(pending.expiredAbsent()).isFalse();
+        assertThat(pending.noOwnerExited()).isFalse();
         reservation.rejectedBeforeOwnership(new IllegalStateException("Resources actually refunded"));
         assertThat(registry.seal(sealRequest(task), true).noOwnerExited()).isTrue();
+
+        registry.removeExpired("task", "worker-task");
+        assertThat(registry.size()).isZero();
+        clock.time.set(1000);
+        assertThatThrownBy(() -> registry.reserve(task, "late"))
+                .isInstanceOf(TaskAdmissionException.class).hasMessageContaining("deadline has expired");
     }
 
     @Test
@@ -253,12 +261,40 @@ class TaskAdmissionRegistryTest {
     }
 
     @Test
-    void expiredForgottenIdentityDoesNotManufactureHistoricalNoOwnerProof() {
-        var registry = new TaskAdmissionRegistry(1, NOW);
-        var result = registry.seal(sealRequest(request("forgotten", 999)), false);
+    void expiredAbsentIdentityDoesNotReopenAfterClockRollbackOrConsumeCapacity() {
+        var clock = new AdmissionClock(2000);
+        var registry = new TaskAdmissionRegistry(1, clock);
+        var expired = request("forgotten", 2000);
+        var result = registry.seal(sealRequest(expired), true);
+        assertThat(result.expiredAbsent()).isTrue();
         assertThat(result.noOwnerExited()).isFalse();
         assertThat(result.receipt()).isEmpty();
         assertThat(registry.size()).isZero();
+
+        clock.time.set(1000);
+        assertThatThrownBy(() -> registry.reserve(expired, "late"))
+                .isInstanceOf(TaskAdmissionException.class).hasMessageContaining("deadline has expired");
+        assertThat(registry.seal(sealRequest(expired), true)).isEqualTo(result);
+        assertThat(registry.reserve(request("fresh", 2001), "worker-task").first()).isTrue();
+    }
+
+    @Test
+    void expiredHandedOffAdmissionStaysPendingAndRetainsItsCleanupOwner() {
+        var clock = new AdmissionClock(1000);
+        var registry = new TaskAdmissionRegistry(1, clock);
+        var task = request("active", 2000);
+        var admission = registry.reserve(task, "worker-task");
+        admission.publish(() -> {});
+        admission.admitted();
+
+        clock.time.set(2000);
+        registry.removeExpired("active", "worker-task");
+        assertThatThrownBy(() -> registry.reserve(request("fresh", 3000), "new-worker-task"))
+                .isInstanceOf(TaskAdmissionException.class).hasMessageContaining("identity limit reached");
+        var pending = registry.seal(sealRequest(task), true);
+        assertThat(pending.workerTaskId()).isEqualTo("worker-task");
+        assertThat(pending.expiredAbsent()).isFalse();
+        assertThat(pending.exitReceipt(sealRequest(task))).isEmpty();
     }
 
     @Test
