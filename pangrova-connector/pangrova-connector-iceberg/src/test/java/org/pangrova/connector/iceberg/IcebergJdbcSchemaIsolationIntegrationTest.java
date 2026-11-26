@@ -151,6 +151,55 @@ class IcebergJdbcSchemaIsolationIntegrationTest extends ContainerTestBase {
     }
 
     @Test
+    void namedReferenceDiscoveryUsesRequestedKindAndOneMetadataObservation() throws Exception {
+        try (var schema = DatabaseSchema.create(); var selected = catalog(schema, "V1")) {
+            verifyNamedReferenceDiscovery(schema, selected);
+        }
+    }
+
+    private static void verifyNamedReferenceDiscovery(DatabaseSchema schema, JdbcCatalog selected) throws SQLException {
+        createTable(selected);
+        var table = selected.loadTable(TABLE);
+        table.newAppend().appendFile(DataFiles.builder(PartitionSpec.unpartitioned())
+                .withPath(table.location() + "/data/first.parquet").withFileSizeInBytes(128)
+                .withRecordCount(1).build()).commit();
+        long original = table.currentSnapshot().snapshotId();
+        table.manageSnapshots().createBranch("feature", original).createTag("release", original).commit();
+
+        var metadata = new IcebergMetadata(selected, schema.name());
+        schema.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public");
+        long before = schema.catalogPointerLookups();
+        var discovery = metadata.discoverRead(READER, new SchemaTableName("data", "events"));
+        assertThat(discovery).isNotNull();
+        assertThat(discovery.referenceSnapshot().apply("BRANCH", "feature")).hasValue(original);
+        assertThat(discovery.referenceSnapshot().apply("TAG", "release")).hasValue(original);
+        assertThat(discovery.referenceSnapshot().apply("BRANCH", "release")).isEmpty();
+        assertThat(discovery.referenceSnapshot().apply("TAG", "feature")).isEmpty();
+        assertThat(discovery.referenceSnapshot().apply("TAG", "missing")).isEmpty();
+        assertThat(schema.catalogPointerLookups() - before).isOne();
+
+        table.newAppend().appendFile(DataFiles.builder(PartitionSpec.unpartitioned())
+                .withPath(table.location() + "/data/second.parquet").withFileSizeInBytes(128)
+                .withRecordCount(1).build()).commit();
+        table.manageSnapshots().replaceBranch("feature", table.currentSnapshot().snapshotId()).commit();
+        assertThat(discovery.referenceSnapshot().apply("BRANCH", "feature")).hasValue(original);
+        var binding = discovery.binder().bind(READER, discovery.handle().withTimeTravelSnapshot(original), null);
+        assertThat(binding.snapshotId()).hasValue(original);
+
+        var manager = new IcebergSplitManager(schema.name(), selected, new IcebergExpressionToSubstrait());
+        long beforeSplits = schema.catalogPointerLookups();
+        var source = manager.getBoundSplits(ConnectorTransactionHandle.empty(),
+                READER, metadata, binding, DynamicFilter.ALL, Constraint.EMPTY);
+        try {
+            assertThat(source.getNextBatch(10)).hasSize(1);
+            assertThat(source.isFinished()).isTrue();
+        } finally {
+            source.close();
+        }
+        assertThat(schema.catalogPointerLookups() - beforeSplits).isOne();
+    }
+
+    @Test
     void jdbcNamedSchemaEvidenceRespectsSpellingAndFirstLevelProjection() throws Exception {
         try (var schema = DatabaseSchema.create(); var selected = catalog(schema, "V1")) {
             var metadata = new IcebergMetadata(selected, schema.name());

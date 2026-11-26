@@ -34,7 +34,7 @@ final class IcebergSnapshotResolver {
         return Optional.of(Instant.ofEpochMilli(snapshot.timestampMillis()));
     }
 
-    /** Returns the snapshot ID behind the named ref, or empty if absent. */
+    /** Returns the snapshot ID behind a reference of the requested kind, or empty if absent. */
     static OptionalLong resolveRefSnapshotId(Catalog catalog, SchemaTableName tableName,
                                              String refType, String refName) {
         TableIdentifier tableId = TableIdentifier.of(tableName.schema(), tableName.table());
@@ -44,11 +44,16 @@ final class IcebergSnapshotResolver {
 
     static OptionalLong resolveRefSnapshotId(Table table, String refType, String refName) {
         SnapshotRef ref = table.refs().get(refName);
-        if (ref == null) {
+        if (ref == null || !matchesKind(ref, refType)) {
             return OptionalLong.empty();
         }
         LOG.info("event=ref_snapshot_resolved table={} refType={} refName={} snapshotId={}",
                 table.name(), refType, refName, ref.snapshotId());
         return OptionalLong.of(ref.snapshotId());
+    }
+
+    private static boolean matchesKind(SnapshotRef ref, String refType) {
+        return ("BRANCH".equals(refType) && ref.isBranch())
+                || ("TAG".equals(refType) && ref.isTag());
     }
 }
