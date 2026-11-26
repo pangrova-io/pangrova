@@ -54,7 +54,8 @@ class DispatchContextEnricherTest {
                 descriptor("standard-v1"))));
 
         DispatchQueryContext enriched = enricher.enrichWithReranker(
-                sources(), context(BM25_SQL), TimeTravelSqlClauses.extract(BM25_SQL).statement(), "query-1", "tenant-a");
+                sources(), context(BM25_SQL), TimeTravelSqlClauses.extract(BM25_SQL).statement(),
+                "query-1", "tenant-a");
 
         RerankerPlanNode plan = enriched.rerankerPlan().orElseThrow();
         var source = (RerankerPlanNode.FullTextSource) plan.sources().get(0);
@@ -69,7 +70,8 @@ class DispatchContextEnricherTest {
                 descriptor("legacy-analyzer"))));
 
         assertThatThrownBy(() -> enricher.enrichWithReranker(
-                sources(), context(BM25_SQL), TimeTravelSqlClauses.extract(BM25_SQL).statement(), "query-2", "tenant-a"))
+                sources(), context(BM25_SQL), TimeTravelSqlClauses.extract(BM25_SQL).statement(),
+                "query-2", "tenant-a"))
                 .isInstanceOfSatisfying(PangrovaException.class, failure ->
                         assertThat(failure.getErrorCode())
                                 .isEqualTo(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE))
@@ -90,7 +92,8 @@ class DispatchContextEnricherTest {
                 });
 
         assertThatThrownBy(() -> enricher(failing).enrichWithReranker(
-                sources(), context(BM25_SQL), TimeTravelSqlClauses.extract(BM25_SQL).statement(), "query-3", "tenant-a"))
+                sources(), context(BM25_SQL), TimeTravelSqlClauses.extract(BM25_SQL).statement(),
+                "query-3", "tenant-a"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("metastore unavailable");
     }
