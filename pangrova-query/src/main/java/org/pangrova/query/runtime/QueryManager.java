@@ -59,7 +59,7 @@ import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.observability.logging.LogContext;
 
 @ThreadSafe
-public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeoutHandler,
+public final class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeoutHandler,
         org.pangrova.query.recovery.QueryRecoveryTarget {
 
     private static final Logger LOG = LoggerFactory.getLogger(QueryManager.class);
@@ -67,6 +67,7 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
             "Coordinator is draining, not accepting new queries";
 
     private final QueryRegistry queries = new QueryRegistry();
+    private final Map<String, QueryStateMachine> pendingCandidateCleanup = new ConcurrentHashMap<>();
     private final Set<String> pendingCancellations = ConcurrentHashMap.newKeySet();
     private final QueryTerminalCleanup terminalCleanup;
     private final org.pangrova.query.lifecycle.QueryAdmissionPort admission;
@@ -119,8 +120,7 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
         this.admission = java.util.Objects.requireNonNull(deps.admission(), "admission");
         this.journalLifecycle = deps.journal();
         this.cleanupScheduler = new QueryRetentionScheduler(queries,
-                terminalCleanup::isPending, this::retryPendingTerminalCompletions,
-                journalLifecycle::purgeExpiredAcceptances);
+                terminalCleanup::isPending, this::retryPendingTerminalCompletions);
         this.asyncSubmitConfig = deps.asyncSubmitConfig();
         this.asyncExecutor = deps.asyncExecutor();
         this.submitDeadlines = deps.submitDeadlines();
@@ -235,13 +235,10 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
             if (ownsRegistration) {
                 queries.releaseSubmission(queryId, stateMachine);
             } else {
-                ResourceCloser.closeAll(failure,
-                        stateMachine::releaseAdmission,
-                        () -> admission.releaseThrottle(queryId),
-                        () -> {
-                            if (queries.get(queryId) == null) cleanupCandidate(queryId, stateMachine);
-                        },
-                        () -> queries.releaseSubmission(queryId, stateMachine));
+                Throwable cleanupFailure = cleanupRejectedCandidate(queryId, stateMachine, failure);
+                if (cleanupFailure != null) {
+                    LOG.error("event=query_candidate_cleanup_pending queryId={}", queryId, cleanupFailure);
+                }
             }
             boolean accepted = acceptance != null && stateMachine.hasJournalOwnership()
                     && ownsRegistration;
@@ -455,6 +452,48 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
         sm.setTransitionOperations(() -> queryDispatcher.enterQueryMetadataOperation(queryId));
     }
 
+    private Throwable cleanupRejectedCandidate(String queryId, QueryStateMachine state, Throwable original) {
+        Throwable cleanupFailure = null;
+        try {
+            state.releaseAdmission();
+        } catch (RuntimeException | Error rejected) {
+            cleanupFailure = rejected;
+        }
+        try {
+            admission.releaseThrottle(queryId);
+        } catch (RuntimeException | Error rejected) {
+            if (cleanupFailure == null) cleanupFailure = rejected;
+            else cleanupFailure.addSuppressed(rejected);
+        }
+        if (queries.get(queryId) == null) {
+            try {
+                cleanupCandidate(queryId, state);
+            } catch (RuntimeException | Error rejected) {
+                if (cleanupFailure == null) cleanupFailure = rejected;
+                else cleanupFailure.addSuppressed(rejected);
+            }
+        }
+        if (cleanupFailure == null) {
+            pendingCandidateCleanup.remove(queryId, state);
+            queries.releaseSubmission(queryId, state);
+            return null;
+        }
+        pendingCandidateCleanup.put(queryId, state);
+        if (original != null) original.addSuppressed(cleanupFailure);
+        if (cleanupFailure instanceof Error error) throw error;
+        return cleanupFailure;
+    }
+
+    private void retryPendingCandidateCleanups() {
+        for (var entry : pendingCandidateCleanup.entrySet()) {
+            try {
+                cleanupRejectedCandidate(entry.getKey(), entry.getValue(), null);
+            } catch (RuntimeException failure) {
+                LOG.warn("event=query_candidate_cleanup_retry_failed queryId={}", entry.getKey(), failure);
+            }
+        }
+    }
+
     private void cleanupCandidate(String queryId, QueryStateMachine state) {
         try {
             if (state.hasConnectorAuthority()) {
@@ -506,6 +545,7 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
         if (pending != null) {
             pendingCancellations.add(queryId);
             boolean cancelled = pending.tryTransition(QueryState.CANCELLED);
+            pendingCancellations.remove(queryId);
             return cancelled || pending.getState() == QueryState.CANCELLED;
         }
         QueryStateMachine registered = queries.get(queryId);
@@ -605,7 +645,7 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
     /** Waits for actual execution and dependent cleanup, not merely logical termination. */
     public boolean awaitAllQueries(long timeoutMs) {
         setAcceptingQueries(false);
-        return queries.awaitDrain(timeoutMs, terminalCleanup::retryPending);
+        return queries.awaitDrain(timeoutMs, this::retryPendingCleanup);
     }
 
     /** Returns query IDs whose physical cleanup remains outstanding. */
@@ -694,6 +734,12 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
 
     public void retryPendingTerminalCompletions() {
         readerPinRenewal.ifPresent(ReaderPinRenewal::renewDue);
+        retryPendingCleanup();
+    }
+
+    private void retryPendingCleanup() {
+        journalLifecycle.purgeExpiredAcceptances();
+        retryPendingCandidateCleanups();
         terminalCleanup.retryPending();
     }
 

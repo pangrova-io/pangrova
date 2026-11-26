@@ -29,7 +29,9 @@ public final class QueryRegistry {
     public QueryStateMachine register(String id, QueryStateMachine state, Runnable initialize) {
         synchronized (submissionGate) {
             QueryStateMachine pending = pendingSubmissions.get(id);
-            if (pending != null && pending != state) return pending;
+            if (pending != null && pending != state) {
+                throw new QueryRegistrationPendingException(id);
+            }
             QueryStateMachine competing = registering.putIfAbsent(id, state);
             if (competing != null) return competing;
         }

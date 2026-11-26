@@ -60,7 +60,8 @@ class QueryRegistryTest {
         var recovered = new QueryStateMachine();
         var initialized = new AtomicInteger();
         assertThat(registry.reserveSubmission("shared", candidate)).isTrue();
-        assertThat(registry.register("shared", recovered, initialized::incrementAndGet)).isSameAs(candidate);
+        assertThatThrownBy(() -> registry.register("shared", recovered, initialized::incrementAndGet))
+                .isInstanceOf(QueryRegistrationPendingException.class);
         assertThat(initialized).hasValue(0);
         assertThat(registry.get("shared")).isNull();
         registry.releaseSubmission("shared", candidate);

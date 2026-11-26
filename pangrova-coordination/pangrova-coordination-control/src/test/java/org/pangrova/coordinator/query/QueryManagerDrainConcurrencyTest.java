@@ -254,6 +254,20 @@ class QueryManagerDrainConcurrencyTest {
     }
 
     @Test
+    void failedCandidateCleanupRetainsDrainUntilRetrySucceeds() throws Exception {
+        var dispatcher = new CleanupRetryDispatcher();
+        QueryManager manager = new QueryManager(
+                QueryManagerTestContexts.minimal(dispatcher, TestObservability.TRACING));
+        assertThatThrownBy(() -> manager.submitQuery("cleanup-retry", "SELECT 1", testSession()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("issuance bind failed");
+        assertThat(manager.getActiveQueryCount()).isOne();
+        assertThat(manager.awaitAllQueries(1000)).isTrue();
+        assertThat(dispatcher.cleanupAttempts).hasValue(2);
+        assertThat(manager.getActiveQueryCount()).isZero();
+    }
+
+    @Test
     void deniedOwnershipUnblocksCancellationWithoutCleanup() throws Exception {
         BlockingOwnershipDispatcher dispatcher = new BlockingOwnershipDispatcher(false);
         QueryManager manager = new QueryManager(
@@ -444,6 +458,23 @@ class QueryManagerDrainConcurrencyTest {
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
                 throw new IllegalStateException(interrupted);
+            }
+        }
+    }
+
+    private static final class CleanupRetryDispatcher extends FinishingDispatcher {
+        private final AtomicInteger cleanupAttempts = new AtomicInteger();
+
+        @Override
+        public org.pangrova.connector.api.metadata.ConnectorMetadataScope bindConnectorAuthority(
+                QueryStateMachine state, String queryId) {
+            throw new IllegalStateException("issuance bind failed");
+        }
+
+        @Override
+        public void releaseQueryOwnership(String queryId) {
+            if (cleanupAttempts.incrementAndGet() == 1) {
+                throw new IllegalStateException("cleanup release failed");
             }
         }
     }

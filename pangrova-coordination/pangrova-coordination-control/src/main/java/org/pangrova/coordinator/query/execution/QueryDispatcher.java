@@ -184,9 +184,21 @@ public class QueryDispatcher implements org.pangrova.query.lifecycle.QueryExecut
     /** Registers the exact public state-bound lifetime before planning can perform connector I/O. */
     public org.pangrova.connector.api.metadata.ConnectorMetadataScope bindConnectorAuthority(
             QueryStateMachine state, String queryId) {
-        var authority = state.bindConnectorAuthority(taskTracker.openQueryIssuance(queryId));
-        ownershipTracker.registerConnectorAuthority(authority);
-        return authority;
+        var issued = taskTracker.openQueryIssuance(queryId);
+        try {
+            var authority = state.bindConnectorAuthority(issued);
+            ownershipTracker.registerConnectorAuthority(authority);
+            return authority;
+        } catch (RuntimeException | Error failure) {
+            try {
+                if (taskTracker.tryClaimQueryCleanup(queryId)) {
+                    taskTracker.retireQueryIssuance(queryId);
+                }
+            } catch (RuntimeException | Error cleanup) {
+                failure.addSuppressed(cleanup);
+            }
+            throw failure;
+        }
     }
 
     public List<String> removeColumnNames(String queryId) {

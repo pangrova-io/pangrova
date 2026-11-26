@@ -19,8 +19,7 @@ class QueryRetentionSchedulerTest {
     @Test
     void physicalCompletionRetriesDoNotWaitForRetentionSweep() throws Exception {
         var retried = new java.util.concurrent.CountDownLatch(1);
-        var scheduler = new QueryRetentionScheduler(new QueryRegistry(), ignored -> true, retried::countDown,
-                () -> { });
+        var scheduler = new QueryRetentionScheduler(new QueryRegistry(), ignored -> true, retried::countDown);
         var timer = java.util.concurrent.Executors.newSingleThreadScheduledExecutor();
         var cleanup = java.util.concurrent.Executors.newSingleThreadExecutor();
         try {
@@ -39,7 +38,7 @@ class QueryRetentionSchedulerTest {
     void cleanupRemovesTerminalQueryState() {
         QueryRegistry queries = new QueryRegistry();
         QueryRetentionScheduler scheduler = new QueryRetentionScheduler(
-                queries, ignored -> false, () -> { }, () -> { });
+                queries, ignored -> false, () -> { });
 
         QueryStateMachine sm = terminalStateMachine();
         queries.register("q1", sm, () -> { });
@@ -54,7 +53,7 @@ class QueryRetentionSchedulerTest {
     void cleanupPreservesActiveQuery() {
         QueryRegistry queries = new QueryRegistry();
         QueryRetentionScheduler scheduler = new QueryRetentionScheduler(
-                queries, ignored -> false, () -> { }, () -> { });
+                queries, ignored -> false, () -> { });
 
         QueryStateMachine active = new QueryStateMachine();
         active.tryTransition(QueryState.PLANNING);
@@ -70,7 +69,7 @@ class QueryRetentionSchedulerTest {
     void cleanupRemovesMultipleTerminalQueries() {
         QueryRegistry queries = new QueryRegistry();
         QueryRetentionScheduler scheduler = new QueryRetentionScheduler(
-                queries, ignored -> false, () -> { }, () -> { });
+                queries, ignored -> false, () -> { });
 
         for (int i = 0; i < 3; i++) {
             String qid = "q-batch-" + i;
@@ -86,7 +85,7 @@ class QueryRetentionSchedulerTest {
     @Test
     void logicalTerminalWithoutPhysicalCleanupIsRetained() {
         var queries = new QueryRegistry();
-        var scheduler = new QueryRetentionScheduler(queries, ignored -> false, () -> { }, () -> { });
+        var scheduler = new QueryRetentionScheduler(queries, ignored -> false, () -> { });
         // This is a lifecycle-state boundary test, not Native release evidence.
         var state = logicalTerminal();
         queries.register("physical-owner", state, () -> { });

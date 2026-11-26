@@ -37,17 +37,14 @@ public final class QueryRetentionScheduler {
     private final QueryRegistry queries;
     private final Predicate<String> hasPendingCompletion;
     private final Runnable retryPendingCompletions;
-    private final Runnable purgeExpiredAcceptances;
 
     /** Borrows the authoritative concurrent registry; eviction must update that same registry. */
     public QueryRetentionScheduler(QueryRegistry queries,
                           Predicate<String> hasPendingCompletion,
-                          Runnable retryPendingCompletions,
-                          Runnable purgeExpiredAcceptances) {
+                          Runnable retryPendingCompletions) {
         this.queries = queries;
         this.hasPendingCompletion = hasPendingCompletion;
         this.retryPendingCompletions = retryPendingCompletions;
-        this.purgeExpiredAcceptances = purgeExpiredAcceptances;
     }
 
     /** Retries completion and evicts by creation-time retention only after terminal effects and physical cleanup. */
@@ -55,7 +52,6 @@ public final class QueryRetentionScheduler {
         retryPendingCompletions.run();
         Instant cutoff = Instant.now().minus(retention);
         int removed = queries.evictBefore(cutoff, hasPendingCompletion);
-        purgeExpiredAcceptances.run();
         if (removed > 0) {
             LOG.info("event=query_cleanup removed={} retention={}", removed, retention);
         }
