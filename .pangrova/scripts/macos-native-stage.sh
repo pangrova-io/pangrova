@@ -30,7 +30,7 @@ fingerprint() {
 }
 
 require_file() {
-    [[ -s "$root/$1" ]] || die "Stage $stage lacks required output: $1"
+    [[ -f "$root/$1" && -s "$root/$1" ]] || die "Stage $stage lacks required output: $1"
 }
 
 require_architecture() {
@@ -38,9 +38,15 @@ require_architecture() {
         || die "Stage $stage has an incompatible binary architecture: $1"
 }
 
+require_executable() {
+    require_file "$1"
+    [[ -x "$root/$1" ]] || die "Stage $stage required tool is not executable: $1"
+    require_architecture "$1"
+}
+
 verify_outputs() {
-    require_file native-deps/bin/protoc
-    require_file native-deps/bin/grpc_cpp_plugin
+    require_executable native-deps/bin/protoc
+    require_executable native-deps/bin/grpc_cpp_plugin
     require_file native-deps/lib/cmake/protobuf/protobuf-config.cmake
     require_file native-deps/lib/cmake/grpc/gRPCConfig.cmake
     require_file native-deps/lib/cmake/re2/re2Config.cmake

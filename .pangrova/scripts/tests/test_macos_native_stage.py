@@ -1,8 +1,10 @@
 """Exercise the real stage archive and identity contract, not a Native build."""
+import hashlib
 import os
 from pathlib import Path
 import shutil
 import subprocess
+import tarfile
 import tempfile
 import unittest
 
@@ -64,7 +66,8 @@ fi
                      "lib/cmake/grpc/gRPCConfig.cmake",
                      "lib/cmake/re2/re2Config.cmake", "lib/libre2.a"):
             self.create("native-deps/" + name)
-        (self.root / "native-deps/bin/protoc").chmod(0o755)
+        for tool in ("protoc", "grpc_cpp_plugin"):
+            (self.root / "native-deps/bin" / tool).chmod(0o755)
         for name in ("velox/core/PlanNode.h", ".git/HEAD", "deps-install/lib/libfolly.a",
                      "deps-install/.pangrova-folly-alignment", "deps-install/.pangrova-fbthrift-ready",
                      "deps-install/lib/cmake/Snappy/SnappyConfig.cmake", "deps-install/lib/libsnappy.a",
@@ -98,7 +101,8 @@ fi
         self.assert_ok(self.run_stage("pack", "core"))
         self.fresh()
         self.assert_ok(self.run_stage("restore", "core"))
-        self.assertTrue((self.root / "native-deps/bin/protoc").stat().st_mode & 0o100)
+        for tool in ("protoc", "grpc_cpp_plugin"):
+            self.assertTrue((self.root / "native-deps/bin" / tool).stat().st_mode & 0o100)
         self.assertTrue((self.root / "velox/deps-install/lib/libfolly.a").is_file())
         self.assertFalse((self.root / "velox/_build/release/lib/libvelox.a").exists())
 
@@ -126,6 +130,52 @@ fi
         result = self.run_stage("pack", "sdk")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("lacks required output", result.stderr)
+
+    def test_required_package_config_must_be_regular_nonempty_file(self):
+        self.prepare()
+        config = self.root / "native-deps/lib/cmake/protobuf/protobuf-config.cmake"
+        config.unlink()
+        config.mkdir()
+        (config / "README").write_text("not a CMake package config")
+        result = self.run_stage("pack", "core")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("lacks required output", result.stderr)
+
+    def test_both_build_tools_must_be_executable(self):
+        self.prepare()
+        for tool in ("protoc", "grpc_cpp_plugin"):
+            with self.subTest(tool=tool):
+                path = self.root / "native-deps/bin" / tool
+                path.chmod(0o644)
+                result = self.run_stage("pack", "core")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("not executable", result.stderr)
+                path.chmod(0o755)
+
+    def test_restored_tool_must_be_executable(self):
+        self.prepare()
+        self.assert_ok(self.run_stage("pack", "core"))
+        (self.root / "native-deps/bin/grpc_cpp_plugin").chmod(0o644)
+        archive = self.bundle / "prefix.tar.gz"
+        # Model an older genuine stage archive with an incorrect tool mode.
+        with tarfile.open(archive, "w:gz") as bundle:
+            for directory in ("native-deps", "velox"):
+                bundle.add(self.root / directory, arcname=directory)
+        checksum = hashlib.sha256(archive.read_bytes()).hexdigest()
+        (self.bundle / "prefix.sha256").write_text(f"{checksum}  prefix.tar.gz\n")
+        self.fresh()
+        result = self.run_stage("restore", "core")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("not executable", result.stderr)
+
+    def test_both_build_tools_must_match_runner_architecture(self):
+        self.prepare()
+        for tool in ("protoc", "grpc_cpp_plugin"):
+            with self.subTest(tool=tool):
+                path = self.root / "native-deps/bin" / tool
+                result = self.run_stage("pack", "core", TEST_WRONG_BINARY=str(path))
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("incompatible binary architecture", result.stderr)
 
     def test_revision_run_architecture_and_toolchain_mismatch_are_rejected(self):
         self.prepare()
