@@ -20,7 +20,7 @@ unlisted: true
 
 | ID | 当前事实与缺口 | 实施工作包 |
 |---|---|---|
-| A1 | 幂等 registry 仍是进程内缓存；初始 `QUEUED`、principal/key、请求指纹和原始回执尚未在同一 durable acceptance 中成立 | WP1.1 |
+| A1 | WP1.1 已将 principal/key digest、canonical fingerprint、lineage 和确定性 `QUEUED`/`PENDING` 回执原子写入初始 journal；正常新受理一次 INSERT，冲突/未知提交读取权威行，active query 不因 TTL 过期，terminal 后由有界 sweep 清理 | WP1.1，本地 PostgreSQL/查询链验证后提交；双 Coordinator 进程 E2E 待续 |
 | A2 | 状态机已有原子版本、waiter 和 drain；缺少可信 query-owner directory/forward，非 owner 请求直接失败 | WP1.2 |
 | A3 | WP1.3 已引入显式 `PENDING` / `STREAM` / `NONE`，并贯通 dispatch、状态机、REST、JDBC、CLI 和 benchmark；代码合同已闭合，跨主机 resultless/延迟发布 E2E 仍待验收 | WP1.3，本地验证后提交；生产验收待续 |
 | A4 | 已有阶段观测和固定到达率样本；尚未接入完整 production phase/queue/rejection/timeout/drain KPI 与容量矩阵 | WP2 |
@@ -103,7 +103,7 @@ unlisted: true
 ## 固定三条稳态零读库门槛（目标状态）
 
 1. **状态订阅和诊断读取。** 活跃 query 由 owner 的认证状态投影提供。正常状态读取与客户端重连在投影窗口内产生零 journal SELECT。只在接管、冷启动重放、明确的历史查询读取数据库。以两个 Coordinator 和大量同 query 的客户端断言次数，覆盖 Ready endpoint 和错误细节。当前非 owner 定向路由尚未实现，见 A2。
-2. **持久 journal。** 目标为正常新事件一次 INSERT，独立 SELECT 为零；可用插入计数或 `RETURNING` 证明新写入。当前 `JournalEventSql` 使用 `executeUpdate()`，只在 event ID 冲突时 SELECT 核对，因此 `INSERT ... RETURNING` 仍是 A1 的可选方案而非当前实现。事务、lineage 原子性和最终 ACK 所代表的 durability 保持一致。对已提交写的状态判断只读取一次，未知提交仍从权威证据核对。
+2. **持久 journal。** 正常新受理和新事件各一次 INSERT，独立 SELECT 为零。A1 的初始 `QUEUED` 行同时承载 principal、key digest、request fingerprint、lineage 和确定性 `QUEUED`/`PENDING` 回执；`INSERT ... ON CONFLICT DO NOTHING` 的正常路径不读回，只有 event/idempotency 冲突或未知提交结果才 SELECT 核对。事务、lineage 原子性和最终 ACK 所代表的 durability 保持一致。对已提交写的状态判断只读取一次，未知提交仍从权威证据核对。
 3. **Shuffle steady state。** 只在建流、续租、最终关闭与恢复触及读租约数据库。manifest 是由已提交 attempt 发布的不可变数据。每 batch 禁止同步数据库操作，同时本地核验 scope/epoch、租约有效期、撤销与 byte credit；已有在途读取保有精确保护时间。测试每 batch/每 chunk 的 SQL 计数和撤销后新数据是否可见。durable revocation 收敛尚未实现，见 A11。
 
 ## 校准后的设计决策
@@ -112,7 +112,7 @@ unlisted: true
 
 **控制面先改等待方式。** 用现有 HTTP 提供基于状态版本的异步有界等待，每个客户端同一查询最多一个 waiter。状态版本与 waiter 登记必须原子衔接，再检查版本，防止状态恰在登记期间变化而丢唤醒。立即结果走同一响应，取消/超时注销等待，按 principal 和 tenant 限制并发与时长。首版由 owner 提供状态，peer 通过已有 owner 信息定向请求。跨节点流转只更新轻量视图，未证明有必要之前无需全局事件总线或常驻流连接。Ready、Terminal 和 Drained 可独立出现，快速任务和无结果集也有完整响应。Trino 的 `nextUri` 与服务端有限 `waitForResults` 支持这种请求形态。Pangrova 继续用 Flight 传数据。 [Trino 客户端协议](https://trino.io/docs/current/develop/client-protocol.html) · [Trino 实现](https://github.com/trinodb/trino/blob/master/core/trino-main/src/main/java/io/trino/server/protocol/ExecutingStatementResource.java)
 
-**跨 owner 幂等先做合同。** 当前 `IdempotencyKeyRegistry` 是进程内 map，key 由 principal 与请求幂等键组成。owner 路由可以降低重复访问，但响应已丢、owner 已退出时，路由不能证明该 SQL 从未受理。若支持跨节点重复提交，必须在一次受理提交中保留可恢复的授权作用域、键、请求摘要与 queryId。优先与已有 durable 受理事实一起持久化，由权威唯一约束选出原请求。正常只走受理写入，冲突/未知结果再读取验证。取到已受理回执也不触发第二次 DML。没有配置跨节点持久受理时，在该部署合同内提供受理 owner 范围的幂等。验收分别注入响应丢失、崩溃与接管。
+**跨 owner 幂等使用同一受理权威。** 初始 `QUEUED` journal 行保存 principal、幂等键 digest、canonical request fingerprint、lineage 和确定性受理回执，并以 `(principal, key_digest)` 与初始 `query_id` 的部分唯一约束选出原请求。正常请求只做一次受理 INSERT；冲突、响应丢失和恢复路径才读取并逐字段比较。重放不会再次执行 SQL，也不会依赖进程内 map。验收保留真实 PostgreSQL 双 Coordinator、响应丢失、崩溃与接管用例；当前本地集成测试已覆盖单写、冲突、未知提交、principal 隔离和 TTL 边界。
 
 **控制协议和调度分开验收。** 保留现有 HTTP 服务设施，以一个 canonical 二进制消息替换 task/report 的 JSON+Base64 镜像，可独立测 body bytes、解析次数和 CPU/attempt。避免把新 gRPC 服务、共享计划缓存、重新编排 ACK 同时设成依赖。销毁任务与取消不能靠 HTTP 是否返回判断。Worker 快速接纳和真正端点 Ready 若需分开，以精确 attempt 和当前 generation 表达。对于不产生端点的任务无需额外 Ready RPC。DAG callback 只做小型状态发布，用查询顺序和 admission 约束交接给有界工作池，阶段准备与 durable commit 各有容量。用阻塞目录、慢对象存储、终态报告压力和关闭观察无关查询 P95、队列和 resource drain。
 
@@ -120,7 +120,7 @@ unlisted: true
 
 ### PostgreSQL 热路径与撤权边界
 
-**journal 保持冲突可判定（历史设计验证）。** 用 PostgreSQL 16 隔离容器和两个连接复现了新行 `RETURNING` 可验证 JSONB 内容、并发冲突的单条 CTE 返回零行、后续语句能看到已提交赢家。这验证了 `INSERT ... ON CONFLICT DO NOTHING RETURNING` 的可行性，但当前生产实现使用 `executeUpdate()` 并在冲突时 SELECT；`RETURNING` 不得写成现状。目标仍是新行一次往返、零独立 SELECT。冲突分支按当前事务隔离和提交证据精确读取并比较，同键异 payload 判定冲突。涉及 lineage 的写入、事务提交和 ACK 次序独立保留。 [PostgreSQL 16 INSERT](https://www.postgresql.org/docs/16/sql-insert.html) · [隔离级别](https://www.postgresql.org/docs/16/transaction-iso.html)
+**journal 保持冲突可判定。** 当前生产实现使用 `executeUpdate()` 和 `INSERT ... ON CONFLICT DO NOTHING`；正常路径一次 INSERT、零读回，event ID 或 idempotency 冲突时才 SELECT 核对。A1 的真实 PostgreSQL 测试覆盖正常单写、跨 journal 实例重放、同键异 fingerprint、未知 commit response 和 retention。早期 `RETURNING` 实验仍只作为历史设计验证，不写成当前实现。 [PostgreSQL 16 INSERT](https://www.postgresql.org/docs/16/sql-insert.html) · [隔离级别](https://www.postgresql.org/docs/16/transaction-iso.html)
 
 **Remote Shuffle 消费端去掉逐 batch 锁定查询（历史基线）。** 早期的 `requirePinnedRead` 事务包含 anchor、scope `FOR UPDATE` 和 pin 查询，双连接试验确认了同 scope 的 `FOR UPDATE` 等待和不同 scope 的隔离范围。该调用形态已被后续 read lease/write window 批次取代，不再作为当前逐 batch 成本。当前验收要求数据面逐 batch/chunk 零授权 SQL，并在建流、续租、关闭、恢复和撤销边界单独计数；durable revocation 仍见 A11。 [PostgreSQL 16 行锁](https://www.postgresql.org/docs/16/explicit-locking.html#LOCKING-ROWS)
 

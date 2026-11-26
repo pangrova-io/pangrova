@@ -204,6 +204,10 @@ public class QueryStateMachine {
         return connectorAuthority;
     }
 
+    public synchronized boolean hasConnectorAuthority() {
+        return connectorAuthority != null;
+    }
+
     synchronized org.pangrova.connector.api.query.ConnectorQueryOperation enterConnectorOperation(
             org.pangrova.connector.api.query.ConnectorQueryAuthority issued) {
         if (connectorAdmissionClosed()) {

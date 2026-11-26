@@ -142,18 +142,21 @@ Coordinator for bounded control-plane rows. The protocol is canonical and must b
 or `FINISHING` stream before waiting for `FINISHED`; bounded output can require an
 active reader to finish. The `session_properties` field is optional and defaults
 to an empty map. When an authenticated principal submits an `Idempotency-Key`, the
-Coordinator retains the original submission receipt for ten minutes after completion.
-A retry with the same SQL and session properties returns that receipt, including its
-original state and result endpoint. Poll the state endpoint for later transitions.
-Changing the SQL or session properties with the same key returns HTTP 409. Each
-principal has an independent key space. Concurrent matching requests share the first
-submission. Receipt expiry is processed in bounded batches during subsequent submissions.
+Coordinator atomically records the principal, key digest, canonical request
+fingerprint, lineage, and a deterministic `QUEUED`/`PENDING` acceptance receipt in
+the initial journal row. A normal new acceptance performs one journal INSERT and no
+readback. During the acceptance window, a matching retry returns the same query ID
+and acceptance receipt without executing the SQL again; changing SQL or session
+properties returns HTTP 409. Each principal has an independent key space.
 
-A rejection before query registration, such as a draining Coordinator, releases the
-key. If the submission throws after registration or registration cannot be confirmed,
-the Coordinator preserves the error for the same retention window and returns
-`X-Pangrova-Query-Id` so the client can look up the execution. These guarantees cover
-one running Coordinator. Restart and failover discard its in-memory submission keys.
+Acceptance facts remain until ten minutes after the later of acceptance or terminal
+completion. Once that window elapses, a new candidate may reuse the key with either
+an identical or a different request, even before the periodic sweep removes its old
+terminal acceptance. Active queries never expire. Conflict and uncertain-commit paths read the authoritative row and
+compare its fingerprint; restart and failover do not discard idempotency state.
+Poll the state endpoint for later transitions. A rejection before durable acceptance
+releases the key, while a failure after acceptance remains attached to the accepted
+query ID.
 
 ### Query Lifecycle
 

@@ -3026,6 +3026,7 @@ artifacts:
         - pangrova-security-codec
         - pangrova-shuffle-api
       test:
+        - pangrova-governance-api
         - pangrova-persistence-query-api
         - pangrova-query
         - pangrova-testing-kit
@@ -4128,7 +4129,6 @@ artifacts:
       - org.pangrova.server.coordinator.bootstrap.query.state
       - org.pangrova.server.coordinator.embedding
       - org.pangrova.server.coordinator.enums
-      - org.pangrova.server.coordinator.exception
       - org.pangrova.server.coordinator.http
       - org.pangrova.server.coordinator.http.endpoint
       - org.pangrova.server.coordinator.http.endpoint.catalog

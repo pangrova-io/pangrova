@@ -222,6 +222,27 @@ class QueryManagerJournalTest {
         }
     }
 
+    @Test void unresolvedIdempotentAcceptanceRetainsCleanupUntilTheJournalCommits() throws Exception {
+        try (var fixture = new QueryManagerJournalFixture(2)) {
+            fixture.store.denyQueryInsert();
+            var acceptance = new org.pangrova.query.api.journal.QueryAcceptanceRequest(
+                    "fixture-subject", "a".repeat(64), "b".repeat(64));
+            var receipt = fixture.manager.submitQuery("accepted-idempotent", "SELECT 1",
+                    SourceFreeQueryFixture.session("accepted-idempotent"), acceptance);
+            assertThat(receipt.queryId()).isEqualTo("accepted-idempotent");
+            assertThat(receipt.state()).isEqualTo(QueryState.QUEUED);
+            assertThat(fixture.manager.getActiveQueryCount()).isEqualTo(1);
+            assertThat(fixture.manager.getQueryState("accepted-idempotent")).contains(QueryState.FAILED);
+            fixture.store.allowQueryInsert();
+            fixture.retry();
+            assertThat(fixture.manager.awaitAllQueries(5000)).isTrue();
+            assertThat(fixture.store.committedEvents("accepted-idempotent").stream()
+                    .filter(event -> event.state().equals("QUEUED"))).hasSize(1);
+            assertThat(fixture.store.terminalWrites("accepted-idempotent", "FAILED")).isEqualTo(1);
+            assertThat(fixture.admission.admittedCount("fixture-tenant")).isZero();
+        }
+    }
+
     private static class CountingController implements ClusterAdmissionController {
         private final java.util.function.Function<AdmissionRequest, AdmissionDecision> admission;
         int releases;
