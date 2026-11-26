@@ -266,17 +266,18 @@ runner ships about 14 GB free and the repository cache limit is 10 GB, so:
   OCI image to GHCR when the repository variable
   `PANGROVA_NATIVE_DEPS_IMAGE=ghcr` is set and package write permission is
   granted. Linux CI consumes that image only when the variable is set. The
-  baseline workflow still publishes the macOS dependency archive for
-  diagnostics and separate qualification.
+  baseline workflow uses the same two macOS SDK build stages as CI and
+  publishes the macOS dependency archive for diagnostics and separate
+  qualification.
 - Hosted macOS CI separates canonical and Velox prerequisite packages,
   Velox/Arrow Flight SDK construction and the Native build/test into three
   jobs per selected architecture using a per-platform reusable workflow.
   Linux platform builds have no macOS-stage dependency. The six-hour
   **per-job** limit must not put cold dependency builds and Native tests in
   the same time budget. Each consumer
-  checks the same-run, source revision, architecture, runner image, compiler
-  and SDK identity and verifies the archive checksum and required outputs
-  before using it. The SDK artifact retains the source provenance checkout,
+  checks the workflow run, source revision, architecture, macOS build,
+  compiler, SDK and linked Homebrew versions. It records the runner image
+  and verifies the archive checksum and required outputs before using it. The SDK artifact retains the source provenance checkout,
   headers, generated configuration and libraries, but excludes object files
   and download archives. Artifacts are short-lived, not cross-run dependency
   caches; partitioning adds transfer overhead. macOS no longer restores an

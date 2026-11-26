@@ -32,8 +32,6 @@ jobs:
         platform:
           - { name: linux-x86_64, runner: ubuntu-24.04, os: linux }
           - { name: linux-aarch_64, runner: ubuntu-24.04-arm, os: linux }
-          - { name: osx-x86_64, runner: macos-15-intel, os: osx }
-          - { name: osx-aarch_64, runner: macos-15, os: osx }
     steps:
       - uses: actions/checkout@v7
 
@@ -79,35 +77,18 @@ jobs:
       - name: Build dependency prefix and Velox build layer
         run: bash ./pangrova-worker-native/bin/setup-native-build-env.sh
 
-      - name: Package dependency baseline (macOS)
-        if: matrix.platform.os == 'osx'
-        shell: bash
-        run: |
-          set -euo pipefail
-          archive="$RUNNER_TEMP/native-deps-${{ matrix.platform.name }}.tar.zst"
-          pack() {
-            tar --zstd -cf "$archive" \
-              -C "$HOME/.pangrova" \
-              native-deps \
-              velox/deps-install \
-              velox/archive-cache \
-              velox/_build/release/_deps
-          }
-          if ! command -v zstd >/dev/null 2>&1; then
-            HOMEBREW_NO_AUTO_UPDATE=1 brew install zstd
-          fi
-          rm -f "$archive"
-          pack
-          du -h "$archive"
-
-      - name: Upload dependency baseline artifact (macOS)
-        if: matrix.platform.os == 'osx'
-        uses: actions/upload-artifact@v7
-        with:
-          name: native-deps-${{ matrix.platform.name }}
-          path: ${{ runner.temp }}/native-deps-${{ matrix.platform.name }}.tar.zst
-          if-no-files-found: error
-          retention-days: 14
+  warm-macos:
+    name: Warm baseline (${{ matrix.platform.name }})
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - { name: osx-x86_64, runner: macos-15-intel, os: osx }
+          - { name: osx-aarch_64, runner: macos-15, os: osx }
+    uses: ./.github/workflows/native-platform.yml
+    with:
+      platform: ${{ toJSON(matrix.platform) }}
+      sdk-only: true
 
   publish-image:
     name: Publish dependency image (${{ matrix.platform.name }})

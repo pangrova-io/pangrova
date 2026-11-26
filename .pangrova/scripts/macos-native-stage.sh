@@ -79,12 +79,15 @@ if [[ "$operation" == pack ]]; then
     verify_outputs
     mkdir -p "$bundle"
     fingerprint > "$bundle/identity.txt"
-    directories=(native-deps velox)
-    # Keep headers, source identity, static/shared libraries and generated
-    # configuration. Compilation intermediates and download archives are not
-    # inputs to the downstream Pangrova consumer; don't ship those large trees.
-    tar -czf "$bundle/prefix.tar.gz" --exclude='*.o' --exclude='*.obj' \
-        --exclude='velox/archive-cache' -C "$root" "${directories[@]}"
+    exclusions=(--exclude='*.o' --exclude='*.obj')
+    # The scheduled baseline publishes its source archive cache for diagnostics.
+    # Ordinary SDK and test consumers require only installed and generated files.
+    if [[ "$stage" == core && "${PANGROVA_MACOS_STAGE_ARCHIVES:-0}" == 1 ]]; then
+        [[ -d "$root/velox/archive-cache" ]] || die "Required Velox source archives are absent"
+    else
+        exclusions+=(--exclude='velox/archive-cache')
+    fi
+    tar -czf "$bundle/prefix.tar.gz" "${exclusions[@]}" -C "$root" native-deps velox
     (cd "$bundle" && shasum -a 256 prefix.tar.gz > prefix.sha256)
     du -h "$bundle/prefix.tar.gz"
 else

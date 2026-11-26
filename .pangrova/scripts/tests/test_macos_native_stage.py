@@ -109,6 +109,14 @@ echo "libevent ${TEST_LIBEVENT_VERSION:-2.1.12}"
         self.assertTrue((self.root / "velox/deps-install/lib/libfolly.a").is_file())
         self.assertFalse((self.root / "velox/_build/release/lib/libvelox.a").exists())
 
+    def test_baseline_core_bundle_carries_its_archive_cache(self):
+        self.prepare()
+        self.create("velox/archive-cache/source.tar.gz")
+        self.assert_ok(self.run_stage("pack", "core", PANGROVA_MACOS_STAGE_ARCHIVES="1"))
+        self.fresh()
+        self.assert_ok(self.run_stage("restore", "core"))
+        self.assertEqual((self.root / "velox/archive-cache/source.tar.gz").read_text(), "fixture\n")
+
     def test_intel_core_round_trip_uses_x86_64_architecture(self):
         self.prepare()
         self.assert_ok(self.run_stage("pack", "core", TEST_ARCH="x86_64"))

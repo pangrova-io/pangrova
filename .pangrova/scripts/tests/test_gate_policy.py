@@ -613,7 +613,15 @@ class RuntimeScopeTest(unittest.TestCase):
         self.assertIn('schedule:', baseline)
         self.assertIn('pangrova-v1-deps-${{ matrix.platform.runner }}-${{ runner.arch }}-', baseline)
         self.assertIn('pangrova-v1-velox-${{ matrix.platform.runner }}-${{ runner.arch }}-', baseline)
-        self.assertIn('native-deps-${{ matrix.platform.name }}.tar.zst', baseline)
+        linux, macos = baseline.split('  warm-macos:\n', 1)
+        self.assertNotIn('macos-15', linux)
+        self.assertIn('uses: ./.github/workflows/native-platform.yml', macos)
+        self.assertIn('sdk-only: true', macos)
+        platform = (WORKFLOWS / 'native-platform.yml').read_text()
+        sdk, native = platform.split('  native-build:\n', 1)
+        self.assertIn('native-deps-${{ fromJSON(inputs.platform).name }}.tar.zst', sdk)
+        self.assertIn('if: inputs.sdk-only', sdk)
+        self.assertIn('!cancelled() && !inputs.sdk-only', native)
 
     def test_dependency_baseline_consumers_are_opt_in(self):
         workflow = (ROOT / '.github/workflows/ci.yml').read_text()
