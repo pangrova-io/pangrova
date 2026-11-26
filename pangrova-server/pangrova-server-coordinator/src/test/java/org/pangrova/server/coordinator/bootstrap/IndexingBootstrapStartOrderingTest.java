@@ -122,6 +122,27 @@ class IndexingBootstrapStartOrderingTest {
     }
 
     @Test
+    void schemaRecoveryWaitsForElectedMaintenanceLifecycle() throws Exception {
+        var store = new NoOpIndexMetadataStore();
+        var leader = new MaintenanceLeaderElection(new InMemoryDistributedLease(), "schema-recovery");
+        IndexingBootstrap bootstrap = new IndexingBootstrap(
+                indexDir.toString(), new NoOpLease(), null, null, leader);
+        try {
+            bootstrap.start(store, new UnusedBuildClaims(),
+                    new CatalogRegistry(memoryTableStores(), new EmptyCatalogDeployments()), null, null);
+            assertThat(bootstrap.getSchemaEvolutionHandler()).isNotNull();
+            assertThat(store.schemaRecoveryStarted.getCount()).isOne();
+            assertThat(leader.tryAcquireOrRenew()).isTrue();
+            bootstrap.onLeaderElected();
+            assertThat(store.schemaRecoveryStarted.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            bootstrap.onLeadershipLost();
+        } finally {
+            bootstrap.close();
+            leader.release();
+        }
+    }
+
+    @Test
     void failedStartupDoesNotPublishPartialBootstrapOrRetainLease() {
         wiring = new ModuleIntegrationBootstrap();
         var store = new NoOpIndexMetadataStore();
@@ -187,6 +208,15 @@ class IndexingBootstrapStartOrderingTest {
     static final class NoOpIndexMetadataStore implements IndexMetadataStore {
         private int recoveryLookups;
         private boolean failRecovery;
+        private final java.util.concurrent.CountDownLatch schemaRecoveryStarted =
+                new java.util.concurrent.CountDownLatch(1);
+
+        @Override
+        public List<org.pangrova.persistence.indexing.api.metadata.IndexSchemaEvolutionStore.IndexSchemaEvolutionRecord>
+                listPendingSchemaEvolution(int limit) {
+            schemaRecoveryStarted.countDown();
+            return List.of();
+        }
 
         @Override
         public List<org.pangrova.persistence.indexing.api.metadata.IndexBuildGenerations.IndexBuildCandidate>

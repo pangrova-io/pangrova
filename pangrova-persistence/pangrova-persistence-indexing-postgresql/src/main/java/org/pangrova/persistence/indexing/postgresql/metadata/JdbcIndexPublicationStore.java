@@ -46,6 +46,11 @@ final class JdbcIndexPublicationStore extends JdbcStoreSupport {
             connection.setAutoCommit(false);
             try {
                 AuthorizationTransactionGate.lockPublication(connection);
+                try (PreparedStatement schemaLock = connection.prepareStatement(
+                        "SELECT pangrova_assert_index_schema_descriptor_available(?)")) {
+                    schemaLock.setString(1, request.indexId());
+                    schemaLock.executeQuery().close();
+                }
                 DescriptorFence descriptor = lockDescriptor(connection, request.indexId());
                 descriptors.requireCurrentScalarPublicationAuthority(
                         connection, request.indexId());

@@ -26,6 +26,7 @@ import org.pangrova.indexing.strategy.IndexEngineRegistry;
 import org.pangrova.indexing.build.IndexBuildCoordinator;
 import org.pangrova.indexing.build.IndexBuildContext;
 import org.pangrova.indexing.config.IndexingConfig;
+import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.indexing.evaluation.IndexEvaluationService;
 import org.pangrova.indexing.build.IndexBuildMetrics;
 import org.pangrova.indexing.codec.data.IndexSerializer;
@@ -86,6 +87,8 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
     private IndexGarbageCollector garbageCollector;
     private IndexConsistencyChecker consistencyChecker;
     private IndexDdlExecutor ddlExecutor;
+    private org.pangrova.indexing.evolution.IndexSchemaEvolutionHandler schemaEvolutionHandler;
+    private ScheduledExecutorService schemaEvolutionScheduler;
     private IndexMetadataStore metadataStore;
     private ConnectorAccessorResolver accessorResolver;
     private volatile java.util.Set<String> commitListenerCatalogs = java.util.Set.of();
@@ -243,6 +246,7 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
         IndexSerializer serializer = initializeEngine(config, metricsProvider);
         var buildServices = initializeBuildServices(config, catalogRegistry, serializer, buildClaims);
         startLifecycle(config, buildServices);
+        initializeSchemaEvolutionRecovery(buildServices);
         startRecovery(buildServices);
         garbageCollector.start();
         consistencyChecker.start();
@@ -357,6 +361,49 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
         IndexConsistencyContext consistencyDeps = new IndexConsistencyContext(
                 metadataStore, buildServices, accessorResolver, config, leaderElection);
         consistencyChecker = new IndexConsistencyChecker(consistencyDeps, lifecycleMetrics);
+    }
+
+    private void initializeSchemaEvolutionRecovery(
+            org.pangrova.coordinator.indexing.ddl.IndexBuildServices buildServices) {
+        schemaEvolutionHandler = new org.pangrova.indexing.evolution.IndexSchemaEvolutionHandler(
+                metadataStore, (descriptor, event) -> observeSourceSchema(buildServices, descriptor, event));
+    }
+
+    private void startSchemaEvolutionRecovery() {
+        if (schemaEvolutionHandler == null || schemaEvolutionScheduler != null) {
+            return;
+        }
+        long epoch = leaderElection.verifiedHeldEpoch().orElseThrow(
+                () -> new IllegalStateException("Schema evolution recovery requires verified maintenance leadership"));
+        var scheduler = ManagedExecutorFactory.newSingleThreadScheduledExecutor("index-schema-evolution");
+        schemaEvolutionScheduler = scheduler;
+        scheduler.scheduleWithFixedDelay(
+                () -> recoverSchemaEvolutionSafe(scheduler, epoch), 0, 1, TimeUnit.MINUTES);
+    }
+
+    private void stopSchemaEvolutionRecovery() {
+        if (schemaEvolutionScheduler != null) {
+            schemaEvolutionScheduler.shutdown();
+            schemaEvolutionScheduler = null;
+        }
+    }
+
+    private void recoverSchemaEvolutionSafe(ScheduledExecutorService scheduler, long epoch) {
+        try {
+            if (scheduler.isShutdown() || !leaderElection.holdsEpoch(epoch)) {
+                return;
+            }
+            int fenced = schemaEvolutionHandler.reconcile();
+            int applied = 0;
+            if (!scheduler.isShutdown() && leaderElection.holdsEpoch(epoch)) {
+                applied = schemaEvolutionHandler.recoverPending();
+            }
+            if (fenced > 0 || applied > 0) {
+                LOG.info("event=index_schema_evolution_recovered fenced={} applied={}", fenced, applied);
+            }
+        } catch (RuntimeException failure) {
+            LOG.warn("event=index_schema_evolution_recovery_failed error={}", failure.getMessage(), failure);
+        }
     }
 
     private void startRecovery(
@@ -495,6 +542,26 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
     /** Returns the DDL executor for statement router registration. */
     public IndexDdlExecutor getDdlExecutor() { return ddlExecutor; }
 
+    public org.pangrova.indexing.evolution.IndexSchemaEvolutionHandler getSchemaEvolutionHandler() {
+        return schemaEvolutionHandler;
+    }
+
+    private org.pangrova.indexing.evolution.IndexSchemaEvolutionHandler.SchemaObservation observeSourceSchema(
+                    org.pangrova.coordinator.indexing.ddl.IndexBuildServices buildServices,
+                    IndexDescriptor descriptor,
+                    org.pangrova.indexing.api.evolution.SchemaChangeEvent event) {
+        boolean rename = org.pangrova.indexing.api.enums.SchemaChangeType.RENAME_TABLE
+                .equals(event.type());
+        String schemaName = rename && event.newSchemaName() != null
+                ? event.newSchemaName() : descriptor.schemaName();
+        String tableName = rename ? event.tableName() : descriptor.tableName();
+        var resolver = org.pangrova.coordinator.indexing.ddl.IndexSourceAuthority.forDescriptor(
+                metadataStore, buildServices, accessorResolver, descriptor);
+        // Recovery observes only the intended target under the persisted index
+        // subject; it never substitutes a different user's authorization.
+        return resolver.resolveTableObservation(descriptor.catalogName(), schemaName, tableName);
+    }
+
     /** Returns the index cache for DDL executor. */
     IndexCache getIndexCache() { return indexCache; }
 
@@ -536,6 +603,7 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
     @Override
     public synchronized void onLeaderElected() {
         startSnapshotPinRecovery();
+        startSchemaEvolutionRecovery();
         if (commitHandler != null) {
             commitHandler.startPolling();
         }
@@ -552,7 +620,7 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
      */
     @Override
     public synchronized void onLeadershipLost() {
-        ResourceCloser.closeAll(null, this::stopSnapshotPinRecovery,
+        ResourceCloser.closeAll(null, this::stopSchemaEvolutionRecovery, this::stopSnapshotPinRecovery,
                 ResourceCloser.present(commitHandler, IndexCommitHandler::stopPolling),
                 ResourceCloser.present(garbageCollector, IndexGarbageCollector::stopSchedule),
                 ResourceCloser.present(buildCoordinator, IndexBuildCoordinator::pauseBuilds));
@@ -562,7 +630,7 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
     @Override
     public synchronized void close() {
         ResourceCloser.closeAll(null,
-                this::stopSnapshotPinRecovery,
+                this::stopSchemaEvolutionRecovery, this::stopSnapshotPinRecovery,
                 ResourceCloser.present(ddlExecutor, resource -> closeResource("DdlExecutor", resource)),
                 ResourceCloser.present(artifactPublisher, resource -> closeResource("ArtifactPublisher", resource)),
                 ResourceCloser.present(consistencyChecker, resource -> closeResource("ConsistencyChecker", resource)),

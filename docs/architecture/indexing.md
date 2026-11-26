@@ -42,6 +42,15 @@ and validate their real connector pins before query retention can use them.
 Published jobs without that authority must be resubmitted before upgrade rather
 than receiving synthetic privileges.
 
+Schema V122 adds the exact indexed-column schema fingerprint and the durable
+schema-evolution outbox. New indexes bind the connector column names, canonical
+types, parameterized type details and source field IDs at creation. Existing
+`READY` or `STALE` descriptors without that binding become `STALE` with
+`source_schema_fingerprint_required`; `ALTER INDEX ... REBUILD` establishes the
+binding before the replacement generation can be published. An interrupted
+initial `BUILDING` descriptor remains recoverable through the existing stuck-build
+path and cannot become query-eligible without the binding.
+
 Current hard bounds are 50 MiB per scalar Bloom artifact, 100,000 retrieval
 candidate rows per plan and 1,000,000 source objects per Native build. These are
 fail-closed resource limits, not capacity claims. Oversized inputs retain the
@@ -89,6 +98,22 @@ Index state and index orchestration have separate owners:
 - Index generation has exactly one owner: the indexing store allocates and
   fences generations, and the coordinator adapter may only advance them through
   that store.
+
+## Protocol descriptor boundary
+
+`index.proto` defines descriptor-only interchange vocabulary. `IndexManifest`,
+`IndexGenerationRef`, and protobuf `GenerationState` do not own runtime index
+state, active-generation selection, publication epochs, checksums, analyzer
+identity, or corpus statistics. PostgreSQL `IndexDescriptor` and
+`IndexGenerationManifest` records remain the durable authority; atomic
+publication stores enforce their compare-and-set fences.
+
+Workers receive the narrower `ArtifactBinding` projection of a published
+generation. Native BM25 reads analyzer identity from binding properties and
+corpus statistics from the `BM25_CORPUS_STATS` artifact. The descriptive proto
+fields must not be used as a second manifest implementation. Clarifying this
+boundary changes comments only: the wire schema and canonical protocol
+descriptor hash are unchanged.
 
 ## Canonical retrieval contract
 
@@ -204,6 +229,42 @@ It does not enter a Java brute-force implementation. Missing, stale,
 incompatible or incomplete artifacts follow the explicit `ExecutionPolicy`;
 they never silently return an empty or partial Top-K.
 
+## Schema evolution fencing
+
+Index schema changes use a PostgreSQL write-ahead journal rather than the
+in-memory metadata event dispatcher:
+
+1. Before connector DDL starts, the Coordinator inserts an `INTENDED` operation
+   and moves every affected non-dropped descriptor to `STALE` with
+   `schema_change_pending` in the same transaction.
+2. A successful connector mutation advances the operation to `COMMITTED`.
+   Maintenance applies descriptor transitions only while the observed state,
+   generation and update timestamp still match. A concurrent rebuild, publication
+   or DROP therefore wins without being overwritten.
+3. The maintenance leader applies bounded pending batches every minute. Recovery
+   also observes the current connector declaration, so an `INTENDED` operation
+   left by a process crash can distinguish an applied rename from an operation
+   that never reached the connector.
+4. Table and column renames rebind descriptor coordinates. Dropped tables or
+   indexed columns drop the index. Compatible type changes keep it `STALE` for
+   rebuild; text-sensitive `INVERTED` and `GIN` indexes are dropped on incompatible
+   type changes. Cross-schema table renames update both descriptor coordinates.
+
+The journal states are `INTENDED`, `COMMITTED`, `APPLIED` and `ABORTED`. A
+connector failure aborts the intent but leaves its descriptors conservatively
+fenced; an explicit rebuild is required before they can be used again. Periodic
+reconciliation also inspects external schema drift that bypassed Pangrova DDL
+and durably fences missing tables, missing indexed columns and mismatched types.
+
+Query dispatch independently verifies the descriptor fingerprint against the
+exact `ConnectorReadSchemaIdentity` captured by the planned scan. Scalar pruning,
+vector search and Native BM25 all use this guard. Missing schema evidence, a
+missing indexed column or a fingerprint mismatch excludes the index; a proven
+mismatch also persists a fenced `SCHEMA_MISMATCH` journal entry. Multiple scans
+of the same table are eligible only when their selected schemas agree, so a
+self-join across different snapshots or declarations never borrows the first
+scan's index binding.
+
 ## Algorithm and format identities
 
 The built-in catalog currently defines these independent contracts:
@@ -287,9 +348,10 @@ common index envelope are unchanged; no historical data migration is introduced.
 The builder skips rows with a null key component. Its payload does not prove
 null-row coverage or the arity of an empty index. Consequently an empty key set
 cannot justify `SKIP`, and a scalar predicate is not a complete tuple predicate.
-Java tuple membership is verified separately from SQL execution: the current
-Native hint consumer only prunes supported Bloom artifacts, so successful BTree
-publication and correct SQL results do not prove BTree split pruning.
+Native split pruning currently handles single-column B-tree equality, `IN`, and
+range predicates for exact String, Integer, Long, Float and Double wire values.
+Composite tuple membership remains a JVM evaluation contract; composite B-tree
+hints are not sent to the Native consumer.
 
 ## JVM indexing SPI
 
@@ -306,24 +368,34 @@ paths use their own durable artifact formats.
 Predicate analysis retains the selected immutable index descriptor. Split evaluation uses it alongside the exact active artifact generation and selected source snapshot. It reads published file mappings in batches and reuses the selected descriptor for availability checks and Worker hints.
 
 The Coordinator evaluates connector file statistics and native connector
-capabilities, then attaches snapshot-bound `IndexEvalHintDetail` values to
+capabilities. For string bounds from Iceberg and Paimon, statistics comparisons use
+unsigned UTF-8 (Unicode scalar order), not Java UTF-16 order. Floating-point bounds
+may omit NaN; without NaN counts, the Coordinator does not use an upper bound to
+exclude a greater value or claim every value is equal/below an upper bound.
+Invalid or inconsistent bounds do not prove a negative result. The Coordinator then
+attaches snapshot-bound `IndexEvalHintDetail` values to
 surviving canonical v2 file splits. It does not load scalar index artifacts.
 The Native Worker validates the hint's data-file identity, reads the mapped
 artifact through its configured filesystem, and verifies its exact byte length and
 SHA-256 against the published mapping. It checks the envelope version and CRC
-on those same bytes and tests Bloom membership before enqueuing the split for scan.
-Only a proven negative result skips a split; missing, corrupt, incompatible or
-unsupported indexes retain it. Equality and `IN` on canonical string,
-integer and boolean keys currently participate in this Native Bloom path.
+on those same bytes, then evaluates Bloom membership or the sorted B-tree pages
+before enqueuing the split for scan. Only a proven negative result skips a split;
+missing, corrupt, incompatible or unsupported indexes retain it. Equality and
+`IN` on canonical string, integer and boolean keys participate in the Native
+Bloom path. Single-column B-tree equality, `IN`, and range predicates support
+exact String, Integer, Long, Float and Double values. Java UTF-16 and
+signed-zero ordering validates the serialized pages; predicate comparisons use
+Velox SQL ordering (UTF-8 byte order, equal signed zeros, NaN above other values).
 Bitmap has a JVM strategy and a typed key-to-Roaring payload. Worker scalar
-file pruning recognizes Bloom. BSI has no registered scalar strategy. Paimon
-deletion vectors use their connector-owned row-deletion path.
+file pruning recognizes Bloom and single-column B-tree artifacts. BSI has no
+registered scalar strategy. Paimon deletion vectors use their connector-owned
+row-deletion path.
 Calcite's [string literal wrapper](https://calcite.apache.org/javadocAggregate/org/apache/calcite/util/NlsString.html)
 literals are unwrapped with `getValue()` before creating a hint: its
 `toString()` returns quoted SQL with charset notation, not the stored value. Native
 membership is checked against a Java-generated positive/negative byte fixture.
-DATE, TIMESTAMP, DECIMAL, floating-point keys and other index types retain the
-split until their cross-language value and artifact contracts are verified.
+DATE, TIMESTAMP, DECIMAL, floating-point Bloom keys and other index types retain
+the split until their cross-language value and artifact contracts are verified.
 Multi-scan plans do not receive scalar hints until predicate provenance is
 bound to a specific scan, because matching columns by name across joined
 tables is insufficient to justify pruning either table.
@@ -382,3 +454,68 @@ fenced STALE update persists its reason atomically; non-STALE transitions clear 
 the reason-aware operation. Lifecycle transition validation remains the domain owner's
 responsibility. Other persistence ports and remaining optional defaults still require
 the planned domain/backend split; this state-update correction does not complete that work.
+
+### Durable table schema operation ownership (V123)
+
+The table-scoped index schema journal is the state owner for index effects of
+connector DDL. A write-ahead transaction claims the source name and the rename
+target in deterministic order, captures the exact fenced descriptor IDs and
+timestamps, and fails in-flight staging generations before connector IO begins.
+The physical catalog/schema/table scope is shared across tenants because the
+catalog registry is global. Peer-tenant descriptors are conservatively fenced;
+their original authority is not borrowed for rebinding. Unrelated table names
+remain independent. Index registration, generation reservation and both scalar
+and Native publication take the same scope-first transaction lock before
+descriptor locks, then release it on commit. No SQL transaction remains open
+while a connector operation or observation runs.
+
+The connector DDL caller records COMMITTED only after the actual operation
+returns success, capturing source and post-operation identity where supported.
+A generic connector error is UNKNOWN, not an abort: it may follow an external
+commit. A process loss can leave INTENDED; neither state is runnable work.
+The bounded recovery loop applies only confirmed COMMITTED records, compares
+the exact observed post-operation identity, and applies changes only to the
+original captured descriptor fence. Missing/mismatched identity conservatively
+keeps the descriptor STALE without rebinding to a replacement table. A failed
+observation is deferred behind other committed operations. A connector without
+an exact operation-outcome receipt cannot safely infer completion from a current
+schema, so automated UNKNOWN recovery is intentionally unavailable. An operator
+must inspect the operation ID and connector-side authoritative operation history;
+the persistence inspection APIs distinguish unresolved from runnable operations.
+No generic override or fabricated connector authorization is provided. Explicit
+rebuild is required after an uncertain descriptor identity.
+
+V123 is a forward migration; V121 and V122 checksums are retained. Older pending
+INTENDED and COMMITTED rows both become UNKNOWN because V122 recovery could not
+prove which commits were externally completed. Every overlapping legacy claim
+is retained, not silently awarded to the oldest. Upgrade requires quiescing old
+Coordinators (including schema DDL, builds and publication), applying V123, and
+starting only code that participates in the scope lock protocol. Rollback to
+V122 writers is not supported while V123 ownership is in use; stop writers and
+preserve the metadata backup/claims for a verified forward repair instead.
+
+The ownership boundary deliberately avoids either a long-lived database lock
+across a connector RPC (pool consumption and automatic lock release after
+process loss) or an optimistic descriptor CAS alone (which cannot serialize
+two connector mutations). Durable per-name claims plus short transactional
+locks retain ownership across crashes without holding a JDBC connection.
+A future connector can extend outcome recovery with an exact operation receipt
+adapter, but only a receipt bound to the original operation and physical owner
+may discharge an UNKNOWN claim. Observed column names, schema equality or
+elapsed time alone are not sufficient. Until generation records carry their
+physical owner, completed schema changes leave previously active indexes STALE
+and explicitly rebuildable rather than automatically restoring READY.
+
+An authorized metadata operator may inspect unresolved records using the
+read-only query:
+
+```sql
+SELECT operation_id, tenant_id, catalog_name, schema_name, table_name,
+       event_type, state, created_at, updated_at
+FROM index_schema_evolution_outbox
+WHERE state IN ('INTENDED', 'UNKNOWN')
+ORDER BY created_at, operation_id;
+```
+
+Do not clear these records or their claims merely because the table appears
+unchanged: the original connector operation could still be unresolved.

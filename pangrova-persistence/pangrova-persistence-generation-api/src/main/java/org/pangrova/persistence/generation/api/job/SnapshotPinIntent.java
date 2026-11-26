@@ -1,6 +1,7 @@
 package org.pangrova.persistence.generation.api.job;
 
 import org.pangrova.generation.api.job.GenerationSubmissionAuthority;
+import org.pangrova.persistence.generation.api.enums.SnapshotPinState;
 
 import java.time.Instant;
 import java.util.Objects;

@@ -14,7 +14,7 @@ import org.pangrova.generation.api.page.GenerationSplit;
 import org.pangrova.persistence.generation.api.job.GenerationJobStore;
 import org.pangrova.persistence.generation.api.job.SnapshotPinIntent;
 import org.pangrova.persistence.generation.api.job.SnapshotPinReservation;
-import org.pangrova.persistence.generation.api.job.SnapshotPinState;
+import org.pangrova.persistence.generation.api.enums.SnapshotPinState;
 import org.pangrova.generation.api.enums.GenerationJobState;
 import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
 import org.pangrova.metadata.api.catalog.CatalogHandle;

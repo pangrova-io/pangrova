@@ -32,7 +32,7 @@ import org.pangrova.persistence.indexing.postgresql.metadata.JdbcIndexMetadataSt
 import org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory;
 import org.pangrova.persistence.generation.api.job.SnapshotPinIntent;
 import org.pangrova.persistence.generation.api.job.SnapshotPinReservation;
-import org.pangrova.persistence.generation.api.job.SnapshotPinState;
+import org.pangrova.persistence.generation.api.enums.SnapshotPinState;
 import org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStore;
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope;

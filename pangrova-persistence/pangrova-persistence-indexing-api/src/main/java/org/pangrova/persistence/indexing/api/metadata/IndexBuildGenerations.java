@@ -26,6 +26,19 @@ public interface IndexBuildGenerations {
             IndexState expectedState,
             int expectedGeneration);
 
+    default boolean beginIndexGeneration(
+            String indexId,
+            int newGeneration,
+            String buildSnapshotId,
+            Instant timestamp,
+            Instant expectedUpdatedAt,
+            IndexState expectedState,
+            int expectedGeneration,
+            String sourceSchemaFingerprint) {
+        return beginIndexGeneration(indexId, newGeneration, buildSnapshotId, timestamp,
+                expectedUpdatedAt, expectedState, expectedGeneration);
+    }
+
     /**
      * Fences and records a failed initial or staging generation. Initial builds move
      * the exact BUILDING descriptor to STALE; online builds fail only the staging row

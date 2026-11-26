@@ -13,6 +13,8 @@ import org.pangrova.persistence.indexing.api.metadata.IndexFileMapping;
 import org.pangrova.persistence.indexing.api.metadata.IndexFileSelection;
 import org.pangrova.persistence.indexing.api.metadata.IndexGenerationManifest;
 import org.pangrova.persistence.indexing.api.metadata.IndexPublicationRequest;
+import org.pangrova.persistence.indexing.api.metadata.IndexSchemaEvolutionStore;
+import org.pangrova.indexing.api.evolution.SchemaChangeEvent;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.indexing.api.enums.IndexState;
 import org.pangrova.connector.api.index.statistics.DataFileStatistics;
@@ -25,6 +27,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 
 /**
  * JDBC-backed implementation of {@link IndexMetadataStore}.
@@ -50,6 +53,7 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
     private final JdbcIndexCommitQueue commitQueue;
     private final JdbcIndexPublicationStore publicationStore;
     private final JdbcIndexGenerationCoverageStore coverageStore;
+    private final JdbcIndexSchemaEvolutionStore schemaEvolutionStore;
     private final ThreadLocal<Set<String>> heldLifecycleLocks = ThreadLocal.withInitial(HashSet::new);
 
     /** Creates the facade over the focused JDBC sub-stores backed by the given data source. */
@@ -62,6 +66,7 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
         this.commitQueue = new JdbcIndexCommitQueue(dataSource);
         this.publicationStore = new JdbcIndexPublicationStore(dataSource, descriptorStore);
         this.coverageStore = new JdbcIndexGenerationCoverageStore(dataSource);
+        this.schemaEvolutionStore = new JdbcIndexSchemaEvolutionStore(dataSource);
     }
 
     // --- IndexDescriptor CRUD (delegate to descriptorStore) ---
@@ -153,9 +158,23 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
             Instant expectedUpdatedAt,
             IndexState expectedState,
             int expectedGeneration) {
+        return beginIndexGeneration(indexId, newGeneration, buildSnapshotId, timestamp,
+                expectedUpdatedAt, expectedState, expectedGeneration, null);
+    }
+
+    @Override
+    public boolean beginIndexGeneration(
+            String indexId,
+            int newGeneration,
+            String buildSnapshotId,
+            Instant timestamp,
+            Instant expectedUpdatedAt,
+            IndexState expectedState,
+            int expectedGeneration,
+            String sourceSchemaFingerprint) {
         return descriptorStore.beginIndexGeneration(
                 indexId, newGeneration, buildSnapshotId, timestamp,
-                expectedUpdatedAt, expectedState, expectedGeneration);
+                expectedUpdatedAt, expectedState, expectedGeneration, sourceSchemaFingerprint);
     }
 
     @Override
@@ -458,6 +477,74 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
     public void updateBreakerState(String indexId, int failureCount,
                                    Instant lastFailureAt, Instant lastSuccessAt, String state) {
         gcStore.updateBreakerState(indexId, failureCount, lastFailureAt, lastSuccessAt, state);
+    }
+
+    @Override
+    public UUID prepareSchemaEvolution(SchemaChangeEvent event, Instant now) {
+        return schemaEvolutionStore.prepare(event, now);
+    }
+
+    @Override
+    public UUID prepareSchemaEvolution(SchemaChangeEvent event,
+            Optional<org.pangrova.connector.api.metadata.table.TableIdentity> sourceIdentity, Instant now) {
+        return schemaEvolutionStore.prepare(event, sourceIdentity, now);
+    }
+
+    @Override
+    public void markSchemaEvolutionCommitted(UUID operationId, Instant now) {
+        schemaEvolutionStore.markCommitted(operationId, now);
+    }
+
+    @Override
+    public void markSchemaEvolutionCommitted(UUID operationId,
+            Optional<org.pangrova.connector.api.metadata.table.TableIdentity> targetIdentity, Instant now) {
+        schemaEvolutionStore.markCommitted(operationId, targetIdentity, now);
+    }
+
+    @Override
+    public void markSchemaEvolutionUnknown(UUID operationId, Instant now) {
+        schemaEvolutionStore.markUnknown(operationId, now);
+    }
+
+    @Override
+    public Optional<IndexSchemaEvolutionStore.IndexSchemaEvolutionRecord> findSchemaEvolution(UUID operationId) {
+        return schemaEvolutionStore.find(operationId);
+    }
+
+    @Override
+    public List<IndexSchemaEvolutionStore.IndexSchemaEvolutionRecord> listUnresolvedSchemaEvolution(int limit) {
+        return schemaEvolutionStore.listUnresolved(limit);
+    }
+
+    @Override
+    public void deferSchemaEvolutionRetry(UUID operationId, Instant now) {
+        schemaEvolutionStore.deferRetry(operationId, now);
+    }
+
+    @Override
+    public List<IndexDescriptor> listSchemaEvolutionTargets(UUID operationId) {
+        return schemaEvolutionStore.targets(operationId);
+    }
+
+    @Override
+    public void markSchemaEvolutionAborted(UUID operationId, Instant now) {
+        schemaEvolutionStore.markAborted(operationId, now);
+    }
+
+    @Override
+    public List<IndexSchemaEvolutionStore.IndexSchemaEvolutionRecord> listPendingSchemaEvolution(int limit) {
+        return schemaEvolutionStore.listPending(limit);
+    }
+
+    @Override
+    public void applySchemaEvolution(
+            UUID operationId, List<IndexSchemaEvolutionStore.IndexSchemaTransition> transitions, Instant now) {
+        schemaEvolutionStore.apply(operationId, transitions, now);
+    }
+
+    @Override
+    public Optional<UUID> fenceIndexSchemaMismatch(IndexDescriptor descriptor, String reason, Instant now) {
+        return schemaEvolutionStore.fenceMismatch(descriptor, reason, now);
     }
 
     // --- Statistics (delegate to statisticsStore) ---
