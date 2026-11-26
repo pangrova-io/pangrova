@@ -594,6 +594,19 @@ class RuntimeScopeTest(unittest.TestCase):
         self.assertIn('fail-on-error: true', native)
         self.assertNotIn('continue-on-error', native)
 
+    def test_macos_docker_boots_before_installing_the_verified_engine(self):
+        script = (SCRIPTS / 'setup-macos-native-test-docker.sh').read_text()
+        config = (SCRIPTS / 'setup-macos-native-test-docker.yaml').read_text()
+        self.assertEqual(len(re.findall(r'^ +docker_digest=[0-9a-f]{64}$', script, re.MULTILINE)), 2)
+        self.assertLess(script.index('"$docker_digest" "$docker_archive" | shasum'),
+                        script.index('"$lima" start'))
+        self.assertLess(script.index('"$lima" start'), script.index('sudo -n tar -xzf -'))
+        self.assertLess(script.index('systemd-run --unit=pangrova-docker'), script.index('localhost/_ping'))
+        self.assertIn('guestSocket: /var/run/docker.sock', config)
+        self.assertIn('system: false', config)
+        self.assertIn('user: false', config)
+        self.assertNotIn('get.docker.com', script + config)
+
     def test_dependency_lock_matches_the_bootstrap(self):
         lock = {}
         for line in (ROOT / 'pangrova-worker-native/dependency-versions.txt').read_text().splitlines():

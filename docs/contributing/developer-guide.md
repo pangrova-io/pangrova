@@ -85,9 +85,10 @@ runner image build and prints the exact identity differences on a mismatch.
 
 On GitHub-hosted macOS, the Native test job runs the PostgreSQL TestContainer
 through a temporary Lima Docker VM with loopback port forwarding. The Native
-test binary and its Java fixture broker run on the macOS host.
-If Docker startup fails, the job prints the Lima host agent and guest boot logs,
-plus the guest provisioning log when SSH is available.
+test binary and its Java fixture broker run on the macOS host. The host verifies
+the pinned Docker Engine archive before starting the guest and installs it after
+the guest boots. If startup fails, the job prints Lima and guest boot logs and
+the Engine journal when SSH is available.
 
 ### 1.3 Matching AddressSanitizer Dependencies
 
