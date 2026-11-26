@@ -191,14 +191,25 @@ public interface IndexDescriptors {
     /** Updates the last indexed snapshot ID for an index. */
     void updateLastIndexedSnapshotId(String indexId, String snapshotId);
 
-    /** Finds indexes by state with pagination. */
-    default List<IndexDescriptor> findIndexesByStatePaginated(IndexState state, int offset, int limit) {
-        if (offset < 0 || limit < 0) {
-            throw new IllegalArgumentException("offset and limit must be non-negative");
+    /**
+     * Loads a bounded page from the durable, state-specific maintenance sweep.
+     * A non-null cutoff restricts candidates to descriptors updated strictly before it.
+     * The immutable index-ID cursor avoids skipping rows as their state/time changes.
+     */
+    default MaintenancePage loadMaintenancePage(IndexState state, Instant cutoff, int limit) {
+        throw new UnsupportedOperationException("Durable descriptor maintenance scans are unavailable");
+    }
+
+    /** Advances after processing the page; false means another sweep advanced first. */
+    default boolean completeMaintenancePage(MaintenancePage page) {
+        throw new UnsupportedOperationException("Durable descriptor maintenance scans are unavailable");
+    }
+
+    /** The storage-issued revision fences advancement, including after a sweep wraps. */
+    record MaintenancePage(IndexState state, long revision, String upperIndexId,
+                           List<IndexDescriptor> candidates, boolean exhausted) {
+        public MaintenancePage {
+            candidates = List.copyOf(candidates);
         }
-        return findIndexesByState(state).stream()
-                .sorted(java.util.Comparator.comparing(IndexDescriptor::updatedAt)
-                        .thenComparing(IndexDescriptor::indexId))
-                .skip(offset).limit(limit).toList();
     }
 }

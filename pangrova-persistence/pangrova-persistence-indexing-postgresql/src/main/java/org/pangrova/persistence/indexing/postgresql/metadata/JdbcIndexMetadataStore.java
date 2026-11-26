@@ -49,6 +49,7 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
 
     private final JdbcIndexDescriptorStore descriptorStore;
     private final JdbcIndexDescriptorReadStore descriptorReadStore;
+    private final JdbcIndexMaintenanceScanStore maintenanceScanStore;
     private final JdbcIndexFileMappingStore fileMappingStore;
     private final JdbcScalarArtifactIntentStore scalarArtifactStore;
     private final JdbcMappedArtifactRetirementStore mappedArtifactStore;
@@ -65,6 +66,7 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
     public JdbcIndexMetadataStore(DataSource dataSource, CurrentTableAuthorization authorization) {
         this.descriptorStore = new JdbcIndexDescriptorStore(dataSource, authorization);
         this.descriptorReadStore = new JdbcIndexDescriptorReadStore(dataSource);
+        this.maintenanceScanStore = new JdbcIndexMaintenanceScanStore(dataSource);
         this.fileMappingStore = new JdbcIndexFileMappingStore(dataSource);
         this.scalarArtifactStore = new JdbcScalarArtifactIntentStore(dataSource);
         this.mappedArtifactStore = new JdbcMappedArtifactRetirementStore(dataSource);
@@ -447,8 +449,13 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
     }
 
     @Override
-    public List<IndexDescriptor> findIndexesByStatePaginated(IndexState state, int offset, int limit) {
-        return descriptorReadStore.findIndexesByStatePaginated(state, offset, limit);
+    public MaintenancePage loadMaintenancePage(IndexState state, Instant cutoff, int limit) {
+        return maintenanceScanStore.loadMaintenancePage(state, cutoff, limit);
+    }
+
+    @Override
+    public boolean completeMaintenancePage(MaintenancePage page) {
+        return maintenanceScanStore.completeMaintenancePage(page);
     }
 
     // --- IndexFileMapping CRUD (delegate to fileMappingStore) ---

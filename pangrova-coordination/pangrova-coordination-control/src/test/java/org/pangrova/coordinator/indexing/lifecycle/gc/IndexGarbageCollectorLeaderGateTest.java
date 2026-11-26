@@ -202,8 +202,18 @@ class IndexGarbageCollectorLeaderGateTest {
 
         @Override
         public List<IndexDescriptor> findIndexesByState(IndexState state) {
+            throw new AssertionError("GC must not materialize all descriptors");
+        }
+
+        @Override
+        public MaintenancePage loadMaintenancePage(IndexState state, Instant cutoff, int limit) {
             findByStateCallCount.incrementAndGet();
-            return List.of();
+            return new MaintenancePage(state, 0, null, List.of(), true);
+        }
+
+        @Override
+        public boolean completeMaintenancePage(MaintenancePage page) {
+            return true;
         }
 
         @Override public void updateLastIndexedSnapshotId(String id, String snap) {}

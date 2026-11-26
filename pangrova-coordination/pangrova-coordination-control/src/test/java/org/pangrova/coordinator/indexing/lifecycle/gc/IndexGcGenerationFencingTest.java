@@ -474,6 +474,13 @@ class IndexGcGenerationFencingTest {
         @Override public List<IndexDescriptor> findIndexesByState(IndexState state) {
             return descriptors.values().stream().filter(d -> d.state() == state).toList();
         }
+        @Override
+        public MaintenancePage loadMaintenancePage(IndexState state, Instant cutoff, int limit) {
+            List<IndexDescriptor> candidates = findIndexesByState(state).stream()
+                    .filter(d -> d.updatedAt().isBefore(cutoff)).limit(limit).toList();
+            return new MaintenancePage(state, 0, null, candidates, true);
+        }
+        @Override public boolean completeMaintenancePage(MaintenancePage page) { return true; }
         @Override public void updateLastIndexedSnapshotId(String id, String snap) {}
         @Override public Map<String, IndexDescriptor> findIndexesByIds(List<String> indexIds) {
             Map<String, IndexDescriptor> result = new HashMap<>();

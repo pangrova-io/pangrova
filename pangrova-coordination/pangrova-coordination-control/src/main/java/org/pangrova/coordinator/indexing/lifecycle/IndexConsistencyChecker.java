@@ -100,62 +100,20 @@ public final class IndexConsistencyChecker implements AutoCloseable {
 
         // Phase 2: Rebuild STALE indexes back to READY (if auto-rebuild enabled).
         if (config.autoRebuildEnabled()) {
-            paginateAndRebuildStale(store, config);
+            paginateAndCheck(store, IndexState.STALE, config);
         }
     }
 
     private void paginateAndCheck(IndexMetadataStore store, IndexState state,
                                   ConsistencyConfig config) {
-        int pageSize = 100;
-        int offset = 0;
-        Set<String> seen = new HashSet<>();
-        while (true) {
-            List<IndexDescriptor> page = store.findIndexesByStatePaginated(
-                    state, offset, pageSize);
-            if (page.isEmpty()) {
-                break;
+        // Persist progress only after processing; a crash replays at most one page.
+        while (deps.leaderElection().tryAcquireOrRenew()) {
+            var page = store.loadMaintenancePage(state, null, 100);
+            for (IndexDescriptor descriptor : page.candidates()) {
+                reconcileIndex(descriptor, config, state == IndexState.STALE);
             }
-            List<IndexDescriptor> unseen = page.stream()
-                    .filter(descriptor -> seen.add(descriptor.indexId()))
-                    .toList();
-            for (IndexDescriptor descriptor : unseen) {
-                checkSingleIndex(descriptor, config);
-            }
-            if (unseen.isEmpty()) {
-                offset += page.size();
-            } else {
-                offset = 0;
-            }
+            if (!store.completeMaintenancePage(page) || page.exhausted()) return;
         }
-    }
-
-    /** Reconciles STALE indexes through the same immutable publication path. */
-    private void paginateAndRebuildStale(IndexMetadataStore store, ConsistencyConfig config) {
-        int pageSize = 100;
-        int offset = 0;
-        Set<String> seen = new HashSet<>();
-        while (true) {
-            List<IndexDescriptor> page = store.findIndexesByStatePaginated(
-                    IndexState.STALE, offset, pageSize);
-            if (page.isEmpty()) {
-                break;
-            }
-            List<IndexDescriptor> unseen = page.stream()
-                    .filter(descriptor -> seen.add(descriptor.indexId()))
-                    .toList();
-            for (IndexDescriptor descriptor : unseen) {
-                reconcileIndex(descriptor, config, true);
-            }
-            if (unseen.isEmpty()) {
-                offset += page.size();
-            } else {
-                offset = 0;
-            }
-        }
-    }
-
-    private void checkSingleIndex(IndexDescriptor descriptor, ConsistencyConfig config) {
-        reconcileIndex(descriptor, config, false);
     }
 
     private void reconcileIndex(

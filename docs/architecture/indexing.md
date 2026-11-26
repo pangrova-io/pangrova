@@ -218,6 +218,14 @@ I/O, and due candidates are ordered by their effective due time, not permanently
 by creation time. A failed oldest connector operation therefore cannot
 monopolize the bounded batch. Neither grace nor retry expiry overrides live
 execution references or releases an ACTIVE generation of a live index.
+Periodic READY/STALE consistency and grace-expired DROPPED cleanup walk separate
+durable keyset sweeps (V131), ordered by immutable index ID. Each page uses a
+fixed upper bound and database LIMIT; DROPPED candidates also use the strict
+database grace cutoff. Progress is acknowledged only after processing a page
+and a monotonic revision prevents competing or pre-wrap completions. A restart
+can replay the last unacknowledged page, while new or newly eligible descriptors
+behind the cursor are visited on the next sweep. This cursor is only scheduling
+progress and never substitutes for state, generation, lifecycle or pin fences.
 
 Scalar index snapshots are construction holds, separate from query-owned snapshot
 references. V126 persists an exact attempt-owned pin intent before the connector

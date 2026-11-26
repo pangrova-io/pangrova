@@ -254,39 +254,34 @@ public final class IndexGarbageCollector implements AutoCloseable {
         Instant cutoff = Instant.ofEpochMilli(cutoffMs);
         int purgedCount = 0;
 
-        // Find all DROPPED indexes by scanning stale mappings won't work —
-        // we need to find DROPPED descriptors directly.
-        // Use a dedicated scan: list all indexes, filter DROPPED past grace period.
-        List<IndexDescriptor> allDropped = findDroppedIndexesPastGrace(cutoff);
-
-        for (IndexDescriptor descriptor : allDropped) {
-            try {
-                boolean[] purged = {false};
-                store.withIndexLifecycleLock(descriptor.indexId(), () -> {
-                    IndexDescriptor current = store.findIndex(descriptor.indexId()).orElse(null);
-                    if (current != null && current.state() == IndexState.DROPPED
-                            && current.updatedAt() != null && current.updatedAt().isBefore(cutoff)) {
-                        purgeIndex(current);
-                        purged[0] = true;
-                    }
-                });
-                if (purged[0]) {
-                    purgedCount++;
-                }
-            } catch (RuntimeException failure) {
-                LOG.error("action=index_purge_deferred indexId={} error={}",
-                        descriptor.indexId(), failure.getMessage(), failure);
+        // The database filters the grace cutoff and persists progress between bounded pages.
+        while (leaderElection == null || leaderElection.tryAcquireOrRenew()) {
+            var page = store.loadMaintenancePage(IndexState.DROPPED, cutoff, 100);
+            for (IndexDescriptor descriptor : page.candidates()) {
+                if (purgeDroppedIndex(store, descriptor, cutoff)) purgedCount++;
             }
+            if (!store.completeMaintenancePage(page) || page.exhausted()) break;
         }
-
         return purgedCount;
     }
 
-    private List<IndexDescriptor> findDroppedIndexesPastGrace(Instant cutoff) {
-        IndexMetadataStore store = deps.metadataStore();
-        return store.findIndexesByState(IndexState.DROPPED).stream()
-                .filter(desc -> desc.updatedAt() != null && desc.updatedAt().isBefore(cutoff))
-                .toList();
+    private boolean purgeDroppedIndex(IndexMetadataStore store, IndexDescriptor descriptor, Instant cutoff) {
+        try {
+            boolean[] purged = {false};
+            store.withIndexLifecycleLock(descriptor.indexId(), () -> {
+                IndexDescriptor current = store.findIndex(descriptor.indexId()).orElse(null);
+                if (current != null && current.state() == IndexState.DROPPED
+                        && current.updatedAt() != null && current.updatedAt().isBefore(cutoff)) {
+                    purgeIndex(current);
+                    purged[0] = true;
+                }
+            });
+            return purged[0];
+        } catch (RuntimeException failure) {
+            LOG.error("action=index_purge_deferred indexId={} error={}",
+                    descriptor.indexId(), failure.getMessage(), failure);
+            return false;
+        }
     }
 
     private void purgeIndex(IndexDescriptor descriptor) {

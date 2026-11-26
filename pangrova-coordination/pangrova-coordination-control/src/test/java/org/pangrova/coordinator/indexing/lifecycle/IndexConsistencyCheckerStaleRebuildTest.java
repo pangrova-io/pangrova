@@ -84,6 +84,20 @@ class IndexConsistencyCheckerStaleRebuildTest {
         assertThat(store.transitions("idx-1")).isEmpty();
     }
 
+    @Test
+    void bothConsistencyPhasesTraverseBoundedPagesWithoutRepeatingDescriptors() {
+        var store = new RecoveryTrackingStore();
+        for (int i = 0; i < 205; i++) {
+            store.addDescriptor(buildDescriptor("ready-" + i, IndexState.READY));
+            store.addDescriptor(buildDescriptor("stale-" + i, IndexState.STALE));
+        }
+        checker = buildChecker(store, true);
+        checker.checkAll();
+
+        assertThat(store.loadedIds).hasSize(410).doesNotHaveDuplicates();
+        assertThat(store.pageSizes).containsExactly(100, 100, 5, 100, 100, 5);
+    }
+
     // ── Helpers ──
 
     private IndexConsistencyChecker buildChecker(RecoveryTrackingStore store, boolean autoRebuild) {
@@ -214,13 +228,26 @@ class IndexConsistencyCheckerStaleRebuildTest {
             return descriptors.values().stream().filter(d -> d.state() == state).toList();
         }
 
+        private final Map<IndexState, String> maintenanceCursors = new HashMap<>();
+        private final List<String> loadedIds = new ArrayList<>();
+        private final List<Integer> pageSizes = new ArrayList<>();
+
         @Override
-        public List<IndexDescriptor> findIndexesByStatePaginated(IndexState state, int offset, int limit) {
-            List<IndexDescriptor> all = findIndexesByState(state);
-            if (offset >= all.size()) {
-                return List.of();
-            }
-            return all.subList(offset, Math.min(offset + limit, all.size()));
+        public MaintenancePage loadMaintenancePage(IndexState state, Instant cutoff, int limit) {
+            String cursor = maintenanceCursors.get(state);
+            List<IndexDescriptor> candidates = findIndexesByState(state).stream()
+                    .filter(d -> cursor == null || d.indexId().compareTo(cursor) > 0)
+                    .sorted(java.util.Comparator.comparing(IndexDescriptor::indexId)).limit(limit).toList();
+            candidates.stream().map(IndexDescriptor::indexId).forEach(loadedIds::add);
+            pageSizes.add(candidates.size());
+            return new MaintenancePage(state, 0, null, candidates, candidates.size() < limit);
+        }
+
+        @Override
+        public boolean completeMaintenancePage(MaintenancePage page) {
+            if (page.exhausted()) maintenanceCursors.remove(page.state());
+            else maintenanceCursors.put(page.state(), page.candidates().get(page.candidates().size() - 1).indexId());
+            return true;
         }
 
         @Override public Set<String> getIndexedDataFilePaths(String id, int generation) {
