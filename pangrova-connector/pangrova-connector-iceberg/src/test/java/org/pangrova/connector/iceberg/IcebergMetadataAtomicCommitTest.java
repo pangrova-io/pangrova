@@ -306,6 +306,48 @@ class IcebergMetadataAtomicCommitTest {
         assertThat(replayed.get().commitFingerprint()).isEqualTo(context.commitFingerprint());
     }
 
+    @ParameterizedTest
+    @ValueSource(ints = {0, 1})
+    void requiredEmptyInsertReplaysNotificationAfterFailure(int fragmentCount) throws Exception {
+        Table table = createTable("empty_replay_event");
+        IcebergOutputTableHandle handle = beginInsert("empty_replay_event");
+        var fragments = java.util.Collections.nCopies(fragmentCount, "[]".getBytes(StandardCharsets.UTF_8));
+        var context = context("q-empty-replay-event", handle, fragments);
+        AtomicInteger deliveries = new AtomicInteger();
+        AtomicReference<org.pangrova.connector.api.index.CommitEvent> replayed = new AtomicReference<>();
+        metadata.registerCommitListener(event -> {
+            if (deliveries.incrementAndGet() == 1) {
+                throw new IllegalStateException("commit log unavailable");
+            }
+            replayed.set(event);
+        });
+
+        assertThatThrownBy(() -> metadata.finishDistributedWriteWithPublication(SESSION, handle, fragments, context))
+                .isInstanceOf(CommitNotificationException.class)
+                .hasCauseInstanceOf(IllegalStateException.class);
+        table.refresh();
+        var committed = table.currentSnapshot();
+        assertThat(committed).isNotNull();
+
+        table.newAppend().appendFile(DataFiles.builder(table.spec())
+                .withPath(table.location() + "/data/later.parquet")
+                .withFormat(FileFormat.PARQUET).withRecordCount(1).withFileSizeInBytes(100)
+                .build()).commit();
+        var receipt = metadata.finishDistributedWriteWithPublication(SESSION, handle, fragments, context);
+        assertThat(deliveries).hasValue(2);
+        assertThat(replayed.get()).isNotNull();
+        assertThat(replayed.get().snapshotId()).isEqualTo(String.valueOf(committed.snapshotId()));
+        assertThat(replayed.get().commitFingerprint()).isEqualTo(context.commitFingerprint());
+        assertThat(replayed.get().addedFiles()).isEmpty();
+        assertThat(receipt.publishedVersion()).isEqualTo(committed.snapshotId());
+        try (var input = table.io().newInputFile(committed.manifestListLocation()).newStream()) {
+            assertThat(receipt.manifestSha256()).isEqualTo(
+                    java.security.MessageDigest.getInstance("SHA-256").digest(input.readAllBytes()));
+        }
+        table.refresh();
+        assertThat(countSnapshots(table)).isEqualTo(2);
+    }
+
     @Test
     void replayFailsClosedWhenCommittedMarkerSnapshotWasExpired() {
         Table table = createTable("expired_marker");

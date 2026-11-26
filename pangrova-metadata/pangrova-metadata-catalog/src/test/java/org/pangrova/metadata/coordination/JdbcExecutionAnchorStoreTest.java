@@ -54,7 +54,7 @@ class JdbcExecutionAnchorStoreTest {
     }
 
     @Test
-    void firstAcquisitionReturnsItsPersistedLeaseWithoutStandaloneClockOrTokenReads() throws Exception {
+    void firstAcquisitionReturnsItsPersistedLeaseWithoutStandaloneAnchorClockOrTokenReads() throws Exception {
         try (var postgres = new PostgreSQLContainer<>("postgres:16-alpine")
                 .withCommand("postgres", "-c", "shared_preload_libraries=pg_stat_statements")) {
             postgres.start();
@@ -68,12 +68,16 @@ class JdbcExecutionAnchorStoreTest {
             }
             long previousClocks = statementCalls(source, "SELECT clock_timestamp()");
             long previousTokens = statementCalls(source, "SELECT nextval($1)");
+            String lockRow = "SELECT owner_id, owner_incarnation, fencing_token, acquired_at, expires_at, version "
+                    + "FROM execution_anchor WHERE execution_id = $1 FOR UPDATE";
+            long previousRowReads = statementCalls(source, lockRow);
             var countedStore = new JdbcExecutionAnchorStore(source);
             var lease = countedStore.tryAcquire("q-insert-clock", "a", "a-1", Duration.ofMillis(7_023))
                     .orElseThrow();
 
             assertThat(statementCalls(source, "SELECT clock_timestamp()") - previousClocks).isZero();
             assertThat(statementCalls(source, "SELECT nextval($1)") - previousTokens).isZero();
+            assertThat(statementCalls(source, lockRow) - previousRowReads).isZero();
             assertThat(lease.expiresAt()).isEqualTo(lease.acquiredAt().plusMillis(7_023));
             assertThat(countedStore.current("q-insert-clock")).contains(lease);
         }
@@ -252,6 +256,38 @@ class JdbcExecutionAnchorStoreTest {
             assertThat(acquired.acquiredAt()).isAfterOrEqualTo(releasedAt);
             assertThat(acquired.expiresAt()).isEqualTo(acquired.acquiredAt().plusSeconds(5));
             assertThat(store.current("q-insert")).contains(acquired);
+        } finally {
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test
+    void concurrentRetirementCannotHideAReadWindowFromTheNewAnchor() throws Exception {
+        String execution = "window-published-during-retirement";
+        var old = store.tryAcquire(execution, "a", "a-1", Duration.ofMinutes(1)).orElseThrow();
+        var executor = Executors.newSingleThreadExecutor();
+        try (var retiring = dataSource.getConnection()) {
+            retiring.setAutoCommit(false);
+            try (var protect = retiring.prepareStatement("""
+                    INSERT INTO execution_read_window (read_id, execution_id, protected_until)
+                    VALUES (?, ?, clock_timestamp() + INTERVAL '1 minute')
+                    """);
+                    var remove = retiring.prepareStatement("DELETE FROM execution_anchor WHERE execution_id=?")) {
+                protect.setObject(1, java.util.UUID.randomUUID());
+                protect.setString(2, execution);
+                assertThat(protect.executeUpdate()).isOne();
+                remove.setString(1, execution);
+                assertThat(remove.executeUpdate()).isOne();
+            }
+
+            int blockerPid = backendPid(retiring);
+            var acquiring = executor.submit(
+                    () -> store.tryAcquire(execution, "b", "b-1", Duration.ofMinutes(1)));
+            awaitBlockedBeforeDeadline(blockerPid, old.expiresAt());
+            retiring.commit();
+            assertThat(acquiring.get(10, TimeUnit.SECONDS)).isEmpty();
+            assertThat(store.current(execution)).isEmpty();
         } finally {
             executor.shutdownNow();
             assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();

@@ -134,7 +134,7 @@ class FeatureViewSqlIntegrationTest {
                 "'hidden'", List.of("feature-role"), List.of(), true, null));
         var access = new DynamicRbacAccessControl(grants, roles,
                 new RowLevelSecurityFilter(policies), new ColumnMaskingProcessor(masks));
-        compiler = new SqlCompiler().withSessionPlanner(scope -> new PangrovaPlanner(
+        compiler = new SqlCompiler().withSessionPlanner((scope, revision) -> new PangrovaPlanner(
                 new MetadataSchemaBuilder(
                         metadata.metadataService(), metadata.catalogRegistry())
                         .buildRootSchema(scope), List.of(scope.getCatalog().orElseThrow(), scope.getSchema().orElseThrow())));

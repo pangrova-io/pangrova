@@ -8,6 +8,7 @@ import org.pangrova.query.api.lifecycle.QueryOperation;
 import org.pangrova.query.api.session.QuerySession;
 
 import java.util.List;
+import java.util.OptionalLong;
 import java.util.concurrent.CompletionStage;
 import java.util.function.Consumer;
 
@@ -30,8 +31,11 @@ public interface QueryExecutionPort extends QueryExecutionCleanup {
     /** Retires exact output column names after response construction. */
     List<String> removeColumnNames(String queryId);
 
-    /** Acquires the durable execution ownership for a query. */
-    boolean acquireQueryOwnership(String queryId);
+    /** Acquires durable execution ownership and samples the authenticated tenant's publication revision. */
+    Ownership acquireQueryOwnership(String queryId, String tenantId);
+
+    /** Result of admission, including the revision when supplied by the ownership backend. */
+    record Ownership(boolean acquired, OptionalLong publicationRevision) { }
 
     /** Releases only the candidate execution grant without implying local issuance cleanup. */
     void releaseQueryOwnership(String queryId);

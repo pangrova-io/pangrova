@@ -1,6 +1,7 @@
 package org.pangrova.coordinator.dynamictable;
 
 import org.junit.jupiter.api.Test;
+import org.pangrova.coordinator.materialization.PlanningMaterializations;
 import org.pangrova.coordinator.testinfra.DynamicTablePublicationFixtures;
 import org.pangrova.planner.mv.DynamicTableRewriter;
 import org.pangrova.planner.parse.PangrovaParserFactory;
@@ -22,7 +23,9 @@ class DurableDynamicTableResolverTest {
         var reporting = DynamicTablePublicationFixtures.create(catalog, "tenant",
                 "lake.reporting.rollup", "SELECT 1");
         var pins = new java.util.ArrayList<org.pangrova.materialization.api.port.PublishedMaterialization>();
-        var resolver = new DurableDynamicTableResolver(catalog, "tenant", "lake", "analytics", pins::add);
+        var resolver = new DurableDynamicTableResolver(
+                new PlanningMaterializations(catalog, "tenant", java.util.OptionalLong.empty()),
+                "lake", "analytics", pins::add);
 
         var local = resolver.resolve(List.of("rollup")).orElseThrow();
         assertThat(local.logical()).isEqualTo(new QualifiedTableName("lake", "analytics", "rollup"));
@@ -34,7 +37,9 @@ class DurableDynamicTableResolverTest {
                 .isEqualTo(reporting.physicalTable().qualifiedName());
         assertThat(resolver.resolve(List.of("lake.reporting", "rollup"))).isEmpty();
         assertThat(resolver.resolve(List.of("other", "analytics", "rollup"))).isEmpty();
-        assertThat(new DurableDynamicTableResolver(catalog, "other-tenant", "lake", "analytics", pins::add)
+        assertThat(new DurableDynamicTableResolver(
+                new PlanningMaterializations(catalog, "other-tenant", java.util.OptionalLong.empty()),
+                "lake", "analytics", pins::add)
                 .resolve(List.of("rollup"))).isEmpty();
 
         assertThat(pins).containsExactly(analytics, reporting);
@@ -44,7 +49,13 @@ class DurableDynamicTableResolverTest {
         var normal = sqlRewriter.rewriteWithAuthority("SELECT id FROM lake.analytics.rollup");
         assertThat(normal.physicalToLogical()).containsEntry(local.physical(), local.logical());
         var published = DynamicTablePublicationFixtures.refresh(catalog, analytics);
-        var refreshed = sqlRewriter.rewriteWithAuthority("SELECT id FROM lake.analytics.rollup");
+        assertThat(sqlRewriter.rewriteWithAuthority("SELECT id FROM lake.analytics.rollup").physicalToLogical())
+                .containsEntry(local.physical(), local.logical());
+        var nextQuery = new DurableDynamicTableResolver(
+                new PlanningMaterializations(catalog, "tenant", java.util.OptionalLong.empty()),
+                "lake", "analytics", pins::add);
+        var refreshed = new DynamicTableSqlRewriter(new PangrovaParserFactory(), new DynamicTableRewriter(nextQuery))
+                .rewriteWithAuthority("SELECT id FROM lake.analytics.rollup");
         assertThat(refreshed.sql()).contains(published.physicalTable().qualifiedName());
         assertThat(refreshed.physicalToLogical()).containsEntry(
                 new QualifiedTableName("lake", published.physicalTable().schema(),
@@ -65,7 +76,8 @@ class DurableDynamicTableResolverTest {
         var published = DynamicTablePublicationFixtures.refresh(catalog, dynamicTable);
         var pinned = new java.util.ArrayList<
                 org.pangrova.materialization.api.domain.GenerationId>();
-        var resolver = new DurableDynamicTableResolver(catalog, "tenant", "lake", "analytics",
+        var resolver = new DurableDynamicTableResolver(
+                new PlanningMaterializations(catalog, "tenant", java.util.OptionalLong.empty()), "lake", "analytics",
                 resolution -> pinned.add(resolution.generation()));
 
         var target = resolver.resolve(List.of("rollup")).orElseThrow();

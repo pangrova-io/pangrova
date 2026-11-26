@@ -220,6 +220,19 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
         return ownership.acquire(queryId, coordinatorId, requireLocalIncarnation());
     }
 
+    /** Acquires a query grant carrying the catalog revision observed by the backend. */
+    public Optional<org.pangrova.persistence.query.api.coordination.ExecutionAnchorStore.QueryAcquisition>
+            acquireQueryOwnership(String queryId, String coordinatorId, String tenantId) {
+        Objects.requireNonNull(queryId, "queryId");
+        Objects.requireNonNull(coordinatorId, "coordinatorId");
+        Objects.requireNonNull(tenantId, "tenantId");
+        CoordinatorExecutionAuthority authority = processAuthority;
+        if (authority != null && !authority.coordinatorId().equals(coordinatorId)) {
+            return Optional.empty();
+        }
+        return ownership.acquire(queryId, coordinatorId, requireLocalIncarnation(), tenantId);
+    }
+
     /** Completes only a query fenced to this exact local process. */
     public boolean releaseQueryOwnership(String queryId, String coordinatorId) {
         Objects.requireNonNull(queryId, "queryId must not be null");

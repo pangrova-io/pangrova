@@ -16,6 +16,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.UUID;
 import javax.sql.DataSource;
@@ -65,6 +66,7 @@ import org.pangrova.materialization.api.domain.TenantId;
 import org.pangrova.materialization.api.enums.TriggerKind;
 import org.pangrova.materialization.api.port.CommandRecord;
 import org.pangrova.persistence.materialization.api.publication.MaterializationCatalog;
+import org.pangrova.persistence.materialization.api.publication.MaterializationPublicationSnapshot;
 import org.pangrova.materialization.api.port.MaterializationEvent;
 import org.pangrova.materialization.api.enums.MaterializationEventType;
 import org.pangrova.persistence.materialization.api.lifecycle.MaterializationRepository;
@@ -121,7 +123,11 @@ class JdbcMaterializationRepositoryTest extends ContainerTestBase {
     @MethodSource("transactionFailures")
     void reservesCommitsAndPublishesExactlyOnceWithIdempotentReplay(
             Throwable failure, SQLException rollbackFailure) throws Exception {
-        DataSource dataSource = MigratedPostgres.create();
+        exercisePublicationLifecycle(MigratedPostgres.create(), failure, rollbackFailure);
+    }
+
+    private static void exercisePublicationLifecycle(
+            DataSource dataSource, Throwable failure, SQLException rollbackFailure) throws Exception {
         MaterializationRepository repository = new JdbcMaterializationRepository(dataSource);
         MaterializationCatalog catalog = new JdbcMaterializationCatalog(dataSource);
 
@@ -155,6 +161,11 @@ class JdbcMaterializationRepositoryTest extends ContainerTestBase {
         assertThat(catalog.findPublished(object)).isEmpty();
         long epochAfterCreate = catalog.registryEpoch(new TenantId(tenant));
         assertThat(epochAfterCreate).isPositive();
+        var beforePublication = catalog.snapshot(object.tenant(), OptionalLong.of(epochAfterCreate));
+        assertThat(beforePublication.revision()).isEqualTo(epochAfterCreate);
+        assertThat(beforePublication.find(object.name())).isEmpty();
+        assertThat(catalog.snapshot(object.tenant(), OptionalLong.of(epochAfterCreate)))
+                .isSameAs(beforePublication);
         assertThat(repository.findDefinition(object, 1)).get()
                 .satisfies(found -> assertThat(found.fingerprint())
                         .isEqualTo(definition.fingerprint()));
@@ -244,7 +255,18 @@ class JdbcMaterializationRepositoryTest extends ContainerTestBase {
         assertThat(projection.refreshKind()).isEqualTo(RefreshKind.FULL);
         assertThat(projection.sources()).containsExactly(source);
         assertThat(catalog.listPublished(new TenantId(tenant))).containsExactly(projection);
-        assertThat(catalog.registryEpoch(new TenantId(tenant))).isGreaterThan(epochAfterCreate);
+        long publishedRevision = catalog.registryEpoch(object.tenant());
+        assertThat(publishedRevision).isGreaterThan(epochAfterCreate);
+        var otherCoordinator = new JdbcMaterializationCatalog(dataSource);
+        var afterPublication = otherCoordinator.snapshot(object.tenant(), OptionalLong.of(publishedRevision));
+        assertThat(afterPublication.revision()).isEqualTo(publishedRevision);
+        assertThat(afterPublication.find(object.name())).contains(projection);
+        assertThat(otherCoordinator.snapshot(object.tenant(), OptionalLong.of(publishedRevision)))
+                .isSameAs(afterPublication);
+        assertThat(catalog.snapshot(object.tenant(), OptionalLong.of(publishedRevision))
+                .find(object.name())).contains(projection);
+        assertThat(beforePublication.find(object.name())).isEmpty();
+        assertThat(otherCoordinator.snapshot(new TenantId(uniqueTenant()), OptionalLong.empty()).revision()).isZero();
 
         CommandRecord receipt = repository.findCommand(new TenantId(tenant), publishCommand)
                 .orElseThrow();
@@ -276,6 +298,50 @@ class JdbcMaterializationRepositoryTest extends ContainerTestBase {
                 .satisfies(lease -> assertThat(lease.owner()).isEqualTo("scheduler-1"));
         assertThat(repository.findSchedule(object)).get()
                 .satisfies(found -> assertThat(found.version()).isEqualTo(1));
+
+        head = assertPublishedDefinitionSurvivesRedefinition(repository, catalog, otherCoordinator,
+                head, definition, projection, afterPublication, publishedAt.plusSeconds(3));
+
+        Instant suspendedAt = publishedAt.plusSeconds(4);
+        repository.updateObject(head.transitionTo(ObjectState.SUSPENDED, head.revision(), suspendedAt),
+                head.revision(), CommandId.random(), event(
+                        MaterializationEventType.OBJECT_ALTERED, object, requester, definer, suspendedAt));
+        long suspendedRevision = otherCoordinator.registryEpoch(object.tenant());
+        assertThat(suspendedRevision).isGreaterThan(publishedRevision);
+        assertThat(catalog.snapshot(object.tenant(), OptionalLong.of(suspendedRevision)).find(object.name()))
+                .isEmpty();
+        assertThat(otherCoordinator.snapshot(object.tenant(), OptionalLong.of(suspendedRevision)).find(object.name()))
+                .isEmpty();
+        assertThat(afterPublication.find(object.name())).contains(projection);
+    }
+
+    private static MaterializationObject assertPublishedDefinitionSurvivesRedefinition(
+            MaterializationRepository repository, MaterializationCatalog catalog,
+            MaterializationCatalog otherCoordinator, MaterializationObject head, DefinitionRevision definition,
+            PublishedMaterialization projection, MaterializationPublicationSnapshot afterPublication,
+            Instant redefinedAt) {
+        var object = head.id();
+        var sql = definition.sql() + " WHERE total IS NOT NULL";
+        var replacement = new DefinitionRevision(object, 2, sql, new Binding(sql, "d".repeat(64)),
+                definition.outputSchema(), definition.sources(), Set.of(), definition.policySnapshot(),
+                definition.securityMode(), definition.definer(), definition.sessionProperties(), redefinedAt);
+        var redefined = head.withDefinitionRevision(2, head.revision(), redefinedAt);
+        repository.replaceDefinition(replacement, redefined, head.revision(), CommandId.random(),
+                event(MaterializationEventType.OBJECT_ALTERED, object, definition.definer(),
+                        definition.definer(), redefinedAt));
+        assertThat(repository.findObject(object).orElseThrow().definitionRevision()).isEqualTo(2);
+        assertThat(repository.findDefinition(object, 2).orElseThrow().sql()).isEqualTo(sql);
+        long redefinedRevision = catalog.registryEpoch(object.tenant());
+        assertThat(redefinedRevision).isGreaterThan(afterPublication.revision());
+        // The head describes the next definition; until refresh publishes it, readers see the old generation.
+        assertThat(catalog.findPublished(object)).contains(projection);
+        assertThat(catalog.listPublished(object.tenant())).containsExactly(projection);
+        assertThat(catalog.snapshot(object.tenant(), OptionalLong.of(redefinedRevision)).find(object.name()))
+                .contains(projection);
+        assertThat(otherCoordinator.snapshot(object.tenant(), OptionalLong.of(redefinedRevision)).find(object.name()))
+                .contains(projection);
+        assertThat(afterPublication.find(object.name())).contains(projection);
+        return redefined;
     }
 
     @ParameterizedTest

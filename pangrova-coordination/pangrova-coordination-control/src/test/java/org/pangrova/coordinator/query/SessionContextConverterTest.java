@@ -28,7 +28,9 @@ class SessionContextConverterTest {
     @Test
     void connectorQueryIdentityAndSnapshotSelectorsCannotBeSpoofedByClientProperties() {
         var context = new QuerySession("admitted-query",
-                Map.of("queryId", "forged", "pangrova.source_snapshot.cat.db.table", "42"), null, "tenant", java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
+                Map.of("queryId", "forged", "pangrova.source_snapshot.cat.db.table", "42"),
+                null, "tenant", Optional.empty(),
+                new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
         var session = SessionContextConverter.toConnectorSession(context);
         assertThat(session.getProperties()).containsEntry("queryId", "admitted-query")
                 .doesNotContainKey("pangrova.source_snapshot.cat.db.table");

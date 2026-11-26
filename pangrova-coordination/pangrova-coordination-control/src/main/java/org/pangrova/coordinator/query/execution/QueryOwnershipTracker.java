@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query.execution;
 
+import org.pangrova.query.lifecycle.QueryExecutionPort.Ownership;
+import java.util.OptionalLong;
 import org.pangrova.connector.api.metadata.ConnectorMetadataScope;
 
 import java.util.concurrent.atomic.AtomicReference;
@@ -82,26 +84,24 @@ public final class QueryOwnershipTracker {
                 checkNotNull(recovery, "recovery must not be null"));
     }
 
-    /**
-     * Acquires query ownership via the HA coordination service.
-     * Returns true if ownership was acquired or if ownership tracking is not configured.
-     */
-    public boolean acquireQueryOwnership(String queryId) {
+    /** Acquires the query grant from the configured ownership backend. */
+    public Ownership acquireQueryOwnership(String queryId, String tenantId) {
         OwnershipSnapshot snapshot = ownershipSnapshot.get();
         if (snapshot == null) {
-            return true;
+            return new Ownership(true, OptionalLong.empty());
         }
         try {
-            boolean acquired = snapshot.service().acquireQueryOwnership(queryId, snapshot.coordinatorId());
-            if (!acquired) {
+            var acquired = snapshot.service().acquireQueryOwnership(queryId, snapshot.coordinatorId(), tenantId);
+            if (acquired.isEmpty()) {
                 LOG.warn("event=query_ownership_denied queryId={} coordinatorId={}",
                         queryId, snapshot.coordinatorId());
+                return new Ownership(false, OptionalLong.empty());
             }
-            return acquired;
-        } catch (Exception e) {
+            return new Ownership(true, acquired.orElseThrow().publicationRevision());
+        } catch (RuntimeException failure) {
             LOG.warn("event=query_ownership_acquire_failed queryId={} coordinatorId={} error={}",
-                    queryId, snapshot.coordinatorId(), e.getMessage());
-            return false;
+                    queryId, snapshot.coordinatorId(), failure.getMessage());
+            return new Ownership(false, OptionalLong.empty());
         }
     }
 

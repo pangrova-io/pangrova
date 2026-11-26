@@ -16,7 +16,8 @@ import org.apache.calcite.rel.RelNode;
 
 import java.util.List;
 import java.util.Objects;
-import java.util.function.Function;
+import java.util.OptionalLong;
+import java.util.function.BiFunction;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.parser.parse.TimeTravelSqlClauses.Analysis;
 import org.pangrova.planner.metadata.catalog.PlanningSnapshotSelectors;
@@ -35,7 +36,7 @@ public class SqlCompiler {
     private final SubstraitConverter converter;
     private final SubstraitPlanSerializer serializer;
     private final SubstraitPlanValidator validator;
-    private final Function<ConnectorSession, PangrovaPlanner> sessionPlanner;
+    private final BiFunction<ConnectorSession, OptionalLong, PangrovaPlanner> sessionPlanner;
     private final CompilerSessionScope sessionScope;
 
     public SqlCompiler() {
@@ -66,7 +67,7 @@ public class SqlCompiler {
 
     private SqlCompiler(PangrovaPlanner planner, SubstraitConverter converter,
                         SubstraitPlanSerializer serializer, SubstraitPlanValidator validator,
-                        Function<ConnectorSession, PangrovaPlanner> sessionPlanner,
+                        BiFunction<ConnectorSession, OptionalLong, PangrovaPlanner> sessionPlanner,
                         CompilerSessionScope sessionScope) {
         this.planner = planner;
         this.converter = converter;
@@ -91,24 +92,29 @@ public class SqlCompiler {
     }
 
     /** Installs the metadata boundary without depending on its implementation. */
-    public SqlCompiler withSessionPlanner(Function<ConnectorSession, PangrovaPlanner> factory) {
+    public SqlCompiler withSessionPlanner(BiFunction<ConnectorSession, OptionalLong, PangrovaPlanner> factory) {
         return new SqlCompiler(planner, converter, serializer, validator,
                 Objects.requireNonNull(factory, "sessionPlanner"), null);
     }
 
-    /** Captures a fresh query-local schema/planner and retains it through serialization retries. */
+    /** Binds planning that has no execution admission revision, such as compiling a definition. */
     public SqlCompiler forSession(ConnectorSession session) {
+        return forSession(session, OptionalLong.empty());
+    }
+
+    /** Captures the query-local planner and authenticated revision for the full compilation. */
+    public SqlCompiler forSession(ConnectorSession session, OptionalLong publicationRevision) {
         if (sessionPlanner == null) {
-            if (sessionScope != null && !sessionScope.equals(CompilerSessionScope.of(session))) {
+            if (sessionScope != null && !sessionScope.equals(CompilerSessionScope.of(session, publicationRevision))) {
                 throw new IllegalArgumentException("A query compiler cannot be rebound to another session");
             }
             return this;
         }
-        CompilerSessionScope scope = CompilerSessionScope.of(session);
-        var planningSession = org.pangrova.planner.metadata.catalog.PlanningSnapshotSelectors
-                .preserveDiscoveries(session, scope);
-        return new SqlCompiler(Objects.requireNonNull(sessionPlanner.apply(planningSession), "query planner"),
-                converter, serializer, validator, null, scope);
+        CompilerSessionScope scope = CompilerSessionScope.of(session, publicationRevision);
+        var planningSession = PlanningSnapshotSelectors.preserveDiscoveries(session, scope);
+        var queryPlanner = Objects.requireNonNull(sessionPlanner.apply(planningSession, publicationRevision),
+                "query planner");
+        return new SqlCompiler(queryPlanner, converter, serializer, validator, null, scope);
     }
 
     /** AQE uses the same query planner that produced and serialized its fragments. */

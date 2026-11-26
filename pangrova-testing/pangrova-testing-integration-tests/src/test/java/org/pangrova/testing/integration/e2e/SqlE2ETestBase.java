@@ -2740,7 +2740,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                         (sql, sess) -> {
                             SqlCompiler compiler = buildSqlCompiler().forSession(
                                     org.pangrova.coordinator.query.session.SessionContextConverter
-                                            .toConnectorSession(sess));
+                                            .toConnectorSession(sess), sess.publicationRevision());
                             PlannedQuery query = compiler.compileForPolicyApplication(sql)
                                     .toPlannedQuery();
                             PlannedQuery optimized = compiler.optimizeProtectedQuery(query, true);
@@ -2876,28 +2876,22 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 .withNativeCapabilities(org.pangrova.planner.validation.NativeCapabilityRegistry.live(() ->
                         workerManager.getActiveWorkers().stream().map(
                                 org.pangrova.coordinator.worker.WorkerInfo::capabilityInventory).toList()))
-                .withSessionPlanner(session -> {
+                .withSessionPlanner((session, publicationRevision) -> {
                     var bindings = new org.pangrova.planner.metadata.catalog.PlanningReadBindings(
                             metadataBootstrap.catalogRegistry(), session,
                             metadataBootstrap.catalogRegistry().tableStatistics());
                     var readerPin = new org.pangrova.coordinator.materialization.MaterializationReadPin(
                             java.util.Optional.of(readerPinLeases()), session);
+                    var publications = org.pangrova.coordinator.materialization.PlanningMaterializations.forSession(
+                            materializationCatalog(), session, E2E_TENANT_ID, publicationRevision);
                     var durableRewriter = new org.pangrova.planner.mv.DynamicTableRewriter(
                             new org.pangrova.coordinator.dynamictable.DurableDynamicTableResolver(
-                                    materializationCatalog(),
-                                    session.getProperties().getOrDefault("tenant_id", E2E_TENANT_ID),
-                                    session.getCatalog().orElse(null),
+                                    publications, session.getCatalog().orElse(null),
                                     session.getSchema().orElse(null), readerPin),
                             org.pangrova.planner.mv.DynamicTableRewriter.isInternalExecution(session));
-                    var materializationCatalog = materializationCatalog();
-                    var mvCatalog = materializationCatalog == null ? null
-                            : org.pangrova.coordinator.materialization
-                                    .KernelMaterializedViewRewriteCatalog.create(
-                                            materializationCatalog,
-                                            session.getProperties().getOrDefault(
-                                                    "tenant_id", E2E_TENANT_ID),
-                                            session, currentAccessControl,
-                                            java.time.Instant.now(), readerPin).orElse(null);
+                    var mvCatalog = org.pangrova.coordinator.materialization.KernelMaterializedViewRewriteCatalog
+                            .create(publications, session, currentAccessControl, java.time.Instant.now(), readerPin)
+                            .orElse(null);
                     var deps = new org.pangrova.planner.analysis.PlannerContext(
                             new org.pangrova.planner.statistics.StatisticsCollector(bindings),
                             mvCatalog,

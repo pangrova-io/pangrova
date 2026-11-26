@@ -98,12 +98,12 @@ class IcebergCommitExecutorTest {
                                 IcebergCommitOutcome.SUCCEEDED, "commit marker");
                     });
 
-            Throwable failure = catchThrowable(() -> commits.execute(null, null, () -> {
+            var completion = commits.execute(null, null, () -> {
                 commitRan.set(true);
                 awaitUninterruptibly(release);
-            }, "lake.orders"));
+            }, "lake.orders");
 
-            assertThat(failure).isNull();
+            assertThat(completion).isEqualTo(IcebergCommitExecutor.Completion.VERIFIED_AFTER_TIMEOUT);
             assertThat(commitRan).isTrue();
         } finally {
             release.countDown();

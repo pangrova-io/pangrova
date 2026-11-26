@@ -233,8 +233,8 @@ public class QueryDispatcher implements org.pangrova.query.lifecycle.QueryExecut
         return schedulingEngine.dagEngine();
     }
 
-    public boolean acquireQueryOwnership(String queryId) {
-        return ownershipTracker.acquireQueryOwnership(queryId);
+    public Ownership acquireQueryOwnership(String queryId, String tenantId) {
+        return ownershipTracker.acquireQueryOwnership(queryId, tenantId);
     }
 
     @Override

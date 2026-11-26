@@ -111,6 +111,8 @@ class SqlCompilerSessionIntegrationTest {
         var betaCompiler = template.forSession(beta);
         assertThat(alphaCompiler.planner()).isNotSameAs(betaCompiler.planner());
         assertThat(alphaCompiler.forSession(alpha)).isSameAs(alphaCompiler);
+        assertThatThrownBy(() -> template.forSession(alpha, java.util.OptionalLong.of(0L)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("admitted query authority");
         assertThatThrownBy(() -> alphaCompiler.forSession(beta))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("another session");
         assertThat(alphaCompiler.compileToPlannedQuery("SELECT 1")).isNotNull();

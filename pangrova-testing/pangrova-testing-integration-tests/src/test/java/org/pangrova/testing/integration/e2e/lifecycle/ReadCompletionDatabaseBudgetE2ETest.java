@@ -33,6 +33,13 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
                     + "WHERE execution_id = $1 AND expires_at > clock_timestamp()";
     private static final String PUBLICATION_LOOKUP =
             "SELECT tenant_id,requesting_principal,%FROM materialization.attempts WHERE execution_anchor=$1";
+    private static final String PUBLISHED_NAME_LOOKUP =
+            "SELECT o.tenant_id, o.object_name, o.object_kind,%FROM materialization.objects o "
+                    + "JOIN materialization.generations g%AND o.tenant_id=$1 AND o.object_name=$2";
+    private static final String PUBLICATION_SNAPSHOT_LOAD =
+            "WITH registry AS (%FROM registry LEFT JOIN published ON TRUE%";
+    private static final String SEPARATE_PUBLICATION_REVISION =
+            "SELECT COALESCE((SELECT epoch FROM materialization.registry_epochs WHERE tenant_id=$1), %)";
     private static final String READ_ADMISSION_LOOKUP =
             "SELECT control.*, catalog.incarnation_id AS observed_catalog_incarnation%";
     private static final String TABLE_REGISTRATION_LOOKUP =
@@ -121,6 +128,32 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
         assertExactAttemptProfile(queryId);
         assertProfileIsScopedToTheSubmittingPrincipal(queryId);
         assertQueryLifecycleIsScopedToTheSubmittingPrincipal(queryId);
+    }
+
+    @Test
+    void warmOrdinaryReadsDoNotReadThePublicationDirectory() throws SQLException {
+        String left = "iceberg_catalog.default.publication_budget_left";
+        String right = "iceberg_catalog.default.publication_budget_right";
+        sqlRunner.executeDdl("CREATE TABLE " + left + " (id BIGINT)");
+        sqlRunner.executeDdl("CREATE TABLE " + right + " (id BIGINT)");
+        sqlRunner.execute("INSERT INTO " + left + " VALUES (42)");
+        sqlRunner.execute("INSERT INTO " + right + " VALUES (42)");
+        String point = "SELECT id FROM " + left + " WHERE id = 42";
+        sqlRunner.execute(point);
+
+        long pointLookups = calls(PUBLISHED_NAME_LOOKUP);
+        long snapshotLoads = calls(PUBLICATION_SNAPSHOT_LOAD);
+        long isolatedRevisionReads = calls(SEPARATE_PUBLICATION_REVISION);
+        for (String sql : List.of(point, point,
+                "SELECT a.id FROM " + left + " a JOIN " + left + " b ON a.id = b.id",
+                "SELECT a.id FROM " + left + " a JOIN " + right + " b ON a.id = b.id")) {
+            assertThat(sqlRunner.execute(sql)).extracting(row -> row.getLong("id")).containsExactly(42L);
+        }
+
+        assertThat(calls(PUBLISHED_NAME_LOOKUP) - pointLookups).as("exact publication lookups").isZero();
+        assertThat(calls(PUBLICATION_SNAPSHOT_LOAD) - snapshotLoads).as("tenant directory loads").isZero();
+        assertThat(calls(SEPARATE_PUBLICATION_REVISION) - isolatedRevisionReads)
+                .as("standalone publication revision reads").isZero();
     }
 
     @Test

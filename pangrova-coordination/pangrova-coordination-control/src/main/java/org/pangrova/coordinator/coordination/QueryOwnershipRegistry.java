@@ -3,6 +3,7 @@ package org.pangrova.coordinator.coordination;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.persistence.query.api.coordination.ExecutionAnchorStore;
+import org.pangrova.persistence.query.api.coordination.ExecutionAnchorStore.QueryAcquisition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -11,6 +12,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -52,45 +54,55 @@ final class QueryOwnershipRegistry {
     }
 
     boolean acquire(String queryId, String coordinatorId, String incarnation) {
+        return acquire(queryId, coordinatorId, incarnation, null).isPresent();
+    }
+
+    Optional<QueryAcquisition> acquire(String queryId, String coordinatorId, String incarnation, String tenantId) {
         Ownership cached = ownership.get(queryId);
         if (cached != null) {
             if (!cached.active() || !ownedBy(cached.anchor(), coordinatorId, incarnation)) {
-                return false;
+                return Optional.empty();
             }
             var current = store.current(queryId).filter(anchor -> sameOwner(anchor, cached.anchor()));
             if (current.isPresent()) {
                 Ownership latest = ownership.get(queryId);
-                return latest != null && latest.active() && sameOwner(latest.anchor(), cached.anchor());
+                return latest != null && latest.active() && sameOwner(latest.anchor(), cached.anchor())
+                        ? current.map(anchor -> new QueryAcquisition(anchor, OptionalLong.empty()))
+                        : Optional.empty();
             }
             if (!ownership.remove(queryId, cached)) {
-                return false;
+                return Optional.empty();
             }
         }
         if (ownership.size() >= maxEntries) {
             ALARM_LOG.error("event=coordinator_alarm severity=CRITICAL component=query_execution_anchor "
                             + "message=\"local execution-anchor cache at capacity\" size={} maxEntries={} queryId={}",
                     ownership.size(), maxEntries, queryId);
-            return false;
+            return Optional.empty();
         }
         Ownership acquiring = new Ownership(null, false);
         if (ownership.putIfAbsent(queryId, acquiring) != null) {
-            return false;
+            return Optional.empty();
         }
         try {
-            Optional<ExecutionAnchor> acquired = store.tryAcquire(queryId, coordinatorId, incarnation, leaseDuration);
+            Optional<QueryAcquisition> acquired = tenantId == null
+                    ? store.tryAcquire(queryId, coordinatorId, incarnation, leaseDuration)
+                            .map(anchor -> new QueryAcquisition(anchor, OptionalLong.empty()))
+                    : store.tryAcquireQuery(queryId, coordinatorId, incarnation, leaseDuration, tenantId);
             if (acquired.isEmpty()) {
-                acquired = store.current(queryId).filter(anchor -> ownedBy(anchor, coordinatorId, incarnation));
+                acquired = store.current(queryId).filter(anchor -> ownedBy(anchor, coordinatorId, incarnation))
+                        .map(anchor -> new QueryAcquisition(anchor, OptionalLong.empty()));
             }
             if (acquired.isEmpty()) {
-                return false;
+                return Optional.empty();
             }
-            ExecutionAnchor anchor = acquired.orElseThrow();
+            ExecutionAnchor anchor = acquired.orElseThrow().anchor();
             if (!ownership.replace(queryId, acquiring, new Ownership(anchor, false))) {
-                return false;
+                return Optional.empty();
             }
             LOG.debug("event=execution_anchor_acquired queryId={} coordinatorId={} incarnation={} fencingToken={}",
                     queryId, coordinatorId, incarnation, anchor.fencingToken());
-            return true;
+            return acquired;
         } finally {
             ownership.remove(queryId, acquiring);
         }

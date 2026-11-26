@@ -7,6 +7,7 @@ import org.pangrova.common.api.annotation.Stable;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 /**
  * Durable, fenced ownership store for queries and background executions.
@@ -30,6 +31,24 @@ public interface ExecutionAnchorStore {
             String ownerId,
             String ownerIncarnation,
             Duration leaseDuration);
+
+    /** One committed SQL execution grant and its observed tenant publication revision. */
+    record QueryAcquisition(ExecutionAnchor anchor, OptionalLong publicationRevision) {
+        public QueryAcquisition {
+            java.util.Objects.requireNonNull(anchor, "anchor");
+            java.util.Objects.requireNonNull(publicationRevision, "publicationRevision");
+        }
+    }
+
+    /**
+     * Acquires a new SQL execution and samples the tenant's publication revision with the grant.
+     * Backends without a publication schema return an acquisition without a revision.
+     */
+    default Optional<QueryAcquisition> tryAcquireQuery(String executionId, String ownerId,
+            String ownerIncarnation, Duration leaseDuration, String tenantId) {
+        return tryAcquire(executionId, ownerId, ownerIncarnation, leaseDuration)
+                .map(anchor -> new QueryAcquisition(anchor, OptionalLong.empty()));
+    }
 
     /**
      * Renews every live anchor held by one exact process incarnation in one batch.

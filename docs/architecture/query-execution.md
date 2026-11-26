@@ -78,6 +78,18 @@ verifies that each selected source has a bound snapshot. Catalog, publication,
 snapshot, and policy decisions remain query-local. Calcite character types and
 literals use UTF-8 to preserve the text passed to Substrait and Arrow Flight.
 
+PostgreSQL returns the authenticated tenant's materialization publication revision
+with the freshly acquired execution anchor. The Coordinator binds the numeric revision
+explicitly to the query compiler. Planning uses it to share one immutable tenant directory
+across Dynamic Table resolution and optional
+materialized-view substitution. An unchanged revision reuses the local directory.
+The first query that needs a newer directory loads the revision and publications
+in one PostgreSQL statement. PostgreSQL advances the revision in the same
+transaction that changes the materialization header. Queries without a durable
+admission observation obtain an authoritative snapshot before resolving names.
+Selected generations still require durable reader leases before planning can
+expose them, and logical table authorization continues to apply.
+
 Literal INSERT and INSERT OVERWRITE resolve the target metadata once during
 statement admission. Column order, FILE MIME validation, managed-file validation,
 and generated-column admission use that same observation. Iceberg reads the
@@ -1136,10 +1148,12 @@ thread. Timeout and connection completion detach its observer. State changes
 schedule HTTP response work on Jetty. An explicit historical status read can
 consult the query journal.
 
-A first execution acquires its PostgreSQL advisory lock before the anchor INSERT
-allocates and returns the fencing token. A separate statement starts the lease
-clock after the inserted row is exclusively owned, including when the INSERT
-waited for a competing uncommitted row.
+An execution first acquires its PostgreSQL advisory lock, then attempts to
+insert its anchor. The successful insert owns the new row and returns its fencing
+token. A fresh statement starts the lease clock after any INSERT wait and checks
+the durable read window using the same clock sample. A protected window rolls
+back the provisional insert. Only an anchor conflict reads the existing owner
+under a row lock for the takeover decision.
 
 A live DAG with a verified read-only plan skips the write commit journal during task completion. Query finalization still checks the current execution anchor and evaluates the lease against the PostgreSQL clock in the same SELECT. Write publication and recovery keep their durable commit checks.
 

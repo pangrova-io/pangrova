@@ -8,6 +8,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -22,6 +23,7 @@ import org.pangrova.materialization.api.enums.RefreshKind;
 import org.pangrova.materialization.api.domain.SourceVector;
 import org.pangrova.materialization.api.domain.TenantId;
 import org.pangrova.persistence.materialization.api.publication.MaterializationCatalog;
+import org.pangrova.persistence.materialization.api.publication.MaterializationPublicationSnapshot;
 import org.pangrova.materialization.api.port.PublishedMaterialization;
 import org.pangrova.planner.mv.MaterializedViewRewriteCatalog;
 import org.pangrova.connector.api.session.ConnectorSession;
@@ -120,7 +122,8 @@ class KernelMaterializedViewRewriteCatalogTest {
         PublishedMaterialization view = materializedView("lake.db.orders_mv", NOW);
         var pinned = new java.util.ArrayList<GenerationId>();
         var rewrite = KernelMaterializedViewRewriteCatalog.create(
-                new FakeCatalog(List.of(view)), TENANT, session("alice", Map.of()),
+                new PlanningMaterializations(new FakeCatalog(List.of(view)), TENANT, OptionalLong.empty()),
+                session("alice", Map.of()),
                 allowAll(), NOW, published -> pinned.add(published.generation())).orElseThrow();
 
         assertThat(rewrite.candidates(Set.of("lake.db.orders"))).hasSize(1);
@@ -130,7 +133,8 @@ class KernelMaterializedViewRewriteCatalogTest {
     @Test
     void candidateWhoseGenerationCannotBePinnedIsNotOffered() {
         var rewrite = KernelMaterializedViewRewriteCatalog.create(
-                new FakeCatalog(List.of(materializedView("lake.db.orders_mv", NOW))), TENANT,
+                new PlanningMaterializations(new FakeCatalog(List.of(materializedView("lake.db.orders_mv", NOW))),
+                        TENANT, OptionalLong.empty()),
                 session("alice", Map.of()), allowAll(), NOW, published -> {
                     throw new IllegalStateException("generation is no longer readable");
                 }).orElseThrow();
@@ -145,7 +149,8 @@ class KernelMaterializedViewRewriteCatalogTest {
 
     private Optional<MaterializedViewRewriteCatalog> create(MaterializationCatalog catalog,
             ConnectorSession session, AccessControl accessControl) {
-        return KernelMaterializedViewRewriteCatalog.create(catalog, TENANT, session,
+        return KernelMaterializedViewRewriteCatalog.create(
+                new PlanningMaterializations(catalog, TENANT, OptionalLong.empty()), session,
                 accessControl, NOW, pins::add);
     }
 
@@ -235,6 +240,11 @@ class KernelMaterializedViewRewriteCatalogTest {
             return published.stream()
                     .filter(candidate -> candidate.object().tenant().equals(tenant))
                     .toList();
+        }
+
+        @Override
+        public MaterializationPublicationSnapshot snapshot(TenantId tenant, OptionalLong admissionRevision) {
+            return new MaterializationPublicationSnapshot(tenant, registryEpoch(tenant), listPublished(tenant));
         }
 
         @Override

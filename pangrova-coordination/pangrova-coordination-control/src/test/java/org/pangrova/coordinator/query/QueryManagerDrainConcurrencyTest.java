@@ -549,18 +549,18 @@ class QueryManagerDrainConcurrencyTest {
         }
 
         @Override
-        public boolean acquireQueryOwnership(String queryId) {
+        public Ownership acquireQueryOwnership(String queryId, String tenantId) {
             acquireEntered.countDown();
             try {
                 if (!allowAcquire.await(3, TimeUnit.SECONDS)) {
-                    return false;
+                    return new Ownership(false, java.util.OptionalLong.empty());
                 }
             } catch (InterruptedException failure) {
                 Thread.currentThread().interrupt();
-                return false;
+                return new Ownership(false, java.util.OptionalLong.empty());
             }
             ownerAcquired.set(grant);
-            return grant;
+            return new Ownership(grant, java.util.OptionalLong.empty());
         }
 
         @Override
