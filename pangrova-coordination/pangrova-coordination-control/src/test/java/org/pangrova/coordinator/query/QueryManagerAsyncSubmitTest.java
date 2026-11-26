@@ -1,4 +1,5 @@
 package org.pangrova.coordinator.query;
+import org.pangrova.parser.parse.TimeTravelSqlClauses.Analysis;
 import org.pangrova.query.runtime.QueryManager;
 
 import org.pangrova.query.lifecycle.QueryStateMachine;
@@ -423,7 +424,7 @@ class QueryManagerAsyncSubmitTest {
         var executingState = new AtomicReference<QueryStateMachine>();
         var compiler = new SqlCompiler() {
             @Override
-            public org.pangrova.planner.analysis.PlanResult compileForPolicyApplication(String sql) {
+            public org.pangrova.planner.analysis.PlanResult compileForPolicyApplication(Analysis input) {
                 var state = executingState.get();
                 state.tryTransition(QueryState.SCHEDULING);
                 state.tryTransition(QueryState.RUNNING);

@@ -10,12 +10,16 @@ import org.pangrova.planner.mv.DynamicTableRewriter;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.planner.parse.PangrovaParserFactory;
 import org.pangrova.parser.build.antlr.PangrovaSqlLexer;
+import org.pangrova.parser.parse.TimeTravelSqlClauses.Analysis;
 import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.Token;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.IdentityHashMap;
+import java.util.Set;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -71,6 +75,78 @@ public final class DynamicTableSqlRewriter {
         return new RewriteWithAuthority(rewritten, physicalToLogical);
     }
 
+    /** Rewrites a parsed query using exact relation identities and query-local publication pins. */
+    public DynamicTableAstRewriter.RewriteWithAuthority rewriteWithAuthority(Analysis input) {
+        if (!dynamicTableRewriter.allowDirectGenerationAccess()) {
+            for (var reference : input.references()) {
+                var parts = reference.table().name().parts();
+                if (parts.stream().anyMatch(RESERVED_SCHEMA::equalsIgnoreCase)
+                        || isGenerationName(parts.get(parts.size() - 1))) {
+                    throw generationAccessDenied();
+                }
+            }
+        }
+        // Match the existing SQL planner's Dynamic Table lookup scope. The guard above also
+        // checks nested references, where no publication lookup is needed.
+        List<TableRef> candidates = extractTableRefs(input.statement());
+        if (candidates.isEmpty()) {
+            return new DynamicTableAstRewriter.RewriteWithAuthority(input.statement(), Map.of());
+        }
+        Set<TableRef> candidateSites = Collections.newSetFromMap(new IdentityHashMap<>());
+        candidateSites.addAll(candidates);
+        var physicalToLogical = new HashMap<QualifiedTableName, QualifiedTableName>();
+        var pinnedTargets = new HashMap<QualifiedTableName, Optional<DynamicTableRewriter.PublishedTarget>>();
+        Map<TableRef, TableRef> replacements = new IdentityHashMap<>();
+        for (var reference : input.references()) {
+            var ref = reference.table();
+            if (reference.cte() || ref.systemTableRef().isPresent()
+                    || !candidateSites.contains(ref)) {
+                continue;
+            }
+            var target = publishedTarget(ref, pinnedTargets);
+            if (target.isEmpty()) {
+                continue;
+            }
+            if (ref.timeTravelSpec().isPresent()) {
+                throw new org.pangrova.planner.api.exception.PlannerException(
+                        org.pangrova.common.enums.PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
+                        "Time travel cannot target a logical Dynamic Table: " + ref.name().parts());
+            }
+            var published = target.orElseThrow();
+            recordAuthority(published, physicalToLogical);
+            replacements.put(ref, physicalReference(ref, published.physical()));
+        }
+        return new DynamicTableAstRewriter.RewriteWithAuthority(
+                replaceCandidates(input.statement(), replacements), physicalToLogical);
+    }
+
+    private static TableRef physicalReference(TableRef ref, QualifiedTableName physical) {
+        var name = new Identifier(List.of(physical.catalog(), physical.schema(), physical.table()));
+        var alias = ref.alias().or(() -> Optional.of(ref.name().parts().get(ref.name().parts().size() - 1)));
+        return new TableRef(name, ref.timeTravelSpec(), alias, ref.subquery(), ref.lateral(),
+                ref.tableFunctionRef(), ref.systemTableRef(), ref.tableSample(), ref.pivotClause(),
+                ref.unpivotClause(), ref.valuesTable());
+    }
+
+    private static Statement replaceCandidates(Statement statement, Map<TableRef, TableRef> replacements) {
+        if (replacements.isEmpty()) {
+            return statement;
+        }
+        if (statement instanceof Query query) {
+            return new Query(query.distinct(), query.selectItems(),
+                    query.from().stream().map(ref -> replacements.getOrDefault(ref, ref)).toList(),
+                    query.joins().stream().map(join -> new JoinClause(join.joinType(),
+                            replacements.getOrDefault(join.right(), join.right()),
+                            join.condition(), join.usingColumns())).toList(),
+                    query.where(), query.groupBy(), query.having(), query.qualify(), query.windowDefinitions(),
+                    query.orderBy(), query.rerankBy(), query.limit(), query.offset());
+        }
+        if (statement instanceof CteQuery cte) {
+            return new CteQuery(cte.recursive(), cte.ctes(), replaceCandidates(cte.body(), replacements));
+        }
+        return statement;
+    }
+
     private static void rejectExplicitGenerationReference(String originalSql) {
         List<? extends Token> tokens = new PangrovaSqlLexer(
                 CharStreams.fromString(originalSql)).getAllTokens();
@@ -99,8 +175,7 @@ public final class DynamicTableSqlRewriter {
             if ((type == PangrovaSqlLexer.FROM || type == PangrovaSqlLexer.JOIN
                     || type == PangrovaSqlLexer.COMMA && fromDepths.contains(depth))
                     && generationTableName(tokens, i + 1)) {
-                throw new org.pangrova.security.api.exception.AccessDeniedException(
-                        "Direct access to a Dynamic Table generation is forbidden");
+                throw generationAccessDenied();
             }
         }
     }
@@ -135,9 +210,17 @@ public final class DynamicTableSqlRewriter {
         if (last == null) {
             return false;
         }
-        String lower = last.toLowerCase(java.util.Locale.ROOT);
-        return reservedSchema || lower.startsWith(CANDIDATE_PREFIX)
-                || lower.startsWith(LEGACY_CANDIDATE_PREFIX);
+        return reservedSchema || isGenerationName(last);
+    }
+
+    private static boolean isGenerationName(String name) {
+        String lower = name.toLowerCase(java.util.Locale.ROOT);
+        return lower.startsWith(CANDIDATE_PREFIX) || lower.startsWith(LEGACY_CANDIDATE_PREFIX);
+    }
+
+    private static org.pangrova.security.api.exception.AccessDeniedException generationAccessDenied() {
+        return new org.pangrova.security.api.exception.AccessDeniedException(
+                "Direct access to a Dynamic Table generation is forbidden");
     }
 
     // Mirrors the kernel's InternalNamespace; the planner must not depend on materialization.
@@ -182,12 +265,7 @@ public final class DynamicTableSqlRewriter {
     private String rewriteTableRef(String sql, TableRef ref,
             Map<QualifiedTableName, QualifiedTableName> physicalToLogical,
             Map<QualifiedTableName, Optional<DynamicTableRewriter.PublishedTarget>> pinnedTargets) {
-        List<String> nameParts = ref.name().parts();
-        Optional<DynamicTableRewriter.PublishedTarget> target = dynamicTableRewriter
-                .canonicalPublishedLogical(nameParts)
-                .map(logical -> pinnedTargets.computeIfAbsent(logical,
-                        ignored -> dynamicTableRewriter.resolvePublishedTarget(nameParts)))
-                .orElseGet(() -> dynamicTableRewriter.resolvePublishedTarget(nameParts));
+        var target = publishedTarget(ref, pinnedTargets);
         if (target.isEmpty()) {
             return sql;
         }
@@ -196,6 +274,21 @@ public final class DynamicTableSqlRewriter {
         if (replaced.equals(sql)) {
             return sql;
         }
+        recordAuthority(published, physicalToLogical);
+        return replaced;
+    }
+
+    private Optional<DynamicTableRewriter.PublishedTarget> publishedTarget(TableRef ref,
+            Map<QualifiedTableName, Optional<DynamicTableRewriter.PublishedTarget>> pinnedTargets) {
+        List<String> nameParts = ref.name().parts();
+        return dynamicTableRewriter.canonicalPublishedLogical(nameParts)
+                .map(logical -> pinnedTargets.computeIfAbsent(logical,
+                        ignored -> dynamicTableRewriter.resolvePublishedTarget(nameParts)))
+                .orElseGet(() -> dynamicTableRewriter.resolvePublishedTarget(nameParts));
+    }
+
+    private static void recordAuthority(DynamicTableRewriter.PublishedTarget published,
+            Map<QualifiedTableName, QualifiedTableName> physicalToLogical) {
         QualifiedTableName previous = physicalToLogical.putIfAbsent(
                 published.physical(), published.logical());
         if (previous != null && !previous.equals(published.logical())) {
@@ -203,7 +296,6 @@ public final class DynamicTableSqlRewriter {
         }
         LOG.info("event=dt_sql_rewrite original={} target={}",
                 published.logical(), published.physical());
-        return replaced;
     }
 
     private List<TableRef> extractTableRefs(Statement ast) {

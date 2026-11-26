@@ -3,7 +3,7 @@ LogicalProject(c_last_name=[$0], c_first_name=[$1], s_store_name=[$2], netpaid=[
     LogicalJoin(condition=[>($4, CAST($5):DECIMAL(38, 2))], joinType=[inner])
       LogicalAggregate(group=[{0, 1, 2, 10}], agg#0=[SUM($10)])
         LogicalAggregate(group=[{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}], netpaid=[SUM($10)])
-          LogicalFilter(condition=[=($5, 'pale')])
+          LogicalFilter(condition=[=($5, _UTF-8'pale')])
             LogicalProject(c_last_name=[$11], c_first_name=[$10], s_store_name=[$1], ca_state=[$13], s_state=[$3], i_color=[$7], i_current_price=[$5], i_manager_id=[$9], i_units=[$8], i_size=[$6], ss_net_paid=[$0])
               LogicalProject(ss_net_paid=[$0], s_store_name=[$1], s_market_id=[$2], s_state=[$3], s_zip=[$4], i_current_price=[$5], i_size=[$6], i_color=[$7], i_units=[$8], i_manager_id=[$9], c_first_name=[$11], c_last_name=[$12], c_birth_country=[$13], ca_state=[$15], ca_zip=[$16], ca_country=[$17])
                 LogicalFilter(condition=[AND(=($13, UPPER($17)), =($4, $16), =($2, 8))])

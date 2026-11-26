@@ -60,6 +60,17 @@ hold a submission thread while its Workers produce or finish results. The
 execution operation remains admitted through terminal callbacks, while task and
 result owners account for their own physical drain.
 
+The Coordinator parses SQL into one immutable syntax tree with named-relation
+source positions. Statement dispatch, view lookup, snapshot selection, the
+authenticated planner, and retrieval analysis use that tree. The syntax cache is bounded and keyed by
+exact SQL text so aliases, quoted names, comments, and source positions retain
+their original spelling. View replacement uses source positions and parses the
+generated text. Published Dynamic Tables substitute the relation in the AST. The compiler resolves
+explicit snapshot selectors before opening the authenticated schema and
+verifies that each selected source has a bound snapshot. Catalog, publication,
+snapshot, and policy decisions remain query-local. Calcite character types and
+literals use UTF-8 to preserve the text passed to Substrait and Arrow Flight.
+
 Literal INSERT and INSERT OVERWRITE resolve the target metadata once during
 statement admission. Column order, FILE MIME validation, managed-file validation,
 and generated-column admission use that same observation. Iceberg reads the

@@ -1,5 +1,7 @@
 package org.pangrova.planner.analysis;
 
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import org.pangrova.parser.parse.TimeTravelSqlClauses.Analysis;
 import org.pangrova.planner.api.exception.PlannerException;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.planner.cost.CostModelConfig;
@@ -187,23 +189,30 @@ public final class PangrovaPlanner {
         var rewrite = dynamicTablePlanningSupport.rewriteIfWired(sql);
         String rewrittenSql = rewrite.sql();
         dynamicTablePlanningSupport.logCteMaterializationHints(rewrittenSql);
-        SqlValidator validator = buildValidator();
-        SqlNode validated = validate(validator, parse(rewrittenSql));
-        RelNode relation = convert(validator, buildCluster(), validated);
-        Map<String, Long> pinnedVersions = pinMetadataVersions(relation);
-        verifyMetadataVersions(pinnedVersions);
-        return new PlanResult(relation, relation.getRowType().getFieldNames(),
-                rewrite.physicalToLogical());
+        return bindForPolicyApplication(parse(rewrittenSql), rewrite.physicalToLogical());
+    }
+
+    /** Binds pre-parsed SQL using the already resolved snapshot selectors. */
+    PlanResult planForPolicyApplication(Analysis input) {
+        var rewrite = dynamicTablePlanningSupport.rewriteIfWired(input);
+        dynamicTablePlanningSupport.logCteMaterializationHints(rewrite.statement());
+        var statement = recursiveCteExpander.expand(rewrite.statement());
+        return bindForPolicyApplication(parserFactory.convertBoundAstToSqlNode(statement), rewrite.physicalToLogical());
     }
 
     /** Binds an expanded Native metadata listing without optimizing before authorization. */
     public PlanResult planForPolicyApplication(MetadataTableQuery query) {
+        return bindForPolicyApplication(parserFactory.convertAstToSqlNode(query.toAst()), Map.of());
+    }
+
+    private PlanResult bindForPolicyApplication(SqlNode sqlNode,
+            Map<QualifiedTableName, QualifiedTableName> physicalToLogical) {
         SqlValidator validator = buildValidator();
-        SqlNode validated = validate(validator, parserFactory.convertAstToSqlNode(query.toAst()));
+        SqlNode validated = validate(validator, sqlNode);
         RelNode relation = convert(validator, buildCluster(), validated);
         Map<String, Long> pinnedVersions = pinMetadataVersions(relation);
         verifyMetadataVersions(pinnedVersions);
-        return new PlanResult(relation, relation.getRowType().getFieldNames());
+        return new PlanResult(relation, relation.getRowType().getFieldNames(), physicalToLogical);
     }
 
     /** Optimizes only after authorization and policies; mutations retain their physical target until COW. */

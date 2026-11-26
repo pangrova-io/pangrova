@@ -40,7 +40,7 @@ import java.util.Locale;
 
 /**
  * Enriches a {@link DispatchQueryContext} with vector search and reranker metadata
- * extracted from the query plan and original SQL.
+ * extracted from the query plan and parsed statement.
  */
 final class DispatchContextEnricher {
 
@@ -69,15 +69,8 @@ final class DispatchContextEnricher {
     }
 
     DispatchQueryContext enrichWithReranker(
-            DispatchQueryContext ctx, String queryId, String tenantId) {
-        if (ctx.originalSql() == null || ctx.originalSql().isBlank()) {
-            return ctx;
-        }
-        if (ctx.compiler() == null) {
-            return ctx;
-        }
-        Statement stmt = ctx.compiler().parseToAst(ctx.originalSql());
-        if (!(stmt instanceof Query query)) {
+            DispatchQueryContext ctx, Statement statement, String queryId, String tenantId) {
+        if (!(statement instanceof Query query)) {
             return ctx;
         }
         String tableName = extractTableName(query);

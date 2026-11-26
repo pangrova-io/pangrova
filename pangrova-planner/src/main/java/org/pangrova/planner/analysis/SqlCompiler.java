@@ -18,6 +18,8 @@ import java.util.List;
 import java.util.Objects;
 import java.util.function.Function;
 import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.parser.parse.TimeTravelSqlClauses.Analysis;
+import org.pangrova.planner.metadata.catalog.PlanningSnapshotSelectors;
 
 /**
  * End-to-end SQL compilation: SQL text → Substrait Plan bytes.
@@ -146,6 +148,20 @@ public class SqlCompiler {
     /** Validated query input for the authority/policy phase, before relational optimization. */
     public PlanResult compileForPolicyApplication(String sql) {
         return planningPlanner().planForPolicyApplication(sql);
+    }
+
+    /** Validates a parsed query after the coordinator has resolved its explicit snapshot selectors. */
+    public PlanResult compileForPolicyApplication(Analysis input) {
+        if (!input.sql().equals(input.strippedSql())) {
+            for (var reference : input.references()) {
+                var table = reference.table();
+                if (table.timeTravelSpec().isPresent() && (reference.cte() || sessionScope == null
+                        || !PlanningSnapshotSelectors.hasSelection(sessionScope, table))) {
+                    throw new IllegalArgumentException("Explicit snapshot selectors must be bound before planning");
+                }
+            }
+        }
+        return planningPlanner().planForPolicyApplication(input);
     }
 
     /** Binds an expanded metadata listing before any security-sensitive optimization. */
