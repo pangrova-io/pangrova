@@ -16,6 +16,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
 import java.time.Duration;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -37,6 +38,9 @@ import org.pangrova.protocol.http.TaskShuffleEndpoint;
 import org.pangrova.protocol.http.TaskSubmitAck;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.ExecutionOwnerIdentity;
+import org.pangrova.protocol.task.CanonicalTaskAdmissionSeals;
+import org.pangrova.protocol.v2.TaskAdmissionSealRequest;
+import org.pangrova.query.api.journal.TaskStateEvent;
 import org.pangrova.execution.binding.TaskControlBinding;
 import org.pangrova.observability.api.tracing.TracingProvider;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
@@ -598,30 +602,57 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
 
     @Override
     public SchedulerCancelResult cancelTask(SubmitTaskRequest request, String workerHost, int httpPort) {
-        var attempt = request.taskRequest().getAttempt();
-        if (!attempt.hasWorkerExecutionIdentity()) {
+        if (!request.taskRequest().getAttempt().hasWorkerExecutionIdentity()) {
             return SchedulerCancelResult.failed("Issued task has no physical Worker execution identity", false);
         }
+        var seal = CanonicalTaskAdmissionSeals.create(request.taskRequest());
+        var destinations = controlDestinations(seal, workerHost, httpPort);
+        if (destinations.size() != 1) {
+            return SchedulerCancelResult.failed("Ambiguous current Worker admission domain", true);
+        }
+        var address = destinations.get(0);
+        return taskControlClient.cancelTask(seal, address.host(), address.port());
+    }
+
+    /** Sends the original canonical seal and validates an exit-only response for that exact attempt. */
+    public CompletableFuture<SchedulerCancelResult> recoverTaskDrain(TaskStateEvent issued) {
+        var authority = java.util.Objects.requireNonNull(issued.issuance(), "durable issuance");
+        try {
+            var seal = TaskAdmissionSealRequest.parseFrom(authority.admissionSeal());
+            CanonicalTaskAdmissionSeals.validate(seal, issued.taskId());
+            var attempt = seal.getAttempt();
+            var owner = attempt.getExecutionOwner();
+            if (!attempt.hasWorkerExecutionIdentity() || !issued.queryId().equals(attempt.getQueryOrJobId())
+                    || issued.stageId() != attempt.getStageId()
+                    || !issued.context().coordinatorId().equals(owner.getOwnerId())
+                    || !authority.ownerIncarnation().equals(owner.getOwnerIncarnation())
+                    || authority.fencingToken() != owner.getFencingToken()) {
+                throw new IllegalArgumentException("Durable task issuance changed its execution identity");
+            }
+            var destinations = controlDestinations(seal, authority.workerHost(), authority.workerHttpPort());
+            if (destinations.size() != 1) {
+                return CompletableFuture.completedFuture(
+                        SchedulerCancelResult.failed("Ambiguous current Worker admission domain", true));
+            }
+            var address = destinations.get(0);
+            return taskControlClient.recoverTask(seal, address.host(), address.port());
+        } catch (InvalidProtocolBufferException | IllegalArgumentException malformed) {
+            return CompletableFuture.completedFuture(SchedulerCancelResult.failed(malformed.getMessage(), false));
+        }
+    }
+
+    private List<RecoveryDestination> controlDestinations(TaskAdmissionSealRequest seal, String host, int port) {
         var inventory = recoveryWorkers;
         if (inventory != null) {
-            String domain = attempt.getWorkerExecutionIdentity().getAdmissionDomainId();
+            String domain = seal.getAttempt().getWorkerExecutionIdentity().getAdmissionDomainId();
             var destinations = inventory.get().stream()
                     .filter(worker -> domain.equals(worker.workerExecutionIdentity().admissionDomainId()))
                     .map(worker -> new RecoveryDestination(worker.host(), worker.httpPort(),
                             worker.workerExecutionIdentity()))
                     .distinct().toList();
-            if (destinations.size() > 1) {
-                return SchedulerCancelResult.failed("Ambiguous current Worker admission domain", true);
-            }
-            if (!destinations.isEmpty()) {
-                var destination = destinations.get(0);
-                // Route to the exclusive successor, retaining the ORIGINAL sealed attempt bytes.
-                return taskControlClient.cancelTask(request, destination.host(), destination.port());
-            }
+            if (!destinations.isEmpty()) return destinations;
         }
-        // The original endpoint may still own the task even before re-registration completes.
-        // Its exact seal remains authoritative; an unknown endpoint never implies successful drain.
-        return taskControlClient.cancelTask(request, workerHost, httpPort);
+        return List.of(new RecoveryDestination(host, port, null));
     }
 
     private record RecoveryDestination(String host, int port,

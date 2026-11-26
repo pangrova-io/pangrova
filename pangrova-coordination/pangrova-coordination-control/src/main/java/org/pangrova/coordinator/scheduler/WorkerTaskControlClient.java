@@ -5,6 +5,8 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Duration;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -13,6 +15,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.pangrova.common.concurrent.BackoffStrategy;
 import org.pangrova.protocol.rest.task.InjectDynamicFilterRequest;
 import org.pangrova.protocol.rest.task.UpstreamCommitNotification;
+import org.pangrova.protocol.v2.TaskAdmissionSealRequest;
+import org.pangrova.protocol.v2.TaskAttemptId;
+import org.pangrova.coordinator.query.task.report.CanonicalTaskReportValidator;
 import org.pangrova.observability.api.tracing.TracingProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,6 +25,8 @@ import org.slf4j.LoggerFactory;
 /** Sends task control-plane requests after a task has been dispatched. */
 final class WorkerTaskControlClient {
     private static final int HTTP_TIMEOUT_SECONDS = 30;
+    private static final Duration RECOVERY_TIMEOUT = Duration.ofSeconds(3);
+    private static final CanonicalTaskReportValidator REPORTS = new CanonicalTaskReportValidator();
 
     private static final Logger LOG = LoggerFactory.getLogger(
             WorkerTaskControlClient.class);
@@ -73,30 +80,49 @@ final class WorkerTaskControlClient {
         }
     }
 
-    SchedulerCancelResult cancelTask(org.pangrova.protocol.rest.task.SubmitTaskRequest issued,
-            String workerHost, int httpPort) {
-        var seal = org.pangrova.protocol.task.CanonicalTaskAdmissionSeals.create(issued.taskRequest());
+    SchedulerCancelResult cancelTask(TaskAdmissionSealRequest seal, String workerHost, int httpPort) {
         String taskId = seal.getAttempt().getTaskId();
-        String url = "http://" + workerHost + ":" + httpPort + "/v1/task/" + taskId;
-        LOG.debug("event=task_cancel url={}", url);
-        HttpRequest request = decorate(HttpRequest.newBuilder())
-                .uri(URI.create(url)).header("Content-Type", "application/x-protobuf")
-                .header("Accept", "application/x-protobuf")
-                .method("DELETE", HttpRequest.BodyPublishers.ofByteArray(seal.toByteArray()))
-                .timeout(java.time.Duration.ofSeconds(HTTP_TIMEOUT_SECONDS)).build();
         try {
-            HttpResponse<byte[]> response = httpClient.send(request, HttpResponse.BodyHandlers.ofByteArray());
-            return mapCancelResponse(response, issued);
+            HttpResponse<byte[]> response = httpClient.send(
+                    cancelRequest(seal, workerHost, httpPort, Duration.ofSeconds(HTTP_TIMEOUT_SECONDS)),
+                    HttpResponse.BodyHandlers.ofByteArray());
+            return mapCancelResponse(response, seal.getAttempt());
         } catch (IOException failure) {
-            LOG.warn("event=task_cancel_io_error taskId={} error={}",
-                    taskId, failure.getMessage());
-            return SchedulerCancelResult.failed(
-                    "IO error: " + failure.getMessage(), true);
+            LOG.warn("event=task_cancel_io_error taskId={} error={}", taskId, failure.getMessage());
+            return SchedulerCancelResult.failed("IO error: " + failure.getMessage(), true);
         } catch (InterruptedException failure) {
             Thread.currentThread().interrupt();
             LOG.warn("event=task_cancel_interrupted taskId={}", taskId);
             return SchedulerCancelResult.failed("Interrupted", false);
         }
+    }
+
+    CompletableFuture<SchedulerCancelResult> recoverTask(
+            TaskAdmissionSealRequest seal, String workerHost, int httpPort) {
+        var response = httpClient.sendAsync(cancelRequest(seal, workerHost, httpPort, RECOVERY_TIMEOUT),
+                HttpResponse.BodyHandlers.ofByteArray());
+        return response.copy().orTimeout(RECOVERY_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS)
+                .handle((received, failure) -> {
+                    if (failure == null) return mapCancelResponse(received, seal.getAttempt());
+                    response.cancel(true);
+                    return SchedulerCancelResult.failed(failure.getMessage(), true);
+                });
+    }
+
+    private HttpRequest cancelRequest(TaskAdmissionSealRequest seal, String workerHost, int httpPort,
+            Duration timeout) {
+        URI endpoint;
+        try {
+            endpoint = new URI("http", null, workerHost, httpPort,
+                    "/v1/task/" + seal.getAttempt().getTaskId(), null, null);
+        } catch (java.net.URISyntaxException malformed) {
+            throw new IllegalArgumentException("Invalid Worker task control address", malformed);
+        }
+        return decorate(HttpRequest.newBuilder()).uri(endpoint)
+                .header("Content-Type", "application/x-protobuf")
+                .header("Accept", "application/x-protobuf")
+                .method("DELETE", HttpRequest.BodyPublishers.ofByteArray(seal.toByteArray()))
+                .timeout(timeout).build();
     }
 
     void notifyUpstreamCommit(
@@ -215,8 +241,8 @@ final class WorkerTaskControlClient {
     }
 
     private static SchedulerCancelResult mapCancelResponse(
-            HttpResponse<byte[]> response, org.pangrova.protocol.rest.task.SubmitTaskRequest issued) {
-        String taskId = issued.taskRequest().getAttempt().getTaskId();
+            HttpResponse<byte[]> response, TaskAttemptId issued) {
+        String taskId = issued.getTaskId();
         if (response.statusCode() == HTTP_OK) {
             String contentType = response.headers().firstValue("Content-Type").orElse("");
             if (!contentType.split(";", 2)[0].equalsIgnoreCase("application/x-protobuf")) {
@@ -224,8 +250,7 @@ final class WorkerTaskControlClient {
                     "Worker did not return a canonical drain receipt media type", false);
             }
             try {
-                var actual = new org.pangrova.coordinator.query.task.report.CanonicalTaskReportValidator()
-                        .validateExecutionDrainReceipt(response.body(), issued);
+                var actual = REPORTS.validateExecutionDrainReceipt(response.body(), issued);
                 return SchedulerCancelResult.drained(actual);
             } catch (IllegalArgumentException malformed) {
                 return SchedulerCancelResult.failed(

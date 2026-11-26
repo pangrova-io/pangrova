@@ -72,13 +72,12 @@ public final class CanonicalTaskReportValidator {
     }
 
     /** Execution-owner receipt only: does not commit artifacts, elect winners or notify the DAG. */
-    public TaskReport validateExecutionDrainReceipt(byte[] encoded, SubmitTaskRequest expected) {
+    public TaskReport validateExecutionDrainReceipt(byte[] encoded, TaskAttemptId expected) {
         if (encoded == null || encoded.length == 0 || encoded.length > MAX_STATUS_BYTES) {
             throw invalid("Execution drain receipt exceeds the canonical control envelope");
         }
         TaskReport status = parse(encoded);
         CanonicalExecutionDrainReports.validateReceipt(status, expected);
-        validateBuildKeys(status, expected);
         return status;
     }
 

@@ -3039,6 +3039,7 @@ artifacts:
         - pangrova-security-codec
         - pangrova-shuffle-api
       test:
+        - pangrova-execution-api
         - pangrova-governance-api
         - pangrova-persistence-query-api
         - pangrova-query
@@ -4340,6 +4341,7 @@ artifacts:
         - pangrova-connector-lance
         - pangrova-coordination-api
         - pangrova-coordination-control
+        - pangrova-execution-api
         - pangrova-file
         - pangrova-filesystem-api
         - pangrova-generation-api

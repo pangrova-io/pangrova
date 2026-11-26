@@ -1,17 +1,27 @@
 package org.pangrova.server.coordinator.bootstrap;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.sun.net.httpserver.HttpServer;
 import org.pangrova.common.client.query.QueryStatusResponse;
 import org.pangrova.common.client.query.SubmitQueryResponse;
 import org.pangrova.common.enums.ResultDisposition;
 import org.pangrova.common.json.JsonMapperFactory;
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.persistence.jdbc.support.SchemaMigrationRunner;
 import org.pangrova.persistence.query.api.state.StateJournalConfig;
 import org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore;
 import org.pangrova.persistence.query.postgresql.state.JdbcQueryStateJournal;
 import org.pangrova.query.api.journal.JournalEventContext;
 import org.pangrova.query.api.journal.QueryStateEvent;
+import org.pangrova.query.api.journal.TaskIssuance;
 import org.pangrova.query.api.journal.TaskStateEvent;
+import org.pangrova.protocol.checksum.ProtocolChecksums;
+import org.pangrova.protocol.descriptor.CanonicalProtocolIdentity;
+import org.pangrova.protocol.task.CanonicalTaskAdmissionSeals;
+import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
+import org.pangrova.protocol.v2.TaskAdmissionSealRequest;
+import org.pangrova.protocol.v2.TaskAttemptId;
+import org.pangrova.protocol.v2.WorkerExecutionIdentity;
 import org.postgresql.ds.PGSimpleDataSource;
 import org.pangrova.server.coordinator.enums.CoordinatorDeploymentRole;
 import org.pangrova.transport.client.ColumnDescriptor;
@@ -21,11 +31,14 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.IntStream;
 
@@ -86,6 +99,83 @@ class RoleBasedDeploymentTest {
                 assertThat(rows.next()).isFalse();
             }
         }
+    }
+
+    @Test
+    void queryRoleRecoversACommittedSealAndPersistsTheMatchingExitReceipt() throws Exception {
+        var configuration = withAuthority(queryRole("task-drain-successor"));
+        var jdbc = configuration.metadataJdbcConfig();
+        var source = new PGSimpleDataSource();
+        source.setURL(jdbc.jdbcUrl());
+        source.setUser(jdbc.username());
+        source.setPassword(jdbc.password());
+        SchemaMigrationRunner.migrate(source);
+        var anchors = new JdbcExecutionAnchorStore(source);
+        var prior = anchors.tryAcquire("terminal-with-issuance", "prior", "prior-incarnation", Duration.ofMinutes(1))
+                .orElseThrow();
+        var seal = recoverySeal(prior);
+        var receipt = CanonicalTaskAdmissionSeals.closedWithoutOwner(seal).toByteArray();
+        var delivered = new CompletableFuture<TaskAdmissionSealRequest>();
+        var peer = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        peer.createContext("/v1/task/recovery-attempt", exchange -> {
+            try (exchange) {
+                if (!"DELETE".equals(exchange.getRequestMethod())) {
+                    exchange.sendResponseHeaders(405, -1);
+                    return;
+                }
+                delivered.complete(TaskAdmissionSealRequest.parseFrom(exchange.getRequestBody().readAllBytes()));
+                exchange.getResponseHeaders().set("Content-Type", "application/x-protobuf");
+                exchange.sendResponseHeaders(200, receipt.length);
+                exchange.getResponseBody().write(receipt);
+            }
+        });
+        peer.start();
+        try {
+            var context = JournalEventContext.create(System.currentTimeMillis(), prior.ownerId());
+            var issuance = new TaskIssuance("127.0.0.1", peer.getAddress().getPort(), prior.ownerIncarnation(),
+                    prior.fencingToken(), seal.toByteArray());
+            var journalConfig = new StateJournalConfig("JDBC", jdbc.jdbcUrl(), 20, 20, 24, 1024);
+            try (var journal = new JdbcQueryStateJournal(source, journalConfig)) {
+                journal.appendQueryEventSync(new QueryStateEvent(context, prior.executionId(), null, null, "FAILED"));
+                journal.appendTaskIssuancesSync(java.util.List.of(new TaskStateEvent(
+                        JournalEventContext.create(context.timestampMs(), prior.ownerId()), prior.executionId(),
+                        "recovery-attempt", "prior-worker", "SCHEDULED", 0, 0, issuance)));
+            }
+            assertThat(anchors.yield(prior)).isTrue();
+            bootstrap = new CoordinatorBootstrap(configuration);
+            bootstrap.start();
+
+            assertThat(delivered.get(10, TimeUnit.SECONDS)).isEqualTo(seal);
+            org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
+                    assertThat(retainedWorkerReceipt(source, prior.executionId())).isEqualTo(receipt));
+            assertThat(anchors.current(prior.executionId())).hasValueSatisfying(anchor ->
+                    assertThat(anchor.ownerId()).isEqualTo("task-drain-successor"));
+        } finally {
+            peer.stop(0);
+        }
+    }
+
+    private static byte[] retainedWorkerReceipt(PGSimpleDataSource source, String queryId) throws Exception {
+        try (var connection = source.getConnection(); var statement = connection.prepareStatement(
+                "SELECT recovery_drain_receipt FROM task_state_journal WHERE query_id = ?")) {
+            statement.setString(1, queryId);
+            try (var rows = statement.executeQuery()) {
+                return rows.next() ? rows.getBytes(1) : null;
+            }
+        }
+    }
+
+    private static TaskAdmissionSealRequest recoverySeal(ExecutionAnchor prior) {
+        var owner = ExecutionOwnerIdentity.newBuilder().setOwnerId(prior.ownerId())
+                .setOwnerIncarnation(prior.ownerIncarnation()).setFencingToken(prior.fencingToken());
+        var worker = WorkerExecutionIdentity.newBuilder().setAdmissionDomainId(UUID.randomUUID().toString())
+                .setIncarnationId(UUID.randomUUID().toString());
+        return TaskAdmissionSealRequest.newBuilder().setProtocol(CanonicalProtocolIdentity.current())
+                .setAttempt(TaskAttemptId.newBuilder().setTaskId("recovery-attempt")
+                        .setQueryOrJobId(prior.executionId()).setPlanEpoch(1).setFencingToken(1)
+                        .setControlEpoch(1).setExecutionOwner(owner).setWorkerExecutionIdentity(worker))
+                .setDeadlineEpochMs(prior.expiresAt().toEpochMilli())
+                .setCanonicalRequestChecksum(ProtocolChecksums.sha256(new byte[] {1})).build();
     }
 
     private static long expireAnchor(JdbcExecutionAnchorStore anchors, String queryId) {

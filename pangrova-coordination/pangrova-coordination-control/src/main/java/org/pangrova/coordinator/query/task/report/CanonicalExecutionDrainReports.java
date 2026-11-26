@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.query.task.report;
 
-import org.pangrova.protocol.rest.task.SubmitTaskRequest;
+import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.protocol.v2.ExecutionDrainState;
 import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.v2.TaskReportOrigin;
@@ -63,9 +63,9 @@ final class CanonicalExecutionDrainReports {
         }
     }
 
-    static void validateReceipt(TaskReport status, SubmitTaskRequest expected) {
+    static void validateReceipt(TaskReport status, TaskAttemptId expected) {
         if (expected == null || !status.getUnknownFields().asMap().isEmpty()
-                || !status.getAttempt().equals(expected.taskRequest().getAttempt())
+                || !status.getAttempt().equals(expected)
                 || status.getExecutionDrainState() == ExecutionDrainState.EXECUTION_DRAIN_STATE_UNSPECIFIED
                 || !terminal(status)) {
             throw invalid("Execution drain receipt has no exact issued terminal authority");

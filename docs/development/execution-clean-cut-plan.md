@@ -21,7 +21,7 @@ unlisted: true
 | ID | 当前事实与缺口 | 实施工作包 |
 |---|---|---|
 | A1 | WP1.1 已将 principal/key digest、canonical fingerprint、lineage 和确定性 `QUEUED`/`PENDING` 回执原子写入初始 journal；正常新受理一次 INSERT，冲突/未知提交读取权威行，active query 不因 TTL 过期，terminal 后由有界 sweep 清理 | WP1.1，本地 PostgreSQL/查询链验证后提交；双 Coordinator 进程 E2E 待续 |
-| A2 | 已有原子状态版本和签名回执转发，成员注册记录真实 HTTP 端口和进程实例。剩余工作包括故障接管、回执重新绑定、接管后原任务退出证据与租约释放、跨主机验收 | WP1.2 |
+| A2 | 已有原子状态版本、签名回执转发和精确 Worker 派发凭证。接管方分批向原 Worker 或同准入域的唯一继任者核验退出，按当前租约持久化匹配的退出回执。剩余工作包括客户端回执重新绑定、补齐全部派发路径覆盖、处理旧 Worker 上已过期但无可验证回执的尝试、收齐证据后释放租约及跨主机验收 | WP1.2 |
 | A3 | WP1.3 已引入显式 `PENDING` / `STREAM` / `NONE`，并贯通 dispatch、状态机、REST、JDBC、CLI 和 benchmark；代码合同已闭合，跨主机 resultless/延迟发布 E2E 仍待验收 | WP1.3，本地验证后提交；生产验收待续 |
 | A4 | 已有阶段观测和固定到达率样本；尚未接入完整 production phase/queue/rejection/timeout/drain KPI 与容量矩阵 | WP2 |
 | A5 | Paimon 仍 eager 调用 `plan().splits()`；外层 deadline/count 无法约束 SDK 内部规划 | WP3.2 |

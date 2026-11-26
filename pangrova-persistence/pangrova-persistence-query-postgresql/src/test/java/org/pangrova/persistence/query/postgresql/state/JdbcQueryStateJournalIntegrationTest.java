@@ -252,6 +252,71 @@ class JdbcQueryStateJournalIntegrationTest {
     }
 
     @Test
+    void successorPagesTerminalAndOrphanIssuancesAndFencesBatchedReceipts() throws Exception {
+        var store = new JdbcExecutionAnchorStore(dataSource);
+        var lease = Duration.ofMinutes(1);
+        var terminal = store.tryAcquire("terminal-issuance", "owner", "boot", lease).orElseThrow();
+        var orphan = store.tryAcquire("orphan-issuance", "owner", "boot", lease).orElseThrow();
+        journal.appendQueryEventSync(new QueryStateEvent(JournalEventContext.create(101, "owner"),
+                terminal.executionId(), "SELECT 1", "{}", "FINISHED"));
+        int pageSize = org.pangrova.persistence.query.api.state.RecoveredTaskDrainJournal.PAGE_SIZE;
+        journal.appendTaskIssuancesSync(recoveryIssuances(terminal, 0, pageSize));
+        journal.appendTaskIssuancesSync(recoveryIssuances(terminal, pageSize, 3));
+        journal.appendTaskIssuancesSync(recoveryIssuances(orphan, 0, 1));
+        assertThat(journal.pendingTaskDrains(terminal, 0)).isEmpty();
+        assertThat(journal.pendingTaskDrains(orphan, 0)).isEmpty();
+
+        assertTrue(store.yield(terminal));
+        assertTrue(store.yield(orphan));
+        var recoveredTerminal = store.tryAcquire(terminal.executionId(), "successor", "next-boot", lease)
+                .orElseThrow();
+        var recoveredOrphan = store.tryAcquire(orphan.executionId(), "successor", "next-boot", lease).orElseThrow();
+        journal.appendTaskIssuancesSync(recoveryIssuances(recoveredTerminal, 30, 1));
+        assertThat(journal.replayClaimedQueries(Set.of(terminal.executionId(), orphan.executionId())).tasks())
+                .isEmpty();
+        assertThat(journal.pendingTaskDrains(terminal, 0)).isEmpty();
+        var first = journal.pendingTaskDrains(recoveredTerminal, 0);
+        assertThat(first).hasSize(pageSize);
+        var later = journal.pendingTaskDrains(recoveredTerminal, first.get(first.size() - 1).rowId());
+        assertThat(later).hasSize(3);
+        var orphanPage = journal.pendingTaskDrains(recoveredOrphan, 0);
+        assertThat(orphanPage).hasSize(1);
+        var receipts = first.stream().map(row ->
+                new org.pangrova.persistence.query.api.state.RecoveredTaskDrainJournal.DrainReceipt(
+                        row.rowId(), new byte[] {17, 18})).toList();
+
+        assertFalse(journal.retainTaskDrains(terminal, receipts));
+        executeSql("CREATE EXTENSION IF NOT EXISTS pg_stat_statements");
+        executeSql("SELECT pg_stat_statements_reset()");
+        assertTrue(journal.retainTaskDrains(recoveredTerminal, receipts));
+        try (var connection = dataSource.getConnection(); var statement = connection.createStatement();
+                var rows = statement.executeQuery("""
+                        SELECT calls FROM pg_stat_statements
+                        WHERE query LIKE 'WITH locked AS MATERIALIZED (%SET recovery_drain_receipt%'
+                        """)) {
+            assertTrue(rows.next());
+            assertEquals(1L, rows.getLong(1));
+            assertFalse(rows.next());
+        }
+        assertThat(journal.pendingTaskDrains(recoveredTerminal, 0)).containsExactlyElementsOf(later);
+        assertThat(journal.pendingTaskDrains(recoveredOrphan, 0)).containsExactlyElementsOf(orphanPage);
+
+        assertTrue(store.yield(recoveredTerminal));
+        var laterOwner = store.tryAcquire(terminal.executionId(), "third", "third-boot", lease).orElseThrow();
+        assertFalse(journal.retainTaskDrains(recoveredTerminal, receipts));
+        assertThat(journal.pendingTaskDrains(laterOwner, 0)).hasSize(4);
+    }
+
+    private List<TaskStateEvent> recoveryIssuances(
+            org.pangrova.execution.api.ownership.ExecutionAnchor anchor, int first, int count) {
+        var issuance = new TaskIssuance("worker-host", 8081, anchor.ownerIncarnation(),
+                anchor.fencingToken(), new byte[] {1, 2, 3});
+        return java.util.stream.IntStream.range(first, first + count).mapToObj(partition ->
+                new TaskStateEvent(JournalEventContext.create(105, anchor.ownerId()), anchor.executionId(),
+                        "task-" + partition, "worker-id", "SCHEDULED", 1, 0, issuance)).toList();
+    }
+
+    @Test
     void terminalQueryExcludedFromReplay() {
         journal.appendQueryEventSync(
                 new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(1000L, null), "q-1", "SELECT 1", "{}", "QUEUED"));

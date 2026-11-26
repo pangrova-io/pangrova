@@ -20,13 +20,14 @@ import org.pangrova.query.api.journal.QueryAcceptanceAdmission;
 import org.pangrova.query.api.journal.QueryStateEvent;
 import org.pangrova.persistence.query.api.exception.JournalWriteException;
 import org.pangrova.persistence.query.api.state.QueryStateJournal;
+import org.pangrova.persistence.query.api.state.RecoveredTaskDrainJournal;
 import org.pangrova.persistence.query.api.state.StateJournalConfig;
 import org.pangrova.query.api.journal.TaskStateEvent;
 import org.pangrova.query.api.session.JournalSessionPayload;
 
 /** PostgreSQL journal with one query-fair, per-query ordered commit owner and retryable actual SQL drain. */
 @ThreadSafe
-public final class JdbcQueryStateJournal implements QueryStateJournal {
+public final class JdbcQueryStateJournal implements QueryStateJournal, RecoveredTaskDrainJournal {
     private static final long DRAIN_MS = 5000;
     private static final int MAX_EXPIRED_ACCEPTANCES_PER_SWEEP = 1000;
     private static final String ACTIVE = "query_id NOT IN (SELECT query_id FROM query_state_journal "
@@ -214,6 +215,30 @@ public final class JdbcQueryStateJournal implements QueryStateJournal {
             ids.free();
         }
         return new RecoveryBatch(queries, tasks, observed);
+    }
+
+    @Override public List<IssuedAttempt> pendingTaskDrains(ExecutionAnchor claim, long afterRowId) {
+        if (afterRowId < 0) throw new IllegalArgumentException("Recovery cursor must not be negative");
+        try {
+            return pending.enterSql().perform(dataSource,
+                    connection -> JournalTaskDrainSql.pending(connection, claim, afterRowId));
+        } catch (SQLException failure) {
+            throw JournalPendingWrites.failure("Failed to read predecessor task issuances", failure);
+        }
+    }
+
+    @Override public boolean retainTaskDrains(ExecutionAnchor claim, List<DrainReceipt> receipts) {
+        var batch = List.copyOf(receipts);
+        if (batch.isEmpty() || batch.size() > PAGE_SIZE
+                || batch.stream().map(DrainReceipt::rowId).distinct().count() != batch.size()) {
+            throw new IllegalArgumentException("Invalid recovered task drain batch");
+        }
+        try {
+            return pending.enterSql().perform(dataSource,
+                    connection -> JournalTaskDrainSql.retain(connection, claim, batch));
+        } catch (SQLException failure) {
+            throw JournalPendingWrites.failure("Failed to retain recovered task drain receipts", failure);
+        }
     }
 
     @Override public Optional<QueryStateEvent> latestQueryEvent(String queryId) {

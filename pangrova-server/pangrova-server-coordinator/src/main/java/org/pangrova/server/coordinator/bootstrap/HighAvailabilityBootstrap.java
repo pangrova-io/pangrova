@@ -207,18 +207,19 @@ final class HighAvailabilityBootstrap {
             if (claimed.isEmpty()) {
                 return;
             }
-            var artifacts = claimed.stream().filter(anchor -> artifactJob(anchor).isPresent()).toList();
-            java.util.Set<String> terminalCleaned = new java.util.HashSet<>(query.recoverWriteCommitIntents(
-                    claimed.stream().filter(anchor -> !artifacts.contains(anchor)).toList(), haService));
-            artifacts.forEach(anchor -> terminalCleaned.add(anchor.executionId()));
-            var queryIds = claimed.stream()
+            var ordinaryClaims = claimed.stream().filter(anchor -> !isArtifactExecution(anchor)).toList();
+            var deferredOrShufflePending = query.recoverWriteCommitIntents(ordinaryClaims, haService);
+            var queryIds = ordinaryClaims.stream()
                     .map(ExecutionAnchor::executionId)
-                    .filter(id -> !terminalCleaned.contains(id))
+                    .filter(id -> !deferredOrShufflePending.contains(id))
                     .collect(java.util.stream.Collectors.toUnmodifiableSet());
             var recovered = new JournalRecoveryService(
                     journal, queryManager, taskTracker, workerManager,
                     null, workerLivenessGraceMs).recoverClaimed(queryIds);
             settleRecoveryClaims(claimed, recovered.withoutJournalEvidence());
+            query.trackRecoveredTaskDrains(ordinaryClaims.stream()
+                    .filter(anchor -> !recovered.withoutJournalEvidence().contains(anchor.executionId()))
+                    .toList());
             LOG.info("event=execution_anchor_recovery_completed "
                             + "queriesClaimed={} queriesRecovered={} graceMs={}",
                     claimed.size(), recovered.recoveredQueries(), workerLivenessGraceMs);
@@ -264,9 +265,13 @@ final class HighAvailabilityBootstrap {
         }
     }
 
+    private static boolean isArtifactExecution(ExecutionAnchor anchor) {
+        return anchor.executionId().startsWith("artifact:");
+    }
+
     private java.util.Optional<org.pangrova.generation.api.identity.GenerationJobKey> artifactJob(
             ExecutionAnchor anchor) {
-        if (!anchor.executionId().startsWith("artifact:")) {
+        if (!isArtifactExecution(anchor)) {
             return java.util.Optional.empty();
         }
         if (artifactExecutions == null) {

@@ -89,7 +89,8 @@ abstract class TaskCancellationTestBase extends SqlE2ETestBase {
     protected static TaskReport receipt(HttpResponse<byte[]> response, SubmitTaskRequest expected) {
         assertThat(response.statusCode()).isEqualTo(200);
         assertThat(response.headers().firstValue("Content-Type").orElseThrow()).startsWith("application/x-protobuf");
-        return new CanonicalTaskReportValidator().validateExecutionDrainReceipt(response.body(), expected);
+        return new CanonicalTaskReportValidator().validateExecutionDrainReceipt(
+                response.body(), expected.taskRequest().getAttempt());
     }
 
     protected static URI workerUri() {

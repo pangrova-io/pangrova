@@ -92,6 +92,7 @@ final class QueryBootstrap {
     private ExecutorService terminalCleanupExecutor;
     private ExecutorService readerPinRenewalExecutor;
     private ExecutorService shuffleCleanupExecutor;
+    private RecoveredTaskDrainPoll recoveredTaskDrains;
     private CacheAffinityAssigner cacheAffinityAssigner;
     private SpeculativeStageHandler speculativeStageHandler;
     private SpeculativeTaskLauncher speculativeTaskLauncher;
@@ -222,6 +223,10 @@ final class QueryBootstrap {
                 "coordinator-terminal-cleanup", 2, 32);
         shuffleCleanupExecutor = ManagedExecutorFactory.newBoundedThreadPool(
                 "coordinator-shuffle-cleanup", 4, 64);
+        if (stateJournal instanceof org.pangrova.persistence.query.api.state.RecoveredTaskDrainJournal drainJournal) {
+            recoveredTaskDrains = new RecoveredTaskDrainPoll(drainJournal, remoteTaskDispatcher::recoverTaskDrain,
+                    shuffleCleanupExecutor, config.workerHealthCheckIntervalMs());
+        }
         if (readerPinLeases != null) {
             readerPinRenewalExecutor = ManagedExecutorFactory.newBoundedThreadPool(
                     "query-reader-pin-renewal", 1, 1);
@@ -320,7 +325,8 @@ final class QueryBootstrap {
     }
 
     private void joinCallbacks() {
-        durableRecovery.close();
+        ResourceCloser.closeAll(null, durableRecovery::close,
+                () -> { if (recoveredTaskDrains != null) recoveredTaskDrains.close(); });
         if (queryManager != null) queryManager.stopPeriodicCleanup();
         ResourceCloser.closeAll(null,
                 () -> { if (materializationMaintenance != null) materializationMaintenance.close(); },
@@ -372,6 +378,7 @@ final class QueryBootstrap {
     /** Starts coordination-dependent background work after the shared authority has started. */
     void startCoordinationLoops() {
         var service = java.util.Objects.requireNonNull(coordinationService, "Query coordination authority");
+        if (recoveredTaskDrains != null) recoveredTaskDrains.start(schedulerExecutor());
         durableRecovery.wireHighAvailability(service, this::schedulerExecutor,
                 shuffleCleanupExecutor,
                 config.workerHealthCheckIntervalMs());
@@ -542,6 +549,10 @@ final class QueryBootstrap {
             receiver.setWriteCommitFencer(fencer);
         }
         return receiver;
+    }
+
+    void trackRecoveredTaskDrains(java.util.List<org.pangrova.execution.api.ownership.ExecutionAnchor> claims) {
+        if (recoveredTaskDrains != null) recoveredTaskDrains.track(claims);
     }
 
     java.util.Set<String> recoverWriteCommitIntents(

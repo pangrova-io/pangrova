@@ -98,11 +98,25 @@ the recovery owner until the physical cleanup protocol establishes exit.
 
 The bounded asynchronous submission executor runs SQL planning and starts the
 distributed DAG. The DAG publishes its OUTPUT endpoint after Worker acknowledgement
-and settles the execution through its completion stage. Each DAG dispatch cohort commits the exact binary Worker admission seals and
-their control addresses before sending its HTTP requests. PostgreSQL records up
-to 16 attempts in one execution-fenced task-journal statement. The sender uses
-the frozen requests for HTTP admission, and the recovery reader can retrieve
-the original seals. A running query does not hold a submission thread while its
+and settles the execution through its completion stage. Each DAG dispatch cohort
+commits the exact binary Worker admission seals and control addresses before
+sending HTTP requests. PostgreSQL records up to 16 attempts in one
+execution-fenced task-journal statement. The sender uses the frozen requests
+for HTTP admission.
+
+An acquired recovery claim starts an off-path scan of up to 16 outstanding
+predecessor seals at a time, including terminal and orphaned executions. The
+Coordinator sends the compact seals concurrently. It routes to the Worker that
+owns the admission domain when the registry identifies an exclusive successor.
+Only a canonical exit-only receipt whose attempt matches the seal is retained.
+The journal writes a page of verified receipts in one statement under the
+current claim. A later attempt or takeover skips the proofs already recorded.
+HTTP 202, an unavailable Worker, and mismatched evidence leave the attempt
+pending. Pending attempts yield to later pages before they are checked again.
+The collector has no idle database polls. Releasing the query's resources still
+requires complete attempt coverage and the result and Shuffle drain gates.
+
+A running query does not hold a submission thread while its
 Workers produce or finish results. The
 execution operation remains admitted through terminal callbacks, while task and
 result owners account for their own physical drain.
