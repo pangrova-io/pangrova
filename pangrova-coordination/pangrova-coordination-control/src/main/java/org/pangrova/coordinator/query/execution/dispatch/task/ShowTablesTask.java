@@ -24,6 +24,6 @@ public final class ShowTablesTask implements MetadataTask<ShowTablesStatement> {
     @Override
     public StatementResult execute(ShowTablesStatement statement, StatementExecutionContext context) {
         List<TypedRow> rows = executor.executeShowTables(statement, context.session());
-        return StatementResult.fromRows(rows, null, StatementCategory.SHOW);
+        return new StatementResult(rows, List.of("table_name"), null, StatementCategory.SHOW);
     }
 }

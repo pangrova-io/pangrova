@@ -46,6 +46,9 @@ import java.util.concurrent.Future;
 public final class IndexDdlExecutor implements AutoCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(IndexDdlExecutor.class);
+    /** Stable string-valued schema for SHOW INDEXES, independent of row count or index type. */
+    public static final List<String> SHOW_INDEX_COLUMNS = List.of(
+            "index_name", "index_type", "columns", "state", "stale_reason", "created_at", "algorithm", "metric");
     private static final java.time.Duration CALLBACK_SHUTDOWN_TIMEOUT = java.time.Duration.ofSeconds(30);
 
     private final IndexDdlContext deps;
@@ -598,6 +601,12 @@ public final class IndexDdlExecutor implements AutoCloseable {
         if (d.indexType() == IndexType.VECTOR) {
             builder.putString("algorithm", d.properties().getOrDefault("algorithm", ""));
             builder.putString("metric", d.properties().getOrDefault("metric", ""));
+        } else if (d.indexType() == IndexType.INVERTED) {
+            builder.putString("algorithm", d.properties().getOrDefault("analyzer", ""));
+            builder.putString("metric", "");
+        } else {
+            builder.putString("algorithm", "");
+            builder.putString("metric", "");
         }
         return builder.build();
     }
