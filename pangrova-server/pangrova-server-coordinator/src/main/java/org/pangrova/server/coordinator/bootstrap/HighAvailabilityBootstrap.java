@@ -200,7 +200,7 @@ final class HighAvailabilityBootstrap {
                 return;
             }
             var ordinaryClaims = claimed.stream().filter(anchor -> !isArtifactExecution(anchor)).toList();
-            var deferredWrites = query.recoverWriteCommitIntents(ordinaryClaims, haService);
+            var deferredWrites = query.recoverWriteCommitIntents(ordinaryClaims);
             var queryIds = ordinaryClaims.stream()
                     .map(ExecutionAnchor::executionId)
                     .filter(id -> !deferredWrites.contains(id))

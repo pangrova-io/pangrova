@@ -159,7 +159,7 @@ class QueryDispatcherCleanupOnFailureTest extends ContainerTestBase {
 
         // QueryManager publishes the failure, then claims the physical cleanup.
         assertThat(state.getState()).isEqualTo(QueryState.SCHEDULING);
-        assertThat(dispatcher.tryCleanupQuery(session.queryId())).isTrue();
+        assertThat(dispatcher.tryCleanupQuery(session.queryId(), null)).isTrue();
         assertThat(registered.getPinnedSnapshot(session.queryId(), SCHEMA, TABLE)).isEmpty();
         assertThat(unrelated.getPinnedSnapshot(session.queryId(), SCHEMA, TABLE)).hasValue(snapshotId);
         unrelatedOwner.seal();
@@ -185,7 +185,7 @@ class QueryDispatcherCleanupOnFailureTest extends ContainerTestBase {
         assertThrows(NoAvailableWorkerException.class,
                 () -> dispatcher.execute(state, SQL, admittedSession));
 
-        assertThat(dispatcher.tryCleanupQuery(failing.queryId())).isTrue();
+        assertThat(dispatcher.tryCleanupQuery(failing.queryId(), null)).isTrue();
         assertThat(connector.getPinnedSnapshot(failing.queryId(), SCHEMA, TABLE)).isEmpty();
         connector.pinSnapshotForQuery(failing.queryId(), SCHEMA, TABLE, snapshotId);
         assertThat(connector.getPinnedSnapshot(failing.queryId(), SCHEMA, TABLE)).isEmpty();
@@ -212,7 +212,7 @@ class QueryDispatcherCleanupOnFailureTest extends ContainerTestBase {
         assertThat(state.getState()).isEqualTo(QueryState.PLANNING);
         assertThat(first.getPinnedSnapshot(session.queryId(), SCHEMA, TABLE)).hasValue(snapshotId);
         assertThat(second.getPinnedSnapshot(session.queryId(), SCHEMA, TABLE)).hasValue(snapshotId);
-        assertThat(dispatcher.tryCleanupQuery(session.queryId())).isTrue();
+        assertThat(dispatcher.tryCleanupQuery(session.queryId(), null)).isTrue();
         assertThat(first.getPinnedSnapshot(session.queryId(), SCHEMA, TABLE)).hasValue(snapshotId);
         assertThat(second.getPinnedSnapshot(session.queryId(), SCHEMA, TABLE)).hasValue(snapshotId);
         externalOwner.seal();

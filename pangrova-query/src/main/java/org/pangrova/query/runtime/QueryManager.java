@@ -41,6 +41,7 @@ import org.slf4j.LoggerFactory;
 import org.pangrova.query.api.retention.ReaderPinLifecycle;
 import org.pangrova.query.retention.ReaderPinRenewal;
 import org.pangrova.query.lifecycle.QueryDispatchOutcome;
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.common.lifecycle.ResourceCloser;
 import org.pangrova.query.api.lifecycle.QueryOperation;
@@ -87,7 +88,7 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
     private final AsyncSubmitConfig asyncSubmitConfig;
     private final ExecutorService asyncExecutor;
     private final ScheduledExecutorService submitDeadlines;
-    private volatile java.util.function.Consumer<String> shuffleCleanupPending = ignored -> { };
+    private volatile java.util.function.Consumer<ExecutionAnchor> shuffleCleanupPending = ignored -> { };
     private volatile boolean durableTenantCapacity;
     private final Optional<ReaderPinLifecycle> readerPinLifecycle;
     private final Optional<ReaderPinRenewal> readerPinRenewal;
@@ -145,10 +146,17 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
         return provider.createCounter(name, description, unit);
     }
 
-    public void setShuffleCleanupPending(java.util.function.Consumer<String> recorder) {
+    public void setShuffleCleanupPending(
+            java.util.function.Consumer<ExecutionAnchor> recorder) {
         shuffleCleanupPending = java.util.Objects.requireNonNull(recorder, "recorder");
-        queries.forEach((queryId, sm) -> sm.setBeforeTerminalTransition(
-                () -> shuffleCleanupPending.accept(queryId)));
+        queries.forEach((queryId, state) -> installShuffleTerminalSeal(state));
+    }
+
+    private void installShuffleTerminalSeal(QueryStateMachine state) {
+        state.setBeforeTerminalTransition(() -> {
+            var grant = state.journalGrant();
+            if (grant != null && state.hasJournalOwnership()) shuffleCleanupPending.accept(grant);
+        });
     }
 
     private void incrementCounter(LongCounter counter) { if (counter != null) counter.add(1); }
@@ -454,7 +462,7 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
                 ? session.userIdentity().principal() : "anonymous");
         sm.bindSql(org.pangrova.parser.parse.SqlDiagnostics.forReporting(sql));
         sm.setTransitionOperations(() -> () -> { });
-        sm.setBeforeTerminalTransition(() -> shuffleCleanupPending.accept(queryId));
+        installShuffleTerminalSeal(sm);
         return sm;
     }
 
@@ -632,7 +640,7 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
             if (draining) throw new QueryRejectedException(DRAIN_REJECTION_MESSAGE);
             synchronized (sm) {
                 sm.setTransitionOperations(() -> queryDispatcher.enterQueryMetadataOperation(queryId));
-                sm.setBeforeTerminalTransition(() -> shuffleCleanupPending.accept(queryId));
+                installShuffleTerminalSeal(sm);
                 if (queries.register(queryId, sm, () -> {
                     if (sm.isTerminal()) queryDispatcher.openQueryIssuance(queryId);
                     else queryDispatcher.bindConnectorAuthority(sm, queryId);

@@ -127,21 +127,8 @@ public final class ShuffleStageHandler implements StageLifecycleHandler {
     }
 
     @Override
-    public void onFailed(StageLifecycleEvent event) {
-        // Stage-level failure cleanup is handled by onQueryFailed at query level.
-        // Per-stage onFailed is intentionally a no-op to avoid double-cleanup
-        // when DAGDispatchEngine fires onQueryFailed after stage failure propagation.
-    }
-
-    @Override
-    public void onQueryCompleted(String queryId) {
+    public void onDurableQueryCompleted(String queryId) {
         shuffleLifecycleManager.cleanupShuffle(queryId);
-        LOG.debug("event=shuffle_query_cleanup queryId={} reason=query_completed", queryId);
-    }
-
-    @Override
-    public void onQueryFailed(String queryId) {
-        shuffleLifecycleManager.cleanupShuffle(queryId);
-        LOG.debug("event=shuffle_query_cleanup queryId={} reason=query_failed", queryId);
+        LOG.debug("event=shuffle_query_cleanup queryId={} reason=durable_graph_completed", queryId);
     }
 }

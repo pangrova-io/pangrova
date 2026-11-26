@@ -403,16 +403,15 @@ public final class DAGLifecycleController {
 
     private void finishQuery(String queryId, StageDAG dag, boolean success) {
         CompletableFuture<Boolean> signal;
-        boolean notifyHandlers;
+        boolean durable;
         synchronized (this) {
             if (!owns(queryId, dag)) return;
             retireDag(queryId);
             var context = queryContexts.remove(queryId);
-            // Fenced durable recovery retains producer bytes after a failed control pass.
-            notifyHandlers = success || context == null || context.execution() instanceof StageExecutionContext.Live;
-            signal = notifyHandlers ? terminalSignals.get(queryId) : terminalSignals.remove(queryId);
+            durable = context != null && context.execution() instanceof StageExecutionContext.Durable;
+            signal = durable && !success ? terminalSignals.remove(queryId) : terminalSignals.get(queryId);
         }
-        if (notifyHandlers) handlers.forEach(handler -> invokeQueryHandler(handler, queryId, success));
+        if (durable && success) handlers.forEach(handler -> completeDurableHandler(handler, queryId));
         if (signal != null) signal.complete(success);
     }
 
@@ -435,14 +434,9 @@ public final class DAGLifecycleController {
         return true;
     }
 
-    private static void invokeQueryHandler(
-            StageLifecycleHandler handler, String queryId, boolean completed) {
+    private static void completeDurableHandler(StageLifecycleHandler handler, String queryId) {
         try {
-            if (completed) {
-                handler.onQueryCompleted(queryId);
-            } else {
-                handler.onQueryFailed(queryId);
-            }
+            handler.onDurableQueryCompleted(queryId);
         } catch (Exception failure) {
             LOG.warn("event=handler_exception handler={} queryId={} error={}",
                     handler.getClass().getSimpleName(), queryId,

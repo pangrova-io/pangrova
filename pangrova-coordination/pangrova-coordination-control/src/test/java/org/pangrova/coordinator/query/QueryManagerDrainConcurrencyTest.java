@@ -321,11 +321,16 @@ class QueryManagerDrainConcurrencyTest {
         sm.tryTransition(QueryState.PLANNING);
         sm.tryTransition(QueryState.SCHEDULING);
         sm.tryTransition(QueryState.RUNNING);
+        var grant = new org.pangrova.execution.api.ownership.ExecutionAnchor("slow-intent", "owner", "boot", 1,
+                java.time.Instant.EPOCH, java.time.Instant.EPOCH.plusSeconds(1));
+        sm.bindJournalGrant(grant);
+        sm.retainJournalOwnership();
         queryManager.registerStateMachine("slow-intent", sm);
         CountDownLatch recorderEntered = new CountDownLatch(1);
         CountDownLatch releaseRecorder = new CountDownLatch(1);
         AtomicBoolean monitorHeld = new AtomicBoolean();
-        queryManager.setShuffleCleanupPending(queryId -> {
+        queryManager.setShuffleCleanupPending(original -> {
+            assertThat(original).isSameAs(grant);
             monitorHeld.set(Thread.holdsLock(sm));
             recorderEntered.countDown();
             try {
@@ -571,8 +576,9 @@ class QueryManagerDrainConcurrencyTest {
         }
 
         @Override
-        public boolean tryCleanupQuery(String queryId) {
-            boolean cleaned = super.tryCleanupQuery(queryId);
+        public boolean tryCleanupQuery(String queryId,
+                org.pangrova.execution.api.ownership.ExecutionAnchor originalGrant) {
+            boolean cleaned = super.tryCleanupQuery(queryId, originalGrant);
             if (cleaned) cleanupCount.incrementAndGet();
             return cleaned;
         }

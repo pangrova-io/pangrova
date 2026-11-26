@@ -41,25 +41,7 @@ public interface StageLifecycleHandler {
         // intentional no-op — override only if the handler needs FAILED events
     }
 
-    /**
-     * Called when the entire query DAG completes successfully (all stages finished).
-     * Use for query-level resource cleanup (e.g., shuffle resource release).
-     * Default no-op: most handlers do not need this event.
-     *
-     * @param queryId the completed query identifier
-     */
-    default void onQueryCompleted(String queryId) {
-        // intentional no-op — override only if the handler needs query completion events
-    }
-
-    /**
-     * Called when the query DAG fails or is cancelled.
-     * Use for query-level resource cleanup on failure paths.
-     * Default no-op: most handlers do not need this event.
-     *
-     * @param queryId the failed query identifier
-     */
-    default void onQueryFailed(String queryId) {
-        // intentional no-op — override only if the handler needs query failure events
+    /** Handles a successfully completed durable graph. Failed durable passes retain producer evidence. */
+    default void onDurableQueryCompleted(String queryId) {
     }
 }

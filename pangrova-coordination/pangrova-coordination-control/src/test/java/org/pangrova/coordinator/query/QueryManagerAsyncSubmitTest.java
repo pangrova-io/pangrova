@@ -600,7 +600,8 @@ class QueryManagerAsyncSubmitTest {
         }
 
         @Override
-        public boolean tryCleanupQuery(String queryId) {
+        public boolean tryCleanupQuery(String queryId,
+                org.pangrova.execution.api.ownership.ExecutionAnchor originalGrant) {
             return true;
         }
 

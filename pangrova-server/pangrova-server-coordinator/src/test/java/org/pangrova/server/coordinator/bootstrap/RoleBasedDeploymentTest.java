@@ -37,9 +37,12 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.testcontainers.containers.PostgreSQLContainer;
 import org.pangrova.coordinator.testinfra.SignedOidcIssuer;
 
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.ServerSocket;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -241,6 +244,68 @@ class RoleBasedDeploymentTest {
             assertThat(cursor.next()).isFalse();
         }
         assertProfileReadBudget(receipt.queryId());
+    }
+
+    @Test
+    void remoteModeWithNoAllocatedShuffleDrainsWithoutRpcOrIdleDatabaseScans() throws Exception {
+        try (var unusedShufflePort = new ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"));
+                var postgres = new PostgreSQLContainer<>("postgres:16-alpine")
+                        .withCommand("postgres", "-c", "shared_preload_libraries=pg_stat_statements")) {
+            postgres.start();
+            var base = queryRole("remote-idle");
+            var flags = new CoordinatorBootstrapConfig.FeatureFlags(
+                    false, false, false, false, false, false, false, false, false, false, false,
+                    false, false, org.pangrova.config.enums.ShuffleMode.REMOTE,
+                    java.util.List.of("127.0.0.1:" + unusedShufflePort.getLocalPort()), "pangrova", java.util.Map.of());
+            var metadata = new CoordinatorBootstrapConfig.MetadataJdbcConfig(postgres.getJdbcUrl(),
+                    postgres.getUsername(), postgres.getPassword());
+            var config = withAuthority(new CoordinatorBootstrapConfig(base.core(), flags, base.query(),
+                    base.transport(), new CoordinatorBootstrapConfig.WorkerHealthConfig(20_000, 60_000, 100),
+                    metadata, null, null));
+            try {
+                startRemoteQueryCoordinator(config);
+                String intentRetirement = "%DELETE FROM shuffle.shuffle_cleanup_intent%";
+                long before = postgresCalls(intentRetirement);
+                var receipt = submitShow(HttpClient.newHttpClient(), bootstrap.getHttpPort(), null);
+                assertThat(receipt.resultDisposition()).isEqualTo(ResultDisposition.STREAM);
+                try (var fetcher = new FlightResultFetcher();
+                        var cursor = fetcher.open(receipt.resultEndpoint(), System.currentTimeMillis() + 5_000)) {
+                    assertThat(cursor.next()).isFalse();
+                }
+                org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(5)).until(
+                        () -> bootstrap.getQueryManager().getStateMachine(receipt.queryId()).status().drained());
+                assertThat(postgresCalls(intentRetirement) - before).isOne();
+                assertNoShuffleCleanupPolling();
+                unusedShufflePort.setSoTimeout(150);
+                org.assertj.core.api.Assertions.assertThatThrownBy(unusedShufflePort::accept)
+                        .isInstanceOf(java.net.SocketTimeoutException.class);
+            } finally {
+                if (bootstrap != null && bootstrap.isStarted()) bootstrap.shutdown();
+            }
+        }
+    }
+
+    private void startRemoteQueryCoordinator(CoordinatorBootstrapConfig config) throws Exception {
+        var source = new PGSimpleDataSource();
+        var metadata = config.metadataJdbcConfig();
+        source.setURL(metadata.jdbcUrl());
+        source.setUser(metadata.username());
+        source.setPassword(metadata.password());
+        SchemaMigrationRunner.migrate(source);
+        org.flywaydb.core.Flyway.configure().dataSource(source).schemas("shuffle").defaultSchema("shuffle")
+                .locations("classpath:org/pangrova/shuffle/migration").load().migrate();
+        bootstrap = new CoordinatorBootstrap(config);
+        bootstrap.start();
+        try (var connection = source.getConnection(); var statement = connection.createStatement()) {
+            statement.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements SCHEMA public");
+        }
+    }
+
+    private void assertNoShuffleCleanupPolling() throws Exception {
+        String pattern = "%FROM shuffle.shuffle_cleanup_intent%";
+        long before = postgresCalls(pattern);
+        org.awaitility.Awaitility.await().during(Duration.ofMillis(800)).atMost(Duration.ofSeconds(3))
+                .untilAsserted(() -> assertThat(postgresCalls(pattern)).isEqualTo(before));
     }
 
     @Test

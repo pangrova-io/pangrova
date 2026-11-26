@@ -31,7 +31,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.pangrova.coordinator.testinfra.SourceFreeQueryFixture.withPolicies;
 
 /**
- * Verifies that {@link QueryDispatcher#tryCleanupQuery(String)} preserves HA query
+ * Verifies that {@link QueryDispatcher#tryCleanupQuery(String, org.pangrova.execution.api.ownership.ExecutionAnchor)} preserves HA query
  * ownership until the subsequent physical release.
  *
  * <p>Uses real {@link HighAvailabilityCoordinationService} (in-memory lease)
@@ -101,7 +101,7 @@ class QueryDispatcherOwnershipReleaseTest {
         assertTrue(acquired, "ownership should be acquired");
         taskTracker.openQueryIssuance(queryId);
 
-        assertTrue(executionCleanup.tryCleanupQuery(queryId));
+        assertTrue(executionCleanup.tryCleanupQuery(queryId, null));
         org.junit.jupiter.api.Assertions.assertFalse(haService.acquireQueryOwnership(queryId, "successor"));
         dispatcher.releaseQueryOwnership(queryId);
 
@@ -114,7 +114,7 @@ class QueryDispatcherOwnershipReleaseTest {
     void cleanupQuery_toleratesNoOwnership() {
         // A locally admitted query need not have acquired HA execution ownership.
         taskTracker.openQueryIssuance("q-never-owned");
-        assertTrue(executionCleanup.tryCleanupQuery("q-never-owned"));
+        assertTrue(executionCleanup.tryCleanupQuery("q-never-owned", null));
     }
 
     @Test
@@ -131,7 +131,7 @@ class QueryDispatcherOwnershipReleaseTest {
         QueryDispatcher noHaDispatcher = new QueryDispatcher(deps, null, null);
         // No enableOwnershipTracking called — haService is null
         noHaTracker.openQueryIssuance("q-no-ha");
-        assertTrue(noHaDispatcher.tryCleanupQuery("q-no-ha"));
+        assertTrue(noHaDispatcher.tryCleanupQuery("q-no-ha", null));
         }
     }
 
@@ -153,7 +153,7 @@ class QueryDispatcherOwnershipReleaseTest {
                         taskTracker.executionDrainReceipt(result.taskId()).isPresent()));
 
         // Simulate query completion cleanup
-        assertTrue(executionCleanup.tryCleanupQuery(queryId));
+        assertTrue(executionCleanup.tryCleanupQuery(queryId, null));
 
         dispatcher.releaseQueryOwnership(queryId);
         boolean canReacquire = haService.acquireQueryOwnership(queryId, "successor");
@@ -176,7 +176,7 @@ class QueryDispatcherOwnershipReleaseTest {
         try (var terminalOperation = dispatcher.enterQueryMetadataOperation(queryId)) {
             assertTrue(sm.tryTransition(QueryState.FAILED));
         }
-        assertTrue(executionCleanup.tryCleanupQuery(queryId));
+        assertTrue(executionCleanup.tryCleanupQuery(queryId, null));
         dispatcher.releaseQueryOwnership(queryId);
 
         boolean canReacquire = haService.acquireQueryOwnership(queryId, "successor");
@@ -190,11 +190,11 @@ class QueryDispatcherOwnershipReleaseTest {
         taskTracker.openQueryIssuance(queryId);
         try (var operation = dispatcher.enterQueryOperation(queryId)) {
             executionCleanup.cancelDispatchedTasks(queryId);
-            org.junit.jupiter.api.Assertions.assertFalse(executionCleanup.tryCleanupQuery(queryId));
+            org.junit.jupiter.api.Assertions.assertFalse(executionCleanup.tryCleanupQuery(queryId, null));
             org.junit.jupiter.api.Assertions.assertFalse(
                     haService.acquireQueryOwnership(queryId, "successor"));
         }
-        assertTrue(executionCleanup.tryCleanupQuery(queryId));
+        assertTrue(executionCleanup.tryCleanupQuery(queryId, null));
         org.junit.jupiter.api.Assertions.assertFalse(haService.acquireQueryOwnership(queryId, "successor"));
         dispatcher.releaseQueryOwnership(queryId);
         assertTrue(haService.acquireQueryOwnership(queryId, "successor"));

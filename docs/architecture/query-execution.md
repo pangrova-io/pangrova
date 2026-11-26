@@ -1264,10 +1264,18 @@ dependent cleanup are available, the owner
 releases pins, execution ownership, tenant admission, and the local query
 lifetime. Failures and rejected dispatch remain eligible for bounded retry.
 
-In remote Shuffle mode, terminal transition locks the execution anchor before
-checking scope ownership and recording the durable cleanup intent. The service
-acknowledges cleanup after its object cleanup and intent deletion complete. The
-Coordinator uses this acknowledgement to release execution ownership.
+In remote Shuffle mode, logical terminal transition uses the original execution
+grant to seal admission. The live DAG reports its outcome without deleting
+Shuffle. Physical cleanup starts after local operations, report publication and
+all issued Worker attempts have drained. The Coordinator uses the cached cleanup
+capability for a tracked scope when it is still usable. If registration was
+never reached, PostgreSQL removes the intent after verifying the absence of a
+scope under the same grant, with no Shuffle RPC. An untracked durable scope still
+requires service acknowledgement of object and intent deletion.
+
+The terminal cleanup queue and the proven predecessor drain path drive these
+operations. The Coordinator does not scan Shuffle intents during idle health
+ticks. A stale original grant cannot consume a successor's intent.
 
 For resultless DML, the submit response may return `RUNNING` after the actual
 WRITE task is dispatched, with no Flight endpoint. The client waits on the owner status through the final catalog commit. The 30-second submit timeout

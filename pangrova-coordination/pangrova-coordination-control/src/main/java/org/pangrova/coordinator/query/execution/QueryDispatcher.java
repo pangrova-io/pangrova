@@ -276,8 +276,9 @@ public class QueryDispatcher implements org.pangrova.query.lifecycle.QueryExecut
     }
 
     @Override
-    public boolean tryCleanupQuery(String queryId) {
-        if (!ownershipTracker.tryCleanupQuery(queryId)) return false;
+    public boolean tryCleanupQuery(String queryId,
+            org.pangrova.execution.api.ownership.ExecutionAnchor originalGrant) {
+        if (!ownershipTracker.tryCleanupQuery(queryId, originalGrant)) return false;
         schedulingEngine.dagEngine().clearQuery(queryId);
         return true;
     }
@@ -296,8 +297,8 @@ public class QueryDispatcher implements org.pangrova.query.lifecycle.QueryExecut
     }
 
     /** Retries a persisted terminal Shuffle cleanup after Coordinator restart. */
-    public void retryPendingShuffleCleanup(String queryId) {
-        requireShuffleCleanupRecovery().recoverCleanupShuffle(queryId);
+    public void recoverShuffleCleanup(String queryId, org.pangrova.shuffle.api.ShuffleExecutionOwner owner) {
+        requireShuffleCleanupRecovery().recoverCleanupShuffle(queryId, owner);
     }
 
     private ShuffleCleanupRecovery requireShuffleCleanupRecovery() {

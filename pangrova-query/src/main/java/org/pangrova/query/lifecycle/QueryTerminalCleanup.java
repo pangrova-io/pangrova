@@ -123,7 +123,7 @@ public final class QueryTerminalCleanup {
         if (admitted && context.state().getState() != QueryState.FINISHED) {
             executionCleanup.cancelDispatchedTasks(context.queryId());
         }
-        boolean ready = admitted ? executionCleanup.tryCleanupQuery(context.queryId())
+        boolean ready = admitted ? executionCleanup.tryCleanupQuery(context.queryId(), context.state().journalGrant())
                 : executionCleanup.tryCleanupUnadmittedQuery(context.queryId());
         if (ready) physicalRelease.accept(context);
         return ready;

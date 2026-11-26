@@ -15,6 +15,8 @@ import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.shuffle.api.ShuffleCleanupRecovery;
+import org.pangrova.shuffle.api.ShuffleExecutionOwner;
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -123,15 +125,15 @@ public final class QueryOwnershipTracker {
         }
     }
 
-    void releaseIssuedQueryOwnership(org.pangrova.execution.api.ownership.ExecutionAnchor anchor) {
+    void releaseIssuedQueryOwnership(ExecutionAnchor anchor) {
         OwnershipSnapshot snapshot = ownershipSnapshot.get();
         if (snapshot != null) snapshot.service().releaseRecoveryClaim(anchor);
     }
 
     /** Drains split, connector and Shuffle owners while retaining the execution grant. */
-    public boolean tryCleanupQuery(String queryId) {
+    public boolean tryCleanupQuery(String queryId, ExecutionAnchor originalGrant) {
         if (!tryCleanupLocalQuery(queryId)) return false;
-        cleanupShuffle(queryId);
+        cleanupShuffle(queryId, originalGrant);
         return true;
     }
 
@@ -142,17 +144,20 @@ public final class QueryOwnershipTracker {
         return true;
     }
 
-    private void cleanupShuffle(String queryId) {
+    private void cleanupShuffle(String queryId, ExecutionAnchor grant) {
         CleanupBinding cleanup = shuffleCleanup;
-        if (cleanup != null) {
-            ShuffleCleanupIntentStore intents = cleanup.intents();
-            // QueryStateMachine writes the durable intent before its terminal
-            // transition. A retry must only consume that intent: recreating it
-            // after remote cleanup atomically deleted the scope and intent
-            // would make cleanup loop forever.
-            if (intents.isPending(queryId)) {
-                cleanup.recovery().recoverCleanupShuffle(queryId);
-            }
+        if (cleanup == null) return;
+        checkNotNull(grant, "Remote Shuffle cleanup requires its original query grant");
+        var ownership = checkNotNull(ownershipSnapshot.get(), "Remote Shuffle cleanup requires ownership");
+        if (!queryId.equals(grant.executionId())) {
+            throw new IllegalArgumentException("Shuffle cleanup requires the original query identity");
+        }
+        if (!ownership.service().validateExecutionToken(queryId, grant.fencingToken())) return;
+
+        var owner = new ShuffleExecutionOwner(grant.ownerId(), grant.ownerIncarnation(), grant.fencingToken());
+        if (cleanup.recovery().cleanupTrackedShuffle(queryId, owner)) return;
+        if (!cleanup.intents().completeWithoutScope(grant)) {
+            cleanup.recovery().recoverCleanupShuffle(queryId, owner);
         }
     }
 

@@ -283,24 +283,46 @@ public final class PangrovaShuffleCoordinator
         checkNotNull(queryId, "queryId must not be null");
         operations.execute(queryId, () -> {
             ensureOpen();
-            cleanupShuffleOwned(queryId);
+            var state = queryStates.get(queryId);
+            if (state == null) {
+                removeQueryState(queryId);
+            } else {
+                cleanupShuffleOwned(queryId, state);
+            }
             return null;
+        });
+    }
+
+    @Override
+    public boolean cleanupTrackedShuffle(String queryId, ShuffleExecutionOwner owner) {
+        checkNotNull(queryId, "queryId must not be null");
+        return operations.execute(queryId, () -> {
+            ensureOpen();
+            var state = queryStates.get(queryId);
+            if (state == null) return false;
+            if (!state.owner.equals(owner)) {
+                throw new IllegalStateException("Cannot clean another Shuffle execution owner's scope: " + queryId);
+            }
+            cleanupShuffleOwned(queryId, state);
+            return true;
         });
     }
 
     /** Recovers a durable terminal cleanup intent after a fenced owner takeover. */
     @Override
-    public void recoverCleanupShuffle(String queryId) {
+    public void recoverCleanupShuffle(String queryId, ShuffleExecutionOwner owner) {
         checkNotNull(queryId, "queryId must not be null");
         operations.execute(queryId, () -> {
             ensureOpen();
-            recoverCleanupOwned(queryId);
+            recoverCleanupOwned(queryId, owner);
             return null;
         });
     }
 
-    private void recoverCleanupOwned(String queryId) {
-        ShuffleExecutionOwner owner = requireStableState(queryId).owner;
+    private void recoverCleanupOwned(String queryId, ShuffleExecutionOwner owner) {
+        if (!owner.equals(ownerResolver.resolve(queryId))) {
+            throw new SecurityException("Shuffle cleanup owner is no longer current: " + queryId);
+        }
         ShuffleServiceGrpc.ShuffleServiceBlockingStub stub = stubFor(selectEndpoint(queryId));
         var renewed = stub.withDeadlineAfter(RPC_TIMEOUT_MS, TimeUnit.MILLISECONDS)
                 .renewAccess(RenewAccessRequest.newBuilder()
@@ -321,20 +343,11 @@ public final class PangrovaShuffleCoordinator
                 response.getPartitionsCleaned(), response.getBytesFreed());
     }
 
-    private void cleanupShuffleOwned(String queryId) {
-        QueryShuffleState state = queryStates.get(queryId);
-        if (state == null) {
-            removeQueryState(queryId);
-            return;
-        }
+    private void cleanupShuffleOwned(String queryId, QueryShuffleState state) {
         ShuffleAccess cleanupAccess = state.cleanupAccess;
-        if (cleanupAccess == null) {
-            recoverCleanupOwned(queryId);
-            return;
-        }
-        if (cleanupAccess.expiresAtEpochMs()
-                <= System.currentTimeMillis() + CAPABILITY_REFRESH_MARGIN_MS) {
-            recoverCleanupOwned(queryId);
+        if (cleanupAccess == null
+                || cleanupAccess.expiresAtEpochMs() <= System.currentTimeMillis() + CAPABILITY_REFRESH_MARGIN_MS) {
+            recoverCleanupOwned(queryId, state.owner);
             return;
         }
         ShuffleServiceAddress endpoint = selectEndpoint(queryId);

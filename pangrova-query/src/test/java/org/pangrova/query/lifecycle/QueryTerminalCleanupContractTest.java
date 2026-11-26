@@ -157,7 +157,8 @@ class QueryTerminalCleanupContractTest {
         private Runnable afterCheck = () -> { };
         private Execution(List<String> events) { this.events = events; }
         @Override public void cancelDispatchedTasks(String queryId) { events.add("cancel"); }
-        @Override public boolean tryCleanupQuery(String queryId) {
+        @Override public boolean tryCleanupQuery(String queryId,
+                org.pangrova.execution.api.ownership.ExecutionAnchor originalGrant) {
             events.add("cleanup");
             if (incomplete) throw new IllegalStateException("Required cleanup failed");
             boolean ready = !awaitingExit;

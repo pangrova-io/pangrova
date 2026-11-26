@@ -388,9 +388,6 @@ final class QueryBootstrap {
     void startCoordinationLoops() {
         var service = java.util.Objects.requireNonNull(coordinationService, "Query coordination authority");
         if (recoveredTaskDrains != null) recoveredTaskDrains.start(schedulerExecutor());
-        durableRecovery.wireHighAvailability(service, this::schedulerExecutor,
-                shuffleCleanupExecutor,
-                config.workerHealthCheckIntervalMs());
         java.util.function.LongSupplier activeControlTerm = service::getCurrentEpoch;
         startMaterializationMaintenance(service);
         if (artifactBuildStore == null || artifactBuildDispatcher != null) {
@@ -584,9 +581,8 @@ final class QueryBootstrap {
     }
 
     java.util.Set<String> recoverWriteCommitIntents(
-            java.util.List<org.pangrova.execution.api.ownership.ExecutionAnchor> claimed,
-            HighAvailabilityCoordinationService service) {
-        return durableRecovery.recover(claimed, service, writeCommitRecoveryService);
+            java.util.List<org.pangrova.execution.api.ownership.ExecutionAnchor> claimed) {
+        return durableRecovery.recover(claimed, writeCommitRecoveryService);
     }
 
     /**
