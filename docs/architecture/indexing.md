@@ -234,27 +234,29 @@ they never silently return an empty or partial Top-K.
 Index schema changes use a PostgreSQL write-ahead journal rather than the
 in-memory metadata event dispatcher:
 
-1. Before connector DDL starts, the Coordinator inserts an `INTENDED` operation
-   and moves every affected non-dropped descriptor to `STALE` with
-   `schema_change_pending` in the same transaction.
-2. A successful connector mutation advances the operation to `COMMITTED`.
-   Maintenance applies descriptor transitions only while the observed state,
-   generation and update timestamp still match. A concurrent rebuild, publication
-   or DROP therefore wins without being overwritten.
-3. The maintenance leader applies bounded pending batches every minute. Recovery
-   also observes the current connector declaration, so an `INTENDED` operation
-   left by a process crash can distinguish an applied rename from an operation
-   that never reached the connector.
-4. Table and column renames rebind descriptor coordinates. Dropped tables or
-   indexed columns drop the index. Compatible type changes keep it `STALE` for
-   rebuild; text-sensitive `INVERTED` and `GIN` indexes are dropped on incompatible
-   type changes. Cross-schema table renames update both descriptor coordinates.
+1. Before connector DDL starts, the Coordinator claims the canonical source
+   table scope (and the rename target), inserts an `INTENDED` operation, and moves
+   affected non-dropped descriptors to `STALE` in the same transaction.
+2. Only a successful connector mutation records `COMMITTED`. Maintenance
+   applies descriptor transitions only to the original captured fence, while
+   the expected state, generation and update timestamp still match.
+3. The maintenance leader applies bounded batches of confirmed `COMMITTED`
+   operations every minute. It cannot infer success from connector schema equality
+   or from a missing table. A crash leaving `INTENDED` or an uncertain connector
+   result leaves the scope claimed and requires authoritative outcome evidence.
+4. An exact post-operation table identity allows table and column renames to
+   rebind descriptor coordinates. Confirmed table drops and observed indexed
+   column drops drop the affected index. Other compatible changes keep the index
+   `STALE` for rebuild; text-sensitive `INVERTED` and `GIN` indexes are dropped on
+   confirmed incompatible type changes. Missing or mismatched identity retains
+   the old binding conservatively as `STALE`.
 
-The journal states are `INTENDED`, `COMMITTED`, `APPLIED` and `ABORTED`. A
-connector failure aborts the intent but leaves its descriptors conservatively
-fenced; an explicit rebuild is required before they can be used again. Periodic
-reconciliation also inspects external schema drift that bypassed Pangrova DDL
-and durably fences missing tables, missing indexed columns and mismatched types.
+The journal states are `INTENDED`, `COMMITTED`, `APPLIED`, `ABORTED` and `UNKNOWN`.
+Only failures proved to occur before connector mutation may abort and release
+claims; generic connector failures are `UNKNOWN`. Descriptors remain fenced
+until explicit rebuild. Periodic reconciliation also inspects external schema
+drift that bypassed Pangrova DDL and durably fences missing tables, missing
+indexed columns and mismatched types. See the V123 ownership details below.
 
 Query dispatch independently verifies the descriptor fingerprint against the
 exact `ConnectorReadSchemaIdentity` captured by the planned scan. Scalar pruning,

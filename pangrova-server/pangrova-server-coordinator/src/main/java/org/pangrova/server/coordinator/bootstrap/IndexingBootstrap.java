@@ -390,14 +390,13 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
 
     private void recoverSchemaEvolutionSafe(ScheduledExecutorService scheduler, long epoch) {
         try {
-            if (scheduler.isShutdown() || !leaderElection.holdsEpoch(epoch)) {
+            java.util.function.BooleanSupplier stillLeader =
+                    () -> !scheduler.isShutdown() && leaderElection.holdsEpoch(epoch);
+            if (!stillLeader.getAsBoolean()) {
                 return;
             }
-            int fenced = schemaEvolutionHandler.reconcile();
-            int applied = 0;
-            if (!scheduler.isShutdown() && leaderElection.holdsEpoch(epoch)) {
-                applied = schemaEvolutionHandler.recoverPending();
-            }
+            int fenced = schemaEvolutionHandler.reconcile(stillLeader);
+            int applied = schemaEvolutionHandler.recoverPending(stillLeader);
             if (fenced > 0 || applied > 0) {
                 LOG.info("event=index_schema_evolution_recovered fenced={} applied={}", fenced, applied);
             }

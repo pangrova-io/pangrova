@@ -23,6 +23,8 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -140,6 +142,57 @@ class IndexSchemaEvolutionHandlerTest {
         var handler = new IndexSchemaEvolutionHandler(store,
                 (descriptor, change) -> { throw new AssertionError("No connector observation without receipt"); });
         assertThat(handler.recoverPending()).isZero();
+    }
+
+    @Test
+    void demotionDuringReconciliationDoesNotFenceOrObserveAnotherDescriptor() {
+        var first = descriptor("first", IndexType.BLOOM_FILTER, "value", PangrovaType.BIGINT);
+        var second = descriptor("second", IndexType.BLOOM_FILTER, "value", PangrovaType.BIGINT);
+        var stillLeader = new AtomicBoolean(true);
+        var observations = new AtomicInteger();
+        IndexMetadataStore store = (IndexMetadataStore) Proxy.newProxyInstance(
+                IndexSchemaEvolutionHandlerTest.class.getClassLoader(),
+                new Class<?>[] {IndexMetadataStore.class}, (proxy, method, arguments) -> {
+                    if (method.getName().equals("findIndexesByState")) {
+                        return List.of(first, second);
+                    }
+                    throw new AssertionError("Demoted reconciler cannot call " + method.getName());
+                });
+        var handler = new IndexSchemaEvolutionHandler(store, (descriptor, event) -> {
+            observations.incrementAndGet();
+            stillLeader.set(false);
+            return IndexSchemaEvolutionHandler.SchemaObservation.absent();
+        });
+
+        assertThat(handler.reconcile(stillLeader::get)).isZero();
+        assertThat(observations).hasValue(1);
+    }
+
+    @Test
+    void demotionDuringCommittedOperationDoesNotApplyPartialTransitions() {
+        var first = descriptor("first", IndexType.BLOOM_FILTER, "value", PangrovaType.BIGINT);
+        var second = descriptor("second", IndexType.BLOOM_FILTER, "value", PangrovaType.BIGINT);
+        var event = SchemaChangeEvent.renameColumn("tenant", "lake", "raw", "items", "value", "renamed");
+        var record = new IndexSchemaEvolutionRecord(UUID.randomUUID(), null, event,
+                IndexSchemaEvolutionState.COMMITTED, NOW, NOW, Optional.of(IDENTITY), Optional.of(IDENTITY));
+        var stillLeader = new AtomicBoolean(true);
+        var observations = new AtomicInteger();
+        IndexMetadataStore store = (IndexMetadataStore) Proxy.newProxyInstance(
+                IndexSchemaEvolutionHandlerTest.class.getClassLoader(),
+                new Class<?>[] {IndexMetadataStore.class}, (proxy, method, arguments) -> switch (method.getName()) {
+                    case "listPendingSchemaEvolution" -> List.of(record);
+                    case "listSchemaEvolutionTargets" -> List.of(first, second);
+                    default -> throw new AssertionError("Demoted recovery cannot call " + method.getName());
+                });
+        var handler = new IndexSchemaEvolutionHandler(store, (descriptor, change) -> {
+            observations.incrementAndGet();
+            stillLeader.set(false);
+            return new IndexSchemaEvolutionHandler.SchemaObservation(
+                    Optional.of(metadata("renamed", PangrovaType.BIGINT)), Optional.of(IDENTITY));
+        });
+
+        assertThat(handler.recoverPending(stillLeader::get)).isZero();
+        assertThat(observations).hasValue(1);
     }
 
     private static List<IndexSchemaTransition> apply(

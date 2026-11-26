@@ -116,9 +116,11 @@ descriptor fields follow the existing positional result columns:
   connector-native capability. Use `ALTER INDEX ... REBUILD` to replace an
   existing index generation.
 - Use `ALTER INDEX ... REBUILD` for an explicit rebuild. A rebuild refuses a
-  descriptor whose bound source schema no longer matches the current table.
-  Indexes created before schema V122 have no binding and become `STALE` on
-  upgrade; an explicit rebuild binds their current indexed-column schema.
+  `READY` descriptor whose bound source schema no longer matches the current
+  table. An explicit rebuild of a `STALE` descriptor binds its current indexed-
+  column schema after validating source access and compatibility; unresolved
+  connector schema operations still block rebuilding the claimed table.
+  Indexes created before schema V122 without a binding become `STALE` on upgrade.
   The JVM strategy contract builds a payload from the supplied file rows.
   Commit-driven maintenance and checkpointing belong to the Coordinator lifecycle.
   The Coordinator checks the active snapshot and its lineage before listing
@@ -143,8 +145,10 @@ descriptor fields follow the existing positional result columns:
 - `DROP TABLE`, table/column rename, column add/drop and column type changes fence
   affected indexes in PostgreSQL before connector DDL starts. The schema journal
   and descriptor fence commit together; maintenance applies the final transition
-  only if no rebuild, publication or DROP superseded it. A failed connector DDL
-  leaves the indexes fenced and requires an explicit rebuild. External schema
-  changes are detected by periodic reconciliation.
+  only to the original captured descriptor fence. A connector result of unknown
+  outcome leaves the table operation claimed; a new build cannot proceed until
+  authoritative outcome evidence resolves the claim. Only a proved pre-call
+  failure may abort and release it. External schema changes are detected by
+  periodic reconciliation.
 - For the design behind index build and evaluation, see
   [Indexing Architecture](../architecture/indexing.md).

@@ -22,6 +22,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.BiFunction;
+import java.util.function.BooleanSupplier;
 
 /** Durable, fenced schema evolution for index descriptors. */
 public final class IndexSchemaEvolutionHandler {
@@ -83,10 +84,21 @@ public final class IndexSchemaEvolutionHandler {
 
     /** Reconciles external schema drift that never passed through Pangrova's DDL journal. */
     public int reconcile() {
+        return reconcile(() -> true);
+    }
+
+    /** Reconciles drift while the scheduler still owns its captured maintenance epoch. */
+    public int reconcile(BooleanSupplier stillLeader) {
         int fenced = 0;
+        if (!stillLeader.getAsBoolean()) {
+            return fenced;
+        }
         for (IndexDescriptor descriptor : metadataStore.findIndexesByState(IndexState.READY)) {
+            if (!stillLeader.getAsBoolean()) {
+                break;
+            }
             try {
-                if (reconcileDescriptor(descriptor)) {
+                if (reconcileDescriptor(descriptor, stillLeader)) {
                     fenced++;
                 }
             } catch (RuntimeException failure) {
@@ -97,11 +109,14 @@ public final class IndexSchemaEvolutionHandler {
         return fenced;
     }
 
-    private boolean reconcileDescriptor(IndexDescriptor descriptor) {
+    private boolean reconcileDescriptor(IndexDescriptor descriptor, BooleanSupplier stillLeader) {
         SchemaChangeEvent event = new SchemaChangeEvent(
                 SchemaChangeType.SCHEMA_MISMATCH, descriptor.tenantId(), descriptor.catalogName(),
                 descriptor.schemaName(), descriptor.tableName(), null, null, null, null, null, null);
         Optional<ConnectorTableMetadata> source = sourceObserver.apply(descriptor, event).metadata();
+        if (!stillLeader.getAsBoolean()) {
+            return false;
+        }
         if (source.isEmpty()) {
             return metadataStore.fenceIndexSchemaMismatch(descriptor, "source_table_missing", Instant.now())
                     .isPresent();
@@ -111,11 +126,11 @@ public final class IndexSchemaEvolutionHandler {
             fingerprint = IndexSchemaFingerprint.of(
                     descriptor.columnNames(), source.orElseThrow().typedColumns());
         } catch (IllegalArgumentException missing) {
-            return metadataStore.fenceIndexSchemaMismatch(
+            return stillLeader.getAsBoolean() && metadataStore.fenceIndexSchemaMismatch(
                     descriptor, "indexed_column_missing", Instant.now()).isPresent();
         }
         if (!fingerprint.equals(descriptor.sourceSchemaFingerprint())) {
-            return metadataStore.fenceIndexSchemaMismatch(
+            return stillLeader.getAsBoolean() && metadataStore.fenceIndexSchemaMismatch(
                     descriptor, "source_schema_mismatch", Instant.now()).isPresent();
         }
         return false;
@@ -123,23 +138,39 @@ public final class IndexSchemaEvolutionHandler {
 
     /** Applies a bounded durable batch; failed operations remain pending for the next cycle. */
     public int recoverPending() {
+        return recoverPending(() -> true);
+    }
+
+    /** Applies only complete operation batches while the captured maintenance epoch remains valid. */
+    public int recoverPending(BooleanSupplier stillLeader) {
         int applied = 0;
+        if (!stillLeader.getAsBoolean()) {
+            return applied;
+        }
         for (IndexSchemaEvolutionRecord record : metadataStore.listPendingSchemaEvolution(100)) {
+            if (!stillLeader.getAsBoolean()) {
+                break;
+            }
             try {
                 // INTENDED/UNKNOWN are not connector success receipts. A connector
                 // with no exact outcome authority cannot auto-promote either state.
                 if (record.state() != IndexSchemaEvolutionState.COMMITTED) {
                     continue;
                 }
-                List<IndexSchemaTransition> transitions = transitions(record);
+                Optional<List<IndexSchemaTransition>> transitions = transitions(record, stillLeader);
+                if (transitions.isEmpty() || !stillLeader.getAsBoolean()) {
+                    break;
+                }
                 metadataStore.applySchemaEvolution(
-                        record.operationId(), transitions, Instant.now());
+                        record.operationId(), transitions.orElseThrow(), Instant.now());
                 applied++;
             } catch (RuntimeException failure) {
                 LOG.warn("event=index_schema_evolution_retry operationId={} indexId={} error={}",
                         record.operationId(), record.indexId(), failure.getMessage(), failure);
                 try {
-                    metadataStore.deferSchemaEvolutionRetry(record.operationId(), Instant.now());
+                    if (stillLeader.getAsBoolean()) {
+                        metadataStore.deferSchemaEvolutionRetry(record.operationId(), Instant.now());
+                    }
                 } catch (RuntimeException retryFailure) {
                     LOG.warn("event=index_schema_evolution_retry_defer_failed operationId={} error={}",
                             record.operationId(), retryFailure.getMessage());
@@ -149,15 +180,19 @@ public final class IndexSchemaEvolutionHandler {
         return applied;
     }
 
-    private List<IndexSchemaTransition> transitions(IndexSchemaEvolutionRecord record) {
+    private Optional<List<IndexSchemaTransition>> transitions(
+            IndexSchemaEvolutionRecord record, BooleanSupplier stillLeader) {
         List<IndexSchemaTransition> transitions = new ArrayList<>();
         for (IndexDescriptor descriptor : metadataStore.listSchemaEvolutionTargets(record.operationId())) {
+            if (!stillLeader.getAsBoolean()) {
+                return Optional.empty();
+            }
             if (descriptor.state() == IndexState.DROPPED) {
                 continue;
             }
             transitions.add(transition(record, descriptor));
         }
-        return transitions;
+        return Optional.of(List.copyOf(transitions));
     }
 
     private IndexSchemaTransition transition(IndexSchemaEvolutionRecord record, IndexDescriptor descriptor) {
