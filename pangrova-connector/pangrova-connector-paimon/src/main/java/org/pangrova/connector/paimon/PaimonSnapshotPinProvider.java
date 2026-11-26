@@ -53,12 +53,14 @@ final class PaimonSnapshotPinProvider implements SnapshotPinProvider {
             requireExact(existing, snapshotId, tag);
             table.deleteTag(tag);
         }
-        String legacyPrefix = SnapshotPinTags.indexPrefix(owner.indexId());
-        for (String legacy : List.of(legacyPrefix, legacyPrefix + "_" + snapshotToken)) {
-            Long legacySnapshot = taggedSnapshot(table, legacy);
-            if (legacySnapshot != null && legacySnapshot == snapshotId) {
-                requireExact(legacySnapshot, snapshotId, legacy);
-                table.deleteTag(legacy);
+        if ("legacy".equals(owner.attemptId())) {
+            String legacyPrefix = SnapshotPinTags.indexPrefix(owner.indexId());
+            for (String legacy : List.of(legacyPrefix, legacyPrefix + "_" + snapshotToken)) {
+                Long legacySnapshot = taggedSnapshot(table, legacy);
+                if (legacySnapshot != null && legacySnapshot == snapshotId) {
+                    requireExact(legacySnapshot, snapshotId, legacy);
+                    table.deleteTag(legacy);
+                }
             }
         }
     }
@@ -70,15 +72,11 @@ final class PaimonSnapshotPinProvider implements SnapshotPinProvider {
         long snapshotId = snapshotId(snapshotToken);
         String tag = tag(owner, snapshotToken);
         Long exact = taggedSnapshot(table, tag);
-        if (exact != null) {
-            requireExact(exact, snapshotId, tag);
-            return;
-        }
-        Long legacy = taggedSnapshot(table, SnapshotPinTags.indexPrefix(owner.indexId()));
-        if (legacy == null || legacy != snapshotId) {
+        if (exact == null) {
             throw new SnapshotExpiredException(snapshotToken,
                     "Paimon index snapshot pin is absent for " + owner.id());
         }
+        requireExact(exact, snapshotId, tag);
     }
 
     @Override

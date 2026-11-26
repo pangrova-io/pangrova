@@ -113,7 +113,7 @@ class NativeIndexCoverageLifecycleIntegrationTest extends ContainerTestBase {
         IndexBuildCoordinator coordinator = buildCoordinator();
         IndexConsistencyChecker checker = null;
         try {
-            var nativeBuilds = new DurableIndexBuildService(builds, registry, temporaryDirectory.toString(),
+            var nativeBuilds = new DurableIndexBuildService(builds, indexes, registry, temporaryDirectory.toString(),
                     session -> new org.pangrova.connector.api.index.SnapshotPinProvider() {
                         @Override public void pinSnapshot(String catalog, String schema, String table,
                                 String snapshot, org.pangrova.connector.api.index.SnapshotPinOwner owner) {}
@@ -170,7 +170,7 @@ class NativeIndexCoverageLifecycleIntegrationTest extends ContainerTestBase {
 
         CatalogRegistry registry = registry(forwardSnapshotMetadata());
         IndexBuildCoordinator coordinator = buildCoordinator();
-        var nativeBuilds = new DurableIndexBuildService(builds, registry, temporaryDirectory.toString(),
+        var nativeBuilds = new DurableIndexBuildService(builds, indexes, registry, temporaryDirectory.toString(),
                 session -> new org.pangrova.connector.api.index.SnapshotPinProvider() {
                     @Override public void pinSnapshot(String catalog, String schema, String table,
                             String snapshot, org.pangrova.connector.api.index.SnapshotPinOwner owner) {}

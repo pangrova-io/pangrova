@@ -20,8 +20,12 @@
 {{- $indexingEnabled := eq (get $indexing "enabled" | toString | lower) "true" -}}
 {{- $indexBasePath := get $indexing "base-path" | default "" -}}
 {{- $localIndexRoot := or (hasPrefix "/" $indexBasePath) (hasPrefix "file:" $indexBasePath) (not (contains "://" $indexBasePath)) -}}
+{{- $mountedIndexRoot := or (eq $indexBasePath "") (eq $indexBasePath "/opt/pangrova/indexes") (eq $indexBasePath "file:/opt/pangrova/indexes") (eq $indexBasePath "${PANGROVA_INDEX_BASE_PATH:-/opt/pangrova/indexes}") -}}
 {{- if and $indexingEnabled (not .Values.indexing.persistence.enabled) $localIndexRoot -}}
 {{- fail "enabling indexing with a local base path requires indexing.persistence.enabled=true and a shared ReadWriteMany PVC" -}}
+{{- end -}}
+{{- if and $indexingEnabled .Values.indexing.persistence.enabled $localIndexRoot (not $mountedIndexRoot) -}}
+{{- fail "indexing.base-path must resolve to /opt/pangrova/indexes when indexing.persistence.enabled=true" -}}
 {{- end -}}
 {{- $ha := get $coordinator "ha" | default dict -}}
 {{- $multiple := gt (int .Values.coordinator.replicas) 1 -}}

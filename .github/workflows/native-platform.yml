@@ -1,0 +1,438 @@
+name: Native platform validation
+
+on:
+  workflow_call:
+    inputs:
+      platform:
+        description: Exact platform descriptor selected by CI change scope
+        required: true
+        type: string
+
+env:
+  NATIVE_LIB_DIR: ${{ github.workspace }}/pangrova-worker-native/build
+
+jobs:
+  # Hosted jobs have a six-hour lifetime. Build macOS prerequisites in
+  # two bounded jobs, then transfer only this run's verified build outputs
+  # to the existing Native test matrix. A cold cache must not consume the
+  # same job's compile/test budget.
+  macos-native-core:
+    name: macOS Native prerequisites (${{ fromJSON(inputs.platform).name }})
+    runs-on: ${{ fromJSON(inputs.platform).runner }}
+    if: fromJSON(inputs.platform).os == 'osx'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: ./.github/actions/setup-native-build
+      - uses: ./.github/actions/setup-macos-native-cache
+      - name: Cache macOS prerequisite compiler results
+        id: core-compiler-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/ccache
+          key: pangrova-macos-core-ccache-v1-${{ runner.arch }}-${{ github.sha }}
+          restore-keys: |
+            pangrova-macos-core-ccache-v1-${{ runner.arch }}-
+      - name: Cache macOS prerequisite source archives
+        uses: actions/cache@v4
+        with:
+          path: ~/.pangrova/velox/archive-cache
+          key: pangrova-v1-archives-${{ fromJSON(inputs.platform).runner }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt') }}
+      - name: Build canonical prerequisite packages
+        uses: ./.github/actions/run-native-step
+        with:
+          log: macos-native-core
+          title: macOS Native prerequisite build failed
+          command: PANGROVA_NATIVE_BUILD_PHASE=dependencies bash pangrova-worker-native/bin/setup-native-build-env.sh
+      - name: Save completed macOS prerequisite compiler results
+        if: steps.core-compiler-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/ccache
+          key: ${{ steps.core-compiler-cache.outputs.cache-primary-key }}
+      - name: Package same-run prerequisite outputs
+        run: bash .pangrova/scripts/macos-native-stage.sh pack core "$RUNNER_TEMP/macos-core"
+      - name: Upload macOS prerequisite outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-core-${{ fromJSON(inputs.platform).name }}
+          path: ${{ runner.temp }}/macos-core/
+          overwrite: true
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+  macos-native-sdk:
+    name: macOS Native SDK (${{ fromJSON(inputs.platform).name }})
+    runs-on: ${{ fromJSON(inputs.platform).runner }}
+    needs: macos-native-core
+    if: fromJSON(inputs.platform).os == 'osx'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: ./.github/actions/setup-native-build
+      - uses: ./.github/actions/setup-macos-native-cache
+      - name: Download same-run prerequisite outputs
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-core-${{ fromJSON(inputs.platform).name }}
+          path: ${{ runner.temp }}/macos-core
+      - name: Verify and restore prerequisite outputs
+        run: bash .pangrova/scripts/macos-native-stage.sh restore core "$RUNNER_TEMP/macos-core"
+      - name: Cache macOS SDK compiler results
+        id: sdk-compiler-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/ccache
+          key: pangrova-macos-sdk-ccache-v1-${{ runner.arch }}-${{ github.sha }}
+          restore-keys: |
+            pangrova-macos-sdk-ccache-v1-${{ runner.arch }}-
+      - name: Cache macOS dependency archives
+        uses: actions/cache@v4
+        with:
+          path: ~/.pangrova/velox/archive-cache
+          key: pangrova-v1-archives-${{ fromJSON(inputs.platform).runner }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt') }}
+      - name: Build Velox and Arrow Flight from verified prerequisites
+        uses: ./.github/actions/run-native-step
+        with:
+          log: macos-native-sdk
+          title: macOS Native SDK build failed
+          command: SKIP_DEPS=1 PANGROVA_NATIVE_BUILD_PHASE=prepared-velox bash pangrova-worker-native/bin/setup-native-build-env.sh
+      - name: Save completed macOS SDK compiler results
+        if: steps.sdk-compiler-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/ccache
+          key: ${{ steps.sdk-compiler-cache.outputs.cache-primary-key }}
+      - name: Package same-run Native SDK outputs
+        run: bash .pangrova/scripts/macos-native-stage.sh pack sdk "$RUNNER_TEMP/macos-sdk"
+      - name: Upload macOS Native SDK outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-sdk-${{ fromJSON(inputs.platform).name }}
+          path: ${{ runner.temp }}/macos-sdk/
+          overwrite: true
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+  native-build:
+    name: Native Build (${{ fromJSON(inputs.platform).name }})
+    runs-on: ${{ fromJSON(inputs.platform).runner }}
+    needs: macos-native-sdk
+    if: >-
+      ${{ !cancelled() && (fromJSON(inputs.platform).os == 'linux' ||
+      needs.macos-native-sdk.result == 'success') }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Native fixture JDK
+        uses: actions/setup-java@v6
+        with:
+          java-version: '17'
+          distribution: temurin
+
+      - name: Set up function-contract Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Prepare the Lance Java fixture
+        uses: ./.github/actions/prepare-native-java-fixture
+
+      - name: Cache dependency archives
+        if: runner.os == 'Linux'
+        uses: actions/cache@v4
+        with:
+          path: ~/.pangrova/velox/archive-cache
+          key: pangrova-v1-archives-${{ fromJSON(inputs.platform).runner }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt') }}
+
+      - name: Cache native dependency prefixes
+        if: runner.os == 'Linux'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pangrova/native-deps
+            ~/.pangrova/velox/deps-install
+          key: pangrova-v1-deps-${{ fromJSON(inputs.platform).runner }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt', '.github/actions/setup-native-build/action.yml', 'pangrova-worker-native/patches/*') }}
+
+      - name: Cache Velox build layer
+        if: runner.os == 'Linux'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.pangrova/velox/_build/release/_deps
+            ~/.pangrova/velox/_build/release/lib
+            ~/.pangrova/velox/_build/release/CMakeCache.txt
+          key: pangrova-v1-velox-${{ fromJSON(inputs.platform).runner }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt', 'pangrova-worker-native/patches/velox-*.patch', 'pangrova-protocol/src/main/resources/function-contracts/execution-selection.json') }}
+
+      - name: Cache compiler results
+        if: runner.os == 'Linux'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: pangrova-ccache-${{ runner.os }}-${{ runner.arch }}-native-${{ github.sha }}
+          restore-keys: |
+            pangrova-ccache-${{ runner.os }}-${{ runner.arch }}-native-
+
+      - name: Restore macOS Native compiler results
+        if: runner.os == 'macOS'
+        id: macos-native-compiler-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/ccache
+          key: pangrova-macos-native-ccache-v1-${{ runner.arch }}-${{ github.sha }}
+          restore-keys: |
+            pangrova-macos-native-ccache-v1-${{ runner.arch }}-
+
+      - name: Restore Linux dependency baseline image
+        # Opt-in: set repository variable PANGROVA_NATIVE_DEPS_IMAGE=ghcr.
+        if: vars.PANGROVA_NATIVE_DEPS_IMAGE == 'ghcr' && fromJSON(inputs.platform).os == 'linux'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          owner="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+          revision="$(tr -d '\n' < pangrova-worker-native/dependency-versions.txt | sha256sum | cut -c1-16)"
+          image="ghcr.io/$owner/pangrova-native-deps:deps-${{ fromJSON(inputs.platform).name }}-$revision"
+          if ! echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin; then
+            echo "::warning::cannot authenticate to ghcr.io; using caches only"
+            exit 0
+          fi
+          if ! docker pull "$image"; then
+            echo "::warning::$image is not published; using caches only"
+            exit 0
+          fi
+          container=$(docker create "$image")
+          mkdir -p "$HOME/.pangrova"
+          docker cp "$container:/opt/pangrova/native-deps" "$HOME/.pangrova/"
+          docker cp "$container:/opt/pangrova/velox/deps-install" "$HOME/.pangrova/velox/"
+          docker cp "$container:/opt/pangrova/velox/archive-cache" "$HOME/.pangrova/velox/"
+          docker rm "$container"
+
+      - name: Install and verify the native toolchain
+        uses: ./.github/actions/setup-native-build
+
+      - name: Install macOS compiler cache and link prerequisites
+        if: runner.os == 'macOS'
+        uses: ./.github/actions/setup-macos-native-cache
+
+      - name: Download same-run Native SDK outputs
+        if: runner.os == 'macOS'
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-sdk-${{ fromJSON(inputs.platform).name }}
+          path: ${{ runner.temp }}/macos-sdk
+
+      - name: Verify and restore same-run Native SDK outputs
+        if: runner.os == 'macOS'
+        run: bash .pangrova/scripts/macos-native-stage.sh restore sdk "$RUNNER_TEMP/macos-sdk"
+
+      - name: Setup native build environment
+        run: |
+          set -o pipefail
+          report_failure() {
+            local log="$1" title="$2" escaped
+            {
+              printf '### %s\n```text\n' "$title"
+              df -h /
+              uname -a
+              free -m 2>/dev/null || vm_stat
+              tail -n 160 "$log"
+              printf '```\n'
+            } >> "$GITHUB_STEP_SUMMARY"
+            # Logs need admin, and GitHub caps annotations per step. Escape the
+            # entire tail into one annotation so the actual error stays visible.
+            escaped="$({ df -h /; uname -a; free -m 2>/dev/null || vm_stat; \
+              printf '%s\n' '--- last command lines ---'; tail -n 25 "$log"; \
+              printf '%s\n' '--- error diagnostics ---'; \
+              grep -E -i 'error:|fatal error|CMake Error|undefined reference|ld: |cannot find|No space left|Killed|ninja: build stopped|command not found|Failed to|FAILED:' "$log" \
+                | tail -n 80 || true; } \
+              | sed -e 's/%/%25/g' -e 's/\r/%0D/g' \
+              | awk 'length {printf "%s%%0A", $0}')"
+            printf '::error::%s\n' "${escaped:0:60000}"
+          }
+          # The macOS SDK job built and verified these exact outputs.
+          # Linux retains its existing bootstrap. Do not skip any Native tests.
+          if [[ "$RUNNER_OS" == macOS ]]; then
+            export SKIP_DEPS=1 SKIP_VELOX=1
+          fi
+          if ! bash -x ./pangrova-worker-native/bin/setup-native-build-env.sh 2>&1 \
+              | tee "$RUNNER_TEMP/native-setup.log"; then
+            report_failure "$RUNNER_TEMP/native-setup.log" "Native setup failed"
+            exit 1
+          fi
+
+      - name: Build required Lance C FFI
+        run: |
+          set -o pipefail
+          report_failure() {
+            local log="$1" title="$2" escaped
+            {
+              printf '### %s\n```text\n' "$title"
+              df -h /
+              uname -a
+              free -m 2>/dev/null || vm_stat
+              tail -n 160 "$log"
+              printf '```\n'
+            } >> "$GITHUB_STEP_SUMMARY"
+            escaped="$({ df -h /; uname -a; free -m 2>/dev/null || vm_stat; \
+              printf '%s\n' '--- last command lines ---'; tail -n 25 "$log"; \
+              printf '%s\n' '--- error diagnostics ---'; \
+              grep -E -i 'error:|fatal error|CMake Error|undefined reference|ld: |cannot find|No space left|Killed|ninja: build stopped|command not found|Failed to|FAILED:' "$log" \
+                | tail -n 80 || true; } \
+              | sed -e 's/%/%25/g' -e 's/\r/%0D/g' \
+              | awk 'length {printf "%s%%0A", $0}')"
+            printf '::error::%s\n' "${escaped:0:60000}"
+          }
+          if ! bash -x ./pangrova-worker-native/bin/build-lance-ffi.sh 2>&1 \
+              | tee "$RUNNER_TEMP/native-lance.log"; then
+            report_failure "$RUNNER_TEMP/native-lance.log" "Lance FFI build failed"
+            exit 1
+          fi
+
+      - name: CMake configure
+        uses: ./.github/actions/run-native-step
+        with:
+          log: native-configure
+          title: CMake configure failed
+          working-directory: pangrova-worker-native
+          command: |
+            source ~/.pangrova/env.sh
+            cmake --preset dev-release
+
+      - name: CMake build
+        id: native-cmake-build
+        uses: ./.github/actions/run-native-step
+        with:
+          log: native-build
+          title: Native CMake build failed
+          working-directory: pangrova-worker-native
+          command: |
+            cmake --build build --target all
+
+      - name: Save completed macOS Native compiler results
+        if: runner.os == 'macOS' && steps.macos-native-compiler-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/ccache
+          key: ${{ steps.macos-native-compiler-cache.outputs.cache-primary-key }}
+
+      - name: Report native link inputs
+        if: failure() && steps.native-cmake-build.outcome == 'failure'
+        shell: bash
+        working-directory: pangrova-worker-native
+        env:
+          NATIVE_LIBRARY: libpangrova_native.${{ fromJSON(inputs.platform).lib-ext }}
+        run: |
+          if [[ -f build/build.ninja ]]; then
+            ninja -C build -t commands "$NATIVE_LIBRARY" | tail -n 1
+          fi
+
+      - name: Report compiler cache usage
+        run: ccache --show-stats || true
+        working-directory: pangrova-worker-native
+
+      - name: Enforce native layout and JNI boundary
+        run: ./.pangrova/scripts/check-native-boundaries.sh
+
+      - name: Verify JNI symbol symmetry
+        run: ./.pangrova/scripts/jni-symbol-symmetry.sh
+
+      - name: Prepare Docker for macOS Native tests
+        if: runner.os == 'macOS'
+        run: bash .pangrova/scripts/setup-macos-native-test-docker.sh
+
+      - name: Run native tests (GTest via CTest)
+        id: native-tests
+        uses: ./.github/actions/run-native-step
+        with:
+          log: native-tests
+          title: Native tests failed
+          working-directory: pangrova-worker-native
+          command: |
+            python3 bin/run-native-tests.py --prepared-java "$RUNNER_TEMP/native-java-fixture" \
+              -- --output-junit test-results.xml
+
+      - name: Upload native test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-test-results-${{ fromJSON(inputs.platform).name }}
+          path: |
+            pangrova-worker-native/build/test-results.xml
+            pangrova-worker-native/build/Testing/LanceFixture/*/*.log
+            ${{ runner.temp }}/native-java-fixture/java-build.log
+          retention-days: 7
+
+      - name: Verify successful Native tests emitted their report
+        if: ${{ !cancelled() && steps.native-tests.outcome == 'success' }}
+        run: test -s pangrova-worker-native/build/test-results.xml
+
+      - name: Publish native test report
+        if: ${{ !cancelled() && hashFiles('pangrova-worker-native/build/test-results.xml') != '' }}
+        uses: dorny/test-reporter@v3
+        with:
+          name: Native Tests (${{ fromJSON(inputs.platform).name }})
+          path: pangrova-worker-native/build/test-results.xml
+          reporter: java-junit
+          fail-on-error: true
+
+      - name: Verify native library
+        run: |
+          ls -la build/libpangrova_native.${{ fromJSON(inputs.platform).lib-ext }}
+          echo "Native library built successfully"
+        working-directory: pangrova-worker-native
+
+      # Stage and build classifier JAR for downstream java-build job
+      - name: Stage native library for classifier JAR
+        run: |
+          RESOURCE_DIR=pangrova-worker/src/main/resources/META-INF/native/${{ fromJSON(inputs.platform).os }}/${{ fromJSON(inputs.platform).arch }}
+          mkdir -p "${RESOURCE_DIR}"
+          cp pangrova-worker-native/build/libpangrova_native.${{ fromJSON(inputs.platform).lib-ext }} "${RESOURCE_DIR}/"
+
+      - name: Install classifier JAR to local repo
+        run: |
+          mvn -B install -pl pangrova-native-bundle \
+            -Dnative.platform.classifier=${{ fromJSON(inputs.platform).classifier }} \
+            -Dnative.resource.dir=${{ github.workspace }}/pangrova-worker/src/main/resources/META-INF/native/${{ fromJSON(inputs.platform).os }}/${{ fromJSON(inputs.platform).arch }} \
+            -Dnative.resource.os=${{ fromJSON(inputs.platform).os }} \
+            -Dnative.resource.arch=${{ fromJSON(inputs.platform).arch }} \
+            -Dnative.library.path=${{ github.workspace }}/pangrova-worker/src/main/resources/META-INF/native/${{ fromJSON(inputs.platform).os }}/${{ fromJSON(inputs.platform).arch }}/libpangrova_native.${{ fromJSON(inputs.platform).lib-ext }} \
+            -DskipTests
+
+      - name: Upload native library
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-library-${{ fromJSON(inputs.platform).name }}
+          path: pangrova-worker-native/build/libpangrova_native.*
+          retention-days: 1
+
+      - name: Stage Java Native test runtime
+        if: fromJSON(inputs.platform).name == 'linux-x86_64'
+        run: |
+          set -euo pipefail
+          runtime_dir=$(mktemp -d "$RUNNER_TEMP/java-native-test-runtime.XXXXXXXX")
+          bash .pangrova/scripts/stage-java-native-test-runtime.sh "$NATIVE_LIB_DIR" "$runtime_dir"
+          tar -czf "$RUNNER_TEMP/java-native-test-runtime.tar.gz" -C "$runtime_dir" .
+
+      - name: Upload Java Native test runtime
+        if: fromJSON(inputs.platform).name == 'linux-x86_64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: java-native-test-runtime-linux-x86_64
+          path: ${{ runner.temp }}/java-native-test-runtime.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload classifier JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-bundle-${{ fromJSON(inputs.platform).classifier }}
+          path: pangrova-native-bundle/target/pangrova-native-bundle-*-${{ fromJSON(inputs.platform).classifier }}.jar
+          retention-days: 1

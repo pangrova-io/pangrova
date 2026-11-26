@@ -245,6 +245,12 @@ kubectl exec -n pangrova deploy/pangrova-coordinator -- curl -s http://localhost
 kubectl describe hpa pangrova-worker -n pangrova
 ```
 
+When `indexing.persistence.enabled=true`, the chart mounts the shared index PVC at
+`/opt/pangrova/indexes` on every Coordinator and Worker. An enabled local
+`indexing.base-path` must therefore be `/opt/pangrova/indexes` or
+`file:/opt/pangrova/indexes`; the chart rejects other local roots. Object-store
+URI roots do not use this PVC mount and can keep `indexing.persistence.enabled=false`.
+
 ### Helm Values Reference
 
 | Key | Type | Default | Description |

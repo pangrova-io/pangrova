@@ -14,6 +14,7 @@ import org.pangrova.generation.api.page.GenerationSplit;
 import org.pangrova.persistence.generation.api.job.GenerationJobStore;
 import org.pangrova.persistence.generation.api.job.SnapshotPinIntent;
 import org.pangrova.persistence.generation.api.job.SnapshotPinReservation;
+import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.query.api.session.QuerySession;
@@ -37,6 +38,7 @@ import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.pangrova.connector.api.index.SnapshotPinOwner;
 import org.pangrova.connector.api.index.SnapshotPinProvider;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
+import org.pangrova.indexing.api.enums.IndexState;
 import org.pangrova.indexing.api.enums.IndexType;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
 import org.slf4j.Logger;
@@ -50,6 +52,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 
 /** Maintenance compiler for snapshot-pinned Native index work; persists canonical control metadata, never row bytes. */
@@ -74,6 +77,7 @@ public final class DurableIndexBuildService {
     private static final int MAX_VECTOR_DIMENSION = 65_535;
 
     private final GenerationJobStore store;
+    private final IndexMetadataStore indexMetadataStore;
     private final CatalogRegistry catalogRegistry;
     private final SnapshotGenerationSplitPlanner splitPlanner;
     private final String baseArtifactUri;
@@ -82,10 +86,11 @@ public final class DurableIndexBuildService {
 
     /** Creates the sole durable Native index compiler over catalog and metadata authority. */
     public DurableIndexBuildService(
-            GenerationJobStore store, CatalogRegistry catalogRegistry,
-            String baseArtifactUri,
+            GenerationJobStore store, IndexMetadataStore indexMetadataStore,
+            CatalogRegistry catalogRegistry, String baseArtifactUri,
             Function<ConnectorSession, SnapshotPinProvider> pinProviders) {
         this.store = Objects.requireNonNull(store, "store must not be null");
+        this.indexMetadataStore = Objects.requireNonNull(indexMetadataStore, "indexMetadataStore must not be null");
         this.catalogRegistry = Objects.requireNonNull(
                 catalogRegistry, "catalogRegistry must not be null");
         this.splitPlanner = new SnapshotGenerationSplitPlanner(catalogRegistry);
@@ -138,6 +143,20 @@ public final class DurableIndexBuildService {
 
     private String submitScoped(IndexDescriptor descriptor, QualifiedTableName table,
                                 String tenantId, ConnectorSession session) {
+        AtomicReference<String> jobId = new AtomicReference<>();
+        indexMetadataStore.withIndexLifecycleLock(descriptor.indexId(), () -> {
+            IndexDescriptor current = indexMetadataStore.findIndex(descriptor.indexId()).orElseThrow(() ->
+                    new IllegalStateException("Native index descriptor disappeared before submission"));
+            if (current.state() == IndexState.DROPPED || current.generation() != descriptor.generation()) {
+                throw new IllegalStateException("Native index descriptor is no longer buildable");
+            }
+            jobId.set(submitScopedLocked(descriptor, table, tenantId, session));
+        });
+        return jobId.get();
+    }
+
+    private String submitScopedLocked(IndexDescriptor descriptor, QualifiedTableName table,
+                                      String tenantId, ConnectorSession session) {
         NativeBuildSpec build = prepareBuild(descriptor, table, session);
         String jobId = jobId(tenantId, descriptor);
         String sourceId = String.join(".", table.catalog(), table.schema(), table.table());
@@ -154,12 +173,12 @@ public final class DurableIndexBuildService {
             pinProvider.pinSnapshot(table.catalog(), table.schema(), table.table(),
                     intent.sourceSnapshot(), owner);
         }
-        if (!store.markSnapshotPinPinned(tenantId, intent.pinOwner(), Instant.now())) {
-            throw new IllegalStateException("Snapshot pin could not transition to PINNED");
-        }
         if (!emptySnapshot) {
             requirePinProvider(session).validateSnapshotPin(table.catalog(), table.schema(), table.table(),
                     intent.sourceSnapshot(), owner);
+        }
+        if (!store.markSnapshotPinPinned(tenantId, intent.pinOwner(), Instant.now())) {
+            throw new IllegalStateException("Snapshot pin could not transition to PINNED");
         }
         List<GenerationSplit> splits = splitPlanner.enumerate(
                 table, intent.sourceSnapshot(), session);
@@ -309,12 +328,12 @@ public final class DurableIndexBuildService {
                     provider.pinSnapshot(
                             resolved.table().catalog(), resolved.table().schema(), resolved.table().table(),
                             intent.sourceSnapshot(), owner(intent));
-                    if (!store.markSnapshotPinPinned(intent.tenantId(), intent.pinOwner(), Instant.now())) {
-                        throw new IllegalStateException("Legacy snapshot pin could not transition to PINNED");
-                    }
                     provider.validateSnapshotPin(
                             resolved.table().catalog(), resolved.table().schema(), resolved.table().table(),
                             intent.sourceSnapshot(), owner(intent));
+                    if (!store.markSnapshotPinPinned(intent.tenantId(), intent.pinOwner(), Instant.now())) {
+                        throw new IllegalStateException("Legacy snapshot pin could not transition to PINNED");
+                    }
                 }
                 adopted++;
             } catch (RuntimeException failure) {
