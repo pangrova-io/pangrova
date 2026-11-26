@@ -5,6 +5,12 @@ package org.pangrova.server.coordinator.http.endpoint.catalog;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.pangrova.common.json.JsonMapperFactory;
+import org.pangrova.common.enums.PangrovaErrorCode;
+import org.pangrova.connector.api.exception.ConnectorException;
+import org.pangrova.metadata.api.exception.CatalogNotFoundException;
+import org.pangrova.metadata.api.exception.MetadataException;
+import org.pangrova.metadata.api.exception.TableNotFoundException;
+import org.pangrova.security.api.exception.AccessDeniedException;
 import org.pangrova.server.coordinator.http.CoordinatorHttpServer;
 import org.pangrova.server.coordinator.http.CoordinatorHttpServerContext;
 import org.pangrova.coordinator.query.task.TaskStatusReceiver;
@@ -147,6 +153,39 @@ class CatalogRestResourceTest {
         assertThat(body.get("identifiers").isArray()).isTrue();
     }
 
+    @Test
+    void dropExistingTableReturns204() throws Exception {
+        assertThat(deleteTable("test_catalog", "present").statusCode()).isEqualTo(204);
+    }
+
+    @Test
+    void dropInitiallyAbsentTableReturns404() throws Exception {
+        assertThat(deleteTable("test_catalog", "missing").statusCode()).isEqualTo(404);
+        assertThat(deleteTable("missing_catalog", "present").statusCode()).isEqualTo(404);
+    }
+
+    @Test
+    void dropUnconfirmedTableMutationReturns500() throws Exception {
+        var response = deleteTable("test_catalog", "unconfirmed");
+        assertThat(response.statusCode()).isEqualTo(500);
+        assertThat(response.body()).contains("DROP TABLE could not be confirmed");
+        assertThat(deleteTable("test_catalog", "unclassified").statusCode()).isEqualTo(500);
+    }
+
+    @Test
+    void dropDeniedTableReturns403() throws Exception {
+        assertThat(deleteTable("test_catalog", "denied").statusCode()).isEqualTo(403);
+    }
+
+    private HttpResponse<String> deleteTable(String catalog, String table) throws Exception {
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(baseUrl + "/v1/namespaces/" + catalog + "/tables/" + table))
+                .DELETE()
+                .header("Accept", "application/json")
+                .build();
+        return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+    }
+
     // ── HTTP helpers ──
 
     private HttpResponse<String> get(String path) throws Exception {
@@ -208,7 +247,20 @@ class CatalogRestResourceTest {
         public void createTable(MetadataSessionContext session, QualifiedTableRef tableRef, TableMetadata metadata) {}
 
         @Override
-        public void dropTable(MetadataSessionContext session, QualifiedTableRef tableRef) {}
+        public void dropTable(MetadataSessionContext session, QualifiedTableRef tableRef) {
+            if (tableRef.catalog().equals("missing_catalog")) {
+                throw new CatalogNotFoundException("Catalog not found");
+            }
+            switch (tableRef.table()) {
+                case "missing" -> throw new TableNotFoundException("Table not found");
+                case "unconfirmed" -> throw new ConnectorException(
+                        PangrovaErrorCode.CONNECTOR_DDL_FAILED, "Connector outcome unavailable");
+                case "unclassified" -> throw new MetadataException(
+                        PangrovaErrorCode.METADATA_TABLE_NOT_FOUND, "Unclassified metadata failure");
+                case "denied" -> throw new AccessDeniedException("Table drop denied");
+                default -> { }
+            }
+        }
 
         @Override
         public void alterTable(MetadataSessionContext session, QualifiedTableRef tableRef, List<SchemaChange> changes) {}

@@ -237,7 +237,7 @@ class GeneratedValueReadResolverIntegrationTest {
         var metadata = fixture.registry().getCatalog("lake").getMetadata(session());
         var handle = metadata.getTableHandle(session(), new SchemaTableName("db", "documents"));
         if (historicalVersion != null) {
-            handle = handle.withTimeTravelSnapshot(historicalVersion);
+            handle = handle.withTimeTravelSnapshot(Long.toString(historicalVersion));
         }
         var binding = metadata.bindRead(session(), handle);
         return List.of(new org.pangrova.planner.analysis.SplitSourceDescriptor(
@@ -249,7 +249,8 @@ class GeneratedValueReadResolverIntegrationTest {
         var session = session();
         var metadata = fixture.registry().getCatalog("lake").getMetadata(session);
         var handle = metadata.getTableHandle(session, new SchemaTableName("db", "documents"));
-        return metadata.getTableReadMetadata(session, handle.withTimeTravelSnapshot(snapshot)).requireExactDeclaration();
+        return metadata.getTableReadMetadata(session, handle.withTimeTravelSnapshot(Long.toString(snapshot)))
+                .requireExactDeclaration();
     }
 
     private static ConnectorTableMetadata currentMetadata(Fixture fixture) {

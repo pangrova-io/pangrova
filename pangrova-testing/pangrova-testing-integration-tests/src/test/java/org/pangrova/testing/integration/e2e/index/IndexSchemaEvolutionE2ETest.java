@@ -1,6 +1,8 @@
 package org.pangrova.testing.integration.e2e.index;
 
 import org.pangrova.types.value.TypedRow;
+import org.pangrova.indexing.api.descriptor.IndexDescriptor;
+import org.pangrova.indexing.api.enums.IndexState;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 import org.junit.jupiter.api.BeforeAll;
@@ -51,6 +53,18 @@ class IndexSchemaEvolutionE2ETest extends SqlE2ETestBase {
 
     private String fqn() { return FQN_PREFIX + tableName; }
 
+    private void applyPendingSchemaChanges() {
+        e2eIndexingBootstrap().getSchemaEvolutionHandler().recoverPending();
+    }
+
+    private IndexDescriptor indexDescriptor(String indexName) {
+        return e2eIndexingBootstrap().getMetadataStore()
+                .findIndexesByTable(e2eTenantId(), CATALOG, SCHEMA, tableName).stream()
+                .filter(index -> indexName.equals(index.indexName()))
+                .findFirst()
+                .orElseThrow();
+    }
+
     /** These cases mutate an already built index, not a concurrently submitted build. */
     private void createReadyIndex(String indexName, String columnName, String indexType) {
         sqlRunner.executeDdl("CREATE INDEX " + indexName + " ON " + fqn()
@@ -85,12 +99,9 @@ class IndexSchemaEvolutionE2ETest extends SqlE2ETestBase {
         void dropColumnDropsIndex() {
             createReadyIndex("idx_a", "col_a", "BLOOM_FILTER");
             sqlRunner.executeDdl("ALTER TABLE " + fqn() + " DROP COLUMN col_a");
+            applyPendingSchemaChanges();
 
-            List<TypedRow> indexes = sqlRunner.execute("SHOW INDEXES FROM " + fqn());
-            boolean hasActiveIndex = indexes.stream()
-                    .anyMatch(r -> "idx_a".equals(r.getRaw("index_name").toString())
-                            && "READY".equals(r.getRaw("state").toString()));
-            assertThat(hasActiveIndex).isFalse();
+            assertThat(indexDescriptor("idx_a").state()).isEqualTo(IndexState.DROPPED);
         }
     }
 
@@ -99,18 +110,16 @@ class IndexSchemaEvolutionE2ETest extends SqlE2ETestBase {
     class RenameColumnImpact {
 
         @Test
-        @DisplayName("RENAME COLUMN preserves index (column reference not auto-updated)")
+        @DisplayName("RENAME COLUMN rebinds the index and requires a rebuild")
         void renameColumnPreservesIndex() {
             createReadyIndex("idx_b", "col_b", "INVERTED");
             sqlRunner.executeDdl("ALTER TABLE " + fqn()
                     + " RENAME COLUMN col_b TO col_b_new");
+            applyPendingSchemaChanges();
 
-            // Index metadata does not auto-update column references on rename.
-            // Verify the index still exists and is not silently dropped.
-            List<TypedRow> indexes = sqlRunner.execute("SHOW INDEXES FROM " + fqn());
-            boolean hasIndex = indexes.stream()
-                    .anyMatch(r -> "idx_b".equals(r.getRaw("index_name").toString()));
-            assertThat(hasIndex).isTrue();
+            IndexDescriptor rebound = indexDescriptor("idx_b");
+            assertThat(rebound.state()).isEqualTo(IndexState.STALE);
+            assertThat(rebound.columnNames()).containsExactly("col_b_new");
         }
     }
 
@@ -124,13 +133,10 @@ class IndexSchemaEvolutionE2ETest extends SqlE2ETestBase {
             createReadyIndex("idx_a", "col_a", "BLOOM_FILTER");
             createReadyIndex("idx_b", "col_b", "INVERTED");
             sqlRunner.executeDdl("DROP TABLE " + fqn());
+            applyPendingSchemaChanges();
 
-            // Table gone — SHOW INDEXES returns empty or errors.
-            // The system may return empty results for a dropped table.
-            List<TypedRow> indexes = sqlRunner.execute("SHOW INDEXES FROM " + fqn());
-            boolean hasActiveIndex = indexes.stream()
-                    .anyMatch(r -> "READY".equals(r.getRaw("state").toString()));
-            assertThat(hasActiveIndex).isFalse();
+            assertThat(indexDescriptor("idx_a").state()).isEqualTo(IndexState.DROPPED);
+            assertThat(indexDescriptor("idx_b").state()).isEqualTo(IndexState.DROPPED);
         }
     }
 }

@@ -73,6 +73,30 @@ class PaimonIndexAccessorTest extends PaimonDeleteTestSupport {
     }
 
     @Test
+    void fileStatisticsUseTheTableSnapshotRatherThanFileCreationTime() throws Exception {
+        createTable(false, true);
+        writeRows(new StoredRow(1, "east", "first", "one"));
+        long snapshot = snapshotId();
+        var metadata = new PaimonMetadata(catalog, "index_catalog",
+                new org.pangrova.connector.paimon.PaimonSplitRegistry());
+        var support = metadata.getIndexSupport().orElseThrow();
+        String file = support.getSnapshotAwareMetadata(DATABASE, TABLE_NAME).orElseThrow()
+                .listFilesAtSnapshot(Long.toString(snapshot)).get(0).path();
+
+        var statistics = metadata.getFileStatistics("index_catalog", DATABASE, TABLE_NAME, List.of(file));
+
+        assertThat(statistics).hasSize(1);
+        assertThat(statistics.get(0).snapshotId()).isEqualTo(Long.toString(snapshot));
+        assertThat(statistics.get(0).snapshotId()).isNotEqualTo(
+                Long.toString(((org.apache.paimon.table.FileStoreTable) freshTable())
+                        .newReadBuilder().newScan().plan().splits().stream()
+                        .filter(split -> split instanceof org.apache.paimon.table.source.DataSplit)
+                        .map(split -> (org.apache.paimon.table.source.DataSplit) split)
+                        .flatMap(split -> split.dataFiles().stream())
+                        .findFirst().orElseThrow().creationTimeEpochMillis()));
+    }
+
+    @Test
     void missingFileFailsInsteadOfReadingOtherRows() throws Exception {
         createTable(false, true);
         writeRows(new StoredRow(1, "east", "first", "one"));

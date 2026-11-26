@@ -24,6 +24,7 @@ import org.pangrova.planner.analysis.SqlCompiler;
 import org.pangrova.testing.testkit.constants.TestObservability;
 import org.pangrova.common.client.result.ResultEndpoint;
 import org.pangrova.common.enums.MemoryPressure;
+import org.pangrova.common.enums.ResultDisposition;
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.testing.testkit.TestCluster;
 import org.pangrova.testing.integration.e2e.E2ETestFramework;
@@ -333,9 +334,9 @@ public abstract class VirtualWorkerRoutingIntegrationTestBase extends SqlE2ETest
                 queryId, Map.of(), e2eUserIdentity(), e2eTenantId(), java.util.Optional.empty(), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
         var response = routingQueryManager.submitQuery(queryId, sql, session);
         ResultEndpoint endpoint = response.resultEndpoint();
-        if (endpoint == null) {
-            throw new IllegalStateException(
-                    "Routing query did not publish a result endpoint: " + queryId);
+        if (response.resultDisposition() != ResultDisposition.STREAM || endpoint == null) {
+            throw new IllegalStateException("Routing query did not publish a result stream: " + queryId
+                    + " disposition=" + response.resultDisposition());
         }
         String canonicalTaskId = hasControlPlaneResult(queryId) ? null
                 : requireNativeResultTaskId(endpoint, queryId, routingTaskTracker);

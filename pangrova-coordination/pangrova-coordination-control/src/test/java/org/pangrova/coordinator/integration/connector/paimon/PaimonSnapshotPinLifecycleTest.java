@@ -116,7 +116,7 @@ class PaimonSnapshotPinLifecycleTest {
         assertThat(first.statistics().rowCount()).isEqualTo(1);
         var actor = query.session("test_catalog", "db");
         var changed = ((PaimonTableHandle) metadata.getTableHandle(actor, new SchemaTableName("db", "orders")))
-                .withTimeTravelSnapshot(nextVersion);
+                .withTimeTravelSnapshot(Long.toString(nextVersion));
         assertThatThrownBy(() -> metadata.bindRead(actor, changed)).hasMessageContaining("first-access binding");
         var narrowed = metadata.bindRead(actor, ((PaimonTableHandle) first.handle()).withLimit(1));
         assertThat(narrowed.sourceIdentity()).isEqualTo(first.sourceIdentity());

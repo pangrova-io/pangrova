@@ -38,8 +38,10 @@ published generation, and the actual query plan.
 
 ## Query eligibility
 
-- Split pruning requires a `READY` index bound to the scan's table identity, snapshot, and
-  predicate shape.
+- Split pruning requires a `READY` index bound to the scan's table identity, snapshot,
+  predicate shape and exact indexed-column schema fingerprint.
+- Missing connector schema evidence or a fingerprint mismatch excludes the index.
+  A proven mismatch is durably fenced; ambiguous multi-scan schemas fail closed.
 - A plan may keep a predicate in Native execution when no eligible index exists; it does
   not silently drop the predicate.
 - Vector search additionally requires an eligible distance-order query, a positive limit,

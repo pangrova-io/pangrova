@@ -164,7 +164,8 @@ class RestRetryBoundaryTest {
                 boolean retry = requests.incrementAndGet() <= retryableResponses;
                 String payload = retry
                         ? "{\"error_code\":\"UNAVAILABLE\",\"message\":\"retry this actual HTTP request\"}"
-                        : "{\"query_id\":\"boundary-query\",\"state\":\"RUNNING\"}";
+                        : "{\"query_id\":\"boundary-query\",\"state\":\"RUNNING\","
+                                + "\"result_disposition\":\"PENDING\"}";
                 byte[] body = payload.getBytes(StandardCharsets.UTF_8);
                 exchange.getResponseHeaders().set("Content-Type", "application/json");
                 exchange.sendResponseHeaders(retry ? 503 : 200, body.length);

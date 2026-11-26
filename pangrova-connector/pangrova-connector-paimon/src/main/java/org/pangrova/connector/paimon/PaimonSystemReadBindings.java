@@ -7,12 +7,14 @@ import org.pangrova.connector.paimon.handle.PaimonTableIdentity;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.OptionalLong;
 
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;
+import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.FileStoreTable;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.util.DigestUtils;
@@ -65,10 +67,9 @@ final class PaimonSystemReadBindings {
                     long selectedLatest = table.schemaManager().latest()
                             .orElseThrow(() -> new IllegalStateException("Paimon table has no schema"))
                             .id();
-                    for (var schema : table.schemaManager().listAll()) {
-                        if (schema.id() > selectedLatest) {
-                            continue;
-                        }
+                    for (var schema : table.schemaManager().listAll().stream()
+                            .filter(value -> value.id() <= selectedLatest)
+                            .sorted(Comparator.comparingLong(TableSchema::id)).toList()) {
                         var path = table.schemaManager().toSchemaPath(schema.id());
                         long length = manager.fileIO().getFileStatus(path).getLen();
                         objects.add(new PaimonSystemTableHandle.MetadataObject(

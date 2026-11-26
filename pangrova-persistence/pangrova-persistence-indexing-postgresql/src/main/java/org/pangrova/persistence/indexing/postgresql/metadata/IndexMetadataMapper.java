@@ -15,6 +15,7 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.sql.Types;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -90,6 +91,11 @@ public final class IndexMetadataMapper {
     /** Maps the current row of the result set to an {@link IndexDescriptor}. */
     public static IndexDescriptor mapDescriptor(ResultSet rs) throws SQLException {
         String buildSnapshotId = readOptionalColumn(rs, "build_snapshot_id");
+        Map<String, String> properties = new HashMap<>(fromJsonMap(rs.getString("properties")));
+        String schemaFingerprint = readOptionalColumn(rs, "source_schema_fingerprint");
+        if (schemaFingerprint != null && !schemaFingerprint.isBlank()) {
+            properties.put(IndexDescriptor.SOURCE_SCHEMA_FINGERPRINT_PROPERTY, schemaFingerprint);
+        }
         return new IndexDescriptor(
                 rs.getString("index_id"),
                 rs.getString("index_name"),
@@ -98,7 +104,7 @@ public final class IndexMetadataMapper {
                 rs.getString("table_name"),
                 fromJsonList(rs.getString("column_names")),
                 IndexType.valueOf(rs.getString("index_type")),
-                fromJsonMap(rs.getString("properties")),
+                properties,
                 IndexState.valueOf(rs.getString("state")),
                 rs.getString("stale_reason"),
                 rs.getInt("generation"),

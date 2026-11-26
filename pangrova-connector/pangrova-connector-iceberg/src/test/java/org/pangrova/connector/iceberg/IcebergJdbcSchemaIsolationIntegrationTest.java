@@ -183,7 +183,7 @@ class IcebergJdbcSchemaIsolationIntegrationTest extends ContainerTestBase {
                 .withRecordCount(1).build()).commit();
         table.manageSnapshots().replaceBranch("feature", table.currentSnapshot().snapshotId()).commit();
         assertThat(discovery.referenceSnapshot().apply("BRANCH", "feature")).hasValue(original);
-        var binding = discovery.binder().bind(READER, discovery.handle().withTimeTravelSnapshot(original), null);
+        var binding = discovery.binder().bind(READER, discovery.handle().withTimeTravelSnapshot(Long.toString(original)), null);
         assertThat(binding.snapshotId()).hasValue(original);
 
         var manager = new IcebergSplitManager(schema.name(), selected, new IcebergExpressionToSubstrait());

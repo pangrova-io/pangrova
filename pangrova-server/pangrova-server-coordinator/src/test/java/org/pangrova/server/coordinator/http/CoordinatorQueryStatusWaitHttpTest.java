@@ -1,5 +1,6 @@
 package org.pangrova.server.coordinator.http;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.client.query.QueryStatusResponse;
 import org.pangrova.common.client.result.ResultEndpoint;
@@ -77,10 +78,17 @@ class CoordinatorQueryStatusWaitHttpTest {
             var ownerMiss = peer.waitFor("q-peer", 0, 40, observer).get(4, TimeUnit.SECONDS);
             assertThat(ownerMiss.statusCode()).isEqualTo(404);
             assertThat(ownerMiss.body()).contains("QUERY_OWNER_UNAVAILABLE");
-            QueryStatusResponse history = status(peer.get("/v1/query/q-peer/state"));
+            HttpResponse<String> historicalResponse = peer.get("/v1/query/q-peer/state");
+            assertThat(historicalResponse.statusCode()).isEqualTo(200);
+            QueryStatusResponse history = JsonMapperFactory.shared().readValue(
+                    historicalResponse.body(), QueryStatusResponse.class);
+            assertThat(history.queryId()).isEqualTo("q-peer");
             assertThat(history.state()).isEqualTo("RUNNING");
-            assertThat(history.version()).isNull();
-            assertThat(history.drained()).isNull();
+            JsonNode historicalJson = JsonMapperFactory.shared().readTree(historicalResponse.body());
+            assertThat(historicalJson.has("result_disposition")).isFalse();
+            assertThat(historicalJson.has("result_endpoint")).isFalse();
+            assertThat(historicalJson.has("version")).isFalse();
+            assertThat(historicalJson.has("drained")).isFalse();
         }
     }
 

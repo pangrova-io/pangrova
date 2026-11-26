@@ -7,7 +7,12 @@ import java.util.List;
 import javax.sql.DataSource;
 
 import org.postgresql.ds.PGSimpleDataSource;
+import org.pangrova.query.api.journal.QueryAcceptance;
+import org.pangrova.query.api.journal.QueryAcceptanceRequest;
 import org.pangrova.query.api.journal.QueryStateEvent;
+import org.pangrova.query.api.lineage.QueryLineageFact;
+import org.pangrova.query.api.lineage.QueryLineageMetadata;
+import org.pangrova.governance.api.enums.LineageEventType;
 import org.pangrova.testing.testkit.PostgresCommitWireFault;
 import org.pangrova.persistence.query.api.state.StateJournalConfig;
 import org.pangrova.query.api.journal.TaskStateEvent;
@@ -19,6 +24,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static java.util.concurrent.TimeUnit.SECONDS;
 
@@ -313,6 +319,223 @@ class JdbcQueryStateJournalIntegrationTest {
         journal.appendQueryEventSync(query);
         journal.appendTaskEventSync(task);
         assertEquals(2L, eventReadbacks());
+    }
+
+    @Test
+    void durableAcceptanceReplaysAcrossJournalInstancesAndIsolatesPrincipals() throws Exception {
+        var first = acceptanceEvent("q-accept", "alice", "a", "b", 60_000);
+        var admission = journal.acceptQuerySync(first);
+        assertThat(admission.newExecution()).isTrue();
+        journal.close();
+
+        journal = new JdbcQueryStateJournal(dataSource,
+                new StateJournalConfig("JDBC", POSTGRES.getJdbcUrl(), 50, 20, 24, 50_000));
+        var replay = acceptanceEvent("q-replay", "alice", "a", "b", 60_000);
+        var replayed = journal.acceptQuerySync(replay);
+        assertThat(replayed.newExecution()).isFalse();
+        assertThat(replayed.acceptance().receipt().queryId()).isEqualTo("q-accept");
+        assertThat(replayed.acceptance().receipt()).isEqualTo(admission.acceptance().receipt());
+        assertThat(countQueryRows("query_state_journal", "q-accept")).isEqualTo(1);
+        assertThat(countQueryRows("query_state_journal", "q-replay")).isEqualTo(0);
+
+        var otherPrincipal = acceptanceEvent("q-bob", "bob", "a", "b", 60_000);
+        assertThat(journal.acceptQuerySync(otherPrincipal).newExecution()).isTrue();
+        assertThat(countQueryRows("query_state_journal", "q-bob")).isEqualTo(1);
+    }
+
+    @Test
+    void acceptanceFingerprintConflictIsRejectedWithoutASecondQueryRow() throws Exception {
+        journal.acceptQuerySync(acceptanceEvent("q-accept", "alice", "a", "b", 60_000));
+        var failure = assertThrows(org.pangrova.persistence.query.api.exception.JournalWriteException.class,
+                () -> journal.acceptQuerySync(acceptanceEvent("q-conflict", "alice", "a", "c", 60_000)));
+        assertThat(failure.admissionOutcome()).isEqualTo(
+                org.pangrova.persistence.query.api.enums.JournalAdmissionOutcome.REJECTED_BEFORE_TRANSFER);
+        assertThat(countQueryRows("query_state_journal", "q-accept")).isEqualTo(1);
+        assertThat(countQueryRows("query_state_journal", "q-conflict")).isEqualTo(0);
+        assertThat(journal.findAcceptance("alice", "a".repeat(64))).isPresent();
+        assertThat(journal.acceptQuerySync(acceptanceEvent("q-healthy", "alice", "d", "b", 60_000))
+                .newExecution()).isTrue();
+    }
+
+    @Test
+    void activeAcceptanceDoesNotExpireBeforeTerminalCompletion() throws Exception {
+        journal.acceptQuerySync(acceptanceEvent("q-active-accept", "alice", "a", "b", 1));
+        Thread.sleep(20);
+        var replay = journal.acceptQuerySync(acceptanceEvent("q-active-retry", "alice", "a", "b", 1));
+        assertThat(replay.newExecution()).isFalse();
+        assertThat(replay.acceptance().receipt().queryId()).isEqualTo("q-active-accept");
+        journal.purgeExpiredAcceptances();
+        assertThat(countQueryRows("query_state_journal", "q-active-accept")).isEqualTo(1);
+        assertThat(countQueryRows("query_state_journal", "q-active-retry")).isEqualTo(0);
+    }
+
+    @Test
+    void expiredTerminalAcceptanceAllowsNewFingerprintBeforeSweep() throws Exception {
+        var original = acceptanceEvent("q-old", "alice", "a", "b", 60_000);
+        assertThat(journal.acceptQuerySync(original).newExecution()).isTrue();
+        assertThrows(org.pangrova.persistence.query.api.exception.JournalWriteException.class,
+                () -> journal.acceptQuerySync(acceptanceEvent("q-active-conflict", "alice", "a", "c", 60_000)));
+        journal.appendQueryEventSync(new QueryStateEvent(
+                org.pangrova.query.api.journal.JournalEventContext.create(System.currentTimeMillis(), "issuer"),
+                "q-old", null, null, "FINISHED"));
+        assertThat(journal.acceptQuerySync(original).acceptance()).isEqualTo(original.acceptance());
+        executeSql("UPDATE query_state_journal SET timestamp_ms = timestamp_ms - 120000 WHERE query_id = 'q-old'");
+        assertThrows(org.pangrova.persistence.query.api.exception.JournalWriteException.class,
+                () -> journal.acceptQuerySync(acceptanceEvent("q-old", "alice", "a", "c", 60_000)));
+        var replacement = acceptanceEvent("q-new", "alice", "a", "c", 60_000);
+        var admitted = journal.acceptQuerySync(replacement);
+        assertThat(admitted.newExecution()).isTrue();
+        assertThat(admitted.acceptance()).isEqualTo(replacement.acceptance());
+        assertThat(countQueryRows("query_state_journal", "q-old")).isZero();
+        assertThat(journal.findAcceptance("alice", "a".repeat(64))).contains(replacement.acceptance());
+        var replay = journal.acceptQuerySync(acceptanceEvent("q-replay", "alice", "a", "c", 60_000));
+        assertThat(replay.newExecution()).isFalse();
+        assertThat(replay.acceptance()).isEqualTo(replacement.acceptance());
+    }
+
+    @Test
+    void expiredAcceptanceSweepRemovesTerminalFacts() throws Exception {
+        journal.acceptQuerySync(acceptanceEvent("q-sweep", "alice", "a", "b", 1));
+        journal.appendQueryEventSync(new QueryStateEvent(
+                org.pangrova.query.api.journal.JournalEventContext.create(System.currentTimeMillis(), "issuer"),
+                "q-sweep", null, null, "FINISHED"));
+        executeSql("UPDATE query_state_journal SET timestamp_ms = timestamp_ms - 120000 WHERE query_id = 'q-sweep'");
+        journal.purgeExpiredAcceptances();
+        assertThat(countQueryRows("query_state_journal", "q-sweep")).isEqualTo(0);
+    }
+
+    @Test
+    void replayDoesNotPublishLineageForTheCandidateQuery() throws Exception {
+        var original = acceptanceEvent("q-lineage-original", "alice", "a", "b", 60_000);
+        var lineage = new QueryLineageFact("test", original.queryId(), LineageEventType.START,
+                original.context().timestampMs(), original.sql(), null, QueryLineageMetadata.empty());
+        journal.acceptQuerySync(new QueryStateEvent(original.context(), original.queryId(), original.sql(),
+                original.sessionJson(), original.state(), lineage, original.acceptance()));
+        var replay = journal.acceptQuerySync(acceptanceEvent("q-lineage-replay", "alice", "a", "b", 60_000));
+        assertThat(replay.newExecution()).isFalse();
+        assertThat(lineageRows("q-lineage-original")).isEqualTo(1);
+        assertThat(lineageRows("q-lineage-replay")).isZero();
+    }
+
+    @Test
+    void acceptanceShapeRequiresAllFieldsOnTheInitialQueuedRow() throws Exception {
+        journal.acceptQuerySync(acceptanceEvent("q-shape", "alice", "a", "b", 60_000));
+        for (String assignment : List.of("principal = NULL", "idempotency_key_digest = NULL",
+                "request_fingerprint = NULL", "acceptance_receipt_json = NULL", "retention_ms = NULL",
+                "retention_ms = 0", "state = 'RUNNING'")) {
+            var failure = assertThrows(java.sql.SQLException.class, () -> executeSql(
+                    "UPDATE query_state_journal SET " + assignment + " WHERE query_id = 'q-shape'"));
+            assertThat(failure.getSQLState()).isEqualTo("23514");
+        }
+        assertThat(journal.findAcceptance("alice", "a".repeat(64))).isPresent();
+    }
+
+    @Test
+    void freshAcceptanceUsesOneInsertAndNoReadback() throws Exception {
+        try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
+            statement.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements");
+            statement.execute("SELECT pg_stat_statements_reset()");
+        }
+        journal.acceptQuerySync(acceptanceEvent("q-one-write", "alice", "a", "b", 60_000));
+        assertThat(acceptanceInserts()).isEqualTo(1);
+        assertThat(acceptanceReadbacks()).isEqualTo(0);
+    }
+
+    @Test
+    void acceptanceSurvivesPurgeUntilTerminalRetentionExpires() throws Exception {
+        journal.acceptQuerySync(acceptanceEvent("q-retained", "alice", "a", "b", 60_000));
+        journal.appendQueryEventSync(new QueryStateEvent(
+                org.pangrova.query.api.journal.JournalEventContext.create(System.currentTimeMillis() + 1, "issuer"),
+                "q-retained", null, null, "FINISHED"));
+        journal.purgeQuery("q-retained");
+        assertThat(countQueryRows("query_state_journal", "q-retained")).isEqualTo(2);
+
+        executeSql("UPDATE query_state_journal SET timestamp_ms = timestamp_ms - 120000 "
+                + "WHERE query_id = 'q-retained'");
+        executeSql("UPDATE query_state_journal SET retention_ms = 1 WHERE query_id = 'q-retained' "
+                + "AND idempotency_key_digest IS NOT NULL");
+        journal.purgeQuery("q-retained");
+        assertThat(countQueryRows("query_state_journal", "q-retained")).isEqualTo(0);
+    }
+
+    @Test
+    void lostAcceptanceCommitResponseReconcilesTheOriginalReceipt() throws Exception {
+        journal.close();
+        var wire = new PostgresCommitWireFault(POSTGRES.getHost(), POSTGRES.getMappedPort(5432));
+        try (wire) {
+            var source = new org.postgresql.ds.PGSimpleDataSource();
+            source.setServerNames(new String[] {java.net.InetAddress.getLoopbackAddress().getHostAddress()});
+            source.setPortNumbers(new int[] {wire.port()});
+            source.setDatabaseName(POSTGRES.getDatabaseName());
+            source.setUser(POSTGRES.getUsername());
+            source.setPassword(POSTGRES.getPassword());
+            source.setSslMode("disable");
+            source.setGssEncMode("disable");
+            journal = new JdbcQueryStateJournal(source,
+                    new StateJournalConfig("JDBC", source.getURL(), 20, 1, 24, 1));
+            var event = acceptanceEvent("q-lost-accept", "alice", "a", "b", 60_000);
+            wire.armCommitResponseLoss();
+            var failure = assertThrows(org.pangrova.persistence.query.api.exception.JournalWriteException.class,
+                    () -> journal.acceptQuerySync(event));
+            assertEquals(org.pangrova.persistence.query.api.enums.JournalAdmissionOutcome.ACCEPTED_UNESTABLISHED,
+                    failure.admissionOutcome());
+            assertTrue(wire.awaitActualCommit());
+            long originalRow = eventRowId(event.context().eventId());
+            wire.allowReconciliation();
+            journal.close();
+            try (var reader = new JdbcQueryStateJournal(dataSource,
+                    new StateJournalConfig("JDBC", POSTGRES.getJdbcUrl(), 20, 1, 24, 1))) {
+                assertThat(reader.findAcceptance("alice", "a".repeat(64)).orElseThrow().receipt().queryId())
+                        .isEqualTo("q-lost-accept");
+            }
+            assertThat(countQueryRows("query_state_journal", "q-lost-accept")).isEqualTo(1);
+            assertThat(eventRowId(event.context().eventId())).isEqualTo(originalRow);
+        } finally {
+            wire.allowReconciliation();
+            journal.close();
+        }
+    }
+
+    private static QueryStateEvent acceptanceEvent(String queryId, String principal, String keyDigit,
+            String fingerprintDigit, long retentionMs) {
+        var request = new QueryAcceptanceRequest(principal, keyDigit.repeat(64), fingerprintDigit.repeat(64));
+        var acceptance = QueryAcceptance.pending(request, queryId, retentionMs);
+        return new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(
+                System.currentTimeMillis(), "issuer"), queryId, "SELECT 1", "{}", "QUEUED", null, acceptance);
+    }
+
+    private long lineageRows(String queryId) throws Exception {
+        try (var connection = dataSource.getConnection();
+                var statement = connection.prepareStatement(
+                        "SELECT count(*) FROM query_lineage_outbox WHERE query_id = ?")) {
+            statement.setString(1, queryId);
+            try (var rows = statement.executeQuery()) {
+                rows.next();
+                return rows.getLong(1);
+            }
+        }
+    }
+
+    private long acceptanceInserts() throws Exception {
+        try (var connection = dataSource.getConnection(); var statement = connection.createStatement();
+                var rows = statement.executeQuery("""
+                        SELECT COALESCE(SUM(calls), 0) FROM pg_stat_statements
+                        WHERE query LIKE 'INSERT INTO query_state_journal%'
+                        """)) {
+            rows.next();
+            return rows.getLong(1);
+        }
+    }
+
+    private long acceptanceReadbacks() throws Exception {
+        try (var connection = dataSource.getConnection(); var statement = connection.createStatement();
+                var rows = statement.executeQuery("""
+                        SELECT COALESCE(SUM(calls), 0) FROM pg_stat_statements
+                        WHERE query LIKE 'SELECT event_id,% FROM query_state_journal WHERE principal = $%'
+                        """)) {
+            rows.next();
+            return rows.getLong(1);
+        }
     }
 
     private long eventReadbacks() throws Exception {

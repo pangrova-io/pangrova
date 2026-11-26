@@ -8,6 +8,9 @@ import org.pangrova.query.api.session.QuerySession;
 /** Audit, event and lineage effects emitted for one logical query lifecycle. */
 public interface QueryAuditPort {
 
+    QueryLineageFact prepareSubmittedLineage(String queryId, String sql, QuerySession session,
+            QueryStateMachine state);
+
     void emitAuditSubmitted(String queryId, String sql, QuerySession session, QueryStateMachine state);
 
     void emitAuditCompleted(String queryId, QueryStateMachine state);

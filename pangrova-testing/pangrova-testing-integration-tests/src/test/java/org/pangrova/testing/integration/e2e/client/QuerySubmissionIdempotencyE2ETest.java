@@ -2,6 +2,8 @@ package org.pangrova.testing.integration.e2e.client;
 
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.client.query.SubmitQueryResponse;
+import org.pangrova.common.client.query.QueryStatusResponse;
+import org.pangrova.common.enums.ResultDisposition;
 import org.pangrova.common.json.CanonicalJsonMapper;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
@@ -15,6 +17,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
 /** Production authentication, submission, lifecycle, rejection, and receipt replay over HTTP. */
 class QuerySubmissionIdempotencyE2ETest extends SqlE2ETestBase {
@@ -49,10 +52,9 @@ class QuerySubmissionIdempotencyE2ETest extends SqlE2ETestBase {
         var denied = submit(key, SELECT, "unrecognized-token");
         assertThat(denied.statusCode()).isEqualTo(401);
         var other = submit(key, SELECT, E2E_SECOND_USER_BEARER_TOKEN);
+        assertThat(other.statusCode()).as(other.body()).isEqualTo(200);
         assertThat(other.body()).doesNotContain(original.queryId());
-        String otherId = other.statusCode() == 200
-                ? CanonicalJsonMapper.readTree(other.body()).path("query_id").asText()
-                : other.headers().firstValue("X-Pangrova-Query-Id").orElseThrow();
+        String otherId = CanonicalJsonMapper.readTree(other.body()).path("query_id").asText();
         assertThat(otherId).isNotBlank().isNotEqualTo(original.queryId());
     }
 
@@ -75,12 +77,38 @@ class QuerySubmissionIdempotencyE2ETest extends SqlE2ETestBase {
         String invalidKey = UUID.randomUUID().toString();
         String invalid = "{\"query\":\"SELECT FROM )\"}";
         var first = submit(invalidKey, invalid, E2E_USER_BEARER_TOKEN);
-        assertThat(first.statusCode()).isBetween(400, 599);
-        String failedId = first.headers().firstValue("X-Pangrova-Query-Id").orElseThrow();
+        assertThat(first.statusCode()).as(first.body()).isEqualTo(200);
+        var receipt = CanonicalJsonMapper.readValue(first.body().getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                SubmitQueryResponse.class);
+        String failedId = receipt.queryId();
+        assertThat(failedId).isNotBlank();
+        assertThat(receipt.state()).isEqualTo("QUEUED");
+        assertThat(receipt.resultDisposition()).isEqualTo(ResultDisposition.PENDING);
+
+        await().atMost(Duration.ofSeconds(30)).untilAsserted(() -> {
+            var failed = status(failedId);
+            assertThat(failed.state()).isEqualTo("FAILED");
+            assertThat(failed.error()).isNotNull();
+        });
+        var failed = status(failedId);
         var replay = submit(invalidKey, invalid, E2E_USER_BEARER_TOKEN);
-        assertThat(replay.statusCode()).isEqualTo(first.statusCode());
-        assertThat(replay.headers().firstValue("X-Pangrova-Query-Id")).contains(failedId);
-        assertThat(queryManager.getQueryState(failedId)).isPresent();
+        assertThat(replay.statusCode()).as(replay.body()).isEqualTo(200);
+        assertThat(replay.body()).isEqualTo(first.body());
+        var repeated = status(failedId);
+        assertThat(repeated.queryId()).isEqualTo(failedId);
+        assertThat(repeated.state()).isEqualTo("FAILED");
+        assertThat(repeated.error()).isEqualTo(failed.error());
+    }
+
+    private static QueryStatusResponse status(String queryId) throws Exception {
+        var request = HttpRequest.newBuilder(URI.create("http://localhost:" + coordinatorHttpPort()
+                        + "/v1/query/" + queryId + "/state"))
+                .timeout(Duration.ofSeconds(30))
+                .header("Authorization", "Bearer " + E2E_USER_BEARER_TOKEN).GET().build();
+        var response = CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).as(response.body()).isEqualTo(200);
+        return CanonicalJsonMapper.readValue(response.body().getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                QueryStatusResponse.class);
     }
 
     private static HttpResponse<String> submit(String key, String body, String token) throws Exception {

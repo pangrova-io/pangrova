@@ -45,6 +45,7 @@ services:
       - PANGROVA_INTERNAL_AUTH_SECRET=${PANGROVA_INTERNAL_AUTH_SECRET:?Set PANGROVA_INTERNAL_AUTH_SECRET in .env}
       - PANGROVA_DB_USERNAME=pangrova
       - PANGROVA_DB_PASSWORD=${PANGROVA_DB_PASSWORD:?Set PANGROVA_DB_PASSWORD in .env}
+      - PANGROVA_INDEX_BASE_PATH=/opt/pangrova/indexes
       # Object Storage credentials (pass via .env file)
       - AWS_REGION=${AWS_REGION:-}
       - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
@@ -56,6 +57,8 @@ services:
       - PANGROVA_OSS_REGION=${PANGROVA_OSS_REGION:-}
     volumes:
       - coordinator-1-logs:/opt/pangrova/logs
+      - coordinator-data:/opt/pangrova/data
+      - index-data:/opt/pangrova/indexes
       - ./config/coordinator.yml:/opt/pangrova/config/coordinator.yml:ro
     networks:
       - pangrova-net
@@ -85,8 +88,11 @@ services:
       - PANGROVA_INTERNAL_AUTH_SECRET=${PANGROVA_INTERNAL_AUTH_SECRET:?Set PANGROVA_INTERNAL_AUTH_SECRET in .env}
       - PANGROVA_DB_USERNAME=pangrova
       - PANGROVA_DB_PASSWORD=${PANGROVA_DB_PASSWORD:?Set PANGROVA_DB_PASSWORD in .env}
+      - PANGROVA_INDEX_BASE_PATH=/opt/pangrova/indexes
     volumes:
       - coordinator-2-logs:/opt/pangrova/logs
+      - coordinator-data:/opt/pangrova/data
+      - index-data:/opt/pangrova/indexes
       - ./config/coordinator.yml:/opt/pangrova/config/coordinator.yml:ro
     networks:
       - pangrova-net
@@ -120,6 +126,7 @@ services:
     volumes:
       - worker-1-logs:/opt/pangrova/logs
       - worker-1-data:/opt/pangrova/data
+      - index-data:/opt/pangrova/indexes
       - ./config/worker.yml:/opt/pangrova/config/worker.yml:ro
     networks:
       - pangrova-net
@@ -152,6 +159,7 @@ services:
     volumes:
       - worker-2-logs:/opt/pangrova/logs
       - worker-2-data:/opt/pangrova/data
+      - index-data:/opt/pangrova/indexes
       - ./config/worker.yml:/opt/pangrova/config/worker.yml:ro
     networks:
       - pangrova-net
@@ -184,6 +192,7 @@ services:
     volumes:
       - worker-3-logs:/opt/pangrova/logs
       - worker-3-data:/opt/pangrova/data
+      - index-data:/opt/pangrova/indexes
       - ./config/worker.yml:/opt/pangrova/config/worker.yml:ro
     networks:
       - pangrova-net
@@ -200,6 +209,7 @@ services:
 
 volumes:
   metadata-data:
+  coordinator-data:
   coordinator-1-logs:
   coordinator-2-logs:
   worker-1-logs:
@@ -208,6 +218,7 @@ volumes:
   worker-2-data:
   worker-3-logs:
   worker-3-data:
+  index-data:
 
 networks:
   pangrova-net:

@@ -220,7 +220,7 @@ public final class LanceManagedSourceFixture {
             grant(tableName);
         }
         var base = version == 0 ? current : store.loadSnapshot(
-                (LanceTableHandle) current.withTimeTravelSnapshot(version)).table();
+                (LanceTableHandle) current.withTimeTravelSnapshot(Long.toString(version))).table();
         if (!base.columns().equals(actualSchema.typedColumns().stream().map(LanceColumn::from).toList())
                 || !Arrays.equals(base.schemaFence(), schemaSha256) || base.version() != version
                 || !base.datasetUri().equals(uri)) throw new IllegalStateException("Actual fixture schema or base differs");
@@ -364,7 +364,7 @@ public final class LanceManagedSourceFixture {
     public AcceptedSourceSnapshotRef reference(String uri, long version) {
         var current = store.load(catalog.getCatalogName(), TENANT, new SchemaTableName("sdk", "t_" + digest(uri)));
         if (current == null || current.version() == 0) throw new IllegalStateException("No accepted source");
-        var selector = version == 0 ? current : (LanceTableHandle) current.withTimeTravelSnapshot(version);
+        var selector = version == 0 ? current : (LanceTableHandle) current.withTimeTravelSnapshot(Long.toString(version));
         return SourceSnapshotBindings.encode(store.loadSnapshot(selector).reference(), catalog);
     }
 

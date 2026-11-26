@@ -6,6 +6,7 @@
 #include <openssl/evp.h>
 #include <openssl/sha.h>
 
+#include "indexing/index/BTreeIndexReader.h"
 #include "indexing/index/FileIndexFilter.h"
 #include "engine/observability/PangrovaLog.h"
 #include "pangrova/protocol/v2/connector.pb.h"
@@ -72,32 +73,37 @@ std::string readIndexArtifact(const proto::IndexEvalHintDetail& hint) {
   return bytes;
 }
 
-// IndexSerializer's v1 envelope: header, BloomFilterSerializer payload, CRC32.
-// A future or corrupt artifact must never produce a negative membership result.
-std::string bloomPayload(const std::string& bytes) {
-  if (bytes.size() < kIndexHeaderBytes + kIndexTrailerBytes + 16) {
+// IndexSerializer's v1 envelope: header, type-specific payload, CRC32.
+// A future or corrupt artifact must never produce a negative pruning result.
+std::string indexPayload(const std::string& bytes, uint16_t expectedType) {
+  if (bytes.size() < kIndexHeaderBytes + kIndexTrailerBytes) {
     return {};
   }
   const auto* raw = reinterpret_cast<const unsigned char*>(bytes.data());
   const auto payload = static_cast<size_t>(readU32(raw + 12));
   if (readU32(raw) != kIndexMagic || readU16(raw + 4) != 1 ||
-      readU16(raw + 6) != 3 || payload > bytes.size() - kIndexHeaderBytes - kIndexTrailerBytes ||
+      readU16(raw + 6) != expectedType || payload > bytes.size() - kIndexHeaderBytes - kIndexTrailerBytes ||
       bytes.size() != kIndexHeaderBytes + payload + kIndexTrailerBytes ||
       readU32(raw + kIndexHeaderBytes + payload) !=
           crc32(raw, kIndexHeaderBytes + payload)) {
     return {};
   }
-  const auto* value = raw + kIndexHeaderBytes;
-  if (payload < 16) {
+  return bytes.substr(kIndexHeaderBytes, payload);
+}
+
+std::string bloomPayload(const std::string& bytes) {
+  const auto payload = indexPayload(bytes, 3);
+  if (payload.size() < 16) {
     return {};
   }
-  const auto bloom_length = static_cast<size_t>(readU32(value + 12));
-  if (bloom_length == 0 || bloom_length != payload - 16 ||
+  const auto* value = reinterpret_cast<const unsigned char*>(payload.data());
+  const auto bloomLength = static_cast<size_t>(readU32(value + 12));
+  if (bloomLength == 0 || bloomLength != payload.size() - 16 ||
       readU32(value) != 8 ||
       readU32(value + 4) != 0 || readU32(value + 8) == 0) {
     return {};
   }
-  return bytes.substr(kIndexHeaderBytes + 16, bloom_length);
+  return payload.substr(16, bloomLength);
 }
 
 bool canonicalValue(const proto::ComparableValue& value, std::string& result) {
@@ -158,22 +164,36 @@ bool IndexHintFilter::shouldKeepTypedSplit(
   if (!hints) return true;
   for (const auto& hint : *hints) {
     if (hint.data_file_path() != data_file_path ||
-        hint.index_type() != "BLOOM_FILTER" || hint.index_file_path().empty() ||
-        !hint.has_predicate()) {
+        (hint.index_type() != "BLOOM_FILTER" && hint.index_type() != "BTREE") ||
+        hint.index_file_path().empty() || !hint.has_predicate()) {
       continue;
     }
     if (evaluated) {
       *evaluated = true;
     }
     try {
-      const auto bloom = bloomPayload(readIndexArtifact(hint));
-      if (bloom.empty()) {
-        PANGROVA_LOG_WARN << "event=native_index_artifact_unavailable file="
-                          << hint.index_file_path();
-        continue;
-      }
-      if (bloomProvesAbsent(hint.predicate(), bloom)) {
-        return false;
+      const auto bytes = readIndexArtifact(hint);
+      if (hint.index_type() == "BLOOM_FILTER") {
+        const auto bloom = bloomPayload(bytes);
+        if (bloom.empty()) {
+          PANGROVA_LOG_WARN << "event=native_index_artifact_unavailable file="
+                            << hint.index_file_path();
+          continue;
+        }
+        if (bloomProvesAbsent(hint.predicate(), bloom)) {
+          return false;
+        }
+      } else {
+        const auto payload = indexPayload(bytes, 1);
+        if (payload.empty()) {
+          PANGROVA_LOG_WARN << "event=native_index_artifact_unavailable file="
+                            << hint.index_file_path();
+          continue;
+        }
+        if (BTreeIndexReader::evaluate(payload, hint.predicate())
+            == BTreeIndexReader::Result::kProvenAbsent) {
+          return false;
+        }
       }
     } catch (const std::exception& failure) {
       PANGROVA_LOG_WARN << "event=native_index_artifact_read_failed file="

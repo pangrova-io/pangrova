@@ -7,7 +7,9 @@ import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
+import org.pangrova.metadata.api.exception.CatalogNotFoundException;
 import org.pangrova.metadata.api.exception.MetadataException;
+import org.pangrova.metadata.api.exception.TableNotFoundException;
 import org.pangrova.metadata.api.event.MetadataEvent;
 import org.pangrova.metadata.api.object.ColumnMetadata;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
@@ -80,9 +82,7 @@ public final class CatalogTableDdl {
         SchemaTableName schemaTable = new SchemaTableName(tableRef.schema(), tableRef.table());
         ConnectorTableHandle tableHandle = connMetadata.getTableHandle(connSession, schemaTable);
         if (tableHandle == null) {
-            throw new MetadataException(
-                    PangrovaErrorCode.METADATA_TABLE_NOT_FOUND,
-                    "Table not found: " + tableRef);
+            throw new TableNotFoundException("Table not found: " + tableRef);
         }
         if (tableControl.enforcing()) {
             tableControl.requireDroppable(
@@ -94,10 +94,17 @@ public final class CatalogTableDdl {
         if (tableControl.enabled()) {
             record.ifPresent(captured -> tableControl.requireCurrentCatalog(captured, "DROP TABLE"));
         }
-        connMetadata.dropTable(connSession, tableHandle);
-        record.ifPresent(tableControl.registrations()::markDropped);
-        resolution.invalidateTableCaches(tableRef);
-        eventDispatcher.dispatch(new MetadataEvent.TableDroppedEvent(tableRef));
+        try {
+            connMetadata.dropTable(connSession, tableHandle);
+            record.ifPresent(tableControl.registrations()::markDropped);
+            resolution.invalidateTableCaches(tableRef);
+            eventDispatcher.dispatch(new MetadataEvent.TableDroppedEvent(tableRef));
+        } catch (TableNotFoundException | CatalogNotFoundException failure) {
+            // Once mutation starts, an absence report is not proof that this
+            // operation made no change. Preserve the failure as uncertain.
+            throw new MetadataException(PangrovaErrorCode.METADATA_METASTORE_ERROR,
+                    "DROP TABLE outcome could not be confirmed: " + tableRef, failure);
+        }
         LOG.info("event=table_dropped catalog={} schema={} table={}",
                 tableRef.catalog(), tableRef.schema(), tableRef.table());
     }

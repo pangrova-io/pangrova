@@ -8,6 +8,7 @@ import org.pangrova.coordinator.indexing.connector.ConnectorAccessorResolver;
 import org.pangrova.indexing.config.IndexingConfig;
 import org.pangrova.indexing.storage.LocalFileSystemAccessor;
 import org.pangrova.indexing.storage.IndexStorageManager;
+import org.pangrova.indexing.storage.IndexStorageLayout;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
@@ -17,6 +18,8 @@ import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.indexing.api.enums.IndexState;
 import org.pangrova.indexing.api.enums.IndexType;
 import org.pangrova.connector.api.index.SnapshotPinProvider;
+import org.pangrova.connector.api.index.SnapshotPinOwner;
+import org.pangrova.connector.api.index.SnapshotPinReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -158,9 +161,16 @@ class IndexGcGenerationFencingTest {
     @Test
     void oldGenerationDeletionPreservesCurrentFileForSameSource() throws Exception {
         var store = new GenerationTrackingStore();
-        store.addDescriptor(buildDescriptor("idx-1", 3, IndexState.READY));
-        Path old = Files.writeString(files.resolve("g1.idx"), "old");
-        Path current = Files.writeString(files.resolve("g3.idx"), "current");
+        var descriptor = buildDescriptor("idx-1", 3, IndexState.READY);
+        store.addDescriptor(descriptor);
+        var layout = new IndexStorageLayout(files.toString());
+        Path old = Path.of(layout.indexFilePath(descriptor.withGeneration(1, descriptor.updatedAt()),
+                UUID.randomUUID(), "/data/same.parquet"));
+        Path current = Path.of(layout.indexFilePath(descriptor, UUID.randomUUID(), "/data/same.parquet"));
+        Files.createDirectories(old.getParent());
+        Files.createDirectories(current.getParent());
+        Files.writeString(old, "old");
+        Files.writeString(current, "current");
         store.addStaleMapping(buildMapping("idx-1", "/data/same.parquet", old.toString(), 1));
         store.addStaleMapping(buildMapping("idx-1", "/data/same.parquet", current.toString(), 3));
         gc = buildGc(store);
@@ -190,14 +200,23 @@ class IndexGcGenerationFencingTest {
     @Test
     void removesAnIndexCohortWithoutReloadingAllItsMappingsPerOrphan() throws Exception {
         var store = new GenerationTrackingStore();
-        store.addDescriptor(buildDescriptor("idx-1", 4, IndexState.READY));
-        Path current = Files.writeString(files.resolve("current.idx"), "serving");
+        var descriptor = buildDescriptor("idx-1", 4, IndexState.READY);
+        store.addDescriptor(descriptor);
+        var layout = new IndexStorageLayout(files.toString());
+        Path current = Path.of(layout.indexFilePath(descriptor, UUID.randomUUID(), "/data/current.parquet"));
+        Files.createDirectories(current.getParent());
+        Files.writeString(current, "serving");
         store.addStaleMapping(buildMapping("idx-1", "/data/current.parquet", current.toString(), 4));
         var obsolete = new ArrayList<Path>();
+        UUID attempt = UUID.randomUUID();
         for (int index = 0; index < 100; index++) {
-            Path file = Files.writeString(files.resolve("orphan-" + index + ".idx"), "obsolete");
+            String source = "/data/orphan-" + index + ".parquet";
+            Path file = Path.of(layout.indexFilePath(descriptor.withGeneration(2, descriptor.updatedAt()),
+                    attempt, source));
+            Files.createDirectories(file.getParent());
+            Files.writeString(file, "obsolete");
             obsolete.add(file);
-            store.addStaleMapping(buildMapping("idx-1", "/data/orphan-" + index + ".parquet", file.toString(), 2));
+            store.addStaleMapping(buildMapping("idx-1", source, file.toString(), 2));
         }
         gc = buildGc(store);
 
@@ -257,17 +276,23 @@ class IndexGcGenerationFencingTest {
     @Test
     void failedFileDeletionKeepsDroppedIndexForRetry() {
         var store = new GenerationTrackingStore();
-        store.addDescriptor(new IndexDescriptor(
+        var descriptor = new IndexDescriptor(
                 "idx-delete", "test-index", "cat", "sch", "tbl", List.of("col1"),
                 IndexType.BITMAP, Map.of(), IndexState.DROPPED, null, 0,
                 null, null, Instant.now().minusSeconds(172800),
-                Instant.now().minusSeconds(172800), "default"));
-        store.addStaleMapping(buildMapping("idx-delete", "/data/old.parquet", "/idx/old.idx", 0));
+                Instant.now().minusSeconds(172800), "default");
+        store.addDescriptor(descriptor);
+        String path = new IndexStorageLayout(files.toString()).indexFilePath(
+                descriptor, UUID.randomUUID(), "/data/old.parquet");
+        store.addStaleMapping(buildMapping("idx-delete", "/data/old.parquet", path, 0));
         gc = new IndexGarbageCollector(new IndexGcContext(
-                store, new IndexStorageManager(), descriptor -> {
+                store, new IndexStorageManager(), ignored -> {
                     throw new IllegalStateException("storage unavailable");
-                }, new IndexingConfig("/tmp/test-gc-gen", false, null, null), null), null);
+                }, new IndexingConfig(files.toString(), false, null, null), null), null);
 
+        assertThat(gc.runGc().purgedCount()).isZero();
+        assertThat(store.getIndexFileMappings("idx-delete")).isEmpty();
+        assertThat(store.hasPendingMappedArtifactRetirements("idx-delete")).isTrue();
         assertThat(gc.runGc().purgedCount()).isZero();
         assertThat(store.purgedIndexes).isEmpty();
         assertThat(store.findIndex("idx-delete")).isPresent();
@@ -280,7 +305,7 @@ class IndexGcGenerationFencingTest {
     }
 
     private IndexGarbageCollector buildGc(GenerationTrackingStore store, SnapshotPinProvider pin) {
-        var config = new IndexingConfig("/tmp/test-gc-gen", false, null, null);
+        var config = new IndexingConfig(files.toString(), false, null, null);
         var deps = new IndexGcContext(store, new IndexStorageManager(),
                 descriptor -> new LocalFileSystemAccessor(), config, pin);
         return new IndexGarbageCollector(deps, null);
@@ -291,18 +316,21 @@ class IndexGcGenerationFencingTest {
         private int unpins;
 
         @Override public void pinSnapshot(String catalog, String schema, String table,
-                                          long snapshot, String indexId) {}
+                                          String snapshot, SnapshotPinOwner owner) {}
         @Override public void unpinSnapshot(String catalog, String schema, String table,
-                                            long snapshot, String indexId) {
+                                            String snapshot, SnapshotPinOwner owner) {
             unpins++;
             if (fail) throw new IllegalStateException("pin store unavailable");
         }
-        @Override public List<Long> getPinnedSnapshots(String catalog, String schema, String table) {
+        @Override public void validateSnapshotPin(String catalog, String schema, String table,
+                                                  String snapshot, SnapshotPinOwner owner) {}
+        @Override public List<String> getPinnedSnapshots(String catalog, String schema, String table) {
             return List.of();
         }
-        @Override public List<Long> getPinnedSnapshotsForIndex(
+        @Override public List<SnapshotPinReference> getSnapshotPinsForIndex(
                 String catalog, String schema, String table, String indexId) {
-            return List.of(42L);
+            return List.of(new SnapshotPinReference("42",
+                    new SnapshotPinOwner(indexId, 0, "legacy")));
         }
     }
 
@@ -353,6 +381,7 @@ class IndexGcGenerationFencingTest {
         int mappingReadCalls;
         private final Map<String, IndexDescriptor> descriptors = new HashMap<>();
         private final List<IndexFileMapping> staleMappings = new ArrayList<>();
+        private final Map<UUID, MappedArtifactRetirement> pendingRetirements = new LinkedHashMap<>();
         final CopyOnWriteArrayList<String> removedMappings = new CopyOnWriteArrayList<>();
         boolean rejectMappingRemoval;
         final CopyOnWriteArrayList<String> purgedIndexes = new CopyOnWriteArrayList<>();
@@ -379,6 +408,17 @@ class IndexGcGenerationFencingTest {
         @Override public List<IndexDescriptor> findReadyIndexesForColumns(
                 String tenantId, String c, String s, String t, List<String> cols, boolean includeStale) { return List.of(); }
         @Override public void dropIndex(String id, Instant t) {}
+        @Override public boolean retireDroppedIndexMappings(String id, Instant expectedUpdatedAt,
+                int expectedGeneration) {
+            var descriptor = descriptors.get(id);
+            if (descriptor == null || !descriptor.updatedAt().equals(expectedUpdatedAt)
+                    || descriptor.state() != IndexState.DROPPED || descriptor.generation() != expectedGeneration) {
+                return false;
+            }
+            var mappings = staleMappings.stream().filter(item -> item.indexId().equals(id)).toList();
+            return removeOrphanMappings(id, IndexState.DROPPED, expectedGeneration, mappings)
+                    .mappingsRemoved() == mappings.size();
+        }
         @Override public void purgeIndex(String id) { purgedIndexes.add(id); descriptors.remove(id); }
         @Override public void batchRegisterIndexFiles(String owner, List<IndexFileMapping> m) {}
         @Override public Set<String> getIndexedDataFilePaths(String id, int generation) {
@@ -404,17 +444,34 @@ class IndexGcGenerationFencingTest {
                 return new OrphanRemoval(0, java.util.Set.of());
             }
             int removed = 0;
-            var paths = new java.util.HashSet<String>();
+            var removedRows = new LinkedHashMap<String, IndexFileMapping>();
             for (var mapping : mappings) {
                 if (staleMappings.remove(mapping)) {
                     removedMappings.add(mapping.indexId() + ":" + mapping.dataFilePath());
-                    paths.add(mapping.indexFilePath());
+                    removedRows.put(mapping.indexFilePath(), mapping);
                     removed++;
                 }
             }
-            staleMappings.stream().filter(mapping -> indexId.equals(mapping.indexId()))
-                    .map(IndexFileMapping::indexFilePath).forEach(paths::remove);
-            return new OrphanRemoval(removed, paths);
+            staleMappings.stream().map(IndexFileMapping::indexFilePath).forEach(removedRows::remove);
+            for (var mapping : removedRows.values()) {
+                UUID id = UUID.randomUUID();
+                pendingRetirements.put(id, new MappedArtifactRetirement(id, indexId, desc.tenantId(),
+                        desc.catalogName(), desc.schemaName(), desc.tableName(), mapping.dataFilePath(),
+                        mapping.indexFilePath(), mapping.generation()));
+            }
+            return new OrphanRemoval(removed, removedRows.keySet());
+        }
+        @Override public List<MappedArtifactRetirement> pollMappedArtifactRetirements(int limit) {
+            return pendingRetirements.values().stream().limit(limit).toList();
+        }
+        @Override public boolean beginMappedArtifactReclaim(MappedArtifactRetirement retirement) {
+            return retirement.equals(pendingRetirements.get(retirement.retirementId()));
+        }
+        @Override public void completeMappedArtifactReclaim(MappedArtifactRetirement retirement) {
+            pendingRetirements.remove(retirement.retirementId());
+        }
+        @Override public boolean hasPendingMappedArtifactRetirements(String indexId) {
+            return pendingRetirements.values().stream().anyMatch(item -> item.indexId().equals(indexId));
         }
         @Override public List<String> filterUnindexedFiles(String id, List<String> paths) { return List.of(); }
         @Override public void markOrphanedByDataFiles(String id, List<String> paths) {}
@@ -434,6 +491,13 @@ class IndexGcGenerationFencingTest {
         @Override public List<IndexDescriptor> findIndexesByState(IndexState state) {
             return descriptors.values().stream().filter(d -> d.state() == state).toList();
         }
+        @Override
+        public MaintenancePage loadMaintenancePage(IndexState state, Instant cutoff, int limit) {
+            List<IndexDescriptor> candidates = findIndexesByState(state).stream()
+                    .filter(d -> d.updatedAt().isBefore(cutoff)).limit(limit).toList();
+            return new MaintenancePage(state, 0, null, candidates, true);
+        }
+        @Override public boolean completeMaintenancePage(MaintenancePage page) { return true; }
         @Override public void updateLastIndexedSnapshotId(String id, String snap) {}
         @Override public Map<String, IndexDescriptor> findIndexesByIds(List<String> indexIds) {
             Map<String, IndexDescriptor> result = new HashMap<>();

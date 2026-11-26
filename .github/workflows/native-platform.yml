@@ -17,7 +17,7 @@ jobs:
   # to the existing Native test matrix. A cold cache must not consume the
   # same job's compile/test budget.
   macos-native-core:
-    name: macOS Native prerequisites (${{ fromJSON(inputs.platform).name }})
+    name: macOS Native prerequisites
     runs-on: ${{ fromJSON(inputs.platform).runner }}
     if: fromJSON(inputs.platform).os == 'osx'
     steps:
@@ -65,7 +65,7 @@ jobs:
           retention-days: 1
 
   macos-native-sdk:
-    name: macOS Native SDK (${{ fromJSON(inputs.platform).name }})
+    name: macOS Native SDK
     runs-on: ${{ fromJSON(inputs.platform).runner }}
     needs: macos-native-core
     if: fromJSON(inputs.platform).os == 'osx'
@@ -121,7 +121,7 @@ jobs:
           retention-days: 1
 
   native-build:
-    name: Native Build (${{ fromJSON(inputs.platform).name }})
+    name: Build and test
     runs-on: ${{ fromJSON(inputs.platform).runner }}
     needs: macos-native-sdk
     if: >-

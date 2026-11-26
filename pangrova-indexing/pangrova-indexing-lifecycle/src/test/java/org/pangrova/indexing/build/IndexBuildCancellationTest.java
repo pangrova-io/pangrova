@@ -5,6 +5,8 @@ import org.pangrova.persistence.indexing.api.build.IndexBuildClaimRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.RepeatedTest;
 import org.pangrova.connector.api.index.SnapshotPinProvider;
+import org.pangrova.connector.api.index.SnapshotPinOwner;
+import org.pangrova.connector.api.index.SnapshotPinReference;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.indexing.api.enums.IndexType;
 import org.pangrova.indexing.api.enums.IndexState;
@@ -65,15 +67,28 @@ class IndexBuildCancellationTest {
 
     @Test
     void cancelledPausedRequestsNeverPinAndDoNotCancelLaterSubmissions() throws Exception {
-        try (var harness = new Harness()) {
+        var provider = new SnapshotPinProvider() {
+            @Override public void pinSnapshot(String catalog, String schema, String table, String snapshot,
+                    SnapshotPinOwner owner) { throw new AssertionError("paused builds must not pin"); }
+            @Override public void unpinSnapshot(String catalog, String schema, String table, String snapshot,
+                    SnapshotPinOwner owner) {}
+            @Override public void validateSnapshotPin(String catalog, String schema, String table, String snapshot,
+                    SnapshotPinOwner owner) {}
+            @Override public List<String> getPinnedSnapshots(String catalog, String schema, String table) {
+                return List.of();
+            }
+            @Override public List<SnapshotPinReference> getSnapshotPinsForIndex(
+                    String catalog, String schema, String table, String indexId) { return List.of(); }
+        };
+        var config = new IndexingConfig("test-index", false, null, null);
+        try (var harness = new Harness(config, provider)) {
             harness.builder.pauseBuilds();
             var cancelled = harness.builder.submitBuildTask(descriptor("42"), List.of(), null, null);
             harness.builder.cancelBuild("index-1");
             assertThat(cancelled.get(5, TimeUnit.SECONDS).outcome()).isEqualTo(IndexBuildOutcome.CANCELLED);
-            var replacement = harness.builder.submitBuildTask(descriptor(""), List.of(), null, null);
             harness.builder.resumePendingBuilds();
+            var replacement = harness.builder.submitBuildTask(descriptor(""), List.of(), null, null);
             assertThat(replacement.get(5, TimeUnit.SECONDS).isFullySuccessful()).isTrue();
-            assertThat(harness.pin.calls.get()).isZero();
         }
     }
 
@@ -180,15 +195,61 @@ class IndexBuildCancellationTest {
         @Override
         public boolean heartbeat(String index, int generation, String owner, Instant now) { return true; }
 
-        @Override
-        public int expireBefore(Instant cutoff) { throw new AssertionError("Unexpected expiry"); }
+    }
+
+    @Test
+    void perTenantCapacityQueuesWithoutBlockingAnotherTenant() throws Exception {
+        var entered = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var provider = new SnapshotPinProvider() {
+            @Override public void pinSnapshot(String catalog, String schema, String table, String snapshot,
+                    SnapshotPinOwner owner) {
+                if (snapshot.isEmpty()) return;
+                entered.countDown();
+                try {
+                    if (!release.await(15, TimeUnit.SECONDS)) throw new AssertionError("pin barrier timed out");
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new AssertionError(interrupted);
+                }
+            }
+            @Override public void unpinSnapshot(String catalog, String schema, String table, String snapshot,
+                    SnapshotPinOwner owner) {}
+            @Override public void validateSnapshotPin(String catalog, String schema, String table, String snapshot,
+                    SnapshotPinOwner owner) {}
+            @Override public List<String> getPinnedSnapshots(String catalog, String schema, String table) {
+                return List.of();
+            }
+            @Override public List<SnapshotPinReference> getSnapshotPinsForIndex(
+                    String catalog, String schema, String table, String indexId) { return List.of(); }
+        };
+        var config = new IndexingConfig("test-index", false,
+                new org.pangrova.indexing.config.RuntimeConfig(
+                        new org.pangrova.indexing.config.BuildConfig(2, 2, 500, 1), null, null),
+                null);
+        try (var harness = new Harness(config, provider)) {
+            var first = harness.builder.submitBuildTask(descriptor("42", "tenant-a"), List.of(), null, null);
+            assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+            var queued = harness.builder.submitBuildTask(descriptor("42", "tenant-a"), List.of(), null, null);
+            var otherTenant = harness.builder.submitBuildTask(descriptor("", "tenant-b"), List.of(), null, null);
+            assertThat(otherTenant.get(5, TimeUnit.SECONDS).isFullySuccessful()).isTrue();
+            assertThat(queued.isDone()).isFalse();
+            release.countDown();
+            CompletableFuture.allOf(first, queued).get(5, TimeUnit.SECONDS);
+            assertThat(first.join().isFullySuccessful()).isTrue();
+            assertThat(queued.join().isFullySuccessful()).isTrue();
+        }
     }
 
     private static IndexDescriptor descriptor(String snapshot) {
+        return descriptor(snapshot, "tenant-a");
+    }
+
+    private static IndexDescriptor descriptor(String snapshot, String tenant) {
         Instant now = Instant.now();
         return new IndexDescriptor("index-1", "idx", "cat", "sch", "tbl", List.of("col"),
                 IndexType.BLOOM_FILTER, Map.of(), IndexState.BUILDING, null, 0,
-                snapshot, snapshot, now, now, "tenant-a");
+                snapshot, snapshot, now, now, tenant);
     }
 
     private static final class Harness implements AutoCloseable {
@@ -201,13 +262,25 @@ class IndexBuildCancellationTest {
         private final IndexBuildCoordinator builder;
 
         private Harness() {
-            this(null);
+            this((IndexBuildClaimRepository) null);
         }
 
         private Harness(IndexBuildClaimRepository claims) {
+            this(null, claims, null);
+        }
+
+        private Harness(IndexingConfig config) {
+            this(config, null);
+        }
+
+        private Harness(IndexingConfig config, SnapshotPinProvider provider) {
+            this(config, null, provider);
+        }
+
+        private Harness(IndexingConfig config, IndexBuildClaimRepository claims, SnapshotPinProvider provider) {
             builder = new IndexBuildCoordinator(new IndexBuildContext(
-                    new IndexingConfig("test-index", false, null, null),
-                    null, null, null, claims, null, pin, executor), null);
+                    config == null ? new IndexingConfig("test-index", false, null, null) : config,
+                    null, null, null, claims, null, provider == null ? pin : provider, executor), null);
         }
 
         @Override
@@ -236,7 +309,8 @@ class IndexBuildCancellationTest {
         }
 
         @Override
-        public void pinSnapshot(String catalog, String schema, String table, long snapshot, String indexId) {
+        public void pinSnapshot(String catalog, String schema, String table, String snapshot,
+                                SnapshotPinOwner owner) {
             calls.incrementAndGet();
             entered.countDown();
             try {
@@ -250,10 +324,21 @@ class IndexBuildCancellationTest {
         }
 
         @Override
-        public void unpinSnapshot(String catalog, String schema, String table, long snapshot, String indexId) {}
+        public void unpinSnapshot(String catalog, String schema, String table, String snapshot,
+                                  SnapshotPinOwner owner) {}
 
         @Override
-        public List<Long> getPinnedSnapshots(String catalog, String schema, String table) {
+        public void validateSnapshotPin(String catalog, String schema, String table, String snapshot,
+                                        SnapshotPinOwner owner) {}
+
+        @Override
+        public List<String> getPinnedSnapshots(String catalog, String schema, String table) {
+            return List.of();
+        }
+
+        @Override
+        public List<SnapshotPinReference> getSnapshotPinsForIndex(
+                String catalog, String schema, String table, String indexId) {
             return List.of();
         }
     }

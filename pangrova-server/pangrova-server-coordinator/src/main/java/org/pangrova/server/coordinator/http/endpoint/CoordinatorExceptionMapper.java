@@ -11,7 +11,7 @@ import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.exception.UnregisteredWorkerException;
 import org.pangrova.scheduler.api.exception.NoAvailableWorkerException;
 import org.pangrova.common.client.error.ErrorDetail;
-import org.pangrova.server.coordinator.exception.RecordedSubmissionException;
+import org.pangrova.query.api.exception.IdempotencyConflictException;
 import org.pangrova.security.api.exception.AccessDeniedException;
 import org.pangrova.security.api.exception.AuthenticationRequiredException;
 import org.pangrova.security.exception.TenantQuotaExceededException;
@@ -56,12 +56,6 @@ public final class CoordinatorExceptionMapper implements ExceptionMapper<Excepti
 
     @Override
     public Response toResponse(Exception exception) {
-        if (exception instanceof RecordedSubmissionException recorded) {
-            try (Response failure = toResponse(recorded.failure())) {
-                return Response.fromResponse(failure)
-                        .header("X-Pangrova-Query-Id", recorded.queryId()).build();
-            }
-        }
         int status = resolveHttpStatus(exception);
         String errorCode = resolveErrorCode(exception, status);
         String errorType = resolveErrorType(status);
@@ -96,6 +90,7 @@ public final class CoordinatorExceptionMapper implements ExceptionMapper<Excepti
                     AccessDeniedException.class, HTTP_STATUS_FORBIDDEN,
                     jakarta.ws.rs.ForbiddenException.class, HTTP_STATUS_FORBIDDEN,
                     UnregisteredWorkerException.class, HTTP_STATUS_CONFLICT,
+                    IdempotencyConflictException.class, HTTP_STATUS_CONFLICT,
                     NoAvailableWorkerException.class, HTTP_STATUS_SERVICE_UNAVAILABLE
             );
 

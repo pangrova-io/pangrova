@@ -56,6 +56,8 @@ class StateEnumUniquenessPropertyTest {
             "pangrova-streaming-api:CdcCommitState",  // CDC two-phase commit coordinator (Req 10.6)
             "pangrova-operations:JfrState",  // JFR profiling lifecycle
             "pangrova-indexing-lifecycle:IndexFileReadStatus",  // index file read result status
+            "pangrova-persistence-indexing-api:IndexSchemaEvolutionState",
+            "pangrova-persistence-generation-api:SnapshotPinState",
             "pangrova-persistence-query-api:WriteCommitState",  // distributed write commit lifecycle
             // Unified materialization kernel lifecycle enums.
             "pangrova-materialization-api:GcState",

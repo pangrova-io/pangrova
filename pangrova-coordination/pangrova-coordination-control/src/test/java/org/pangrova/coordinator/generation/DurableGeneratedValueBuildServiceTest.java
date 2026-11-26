@@ -376,7 +376,7 @@ class DurableGeneratedValueBuildServiceTest extends org.pangrova.testing.testkit
 
     private org.pangrova.security.api.authorization.DeferredAuthorizationScope authorizationScope() {
         return GeneratedAuthorityTestFixtures.scope(dataSource, TABLE,
-                catalogHandle.getMetadata(session()).getTableMetadata(session(), new SnapshotTableHandle(-1)), definitions());
+                catalogHandle.getMetadata(session()).getTableMetadata(session(), new SnapshotTableHandle("")), definitions());
     }
 
     private static void bindCompiler(DurableGeneratedValueBuildService service) {

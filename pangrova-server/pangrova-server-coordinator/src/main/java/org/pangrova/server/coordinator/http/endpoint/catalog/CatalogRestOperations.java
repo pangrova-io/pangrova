@@ -12,6 +12,10 @@ import org.pangrova.server.coordinator.http.endpoint.catalog.CatalogRestResponse
 import org.pangrova.server.coordinator.http.endpoint.catalog.CatalogRestResponse.TableIdentifier;
 import org.pangrova.server.coordinator.http.endpoint.catalog.CatalogRestResponse.TableMetadataPayload;
 import org.pangrova.server.coordinator.http.endpoint.catalog.CatalogRestResponse.UpdatePropertiesResponse;
+import org.pangrova.common.enums.PangrovaErrorCode;
+import org.pangrova.metadata.api.exception.CatalogNotFoundException;
+import org.pangrova.metadata.api.exception.MetadataException;
+import org.pangrova.metadata.api.exception.TableNotFoundException;
 import org.pangrova.metadata.api.object.ColumnMetadata;
 import org.pangrova.metadata.api.object.ColumnType;
 import org.pangrova.metadata.api.object.QualifiedTableRef;
@@ -210,10 +214,14 @@ public final class CatalogRestOperations {
             return true;
         } catch (org.pangrova.security.api.exception.AccessDeniedException denied) {
             throw denied;
-        } catch (RuntimeException e) {
-            LOG.debug("event=drop_table_not_found namespace={} table={} error={}",
-                    namespace, table, e.getMessage());
+        } catch (TableNotFoundException | CatalogNotFoundException absent) {
+            LOG.debug("event=drop_table_not_found namespace={} table={}", namespace, table);
             return false;
+        } catch (RuntimeException failure) {
+            // Do not turn connector, control-store, or other uncertain outcomes
+            // into a successful absence response through the HTTP mapper.
+            throw new MetadataException(PangrovaErrorCode.METADATA_METASTORE_ERROR,
+                    "DROP TABLE could not be confirmed", failure);
         }
     }
 
