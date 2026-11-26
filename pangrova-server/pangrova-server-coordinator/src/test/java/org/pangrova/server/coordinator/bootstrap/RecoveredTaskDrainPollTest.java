@@ -52,6 +52,33 @@ class RecoveredTaskDrainPollTest {
         }
     }
 
+    @Test
+    void failedAttemptDoesNotDiscardOtherReceiptsOrPreventLaterPages() {
+        var journal = new RecordingJournal();
+        var claim = new ExecutionAnchor("execution", "successor", "incarnation", 2, Instant.EPOCH,
+                Instant.EPOCH.plusSeconds(60));
+        var scheduler = Executors.newSingleThreadScheduledExecutor();
+        var executor = Executors.newSingleThreadExecutor();
+        var receipt = TaskReport.newBuilder()
+                .setExecutionDrainState(ExecutionDrainState.EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED).build();
+        try (var poll = new RecoveredTaskDrainPoll(journal, event -> {
+            if (event.taskId().equals("1")) throw new IllegalStateException("control request unavailable");
+            if (event.taskId().equals("2")) return CompletableFuture.failedFuture(
+                    new IllegalStateException("control response unavailable"));
+            return CompletableFuture.completedFuture(SchedulerCancelResult.drained(receipt));
+        }, executor, 25)) {
+            poll.start(scheduler);
+            poll.track(List.of(claim));
+            await().atMost(Duration.ofSeconds(3)).untilAsserted(() ->
+                    assertThat(journal.retained).hasSize(RecoveredTaskDrainJournal.PAGE_SIZE - 1));
+            assertThat(journal.retained).doesNotContain(1L, 2L)
+                    .contains((long) RecoveredTaskDrainJournal.PAGE_SIZE + 1);
+        } finally {
+            executor.shutdownNow();
+            scheduler.shutdownNow();
+        }
+    }
+
     private static final class RecordingJournal implements RecoveredTaskDrainJournal {
         private final Set<Long> retained = ConcurrentHashMap.newKeySet();
         private final ConcurrentLinkedQueue<Long> cursors = new ConcurrentLinkedQueue<>();

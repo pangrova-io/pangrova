@@ -124,7 +124,7 @@ final class RecoveredTaskDrainPoll implements AutoCloseable {
 
     private Scan reconcile(Scan current) {
         var page = journal.pendingTaskDrains(current.claim(), current.afterRowId());
-        var replies = page.stream().map(attempt -> seal.apply(attempt.event())).toList();
+        var replies = page.stream().map(attempt -> requestDrain(attempt.event())).toList();
         CompletableFuture.allOf(replies.toArray(CompletableFuture<?>[]::new)).join();
         List<DrainReceipt> receipts = new ArrayList<>(replies.size());
         for (int index = 0; index < replies.size(); index++) {
@@ -143,6 +143,20 @@ final class RecoveredTaskDrainPoll implements AutoCloseable {
             return new Scan(current.claim(), page.get(page.size() - 1).rowId(), unresolved, System.nanoTime());
         }
         return unresolved ? new Scan(current.claim(), 0, false, System.nanoTime() + retryNanos) : null;
+    }
+
+    /** One unavailable attempt must not discard the receipts or callback lifetime of its peers. */
+    private CompletableFuture<SchedulerCancelResult> requestDrain(TaskStateEvent event) {
+        try {
+            return seal.apply(event).handle((result, failure) -> {
+                if (failure != null) {
+                    return SchedulerCancelResult.failed(failure.toString(), true);
+                }
+                return result != null ? result : SchedulerCancelResult.failed("Missing drain result", true);
+            });
+        } catch (RuntimeException failure) {
+            return CompletableFuture.completedFuture(SchedulerCancelResult.failed(failure.toString(), true));
+        }
     }
 
     private synchronized void complete(Scan next) {
