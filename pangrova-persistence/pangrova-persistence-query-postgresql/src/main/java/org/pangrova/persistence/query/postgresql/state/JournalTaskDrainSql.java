@@ -27,8 +27,17 @@ final class JournalTaskDrainSql {
             WHERE query_fact.hit IS NOT NULL OR task_fact.hit IS NOT NULL
             """;
     private static final String CLAIM = """
-            SELECT execution_id, owner_id, fencing_token, expires_at FROM execution_anchor
+            SELECT execution_id, owner_id, fencing_token, expires_at, coordinator_work_token FROM execution_anchor
             WHERE execution_id = ? AND owner_id = ? AND owner_incarnation = ? AND fencing_token = ?
+            """;
+    private static final String RESERVE_COORDINATOR_STATEMENT = """
+            WITH locked AS MATERIALIZED (
+            """ + CLAIM + """
+                AND recovery_drain_state = 0 FOR UPDATE
+            )
+            UPDATE execution_anchor a SET coordinator_work_token = l.fencing_token
+            FROM locked l WHERE a.execution_id = l.execution_id AND l.coordinator_work_token IS NULL
+                   AND l.expires_at > clock_timestamp()
             """;
     private static final String PENDING = """
             WITH claim AS MATERIALIZED (
@@ -55,9 +64,15 @@ final class JournalTaskDrainSql {
                                  WHERE a.recovery_drain_state = 2) THEN 'CONFIRMED'
                     WHEN NOT EXISTS (SELECT 1 FROM query_state_journal q JOIN claim c ON q.query_id = c.execution_id)
                         THEN 'NO_SQL_EVIDENCE'
-                    WHEN NOT EXISTS (SELECT 1 FROM task_state_journal t JOIN claim c ON t.query_id = c.execution_id
-                                     WHERE t.admission_seal IS NOT NULL)
-                         OR EXISTS (
+                    WHEN EXISTS (SELECT 1 FROM claim WHERE coordinator_work_token IS NOT NULL)
+                        THEN 'PENDING_COORDINATOR_STATEMENT'
+                    WHEN (NOT EXISTS (
+                              SELECT 1 FROM task_state_journal t JOIN claim c ON t.query_id = c.execution_id
+                              WHERE t.admission_seal IS NOT NULL
+                          ) AND NOT EXISTS (
+                              SELECT 1 FROM query_state_journal q JOIN claim c ON q.query_id = c.execution_id
+                              WHERE q.state = 'QUEUED'
+                          )) OR EXISTS (
                              SELECT 1 FROM task_state_journal t JOIN claim c ON t.query_id = c.execution_id
                              WHERE t.owner_fencing_token >= c.fencing_token
                                 OR (t.admission_seal IS NULL AND NOT EXISTS (
@@ -130,6 +145,13 @@ final class JournalTaskDrainSql {
             """;
 
     private JournalTaskDrainSql() { }
+
+    static boolean reserveCoordinatorStatement(Connection connection, ExecutionAnchor grant) throws SQLException {
+        try (var statement = connection.prepareStatement(RESERVE_COORDINATOR_STATEMENT)) {
+            bindClaim(statement, grant);
+            return statement.executeUpdate() == 1;
+        }
+    }
 
     static Set<String> observed(Connection connection, Set<String> claims) throws SQLException {
         var observed = new HashSet<String>();

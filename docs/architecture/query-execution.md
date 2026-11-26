@@ -150,15 +150,25 @@ deadline cutoff under the same lock. A late delivery of that request remains
 ineligible after a wall-clock rollback. An expired attempt with a registered
 owner still requires actual drain evidence.
 
+Before starting a Coordinator-owned statement, the statement dispatcher
+reserves its exact execution grant in PostgreSQL. The update locks the
+execution anchor and samples expiry after acquiring the lock. Takeover
+preserves this reservation. It covers local Flight publication and control
+work that may have catalog effects. Ordinary relational statements and Native
+DML continue through fenced Worker issuance and the write journal without a
+Coordinator statement reservation.
+
 After the last receipt page, PostgreSQL locks the exact successor grant and
-checks that the SQL execution has a matching issuance and exit receipt for
-each observed attempt. In the same transaction it closes issuance and records
-a predecessor terminal event if none was durable. A durably committed catalog
-write ends as `FINISHED`. A drained read or unpublished write ends as `FAILED`.
-Unresolved write intents, missing issuances, and executions without a
-distributed SQL journal stay outside this retirement path. A committed write
-row remains available while the SQL execution is active, even after deferred
-work acknowledges it.
+checks for a matching issuance and exit receipt for each observed attempt.
+An admitted query with no Worker issuances, no unmatched reports and no
+Coordinator statement reservation can also be retired. A late predecessor
+cannot acquire either issuance boundary after takeover. The transaction
+closes issuance and records a terminal event if one is still needed. A
+durably committed catalog write ends as `FINISHED`. A drained read or
+unpublished write ends as `FAILED`. An existing Coordinator statement
+reservation requires separate exit proof. The successor keeps the anchor
+and tenant slot in this case. A committed write row remains available while
+the SQL execution is active, even after deferred work acknowledges it.
 
 Terminal Worker reports and query outcome inserts use the original execution grant in
 the same statement that records the event. Journal retirement also checks that

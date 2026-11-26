@@ -10,6 +10,9 @@ import java.util.Map;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.function.Predicate;
+
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
 
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
@@ -37,10 +40,18 @@ public final class StatementDispatcher {
     private final CoordinatorResultService resultService;
     private final AccessControl accessControl;
     private final DdlLeadershipGuard ddlGuard;
+    private final Predicate<ExecutionAnchor> reserveCoordinatorStatement;
 
     /** Creates a statement dispatcher from its execution dependencies. */
     public StatementDispatcher(StatementDispatcherContext deps) {
+        this(deps, null);
+    }
+
+    /** Installs the exact durable work boundary when the Coordinator has a shared journal. */
+    public StatementDispatcher(StatementDispatcherContext deps,
+            Predicate<ExecutionAnchor> reserveCoordinatorStatement) {
         this.resultService = deps.resultService();
+        this.reserveCoordinatorStatement = reserveCoordinatorStatement;
         this.accessControl = deps.accessControl();
         this.ddlGuard = deps.ddlGuard();
         this.registry = new ConcurrentHashMap<>();
@@ -70,10 +81,14 @@ public final class StatementDispatcher {
         }
         checkPermission(ast, session);
         var context = new StatementExecutionContext(sm, queryId, session);
-        return startUnchecked(factory, ast, context).thenApply(result -> complete(ast, context, result));
+        return startUnchecked(factory, ast, context);
     }
 
-    private DispatchResult complete(Statement statement, StatementExecutionContext context, StatementResult result) {
+    private DispatchResult complete(Statement statement, StatementExecutionContext context, StatementResult result,
+            boolean coordinatorOwned) {
+        if (!coordinatorOwned && (!result.rows().isEmpty() || !result.columnNames().isEmpty())) {
+            throw new IllegalStateException("Native statement route cannot publish a Coordinator result");
+        }
         var trace = context.session().traceContext();
         var previousLogContext = LogContext.snapshot();
         try (var scope = trace.makeCurrent()) {
@@ -140,9 +155,19 @@ public final class StatementDispatcher {
     }
 
     @SuppressWarnings("unchecked")
-    private <T extends Statement> CompletionStage<StatementResult> startUnchecked(
+    private <T extends Statement> CompletionStage<DispatchResult> startUnchecked(
             StatementExecutionFactory<T> factory, Statement stmt, StatementExecutionContext context) {
-        return factory.start((T) stmt, context);
+        T statement = (T) stmt;
+        boolean coordinatorOwned = factory.usesCoordinatorStatementAuthority(statement);
+        if (reserveCoordinatorStatement != null && coordinatorOwned) {
+            var anchor = context.stateMachine().journalGrant();
+            if (anchor == null || !reserveCoordinatorStatement.test(anchor)) {
+                throw new PangrovaException(PangrovaErrorCode.COORDINATOR_DISPATCH_FAILED,
+                        "Coordinator statement grant no longer permits execution: " + context.queryId());
+            }
+        }
+        return factory.start(statement, context)
+                .thenApply(result -> complete(statement, context, result, coordinatorOwned));
     }
 
     private void fireCompletionEvent(

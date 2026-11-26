@@ -80,6 +80,8 @@ class RoleBasedDeploymentTest {
         var terminal = "failed-before-drain";
         var taskOnly = "task-without-query-projection";
         var empty = "before-admission";
+        var beforeDispatch = "admitted-before-dispatch";
+        var coordinatorStatement = "admitted-local-statement";
         var priorContext = JournalEventContext.create(System.currentTimeMillis(), "prior-coordinator");
         var journalConfig = new StateJournalConfig("JDBC", jdbc.jdbcUrl(), 20, 20, 24, 1024);
         try (var journal = new JdbcQueryStateJournal(source, journalConfig)) {
@@ -88,6 +90,22 @@ class RoleBasedDeploymentTest {
                     "unresolved-task", "prior-worker", "RUNNING", 0, 1));
         }
         var anchors = new JdbcExecutionAnchorStore(source);
+        var lease = Duration.ofMinutes(1);
+        var planningGrant = anchors.tryAcquireLimitedQuery(beforeDispatch, "prior", "prior-incarnation", lease,
+                "planned-tenant", 1).orElseThrow().anchor();
+        var controlGrant = anchors.tryAcquireLimitedQuery(coordinatorStatement, "prior", "prior-incarnation", lease,
+                "control-tenant", 1).orElseThrow().anchor();
+        try (var journal = new JdbcQueryStateJournal(source, journalConfig)) {
+            for (var grant : java.util.List.of(planningGrant, controlGrant)) {
+                var admitted = JournalEventContext.create(System.currentTimeMillis(), grant.ownerId());
+                journal.appendFencedAdmissionSync(new QueryStateEvent(admitted, grant.executionId(), "SELECT 1",
+                        "{}", "QUEUED"), grant);
+            }
+            assertThat(journal.reserveCoordinatorStatement(controlGrant)).isTrue();
+        }
+        assertThat(anchors.yield(planningGrant)).isTrue();
+        assertThat(anchors.yield(controlGrant)).isTrue();
+
         var terminalClaim = expireAnchor(anchors, terminal);
         var taskClaim = expireAnchor(anchors, taskOnly);
         var beforeAdmission = anchors.tryAcquireLimitedQuery(empty, "prior", "prior-incarnation",
@@ -105,15 +123,27 @@ class RoleBasedDeploymentTest {
             assertThat(anchor.ownerId()).isEqualTo("recovery-successor");
             assertThat(anchor.fencingToken()).isGreaterThan(taskClaim);
         });
+        org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(10)).until(
+                () -> anchors.current(beforeDispatch).isEmpty());
+        assertThat(anchors.current(coordinatorStatement)).hasValueSatisfying(anchor ->
+                assertThat(anchor.ownerId()).isEqualTo("recovery-successor"));
+        assertRetainedSlots(source, empty, "limited-tenant", 0);
+        assertRetainedSlots(source, beforeDispatch, "planned-tenant", 0);
+        assertRetainedSlots(source, coordinatorStatement, "control-tenant", 1);
+    }
+
+    private static void assertRetainedSlots(PGSimpleDataSource source, String execution, String tenant, int expected)
+            throws Exception {
         try (var connection = source.getConnection(); var statement = connection.prepareStatement("""
-                SELECT active_count, NOT EXISTS (SELECT 1 FROM execution_anchor WHERE execution_id = ?)
-                FROM tenant_concurrency_slots WHERE tenant_id = 'limited-tenant'
+                SELECT active_count, EXISTS (SELECT 1 FROM execution_anchor WHERE execution_id = ?)
+                FROM tenant_concurrency_slots WHERE tenant_id = ?
                 """)) {
-            statement.setString(1, empty);
+            statement.setString(1, execution);
+            statement.setString(2, tenant);
             try (var rows = statement.executeQuery()) {
                 assertThat(rows.next()).isTrue();
-                assertThat(rows.getInt(1)).isZero();
-                assertThat(rows.getBoolean(2)).isTrue();
+                assertThat(rows.getInt(1)).isEqualTo(expected);
+                assertThat(rows.getBoolean(2)).isEqualTo(expected > 0);
             }
         }
     }

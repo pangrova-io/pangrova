@@ -327,7 +327,8 @@ final class QueryExecutionBootstrap {
         var context = new org.pangrova.coordinator.query.execution.dispatch.StatementDispatcherContext(
                 resultSvc,
                 List.copyOf(factories), List.of(schemaListener), accessControl, ddlGuard);
-        return new org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher(context);
+        return new org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher(context,
+                metadataDataSource == null ? null : deps.stateJournal()::reserveCoordinatorStatement);
     }
 
     /** Registers metadata tasks whose wiring depends on optional modules. */

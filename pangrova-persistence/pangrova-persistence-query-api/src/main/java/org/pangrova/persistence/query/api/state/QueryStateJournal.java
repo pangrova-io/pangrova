@@ -25,6 +25,11 @@ public interface QueryStateJournal extends QueryStateJournalReader, AutoCloseabl
     void appendQueryEvent(QueryStateEvent event);
     /** Commits the exact frozen query event or reports an unestablished outcome for retry. */
     void appendQueryEventSync(QueryStateEvent event);
+    /** Fences the start of Coordinator-owned statement work before its first side effect. */
+    default boolean reserveCoordinatorStatement(ExecutionAnchor anchor) {
+        throw new UnsupportedOperationException("The journal does not support durable Coordinator statement authority");
+    }
+
     /** Commits the terminal fact under the exact originally admitted execution grant. */
     void appendOwnedTerminalSync(QueryStateEvent event, ExecutionAnchor anchor);
 

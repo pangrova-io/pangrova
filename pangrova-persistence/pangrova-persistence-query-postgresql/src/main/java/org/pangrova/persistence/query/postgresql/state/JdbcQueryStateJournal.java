@@ -81,6 +81,16 @@ public final class JdbcQueryStateJournal implements QueryStateJournal, Recovered
     @Override public void appendQueryEvent(QueryStateEvent event) {
         pending.admit(new JournalPendingWrites.Write(pending, event), false);
     }
+    @Override public boolean reserveCoordinatorStatement(ExecutionAnchor anchor) {
+        Objects.requireNonNull(anchor, "anchor");
+        try {
+            return pending.enterSql().perform(dataSource,
+                    connection -> JournalTaskDrainSql.reserveCoordinatorStatement(connection, anchor));
+        } catch (SQLException failure) {
+            throw JournalPendingWrites.failure("Failed to fence Coordinator statement execution", failure);
+        }
+    }
+
     @Override public void appendOwnedTerminalSync(QueryStateEvent event, ExecutionAnchor anchor) {
         QueryStateJournal.requireOwnedTerminal(event, anchor);
         var owner = pending.admit(new JournalPendingWrites.Write(pending, event, anchor), true);

@@ -364,6 +364,36 @@ class JdbcQueryStateJournalIntegrationTest {
     }
 
     @Test
+    void coordinatorStatementAndPreDispatchRecoveryShareTheExactGrantBoundary() {
+        var store = new JdbcExecutionAnchorStore(dataSource);
+        var lease = Duration.ofMinutes(1);
+        var planning = store.tryAcquire("queued-only", "owner", "original-boot", lease).orElseThrow();
+        var local = store.tryAcquire("local-statement", "owner", "original-boot", lease).orElseThrow();
+        var requests = List.of(planning, local);
+        for (var grant : requests) {
+            var context = JournalEventContext.create(System.currentTimeMillis(), grant.ownerId());
+            journal.appendFencedAdmissionSync(
+                    new QueryStateEvent(context, grant.executionId(), "SELECT 1", "{}", "QUEUED"), grant);
+        }
+        assertTrue(journal.reserveCoordinatorStatement(local));
+        assertFalse(journal.reserveCoordinatorStatement(local));
+
+        assertTrue(store.yield(planning));
+        assertTrue(store.yield(local));
+        var planningClaim = store.tryAcquire(planning.executionId(), "successor", "next-boot", lease).orElseThrow();
+        var localClaim = store.tryAcquire(local.executionId(), "successor", "next-boot", lease).orElseThrow();
+        assertFalse(journal.reserveCoordinatorStatement(planning));
+        assertFalse(journal.reserveCoordinatorStatement(planningClaim));
+        assertEquals(DrainOutcome.PENDING_COORDINATOR_STATEMENT, journal.confirmRecoveredTaskDrains(localClaim));
+        assertFalse(store.releaseDrainedQuery(localClaim, false));
+        assertEquals(DrainOutcome.CONFIRMED, journal.confirmRecoveredTaskDrains(planningClaim));
+        var outcome = journal.latestQueryEvent(planning.executionId()).orElseThrow();
+        assertThat(outcome.state()).isEqualTo("FAILED");
+        assertThat(outcome.terminalOutcome().error().errorCode()).isEqualTo("QUERY_OWNER_LOST");
+        assertTrue(store.releaseDrainedQuery(planningClaim, false));
+    }
+
+    @Test
     void workerAndQueryFactsStayFencedThroughTakeoverAndPhysicalRetirement() throws Exception {
         var store = new JdbcExecutionAnchorStore(dataSource);
         var lease = Duration.ofMinutes(1);

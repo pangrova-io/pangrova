@@ -145,6 +145,7 @@ class QueryPeerRoutingIntegrationTest extends ContainerTestBase {
             String alice, String bob) throws Exception {
         enableCounters(owner);
         long fencedWrites = fencedAcceptanceWrites(owner);
+        long statementStarts = fencedStatementStarts(owner);
         SubmitQueryResponse receipt;
         try (var barrier = lockPublication(owner)) {
             receipt = submit(http, owner.getHttpPort(), "peer-observe", alice);
@@ -173,6 +174,7 @@ class QueryPeerRoutingIntegrationTest extends ContainerTestBase {
 
         org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(5)).until(
                 () -> owner.getQueryManager().getStateMachine(receipt.queryId()).status().drained());
+        assertThat(fencedStatementStarts(owner) - statementStarts).isEqualTo(1);
         var registry = new JdbcCoordinatorRegistry(owner.metadataDataSource());
         var registered = registry.getCoordinator(receipt.ownerEndpoint().coordinatorId()).orElseThrow();
         assertThat(registered.httpPort()).isEqualTo(owner.getHttpPort()).isEqualTo(receipt.ownerEndpoint().port());
@@ -289,6 +291,19 @@ class QueryPeerRoutingIntegrationTest extends ContainerTestBase {
                      SELECT COALESCE(SUM(calls), 0) FROM public.pg_stat_statements
                      WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
                        AND query LIKE 'WITH locked AS MATERIALIZED (%INSERT INTO query_state_journal%'
+                     """)) {
+            assertThat(rows.next()).isTrue();
+            return rows.getLong(1);
+        }
+    }
+
+    private static long fencedStatementStarts(CoordinatorBootstrap owner) throws Exception {
+        try (var connection = owner.metadataDataSource().getConnection();
+             var statement = connection.createStatement();
+             var rows = statement.executeQuery("""
+                     SELECT COALESCE(SUM(calls), 0) FROM public.pg_stat_statements
+                     WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+                       AND query LIKE 'WITH locked AS MATERIALIZED (%UPDATE execution_anchor a SET%coordinator_work_token%'
                      """)) {
             assertThat(rows.next()).isTrue();
             return rows.getLong(1);
