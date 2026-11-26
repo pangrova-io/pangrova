@@ -82,7 +82,7 @@ Role and shared options are declared in `org.pangrova.config.constants`. Domain-
 | `resilience.enabled` | `true` | Resilience module |
 | `streaming.enabled` | `true` | Streaming module |
 | `tenant.enabled` | `false` | Multi-tenant module; requires authenticated security (not NOOP) |
-| `indexing.enabled` | `true` | Indexing module |
+| `indexing.enabled` | `false` | Indexing module |
 | `operations.enabled` | `true` | Operations module |
 | `observability.enabled` | `true` | Observability module |
 | `security.enabled` | `false` | Security module (requires `security.auth.type`) |
@@ -98,7 +98,10 @@ Coordinator:
 | `pangrova.coordination.lease.zookeeper.connectString` | — | ZK ensemble (zookeeper backend) |
 | `pangrova.coordination.lease.zookeeper.basePath` | `/pangrova/leases` | ZK lease parent znode |
 | `pangrova.http.max-requests-per-minute` | `100` | HTTP request rate limit |
-| `pangrova.index.basePath` | — (required when indexing is enabled) | Index artifact directory; no default |
+| `pangrova.index.basePath` | — | Legacy process-level fallback for `indexing.base-path`; prefer YAML/`PANGROVA_INDEX_BASE_PATH` |
+
+`indexing.base-path` is required when `indexing.enabled=true`; see
+[Coordinator configuration](coordinator.md#feature-flags).
 
 ## External Shuffle Service
 

@@ -1,6 +1,7 @@
 package org.pangrova.server.coordinator.bootstrap;
 
 import org.pangrova.common.lifecycle.ResourceCloser;
+import org.pangrova.generation.api.constants.GenerationOutputTypeIds;
 
 import org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory;
 
@@ -403,10 +404,11 @@ final class QueryBootstrap {
                         artifactStores.stages(
                                 metadataDataSource),
                         artifactStores.exchanges(metadataDataSource),
-                        queryDispatcher.dagEngine()),
+                        queryDispatcher.dagEngine(), this::validateArtifactSnapshot),
                 new org.pangrova.coordinator.generation.DurableGenerationDispatcher.Settings(
-                        java.time.Duration.ofMinutes(2), java.time.Duration.ofSeconds(5), 32),
-                                new OtelExecutionTraceContextFactory());
+                        config.artifactDispatchLease(), config.artifactDispatchRetryDelay(),
+                        config.artifactDispatchMaxInFlight()),
+                new OtelExecutionTraceContextFactory());
         artifactPoll = schedulerExecutor().scheduleWithFixedDelay(() -> {
             try {
                 artifactBuildDispatcher.pollOnce();
@@ -416,7 +418,24 @@ final class QueryBootstrap {
             }
         }, 0, 1, java.util.concurrent.TimeUnit.SECONDS);
         LOG.info("event=artifact_dispatcher_started coordinatorId={} maxInFlight={}",
-                config.coordinatorId(), 32);
+                config.coordinatorId(), config.artifactDispatchMaxInFlight());
+    }
+
+    private void validateArtifactSnapshot(org.pangrova.generation.api.job.GenerationJob job) {
+        var indexing = moduleWiring.getIndexingBootstrap();
+        if (indexing != null) {
+            indexing.validateSnapshotPin(job);
+            return;
+        }
+        var queryIndexing = moduleWiring.getIndexQueryBootstrap();
+        if (queryIndexing != null) {
+            queryIndexing.validateSnapshotPin(job);
+            return;
+        }
+        if (GenerationOutputTypeIds.VECTOR_INDEX.equals(job.artifactType())
+                || GenerationOutputTypeIds.TEXT_INDEX.equals(job.artifactType())) {
+            throw new IllegalStateException("Native index artifact has no snapshot lifecycle owner");
+        }
     }
 
     private void startMaterializationMaintenance(

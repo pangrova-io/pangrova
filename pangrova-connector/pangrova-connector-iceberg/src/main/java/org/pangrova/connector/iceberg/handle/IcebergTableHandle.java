@@ -161,8 +161,20 @@ public record IcebergTableHandle(
     }
 
     @Override
-    public ConnectorTableHandle withTimeTravelSnapshot(long targetSnapshotId) {
-        return withSnapshotId(targetSnapshotId);
+    public ConnectorTableHandle withTimeTravelSnapshot(String snapshotToken) {
+        return withSnapshotId(snapshotId(snapshotToken));
+    }
+
+    private static long snapshotId(String snapshotToken) {
+        try {
+            long id = Long.parseLong(snapshotToken);
+            if (id <= 0 || !Long.toString(id).equals(snapshotToken)) {
+                throw new NumberFormatException("non-canonical Iceberg snapshot");
+            }
+            return id;
+        } catch (NumberFormatException invalid) {
+            throw new IllegalArgumentException("Invalid Iceberg snapshot token", invalid);
+        }
     }
 
     @Override

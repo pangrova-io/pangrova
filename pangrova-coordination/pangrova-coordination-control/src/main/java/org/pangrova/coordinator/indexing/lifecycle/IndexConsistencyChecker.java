@@ -16,6 +16,7 @@ import org.pangrova.indexing.api.enums.IndexState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -39,6 +40,7 @@ public final class IndexConsistencyChecker implements AutoCloseable {
     private final IndexConsistencyContext deps;
     private final IndexLifecycleMetrics lifecycleMetrics;
     private final IndexGenerationRefresher generationRefresher;
+    private final IndexGenerationCoverageReader coverageReader;
     private final ScheduledExecutorService scheduler;
     private volatile ScheduledFuture<?> scheduledTask;
 
@@ -47,6 +49,7 @@ public final class IndexConsistencyChecker implements AutoCloseable {
                                    IndexLifecycleMetrics lifecycleMetrics) {
         this.deps = deps;
         this.lifecycleMetrics = lifecycleMetrics;
+        this.coverageReader = new IndexGenerationCoverageReader(deps.metadataStore());
         this.generationRefresher = new IndexGenerationRefresher(
                 new IndexCommitContext(
                         deps.metadataStore(), deps.buildServices(), deps.accessorResolver()),
@@ -97,62 +100,20 @@ public final class IndexConsistencyChecker implements AutoCloseable {
 
         // Phase 2: Rebuild STALE indexes back to READY (if auto-rebuild enabled).
         if (config.autoRebuildEnabled()) {
-            paginateAndRebuildStale(store, config);
+            paginateAndCheck(store, IndexState.STALE, config);
         }
     }
 
     private void paginateAndCheck(IndexMetadataStore store, IndexState state,
                                   ConsistencyConfig config) {
-        int pageSize = 100;
-        int offset = 0;
-        Set<String> seen = new HashSet<>();
-        while (true) {
-            List<IndexDescriptor> page = store.findIndexesByStatePaginated(
-                    state, offset, pageSize);
-            if (page.isEmpty()) {
-                break;
+        // Persist progress only after processing; a crash replays at most one page.
+        while (deps.leaderElection().tryAcquireOrRenew()) {
+            var page = store.loadMaintenancePage(state, null, 100);
+            for (IndexDescriptor descriptor : page.candidates()) {
+                reconcileIndex(descriptor, config, state == IndexState.STALE);
             }
-            List<IndexDescriptor> unseen = page.stream()
-                    .filter(descriptor -> seen.add(descriptor.indexId()))
-                    .toList();
-            for (IndexDescriptor descriptor : unseen) {
-                checkSingleIndex(descriptor, config);
-            }
-            if (unseen.isEmpty()) {
-                offset += page.size();
-            } else {
-                offset = 0;
-            }
+            if (!store.completeMaintenancePage(page) || page.exhausted()) return;
         }
-    }
-
-    /** Reconciles STALE indexes through the same immutable publication path. */
-    private void paginateAndRebuildStale(IndexMetadataStore store, ConsistencyConfig config) {
-        int pageSize = 100;
-        int offset = 0;
-        Set<String> seen = new HashSet<>();
-        while (true) {
-            List<IndexDescriptor> page = store.findIndexesByStatePaginated(
-                    IndexState.STALE, offset, pageSize);
-            if (page.isEmpty()) {
-                break;
-            }
-            List<IndexDescriptor> unseen = page.stream()
-                    .filter(descriptor -> seen.add(descriptor.indexId()))
-                    .toList();
-            for (IndexDescriptor descriptor : unseen) {
-                reconcileIndex(descriptor, config, true);
-            }
-            if (unseen.isEmpty()) {
-                offset += page.size();
-            } else {
-                offset = 0;
-            }
-        }
-    }
-
-    private void checkSingleIndex(IndexDescriptor descriptor, ConsistencyConfig config) {
-        reconcileIndex(descriptor, config, false);
     }
 
     private void reconcileIndex(
@@ -210,10 +171,12 @@ public final class IndexConsistencyChecker implements AutoCloseable {
             IndexGenerationManifest active) {
         List<SnapshotDataFile> snapshotFiles =
                 snapshotMetadata.listFilesAtSnapshot(currentSnapshot);
-        int activeGeneration = active == null
-                ? descriptor.generation() : active.generation();
-        Set<String> indexedFiles = deps.metadataStore().getIndexedDataFilePaths(
-                descriptor.indexId(), activeGeneration);
+        // A drift-retired STALE Native generation has no reusable active base.
+        // Its recovery is a full replacement, not an assertion of exact coverage.
+        boolean retiredForDrift = active == null && descriptor.state() == IndexState.STALE
+                && descriptor.indexType().requiresNativeArtifact()
+                && "native_source_snapshot_changed".equals(descriptor.staleReason());
+        Set<String> indexedFiles = retiredForDrift ? Set.of() : coverageReader.read(descriptor, active);
         Set<String> currentFiles = snapshotFiles.stream()
                 .map(SnapshotDataFile::path)
                 .collect(java.util.stream.Collectors.toUnmodifiableSet());
@@ -244,6 +207,14 @@ public final class IndexConsistencyChecker implements AutoCloseable {
             IndexGenerationManifest active,
             SnapshotCoverage coverage) {
         if (!config.autoRebuildEnabled()) {
+            if (active != null && !active.sourceSnapshot().equals(currentSnapshot)
+                    && descriptor.indexType().requiresNativeArtifact()
+                    && deps.metadataStore().retireNativeGenerationForSourceDrift(
+                            descriptor, active, currentSnapshot, Instant.now())) {
+                LOG.info("action=consistency_native_generation_retired indexId={} generation={}",
+                        descriptor.indexId(), active.generation());
+                return;
+            }
             LOG.warn("action=consistency_refresh_required indexId={} "
                             + "snapshotCurrent={} snapshotIndexed={} autoRebuild=disabled",
                     descriptor.indexId(), currentSnapshot,
@@ -318,9 +289,17 @@ public final class IndexConsistencyChecker implements AutoCloseable {
         IndexMetadataStore store = deps.metadataStore();
         IndexGenerationManifest active = store.findActiveIndexGeneration(
                 descriptor.indexId()).orElse(null);
-        int generation = active == null ? descriptor.generation() : active.generation();
-        Set<String> indexedFiles = store.getIndexedDataFilePaths(
-                descriptor.indexId(), generation);
+        if (active == null && descriptor.state() == IndexState.READY
+                && descriptor.indexType().requiresNativeArtifact()) {
+            markReadyIndexStale(descriptor, "missing_active_generation_manifest");
+            return;
+        }
+        // A drift-retired STALE Native generation has no reusable active base.
+        // Its recovery is a full replacement, not an assertion of exact coverage.
+        boolean retiredForDrift = active == null && descriptor.state() == IndexState.STALE
+                && descriptor.indexType().requiresNativeArtifact()
+                && "native_source_snapshot_changed".equals(descriptor.staleReason());
+        Set<String> indexedFiles = retiredForDrift ? Set.of() : coverageReader.read(descriptor, active);
         List<String> currentDataFiles = resolveDataFiles(
                 descriptor.catalogName(), descriptor.schemaName(), descriptor.tableName());
         if (!indexedFiles.equals(Set.copyOf(currentDataFiles))

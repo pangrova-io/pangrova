@@ -107,6 +107,9 @@ class PaimonReadBindingIntegrationTest {
             var table = create(catalog, "schema");
             write(table, 2);
             long version = table.snapshotManager().latestSnapshotId();
+            String versionToken = new org.pangrova.connector.paimon.index.PaimonSnapshotAwareMetadata(table)
+                    .currentSnapshotId().orElseThrow();
+            assertThat(versionToken).isEqualTo(Long.toString(version));
             catalog.alterTable(Identifier.create("db", "schema"),
                     List.of(SchemaChange.addColumn("added", DataTypes.STRING())), false);
             var metadata = new PaimonMetadata(catalog, "bound", new org.pangrova.connector.paimon.PaimonSplitRegistry());
@@ -114,7 +117,7 @@ class PaimonReadBindingIntegrationTest {
             assertThat(current.snapshotId().orElseThrow()).isEqualTo(version);
             assertThat(current.declaration().metadata().columns()).containsExactly("id", "added");
             var selector = metadata.getTableHandle(SESSION, new SchemaTableName("db", "schema"))
-                    .withTimeTravelSnapshot(version);
+                    .withTimeTravelSnapshot(versionToken);
             var historical = metadata.bindRead(SESSION, selector);
             assertThat(historical.declaration().requireExactDeclaration().columns()).containsExactly("id");
             assertThat(splits(catalog, current)).isNotEmpty();
@@ -142,6 +145,9 @@ class PaimonReadBindingIntegrationTest {
             var table = create(catalog, "scoped_history");
             write(table, 2);
             long version = table.snapshotManager().latestSnapshotId();
+            String versionToken = new org.pangrova.connector.paimon.index.PaimonSnapshotAwareMetadata(table)
+                    .currentSnapshotId().orElseThrow();
+            assertThat(versionToken).isEqualTo(Long.toString(version));
             catalog.alterTable(Identifier.create("db", "scoped_history"),
                     List.of(SchemaChange.addColumn("added", DataTypes.STRING())), false);
             var query = new org.pangrova.coordinator.task.TestConnectorQuery("historical-owner");
@@ -150,7 +156,7 @@ class PaimonReadBindingIntegrationTest {
             query.authority().beginMetadata("bound", () -> metadata);
             try {
                 var currentSelector = metadata.getTableHandle(actor, new SchemaTableName("db", "scoped_history"));
-                var original = metadata.bindRead(actor, currentSelector.withTimeTravelSnapshot(version));
+                var original = metadata.bindRead(actor, currentSelector.withTimeTravelSnapshot(versionToken));
                 assertThat(original.declaration().metadata().columns()).containsExactly("id");
                 assertThat(metadata.bindRead(actor, original.handle())).isSameAs(original);
                 assertThat(metadata.getTableStatistics(actor, original.handle())).isSameAs(original.statistics());

@@ -228,7 +228,7 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
             throws java.sql.SQLException {
         var template = authority.dispatchSpec().stageGraph().requireStage(lease.stageId()).template();
         var publications = PostgresGenerationPublishedInputs.load(connection, lease.tenantId(),
-                template.publicationReads(), lease.splits());
+                authority.executionAnchor().executionId(), template.publicationReads(), lease.splits());
         var dependencies = lease.kind() == GenerationPageKind.DEPENDENCY_REDUCE
                 || lease.kind() == GenerationPageKind.GENERATION_FINALIZE
                 ? PostgresGenerationOutputQueries.loadDependencies(connection, lease.tenantId(), lease.jobId(),

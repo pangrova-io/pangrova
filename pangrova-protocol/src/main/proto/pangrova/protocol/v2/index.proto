@@ -8,6 +8,8 @@ import "pangrova/protocol/v2/capability.proto";
 import "pangrova/protocol/v2/common.proto";
 import "pangrova/protocol/v2/execution_binding.proto";
 
+// Descriptive state vocabulary only. PostgreSQL descriptors and generation
+// publication stores own the runtime lifecycle and its fencing tokens.
 enum GenerationState {
   GENERATION_STATE_UNSPECIFIED = 0;
   GENERATION_STATE_STAGING = 1;
@@ -17,6 +19,7 @@ enum GenerationState {
   GENERATION_STATE_RETIRED = 5;
 }
 
+// Descriptive identity reference; not a publication fence or active-generation pointer.
 message IndexGenerationRef {
   string search_service_id = 1;
   string index_id = 2;
@@ -30,6 +33,11 @@ message QualityMetric {
   string evaluation_dataset_version = 3;
 }
 
+// Descriptor-only interchange metadata, not the runtime manifest authority.
+// PostgreSQL owns descriptor state, generation, publication epoch and manifest
+// checksums. Tasks receive ArtifactBinding projections; Native reads analyzer
+// identity from binding properties and BM25 corpus statistics from the
+// BM25_CORPUS_STATS artifact rather than these descriptive fields.
 message IndexManifest {
   IndexGenerationRef ref = 1;
   GenerationState state = 2;

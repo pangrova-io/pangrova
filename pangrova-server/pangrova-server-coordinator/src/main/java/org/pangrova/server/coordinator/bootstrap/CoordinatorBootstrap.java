@@ -473,7 +473,7 @@ public final class CoordinatorBootstrap {
                     IndexingBootstrap.publicationRouter(artifactStores.indexPublications(metadataDataSource),
                             artifactStores.generatedPublications(metadataDataSource),
                             artifactStores.tabularPublications(metadataDataSource)),
-                    maintenanceLeaderElection);
+                    maintenanceLeaderElection, config.indexingConfig(), config.artifactPublicationSettings());
             LOG.info("event=phase_started phase=indexing");
         } catch (Exception e) {
             LOG.warn("event=phase_failed phase=indexing error={}", e.getMessage(), e);
@@ -487,7 +487,8 @@ public final class CoordinatorBootstrap {
                             CoordinatorTableWriteAuthority.create()::requireCurrent);
             org.pangrova.observability.api.metrics.MetricsProvider metricsProvider =
                     observability != null ? observability.metricsProvider() : null;
-            moduleWiring.startIndexQuery(indexMetadataStore, metricsProvider);
+            moduleWiring.startIndexQuery(indexMetadataStore, metricsProvider,
+                    artifactStores.builds(metadataDataSource));
             LOG.info("event=phase_started phase=index_query");
         } catch (Exception e) {
             LOG.warn("event=phase_failed phase=index_query error={}", e.getMessage(), e);

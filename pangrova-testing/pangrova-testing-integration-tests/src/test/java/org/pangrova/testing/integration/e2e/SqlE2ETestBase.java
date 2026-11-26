@@ -1,5 +1,7 @@
 package org.pangrova.testing.integration.e2e;
 
+import org.pangrova.generation.api.constants.GenerationOutputTypeIds;
+import org.pangrova.generation.api.job.GenerationJob;
 import org.pangrova.planner.metadata.catalog.MetadataSchemaBuilder;
 
 import org.pangrova.common.enums.ClusterNodeType;
@@ -1175,6 +1177,11 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     }
 
     protected static String e2eTenantId() { return E2E_TENANT_ID; }
+
+    protected static org.pangrova.server.coordinator.bootstrap.IndexingBootstrap e2eIndexingBootstrap() {
+        return java.util.Objects.requireNonNull(sharedIndexingBootstrap,
+                "E2E indexing bootstrap must be initialized before index maintenance");
+    }
 
     protected static org.pangrova.protocol.v2.CapabilityInventory e2eNativeCapabilityInventory() {
         return java.util.Objects.requireNonNull(e2eCapabilityAdvertisement,
@@ -2368,6 +2375,17 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         sharedArtifactPublisher = null;
     }
 
+    private static void validateArtifactSnapshot(GenerationJob job) {
+        if (sharedIndexingBootstrap != null) {
+            sharedIndexingBootstrap.validateSnapshotPin(job);
+            return;
+        }
+        if (GenerationOutputTypeIds.VECTOR_INDEX.equals(job.artifactType())
+                || GenerationOutputTypeIds.TEXT_INDEX.equals(job.artifactType())) {
+            throw new IllegalStateException("E2E Native index artifact has no snapshot lifecycle owner");
+        }
+    }
+
     private static void startArtifactControlLoops() {
         if (sharedArtifactBuildDispatcher == null) {
             artifactTaskDispatcher = createE2ETaskDispatcher();
@@ -2385,7 +2403,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                                             stateStoreDataSource),
                                     ModelAuthorityFixtures.artifacts().exchanges(stateStoreDataSource),
                                     java.util.Objects.requireNonNull(sharedQueryDispatcher,
-                                            "shared QueryDispatcher must be initialized").dagEngine()),
+                                            "shared QueryDispatcher must be initialized").dagEngine(),
+                                    SqlE2ETestBase::validateArtifactSnapshot),
                             new org.pangrova.coordinator.generation.DurableGenerationDispatcher.Settings(
                                     Duration.ofMinutes(2), Duration.ofSeconds(5), 32),
                             new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory());
@@ -2394,7 +2413,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
             sharedArtifactPublisher = new org.pangrova.coordinator.generation.DurableGenerationPublisher(
                     sharedArtifactBuildStore, E2eGenerationPublications.router(stateStoreDataSource),
                     new org.pangrova.coordinator.generation.GenerationExecutionOwnership(
-                            requireE2ECoordination(), E2E_COORDINATOR_ID));
+                            requireE2ECoordination(), E2E_COORDINATOR_ID),
+                    SqlE2ETestBase::validateArtifactSnapshot);
             sharedArtifactPublisher.start();
         }
         if (artifactDispatchExecutor == null) {
@@ -2453,8 +2473,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                     new org.pangrova.coordinator.query.execution.dispatch.task.AlterIndexTask(indexExecutor));
             statementDispatcher.registerFactory(metadataFactory);
 
-            var schemaEvolutionHandler = new org.pangrova.indexing.evolution.IndexSchemaEvolutionHandler(indexMetadataStore);
-            if (sharedDdlExecutor != null) {
+            var schemaEvolutionHandler = sharedIndexingBootstrap.getSchemaEvolutionHandler();
+            if (sharedDdlExecutor != null && schemaEvolutionHandler != null) {
                 sharedDdlExecutor.setSchemaEvolutionHandler(schemaEvolutionHandler);
             }
 

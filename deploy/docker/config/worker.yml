@@ -16,4 +16,12 @@ worker:
       spill-directory: /opt/pangrova/data
   native:
     cache:
-      enabled: false
+      enabled: true
+      memory-bytes: 536870912
+      ssd-path: /opt/pangrova/data/velox-cache
+      ssd-bytes: 21474836480
+      ssd-shards: 4
+      checkpoint-interval-bytes: 1073741824
+      artifact-path: /opt/pangrova/data/pangrova-artifacts
+      artifact-bytes: 10737418240
+      artifact-index-memory-bytes: 536870912

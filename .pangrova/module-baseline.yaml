@@ -1016,6 +1016,7 @@ artifacts:
         - pangrova-indexing-api
         - pangrova-indexing-codec
         - pangrova-indexing-lifecycle
+        - pangrova-indexing-strategies-builtin
         - pangrova-materialization-api
         - pangrova-materialization-lifecycle
         - pangrova-metadata-api
@@ -1654,6 +1655,7 @@ artifacts:
       - org.pangrova.indexing.api.descriptor
       - org.pangrova.indexing.api.enums
       - org.pangrova.indexing.api.evaluation
+      - org.pangrova.indexing.api.evolution
       - org.pangrova.indexing.api.exception
       - org.pangrova.indexing.api.pruning
       - org.pangrova.indexing.api.statistics
@@ -1684,6 +1686,7 @@ artifacts:
       - org.pangrova.indexing.api.descriptor
       - org.pangrova.indexing.api.enums
       - org.pangrova.indexing.api.evaluation
+      - org.pangrova.indexing.api.evolution
       - org.pangrova.indexing.api.exception
       - org.pangrova.indexing.api.pruning
       - org.pangrova.indexing.api.statistics
@@ -1750,6 +1753,7 @@ artifacts:
       pangrova-security-api: compile
       pangrova-security-policy-builtin: test
       pangrova-testing-kit: test
+      pangrova-types: test
     imports:
       main:
         - pangrova-common
@@ -1779,6 +1783,7 @@ artifacts:
         - pangrova-security-api
         - pangrova-security-policy-builtin
         - pangrova-testing-kit
+        - pangrova-types
     exportedPackages:
       - org.pangrova.indexing.build
       - org.pangrova.indexing.config
@@ -1835,6 +1840,7 @@ artifacts:
     exportedPackages:
       - org.pangrova.indexing.strategies.bloom.data
       - org.pangrova.indexing.strategies.bloom.provider
+      - org.pangrova.indexing.strategies.bloom.serializer
       - org.pangrova.indexing.strategies.hash.provider
       - org.pangrova.indexing.strategies.hash.serializer
     providers:
@@ -2623,6 +2629,7 @@ artifacts:
   pangrova-persistence-generation-api:
     path: pangrova-persistence/pangrova-persistence-generation-api
     mainPackages:
+      - org.pangrova.persistence.generation.api.enums
       - org.pangrova.persistence.generation.api.exception
       - org.pangrova.persistence.generation.api.exchange
       - org.pangrova.persistence.generation.api.execution
@@ -2656,6 +2663,7 @@ artifacts:
         - pangrova-shuffle-api
         - pangrova-types
     exportedPackages:
+      - org.pangrova.persistence.generation.api.enums
       - org.pangrova.persistence.generation.api.exception
       - org.pangrova.persistence.generation.api.exchange
       - org.pangrova.persistence.generation.api.execution
@@ -2710,10 +2718,13 @@ artifacts:
         - pangrova-security-codec
       test:
         - pangrova-common
+        - pangrova-connector-api
         - pangrova-execution-api
         - pangrova-generation-api
         - pangrova-persistence-generation-api
         - pangrova-persistence-jdbc-api
+        - pangrova-security-api
+        - pangrova-security-codec
         - pangrova-testing-kit
     exportedPackages:
       - org.pangrova.persistence.generation.postgresql.exchange
@@ -2746,6 +2757,7 @@ artifacts:
     path: pangrova-persistence/pangrova-persistence-indexing-api
     mainPackages:
       - org.pangrova.persistence.indexing.api.build
+      - org.pangrova.persistence.indexing.api.enums
       - org.pangrova.persistence.indexing.api.metadata
     pomDependencies:
       pangrova-common: compile
@@ -2756,9 +2768,11 @@ artifacts:
         - pangrova-common
         - pangrova-connector-api
         - pangrova-indexing-api
-      test: []
+      test:
+        - pangrova-indexing-api
     exportedPackages:
       - org.pangrova.persistence.indexing.api.build
+      - org.pangrova.persistence.indexing.api.enums
       - org.pangrova.persistence.indexing.api.metadata
     providers:
       {}
@@ -5024,7 +5038,6 @@ artifacts:
         - pangrova-governance-runtime
         - pangrova-indexing-api
         - pangrova-indexing-codec
-        - pangrova-indexing-lifecycle
         - pangrova-materialization-api
         - pangrova-materialization-lifecycle
         - pangrova-metadata-api

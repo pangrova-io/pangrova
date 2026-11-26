@@ -29,6 +29,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Locale;
 import java.util.List;
 import java.util.Map;
@@ -135,27 +136,31 @@ public final class IndexDdlExecutor implements AutoCloseable {
 
         boolean nativeArtifact = requiresNativeArtifact(indexType);
         IndexBuildInput buildInput = resolveBuildInput(tableRef, !nativeArtifact, context);
+        String schemaFingerprint = org.pangrova.indexing.api.descriptor.IndexSchemaFingerprint.of(
+                columns, tableMetadata.typedColumns());
         IndexDescriptor descriptor = buildDescriptor(
                 stmt.indexName(), tableRef, columns, indexType,
                 IndexBuildProperties.canonicalize(indexType, stmt.properties()),
-                buildInput.sourceSnapshot(), tenantId);
+                buildInput.sourceSnapshot(), tenantId, schemaFingerprint);
         requireNativeBuildSupport(descriptor);
 
-        List<TypedRow> earlyResult = registerIndexOrSkip(descriptor, stmt, user);
+        String nativeAttempt = nativeArtifact ? UUID.randomUUID().toString() : null;
+        List<TypedRow> earlyResult = registerIndexOrSkip(descriptor, stmt, user, tableRef, tenantId, nativeAttempt);
         if (earlyResult != null) {
             return earlyResult;
         }
-        submitAsyncBuild(descriptor, tableRef, buildInput.dataFiles(), context);
+        submitAsyncBuild(descriptor, tableRef, buildInput.dataFiles(), context, nativeAttempt);
         LOG.info("action=create_index indexId={} index={} table={} type={}",
                 descriptor.indexId(), stmt.indexName(), tableRef, indexType);
         return buildCreateResult(descriptor.indexId(), IndexState.BUILDING);
     }
 
     private List<TypedRow> registerIndexOrSkip(
-            IndexDescriptor descriptor, CreateIndexStatement stmt, UserIdentity user) {
+            IndexDescriptor descriptor, CreateIndexStatement stmt, UserIdentity user,
+            QualifiedTableName tableRef, String tenantId, String nativeAttempt) {
         try {
             if (requiresNativeArtifact(descriptor.indexType())) {
-                deps.indexMetadataStore().registerIndex(descriptor);
+                deps.indexMetadataStore().registerNativeIndex(descriptor, nativeAttempt);
             } else {
                 if (user == null || user.principal() == null || user.principal().isBlank()) {
                     throw new AccessDeniedException("Scalar index build requires an authenticated subject");
@@ -167,7 +172,11 @@ public final class IndexDdlExecutor implements AutoCloseable {
             if (stmt.ifNotExists()) {
                 LOG.info("action=create_index_skip_exists index={} table={}",
                         stmt.indexName(), descriptor.tableName());
-                return buildCreateResult(descriptor.indexId(), IndexState.BUILDING);
+                IndexDescriptor existing = findActiveIndex(stmt.indexName(), tableRef, tenantId);
+                if (existing == null) {
+                    throw e;
+                }
+                return buildCreateResult(existing.indexId(), existing.state());
             }
             throw e;
         }
@@ -220,12 +229,14 @@ public final class IndexDdlExecutor implements AutoCloseable {
                 .toList();
 
         for (IndexDescriptor descriptor : allGenerations) {
-            deps.buildServices().dataSkipping().cancelBuild(descriptor.indexId());
-            if (deps.buildServices().aiNative() != null) {
-                deps.buildServices().aiNative().cancel(
-                        descriptor.indexId(), tenantId, Instant.now());
-            }
-            deps.indexMetadataStore().dropIndex(descriptor.indexId(), Instant.now());
+            deps.indexMetadataStore().withIndexLifecycleLock(descriptor.indexId(), () -> {
+                deps.buildServices().dataSkipping().cancelBuild(descriptor.indexId());
+                if (deps.buildServices().aiNative() != null) {
+                    deps.buildServices().aiNative().cancel(
+                            descriptor.indexId(), tenantId, Instant.now());
+                }
+                deps.indexMetadataStore().dropIndex(descriptor.indexId(), Instant.now());
+            });
             if (indexCache != null) {
                 indexCache.invalidateIndex(descriptor.indexId());
             }
@@ -259,6 +270,8 @@ public final class IndexDdlExecutor implements AutoCloseable {
 
         return indexes.stream()
                 .filter(d -> d.state() != IndexState.DROPPED)
+                .sorted(java.util.Comparator.comparing(IndexDescriptor::indexName)
+                        .thenComparing(IndexDescriptor::indexId))
                 .map(IndexDdlExecutor::descriptorToRow)
                 .toList();
     }
@@ -275,15 +288,23 @@ public final class IndexDdlExecutor implements AutoCloseable {
                 tableRef, stmt.indexName(), tenantId);
         var session = SessionContextConverter.toConnectorSession(context, tableRef.catalog(), tableRef.schema());
         var tableMetadata = IndexDdlValidation.resolveTable(tableRef, deps.catalogRegistry(), session);
-        List<String> columns = IndexDdlValidation.validateColumns(
+        List<String> columns = IndexDdlValidation.validateExistingColumns(
                 tableRef, target.columnNames(), target.indexType(), tableMetadata);
+        String schemaFingerprint = org.pangrova.indexing.api.descriptor.IndexSchemaFingerprint.of(
+                columns, tableMetadata.typedColumns());
+        if (target.state() != IndexState.STALE && target.sourceSchemaFingerprint() != null
+                && !schemaFingerprint.equals(target.sourceSchemaFingerprint())) {
+            throw new PangrovaException(PangrovaErrorCode.METADATA_INDEX_VALIDATION_ERROR,
+                    "Index source schema changed; wait for fenced schema reconciliation before rebuild");
+        }
         checkRawBuildRead(tableRef, user, columns);
 
         boolean nativeArtifact = requiresNativeArtifact(target.indexType());
         IndexBuildInput buildInput = resolveBuildInput(tableRef, !nativeArtifact, context);
-        IndexDescriptor rebuilt = prepareRebuild(target, buildInput.sourceSnapshot());
-        requireNativeBuildSupport(rebuilt);
-        submitAsyncBuild(rebuilt, tableRef, buildInput.dataFiles(), context);
+        requireNativeBuildSupport(target);
+        BuildAdmission admission = prepareRebuild(target, buildInput.sourceSnapshot(), schemaFingerprint);
+        IndexDescriptor rebuilt = admission.descriptor();
+        submitAsyncBuild(rebuilt, tableRef, buildInput.dataFiles(), context, admission.nativeAttempt());
         emitRebuildCacheEvent(target, tableRef);
         LOG.info("action=alter_index_rebuild indexId={} index={} generation={}",
                 target.indexId(), stmt.indexName(), rebuilt.generation());
@@ -304,23 +325,30 @@ public final class IndexDdlExecutor implements AutoCloseable {
         return target;
     }
 
-    private IndexDescriptor prepareRebuild(
-            IndexDescriptor target, String sourceSnapshot) {
+    private BuildAdmission prepareRebuild(
+            IndexDescriptor target, String sourceSnapshot, String sourceSchemaFingerprint) {
         // Retry with fresh read on optimistic lock failure. CREATE INDEX completes
         // asynchronously and may update updatedAt between findRebuildableIndex()
         // and the CAS below — a benign race that we resolve by re-reading.
         IndexDescriptor current = target;
         String tenantId = target.tenantId();
         for (int attempt = 0; attempt < 3; attempt++) {
-            Instant now = Instant.now();
+            // Capture the exact PostgreSQL timestamp fence before handing the build to another thread.
+            Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
             int newGeneration = current.generation() + 1;
-            IndexDescriptor rebuilt = IndexDescriptorTransitions.transition(current.withGeneration(newGeneration, now)
+            IndexDescriptor rebuilt = IndexDescriptorTransitions.transition(current
+                    .withSourceSchemaFingerprint(sourceSchemaFingerprint)
+                    .withGeneration(newGeneration, now)
                     .withBuildSnapshotId(sourceSnapshot, now), IndexState.BUILDING, now);
-            boolean updated = deps.indexMetadataStore().beginIndexGeneration(
+            String nativeAttempt = requiresNativeArtifact(current.indexType()) ? UUID.randomUUID().toString() : null;
+            boolean updated = nativeAttempt == null ? deps.indexMetadataStore().beginIndexGeneration(
                     current.indexId(), newGeneration, sourceSnapshot,
-                    now, current.updatedAt(), current.state(), current.generation());
+                    now, current.updatedAt(), current.state(), current.generation(), sourceSchemaFingerprint)
+                    : deps.indexMetadataStore().beginNativeIndexGeneration(current.indexId(), newGeneration,
+                            sourceSnapshot, now, current.updatedAt(), current.state(), current.generation(),
+                            sourceSchemaFingerprint, nativeAttempt);
             if (updated) {
-                return rebuilt;
+                return new BuildAdmission(rebuilt, nativeAttempt);
             }
             LOG.debug("action=rebuild_retry attempt={} indexId={}", attempt + 1, current.indexId());
             // Re-read fresh descriptor for next attempt
@@ -335,6 +363,16 @@ public final class IndexDdlExecutor implements AutoCloseable {
                     .findFirst()
                     .orElseThrow(() -> new PangrovaException(PangrovaErrorCode.METADATA_INDEX_NOT_FOUND,
                             "Index '" + indexName + "' was dropped during rebuild"));
+            if (!current.columnNames().equals(target.columnNames()) || current.indexType() != target.indexType()
+                    || !java.util.Objects.equals(current.sourceSchemaFingerprint(), target.sourceSchemaFingerprint())) {
+                throw new PangrovaException(PangrovaErrorCode.METADATA_INDEX_VALIDATION_ERROR,
+                        "Index source binding changed during rebuild; retry with the current declaration");
+            }
+            if (current.state() != IndexState.STALE && current.sourceSchemaFingerprint() != null
+                    && !sourceSchemaFingerprint.equals(current.sourceSchemaFingerprint())) {
+                throw new PangrovaException(PangrovaErrorCode.METADATA_INDEX_VALIDATION_ERROR,
+                        "Index source schema changed during rebuild");
+            }
         }
         throw new PangrovaException(PangrovaErrorCode.METADATA_INDEX_VALIDATION_ERROR,
                 "ALTER INDEX REBUILD failed: concurrent modification on index '"
@@ -357,9 +395,7 @@ public final class IndexDdlExecutor implements AutoCloseable {
             IndexDescriptor descriptor,
             QualifiedTableName tableRef,
             List<org.pangrova.indexing.build.DataFileInfo> dataFiles,
-            QuerySession context) {
-        var accessors = deps.accessorResolver().forSession(
-                SessionContextConverter.toConnectorSession(context, tableRef.catalog(), tableRef.schema()));
+            QuerySession context, String nativeAttempt) {
         try {
             if (requiresNativeArtifact(descriptor.indexType())) {
                 DurableIndexBuildService nativeBuild = deps.buildServices().aiNative();
@@ -370,7 +406,7 @@ public final class IndexDdlExecutor implements AutoCloseable {
                                     + descriptor.properties().getOrDefault(
                                             "algorithm", "default"));
                 }
-                String jobId = nativeBuild.submit(descriptor, tableRef, context);
+                String jobId = nativeBuild.submit(descriptor, tableRef, context, nativeAttempt);
                 LOG.info("event=native_index_build_queued indexId={} generation={} jobId={}",
                         descriptor.indexId(), descriptor.generation(), jobId);
                 return;
@@ -383,6 +419,8 @@ public final class IndexDdlExecutor implements AutoCloseable {
                                 descriptor, dataFiles, null, null));
                 return;
             }
+            var accessors = deps.accessorResolver().forSession(
+                    SessionContextConverter.toConnectorSession(context, tableRef.catalog(), tableRef.schema()));
             var fsAccessor = accessors.resolve(tableRef.catalog());
             var columnReader = accessors.resolveColumnValueReader(tableRef.catalog());
 
@@ -395,7 +433,7 @@ public final class IndexDdlExecutor implements AutoCloseable {
                     descriptor, dataFiles, fsAccessor, columnReader, mappingConsumer);
             registerBuildCompletionHandler(descriptor, future);
         } catch (Exception e) {
-            recordBuildFailure(descriptor, e);
+            recordBuildFailure(descriptor, nativeAttempt, e);
             throw new PangrovaException(
                     PangrovaErrorCode.METADATA_INDEX_VALIDATION_ERROR,
                     "Index build could not be submitted for '" + descriptor.indexName() + "'",
@@ -465,27 +503,35 @@ public final class IndexDdlExecutor implements AutoCloseable {
                 result.failureCount(), newState);
     }
 
-    private void recordBuildFailure(IndexDescriptor building, Exception failure) {
+    @org.pangrova.common.VisibleForTesting
+    void recordBuildFailure(IndexDescriptor building, Exception failure) {
+        recordBuildFailure(building, null, failure);
+    }
+
+    @org.pangrova.common.VisibleForTesting
+    void recordBuildFailure(IndexDescriptor building, String nativeAttempt, Exception failure) {
         try {
             String reason = failure.getMessage() == null
                     ? "build_error" : failure.getMessage();
-            boolean onlineFailed = deps.indexMetadataStore().failIndexGeneration(
-                    building.indexId(), building.generation(), building.updatedAt(),
-                    Instant.now(), reason);
-            if (onlineFailed) {
-                return;
+            boolean failed;
+            if (requiresNativeArtifact(building.indexType())) {
+                if (nativeAttempt == null) {
+                    throw new IllegalStateException("Native failure has no captured submission attempt");
+                }
+                failed = deps.indexMetadataStore().failNativeSubmissionAttempt(
+                        building.indexId(), building.generation(), nativeAttempt, building.updatedAt(),
+                        Instant.now(), reason);
+            } else {
+                failed = deps.indexMetadataStore().failIndexGeneration(
+                        building.indexId(), building.generation(), building.updatedAt(), Instant.now(), reason);
             }
-            Optional<IndexDescriptor> current =
-                    deps.indexMetadataStore().findIndex(building.indexId());
-            if (current.isPresent()
-                    && current.get().state() == IndexState.BUILDING
-                    && current.get().generation() == building.generation()) {
-                deps.indexMetadataStore().updateIndexState(
-                        building.indexId(), IndexState.STALE.name(), Instant.now(), reason);
+            if (!failed) {
+                LOG.warn("event=build_failure_fence_lost indexId={} generation={}",
+                        building.indexId(), building.generation());
             }
         } catch (Exception stateFailure) {
             LOG.warn("event=build_error_state_update_failed indexId={} error={}",
-                    building.indexId(), stateFailure.getMessage());
+                    building.indexId(), stateFailure.getMessage(), stateFailure);
         }
     }
 
@@ -493,12 +539,15 @@ public final class IndexDdlExecutor implements AutoCloseable {
             String indexName, QualifiedTableName ref,
             List<String> columns, IndexType indexType,
             Map<String, String> properties, String sourceSnapshot,
-            String tenantId) {
-        Instant now = Instant.now();
+            String tenantId, String schemaFingerprint) {
+        // PostgreSQL persists timestamps at microsecond precision; retain the admission fence.
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        var boundProperties = new java.util.LinkedHashMap<>(properties);
+        boundProperties.put(IndexDescriptor.SOURCE_SCHEMA_FINGERPRINT_PROPERTY, schemaFingerprint);
         return new IndexDescriptor(
                 UUID.randomUUID().toString(), indexName,
                 ref.catalog(), ref.schema(), ref.table(),
-                columns, indexType, properties,
+                columns, indexType, boundProperties,
                 IndexState.BUILDING, null, 0, sourceSnapshot, null, now, now, tenantId);
     }
 
@@ -511,7 +560,7 @@ public final class IndexDdlExecutor implements AutoCloseable {
     }
 
     static boolean requiresNativeArtifact(IndexType indexType) {
-        return indexType == IndexType.VECTOR || indexType == IndexType.INVERTED;
+        return indexType.requiresNativeArtifact();
     }
 
     private void requireNativeBuildSupport(IndexDescriptor descriptor) {
@@ -560,6 +609,8 @@ public final class IndexDdlExecutor implements AutoCloseable {
                 file.path(), file.rowCount(), file.sizeBytes(), file.format());
     }
 
+    private record BuildAdmission(IndexDescriptor descriptor, String nativeAttempt) {}
+
     private record IndexBuildInput(
             String sourceSnapshot,
             List<org.pangrova.indexing.build.DataFileInfo> dataFiles) {
@@ -598,7 +649,20 @@ public final class IndexDdlExecutor implements AutoCloseable {
         if (d.indexType() == IndexType.VECTOR) {
             builder.putString("algorithm", d.properties().getOrDefault("algorithm", ""));
             builder.putString("metric", d.properties().getOrDefault("metric", ""));
+        } else if (d.indexType() == IndexType.INVERTED) {
+            builder.putString("algorithm", d.properties().getOrDefault("analyzer", ""));
+            builder.putString("metric", "");
+        } else {
+            builder.putString("algorithm", "");
+            builder.putString("metric", "");
         }
-        return builder.build();
+        // Preserve the positional contract of the existing result columns.
+        return builder.putString("index_id", d.indexId())
+                .putInt("generation", d.generation())
+                .putString("build_snapshot_id", d.buildSnapshotId() == null ? "" : d.buildSnapshotId())
+                .putString("last_indexed_snapshot_id",
+                        d.lastIndexedSnapshotId() == null ? "" : d.lastIndexedSnapshotId())
+                .putString("updated_at", d.updatedAt() != null ? d.updatedAt().toString() : "")
+                .build();
     }
 }
