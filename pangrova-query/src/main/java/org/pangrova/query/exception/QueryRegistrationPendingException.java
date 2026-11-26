@@ -1,4 +1,4 @@
-package org.pangrova.query.lifecycle;
+package org.pangrova.query.exception;
 
 /** Recovery must retry because a candidate admission still owns this query identity. */
 public final class QueryRegistrationPendingException extends RuntimeException {

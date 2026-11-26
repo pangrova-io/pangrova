@@ -422,7 +422,7 @@ class RuntimeScopeTest(unittest.TestCase):
     def test_native_fixture_jobs_prepare_java_before_building(self):
         workflow = (ROOT / '.github/workflows/ci.yml').read_text()
         action = (ROOT / '.github/actions/prepare-native-java-fixture/action.yml').read_text()
-        steps = ('actions/cache/restore@', 'uses: ./.github/actions/setup-iceberg-sdk',
+        steps = ('actions/cache/restore@', 'uses: ./.github/actions/restore-iceberg-sdk',
                  '--prepare-java ', 'actions/cache/save@')
         positions = [action.index(step) for step in steps]
         self.assertEqual(positions, sorted(positions))
@@ -436,6 +436,27 @@ class RuntimeScopeTest(unittest.TestCase):
                 self.assertLess(job.index('uses: ./.github/actions/prepare-native-java-fixture'),
                                 job.index('Setup native build environment'))
                 self.assertIn('--prepared-java "$RUNNER_TEMP/native-java-fixture"', job)
+
+    def test_runtime_validation_shares_the_tested_iceberg_sdk(self):
+        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
+        jobs = dict(re.findall(r'^  ([\w-]+):\n(.*?)(?=^  [\w-]+:\n|\Z)',
+                               workflow.split('\njobs:\n', 1)[1], re.MULTILINE | re.DOTALL))
+        producer = jobs['iceberg-sdk']
+        self.assertIn("if: needs.change-scope.outputs.runtime == 'true'", producer)
+        self.assertLess(producer.index('/setup-iceberg-sdk'), producer.index('actions/upload-artifact@'))
+        self.assertEqual(workflow.count('uses: ./.github/actions/setup-iceberg-sdk'), 1)
+        self.assertIn('name: pinned-iceberg-sdk', producer)
+        self.assertIn('if-no-files-found: error', producer)
+        for name in ('native-build', 'native-sanitizers', 'java-build', 'static-analysis',
+                     'production-regression', 'jmh-benchmarks', 'validation'):
+            with self.subTest(name=name):
+                self.assertIn('iceberg-sdk', re.search(r'^    needs: .*', jobs[name], re.MULTILINE)[0])
+        restore = (ROOT / '.github/actions/restore-iceberg-sdk/action.yml').read_text()
+        self.assertIn('name: pinned-iceberg-sdk', restore)
+        self.assertIn('digest-mismatch: error', restore)
+        self.assertIn('pangrova.contexts.iceberg-sdk=$RUNNER_TEMP/pangrova-iceberg-sdk',
+                      jobs['production-regression'])
+        self.assertIn("needs.iceberg-sdk.result == 'success'", jobs['production-regression'])
 
     def test_pinned_iceberg_sdk_uses_bounded_gradle_repository_backoff(self):
         script = (ROOT / '.pangrova/scripts/build-iceberg-sdk-candidate.sh').read_text()
@@ -609,6 +630,7 @@ class RuntimeScopeTest(unittest.TestCase):
                  '.pangrova/scripts/ci_change_scope.py', '.pangrova/modules.yaml',
                  '.github/workflows/ci.yml', '.github/workflows/release.yml',
                  '.github/actions/setup-iceberg-sdk/action.yml',
+                 '.github/actions/restore-iceberg-sdk/action.yml',
                  '.github/actions/new-runtime-action/action.yml',
                  '.github/workflows/new-runtime-build.yml',
                  'config/checkstyle/checkstyle.xml', 'new-build-input.lock']
@@ -670,7 +692,7 @@ class WorkflowPolicyTest(unittest.TestCase):
         program = textwrap.dedent(final_job.split("python3 - <<'PY'\n", 1)[1].rsplit('          PY', 1)[0])
         jobs = {name: {'result': 'success'} for name in
                 ['change-scope', 'lint', 'doc-consistency', 'dead-stub-detection',
-                 'static-analysis', 'native-build', 'java-build', 'native-sanitizers',
+                 'iceberg-sdk', 'static-analysis', 'native-build', 'java-build', 'native-sanitizers',
                  'production-regression', 'tpch-performance', 'jmh-benchmarks']}
         jobs['change-scope']['outputs'] = {'runtime': runtime, 'performance': performance,
                                          'native': runtime if native is None else native}
@@ -681,13 +703,13 @@ class WorkflowPolicyTest(unittest.TestCase):
                                               'PR_EVENT': str(pr).lower()})
 
     def test_docs_can_skip_only_unselected_checks(self):
-        result = self.result(overrides={'native-build': 'skipped', 'java-build': 'skipped',
-                                       'production-regression': 'skipped'})
+        result = self.result(overrides={'iceberg-sdk': 'skipped', 'native-build': 'skipped',
+                                       'java-build': 'skipped', 'production-regression': 'skipped'})
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotEqual(self.result(overrides={'lint': 'skipped'}).returncode, 0)
 
     def test_selected_checks_cannot_fail_cancel_or_disappear(self):
-        for name in ['native-build', 'java-build', 'native-sanitizers', 'production-regression']:
+        for name in ['iceberg-sdk', 'native-build', 'java-build', 'native-sanitizers', 'production-regression']:
             for outcome in ['failure', 'cancelled', 'skipped']:
                 with self.subTest(name=name, outcome=outcome):
                     self.assertNotEqual(self.result(runtime='true', overrides={name: outcome}).returncode, 0)

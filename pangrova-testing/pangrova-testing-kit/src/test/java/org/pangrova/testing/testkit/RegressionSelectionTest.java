@@ -149,8 +149,10 @@ class RegressionSelectionTest {
         assertThat(start).isGreaterThanOrEqualTo(0);
         assertThat(end).isGreaterThan(start);
         var production = normalizeCommands(workflow.substring(start, end));
-        assertThat(production).contains("needs: [change-scope, native-build, native-sanitizers]")
-                .contains("docker buildx bake --load -f deploy/docker/docker-bake.hcl pangrova")
+        assertThat(production).contains("needs: [change-scope, iceberg-sdk, native-build, native-sanitizers]")
+                .contains("needs.iceberg-sdk.result == 'success'")
+                .contains("docker buildx bake --load -f deploy/docker/docker-bake.hcl "
+                        + "--set \"pangrova.contexts.iceberg-sdk=$RUNNER_TEMP/pangrova-iceberg-sdk\" pangrova")
                 .contains("IMAGE=\"$PANGROVA_E2E_IMAGE\" SOURCE_COMMIT=\"$GITHUB_SHA\" docker buildx bake")
                 .contains("image_id=$(docker image inspect --format '{{.Id}}' \"$PANGROVA_E2E_IMAGE\")")
                 .contains("\"PANGROVA_E2E_IMAGE_ID=$image_id\" >> \"$GITHUB_ENV\"")
