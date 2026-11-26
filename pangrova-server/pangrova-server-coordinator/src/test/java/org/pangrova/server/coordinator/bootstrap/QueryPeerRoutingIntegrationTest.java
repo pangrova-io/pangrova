@@ -7,6 +7,7 @@ import org.pangrova.common.client.query.SubmitQueryResponse;
 import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.config.PangrovaConfiguration;
 import org.pangrova.coordinator.testinfra.SignedOidcIssuer;
+import org.pangrova.persistence.coordination.postgresql.membership.JdbcCoordinatorRegistry;
 import org.pangrova.server.coordinator.enums.CoordinatorDeploymentRole;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.transport.client.FlightResultFetcher;
@@ -89,6 +90,13 @@ class QueryPeerRoutingIntegrationTest extends ContainerTestBase {
 
         org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(5)).until(
                 () -> owner.getQueryManager().getStateMachine(receipt.queryId()).status().drained());
+        var registry = new JdbcCoordinatorRegistry(owner.metadataDataSource());
+        var registered = registry.getCoordinator(receipt.ownerEndpoint().coordinatorId()).orElseThrow();
+        assertThat(registered.httpPort()).isEqualTo(owner.getHttpPort()).isEqualTo(receipt.ownerEndpoint().port());
+        assertThat(registered.incarnation()).isEqualTo(receipt.ownerEndpoint().incarnation());
+        var peer = registry.getCoordinator("query-ingress").orElseThrow();
+        assertThat(peer.httpPort()).isEqualTo(ingressPort);
+        assertThat(peer.incarnation()).isNotBlank().isNotEqualTo(registered.incarnation());
         assertThat(submit(http, ingressPort, "peer-observe", alice)).isEqualTo(receipt);
         assertReadBudget(http, owner, ingressPort, alice, receipt);
         assertUnauthorizedRoutes(http, ingressPort, alice, bob, receipt);

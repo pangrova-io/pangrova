@@ -55,6 +55,7 @@ final class HighAvailabilityBootstrap {
 
     private final CoordinatorBootstrapConfig config;
     private final HighAvailabilityCoordinationService haService;
+    private final CoordinatorRegistry coordinatorRegistry;
     private final CatalogRegistry catalogRegistry;
     private final boolean durableExecutionAnchors;
     private final org.pangrova.persistence.generation.api.job.GenerationJobStore artifactExecutions;
@@ -76,6 +77,7 @@ final class HighAvailabilityBootstrap {
             CoordinatorExecutionAuthority executionAuthority, CurrentModelAuthority modelAuthority,
             CatalogRegistry catalogRegistry) {
         this.config = config;
+        this.coordinatorRegistry = coordinatorRegistry;
         this.catalogRegistry = catalogRegistry;
         durableExecutionAnchors = dataSource != null;
         if (durableExecutionAnchors && executionAuthority == null) {
@@ -88,21 +90,21 @@ final class HighAvailabilityBootstrap {
                         .builds(dataSource)
                 : null;
         haService = new HighAvailabilityCoordinationService(lease, anchors);
-        if (coordinatorRegistry != null) {
-            haService.setCoordinatorRegistry(coordinatorRegistry,
-                    config.coordinatorTransportAdvertisedHost(), config.httpPort());
-        }
         if (durableExecutionAnchors) {
             haService.bindExecutionAuthority(executionAuthority);
         }
     }
 
-    void start(QueryBootstrap queryBootstrap) {
+    void start(QueryBootstrap queryBootstrap, int httpPort) {
         query = queryBootstrap;
         queryManager = queryBootstrap.queryManager();
         workerManager = queryBootstrap.workerManager();
         taskTracker = queryBootstrap.taskTracker();
         schedulerExecutor = queryBootstrap.schedulerExecutor();
+        if (coordinatorRegistry != null) {
+            haService.setCoordinatorRegistry(
+                    coordinatorRegistry, config.coordinatorTransportAdvertisedHost(), httpPort);
+        }
         startHealthScheduler();
         startHA();
     }

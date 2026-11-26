@@ -527,7 +527,7 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
     }
 
     private void registerWithRegistry(String coordinatorId) {
-        registryClient.register(coordinatorId, epoch.get());
+        registryClient.register(coordinatorId, requireLocalIncarnation(), epoch.get());
     }
 
     private void updateRegistryRole(String coordinatorId, CoordinatorRole newRole) {

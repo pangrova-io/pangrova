@@ -38,6 +38,7 @@ import org.pangrova.common.lifecycle.HealthCheckEndpoint;
 import org.pangrova.common.client.query.QueryOwnerEndpoint;
 import org.pangrova.security.authentication.AuthenticationManager;
 import org.eclipse.jetty.server.Server;
+import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
 import org.glassfish.jersey.jackson.JacksonFeature;
@@ -132,6 +133,11 @@ public final class CoordinatorHttpServer {
                 healthCheckEndpoint, null, null, null));
     }
 
+    /** Reserves the real endpoint while the Coordinator prepares its execution authority. */
+    public void bind() throws java.io.IOException {
+        connector().open();
+    }
+
     /** Starts the Jetty server. */
     public void start() throws Exception {
         if (copySourceReadEnabled) {
@@ -153,12 +159,20 @@ public final class CoordinatorHttpServer {
     public void stop() throws Exception {
         // A failed bind has no started servlet context to drain gracefully.
         if (!server.isStarted()) server.setStopTimeout(0);
-        server.stop();
+        try {
+            server.stop();
+        } finally {
+            connector().close();
+        }
     }
 
     /** Returns the actual bound port (useful when port=0 for random binding). */
     public int getPort() {
         return EmbeddedHttpServerFactory.getPort(server);
+    }
+
+    private ServerConnector connector() {
+        return (ServerConnector) server.getConnectors()[0];
     }
 
     private QueryOwnerEndpoint getQueryOwnerEndpoint(IntFunction<QueryOwnerEndpoint> ownerEndpointFactory) {

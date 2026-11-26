@@ -68,7 +68,10 @@ deadline, then serves its existing local state or profile or applies the
 cancellation. The ingress verifies the owner's status code and response bytes
 before relaying them. Route resolution uses the receipt, so waiting and profile
 operations avoid coordinator-registry, journal, and audit lookups. Explicit
-history reads use the ingress's existing durable lookup.
+history reads use the ingress's existing durable lookup. Startup binds the HTTP
+listener before membership registration, so the registry records the actual
+port and the same process incarnation used in the receipt. The listener serves
+requests once Coordinator initialization completes.
 
 The bounded asynchronous submission executor runs SQL planning and starts the
 distributed DAG. The DAG publishes its OUTPUT endpoint after Worker acknowledgement

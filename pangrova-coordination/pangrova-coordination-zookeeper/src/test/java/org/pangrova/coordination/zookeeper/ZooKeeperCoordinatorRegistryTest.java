@@ -71,7 +71,7 @@ class ZooKeeperCoordinatorRegistryTest {
     }
 
     private static CoordinatorSnapshot snap(String id, String role, long heartbeatMs) {
-        return new CoordinatorSnapshot(id, "host-" + id, 8080, role, 1L, heartbeatMs, heartbeatMs, 0L);
+        return new CoordinatorSnapshot(id, "host-" + id, 8080, role, 1L, heartbeatMs, heartbeatMs, 0L, "instance-" + id);
     }
 
     @Test
@@ -108,7 +108,10 @@ class ZooKeeperCoordinatorRegistryTest {
         assertThat(registry.getAllCoordinators(Duration.ofSeconds(5))).isEmpty();
         registry.heartbeat("A");
         assertThat(registry.getAllCoordinators(Duration.ofSeconds(5)))
-                .extracting(CoordinatorSnapshot::coordinatorId).containsExactly("A");
+                .singleElement().satisfies(snapshot -> {
+                    assertThat(snapshot.coordinatorId()).isEqualTo("A");
+                    assertThat(snapshot.incarnation()).isEqualTo("instance-A");
+                });
     }
 
     @Test
@@ -116,7 +119,9 @@ class ZooKeeperCoordinatorRegistryTest {
         registry.register(snap("A", "STANDBY", System.currentTimeMillis()));
         assertThat(registry.getLeader()).as("no leader while A is STANDBY").isEmpty();
         registry.updateRole("A", CoordinatorRole.LEADER);
-        assertThat(registry.getLeader().orElseThrow().coordinatorId()).isEqualTo("A");
+        CoordinatorSnapshot leader = registry.getLeader().orElseThrow();
+        assertThat(leader.coordinatorId()).isEqualTo("A");
+        assertThat(leader.incarnation()).isEqualTo("instance-A");
     }
 
     @Test

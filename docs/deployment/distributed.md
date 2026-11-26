@@ -375,6 +375,8 @@ Coordinators, a different key from the Worker service credential, and a client
 authenticator. Make the advertised Coordinator host and actual HTTP port
 reachable from peer Coordinators on the private network and synchronize their
 clocks. The peer protocol authenticates requests and responses over that network.
+If the HTTP listener is configured with port `0`, the membership registry
+records the assigned port after binding and before the node starts serving HTTP.
 
 
 ### 4.3 JVM Configuration

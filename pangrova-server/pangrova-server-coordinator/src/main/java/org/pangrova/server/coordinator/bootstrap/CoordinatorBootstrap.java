@@ -147,14 +147,15 @@ public final class CoordinatorBootstrap {
                 metadataBootstrap == null ? null : metadataBootstrap.catalogRegistry());
         query = buildQueryBootstrap();
         query.start();
-        ha.start(query);
+        http = buildHttpBootstrap();
+        int boundPort = http.bind();
+        ha.start(query, boundPort);
         var invalidationPoller = moduleWiring.catalogMaintenance().getInvalidationPoller();
         if (invalidationPoller != null) {
             invalidationPoller.start();
         }
         query.startCoordinationLoops();
         startCdcWorkerRuntime();
-        http = buildHttpBootstrap();
         http.start();
     }
 

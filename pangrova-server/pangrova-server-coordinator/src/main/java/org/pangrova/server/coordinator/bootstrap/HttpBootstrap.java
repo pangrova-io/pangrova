@@ -63,7 +63,7 @@ final class HttpBootstrap {
         this.metadataService = metadataService;
     }
 
-    void start() {
+    int bind() {
         try {
             TracingHttpFilter tracingFilter = buildTracingFilter();
             HealthCheckEndpoint healthEndpoint = buildHealthEndpoint();
@@ -83,6 +83,15 @@ final class HttpBootstrap {
             httpServer = new CoordinatorHttpServer(
                     new java.net.InetSocketAddress(config.httpHost(), config.httpPort()), httpDeps,
                     coordinatorBootstrap::queryOwnerEndpoint, queryPeers);
+            httpServer.bind();
+            return httpServer.getPort();
+        } catch (Exception e) {
+            throw new BootstrapFailedException("HTTP bind", e);
+        }
+    }
+
+    void start() {
+        try {
             httpServer.start();
             LOG.info("Phase: HTTP — listening on port {}", httpServer.getPort());
         } catch (Exception e) {

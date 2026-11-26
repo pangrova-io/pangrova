@@ -18,11 +18,39 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.channels.ServerSocketChannel;
+import java.time.Duration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class CoordinatorHttpStartupCleanupTest {
+    @Test
+    void bindingPublishesThePortWithoutAdmittingRequestsAndStopReleasesIt() throws Exception {
+        var tasks = new CoordinatorTaskTracker();
+        var workers = new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry());
+        var queries = StatusOnlyQueryManagerFixture.create(workers, tasks);
+        var receiver = new TaskStatusReceiver(TaskStatusReceiverContext.withoutSpeculation(
+                queries, tasks, workers, new InMemoryWriteCommitJournal()));
+        var owner = new CoordinatorHttpServer(new InetSocketAddress("127.0.0.1", 0),
+                CoordinatorHttpServerContext.minimal(receiver));
+        int boundPort;
+        try {
+            owner.bind();
+            boundPort = owner.getPort();
+            assertThat(boundPort).isPositive();
+            var request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + boundPort + "/v1/health"))
+                    .timeout(Duration.ofMillis(300)).GET().build();
+            assertThatThrownBy(() -> HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.discarding()))
+                    .isInstanceOf(java.net.http.HttpTimeoutException.class);
+        } finally {
+            owner.stop();
+        }
+        try (var reopened = ServerSocketChannel.open()) {
+            reopened.bind(new InetSocketAddress("127.0.0.1", boundPort));
+            assertThat(reopened.isOpen()).isTrue();
+        }
+    }
+
     @Test
     void startupExposesNoSplitPullRoutes() throws Exception {
         var tasks = new CoordinatorTaskTracker();

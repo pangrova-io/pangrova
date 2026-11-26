@@ -95,7 +95,7 @@ public final class ZooKeeperCoordinatorRegistry implements CoordinatorRegistry {
     public void heartbeat(String coordinatorId) {
         long now = System.currentTimeMillis();
         mutate(coordinatorId, s -> new CoordinatorSnapshot(s.coordinatorId(), s.host(), s.httpPort(),
-                s.role(), s.epoch(), now, s.registeredAtMs(), s.lastProcessedInvalidationId()));
+                s.role(), s.epoch(), now, s.registeredAtMs(), s.lastProcessedInvalidationId(), s.incarnation()));
     }
 
     @Override
@@ -103,7 +103,7 @@ public final class ZooKeeperCoordinatorRegistry implements CoordinatorRegistry {
         Objects.requireNonNull(role, "role must not be null");
         mutate(coordinatorId, s -> new CoordinatorSnapshot(s.coordinatorId(), s.host(), s.httpPort(),
                 role.name(), s.epoch(), s.lastHeartbeatMs(), s.registeredAtMs(),
-                s.lastProcessedInvalidationId()));
+                s.lastProcessedInvalidationId(), s.incarnation()));
         LOG.info("event=coordinator_role_updated coordinatorId={} role={}", coordinatorId, role);
     }
 
@@ -283,21 +283,23 @@ public final class ZooKeeperCoordinatorRegistry implements CoordinatorRegistry {
     }
 
     // Wire format (newline-delimited): coordinatorId, host, httpPort, role, epoch,
-    // lastHeartbeatMs, registeredAtMs, lastProcessedInvalidationId
+    // lastHeartbeatMs, registeredAtMs, lastProcessedInvalidationId, incarnation
     private static byte[] serialize(CoordinatorSnapshot s) {
         String data = String.join("\n",
                 s.coordinatorId(), s.host(), Integer.toString(s.httpPort()), s.role(),
                 Long.toString(s.epoch()), Long.toString(s.lastHeartbeatMs()),
-                Long.toString(s.registeredAtMs()), Long.toString(s.lastProcessedInvalidationId()));
+                Long.toString(s.registeredAtMs()), Long.toString(s.lastProcessedInvalidationId()),
+                Objects.toString(s.incarnation(), ""));
         return data.getBytes(StandardCharsets.UTF_8);
     }
 
     private static CoordinatorSnapshot parse(byte[] data) {
         String[] p = new String(data, StandardCharsets.UTF_8).split("\n", -1);
-        if (p.length < 8) {
+        if (p.length != 9) {
             throw new IllegalStateException("Corrupt coordinator registry payload");
         }
         return new CoordinatorSnapshot(p[0], p[1], Integer.parseInt(p[2]), p[3],
-                Long.parseLong(p[4]), Long.parseLong(p[5]), Long.parseLong(p[6]), Long.parseLong(p[7]));
+                Long.parseLong(p[4]), Long.parseLong(p[5]), Long.parseLong(p[6]), Long.parseLong(p[7]),
+                p[8].isEmpty() ? null : p[8]);
     }
 }
