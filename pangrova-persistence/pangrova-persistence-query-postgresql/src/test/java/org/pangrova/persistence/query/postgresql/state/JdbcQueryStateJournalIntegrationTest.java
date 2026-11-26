@@ -3,10 +3,12 @@ package org.pangrova.persistence.query.postgresql.state;
 import java.sql.Connection;
 import java.sql.Statement;
 import java.util.List;
+import java.util.Set;
 
 import javax.sql.DataSource;
 
 import org.postgresql.ds.PGSimpleDataSource;
+import org.pangrova.query.api.journal.JournalEventContext;
 import org.pangrova.query.api.journal.QueryAcceptance;
 import org.pangrova.query.api.journal.QueryAcceptanceRequest;
 import org.pangrova.query.api.journal.QueryStateEvent;
@@ -113,6 +115,55 @@ class JdbcQueryStateJournalIntegrationTest {
         assertEquals(2, events.size());
         assertEquals("t-1", events.get(0).taskId());
         assertEquals("t-2", events.get(1).taskId());
+    }
+
+    @Test
+    void claimedRecoveryReadsOnlyItsActiveBatchInOneStatement() throws Exception {
+        executeSql("""
+                INSERT INTO query_state_journal (event_id, query_id, state, timestamp_ms)
+                SELECT gen_random_uuid(), 'peer-' || i, 'RUNNING', 100
+                FROM generate_series(1, 4096) i
+                """);
+        executeSql("""
+                INSERT INTO task_state_journal (event_id, query_id, task_id, state, stage_id, timestamp_ms)
+                SELECT gen_random_uuid(), 'peer-' || i, 'peer-task-' || i, 'RUNNING', 0, 100
+                FROM generate_series(1, 4096) i
+                """);
+        var admission = acceptanceEvent("q-claimed", "alice", "a", "b", 60_000);
+        journal.acceptQuerySync(admission);
+        var running = new QueryStateEvent(JournalEventContext.create(100, "successor"),
+                "q-claimed", null, null, "RUNNING");
+        var task = new TaskStateEvent(JournalEventContext.create(99, "predecessor"),
+                "q-claimed", "t-claimed", "worker", "RUNNING", 0, 1);
+        journal.appendQueryEventSync(running);
+        journal.appendTaskEventSync(task);
+        journal.appendQueryEventSync(new QueryStateEvent(JournalEventContext.create(101, "predecessor"),
+                "q-terminal", null, null, "FINISHED"));
+        for (String query : List.of("q-terminal", "q-orphan")) {
+            journal.appendTaskEventSync(new TaskStateEvent(JournalEventContext.create(100, "predecessor"),
+                    query, "t-" + query, "worker", "RUNNING", 0, 1));
+        }
+        executeSql("CREATE EXTENSION IF NOT EXISTS pg_stat_statements");
+        executeSql("SELECT pg_stat_statements_reset()");
+
+        var empty = journal.replayClaimedQueries(Set.of());
+        assertThat(empty.queries()).isEmpty();
+        assertThat(empty.tasks()).isEmpty();
+        var batch = journal.replayClaimedQueries(Set.of("q-claimed", "q-terminal", "q-orphan", "q-absent"));
+        assertThat(batch.queries()).containsExactly(admission, running);
+        assertThat(batch.tasks()).containsExactly(task);
+        try (var connection = dataSource.getConnection(); var statement = connection.createStatement();
+                var rows = statement.executeQuery("""
+                        SELECT calls, rows FROM pg_stat_statements
+                        WHERE (query LIKE 'SELECT %' OR query LIKE 'WITH %')
+                          AND (query LIKE '%query_state_journal%' OR query LIKE '%task_state_journal%')
+                          AND query NOT LIKE '%FROM pg_stat_statements%'
+                        """)) {
+            assertTrue(rows.next());
+            assertEquals(1L, rows.getLong("calls"));
+            assertEquals(3L, rows.getLong("rows"));
+            assertFalse(rows.next());
+        }
     }
 
     @Test

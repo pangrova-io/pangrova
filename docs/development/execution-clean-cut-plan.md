@@ -21,7 +21,7 @@ unlisted: true
 | ID | 当前事实与缺口 | 实施工作包 |
 |---|---|---|
 | A1 | WP1.1 已将 principal/key digest、canonical fingerprint、lineage 和确定性 `QUEUED`/`PENDING` 回执原子写入初始 journal；正常新受理一次 INSERT，冲突/未知提交读取权威行，active query 不因 TTL 过期，terminal 后由有界 sweep 清理 | WP1.1，本地 PostgreSQL/查询链验证后提交；双 Coordinator 进程 E2E 待续 |
-| A2 | 状态机已有原子版本、waiter 和 drain；已支持配置了密钥的共享入口按签名票据转发，成员注册记录实际 HTTP 端口和进程实例；所有者接管、回执重新绑定和跨主机验收仍待完成 | WP1.2 |
+| A2 | 已有原子状态版本和签名回执转发，成员注册记录真实 HTTP 端口和进程实例。剩余工作包括故障接管、回执重新绑定、接管后原任务退出证据与租约释放、跨主机验收 | WP1.2 |
 | A3 | WP1.3 已引入显式 `PENDING` / `STREAM` / `NONE`，并贯通 dispatch、状态机、REST、JDBC、CLI 和 benchmark；代码合同已闭合，跨主机 resultless/延迟发布 E2E 仍待验收 | WP1.3，本地验证后提交；生产验收待续 |
 | A4 | 已有阶段观测和固定到达率样本；尚未接入完整 production phase/queue/rejection/timeout/drain KPI 与容量矩阵 | WP2 |
 | A5 | Paimon 仍 eager 调用 `plan().splits()`；外层 deadline/count 无法约束 SDK 内部规划 | WP3.2 |
@@ -111,6 +111,8 @@ unlisted: true
 受理回执携带原始 Coordinator 的 ID、进程实例和实际 HTTP 地址。该地址与幂等受理事实写入同一 journal 行。两个真实 QUERY Coordinator 共用 PostgreSQL 时，第二台重放同一请求返回原回执和端口，未创建本机查询。按该地址等待状态取得原查询的结果端点，控制面 Flight 完整读至 EOF。SDK 可在提交或使用保存的回执重连时，从客户端已配置的端点中确定所有者，后续状态和取消沿同一选择发送。未配置的地址在 SDK HTTP 测试中收到零请求。
 
 共享入口在认证用户后以签名票据确定原所有者，以一个有界 HTTP 请求转发。目标按进程实例和提交主体重新核对权限，入口验签后转交响应字节。两个实装 QUERY Coordinator 共用 PostgreSQL，使用真实 OIDC 和独立 HTTP 端点验证同一观察者的重复等待被拒绝，原等待取得控制面 Flight 端点，路由到另一节点的取消在原所有者排空。状态、REST profile 和 Web UI profile 共 32 个并发请求，journal、审计表和 Coordinator 注册表 SELECT 增量均为零。篡改票据、其他主体和 Worker 通用凭证均无法启用转发。两个节点以动态端口启动时，PostgreSQL 注册项记录两者的实际监听端口和各自的进程实例，所有者实例与签名回执一致。启动测试验证监听端口在 HTTP 开始处理请求前已经绑定，以及取消启动后端口可重新绑定。所有者接管与当前 Native 跨主机验收仍按 A2 验证。
+
+故障恢复的日志读取以已认领的查询 ID 为入口，通过现有查询与任务索引在同一 PostgreSQL 语句快照中取得两类事件，再按原插入顺序重放。并发存在的同一租户或其他所有者查询不进入该批次。包含 65,536 个无关活跃查询和 256 个认领查询的 PostgreSQL 16 对照中，两条原 SQL 共返回 131,840 行，新 SQL 返回 768 行。五次热态采样的新 SQL 执行时间中位数为 2.54 ms，原两条 SQL 的中位数分别为 18.63 ms 和 82.86 ms。该实验仅测数据库回放语句。恢复进程注册状态投影时直接保留批次已经证实的 journal 归属。真实 PostgreSQL 测试验证认领 256 个执行时，远端 Shuffle 清理意图只执行一次 SELECT，逐项执行清理时仍核验租约。
 
 ## 校准后的设计决策
 

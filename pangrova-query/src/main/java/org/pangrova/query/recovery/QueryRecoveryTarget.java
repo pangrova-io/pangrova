@@ -6,9 +6,8 @@ import org.pangrova.query.lifecycle.QueryStateMachine;
 /** Query-owner operations applied while replaying durable journal state. */
 public interface QueryRecoveryTarget {
 
-    void markRecoveredIssuanceUnresolved(String queryId);
-
-    void registerStateMachine(String queryId, QueryStateMachine stateMachine);
+    /** Publishes a projection built from committed journal facts with issuance still unresolved. */
+    void registerRecoveredStateMachine(String queryId, QueryStateMachine stateMachine);
 
     void onTaskFailed(String queryId, QueryFailure failure);
 }

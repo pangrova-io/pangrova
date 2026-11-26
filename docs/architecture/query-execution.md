@@ -73,6 +73,15 @@ listener before membership registration, so the registry records the actual
 port and the same process incarnation used in the receipt. The listener serves
 requests once Coordinator initialization completes.
 
+Recovery reads the query and task journals for the exact execution IDs claimed
+from the durable owner store. PostgreSQL returns both event streams from one
+statement snapshot in their respective insertion order. The replay retains
+the original admission and later events across owner incarnations. The restored
+projection keeps the journal ownership established by the replay batch. When
+remote Shuffle is enabled, recovery checks cleanup intents for the eligible claimed
+IDs in one batch before replay. Write recovery can defer an execution out of
+that batch, and each cleanup still checks its execution authority when applied.
+
 The bounded asynchronous submission executor runs SQL planning and starts the
 distributed DAG. The DAG publishes its OUTPUT endpoint after Worker acknowledgement
 and settles the execution through its completion stage. A running query does not

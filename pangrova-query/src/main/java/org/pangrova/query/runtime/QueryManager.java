@@ -609,7 +609,14 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
         return queries.get(queryId);
     }
 
-    /** Registers a recovered query state under the current lifecycle gate. */
+    @Override
+    public void registerRecoveredStateMachine(String queryId, QueryStateMachine sm) {
+        queryDispatcher.markRecoveredIssuanceUnresolved(queryId);
+        sm.retainJournalOwnership();
+        registerStateMachine(queryId, sm);
+    }
+
+    /** Registers a query state under the current lifecycle gate. */
     public void registerStateMachine(String queryId, QueryStateMachine sm) {
         queryLifecycleLock.readLock().lock();
         try {
@@ -627,17 +634,14 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
         }
         var operation = queryDispatcher.enterQueryMetadataOperation(queryId);
         try {
-            if (journalLifecycle.hasLatestEvent(queryId)) sm.retainJournalOwnership();
+            if (!sm.hasJournalOwnership() && journalLifecycle.hasLatestEvent(queryId)) {
+                sm.retainJournalOwnership();
+            }
             if (sm.isTerminal()) sm.claimTerminalEffects();
         } finally {
             operation.close();
         }
         if (sm.isTerminal()) completeTerminalQuery(queryId, sm, "registered_terminal");
-    }
-
-    /** Marks recovered issuance unresolved until its original operations are reconciled. */
-    public void markRecoveredIssuanceUnresolved(String queryId) {
-        queryDispatcher.markRecoveredIssuanceUnresolved(queryId);
     }
 
     public org.pangrova.query.lifecycle.QueryStateJournalPort getStateJournal() {

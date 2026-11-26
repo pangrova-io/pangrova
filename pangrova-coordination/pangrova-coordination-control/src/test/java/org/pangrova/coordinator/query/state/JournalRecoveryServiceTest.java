@@ -67,6 +67,34 @@ class JournalRecoveryServiceTest {
     }
 
     @Test
+    void claimedRecoveryRegistersOnlyTheSelectedQueryAndTasks() throws Exception {
+        try (var fixture = new RecoveryFixture(false)) {
+            var admission = new org.pangrova.query.api.session.JournalSessionPayload("claimed", "tenant-a", "alice");
+            String payload = org.pangrova.common.json.JsonMapperFactory.writer().writeValueAsString(admission);
+            fixture.journal.appendQueryEventSync(new QueryStateEvent(
+                    org.pangrova.query.api.journal.JournalEventContext.create(100, "predecessor"),
+                    "claimed", null, payload, "QUEUED"));
+            fixture.query("claimed", "RUNNING");
+            fixture.task("claimed", "claimed-task", "claimed-worker", "RUNNING", 1);
+            fixture.query("peer", "RUNNING");
+            fixture.task("peer", "peer-task", "peer-worker", "RUNNING", 1);
+
+            try (var connection = fixture.source.getConnection(); var statement = connection.createStatement()) {
+                statement.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public");
+            }
+            long reads = recoveryReads();
+            assertThat(fixture.recovery.recover(java.util.Set.of("claimed", "missing"))).isEqualTo(1);
+            assertThat(recoveryReads() - reads).isEqualTo(1);
+            assertThat(fixture.manager.getStateMachine("claimed").hasJournalOwnership()).isTrue();
+            assertThat(fixture.manager.getStateMachine("claimed").isOwnedBy("alice")).isTrue();
+            assertThat(fixture.manager.getQueryState("claimed")).contains(QueryState.RUNNING);
+            assertThat(fixture.tracker.getWorkerForTask("claimed-task")).isEqualTo("claimed-worker");
+            assertThat(fixture.manager.getQueryState("peer")).isEmpty();
+            assertThat(fixture.tracker.getWorkerForTask("peer-task")).isNull();
+        }
+    }
+
+    @Test
     void recoverEmptyJournalReturnsZero() throws Exception {
         try (var fixture = new RecoveryFixture(false)) {
             assertThat(fixture.recovery.recover()).isZero();
@@ -127,6 +155,21 @@ class JournalRecoveryServiceTest {
             assertThat(fixture.manager.awaitAllQueries(1)).isFalse();
             assertThat(fixture.manager.getActiveQueryCount()).isEqualTo(1);
             assertThat(fixture.queryRows("q-no-task")).isGreaterThanOrEqualTo(2);
+        }
+    }
+
+    private static long recoveryReads() throws SQLException {
+        try (var connection = SharedPostgresContainer.dataSource().getConnection();
+                var statement = connection.createStatement();
+                var rows = statement.executeQuery("""
+                        SELECT COALESCE(SUM(calls), 0) FROM public.pg_stat_statements
+                        WHERE query NOT LIKE '%FROM public.pg_stat_statements%'
+                          AND (query LIKE 'WITH claimed_events AS MATERIALIZED%'
+                               OR query LIKE 'SELECT event_id,% FROM query_state_journal WHERE query_id%'
+                               OR query LIKE 'SELECT event_id,% FROM task_state_journal WHERE query_id%')
+                        """)) {
+            rows.next();
+            return rows.getLong(1);
         }
     }
 

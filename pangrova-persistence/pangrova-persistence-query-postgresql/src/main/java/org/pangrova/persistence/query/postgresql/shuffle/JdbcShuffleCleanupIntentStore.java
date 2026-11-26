@@ -5,7 +5,9 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import javax.sql.DataSource;
 
@@ -56,6 +58,29 @@ public final class JdbcShuffleCleanupIntentStore implements ShuffleCleanupIntent
             }
         } catch (SQLException failure) {
             throw new IllegalStateException("shuffle cleanup intent lookup failed", failure);
+        }
+    }
+
+    @Override
+    public Set<String> pendingForQueries(Set<String> queryIds) {
+        Set<String> requested = Set.copyOf(queryIds);
+        if (requested.isEmpty()) return Set.of();
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement(
+                        "SELECT query_id FROM shuffle.shuffle_cleanup_intent WHERE query_id = ANY (?)")) {
+            var ids = connection.createArrayOf("varchar", requested.toArray(String[]::new));
+            try {
+                statement.setArray(1, ids);
+                try (ResultSet rows = statement.executeQuery()) {
+                    Set<String> pending = new HashSet<>();
+                    while (rows.next()) pending.add(rows.getString(1));
+                    return Set.copyOf(pending);
+                }
+            } finally {
+                ids.free();
+            }
+        } catch (SQLException failure) {
+            throw new IllegalStateException("shuffle cleanup intent batch lookup failed", failure);
         }
     }
 

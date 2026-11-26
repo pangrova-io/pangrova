@@ -53,6 +53,9 @@ final class QueryJournalLifecycle
     @Override public java.util.List<TaskStateEvent> replayActiveTasks() {
         return journal.replayActiveTasks();
     }
+    @Override public RecoveryBatch replayClaimedQueries(java.util.Set<String> queryIds) {
+        return journal.replayClaimedQueries(queryIds);
+    }
     @Override public Optional<QueryStateEvent> latestQueryEvent(String queryId) {
         return journal.latestQueryEvent(queryId);
     }

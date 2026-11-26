@@ -2,6 +2,7 @@ package org.pangrova.query.api.journal;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import org.pangrova.common.api.annotation.Stable;
 
 /** Read-only journal facts from the same store owner; replay alone is not Native exit evidence. */
@@ -11,6 +12,17 @@ public interface QueryStateJournalReader {
     List<QueryStateEvent> replayActiveQueries();
     /** Returns ordered task facts for active journaled queries. */
     List<TaskStateEvent> replayActiveTasks();
+    /** Reads ordered query and task facts for exactly the claimed executions in one store snapshot. */
+    RecoveryBatch replayClaimedQueries(Set<String> queryIds);
+
+    /** Ordered committed facts for the active queries within a single claim batch. */
+    record RecoveryBatch(List<QueryStateEvent> queries, List<TaskStateEvent> tasks) {
+        public RecoveryBatch {
+            queries = List.copyOf(queries);
+            tasks = List.copyOf(tasks);
+        }
+    }
+
     /** Returns active query facts issued by the specified owner. */
     default List<QueryStateEvent> replayActiveQueriesForOwner(String coordinatorId) {
         return replayActiveQueries().stream()

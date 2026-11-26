@@ -207,16 +207,15 @@ final class QueryDurableRecovery implements AutoCloseable {
         if (shuffleCleanupIntents == null) {
             return Set.of();
         }
-        Set<String> cleaned = new HashSet<>();
+        Set<String> eligible = claimed.stream().map(ExecutionAnchor::executionId)
+                .filter(id -> !deferred.contains(id)).collect(Collectors.toUnmodifiableSet());
+        Set<String> pending = shuffleCleanupIntents.pendingForQueries(eligible);
         for (ExecutionAnchor anchor : claimed) {
-            String queryId = anchor.executionId();
-            if (deferred.contains(queryId) || !shuffleCleanupIntents.isPending(queryId)) {
-                continue;
+            if (pending.contains(anchor.executionId())) {
+                queryDispatcher.retryPendingShuffleCleanup(anchor.executionId());
             }
-            queryDispatcher.retryPendingShuffleCleanup(queryId);
-            cleaned.add(queryId);
         }
-        return Set.copyOf(cleaned);
+        return pending;
     }
 
     private void submitShuffleCleanupScan(Executor cleanupExecutor) {

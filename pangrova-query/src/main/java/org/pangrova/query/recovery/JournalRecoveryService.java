@@ -118,9 +118,9 @@ public final class JournalRecoveryService {
 
     /**
      * Recovers only the supplied query IDs. A null set retains the configured
-     * owner/all scope; an empty set performs no recovery. This query fence is
-     * required by active-active recovery so a restarted owner ID cannot cause
-     * live queries from its new incarnation to be replayed.
+     * owner/all scope; an empty set performs no recovery. A claim batch
+     * always includes the complete history for each claimed query across owner
+     * incarnations, including the original admission.
      */
     public int recover(Set<String> queryIds) {
         if (queryIds != null && queryIds.isEmpty()) {
@@ -128,7 +128,11 @@ public final class JournalRecoveryService {
         }
         List<QueryStateEvent> queryEvents;
         List<TaskStateEvent> taskEvents;
-        if (previousLeaderId != null) {
+        if (queryIds != null) {
+            var batch = journal.replayClaimedQueries(queryIds);
+            queryEvents = batch.queries();
+            taskEvents = batch.tasks();
+        } else if (previousLeaderId != null) {
             queryEvents = journal.replayActiveQueriesForOwner(previousLeaderId);
             taskEvents = journal.replayActiveTasksForOwner(previousLeaderId);
             LOG.info("event=journal_recovery_scoped previousLeader={} queryEvents={} taskEvents={}",
@@ -136,14 +140,6 @@ public final class JournalRecoveryService {
         } else {
             queryEvents = journal.replayActiveQueries();
             taskEvents = journal.replayActiveTasks();
-        }
-        if (queryIds != null) {
-            queryEvents = queryEvents.stream()
-                    .filter(event -> queryIds.contains(event.queryId()))
-                    .toList();
-            taskEvents = taskEvents.stream()
-                    .filter(event -> queryIds.contains(event.queryId()))
-                    .toList();
         }
 
         Set<String> recoveredQueries = recoverQueries(queryEvents);
@@ -178,8 +174,7 @@ public final class JournalRecoveryService {
                 QueryState target = QueryState.valueOf(event.state());
                 advanceToState(sm, target);
                 // Logical events do not retain the original issued requests or Native exit receipts.
-                queryManager.markRecoveredIssuanceUnresolved(event.queryId());
-                queryManager.registerStateMachine(event.queryId(), sm);
+                queryManager.registerRecoveredStateMachine(event.queryId(), sm);
                 recovered.add(event.queryId());
                 LOG.debug("event=query_recovered queryId={} state={}",
                         event.queryId(), event.state());

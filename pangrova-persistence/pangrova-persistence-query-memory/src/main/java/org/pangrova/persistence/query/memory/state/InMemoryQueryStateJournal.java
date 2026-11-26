@@ -110,6 +110,17 @@ public final class InMemoryQueryStateJournal implements QueryStateJournal {
                 .collect(java.util.stream.Collectors.toSet());
         return tasks.values().stream().filter(event -> active.contains(event.queryId())).toList();
     }
+    @Override public synchronized RecoveryBatch replayClaimedQueries(Set<String> queryIds) {
+        requireOpen();
+        Set<String> claimed = Set.copyOf(queryIds);
+        Set<String> terminal = terminalQueries();
+        var queryEvents = queries.values().stream().filter(event ->
+                claimed.contains(event.queryId()) && !terminal.contains(event.queryId())).toList();
+        Set<String> active = queryEvents.stream().map(QueryStateEvent::queryId)
+                .collect(java.util.stream.Collectors.toSet());
+        var taskEvents = tasks.values().stream().filter(event -> active.contains(event.queryId())).toList();
+        return new RecoveryBatch(queryEvents, taskEvents);
+    }
     @Override public synchronized Optional<QueryStateEvent> latestQueryEvent(String queryId) {
         requireOpen();
         Objects.requireNonNull(queryId, "queryId");

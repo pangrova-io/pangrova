@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import javax.sql.DataSource;
@@ -28,6 +29,28 @@ public final class JdbcQueryStateJournal implements QueryStateJournal {
     private static final int MAX_EXPIRED_ACCEPTANCES_PER_SWEEP = 1000;
     private static final String ACTIVE = "query_id NOT IN (SELECT query_id FROM query_state_journal "
             + "WHERE state IN ('FINISHED','FAILED','CANCELLED'))";
+    private static final String REPLAY_CLAIMED = """
+            WITH claimed_events AS MATERIALIZED (
+                SELECT q.* FROM unnest(?::varchar[]) AS claimed(query_id)
+                JOIN query_state_journal q USING (query_id)
+            ), active AS MATERIALIZED (
+                SELECT query_id FROM claimed_events GROUP BY query_id
+                HAVING NOT bool_or(state IN ('FINISHED','FAILED','CANCELLED'))
+            )
+            SELECT 0 AS event_kind, q.id, q.event_id, q.query_id, q.state, q.timestamp_ms, q.coordinator_id,
+                   q.sql_text, q.session_json, q.lineage_payload, q.principal, q.idempotency_key_digest,
+                   q.request_fingerprint, q.acceptance_receipt_json, q.retention_ms,
+                   NULL::varchar AS task_id, NULL::varchar AS worker_id, NULL::integer AS stage_id,
+                   NULL::bigint AS report_sequence
+            FROM active JOIN claimed_events q USING (query_id)
+            UNION ALL
+            SELECT 1, t.id, t.event_id, t.query_id, t.state, t.timestamp_ms, t.coordinator_id,
+                   NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+                   t.task_id, t.worker_id, t.stage_id, t.report_sequence
+            FROM active JOIN task_state_journal t USING (query_id)
+            ORDER BY event_kind, id
+            """;
+
     private final DataSource dataSource;
     private final JournalPendingWrites pending;
     private final JournalFlushOwner flushOwner;
@@ -111,6 +134,37 @@ public final class JdbcQueryStateJournal implements QueryStateJournal {
         } catch (SQLException failure) {
             throw JournalPendingWrites.failure("Failed to replay active tasks", failure);
         }
+    }
+
+    @Override public RecoveryBatch replayClaimedQueries(Set<String> queryIds) {
+        Set<String> claimed = Set.copyOf(queryIds);
+        if (claimed.isEmpty()) return new RecoveryBatch(List.of(), List.of());
+        try {
+            return pending.enterSql().perform(dataSource, connection -> readClaimed(connection, claimed));
+        } catch (SQLException failure) {
+            throw JournalPendingWrites.failure("Failed to replay claimed queries", failure);
+        }
+    }
+
+    private static RecoveryBatch readClaimed(Connection connection, Set<String> claimed) throws SQLException {
+        List<QueryStateEvent> queries = new ArrayList<>();
+        List<TaskStateEvent> tasks = new ArrayList<>();
+        var ids = connection.createArrayOf("varchar", claimed.toArray(String[]::new));
+        try (var statement = connection.prepareStatement(REPLAY_CLAIMED)) {
+            statement.setArray(1, ids);
+            try (var rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    if (rows.getInt("event_kind") == 0) {
+                        queries.add(JournalEventSql.readQuery(rows));
+                    } else {
+                        tasks.add(JournalEventSql.readTask(rows));
+                    }
+                }
+            }
+        } finally {
+            ids.free();
+        }
+        return new RecoveryBatch(queries, tasks);
     }
 
     @Override public Optional<QueryStateEvent> latestQueryEvent(String queryId) {

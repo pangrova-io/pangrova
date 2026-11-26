@@ -4,6 +4,8 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.time.Duration;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
@@ -197,6 +199,27 @@ class JdbcShuffleCleanupIntentStoreIntegrationTest {
 
         assertThat(store.isPending(queryId)).isFalse();
         assertThat(remoteCleanups.get()).isEqualTo(1);
+    }
+
+    @Test
+    void readsCleanupIntentsForAFullRecoveryBatchInOneStatement() throws Exception {
+        String prefix = "batch-" + UUID.randomUUID();
+        String first = prefix + "-1";
+        String last = prefix + "-256";
+        String unrelated = prefix + "-peer";
+        for (String queryId : Set.of(first, last, unrelated)) {
+            seedAnchor(queryId);
+            store.markPending(queryId);
+        }
+        Set<String> claimed = new HashSet<>();
+        for (int i = 1; i <= 256; i++) {
+            claimed.add(prefix + "-" + i);
+        }
+
+        long before = cleanupStatements();
+        assertThat(store.pendingForQueries(Set.of())).isEmpty();
+        assertThat(store.pendingForQueries(claimed)).containsExactlyInAnyOrder(first, last);
+        assertThat(cleanupStatements() - before).isEqualTo(1);
     }
 
     @Test
