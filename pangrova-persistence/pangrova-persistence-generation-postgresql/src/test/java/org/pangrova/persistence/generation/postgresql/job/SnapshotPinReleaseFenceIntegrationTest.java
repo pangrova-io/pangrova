@@ -82,6 +82,56 @@ class SnapshotPinReleaseFenceIntegrationTest extends ContainerTestBase {
     }
 
     @Test
+    void maintenanceRetainsCurrentPublishedGenerationAndReleasesDroppedGeneration() throws Exception {
+        Instant cutoff = NOW.plusSeconds(1);
+        try (var connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            assertThat(PostgresSnapshotPinLedger.cleanupCandidates(connection, 10, cutoff, cutoff)).isEmpty();
+            assertThat(PostgresSnapshotPinLedger.claimCleanup(
+                    connection, TENANT, OWNER, cutoff, cutoff, cutoff)).isEmpty();
+            connection.commit();
+        }
+        try (var connection = dataSource.getConnection()) {
+            execute(connection, "UPDATE index_descriptors SET state='DROPPED' WHERE index_id=?", INDEX);
+        }
+        try (var connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            assertThat(PostgresSnapshotPinLedger.cleanupCandidates(connection, 10, cutoff, cutoff)).hasSize(1);
+            assertThat(PostgresSnapshotPinLedger.claimCleanup(
+                    connection, TENANT, OWNER, cutoff, cutoff, cutoff))
+                    .hasValueSatisfying(intent -> assertThat(intent.state().name()).isEqualTo("RELEASING"));
+            connection.commit();
+        }
+        // Connector outcome may be uncertain, so RELEASING must be recoverable.
+        try (var connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            assertThat(PostgresSnapshotPinLedger.claimCleanup(
+                    connection, TENANT, OWNER, cutoff, cutoff, cutoff)).isPresent();
+            assertThat(PostgresSnapshotPinLedger.markReleased(connection, TENANT, OWNER, cutoff)).isTrue();
+            assertThat(PostgresSnapshotPinLedger.cleanupCandidates(connection, 10, cutoff, cutoff)).isEmpty();
+            connection.commit();
+        }
+    }
+
+    @Test
+    void maintenanceRetainsReservedPinForAnUnfinishedGeneration() throws Exception {
+        Instant cutoff = NOW.plusSeconds(1);
+        try (var connection = dataSource.getConnection()) {
+            execute(connection, "UPDATE artifact_snapshot_pins SET job_id=NULL WHERE tenant_id=? AND pin_owner=?",
+                    TENANT, OWNER);
+            execute(connection, "UPDATE index_descriptors SET state='BUILDING' WHERE index_id=?", INDEX);
+        }
+        try (var connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            assertThat(PostgresSnapshotPinLedger.cleanupCandidates(connection, 10, cutoff, cutoff)).isEmpty();
+            assertThat(PostgresSnapshotPinLedger.claimCleanup(
+                    connection, TENANT, OWNER, cutoff, cutoff, cutoff)).isEmpty();
+            connection.commit();
+        }
+        assertThat(pinState()).isEqualTo("PINNED");
+    }
+
+    @Test
     void oneJobCannotBindMultipleSnapshotPins() {
         assertThatThrownBy(() -> {
             try (var connection = dataSource.getConnection()) {

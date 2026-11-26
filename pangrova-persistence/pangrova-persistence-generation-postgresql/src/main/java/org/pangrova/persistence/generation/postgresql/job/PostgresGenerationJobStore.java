@@ -98,6 +98,19 @@ public final class PostgresGenerationJobStore extends PostgresGenerationJobStore
     }
 
     @Override
+    public Optional<SnapshotPinIntent> claimSnapshotPinCleanup(
+            String tenantId, String pinOwner, Instant orphanGraceCutoff, Instant droppedGraceCutoff, Instant now) {
+        requireText(tenantId, "tenantId");
+        requireText(pinOwner, "pinOwner");
+        Objects.requireNonNull(orphanGraceCutoff, "orphanGraceCutoff");
+        Objects.requireNonNull(droppedGraceCutoff, "droppedGraceCutoff");
+        Objects.requireNonNull(now, "now");
+        return inTransaction("claim source snapshot pin cleanup", connection ->
+                PostgresSnapshotPinLedger.claimCleanup(
+                        connection, tenantId, pinOwner, orphanGraceCutoff, droppedGraceCutoff, now));
+    }
+
+    @Override
     public boolean markSnapshotPinReleased(String tenantId, String pinOwner, Instant now) {
         requireText(tenantId, "tenantId");
         requireText(pinOwner, "pinOwner");
@@ -147,6 +160,27 @@ public final class PostgresGenerationJobStore extends PostgresGenerationJobStore
         return inTransaction("list source snapshot pin cleanup", connection ->
                 PostgresSnapshotPinLedger.cleanupCandidates(
                         connection, limit, orphanGraceCutoff, droppedGraceCutoff));
+    }
+
+    @Override
+    public List<SnapshotPinIntent> listUnboundSnapshotPinsForRecovery(int limit, Instant retryCutoff) {
+        if (limit <= 0) {
+            throw new IllegalArgumentException("limit must be positive");
+        }
+        Objects.requireNonNull(retryCutoff, "retryCutoff");
+        return inTransaction("list unbound source snapshot recovery", connection ->
+                PostgresSnapshotPinLedger.listForRecovery(connection, limit, retryCutoff));
+    }
+
+    @Override
+    public Optional<SnapshotPinIntent> claimSnapshotPinRecovery(
+            String tenantId, String pinOwner, Instant retryCutoff, Instant now) {
+        requireText(tenantId, "tenantId");
+        requireText(pinOwner, "pinOwner");
+        Objects.requireNonNull(retryCutoff, "retryCutoff");
+        Objects.requireNonNull(now, "now");
+        return inTransaction("claim unbound source snapshot recovery", connection ->
+                PostgresSnapshotPinLedger.claimRecovery(connection, tenantId, pinOwner, retryCutoff, now));
     }
 
     @Override

@@ -29,9 +29,13 @@ payload bytes.
   objects, and the Worker cache is never a metadata authority.
 
 The base path must be durable and shared by every process that reads or writes
-scalar artifacts. Native artifact staging must use a filesystem/object-store URI
+scalar artifacts. The Coordinator uses one validated root for scalar and Native
+artifact storage; conflicting bootstrap and indexing configuration roots are
+rejected. Native artifact staging must use a filesystem/object-store URI
 supported by the Worker. Production installations must isolate tenant access,
-configure retention and backups, and keep automatic maintenance disabled until
+configure retention and backups. Snapshot pin recovery runs only under verified
+maintenance leadership; demotion stops new recovery work, while a claimed
+operation can finish its exact ledger transition. Keep automatic maintenance disabled until
 the lifecycle gates pass. Schema V121 adopts already-published Native jobs that
 carry exact persisted dispatch authority as `INTENDED`; maintenance must acquire
 and validate their real connector pins before query retention can use them.
@@ -129,9 +133,20 @@ names are rejected before dispatch.
 Retries reuse stable work-unit identities while attempt IDs and fencing tokens
 advance. No in-memory build state is authoritative. Publication revalidates the
 exact durable and connector pin; cancellation of an expired or revoked job is
-fenced by the current publication owner, epoch and token. Pin cleanup first moves
-a reference-free ledger row to `RELEASING`, so a concurrent execution retention
-either inserts its reference before release or fails closed before dispatch.
+fenced by the current publication owner, epoch and token. A maintenance scan is
+only a candidate list. Cleanup rechecks the current build binding, active
+generation and execution references while claiming the exact ledger row. The
+durable transition to `RELEASING` prevents new job binding and retention before
+the connector release happens outside the cleanup transaction. An uncertain
+connector outcome remains `RELEASING` for exact, idempotent recovery.
+A persisted unbound submission is recoverable only if its exact generation,
+source snapshot and durable authorization still match a live build reservation.
+Online replacement resolves the staging reservation rather than the active
+descriptor's generation. Recovery does not synthesize a missing submitter or
+release a pin when the current source obligation remains uncertain. A stale
+reservation with neither a durable pin intent nor a job is fenced as failed
+after rechecking the same reservation, allowing an authenticated explicit
+rebuild; recovery does not issue connector operations for that reservation.
 
 Incremental index maintenance observes lineage before opening the snapshot file inventories. For a forward commit, the Connector uses one bound table observation, reads each immutable inventory once and derives the file delta from the same target inventory used for coverage validation. Replayed or superseded snapshots require only the lineage decision.
 

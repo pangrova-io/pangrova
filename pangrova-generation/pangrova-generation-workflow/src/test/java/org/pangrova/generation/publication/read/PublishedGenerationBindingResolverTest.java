@@ -416,6 +416,9 @@ class PublishedGenerationBindingResolverTest {
         @Override public boolean beginSnapshotPinRelease(String tenantId, String pinOwner, Instant now) {
             throw unsupported();
         }
+        @Override public Optional<org.pangrova.persistence.generation.api.job.SnapshotPinIntent>
+                claimSnapshotPinCleanup(String tenantId, String pinOwner, Instant orphanCutoff,
+                                        Instant droppedCutoff, Instant now) { throw unsupported(); }
         @Override public boolean markSnapshotPinReleased(String tenantId, String pinOwner, Instant now) {
             throw unsupported();
         }
@@ -427,6 +430,12 @@ class PublishedGenerationBindingResolverTest {
                 List<GenerationPage> pages, String pinOwner) { throw unsupported(); }
         @Override public List<org.pangrova.persistence.generation.api.job.SnapshotPinIntent>
                 listSnapshotPinCleanupCandidates(int limit, Instant orphanCutoff, Instant droppedCutoff) {
+            throw unsupported();
+        }
+        @Override public List<org.pangrova.persistence.generation.api.job.SnapshotPinIntent>
+                listUnboundSnapshotPinsForRecovery(int limit, Instant retryCutoff) { throw unsupported(); }
+        @Override public Optional<org.pangrova.persistence.generation.api.job.SnapshotPinIntent>
+                claimSnapshotPinRecovery(String tenantId, String pinOwner, Instant retryCutoff, Instant now) {
             throw unsupported();
         }
         @Override public List<org.pangrova.persistence.generation.api.job.SnapshotPinIntent>

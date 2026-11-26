@@ -106,8 +106,14 @@ class DurableIndexBuildSnapshotPinTest extends ContainerTestBase {
     }
 
     @Test
-    void emptySnapshotUsesALogicalPinWithoutConnectorCalls() {
+    void emptySnapshotUsesALogicalPinWithoutConnectorCalls() throws Exception {
         String snapshot = org.pangrova.coordinator.generation.SnapshotGenerationSplitPlanner.EMPTY_SNAPSHOT;
+        try (var connection = dataSource.getConnection();
+             var statement = connection.prepareStatement(
+                     "UPDATE index_descriptors SET build_snapshot_id=? WHERE index_id='index-1'")) {
+            statement.setString(1, snapshot);
+            statement.executeUpdate();
+        }
         var emptyConnector = new GeneratedBuildTestConnectors.SnapshotConnector(
                 Map.of(), snapshot, () -> { throw new AssertionError("empty snapshot enumerated source splits"); });
         var catalog = new org.pangrova.metadata.connector.ConnectorCatalogHandle(
@@ -129,7 +135,9 @@ class DurableIndexBuildSnapshotPinTest extends ContainerTestBase {
         assertThat(job.expectedPages()).isZero();
         assertThat(intent.state()).isEqualTo(SnapshotPinState.PINNED);
         emptyService.validateSnapshotPin(job);
-        emptyService.releaseSnapshotPin(intent);
+        assertThat(emptyService.cleanupSnapshotPins()).isZero();
+        assertThat(emptyService.cancel(job.artifactId(), TENANT, Instant.EPOCH)).isOne();
+        assertThat(emptyService.cleanupSnapshotPins()).isOne();
         assertThat(store.findSnapshotPinForJob(TENANT, jobId).orElseThrow().state())
                 .isEqualTo(SnapshotPinState.RELEASED);
         assertThat(emptyConnector.enumerations()).isZero();
@@ -240,6 +248,72 @@ class DurableIndexBuildSnapshotPinTest extends ContainerTestBase {
         assertThat(store.findJob(TENANT, jobId)).isPresent();
         assertThat(store.listSnapshotPinCleanupCandidates(10, NOW.plusSeconds(1), NOW.plusSeconds(1)))
                 .isEmpty();
+    }
+
+    @Test
+    void maintenanceFencesAbandonedReservationWithoutInventingAnActor() {
+        assertThat(service.fenceAbandonedNativeReservations(() -> false)).isZero();
+        assertThat(service.fenceAbandonedNativeReservations(() -> true)).isOne();
+        assertThat(service.fenceAbandonedNativeReservations(() -> true)).isZero();
+        IndexDescriptor failed = indexes.findIndex("index-1").orElseThrow();
+        assertThat(failed.state()).isEqualTo(IndexState.STALE);
+        assertThat(failed.staleReason()).isEqualTo("native_submission_missing_durable_intent");
+        assertThat(pins.events).isEmpty();
+        assertThat(connector.enumerations()).isZero();
+
+        // An explicitly authorized rebuild is still possible; no old job or pin exists.
+        Instant started = Instant.now();
+        assertThat(indexes.beginIndexGeneration(failed.indexId(), 1, SNAPSHOT, started,
+                failed.updatedAt(), failed.state(), failed.generation())).isTrue();
+        var rebuild = failed.withGeneration(1, started).withBuildSnapshotId(SNAPSHOT, started);
+        assertThat(store.findJob(TENANT, service.submit(rebuild, TABLE, session()))).isPresent();
+    }
+
+    @Test
+    void maintenanceRecoversTheExactPersistedUnboundSubmission() throws Exception {
+        pins.failAfterPin = true;
+        assertThatThrownBy(() -> service.submit(descriptor(), TABLE, session()))
+                .hasMessageContaining("pin outcome unknown");
+        SnapshotPinOwner owner = pins.owner;
+        Instant old = Instant.now().minus(java.time.Duration.ofHours(2));
+        try (var connection = dataSource.getConnection();
+             var statement = connection.prepareStatement(
+                     "UPDATE artifact_snapshot_pins SET created_at=?,updated_at=? WHERE pin_owner=?")) {
+            statement.setObject(1, java.time.OffsetDateTime.ofInstant(old, java.time.ZoneOffset.UTC));
+            statement.setObject(2, java.time.OffsetDateTime.ofInstant(old, java.time.ZoneOffset.UTC));
+            statement.setString(3, owner.id());
+            statement.executeUpdate();
+        }
+        pins.failAfterPin = false;
+        assertThat(service.fenceAbandonedNativeReservations(() -> true)).isZero();
+        assertThat(service.recoverUnboundSnapshotPins(() -> false)).isZero();
+        assertThat(service.recoverUnboundSnapshotPins(() -> true)).isOne();
+        assertThat(service.recoverUnboundSnapshotPins(() -> true)).isZero();
+        assertThat(pins.owner).isEqualTo(owner);
+        assertThat(store.findSnapshotPin(TENANT, owner.id())).hasValueSatisfying(intent ->
+                assertThat(intent.jobId()).isEqualTo(DurableIndexBuildService.jobId(TENANT, descriptor())));
+    }
+
+    @Test
+    void onlineReplacementUsesItsExactStagingReservation() {
+        service.submit(descriptor(), TABLE, session());
+        Instant readyAt = NOW.plusSeconds(1);
+        indexes.updateIndexState("index-1", "READY", readyAt);
+        IndexDescriptor previous = indexes.findIndex("index-1").orElseThrow();
+        Instant started = readyAt.plusSeconds(1);
+        assertThat(indexes.beginIndexGeneration("index-1", 1, SNAPSHOT, started,
+                previous.updatedAt(), previous.state(), previous.generation())).isTrue();
+        IndexDescriptor replacement = previous.withGeneration(1, started).withBuildSnapshotId(SNAPSHOT, started);
+        assertThat(indexes.isIndexGenerationSnapshotBuildable("index-1", 1, SNAPSHOT, started)).isTrue();
+        assertThat(indexes.isIndexGenerationSnapshotBuildable("index-1", 1, "other-snapshot", started)).isFalse();
+        assertThat(indexes.isIndexGenerationSnapshotBuildable("index-1", 1, SNAPSHOT, started.plusSeconds(1)))
+                .isFalse();
+        String jobId = service.submitReplacement(previous, replacement);
+        assertThat(store.findJob(TENANT, jobId)).hasValueSatisfying(job -> {
+            assertThat(job.stagingGeneration()).isEqualTo("1");
+            assertThat(job.publicationExpectedUpdatedAt()).isEqualTo(started);
+        });
+        assertThat(indexes.findIndex("index-1").orElseThrow().generation()).isZero();
     }
 
     @Test

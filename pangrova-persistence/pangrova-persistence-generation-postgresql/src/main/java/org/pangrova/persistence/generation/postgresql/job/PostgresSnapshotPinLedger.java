@@ -38,20 +38,43 @@ final class PostgresSnapshotPinLedger {
     private static final String FIND_PIN_FOR_UPDATE_SQL = FIND_PIN_SQL + " FOR UPDATE";
     private static final String FIND_PIN_FOR_JOB_SQL = "SELECT " + COLUMNS
             + " FROM artifact_snapshot_pins WHERE tenant_id=? AND job_id=?";
-    private static final String CLEANUP_PINS_SQL = "SELECT " + QUALIFIED_COLUMNS
-            + " FROM artifact_snapshot_pins p "
+    private static final String CLEANUP_ELIGIBILITY_SQL = " FROM artifact_snapshot_pins p "
             + "LEFT JOIN artifact_build_jobs j ON j.tenant_id=p.tenant_id AND j.job_id=p.job_id "
-            + "WHERE p.state IN ('INTENDED','PINNED','RELEASING') AND ("
-            + "(p.job_id IS NULL AND p.created_at<=?) OR "
-            + "(j.state IN ('FAILED','CANCELLED') AND j.updated_at<=?) OR "
-            + "(j.state='PUBLISHED' AND NOT EXISTS (SELECT 1 FROM artifact_snapshot_pin_references r "
+            + "WHERE p.state IN ('INTENDED','PINNED','RELEASING') "
+            + "AND NOT EXISTS (SELECT 1 FROM artifact_snapshot_pin_references r "
             + "WHERE r.tenant_id=p.tenant_id AND r.pin_owner=p.pin_owner) AND ("
-            + "NOT EXISTS (SELECT 1 FROM index_descriptors d WHERE d.index_id=p.index_id) OR "
-            + "EXISTS (SELECT 1 FROM index_descriptors d WHERE d.index_id=p.index_id "
+            + "p.state='RELEASING' OR "
+            + "(p.job_id IS NULL AND p.created_at<=? AND NOT EXISTS ("
+            + "SELECT 1 FROM index_descriptors d WHERE d.index_id=p.index_id AND d.tenant_id=p.tenant_id "
+            + "AND d.state<>'DROPPED' AND ((d.state='BUILDING' AND d.generation=p.generation) "
+            + "OR EXISTS (SELECT 1 FROM index_generation_builds b WHERE b.index_id=d.index_id "
+            + "AND b.generation=p.generation AND b.state='BUILDING')))) OR "
+            + "(j.state IN ('FAILED','CANCELLED') AND j.updated_at<=?) OR "
+            + "(j.state='PUBLISHED' AND ("
+            + "NOT EXISTS (SELECT 1 FROM index_descriptors d "
+            + "WHERE d.index_id=p.index_id AND d.tenant_id=p.tenant_id) OR "
+            + "EXISTS (SELECT 1 FROM index_descriptors d WHERE d.index_id=p.index_id AND d.tenant_id=p.tenant_id "
             + "AND ((d.state='DROPPED' AND d.updated_at<=?) OR "
             + "(d.state<>'DROPPED' AND (d.generation<>p.generation "
-            + "OR d.build_snapshot_id<>p.source_snapshot) AND d.updated_at<=?)))))) "
-            + "ORDER BY p.created_at,p.tenant_id,p.pin_owner LIMIT ?";
+            + "OR d.build_snapshot_id<>p.source_snapshot) AND d.updated_at<=? "
+            + "AND NOT EXISTS (SELECT 1 FROM index_generation_manifests m WHERE m.index_id=d.index_id "
+            + "AND m.generation=p.generation AND m.state='ACTIVE')))))))";
+    private static final String CLEANUP_PINS_SQL = "SELECT " + QUALIFIED_COLUMNS
+            + CLEANUP_ELIGIBILITY_SQL + " ORDER BY p.created_at,p.tenant_id,p.pin_owner LIMIT ?";
+    private static final String CLAIM_CLEANUP_SQL = "SELECT 1" + CLEANUP_ELIGIBILITY_SQL
+            + " AND p.tenant_id=? AND p.pin_owner=?";
+    private static final String UNBOUND_RECOVERY_ELIGIBILITY_SQL = " FROM artifact_snapshot_pins p "
+            + "JOIN index_descriptors d ON d.index_id=p.index_id AND d.tenant_id=p.tenant_id "
+            + "WHERE p.job_id IS NULL AND p.attempt_id='submission' AND p.state IN ('INTENDED','PINNED') "
+            + "AND p.updated_at<=? AND ((d.state='BUILDING' AND d.generation=p.generation "
+            + "AND d.build_snapshot_id=p.source_snapshot) OR "
+            + "(d.state IN ('READY','STALE') AND EXISTS (SELECT 1 FROM index_generation_builds b "
+            + "WHERE b.index_id=d.index_id AND b.generation=p.generation AND b.base_generation=d.generation "
+            + "AND b.state='BUILDING' AND b.source_snapshot=p.source_snapshot)))";
+    private static final String UNBOUND_RECOVERY_SQL = "SELECT " + QUALIFIED_COLUMNS
+            + UNBOUND_RECOVERY_ELIGIBILITY_SQL + " ORDER BY p.updated_at,p.tenant_id,p.pin_owner LIMIT ?";
+    private static final String CLAIM_RECOVERY_SQL = "SELECT 1" + UNBOUND_RECOVERY_ELIGIBILITY_SQL
+            + " AND p.tenant_id=? AND p.pin_owner=?";
     private static final String ADOPT_PINS_SQL = "SELECT " + QUALIFIED_COLUMNS
             + " FROM artifact_snapshot_pins p "
             + "JOIN artifact_build_jobs j ON j.tenant_id=p.tenant_id AND j.job_id=p.job_id "
@@ -146,6 +169,30 @@ final class PostgresSnapshotPinLedger {
         return true;
     }
 
+    static Optional<SnapshotPinIntent> claimCleanup(
+            Connection connection, String tenantId, String pinOwner,
+            Instant orphanCutoff, Instant droppedCutoff, Instant now) throws SQLException {
+        // Lock the exact pin before reading eligibility in a subsequent READ COMMITTED statement.
+        // Job binding and execution retention both acquire this same row lock.
+        if (find(connection, tenantId, pinOwner, true).isEmpty()) {
+            return Optional.empty();
+        }
+        try (PreparedStatement statement = connection.prepareStatement(CLAIM_CLEANUP_SQL)) {
+            bindCleanupCutoffs(statement, orphanCutoff, droppedCutoff);
+            statement.setString(5, tenantId);
+            statement.setString(6, pinOwner);
+            try (ResultSet row = statement.executeQuery()) {
+                if (!row.next()) {
+                    return Optional.empty();
+                }
+            }
+        }
+        if (!beginRelease(connection, tenantId, pinOwner, now)) {
+            return Optional.empty();
+        }
+        return find(connection, tenantId, pinOwner, false);
+    }
+
     static boolean markReleased(Connection connection, String tenantId, String pinOwner, Instant now)
             throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
@@ -218,10 +265,7 @@ final class PostgresSnapshotPinLedger {
             Connection connection, int limit, Instant orphanCutoff, Instant droppedCutoff)
             throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(CLEANUP_PINS_SQL)) {
-            setInstant(statement, 1, orphanCutoff);
-            setInstant(statement, 2, orphanCutoff);
-            setInstant(statement, 3, droppedCutoff);
-            setInstant(statement, 4, droppedCutoff);
+            bindCleanupCutoffs(statement, orphanCutoff, droppedCutoff);
             statement.setInt(5, limit);
             try (ResultSet result = statement.executeQuery()) {
                 List<SnapshotPinIntent> rows = new ArrayList<>();
@@ -231,6 +275,56 @@ final class PostgresSnapshotPinLedger {
                 return List.copyOf(rows);
             }
         }
+    }
+
+    private static void bindCleanupCutoffs(
+            PreparedStatement statement, Instant orphanCutoff, Instant droppedCutoff) throws SQLException {
+        setInstant(statement, 1, orphanCutoff);
+        setInstant(statement, 2, orphanCutoff);
+        setInstant(statement, 3, droppedCutoff);
+        setInstant(statement, 4, droppedCutoff);
+    }
+
+    static List<SnapshotPinIntent> listForRecovery(
+            Connection connection, int limit, Instant cutoff) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(UNBOUND_RECOVERY_SQL)) {
+            setInstant(statement, 1, cutoff);
+            statement.setInt(2, limit);
+            try (ResultSet rows = statement.executeQuery()) {
+                List<SnapshotPinIntent> result = new ArrayList<>();
+                while (rows.next()) {
+                    result.add(map(rows));
+                }
+                return List.copyOf(result);
+            }
+        }
+    }
+
+    static Optional<SnapshotPinIntent> claimRecovery(
+            Connection connection, String tenantId, String pinOwner, Instant cutoff, Instant now) throws SQLException {
+        if (find(connection, tenantId, pinOwner, true).isEmpty()) {
+            return Optional.empty();
+        }
+        try (PreparedStatement statement = connection.prepareStatement(CLAIM_RECOVERY_SQL)) {
+            setInstant(statement, 1, cutoff);
+            statement.setString(2, tenantId);
+            statement.setString(3, pinOwner);
+            try (ResultSet row = statement.executeQuery()) {
+                if (!row.next()) {
+                    return Optional.empty();
+                }
+            }
+        }
+        // Persist scheduling progress before connector IO so a persistently unavailable
+        // source does not monopolize the oldest bounded batch.
+        try (PreparedStatement statement = connection.prepareStatement(
+                "UPDATE artifact_snapshot_pins SET updated_at=? WHERE tenant_id=? AND pin_owner=?")) {
+            setInstant(statement, 1, now);
+            statement.setString(2, tenantId);
+            statement.setString(3, pinOwner);
+            statement.executeUpdate();
+        }
+        return find(connection, tenantId, pinOwner, false);
     }
 
     static List<SnapshotPinIntent> listForAdoption(Connection connection, int limit) throws SQLException {

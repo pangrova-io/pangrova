@@ -121,6 +121,21 @@ class IndexingBootstrapStartOrderingTest {
         assertThat(wiring.getIndexingBootstrap().getAccessorResolver()).isNotNull();
     }
 
+    @Test
+    void failedStartupDoesNotPublishPartialBootstrapOrRetainLease() {
+        wiring = new ModuleIntegrationBootstrap();
+        var store = new NoOpIndexMetadataStore();
+        store.failRecovery = true;
+        var lease = new InMemoryDistributedLease();
+
+        wiring.startIndexing(store, new UnusedBuildClaims(),
+                new CatalogRegistry(memoryTableStores(), new EmptyCatalogDeployments()),
+                null, null, indexDir.toString(), lease);
+
+        assertThat(wiring.getIndexingBootstrap()).isNull();
+        assertThat(lease.currentHolder("maintenance-control")).isEmpty();
+    }
+
     private static final class UnusedBuildClaims
             implements org.pangrova.persistence.indexing.api.build.IndexBuildClaimRepository {
         @Override
@@ -171,11 +186,15 @@ class IndexingBootstrapStartOrderingTest {
     /** IndexMetadataStore implementing only the abstract surface as no-ops. */
     static final class NoOpIndexMetadataStore implements IndexMetadataStore {
         private int recoveryLookups;
+        private boolean failRecovery;
 
         @Override
         public List<org.pangrova.persistence.indexing.api.metadata.IndexBuildGenerations.IndexBuildCandidate>
                 findIndexBuildRecoveryCandidates() {
             recoveryLookups++;
+            if (failRecovery) {
+                throw new IllegalStateException("Injected startup recovery failure");
+            }
             return List.of();
         }
 

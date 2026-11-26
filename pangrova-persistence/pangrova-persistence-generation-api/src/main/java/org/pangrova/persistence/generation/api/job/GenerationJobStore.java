@@ -35,6 +35,10 @@ public interface GenerationJobStore {
     /** Fences connector release against new execution references; retries remain idempotent. */
     boolean beginSnapshotPinRelease(String tenantId, String pinOwner, Instant now);
 
+    /** Claims a maintenance release only if current durable eligibility still holds. */
+    Optional<SnapshotPinIntent> claimSnapshotPinCleanup(
+            String tenantId, String pinOwner, Instant orphanGraceCutoff, Instant droppedGraceCutoff, Instant now);
+
     /** Atomically records successful idempotent connector release. */
     boolean markSnapshotPinReleased(String tenantId, String pinOwner, Instant now);
 
@@ -50,6 +54,13 @@ public interface GenerationJobStore {
     /** Lists orphaned, terminal, or dropped-generation pins whose durable read references have drained. */
     List<SnapshotPinIntent> listSnapshotPinCleanupCandidates(
             int limit, Instant orphanGraceCutoff, Instant droppedGraceCutoff);
+
+    /** Lists unbound submission intents eligible for bounded recovery. */
+    List<SnapshotPinIntent> listUnboundSnapshotPinsForRecovery(int limit, Instant retryCutoff);
+
+    /** Defers another recovery attempt while checking that this remains an unbound intent. */
+    Optional<SnapshotPinIntent> claimSnapshotPinRecovery(
+            String tenantId, String pinOwner, Instant retryCutoff, Instant now);
 
     /** Lists adopted legacy jobs that still need their real connector snapshot pin. */
     List<SnapshotPinIntent> listSnapshotPinsForAdoption(int limit);
