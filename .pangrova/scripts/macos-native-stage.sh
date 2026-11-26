@@ -17,10 +17,14 @@ case "$stage" in core|sdk) ;; *) die "Unknown stage: $stage";; esac
 : "${PANGROVA_LLVM_PREFIX:?missing selected compiler}"
 : "${SDKROOT:?missing selected macOS SDK}"
 
+printf 'macOS Native stage %s %s on runner image %s\n' \
+    "$stage" "$operation" "${ImageVersion:-unknown}"
+
 fingerprint() {
-    printf '%s\n' 'pangrova-macos-native-stage-v1' "stage=$stage" \
+    # Hosted runners can serve different image builds during a rollout.
+    printf '%s\n' 'pangrova-macos-native-stage-v2' "stage=$stage" \
         "run=$GITHUB_RUN_ID" "revision=$GITHUB_SHA" "workspace=$GITHUB_WORKSPACE" \
-        "prefix=$root" "architecture=$(uname -m)" "image=${ImageVersion:-unknown}" \
+        "prefix=$root" "architecture=$(uname -m)" \
         "sdk=$SDKROOT" "compiler=$PANGROVA_LLVM_PREFIX"
     sw_vers -buildVersion
     xcodebuild -version
@@ -84,9 +88,10 @@ if [[ "$operation" == pack ]]; then
     (cd "$bundle" && shasum -a 256 prefix.tar.gz > prefix.sha256)
     du -h "$bundle/prefix.tar.gz"
 else
-    expected="$(fingerprint)"
-    [[ -f "$bundle/identity.txt" && "$(cat "$bundle/identity.txt")" == "$expected" ]] \
-        || die "Stage $stage revision, run, architecture or toolchain does not match"
+    [[ -f "$bundle/identity.txt" ]] || die "Stage $stage lacks its identity receipt"
+    if ! fingerprint | diff -u "$bundle/identity.txt" - >&2; then
+        die "Stage $stage revision, run, architecture or toolchain does not match"
+    fi
     (cd "$bundle" && shasum -a 256 -c prefix.sha256)
     # Never merge a stage into another restored/partially built SDK tree.
     [[ ! -e "$root/native-deps" && ! -e "$root/velox" ]] \

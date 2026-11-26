@@ -26,7 +26,7 @@ class MacOSNativeStageTest(unittest.TestCase):
             path.mkdir(parents=True)
         self.executable(self.bin / "uname",
                         'case "$1" in -s) echo Darwin;; -m) echo "${TEST_ARCH:-arm64}";; esac')
-        self.executable(self.bin / "sw_vers", "echo 24D70")
+        self.executable(self.bin / "sw_vers", 'echo "${TEST_OS_BUILD:-24D70}"')
         self.executable(self.bin / "xcodebuild", "echo 'Xcode 16.4'")
         self.executable(self.bin / "xcrun", """
 if [ "$1" = lipo ]; then
@@ -39,8 +39,11 @@ else
     echo 15.5
 fi
 """)
-        self.executable(self.bin / "brew", "echo 'openssl@3 3.5.1'; echo 'libevent 2.1.12'")
-        self.executable(self.llvm / "bin/clang++", "echo 'clang version 18.1.8'")
+        self.executable(self.bin / "brew", """
+echo "openssl@3 ${TEST_OPENSSL_VERSION:-3.5.1}"
+echo "libevent ${TEST_LIBEVENT_VERSION:-2.1.12}"
+""")
+        self.executable(self.llvm / "bin/clang++", 'echo "clang version ${TEST_CLANG_VERSION:-18.1.8}"')
         self.env = dict(os.environ, HOME=str(self.home),
                         PATH=f"{self.bin}{os.pathsep}{os.defpath}",
                         PANGROVA_LLVM_PREFIX=str(self.llvm),
@@ -182,13 +185,23 @@ fi
         self.assert_ok(self.run_stage("pack", "core"))
         self.fresh()
         for overrides in ({"GITHUB_SHA": "b" * 40}, {"GITHUB_RUN_ID": "13"},
-                          {"TEST_ARCH": "x86_64"}, {"ImageVersion": "other-image"},
-                          {"SDKROOT": "/different/sdk"}):
+                          {"TEST_ARCH": "x86_64"}, {"TEST_OS_BUILD": "24D71"},
+                          {"SDKROOT": "/different/sdk"}, {"TEST_CLANG_VERSION": "19.1.1"},
+                          {"TEST_OPENSSL_VERSION": "3.5.2"}, {"TEST_LIBEVENT_VERSION": "2.1.13"}):
             with self.subTest(overrides=overrides):
                 result = self.run_stage("restore", "core", **overrides)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("does not match", result.stderr)
                 self.assertFalse(self.root.exists())
+
+    def test_runner_image_rollout_preserves_compatible_stage_restore(self):
+        self.prepare(sdk=True)
+        self.assert_ok(self.run_stage("pack", "sdk", ImageVersion="new-image"))
+        self.fresh()
+        restored = self.run_stage("restore", "sdk", ImageVersion="previous-image")
+        self.assert_ok(restored)
+        self.assertIn("previous-image", restored.stdout)
+        self.assertTrue((self.root / "velox/_build/release/lib/libvelox.a").is_file())
 
     def test_wrong_binary_architecture_refuses_to_package(self):
         self.prepare(sdk=True)
