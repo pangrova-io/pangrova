@@ -27,6 +27,7 @@ import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.indexing.api.enums.IndexState;
 import org.pangrova.indexing.api.enums.IndexType;
+import org.pangrova.persistence.indexing.api.metadata.IndexGenerationManifest;
 
 import javax.sql.DataSource;
 import java.nio.charset.StandardCharsets;
@@ -58,11 +59,15 @@ class JdbcIndexGenerationPublicationStoreTest extends ContainerTestBase {
     }
 
     private void initialize(IndexDescriptor descriptor) throws Exception {
-        var dataSource = SharedPostgresContainer.isolatedDataSource("artifact_publication");
-        this.dataSource = dataSource;
-        Flyway.configure().dataSource(dataSource)
+        var source = SharedPostgresContainer.isolatedDataSource("artifact_publication");
+        Flyway.configure().dataSource(source)
                 .locations("classpath:db/migration")
                 .load().migrate();
+        initialize(source, descriptor);
+    }
+
+    private void initialize(DataSource source, IndexDescriptor descriptor) throws Exception {
+        this.dataSource = source;
         buildStore = GenerationAuthorityFixtures.artifacts().builds(dataSource);
         executions = new org.pangrova.metadata.testinfra.GenerationExecutionFixtures(dataSource);
         publicationStore = GenerationAuthorityFixtures.artifacts().indexPublications(dataSource);
@@ -119,6 +124,37 @@ class JdbcIndexGenerationPublicationStoreTest extends ContainerTestBase {
                 indexStore.findActiveIndexGeneration("index-1").orElseThrow()))
                 .containsExactly("data-object-1");
         assertThat(indexStore.getIndexedDataFilePaths("index-1", 0)).isEmpty();
+    }
+
+    @Test
+    void stagingReservationPreventsRetirementOfItsBasePublication() {
+        GenerationJob claim = completedAndClaimedJob(completeBundle());
+        publicationStore.publishClaimed(claim, "maintenance-a", 7, START.plusSeconds(3));
+        var ready = indexStore.findIndex("index-1").orElseThrow();
+        var active = indexStore.findActiveIndexGeneration("index-1").orElseThrow();
+        assertThat(indexStore.beginIndexGeneration("index-1", 1, "snapshot-2", START.plusSeconds(4),
+                ready.updatedAt(), ready.state(), ready.generation(), ready.sourceSchemaFingerprint())).isTrue();
+        assertThat(indexStore.retireNativeGenerationForSourceDrift(
+                ready, active, "snapshot-2", START.plusSeconds(5))).isFalse();
+        assertThat(indexStore.findActiveIndexGeneration("index-1")).contains(active);
+        assertThat(indexStore.findIndex("index-1").orElseThrow().state()).isEqualTo(IndexState.READY);
+    }
+
+    @Test
+    void driftRetirementWithMismatchedManifestRollsBackDescriptorChange() {
+        GenerationJob claim = completedAndClaimedJob(completeBundle());
+        publicationStore.publishClaimed(claim, "maintenance-a", 7, START.plusSeconds(3));
+        var ready = indexStore.findIndex("index-1").orElseThrow();
+        var active = indexStore.findActiveIndexGeneration("index-1").orElseThrow();
+        var mismatched = new IndexGenerationManifest(
+                active.indexId(), active.sourceId(), active.generation(), active.sourceSnapshot(),
+                active.artifactType(), active.format(), active.objectCount(), active.rowCount(),
+                active.totalBytes(), "f".repeat(64), active.publicationEpoch(), active.publishedAt());
+
+        assertThat(indexStore.retireNativeGenerationForSourceDrift(
+                ready, mismatched, "snapshot-2", START.plusSeconds(4))).isFalse();
+        assertThat(indexStore.findIndex("index-1")).contains(ready);
+        assertThat(indexStore.findActiveIndexGeneration("index-1")).contains(active);
     }
 
     @Test

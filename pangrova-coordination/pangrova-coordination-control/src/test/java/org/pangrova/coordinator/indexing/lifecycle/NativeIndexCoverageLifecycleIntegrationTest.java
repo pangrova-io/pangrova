@@ -156,6 +156,55 @@ class NativeIndexCoverageLifecycleIntegrationTest extends ContainerTestBase {
     }
 
     @Test
+    void disabledAutoRebuildRetiresDriftedNativeGenerationButAllowsExplicitReservation() throws Exception {
+        verifyDriftRetirement(SharedPostgresContainer.migratedDataSource("native_coverage_retirement"));
+    }
+
+    private void verifyDriftRetirement(DataSource dataSource) throws Exception {
+        PostgresGenerationJobStore builds = GenerationAuthorityFixtures.artifacts().builds(dataSource);
+        JdbcIndexGenerationPublicationStore publications =
+                GenerationAuthorityFixtures.artifacts().indexPublications(dataSource);
+        JdbcIndexMetadataStore indexes = new JdbcIndexMetadataStore(
+                dataSource, TableWriteAuthorityFixture.create()::requireCurrent);
+        indexes.registerIndex(descriptor(IndexState.BUILDING));
+        GenerationAuthorityFixtures.provision(dataSource, TENANT, "native-builder", authority());
+        publishTwoPartitions(dataSource, builds, publications, indexes);
+        var ready = indexes.findIndex(INDEX).orElseThrow();
+        var active = indexes.findActiveIndexGeneration(INDEX).orElseThrow();
+        assertThat(indexes.retireNativeGenerationForSourceDrift(
+                ready, active, SNAPSHOT, START.plusSeconds(12))).isFalse();
+
+        CatalogRegistry registry = registry(forwardSnapshotMetadata());
+        IndexBuildCoordinator coordinator = buildCoordinator();
+        var nativeBuilds = new DurableIndexBuildService(
+                builds, indexes, registry, temporaryDirectory.toString(), session -> {
+                    throw new AssertionError("No build or connector pin may be submitted");
+                });
+        var config = new IndexingConfig(temporaryDirectory.toString(), false, null,
+                new LifecycleConfig(null, new ConsistencyConfig(30, 0.8, false, 2), null));
+        try (var checker = new IndexConsistencyChecker(new IndexConsistencyContext(
+                indexes, new IndexBuildServices(coordinator, nativeBuilds),
+                new ConnectorAccessorResolver(registry), config,
+                new MaintenanceLeaderElection(new InMemoryDistributedLease(), "native-retirement-test")), null)) {
+            checker.checkAll();
+            var stale = indexes.findIndex(INDEX).orElseThrow();
+            assertThat(stale.state()).isEqualTo(IndexState.STALE);
+            assertThat(stale.staleReason()).isEqualTo("native_source_snapshot_changed");
+            assertThat(stale.generation()).isZero();
+            assertThat(indexes.findActiveIndexGeneration(INDEX)).isEmpty();
+            assertThat(builds.findPublishedGeneration(TENANT, INDEX, "0", SNAPSHOT)).isPresent();
+            assertThat(indexes.retireNativeGenerationForSourceDrift(
+                    ready, active, "snapshot-1", Instant.now())).isFalse();
+
+            assertThat(indexes.beginIndexGeneration(INDEX, 1, "snapshot-1", Instant.now(),
+                    stale.updatedAt(), stale.state(), stale.generation(), stale.sourceSchemaFingerprint())).isTrue();
+        } finally {
+            coordinator.close();
+            registry.shutdown();
+        }
+    }
+
+    @Test
     void forwardCommitUsesNativeSourceCoverageAndCorruptionFailsClosed() throws Exception {
         DataSource dataSource = SharedPostgresContainer.migratedDataSource("native_coverage_commit");
         PostgresGenerationJobStore builds = GenerationAuthorityFixtures.artifacts().builds(dataSource);

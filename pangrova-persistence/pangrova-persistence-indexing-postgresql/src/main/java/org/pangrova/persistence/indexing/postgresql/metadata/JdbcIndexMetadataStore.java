@@ -249,6 +249,14 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
     }
 
     @Override
+    public boolean retireNativeGenerationForSourceDrift(
+            IndexDescriptor expected, IndexGenerationManifest active,
+            String currentSnapshot, Instant timestamp) {
+        return publicationStore.retireNativeGenerationForSourceDrift(
+                expected, active, currentSnapshot, timestamp);
+    }
+
+    @Override
     public Optional<IndexGenerationManifest> findActiveIndexGeneration(
             String indexId) {
         return publicationStore.findActive(indexId);

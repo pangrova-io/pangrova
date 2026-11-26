@@ -17,6 +17,7 @@ import org.pangrova.indexing.api.enums.IndexType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -213,7 +214,12 @@ public final class IndexConsistencyChecker implements AutoCloseable {
             IndexGenerationManifest active) {
         List<SnapshotDataFile> snapshotFiles =
                 snapshotMetadata.listFilesAtSnapshot(currentSnapshot);
-        Set<String> indexedFiles = coverageReader.read(descriptor, active);
+        // A drift-retired STALE Native generation has no reusable active base.
+        // Its recovery is a full replacement, not an assertion of exact coverage.
+        boolean retiredForDrift = active == null && descriptor.state() == IndexState.STALE
+                && (descriptor.indexType() == IndexType.VECTOR || descriptor.indexType() == IndexType.INVERTED)
+                && "native_source_snapshot_changed".equals(descriptor.staleReason());
+        Set<String> indexedFiles = retiredForDrift ? Set.of() : coverageReader.read(descriptor, active);
         Set<String> currentFiles = snapshotFiles.stream()
                 .map(SnapshotDataFile::path)
                 .collect(java.util.stream.Collectors.toUnmodifiableSet());
@@ -244,6 +250,15 @@ public final class IndexConsistencyChecker implements AutoCloseable {
             IndexGenerationManifest active,
             SnapshotCoverage coverage) {
         if (!config.autoRebuildEnabled()) {
+            if (active != null && !active.sourceSnapshot().equals(currentSnapshot)
+                    && (descriptor.indexType() == IndexType.VECTOR
+                    || descriptor.indexType() == IndexType.INVERTED)
+                    && deps.metadataStore().retireNativeGenerationForSourceDrift(
+                            descriptor, active, currentSnapshot, Instant.now())) {
+                LOG.info("action=consistency_native_generation_retired indexId={} generation={}",
+                        descriptor.indexId(), active.generation());
+                return;
+            }
             LOG.warn("action=consistency_refresh_required indexId={} "
                             + "snapshotCurrent={} snapshotIndexed={} autoRebuild=disabled",
                     descriptor.indexId(), currentSnapshot,
@@ -324,7 +339,12 @@ public final class IndexConsistencyChecker implements AutoCloseable {
             markReadyIndexStale(descriptor, "missing_active_generation_manifest");
             return;
         }
-        Set<String> indexedFiles = coverageReader.read(descriptor, active);
+        // A drift-retired STALE Native generation has no reusable active base.
+        // Its recovery is a full replacement, not an assertion of exact coverage.
+        boolean retiredForDrift = active == null && descriptor.state() == IndexState.STALE
+                && (descriptor.indexType() == IndexType.VECTOR || descriptor.indexType() == IndexType.INVERTED)
+                && "native_source_snapshot_changed".equals(descriptor.staleReason());
+        Set<String> indexedFiles = retiredForDrift ? Set.of() : coverageReader.read(descriptor, active);
         List<String> currentDataFiles = resolveDataFiles(
                 descriptor.catalogName(), descriptor.schemaName(), descriptor.tableName());
         if (!indexedFiles.equals(Set.copyOf(currentDataFiles))

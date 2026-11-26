@@ -164,6 +164,18 @@ generation and execution references while claiming the exact ledger row. The
 durable transition to `RELEASING` prevents new job binding and retention before
 the connector release happens outside the cleanup transaction. An uncertain
 connector outcome remains `RELEASING` for exact, idempotent recovery.
+With automatic rebuilding disabled, the leader consistency scan still retires a
+READY Native generation when the authorized connector reports a different
+current snapshot and validated inventory is available. Retirement atomically
+marks the descriptor STALE and its exact ACTIVE manifest RETIRED, unless a
+replacement build is already reserved. The retired index is no longer selected
+for new queries, including new explicit historical reads; those queries use an
+ordinary scan where available or fail closed if an exact index is required.
+Existing retained executions keep their immutable generation and pin. Separate
+pin maintenance can release it after the normal grace interval and only after
+all durable execution references have drained. An explicit rebuild can reserve
+a replacement from the STALE descriptor; this scan does not submit an automatic build.
+Unknown source state and failed validation never trigger retirement.
 A persisted unbound submission is recoverable only if its exact generation,
 source snapshot and durable authorization still match a live build reservation.
 Online replacement resolves the staging reservation rather than the active

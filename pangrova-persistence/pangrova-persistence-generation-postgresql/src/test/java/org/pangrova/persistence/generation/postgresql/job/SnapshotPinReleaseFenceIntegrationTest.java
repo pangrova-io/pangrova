@@ -34,7 +34,11 @@ class SnapshotPinReleaseFenceIntegrationTest extends ContainerTestBase {
 
     @BeforeEach
     void setUp() throws Exception {
-        dataSource = MigratedPostgres.create();
+        seed(MigratedPostgres.create());
+    }
+
+    private void seed(DataSource source) throws Exception {
+        dataSource = source;
         insertJob();
         var table = new QualifiedTableName("lake", "raw", "items");
         byte[] authority = DeferredAuthorizationScopeCodec.encode(
@@ -111,6 +115,42 @@ class SnapshotPinReleaseFenceIntegrationTest extends ContainerTestBase {
             assertThat(PostgresSnapshotPinLedger.cleanupCandidates(connection, 10, cutoff, cutoff)).isEmpty();
             connection.commit();
         }
+    }
+
+    @Test
+    void retiredDriftedPublicationRespectsGraceAndLiveReferences() throws Exception {
+        Instant retiredAt = NOW.plusSeconds(20);
+        try (var connection = dataSource.getConnection()) {
+            execute(connection, "INSERT INTO index_generation_manifests (index_id,generation,source_id,"
+                    + "source_snapshot,artifact_type,format_id,format_major,format_minor,schema_sha256,"
+                    + "writer_build_id,object_count,row_count,total_bytes,manifest_sha256,publication_epoch,"
+                    + "state,published_at) VALUES (?,0,'lake.raw.items','snapshot-a','TEXT_INDEX',"
+                    + "'format',1,0,?,'writer',1,1,1,?,1,'ACTIVE',?)",
+                    INDEX, "a".repeat(64), "b".repeat(64), NOW);
+            execute(connection, "UPDATE index_descriptors SET state='STALE',"
+                    + "stale_reason='native_source_snapshot_changed',updated_at=? WHERE index_id=?",
+                    retiredAt, INDEX);
+            assertThat(PostgresSnapshotPinLedger.cleanupCandidates(connection, 10, retiredAt, retiredAt))
+                    .isEmpty();
+            execute(connection, "UPDATE index_generation_manifests SET state='RETIRED' WHERE index_id=?", INDEX);
+            assertThat(PostgresSnapshotPinLedger.cleanupCandidates(connection, 10, NOW, NOW)).isEmpty();
+            connection.setAutoCommit(false);
+            PostgresSnapshotPinLedger.retainForExecution(
+                    connection, TENANT, INDEX, "0", "snapshot-a", EXECUTION);
+            connection.commit();
+            assertThat(PostgresSnapshotPinLedger.cleanupCandidates(connection, 10, retiredAt, retiredAt))
+                    .isEmpty();
+            assertThat(PostgresSnapshotPinLedger.claimCleanup(
+                    connection, TENANT, OWNER, retiredAt, retiredAt, retiredAt)).isEmpty();
+            execute(connection, "DELETE FROM execution_anchor WHERE execution_id=?", EXECUTION);
+            connection.commit();
+            assertThat(PostgresSnapshotPinLedger.cleanupCandidates(connection, 10, retiredAt, retiredAt))
+                    .hasSize(1);
+            assertThat(PostgresSnapshotPinLedger.claimCleanup(
+                    connection, TENANT, OWNER, retiredAt, retiredAt, retiredAt)).isPresent();
+            connection.commit();
+        }
+        assertThat(pinState()).isEqualTo("RELEASING");
     }
 
     @Test

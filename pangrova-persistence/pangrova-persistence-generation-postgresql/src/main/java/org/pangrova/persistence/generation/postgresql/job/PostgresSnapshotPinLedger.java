@@ -56,7 +56,13 @@ final class PostgresSnapshotPinLedger {
             + "EXISTS (SELECT 1 FROM index_descriptors d WHERE d.index_id=p.index_id AND d.tenant_id=p.tenant_id "
             + "AND ((d.state='DROPPED' AND d.updated_at<=?) OR "
             + "(d.state<>'DROPPED' AND (d.generation<>p.generation "
-            + "OR d.build_snapshot_id<>p.source_snapshot) AND d.updated_at<=? "
+            + "OR d.build_snapshot_id<>p.source_snapshot OR "
+            + "(d.state='STALE' AND d.index_type IN ('VECTOR','INVERTED') "
+            + "AND d.stale_reason='native_source_snapshot_changed' "
+            + "AND EXISTS (SELECT 1 FROM index_generation_manifests retired "
+            + "WHERE retired.index_id=d.index_id AND retired.generation=p.generation "
+            + "AND retired.source_snapshot=p.source_snapshot AND retired.state='RETIRED'))) "
+            + "AND d.updated_at<=? "
             + "AND NOT EXISTS (SELECT 1 FROM index_generation_manifests m WHERE m.index_id=d.index_id "
             + "AND m.generation=p.generation AND m.state='ACTIVE')))))))";
     private static final String CLEANUP_PINS_SQL = "SELECT " + QUALIFIED_COLUMNS
