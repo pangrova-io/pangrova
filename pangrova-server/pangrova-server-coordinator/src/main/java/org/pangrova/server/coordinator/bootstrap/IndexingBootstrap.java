@@ -3,6 +3,7 @@ package org.pangrova.server.coordinator.bootstrap;
 import org.pangrova.persistence.generation.api.publication.GenerationPublicationStore;
 
 import org.pangrova.persistence.generation.api.job.GenerationJobStore;
+import org.pangrova.persistence.generation.api.job.SnapshotPinPressure;
 
 import org.pangrova.coordinator.indexing.ddl.IndexDdlExecutor;
 import org.pangrova.indexing.evaluation.IndexEvalMetrics;
@@ -17,6 +18,7 @@ import org.pangrova.coordinator.indexing.lifecycle.IndexConsistencyContext;
 import org.pangrova.coordinator.indexing.lifecycle.gc.IndexGarbageCollector;
 import org.pangrova.coordinator.indexing.lifecycle.gc.IndexGcContext;
 import org.pangrova.coordinator.indexing.lifecycle.IndexLifecycleMetrics;
+import org.pangrova.coordinator.indexing.lifecycle.NativeSnapshotPinPressureMetrics;
 import org.pangrova.coordinator.indexing.lifecycle.MaintenanceLeaderElection;
 import org.pangrova.persistence.indexing.api.build.IndexBuildClaimRepository;
 import org.pangrova.coordinator.indexing.lifecycle.MetadataBackedGenerationChecker;
@@ -108,6 +110,7 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
     private IndexBuildMetrics buildMetrics;
     private IndexEvalMetrics evalMetrics;
     private IndexLifecycleMetrics lifecycleMetrics;
+    private NativeSnapshotPinPressureMetrics nativePinPressureMetrics;
 
     private final IndexingConfig indexingConfig;
     private final DistributedLease distributedLease;
@@ -279,6 +282,13 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
             buildMetrics = new IndexBuildMetrics(metricsProvider);
             evalMetrics = new IndexEvalMetrics(metricsProvider);
             lifecycleMetrics = new IndexLifecycleMetrics(metricsProvider);
+            if (artifactBuildStore != null) {
+                try {
+                    nativePinPressureMetrics = new NativeSnapshotPinPressureMetrics(metricsProvider);
+                } catch (RuntimeException failure) {
+                    LOG.warn("event=native_snapshot_pin_pressure_metrics_unavailable", failure);
+                }
+            }
             new org.pangrova.indexing.storage.IndexCacheMetrics(metricsProvider, indexCache);
         }
         return serializer;
@@ -445,6 +455,9 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
         }
         long epoch = leaderElection.verifiedHeldEpoch().orElseThrow(
                 () -> new IllegalStateException("Snapshot pin recovery requires verified maintenance leadership"));
+        if (nativePinPressureMetrics != null) {
+            nativePinPressureMetrics.beginEpoch(epoch);
+        }
         var scheduler = new SnapshotPinRecoveryScheduler(
                 () -> leaderElection.holdsEpoch(epoch),
                 stillLeader -> {
@@ -467,12 +480,35 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
                             nativeIndexBuildService.cleanupSnapshotPins(stillLeader);
                         }
                     }
+                    observeNativePinPressure(epoch, stillLeader);
                 });
         snapshotPinRecoveryScheduler = scheduler;
         scheduler.start();
     }
 
+    private void observeNativePinPressure(long epoch, java.util.function.BooleanSupplier stillLeader) {
+        if (nativePinPressureMetrics == null || artifactBuildStore == null) {
+            return;
+        }
+        try {
+            if (!stillLeader.getAsBoolean()) {
+                nativePinPressureMetrics.record(epoch, java.util.Optional.empty());
+                return;
+            }
+            var sample = artifactBuildStore.observeSnapshotPinPressure(
+                    SnapshotPinPressure.MAX_PER_STATE, Instant.now());
+            nativePinPressureMetrics.record(epoch,
+                    stillLeader.getAsBoolean() ? sample : java.util.Optional.empty());
+        } catch (RuntimeException failure) {
+            nativePinPressureMetrics.record(epoch, java.util.Optional.empty());
+            LOG.warn("event=native_snapshot_pin_pressure_observation_failed", failure);
+        }
+    }
+
     private void stopSnapshotPinRecovery() {
+        if (nativePinPressureMetrics != null) {
+            nativePinPressureMetrics.endEpoch();
+        }
         if (snapshotPinRecoveryScheduler != null) {
             snapshotPinRecoveryScheduler.close();
             snapshotPinRecoveryScheduler = null;
@@ -648,6 +684,7 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
     public synchronized void close() {
         ResourceCloser.closeAll(null,
                 this::stopSchemaEvolutionRecovery, this::stopSnapshotPinRecovery,
+                ResourceCloser.present(nativePinPressureMetrics, NativeSnapshotPinPressureMetrics::close),
                 ResourceCloser.present(ddlExecutor, resource -> closeResource("DdlExecutor", resource)),
                 ResourceCloser.present(artifactPublisher, resource -> closeResource("ArtifactPublisher", resource)),
                 ResourceCloser.present(consistencyChecker, resource -> closeResource("ConsistencyChecker", resource)),

@@ -55,6 +55,11 @@ public interface GenerationJobStore {
     List<SnapshotPinIntent> listSnapshotPinCleanupCandidates(
             int limit, Instant orphanGraceCutoff, Instant droppedGraceCutoff);
 
+    /** Bounded read-only operational sample; unsupported stores report no observation. */
+    default Optional<SnapshotPinPressure> observeSnapshotPinPressure(int maxPerState, Instant observedAt) {
+        return Optional.empty();
+    }
+
     /** Lists unbound submission intents eligible for bounded recovery. */
     List<SnapshotPinIntent> listUnboundSnapshotPinsForRecovery(int limit, Instant retryCutoff);
 

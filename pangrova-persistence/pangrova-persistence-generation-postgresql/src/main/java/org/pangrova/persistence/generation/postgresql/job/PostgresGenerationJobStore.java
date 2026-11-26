@@ -18,6 +18,7 @@ import org.pangrova.generation.api.page.GenerationPage;
 import org.pangrova.generation.api.job.GenerationDispatchSpec;
 import org.pangrova.persistence.generation.api.job.GenerationJobStore;
 import org.pangrova.persistence.generation.api.job.SnapshotPinIntent;
+import org.pangrova.persistence.generation.api.job.SnapshotPinPressure;
 import org.pangrova.persistence.generation.api.job.SnapshotPinReservation;
 
 import javax.sql.DataSource;
@@ -160,6 +161,16 @@ public final class PostgresGenerationJobStore extends PostgresGenerationJobStore
         return inTransaction("list source snapshot pin cleanup", connection ->
                 PostgresSnapshotPinLedger.cleanupCandidates(
                         connection, limit, orphanGraceCutoff, droppedGraceCutoff));
+    }
+
+    @Override
+    public Optional<SnapshotPinPressure> observeSnapshotPinPressure(int maxPerState, Instant observedAt) {
+        if (maxPerState <= 0 || maxPerState > SnapshotPinPressure.MAX_PER_STATE) {
+            throw new IllegalArgumentException("Native pin pressure observation limit must be between 1 and 1000");
+        }
+        Objects.requireNonNull(observedAt, "observedAt");
+        return inTransaction("observe bounded Native snapshot pin pressure", connection ->
+                Optional.of(PostgresSnapshotPinLedger.observePressure(connection, maxPerState, observedAt)));
     }
 
     @Override

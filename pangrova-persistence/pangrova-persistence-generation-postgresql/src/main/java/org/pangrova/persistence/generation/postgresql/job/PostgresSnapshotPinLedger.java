@@ -4,6 +4,7 @@ import org.pangrova.generation.api.job.GenerationDispatchSpec;
 import org.pangrova.generation.api.job.GenerationJob;
 import org.pangrova.generation.api.job.GenerationSubmissionAuthority;
 import org.pangrova.persistence.generation.api.job.SnapshotPinIntent;
+import org.pangrova.persistence.generation.api.job.SnapshotPinPressure;
 import org.pangrova.persistence.generation.api.job.SnapshotPinReservation;
 import org.pangrova.persistence.generation.api.enums.SnapshotPinState;
 import org.pangrova.persistence.jdbc.api.generation.GenerationTransactionAuthority;
@@ -85,6 +86,19 @@ final class PostgresSnapshotPinLedger {
             + "p.created_at,p.tenant_id,p.pin_owner LIMIT ?";
     private static final String CLAIM_CLEANUP_SQL = "SELECT 1" + CLEANUP_ELIGIBILITY_SQL
             + " AND p.tenant_id=? AND p.pin_owner=?";
+    // One statement and at most cap+1 index entries per state. No inventory or
+    // retained-file scan, and no connector calls from this operational sample.
+    private static final String PRESSURE_SQL = """
+            SELECT states.state, observed.pin_count, observed.oldest
+            FROM (VALUES ('INTENDED'),('PINNED'),('RELEASING')) AS states(state)
+            CROSS JOIN LATERAL (
+                SELECT COUNT(*) AS pin_count, MIN(created_at) AS oldest
+                FROM (SELECT created_at FROM artifact_snapshot_pins
+                      WHERE state=states.state ORDER BY created_at LIMIT ?) AS bounded
+            ) AS observed
+            ORDER BY states.state
+            """;
+
     private static final String UNBOUND_RECOVERY_ELIGIBILITY_SQL = " FROM artifact_snapshot_pins p "
             + "JOIN index_descriptors d ON d.index_id=p.index_id AND d.tenant_id=p.tenant_id "
             + "WHERE p.job_id IS NULL AND p.state IN ('INTENDED','PINNED') "
@@ -288,6 +302,29 @@ final class PostgresSnapshotPinLedger {
             statement.setString(3, job.tenantId());
             statement.setString(4, pinOwner);
             statement.executeUpdate();
+        }
+    }
+
+    static SnapshotPinPressure observePressure(
+            Connection connection, int maxPerState, Instant observedAt) throws SQLException {
+        if (maxPerState <= 0 || maxPerState > SnapshotPinPressure.MAX_PER_STATE) {
+            throw new IllegalArgumentException("Native pin pressure observation limit must be between 1 and 1000");
+        }
+        Objects.requireNonNull(observedAt, "observedAt");
+        try (PreparedStatement statement = connection.prepareStatement(PRESSURE_SQL)) {
+            statement.setQueryTimeout(5);
+            statement.setInt(1, Math.addExact(maxPerState, 1));
+            try (ResultSet result = statement.executeQuery()) {
+                List<SnapshotPinPressure.StateCount> states = new ArrayList<>();
+                while (result.next()) {
+                    int count = result.getInt("pin_count");
+                    states.add(new SnapshotPinPressure.StateCount(
+                            SnapshotPinState.valueOf(result.getString("state")),
+                            Math.min(count, maxPerState), count > maxPerState,
+                            Optional.ofNullable(getInstant(result, "oldest"))));
+                }
+                return new SnapshotPinPressure(observedAt, states);
+            }
         }
     }
 

@@ -232,6 +232,17 @@ can replay the last unacknowledged page, while new or newly eligible descriptors
 behind the cursor are visited on the next sweep. This cursor is only scheduling
 progress and never substitutes for state, generation, lifecycle or pin fences.
 
+Operator pressure observations sample at most 1,001 Native ledger rows per
+unreleased state with the existing state/creation-time index. The reported
+count is a lower bound when the per-state 1,000-row cap is exceeded, with an
+explicit truncation indicator, oldest unreleased intent age, and sample age.
+The maintenance leader caches observations; stale, failed, or demoted samples
+are not reported as live counts. Metric collection does not query PostgreSQL
+or storage. These are Native intent-pressure gauges, not physical retained
+bytes, scalar counts, tenant quota enforcement, or an estimate of reclaimable
+data.
+
+
 Scalar index snapshots are construction holds, separate from query-owned snapshot
 references. V126 persists an exact attempt-owned pin intent before the connector
 operation. A successful synchronous scalar build must exhaust each source cursor
@@ -248,6 +259,18 @@ This evidence covers the engine's synchronous source-reading stack; it is not a
 general-purpose proof of connector-internal asynchronous resource closure.
 Query-owned and unrelated table snapshot references are never released by this
 scalar construction cleanup.
+
+Ordinary query snapshot identity is not itself proof of a connector-owned
+physical hold. In particular, Iceberg's process-local query snapshot registry
+pins the selected identity for planning continuity but does not create an
+Iceberg table tag. External snapshot expiration can therefore race ordinary
+historical reads unless an independent connector retention obligation protects
+them. A future physical query hold must persist an exact execution/source/
+snapshot intent under the admitted execution-anchor fence before worker
+dispatch, validate the connector-owned hold, seal read admission before
+release, and retain uncertain holds until the actual readers drain. Neither
+elapsed time nor coordinator lease expiry alone proves physical read drain.
+
 A persisted unbound submission is recoverable only if its exact generation,
 source snapshot and durable authorization still match a live build reservation.
 Online replacement resolves the staging reservation rather than the active

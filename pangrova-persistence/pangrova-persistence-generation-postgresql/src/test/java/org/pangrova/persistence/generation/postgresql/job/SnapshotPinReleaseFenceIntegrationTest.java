@@ -202,6 +202,63 @@ class SnapshotPinReleaseFenceIntegrationTest extends ContainerTestBase {
     }
 
     @Test
+    void boundedPressureReportsOldestAndTruncationWithoutReleasedRows() throws Exception {
+        try (var connection = dataSource.getConnection()) {
+            execute(connection, "INSERT INTO artifact_snapshot_pins (tenant_id,pin_owner,index_id,generation,"
+                    + "attempt_id,source_id,source_snapshot,principal,authorization_scope_bytes,state,"
+                    + "created_at,updated_at,pinned_at) SELECT tenant_id,? ,? ,0,'other',source_id,"
+                    + "source_snapshot,principal,authorization_scope_bytes,'PINNED',?,?,? "
+                    + "FROM artifact_snapshot_pins WHERE tenant_id=? AND pin_owner=?",
+                    "pin-old", "index-old", NOW.minusSeconds(10), NOW, NOW, TENANT, OWNER);
+            execute(connection, "INSERT INTO artifact_snapshot_pins (tenant_id,pin_owner,index_id,generation,"
+                    + "attempt_id,source_id,source_snapshot,principal,authorization_scope_bytes,state,"
+                    + "created_at,updated_at,pinned_at,released_at) SELECT tenant_id,? ,? ,0,'other',source_id,"
+                    + "source_snapshot,principal,authorization_scope_bytes,'RELEASED',?,?,?,? "
+                    + "FROM artifact_snapshot_pins WHERE tenant_id=? AND pin_owner=?",
+                    "pin-released", "index-released", NOW.minusSeconds(20), NOW, NOW, NOW, TENANT, OWNER);
+            var sample = PostgresSnapshotPinLedger.observePressure(connection, 1, NOW);
+            assertThat(sample.observedAt()).isEqualTo(NOW);
+            assertThat(sample.states()).hasSize(3);
+            var pinned = sample.states().stream()
+                    .filter(row -> row.state().name().equals("PINNED")).findFirst().orElseThrow();
+            assertThat(pinned.countLowerBound()).isOne();
+            assertThat(pinned.truncated()).isTrue();
+            assertThat(pinned.oldestCreatedAt()).contains(NOW.minusSeconds(10));
+            assertThat(sample.states().stream().filter(row -> !row.state().name().equals("PINNED")))
+                    .allSatisfy(row -> {
+                        assertThat(row.countLowerBound()).isZero();
+                        assertThat(row.truncated()).isFalse();
+                        assertThat(row.oldestCreatedAt()).isEmpty();
+                    });
+            execute(connection, "INSERT INTO artifact_snapshot_pins (tenant_id,pin_owner,index_id,generation,"
+                    + "attempt_id,source_id,source_snapshot,principal,authorization_scope_bytes,state,"
+                    + "created_at,updated_at) SELECT tenant_id,'pin-intended','index-intended',0,'other',source_id,"
+                    + "source_snapshot,principal,authorization_scope_bytes,'INTENDED',?,? "
+                    + "FROM artifact_snapshot_pins WHERE tenant_id=? AND pin_owner=?",
+                    NOW.minusSeconds(5), NOW, TENANT, OWNER);
+            execute(connection, "INSERT INTO artifact_snapshot_pins (tenant_id,pin_owner,index_id,generation,"
+                    + "attempt_id,source_id,source_snapshot,principal,authorization_scope_bytes,state,"
+                    + "created_at,updated_at,pinned_at) SELECT tenant_id,'pin-releasing','index-releasing',0,'other',"
+                    + "source_id,source_snapshot,principal,authorization_scope_bytes,'RELEASING',?,?,? "
+                    + "FROM artifact_snapshot_pins WHERE tenant_id=? AND pin_owner=?",
+                    NOW.minusSeconds(15), NOW, NOW, TENANT, OWNER);
+            var complete = PostgresSnapshotPinLedger.observePressure(connection, 2, NOW);
+            assertThat(complete.states()).allSatisfy(row -> {
+                assertThat(row.truncated()).isFalse();
+                assertThat(row.oldestCreatedAt()).isPresent();
+            });
+            assertThat(complete.states().stream().filter(row -> row.state().name().equals("PINNED"))
+                    .findFirst().orElseThrow().countLowerBound()).isEqualTo(2);
+            assertThat(complete.states().stream().filter(row -> row.state().name().equals("INTENDED"))
+                    .findFirst().orElseThrow().oldestCreatedAt()).contains(NOW.minusSeconds(5));
+            assertThat(complete.states().stream().filter(row -> row.state().name().equals("RELEASING"))
+                    .findFirst().orElseThrow().oldestCreatedAt()).contains(NOW.minusSeconds(15));
+            assertThatThrownBy(() -> PostgresSnapshotPinLedger.observePressure(connection, 1_001, NOW))
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+    }
+
+    @Test
     void maintenanceRetainsReservedPinForAnUnfinishedGeneration() throws Exception {
         Instant cutoff = NOW.plusSeconds(1);
         try (var connection = dataSource.getConnection()) {
