@@ -479,6 +479,9 @@ class RuntimeScopeTest(unittest.TestCase):
         self.assertIn('digest-mismatch: error', restore)
         self.assertIn('pangrova.contexts.iceberg-sdk=$RUNNER_TEMP/pangrova-iceberg-sdk',
                       jobs['production-regression'])
+        self.assertIn('--allow "fs.read=$RUNNER_TEMP/pangrova-iceberg-sdk"',
+                      jobs['production-regression'])
+        self.assertNotIn('BUILDX_BAKE_ENTITLEMENTS_FS', jobs['production-regression'])
         self.assertIn("needs.iceberg-sdk.result == 'success'", jobs['production-regression'])
 
     def test_pinned_iceberg_sdk_uses_bounded_gradle_repository_backoff(self):

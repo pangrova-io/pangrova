@@ -68,7 +68,10 @@ The Native build consumes both Protocol schema trees, the function-contract
 resources and their Python generators. Java-only Protocol changes reuse the
 same Native layers and rebuild the Java runtime.
 
-The builder compiles the locked, patched Iceberg SDK with Gradle 8.14.4 and its SDK regression test before resolving the Pangrova Java reactor. Newly created builders use the same SDK without a host Maven repository.
+A standalone build compiles and tests the locked, patched Iceberg SDK with
+Gradle 8.14.4 before resolving the Pangrova Java reactor. CI passes the tested
+same-run SDK as a named context and grants Bake read access to that directory.
+Both paths work on a fresh builder without a host Maven repository.
 
 CI passes the Git revision as `SOURCE_COMMIT` and checks the resulting runtime
 image’s `org.opencontainers.image.revision` label before staging its libraries.

@@ -181,6 +181,7 @@ jobs:
           docker buildx version
           IMAGE="$PANGROVA_E2E_IMAGE" SOURCE_COMMIT="$GITHUB_SHA" \
             docker buildx bake --load -f deploy/docker/docker-bake.hcl \
+              --allow "fs.read=$RUNNER_TEMP/pangrova-iceberg-sdk" \
               --set "pangrova.contexts.iceberg-sdk=$RUNNER_TEMP/pangrova-iceberg-sdk" pangrova
           image_id=$(docker image inspect --format '{{.Id}}' "$PANGROVA_E2E_IMAGE")
           [[ "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]]
