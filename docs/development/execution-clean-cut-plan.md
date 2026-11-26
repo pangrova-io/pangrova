@@ -111,6 +111,8 @@ unlisted: true
 
 同机 JDK 17 对照在 8,000 次预热后取 7 个窗口的中位数，每窗口 2,000 次。基线执行普通 AST 获取、时间旅行语法扫描及规划 AST 获取，候选执行共享解析入口。不同 SQL 文本的点查从 22.2 µs 和 20,008 B 降到 18.1 µs 和 11,622 B，CTE JOIN 从 47.2 µs 和 71,328 B 降到 33.7 µs 和 43,195 B。相同 SQL 文本的点查从 16.1 µs 和 9,237 B 降到 0.17 µs 和 16 B，CTE JOIN 从 22.5 µs 和 29,696 B 降到 0.44 µs 和 16 B。统计口径为调用线程的解析 CPU 和分配量。
 
+视图端到端用例发现 Calcite 在构建字符字面量时用 ISO-8859-1 做可编码性检查。上一版本直接执行含中文和补充平面字符的 SELECT 可重现相同错误。规划器类型工厂为字符列和字面量统一提供 UTF-8 字符集及对应排序规则，保留 Substrait 和 Arrow Flight 的字符串编码。
+
 
 基于主分支 `833a8d8c6` 重新打包 Coordinator、Worker 和 CLI，并依据相同的 Native 运行时源码、构建配置和 Protobuf 输入复用已验证的 Native 库。macOS arm64 和 Linux arm64 的角色包分别校验 739 个文件，清单 SHA-256 分别为 `df98c71f8a09101faf6845cc73b8da1f976c50aea3b03e706bcf8773bd81dbf9` 和 `e0e7c9c7f6acf29c6d9a58a35852aa7df0c32efce64a865c389c7bf8e9feeae9`。
 

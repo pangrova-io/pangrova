@@ -68,7 +68,8 @@ their original spelling. View and published Dynamic Table replacements use the
 source positions and parse only the generated text. The compiler resolves
 explicit snapshot selectors before opening the authenticated schema and
 verifies that each selected source has a bound snapshot. Catalog, publication,
-snapshot, and policy decisions remain query-local.
+snapshot, and policy decisions remain query-local. Calcite character types and
+literals use UTF-8 to preserve the text passed to Substrait and Arrow Flight.
 
 Literal INSERT and INSERT OVERWRITE resolve the target metadata once during
 statement admission. Column order, FILE MIME validation, managed-file validation,
