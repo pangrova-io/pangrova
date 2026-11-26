@@ -15,9 +15,7 @@ import org.pangrova.parser.build.antlr.PangrovaSqlParser;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.IdentityHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.function.Function;
 
 /** Source references and SQL spans captured while constructing the statement AST. */
@@ -79,45 +77,26 @@ public final class TimeTravelSqlClauses {
             PangrovaSqlParser.SingleStatementContext tree, SqlDialect dialect) {
         var builder = new SourceBuilder(tokens, dialect);
         var statement = builder.visitSingleStatement(tree);
-        // A statement may retain a body as original SQL rather than visit its children
-        // (CREATE VIEW). Walk the same parse tree for complete source discovery, reusing
-        // the exact AST TableRef instances for nodes the statement builder visited.
-        var references = new ArrayList<Reference>();
-        var spans = new ArrayList<Span>();
-        var pending = new ArrayDeque<ParseTree>();
-        pending.push(tree);
-        while (!pending.isEmpty()) {
-            ParseTree node = pending.pop();
-            if (node instanceof PangrovaSqlParser.NamedTableRefContext named) {
-                var table = builder.referenceTable(named);
-                var name = named.qualifiedName();
-                references.add(new Reference(table, isCteReference(named, table, builder),
-                        name.getStart().getStartIndex(), name.getStop().getStopIndex() + 1));
-                var clause = named.timeTravelSpec();
-                if (clause != null) {
-                    spans.add(new Span(clause.getStart().getStartIndex(), clause.getStop().getStopIndex() + 1));
-                }
-            }
-            for (int i = node.getChildCount() - 1; i >= 0; --i) {
-                pending.push(node.getChild(i));
-            }
-        }
-        references.sort(Comparator.comparingInt(Reference::nameStart));
-        return new Analysis(sql, statement, strip(sql, spans), references);
+        builder.references.sort(Comparator.comparingInt(Reference::nameStart));
+        return new Analysis(sql, statement, strip(sql, builder.spans), builder.references);
     }
 
     private static final class SourceBuilder extends AstBuilder {
-        private final Map<PangrovaSqlParser.NamedTableRefContext, TableRef> tables =
-                new IdentityHashMap<>();
+        private final List<Reference> references = new ArrayList<>();
+        private final List<Span> spans = new ArrayList<>();
+        private final CommonTokenStream tokens;
+        private final SqlDialect dialect;
 
         private SourceBuilder(CommonTokenStream tokens, SqlDialect dialect) {
             super(tokens, dialect);
+            this.tokens = tokens;
+            this.dialect = dialect;
         }
 
         @Override
         public TableRef visitNamedTableRef(PangrovaSqlParser.NamedTableRefContext named) {
             var table = super.visitNamedTableRef(named);
-            tables.put(named, table);
+            recordReference(named, table);
             return table;
         }
 
@@ -136,11 +115,9 @@ public final class TimeTravelSqlClauses {
         }
 
         private void retainDecoratedIdentity(PangrovaSqlParser.TableRefContext source, TableRef table) {
-            // A decorator returns a new TableRef for the same named source. Keep its final
-            // identity without treating named references inside derived queries as that source.
             while (true) {
                 if (source instanceof PangrovaSqlParser.NamedTableRefContext named) {
-                    tables.put(named, table);
+                    replaceDecoratedReference(named.qualifiedName().getStart().getStartIndex(), table);
                     return;
                 }
                 if (source instanceof PangrovaSqlParser.PivotTableRefContext pivot) {
@@ -153,9 +130,45 @@ public final class TimeTravelSqlClauses {
             }
         }
 
-        private TableRef referenceTable(PangrovaSqlParser.NamedTableRefContext named) {
-            var table = tables.get(named);
-            return table == null ? visitNamedTableRef(named) : table;
+        private void replaceDecoratedReference(int start, TableRef table) {
+            // Only a decorator wraps an existing relation in a new TableRef. Nested
+            // subqueries in its expressions can contribute named references of their own.
+            for (int i = references.size() - 1; i >= 0; i--) {
+                Reference reference = references.get(i);
+                if (reference.nameStart() == start) {
+                    references.set(i, new Reference(table, reference.cte(), start, reference.nameEnd()));
+                    return;
+                }
+            }
+        }
+
+        @Override
+        public Statement visitCreateViewStatement(PangrovaSqlParser.CreateViewStatementContext context) {
+            Statement statement = super.visitCreateViewStatement(context);
+            // The view statement retains its body as SQL, so the normal AST visitor skips it.
+            var bodyBuilder = new AstBuilder(tokens, dialect);
+            var pending = new ArrayDeque<ParseTree>();
+            pending.push(context.createView().setQuery());
+            while (!pending.isEmpty()) {
+                ParseTree node = pending.pop();
+                if (node instanceof PangrovaSqlParser.NamedTableRefContext named) {
+                    recordReference(named, bodyBuilder.visitNamedTableRef(named));
+                }
+                for (int i = node.getChildCount() - 1; i >= 0; i--) {
+                    pending.push(node.getChild(i));
+                }
+            }
+            return statement;
+        }
+
+        private void recordReference(PangrovaSqlParser.NamedTableRefContext named, TableRef table) {
+            var name = named.qualifiedName();
+            references.add(new Reference(table, isCteReference(named, table, this),
+                    name.getStart().getStartIndex(), name.getStop().getStopIndex() + 1));
+            var clause = named.timeTravelSpec();
+            if (clause != null) {
+                spans.add(new Span(clause.getStart().getStartIndex(), clause.getStop().getStopIndex() + 1));
+            }
         }
     }
 
