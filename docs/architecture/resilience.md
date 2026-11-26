@@ -249,6 +249,12 @@ The PostgreSQL store reserves capacity and inserts its exact owner in one statem
 
 A submission resolves its authenticated membership and active tenant together. The Scheduler uses the concurrency and memory limits supplied by that authority read. Later placement cohorts observe their current tenant policy. An identity without tenant membership receives HTTP 403 with `SECURITY-0002`.
 
+A Worker can explicitly reject task admission while its control epoch catches up.
+The Coordinator retries the same stamped attempt while its dispatch deadline has
+room for another HTTP exchange. When that budget expires, the control-fencing
+result settles the circuit breaker permit. An HTTP request that times out still
+records an RPC timeout.
+
 ## 5. Degradation Strategy
 
 ### 5.1 Degradation Scenarios
