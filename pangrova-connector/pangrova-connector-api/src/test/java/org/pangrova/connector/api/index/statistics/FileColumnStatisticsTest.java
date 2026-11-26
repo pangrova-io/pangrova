@@ -140,4 +140,37 @@ class FileColumnStatisticsTest {
         assertTrue(stats.noRowsSatisfy(ColumnComparisonOperator.EQUAL, 0.5));
         assertFalse(stats.noRowsSatisfy(ColumnComparisonOperator.EQUAL, 5.0));
     }
+
+    @Test
+    void stringBoundsUseUtf8SqlOrdering() {
+        String bmp = "\uE000";
+        String supplementary = "\uD800\uDC00";
+        var stats = new FileColumnStatistics("col", bmp, supplementary, 0, 2, 2, 16);
+        assertFalse(stats.noRowsSatisfy(ColumnComparisonOperator.EQUAL, supplementary));
+        assertFalse(stats.noRowsSatisfy(ColumnComparisonOperator.GREATER_THAN, bmp));
+        assertTrue(stats.noRowsSatisfy(ColumnComparisonOperator.LESS_THAN, bmp));
+        assertTrue(stats.allRowsSatisfy(ColumnComparisonOperator.LESS_THAN_OR_EQUAL, supplementary));
+    }
+
+    @Test
+    void invalidUnicodeOrInconsistentBoundsCannotProvePruning() {
+        var invalid = new FileColumnStatistics("col", "\uD800", "z", 0, 1, 1, 8);
+        assertFalse(invalid.noRowsSatisfy(ColumnComparisonOperator.EQUAL, "a"));
+        assertFalse(invalid.allRowsSatisfy(ColumnComparisonOperator.LESS_THAN, "z"));
+        var backwards = new FileColumnStatistics("col", "z", "a", 0, 1, 1, 8);
+        assertFalse(backwards.noRowsSatisfy(ColumnComparisonOperator.EQUAL, "m"));
+        assertFalse(backwards.allRowsSatisfy(ColumnComparisonOperator.LESS_THAN, "z"));
+    }
+
+    @Test
+    void signedZeroAndUnknownNanCoverageRemainConservative() {
+        var doubles = new FileColumnStatistics("col", -0.0d, -0.0d, 0, 1, 1, 8);
+        var floats = new FileColumnStatistics("col", 0.0f, 0.0f, 0, 1, 1, 8);
+        assertFalse(doubles.noRowsSatisfy(ColumnComparisonOperator.EQUAL, 0.0d));
+        assertFalse(floats.noRowsSatisfy(ColumnComparisonOperator.EQUAL, -0.0f));
+        assertFalse(doubles.noRowsSatisfy(ColumnComparisonOperator.EQUAL, Double.NaN));
+        assertFalse(doubles.noRowsSatisfy(ColumnComparisonOperator.GREATER_THAN, 1.0d));
+        assertFalse(doubles.allRowsSatisfy(ColumnComparisonOperator.EQUAL, 0.0d));
+        assertTrue(doubles.noRowsSatisfy(ColumnComparisonOperator.EQUAL, 1.0d));
+    }
 }

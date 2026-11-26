@@ -11,9 +11,9 @@ import java.time.Duration;
  * Typed configuration definitions for the Pangrova Coordinator.
  *
  * <p>All options are defined as {@code public static final ConfigOption<T>} constants
- * using the {@link ConfigOptions#key(String)} fluent builder. Feature flags default
- * to {@code true} except {@link #SECURITY_ENABLED} which defaults to {@code false},
- * per requirement R1.3.
+ * using the {@link ConfigOptions#key(String)} fluent builder. Indexing, security
+ * and tenant flags require explicit activation; other feature flags default to
+ * {@code true}.
  *
  * <p>This class is not instantiable — it serves as a namespace for coordinator config keys.
  */
@@ -169,8 +169,14 @@ public final class CoordinatorOptions {
 
     public static final ConfigOption<Boolean> INDEXING_ENABLED = ConfigOptions.key("indexing.enabled")
             .booleanType()
-            .defaultValue(true)
+            .defaultValue(false)
             .withDescription("Enable the indexing module")
+            .build();
+
+    public static final ConfigOption<String> INDEX_BASE_PATH = ConfigOptions.key("indexing.base-path")
+            .stringType()
+            .withDescription("Durable scalar index and Native artifact staging root; "
+                    + "required when indexing is enabled")
             .build();
 
     public static final ConfigOption<Boolean> OPERATIONS_ENABLED = ConfigOptions.key("operations.enabled")

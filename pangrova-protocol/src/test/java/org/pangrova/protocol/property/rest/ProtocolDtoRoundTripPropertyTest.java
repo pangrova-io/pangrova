@@ -17,6 +17,7 @@ import org.pangrova.protocol.rest.data.WriteResultDescriptor;
 import org.pangrova.common.client.error.ErrorDetail;
 import org.pangrova.common.client.query.QueryStats;
 import org.pangrova.common.client.query.QueryStatusResponse;
+import org.pangrova.common.enums.ResultDisposition;
 import org.pangrova.common.client.result.ResultEndpoint;
 import org.pangrova.common.client.query.SubmitQueryRequest;
 import org.pangrova.common.client.query.SubmitQueryResponse;
@@ -285,6 +286,10 @@ class ProtocolDtoRoundTripPropertyTest {
 
     @Provide
     Arbitrary<ResultEndpoint> resultEndpoints() {
+        return resultEndpointArbitrary();
+    }
+
+    private static Arbitrary<ResultEndpoint> resultEndpointArbitrary() {
         return Combinators.combine(
                 nonBlankString(),
                 Arbitraries.integers().between(1, 65535),
@@ -303,24 +308,40 @@ class ProtocolDtoRoundTripPropertyTest {
 
     @Provide
     Arbitrary<SubmitQueryResponse> submitQueryResponses() {
-        return Combinators.combine(
-                nonBlankString(),
-                Arbitraries.of("QUEUED", "RUNNING", "FINISHED"),
-                resultEndpoints().injectNull(0.3),
-                Arbitraries.strings().alpha().ofMinLength(1).ofMaxLength(10)
-                        .list().ofMinSize(0).ofMaxSize(5)
-        ).as(SubmitQueryResponse::new);
+        return queryStates().flatMap(state -> dispositionsForState(state).flatMap(disposition ->
+                Combinators.combine(
+                        nonBlankString(),
+                        Arbitraries.strings().alpha().ofMinLength(1).ofMaxLength(10)
+                                .list().ofMinSize(0).ofMaxSize(5),
+                        endpointsForDisposition(disposition)
+                ).as((queryId, columns, endpoint) ->
+                        new SubmitQueryResponse(queryId, state, disposition, endpoint, columns))));
     }
 
     @Provide
     Arbitrary<QueryStatusResponse> queryStatusResponses() {
-        return Combinators.combine(
-                nonBlankString(),
-                Arbitraries.of("QUEUED", "RUNNING", "FINISHED", "FAILED"),
-                errorDetails().injectNull(0.5),
-                queryStatsList().injectNull(0.3),
-                resultEndpoints().injectNull(0.5)
-        ).as(QueryStatusResponse::new);
+        return queryStates().flatMap(state -> dispositionsForState(state).flatMap(disposition ->
+                Combinators.combine(
+                        nonBlankString(),
+                        errorDetails().injectNull(0.5),
+                        queryStatsList().injectNull(0.3),
+                        endpointsForDisposition(disposition)
+                ).as((queryId, error, stats, endpoint) ->
+                        new QueryStatusResponse(queryId, state, error, stats, disposition, endpoint))));
+    }
+
+    private static Arbitrary<String> queryStates() {
+        return Arbitraries.of("QUEUED", "RUNNING", "FINISHED", "FAILED", "CANCELLED");
+    }
+
+    private static Arbitrary<ResultDisposition> dispositionsForState(String state) {
+        boolean terminal = "FINISHED".equals(state) || "FAILED".equals(state) || "CANCELLED".equals(state);
+        return terminal ? Arbitraries.of(ResultDisposition.STREAM, ResultDisposition.NONE)
+                : Arbitraries.of(ResultDisposition.PENDING, ResultDisposition.STREAM, ResultDisposition.NONE);
+    }
+
+    private static Arbitrary<ResultEndpoint> endpointsForDisposition(ResultDisposition disposition) {
+        return disposition == ResultDisposition.STREAM ? resultEndpointArbitrary() : Arbitraries.just(null);
     }
 
     @Provide

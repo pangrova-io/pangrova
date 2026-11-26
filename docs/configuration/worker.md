@@ -150,6 +150,15 @@ is in-process; the SSD cache persists across restarts.
 | `worker.native.cache.ssd-bytes` | long | `107374182400` (100 GB) | SSD cache capacity in bytes |
 | `worker.native.cache.ssd-shards` | int | `8` | Number of SSD cache shards for parallel I/O |
 | `worker.native.cache.checkpoint-interval-bytes` | long | `1073741824` (1 GB) | SSD cache checkpoint interval in bytes. The native engine persists its SSD cache index every N bytes so the cache survives process restart. Set to `0` to disable checkpointing |
+| `worker.native.cache.artifact-path` | string | `""` | Dedicated local path for immutable search and model artifacts |
+| `worker.native.cache.artifact-bytes` | long | `107374182400` (100 GB) | Disk budget for cached immutable objects |
+| `worker.native.cache.artifact-index-memory-bytes` | long | `2147483648` (2 GB) | RAM budget for parsed immutable indexes |
+
+Workers that build or read immutable search artifacts require the Native cache
+to be enabled and a writable artifact path with a separate budget. Each Worker
+process must own its artifact-cache directory; sharing one directory between
+processes fails the Native ownership lock. This local content-addressed cache is
+rebuildable and is not the durable index store.
 
 ## worker.registration
 

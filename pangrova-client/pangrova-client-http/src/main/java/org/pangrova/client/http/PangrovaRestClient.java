@@ -316,13 +316,21 @@ public final class PangrovaRestClient implements QueryClient, AutoCloseable {
             }
             responseHandler.check(response);
             var status = responseHandler.deserialize(response.body(), QueryStatusResponse.class, "GET " + path);
-            if (!receipt.queryId().equals(status.queryId()) || status.version() == null || status.version() < 0
-                    || version != null && status.version() < version) {
+            if (!hasCoherentLiveStatus(status)) {
                 throw new PangrovaProtocolException("QUERY_STATUS_INVALID",
-                        "Owner status identity or version mismatched", response.statusCode());
+                        "Owner status identity, version, drain evidence or disposition mismatched",
+                        response.statusCode());
             }
             version = status.version();
             return status;
+        }
+
+        private boolean hasCoherentLiveStatus(QueryStatusResponse status) {
+            return receipt.queryId().equals(status.queryId())
+                    && status.version() != null
+                    && status.version() >= 0
+                    && status.drained() != null
+                    && (version == null || status.version() >= version);
         }
 
         private PangrovaConnectionException statusDeadline(Throwable cause) {

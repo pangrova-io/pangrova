@@ -1,6 +1,8 @@
 package org.pangrova.connector.iceberg;
 
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
+import org.pangrova.connector.api.exception.ConnectorException;
+import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.connector.iceberg.type.IcebergTypeMapper;
 import org.pangrova.types.enums.PangrovaType;
 import org.apache.iceberg.Table;
@@ -35,7 +37,12 @@ final class IcebergDdlOperations {
     /** Drops the table, purging its underlying data. */
     static void dropTable(Catalog catalog, IcebergTableHandle handle) {
         TableIdentifier id = TableIdentifier.of(handle.schemaName(), handle.tableName());
-        catalog.dropTable(id, true);
+        if (!catalog.dropTable(id, true)) {
+            // Hadoop may return false after purging data; JDBC may retry an
+            // uncertain delete. A false result is not a no-mutation receipt.
+            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_DDL_FAILED,
+                    "Iceberg drop outcome could not be established: " + id);
+        }
         LOG.info("Dropped Iceberg table {}.{}", handle.schemaName(), handle.tableName());
     }
 

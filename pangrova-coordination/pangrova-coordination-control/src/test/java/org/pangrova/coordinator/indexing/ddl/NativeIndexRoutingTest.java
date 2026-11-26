@@ -32,6 +32,19 @@ class NativeIndexRoutingTest {
                 IndexType.VECTOR, Map.of("algorithm", "IVF_PQ")))).isTrue();
     }
 
+    @Test
+    void physicalFamilyDoesNotClaimUnsupportedNativeAlgorithms() {
+        assertThat(IndexDdlExecutor.requiresNativeArtifact(IndexType.VECTOR)).isTrue();
+        assertThat(DurableIndexBuildService.supports(index(
+                IndexType.VECTOR, Map.of("algorithm", "unknown")))).isFalse();
+        assertThat(DurableIndexBuildService.supports(index(
+                IndexType.INVERTED, Map.of("algorithm", "unknown")))).isFalse();
+        assertThat(DurableIndexBuildService.supports(index(IndexType.VECTOR, Map.of()))).isTrue();
+        assertThat(DurableIndexBuildService.supports(index(IndexType.INVERTED, Map.of()))).isTrue();
+        assertThat(DurableIndexBuildService.supports(index(
+                IndexType.BLOOM_FILTER, Map.of("algorithm", "HNSW")))).isFalse();
+    }
+
     private static IndexDescriptor index(
             IndexType type, Map<String, String> properties) {
         Instant now = Instant.parse("2026-09-12T00:00:00Z");

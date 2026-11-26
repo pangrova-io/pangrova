@@ -33,6 +33,9 @@ public interface QueryExecutionPort extends QueryExecutionCleanup {
     /** Acquires the durable execution ownership for a query. */
     boolean acquireQueryOwnership(String queryId);
 
+    /** Releases only the candidate execution grant without implying local issuance cleanup. */
+    void releaseQueryOwnership(String queryId);
+
     /** Binds the exact connector authority for the query lifetime. */
     ConnectorMetadataScope bindConnectorAuthority(QueryStateMachine state, String queryId);
 

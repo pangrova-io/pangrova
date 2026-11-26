@@ -1,6 +1,8 @@
 package org.pangrova.indexing.build;
 
 import org.pangrova.common.util.DigestUtils;
+import org.pangrova.persistence.indexing.api.build.ScalarArtifactIntent;
+import org.pangrova.persistence.indexing.api.build.ScalarArtifactIntents;
 
 import java.io.IOException;
 import java.util.HexFormat;
@@ -20,9 +22,11 @@ import org.pangrova.indexing.api.data.IndexData;
 final class IndexFileBuilder {
     private final IndexBuildContext context;
     private final IndexStorageLayout layout;
+    private final ScalarArtifactIntents artifactIntents;
 
-    IndexFileBuilder(IndexBuildContext context) {
+    IndexFileBuilder(IndexBuildContext context, ScalarArtifactIntents artifactIntents) {
         this.context = context;
+        this.artifactIntents = artifactIntents;
         this.layout = new IndexStorageLayout(context.config().baseIndexPath());
     }
 
@@ -39,12 +43,31 @@ final class IndexFileBuilder {
         CountingRows rows = new CountingRows(
                 reader.readColumns(file.filePath(), descriptor.columnNames()), cancelled);
         requireActive(cancelled);
-        IndexData data = provider.build(rows, descriptor.properties());
+        IndexData data;
+        try {
+            data = provider.build(rows, descriptor.properties());
+            if (context.snapshotPinProvider() instanceof ScalarSnapshotPinLifecycle) {
+                rows.requireExhausted();
+            }
+        } finally {
+            // A strategy must never keep reading this source after returning.
+            // Synchronization waits for any concurrent iterator access to finish.
+            rows.seal();
+        }
         requireActive(cancelled);
         byte[] bytes = context.serializer().serialize(data);
         requireActive(cancelled);
         String indexFilePath = layout.indexFilePath(descriptor, attemptId, file.filePath());
+        var artifact = new ScalarArtifactIntent(descriptor.indexId(), descriptor.generation(),
+                attemptId.toString(), file.filePath(), indexFilePath);
+        if (artifactIntents != null) {
+            artifactIntents.beginScalarArtifactWrite(artifact);
+        }
+        // A failed or uncertain storage close deliberately leaves WRITING evidence.
         context.storageManager().writeIndex(fileSystemAccessor, indexFilePath, bytes);
+        if (artifactIntents != null) {
+            artifactIntents.markScalarArtifactDrained(artifact);
+        }
         return new BuildFileMapping(
                 attemptId,
                 descriptor.indexId(),
@@ -70,6 +93,8 @@ final class IndexFileBuilder {
         private final Iterator<List<Comparable<?>>> delegate;
         private final BooleanSupplier cancelled;
         private long count;
+        private boolean exhausted;
+        private boolean sealed;
 
         private CountingRows(Iterator<List<Comparable<?>>> delegate, BooleanSupplier cancelled) {
             this.delegate = delegate;
@@ -77,22 +102,41 @@ final class IndexFileBuilder {
         }
 
         @Override
-        public boolean hasNext() {
+        public synchronized boolean hasNext() {
+            requireUnsealed();
             requireActive(cancelled);
-            return delegate.hasNext();
+            if (!exhausted) {
+                exhausted = !delegate.hasNext();
+            }
+            return !exhausted;
         }
 
         @Override
-        public List<Comparable<?>> next() {
-            requireActive(cancelled);
-            if (!delegate.hasNext()) {
+        public synchronized List<Comparable<?>> next() {
+            if (!hasNext()) {
                 throw new NoSuchElementException("No more rows in data file");
             }
             count++;
             return delegate.next();
         }
 
-        private long count() {
+        private synchronized void requireExhausted() {
+            if (hasNext()) {
+                throw new IllegalStateException("Scalar index strategy did not consume its complete source");
+            }
+        }
+
+        private synchronized void seal() {
+            sealed = true;
+        }
+
+        private void requireUnsealed() {
+            if (sealed) {
+                throw new IllegalStateException("Scalar source cursor has been sealed");
+            }
+        }
+
+        private synchronized long count() {
             return count;
         }
     }

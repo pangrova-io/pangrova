@@ -221,8 +221,9 @@ class IndexGenerationRollbackE2ETest extends SqlE2ETestBase {
             IndexDescriptor initial = requireIndex(store, "idx_drop2");
             long initialSnapshot = Long.parseLong(initial.buildSnapshotId());
             SnapshotPinProvider pins = snapshotPins();
-            assertThat(pins.getPinnedSnapshotsForIndex(CATALOG, SCHEMA, tableName, initial.indexId()))
-                    .contains(initialSnapshot);
+            assertThat(pins.getSnapshotPinsForIndex(CATALOG, SCHEMA, tableName, initial.indexId()))
+                    .extracting(org.pangrova.connector.api.index.SnapshotPinReference::snapshotToken)
+                    .contains(Long.toString(initialSnapshot));
             List<IndexFileMapping> initialFiles = store.getIndexFileMappings(initial.indexId());
             assertThat(initialFiles).isNotEmpty().allSatisfy(mapping -> {
                 assertThat(mapping.generation()).isEqualTo(initial.generation());
@@ -243,9 +244,11 @@ class IndexGenerationRollbackE2ETest extends SqlE2ETestBase {
                         assertThat(rebuilt.generation()).isEqualTo(initial.generation() + 1);
                         assertThat(rebuilt.buildSnapshotId()).isNotEqualTo(initial.buildSnapshotId());
                         long rebuiltSnapshot = Long.parseLong(rebuilt.buildSnapshotId());
-                        assertThat(pins.getPinnedSnapshotsForIndex(
+                        assertThat(pins.getSnapshotPinsForIndex(
                                 CATALOG, SCHEMA, tableName, initial.indexId()))
-                                .containsExactlyInAnyOrder(initialSnapshot, rebuiltSnapshot);
+                                .extracting(org.pangrova.connector.api.index.SnapshotPinReference::snapshotToken)
+                                .containsExactlyInAnyOrder(
+                                        Long.toString(initialSnapshot), Long.toString(rebuiltSnapshot));
                         List<IndexFileMapping> files = store.getIndexFileMappings(initial.indexId());
                         assertThat(files).extracting(IndexFileMapping::generation)
                                 .contains(initial.generation(), rebuilt.generation());
@@ -263,7 +266,7 @@ class IndexGenerationRollbackE2ETest extends SqlE2ETestBase {
                     .isEqualTo(IndexState.DROPPED);
             // DROP retires query use immediately. The default grace period keeps
             // both physical generations and Iceberg refs until the GC cycle.
-            assertThat(pins.getPinnedSnapshotsForIndex(CATALOG, SCHEMA, tableName, initial.indexId()))
+            assertThat(pins.getSnapshotPinsForIndex(CATALOG, SCHEMA, tableName, initial.indexId()))
                     .hasSize(2);
             store.getIndexFileMappings(initial.indexId()).forEach(mapping -> assertPhysicalIndexFile(mapping));
 

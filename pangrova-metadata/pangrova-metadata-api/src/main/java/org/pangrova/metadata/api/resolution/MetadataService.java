@@ -53,6 +53,10 @@ public interface MetadataService {
      * @param session  metadata session context
      * @param tableRef qualified table reference (catalog.schema.table)
      */
+    /**
+     * Drops a table. A typed table or catalog absence is reported only before
+     * connector mutation starts; an uncertain mutation outcome remains a failure.
+     */
     void dropTable(MetadataSessionContext session, QualifiedTableRef tableRef);
 
     void alterTable(MetadataSessionContext session, QualifiedTableRef tableRef, List<SchemaChange> changes);

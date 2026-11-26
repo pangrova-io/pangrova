@@ -7,6 +7,7 @@ import org.pangrova.query.api.enums.StatementCategory;
 import org.pangrova.query.dispatch.StatementCompletionEvent;
 import org.pangrova.query.dispatch.StatementResult;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
+import org.pangrova.coordinator.testinfra.ModelAuthorityFixtures;
 import org.pangrova.persistence.indexing.postgresql.metadata.JdbcIndexMetadataStore;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.persistence.catalog.postgresql.catalog.PostgresCatalogDeploymentRepository;
@@ -35,11 +36,13 @@ class QueryAssemblyWiringTest {
         store.registerIndex(new IndexDescriptor("query-index", "by_value", "c", "s", "t",
                 List.of("value"), IndexType.BITMAP, Map.of(), IndexState.READY,
                 null, 0, null, null, now, now, "tenant"));
+        var catalogs = new CatalogRegistry(
+                memoryTableStores(), new PostgresCatalogDeploymentRepository(dataSource));
         try (var modules = new ModuleIntegrationBootstrap()) {
-            modules.startIndexQuery(store, null);
+            modules.setCatalogRegistry(catalogs);
+            modules.startIndexQuery(store, null, ModelAuthorityFixtures.artifacts().builds(dataSource));
             assertThat(modules.getIndexingBootstrap()).isNull();
-            var reads = QueryBootstrap.createIndexedReads(modules,
-                    new CatalogRegistry(memoryTableStores(), new PostgresCatalogDeploymentRepository(dataSource)));
+            var reads = QueryBootstrap.createIndexedReads(modules, catalogs);
             assertThat(reads).isNotNull();
             assertThat(reads.isIndexFilteringEnabled()).isTrue();
             assertThat(reads.lookupIndexes("tenant", "c.s.t", "value"))

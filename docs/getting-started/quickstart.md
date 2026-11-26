@@ -76,7 +76,7 @@ runnable profile. Copy it to a local file and supply the deployment prerequisite
 | `tenant.enabled` | Keep `false` with `NOOP`; multi-tenancy requires a real authenticator and provisioned membership |
 | `worker.advertised-host` | A concrete non-loopback address reachable by the Coordinator and client |
 | `worker.shuffle.service.spill-directory` | An existing, writable absolute directory with space for the configured quota and headroom |
-| `indexing.enabled` | Disable for a first relational query, or supply the required `-Dpangrova.index.basePath` and index runtime prerequisites |
+| `indexing.enabled` | Defaults to `false`. Set `indexing.base-path` (or `PANGROVA_INDEX_BASE_PATH`) to a durable shared root and configure each Worker's artifact cache before enabling |
 
 See [Coordinator configuration](../configuration/coordinator.md),
 [Worker configuration](../configuration/worker.md), and

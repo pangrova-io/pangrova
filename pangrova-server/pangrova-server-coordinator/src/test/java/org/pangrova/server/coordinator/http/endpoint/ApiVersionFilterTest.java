@@ -69,6 +69,17 @@ class ApiVersionFilterTest {
     }
 
     @Test
+    void rejectsApiVersionWithoutExplicitResultDisposition() {
+        StubRequestContext ctx = new StubRequestContext("/v1/query/submit");
+        ctx.addHeader(ApiVersion.HEADER_NAME, "1");
+
+        filter.filter(ctx);
+
+        assertThat(ctx.isAborted()).isTrue();
+        assertThat(ctx.getAbortedStatus()).isEqualTo(422);
+    }
+
+    @Test
     void rejectsRequestWithVersionTooHigh() {
         StubRequestContext ctx = new StubRequestContext("/v1/query/submit");
         ctx.addHeader(ApiVersion.HEADER_NAME, String.valueOf(ApiVersion.CURRENT + 1));

@@ -46,14 +46,4 @@ final class JdbcIndexDescriptorReadStore extends JdbcStoreSupport {
             throw new MetastoreException("Index descriptor selection failed", failure);
         }
     }
-
-    List<IndexDescriptor> findIndexesByStatePaginated(IndexState state, int offset, int limit) {
-        String sql = "SELECT * FROM index_descriptors WHERE state=? "
-                + "ORDER BY updated_at, index_id OFFSET ? LIMIT ?";
-        return executeQuery(sql, ps -> {
-            ps.setString(1, state.name());
-            ps.setInt(2, offset);
-            ps.setInt(3, limit);
-        }, IndexMetadataMapper::mapDescriptorList);
-    }
 }

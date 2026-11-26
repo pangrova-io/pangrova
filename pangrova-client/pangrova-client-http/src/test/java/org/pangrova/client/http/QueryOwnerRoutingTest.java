@@ -26,12 +26,14 @@ class QueryOwnerRoutingTest {
         var observerIds = new CopyOnWriteArrayList<String>();
         var peerPaths = new CopyOnWriteArrayList<String>();
         owner.createContext("/v1/query/submit", exchange -> reply(exchange, 200,
-                "{\"query_id\":\"owner-query\",\"state\":\"RUNNING\"}"));
+                "{\"query_id\":\"owner-query\",\"state\":\"RUNNING\","
+                        + "\"result_disposition\":\"PENDING\"}"));
         owner.createContext("/v1/query/owner-query/state", exchange -> {
             ownerQueries.add(exchange.getRequestURI().getRawQuery());
             observerIds.add(exchange.getRequestHeaders().getFirst("X-Pangrova-Query-Observer"));
             reply(exchange, 200, """
-                    {"query_id":"owner-query","state":"RUNNING","version":%d,"drained":false}
+                    {"query_id":"owner-query","state":"RUNNING","result_disposition":"PENDING",
+                     "version":%d,"drained":false}
                     """.formatted(10 + ownerQueries.size()));
         });
         owner.createContext("/v1/query/owner-query/cancel", exchange -> reply(exchange, 202, """
@@ -40,7 +42,8 @@ class QueryOwnerRoutingTest {
         owner.createContext("/v1/query/diagnostic/state", exchange -> reply(exchange, 503, "{}"));
         peer.createContext("/", exchange -> {
             peerPaths.add(exchange.getRequestURI().getPath());
-            reply(exchange, 200, "{\"query_id\":\"diagnostic\",\"state\":\"FINISHED\"}");
+            reply(exchange, 200, "{\"query_id\":\"diagnostic\",\"state\":\"FINISHED\","
+                    + "\"result_disposition\":\"NONE\"}");
         });
         owner.start();
         peer.start();
