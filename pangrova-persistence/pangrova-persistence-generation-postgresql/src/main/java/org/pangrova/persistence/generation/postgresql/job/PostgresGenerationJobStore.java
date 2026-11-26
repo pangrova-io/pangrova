@@ -127,9 +127,11 @@ public final class PostgresGenerationJobStore extends PostgresGenerationJobStore
             GenerationJob job, GenerationDispatchSpec dispatchSpec,
             List<GenerationPage> pages, String pinOwner) {
         requireText(pinOwner, "pinOwner");
+        List<GenerationPage> immutablePages =
+                PostgresGenerationAdmission.validateNewJob(job, dispatchSpec, pages);
         inTransaction("create snapshot-pinned artifact build job", connection -> {
-            createJob(transactionAuthority, connection, job, dispatchSpec, pages);
-            PostgresSnapshotPinLedger.bindJob(connection, job.tenantId(), job.jobId(), pinOwner);
+            createJob(transactionAuthority, connection, job, dispatchSpec, immutablePages);
+            PostgresSnapshotPinLedger.bindJob(connection, job, dispatchSpec, pinOwner);
             return null;
         });
     }

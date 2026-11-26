@@ -225,12 +225,14 @@ public final class IndexDdlExecutor implements AutoCloseable {
                 .toList();
 
         for (IndexDescriptor descriptor : allGenerations) {
-            deps.buildServices().dataSkipping().cancelBuild(descriptor.indexId());
-            if (deps.buildServices().aiNative() != null) {
-                deps.buildServices().aiNative().cancel(
-                        descriptor.indexId(), tenantId, Instant.now());
-            }
-            deps.indexMetadataStore().dropIndex(descriptor.indexId(), Instant.now());
+            deps.indexMetadataStore().withIndexLifecycleLock(descriptor.indexId(), () -> {
+                deps.buildServices().dataSkipping().cancelBuild(descriptor.indexId());
+                if (deps.buildServices().aiNative() != null) {
+                    deps.buildServices().aiNative().cancel(
+                            descriptor.indexId(), tenantId, Instant.now());
+                }
+                deps.indexMetadataStore().dropIndex(descriptor.indexId(), Instant.now());
+            });
             if (indexCache != null) {
                 indexCache.invalidateIndex(descriptor.indexId());
             }

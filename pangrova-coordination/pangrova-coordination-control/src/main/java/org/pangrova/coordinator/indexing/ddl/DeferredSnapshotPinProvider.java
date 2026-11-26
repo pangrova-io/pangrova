@@ -3,6 +3,8 @@ package org.pangrova.coordinator.indexing.ddl;
 import org.pangrova.coordinator.indexing.connector.ConnectorAccessorResolver;
 
 import org.pangrova.persistence.generation.api.job.GenerationJobStore;
+import org.pangrova.persistence.generation.api.job.SnapshotPinIntent;
+import org.pangrova.persistence.generation.api.job.SnapshotPinState;
 import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
 import org.pangrova.connector.api.index.SnapshotPinProvider;
 import org.pangrova.connector.api.index.SnapshotPinOwner;
@@ -40,7 +42,18 @@ public final class DeferredSnapshotPinProvider implements SnapshotPinProvider {
     @Override
     public void unpinSnapshot(String catalog, String schema, String table, String snapshot,
                               SnapshotPinOwner owner) {
-        var provider = requireProvider(catalog, schema, table, owner.indexId());
+        var descriptor = requireDescriptor(owner.indexId());
+        var provider = requireProvider(catalog, schema, table, descriptor);
+        if (builds != null && IndexDdlExecutor.requiresNativeArtifact(descriptor.indexType())) {
+            var intent = builds.findSnapshotPin(descriptor.tenantId(), owner.id());
+            if (intent.isPresent()) {
+                if (!intent.get().sourceSnapshot().equals(snapshot)) {
+                    throw new IllegalStateException("Native snapshot pin differs from its durable source snapshot");
+                }
+                releaseDurablePin(descriptor, intent.get(), provider, catalog, schema, table, snapshot, owner);
+                return;
+            }
+        }
         provider.unpinSnapshot(catalog, schema, table, snapshot, owner);
     }
 
@@ -65,8 +78,12 @@ public final class DeferredSnapshotPinProvider implements SnapshotPinProvider {
 
     private SnapshotPinProvider requireProvider(
             String catalog, String schema, String table, String indexId) {
-        var descriptor = indexes.findIndex(indexId).orElseThrow(() ->
-                new AccessDeniedException("Snapshot maintenance index no longer exists"));
+        return requireProvider(catalog, schema, table, requireDescriptor(indexId));
+    }
+
+    private SnapshotPinProvider requireProvider(
+            String catalog, String schema, String table,
+            org.pangrova.indexing.api.descriptor.IndexDescriptor descriptor) {
         if (builds == null && IndexDdlExecutor.requiresNativeArtifact(descriptor.indexType())) {
             throw new AccessDeniedException("Snapshot maintenance requires a persisted current authorization scope");
         }
@@ -85,5 +102,26 @@ public final class DeferredSnapshotPinProvider implements SnapshotPinProvider {
             throw new IllegalStateException("Authorized catalog does not support snapshot pinning");
         }
         return provider;
+    }
+
+    private org.pangrova.indexing.api.descriptor.IndexDescriptor requireDescriptor(String indexId) {
+        return indexes.findIndex(indexId).orElseThrow(() ->
+                new AccessDeniedException("Snapshot maintenance index no longer exists"));
+    }
+
+    private void releaseDurablePin(
+            org.pangrova.indexing.api.descriptor.IndexDescriptor descriptor,
+            SnapshotPinIntent intent, SnapshotPinProvider provider,
+            String catalog, String schema, String table, String snapshot, SnapshotPinOwner owner) {
+        if (intent.state() == SnapshotPinState.RELEASED) {
+            return;
+        }
+        if (!builds.beginSnapshotPinRelease(descriptor.tenantId(), intent.pinOwner(), java.time.Instant.now())) {
+            throw new IllegalStateException("Native snapshot pin still has live execution references: " + owner.id());
+        }
+        provider.unpinSnapshot(catalog, schema, table, snapshot, owner);
+        if (!builds.markSnapshotPinReleased(descriptor.tenantId(), intent.pinOwner(), java.time.Instant.now())) {
+            throw new IllegalStateException("Released Native snapshot pin is absent from the durable ledger");
+        }
     }
 }

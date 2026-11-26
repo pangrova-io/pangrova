@@ -1,0 +1,27 @@
+name: Set up macOS Native stage prerequisites
+description: Verify compiler caching and the shared link prerequisite for staged macOS CI.
+runs:
+  using: composite
+  steps:
+    - name: Provision compiler cache (macOS)
+      shell: bash
+      run: |
+        export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_UPGRADE=1
+        # ccache is part of the CI budget, not an optional developer tool.
+        # Prefer the installed executable; install only this small tool if absent.
+        if ! command -v ccache >/dev/null 2>&1; then
+          brew install ccache
+        fi
+        ccache --version
+        {
+          printf '%s\n' "CCACHE_DIR=$HOME/.cache/ccache" \
+            CCACHE_COMPRESS=1 CCACHE_MAXSIZE=3G CCACHE_COMPILERCHECK=content \
+            CMAKE_C_COMPILER_LAUNCHER=ccache CMAKE_CXX_COMPILER_LAUNCHER=ccache
+        } >> "$GITHUB_ENV"
+
+    - name: Provision macOS Native link prerequisites
+      shell: bash
+      run: |
+        die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
+        source pangrova-worker-native/bin/resolve-darwin-libevent.sh
+        resolve_darwin_libevent "$(command -v brew)" install

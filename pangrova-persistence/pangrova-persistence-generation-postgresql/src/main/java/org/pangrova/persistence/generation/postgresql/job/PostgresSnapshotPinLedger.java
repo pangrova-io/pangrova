@@ -1,5 +1,7 @@
 package org.pangrova.persistence.generation.postgresql.job;
 
+import org.pangrova.generation.api.job.GenerationDispatchSpec;
+import org.pangrova.generation.api.job.GenerationJob;
 import org.pangrova.generation.api.job.GenerationSubmissionAuthority;
 import org.pangrova.persistence.generation.api.job.SnapshotPinIntent;
 import org.pangrova.persistence.generation.api.job.SnapshotPinReservation;
@@ -185,20 +187,28 @@ final class PostgresSnapshotPinLedger {
         }
     }
 
-    static void bindJob(Connection connection, String tenantId, String jobId, String pinOwner)
-            throws SQLException {
-        SnapshotPinIntent intent = find(connection, tenantId, pinOwner, true)
+    static void bindJob(Connection connection, GenerationJob job, GenerationDispatchSpec dispatchSpec,
+                        String pinOwner) throws SQLException {
+        SnapshotPinIntent intent = find(connection, job.tenantId(), pinOwner, true)
                 .orElseThrow(() -> new IllegalStateException("Snapshot pin intent is absent"));
-        if (intent.state() != SnapshotPinState.PINNED || intent.jobId() != null
-                && !intent.jobId().equals(jobId)) {
+        int generation = Integer.parseInt(job.stagingGeneration());
+        if (intent.state() != SnapshotPinState.PINNED
+                || intent.jobId() != null && !intent.jobId().equals(job.jobId())
+                || !intent.indexId().equals(job.artifactId())
+                || intent.generation() != generation
+                || !intent.sourceId().equals(job.sourceId())
+                || !intent.sourceSnapshot().equals(job.sourceSnapshot())
+                || !intent.authority().tenantId().equals(dispatchSpec.tenantId())
+                || !intent.authority().principal().equals(dispatchSpec.principal())
+                || !intent.authority().authorizationScope().equals(dispatchSpec.authorizationScope())) {
             throw new IllegalStateException("Durable job requires its exact PINNED snapshot intent");
         }
         try (PreparedStatement statement = connection.prepareStatement(
                 "UPDATE artifact_snapshot_pins SET job_id=?, updated_at=? "
                         + "WHERE tenant_id=? AND pin_owner=? AND state='PINNED'")) {
-            statement.setString(1, jobId);
+            statement.setString(1, job.jobId());
             setInstant(statement, 2, Instant.now());
-            statement.setString(3, tenantId);
+            statement.setString(3, job.tenantId());
             statement.setString(4, pinOwner);
             statement.executeUpdate();
         }

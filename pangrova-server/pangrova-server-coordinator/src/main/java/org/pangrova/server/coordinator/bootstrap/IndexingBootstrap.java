@@ -308,7 +308,7 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
         // Scalar indexes use the Java builder; vector/BM25 artifacts use durable Native jobs.
         var aiNativeBuildService = artifactBuildStore == null ? null
                 : new org.pangrova.coordinator.indexing.ddl.DurableIndexBuildService(
-                        artifactBuildStore, catalogRegistry, baseIndexPath,
+                        artifactBuildStore, metadataStore, catalogRegistry, baseIndexPath,
                         session -> accessorResolver.forSession(session).resolveSnapshotPinProvider());
         nativeIndexBuildService = aiNativeBuildService;
         return new org.pangrova.coordinator.indexing.ddl.IndexBuildServices(

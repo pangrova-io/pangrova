@@ -14,6 +14,7 @@ import org.apache.paimon.table.sink.BatchWriteBuilder;
 import org.apache.paimon.types.DataTypes;
 import org.apache.paimon.utils.SnapshotManager;
 import org.pangrova.types.value.TypedRow;
+import org.pangrova.common.connector.SnapshotPinTags;
 import org.pangrova.connector.api.exception.SnapshotExpiredException;
 import org.pangrova.connector.api.index.SnapshotPinOwner;
 import org.pangrova.connector.api.index.SnapshotPinReference;
@@ -152,6 +153,27 @@ class PaimonExpireSnapshotsTest {
                 "test_catalog", "db", "test_expire", "0",
                 new SnapshotPinOwner("index-one", 2, "attempt-3")))
                 .isInstanceOf(SnapshotExpiredException.class);
+    }
+
+    @Test
+    void exactOwnerNeitherValidatesNorRemovesLegacyPin() throws Exception {
+        commitData(0);
+        FileStoreTable table = (FileStoreTable) catalog.getTable(tableId);
+        long snapshot = table.snapshotManager().latestSnapshotId();
+        String token = Long.toString(snapshot);
+        String legacyTag = SnapshotPinTags.indexPrefix("index-one");
+        table.createTag(legacyTag, snapshot, null);
+        var pins = metadata.getIndexSupport().orElseThrow().getSnapshotPinProvider().orElseThrow();
+        var owner = new SnapshotPinOwner("index-one", 0, "attempt-1");
+
+        assertThatThrownBy(() -> pins.validateSnapshotPin("test_catalog", "db", "test_expire", token, owner))
+                .isInstanceOf(SnapshotExpiredException.class);
+        pins.pinSnapshot("test_catalog", "db", "test_expire", token, owner);
+        pins.unpinSnapshot("test_catalog", "db", "test_expire", token, owner);
+
+        FileStoreTable refreshed = (FileStoreTable) catalog.getTable(tableId);
+        assertThat(refreshed.tagManager().tags().values())
+                .anyMatch(tags -> tags.contains(legacyTag));
     }
 
     @Test

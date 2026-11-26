@@ -20,6 +20,7 @@ import java.util.function.Consumer;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.connector.api.index.ColumnValueReader;
 import org.pangrova.connector.api.index.FileSystemAccessor;
+import org.pangrova.connector.api.index.SnapshotPinOwner;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -321,6 +322,8 @@ public final class IndexBuildCoordinator implements AutoCloseable {
             recordError(System.currentTimeMillis() - startedAt, IndexBuildError.CLAIM_FAILED);
             return IndexBuildResult.claimFailed();
         }
+        SnapshotPinOwner pinOwner = null;
+        IndexBuildResult result = null;
         Throwable failure = null;
         try {
             if (attempt.stopped()) {
@@ -334,23 +337,39 @@ public final class IndexBuildCoordinator implements AutoCloseable {
                 recordError(System.currentTimeMillis() - startedAt, IndexBuildError.STALE_GENERATION);
                 return IndexBuildResult.staleGeneration();
             }
-            pinBuildSnapshot(attempt);
-            return buildFiles(attempt);
+            pinOwner = pinBuildSnapshot(attempt);
+            result = buildFiles(attempt);
         } catch (RuntimeException | Error buildFailure) {
             failure = buildFailure;
-            throw buildFailure;
         } finally {
+            try {
+                if (pinOwner != null && (failure != null || !result.isFullySuccessful())) {
+                    releaseBuildSnapshot(attempt, pinOwner);
+                }
+            } catch (RuntimeException releaseFailure) {
+                if (failure == null) {
+                    failure = releaseFailure;
+                } else if (failure != releaseFailure) {
+                    failure.addSuppressed(releaseFailure);
+                }
+            }
             try {
                 releaseClaim(attempt);
             } catch (RuntimeException releaseFailure) {
                 if (failure == null) {
-                    throw releaseFailure;
-                }
-                if (failure != releaseFailure) {
+                    failure = releaseFailure;
+                } else if (failure != releaseFailure) {
                     failure.addSuppressed(releaseFailure);
                 }
             }
         }
+        if (failure instanceof RuntimeException runtimeFailure) {
+            throw runtimeFailure;
+        }
+        if (failure instanceof Error error) {
+            throw error;
+        }
+        return result;
     }
 
     private void recordBuildCompletion(BuildAttempt attempt, IndexBuildResult result, long startedAt) {
@@ -472,20 +491,22 @@ public final class IndexBuildCoordinator implements AutoCloseable {
         return checker == null || checker.isCurrentGeneration(descriptor.indexId(), descriptor.generation());
     }
 
-    private void pinBuildSnapshot(BuildAttempt attempt) {
+    private SnapshotPinOwner pinBuildSnapshot(BuildAttempt attempt) {
         IndexDescriptor descriptor = attempt.request.descriptor();
         if (context.snapshotPinProvider() == null || descriptor.buildSnapshotId() == null
                 || descriptor.buildSnapshotId().isEmpty()) {
-            return;
+            return null;
         }
+        var owner = new SnapshotPinOwner(
+                descriptor.indexId(), descriptor.generation(), attempt.attemptId.toString());
         try {
             context.snapshotPinProvider().pinSnapshot(
                     descriptor.catalogName(),
                     descriptor.schemaName(),
                     descriptor.tableName(),
                     descriptor.buildSnapshotId(),
-                    new org.pangrova.connector.api.index.SnapshotPinOwner(
-                            descriptor.indexId(), descriptor.generation(), attempt.attemptId.toString()));
+                    owner);
+            return owner;
         } catch (RuntimeException runtimeException) {
             LOG.error(
                     "event=index_build_pin_failed indexId={} snapshotId={} error={}",
@@ -493,6 +514,23 @@ public final class IndexBuildCoordinator implements AutoCloseable {
                     descriptor.buildSnapshotId(),
                     runtimeException.getMessage(), runtimeException);
             throw runtimeException;
+        }
+    }
+
+    private void releaseBuildSnapshot(BuildAttempt attempt, SnapshotPinOwner owner) {
+        IndexDescriptor descriptor = attempt.request.descriptor();
+        try {
+            context.snapshotPinProvider().unpinSnapshot(
+                    descriptor.catalogName(),
+                    descriptor.schemaName(),
+                    descriptor.tableName(),
+                    descriptor.buildSnapshotId(),
+                    owner);
+        } catch (RuntimeException releaseFailure) {
+            LOG.error("event=index_build_pin_release_failed indexId={} snapshotId={} owner={} error={}",
+                    descriptor.indexId(), descriptor.buildSnapshotId(), owner.id(),
+                    releaseFailure.getMessage(), releaseFailure);
+            throw releaseFailure;
         }
     }
 
