@@ -65,7 +65,8 @@ public final class InMemoryQueryStateJournal implements QueryStateJournal {
             if (!sameQuery && isExpired(existing)) {
                 purgeQuery(existing.queryId());
             } else {
-                if (!digestEquals(existing.acceptance().requestFingerprint(), event.acceptance().requestFingerprint())) {
+                if (!digestEquals(existing.acceptance().requestFingerprint(),
+                        event.acceptance().requestFingerprint())) {
                     throw uniqueConflict();
                 }
                 return new QueryAcceptanceAdmission(sameQuery, existing.acceptance());

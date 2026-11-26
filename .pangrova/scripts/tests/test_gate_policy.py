@@ -437,6 +437,18 @@ class RuntimeScopeTest(unittest.TestCase):
                                 job.index('Setup native build environment'))
                 self.assertIn('--prepared-java "$RUNNER_TEMP/native-java-fixture"', job)
 
+    def test_pinned_iceberg_sdk_uses_bounded_gradle_repository_backoff(self):
+        script = (ROOT / '.pangrova/scripts/build-iceberg-sdk-candidate.sh').read_text()
+        # Gradle 8.14.4 dependency resolution has its own retry settings;
+        # the Maven Resolver configuration does not cover these invocations.
+        self.assertIn('-Dorg.gradle.internal.repository.max.tentatives=3', script)
+        self.assertIn('-Dorg.gradle.internal.repository.initial.backoff=30000', script)
+        self.assertEqual(script.count('"$gradle_bin" "${gradle_repository_args[@]}"'), 2)
+        self.assertIn('--no-daemon --max-workers=2', script)
+        self.assertIn(':iceberg-core:test --tests org.apache.iceberg.avro.TestFixedByteBufferWriter', script)
+        for module in ('api', 'bundled-guava', 'common', 'core', 'orc', 'parquet'):
+            self.assertEqual(script.count(f':iceberg-{module}:publishToMavenLocal'), 1)
+
     @staticmethod
     def _cache_steps(section):
         steps = re.split(r'\n      - name: ', section)[1:]
