@@ -3,7 +3,7 @@ LogicalProject(c_customer_id=[$1], c_salutation=[$2], c_first_name=[$3], c_last_
     LogicalSort(sort0=[$4], sort1=[$10], sort2=[$11], sort3=[$12], dir0=[ASC], dir1=[ASC], dir2=[ASC], dir3=[ASC], fetch=[100])
       LogicalFilter(condition=[>($2, CAST($34):DECIMAL(38, 2))])
         LogicalCorrelate(correlation=[$cor0], joinType=[left], requiredColumns=[{1}])
-          LogicalFilter(condition=[=($29, 'GA')])
+          LogicalFilter(condition=[=($29, _UTF-8'GA')])
             LogicalJoin(condition=[=($7, $21)], joinType=[inner])
               LogicalJoin(condition=[=($0, $3)], joinType=[inner])
                 LogicalAggregate(group=[{0, 5}], ctr_total_return=[SUM($2)])

@@ -11,7 +11,7 @@ LogicalProject(c_custkey=[$0], c_name=[$1], revenue=[$7], c_acctbal=[$2], n_name
                 LogicalFilter(condition=[SEARCH($4, Sarg[[1993-10-01..1994-01-01)])])
                   LogicalTableScan(table=[[orders]])
             LogicalProject(L_ORDERKEY=[$0], L_EXTENDEDPRICE=[$5], L_DISCOUNT=[$6], L_RETURNFLAG=[$8])
-              LogicalFilter(condition=[=($8, 'R')])
+              LogicalFilter(condition=[=($8, _UTF-8'R')])
                 LogicalTableScan(table=[[lineitem]])
           LogicalProject(N_NATIONKEY=[$0], N_NAME=[$1])
             LogicalTableScan(table=[[nation]])
