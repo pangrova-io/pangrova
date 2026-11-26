@@ -95,6 +95,22 @@ Index state and index orchestration have separate owners:
   fences generations, and the coordinator adapter may only advance them through
   that store.
 
+## Protocol descriptor boundary
+
+`index.proto` defines descriptor-only interchange vocabulary. `IndexManifest`,
+`IndexGenerationRef`, and protobuf `GenerationState` do not own runtime index
+state, active-generation selection, publication epochs, checksums, analyzer
+identity, or corpus statistics. PostgreSQL `IndexDescriptor` and
+`IndexGenerationManifest` records remain the durable authority; atomic
+publication stores enforce their compare-and-set fences.
+
+Workers receive the narrower `ArtifactBinding` projection of a published
+generation. Native BM25 reads analyzer identity from binding properties and
+corpus statistics from the `BM25_CORPUS_STATS` artifact. The descriptive proto
+fields must not be used as a second manifest implementation. Clarifying this
+boundary changes comments only: the wire schema and canonical protocol
+descriptor hash are unchanged.
+
 ## Canonical retrieval contract
 
 Every retrieval algorithm is identified by the existing generic protocol

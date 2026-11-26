@@ -266,6 +266,8 @@ public final class IndexDdlExecutor implements AutoCloseable {
 
         return indexes.stream()
                 .filter(d -> d.state() != IndexState.DROPPED)
+                .sorted(java.util.Comparator.comparing(IndexDescriptor::indexName)
+                        .thenComparing(IndexDescriptor::indexId))
                 .map(IndexDdlExecutor::descriptorToRow)
                 .toList();
     }
@@ -605,12 +607,18 @@ public final class IndexDdlExecutor implements AutoCloseable {
 
     private static TypedRow descriptorToRow(IndexDescriptor d) {
         var builder = TypedRow.builder()
+                .putString("index_id", d.indexId())
                 .putString("index_name", d.indexName())
                 .putString("index_type", d.indexType().name())
                 .putString("columns", String.join(", ", d.columnNames()))
                 .putString("state", d.state().name())
                 .putString("stale_reason", d.staleReason())
-                .putString("created_at", d.createdAt() != null ? d.createdAt().toString() : "");
+                .putInt("generation", d.generation())
+                .putString("build_snapshot_id", d.buildSnapshotId() == null ? "" : d.buildSnapshotId())
+                .putString("last_indexed_snapshot_id",
+                        d.lastIndexedSnapshotId() == null ? "" : d.lastIndexedSnapshotId())
+                .putString("created_at", d.createdAt() != null ? d.createdAt().toString() : "")
+                .putString("updated_at", d.updatedAt() != null ? d.updatedAt().toString() : "");
         // VECTOR-specific metadata in SHOW INDEXES output
         if (d.indexType() == IndexType.VECTOR) {
             builder.putString("algorithm", d.properties().getOrDefault("algorithm", ""));

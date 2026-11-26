@@ -132,15 +132,36 @@ class IndexDdlReadAuthorizationTest {
     }
 
     @Test
-    void showIndexesAlwaysReturnsAlgorithmAndMetricColumns() {
+    void showIndexesReturnsTheStablePublicDescriptorContract() {
         executor = executor(accessControl(new AtomicReference<>(), false, false, false), metadataStore(index()));
 
         var rows = executor.executeShowIndexes(
                 new org.pangrova.parser.api.ast.statement.ShowIndexesStatement(TABLE), SESSION);
 
         assertThat(rows).hasSize(1);
-        assertThat(rows.get(0).getString("algorithm")).isEmpty();
-        assertThat(rows.get(0).getString("metric")).isEmpty();
+        var row = rows.get(0);
+        assertThat(row.columnNames()).containsExactlyInAnyOrder(
+                "index_id", "index_name", "index_type", "columns", "state", "stale_reason",
+                "generation", "build_snapshot_id", "last_indexed_snapshot_id", "created_at", "updated_at",
+                "algorithm", "metric");
+        assertThat(row.getString("index_id")).isEqualTo("index-1");
+        assertThat(row.getInt("generation")).isZero();
+        assertThat(row.getString("build_snapshot_id")).isEqualTo("snap-1");
+        assertThat(row.getString("last_indexed_snapshot_id")).isEqualTo("snap-1");
+        assertThat(row.getString("algorithm")).isEmpty();
+        assertThat(row.getString("metric")).isEmpty();
+    }
+
+    @Test
+    void showIndexesUsesStableNameAndIdentityOrdering() {
+        executor = executor(accessControl(new AtomicReference<>(), false, false, false),
+                metadataStore(List.of(index("index-2"), index("index-1")), false));
+
+        var rows = executor.executeShowIndexes(
+                new org.pangrova.parser.api.ast.statement.ShowIndexesStatement(TABLE), SESSION);
+
+        assertThat(rows).extracting(row -> row.getString("index_id"))
+                .containsExactly("index-1", "index-2");
     }
 
     private IndexDdlExecutor executor(AccessControl accessControl, IndexMetadataStore store) {
@@ -159,7 +180,11 @@ class IndexDdlReadAuthorizationTest {
     }
 
     private static IndexDescriptor index() {
-        return new IndexDescriptor("index-1", "idx", "cat", "sch", "tbl", List.of("col1"),
+        return index("index-1");
+    }
+
+    private static IndexDescriptor index(String indexId) {
+        return new IndexDescriptor(indexId, "idx", "cat", "sch", "tbl", List.of("col1"),
                 IndexType.BLOOM_FILTER, Map.of(), IndexState.READY, null, 0,
                 "snap-1", "snap-1", Instant.EPOCH, Instant.EPOCH, "tenant-a");
     }
@@ -169,11 +194,15 @@ class IndexDdlReadAuthorizationTest {
     }
 
     private static IndexMetadataStore metadataStore(IndexDescriptor descriptor, boolean duplicate) {
+        return metadataStore(descriptor == null ? List.of() : List.of(descriptor), duplicate);
+    }
+
+    private static IndexMetadataStore metadataStore(List<IndexDescriptor> descriptors, boolean duplicate) {
         return (IndexMetadataStore) Proxy.newProxyInstance(
                 IndexMetadataStore.class.getClassLoader(), new Class<?>[] {IndexMetadataStore.class},
                 (proxy, method, arguments) -> {
                     if (method.getName().equals("findIndexesByTable")) {
-                        return descriptor == null ? List.of() : List.of(descriptor);
+                        return descriptors;
                     }
                     if (duplicate && method.getName().equals("registerIndexWithBuildAuthority")) {
                         throw new org.pangrova.indexing.api.exception.IndexAlreadyExistsException(
