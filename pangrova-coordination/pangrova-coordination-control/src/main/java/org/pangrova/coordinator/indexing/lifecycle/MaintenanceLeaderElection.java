@@ -74,6 +74,13 @@ public final class MaintenanceLeaderElection {
         return OptionalLong.empty();
     }
 
+    /** Returns the currently verified epoch without acquiring or renewing leadership. */
+    public OptionalLong verifiedHeldEpoch() {
+        LeaseEntry held = heldLease.get();
+        return held != null && holdsEpoch(held.epoch())
+                ? OptionalLong.of(held.epoch()) : OptionalLong.empty();
+    }
+
     /** Confirms that a captured epoch is still held at a side-effecting boundary. */
     public boolean holdsEpoch(long epoch) {
         LeaseEntry held = heldLease.get();

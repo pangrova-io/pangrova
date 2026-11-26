@@ -424,16 +424,23 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
                        org.pangrova.coordinator.indexing.lifecycle.MaintenanceLeaderElection leaderElection,
                        org.pangrova.indexing.config.IndexingConfig indexingConfig,
                        PollSettings publicationSettings) {
+        IndexingBootstrap candidate = null;
         try {
-            indexingBootstrap = new IndexingBootstrap(
+            candidate = new IndexingBootstrap(
                     baseIndexPath, lease, artifactBuildStore,
                     artifactPublicationStore, leaderElection, indexingConfig, publicationSettings);
-            indexingBootstrap.start(metadataStore, buildClaims, catalog, metricsProvider, accessControl);
+            candidate.start(metadataStore, buildClaims, catalog, metricsProvider, accessControl);
+            indexingBootstrap = candidate;
             LOG.info("Phase: indexing — initialized");
-        } catch (Exception e) {
+        } catch (RuntimeException | Error failure) {
+            if (candidate != null) {
+                ResourceCloser.closeOnFailure(failure, candidate);
+            }
+            if (failure instanceof Error error) {
+                throw error;
+            }
             LOG.warn("event=indexing_start_failed error={} action=skip_index_filtering",
-                    e.getMessage(), e);
-            indexingBootstrap = null;
+                    failure.getMessage(), failure);
         }
     }
 

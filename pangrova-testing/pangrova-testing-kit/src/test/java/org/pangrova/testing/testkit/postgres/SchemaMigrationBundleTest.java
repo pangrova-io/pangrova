@@ -126,6 +126,27 @@ class SchemaMigrationBundleTest extends ContainerTestBase {
     }
 
     @Test
+    void version121DetachesDeletedBuildWithoutDiscardingTenantPin() throws Exception {
+        var source = SharedPostgres.isolatedDataSource();
+        Flyway.configure().dataSource(source).locations("classpath:db/migration").target("120").load().migrate();
+        insertPublishedNativeJob(source, true);
+        Flyway.configure().dataSource(source).locations("classpath:db/migration").load().migrate();
+
+        try (var connection = source.getConnection(); var statement = connection.createStatement()) {
+            assertThat(statement.executeUpdate("DELETE FROM artifact_build_jobs "
+                    + "WHERE tenant_id='tenant-a' AND job_id='job-a'")).isOne();
+            try (var rows = statement.executeQuery("SELECT tenant_id, job_id, state "
+                    + "FROM artifact_snapshot_pins WHERE index_id='artifact-a'")) {
+                assertThat(rows.next()).isTrue();
+                assertThat(rows.getString("tenant_id")).isEqualTo("tenant-a");
+                assertThat(rows.getString("job_id")).isNull();
+                assertThat(rows.getString("state")).isEqualTo("INTENDED");
+                assertThat(rows.next()).isFalse();
+            }
+        }
+    }
+
+    @Test
     void version121RejectsPublishedNativeJobsWithoutReplayAuthority() throws Exception {
         var source = SharedPostgres.isolatedDataSource();
         Flyway.configure().dataSource(source).locations("classpath:db/migration").target("120").load().migrate();

@@ -16,6 +16,7 @@ import org.pangrova.generation.api.enums.GenerationExecutionKind;
 import org.pangrova.generation.api.enums.GenerationJobState;
 import org.pangrova.generation.api.job.GenerationDispatchSpec;
 import org.pangrova.generation.api.job.GenerationJob;
+import org.pangrova.generation.api.job.GenerationSubmissionAuthority;
 import org.pangrova.generation.api.page.GenerationPage;
 import org.pangrova.generation.api.page.GenerationSplit;
 import org.pangrova.generation.api.enums.GenerationPageKind;
@@ -25,7 +26,12 @@ import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.indexing.api.enums.IndexState;
 import org.pangrova.indexing.api.enums.IndexType;
 import org.pangrova.metadata.testinfra.GenerationAuthorityFixtures;
+import org.pangrova.metadata.testinfra.TableWriteAuthorityFixture;
+import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
+import org.pangrova.persistence.indexing.postgresql.metadata.JdbcIndexMetadataStore;
 import org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory;
+import org.pangrova.persistence.generation.api.job.SnapshotPinIntent;
+import org.pangrova.persistence.generation.api.job.SnapshotPinReservation;
 import org.pangrova.persistence.generation.api.job.SnapshotPinState;
 import org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStore;
 import org.pangrova.query.api.session.QuerySession;
@@ -56,6 +62,7 @@ class DurableIndexBuildSnapshotPinTest extends ContainerTestBase {
 
     private DataSource dataSource;
     private PostgresGenerationJobStore store;
+    private IndexMetadataStore indexes;
     private RecordingPinProvider pins;
     private GeneratedBuildTestConnectors.SnapshotConnector connector;
     private DurableIndexBuildService service;
@@ -64,6 +71,8 @@ class DurableIndexBuildSnapshotPinTest extends ContainerTestBase {
     void setUp() throws Exception {
         dataSource = SharedPostgresContainer.migratedDataSource("native_snapshot_pin");
         store = ModelAuthorityFixtures.artifacts().builds(dataSource);
+        indexes = new JdbcIndexMetadataStore(dataSource, TableWriteAuthorityFixture.create()::requireCurrent);
+        indexes.registerIndex(descriptor());
         GenerationAuthorityFixtures.provision(dataSource, TENANT, "alice", authorizationScope());
         pins = new RecordingPinProvider(store);
         connector = new GeneratedBuildTestConnectors.SnapshotConnector(Map.of(), SNAPSHOT, pins::requirePinned);
@@ -72,7 +81,7 @@ class DurableIndexBuildSnapshotPinTest extends ContainerTestBase {
                         "lake", org.pangrova.metadata.api.enums.CatalogType.CONNECTOR, "test",
                         org.pangrova.metadata.api.enums.CatalogState.ACTIVE, Map.of(), "", Set.of()),
                 connector);
-        service = new DurableIndexBuildService(store,
+        service = new DurableIndexBuildService(store, indexes,
                 new GeneratedBuildTestConnectors.FixedCatalogRegistry(catalog),
                 "s3://warehouse/indexes", session -> pins);
     }
@@ -97,8 +106,14 @@ class DurableIndexBuildSnapshotPinTest extends ContainerTestBase {
     }
 
     @Test
-    void emptySnapshotUsesALogicalPinWithoutConnectorCalls() {
+    void emptySnapshotUsesALogicalPinWithoutConnectorCalls() throws Exception {
         String snapshot = org.pangrova.coordinator.generation.SnapshotGenerationSplitPlanner.EMPTY_SNAPSHOT;
+        try (var connection = dataSource.getConnection();
+             var statement = connection.prepareStatement(
+                     "UPDATE index_descriptors SET build_snapshot_id=? WHERE index_id='index-1'")) {
+            statement.setString(1, snapshot);
+            statement.executeUpdate();
+        }
         var emptyConnector = new GeneratedBuildTestConnectors.SnapshotConnector(
                 Map.of(), snapshot, () -> { throw new AssertionError("empty snapshot enumerated source splits"); });
         var catalog = new org.pangrova.metadata.connector.ConnectorCatalogHandle(
@@ -106,7 +121,7 @@ class DurableIndexBuildSnapshotPinTest extends ContainerTestBase {
                         "lake", org.pangrova.metadata.api.enums.CatalogType.CONNECTOR, "test",
                         org.pangrova.metadata.api.enums.CatalogState.ACTIVE, Map.of(), "", Set.of()),
                 emptyConnector);
-        var emptyService = new DurableIndexBuildService(store,
+        var emptyService = new DurableIndexBuildService(store, indexes,
                 new GeneratedBuildTestConnectors.FixedCatalogRegistry(catalog),
                 "s3://warehouse/indexes", session -> {
                     throw new AssertionError("empty snapshot invoked connector pin provider");
@@ -120,15 +135,23 @@ class DurableIndexBuildSnapshotPinTest extends ContainerTestBase {
         assertThat(job.expectedPages()).isZero();
         assertThat(intent.state()).isEqualTo(SnapshotPinState.PINNED);
         emptyService.validateSnapshotPin(job);
-        emptyService.releaseSnapshotPin(intent);
+        assertThat(emptyService.cleanupSnapshotPins()).isZero();
+        assertThat(emptyService.cancel(job.artifactId(), TENANT, Instant.EPOCH)).isOne();
+        assertThat(emptyService.cleanupSnapshotPins()).isOne();
         assertThat(store.findSnapshotPinForJob(TENANT, jobId).orElseThrow().state())
                 .isEqualTo(SnapshotPinState.RELEASED);
         assertThat(emptyConnector.enumerations()).isZero();
     }
 
     @Test
-    void opaqueSnapshotTokenIsPreservedThroughPinAndSplitPlanning() {
+    void opaqueSnapshotTokenIsPreservedThroughPinAndSplitPlanning() throws Exception {
         String snapshot = "snapshot:opaque/42";
+        try (var connection = dataSource.getConnection();
+             var statement = connection.prepareStatement(
+                     "UPDATE index_descriptors SET build_snapshot_id=? WHERE index_id='index-1'")) {
+            statement.setString(1, snapshot);
+            statement.executeUpdate();
+        }
         var opaqueConnector = new GeneratedBuildTestConnectors.SnapshotConnector(
                 Map.of(), snapshot, pins::requirePinned);
         var catalog = new org.pangrova.metadata.connector.ConnectorCatalogHandle(
@@ -136,7 +159,7 @@ class DurableIndexBuildSnapshotPinTest extends ContainerTestBase {
                         "lake", org.pangrova.metadata.api.enums.CatalogType.CONNECTOR, "test",
                         org.pangrova.metadata.api.enums.CatalogState.ACTIVE, Map.of(), "", Set.of()),
                 opaqueConnector);
-        var opaqueService = new DurableIndexBuildService(store,
+        var opaqueService = new DurableIndexBuildService(store, indexes,
                 new GeneratedBuildTestConnectors.FixedCatalogRegistry(catalog),
                 "s3://warehouse/indexes", session -> pins);
 
@@ -193,8 +216,16 @@ class DurableIndexBuildSnapshotPinTest extends ContainerTestBase {
 
         assertThat(store.listSnapshotPinsForAdoption(10)).singleElement()
                 .satisfies(intent -> assertThat(intent.pinOwner()).isEqualTo(pinOwner));
+        pins.failValidation = true;
+        assertThat(service.adoptLegacySnapshotPins()).isZero();
+        assertThat(store.findSnapshotPin(TENANT, pinOwner).orElseThrow().state())
+                .isEqualTo(SnapshotPinState.INTENDED);
+        assertThat(store.listSnapshotPinsForAdoption(10)).singleElement()
+                .satisfies(intent -> assertThat(intent.pinOwner()).isEqualTo(pinOwner));
+
+        pins.failValidation = false;
         assertThat(service.adoptLegacySnapshotPins()).isOne();
-        assertThat(pins.events).containsExactly("pin", "validate");
+        assertThat(pins.events).containsExactly("pin", "validate", "pin", "validate");
         assertThat(store.findSnapshotPin(TENANT, pinOwner).orElseThrow().state())
                 .isEqualTo(SnapshotPinState.PINNED);
         assertThat(store.listSnapshotPinsForAdoption(10)).isEmpty();
@@ -212,6 +243,20 @@ class DurableIndexBuildSnapshotPinTest extends ContainerTestBase {
         assertThat(store.findJob(TENANT, DurableIndexBuildService.jobId(TENANT, descriptor()))).isEmpty();
         assertThat(store.findSnapshotPin(TENANT, new SnapshotPinOwner("index-1", 0, "submission").id()))
                 .hasValueSatisfying(intent -> assertThat(intent.state().name()).isEqualTo("INTENDED"));
+    }
+
+    @Test
+    void validationFailureKeepsSnapshotPinRetryableAndPreventsJobCreation() {
+        pins.failValidation = true;
+
+        assertThatThrownBy(() -> service.submit(descriptor(), TABLE, session()))
+                .hasMessageContaining("pin validation denied");
+
+        assertThat(pins.events).containsExactly("pin", "validate");
+        assertThat(connector.enumerations()).isZero();
+        assertThat(store.findJob(TENANT, DurableIndexBuildService.jobId(TENANT, descriptor()))).isEmpty();
+        assertThat(store.findSnapshotPin(TENANT, new SnapshotPinOwner("index-1", 0, "submission").id()))
+                .hasValueSatisfying(intent -> assertThat(intent.state()).isEqualTo(SnapshotPinState.INTENDED));
     }
 
     @Test
@@ -233,6 +278,72 @@ class DurableIndexBuildSnapshotPinTest extends ContainerTestBase {
     }
 
     @Test
+    void maintenanceFencesAbandonedReservationWithoutInventingAnActor() {
+        assertThat(service.fenceAbandonedNativeReservations(() -> false)).isZero();
+        assertThat(service.fenceAbandonedNativeReservations(() -> true)).isOne();
+        assertThat(service.fenceAbandonedNativeReservations(() -> true)).isZero();
+        IndexDescriptor failed = indexes.findIndex("index-1").orElseThrow();
+        assertThat(failed.state()).isEqualTo(IndexState.STALE);
+        assertThat(failed.staleReason()).isEqualTo("native_submission_missing_durable_intent");
+        assertThat(pins.events).isEmpty();
+        assertThat(connector.enumerations()).isZero();
+
+        // An explicitly authorized rebuild is still possible; no old job or pin exists.
+        Instant started = Instant.now();
+        assertThat(indexes.beginIndexGeneration(failed.indexId(), 1, SNAPSHOT, started,
+                failed.updatedAt(), failed.state(), failed.generation())).isTrue();
+        var rebuild = failed.withGeneration(1, started).withBuildSnapshotId(SNAPSHOT, started);
+        assertThat(store.findJob(TENANT, service.submit(rebuild, TABLE, session()))).isPresent();
+    }
+
+    @Test
+    void maintenanceRecoversTheExactPersistedUnboundSubmission() throws Exception {
+        pins.failAfterPin = true;
+        assertThatThrownBy(() -> service.submit(descriptor(), TABLE, session()))
+                .hasMessageContaining("pin outcome unknown");
+        SnapshotPinOwner owner = pins.owner;
+        Instant old = Instant.now().minus(java.time.Duration.ofHours(2));
+        try (var connection = dataSource.getConnection();
+             var statement = connection.prepareStatement(
+                     "UPDATE artifact_snapshot_pins SET created_at=?,updated_at=? WHERE pin_owner=?")) {
+            statement.setObject(1, java.time.OffsetDateTime.ofInstant(old, java.time.ZoneOffset.UTC));
+            statement.setObject(2, java.time.OffsetDateTime.ofInstant(old, java.time.ZoneOffset.UTC));
+            statement.setString(3, owner.id());
+            statement.executeUpdate();
+        }
+        pins.failAfterPin = false;
+        assertThat(service.fenceAbandonedNativeReservations(() -> true)).isZero();
+        assertThat(service.recoverUnboundSnapshotPins(() -> false)).isZero();
+        assertThat(service.recoverUnboundSnapshotPins(() -> true)).isOne();
+        assertThat(service.recoverUnboundSnapshotPins(() -> true)).isZero();
+        assertThat(pins.owner).isEqualTo(owner);
+        assertThat(store.findSnapshotPin(TENANT, owner.id())).hasValueSatisfying(intent ->
+                assertThat(intent.jobId()).isEqualTo(DurableIndexBuildService.jobId(TENANT, descriptor())));
+    }
+
+    @Test
+    void onlineReplacementUsesItsExactStagingReservation() {
+        service.submit(descriptor(), TABLE, session());
+        Instant readyAt = NOW.plusSeconds(1);
+        indexes.updateIndexState("index-1", "READY", readyAt);
+        IndexDescriptor previous = indexes.findIndex("index-1").orElseThrow();
+        Instant started = readyAt.plusSeconds(1);
+        assertThat(indexes.beginIndexGeneration("index-1", 1, SNAPSHOT, started,
+                previous.updatedAt(), previous.state(), previous.generation())).isTrue();
+        IndexDescriptor replacement = previous.withGeneration(1, started).withBuildSnapshotId(SNAPSHOT, started);
+        assertThat(indexes.isIndexGenerationSnapshotBuildable("index-1", 1, SNAPSHOT, started)).isTrue();
+        assertThat(indexes.isIndexGenerationSnapshotBuildable("index-1", 1, "other-snapshot", started)).isFalse();
+        assertThat(indexes.isIndexGenerationSnapshotBuildable("index-1", 1, SNAPSHOT, started.plusSeconds(1)))
+                .isFalse();
+        String jobId = service.submitReplacement(previous, replacement);
+        assertThat(store.findJob(TENANT, jobId)).hasValueSatisfying(job -> {
+            assertThat(job.stagingGeneration()).isEqualTo("1");
+            assertThat(job.publicationExpectedUpdatedAt()).isEqualTo(started);
+        });
+        assertThat(indexes.findIndex("index-1").orElseThrow().generation()).isZero();
+    }
+
+    @Test
     void revokedBuilderCannotReserveOrPinSnapshot() throws Exception {
         try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
             statement.executeUpdate("DELETE FROM pangrova_user_roles WHERE user_id='alice'");
@@ -242,6 +353,76 @@ class DurableIndexBuildSnapshotPinTest extends ContainerTestBase {
                 .isInstanceOf(AuthorizationDeniedException.class);
         assertThat(pins.pins.get()).isZero();
         assertThat(connector.enumerations()).isZero();
+    }
+
+    @Test
+    void droppedDescriptorCannotCreateANewNativeJobOrPin() {
+        indexes.dropIndex("index-1", NOW.plusSeconds(1));
+
+        assertThatThrownBy(() -> service.submit(descriptor(), TABLE, session()))
+                .hasMessageContaining("no longer buildable");
+
+        assertThat(pins.pins.get()).isZero();
+        assertThat(connector.enumerations()).isZero();
+        assertThat(store.findJob(TENANT, DurableIndexBuildService.jobId(TENANT, descriptor()))).isEmpty();
+    }
+
+    @Test
+    void snapshotPinnedJobRejectsInvalidAdmissionBeforeBinding() {
+        var intent = reservePinnedPin("invalid-admission");
+        var job = emptyJob("invalid-admission-job", SNAPSHOT,
+                GenerationJobState.QUEUED, GenerationEmptyPartitionPolicy.FORBID);
+
+        assertThatThrownBy(() -> store.createSnapshotPinnedJob(
+                job, emptySpec(job.jobId()), List.of(), intent.pinOwner()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("empty artifact generation is forbidden");
+
+        assertThat(store.findJob(TENANT, job.jobId())).isEmpty();
+        assertThat(store.findSnapshotPin(TENANT, intent.pinOwner()).orElseThrow().jobId()).isNull();
+    }
+
+    @Test
+    void snapshotPinnedJobRequiresExactSourceAndGenerationIdentity() {
+        var intent = reservePinnedPin("mismatched-source");
+        var job = emptyJob("mismatched-source-job", "another-snapshot",
+                GenerationJobState.READY_TO_PUBLISH, GenerationEmptyPartitionPolicy.ALLOW_ZERO_ROWS);
+
+        assertThatThrownBy(() -> store.createSnapshotPinnedJob(
+                job, emptySpec(job.jobId()), List.of(), intent.pinOwner()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("exact PINNED snapshot intent");
+
+        assertThat(store.findJob(TENANT, job.jobId())).isEmpty();
+        assertThat(store.findSnapshotPin(TENANT, intent.pinOwner()).orElseThrow().jobId()).isNull();
+    }
+
+    private SnapshotPinIntent reservePinnedPin(String attempt) {
+        var authority = new GenerationSubmissionAuthority(TENANT, "alice", authorizationScope());
+        var intent = store.reserveSnapshotPin(new SnapshotPinReservation(
+                TENANT, "index-1", 0, attempt, "lake.sales.documents", SNAPSHOT, authority, NOW));
+        assertThat(store.markSnapshotPinPinned(TENANT, intent.pinOwner(), NOW)).isTrue();
+        return intent;
+    }
+
+    private static GenerationJob emptyJob(
+            String jobId, String snapshot, GenerationJobState state,
+            GenerationEmptyPartitionPolicy emptyPartitionPolicy) {
+        return new GenerationJob(
+                TENANT, jobId, "index-1", GenerationOutputTypeIds.TEXT_INDEX, "0",
+                "lake.sales.documents", snapshot, GenerationExecutionKind.BUILD,
+                GenerationDependencySet.sourceSnapshot("lake.sales.documents", snapshot),
+                emptyPartitionPolicy, "s3://warehouse/indexes/" + jobId,
+                "pangrova.bm25.segment", 1, 0, "a".repeat(64), "writer-a", "",
+                jobId, 0, 0, state, 0, NOW, NOW, NOW);
+    }
+
+    private static GenerationDispatchSpec emptySpec(String jobId) {
+        var graph = GenerationStageGraphFactory.forArtifactPages(
+                new byte[] {1}, new byte[] {2}, List.of(), List.of());
+        return GenerationDispatchSpecFactory.create(
+                jobId, graph, TENANT, "alice", authorizationScope(),
+                new GenerationDispatchSpec.ResourceGrant(1024, 1, 1024, 60_000));
     }
 
     private static DeferredAuthorizationScope authorizationScope() {
@@ -272,6 +453,7 @@ class DurableIndexBuildSnapshotPinTest extends ContainerTestBase {
         private SnapshotPinOwner owner;
         private boolean fail;
         private boolean failAfterPin;
+        private boolean failValidation;
 
         private RecordingPinProvider(PostgresGenerationJobStore store) {
             this.store = store;
@@ -309,6 +491,9 @@ class DurableIndexBuildSnapshotPinTest extends ContainerTestBase {
         @Override
         public void validateSnapshotPin(String catalog, String schema, String table, String snapshot, SnapshotPinOwner pinOwner) {
             events.add("validate");
+            if (failValidation) {
+                throw new IllegalStateException("pin validation denied");
+            }
         }
 
         private void requirePinned() {

@@ -114,11 +114,53 @@ class GitGateTest(unittest.TestCase):
         self.commit_file('pangrova-worker/src/main/resources/data files/template.md')
         self.assertEqual(self.selected(), {'runtime': 'true', 'performance': 'true'})
 
+    def test_stacked_pr_uses_target_branch_merge_base_for_scope(self):
+        self.git('checkout', '-qb', 'feature-base')
+        self.commit_file('pangrova-worker-native/src/example/Parent.cpp')
+        parent = self.git('rev-parse', 'HEAD').strip()
+        self.git('checkout', '-qb', 'feature-child')
+        self.commit_file('docs/child.md')
+        # The parent commit is part of the target branch, not the child's delta.
+        child = self.selection(base=parent)
+        self.assertEqual(child.returncode, 0, child.stderr)
+        outputs = dict(line.split('=', 1) for line in child.stdout.splitlines())
+        self.assertEqual([outputs[key] for key in ('runtime', 'native', 'performance')],
+                         ['false', 'false', 'false'])
+        # Against main the cumulative stack still requires the full matrix.
+        cumulative = self.selection(base=self.base)
+        self.assertEqual(cumulative.returncode, 0, cumulative.stderr)
+        outputs = dict(line.split('=', 1) for line in cumulative.stdout.splitlines())
+        self.assertEqual([outputs[key] for key in ('runtime', 'native', 'performance')],
+                         ['true', 'true', 'true'])
+        # A child runtime change must retain its existing correctness chain.
+        self.commit_file('pangrova-query/src/main/java/example/Child.java')
+        child = self.selection(base=parent)
+        self.assertEqual(child.returncode, 0, child.stderr)
+        outputs = dict(line.split('=', 1) for line in child.stdout.splitlines())
+        self.assertEqual([outputs[key] for key in ('runtime', 'native', 'performance')],
+                         ['true', 'false', 'true'])
+
     def test_missing_base_fails_instead_of_reporting_no_changes(self):
         self.assertNotEqual(self.selection(base='missing-base').returncode, 0)
 
 
 class StructuralPolicyTest(unittest.TestCase):
+    def test_ci_runs_stack_targets_as_ordinary_pull_requests(self):
+        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
+        events = workflow.split('\non:\n', 1)[1].split('\nconcurrency:', 1)[0]
+        self.assertIn('  workflow_call:', events)
+        self.assertIn('  push:\n    branches: [main, develop]', events)
+        # Do not restrict PR target branches; stacks can target any feature branch.
+        pull_request = events.split('  pull_request:', 1)[1]
+        self.assertFalse(re.search(r'^    (branches|branches-ignore|paths|paths-ignore):',
+                                   pull_request, re.MULTILINE))
+        self.assertNotIn('pull_request_target:', events)
+        self.assertIn("if: github.event_name == 'pull_request'", workflow)
+        self.assertIn('BASE_SHA: ${{ github.event.pull_request.base.sha }}', workflow)
+        self.assertIn('HEAD_SHA: ${{ github.event.pull_request.head.sha }}', workflow)
+        self.assertIn('--base-ref "$BASE_SHA" --head-ref "$HEAD_SHA"', workflow)
+        self.assertIn('--full >> "$GITHUB_OUTPUT"', workflow)
+
     def test_lightweight_module_checks_always_have_jdk_before_source_parsing(self):
         workflow = (ROOT / '.github/workflows/ci.yml').read_text()
         lint = workflow.split('  lint:\n', 1)[1].split('\n  static-analysis:', 1)[0]
@@ -434,6 +476,18 @@ class RuntimeScopeTest(unittest.TestCase):
         self.assertNotIn('patches/*', ccache)
         self.assertIn('matrix.sanitizer.name',
                       sanitizer_caches['Cache compiler results'])
+
+    def test_native_platform_stage_names_do_not_depend_on_skipped_input_evaluation(self):
+        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
+        platform_workflow = (ROOT / '.github/workflows/native-platform.yml').read_text()
+        self.assertIn('name: Native Build (${{ matrix.platform.name }})', workflow)
+        for job, name in (('macos-native-core', 'macOS Native prerequisites'),
+                          ('macos-native-sdk', 'macOS Native SDK'),
+                          ('native-build', 'Build and test')):
+            with self.subTest(job=job):
+                # The caller already names the platform. Skipped child jobs can
+                # be displayed before their input expressions are evaluated.
+                self.assertIn(f'  {job}:\n    name: {name}\n', platform_workflow)
 
     def test_macos_cold_build_stages_preserve_native_test_and_report_gates(self):
         workflow = (ROOT / '.github/workflows/ci.yml').read_text()

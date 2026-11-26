@@ -36,6 +36,7 @@ import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
 import org.pangrova.persistence.indexing.api.metadata.CacheEvent;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
+import org.pangrova.common.lifecycle.ResourceCloser;
 import org.pangrova.persistence.coordination.api.lease.DistributedLease;
 import org.pangrova.coordination.api.leadership.MaintenanceLeaderAware;
 import org.pangrova.observability.api.metrics.MetricsProvider;
@@ -92,7 +93,7 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
     // Stuck build recovery (periodic)
     private StuckBuildRecovery stuckBuildRecovery;
     private ScheduledExecutorService stuckBuildRecoveryScheduler;
-    private ScheduledExecutorService snapshotPinRecoveryScheduler;
+    private SnapshotPinRecoveryScheduler snapshotPinRecoveryScheduler;
     private org.pangrova.coordinator.indexing.ddl.DurableIndexBuildService nativeIndexBuildService;
 
     // Cache invalidation polling
@@ -103,7 +104,6 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
     private IndexEvalMetrics evalMetrics;
     private IndexLifecycleMetrics lifecycleMetrics;
 
-    private final String baseIndexPath;
     private final IndexingConfig indexingConfig;
     private final DistributedLease distributedLease;
     private final GenerationJobStore artifactBuildStore;
@@ -201,7 +201,10 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
             throw new IllegalStateException(
                     "IndexingBootstrap requires distributedLease but received null");
         }
-        this.baseIndexPath = baseIndexPath;
+        if (indexingConfig != null && !baseIndexPath.equals(indexingConfig.baseIndexPath())) {
+            throw new IllegalArgumentException(
+                    "IndexingBootstrap requires one consistent indexing.base-path");
+        }
         this.indexingConfig = indexingConfig == null
                 ? new IndexingConfig(baseIndexPath, true, null, null) : indexingConfig;
         this.distributedLease = distributedLease;
@@ -243,15 +246,16 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
         startRecovery(buildServices);
         garbageCollector.start();
         consistencyChecker.start();
+        startCacheInvalidation();
+        IndexDdlContext ddlDeps = new IndexDdlContext(
+                metadataStore, buildServices, catalogRegistry, accessorResolver);
+        ddlExecutor = new IndexDdlExecutor(ddlDeps, indexCache, accessControl);
+        // Register external callbacks only after local resources are initialized.
         if (config.commitListenerEnabled()) {
             registerCommitListeners(accessorResolver, catalogRegistry);
         } else {
             LOG.info("event=commit_listener_skipped reason=disabled_by_config");
         }
-        startCacheInvalidation();
-        IndexDdlContext ddlDeps = new IndexDdlContext(
-                metadataStore, buildServices, catalogRegistry, accessorResolver);
-        ddlExecutor = new IndexDdlExecutor(ddlDeps, indexCache, accessControl);
         LOG.info("event=indexing_bootstrap_completed");
     }
 
@@ -308,7 +312,7 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
         // Scalar indexes use the Java builder; vector/BM25 artifacts use durable Native jobs.
         var aiNativeBuildService = artifactBuildStore == null ? null
                 : new org.pangrova.coordinator.indexing.ddl.DurableIndexBuildService(
-                        artifactBuildStore, catalogRegistry, baseIndexPath,
+                        artifactBuildStore, metadataStore, catalogRegistry, indexingConfig.baseIndexPath(),
                         session -> accessorResolver.forSession(session).resolveSnapshotPinProvider());
         nativeIndexBuildService = aiNativeBuildService;
         return new org.pangrova.coordinator.indexing.ddl.IndexBuildServices(
@@ -357,7 +361,6 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
 
     private void startRecovery(
             org.pangrova.coordinator.indexing.ddl.IndexBuildServices buildServices) {
-        startSnapshotPinRecovery();
         Duration buildTimeout = CoordinatorIndexingConfiguration.buildTimeout(indexingConfig);
         stuckBuildRecovery = new StuckBuildRecovery(
                 new IndexCommitContext(metadataStore, buildServices, accessorResolver),
@@ -382,22 +385,34 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
     }
 
     private void startSnapshotPinRecovery() {
-        if (nativeIndexBuildService == null) {
+        if (nativeIndexBuildService == null || snapshotPinRecoveryScheduler != null) {
             return;
         }
-        nativeIndexBuildService.adoptLegacySnapshotPins();
-        nativeIndexBuildService.cleanupSnapshotPins();
-        snapshotPinRecoveryScheduler = ManagedExecutorFactory
-                .newSingleThreadScheduledExecutor("pangrova-snapshot-pin-recovery");
-        snapshotPinRecoveryScheduler.scheduleWithFixedDelay(() -> {
-            try {
-                nativeIndexBuildService.adoptLegacySnapshotPins();
-                nativeIndexBuildService.cleanupSnapshotPins();
-            } catch (RuntimeException failure) {
-                LOG.error("event=index_snapshot_pin_recovery_failed error={}",
-                        failure.getMessage(), failure);
-            }
-        }, 5, 5, TimeUnit.MINUTES);
+        long epoch = leaderElection.verifiedHeldEpoch().orElseThrow(
+                () -> new IllegalStateException("Snapshot pin recovery requires verified maintenance leadership"));
+        var scheduler = new SnapshotPinRecoveryScheduler(
+                () -> leaderElection.holdsEpoch(epoch),
+                stillLeader -> {
+                    nativeIndexBuildService.adoptLegacySnapshotPins(stillLeader);
+                    if (stillLeader.getAsBoolean()) {
+                        nativeIndexBuildService.recoverUnboundSnapshotPins(stillLeader);
+                    }
+                    if (stillLeader.getAsBoolean()) {
+                        nativeIndexBuildService.fenceAbandonedNativeReservations(stillLeader);
+                    }
+                    if (stillLeader.getAsBoolean()) {
+                        nativeIndexBuildService.cleanupSnapshotPins(stillLeader);
+                    }
+                });
+        snapshotPinRecoveryScheduler = scheduler;
+        scheduler.start();
+    }
+
+    private void stopSnapshotPinRecovery() {
+        if (snapshotPinRecoveryScheduler != null) {
+            snapshotPinRecoveryScheduler.close();
+            snapshotPinRecoveryScheduler = null;
+        }
     }
 
     /** Revalidates Native source pins at dispatch and publication without synthesizing authority. */
@@ -519,7 +534,8 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
      * Mirrors {@link StreamingBootstrap#onLeaderElected()}.
      */
     @Override
-    public void onLeaderElected() {
+    public synchronized void onLeaderElected() {
+        startSnapshotPinRecovery();
         if (commitHandler != null) {
             commitHandler.startPolling();
         }
@@ -535,53 +551,42 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
      * Mirrors {@link StreamingBootstrap#onLeadershipLost()}.
      */
     @Override
-    public void onLeadershipLost() {
-        if (commitHandler != null) {
-            commitHandler.stopPolling();
-        }
-        garbageCollector.stopSchedule();
-        buildCoordinator.pauseBuilds();
+    public synchronized void onLeadershipLost() {
+        ResourceCloser.closeAll(null, this::stopSnapshotPinRecovery,
+                ResourceCloser.present(commitHandler, IndexCommitHandler::stopPolling),
+                ResourceCloser.present(garbageCollector, IndexGarbageCollector::stopSchedule),
+                ResourceCloser.present(buildCoordinator, IndexBuildCoordinator::pauseBuilds));
         LOG.info("event=indexing_leadership_lost");
     }
 
     @Override
-    public void close() {
-        // LIFO shutdown order
-        safeClose("DdlExecutor", ddlExecutor);
-        safeClose("ArtifactPublisher", artifactPublisher);
-        safeClose("ConsistencyChecker", consistencyChecker);
-        if (snapshotPinRecoveryScheduler != null) {
-            snapshotPinRecoveryScheduler.shutdownNow();
-            LOG.info("event=indexing_phase_closed phase=SnapshotPinRecoveryScheduler");
-        }
-        if (stuckBuildRecoveryScheduler != null) {
-            stuckBuildRecoveryScheduler.shutdownNow();
-            LOG.info("event=indexing_phase_closed phase=StuckBuildRecoveryScheduler");
-        }
-        safeClose("GarbageCollector", garbageCollector);
-        if (cacheInvalidationScheduler != null) {
-            cacheInvalidationScheduler.shutdownNow();
-            LOG.info("event=indexing_phase_closed phase=CacheInvalidationScheduler");
-        }
-        safeClose("CommitHandler", commitHandler);
-        safeClose("SplitFilter", splitFilter);
-        safeClose("BuildCoordinator", buildCoordinator);
-        if (leaderElection != null && configuredLeaderElection == null) {
-            leaderElection.release();
-        }
-        if (indexCache != null) {
-            indexCache = null;
-        }
+    public synchronized void close() {
+        ResourceCloser.closeAll(null,
+                this::stopSnapshotPinRecovery,
+                ResourceCloser.present(ddlExecutor, resource -> closeResource("DdlExecutor", resource)),
+                ResourceCloser.present(artifactPublisher, resource -> closeResource("ArtifactPublisher", resource)),
+                ResourceCloser.present(consistencyChecker, resource -> closeResource("ConsistencyChecker", resource)),
+                ResourceCloser.present(stuckBuildRecoveryScheduler, ScheduledExecutorService::shutdownNow),
+                ResourceCloser.present(garbageCollector, resource -> closeResource("GarbageCollector", resource)),
+                ResourceCloser.present(cacheInvalidationScheduler, ScheduledExecutorService::shutdownNow),
+                ResourceCloser.present(commitHandler, resource -> closeResource("CommitHandler", resource)),
+                ResourceCloser.present(splitFilter, resource -> closeResource("SplitFilter", resource)),
+                ResourceCloser.present(buildCoordinator, resource -> closeResource("BuildCoordinator", resource)),
+                () -> {
+                    if (leaderElection != null && configuredLeaderElection == null) {
+                        leaderElection.release();
+                    }
+                });
+        indexCache = null;
         LOG.info("event=indexing_shutdown_completed");
     }
 
-    private static void safeClose(String name, AutoCloseable closeable) {
-        if (closeable == null) return;
+    private static void closeResource(String name, AutoCloseable closeable) {
         try {
             closeable.close();
             LOG.info("event=indexing_phase_closed phase={}", name);
-        } catch (Exception e) {
-            LOG.warn("event=indexing_close_failed phase={} error={}", name, e.getMessage());
+        } catch (Exception failure) {
+            throw new IllegalStateException("Indexing resource has not closed: " + name, failure);
         }
     }
 }

@@ -102,6 +102,29 @@ class CoordinatorIndexStorageConfigurationTest {
     }
 
     @Test
+    void indexingBootstrapRejectsInconsistentStorageRoots() {
+        var config = CoordinatorIndexingConfiguration.from(
+                PangrovaConfiguration.fromYaml(Map.of()), "/var/lib/pangrova/scalar");
+        var lease = new org.pangrova.persistence.coordination.memory.lease.InMemoryDistributedLease();
+
+        assertThatThrownBy(() -> new IndexingBootstrap(
+                "/var/lib/pangrova/native", lease, null, null, config))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("indexing.base-path");
+    }
+
+    @Test
+    void indexingBootstrapAcceptsOneSharedStorageRoot() {
+        String root = "/var/lib/pangrova/indexes";
+        var config = CoordinatorIndexingConfiguration.from(PangrovaConfiguration.fromYaml(Map.of()), root);
+        var lease = new org.pangrova.persistence.coordination.memory.lease.InMemoryDistributedLease();
+
+        try (var bootstrap = new IndexingBootstrap(root, lease, null, null, config)) {
+            assertThat(bootstrap).isNotNull();
+        }
+    }
+
+    @Test
     void automaticMaintenanceDefaultsOffUntilLifecycleQualification() {
         var indexing = CoordinatorIndexingConfiguration.from(
                 PangrovaConfiguration.fromYaml(Map.of()), "/var/lib/pangrova/indexes");
