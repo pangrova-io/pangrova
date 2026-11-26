@@ -1,5 +1,7 @@
 package org.pangrova.parser.parse;
 
+import org.pangrova.parser.api.ast.Query;
+import org.pangrova.parser.api.ast.statement.CreateViewStatement;
 import org.pangrova.parser.api.exception.ParseException;
 
 import org.junit.jupiter.api.Test;
@@ -107,6 +109,37 @@ class TimeTravelSqlClausesTest {
         var shifted = TimeTravelSqlClauses.extract("  " + sql);
         assertThat(shifted.references().get(0).nameStart())
                 .isEqualTo(parsed.references().get(0).nameStart() + 2);
+    }
+
+    @Test
+    void viewBodyRetainsRawSqlAndItsNamedSourceSpans() {
+        String body = "SELECT '😀' AS label, x.id /* keep comment */ FROM catalog.db.\"a.b\" AS x";
+        String sql = "CREATE VIEW demo AS " + body;
+        var analysis = TimeTravelSqlClauses.extract(sql);
+        assertThat(analysis.statement()).isInstanceOfSatisfying(CreateViewStatement.class,
+                view -> assertThat(view.viewSql()).isEqualTo(body));
+        assertThat(analysis.strippedSql()).isEqualTo(sql);
+        assertThat(analysis.references()).singleElement().satisfies(ref -> {
+            assertThat(ref.table().name().parts()).containsExactly("catalog", "db", "a.b");
+            assertThat(ref.table().alias()).contains("x");
+            assertThat(sql.substring(sql.offsetByCodePoints(0, ref.nameStart()),
+                    sql.offsetByCodePoints(0, ref.nameEnd()))).isEqualTo("catalog.db.\"a.b\"");
+        });
+
+        var rewritten = analysis.rewriteNames(ref -> "catalog.db.replacement");
+        assertThat(rewritten.sql()).isEqualTo(sql.replace("catalog.db.\"a.b\"", "catalog.db.replacement"));
+        assertThat(rewritten.statement()).isInstanceOfSatisfying(CreateViewStatement.class,
+                view -> assertThat(view.viewSql()).isEqualTo(
+                        body.replace("catalog.db.\"a.b\"", "catalog.db.replacement")));
+    }
+
+    @Test
+    void referencesRetainIdentityOfNamedTablesInTheActualQueryAst() {
+        var analysis = TimeTravelSqlClauses.extract("SELECT x.id FROM source x JOIN other y ON x.id = y.id");
+        Query query = (Query) analysis.statement();
+        assertThat(analysis.references()).hasSize(2);
+        assertThat(analysis.references().get(0).table()).isSameAs(query.from().get(0));
+        assertThat(analysis.references().get(1).table()).isSameAs(query.joins().get(0).right());
     }
 
     @Test

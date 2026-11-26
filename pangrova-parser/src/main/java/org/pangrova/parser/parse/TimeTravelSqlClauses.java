@@ -12,9 +12,12 @@ import org.pangrova.parser.api.exception.ParseException;
 import org.pangrova.parser.build.AstBuilder;
 import org.pangrova.parser.build.antlr.PangrovaSqlParser;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Function;
 
 /** Source references and SQL spans captured while constructing the statement AST. */
@@ -24,6 +27,7 @@ public final class TimeTravelSqlClauses {
     private static final AntlrSqlParser PARSER = new AntlrSqlParser();
 
     // Source offsets depend on the full SQL spelling, including whitespace and comments.
+    // Weight is an SQL-length estimate, not an exact heap byte count.
     private static final Cache<String, Analysis> SOURCES = Caffeine.newBuilder()
                     .maximumWeight(SOURCE_CACHE_MAX_WEIGHT)
                     .weigher((String sql, Analysis ignored) -> Math.max(MIN_ENTRY_WEIGHT, sql.length()))
@@ -75,13 +79,36 @@ public final class TimeTravelSqlClauses {
             PangrovaSqlParser.SingleStatementContext tree, SqlDialect dialect) {
         var builder = new SourceBuilder(tokens, dialect);
         var statement = builder.visitSingleStatement(tree);
-        builder.references.sort(Comparator.comparingInt(Reference::nameStart));
-        return new Analysis(sql, statement, strip(sql, builder.spans), builder.references);
+        // A statement may retain a body as original SQL rather than visit its children
+        // (CREATE VIEW). Walk the same parse tree for complete source discovery, reusing
+        // the exact AST TableRef instances for nodes the statement builder visited.
+        var references = new ArrayList<Reference>();
+        var spans = new ArrayList<Span>();
+        var pending = new ArrayDeque<ParseTree>();
+        pending.push(tree);
+        while (!pending.isEmpty()) {
+            ParseTree node = pending.pop();
+            if (node instanceof PangrovaSqlParser.NamedTableRefContext named) {
+                var table = builder.referenceTable(named);
+                var name = named.qualifiedName();
+                references.add(new Reference(table, isCteReference(named, table, builder),
+                        name.getStart().getStartIndex(), name.getStop().getStopIndex() + 1));
+                var clause = named.timeTravelSpec();
+                if (clause != null) {
+                    spans.add(new Span(clause.getStart().getStartIndex(), clause.getStop().getStopIndex() + 1));
+                }
+            }
+            for (int i = node.getChildCount() - 1; i >= 0; --i) {
+                pending.push(node.getChild(i));
+            }
+        }
+        references.sort(Comparator.comparingInt(Reference::nameStart));
+        return new Analysis(sql, statement, strip(sql, spans), references);
     }
 
     private static final class SourceBuilder extends AstBuilder {
-        private final List<Reference> references = new ArrayList<>();
-        private final List<Span> spans = new ArrayList<>();
+        private final Map<PangrovaSqlParser.NamedTableRefContext, TableRef> tables =
+                new IdentityHashMap<>();
 
         private SourceBuilder(CommonTokenStream tokens, SqlDialect dialect) {
             super(tokens, dialect);
@@ -90,14 +117,13 @@ public final class TimeTravelSqlClauses {
         @Override
         public TableRef visitNamedTableRef(PangrovaSqlParser.NamedTableRefContext named) {
             var table = super.visitNamedTableRef(named);
-            var name = named.qualifiedName();
-            references.add(new Reference(table, isCteReference(named, table, this),
-                    name.getStart().getStartIndex(), name.getStop().getStopIndex() + 1));
-            var clause = named.timeTravelSpec();
-            if (clause != null) {
-                spans.add(new Span(clause.getStart().getStartIndex(), clause.getStop().getStopIndex() + 1));
-            }
+            tables.put(named, table);
             return table;
+        }
+
+        private TableRef referenceTable(PangrovaSqlParser.NamedTableRefContext named) {
+            var table = tables.get(named);
+            return table == null ? visitNamedTableRef(named) : table;
         }
     }
 
