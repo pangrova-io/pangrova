@@ -479,14 +479,23 @@ the failure fence and claim expiration atomically. Mapping writes and publicatio
 serialize on the same descriptor authority, so an old attempt cannot write a
 mapping or publish after takeover.
 
-Physical cleanup starts only after that transaction commits. It deletes only
-paths not referenced by another generation, retains mappings and the failed row
-until cleanup succeeds, and removes them under the exact descriptor/failed-row
-fence. Restarting the same generation or dropping the index invalidates an older
-cleanup pass. Recovery then submits a full snapshot-pinned replacement through
-`IndexGenerationRefresher`; concurrent transitions defer safely. Startup recovery
-runs before GC, consistency and commit-driven refresh schedulers start. Native
-retrieval jobs retain their own durable dispatcher/publisher recovery protocol.
+After the failure fence commits, cleanup atomically removes the exact failed
+generation's mappings and records the same durable path retirement receipts
+used by mapped-artifact GC. A replacement reservation that restarts the same
+failed generation performs that handoff in its own transaction. An older
+recovery pass cannot retire mappings belonging to a newer reservation or DROP;
+observed paths alone never authorize external deletion. Recovery can submit a
+snapshot-pinned replacement once the durable handoff commits, without waiting
+for unrelated physical deletion. Startup recovery runs before GC, consistency
+and commit-driven refresh schedulers start. Native retrieval jobs retain their
+own durable dispatcher/publisher recovery protocol.
+
+After DROP and snapshot-pin checks, the collector retires every exact mapped
+path through the same transaction; shared references remain intact. The
+descriptor is retained until mapped rows and pending receipts have drained.
+Physical deletion happens in a later bounded GC pass, not in the descriptor
+purge transaction. Direct descriptor purge refuses remaining mapped rows rather
+than relying on cascading deletion.
 
 The collector prepares one mutation per index and binds typed arrays for each cohort. Cohort size changes only the bound data.
 

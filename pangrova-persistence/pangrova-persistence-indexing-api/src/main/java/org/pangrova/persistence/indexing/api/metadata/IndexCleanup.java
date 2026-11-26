@@ -10,8 +10,13 @@ import java.util.UUID;
 /** Physical cleanup and verification of obsolete index generations. */
 @Experimental
 public interface IndexCleanup {
-    /** Permanently deletes descriptor and all file mappings (for GC after grace period). */
+    /** Permanently deletes a dropped descriptor only after mappings and pending retirements have drained. */
     void purgeIndex(String indexId);
+
+    /** Atomically retires all observed files under the exact dropped descriptor fence. */
+    default boolean retireDroppedIndexMappings(String indexId, Instant expectedUpdatedAt, int expectedGeneration) {
+        throw new UnsupportedOperationException("Durable dropped index mapping retirement is required");
+    }
 
     /** Removes a single file mapping. */
     void removeIndexFileMapping(String indexId, String dataFilePath);

@@ -11,6 +11,8 @@ import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.indexing.api.enums.IndexState;
 import org.pangrova.indexing.api.enums.IndexType;
 import org.pangrova.persistence.indexing.api.metadata.IndexFileMapping;
+import org.pangrova.persistence.indexing.api.metadata.IndexCleanup.MappedArtifactRetirement;
+import org.pangrova.persistence.catalog.api.exception.MetastoreException;
 import org.pangrova.persistence.indexing.api.metadata.IndexGenerationFormat;
 import org.pangrova.persistence.indexing.api.metadata.IndexPublicationRequest;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
@@ -103,6 +105,8 @@ class JdbcIndexBuildRecoveryTest extends ContainerTestBase {
                 failedAt, IndexState.STALE, 0)).isTrue();
         assertThat(store.getIndexFileMappings(initial.indexId())).isEmpty();
         assertThat(buildState(initial.indexId(), 0)).isNull();
+        assertThat(store.pollMappedArtifactRetirements(10)).extracting(MappedArtifactRetirement::artifactPath)
+                .containsExactly("failed.idx");
     }
 
     @Test
@@ -139,6 +143,8 @@ class JdbcIndexBuildRecoveryTest extends ContainerTestBase {
                 abandonedAt, IndexState.READY, 0)).isTrue();
         assertThat(store.getIndexFileMappings(initial.indexId())).isEmpty();
         assertThat(buildState(initial.indexId(), 1)).isNull();
+        assertThat(store.pollMappedArtifactRetirements(10)).extracting(MappedArtifactRetirement::artifactPath)
+                .containsExactly("staging.idx");
     }
 
     @Test
@@ -170,7 +176,11 @@ class JdbcIndexBuildRecoveryTest extends ContainerTestBase {
         Instant replacementAt = abandonedAt.plusSeconds(1);
         assertThat(store.beginIndexGeneration(initial.indexId(), 1, "snapshot-2", replacementAt,
                 ready.updatedAt(), IndexState.READY, 0)).isTrue();
+        assertThat(store.pollMappedArtifactRetirements(10)).extracting(MappedArtifactRetirement::artifactPath)
+                .containsExactly("old-staging.idx");
         assertThat(claims.tryClaim(initial.indexId(), 1, "new-attempt", replacementAt)).isTrue();
+        assertThatThrownBy(() -> store.registerIndexFile("new-attempt",
+                mapping(initial.indexId(), 1, "old-staging.idx"))).isInstanceOf(MetastoreException.class);
         store.registerIndexFile("new-attempt", mapping(initial.indexId(), 1, "new-staging.idx"));
 
         assertThat(store.completeIndexBuildCleanup(initial.indexId(), 1, ready.updatedAt(),
@@ -212,6 +222,7 @@ class JdbcIndexBuildRecoveryTest extends ContainerTestBase {
                 IndexState.STALE, 0)).isFalse();
         assertThat(store.findIndex(initial.indexId()).orElseThrow().state()).isEqualTo(IndexState.DROPPED);
         assertThat(store.getIndexFileMappings(initial.indexId())).hasSize(1);
+        assertThat(store.pollMappedArtifactRetirements(10)).isEmpty();
     }
 
     @Test
@@ -234,6 +245,7 @@ class JdbcIndexBuildRecoveryTest extends ContainerTestBase {
                 START.plusSeconds(2), IndexState.READY, 0)).isTrue();
         assertThat(store.getIndexFileMappings(initial.indexId()))
                 .extracting(IndexFileMapping::indexFilePath).containsExactly("shared.idx");
+        assertThat(store.pollMappedArtifactRetirements(10)).isEmpty();
     }
 
     @Test

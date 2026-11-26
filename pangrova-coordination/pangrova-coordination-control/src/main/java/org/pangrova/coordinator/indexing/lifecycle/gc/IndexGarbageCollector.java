@@ -294,21 +294,18 @@ public final class IndexGarbageCollector implements AutoCloseable {
             throw new IllegalStateException("Mapped artifact retirements remain; retaining dropped index "
                     + descriptor.indexId());
         }
-        List<IndexFileMapping> mappings = store.getIndexFileMappings(descriptor.indexId());
-
         // Keep the durable descriptor for a later retry if the snapshot ref cannot be released.
         unpinSnapshot(descriptor);
-
-        for (IndexFileMapping mapping : mappings) {
-            if (!deleteIndexFile(mapping.indexFilePath(), descriptor)) {
-                throw new IllegalStateException("Index file deletion failed; retaining dropped index "
-                        + descriptor.indexId());
-            }
+        if (!store.retireDroppedIndexMappings(
+                descriptor.indexId(), descriptor.updatedAt(), descriptor.generation())) {
+            throw new IllegalStateException("Dropped index mapping retirement lost its descriptor fence");
         }
-
+        if (store.hasPendingMappedArtifactRetirements(descriptor.indexId())) {
+            throw new IllegalStateException("Mapped artifact retirements remain; retaining dropped index "
+                    + descriptor.indexId());
+        }
         store.purgeIndex(descriptor.indexId());
-        LOG.info("action=index_purged indexId={} indexName={} fileCount={}",
-                descriptor.indexId(), descriptor.indexName(), mappings.size());
+        LOG.info("action=index_purged indexId={} indexName={}", descriptor.indexId(), descriptor.indexName());
     }
 
     /**

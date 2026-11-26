@@ -133,9 +133,10 @@ public interface IndexBuildGenerations {
     }
 
     /**
-     * Removes mappings and the FAILED staging row only after physical cleanup and only
-     * while the exact descriptor and failed-generation fences still match. A replacement
-     * attempt or DROP therefore cannot be cleaned up by an older recovery pass.
+     * Atomically retires mappings and removes the FAILED staging row while the exact
+     * descriptor and failed-generation fences still match. Physical deletion is separately
+     * driven by durable retirement receipts; a replacement or DROP cannot be cleaned
+     * up by an older recovery pass.
      */
     default boolean completeIndexBuildCleanup(
             String indexId,
@@ -176,7 +177,7 @@ public interface IndexBuildGenerations {
         }
     }
 
-    /** Committed abandonment evidence; paths exclude objects still referenced by another generation. */
+    /** Committed abandonment evidence; path observations are not physical deletion authority. */
     record IndexBuildAbandonment(
             IndexDescriptor descriptor,
             List<IndexFileMapping> mappings,

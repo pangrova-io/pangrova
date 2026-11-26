@@ -119,7 +119,7 @@ final class JdbcIndexGcStore extends JdbcStoreSupport {
             connection.setAutoCommit(false);
             try {
                 var removed = lockOrphanOwner(connection, indexId, state, generation)
-                        ? lockAndRemoveOrphanBatches(connection, indexId, mappings) : new OrphanRemoval(0, Set.of());
+                        ? retireObservedMappings(connection, indexId, mappings) : new OrphanRemoval(0, Set.of());
                 connection.commit();
                 return removed;
             } catch (SQLException | RuntimeException failure) {
@@ -151,8 +151,10 @@ final class JdbcIndexGcStore extends JdbcStoreSupport {
         }
     }
 
-    private static OrphanRemoval lockAndRemoveOrphanBatches(Connection connection, String indexId,
+    /** Caller owns the descriptor/generation fence and transaction; all path retirement uses this handoff. */
+    static OrphanRemoval retireObservedMappings(Connection connection, String indexId,
             List<IndexFileMapping> mappings) throws SQLException {
+        if (mappings.isEmpty()) return new OrphanRemoval(0, Set.of());
         JdbcMappedArtifactRetirementStore.lockPaths(connection,
                 mappings.stream().map(IndexFileMapping::indexFilePath).distinct().sorted().toList());
         int removed = 0;

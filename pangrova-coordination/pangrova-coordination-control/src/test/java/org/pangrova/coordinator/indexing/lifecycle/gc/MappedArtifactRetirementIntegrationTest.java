@@ -47,6 +47,100 @@ class MappedArtifactRetirementIntegrationTest extends ContainerTestBase {
         verifyRetirement(SharedPostgresContainer.migratedDataSource("mapped_artifact_retirement"), root);
     }
 
+    @Test
+    void failedGenerationAndDropUseTheSameDurableRetirementHandoff() throws Exception {
+        verifyGenerationAndDropRetirement(
+                SharedPostgresContainer.migratedDataSource("generation_artifact_retirement"), root);
+    }
+
+    static void verifyGenerationAndDropRetirement(DataSource source, Path root) throws Exception {
+        var store = metadata(source);
+        var descriptor = descriptor("restart-drop");
+        store.registerIndex(descriptor);
+        var layout = new IndexStorageLayout(root.toString());
+        Path serving = createArtifact(layout, descriptor, 4, "active", "active");
+        seed(source, descriptor.indexId(), "active", serving, 4);
+        Instant reserved = CREATED.plusSeconds(1);
+        assertThat(store.beginIndexGeneration(descriptor.indexId(), 5, "old", reserved,
+                descriptor.updatedAt(), descriptor.state(), descriptor.generation())).isTrue();
+        var claims = new JdbcIndexBuildClaimRepository(source);
+        String oldOwner = UUID.randomUUID().toString();
+        assertThat(claims.tryClaim(descriptor.indexId(), 5, oldOwner, reserved)).isTrue();
+        Path old = createArtifact(layout, descriptor, 5, "old-source", "old", UUID.fromString(oldOwner));
+        store.registerIndexFile(oldOwner, new IndexFileMapping(descriptor.indexId(), "old-source",
+                old.toString(), 1, 1, "a".repeat(64), 5, "old", 0, reserved, 0));
+        Instant failed = reserved.plusSeconds(1);
+        assertThat(store.failIndexGeneration(descriptor.indexId(), 5, reserved, failed, "failed")).isTrue();
+        assertThat(claims.release(descriptor.indexId(), 5, oldOwner)).isTrue();
+
+        Instant replacement = failed.plusSeconds(1);
+        assertThat(store.beginIndexGeneration(descriptor.indexId(), 5, "new", replacement,
+                descriptor.updatedAt(), descriptor.state(), descriptor.generation())).isTrue();
+        assertThat(old).exists();
+        assertThat(store.pollMappedArtifactRetirements(10)).extracting(MappedArtifactRetirement::artifactPath)
+                .containsExactly(old.toString());
+        String newOwner = UUID.randomUUID().toString();
+        assertThat(claims.tryClaim(descriptor.indexId(), 5, newOwner, replacement)).isTrue();
+        Path next = createArtifact(layout, descriptor, 5, "next-source", "next", UUID.fromString(newOwner));
+        store.registerIndexFile(newOwner, new IndexFileMapping(descriptor.indexId(), "next-source",
+                next.toString(), 1, 1, "b".repeat(64), 5, "new", 0, replacement, 0));
+        assertThat(store.completeIndexBuildCleanup(descriptor.indexId(), 5, descriptor.updatedAt(),
+                failed, descriptor.state(), descriptor.generation())).isFalse();
+
+        var config = new IndexingConfig(root.toString(), false, null,
+                new LifecycleConfig(new GcConfig(1, 0), null, null));
+        var storage = new IndexStorageManager();
+        try (var gc = new IndexGarbageCollector(new IndexGcContext(store, storage,
+                ignored -> new LocalFileSystemAccessor(), config, null), null)) {
+            gc.runGc();
+            assertThat(old).doesNotExist();
+            assertThat(next).exists();
+            assertThat(serving).exists();
+            assertThat(claims.release(descriptor.indexId(), 5, newOwner)).isTrue();
+            store.dropIndex(descriptor.indexId(), replacement.plusSeconds(1));
+            assertThatThrownBy(() -> store.purgeIndex(descriptor.indexId()))
+                    .hasMessageContaining("remaining mappings");
+            assertThat(gc.runGc().purgedCount()).isZero();
+            assertThat(store.getIndexFileMappings(descriptor.indexId())).isEmpty();
+            assertThat(next).exists();
+            assertThat(serving).exists();
+            assertThat(store.hasPendingMappedArtifactRetirements(descriptor.indexId())).isTrue();
+        }
+        try (var failing = new IndexGarbageCollector(new IndexGcContext(metadata(source), storage,
+                ignored -> { throw new IllegalStateException("storage unavailable"); }, config, null), null)) {
+            assertThat(failing.runGc().purgedCount()).isZero();
+            assertThat(store.findIndex(descriptor.indexId())).isPresent();
+            assertThat(next).exists();
+        }
+        try (var recovered = new IndexGarbageCollector(new IndexGcContext(metadata(source), storage,
+                ignored -> new LocalFileSystemAccessor(), config, null), null)) {
+            assertThat(recovered.runGc().purgedCount()).isOne();
+            assertThat(next).doesNotExist();
+            assertThat(serving).doesNotExist();
+            assertThat(store.findIndex(descriptor.indexId())).isEmpty();
+
+            verifyDropPreservesSharedReference(source, store, root, recovered);
+        }
+    }
+
+    private static void verifyDropPreservesSharedReference(DataSource source, JdbcIndexMetadataStore store,
+            Path root, IndexGarbageCollector gc) throws Exception {
+        var left = descriptor("drop-left");
+        var right = descriptor("drop-right");
+        store.registerIndex(left);
+        store.registerIndex(right);
+        Path shared = Files.writeString(root.resolve("drop-shared.idx"), "shared");
+        seed(source, left.indexId(), "left", shared, 4);
+        seed(source, right.indexId(), "right", shared, 4);
+        store.dropIndex(left.indexId(), CREATED.plusSeconds(1));
+        assertThat(gc.runGc().purgedCount()).isOne();
+        assertThat(store.findIndex(left.indexId())).isEmpty();
+        assertThat(store.getIndexFileMappings(right.indexId())).extracting(IndexFileMapping::indexFilePath)
+                .containsExactly(shared.toString());
+        assertThat(shared).exists();
+        assertThat(store.pollMappedArtifactRetirements(10)).isEmpty();
+    }
+
     static void verifyRetirement(DataSource source, Path root) throws Exception {
         var store = metadata(source);
         var descriptor = descriptor("retire");
@@ -213,8 +307,12 @@ class MappedArtifactRetirementIntegrationTest extends ContainerTestBase {
 
     private static Path createArtifact(IndexStorageLayout layout, IndexDescriptor descriptor,
             int generation, String source, String content) throws Exception {
-        Path path = Path.of(layout.indexFilePath(descriptor.withGeneration(generation, CREATED),
-                UUID.randomUUID(), source));
+        return createArtifact(layout, descriptor, generation, source, content, UUID.randomUUID());
+    }
+
+    private static Path createArtifact(IndexStorageLayout layout, IndexDescriptor descriptor,
+            int generation, String source, String content, UUID owner) throws Exception {
+        Path path = Path.of(layout.indexFilePath(descriptor.withGeneration(generation, CREATED), owner, source));
         Files.createDirectories(path.getParent());
         return Files.writeString(path, content);
     }

@@ -216,7 +216,7 @@ class JdbcScalarIndexAuthorityTest extends ContainerTestBase {
     }
 
     @Test
-    void purgeRequiresDroppedStateAndDeletesMappingsAtomically() {
+    void purgeRequiresDroppedStateAndDurableMappingRetirement() {
         var descriptor = descriptor("index-purge");
         indexes.registerIndexWithBuildAuthority(descriptor, PRINCIPAL);
         assertThat(new JdbcIndexBuildClaimRepository(dataSource).tryClaim(descriptor.indexId(), 0, OWNER, Instant.now())).isTrue();
@@ -230,9 +230,20 @@ class JdbcScalarIndexAuthorityTest extends ContainerTestBase {
         assertThat(indexes.getIndexFileMappings(descriptor.indexId())).hasSize(1);
 
         indexes.dropIndex(descriptor.indexId(), Instant.now());
+        assertThatThrownBy(() -> indexes.purgeIndex(descriptor.indexId()))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("remaining mappings");
+        var dropped = indexes.findIndex(descriptor.indexId()).orElseThrow();
+        assertThat(indexes.retireDroppedIndexMappings(dropped.indexId(), dropped.updatedAt(), dropped.generation()))
+                .isTrue();
+        assertThat(indexes.getIndexFileMappings(descriptor.indexId())).isEmpty();
+        var retirement = indexes.pollMappedArtifactRetirements(10).get(0);
+        assertThatThrownBy(() -> indexes.purgeIndex(descriptor.indexId()))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("retirement");
+        // Database-only fixture; no physical artifact was created.
+        assertThat(indexes.beginMappedArtifactReclaim(retirement)).isTrue();
+        indexes.completeMappedArtifactReclaim(retirement);
         indexes.purgeIndex(descriptor.indexId());
         assertThat(indexes.findIndex(descriptor.indexId())).isEmpty();
-        assertThat(indexes.getIndexFileMappings(descriptor.indexId())).isEmpty();
     }
 
     private IndexDescriptor registerForPublication(String id) {

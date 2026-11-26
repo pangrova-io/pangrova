@@ -276,17 +276,23 @@ class IndexGcGenerationFencingTest {
     @Test
     void failedFileDeletionKeepsDroppedIndexForRetry() {
         var store = new GenerationTrackingStore();
-        store.addDescriptor(new IndexDescriptor(
+        var descriptor = new IndexDescriptor(
                 "idx-delete", "test-index", "cat", "sch", "tbl", List.of("col1"),
                 IndexType.BITMAP, Map.of(), IndexState.DROPPED, null, 0,
                 null, null, Instant.now().minusSeconds(172800),
-                Instant.now().minusSeconds(172800), "default"));
-        store.addStaleMapping(buildMapping("idx-delete", "/data/old.parquet", "/idx/old.idx", 0));
+                Instant.now().minusSeconds(172800), "default");
+        store.addDescriptor(descriptor);
+        String path = new IndexStorageLayout(files.toString()).indexFilePath(
+                descriptor, UUID.randomUUID(), "/data/old.parquet");
+        store.addStaleMapping(buildMapping("idx-delete", "/data/old.parquet", path, 0));
         gc = new IndexGarbageCollector(new IndexGcContext(
-                store, new IndexStorageManager(), descriptor -> {
+                store, new IndexStorageManager(), ignored -> {
                     throw new IllegalStateException("storage unavailable");
-                }, new IndexingConfig("/tmp/test-gc-gen", false, null, null), null), null);
+                }, new IndexingConfig(files.toString(), false, null, null), null), null);
 
+        assertThat(gc.runGc().purgedCount()).isZero();
+        assertThat(store.getIndexFileMappings("idx-delete")).isEmpty();
+        assertThat(store.hasPendingMappedArtifactRetirements("idx-delete")).isTrue();
         assertThat(gc.runGc().purgedCount()).isZero();
         assertThat(store.purgedIndexes).isEmpty();
         assertThat(store.findIndex("idx-delete")).isPresent();
@@ -402,6 +408,17 @@ class IndexGcGenerationFencingTest {
         @Override public List<IndexDescriptor> findReadyIndexesForColumns(
                 String tenantId, String c, String s, String t, List<String> cols, boolean includeStale) { return List.of(); }
         @Override public void dropIndex(String id, Instant t) {}
+        @Override public boolean retireDroppedIndexMappings(String id, Instant expectedUpdatedAt,
+                int expectedGeneration) {
+            var descriptor = descriptors.get(id);
+            if (descriptor == null || !descriptor.updatedAt().equals(expectedUpdatedAt)
+                    || descriptor.state() != IndexState.DROPPED || descriptor.generation() != expectedGeneration) {
+                return false;
+            }
+            var mappings = staleMappings.stream().filter(item -> item.indexId().equals(id)).toList();
+            return removeOrphanMappings(id, IndexState.DROPPED, expectedGeneration, mappings)
+                    .mappingsRemoved() == mappings.size();
+        }
         @Override public void purgeIndex(String id) { purgedIndexes.add(id); descriptors.remove(id); }
         @Override public void batchRegisterIndexFiles(String owner, List<IndexFileMapping> m) {}
         @Override public Set<String> getIndexedDataFilePaths(String id, int generation) {

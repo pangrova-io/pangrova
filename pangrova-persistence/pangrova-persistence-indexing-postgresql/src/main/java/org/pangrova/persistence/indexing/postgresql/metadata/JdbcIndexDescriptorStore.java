@@ -361,6 +361,7 @@ final class JdbcIndexDescriptorStore extends JdbcStoreSupport {
 
     private static boolean reserveGeneration(Connection conn, GenerationReservation request)
             throws SQLException {
+        conn.setTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED);
         conn.setAutoCommit(false);
         try {
             try (PreparedStatement lock = conn.prepareStatement(
@@ -728,8 +729,13 @@ final class JdbcIndexDescriptorStore extends JdbcStoreSupport {
             Connection conn, String indexId, int generation) throws SQLException {
         String sql = "SELECT DISTINCT mapping.index_file_path FROM index_file_mappings mapping "
                 + "WHERE mapping.index_id=? AND mapping.generation=? AND NOT EXISTS ("
-                + "SELECT 1 FROM index_file_mappings owner WHERE owner.index_id=mapping.index_id "
-                + "AND owner.index_file_path=mapping.index_file_path AND owner.generation<>?)";
+                + "SELECT 1 FROM index_file_mappings owner WHERE "
+                + "md5(owner.index_file_path)=md5(mapping.index_file_path) "
+                + "AND owner.index_file_path=mapping.index_file_path "
+                + "AND (owner.index_id<>mapping.index_id OR owner.generation<>?)) "
+                + "AND NOT EXISTS (SELECT 1 FROM scalar_index_artifact_intents i "
+                + "WHERE md5(i.artifact_path)=md5(mapping.index_file_path) "
+                + "AND i.artifact_path=mapping.index_file_path)";
         try (PreparedStatement statement = conn.prepareStatement(sql)) {
             statement.setString(1, indexId);
             statement.setInt(2, generation);
@@ -748,6 +754,7 @@ final class JdbcIndexDescriptorStore extends JdbcStoreSupport {
             String indexId, int generation, Instant expectedUpdatedAt,
             Instant expectedBuildUpdatedAt, IndexState expectedState, int expectedGeneration) {
         try (Connection conn = dataSource().getConnection()) {
+            conn.setTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED);
             conn.setAutoCommit(false);
             try {
                 if (!lockExpectedDescriptor(conn, indexId, expectedUpdatedAt,
@@ -757,12 +764,7 @@ final class JdbcIndexDescriptorStore extends JdbcStoreSupport {
                     return false;
                 }
                 deleteGenerationClaim(conn, indexId, generation);
-                try (PreparedStatement statement = conn.prepareStatement(
-                        "DELETE FROM index_file_mappings WHERE index_id=? AND generation=?")) {
-                    statement.setString(1, indexId);
-                    statement.setInt(2, generation);
-                    statement.executeUpdate();
-                }
+                retireAllObservedMappings(conn, indexId, loadGenerationMappings(conn, indexId, generation));
                 try (PreparedStatement statement = conn.prepareStatement(
                         "DELETE FROM index_generation_builds WHERE index_id=? AND generation=?")) {
                     statement.setString(1, indexId);
@@ -1009,13 +1011,16 @@ final class JdbcIndexDescriptorStore extends JdbcStoreSupport {
                 return false;
             }
         }
-        try (PreparedStatement statement = connection.prepareStatement(
-                "DELETE FROM index_file_mappings WHERE index_id=? AND generation=?")) {
-            statement.setString(1, indexId);
-            statement.setInt(2, generation);
-            statement.executeUpdate();
-        }
+        retireAllObservedMappings(connection, indexId, loadGenerationMappings(connection, indexId, generation));
         return true;
+    }
+
+    private static void retireAllObservedMappings(Connection connection, String indexId,
+            List<IndexFileMapping> mappings) throws SQLException {
+        var result = JdbcIndexGcStore.retireObservedMappings(connection, indexId, mappings);
+        if (result.mappingsRemoved() != mappings.size()) {
+            throw new IllegalStateException("Index mapping retirement could not drain all observed references");
+        }
     }
 
     private static String truncateReason(String failureReason) {
@@ -1118,12 +1123,83 @@ final class JdbcIndexDescriptorStore extends JdbcStoreSupport {
         updateIndexState(indexId, IndexState.DROPPED.name(), timestamp);
     }
 
+    boolean retireDroppedIndexMappings(String indexId, Instant expectedUpdatedAt, int expectedGeneration) {
+        try (Connection connection = dataSource().getConnection()) {
+            connection.setTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED);
+            connection.setAutoCommit(false);
+            try {
+                if (!lockExpectedDescriptor(connection, indexId, expectedUpdatedAt,
+                        IndexState.DROPPED, expectedGeneration)) {
+                    connection.rollback();
+                    return false;
+                }
+                retireAllObservedMappings(connection, indexId, loadAllMappings(connection, indexId));
+                connection.commit();
+                return true;
+            } catch (SQLException | RuntimeException failure) {
+                rollbackAfterFailure(connection, failure);
+                throw failure;
+            }
+        } catch (SQLException failure) {
+            throw new MetastoreException("Failed to retire dropped index mappings", failure);
+        }
+    }
+
+    private static List<IndexFileMapping> loadAllMappings(Connection connection, String indexId)
+            throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT * FROM index_file_mappings WHERE index_id=? ORDER BY generation,data_file_path")) {
+            statement.setString(1, indexId);
+            try (ResultSet rows = statement.executeQuery()) {
+                return IndexMetadataMapper.mapMappingList(rows);
+            }
+        }
+    }
+
     void purgeIndex(String indexId) {
-        int deleted = executeUpdateCount(
-                "DELETE FROM index_descriptors WHERE index_id=? AND state='DROPPED'",
-                ps -> ps.setString(1, indexId));
-        if (deleted == 0 && findIndex(indexId).isPresent()) {
-            throw new IllegalStateException("Only a dropped index may be purged: " + indexId);
+        try (Connection connection = dataSource().getConnection()) {
+            connection.setTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED);
+            connection.setAutoCommit(false);
+            try {
+                String state = lockPurgeState(connection, indexId);
+                if (state != null) {
+                    if (!"DROPPED".equals(state) || hasRemainingMappings(connection, indexId)) {
+                        throw new IllegalStateException(
+                                "Only a dropped index with no remaining mappings may be purged: " + indexId);
+                    }
+                    try (PreparedStatement statement = connection.prepareStatement(
+                            "DELETE FROM index_descriptors WHERE index_id=? AND state='DROPPED'")) {
+                        statement.setString(1, indexId);
+                        statement.executeUpdate();
+                    }
+                }
+                connection.commit();
+            } catch (SQLException | RuntimeException failure) {
+                rollbackAfterFailure(connection, failure);
+                throw failure;
+            }
+        } catch (SQLException failure) {
+            throw new MetastoreException("Failed to purge drained index descriptor", failure);
+        }
+    }
+
+    private static String lockPurgeState(Connection connection, String indexId) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT state FROM index_descriptors WHERE index_id=? FOR UPDATE")) {
+            statement.setString(1, indexId);
+            try (ResultSet rows = statement.executeQuery()) {
+                return rows.next() ? rows.getString(1) : null;
+            }
+        }
+    }
+
+    private static boolean hasRemainingMappings(Connection connection, String indexId) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT 1 FROM index_file_mappings WHERE index_id=? LIMIT 1")) {
+            statement.setString(1, indexId);
+            try (ResultSet rows = statement.executeQuery()) {
+                return rows.next();
+            }
         }
     }
 

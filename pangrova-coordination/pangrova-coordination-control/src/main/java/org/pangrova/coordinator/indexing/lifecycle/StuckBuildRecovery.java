@@ -1,7 +1,6 @@
 package org.pangrova.coordinator.indexing.lifecycle;
 
 import org.pangrova.coordinator.indexing.ddl.IndexSourceAuthority;
-import org.pangrova.connector.api.index.FileSystemAccessor;
 import org.pangrova.connector.api.index.SnapshotAwareMetadata;
 import org.pangrova.connector.api.index.SnapshotDataFile;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
@@ -9,13 +8,11 @@ import org.pangrova.indexing.api.enums.IndexState;
 import org.pangrova.indexing.build.DataFileInfo;
 import org.pangrova.persistence.indexing.api.metadata.IndexBuildGenerations.IndexBuildAbandonment;
 import org.pangrova.persistence.indexing.api.metadata.IndexBuildGenerations.IndexBuildCandidate;
-import org.pangrova.persistence.indexing.api.metadata.IndexFileMapping;
 import org.pangrova.persistence.indexing.api.metadata.IndexGenerationManifest;
 import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -26,9 +23,9 @@ import java.util.Set;
  * descriptor, staging-generation, mapping, publication and claim fences.
  *
  * <p>Recovery first commits the generation fence and expires the old claim. Only
- * then may it delete unreferenced staging objects, remove their mappings and ask
- * the normal generation refresher to rebuild. A DROP or replacement that wins a
- * fence race is never resurrected.</p>
+ * then may it atomically retire the exact failed generation's mappings and ask
+ * the normal generation refresher to rebuild. The mapped artifact collector owns
+ * physical deletion. A DROP or replacement that wins a fence race is never resurrected.</p>
  */
 public final class StuckBuildRecovery {
 
@@ -112,8 +109,7 @@ public final class StuckBuildRecovery {
         LOG.warn("event=stuck_build_recovered indexId={} generation={} state={} stuckDurationMs={}",
                 descriptor.indexId(), candidate.generation(), descriptor.state(),
                 Duration.between(candidate.lastActivityAt(), abandonedAt).toMillis());
-        if (!cleanup(fenced.descriptor(), candidate.generation(), abandonedAt,
-                fenced.mappings(), fenced.pathsToDelete())) {
+        if (!cleanup(fenced.descriptor(), candidate.generation(), abandonedAt)) {
             return true;
         }
         rebuild(fenced.descriptor().indexId());
@@ -121,49 +117,20 @@ public final class StuckBuildRecovery {
     }
 
     private boolean recoverFailedCleanup(IndexBuildCandidate candidate) {
-        IndexMetadataStore store = deps.metadataStore();
-        List<IndexFileMapping> mappings = store.getIndexFileMappings(candidate.descriptor().indexId()).stream()
-                .filter(mapping -> mapping.generation() == candidate.generation())
-                .toList();
-        Set<String> abandonedPaths = mappings.stream().map(IndexFileMapping::indexFilePath)
-                .collect(java.util.stream.Collectors.toSet());
-        Set<String> retainedPaths = store.getIndexFileMappings(candidate.descriptor().indexId()).stream()
-                .filter(mapping -> mapping.generation() != candidate.generation())
-                .map(IndexFileMapping::indexFilePath)
-                .collect(java.util.stream.Collectors.toSet());
-        abandonedPaths.removeAll(retainedPaths);
-        if (!cleanup(candidate.descriptor(), candidate.generation(), candidate.updatedAt(),
-                mappings, abandonedPaths)) {
+        if (!cleanup(candidate.descriptor(), candidate.generation(), candidate.updatedAt())) {
             return false;
         }
         rebuild(candidate.descriptor().indexId());
         return true;
     }
 
-    private boolean cleanup(
-            IndexDescriptor descriptor, int generation, Instant buildUpdatedAt,
-            List<IndexFileMapping> mappings, Set<String> pathsToDelete) {
-        if (!pathsToDelete.isEmpty()) {
-            FileSystemAccessor fileSystem = IndexSourceAuthority.forDescriptor(
-                    deps.metadataStore(), deps.buildServices(), deps.connectorAccessorResolver(), descriptor)
-                    .resolve(descriptor.catalogName());
-            for (String path : pathsToDelete) {
-                try {
-                    if (fileSystem.exists(path)) {
-                        fileSystem.deleteFile(path);
-                    }
-                } catch (IOException failure) {
-                    throw new IllegalStateException(
-                            "Failed to clean fenced index staging: " + descriptor.indexId(), failure);
-                }
-            }
-        }
+    private boolean cleanup(IndexDescriptor descriptor, int generation, Instant buildUpdatedAt) {
         boolean completed = deps.metadataStore().completeIndexBuildCleanup(
                 descriptor.indexId(), generation, descriptor.updatedAt(), buildUpdatedAt,
                 descriptor.state(), descriptor.generation());
         if (!completed) {
-            LOG.debug("event=stuck_build_cleanup_deferred indexId={} generation={} mappings={} reason=fence_changed",
-                    descriptor.indexId(), generation, mappings.size());
+            LOG.debug("event=stuck_build_cleanup_deferred indexId={} generation={} reason=fence_changed",
+                    descriptor.indexId(), generation);
         }
         return completed;
     }

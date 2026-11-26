@@ -395,6 +395,11 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
     }
 
     @Override
+    public boolean retireDroppedIndexMappings(String indexId, Instant expectedUpdatedAt, int expectedGeneration) {
+        return descriptorStore.retireDroppedIndexMappings(indexId, expectedUpdatedAt, expectedGeneration);
+    }
+
+    @Override
     public void purgeIndex(String indexId) {
         withIndexLifecycleLock(indexId, () -> {
             if (scalarSnapshotPinStore.hasUnreleased(indexId)) {

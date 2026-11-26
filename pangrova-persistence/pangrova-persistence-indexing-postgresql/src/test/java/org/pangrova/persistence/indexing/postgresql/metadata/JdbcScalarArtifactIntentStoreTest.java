@@ -137,7 +137,8 @@ class JdbcScalarArtifactIntentStoreTest extends ContainerTestBase {
         assertThat(store.beginScalarArtifactReclaim(uncertain)).isFalse();
         assertThat(store.hasScalarArtifactIntents("index")).isTrue();
         store.dropIndex("index", START.plusSeconds(10));
-        assertThatThrownBy(() -> store.purgeIndex("index")).isInstanceOf(MetastoreException.class);
+        assertThatThrownBy(() -> store.purgeIndex("index")).isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("remaining mappings");
         assertThat(store.findIndex("index").orElseThrow().state()).isEqualTo(IndexState.DROPPED);
     }
 
