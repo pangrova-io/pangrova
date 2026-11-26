@@ -86,8 +86,9 @@ Piped input continues after statement errors and does not wait for asynchronous
 index builds. For index validation, use the interactive method: repeat each
 `SHOW INDEXES` until every expected descriptor is `READY`; stop and investigate
 a `STALE` descriptor or a build that does not complete. Only then run its
-associated queries. Verify that every statement succeeds: the detail query returns six rows, region counts are `east=2`,
-`north=1`, `south=1`, `west=2`, event-type counts are `click=3`, `purchase=2`,
+associated queries. Verify that every statement succeeds: the detail query
+returns six rows, region counts are `east=2`, `north=1`, `south=1`, `west=2`,
+event-type counts are `click=3`, `purchase=2`,
 `search=1`, all created indexes reach `READY`, and the final order count is five.
 A zero exit code from the interactive shell alone does not establish successful
 execution.
