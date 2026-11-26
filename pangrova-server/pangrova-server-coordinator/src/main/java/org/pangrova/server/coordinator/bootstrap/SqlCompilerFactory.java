@@ -11,8 +11,8 @@ import org.pangrova.planner.analysis.SqlCompiler;
 import org.pangrova.planner.cost.CboConfig;
 import org.pangrova.planner.cost.CostModelConfig;
 import org.pangrova.planner.mv.DynamicTableRewriter;
-import org.pangrova.planner.mv.MaterializedViewRewriteCatalog;
 import org.pangrova.coordinator.dynamictable.DurableDynamicTableResolver;
+import org.pangrova.coordinator.materialization.PlanningMaterializations;
 import org.pangrova.planner.statistics.StatisticsCollector;
 import org.pangrova.security.api.authorization.AccessControl;
 import org.slf4j.Logger;
@@ -73,39 +73,22 @@ final class SqlCompilerFactory {
                 metadataBootstrap.metadataService(), metadataBootstrap.catalogRegistry())
                 .buildRootSchema(session, readBindings);
         var stats = new StatisticsCollector(readBindings);
-        var mvCatalog = buildMaterializedViewRewriteCatalog(session);
         var path = session.getCatalog().map(catalog -> session.getSchema()
                 .map(schema -> List.of(catalog, schema)).orElse(List.of(catalog))).orElse(List.of(""));
         DynamicTableRewriter dynamicTableRewriter = null;
-        var materializations = metadataBootstrap.materializationCatalog();
-        if (materializations != null) {
-            String tenantId = session.getProperties().getOrDefault("tenant_id", "default");
-            java.util.function.Consumer<
-                    org.pangrova.materialization.api.port.PublishedMaterialization> pinner =
-                    readerPin(session);
+        var catalog = metadataBootstrap.materializationCatalog();
+        var publications = catalog == null ? null : PlanningMaterializations.forSession(catalog, session, "default");
+        var pinner = readerPin(session);
+        if (publications != null) {
             dynamicTableRewriter = new DynamicTableRewriter(new DurableDynamicTableResolver(
-                    materializations, tenantId, session.getCatalog().orElse(null),
-                    session.getSchema().orElse(null), pinner),
+                    publications, session.getCatalog().orElse(null), session.getSchema().orElse(null), pinner),
                     DynamicTableRewriter.isInternalExecution(session));
         }
+        var mvCatalog = KernelMaterializedViewRewriteCatalog.create(publications, session, accessControl,
+                java.time.Instant.now(), pinner).orElse(null);
         return new PangrovaPlanner(rootSchema, path,
                 new PlannerContext(stats, mvCatalog,
                         dynamicTableRewriter, null, CboConfig.DEFAULT, CostModelConfig.SSD_DEFAULT));
-    }
-
-    /**
-     * Rewrite candidates are per session because authorization, tenant and default
-     * schema all participate; the catalog is cheap and reads published state lazily.
-     */
-    private MaterializedViewRewriteCatalog buildMaterializedViewRewriteCatalog(
-            org.pangrova.connector.api.session.ConnectorSession session) {
-        var materializations = metadataBootstrap.materializationCatalog();
-        if (materializations == null) {
-            return null;
-        }
-        String tenantId = session.getProperties().getOrDefault("tenant_id", "default");
-        return KernelMaterializedViewRewriteCatalog.create(materializations, tenantId, session,
-                accessControl, java.time.Instant.now(), readerPin(session)).orElse(null);
     }
 
     /** Leases every published generation this admitted query resolves for execution. */

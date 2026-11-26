@@ -584,8 +584,8 @@ class QueryManagerAsyncSubmitTest {
         }
 
         @Override
-        public boolean acquireQueryOwnership(String queryId) {
-            return true; // always succeed in test
+        public Ownership acquireQueryOwnership(String queryId, String tenantId) {
+            return new Ownership(true, java.util.OptionalLong.empty()); // always succeed in test
         }
 
         @Override

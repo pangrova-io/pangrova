@@ -5,6 +5,7 @@ import org.pangrova.materialization.api.port.PublishedMaterialization;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 import org.pangrova.materialization.api.domain.MaterializationId;
 import org.pangrova.materialization.api.domain.TenantId;
 
@@ -33,6 +34,13 @@ public interface MaterializationCatalog {
      * @return published projections
      */
     List<PublishedMaterialization> listPublished(TenantId tenant);
+
+    /**
+     * Returns one immutable planning directory. A revision supplied by query admission
+     * establishes the earliest snapshot that may be used, including cached observations.
+     * With no admission revision, a fresh authoritative observation is required.
+     */
+    MaterializationPublicationSnapshot snapshot(TenantId tenant, OptionalLong admissionRevision);
 
     /**
      * Returns the registry epoch for a tenant.

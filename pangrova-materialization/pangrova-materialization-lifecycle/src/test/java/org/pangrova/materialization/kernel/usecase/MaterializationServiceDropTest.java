@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -44,6 +45,7 @@ import org.pangrova.materialization.api.port.ExecutionResult;
 import org.pangrova.materialization.api.enums.MaterializationAction;
 import org.pangrova.materialization.api.port.MaterializationAuthorizer;
 import org.pangrova.persistence.materialization.api.publication.MaterializationCatalog;
+import org.pangrova.persistence.materialization.api.publication.MaterializationPublicationSnapshot;
 import org.pangrova.materialization.api.port.PlannedDefinition;
 import org.pangrova.materialization.api.port.PlanningRequest;
 import org.pangrova.materialization.api.port.PublishedMaterialization;
@@ -223,6 +225,11 @@ class MaterializationServiceDropTest {
         @Override
         public List<PublishedMaterialization> listPublished(TenantId tenant) {
             return List.of();
+        }
+
+        @Override
+        public MaterializationPublicationSnapshot snapshot(TenantId tenant, OptionalLong admissionRevision) {
+            return new MaterializationPublicationSnapshot(tenant, registryEpoch(tenant), listPublished(tenant));
         }
 
         @Override

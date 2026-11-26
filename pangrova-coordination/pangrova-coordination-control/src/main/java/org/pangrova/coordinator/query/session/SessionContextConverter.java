@@ -3,6 +3,7 @@ package org.pangrova.coordinator.query.session;
 import org.pangrova.observability.api.tracing.ExecutionTraceContextFactory;
 
 import org.pangrova.query.api.session.QuerySession;
+import org.pangrova.coordinator.materialization.PlanningMaterializations;
 
 import org.pangrova.metadata.api.session.MetadataSessionContext;
 import org.pangrova.connector.api.session.ConnectorSession;
@@ -63,6 +64,9 @@ public final class SessionContextConverter {
         props.remove("tenant_id");
         props.remove("pangrova.tenant_id");
         props.remove(org.pangrova.planner.mv.DynamicTableRewriter.INTERNAL_EXECUTION_PROPERTY);
+        props.remove(PlanningMaterializations.ADMISSION_REVISION_PROPERTY);
+        ctx.publicationRevision().ifPresent(revision -> props.put(PlanningMaterializations.ADMISSION_REVISION_PROPERTY,
+                Long.toString(revision)));
         if (ctx.tenantId() != null && !ctx.tenantId().isBlank()) {
             props.put("tenant_id", ctx.tenantId());
         }

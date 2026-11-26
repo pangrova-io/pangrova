@@ -71,6 +71,17 @@ verifies that each selected source has a bound snapshot. Catalog, publication,
 snapshot, and policy decisions remain query-local. Calcite character types and
 literals use UTF-8 to preserve the text passed to Substrait and Arrow Flight.
 
+PostgreSQL returns the authenticated tenant's materialization publication revision
+with the freshly acquired execution anchor. Planning uses that observation to
+share one immutable tenant directory across Dynamic Table resolution and optional
+materialized-view substitution. An unchanged revision reuses the local directory.
+The first query that needs a newer directory loads the revision and publications
+in one PostgreSQL statement. PostgreSQL advances the revision in the same
+transaction that changes the materialization header. Queries without a durable
+admission observation obtain an authoritative snapshot before resolving names.
+Selected generations still require durable reader leases before planning can
+expose them, and logical table authorization continues to apply.
+
 Literal INSERT and INSERT OVERWRITE resolve the target metadata once during
 statement admission. Column order, FILE MIME validation, managed-file validation,
 and generated-column admission use that same observation. Iceberg reads the

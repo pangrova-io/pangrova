@@ -268,7 +268,7 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
 
             admission.checkCluster(queryId, tenant, sm);
 
-            acquireOwnershipOrReject(queryId);
+            enriched = enriched.withPublicationRevision(acquireOwnershipOrReject(queryId, tenantId));
 
             journalLifecycle.queued(queryId, sm.getSql(), enriched, sm);
 
@@ -305,11 +305,13 @@ public class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeo
                 this::failQuery, this::applyDispatchResult).start(queryId, sql, session, state);
     }
 
-    private void acquireOwnershipOrReject(String queryId) {
-        if (!queryDispatcher.acquireQueryOwnership(queryId)) {
+    private java.util.OptionalLong acquireOwnershipOrReject(String queryId, String tenantId) {
+        var ownership = queryDispatcher.acquireQueryOwnership(queryId, tenantId);
+        if (!ownership.acquired()) {
             throw new QueryRejectedException(
                     "Failed to acquire query ownership for queryId=" + queryId);
         }
+        return ownership.publicationRevision();
     }
 
     private QueryStateMachine resolveOrCreateStateMachine(String queryId, QuerySession session, String sql) {

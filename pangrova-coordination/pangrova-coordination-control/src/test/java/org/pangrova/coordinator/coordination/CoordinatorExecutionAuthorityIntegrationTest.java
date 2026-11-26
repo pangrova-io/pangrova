@@ -101,6 +101,33 @@ class CoordinatorExecutionAuthorityIntegrationTest {
     }
 
     @Test
+    void queryGrantObservesCommittedTenantPublicationRevisionWithoutChangingTheAnchor() throws Exception {
+        var source = SharedPostgresContainer.migratedDataSource("publication_admission_revision");
+        var owner = new JdbcExecutionAnchorStore(source);
+        var peer = new JdbcExecutionAnchorStore(source);
+        String tenant = "publication-" + java.util.UUID.randomUUID();
+        Duration lease = Duration.ofSeconds(30);
+        var first = owner.tryAcquireQuery("before-publication", "owner", "first-process", lease, tenant).orElseThrow();
+        assertThat(first.publicationRevision()).hasValue(0L);
+        try (var writer = source.getConnection();
+                var insert = writer.prepareStatement(
+                        "INSERT INTO materialization.registry_epochs(tenant_id, epoch) VALUES (?, 1)")) {
+            writer.setAutoCommit(false);
+            insert.setString(1, tenant);
+            assertThat(insert.executeUpdate()).isOne();
+            assertThat(peer.tryAcquireQuery("publication-uncommitted", "peer", "peer-process", lease, tenant)
+                    .orElseThrow().publicationRevision()).hasValue(0L);
+            writer.commit();
+        }
+        var admitted = peer.tryAcquireQuery("after-publication", "peer", "peer-process", lease, tenant).orElseThrow();
+        assertThat(admitted.publicationRevision()).hasValue(1L);
+        assertThat(owner.current(admitted.anchor().executionId())).contains(admitted.anchor());
+        assertThat(peer.tryAcquireQuery("other-tenant-publication", "peer", "peer-process", lease, tenant + "-other")
+                .orElseThrow().publicationRevision()).hasValue(0L);
+        assertThat(first.publicationRevision()).hasValue(0L);
+    }
+
+    @Test
     void maintenanceAuthorityWithoutBackendFailsClosedBeforeCreatingRenewalThreads() {
         assertThatThrownBy(() -> new CoordinatorExecutionAuthority(null, "maintenance", "real-process", Duration.ofSeconds(30)))
                 .isInstanceOf(NullPointerException.class).hasMessageContaining("durable execution backend");

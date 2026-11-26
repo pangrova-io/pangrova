@@ -5,6 +5,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -20,6 +21,7 @@ import org.pangrova.materialization.api.enums.RefreshKind;
 import org.pangrova.materialization.api.domain.SourceVector;
 import org.pangrova.materialization.api.domain.TenantId;
 import org.pangrova.persistence.materialization.api.publication.MaterializationCatalog;
+import org.pangrova.persistence.materialization.api.publication.MaterializationPublicationSnapshot;
 import org.pangrova.materialization.api.port.PublishedMaterialization;
 
 /**
@@ -103,6 +105,11 @@ public final class DynamicTablePublicationFixtures {
                     .sorted(Comparator.comparing(materialization ->
                             materialization.object().name().toString()))
                     .toList();
+        }
+
+        @Override
+        public MaterializationPublicationSnapshot snapshot(TenantId tenant, OptionalLong admissionRevision) {
+            return new MaterializationPublicationSnapshot(tenant, registryEpoch(tenant), listPublished(tenant));
         }
 
         @Override
