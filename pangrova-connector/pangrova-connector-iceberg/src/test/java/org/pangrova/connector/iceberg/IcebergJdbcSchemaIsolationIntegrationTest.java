@@ -184,7 +184,8 @@ class IcebergJdbcSchemaIsolationIntegrationTest extends ContainerTestBase {
                 .withRecordCount(1).build()).commit();
         table.manageSnapshots().replaceBranch("feature", table.currentSnapshot().snapshotId()).commit();
         assertThat(discovery.referenceSnapshot().apply("BRANCH", "feature")).hasValue(original);
-        var binding = discovery.binder().bind(READER, discovery.handle().withTimeTravelSnapshot(original), null);
+        var binding = discovery.binder().bind(READER,
+                discovery.handle().withTimeTravelSnapshot(Long.toString(original)), null);
         assertThat(binding.snapshotId()).hasValue(original);
 
         var manager = new IcebergSplitManager(schema.name(), selected, new IcebergExpressionToSubstrait());
@@ -202,7 +203,8 @@ class IcebergJdbcSchemaIsolationIntegrationTest extends ContainerTestBase {
         table.updateSchema().addColumn("added_after_snapshot", Types.StringType.get()).commit();
         long beforeEvolution = schema.catalogPointerLookups();
         var evolved = java.util.Objects.requireNonNull(metadata.discoverRead(READER, new SchemaTableName("data", "events")));
-        var historical = evolved.binder().bind(READER, evolved.handle().withTimeTravelSnapshot(original), null);
+        var historical = evolved.binder().bind(READER,
+                evolved.handle().withTimeTravelSnapshot(Long.toString(original)), null);
         assertThat(((IcebergTableHandle) evolved.handle()).schemaJson()).contains("added_after_snapshot");
         assertThat(((IcebergTableHandle) historical.handle()).schemaJson()).doesNotContain("added_after_snapshot");
         assertThat(historical.snapshotId()).hasValue(original);

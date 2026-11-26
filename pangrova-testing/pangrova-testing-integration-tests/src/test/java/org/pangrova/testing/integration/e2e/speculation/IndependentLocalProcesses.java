@@ -58,6 +58,8 @@ final class IndependentLocalProcesses implements AutoCloseable {
     private final String cdcKafkaBootstrap;
     private final ShuffleMode shuffleMode;
     private final ProcessSecurityAuthority security;
+    private final boolean ownsSecurity;
+    private final String nodeName;
     private final ProcessStatusReportRelay reports;
     private final TestTlsAuthority tls;
     private final TestTlsAuthority.Identity coordinatorIdentity;
@@ -121,6 +123,15 @@ final class IndependentLocalProcesses implements AutoCloseable {
 
     private IndependentLocalProcesses(org.pangrova.worker.function.NativeFunctionConfig functions,
             boolean speculation, ShuffleMode shuffleMode, String cdcKafkaBootstrap, boolean indexing) throws Exception {
+        this(functions, speculation, shuffleMode, cdcKafkaBootstrap, indexing, null);
+    }
+
+    private IndependentLocalProcesses(org.pangrova.worker.function.NativeFunctionConfig functions,
+            boolean speculation, ShuffleMode shuffleMode, String cdcKafkaBootstrap, boolean indexing,
+            ProcessSecurityAuthority sharedSecurity) throws Exception {
+        ownsSecurity = sharedSecurity == null;
+        nodeName = ownsSecurity ? "local" : "peer";
+        securityClosed = !ownsSecurity;
         this.cdcKafkaBootstrap = cdcKafkaBootstrap;
         this.indexing = indexing;
         this.shuffleMode = shuffleMode;
@@ -151,18 +162,20 @@ final class IndependentLocalProcesses implements AutoCloseable {
         int chosenPort;
         try {
             createdWarehouse = Files.createDirectory(workspace.resolve("warehouse"));
-            createdSecurity = new ProcessSecurityAuthority(
-                    SharedTestContainers.NETWORK, shuffleMode == ShuffleMode.REMOTE);
+            if (ownsSecurity) {
+                createdSecurity = new ProcessSecurityAuthority(
+                        SharedTestContainers.NETWORK, shuffleMode == ShuffleMode.REMOTE);
+            }
             createdReports = new ProcessStatusReportRelay();
             createdTls = new TestTlsAuthority(workspace);
-            createdClient = createdTls.issue("local-client", "localhost", false);
+            createdClient = createdTls.issue(nodeName + "-client", "localhost", false);
             String coordinatorDns = shuffleMode == ShuffleMode.REMOTE
                     ? ProcessRemoteShuffle.COORDINATOR_IDENTITY : null;
-            createdCoordinator = createdTls.issue("local-coordinator", advertisedAddress, coordinatorDns, false);
-            workerIdentities.put("local-worker-1",
-                    createdTls.issue("local-worker-1", advertisedAddress, false));
-            workerIdentities.put("local-worker-2",
-                    createdTls.issue("local-worker-2", advertisedAddress, false));
+            createdCoordinator = createdTls.issue(nodeName + "-coordinator", advertisedAddress, coordinatorDns, false);
+            workerIdentities.put(workerId(1),
+                    createdTls.issue(workerId(1), advertisedAddress, false));
+            workerIdentities.put(workerId(2),
+                    createdTls.issue(workerId(2), advertisedAddress, false));
             chosenPort = availablePort();
         } catch (Exception | Error failure) {
             for (AutoCloseable owner : new AutoCloseable[] {
@@ -179,7 +192,7 @@ final class IndependentLocalProcesses implements AutoCloseable {
                             + workspace, failure);
         }
         warehouse = createdWarehouse;
-        security = createdSecurity;
+        security = ownsSecurity ? createdSecurity : sharedSecurity;
         reports = createdReports;
         tls = createdTls;
         clientIdentity = createdClient;
@@ -188,12 +201,36 @@ final class IndependentLocalProcesses implements AutoCloseable {
     }
 
     void startCoordinatorAndFirstWorker() throws Exception {
-        security.start();
+        if (ownsSecurity) security.start();
         if (shuffleMode == ShuffleMode.REMOTE) {
             remoteShuffle = ProcessRemoteShuffle.start(workspace, security, tls, availablePort());
         }
         reports.connect(URI.create("http://127.0.0.1:" + coordinatorPort));
         startQueryControlPlane();
+    }
+
+    IndependentLocalProcesses startPeer() throws Exception {
+        var peer = new IndependentLocalProcesses(functions, false, ShuffleMode.NATIVE, null, false, security);
+        try {
+            peer.startCoordinatorAndFirstWorker();
+            return peer;
+        } catch (Exception | Error failure) {
+            failure.addSuppressed(new IllegalStateException("Peer diagnostics retained at " + peer.retainDiagnostics()));
+            try {
+                peer.close();
+            } catch (Exception cleanup) {
+                failure.addSuppressed(cleanup);
+            }
+            throw failure;
+        }
+    }
+
+    private String workerId(int index) {
+        return nodeName + "-worker-" + index;
+    }
+
+    String coordinatorId() {
+        return nodeName + "-process-coordinator";
     }
 
     void allowCatalog(String catalog) {
@@ -202,7 +239,7 @@ final class IndependentLocalProcesses implements AutoCloseable {
 
     private void startQueryControlPlane() throws Exception {
         launchQueryCoordinator();
-        startWorker("local-worker-1");
+        startWorker(workerId(1));
         query("SELECT 42", ResultProtocol.GRPC_TLS);
     }
 
@@ -277,9 +314,9 @@ final class IndependentLocalProcesses implements AutoCloseable {
     }
 
     void startSecondWorker() throws Exception {
-        startWorker("local-worker-2");
-        var first = acceptedWorkers.get("local-worker-1").request();
-        var second = acceptedWorkers.get("local-worker-2").request();
+        startWorker(workerId(2));
+        var first = acceptedWorkers.get(workerId(1)).request();
+        var second = acceptedWorkers.get(workerId(2)).request();
         if (first.httpPort() == second.httpPort()
                 || first.resultServerPort() == second.resultServerPort()) {
             throw new IllegalStateException("Two live Workers registered overlapping endpoints");
@@ -332,19 +369,19 @@ final class IndependentLocalProcesses implements AutoCloseable {
     }
 
     void stopAndRestartFirstWorker(WhileFirstWorkerStopped whileStopped) throws Exception {
-        OwnedProcess old = workers.get("local-worker-1");
+        OwnedProcess old = workers.get(workerId(1));
         long oldPid = old.process().pid();
-        RegisteredWorker previous = acceptedWorkers.get("local-worker-1");
+        RegisteredWorker previous = acceptedWorkers.get(workerId(1));
         terminateGracefully(old, Duration.ofSeconds(60));
-        workers.remove("local-worker-1");
-        acceptedWorkers.remove("local-worker-1");
+        workers.remove(workerId(1));
+        acceptedWorkers.remove(workerId(1));
         query("SELECT 42", ResultProtocol.GRPC_TLS); // second Worker serves a public query alone
         whileStopped.run();
-        startWorker("local-worker-1");
-        if (workers.get("local-worker-1").process().pid() == oldPid) {
+        startWorker(workerId(1));
+        if (workers.get(workerId(1)).process().pid() == oldPid) {
             throw new IllegalStateException("Restart reused the old Worker process");
         }
-        RegisteredWorker replacement = acceptedWorkers.get("local-worker-1");
+        RegisteredWorker replacement = acceptedWorkers.get(workerId(1));
         if (replacement.receivedNanos() <= previous.receivedNanos()
                 || replacement.coordinatorEpoch() < previous.coordinatorEpoch()) {
             throw new IllegalStateException("Restart did not publish a fresh, fenced registration");
@@ -428,16 +465,6 @@ final class IndependentLocalProcesses implements AutoCloseable {
     void revokeTenantMembership() {
         var tenants = new org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore(security.dataSource());
         tenants.removeUserFromTenant(ProcessSecurityAuthority.TENANT, ProcessSecurityAuthority.USER);
-    }
-
-    boolean reservePeerTenantSlot(String queryId) {
-        return new JdbcClusterConcurrencySlots(security.dataSource())
-                .tryReserve(ProcessSecurityAuthority.TENANT, queryId, 2);
-    }
-
-    void releasePeerTenantSlot(String queryId) {
-        new JdbcClusterConcurrencySlots(security.dataSource())
-                .release(ProcessSecurityAuthority.TENANT, queryId);
     }
 
     int activeTenantReservations() {
@@ -694,7 +721,7 @@ final class IndependentLocalProcesses implements AutoCloseable {
     private String coordinatorYaml(String role) {
         return """
                 coordinator:
-                  id: local-process-coordinator
+                  id: "%s"
                   host: 127.0.0.1
                   port: %d
                   role: %s
@@ -732,7 +759,7 @@ final class IndependentLocalProcesses implements AutoCloseable {
                   enabled: true
                 indexing:
                   enabled: %s
-                """.formatted(coordinatorPort, role,
+                """.formatted(coordinatorId(), coordinatorPort, role,
                 internalSecret, speculation, advertisedAddress.getHostAddress(),
                 coordinatorIdentity.certificateChain(), coordinatorIdentity.privateKey(),
                 tls.root(), shuffleMode, remoteShuffle == null ? advertisedAddress.getHostAddress() : "localhost",
