@@ -29,14 +29,14 @@ jobs:
       - uses: ./.github/actions/setup-macos-native-cache
       - name: Cache macOS prerequisite compiler results
         id: core-compiler-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: ~/.cache/ccache
           key: pangrova-macos-core-ccache-v1-${{ runner.arch }}-${{ github.sha }}
           restore-keys: |
             pangrova-macos-core-ccache-v1-${{ runner.arch }}-
       - name: Cache macOS prerequisite source archives
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.pangrova/velox/archive-cache
           key: pangrova-v1-archives-${{ fromJSON(inputs.platform).runner }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt') }}
@@ -48,7 +48,7 @@ jobs:
           command: PANGROVA_NATIVE_BUILD_PHASE=dependencies bash pangrova-worker-native/bin/setup-native-build-env.sh
       - name: Save completed macOS prerequisite compiler results
         if: steps.core-compiler-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: ~/.cache/ccache
           key: ${{ steps.core-compiler-cache.outputs.cache-primary-key }}
@@ -85,14 +85,14 @@ jobs:
         run: bash .pangrova/scripts/macos-native-stage.sh restore core "$RUNNER_TEMP/macos-core"
       - name: Cache macOS SDK compiler results
         id: sdk-compiler-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: ~/.cache/ccache
           key: pangrova-macos-sdk-ccache-v1-${{ runner.arch }}-${{ github.sha }}
           restore-keys: |
             pangrova-macos-sdk-ccache-v1-${{ runner.arch }}-
       - name: Cache macOS dependency archives
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.pangrova/velox/archive-cache
           key: pangrova-v1-archives-${{ fromJSON(inputs.platform).runner }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt') }}
@@ -104,7 +104,7 @@ jobs:
           command: SKIP_DEPS=1 PANGROVA_NATIVE_BUILD_PHASE=prepared-velox bash pangrova-worker-native/bin/setup-native-build-env.sh
       - name: Save completed macOS SDK compiler results
         if: steps.sdk-compiler-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: ~/.cache/ccache
           key: ${{ steps.sdk-compiler-cache.outputs.cache-primary-key }}
@@ -146,14 +146,14 @@ jobs:
 
       - name: Cache dependency archives
         if: runner.os == 'Linux'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.pangrova/velox/archive-cache
           key: pangrova-v1-archives-${{ fromJSON(inputs.platform).runner }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt') }}
 
       - name: Cache native dependency prefixes
         if: runner.os == 'Linux'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.pangrova/native-deps
@@ -162,7 +162,7 @@ jobs:
 
       - name: Cache Velox build layer
         if: runner.os == 'Linux'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.pangrova/velox/_build/release/_deps
@@ -172,7 +172,7 @@ jobs:
 
       - name: Cache compiler results
         if: runner.os == 'Linux'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ccache
           key: pangrova-ccache-${{ runner.os }}-${{ runner.arch }}-native-${{ github.sha }}
@@ -182,7 +182,7 @@ jobs:
       - name: Restore macOS Native compiler results
         if: runner.os == 'macOS'
         id: macos-native-compiler-cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: ~/.cache/ccache
           key: pangrova-macos-native-ccache-v1-${{ runner.arch }}-${{ github.sha }}
@@ -318,7 +318,7 @@ jobs:
 
       - name: Save completed macOS Native compiler results
         if: runner.os == 'macOS' && steps.macos-native-compiler-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: ~/.cache/ccache
           key: ${{ steps.macos-native-compiler-cache.outputs.cache-primary-key }}

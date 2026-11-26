@@ -453,9 +453,9 @@ class RuntimeScopeTest(unittest.TestCase):
         self.assertIn('PANGROVA_NATIVE_BUILD_PHASE=dependencies bash pangrova-worker-native/bin/setup-native-build-env.sh', core)
         self.assertIn('macos-native-stage.sh pack core', core)
         self.assertLess(core.index('Build canonical prerequisite packages'),
-                        core.index('actions/cache/save@v4'))
+                        core.index('actions/cache/save@'))
         self.assertLess(sdk.index('Build Velox and Arrow Flight from verified prerequisites'),
-                        sdk.index('actions/cache/save@v4'))
+                        sdk.index('actions/cache/save@'))
         self.assertLess(native.index('Save completed macOS Native compiler results'),
                         native.index('Run native tests (GTest via CTest)'))
         self.assertIn('needs: macos-native-core', sdk)

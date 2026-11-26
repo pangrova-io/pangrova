@@ -74,14 +74,14 @@ jobs:
       # --- Direct build (macOS — no Docker) ---
       - name: Cache dependency archives
         if: "!matrix.platform.docker-build"
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.pangrova/velox/archive-cache
           key: pangrova-v1-archives-release-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt') }}
 
       - name: Cache native dependency prefixes
         if: "!matrix.platform.docker-build"
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.pangrova/native-deps
@@ -90,7 +90,7 @@ jobs:
 
       - name: Cache Velox build layer
         if: "!matrix.platform.docker-build"
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.pangrova/velox/_build/release/_deps
@@ -100,7 +100,7 @@ jobs:
 
       - name: Cache compiler results (macOS)
         if: "!matrix.platform.docker-build"
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/ccache
           key: pangrova-ccache-release-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
