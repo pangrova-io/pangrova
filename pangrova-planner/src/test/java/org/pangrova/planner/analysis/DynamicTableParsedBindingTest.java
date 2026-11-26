@@ -39,6 +39,42 @@ class DynamicTableParsedBindingTest {
     }
 
     @Test
+    void bindsPublishedPivotAndUnpivotWithTheirOriginalClauses() {
+        var logical = new QualifiedTableName("lake", "analytics", "rollup");
+        var physical = new QualifiedTableName("lake", "analytics", "__pg_mat_first");
+        var root = CalciteSchema.createRootSchema(false);
+        var schema = root.add("lake", new AbstractSchema()).add("analytics", new AbstractSchema());
+        schema.add(physical.table(), new AbstractTable() {
+            @Override
+            public RelDataType getRowType(RelDataTypeFactory types) {
+                return types.builder().add("amount", SqlTypeName.BIGINT)
+                        .add("quarter", SqlTypeName.VARCHAR)
+                        .add("revenue", SqlTypeName.BIGINT).add("cost", SqlTypeName.BIGINT).build();
+            }
+        });
+        var resolver = new DynamicTableRewriter(parts -> Optional.of(
+                new DynamicTableRewriter.PublishedTarget(logical, physical)));
+        var rewriter = new DynamicTableSqlRewriter(new PangrovaParserFactory(), resolver);
+        var planner = new PangrovaPlanner(root, List.of("lake", "analytics"),
+                new PlannerContext(null, null, resolver, null));
+        for (String sql : List.of(
+                "SELECT * FROM lake.analytics.rollup PIVOT (SUM(amount) FOR quarter IN ('Q1')) AS p",
+                "SELECT * FROM lake.analytics.rollup UNPIVOT (val FOR metric IN (revenue, cost)) AS u")) {
+            var parsed = TimeTravelSqlClauses.extract(sql);
+            var before = ((Query) parsed.statement()).from().get(0);
+            var rewritten = rewriter.rewriteWithAuthority(parsed);
+            var after = ((Query) rewritten.statement()).from().get(0);
+            assertThat(after.name().parts()).containsExactly("lake", "analytics", "__pg_mat_first");
+            assertThat(after.alias()).isEqualTo(before.alias());
+            assertThat(after.pivotClause()).isEqualTo(before.pivotClause());
+            assertThat(after.unpivotClause()).isEqualTo(before.unpivotClause());
+            assertThat(rewritten.physicalToLogical()).containsEntry(physical, logical);
+            assertThat(planner.planForPolicyApplication(parsed).toPlannedQuery().physicalToLogicalDynamicTables())
+                    .containsEntry(physical, logical);
+        }
+    }
+
+    @Test
     void bindsImplicitLogicalQualifierAndExplicitAlias() {
         var logical = new QualifiedTableName("lake", "analytics", "rollup");
         var physical = new QualifiedTableName("lake", "analytics", "__pg_mat_first");

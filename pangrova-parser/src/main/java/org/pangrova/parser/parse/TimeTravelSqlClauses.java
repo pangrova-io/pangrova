@@ -121,6 +121,38 @@ public final class TimeTravelSqlClauses {
             return table;
         }
 
+        @Override
+        public TableRef visitPivotTableRef(PangrovaSqlParser.PivotTableRefContext pivot) {
+            var table = super.visitPivotTableRef(pivot);
+            retainDecoratedIdentity(pivot.tableRef(), table);
+            return table;
+        }
+
+        @Override
+        public TableRef visitUnpivotTableRef(PangrovaSqlParser.UnpivotTableRefContext unpivot) {
+            var table = super.visitUnpivotTableRef(unpivot);
+            retainDecoratedIdentity(unpivot.tableRef(), table);
+            return table;
+        }
+
+        private void retainDecoratedIdentity(PangrovaSqlParser.TableRefContext source, TableRef table) {
+            // A decorator returns a new TableRef for the same named source. Keep its final
+            // identity without treating named references inside derived queries as that source.
+            while (true) {
+                if (source instanceof PangrovaSqlParser.NamedTableRefContext named) {
+                    tables.put(named, table);
+                    return;
+                }
+                if (source instanceof PangrovaSqlParser.PivotTableRefContext pivot) {
+                    source = pivot.tableRef();
+                } else if (source instanceof PangrovaSqlParser.UnpivotTableRefContext unpivot) {
+                    source = unpivot.tableRef();
+                } else {
+                    return;
+                }
+            }
+        }
+
         private TableRef referenceTable(PangrovaSqlParser.NamedTableRefContext named) {
             var table = tables.get(named);
             return table == null ? visitNamedTableRef(named) : table;

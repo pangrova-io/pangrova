@@ -12,6 +12,23 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /** Real grammar/source-span tests, not connector or query execution evidence. */
 class TimeTravelSqlClausesTest {
     @Test
+    void decoratedNamedReferenceRetainsTheFinalAstIdentityAndOriginalNameSpan() {
+        for (String sql : java.util.List.of(
+                "SELECT * FROM lake.analytics.rollup PIVOT (SUM(amount) FOR quarter IN ('Q1')) AS p",
+                "SELECT * FROM lake.analytics.rollup UNPIVOT (val FOR metric IN (revenue, cost)) AS u")) {
+            var analysis = TimeTravelSqlClauses.extract(sql);
+            var query = (org.pangrova.parser.api.ast.Query) analysis.statement();
+            assertThat(analysis.references()).singleElement().satisfies(reference -> {
+                assertThat(reference.table()).isSameAs(query.from().get(0));
+                assertThat(sql.substring(reference.nameStart(), reference.nameEnd()))
+                        .isEqualTo("lake.analytics.rollup");
+            });
+            var rewritten = analysis.rewriteNames(reference -> "lake.analytics.replacement");
+            assertThat(rewritten.sql()).isEqualTo(sql.replace("lake.analytics.rollup", "lake.analytics.replacement"));
+        }
+    }
+
+    @Test
     void preservesLiteralsCommentsQuotedNamesAndNonBmpCharacters() {
         String sql = "SELECT '😀 FOR VERSION AS OF 7' FROM \"a.b\" FOR VERSION AS OF 7 AS t "
                 + "/* 😀 FOR VERSION AS OF 7 */ WHERE t.id = 1";
