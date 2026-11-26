@@ -42,7 +42,7 @@ class TimeTravelReadBindingIntegrationTest extends ContainerTestBase {
                     fixture.bootstrap.metadataService(), fixture.bootstrap.catalogRegistry())
                     .buildRootSchema(session, owner);
             var compiler = new SqlCompiler().withSessionPlanner(
-                    ignored -> new PangrovaPlanner(schema, List.of("bound", "db")));
+                    (ignored, revision) -> new PangrovaPlanner(schema, List.of("bound", "db")));
             assertThatThrownBy(() -> compiler.forSession(fixture.session)
                     .compileForPolicyApplication(extracted.parsedSql()))
                     .hasMessageContaining("Explicit snapshot selectors must be bound");

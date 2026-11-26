@@ -72,8 +72,9 @@ snapshot, and policy decisions remain query-local. Calcite character types and
 literals use UTF-8 to preserve the text passed to Substrait and Arrow Flight.
 
 PostgreSQL returns the authenticated tenant's materialization publication revision
-with the freshly acquired execution anchor. Planning uses that observation to
-share one immutable tenant directory across Dynamic Table resolution and optional
+with the freshly acquired execution anchor. The Coordinator binds the numeric revision
+explicitly to the query compiler. Planning uses it to share one immutable tenant directory
+across Dynamic Table resolution and optional
 materialized-view substitution. An unchanged revision reuses the local directory.
 The first query that needs a newer directory loads the revision and publications
 in one PostgreSQL statement. PostgreSQL advances the revision in the same
