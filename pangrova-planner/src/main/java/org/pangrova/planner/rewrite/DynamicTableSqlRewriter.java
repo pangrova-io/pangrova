@@ -75,7 +75,7 @@ public final class DynamicTableSqlRewriter {
         return new RewriteWithAuthority(rewritten, physicalToLogical);
     }
 
-    /** Rewrites a parsed query using its exact relation spans and query-local publication pins. */
+    /** Rewrites a parsed query using exact relation identities and query-local publication pins. */
     public DynamicTableAstRewriter.RewriteWithAuthority rewriteWithAuthority(Analysis input) {
         if (!dynamicTableRewriter.allowDirectGenerationAccess()) {
             for (var reference : input.references()) {
@@ -96,15 +96,16 @@ public final class DynamicTableSqlRewriter {
         candidateSites.addAll(candidates);
         var physicalToLogical = new HashMap<QualifiedTableName, QualifiedTableName>();
         var pinnedTargets = new HashMap<QualifiedTableName, Optional<DynamicTableRewriter.PublishedTarget>>();
-        Analysis rewritten = input.rewriteNames(reference -> {
+        Map<TableRef, TableRef> replacements = new IdentityHashMap<>();
+        for (var reference : input.references()) {
             var ref = reference.table();
             if (reference.cte() || ref.systemTableRef().isPresent()
                     || !candidateSites.contains(ref)) {
-                return null;
+                continue;
             }
             var target = publishedTarget(ref, pinnedTargets);
             if (target.isEmpty()) {
-                return null;
+                continue;
             }
             if (ref.timeTravelSpec().isPresent()) {
                 throw new org.pangrova.planner.api.exception.PlannerException(
@@ -113,9 +114,37 @@ public final class DynamicTableSqlRewriter {
             }
             var published = target.orElseThrow();
             recordAuthority(published, physicalToLogical);
-            return published.physical().toString();
-        });
-        return new DynamicTableAstRewriter.RewriteWithAuthority(rewritten.statement(), physicalToLogical);
+            replacements.put(ref, physicalReference(ref, published.physical()));
+        }
+        return new DynamicTableAstRewriter.RewriteWithAuthority(
+                replaceCandidates(input.statement(), replacements), physicalToLogical);
+    }
+
+    private static TableRef physicalReference(TableRef ref, QualifiedTableName physical) {
+        var name = new Identifier(List.of(physical.catalog(), physical.schema(), physical.table()));
+        var alias = ref.alias().or(() -> Optional.of(ref.name().parts().get(ref.name().parts().size() - 1)));
+        return new TableRef(name, ref.timeTravelSpec(), alias, ref.subquery(), ref.lateral(),
+                ref.tableFunctionRef(), ref.systemTableRef(), ref.tableSample(), ref.pivotClause(),
+                ref.unpivotClause(), ref.valuesTable());
+    }
+
+    private static Statement replaceCandidates(Statement statement, Map<TableRef, TableRef> replacements) {
+        if (replacements.isEmpty()) {
+            return statement;
+        }
+        if (statement instanceof Query query) {
+            return new Query(query.distinct(), query.selectItems(),
+                    query.from().stream().map(ref -> replacements.getOrDefault(ref, ref)).toList(),
+                    query.joins().stream().map(join -> new JoinClause(join.joinType(),
+                            replacements.getOrDefault(join.right(), join.right()),
+                            join.condition(), join.usingColumns())).toList(),
+                    query.where(), query.groupBy(), query.having(), query.qualify(), query.windowDefinitions(),
+                    query.orderBy(), query.rerankBy(), query.limit(), query.offset());
+        }
+        if (statement instanceof CteQuery cte) {
+            return new CteQuery(cte.recursive(), cte.ctes(), replaceCandidates(cte.body(), replacements));
+        }
+        return statement;
     }
 
     private static void rejectExplicitGenerationReference(String originalSql) {

@@ -19,7 +19,6 @@ import java.util.Optional;
 
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
-import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.parser.parse.TimeTravelSqlClauses.Analysis;
@@ -88,9 +87,9 @@ final class ViewExpander {
 
     private Optional<String> lookupView(
             String catalog, String schema, String table, QuerySession context) {
-        CatalogHandle handle = catalogRegistry.getCatalog(catalog);
         var session = SessionContextConverter.toConnectorSession(context, catalog, schema);
-        return handle.getMetadata(session).getViewDefinition(session, new SchemaTableName(schema, table));
+        return catalogRegistry.metadataForQuery(catalog, session)
+                .getViewDefinition(session, new SchemaTableName(schema, table));
     }
 
 }
