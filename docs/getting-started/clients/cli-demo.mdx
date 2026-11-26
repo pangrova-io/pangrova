@@ -8,8 +8,11 @@ import useBaseUrl from '@docusaurus/useBaseUrl';
 # CLI Workflow Demo
 
 Watch a complete SQL workflow executed by the Pangrova CLI against a local
-Standalone instance. The demo uses a current source build of the Coordinator,
-Worker, and Velox runtime.
+Standalone instance. The recording uses a development source build of the
+Coordinator, Worker, and Velox runtime from commit `050f8a313` with local
+changes in the query-execution performance worktree. It illustrates the CLI
+workflow, but is not a reproducibility or end-to-end validation result for the
+current `main` branch or a released build.
 
 <video
   controls
@@ -32,13 +35,22 @@ Worker, and Velox runtime.
 5. Query the detail rows and aggregate them by region and event type.
 
 The matching SQL is available in
-[`examples/cli-workflow.sql`](https://github.com/pangrova-io/pangrova/blob/main/examples/cli-workflow.sql).
-Run it only against an isolated development instance with permission to create
-catalogs, schemas, and tables.
+[`examples/cli-workflow.sql`](https://github.com/pangrova-io/pangrova/blob/de453b55d9ff047a598cdb8c399efa0cedbe07a8/examples/cli-workflow.sql).
+Run it only against a fresh, isolated development instance with permission to
+create catalogs, schemas, and tables. Ensure the example catalog/schema/table
+names and local warehouse path are unused before starting.
 
 ```bash
 bin/pangrova-cli.sh --host localhost --port 8080 < examples/cli-workflow.sql
 ```
 
 Piped input runs the interactive shell and continues after statement errors.
-Use `--file` when an automation must stop on the first failed statement.
+Verify that all eight SQL statements succeed, that the detail query returns six
+rows, that region counts are `east=2`, `north=1`, `south=1`, `west=2`, and that
+event-type counts are `click=3`, `purchase=2`, `search=1`. A zero exit code from
+the interactive shell alone does not establish successful execution.
+
+For fail-fast automation, execute the eight statements in order using eight
+separate single-statement UTF-8 files and `--file` for each invocation, stopping
+on the first nonzero exit. The example is a multi-statement file and must not be
+passed directly to `--file`.
