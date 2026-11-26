@@ -68,6 +68,7 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
 
     private final QueryRegistry queries = new QueryRegistry();
     private final Map<String, QueryStateMachine> pendingCandidateCleanup = new ConcurrentHashMap<>();
+    private final Set<QueryStateMachine> candidateCleanupClaims = ConcurrentHashMap.newKeySet();
     private final Set<String> pendingCancellations = ConcurrentHashMap.newKeySet();
     private final QueryTerminalCleanup terminalCleanup;
     private final org.pangrova.query.lifecycle.QueryAdmissionPort admission;
@@ -453,6 +454,18 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
     }
 
     private Throwable cleanupRejectedCandidate(String queryId, QueryStateMachine state, Throwable original) {
+        // Drain and periodic retry must not perform query-ID scoped releases for
+        // the same candidate concurrently, or for a candidate already retired.
+        if (!candidateCleanupClaims.add(state)) return null;
+        try {
+            if (queries.pendingSubmission(queryId) != state) return null;
+            return cleanupClaimedCandidate(queryId, state, original);
+        } finally {
+            candidateCleanupClaims.remove(state);
+        }
+    }
+
+    private Throwable cleanupClaimedCandidate(String queryId, QueryStateMachine state, Throwable original) {
         Throwable cleanupFailure = null;
         try {
             state.releaseAdmission();

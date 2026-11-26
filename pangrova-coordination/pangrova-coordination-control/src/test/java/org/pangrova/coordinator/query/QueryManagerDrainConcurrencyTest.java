@@ -268,6 +268,31 @@ class QueryManagerDrainConcurrencyTest {
     }
 
     @Test
+    void concurrentCleanupRetriesRetainSingleCandidateOwner() throws Exception {
+        var dispatcher = new ConcurrentCleanupRetryDispatcher();
+        QueryManager manager = new QueryManager(
+                QueryManagerTestContexts.minimal(dispatcher, TestObservability.TRACING));
+        assertThatThrownBy(() -> manager.submitQuery("cleanup-overlap", "SELECT 1", testSession()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("issuance bind failed");
+        assertThat(manager.getActiveQueryCount()).isOne();
+
+        Future<?> retry = executor.submit(manager::retryPendingTerminalCompletions);
+        try {
+            assertThat(dispatcher.retryEntered.await(3, TimeUnit.SECONDS)).isTrue();
+            Future<?> overlappingRetry = executor.submit(manager::retryPendingTerminalCompletions);
+            overlappingRetry.get(3, TimeUnit.SECONDS);
+            assertThat(dispatcher.cleanupAttempts).hasValue(2);
+            assertThat(manager.getActiveQueryCount()).isOne();
+        } finally {
+            dispatcher.allowRetry.countDown();
+        }
+        retry.get(3, TimeUnit.SECONDS);
+        assertThat(manager.awaitAllQueries(1000)).isTrue();
+        assertThat(dispatcher.cleanupAttempts).hasValue(2);
+    }
+
+    @Test
     void deniedOwnershipUnblocksCancellationWithoutCleanup() throws Exception {
         BlockingOwnershipDispatcher dispatcher = new BlockingOwnershipDispatcher(false);
         QueryManager manager = new QueryManager(
@@ -475,6 +500,35 @@ class QueryManagerDrainConcurrencyTest {
         public void releaseQueryOwnership(String queryId) {
             if (cleanupAttempts.incrementAndGet() == 1) {
                 throw new IllegalStateException("cleanup release failed");
+            }
+        }
+    }
+
+    private static final class ConcurrentCleanupRetryDispatcher extends FinishingDispatcher {
+        private final AtomicInteger cleanupAttempts = new AtomicInteger();
+        private final CountDownLatch retryEntered = new CountDownLatch(1);
+        private final CountDownLatch allowRetry = new CountDownLatch(1);
+
+        @Override
+        public org.pangrova.connector.api.metadata.ConnectorMetadataScope bindConnectorAuthority(
+                QueryStateMachine state, String queryId) {
+            throw new IllegalStateException("issuance bind failed");
+        }
+
+        @Override
+        public void releaseQueryOwnership(String queryId) {
+            int attempt = cleanupAttempts.incrementAndGet();
+            if (attempt == 1) throw new IllegalStateException("cleanup release failed");
+            if (attempt == 2) {
+                retryEntered.countDown();
+                try {
+                    if (!allowRetry.await(3, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException("cleanup retry timed out");
+                    }
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException(interrupted);
+                }
             }
         }
     }
