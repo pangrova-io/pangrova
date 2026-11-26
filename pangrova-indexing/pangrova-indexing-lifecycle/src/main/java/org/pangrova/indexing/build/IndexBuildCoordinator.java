@@ -3,6 +3,7 @@ package org.pangrova.indexing.build;
 import org.pangrova.indexing.enums.IndexBuildError;
 import org.pangrova.indexing.enums.IndexBuildOutcome;
 import org.pangrova.persistence.indexing.api.build.IndexBuildClaimRepository;
+import org.pangrova.persistence.indexing.api.build.ScalarArtifactIntents;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -46,12 +47,18 @@ public final class IndexBuildCoordinator implements AutoCloseable {
 
     /** Creates a coordinator from immutable build services and limits. */
     public IndexBuildCoordinator(IndexBuildContext context, IndexBuildMetrics metrics) {
+        this(context, metrics, null);
+    }
+
+    /** Creates a coordinator with durable pre-write authority for production scalar builds. */
+    public IndexBuildCoordinator(IndexBuildContext context, IndexBuildMetrics metrics,
+                                 ScalarArtifactIntents artifactIntents) {
         if (context == null) {
             throw new IllegalArgumentException("ctx must not be null");
         }
         this.context = context;
         this.metrics = metrics;
-        fileBuilder = context.canBuild() ? new IndexFileBuilder(context) : null;
+        fileBuilder = context.canBuild() ? new IndexFileBuilder(context, artifactIntents) : null;
         ownsExecutor = context.buildExecutor() == null;
         executor = ownsExecutor
                 ? ManagedExecutorFactory.newFixedThreadPool("index-build", context.config().buildThreadPoolSize())

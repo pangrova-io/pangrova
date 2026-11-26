@@ -1,6 +1,7 @@
 package org.pangrova.persistence.indexing.postgresql.metadata;
 
 import org.pangrova.persistence.jdbc.api.security.policy.CurrentTableAuthorization;
+import org.pangrova.persistence.indexing.api.build.ScalarArtifactIntent;
 
 import org.pangrova.persistence.indexing.api.metadata.CommitEventRequest;
 import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
@@ -49,6 +50,7 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
     private final JdbcIndexDescriptorStore descriptorStore;
     private final JdbcIndexDescriptorReadStore descriptorReadStore;
     private final JdbcIndexFileMappingStore fileMappingStore;
+    private final JdbcScalarArtifactIntentStore scalarArtifactStore;
     private final JdbcIndexStatisticsStore statisticsStore;
     private final JdbcIndexGcStore gcStore;
     private final JdbcIndexCommitQueue commitQueue;
@@ -63,6 +65,7 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
         this.descriptorStore = new JdbcIndexDescriptorStore(dataSource, authorization);
         this.descriptorReadStore = new JdbcIndexDescriptorReadStore(dataSource);
         this.fileMappingStore = new JdbcIndexFileMappingStore(dataSource);
+        this.scalarArtifactStore = new JdbcScalarArtifactIntentStore(dataSource);
         this.statisticsStore = new JdbcIndexStatisticsStore(dataSource);
         this.gcStore = new JdbcIndexGcStore(dataSource);
         this.commitQueue = new JdbcIndexCommitQueue(dataSource);
@@ -101,6 +104,41 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
     @Override
     public void markScalarSnapshotPinReleased(SnapshotPinOwner owner, String snapshot, Instant now) {
         scalarSnapshotPinStore.markReleased(owner, snapshot, now);
+    }
+
+    @Override
+    public void beginScalarArtifactWrite(ScalarArtifactIntent intent) {
+        scalarArtifactStore.beginWrite(intent);
+    }
+
+    @Override
+    public void markScalarArtifactDrained(ScalarArtifactIntent intent) {
+        scalarArtifactStore.markDrained(intent);
+    }
+
+    @Override
+    public List<ScalarArtifactIntent> listReclaimableScalarArtifacts(Instant cutoff, int limit) {
+        return scalarArtifactStore.listReclaimable(cutoff, limit);
+    }
+
+    @Override
+    public List<ScalarArtifactIntent> pollScalarArtifactReclaimCandidates(Instant drainedBefore, int limit) {
+        return scalarArtifactStore.pollReclaimable(drainedBefore, limit);
+    }
+
+    @Override
+    public boolean beginScalarArtifactReclaim(ScalarArtifactIntent intent) {
+        return scalarArtifactStore.beginReclaim(intent);
+    }
+
+    @Override
+    public void completeScalarArtifactReclaim(ScalarArtifactIntent intent) {
+        scalarArtifactStore.completeReclaim(intent);
+    }
+
+    @Override
+    public boolean hasScalarArtifactIntents(String indexId) {
+        return scalarArtifactStore.hasIntents(indexId);
     }
 
     // --- IndexDescriptor CRUD (delegate to descriptorStore) ---

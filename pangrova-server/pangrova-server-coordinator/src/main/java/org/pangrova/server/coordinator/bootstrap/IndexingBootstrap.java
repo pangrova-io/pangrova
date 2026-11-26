@@ -293,7 +293,7 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
         IndexBuildContext buildDeps = new IndexBuildContext(
                 config, engineRegistry, storageManager, serializer,
                 buildClaims, generationChecker, scalarSnapshotPins, null);
-        buildCoordinator = new IndexBuildCoordinator(buildDeps, buildMetrics);
+        buildCoordinator = new IndexBuildCoordinator(buildDeps, buildMetrics, metadataStore);
 
         // F-IDX-BREAKER: back the breaker with the shared metadata store so a
         // tripped circuit is observed cluster-wide (multi-coordinator Active-Active),

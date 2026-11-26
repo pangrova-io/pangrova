@@ -141,6 +141,7 @@ final class JdbcIndexFileMappingStore extends JdbcStoreSupport {
                         connection, first.indexId(), first.generation(), attemptOwner);
                 try (PreparedStatement statement = connection.prepareStatement(sql)) {
                     for (IndexFileMapping mapping : mappings) {
+                        JdbcScalarArtifactIntentStore.transferToMapping(connection, attemptOwner, mapping);
                         bindMapping(statement, mapping);
                         statement.addBatch();
                     }

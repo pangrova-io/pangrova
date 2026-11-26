@@ -367,8 +367,28 @@ path both carry that identity. A writer uses
 `v3/{catalog}/{schema}/{table}/{indexId}/g{generation}/{attemptId}/{dataFileHash}.idx`
 relative to the index root. Reads and mapped-file cleanup use the stored path.
 A delayed write by an expired owner can finish in its own directory after takeover
-without changing the replacement’s bytes. Collecting files left by an attempt
-that lost ownership before recording its mapping requires separate orphan tracking.
+without changing the replacement’s bytes.
+
+Before writing, the owner persists a scalar artifact intent bound to its exact
+generation, attempt UUID, source file and canonical artifact path. A successful
+physical close transitions the intent to `DRAINED`; publishing a file mapping
+consumes the intent within the same mapping transaction. A rolled-back mapping
+therefore leaves durable ownership evidence.
+
+The collector considers only drained intents older than the grace interval,
+with no exact owner claim or mapped reference. Under the index lifecycle lock
+it checks the canonical path and persists `DELETE_PENDING` before removing the
+artifact. A failed delete or acknowledgement leaves a retryable intent. Each
+bounded poll durably advances a separate monotonic queue priority, not the
+drain evidence or deletion authority, so an unavailable oldest batch cannot starve
+later eligible work across collector restarts. A dropped
+descriptor cannot be purged before its outstanding intents retire.
+
+A crash before recording a successful close, including an uncertain write or
+a crash immediately after close, leaves `WRITING` quarantined. Time alone cannot
+prove the writer stopped. Reconciliation requires independently confirmed
+writer quiescence; this implementation does not automatically reclaim those
+files or infer ownership for untracked pre-migration artifacts.
 
 ### Scalar failure and recovery
 

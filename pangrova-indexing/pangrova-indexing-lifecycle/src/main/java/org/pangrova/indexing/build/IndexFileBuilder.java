@@ -1,6 +1,8 @@
 package org.pangrova.indexing.build;
 
 import org.pangrova.common.util.DigestUtils;
+import org.pangrova.persistence.indexing.api.build.ScalarArtifactIntent;
+import org.pangrova.persistence.indexing.api.build.ScalarArtifactIntents;
 
 import java.io.IOException;
 import java.util.HexFormat;
@@ -20,9 +22,11 @@ import org.pangrova.indexing.api.data.IndexData;
 final class IndexFileBuilder {
     private final IndexBuildContext context;
     private final IndexStorageLayout layout;
+    private final ScalarArtifactIntents artifactIntents;
 
-    IndexFileBuilder(IndexBuildContext context) {
+    IndexFileBuilder(IndexBuildContext context, ScalarArtifactIntents artifactIntents) {
         this.context = context;
+        this.artifactIntents = artifactIntents;
         this.layout = new IndexStorageLayout(context.config().baseIndexPath());
     }
 
@@ -54,7 +58,16 @@ final class IndexFileBuilder {
         byte[] bytes = context.serializer().serialize(data);
         requireActive(cancelled);
         String indexFilePath = layout.indexFilePath(descriptor, attemptId, file.filePath());
+        var artifact = new ScalarArtifactIntent(descriptor.indexId(), descriptor.generation(),
+                attemptId.toString(), file.filePath(), indexFilePath);
+        if (artifactIntents != null) {
+            artifactIntents.beginScalarArtifactWrite(artifact);
+        }
+        // A failed or uncertain storage close deliberately leaves WRITING evidence.
         context.storageManager().writeIndex(fileSystemAccessor, indexFilePath, bytes);
+        if (artifactIntents != null) {
+            artifactIntents.markScalarArtifactDrained(artifact);
+        }
         return new BuildFileMapping(
                 attemptId,
                 descriptor.indexId(),

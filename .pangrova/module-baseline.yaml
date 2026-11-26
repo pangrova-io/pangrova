@@ -1016,6 +1016,7 @@ artifacts:
         - pangrova-indexing-api
         - pangrova-indexing-codec
         - pangrova-indexing-lifecycle
+        - pangrova-indexing-strategies-builtin
         - pangrova-materialization-api
         - pangrova-materialization-lifecycle
         - pangrova-metadata-api

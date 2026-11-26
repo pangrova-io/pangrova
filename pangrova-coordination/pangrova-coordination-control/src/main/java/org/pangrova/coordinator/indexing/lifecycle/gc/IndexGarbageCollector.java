@@ -4,6 +4,8 @@ import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.coordinator.indexing.lifecycle.IndexLifecycleMetrics;
 import org.pangrova.coordinator.indexing.lifecycle.MaintenanceLeaderElection;
 import org.pangrova.persistence.indexing.api.metadata.IndexFileMapping;
+import org.pangrova.persistence.indexing.api.build.ScalarArtifactIntent;
+import org.pangrova.indexing.storage.IndexStorageLayout;
 import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
 import org.pangrova.connector.api.index.FileSystemAccessor;
 import org.pangrova.connector.api.index.SnapshotPinProvider;
@@ -34,6 +36,7 @@ import java.util.concurrent.TimeUnit;
 public final class IndexGarbageCollector implements AutoCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(IndexGarbageCollector.class);
+    private static final int SCALAR_ORPHAN_BATCH_SIZE = 256;
 
     private final IndexGcContext deps;
     private final IndexLifecycleMetrics lifecycleMetrics;
@@ -115,9 +118,53 @@ public final class IndexGarbageCollector implements AutoCloseable {
             LOG.debug("action=gc_skipped reason=not_leader");
             return new GcResult(0, 0);
         }
-        int orphanedCount = cleanOrphans();
+        int orphanedCount = cleanScalarArtifacts() + cleanOrphans();
         int purgedCount = purgeDropped();
         return new GcResult(orphanedCount, purgedCount);
+    }
+
+    /** Reclaims only exact, drained pre-mapping scalar writes, never expired writer heartbeats alone. */
+    private int cleanScalarArtifacts() {
+        IndexMetadataStore store = deps.metadataStore();
+        Instant cutoff = Instant.ofEpochMilli(System.currentTimeMillis()
+                - TimeUnit.MINUTES.toMillis(deps.config().gcGracePeriodMinutes()));
+        int removed = 0;
+        for (var intent : store.pollScalarArtifactReclaimCandidates(cutoff, SCALAR_ORPHAN_BATCH_SIZE)) {
+            try {
+                boolean[] reclaimed = {false};
+                store.withIndexLifecycleLock(intent.indexId(), () -> {
+                    reclaimed[0] = reclaimScalarArtifact(store, intent);
+                });
+                if (reclaimed[0]) removed++;
+            } catch (RuntimeException failure) {
+                LOG.warn("action=scalar_orphan_reclaim_deferred indexId={}", intent.indexId(), failure);
+            }
+        }
+        return removed;
+    }
+
+    private boolean reclaimScalarArtifact(IndexMetadataStore store, ScalarArtifactIntent intent) {
+        var descriptor = store.findIndex(intent.indexId()).orElse(null);
+        if (descriptor == null || !isCanonicalScalarArtifact(descriptor, intent)
+                || !store.beginScalarArtifactReclaim(intent)) {
+            return false;
+        }
+        if (!deleteIndexFile(intent.artifactPath(), descriptor)) {
+            return false; // Durable DELETE_PENDING is retried, including an uncertain deletion.
+        }
+        store.completeScalarArtifactReclaim(intent);
+        return true;
+    }
+
+    private boolean isCanonicalScalarArtifact(IndexDescriptor descriptor, ScalarArtifactIntent intent) {
+        String expected = new IndexStorageLayout(deps.config().baseIndexPath()).indexFilePath(
+                descriptor.withGeneration(intent.generation(), descriptor.updatedAt()),
+                java.util.UUID.fromString(intent.attemptOwner()), intent.dataFilePath());
+        if (!expected.equals(intent.artifactPath())) {
+            LOG.warn("action=scalar_orphan_path_mismatch indexId={}", descriptor.indexId());
+            return false;
+        }
+        return true;
     }
 
     private int cleanOrphans() {
@@ -221,6 +268,10 @@ public final class IndexGarbageCollector implements AutoCloseable {
 
     private void purgeIndex(IndexDescriptor descriptor) {
         IndexMetadataStore store = deps.metadataStore();
+        if (store.hasScalarArtifactIntents(descriptor.indexId())) {
+            throw new IllegalStateException("Scalar artifact intents remain; retaining dropped index "
+                    + descriptor.indexId());
+        }
         List<IndexFileMapping> mappings = store.getIndexFileMappings(descriptor.indexId());
 
         // Keep the durable descriptor for a later retry if the snapshot ref cannot be released.
