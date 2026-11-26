@@ -6,6 +6,7 @@ import org.pangrova.persistence.jdbc.api.security.policy.CurrentTableAuthorizati
 
 import org.pangrova.persistence.indexing.api.metadata.IndexBuildGenerations.IndexBuildAbandonment;
 import org.pangrova.persistence.indexing.api.metadata.IndexBuildGenerations.IndexBuildCandidate;
+import org.pangrova.persistence.indexing.api.metadata.IndexBuildGenerations.NativeSubmissionCandidate;
 import org.pangrova.persistence.indexing.api.metadata.IndexFileMapping;
 import org.pangrova.indexing.api.exception.IndexAlreadyExistsException;
 import org.pangrova.persistence.catalog.api.exception.MetastoreException;
@@ -370,11 +371,27 @@ final class JdbcIndexDescriptorStore extends JdbcStoreSupport {
             Instant expectedBuildUpdatedAt,
             Instant failedAt,
             String failureReason) {
+        return failGeneration(indexId, generation, null, expectedBuildUpdatedAt, failedAt, failureReason);
+    }
+
+    boolean failNativeSubmissionAttempt(String indexId, int generation, String attemptId,
+                                        Instant expectedBuildUpdatedAt, Instant failedAt, String failureReason) {
+        if (attemptId == null || attemptId.isBlank()) {
+            throw new IllegalArgumentException("Native submission attempt is required");
+        }
+        return failGeneration(indexId, generation, attemptId, expectedBuildUpdatedAt, failedAt, failureReason);
+    }
+
+    private boolean failGeneration(String indexId, int generation, String attemptId,
+                                   Instant expectedBuildUpdatedAt, Instant failedAt, String failureReason) {
         String reason = truncateReason(failureReason);
         try (Connection conn = dataSource().getConnection()) {
             conn.setAutoCommit(false);
             try {
                 FailureTarget target = lockFailureTarget(conn, indexId, generation, expectedBuildUpdatedAt);
+                if (target != null && attemptId != null && !attemptId.equals(target.attemptId())) {
+                    target = null;
+                }
                 if (target == null) {
                     conn.rollback();
                     return false;
@@ -404,8 +421,10 @@ final class JdbcIndexDescriptorStore extends JdbcStoreSupport {
         int activeGeneration;
         String snapshot;
         Instant descriptorUpdatedAt;
+        String descriptorAttemptId;
         try (PreparedStatement statement = conn.prepareStatement(
-                "SELECT state,generation,build_snapshot_id,updated_at FROM index_descriptors "
+                "SELECT state,generation,build_snapshot_id,updated_at,native_submission_attempt_id"
+                        + " FROM index_descriptors "
                         + "WHERE index_id=? FOR UPDATE")) {
             statement.setString(1, indexId);
             try (ResultSet row = statement.executeQuery()) {
@@ -416,30 +435,32 @@ final class JdbcIndexDescriptorStore extends JdbcStoreSupport {
                 activeGeneration = row.getInt("generation");
                 snapshot = row.getString("build_snapshot_id");
                 descriptorUpdatedAt = getInstant(row, "updated_at");
+                descriptorAttemptId = row.getString("native_submission_attempt_id");
             }
         }
         if (state == IndexState.BUILDING && activeGeneration == generation
                 && descriptorUpdatedAt.equals(expectedBuildUpdatedAt)) {
-            return new FailureTarget(true, snapshot);
+            return new FailureTarget(true, snapshot, descriptorAttemptId);
         }
         if ((state != IndexState.READY && state != IndexState.STALE)
                 || activeGeneration != generation - 1) {
             return null;
         }
         try (PreparedStatement statement = conn.prepareStatement(
-                "SELECT 1 FROM index_generation_builds WHERE index_id=? AND generation=? "
+                "SELECT native_submission_attempt_id FROM index_generation_builds WHERE index_id=? AND generation=? "
                         + "AND base_generation=? AND state='BUILDING' AND updated_at=? FOR UPDATE")) {
             statement.setString(1, indexId);
             statement.setInt(2, generation);
             statement.setInt(3, activeGeneration);
             setInstant(statement, 4, expectedBuildUpdatedAt);
             try (ResultSet row = statement.executeQuery()) {
-                return row.next() ? new FailureTarget(false, snapshot) : null;
+                return row.next()
+                        ? new FailureTarget(false, snapshot, row.getString("native_submission_attempt_id")) : null;
             }
         }
     }
 
-    private record FailureTarget(boolean initial, String snapshot) {}
+    private record FailureTarget(boolean initial, String snapshot, String attemptId) {}
 
     private static boolean failInitialGeneration(
             Connection conn, String indexId, int generation, String snapshot,
@@ -753,7 +774,8 @@ final class JdbcIndexDescriptorStore extends JdbcStoreSupport {
 
     private static final String ABANDONED_NATIVE_RESERVATIONS = """
             SELECT d.*, COALESCE(b.generation,d.generation) AS recovery_generation,
-                   COALESCE(b.updated_at,d.updated_at) AS recovery_updated_at
+                   COALESCE(b.updated_at,d.updated_at) AS recovery_updated_at,
+                   COALESCE(b.native_submission_attempt_id,d.native_submission_attempt_id) AS recovery_attempt_id
             FROM index_descriptors d
             LEFT JOIN index_generation_builds b ON b.index_id=d.index_id
                  AND b.base_generation=d.generation AND b.generation=d.generation+1 AND b.state='BUILDING'
@@ -763,13 +785,21 @@ final class JdbcIndexDescriptorStore extends JdbcStoreSupport {
               AND COALESCE(b.updated_at,d.updated_at)<=?
               AND NOT EXISTS (SELECT 1 FROM artifact_snapshot_pins p
                    WHERE p.tenant_id=d.tenant_id AND p.index_id=d.index_id
-                     AND p.generation=COALESCE(b.generation,d.generation))
+                     AND p.generation=COALESCE(b.generation,d.generation)
+                     AND p.attempt_id=COALESCE(b.native_submission_attempt_id,d.native_submission_attempt_id))
               AND NOT EXISTS (SELECT 1 FROM artifact_build_jobs j
                    WHERE j.tenant_id=d.tenant_id AND j.artifact_id=d.index_id
-                     AND j.staging_generation=CAST(COALESCE(b.generation,d.generation) AS text))
+                     AND j.staging_generation=CAST(COALESCE(b.generation,d.generation) AS text)
+                     AND j.publication_expected_updated_at=COALESCE(b.updated_at,d.updated_at)
+                     AND j.source_snapshot=COALESCE(b.source_snapshot,d.build_snapshot_id)
+                     AND j.state NOT IN ('FAILED','CANCELLED')
+                     AND (COALESCE(b.native_submission_attempt_id,d.native_submission_attempt_id)='submission'
+                          OR right(j.job_id,length(':attempt:' ||
+                             COALESCE(b.native_submission_attempt_id,d.native_submission_attempt_id)))=
+                             ':attempt:' || COALESCE(b.native_submission_attempt_id,d.native_submission_attempt_id)))
             """;
 
-    List<IndexBuildCandidate> listAbandonedNativeReservations(int limit, Instant cutoff) {
+    List<NativeSubmissionCandidate> listAbandonedNativeReservations(int limit, Instant cutoff) {
         if (limit <= 0) {
             throw new IllegalArgumentException("limit must be positive");
         }
@@ -779,7 +809,7 @@ final class JdbcIndexDescriptorStore extends JdbcStoreSupport {
             setInstant(statement, 1, cutoff);
             statement.setInt(2, limit);
         }, rows -> {
-            List<IndexBuildCandidate> candidates = new java.util.ArrayList<>();
+            List<NativeSubmissionCandidate> candidates = new java.util.ArrayList<>();
             while (rows.next()) {
                 candidates.add(mapAbandonedNativeReservation(rows));
             }
@@ -787,7 +817,7 @@ final class JdbcIndexDescriptorStore extends JdbcStoreSupport {
         });
     }
 
-    Optional<IndexBuildCandidate> findAbandonedNativeReservation(String indexId, int generation, Instant cutoff) {
+    Optional<NativeSubmissionCandidate> findAbandonedNativeReservation(String indexId, int generation, Instant cutoff) {
         Objects.requireNonNull(cutoff, "cutoff");
         String sql = ABANDONED_NATIVE_RESERVATIONS + " AND d.index_id=? AND COALESCE(b.generation,d.generation)=?";
         return executeQuery(sql, statement -> {
@@ -797,9 +827,9 @@ final class JdbcIndexDescriptorStore extends JdbcStoreSupport {
         }, rows -> rows.next() ? Optional.of(mapAbandonedNativeReservation(rows)) : Optional.empty());
     }
 
-    private static IndexBuildCandidate mapAbandonedNativeReservation(ResultSet row) throws SQLException {
-        return new IndexBuildCandidate(mapDescriptor(row), row.getInt("recovery_generation"), "BUILDING",
-                getInstant(row, "recovery_updated_at"), null);
+    private static NativeSubmissionCandidate mapAbandonedNativeReservation(ResultSet row) throws SQLException {
+        return new NativeSubmissionCandidate(mapDescriptor(row), row.getInt("recovery_generation"),
+                getInstant(row, "recovery_updated_at"), row.getString("recovery_attempt_id"));
     }
 
     Optional<Instant> findIndexGenerationSnapshotReservation(String indexId, int generation, String snapshotId) {
@@ -821,6 +851,27 @@ final class JdbcIndexDescriptorStore extends JdbcStoreSupport {
             statement.setInt(6, generation);
             statement.setString(7, snapshotId);
         }, rows -> rows.next() ? Optional.of(getInstant(rows, "updated_at")) : Optional.empty());
+    }
+
+    Optional<String> findIndexGenerationSubmissionAttempt(String indexId, int generation, String snapshotId) {
+        if (generation < 0 || snapshotId == null || snapshotId.isBlank()) {
+            return Optional.empty();
+        }
+        String sql = "SELECT d.native_submission_attempt_id FROM index_descriptors d WHERE d.index_id=? "
+                + "AND d.generation=? AND d.build_snapshot_id=? "
+                + "UNION ALL SELECT b.native_submission_attempt_id FROM index_generation_builds b "
+                + "JOIN index_descriptors d ON d.index_id=b.index_id WHERE d.index_id=? "
+                + "AND d.state IN ('READY','STALE') AND d.generation=? AND b.base_generation=d.generation "
+                + "AND b.generation=? AND b.state='BUILDING' AND b.source_snapshot=?";
+        return executeQuery(sql, statement -> {
+            statement.setString(1, indexId);
+            statement.setInt(2, generation);
+            statement.setString(3, snapshotId);
+            statement.setString(4, indexId);
+            statement.setInt(5, generation - 1);
+            statement.setInt(6, generation);
+            statement.setString(7, snapshotId);
+        }, rows -> rows.next() ? Optional.of(rows.getString("native_submission_attempt_id")) : Optional.empty());
     }
 
     boolean isIndexGenerationSnapshotBuildable(
@@ -897,8 +948,8 @@ final class JdbcIndexDescriptorStore extends JdbcStoreSupport {
             Instant timestamp) throws SQLException {
         String update = "UPDATE index_generation_builds SET base_generation=?, "
                 + "source_snapshot=?, state='BUILDING', failure_reason=NULL, "
-                + "started_at=?, updated_at=? WHERE index_id=? AND generation=? "
-                + "AND state='FAILED'";
+                + "started_at=?, updated_at=?, native_submission_attempt_id=gen_random_uuid()::text "
+                + "WHERE index_id=? AND generation=? AND state='FAILED'";
         try (PreparedStatement statement = connection.prepareStatement(update)) {
             statement.setInt(1, baseGeneration);
             statement.setString(2, sourceSnapshot == null ? "" : sourceSnapshot);

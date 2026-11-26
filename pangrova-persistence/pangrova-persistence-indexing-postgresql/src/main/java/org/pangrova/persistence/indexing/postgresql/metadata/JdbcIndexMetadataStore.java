@@ -189,17 +189,24 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
     }
 
     @Override
+    public boolean failNativeSubmissionAttempt(String indexId, int generation, String attemptId,
+                                                Instant expectedUpdatedAt, Instant failedAt, String reason) {
+        return descriptorStore.failNativeSubmissionAttempt(
+                indexId, generation, attemptId, expectedUpdatedAt, failedAt, reason);
+    }
+
+    @Override
     public boolean isIndexGenerationBuildable(String indexId, int generation) {
         return descriptorStore.isIndexGenerationBuildable(indexId, generation);
     }
 
     @Override
-    public List<IndexBuildCandidate> listAbandonedNativeReservations(int limit, Instant cutoff) {
+    public List<NativeSubmissionCandidate> listAbandonedNativeReservations(int limit, Instant cutoff) {
         return descriptorStore.listAbandonedNativeReservations(limit, cutoff);
     }
 
     @Override
-    public Optional<IndexBuildCandidate> findAbandonedNativeReservation(
+    public Optional<NativeSubmissionCandidate> findAbandonedNativeReservation(
             String indexId, int generation, Instant cutoff) {
         return descriptorStore.findAbandonedNativeReservation(indexId, generation, cutoff);
     }
@@ -207,6 +214,11 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
     @Override
     public Optional<Instant> findIndexGenerationSnapshotReservation(String indexId, int generation, String snapshotId) {
         return descriptorStore.findIndexGenerationSnapshotReservation(indexId, generation, snapshotId);
+    }
+
+    @Override
+    public Optional<String> findIndexGenerationSubmissionAttempt(String indexId, int generation, String snapshotId) {
+        return descriptorStore.findIndexGenerationSubmissionAttempt(indexId, generation, snapshotId);
     }
 
     @Override

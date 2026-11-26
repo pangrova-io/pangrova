@@ -329,6 +329,115 @@ class SchemaMigrationBundleTest extends ContainerTestBase {
         }
     }
 
+    @Test
+    void version125KeepsExactLegacyReservationAndAllowsOnlyTerminalNativeAttemptHistory() throws Exception {
+        var source = SharedPostgres.isolatedDataSource();
+        // Use the actual immediate predecessor from the canonical bundle, including independently merged V124.
+        int predecessor = manifest().stream().mapToInt(entry -> Integer.parseInt(entry[0]))
+                .filter(version -> version < 125).max().orElseThrow();
+        Flyway.configure().dataSource(source).locations("classpath:db/migration")
+                .target(Integer.toString(predecessor)).load().migrate();
+        try (var connection = source.getConnection(); var statement = connection.createStatement()) {
+            statement.executeUpdate("""
+                    INSERT INTO index_descriptors
+                      (index_id,index_name,catalog_name,schema_name,table_name,column_names,index_type,
+                       properties,state,generation,build_snapshot_id,created_at,updated_at,tenant_id)
+                    VALUES
+                      ('resume','resume','lake','raw','items','["value"]','INVERTED','{}','BUILDING',0,
+                       'snapshot','2026-01-02','2026-01-02','tenant-a'),
+                      ('superseded','superseded','lake','raw','items','["value"]','INVERTED','{}','BUILDING',0,
+                       'snapshot','2026-01-02','2026-01-02','tenant-a'),
+                      ('staging','staging','lake','raw','items','["value"]','INVERTED','{}','READY',0,
+                       'base','2026-01-01','2026-01-01','tenant-a')
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO index_generation_builds
+                      (index_id,generation,base_generation,source_snapshot,state,started_at,updated_at)
+                    VALUES ('staging',1,0,'snapshot','BUILDING','2026-01-02','2026-01-02')
+                    """);
+            statement.executeUpdate("""
+                    INSERT INTO artifact_snapshot_pins
+                      (tenant_id,pin_owner,index_id,generation,attempt_id,source_id,source_snapshot,
+                       principal,authorization_scope_bytes,state,created_at,updated_at)
+                    VALUES
+                      ('tenant-a','resume:generation:0:attempt:submission','resume',0,'submission',
+                       'lake.raw.items','snapshot','alice',decode('01','hex'),'INTENDED','2026-01-03','2026-01-03'),
+                      ('tenant-a','superseded:generation:0:attempt:submission','superseded',0,'submission',
+                       'lake.raw.items','snapshot','alice',decode('01','hex'),'INTENDED','2026-01-01','2026-01-01'),
+                      ('tenant-a','staging:generation:1:attempt:submission','staging',1,'submission',
+                       'lake.raw.items','snapshot','alice',decode('01','hex'),'INTENDED','2026-01-03','2026-01-03')
+                    """);
+        }
+        var upgraded = Flyway.configure().dataSource(source).locations("classpath:db/migration").target("125").load();
+        assertThat(upgraded.migrate().migrationsExecuted).isOne();
+        upgraded.validate();
+        try (var connection = source.getConnection(); var statement = connection.createStatement();
+                var rows = statement.executeQuery("SELECT index_id,native_submission_attempt_id "
+                        + "FROM index_descriptors ORDER BY index_id")) {
+            assertThat(rows.next()).isTrue();
+            assertThat(rows.getString(1)).isEqualTo("resume");
+            assertThat(rows.getString(2)).isEqualTo("submission");
+            assertThat(rows.next()).isTrue();
+            assertThat(rows.getString(1)).isEqualTo("staging");
+            assertThat(rows.getString(2)).isNotEqualTo("submission");
+            assertThat(rows.next()).isTrue();
+            assertThat(rows.getString(1)).isEqualTo("superseded");
+            assertThat(java.util.UUID.fromString(rows.getString(2))).isNotNull();
+        }
+        try (var connection = source.getConnection(); var statement = connection.createStatement()) {
+            try (var rows = statement.executeQuery("SELECT native_submission_attempt_id "
+                    + "FROM index_generation_builds WHERE index_id='staging'")) {
+                assertThat(rows.next()).isTrue();
+                assertThat(rows.getString(1)).isEqualTo("submission");
+            }
+            try (var rows = statement.executeQuery("SELECT count(*) FROM artifact_snapshot_pins")) {
+                assertThat(rows.next()).isTrue();
+                assertThat(rows.getInt(1)).isEqualTo(3);
+            }
+            statement.executeUpdate("""
+                    INSERT INTO artifact_snapshot_pins
+                      (tenant_id,pin_owner,index_id,generation,attempt_id,source_id,source_snapshot,
+                       principal,authorization_scope_bytes,state,created_at,updated_at)
+                    SELECT 'tenant-a','superseded:generation:0:attempt:'||native_submission_attempt_id,
+                           'superseded',0,native_submission_attempt_id,'lake.raw.items','snapshot',
+                           'alice',decode('01','hex'),'INTENDED',now(),now()
+                    FROM index_descriptors WHERE index_id='superseded'
+                    """);
+        }
+        insertAttemptJob(source, "native-old", "native-artifact", "TEXT_INDEX", "FAILED");
+        insertAttemptJob(source, "native-next", "native-artifact", "TEXT_INDEX", "QUEUED");
+        assertThatThrownBy(() -> insertAttemptJob(source, "native-duplicate", "native-artifact",
+                "TEXT_INDEX", "QUEUED")).isInstanceOf(java.sql.SQLException.class);
+        insertAttemptJob(source, "published", "published-artifact", "VECTOR_INDEX", "PUBLISHED");
+        assertThatThrownBy(() -> insertAttemptJob(source, "publication-duplicate", "published-artifact",
+                "VECTOR_INDEX", "QUEUED")).isInstanceOf(java.sql.SQLException.class);
+        insertAttemptJob(source, "generic-old", "generic-artifact", "GENERATED_VALUE", "FAILED");
+        assertThatThrownBy(() -> insertAttemptJob(source, "generic-next", "generic-artifact",
+                "GENERATED_VALUE", "QUEUED")).isInstanceOf(java.sql.SQLException.class);
+    }
+
+    private static void insertAttemptJob(javax.sql.DataSource source, String jobId, String artifactId,
+                                         String artifactType, String state) throws Exception {
+        try (var connection = source.getConnection(); var statement = connection.prepareStatement("""
+                INSERT INTO artifact_build_jobs
+                  (tenant_id,job_id,artifact_id,artifact_type,staging_generation,source_id,source_snapshot,
+                   staging_uri,format_id,format_major,format_minor,schema_sha256,writer_build_id,
+                   idempotency_key,expected_pages,state,created_at,updated_at,
+                   publication_expected_updated_at,dependency_set_sha256)
+                VALUES ('tenant-a',?,?,?,'0','lake.raw.items','snapshot','s3://warehouse/staging',
+                        'fixture-format',1,0,?,'writer-a',?,0,?,now(),now(),now(),?)
+                """)) {
+            statement.setString(1, jobId);
+            statement.setString(2, artifactId);
+            statement.setString(3, artifactType);
+            statement.setString(4, "a".repeat(64));
+            statement.setString(5, jobId);
+            statement.setString(6, state);
+            statement.setString(7, "b".repeat(64));
+            assertThat(statement.executeUpdate()).isOne();
+        }
+    }
+
     private List<String[]> manifest() throws Exception {
         try (var input = getClass().getClassLoader().getResourceAsStream(MANIFEST)) {
             assertThat(input).isNotNull();

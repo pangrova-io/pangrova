@@ -55,18 +55,24 @@ public interface IndexBuildGenerations {
         throw new UnsupportedOperationException("Durable index build generation fences are required");
     }
 
+    /** Fails only the exact Native reservation attempt; a reused logical generation is not equivalent. */
+    default boolean failNativeSubmissionAttempt(String indexId, int generation, String attemptId,
+                                                 Instant expectedUpdatedAt, Instant failedAt, String reason) {
+        throw new UnsupportedOperationException("Exact Native submission failure fence is required");
+    }
+
     /** Returns whether a generation is currently fenced for build output. */
     default boolean isIndexGenerationBuildable(String indexId, int generation) {
         throw new UnsupportedOperationException("Durable index generation lookup is required");
     }
 
     /** Lists expired Native reservations that have no durable job or pin to replay. */
-    default List<IndexBuildCandidate> listAbandonedNativeReservations(int limit, Instant cutoff) {
+    default List<NativeSubmissionCandidate> listAbandonedNativeReservations(int limit, Instant cutoff) {
         throw new UnsupportedOperationException("Durable Native reservation recovery is required");
     }
 
     /** Rechecks one abandoned Native reservation before fencing it. */
-    default Optional<IndexBuildCandidate> findAbandonedNativeReservation(
+    default Optional<NativeSubmissionCandidate> findAbandonedNativeReservation(
             String indexId, int generation, Instant cutoff) {
         throw new UnsupportedOperationException("Durable Native reservation recovery is required");
     }
@@ -75,6 +81,12 @@ public interface IndexBuildGenerations {
     default Optional<Instant> findIndexGenerationSnapshotReservation(
             String indexId, int generation, String snapshotId) {
         throw new UnsupportedOperationException("Exact durable index generation lookup is required");
+    }
+
+    /** Returns the persisted submission identity for an exact current reservation or descriptor generation. */
+    default Optional<String> findIndexGenerationSubmissionAttempt(
+            String indexId, int generation, String snapshotId) {
+        throw new UnsupportedOperationException("Durable Native submission identity lookup is required");
     }
 
     /** Confirms the exact generation and source snapshot belong to the same reservation. */
@@ -125,6 +137,15 @@ public interface IndexBuildGenerations {
             IndexState expectedState,
             int expectedGeneration) {
         throw new UnsupportedOperationException("Fenced index build cleanup is required");
+    }
+
+    /** Exact Native reservation candidate; the attempt survives equal timestamps and generation reuse. */
+    record NativeSubmissionCandidate(IndexDescriptor descriptor, int generation, Instant updatedAt, String attemptId) {
+        public NativeSubmissionCandidate {
+            if (descriptor == null || generation < 0 || updatedAt == null || attemptId == null || attemptId.isBlank()) {
+                throw new IllegalArgumentException("A complete Native submission candidate is required");
+            }
+        }
     }
 
     /** One durable recovery candidate; initial builds have no separate staging row. */

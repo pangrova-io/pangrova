@@ -46,9 +46,11 @@ final class PostgresSnapshotPinLedger {
             + "p.state='RELEASING' OR "
             + "(p.job_id IS NULL AND p.created_at<=? AND NOT EXISTS ("
             + "SELECT 1 FROM index_descriptors d WHERE d.index_id=p.index_id AND d.tenant_id=p.tenant_id "
-            + "AND d.state<>'DROPPED' AND ((d.state='BUILDING' AND d.generation=p.generation) "
+            + "AND d.state<>'DROPPED' AND ((d.state='BUILDING' AND d.generation=p.generation "
+            + "AND d.build_snapshot_id=p.source_snapshot AND d.native_submission_attempt_id=p.attempt_id) "
             + "OR EXISTS (SELECT 1 FROM index_generation_builds b WHERE b.index_id=d.index_id "
-            + "AND b.generation=p.generation AND b.state='BUILDING')))) OR "
+            + "AND b.generation=p.generation AND b.state='BUILDING' AND b.source_snapshot=p.source_snapshot "
+            + "AND b.native_submission_attempt_id=p.attempt_id)))) OR "
             + "(j.state IN ('FAILED','CANCELLED') AND j.updated_at<=?) OR "
             + "(j.state='PUBLISHED' AND ("
             + "NOT EXISTS (SELECT 1 FROM index_descriptors d "
@@ -71,12 +73,13 @@ final class PostgresSnapshotPinLedger {
             + " AND p.tenant_id=? AND p.pin_owner=?";
     private static final String UNBOUND_RECOVERY_ELIGIBILITY_SQL = " FROM artifact_snapshot_pins p "
             + "JOIN index_descriptors d ON d.index_id=p.index_id AND d.tenant_id=p.tenant_id "
-            + "WHERE p.job_id IS NULL AND p.attempt_id='submission' AND p.state IN ('INTENDED','PINNED') "
+            + "WHERE p.job_id IS NULL AND p.state IN ('INTENDED','PINNED') "
             + "AND p.updated_at<=? AND ((d.state='BUILDING' AND d.generation=p.generation "
-            + "AND d.build_snapshot_id=p.source_snapshot) OR "
+            + "AND d.build_snapshot_id=p.source_snapshot AND d.native_submission_attempt_id=p.attempt_id) OR "
             + "(d.state IN ('READY','STALE') AND EXISTS (SELECT 1 FROM index_generation_builds b "
             + "WHERE b.index_id=d.index_id AND b.generation=p.generation AND b.base_generation=d.generation "
-            + "AND b.state='BUILDING' AND b.source_snapshot=p.source_snapshot)))";
+            + "AND b.state='BUILDING' AND b.source_snapshot=p.source_snapshot "
+            + "AND b.native_submission_attempt_id=p.attempt_id)))";
     private static final String UNBOUND_RECOVERY_SQL = "SELECT " + QUALIFIED_COLUMNS
             + UNBOUND_RECOVERY_ELIGIBILITY_SQL + " ORDER BY p.updated_at,p.tenant_id,p.pin_owner LIMIT ?";
     private static final String CLAIM_RECOVERY_SQL = "SELECT 1" + UNBOUND_RECOVERY_ELIGIBILITY_SQL

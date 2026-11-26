@@ -92,7 +92,7 @@ public final class DeferredSnapshotPinProvider implements SnapshotPinProvider {
             throw new AccessDeniedException("Snapshot maintenance differs from its exact index scope");
         }
         var authority = IndexDdlExecutor.requiresNativeArtifact(descriptor.indexType())
-                ? DeferredIndexAuthorityResolver.resolveExisting(builds, descriptor)
+                ? DeferredIndexAuthorityResolver.resolveExisting(builds, indexes, descriptor)
                 : DeferredIndexAuthorityResolver.resolveScalar(
                         descriptor, descriptor.state() == IndexState.DROPPED
                                 ? indexes.loadDroppedIndexCleanupPrincipal(descriptor)

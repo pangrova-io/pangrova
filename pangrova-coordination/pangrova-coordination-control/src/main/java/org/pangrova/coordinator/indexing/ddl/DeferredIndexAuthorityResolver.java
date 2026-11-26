@@ -3,6 +3,7 @@ package org.pangrova.coordinator.indexing.ddl;
 import org.pangrova.common.util.DigestUtils;
 
 import org.pangrova.persistence.generation.api.job.GenerationJobStore;
+import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
 import org.pangrova.generation.api.job.GenerationSubmissionAuthority;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
 import org.pangrova.connector.api.session.ConnectorSession;
@@ -18,13 +19,14 @@ import java.util.Set;
 final class DeferredIndexAuthorityResolver {
     private DeferredIndexAuthorityResolver() {}
 
-    static Resolved resolve(GenerationJobStore store, IndexDescriptor previous, IndexDescriptor replacement) {
+    static Resolved resolve(GenerationJobStore store, IndexMetadataStore indexes,
+                            IndexDescriptor previous, IndexDescriptor replacement) {
         if (!previous.indexId().equals(replacement.indexId())
                 || !previous.tenantId().equals(replacement.tenantId())
                 || replacement.generation() != Math.addExact(previous.generation(), 1)) {
             throw new AccessDeniedException("Replacement index scope differs from its predecessor");
         }
-        var resolved = resolveExisting(store, previous);
+        var resolved = resolveExisting(store, indexes, previous);
         var table = new QualifiedTableName(
                 replacement.catalogName(), replacement.schemaName(), replacement.tableName());
         var expected = DeferredAuthorizationScope.raw(table, Set.copyOf(replacement.columnNames()), table);
@@ -36,9 +38,17 @@ final class DeferredIndexAuthorityResolver {
         return resolved;
     }
 
-    static Resolved resolveExisting(GenerationJobStore store, IndexDescriptor descriptor) {
+    static Resolved resolveExisting(GenerationJobStore store, IndexMetadataStore indexes, IndexDescriptor descriptor) {
         String tenant = descriptor.tenantId();
-        var authority = store.loadAuthorizedDispatchSpec(tenant, DurableIndexBuildService.jobId(tenant, descriptor));
+        // Prefer the exact immutable published attempt, never an arbitrary failed generation sibling.
+        String jobId = store.findPublishedGeneration(tenant, descriptor.indexId(),
+                Integer.toString(descriptor.generation()), descriptor.buildSnapshotId())
+                .map(manifest -> manifest.jobId())
+                .orElseGet(() -> indexes.findIndexGenerationSubmissionAttempt(
+                                descriptor.indexId(), descriptor.generation(), descriptor.buildSnapshotId())
+                        .map(attempt -> DurableIndexBuildService.jobId(tenant, descriptor, attempt))
+                        .orElseThrow(() -> new AccessDeniedException("Exact Native submission authority is absent")));
+        var authority = store.loadAuthorizedDispatchSpec(tenant, jobId);
         var table = new QualifiedTableName(descriptor.catalogName(), descriptor.schemaName(), descriptor.tableName());
         var expected = DeferredAuthorizationScope.raw(table, Set.copyOf(descriptor.columnNames()), table);
         if (!authority.authorizationScope().equals(expected)) {

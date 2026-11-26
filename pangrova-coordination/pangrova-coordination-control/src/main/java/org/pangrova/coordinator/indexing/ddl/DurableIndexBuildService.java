@@ -62,7 +62,7 @@ import java.util.function.BooleanSupplier;
 public final class DurableIndexBuildService {
 
     private static final Logger LOG = LoggerFactory.getLogger(DurableIndexBuildService.class);
-    private static final String SUBMISSION_ATTEMPT = "submission";
+    private static final String LEGACY_SUBMISSION_ATTEMPT = "submission";
     private static final int MAX_REDUCTION_FAN_IN = 64;
     // Leave headroom for the Worker system pool and concurrent service leases.
     // The grant is a task limit, not the Worker's total process memory budget.
@@ -135,13 +135,13 @@ public final class DurableIndexBuildService {
 
     /** Reauthorizes the original durable subject before a commit-driven replacement generation. */
     public String submitReplacement(IndexDescriptor previous, IndexDescriptor replacement) {
-        var resolved = DeferredIndexAuthorityResolver.resolve(store, previous, replacement);
+        var resolved = DeferredIndexAuthorityResolver.resolve(store, indexMetadataStore, previous, replacement);
         return submitScoped(replacement, resolved.table(), resolved.tenantId(), resolved.session());
     }
 
     /** Reauthorizes the durable Native submitter for connector metadata maintenance. */
     public ConnectorSession authorizedSession(IndexDescriptor descriptor) {
-        return DeferredIndexAuthorityResolver.resolveExisting(store, descriptor).session();
+        return DeferredIndexAuthorityResolver.resolveExisting(store, indexMetadataStore, descriptor).session();
     }
 
     private String submitScoped(IndexDescriptor descriptor, QualifiedTableName table,
@@ -173,14 +173,36 @@ public final class DurableIndexBuildService {
 
     private String submitScopedLocked(IndexDescriptor descriptor, QualifiedTableName table,
                                       String tenantId, ConnectorSession session) {
+        String attempt = indexMetadataStore.findIndexGenerationSubmissionAttempt(
+                descriptor.indexId(), descriptor.generation(), descriptor.buildSnapshotId())
+                .orElseThrow(() -> new IllegalStateException("Native index submission identity is absent"));
+        String jobId = jobId(tenantId, descriptor, attempt);
         NativeBuildSpec build = prepareBuild(descriptor, table, session);
-        String jobId = jobId(tenantId, descriptor);
         String sourceId = String.join(".", table.catalog(), table.schema(), table.table());
         var authority = new GenerationSubmissionAuthority(tenantId, session.getUser(),
                 DeferredAuthorizationScope.raw(table, Set.copyOf(descriptor.columnNames()), table));
         SnapshotPinIntent intent = store.reserveSnapshotPin(new SnapshotPinReservation(
-                tenantId, descriptor.indexId(), descriptor.generation(), SUBMISSION_ATTEMPT,
+                tenantId, descriptor.indexId(), descriptor.generation(), attempt,
                 sourceId, descriptor.buildSnapshotId(), authority, Instant.now()));
+        if (intent.jobId() != null) {
+            // An ambiguous prior submission already committed the exact job. Do not re-enumerate
+            // or allocate a second artifact namespace for the same durable reservation.
+            GenerationJob existing = store.findJob(tenantId, intent.jobId()).orElseThrow(() ->
+                    new IllegalStateException("Bound Native submission job is absent"));
+            Instant reservationUpdatedAt = indexMetadataStore.findIndexGenerationSnapshotReservation(
+                    descriptor.indexId(), descriptor.generation(), descriptor.buildSnapshotId())
+                    .orElseThrow(() -> new IllegalStateException("Native index reservation is absent"));
+            if (!existing.jobId().equals(jobId)
+                    || !existing.publicationExpectedUpdatedAt().equals(reservationUpdatedAt)
+                    || !existing.artifactId().equals(descriptor.indexId())
+                    || !existing.stagingGeneration().equals(Integer.toString(descriptor.generation()))
+                    || !existing.sourceSnapshot().equals(intent.sourceSnapshot())
+                    || existing.state() == GenerationJobState.FAILED
+                    || existing.state() == GenerationJobState.CANCELLED) {
+                throw new IllegalStateException("Native submission is terminal or differs from its durable identity");
+            }
+            return existing.jobId();
+        }
         SnapshotPinOwner owner = new SnapshotPinOwner(
                 intent.indexId(), intent.generation(), intent.attemptId());
         boolean emptySnapshot = SnapshotGenerationSplitPlanner.EMPTY_SNAPSHOT.equals(intent.sourceSnapshot());
@@ -200,8 +222,10 @@ public final class DurableIndexBuildService {
                 table, intent.sourceSnapshot(), session);
         GenerationPlan plan = build.plan();
         String generation = Integer.toString(descriptor.generation());
-        String stagingUri = stagingUri(tenantId, descriptor);
-        String idempotencyKey = jobId + ":snapshot:" + descriptor.buildSnapshotId();
+        String stagingUri = stagingUri(tenantId, descriptor, attempt);
+        String idempotencyKey = jobId + ":snapshot:" + (LEGACY_SUBMISSION_ATTEMPT.equals(attempt)
+                ? descriptor.buildSnapshotId() : org.pangrova.common.util.DigestUtils.sha256Hex(
+                        descriptor.buildSnapshotId()));
         Map<String, String> properties = descriptor.properties();
         int maxAttempts = boundedInt(properties, "max_attempts", 5, 1, 100);
         List<GenerationPage> pages = buildPages(
@@ -403,9 +427,11 @@ public final class DurableIndexBuildService {
                     if (current.isPresent()) {
                         var reservation = current.orElseThrow();
                         if (reservation.updatedAt().equals(candidate.updatedAt())
+                                && reservation.attemptId().equals(candidate.attemptId())
                                 && reservation.descriptor().tenantId().equals(candidate.descriptor().tenantId())) {
-                            completed[0] = indexMetadataStore.failIndexGeneration(
-                                    candidate.descriptor().indexId(), candidate.generation(), candidate.updatedAt(),
+                            completed[0] = indexMetadataStore.failNativeSubmissionAttempt(
+                                    candidate.descriptor().indexId(), candidate.generation(),
+                                    candidate.attemptId(), candidate.updatedAt(),
                                     Instant.now(), "native_submission_missing_durable_intent");
                         }
                     }
@@ -469,6 +495,11 @@ public final class DurableIndexBuildService {
         IndexDescriptor requested = current.withGeneration(generation, reservationUpdatedAt)
                 .withBuildSnapshotId(intent.sourceSnapshot(), reservationUpdatedAt);
         requireBuildableReservation(current, requested);
+        if (!indexMetadataStore.findIndexGenerationSubmissionAttempt(
+                intent.indexId(), intent.generation(), intent.sourceSnapshot()).filter(intent.attemptId()::equals)
+                .isPresent()) {
+            return false;
+        }
         var table = new QualifiedTableName(current.catalogName(), current.schemaName(), current.tableName());
         var expected = DeferredAuthorizationScope.raw(table, Set.copyOf(current.columnNames()), table);
         if (!intent.authority().authorizationScope().equals(expected)
@@ -711,16 +742,24 @@ public final class DurableIndexBuildService {
         return descriptor.columnNames().get(0);
     }
 
-    private String stagingUri(String tenantId, IndexDescriptor descriptor) {
-        return baseArtifactUri + "/v2/tenants/" + DeferredIndexAuthorityResolver.tenantScope(tenantId) + "/artifacts/"
-                + safeComponent(descriptor.indexId()) + "/generation-"
-                + descriptor.generation();
+    private String stagingUri(String tenantId, IndexDescriptor descriptor, String attempt) {
+        String base = baseArtifactUri + "/v2/tenants/" + DeferredIndexAuthorityResolver.tenantScope(tenantId)
+                + "/artifacts/" + safeComponent(descriptor.indexId());
+        String generation = "/generation-" + descriptor.generation();
+        // Keep new attempts outside the legacy generation prefix, including recursive object cleanup.
+        return LEGACY_SUBMISSION_ATTEMPT.equals(attempt) ? base + generation
+                : base + "/attempt-" + safeComponent(attempt) + generation;
     }
 
+    /** Historical deterministic job key, retained only for legacy reconciliation. */
     static String jobId(String tenantId, IndexDescriptor descriptor) {
-        return "index-build:tenant-" + DeferredIndexAuthorityResolver.tenantScope(tenantId) + ":"
-                + safeComponent(descriptor.indexId())
-                + ":generation:" + descriptor.generation();
+        return jobId(tenantId, descriptor, LEGACY_SUBMISSION_ATTEMPT);
+    }
+
+    static String jobId(String tenantId, IndexDescriptor descriptor, String attempt) {
+        String base = "index-build:tenant-" + DeferredIndexAuthorityResolver.tenantScope(tenantId) + ":"
+                + safeComponent(descriptor.indexId()) + ":generation:" + descriptor.generation();
+        return LEGACY_SUBMISSION_ATTEMPT.equals(attempt) ? base : base + ":attempt:" + safeComponent(attempt);
     }
 
     private static String safeComponent(String value) {

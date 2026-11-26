@@ -92,7 +92,7 @@ class DurableIndexBuildSnapshotPinTest extends ContainerTestBase {
 
         assertThat(pins.events).containsExactly("pin", "validate", "enumerate");
         assertThat(pins.tokens).containsExactly(SNAPSHOT);
-        assertThat(pins.owner).isEqualTo(new SnapshotPinOwner("index-1", 0, "submission"));
+        assertThat(pins.owner).isEqualTo(new SnapshotPinOwner("index-1", 0, attempt(descriptor())));
         assertThat(store.findJob(TENANT, jobId)).hasValueSatisfying(job -> {
             assertThat(job.sourceSnapshot()).isEqualTo(SNAPSHOT);
             assertThat(job.state()).isEqualTo(GenerationJobState.QUEUED);
@@ -240,8 +240,8 @@ class DurableIndexBuildSnapshotPinTest extends ContainerTestBase {
 
         assertThat(pins.events).containsExactly("pin");
         assertThat(connector.enumerations()).isZero();
-        assertThat(store.findJob(TENANT, DurableIndexBuildService.jobId(TENANT, descriptor()))).isEmpty();
-        assertThat(store.findSnapshotPin(TENANT, new SnapshotPinOwner("index-1", 0, "submission").id()))
+        assertThat(store.findJob(TENANT, jobId(descriptor()))).isEmpty();
+        assertThat(store.findSnapshotPin(TENANT, new SnapshotPinOwner("index-1", 0, attempt(descriptor())).id()))
                 .hasValueSatisfying(intent -> assertThat(intent.state().name()).isEqualTo("INTENDED"));
     }
 
@@ -254,8 +254,8 @@ class DurableIndexBuildSnapshotPinTest extends ContainerTestBase {
 
         assertThat(pins.events).containsExactly("pin", "validate");
         assertThat(connector.enumerations()).isZero();
-        assertThat(store.findJob(TENANT, DurableIndexBuildService.jobId(TENANT, descriptor()))).isEmpty();
-        assertThat(store.findSnapshotPin(TENANT, new SnapshotPinOwner("index-1", 0, "submission").id()))
+        assertThat(store.findJob(TENANT, jobId(descriptor()))).isEmpty();
+        assertThat(store.findSnapshotPin(TENANT, new SnapshotPinOwner("index-1", 0, attempt(descriptor())).id()))
                 .hasValueSatisfying(intent -> assertThat(intent.state()).isEqualTo(SnapshotPinState.INTENDED));
     }
 
@@ -318,7 +318,7 @@ class DurableIndexBuildSnapshotPinTest extends ContainerTestBase {
         assertThat(service.recoverUnboundSnapshotPins(() -> true)).isZero();
         assertThat(pins.owner).isEqualTo(owner);
         assertThat(store.findSnapshotPin(TENANT, owner.id())).hasValueSatisfying(intent ->
-                assertThat(intent.jobId()).isEqualTo(DurableIndexBuildService.jobId(TENANT, descriptor())));
+                assertThat(intent.jobId()).isEqualTo(jobId(descriptor())));
     }
 
     @Test
@@ -344,6 +344,109 @@ class DurableIndexBuildSnapshotPinTest extends ContainerTestBase {
     }
 
     @Test
+    void terminalReplacementCanRetrySameLogicalGenerationWithNewAttemptAndArtifactNamespace() throws Exception {
+        service.submit(descriptor(), TABLE, session());
+        indexes.updateIndexState("index-1", "READY", NOW.plusSeconds(1));
+        IndexDescriptor previous = indexes.findIndex("index-1").orElseThrow();
+        Instant firstStarted = NOW.plusSeconds(2);
+        assertThat(indexes.beginIndexGeneration("index-1", 1, SNAPSHOT, firstStarted,
+                previous.updatedAt(), previous.state(), previous.generation())).isTrue();
+        var first = previous.withGeneration(1, firstStarted).withBuildSnapshotId(SNAPSHOT, firstStarted);
+        String firstAttempt = attempt(first);
+        String firstJobId = service.submitReplacement(previous, first);
+        SnapshotPinOwner firstOwner = pins.owner;
+        var firstJob = store.findJob(TENANT, firstJobId).orElseThrow();
+        int firstEnumerations = connector.enumerations();
+        assertThat(service.submitReplacement(previous, first)).isEqualTo(firstJobId);
+        assertThat(connector.enumerations()).isEqualTo(firstEnumerations);
+
+        try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement(
+                "UPDATE artifact_build_jobs SET state='FAILED',updated_at=? WHERE tenant_id=? AND job_id=?")) {
+            statement.setObject(1, java.time.OffsetDateTime.ofInstant(NOW.plusSeconds(3), java.time.ZoneOffset.UTC));
+            statement.setString(2, TENANT);
+            statement.setString(3, firstJobId);
+            assertThat(statement.executeUpdate()).isOne();
+        }
+        assertThat(indexes.failIndexGeneration("index-1", 1, firstStarted, NOW.plusSeconds(3), "failed")).isTrue();
+        Instant secondStarted = firstStarted;
+        assertThat(indexes.beginIndexGeneration("index-1", 1, SNAPSHOT, secondStarted,
+                previous.updatedAt(), previous.state(), previous.generation())).isTrue();
+        var second = previous.withGeneration(1, secondStarted).withBuildSnapshotId(SNAPSHOT, secondStarted);
+        String secondAttempt = attempt(second);
+        assertThat(indexes.failNativeSubmissionAttempt("index-1", 1, firstAttempt,
+                firstStarted, NOW.plusSeconds(5), "obsolete cleanup")).isFalse();
+        String secondJobId = service.submitReplacement(previous, second);
+        var secondJob = store.findJob(TENANT, secondJobId).orElseThrow();
+
+        assertThat(secondAttempt).isNotEqualTo(firstAttempt);
+        assertThat(secondJobId).isNotEqualTo(firstJobId);
+        assertThat(secondJob.stagingGeneration()).isEqualTo(firstJob.stagingGeneration());
+        assertThat(secondJob.stagingUri()).isNotEqualTo(firstJob.stagingUri())
+                .endsWith("/attempt-" + secondAttempt + "/generation-1");
+        assertThat(secondJob.idempotencyKey()).isNotEqualTo(firstJob.idempotencyKey());
+        assertThat(pins.owner).isNotEqualTo(firstOwner);
+        assertThat(store.findSnapshotPinForJob(TENANT, firstJobId)).hasValueSatisfying(old ->
+                assertThat(old.pinOwner()).isEqualTo(firstOwner.id()));
+        assertThat(store.findSnapshotPinForJob(TENANT, secondJobId)).hasValueSatisfying(current ->
+                assertThat(current.pinOwner()).isEqualTo(pins.owner.id()));
+        assertThat(store.listSnapshotPinCleanupCandidates(20, Instant.now(), Instant.now()))
+                .extracting(SnapshotPinIntent::pinOwner).contains(firstOwner.id()).doesNotContain(pins.owner.id());
+        assertThat(service.submitReplacement(previous, second)).isEqualTo(secondJobId);
+    }
+
+    @Test
+    void oldUnboundAttemptDoesNotRecoverOrBlockNewReservation() throws Exception {
+        service.submit(descriptor(), TABLE, session());
+        indexes.updateIndexState("index-1", "READY", NOW.plusSeconds(1));
+        var previous = indexes.findIndex("index-1").orElseThrow();
+        Instant firstStarted = NOW.plusSeconds(2);
+        assertThat(indexes.beginIndexGeneration("index-1", 1, SNAPSHOT, firstStarted,
+                previous.updatedAt(), previous.state(), previous.generation())).isTrue();
+        var first = previous.withGeneration(1, firstStarted).withBuildSnapshotId(SNAPSHOT, firstStarted);
+        pins.failAfterPin = true;
+        assertThatThrownBy(() -> service.submitReplacement(previous, first))
+                .hasMessageContaining("pin outcome unknown");
+        var old = pins.owner;
+        assertThat(indexes.failIndexGeneration("index-1", 1, firstStarted, NOW.plusSeconds(3), "failed")).isTrue();
+        Instant secondStarted = NOW.plusSeconds(4);
+        assertThat(indexes.beginIndexGeneration("index-1", 1, SNAPSHOT, secondStarted,
+                previous.updatedAt(), previous.state(), previous.generation())).isTrue();
+        var second = previous.withGeneration(1, secondStarted).withBuildSnapshotId(SNAPSHOT, secondStarted);
+        try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement(
+                "UPDATE artifact_snapshot_pins SET created_at=?,updated_at=? WHERE pin_owner=?")) {
+            var oldTime = java.time.OffsetDateTime.ofInstant(NOW, java.time.ZoneOffset.UTC);
+            statement.setObject(1, oldTime);
+            statement.setObject(2, oldTime);
+            statement.setString(3, old.id());
+            assertThat(statement.executeUpdate()).isOne();
+        }
+        pins.failAfterPin = false;
+        assertThat(service.recoverUnboundSnapshotPins(() -> true)).isZero();
+        assertThat(store.listSnapshotPinCleanupCandidates(20, Instant.now(), Instant.now()))
+                .extracting(SnapshotPinIntent::pinOwner).contains(old.id());
+        assertThat(indexes.listAbandonedNativeReservations(20, Instant.now()))
+                .extracting(candidate -> candidate.attemptId()).contains(attempt(second));
+        String newJobId = service.submitReplacement(previous, second);
+        assertThat(pins.owner).isNotEqualTo(old);
+        assertThat(store.findSnapshotPinForJob(TENANT, newJobId)).isPresent();
+        assertThat(service.fenceAbandonedNativeReservations(() -> true)).isZero();
+        assertThat(service.cleanupSnapshotPins()).isOne();
+        assertThat(store.findSnapshotPin(TENANT, old.id())).hasValueSatisfying(intent ->
+                assertThat(intent.state()).isEqualTo(SnapshotPinState.RELEASED));
+        assertThat(store.findSnapshotPinForJob(TENANT, newJobId)).hasValueSatisfying(intent ->
+                assertThat(intent.state()).isEqualTo(SnapshotPinState.PINNED));
+    }
+
+    private String jobId(IndexDescriptor descriptor) {
+        return DurableIndexBuildService.jobId(TENANT, descriptor, attempt(descriptor));
+    }
+
+    private String attempt(IndexDescriptor descriptor) {
+        return indexes.findIndexGenerationSubmissionAttempt(
+                descriptor.indexId(), descriptor.generation(), descriptor.buildSnapshotId()).orElseThrow();
+    }
+
+    @Test
     void revokedBuilderCannotReserveOrPinSnapshot() throws Exception {
         try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
             statement.executeUpdate("DELETE FROM pangrova_user_roles WHERE user_id='alice'");
@@ -364,7 +467,7 @@ class DurableIndexBuildSnapshotPinTest extends ContainerTestBase {
 
         assertThat(pins.pins.get()).isZero();
         assertThat(connector.enumerations()).isZero();
-        assertThat(store.findJob(TENANT, DurableIndexBuildService.jobId(TENANT, descriptor()))).isEmpty();
+        assertThat(store.findJob(TENANT, jobId(descriptor()))).isEmpty();
     }
 
     @Test

@@ -211,6 +211,26 @@ reservation with neither a durable pin intent nor a job is fenced as failed
 after rechecking the same reservation, allowing an authenticated explicit
 rebuild; recovery does not issue connector operations for that reservation.
 
+Native submission identity is distinct from the logical index generation.
+The initial descriptor or staging-generation reservation persists a unique
+submission ID; restarting a failed staging reservation creates a new ID,
+even for the same snapshot and logical generation. Admission retries and
+unbound recovery reuse the existing ID, job, page identities and artifact
+directory. New submissions use a per-attempt directory; terminal attempts
+remain in history and are cleaned up by their exact pin owner. There can be
+only one live or published Native job per logical generation; other artifact
+types retain generation uniqueness. Recovery never reattaches a superseded
+unbound pin to a replacement reservation.
+
+V125 retains exact existing legacy submission owner/job/path identities and
+published authority; it does not synthesize an actor for missing historical
+evidence. Quiesce older Coordinators before this migration and do not run
+mixed submission writers. An older binary cannot safely resume new per-attempt
+reservations; a downgrade requires stopping writers and reconciling/draining
+all new reservations and retained artifact references before restoring the
+previous schema and binary.
+
+
 Snapshot holds in Iceberg and Paimon use a persistent versioned tag namespace.
 New holds use `pangrova_index_<sha256-index-id>_v3_<generation>_<hex-attempt>_<hex-token>`,
 with UTF-8 lowercase hexadecimal fields. Existing v2 holds (original padded
