@@ -28,7 +28,11 @@ class MacOSNativeStageTest(unittest.TestCase):
         self.executable(self.bin / "xcodebuild", "echo 'Xcode 16.4'")
         self.executable(self.bin / "xcrun", """
 if [ "$1" = lipo ]; then
-    [ "${TEST_WRONG_BINARY:-}" != "$4" ] || exit 1
+    # Xcode lipo expects input files before -verify_arch; every following
+    # argument is interpreted as an architecture, not another input file.
+    [ "$#" -eq 4 ] && [ -f "$2" ] && [ "$3" = -verify_arch ] || exit 2
+    [ "$4" = "${TEST_ARCH:-arm64}" ] || exit 2
+    [ "${TEST_WRONG_BINARY:-}" != "$2" ] || exit 1
 else
     echo 15.5
 fi
@@ -97,6 +101,12 @@ fi
         self.assertTrue((self.root / "native-deps/bin/protoc").stat().st_mode & 0o100)
         self.assertTrue((self.root / "velox/deps-install/lib/libfolly.a").is_file())
         self.assertFalse((self.root / "velox/_build/release/lib/libvelox.a").exists())
+
+    def test_intel_core_round_trip_uses_x86_64_architecture(self):
+        self.prepare()
+        self.assert_ok(self.run_stage("pack", "core", TEST_ARCH="x86_64"))
+        self.fresh()
+        self.assert_ok(self.run_stage("restore", "core", TEST_ARCH="x86_64"))
 
     def test_sdk_round_trip_preserves_libraries_symlinks_headers_and_source_identity(self):
         self.prepare(sdk=True)

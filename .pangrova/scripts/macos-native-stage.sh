@@ -34,7 +34,7 @@ require_file() {
 }
 
 require_architecture() {
-    xcrun lipo -verify_arch "$(uname -m)" "$root/$1" \
+    xcrun lipo "$root/$1" -verify_arch "$(uname -m)" \
         || die "Stage $stage has an incompatible binary architecture: $1"
 }
 
