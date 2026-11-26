@@ -1,5 +1,6 @@
 package org.pangrova.connector.iceberg;
 
+import org.pangrova.connector.iceberg.IcebergCommitExecutor.Completion;
 import org.pangrova.connector.iceberg.exception.CommitNotificationException;
 
 import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
@@ -51,9 +52,9 @@ final class IcebergWriteCommitter {
      * on a timeout the outcome is AMBIGUOUS so files are left for maintenance
      * cleanup (RemoveOrphanFiles) instead of risking deletion of committed data.
      *
-     * @return whether this validated write is an INSERT with no data or delete files
+     * @return the commit completion and whether this INSERT has no data or delete files
      */
-    boolean finishDistributedWrite(Table icebergTable,
+    DistributedWriteCompletion finishDistributedWrite(Table icebergTable,
                                    IcebergOutputTableHandle handle,
                                    List<byte[]> fragments,
                                    String tenantId,
@@ -77,19 +78,21 @@ final class IcebergWriteCommitter {
         boolean emptyInsert = IcebergOutputTableHandle.MODE_INSERT.equals(handle.writeMode())
                 && collected.dataFiles().isEmpty() && collected.deleteFiles().isEmpty();
         if (collected.operation() == null) {
-            handleEmptyFragments(icebergTable, handle, tenantId, context);
-            return emptyInsert;
+            return new DistributedWriteCompletion(handleEmptyFragments(icebergTable, handle, tenantId, context),
+                    emptyInsert);
         }
+        Completion completion;
         try {
-            commitCollectedFragments(icebergTable, handle, collected, tenantId, context);
+            completion = commitCollectedFragments(icebergTable, handle, collected, tenantId, context);
         } catch (RuntimeException e) {
             handleCommitFailure(icebergTable, handle, collected, e, context);
             throw e;
         }
-        LOG.info("event=distributed_write_committed table={}.{}",
-                handle.schemaName(), handle.tableName());
-        return emptyInsert;
+        LOG.info("event=distributed_write_committed table={}.{}", handle.schemaName(), handle.tableName());
+        return new DistributedWriteCompletion(completion, emptyInsert);
     }
+
+    record DistributedWriteCompletion(Completion completion, boolean emptyInsert) {}
 
     /** An explicitly required empty INSERT still needs its own fenced, marker-bearing catalog snapshot. */
     Snapshot publishedSnapshotOrCommitEmptyInsert(Table table, IcebergOutputTableHandle handle, boolean emptyInsert,
@@ -105,12 +108,10 @@ final class IcebergWriteCommitter {
             IcebergSnapshotDeclarations.apply(append, handle);
             append.commit();
         });
-        notifyAfterCommit(table, handle, List.of(), CommitEventType.APPEND, tenant, context);
-        table.refresh();
-        return IcebergDistributedCommitMarker.publishedSnapshot(table, context);
+        return notifyAfterCommit(table, handle, List.of(), CommitEventType.APPEND, tenant, context);
     }
 
-    private void handleEmptyFragments(
+    private Completion handleEmptyFragments(
             Table icebergTable,
             IcebergOutputTableHandle handle,
             String tenantId,
@@ -120,21 +121,19 @@ final class IcebergWriteCommitter {
         if (IcebergOutputTableHandle.MODE_OVERWRITE.equals(handle.writeMode())) {
             LOG.info("event=distributed_write_empty_overwrite table={}.{}",
                     handle.schemaName(), handle.tableName());
-            commitCollectedFragments(icebergTable, handle,
-                    new IcebergCollectedFragments("OVERWRITE", List.of(), List.of()),
-                    tenantId, context);
-        } else {
-            if (context != null && context.copyFile() != null) {
-                icebergTable.refresh();
-                if (IcebergDistributedCommitMarker.isPublished(icebergTable, context)) {
-                    return;
-                }
-                throw new IllegalStateException(
-                        "COPY cannot complete without a marker-bearing Iceberg snapshot");
+            return commitCollectedFragments(icebergTable, handle,
+                    new IcebergCollectedFragments("OVERWRITE", List.of(), List.of()), tenantId, context);
+        }
+        if (context != null && context.copyFile() != null) {
+            icebergTable.refresh();
+            if (!IcebergDistributedCommitMarker.isPublished(icebergTable, context)) {
+                throw new IllegalStateException("COPY cannot complete without a marker-bearing Iceberg snapshot");
             }
+        } else {
             LOG.info("event=distributed_write_noop table={}.{} reason=no_fragments",
                     handle.schemaName(), handle.tableName());
         }
+        return Completion.TASK_COMPLETED;
     }
 
     /**
@@ -228,16 +227,13 @@ final class IcebergWriteCommitter {
      * Executes a single atomic commit for all collected files based on the
      * resolved operation type. Produces exactly one Iceberg snapshot.
      */
-    private void commitCollectedFragments(Table icebergTable,
+    private Completion commitCollectedFragments(Table icebergTable,
                                           IcebergOutputTableHandle handle,
                                           IcebergCollectedFragments collected,
                                           String tenantId,
                                           DistributedWriteCommitContext context) {
-        if (collected.operation() == null) {
-            return;
-        }
         String tableId = handle.schemaName() + "." + handle.tableName();
-        switch (collected.operation()) {
+        return switch (collected.operation()) {
             case "APPEND" ->
                     commitExecutor.execute(icebergTable, context, () ->
                             commitAtomicAppend(
@@ -256,7 +252,7 @@ final class IcebergWriteCommitter {
                                     collected.dataFiles(), collected.deleteFiles(), tenantId, context), tableId);
             default -> throw new IllegalStateException(
                     "Unknown operation: " + collected.operation());
-        }
+        };
     }
 
     /**
@@ -490,7 +486,7 @@ final class IcebergWriteCommitter {
     /**
      * Sends a commit notification with the added file paths after a successful commit.
      */
-    private void notifyAfterCommit(Table icebergTable,
+    private Snapshot notifyAfterCommit(Table icebergTable,
                                    IcebergOutputTableHandle handle,
                                    List<DataFile> dataFiles,
                                    CommitEventType eventType,
@@ -504,6 +500,7 @@ final class IcebergWriteCommitter {
         notifier.notifyCommit(tenantId, handle.schemaName(), handle.tableName(),
                 addedPaths, List.of(), snapshotId, eventType,
                 context != null ? context.commitFingerprint() : null);
+        return snapshot;
     }
 
     private static Snapshot committedSnapshot(

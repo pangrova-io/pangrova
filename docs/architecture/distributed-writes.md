@@ -283,10 +283,13 @@ Each Iceberg commit attempt uses the same fresh metadata for fingerprint lookup 
 of the retained ancestry. The old secondary commit token is retired. SDK metadata checks for
 the atomic commit and the final publication observation still run at their respective boundaries.
 
-A fresh Iceberg JDBC table load already reads the authoritative metadata pointer. Pangrova uses
-that metadata for the UUID check and exact publication receipt. Required empty INSERTs publish
-a marker-bearing snapshot and verify it after publication. Their publication step uses the empty
-INSERT classification from the original fragment collection.
+Iceberg resolves the write target once and checks its UUID against the durable handle. After a
+commit, the listener and exact publication receipt use the same observation of the catalog and
+its marker-bearing snapshot. The receipt hashes that snapshot's manifest list. A required empty
+INSERT uses the original fragment classification, commits a marker-bearing snapshot, and shares
+its post-commit observation with the listener and receipt as well. After timeout reconciliation,
+the receipt uses a separate catalog observation because the cancelled commit task may still be
+using the original SDK table.
 
 The Iceberg fragment collector parses each Worker UTF-8 payload once per collection. It reads
 the operation and file lists from the same JSON tree and appends the file descriptors directly

@@ -13,6 +13,7 @@ import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.connector.api.commit.DistributedWriteCommitContext;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
@@ -392,8 +393,8 @@ class IcebergJdbcSchemaIsolationIntegrationTest extends ContainerTestBase {
     }
 
     @ParameterizedTest
-    @ValueSource(booleans = {false, true})
-    void distributedWriteCatalogPointerBudget(boolean requiresPublication) throws Exception {
+    @CsvSource({"false, false", "true, false", "true, true"})
+    void distributedWriteCatalogPointerBudget(boolean requiresPublication, boolean emptyInsert) throws Exception {
         try (var schema = DatabaseSchema.create(); var catalog = catalog(schema, "V1")) {
             createTable(catalog);
             var metadata = new IcebergMetadata(catalog, schema.name());
@@ -402,8 +403,8 @@ class IcebergJdbcSchemaIsolationIntegrationTest extends ContainerTestBase {
             var table = catalog.loadTable(TABLE);
             var data = DataFiles.builder(table.spec()).withPath(table.location() + "/data/committed.parquet")
                     .withFileSizeInBytes(128).withRecordCount(1).build();
-            var fragments = List.of(("[" + ContentFileParser.toJson(data, table.spec()) + "]")
-                    .getBytes(StandardCharsets.UTF_8));
+            var fragments = emptyInsert ? List.<byte[]>of() : List.of(
+                    ("[" + ContentFileParser.toJson(data, table.spec()) + "]").getBytes(StandardCharsets.UTF_8));
             var binding = IcebergWriteBindingFixtures.binding(handle);
             var receipt = IcebergWriteReceiptFixtures.receipt();
             var tenant = READER.getProperties().get("tenant_id");
@@ -415,18 +416,30 @@ class IcebergJdbcSchemaIsolationIntegrationTest extends ContainerTestBase {
             schema.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public");
             long before = schema.catalogPointerLookups();
 
-            if (requiresPublication) {
-                assertThat(metadata.finishDistributedWriteWithPublication(READER, handle, fragments, context)
-                        .manifestSha256()).hasSize(32);
-            } else {
-                metadata.finishDistributedWrite(READER, handle, fragments, context);
-            }
-            assertThat(schema.catalogPointerLookups() - before).as("exact catalog pointer SELECTs")
-                    .isEqualTo(requiresPublication ? 7 : 6);
+            var publication = requiresPublication
+                    ? metadata.finishDistributedWriteWithPublication(READER, handle, fragments, context) : null;
+            if (!requiresPublication) metadata.finishDistributedWrite(READER, handle, fragments, context);
+            assertThat(schema.catalogPointerLookups() - before).as("exact catalog pointer SELECTs").isEqualTo(6);
             table.refresh();
             assertThat(table.snapshots()).hasSize(1);
-            assertThat(table.currentSnapshot().summary()).containsEntry(IcebergDistributedCommitMarker.FINGERPRINT,
+            var committed = table.currentSnapshot();
+            assertThat(committed.summary()).containsEntry(IcebergDistributedCommitMarker.FINGERPRINT,
                     context.commitFingerprint());
+            if (publication != null) {
+                assertThat(publication.publishedVersion()).isEqualTo(committed.snapshotId());
+                try (var input = table.io().newInputFile(committed.manifestListLocation()).newStream()) {
+                    assertThat(publication.manifestSha256()).isEqualTo(
+                            java.security.MessageDigest.getInstance("SHA-256").digest(input.readAllBytes()));
+                }
+                table.newAppend().appendFile(DataFiles.builder(table.spec())
+                        .withPath(table.location() + "/data/unrelated.parquet")
+                        .withFileSizeInBytes(96).withRecordCount(1).build()).commit();
+                assertThat(metadata.finishDistributedWriteWithPublication(READER, handle, fragments, context))
+                        .isEqualTo(publication);
+                table.refresh();
+                assertThat(table.snapshots()).hasSize(2);
+                assertThat(table.currentSnapshot().snapshotId()).isNotEqualTo(publication.publishedVersion());
+            }
         }
     }
 

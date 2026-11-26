@@ -50,6 +50,11 @@ final class IcebergCommitExecutor {
     private final CommitVerifier verifier;
     private final ExecutorService executor;
 
+    enum Completion {
+        TASK_COMPLETED,
+        VERIFIED_AFTER_TIMEOUT
+    }
+
     /** Verifies the catalog state of a commit that exceeded its timeout. */
     @FunctionalInterface
     interface CommitVerifier {
@@ -101,7 +106,7 @@ final class IcebergCommitExecutor {
      * @param table   the table being committed, or null when the caller supplies no state
      * @param context durable commit context used to prove our snapshot when available
      */
-    void execute(Table table, DistributedWriteCommitContext context,
+    Completion execute(Table table, DistributedWriteCommitContext context,
             Runnable action, String tableId) {
         long startMs = System.nanoTime() / NANOS_PER_MILLISECOND;
         long preCommitSnapshotId = currentSnapshotId(table);
@@ -114,12 +119,13 @@ final class IcebergCommitExecutor {
         }
         try {
             task.get(timeoutMs, TimeUnit.MILLISECONDS);
+            return Completion.TASK_COMPLETED;
         } catch (TimeoutException e) {
             long elapsed = elapsedMs(startMs);
-            awaitInFlightCompletionBeforeVerification(task, table, context,
+            return awaitInFlightCompletionBeforeVerification(task, table, context,
                     preCommitSnapshotId, tableId, elapsed, e);
         } catch (ExecutionException e) {
-            handleExecutionFailure(e, tableId);
+            throw classifyExecutionFailure(e, tableId);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new CommitTimeoutException(tableId, 0, timeoutMs, e);
@@ -131,19 +137,20 @@ final class IcebergCommitExecutor {
      * commit that completes just after the deadline is reported as success instead of
      * an ambiguous failure, then cancel and verify the catalog.
      */
-    private void awaitInFlightCompletionBeforeVerification(FutureTask<Void> task,
+    private Completion awaitInFlightCompletionBeforeVerification(FutureTask<Void> task,
             Table table, DistributedWriteCommitContext context, long preCommitSnapshotId,
             String tableId, long elapsedMs, TimeoutException cause) {
         try {
             task.get(inFlightGraceMs, TimeUnit.MILLISECONDS);
             LOG.info("event=commit_completed_after_timeout table={} elapsedMs={} timeoutMs={}",
                     tableId, elapsedMs, timeoutMs);
-            return;
+            return Completion.TASK_COMPLETED;
         } catch (TimeoutException stillRunning) {
             task.cancel(true);
             resolveTimedOutCommit(table, context, preCommitSnapshotId, tableId, elapsedMs, cause);
+            return Completion.VERIFIED_AFTER_TIMEOUT;
         } catch (ExecutionException completedWithFailure) {
-            handleExecutionFailure(completedWithFailure, tableId);
+            throw classifyExecutionFailure(completedWithFailure, tableId);
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
             throw new CommitTimeoutException(tableId, elapsedMs, timeoutMs, interrupted);
@@ -195,14 +202,14 @@ final class IcebergCommitExecutor {
         return (System.nanoTime() / NANOS_PER_MILLISECOND) - startMs;
     }
 
-    private void handleExecutionFailure(ExecutionException failure, String tableId) {
+    private RuntimeException classifyExecutionFailure(ExecutionException failure, String tableId) {
         Throwable cause = failure.getCause();
         if (cause instanceof RuntimeException runtimeException) {
-            throw runtimeException;
+            return runtimeException;
         }
         Exception classifiedCause = cause instanceof Exception exception
                 ? exception : new RuntimeException(cause);
-        throw exceptionClassifier.handleAndClassify(classifiedCause, "commit", tableId);
+        return exceptionClassifier.handleAndClassify(classifiedCause, "commit", tableId);
     }
 
     private static Thread daemonThread(Runnable runnable, String catalogName) {
