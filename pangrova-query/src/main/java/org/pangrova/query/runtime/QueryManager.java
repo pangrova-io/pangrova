@@ -496,8 +496,7 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
             try {
                 cleanupCandidate(queryId, state);
             } catch (RuntimeException | Error rejected) {
-                if (cleanupFailure == null) cleanupFailure = rejected;
-                else cleanupFailure.addSuppressed(rejected);
+                cleanupFailure = rejected;
             }
         }
         if (cleanupFailure == null) {
