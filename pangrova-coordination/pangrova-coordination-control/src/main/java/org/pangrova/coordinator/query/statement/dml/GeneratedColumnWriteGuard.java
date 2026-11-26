@@ -4,8 +4,7 @@ import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.generation.codec.column.GeneratedColumnMetadataCodec;
 import org.pangrova.connector.api.session.ConnectorSession;
-import org.pangrova.connector.api.metadata.ConnectorMetadata;
-import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
+import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.security.api.identity.UserIdentity;
 
@@ -21,16 +20,14 @@ public final class GeneratedColumnWriteGuard {
      * materializing or durably scheduling its generated columns.
      */
     public static void requireNativeMaterializationPlan(
-            ConnectorMetadata metadata,
+            ConnectorTableMetadata table,
             ConnectorSession session,
-            ConnectorTableHandle table,
             QualifiedTableName tableName,
             String operation,
             org.pangrova.coordinator.ai.embedding.GeneratedValueMaterializationCoordinator
                     materializationCoordinator,
             UserIdentity user) {
-        var definitions = GeneratedColumnMetadataCodec.decode(
-                metadata.getTableMetadata(session, table).properties());
+        var definitions = GeneratedColumnMetadataCodec.decode(table.properties());
         if (definitions.getDefinitionsCount() == 0) {
             return;
         }

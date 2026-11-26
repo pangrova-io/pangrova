@@ -79,11 +79,10 @@ class DAGCompletionCallbackTest {
         var deps = new DAGDispatchContext(
                 new NoOpTaskDispatcher(),
                 new org.pangrova.coordinator.task.CoordinatorTaskTracker(),
-                null, null, 300, null, null, null,
+                null, null, 300, null, null,
                 null, // speculativeStageHandler
                 PipelineConfig.DISABLED,
                 org.pangrova.coordinator.query.execution.dispatch.shuffle.UnavailableExternalShuffleLifecycle.INSTANCE,
-                new org.pangrova.coordinator.query.execution.split.SplitAssignmentManager(),
                 null, null);
         DAGDispatchEngine engine = new DAGDispatchEngine(deps, List.of(), null, null, null);
 

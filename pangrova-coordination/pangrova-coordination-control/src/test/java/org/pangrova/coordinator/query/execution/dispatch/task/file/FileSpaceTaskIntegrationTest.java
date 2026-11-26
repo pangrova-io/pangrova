@@ -80,7 +80,7 @@ class FileSpaceTaskIntegrationTest extends ContainerTestBase {
         roles.createRole(Role.of(ROLE));
         roles.grantRoleToUser(UserRoleAssignment.of(ALICE.principal(), ROLE));
         var accessControl = new DynamicRbacAccessControl(new StaticGrantStore(
-                grants.listGrantsForRole(ROLE)), roles,
+                grants.listGrantsForRoles(Set.of(ROLE))), roles,
                 new RowLevelSecurityFilter(new EmptyRowPolicyStore()),
                 new ColumnMaskingProcessor(new EmptyColumnMaskStore()));
 
@@ -127,7 +127,7 @@ class FileSpaceTaskIntegrationTest extends ContainerTestBase {
         execute("ALTER VOLUME media.raw.landing RENAME TO media.raw.landing_v2");
         assertThat(registry.find(FileSpaceType.VOLUME, "media", "raw", "landing")).isEmpty();
         assertThat(registry.find(FileSpaceType.VOLUME, "media", "raw", "landing_v2")).isPresent();
-        assertThat(grants.listGrantsForRole(ROLE)).extracting(PrivilegeGrant::table)
+        assertThat(grants.listGrantsForRoles(Set.of(ROLE))).extracting(PrivilegeGrant::table)
                 .contains("landing_v2").doesNotContain("landing");
 
         assertThatThrownBy(() -> execute(
@@ -137,7 +137,7 @@ class FileSpaceTaskIntegrationTest extends ContainerTestBase {
 
         execute("DROP VOLUME media.raw.landing_v2");
         assertThat(registry.find(FileSpaceType.VOLUME, "media", "raw", "landing_v2")).isEmpty();
-        assertThat(grants.listGrantsForRole(ROLE)).extracting(PrivilegeGrant::privilege)
+        assertThat(grants.listGrantsForRoles(Set.of(ROLE))).extracting(PrivilegeGrant::privilege)
                 .doesNotContain(Privilege.MANAGE_VOLUME);
         assertThat(execute("DROP VOLUME IF EXISTS media.raw.landing_v2").mutatedTable())
                 .contains("does not exist");
@@ -189,7 +189,7 @@ class FileSpaceTaskIntegrationTest extends ContainerTestBase {
 
         execute("DROP STAGE media.raw.stage_landing");
         assertThat(registry.find(FileSpaceType.STAGE, "media", "raw", "stage_landing")).isEmpty();
-        assertThat(grants.listGrantsForRole(ROLE)).extracting(PrivilegeGrant::privilege)
+        assertThat(grants.listGrantsForRoles(Set.of(ROLE))).extracting(PrivilegeGrant::privilege)
                 .doesNotContain(Privilege.OWNER);
         await().atMost(3, TimeUnit.SECONDS).untilAsserted(() -> assertThat(events)
                 .extracting(AuditEvent::eventType)

@@ -214,6 +214,7 @@ class StreamSchedulerLifecycleTest extends ContainerTestBase {
             assertThat(reader.entered.await(10, TimeUnit.SECONDS)).isTrue();
             scheduler.stop(state.streamName());
             assertThat(sink.closed.await(10, TimeUnit.SECONDS)).isTrue();
+            assertThat(reader.closed.await(10, TimeUnit.SECONDS)).isTrue();
             assertThat(reader.closeThread).isSameAs(reader.pollThread);
             assertThat(sink.closeThread).isSameAs(reader.pollThread);
             assertThat(reader.closes.get()).isEqualTo(1);
@@ -346,6 +347,7 @@ class StreamSchedulerLifecycleTest extends ContainerTestBase {
         final AtomicInteger polls = new AtomicInteger();
         final AtomicInteger closes = new AtomicInteger();
         final CountDownLatch entered = new CountDownLatch(1);
+        final CountDownLatch closed = new CountDownLatch(1);
         volatile Thread pollThread;
         volatile Thread closeThread;
         @Override public List<SourceRecord> pollBatch(int max, Duration timeout) {
@@ -358,6 +360,7 @@ class StreamSchedulerLifecycleTest extends ContainerTestBase {
         @Override public void close() {
             closeThread = Thread.currentThread();
             closes.incrementAndGet();
+            closed.countDown();
         }
     }
 

@@ -3,7 +3,6 @@ package org.pangrova.client.http;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.common.client.enums.ResultProtocol;
-import org.pangrova.common.client.exception.PangrovaConnectionException;
 import org.pangrova.common.client.result.ResultEndpoint;
 import org.pangrova.transport.client.exception.TransportConnectionException;
 import org.pangrova.transport.client.security.ResultTransportSecurity;
@@ -11,7 +10,6 @@ import org.pangrova.testing.testkit.security.TestTlsAuthority;
 import org.pangrova.testing.testkit.security.TestHttpsEndpoint;
 
 import java.nio.file.Path;
-import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -25,16 +23,9 @@ class ResultTransportSecurityConfigTest {
         var endpoint = new ResultEndpoint("127.0.0.1", 1, "unused", ResultProtocol.GRPC.value());
         try (var client = PangrovaRestClient.builder()
                 .resultTransportSecurity(ResultTransportSecurity.systemTrust(true)).build()) {
-            var buffered = assertThrows(PangrovaConnectionException.class,
-                    () -> client.fetchResult(endpoint));
-            var streaming = assertThrows(PangrovaConnectionException.class,
-                    () -> client.fetchResultStream(endpoint, batch -> {
-                        throw new AssertionError("Plaintext endpoint delivered a batch");
-                    }));
-            for (var failure : List.of(buffered, streaming)) {
-                assertThat(failure.errorCode()).isEqualTo("TRANSPORT_TLS_REQUIRED");
-                assertThat(failure.getCause()).isInstanceOf(TransportConnectionException.class);
-            }
+            var failure = assertThrows(TransportConnectionException.class,
+                    () -> client.openResult(endpoint, Long.MAX_VALUE).close());
+            assertThat(failure.transportErrorCode()).isEqualTo("TRANSPORT_TLS_REQUIRED");
         }
     }
     @Test

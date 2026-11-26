@@ -31,14 +31,13 @@ class WorkerBootstrapCleanupTest {
                 super.close();
             }
         };
-        refs.setStatusReporter(reporter);
+        refs.retainStatusReporter(reporter);
         var observability = new WorkerObservabilitySetup();
         assertThatThrownBy(() -> new WorkerBootstrapCleanup(refs).close(config, observability))
                 .hasMessageContaining("reporter still draining");
-        assertThat(refs.statusReporter()).isSameAs(reporter);
+        assertThat(attempts).hasValue(1);
         new WorkerBootstrapCleanup(refs).close(config, observability);
         new WorkerBootstrapCleanup(refs).close(config, observability);
-        assertThat(refs.statusReporter()).isNull();
         assertThat(attempts).hasValue(2);
     }
 

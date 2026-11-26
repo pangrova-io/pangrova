@@ -1,10 +1,30 @@
 #include "engine/executor/driver/TaskLifecycle.h"
 
 #include <gtest/gtest.h>
+#include <future>
 #include <thread>
 #include <vector>
 
 namespace pangrova::executor {
+
+TEST(TaskLifecycleTest, WaitWakesOnlyOnTerminalStateAndLateReaderSeesIt) {
+  using namespace std::chrono_literals;
+  TaskLifecycle lifecycle;
+  ASSERT_TRUE(lifecycle.transitionTo(ExecutorState::RUNNING));
+  std::promise<void> reached_wait;
+  auto entered = reached_wait.get_future();
+  auto observed = std::async(std::launch::async, [&] {
+    reached_wait.set_value();
+    return lifecycle.awaitTerminal(5s);
+  });
+  ASSERT_EQ(entered.wait_for(1s), std::future_status::ready);
+  ASSERT_TRUE(lifecycle.transitionTo(ExecutorState::FLUSHING));
+  EXPECT_EQ(observed.wait_for(10ms), std::future_status::timeout);
+  ASSERT_TRUE(lifecycle.transitionTo(ExecutorState::FINISHED));
+  ASSERT_EQ(observed.wait_for(1s), std::future_status::ready);
+  EXPECT_EQ(observed.get(), ExecutorState::FINISHED);
+  EXPECT_EQ(lifecycle.awaitTerminal(0ms), ExecutorState::FINISHED);
+}
 
 TEST(TaskLifecycleTest, CancelledCleanupErrorDoesNotRewriteTerminalState) {
   TaskLifecycle lifecycle;
@@ -55,6 +75,24 @@ TEST(TaskLifecycleTest, ProducerFailurePrecedesResultStreamRevocation) {
   EXPECT_EQ(state.error->code(), "NATIVE_TASK_FAILED");
   EXPECT_EQ(state.error->message(), "division by zero");
   EXPECT_EQ(state.state, ExecutorState::FAILED);
+}
+
+TEST(TaskLifecycleTest, ResultDeliveryCommitsOnceAndCannotReplaceFailure) {
+  TaskLifecycle delivered;
+  EXPECT_FALSE(delivered.finishResultStream());
+  ASSERT_TRUE(delivered.transitionTo(ExecutorState::RUNNING));
+  EXPECT_TRUE(delivered.finishResultStream());
+  EXPECT_FALSE(delivered.finishResultStream());
+  EXPECT_EQ(delivered.state(), ExecutorState::FINISHED);
+
+  TaskLifecycle failed;
+  ASSERT_TRUE(failed.transitionTo(ExecutorState::RUNNING));
+  failed.appendError("Flight write failed");
+  EXPECT_FALSE(failed.finishResultStream());
+  failed.notifyTaskFailed("secondary transport failure");
+  EXPECT_FALSE(failed.finishResultStream());
+  EXPECT_EQ(failed.state(), ExecutorState::FAILED);
+  EXPECT_EQ(failed.errorMessage(), "Flight write failed");
 }
 
 TEST(TaskLifecycleTest, ConcurrentCleanupDiagnosticsAreNotLost) {

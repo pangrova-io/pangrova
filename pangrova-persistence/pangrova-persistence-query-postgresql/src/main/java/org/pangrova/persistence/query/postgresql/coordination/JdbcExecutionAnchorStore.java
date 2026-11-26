@@ -20,6 +20,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 import static org.pangrova.common.util.Preconditions.requireText;
 
@@ -34,33 +35,60 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
                     + "FROM execution_anchor WHERE execution_id = ? FOR UPDATE";
     private static final String SELECT_CURRENT =
             "SELECT owner_id, owner_incarnation, fencing_token, acquired_at, expires_at, version "
-                    + "FROM execution_anchor WHERE execution_id = ?";
-    private static final String INSERT_ANCHOR =
-            "INSERT INTO execution_anchor "
-                    + "(execution_id, owner_id, owner_incarnation, fencing_token, "
-                    + "acquired_at, expires_at, version) VALUES (?, ?, ?, ?, ?, ?, 1) "
-                    + "ON CONFLICT DO NOTHING";
+                    + "FROM execution_anchor WHERE execution_id = ? AND expires_at > clock_timestamp()";
+    private static final String INSERT_ANCHOR = """
+            WITH lease_clock AS MATERIALIZED (SELECT clock_timestamp() AS sampled_at)
+            INSERT INTO execution_anchor
+                (execution_id, owner_id, owner_incarnation, fencing_token, acquired_at, expires_at, version)
+            SELECT ?, ?, ?, nextval('execution_anchor_token_seq'), sampled_at, sampled_at + CAST(? AS interval), 1
+            FROM lease_clock
+            WHERE NOT EXISTS (SELECT 1 FROM execution_read_window w
+                WHERE w.execution_id=? AND w.protected_until>clock_timestamp())
+            ON CONFLICT DO NOTHING
+            RETURNING fencing_token
+            """;
     private static final String REPLACE_EXPIRED =
             "UPDATE execution_anchor SET owner_id=?, owner_incarnation=?, fencing_token=?, "
                     + "acquired_at=?, expires_at=?, version=version+1 "
-                    + "WHERE execution_id=? AND fencing_token=? AND version=? AND expires_at<=?";
+                    + "WHERE execution_id=? AND fencing_token=? AND version=? AND expires_at<=? "
+                    + "AND NOT EXISTS (SELECT 1 FROM execution_read_window w "
+                    + "WHERE w.execution_id=execution_anchor.execution_id "
+                    + "AND w.protected_until>clock_timestamp())";
     private static final String RENEW_OWNED =
             "UPDATE execution_anchor SET expires_at=?, version=version+1 "
                     + "WHERE owner_id=? AND owner_incarnation=? AND expires_at>? AND execution_id=ANY(?) "
                     + "RETURNING execution_id, owner_id, owner_incarnation, fencing_token, "
                     + "acquired_at, expires_at, version";
-    private static final String RELEASE =
-            "DELETE FROM execution_anchor WHERE execution_id=? AND owner_id=? "
-                    + "AND owner_incarnation=? AND fencing_token=? AND expires_at>?";
-    private static final String UNRESOLVED_WRITE = """
-            SELECT EXISTS (
-                SELECT 1 FROM write_commit_journal j
-                WHERE j.query_id=? AND j.state='PENDING'
-                  AND NOT EXISTS (
-                    SELECT 1 FROM write_commit_quarantine q
-                    WHERE q.query_id=j.query_id AND q.commit_fingerprint=j.commit_fingerprint
-                  )
+    private static final String RELEASE = """
+            WITH owner(execution_id, owner_id, owner_incarnation, fencing_token, retired_at) AS MATERIALIZED (
+                VALUES (CAST(? AS text), CAST(? AS text), CAST(? AS text), CAST(? AS bigint), clock_timestamp())
+            ),
+            retirement AS MATERIALIZED (
+                SELECT owner.*, EXISTS (
+                    SELECT 1 FROM write_commit_journal j
+                    WHERE j.query_id=owner.execution_id AND j.state='PENDING'
+                      AND NOT EXISTS (
+                        SELECT 1 FROM write_commit_quarantine q
+                        WHERE q.query_id=j.query_id AND q.commit_fingerprint=j.commit_fingerprint
+                      )
+                ) AS recover_write FROM owner
+            ),
+            retained AS (
+                UPDATE execution_anchor a SET expires_at=r.retired_at, version=a.version+1
+                FROM retirement r
+                WHERE a.execution_id=r.execution_id AND a.owner_id=r.owner_id
+                  AND a.owner_incarnation=r.owner_incarnation AND a.fencing_token=r.fencing_token
+                  AND a.expires_at>r.retired_at AND r.recover_write
+                RETURNING 1
+            ),
+            removed AS (
+                DELETE FROM execution_anchor a USING retirement r
+                WHERE a.execution_id=r.execution_id AND a.owner_id=r.owner_id
+                  AND a.owner_incarnation=r.owner_incarnation AND a.fencing_token=r.fencing_token
+                  AND a.expires_at>r.retired_at AND NOT r.recover_write
+                RETURNING 1
             )
+            SELECT EXISTS (SELECT 1 FROM retained) OR EXISTS (SELECT 1 FROM removed)
             """;
     private static final String YIELD =
             "UPDATE execution_anchor SET expires_at=?, version=version+1 "
@@ -69,14 +97,28 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
     private static final String LOCK_OWNED =
             "SELECT execution_id FROM execution_anchor WHERE owner_id=? AND owner_incarnation=? "
                     + "ORDER BY execution_id FOR UPDATE";
-    private static final String REFRESH_INSERTED =
-            "UPDATE execution_anchor SET acquired_at=?, expires_at=? "
-                    + "WHERE execution_id=? AND fencing_token=? AND version=1";
+    private static final String REFRESH_INSERTED = """
+            WITH lease_clock AS MATERIALIZED (SELECT clock_timestamp() AS sampled_at)
+            UPDATE execution_anchor
+            SET acquired_at=sampled_at, expires_at=sampled_at + CAST(? AS interval)
+            FROM lease_clock
+            WHERE execution_id=? AND fencing_token=? AND version=1
+            RETURNING owner_id, owner_incarnation, fencing_token, acquired_at, expires_at, version
+            """;
     private static final String SELECT_EXPIRED =
             "SELECT execution_id, owner_id, owner_incarnation, fencing_token, "
                     + "acquired_at, expires_at, version FROM execution_anchor "
-                    + "WHERE expires_at<=? ORDER BY expires_at, execution_id "
-                    + "LIMIT ? FOR UPDATE SKIP LOCKED";
+                    + "WHERE expires_at<=? AND NOT EXISTS (SELECT 1 FROM execution_read_window w "
+                    + "WHERE w.execution_id=execution_anchor.execution_id "
+                    + "AND w.protected_until>clock_timestamp()) "
+                    + "ORDER BY expires_at, execution_id LIMIT ? FOR UPDATE SKIP LOCKED";
+    private static final String REAP_READ_WINDOWS = """
+            DELETE FROM execution_read_window WHERE read_id IN (
+                SELECT read_id FROM execution_read_window
+                WHERE protected_until<=clock_timestamp()
+                ORDER BY protected_until, read_id LIMIT ? FOR UPDATE SKIP LOCKED
+            )
+            """;
 
     private final DataSource dataSource;
 
@@ -123,17 +165,12 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
             Duration leaseDuration) throws SQLException {
         AnchorRow row = selectForUpdate(connection, executionId);
         if (row == null) {
-            long token = nextToken(connection);
-            Instant now = dbNow(connection);
-            if (insert(connection, executionId, ownerId, ownerIncarnation, token,
-                    now, now.plusMillis(leaseDuration.toMillis()))) {
+            String interval = leaseDuration.toMillis() + " milliseconds";
+            OptionalLong token = insert(connection, executionId, ownerId, ownerIncarnation, interval);
+            if (token.isPresent()) {
                 // INSERT may wait for an invisible competing INSERT that rolls back.
                 // Our row is now exclusively owned; grant from time after that wait.
-                now = dbNow(connection);
-                Instant deadline = now.plusMillis(leaseDuration.toMillis());
-                refreshInserted(connection, executionId, token, now, deadline);
-                return Optional.of(anchor(
-                        executionId, ownerId, ownerIncarnation, token, now, deadline));
+                return Optional.of(refreshInserted(connection, executionId, token.getAsLong(), interval));
             }
             row = selectForUpdate(connection, executionId);
         }
@@ -201,10 +238,10 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
         Objects.requireNonNull(anchor, "anchor must not be null");
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
-            selectForUpdate(connection, anchor.executionId());
-            Instant now = dbNow(connection);
-            // Query cleanup ends the owner, but a pending catalog intent still needs a successor.
-            boolean released = retire(connection, anchor, now, requiresWriteRecovery(connection, anchor));
+            AnchorRow current = selectForUpdate(connection, anchor.executionId());
+            // Start a fresh statement after acquiring the row lock. A writer may
+            // have committed its recovery intent while this transaction waited.
+            boolean released = current != null && releaseLockedAnchor(connection, anchor);
             connection.commit();
             return released;
         } catch (SQLException failure) {
@@ -219,7 +256,7 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
             connection.setAutoCommit(false);
             selectForUpdate(connection, anchor.executionId());
             Instant now = dbNow(connection);
-            boolean yielded = retire(connection, anchor, now, true);
+            boolean yielded = yieldLockedAnchor(connection, anchor, now);
             connection.commit();
             return yielded;
         } catch (SQLException failure) {
@@ -227,27 +264,33 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
         }
     }
 
-    private static boolean requiresWriteRecovery(Connection connection, ExecutionAnchor anchor) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement(UNRESOLVED_WRITE)) {
-            statement.setString(1, anchor.executionId());
+    private static boolean releaseLockedAnchor(Connection connection, ExecutionAnchor anchor)
+            throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(RELEASE)) {
+            bindOwner(statement, 1, anchor);
             try (ResultSet result = statement.executeQuery()) {
                 return result.next() && result.getBoolean(1);
             }
         }
     }
 
-    private static boolean retire(Connection connection, ExecutionAnchor anchor, Instant now, boolean retain)
+    private static boolean yieldLockedAnchor(Connection connection, ExecutionAnchor anchor, Instant now)
             throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement(retain ? YIELD : RELEASE)) {
-            int parameter = 1;
-            if (retain) setInstant(statement, parameter++, now);
-            statement.setString(parameter++, anchor.executionId());
-            statement.setString(parameter++, anchor.ownerId());
-            statement.setString(parameter++, anchor.ownerIncarnation());
-            statement.setLong(parameter++, anchor.fencingToken());
-            setInstant(statement, parameter, now);
+        try (PreparedStatement statement = connection.prepareStatement(YIELD)) {
+            setInstant(statement, 1, now);
+            int next = bindOwner(statement, 2, anchor);
+            setInstant(statement, next, now);
             return statement.executeUpdate() == 1;
         }
+    }
+
+    private static int bindOwner(PreparedStatement statement, int parameter, ExecutionAnchor anchor)
+            throws SQLException {
+        statement.setString(parameter++, anchor.executionId());
+        statement.setString(parameter++, anchor.ownerId());
+        statement.setString(parameter++, anchor.ownerIncarnation());
+        statement.setLong(parameter++, anchor.fencingToken());
+        return parameter;
     }
 
     @Override
@@ -269,8 +312,8 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
         }
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
-            List<ExpiredRow> expired = selectExpired(
-                    connection, dbNow(connection), maxBatchSize);
+            reapReadWindows(connection, maxBatchSize);
+            List<ExpiredRow> expired = selectExpired(connection, dbNow(connection), maxBatchSize);
             List<ExecutionAnchor> claimed = new ArrayList<>(expired.size());
             for (ExpiredRow row : expired) {
                 long token = nextToken(connection);
@@ -298,12 +341,7 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
             try (PreparedStatement statement = connection.prepareStatement(SELECT_CURRENT)) {
                 statement.setString(1, executionId);
                 try (ResultSet result = statement.executeQuery()) {
-                    if (!result.next()) {
-                        return Optional.empty();
-                    }
-                    AnchorRow row = mapRow(result);
-                    return row.expiresAt.isAfter(dbNow(connection))
-                            ? Optional.of(anchor(executionId, row)) : Optional.empty();
+                    return result.next() ? Optional.of(anchor(executionId, mapRow(result))) : Optional.empty();
                 }
             }
         } catch (SQLException failure) {
@@ -334,35 +372,36 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
         }
     }
 
-    private static void refreshInserted(Connection connection, String executionId, long token,
-                                        Instant now, Instant deadline) throws SQLException {
+    private static ExecutionAnchor refreshInserted(Connection connection, String executionId, long token,
+            String interval) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(REFRESH_INSERTED)) {
-            setInstant(statement, 1, now);
-            setInstant(statement, 2, deadline);
-            statement.setString(3, executionId);
-            statement.setLong(4, token);
-            if (statement.executeUpdate() != 1) {
-                throw new SQLException("Inserted execution anchor lost its transaction ownership");
+            statement.setString(1, interval);
+            statement.setString(2, executionId);
+            statement.setLong(3, token);
+            try (ResultSet result = statement.executeQuery()) {
+                if (!result.next()) {
+                    throw new SQLException("Inserted execution anchor lost its transaction ownership");
+                }
+                return anchor(executionId, mapRow(result));
             }
         }
     }
 
-    private static boolean insert(
+    private static OptionalLong insert(
             Connection connection,
             String executionId,
             String ownerId,
             String ownerIncarnation,
-            long token,
-            Instant now,
-            Instant deadline) throws SQLException {
+            String interval) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(INSERT_ANCHOR)) {
             statement.setString(1, executionId);
             statement.setString(2, ownerId);
             statement.setString(3, ownerIncarnation);
-            statement.setLong(4, token);
-            setInstant(statement, 5, now);
-            setInstant(statement, 6, deadline);
-            return statement.executeUpdate() == 1;
+            statement.setString(4, interval);
+            statement.setString(5, executionId);
+            try (ResultSet result = statement.executeQuery()) {
+                return result.next() ? OptionalLong.of(result.getLong("fencing_token")) : OptionalLong.empty();
+            }
         }
     }
 
@@ -379,6 +418,13 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
             statement.setLong(8, replacement.row().version);
             setInstant(statement, 9, replacement.now());
             return statement.executeUpdate() == 1;
+        }
+    }
+
+    private static void reapReadWindows(Connection connection, int limit) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(REAP_READ_WINDOWS)) {
+            statement.setInt(1, limit);
+            statement.executeUpdate();
         }
     }
 

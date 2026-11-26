@@ -5,23 +5,20 @@ import org.pangrova.common.client.metadata.MetadataTableIdentifier;
 import org.pangrova.common.client.metadata.MetadataTableInfo;
 import org.pangrova.client.http.authentication.ClientAuthentication;
 import org.pangrova.transport.client.FlightResultFetcher;
-import org.pangrova.transport.client.exception.TransportConnectionException;
-import org.pangrova.transport.client.exception.TransportServerException;
+import org.pangrova.transport.client.ResultCursor;
 import org.pangrova.transport.client.security.ResultTransportSecurity;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.common.client.query.QueryStatusResponse;
+import org.pangrova.common.enums.QueryWaitTarget;
 import org.pangrova.common.client.result.ResultEndpoint;
 import org.pangrova.common.client.query.SubmitQueryRequest;
 import org.pangrova.common.client.query.SubmitQueryResponse;
-import org.pangrova.common.client.result.ResultBatchConsumer;
 import org.pangrova.common.client.enums.CancelOutcome;
-import org.pangrova.common.client.query.QueryClient;
 import org.pangrova.common.client.exception.PangrovaConnectionException;
 import org.pangrova.common.client.exception.PangrovaProtocolException;
-import org.pangrova.common.client.exception.PangrovaServerException;
 import org.pangrova.common.client.session.ConnectionPoolConfig;
 import org.pangrova.common.client.session.RetryPolicy;
 import org.slf4j.Logger;
@@ -108,14 +105,25 @@ public final class PangrovaRestClient implements QueryClient, AutoCloseable {
      * Non-idempotent POST: does not retry after the request may have been sent.
      */
     public SubmitQueryResponse submitQuery(String sql, Map<String, String> sessionProperties) {
+        return submitQuery(sql, sessionProperties, routing.current());
+    }
+
+    @Override
+    public QueryExecution beginQuery(String sql, Map<String, String> sessionProperties) {
+        var selection = routing.current();
+        return new OwnerQuery(submitQuery(sql, sessionProperties, selection), selection);
+    }
+
+    private SubmitQueryResponse submitQuery(String sql, Map<String, String> sessionProperties,
+            EndpointRouting.Selection selection) {
         var properties = new java.util.HashMap<>(branchRoutes);
         if (sessionProperties != null) properties.putAll(sessionProperties);
         var request = new SubmitQueryRequest(sql, properties);
-        var response = postNonIdempotent("/v1/query/submit", request, SubmitQueryResponse.class);
-        var selection = response.branchSelection();
-        if (selection != null) {
-            if (selection.branch() == null) branchRoutes.remove(selection.propertyKey());
-            else branchRoutes.put(selection.propertyKey(), selection.branch());
+        var response = postNonIdempotent("/v1/query/submit", request, SubmitQueryResponse.class, selection);
+        var branch = response.branchSelection();
+        if (branch != null) {
+            if (branch.branch() == null) branchRoutes.remove(branch.propertyKey());
+            else branchRoutes.put(branch.propertyKey(), branch.branch());
         }
         return response;
     }
@@ -131,10 +139,13 @@ public final class PangrovaRestClient implements QueryClient, AutoCloseable {
      * Cancels a running query.
      */
     public CancelOutcome cancelQuery(String queryId) {
+        return cancelQuery(queryId, routing.current(), false);
+    }
+
+    private CancelOutcome cancelQuery(String queryId, EndpointRouting.Selection selection, boolean ownerBound) {
         if (queryId == null || queryId.isBlank()) {
             throw new IllegalArgumentException("Query cancellation requires its query identity");
         }
-        var selection = routing.current();
         HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(selection.baseUrl() + "/v1/query/" + queryId + "/cancel"))
                 .timeout(config.requestTimeout())
@@ -142,7 +153,8 @@ public final class PangrovaRestClient implements QueryClient, AutoCloseable {
                 .header("Content-Type", "application/json")
                 .header("Accept", "application/json");
         addRequestHeaders(builder);
-        HttpResponse<String> response = executor.executeWithRetry(routing.bind(selection, builder.build()));
+        var request = routing.bind(selection, builder.build());
+        HttpResponse<String> response = ownerBound ? executor.execute(request) : executor.executeWithRetry(request);
         return parseCancelOutcome(response, queryId);
     }
 
@@ -237,35 +249,9 @@ public final class PangrovaRestClient implements QueryClient, AutoCloseable {
         }
     }
 
-    /**
-     * Fetches query result via transport, returning all batches as a single Arrow IPC byte array.
-     */
-    public byte[] fetchResult(ResultEndpoint endpoint) {
-        return fetchResult(endpoint, Long.MAX_VALUE);
-    }
-
-    /** Fetches results while honoring the caller's absolute query deadline. */
-    public byte[] fetchResult(ResultEndpoint endpoint, long deadlineEpochMs) {
-        try {
-            return resultFetcher.fetch(endpoint, deadlineEpochMs);
-        } catch (TransportConnectionException e) {
-            throw new PangrovaConnectionException(e.transportErrorCode(), e.getMessage(), e);
-        } catch (TransportServerException e) {
-            throw new PangrovaServerException(e.transportErrorCode(), e.getMessage(), e.statusCode(), e);
-        }
-    }
-
-    /**
-     * Streams query result via transport, invoking the consumer for each batch.
-     */
-    public void fetchResultStream(ResultEndpoint endpoint, ResultBatchConsumer consumer) {
-        try {
-            resultFetcher.fetchStream(endpoint, consumer::accept);
-        } catch (TransportConnectionException e) {
-            throw new PangrovaConnectionException(e.transportErrorCode(), e.getMessage(), e);
-        } catch (TransportServerException e) {
-            throw new PangrovaServerException(e.transportErrorCode(), e.getMessage(), e.statusCode(), e);
-        }
+    @Override
+    public ResultCursor openResult(ResultEndpoint endpoint, long deadlineEpochMs) {
+        return resultFetcher.open(endpoint, deadlineEpochMs);
     }
 
     @Override
@@ -284,12 +270,78 @@ public final class PangrovaRestClient implements QueryClient, AutoCloseable {
         return new Builder();
     }
 
+    private final class OwnerQuery implements QueryExecution {
+        private final SubmitQueryResponse receipt;
+        private final EndpointRouting.Selection selection;
+        private final String observer = java.util.UUID.randomUUID().toString();
+        private Long version;
+
+        OwnerQuery(SubmitQueryResponse receipt, EndpointRouting.Selection selection) {
+            this.receipt = receipt;
+            this.selection = selection;
+        }
+
+        @Override
+        public SubmitQueryResponse submission() {
+            return receipt;
+        }
+
+        @Override
+        public QueryStatusResponse awaitStatus(QueryWaitTarget target, long deadlineEpochMillis) {
+            java.util.Objects.requireNonNull(target, "target");
+            long now = System.currentTimeMillis();
+            if (deadlineEpochMillis <= now) throw statusDeadline(null);
+            long remaining = deadlineEpochMillis == Long.MAX_VALUE ? Long.MAX_VALUE : deadlineEpochMillis - now;
+            long configuredMillis = config.requestTimeout().toMillis();
+            long requestMillis = Math.min(configuredMillis, remaining);
+            boolean followVersion = target == QueryWaitTarget.NEXT_VERSION;
+            long waitMillis = followVersion && version == null ? 0
+                    : Math.min(QueryStatusResponse.MAX_WAIT_MILLIS, requestMillis / 2);
+            String path = "/v1/query/" + receipt.queryId() + "/state?afterVersion="
+                    + (version == null ? 0 : version) + "&waitMs=" + waitMillis;
+            if (!followVersion) path += "&until=" + target.name();
+            var builder = HttpRequest.newBuilder(URI.create(selection.baseUrl() + path))
+                    .timeout(Duration.ofMillis(Math.max(1, requestMillis))).GET()
+                    .header("Accept", "application/json")
+                    .header("X-Pangrova-Query-Observer", observer);
+            addRequestHeaders(builder);
+            HttpResponse<String> response;
+            try {
+                response = executor.execute(routing.bind(selection, builder.build()));
+            } catch (PangrovaConnectionException failure) {
+                if ("REQUEST_TIMEOUT".equals(failure.errorCode()) && remaining <= configuredMillis) {
+                    throw statusDeadline(failure);
+                }
+                throw failure;
+            }
+            responseHandler.check(response);
+            var status = responseHandler.deserialize(response.body(), QueryStatusResponse.class, "GET " + path);
+            if (!receipt.queryId().equals(status.queryId()) || status.version() == null || status.version() < 0
+                    || version != null && status.version() < version) {
+                throw new PangrovaProtocolException("QUERY_STATUS_INVALID",
+                        "Owner status identity or version mismatched", response.statusCode());
+            }
+            version = status.version();
+            return status;
+        }
+
+        private PangrovaConnectionException statusDeadline(Throwable cause) {
+            return new PangrovaConnectionException("QUERY_STATUS_DEADLINE_EXCEEDED",
+                    "Query deadline exceeded waiting for state queryId=" + receipt.queryId(), cause);
+        }
+
+        @Override
+        public CancelOutcome cancel() {
+            return cancelQuery(receipt.queryId(), selection, true);
+        }
+    }
+
     // ---- internal HTTP helpers ----
 
-    private <T> T postNonIdempotent(String path, Object body, Class<T> responseType) {
+    private <T> T postNonIdempotent(String path, Object body, Class<T> responseType,
+                                   EndpointRouting.Selection selection) {
         byte[] bodyBytes = serializeBody(body, path);
         String requestId = java.util.UUID.randomUUID().toString();
-        var selection = routing.current();
         HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(selection.baseUrl() + path))
                 .timeout(config.requestTimeout())

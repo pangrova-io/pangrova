@@ -1,5 +1,6 @@
 package org.pangrova.connector.iceberg;
 
+import org.pangrova.protocol.source.CanonicalConnectorSplit;
 import io.substrait.proto.ExtendedExpression;
 import io.substrait.proto.ExpressionReference;
 import org.pangrova.connector.iceberg.handle.IcebergSplit;
@@ -138,7 +139,7 @@ class IcebergSplitPredicateInjectionIntegrationTest {
                 .isNotEmpty()
                 .isEqualTo(predicateBytes);
 
-        byte[] protoBytes = split.toSplitInfoProto();
+        byte[] protoBytes = CanonicalConnectorSplit.from(split).toByteArray();
         DataSplit info = DataSplit.parseFrom(protoBytes);
 
         assertThat(DataSplitProtoCodec.fileDetail(info).hasSplitConstraint()).isTrue();
@@ -166,7 +167,7 @@ class IcebergSplitPredicateInjectionIntegrationTest {
                 100L, 1L, 0, "DATA", "FULL", 0L, 0L, List.of(),
                 List.of(), List.of(), new byte[0]);
 
-        byte[] protoBytes = split.toSplitInfoProto();
+        byte[] protoBytes = CanonicalConnectorSplit.from(split).toByteArray();
         DataSplit info = DataSplit.parseFrom(protoBytes);
 
         assertThat(DataSplitProtoCodec.fileDetail(info).hasSplitConstraint()).isFalse();

@@ -30,6 +30,25 @@ import static org.assertj.core.api.Assertions.assertThat;
 class TaskRequestEpochStampingTest {
 
     @Test
+    void tasksShareTheFrozenPlanBytesAndChecksum() {
+        byte[] source = {1, 2, 3};
+        var frozen = new TaskRequestFactory.FrozenStagePlan(source);
+        var task = new TaskRequestFactory.DmlWriteTask(session("q-frozen"), frozen, grant(),
+                List.of(), List.of(), List.of(),
+                writeConfig("catalog.schema.table", "APPEND", List.of()), 0,
+                TaskAttemptDescriptor.of(1, 0));
+        var first = TaskRequestFactory.buildDmlWriteRequest(task).taskRequest();
+        source[0] = 99;
+        var second = TaskRequestFactory.buildDmlWriteRequest(task).taskRequest();
+
+        assertThat(second.getAttempt().getTaskId()).isNotEqualTo(first.getAttempt().getTaskId());
+        assertThat(second.getSubstraitPlan()).isEqualTo(first.getSubstraitPlan());
+        assertThat(second.getSubstraitPlan().toByteArray()).containsExactly(1, 2, 3);
+        assertThat(second.getSubstraitPlanChecksum()).isEqualTo(
+                org.pangrova.protocol.checksum.ProtocolChecksums.sha256(new byte[]{1, 2, 3}));
+    }
+
+    @Test
     void dmlWriteRequest_hasCorrectTaskType() {
         var session = session("q-2");
         var limit = grant();
@@ -145,8 +164,8 @@ class TaskRequestEpochStampingTest {
 
         SubmitTaskRequest request = TaskRequestFactory.buildDmlWriteRequest(
                 new TaskRequestFactory.DmlWriteTask(
-                        session, new byte[]{1}, grant(), List.of(source),
-                        List.of(binding), List.of(), List.of(), writeConfig, 5,
+                        session, new TaskRequestFactory.FrozenStagePlan(new byte[]{1}), grant(), List.of(source),
+                        List.of(binding), List.of(), writeConfig, 5,
                         TaskAttemptDescriptor.of(3, 1)));
 
         assertThat(request.taskRequest().getExchangeInputsList()).hasSize(1);
@@ -171,8 +190,8 @@ class TaskRequestEpochStampingTest {
             long timeoutSeconds) {
         return TaskRequestFactory.buildDmlWriteRequest(
                 new TaskRequestFactory.DmlWriteTask(
-                        session, plan, resourceGrant, List.of(), List.of(),
-                        List.of(), List.of(), writeConfig, timeoutSeconds,
+                        session, new TaskRequestFactory.FrozenStagePlan(plan), resourceGrant, List.of(), List.of(),
+                        List.of(), writeConfig, timeoutSeconds,
                         TaskAttemptDescriptor.of(1, 0)));
     }
 

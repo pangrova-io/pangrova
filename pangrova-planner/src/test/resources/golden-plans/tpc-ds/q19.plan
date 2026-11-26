@@ -1,5 +1,5 @@
 LogicalSort(sort0=[$4], sort1=[$1], sort2=[$0], sort3=[$2], sort4=[$3], dir0=[DESC], dir1=[ASC], dir2=[ASC], dir3=[ASC], dir4=[ASC], fetch=[100])
-  LogicalAggregate(group=[{4, 5, 6, 7}], ext_price=[$SUM0($3)])
+  LogicalAggregate(group=[{4, 5, 6, 7}], ext_price=[SUM($3)])
     LogicalFilter(condition=[AND(=($8, 8), =($1, 11), =($0, 1998), <>(SUBSTRING($9, 1:BIGINT, 5:BIGINT), SUBSTRING($11, 1:BIGINT, 5:BIGINT)))])
       LogicalJoin(condition=[=($2, $10)], joinType=[inner])
         LogicalProject(d_year=[$0], d_moy=[$1], ss_store_sk=[$2], ss_ext_sales_price=[$3], i_brand_id=[$4], i_brand=[$5], i_manufact_id=[$6], i_manufact=[$7], i_manager_id=[$8], ca_zip=[$11])

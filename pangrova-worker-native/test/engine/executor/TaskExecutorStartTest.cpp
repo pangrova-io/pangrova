@@ -289,10 +289,9 @@ TEST(TaskExecutorStartTest, StatsExposeSemanticCacheUsageBeforeRelease) {
   EXPECT_FALSE(cache.put(
       identity, key, std::string("not admitted"), too_small, config.task_id));
 
-  const auto serialized = exec.collectTaskStats();
-  protocol::v2::NativeTaskStats stats;
-  ASSERT_TRUE(stats.ParseFromArray(
-      serialized.data(), static_cast<int>(serialized.size())));
+  const auto report_stats = exec.collectTaskStats();
+  ASSERT_TRUE(report_stats.has_value());
+  const auto& stats = *report_stats;
   EXPECT_EQ(stats.cache_hit_count(), 1);
   EXPECT_EQ(stats.cache_miss_count(), 1);
   EXPECT_GT(stats.cache_hit_bytes(), 0);

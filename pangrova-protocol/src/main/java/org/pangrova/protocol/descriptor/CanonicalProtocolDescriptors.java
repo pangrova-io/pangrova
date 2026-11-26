@@ -2,6 +2,7 @@ package org.pangrova.protocol.descriptor;
 
 import org.pangrova.common.util.DigestUtils;
 
+import com.google.protobuf.ByteString;
 import com.google.protobuf.DescriptorProtos.FileDescriptorSet;
 import com.google.protobuf.DescriptorProtos.DescriptorProto;
 import com.google.protobuf.DescriptorProtos.FieldDescriptorProto;
@@ -17,23 +18,24 @@ import java.util.Set;
 /** Deterministic descriptor sets for the canonical JVM/native boundaries. */
 public final class CanonicalProtocolDescriptors {
 
+    private static final FileDescriptorSet DESCRIPTORS =
+            buildDescriptorSet(org.pangrova.protocol.v2.Runtime.getDescriptor());
+    private static final byte[] DESCRIPTOR_BYTES = DESCRIPTORS.toByteArray();
+    private static final ByteString SHA256 = ByteString.copyFrom(DigestUtils.sha256().digest(DESCRIPTOR_BYTES));
+
     private CanonicalProtocolDescriptors() {}
 
     /** Returns the sole canonical descriptor set rooted at v2/runtime.proto. */
     public static FileDescriptorSet descriptorSet() {
-        return descriptorSet(org.pangrova.protocol.v2.Runtime.getDescriptor(), true);
+        return DESCRIPTORS;
     }
 
-    private static FileDescriptorSet descriptorSet(
-            FileDescriptor root,
-            boolean normalizeDerivedFields) {
+    private static FileDescriptorSet buildDescriptorSet(FileDescriptor root) {
         List<FileDescriptor> descriptors = new ArrayList<>();
         collect(root, new HashSet<>(), descriptors);
         descriptors.sort(Comparator.comparing(FileDescriptor::getName));
         FileDescriptorSet.Builder result = FileDescriptorSet.newBuilder();
-        descriptors.forEach(value -> result.addFile(normalizeDerivedFields
-                ? normalize(value.toProto())
-                : value.toProto()));
+        descriptors.forEach(value -> result.addFile(normalize(value.toProto())));
         return result.build();
     }
 
@@ -62,16 +64,16 @@ public final class CanonicalProtocolDescriptors {
 
     /** Returns the stable wire representation used by the native handshake. */
     public static byte[] descriptorSetBytes() {
-        return descriptorSet().toByteArray();
+        return DESCRIPTOR_BYTES.clone();
     }
 
     /** Returns SHA-256 of {@link #descriptorSetBytes()}. */
     public static byte[] sha256() {
-        return sha256(descriptorSetBytes());
+        return SHA256.toByteArray();
     }
 
-    private static byte[] sha256(byte[] descriptorBytes) {
-        return DigestUtils.sha256().digest(descriptorBytes);
+    static ByteString sha256Digest() {
+        return SHA256;
     }
 
     private static void collect(

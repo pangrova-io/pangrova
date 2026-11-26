@@ -252,10 +252,15 @@ class ShuffleAccessRenewalIntegrationTest extends ContainerTestBase {
     void stopsAnAlreadyOpenedReadAtTheNextBatchBoundaryAfterCapabilityExpiry() {
         long now = System.currentTimeMillis();
         var allocation = store.findAllocation(shuffleId).orElseThrow();
-        var read = new ShuffleServiceEngine.ReadResult(allocation,
-                new ShuffleServiceModel.FinalizeResult(
-                        1, new byte[32], List.of(), 0, 0),
-                0, 0, now + 60_000L, now - 1L, java.util.UUID.randomUUID(), store);
+        var partition = new ShuffleServiceModel.FinalizedPartition(0, 0, 0, -1, new byte[32]);
+        var pin = new ShuffleLifecycleStore.ReadPin(java.util.UUID.randomUUID(), 0);
+        var lease = new ShuffleReadLease(store, queryId, allocation.owner(), pin, java.time.Clock.systemUTC(),
+                System.nanoTime(), now);
+        var read = new ShuffleServiceEngine.ReadResult(shuffleId,
+                new ShuffleServiceModel.PublishedPartition(
+                        allocation.identity().planEpoch(), 1, new byte[32],
+                        new ShuffleServiceModel.PartitionPublication(partition, new byte[0])),
+                0, now + 60_000L, now - 1L, lease);
 
         assertThatThrownBy(() -> engine.readPage(read, 0))
                 .isInstanceOf(SecurityException.class)

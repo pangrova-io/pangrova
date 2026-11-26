@@ -188,6 +188,26 @@ class IndexGcGenerationFencingTest {
     }
 
     @Test
+    void removesAnIndexCohortWithoutReloadingAllItsMappingsPerOrphan() throws Exception {
+        var store = new GenerationTrackingStore();
+        store.addDescriptor(buildDescriptor("idx-1", 4, IndexState.READY));
+        Path current = Files.writeString(files.resolve("current.idx"), "serving");
+        store.addStaleMapping(buildMapping("idx-1", "/data/current.parquet", current.toString(), 4));
+        var obsolete = new ArrayList<Path>();
+        for (int index = 0; index < 100; index++) {
+            Path file = Files.writeString(files.resolve("orphan-" + index + ".idx"), "obsolete");
+            obsolete.add(file);
+            store.addStaleMapping(buildMapping("idx-1", "/data/orphan-" + index + ".parquet", file.toString(), 2));
+        }
+        gc = buildGc(store);
+
+        assertThat(gc.runGc().orphanedCount()).isEqualTo(100);
+        assertThat(obsolete).noneMatch(Files::exists);
+        assertThat(Files.readString(current)).isEqualTo("serving");
+        assertThat(store.mappingReadCalls).as("complete index mapping reloads").isZero();
+    }
+
+    @Test
     void stateFenceFailureKeepsMappingAndNeverDeletesTheFile() throws Exception {
         var store = new GenerationTrackingStore();
         store.addDescriptor(buildDescriptor("idx-1", 3, IndexState.READY));
@@ -330,6 +350,7 @@ class IndexGcGenerationFencingTest {
      * Stale mappings are returned directly; removal is tracked for assertions.
      */
     static final class GenerationTrackingStore implements IndexMetadataStore {
+        int mappingReadCalls;
         private final Map<String, IndexDescriptor> descriptors = new HashMap<>();
         private final List<IndexFileMapping> staleMappings = new ArrayList<>();
         final CopyOnWriteArrayList<String> removedMappings = new CopyOnWriteArrayList<>();
@@ -360,7 +381,13 @@ class IndexGcGenerationFencingTest {
         @Override public void dropIndex(String id, Instant t) {}
         @Override public void purgeIndex(String id) { purgedIndexes.add(id); descriptors.remove(id); }
         @Override public void batchRegisterIndexFiles(String owner, List<IndexFileMapping> m) {}
+        @Override public Set<String> getIndexedDataFilePaths(String id, int generation) {
+            return staleMappings.stream()
+                    .filter(mapping -> id.equals(mapping.indexId()) && mapping.generation() == generation)
+                    .map(IndexFileMapping::dataFilePath).collect(java.util.stream.Collectors.toUnmodifiableSet());
+        }
         @Override public List<IndexFileMapping> getIndexFileMappings(String id) {
+            mappingReadCalls++;
             return staleMappings.stream().filter(mapping -> id.equals(mapping.indexId())).toList();
         }
         @Override public Map<String, Map<String, String>> batchGetIndexFileMappings(
@@ -368,20 +395,26 @@ class IndexGcGenerationFencingTest {
         @Override public void removeIndexFileMapping(String id, String path) {
             removedMappings.add(id + ":" + path);
         }
-        @Override public boolean removeIndexFileMappingIfState(IndexFileMapping mapping,
-                                                                IndexState expectedState,
-                                                                int expectedGeneration) {
-            if (rejectMappingRemoval) {
-                return false;
+        @Override
+        public OrphanRemoval removeOrphanMappings(String indexId, IndexState expectedState,
+                                                  int expectedGeneration, List<IndexFileMapping> mappings) {
+            IndexDescriptor desc = descriptors.get(indexId);
+            if (rejectMappingRemoval || desc == null
+                    || desc.state() != expectedState || desc.generation() != expectedGeneration) {
+                return new OrphanRemoval(0, java.util.Set.of());
             }
-            IndexDescriptor desc = descriptors.get(mapping.indexId());
-            if (desc != null && desc.state() == expectedState
-                    && desc.generation() == expectedGeneration
-                    && staleMappings.remove(mapping)) {
-                removedMappings.add(mapping.indexId() + ":" + mapping.dataFilePath());
-                return true;
+            int removed = 0;
+            var paths = new java.util.HashSet<String>();
+            for (var mapping : mappings) {
+                if (staleMappings.remove(mapping)) {
+                    removedMappings.add(mapping.indexId() + ":" + mapping.dataFilePath());
+                    paths.add(mapping.indexFilePath());
+                    removed++;
+                }
             }
-            return false;
+            staleMappings.stream().filter(mapping -> indexId.equals(mapping.indexId()))
+                    .map(IndexFileMapping::indexFilePath).forEach(paths::remove);
+            return new OrphanRemoval(removed, paths);
         }
         @Override public List<String> filterUnindexedFiles(String id, List<String> paths) { return List.of(); }
         @Override public void markOrphanedByDataFiles(String id, List<String> paths) {}

@@ -224,7 +224,7 @@ class RoleBasedDeploymentE2ETest extends SqlE2ETestBase {
                     CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, CoordinatorDeploymentRole.MAINTENANCE, "0.0.0.0");
             var features = new CoordinatorBootstrapConfig.FeatureFlags(
                     false, false, true, true, false, false, false, false,
-                    false, false, false, true);
+                    false, false, true);
             CoordinatorBootstrapConfig config = new CoordinatorBootstrapConfig(
                     core, features,
                     CoordinatorBootstrapConfig.QueryConfig.defaults(),
@@ -301,7 +301,7 @@ class RoleBasedDeploymentE2ETest extends SqlE2ETestBase {
                     CoreConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, CoordinatorDeploymentRole.COMBINED, "0.0.0.0");
             var features = new CoordinatorBootstrapConfig.FeatureFlags(
                     false, false, true, true, false, false, false, false,
-                    false, false, false, true);
+                    false, false, true);
             CoordinatorBootstrapConfig config = new CoordinatorBootstrapConfig(
                     core, features,
                     CoordinatorBootstrapConfig.QueryConfig.defaults(),

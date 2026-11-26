@@ -58,12 +58,19 @@ public final class TestTlsAuthority implements AutoCloseable {
     }
 
     public Identity issue(String name, InetAddress address, boolean expired) throws Exception {
+        return issue(name, address, null, expired);
+    }
+
+    /** Issues one test certificate for an IP result endpoint and a DNS control-plane identity. */
+    public Identity issue(String name, InetAddress address, String dnsIdentity, boolean expired) throws Exception {
         if (!name.matches("[a-z0-9][a-z0-9-]*") || address == null
                 || address.isAnyLocalAddress() || address.isLoopbackAddress()
-                || address.isLinkLocalAddress()) {
+                || address.isLinkLocalAddress()
+                || (dnsIdentity != null && !dnsIdentity.matches("[A-Za-z0-9.-]+"))) {
             throw new IllegalArgumentException("Invalid test certificate IP identity");
         }
-        return issueWithSan(name, "IP:" + address.getHostAddress(), expired);
+        String ipSan = "IP:" + address.getHostAddress();
+        return issueWithSan(name, dnsIdentity == null ? ipSan : ipSan + ",DNS:" + dnsIdentity, expired);
     }
 
     private Identity issueWithSan(String name, String san, boolean expired) throws Exception {

@@ -4,6 +4,7 @@ import org.pangrova.protocol.CanonicalTaskRequestTestFixture;
 
 import com.google.protobuf.UnknownFieldSet;
 import org.junit.jupiter.api.Test;
+import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.v2.ExecutionCallbackContext;
 import org.pangrova.protocol.v2.StageResourceGrant;
 import org.pangrova.protocol.v2.TaskKind;
@@ -22,7 +23,8 @@ class CanonicalCallbackAuthorityTest {
                 .setResourceGrant(StageResourceGrant.newBuilder().setGrantId("grant").setCpuSlots(2)
                         .setNativeMemoryBytes(1024).setProviderItems(8).setProviderAttempts(11)
                         .setProviderRequestBytes(1024).setProviderResponseBytes(2048)).build();
-        var callback = CanonicalTaskRequests.callbackFor(task);
+        var callback = new ValidatedTaskSubmission(SubmitTaskRequest.from(task)).callbackContext();
+        assertThat(callback).isEqualTo(CanonicalTaskRequests.callbackFor(task));
         assertThat(callback.getProtocol()).isEqualTo(task.getProtocol());
         assertThat(callback.getSecurity()).isEqualTo(task.getSecurity());
         assertThat(callback.getAttempt()).isEqualTo(task.getAttempt());

@@ -9,8 +9,8 @@ import org.pangrova.common.api.annotation.Experimental;
  * SPI for cluster-level query admission control.
  *
  * <p>An admission controller decides whether an inbound query may proceed to
- * scheduling, must be queued, or should be rejected outright. The decision is
- * based on per-tenant quotas, resource-group concurrency/queue limits, and
+ * scheduling or should be rejected. The decision is
+ * based on per-tenant quotas, resource-group concurrency limits, and
  * optionally CBO-estimated memory reservations.</p>
  *
  * <p>This SPI addresses several gaps identified in G-RES-04:</p>
@@ -38,10 +38,12 @@ import org.pangrova.common.api.annotation.Experimental;
 public interface ClusterAdmissionController {
 
     /**
-     * Evaluates whether the given query should be admitted, queued, or rejected.
+     * Evaluates whether the given query should be admitted or rejected.
      *
      * <p>Admission must be atomic: concurrent callers must not cause the system
-     * to exceed the configured concurrency or memory limits.</p>
+     * to exceed the configured concurrency or memory limits. A returned REJECT
+     * leaves this request without a new reservation. An exception can leave an
+     * unresolved reservation that requires reconciliation.</p>
      *
      * @param request the admission request context (tenant, resource group, query, memory estimate)
      * @return the admission decision (never null)

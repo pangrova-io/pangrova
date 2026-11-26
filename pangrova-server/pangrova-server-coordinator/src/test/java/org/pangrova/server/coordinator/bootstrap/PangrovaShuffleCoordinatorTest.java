@@ -356,6 +356,29 @@ class PangrovaShuffleCoordinatorTest {
     }
 
     @Test
+    void cleanupReleasesOnlyItsQueryStageAllocationsAndReceipts() throws Exception {
+        var service = new RecordingShuffleService();
+        try (var running = RunningService.start(service); var manager = manager(running.port())) {
+            var first = registration("first-query", 1, 2, 2, 1);
+            var second = registration("second-query", 1, 2, 2, 1);
+            var firstHandle = manager.registerShuffle(first);
+            var secondHandle = manager.registerShuffle(second);
+            var firstPublication = new ShufflePublication(first.queryId(), first.stageId(), 1, firstHandle.shuffleId());
+            var secondPublication = new ShufflePublication(second.queryId(), second.stageId(), 1, secondHandle.shuffleId());
+            manager.commitShuffle(firstPublication);
+            var secondReceipt = manager.commitShuffle(secondPublication);
+
+            manager.cleanupShuffle(first.queryId());
+            assertThatThrownBy(() -> manager.commitShuffle(firstPublication)).hasMessageContaining("unregistered");
+            assertThat(manager.registerShuffle(second)).isSameAs(secondHandle);
+            assertThat(manager.commitShuffle(secondPublication)).isSameAs(secondReceipt);
+            assertThat(service.registrations).hasSize(2);
+            assertThat(service.finalizations).hasSize(2);
+            assertThat(service.cleanups).extracting(CleanupRequest::getQueryId).containsExactly(first.queryId());
+        }
+    }
+
+    @Test
     void rejectsChangedCleanupCapabilityWithoutLaterExpiry() throws Exception {
         RecordingShuffleService service = new RecordingShuffleService();
         service.rotateCleanupTokenWithoutRenewal = true;

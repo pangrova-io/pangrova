@@ -35,13 +35,17 @@ import java.util.Objects;
 import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.DelayQueue;
+import java.util.concurrent.Delayed;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
 /** Coordinates authenticated HTTP submissions on one Coordinator, including concurrent retries. */
 public final class IdempotencyKeyRegistry {
     private static final Duration DEFAULT_TTL = Duration.ofMinutes(10);
-    private static final int SWEEP_THRESHOLD = 10_000;
+    private static final int MAX_EXPIRATIONS_PER_SUBMISSION = 16;
 
     private record Key(String principal, String idempotencyKey) {}
 
@@ -56,8 +60,42 @@ public final class IdempotencyKeyRegistry {
     }
 
     private final ConcurrentHashMap<Key, Entry> entries = new ConcurrentHashMap<>();
+    private final DelayQueue<Expiration> expirations = new DelayQueue<>();
     private final long ttlMillis;
     private final Clock clock;
+
+    private final class Expiration implements Delayed {
+        private final Key key;
+        private final Entry entry;
+        private final long deadlineMillis;
+
+        private Expiration(Key key, Entry entry) {
+            this.key = key;
+            this.entry = entry;
+            this.deadlineMillis = entry.expiresAtMillis;
+        }
+
+        @Override
+        public long getDelay(TimeUnit unit) {
+            return unit.convert(deadlineMillis - clock.millis(), TimeUnit.MILLISECONDS);
+        }
+
+        @Override
+        public int compareTo(Delayed other) {
+            return Long.compare(deadlineMillis, ((Expiration) other).deadlineMillis);
+        }
+
+        /** Heap ordering groups coincident deadlines. Removal still checks the exact key and entry. */
+        @Override
+        public boolean equals(Object other) {
+            return other instanceof Expiration expiration && deadlineMillis == expiration.deadlineMillis;
+        }
+
+        @Override
+        public int hashCode() {
+            return Long.hashCode(deadlineMillis);
+        }
+    }
 
     public IdempotencyKeyRegistry() {
         this(DEFAULT_TTL, Clock.systemUTC());
@@ -77,13 +115,11 @@ public final class IdempotencyKeyRegistry {
      * pre-registration submission is released for a later retry. Recorded failures keep their query
      * identity and cannot rerun the SQL during the TTL. The request fingerprint is fixed-size.
      */
-    public SubmitQueryResponse submit(String principal, String key, SubmitQueryRequest request,
-            Supplier<SubmitQueryResponse> submit) {
+    public CompletionStage<SubmitQueryResponse> submit(String principal, String key, SubmitQueryRequest request,
+            Supplier<CompletionStage<SubmitQueryResponse>> submit) {
         var scopedKey = new Key(Objects.requireNonNull(principal, "principal"), Objects.requireNonNull(key, "key"));
         long now = clock.millis();
-        if (entries.size() > SWEEP_THRESHOLD) {
-            entries.entrySet().removeIf(item -> item.getValue().expiresAtMillis <= now);
-        }
+        retireExpiredReceipts();
         var candidate = new Entry(fingerprint(request));
         Entry selected = entries.compute(scopedKey, (ignored, existing) ->
                 existing == null || existing.expiresAtMillis <= now ? candidate : existing);
@@ -91,33 +127,44 @@ public final class IdempotencyKeyRegistry {
             throw new ClientErrorException("Idempotency key was already used for a different request",
                     Response.Status.CONFLICT);
         }
-        if (selected != candidate) {
+        if (selected == candidate) {
             try {
-                return selected.receipt.join();
-            } catch (CompletionException failure) {
-                if (failure.getCause() instanceof RuntimeException cause) {
-                    throw cause;
-                }
-                if (failure.getCause() instanceof Error cause) {
-                    throw cause;
-                }
-                throw failure;
+                Objects.requireNonNull(submit.get(), "submission receipt stage")
+                        .whenComplete((receipt, failure) -> complete(scopedKey, selected, receipt, failure));
+            } catch (RuntimeException | Error failure) {
+                complete(scopedKey, selected, null, failure);
             }
         }
-        try {
-            SubmitQueryResponse receipt = Objects.requireNonNull(submit.get(), "submission receipt");
-            selected.receipt.complete(receipt);
-            selected.expiresAtMillis = clock.millis() + ttlMillis;
-            return receipt;
-        } catch (RuntimeException | Error failure) {
-            selected.receipt.completeExceptionally(failure);
-            if (failure instanceof RecordedSubmissionException || failure instanceof Error) {
-                selected.expiresAtMillis = clock.millis() + ttlMillis;
-            } else {
-                entries.remove(scopedKey, selected);
-            }
-            throw failure;
+        return selected.receipt.minimalCompletionStage();
+    }
+
+    private void complete(Key key, Entry entry, SubmitQueryResponse receipt, Throwable failure) {
+        Throwable cause = failure instanceof CompletionException && failure.getCause() != null
+                ? failure.getCause() : failure;
+        if (cause == null && receipt != null) {
+            retainReceipt(key, entry);
+            entry.receipt.complete(receipt);
+            return;
         }
+        if (cause instanceof RecordedSubmissionException || cause instanceof Error) {
+            retainReceipt(key, entry);
+        } else {
+            entries.remove(key, entry);
+        }
+        entry.receipt.completeExceptionally(cause == null ? new NullPointerException("submission receipt") : cause);
+    }
+
+    private void retireExpiredReceipts() {
+        for (int removed = 0; removed < MAX_EXPIRATIONS_PER_SUBMISSION; removed++) {
+            Expiration expired = expirations.poll();
+            if (expired == null) return;
+            entries.remove(expired.key, expired.entry);
+        }
+    }
+
+    private void retainReceipt(Key key, Entry entry) {
+        entry.expiresAtMillis = clock.millis() + ttlMillis;
+        expirations.add(new Expiration(key, entry));
     }
 
     private static String fingerprint(SubmitQueryRequest request) {

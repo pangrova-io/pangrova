@@ -15,6 +15,9 @@ public interface WorkerSelector {
     /** Selects a Worker for the given tenant. */
     WorkerInfo select(String tenantId);
 
+    /** Binds a stage's placement scope before any task in its cohort is submitted. */
+    default WorkerSelector bindStagePlacement(String tenantId) { return this; }
+
     /** Selects a Worker with a registered JVM CDC backend. */
     default WorkerInfo selectForCdc(String tenantId) {
         WorkerInfo selected = select(tenantId);
@@ -45,6 +48,9 @@ public interface WorkerSelector {
         }
         return selected;
     }
+
+    /** Estimates the greatest default Driver grant with one concurrent stage. */
+    default int estimateMaximumTaskDrivers(int activeWorkers, int parallelism) { return 0; }
 
     /** Computes a task grant that fits the exact selected Worker. */
     StageResourceGrant computeResourceLimit(

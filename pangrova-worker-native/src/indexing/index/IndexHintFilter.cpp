@@ -149,17 +149,14 @@ bool bloomProvesAbsent(const proto::IndexPredicate& predicate,
 // ---------------------------------------------------------------------------
 
 bool IndexHintFilter::shouldKeepTypedSplit(
-    const std::string& file_scan_detail,
+    const std::vector<proto::IndexEvalHintDetail>* hints,
     const std::string& data_file_path,
     bool* evaluated) {
   if (evaluated) {
     *evaluated = false;
   }
-  proto::FileSplitDetail detail;
-  if (!detail.ParseFromString(file_scan_detail)) {
-    return true;
-  }
-  for (const auto& hint : detail.index_eval_hints()) {
+  if (!hints) return true;
+  for (const auto& hint : *hints) {
     if (hint.data_file_path() != data_file_path ||
         hint.index_type() != "BLOOM_FILTER" || hint.index_file_path().empty() ||
         !hint.has_predicate()) {

@@ -133,7 +133,7 @@ class CalciteMaterializedViewRewriterTest {
 
     private PangrovaPlanner planner(MaterializedViewRewriteCatalog views) {
         return new PangrovaPlanner(schema, List.of("test", "db"),
-                new PlannerContext(null, views, null, null, null, null, null, null));
+                new PlannerContext(null, views, null, null, null, null));
     }
 
     private static MaterializedViewRewriteCatalog.PublishedView view(String definition,

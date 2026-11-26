@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.metadata.read;
 
+import org.pangrova.protocol.source.CanonicalConnectorSplit;
 import org.pangrova.connector.api.enums.ReadSnapshotState;
 import org.pangrova.connector.api.enums.TableDeclarationEvidence;
 import org.pangrova.planner.metadata.catalog.MetadataResolvedTable;
@@ -48,11 +49,22 @@ class PlanningDerivedReadIntegrationTest extends ContainerTestBase {
             var derived = new ConnectorReadBinding(new DerivedHandle(definition),
                     new ConnectorTableReadMetadata(metadata, TableDeclarationEvidence.EXACT),
                     TableStatistics.UNKNOWN, ReadSnapshotState.METADATA,
-                    OptionalLong.empty(), selected.sourceIdentity(), java.util.Optional.empty());
+                    OptionalLong.empty(), selected.sourceIdentity(), java.util.Optional.empty(), java.util.Optional.empty());
             var root = org.apache.calcite.jdbc.CalciteSchema.createRootSchema(false, false);
             var catalog = root.add("bound", new org.apache.calcite.schema.impl.AbstractSchema());
             var schema = catalog.add("db", new org.apache.calcite.schema.impl.AbstractSchema());
-            schema.add("summary", new MetadataResolvedTable(metadata, () -> derived));
+            var lookups = new java.util.concurrent.atomic.AtomicInteger();
+            var resolved = MetadataResolvedTable.fromReadBinding(() -> {
+                lookups.incrementAndGet();
+                return derived;
+            });
+            assertThat(resolved.unwrap(org.apache.calcite.rel.metadata.BuiltInMetadata.Predicates.Handler.class))
+                    .isNull();
+            assertThat(resolved.unwrap(MetadataResolvedTable.class)).isSameAs(resolved);
+            assertThat(lookups).hasValue(0);
+            assertThat(resolved.unwrap(ConnectorReadBinding.class)).isSameAs(derived);
+            assertThat(lookups).hasValue(1);
+            schema.add("summary", resolved);
             var plan = new PangrovaPlanner(root, List.of("bound", "db"))
                     .planForPolicyApplication("SELECT record_count, id_sum FROM summary").toPlannedQuery();
             assertThat(plan.tableReferences()).containsExactly(List.of("bound", "db", "rows"));
@@ -65,7 +77,7 @@ class PlanningDerivedReadIntegrationTest extends ContainerTestBase {
             assertThat(fixture.splits(plan.splitSources().get(0).readBinding().orElseThrow(), Map.of()))
                     .isNotEmpty().allSatisfy(split -> {
                         try {
-                            var wire = DataSplit.parseFrom(split.toSplitInfoProto());
+                            var wire = DataSplit.parseFrom(CanonicalConnectorSplit.from(split).toByteArray());
                             assertThat(wire.getSourceSnapshot()).isEqualTo(
                                     Long.toString(selected.snapshotId().orElseThrow()));
                         } catch (com.google.protobuf.InvalidProtocolBufferException error) {

@@ -1,5 +1,8 @@
 package org.pangrova.worker.http.endpoint;
 
+import org.pangrova.worker.exception.TaskBodyTooLargeException;
+import com.google.protobuf.ByteString;
+import com.google.protobuf.InvalidProtocolBufferException;
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
 import jakarta.ws.rs.Consumes;
@@ -16,22 +19,32 @@ import org.pangrova.observability.logging.LogContext;
 import org.pangrova.observability.sdk.tracing.otel.CurrentSpanIds;
 import org.pangrova.common.client.result.ResultEndpoint;
 import org.pangrova.common.client.enums.ResultProtocol;
-import org.pangrova.protocol.rest.task.exchange.ShuffleEndpointDescriptor;
-import org.pangrova.protocol.rest.task.exchange.ShufflePartitionTicketDescriptor;
+import org.pangrova.protocol.http.TaskAdmitted;
+import org.pangrova.protocol.http.TaskRejected;
+import org.pangrova.protocol.http.TaskResultEndpoint;
+import org.pangrova.protocol.http.TaskShuffleEndpoint;
+import org.pangrova.protocol.http.TaskSubmitAck;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
-import org.pangrova.protocol.rest.task.SubmitTaskResponse;
+import org.pangrova.protocol.task.ValidatedTaskSubmission;
 import org.pangrova.protocol.rest.task.UpstreamCommitNotification;
-import org.pangrova.protocol.rest.task.convert.TaskRequestDtoConverter;
-import org.pangrova.protocol.execution.TaskDescriptor;
+import org.pangrova.protocol.v2.ExchangeInputBinding;
+import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.shuffle.exchange.ExchangeTransport;
+import org.pangrova.transport.http.SizeLimitedInputStream;
 import org.pangrova.worker.exchange.source.ExchangeSourceRegistry;
 import org.pangrova.worker.task.TaskManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.Closeable;
+import java.io.InputStream;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 
 /**
  * JAX-RS resource for Worker task operations. Exchange inputs are immutable task-admission
@@ -44,10 +57,13 @@ import java.util.OptionalLong;
 public final class TaskResource implements Closeable {
 
     private static final int HTTP_TOO_EARLY = 425;
+    private static final int MAX_PENDING_RETRY_ACKS = 128;
     private static final Logger LOG = LoggerFactory.getLogger(TaskResource.class);
 
+    private final Semaphore pendingRetryAcks = new Semaphore(MAX_PENDING_RETRY_ACKS);
+
     private final TaskManager taskManager;
-    private final ExchangeTransport exchangeTransport;
+    private final ExchangeTransport<TaskAttemptId, ExchangeInputBinding> exchangeTransport;
     private final ExchangeSourceRegistry exchangeSourceRegistry;
     private final String workerHost;
     private final int transportPort;
@@ -61,7 +77,7 @@ public final class TaskResource implements Closeable {
     /** Creates task endpoints with the supplied actual manager and transport owners. */
     public TaskResource(
             TaskManager taskManager,
-            ExchangeTransport exchangeTransport,
+            ExchangeTransport<TaskAttemptId, ExchangeInputBinding> exchangeTransport,
             String workerHost,
             int transportPort) {
         this(
@@ -76,7 +92,7 @@ public final class TaskResource implements Closeable {
     /** Creates task endpoints with the supplied actual manager and transport owners. */
     public TaskResource(
             TaskManager taskManager,
-            ExchangeTransport exchangeTransport,
+            ExchangeTransport<TaskAttemptId, ExchangeInputBinding> exchangeTransport,
             ExchangeSourceRegistry exchangeSourceRegistry,
             String workerHost,
             int transportPort,
@@ -94,7 +110,7 @@ public final class TaskResource implements Closeable {
     /** Creates task endpoints with the supplied actual manager and transport owners. */
     public TaskResource(
             TaskManager taskManager,
-            ExchangeTransport exchangeTransport,
+            ExchangeTransport<TaskAttemptId, ExchangeInputBinding> exchangeTransport,
             ExchangeSourceRegistry exchangeSourceRegistry,
             String workerHost,
             int transportPort,
@@ -113,7 +129,7 @@ public final class TaskResource implements Closeable {
     /** Creates the result-producing resource with explicit process-local signing authority. */
     public TaskResource(
             TaskManager taskManager,
-            ExchangeTransport exchangeTransport,
+            ExchangeTransport<TaskAttemptId, ExchangeInputBinding> exchangeTransport,
             ExchangeSourceRegistry exchangeSourceRegistry,
             String workerHost,
             int transportPort,
@@ -133,39 +149,67 @@ public final class TaskResource implements Closeable {
 
     /** Submits a new task for execution. */
     @POST
-    public Response submitTask(SubmitTaskRequest request, @Context HttpServletRequest transport) {
-        if (request == null) {
-            return Response.status(Response.Status.BAD_REQUEST)
-                    .entity(
-                            new org.pangrova.common.client.error.ErrorDetail(
-                                    "BAD_REQUEST", "USER_ERROR", "Request body must not be null"))
-                    .build();
+    @Consumes(SubmitTaskRequest.MEDIA_TYPE)
+    @Produces(SubmitTaskRequest.MEDIA_TYPE)
+    public CompletionStage<Response> submitTask(InputStream body, @Context HttpServletRequest transport) {
+        long declaredLength = transport == null ? -1 : transport.getContentLengthLong();
+        if (declaredLength > SubmitTaskRequest.MAX_HTTP_BODY_BYTES) return rejectOversizedTask();
+        if (body == null) {
+            return CompletableFuture.completedFuture(rejectSubmit(
+                    Response.Status.BAD_REQUEST.getStatusCode(), "Task submission payload is required"));
         }
-        if (request.copySourceRead() != null && (transport == null || !transport.isSecure())) {
-            return Response.status(Response.Status.FORBIDDEN)
-                    .entity(new org.pangrova.common.client.error.ErrorDetail(
-                            "COPY_SECURE_TRANSPORT_REQUIRED", "SECURITY_ERROR",
-                            "COPY private task requires mutual-TLS transport"))
-                    .build();
+        try (var admission = taskManager.admitTaskBody()) {
+            if (declaredLength > 0) admission.reserve((int) declaredLength);
+            var limited = new SizeLimitedInputStream(body, SubmitTaskRequest.MAX_HTTP_BODY_BYTES,
+                    limit -> new TaskBodyTooLargeException(),
+                    declaredLength > 0 ? ignored -> {} : admission::reserve);
+            SubmitTaskRequest request;
+            try {
+                request = SubmitTaskRequest.decode(limited);
+            } catch (InvalidProtocolBufferException | IllegalArgumentException failure) {
+                String reason = limited.bytesRead() == 0
+                        ? "Task submission payload is required"
+                        : "Invalid binary task submission";
+                return CompletableFuture.completedFuture(
+                        rejectSubmit(Response.Status.BAD_REQUEST.getStatusCode(), reason));
+            }
+            return submitTask(request, admission, transport != null && transport.isSecure());
+        } catch (TaskBodyTooLargeException overflow) {
+            return rejectOversizedTask();
+        } catch (org.pangrova.worker.exception.TaskAdmissionException capacity) {
+            return CompletableFuture.completedFuture(
+                    rejectSubmit(Response.Status.SERVICE_UNAVAILABLE.getStatusCode(), capacity.getMessage()));
+        }
+    }
+
+    private static CompletionStage<Response> rejectOversizedTask() {
+        return CompletableFuture.completedFuture(rejectSubmit(
+                Response.Status.REQUEST_ENTITY_TOO_LARGE.getStatusCode(), "Task submission exceeds the HTTP limit"));
+    }
+
+    private CompletionStage<Response> submitTask(
+            SubmitTaskRequest request, TaskManager.TaskBodyAdmission body, boolean secureTransport) {
+        if (request.copySourceRead() != null && !secureTransport) {
+            return CompletableFuture.completedFuture(rejectSubmit(
+                    Response.Status.FORBIDDEN.getStatusCode(), "COPY_SECURE_TRANSPORT_REQUIRED",
+                    "COPY private task requires mutual-TLS transport"));
         }
         LogContext.set(CurrentSpanIds.currentTraceId(), CurrentSpanIds.currentSpanId());
         org.pangrova.observability.api.tracing.Span span = startSpan("task.submit");
         try {
-            return executeSubmit(request);
-        } catch (Exception e) {
-            return handleSubmitError(request, e);
-        } finally {
+            return executeSubmit(request, body).whenComplete((result, failure) -> endSpan(span));
+        } catch (Exception failure) {
             endSpan(span);
+            return CompletableFuture.completedFuture(handleSubmitError(queryId(request), failure));
+        } catch (Error failure) {
+            endSpan(span);
+            throw failure;
+        } finally {
             LogContext.clear();
         }
     }
 
-    /** Direct-call compatibility for tests that do not host an HTTP transport. */
-    public Response submitTask(SubmitTaskRequest request) {
-        return submitTask(request, null);
-    }
-
-    private Response executeSubmit(SubmitTaskRequest request) {
+    private CompletionStage<Response> executeSubmit(SubmitTaskRequest request, TaskManager.TaskBodyAdmission body) {
         // Classify a missing or stale control epoch through the fail-closed
         // fencing path before full contract validation. This check is pure and
         // must precede every admission side effect.
@@ -173,36 +217,64 @@ public final class TaskResource implements Closeable {
                 request.taskRequest().getAttempt().getControlEpoch());
         taskManager.verifyAdmissionDeadline(request.taskRequest().getDeadlineEpochMs());
         // Validate the one canonical contract before any admission side effect.
+        ValidatedTaskSubmission validated;
         try {
-            org.pangrova.protocol.task.CanonicalTaskRequests.validateForAdmission(
-                    request.taskRequest());
+            validated = new ValidatedTaskSubmission(request);
         } catch (IllegalArgumentException invalidRequest) {
-            return Response.status(Response.Status.BAD_REQUEST)
-                    .entity(new SubmitTaskResponse(false, invalidRequest.getMessage(), null, null, null))
-                    .build();
+            return CompletableFuture.completedFuture(rejectSubmit(
+                    Response.Status.BAD_REQUEST.getStatusCode(), invalidRequest.getMessage()));
         }
         taskManager.verifyExecutionOwnerForAdmission(request);
-        ResultEndpoint endpoint = resultEndpoint(request.taskRequest());
-        TaskDescriptor descriptor = TaskRequestDtoConverter.toTaskDescriptor(request);
-        String workerTaskId = taskManager.submitTask(descriptor, request);
-        var shuffleEndpoint = taskManager.getShuffleServerHandle(workerTaskId).map(handle ->
-                new ShuffleEndpointDescriptor(handle.host(), handle.port(), handle.tlsIdentity(),
-                        handle.partitionTickets().stream().map(ticket -> new ShufflePartitionTicketDescriptor(
-                                ticket.partitionId(),
-                                java.util.Base64.getEncoder().encodeToString(ticket.signedTicket()),
-                                ticket.expiresAtEpochMs())).toList())).orElse(null);
-        SubmitTaskResponse response =
-                new SubmitTaskResponse(
-                        true,
-                        null,
-                        request.taskRequest().getAttempt().getTaskId(),
-                        endpoint,
-                        shuffleEndpoint);
-        return Response.ok(response).build();
+        ResultEndpoint endpoint = resultEndpoint(validated);
+        var ownership = taskManager.submitValidatedTask(validated, body);
+        var attempt = request.taskRequest().getAttempt();
+        String taskId = attempt.getTaskId();
+        String query = attempt.getQueryOrJobId();
+        boolean pending = !ownership.completed();
+        boolean pendingRetry = pending && !ownership.first();
+        if (pendingRetry && !pendingRetryAcks.tryAcquire()) {
+            return CompletableFuture.completedFuture(rejectSubmit(Response.Status.SERVICE_UNAVAILABLE.getStatusCode(),
+                    "Worker has too many pending exact task acknowledgements"));
+        }
+        var response = ownership.completion().handle((workerTaskId, failure) ->
+                submissionResponse(taskId, query, endpoint, workerTaskId, failure));
+        if (!pending) return response;
+        // An HTTP deadline must not settle the shared admission or release its observer capacity early.
+        if (pendingRetry) response.whenComplete((ignored, failure) -> pendingRetryAcks.release());
+        long remainingMs = Math.max(1L, request.taskRequest().getDeadlineEpochMs() - System.currentTimeMillis());
+        return response.toCompletableFuture().copy().completeOnTimeout(
+                rejectSubmit(Response.Status.REQUEST_TIMEOUT.getStatusCode(), "Exact task acknowledgement expired"),
+                remainingMs, TimeUnit.MILLISECONDS);
     }
 
-    private ResultEndpoint resultEndpoint(org.pangrova.protocol.v2.TaskRequest request) {
-        if (!request.getExecutionOptions().getDirectResultOutput()) return null;
+    private Response submissionResponse(String taskId, String queryId, ResultEndpoint endpoint,
+            String workerTaskId, Throwable failure) {
+        if (failure != null) {
+            var cause = failure instanceof CompletionException completion ? completion.getCause() : failure;
+            if (cause instanceof Error error && !(error instanceof LinkageError)) throw error;
+            return handleSubmitError(queryId, cause);
+        }
+        var admitted = TaskAdmitted.newBuilder().setTaskId(taskId);
+        if (endpoint != null) {
+            admitted.setResultEndpoint(TaskResultEndpoint.newBuilder().setHost(endpoint.host())
+                    .setPort(endpoint.port()).setTicket(endpoint.ticket()).setProtocol(endpoint.protocol()));
+        }
+        taskManager.getShuffleServerHandle(workerTaskId).ifPresent(handle -> {
+            var shuffle = TaskShuffleEndpoint.newBuilder().setHost(handle.host()).setPort(handle.port())
+                    .setTlsIdentity(handle.tlsIdentity());
+            for (var ticket : handle.partitionTickets()) {
+                shuffle.addPartitionTickets(org.pangrova.protocol.v2.ShufflePartitionTicket.newBuilder()
+                        .setPartitionId(ticket.partitionId())
+                        .setSignedTicket(ByteString.copyFrom(ticket.signedTicket()))
+                        .setExpiresAtEpochMs(ticket.expiresAtEpochMs()));
+            }
+            admitted.setShuffleEndpoint(shuffle);
+        });
+        return submitAck(Response.Status.OK.getStatusCode(), TaskSubmitAck.newBuilder().setAdmitted(admitted).build());
+    }
+
+    private ResultEndpoint resultEndpoint(ValidatedTaskSubmission request) {
+        if (!request.submission().taskRequest().getExecutionOptions().getDirectResultOutput()) return null;
         if (resultTickets == null) {
             throw new IllegalStateException(
                     "Result-producing admission requires signing authority");
@@ -210,7 +282,10 @@ public final class TaskResource implements Closeable {
         return resultTickets.endpoint(request, workerHost, transportPort, resultProtocol);
     }
 
-    private Response handleSubmitError(SubmitTaskRequest request, Exception e) {
+    private Response handleSubmitError(String queryId, Throwable e) {
+        if (e instanceof java.util.concurrent.CancellationException) {
+            return rejectSubmit(Response.Status.CONFLICT.getStatusCode(), e.getMessage());
+        }
         if (e instanceof org.pangrova.worker.exception.TaskAdmissionException admission) {
             int status = switch (admission.reason()) {
                 case EXPIRED -> Response.Status.REQUEST_TIMEOUT.getStatusCode();
@@ -218,31 +293,23 @@ public final class TaskResource implements Closeable {
                 case CAPACITY, CLOSED ->
                                 Response.Status.SERVICE_UNAVAILABLE.getStatusCode();
             };
-            return Response.status(status)
-                    .entity(new SubmitTaskResponse(false, admission.getMessage(), null, null, null))
-                    .build();
+            return rejectSubmit(status, admission.getMessage());
         }
         if (e instanceof org.pangrova.worker.exception.ControlEpochFenceException fenceError) {
             int status = epochRejectionStatus(fenceError);
             LOG.warn(
                     "event=task_submit_epoch_rejected queryId={} reason={} error={}",
-                    queryId(request),
+                    queryId,
                     fenceError.reason(),
                     fenceError.getMessage());
-            return Response.status(status)
-                    .entity(
-                            new SubmitTaskResponse(
-                                    false, fenceError.getMessage(), null, null, null))
-                    .build();
+            return rejectSubmit(status, fenceError.getMessage());
         }
         if (e instanceof org.pangrova.worker.exception.ExecutionOwnerFenceException) {
             LOG.warn(
                     "event=task_submit_owner_rejected queryId={} error={}",
-                    queryId(request),
+                    queryId,
                     e.getMessage());
-            return Response.status(Response.Status.CONFLICT)
-                    .entity(new SubmitTaskResponse(false, e.getMessage(), null, null, null))
-                    .build();
+            return rejectSubmit(Response.Status.CONFLICT.getStatusCode(), e.getMessage());
         }
         if (e instanceof org.pangrova.common.exception.PangrovaException resourceError
                 && resourceError.getErrorCode()
@@ -250,20 +317,30 @@ public final class TaskResource implements Closeable {
                                 .RESOURCE_MEMORY_EXCEEDED) {
             LOG.warn(
                     "event=task_submit_resource_rejected queryId={} error={}",
-                    queryId(request),
+                    queryId,
                     e.getMessage());
-            return Response.status(Response.Status.SERVICE_UNAVAILABLE)
-                    .entity(new SubmitTaskResponse(false, e.getMessage(), null, null, null))
-                    .build();
+            return rejectSubmit(Response.Status.SERVICE_UNAVAILABLE.getStatusCode(), e.getMessage());
         }
         LOG.error(
                 "event=task_submit_failed queryId={} error={}",
-                queryId(request),
+                queryId,
                 e.getMessage(),
                 e);
-        SubmitTaskResponse errorResponse =
-                new SubmitTaskResponse(false, e.getMessage(), null, null, null);
-        return Response.status(Response.Status.INTERNAL_SERVER_ERROR).entity(errorResponse).build();
+        return rejectSubmit(Response.Status.INTERNAL_SERVER_ERROR.getStatusCode(), e.getMessage());
+    }
+
+    private static Response rejectSubmit(int status, String reason) {
+        return rejectSubmit(status, status == HTTP_TOO_EARLY ? "CONTROL_EPOCH_AHEAD"
+                : Response.Status.fromStatusCode(status).name(), reason);
+    }
+
+    private static Response rejectSubmit(int status, String code, String reason) {
+        return submitAck(status, TaskSubmitAck.newBuilder().setRejected(TaskRejected.newBuilder()
+                .setCode(code).setReason(reason == null ? "Task submission failed" : reason)).build());
+    }
+
+    private static Response submitAck(int status, TaskSubmitAck ack) {
+        return Response.status(status).type(SubmitTaskRequest.MEDIA_TYPE).entity(ack.toByteArray()).build();
     }
 
     private static String queryId(SubmitTaskRequest request) {

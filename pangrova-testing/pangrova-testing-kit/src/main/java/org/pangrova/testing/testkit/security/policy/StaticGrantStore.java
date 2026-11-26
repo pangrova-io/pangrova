@@ -1,6 +1,7 @@
 package org.pangrova.testing.testkit.security.policy;
 
 import java.util.List;
+import java.util.Set;
 import org.pangrova.persistence.security.api.policy.GrantStore;
 import org.pangrova.security.api.enums.Privilege;
 import org.pangrova.security.api.policy.PrivilegeGrant;
@@ -22,9 +23,9 @@ public final class StaticGrantStore implements GrantStore {
     }
 
     @Override
-    public List<PrivilegeGrant> listGrantsForRole(String roleName) {
+    public List<PrivilegeGrant> listGrantsForRoles(Set<String> roleNames) {
         return grants.stream()
-                .filter(g -> g.roleName().equals(roleName))
+                .filter(g -> roleNames.contains(g.roleName()))
                 .toList();
     }
 

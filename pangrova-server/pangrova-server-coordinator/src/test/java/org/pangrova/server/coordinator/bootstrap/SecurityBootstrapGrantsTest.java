@@ -115,10 +115,12 @@ class SecurityBootstrapGrantsTest extends ContainerTestBase {
                 statement.execute("ALTER TABLE security_grants RENAME TO unavailable_profile_grants");
             }
             assertThatThrownBy(() -> task.execute(show, execution))
-                    .isInstanceOf(IllegalStateException.class).hasMessageContaining("Failed listing all grants");
+                    .isInstanceOf(IllegalStateException.class).hasMessage("Failed listing grants for effective roles")
+                    .hasRootCauseInstanceOf(java.sql.SQLException.class);
             assertThatThrownBy(() -> bootstrap.accessControl()
                     .checkCanReadStorageProfile(user("alice", Set.of()), "visible"))
-                    .isInstanceOf(IllegalStateException.class).hasMessageContaining("Failed listing all grants");
+                    .isInstanceOf(IllegalStateException.class).hasMessage("Failed listing grants for effective roles")
+                    .hasRootCauseInstanceOf(java.sql.SQLException.class);
         } finally {
             bootstrap.shutdown();
         }
@@ -191,7 +193,8 @@ class SecurityBootstrapGrantsTest extends ContainerTestBase {
             }
             assertThatThrownBy(() -> bootstrap.accessControl().checkCanSelectFromTable(
                     alice, "lake", "public", "facts")).isInstanceOf(IllegalStateException.class)
-                    .hasMessageContaining("Failed listing all grants");
+                    .hasMessage("Failed listing grants for effective roles")
+                    .hasRootCauseInstanceOf(java.sql.SQLException.class);
         } finally {
             bootstrap.shutdown();
         }

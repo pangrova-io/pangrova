@@ -28,6 +28,7 @@ import java.time.ZoneOffset;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -60,6 +61,24 @@ class TableControlCatalogDeploymentIntegrationTest {
         assertThat(record.catalogIncarnationId()).isEqualTo(descriptor.incarnationId());
         assertThat(record.catalogRevision()).isEqualTo(descriptor.revision());
         reconstructed.requireManagedForWrite("cat", "db", "t", "INSERT", Optional.of(IDENTITY));
+    }
+
+    @Test
+    void readIdentityChecksCatalogOnceAndRejectsANewDeployment() {
+        catalogs.saveCatalogDescriptor(descriptor("original", 1));
+        var lookups = new AtomicInteger();
+        TableControlService service = control(lookups);
+        TableControlRecord record = service.registrations().registerCreated("cat", "db", "t", "alice",
+                Optional.of(IDENTITY), Optional.empty()).orElseThrow();
+        lookups.set(0);
+
+        service.requireReadIdentity(record, Optional.of(IDENTITY), "SELECT");
+        assertThat(lookups).hasValue(1);
+
+        catalogs.saveCatalogDescriptor(descriptor("original", 2));
+        assertThatThrownBy(() -> service.requireReadIdentity(record, Optional.of(IDENTITY), "SELECT"))
+                .isInstanceOf(AccessDeniedException.class).hasMessageContaining("catalog deployment");
+        assertThat(lookups).hasValue(2);
     }
 
     @Test
@@ -113,8 +132,13 @@ class TableControlCatalogDeploymentIntegrationTest {
     }
 
     private TableControlService control() {
+        return control(new AtomicInteger());
+    }
+
+    private TableControlService control(AtomicInteger lookups) {
         return new TableControlService(new JdbcTableControlStore(dataSource),
                 name -> {
+                    lookups.incrementAndGet();
                     CatalogDescriptor deployment = new PostgresCatalogDeploymentRepository(dataSource)
                             .getCatalogDescriptor(name).orElseThrow();
                     return new CatalogDeploymentIdentity(deployment.incarnationId(), deployment.revision());

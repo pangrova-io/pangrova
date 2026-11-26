@@ -90,8 +90,8 @@ TEST(IndexHintFilterTest, JavaStringBloomFixtureKeepsInsertedValues) {
   const auto artifact = bloomArtifact(bloom);
   { std::ofstream out(path, std::ios::binary); out.write(artifact.data(), artifact.size()); }
 
-  pangrova::protocol::v2::FileSplitDetail detail;
-  auto* hint = detail.add_index_eval_hints();
+  std::vector<protocol::v2::IndexEvalHintDetail> hints(1);
+  auto* hint = &hints.front();
   hint->set_index_type("BLOOM_FILTER");
   bindPublishedArtifact(hint, artifact);
   hint->set_index_file_path(path.string());
@@ -100,13 +100,13 @@ TEST(IndexHintFilterTest, JavaStringBloomFixtureKeepsInsertedValues) {
   auto* value = hint->mutable_predicate()->mutable_equal_to()->mutable_value();
   value->set_string_value("ACTIVE");
   EXPECT_TRUE(IndexHintFilter::shouldKeepTypedSplit(
-      detail.SerializeAsString(), "/data/file.parquet"));
+      &hints, "/data/file.parquet"));
   value->set_string_value("X");
   EXPECT_TRUE(IndexHintFilter::shouldKeepTypedSplit(
-      detail.SerializeAsString(), "/data/file.parquet"));
+      &hints, "/data/file.parquet"));
   value->set_string_value("INACTIVE");
   EXPECT_FALSE(IndexHintFilter::shouldKeepTypedSplit(
-      detail.SerializeAsString(), "/data/file.parquet"));
+      &hints, "/data/file.parquet"));
 
   // A same-length, CRC-valid Bloom that omits ACTIVE would discard matching rows.
   value->set_string_value("ACTIVE");
@@ -115,10 +115,10 @@ TEST(IndexHintFilterTest, JavaStringBloomFixtureKeepsInsertedValues) {
   { std::ofstream out(path, std::ios::binary);
     out.write(replacement.data(), replacement.size()); }
   EXPECT_TRUE(IndexHintFilter::shouldKeepTypedSplit(
-      detail.SerializeAsString(), "/data/file.parquet"));
+      &hints, "/data/file.parquet"));
   bindPublishedArtifact(hint, replacement);
   EXPECT_FALSE(IndexHintFilter::shouldKeepTypedSplit(
-      detail.SerializeAsString(), "/data/file.parquet"));
+      &hints, "/data/file.parquet"));
 
   // An unknown SBBF version must never become a negative proof.
   auto future_bloom = bloom;
@@ -128,7 +128,7 @@ TEST(IndexHintFilterTest, JavaStringBloomFixtureKeepsInsertedValues) {
   { std::ofstream out(path, std::ios::binary);
     out.write(future_artifact.data(), future_artifact.size()); }
   EXPECT_TRUE(IndexHintFilter::shouldKeepTypedSplit(
-      detail.SerializeAsString(), "/data/file.parquet"));
+      &hints, "/data/file.parquet"));
   std::filesystem::remove(path);
 }
 
@@ -139,8 +139,8 @@ TEST(IndexHintFilterTest, CanonicalTypedBloomHintPrunesOnlyValidatedNegative) {
   const auto artifact = emptyBloomArtifact();
   { std::ofstream out(path, std::ios::binary); out.write(artifact.data(), artifact.size()); }
 
-  pangrova::protocol::v2::FileSplitDetail detail;
-  auto* hint = detail.add_index_eval_hints();
+  std::vector<protocol::v2::IndexEvalHintDetail> hints(1);
+  auto* hint = &hints.front();
   hint->set_index_type("BLOOM_FILTER");
   bindPublishedArtifact(hint, artifact);
   hint->set_index_file_path(path.string());
@@ -150,30 +150,30 @@ TEST(IndexHintFilterTest, CanonicalTypedBloomHintPrunesOnlyValidatedNegative) {
 
   bool evaluated = false;
   EXPECT_FALSE(IndexHintFilter::shouldKeepTypedSplit(
-      detail.SerializeAsString(), "/data/file.parquet", &evaluated));
+      &hints, "/data/file.parquet", &evaluated));
   EXPECT_TRUE(evaluated);
   evaluated = false;
   EXPECT_TRUE(IndexHintFilter::shouldKeepTypedSplit(
-      detail.SerializeAsString(), "/other/file.parquet", &evaluated));
+      &hints, "/other/file.parquet", &evaluated));
   EXPECT_FALSE(evaluated);
 
   hint->set_index_size_bytes(artifact.size() + 1);
   EXPECT_TRUE(IndexHintFilter::shouldKeepTypedSplit(
-      detail.SerializeAsString(), "/data/file.parquet"));
+      &hints, "/data/file.parquet"));
   hint->clear_index_size_bytes();
   EXPECT_TRUE(IndexHintFilter::shouldKeepTypedSplit(
-      detail.SerializeAsString(), "/data/file.parquet"));
+      &hints, "/data/file.parquet"));
   hint->set_index_size_bytes(artifact.size());
   hint->clear_index_sha256();
   EXPECT_TRUE(IndexHintFilter::shouldKeepTypedSplit(
-      detail.SerializeAsString(), "/data/file.parquet"));
+      &hints, "/data/file.parquet"));
 
   std::string corrupt = artifact;
   corrupt.back() ^= 1;
   bindPublishedArtifact(hint, corrupt);
   { std::ofstream out(path, std::ios::binary); out.write(corrupt.data(), corrupt.size()); }
   EXPECT_TRUE(IndexHintFilter::shouldKeepTypedSplit(
-      detail.SerializeAsString(), "/data/file.parquet"));
+      &hints, "/data/file.parquet"));
   std::filesystem::remove(path);
 }
 

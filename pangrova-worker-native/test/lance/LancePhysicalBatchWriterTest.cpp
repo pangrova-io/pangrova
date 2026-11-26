@@ -296,7 +296,7 @@ TEST_F(LancePhysicalCopyMetricsTest, ActualReadAndWriteCopiesSumInTaskReportAfte
   split.source_snapshot = "1";
   split.data_object_id = "actual-physical-file";
   split.storage_binding = allocation.storageBinding;
-  split.file_scan_detail = detail_bytes;
+  split.lance_read_unit = detail_bytes;
   task_config.splits.push_back(std::move(split));
   pangrova::test::bindTestAttempt(task_config);
   pangrova::executor::TaskExecutor executor(task_config);

@@ -6,16 +6,20 @@ import org.pangrova.protocol.v2.TaskAttemptId;
 
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CommitCommand;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CommitResult;
+import static org.pangrova.shuffle.server.ShuffleServiceModel.Allocation;
+import static org.pangrova.shuffle.server.ShuffleServiceModel.BatchIdentity;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.StoredBatch;
 
 /** Durable accepted-batch and producer-attempt transaction boundary. */
 interface ShuffleBatchStore {
 
-    String beginWriteIntent(StoredBatch batch, long recoveryDelayMs);
+    WriteGrant openWriteWindow(String shuffleId, TaskAttemptId attempt, long recoveryDelayMs);
 
-    void completeWriteIntent(String reservationId, StoredBatch batch);
+    void publishWriteWindow(WriteGrant grant, String shuffleId, TaskAttemptId attempt, List<StoredBatch> batches);
 
-    void abortWriteIntent(String reservationId);
+    void settleWriteWindow(WriteGrant grant, String shuffleId, TaskAttemptId attempt);
+
+    record WriteGrant(String reservation, int partitionCount, long protectedForMillis) {}
 
     List<StoredBatch> readAttemptPage(
             String shuffleId,
@@ -26,18 +30,6 @@ interface ShuffleBatchStore {
 
     CommitResult commitAttempt(CommitCommand command);
 
-    long committedMetadataVersion(String shuffleId);
-
-    List<StoredBatch> readCommittedPage(
-            String shuffleId,
-            int outputPartitionId,
-            int producerAfter,
-            long batchAfter,
-            int limit);
-
-    List<StoredBatch> readFinalizedPage(
-            String shuffleId,
-            int outputPartitionId,
-            long startSequence,
-            int limit);
+    /** Ordered winner inventory for building a publication under the selected metadata version. */
+    List<StoredBatch> readCommittedPage(Allocation selected, BatchIdentity after, int limit);
 }

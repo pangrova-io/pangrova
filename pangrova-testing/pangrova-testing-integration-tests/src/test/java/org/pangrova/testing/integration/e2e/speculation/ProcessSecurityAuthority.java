@@ -19,6 +19,7 @@ import org.postgresql.ds.PGSimpleDataSource;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.Network;
 import org.testcontainers.containers.wait.strategy.Wait;
+import org.testcontainers.containers.wait.strategy.WaitAllStrategy;
 import org.testcontainers.images.builder.Transferable;
 import org.testcontainers.utility.DockerImageName;
 
@@ -33,18 +34,24 @@ import java.util.UUID;
 
 import static org.awaitility.Awaitility.await;
 
-/** Owns real directory authentication and a migrated, isolated schema in the singleton PostgreSQL. */
+/** Owns real directory authentication and isolated migrated PostgreSQL state. */
 final class ProcessSecurityAuthority implements AutoCloseable {
     static final String USER = "spec_user";
     static final String PASSWORD = "spéc:process-password";
     static final String TENANT = "spec-process-tenant";
     private final String schema = "spec_" + UUID.randomUUID().toString().replace("-", "");
+    private final boolean isolatedDatabase;
     private final PGSimpleDataSource dataSource = new PGSimpleDataSource();
     private final LinkedHashSet<String> catalogs = new LinkedHashSet<>(List.of("spec_catalog"));
     private final GenericContainer<?> ldap;
-    private boolean schemaCreated;
+    private boolean storageCreated;
 
     ProcessSecurityAuthority(Network network) {
+        this(network, false);
+    }
+
+    ProcessSecurityAuthority(Network network, boolean isolatedDatabase) {
+        this.isolatedDatabase = isolatedDatabase;
         ldap = new GenericContainer<>(DockerImageName.parse("osixia/openldap:1.5.0"))
                 .withNetwork(network).withNetworkAliases("spec-directory").withExposedPorts(389)
                 .withEnv("LDAP_ORGANISATION", "Pangrova")
@@ -53,7 +60,11 @@ final class ProcessSecurityAuthority implements AutoCloseable {
                 .withCopyToContainer(Transferable.of(ldif().getBytes(StandardCharsets.UTF_8)),
                         "/container/service/slapd/assets/config/bootstrap/ldif/custom/spec-user.ldif")
                 .withCommand("--copy-service")
-                .waitingFor(Wait.forListeningPort().withStartupTimeout(Duration.ofSeconds(120)));
+                // The image opens port 389 during LDIF bootstrap and closes it before serving.
+                .waitingFor(new WaitAllStrategy()
+                        .withStrategy(Wait.forLogMessage(".*First start is done[.]{3}.*\\s", 1))
+                        .withStrategy(Wait.forListeningPort())
+                        .withStartupTimeout(Duration.ofSeconds(120)));
     }
 
     void start() throws Exception {
@@ -70,7 +81,7 @@ final class ProcessSecurityAuthority implements AutoCloseable {
     PGSimpleDataSource dataSource() { return dataSource; }
 
     void allowCatalog(String catalog) {
-        if (schemaCreated) throw new IllegalStateException("Process permissions are already initialized");
+        if (storageCreated) throw new IllegalStateException("Process permissions are already initialized");
         catalogs.add(catalog);
     }
     String hostLdapUrl() {
@@ -78,11 +89,12 @@ final class ProcessSecurityAuthority implements AutoCloseable {
     }
     String hostJdbcUrl() {
         String url = SharedTestContainers.POSTGRES.getJdbcUrl();
+        if (isolatedDatabase) return url.replaceFirst("/[^/?]+(?=\\?|$)", "/" + schema);
         return url + (url.contains("?") ? "&" : "?") + "currentSchema=" + schema;
     }
     String processJdbcUrl() {
         return "jdbc:postgresql://host.testcontainers.internal:" + SharedTestContainers.POSTGRES.getMappedPort(5432)
-                + "/pangrova_meta?currentSchema=" + schema;
+                + (isolatedDatabase ? "/" + schema : "/pangrova_meta?currentSchema=" + schema);
     }
     int postgresPort() { return SharedTestContainers.POSTGRES.getMappedPort(5432); }
 
@@ -90,11 +102,10 @@ final class ProcessSecurityAuthority implements AutoCloseable {
         var postgres = SharedTestContainers.POSTGRES;
         try (var connection = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
              var statement = connection.createStatement()) {
-            statement.execute("CREATE SCHEMA " + schema);
-            schemaCreated = true;
+            statement.execute((isolatedDatabase ? "CREATE DATABASE " : "CREATE SCHEMA ") + schema);
+            storageCreated = true;
         }
-        dataSource.setURL(postgres.getJdbcUrl());
-        dataSource.setCurrentSchema(schema);
+        dataSource.setURL(hostJdbcUrl());
         dataSource.setUser(postgres.getUsername());
         dataSource.setPassword(postgres.getPassword());
         SchemaMigrationRunner.migrate(dataSource);
@@ -137,14 +148,14 @@ final class ProcessSecurityAuthority implements AutoCloseable {
 
     @Override public void close() throws Exception {
         try (AutoCloseable directory = ldap::stop) {
-            if (schemaCreated) {
+            if (storageCreated) {
                 var postgres = SharedTestContainers.POSTGRES;
                 try (var connection = DriverManager.getConnection(
                         postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
                      var statement = connection.createStatement()) {
-                    // The UUID schema belongs to this fixture; the shared database belongs to the suite.
-                    statement.execute("DROP SCHEMA " + schema + " CASCADE");
-                    schemaCreated = false;
+                    String drop = isolatedDatabase ? "DROP DATABASE " + schema : "DROP SCHEMA " + schema + " CASCADE";
+                    statement.execute(drop);
+                    storageCreated = false;
                 }
             }
         }

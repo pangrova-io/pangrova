@@ -6,7 +6,6 @@ import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.protocol.v2.FileSplitDetail;
 import org.pangrova.protocol.v2.IndexEvalHintDetail;
 import org.pangrova.indexing.api.evaluation.IndexEvalHint;
-import org.pangrova.indexing.api.evaluation.IndexEvaluatedSplit;
 import org.pangrova.indexing.api.evaluation.SplitIndexEvalResult;
 import java.util.HexFormat;
 import java.util.List;
@@ -16,37 +15,18 @@ import java.util.Map;
  * Encodes {@link IndexEvalHint} objects into typed v2 file split details.
  *
  * <p>Lives in pangrova-protocol because it bridges connector/indexing SPI types
- * (IndexEvalHint, IndexPredicate) with proto types (SplitInfo,
- * IndexEvalHintInfo). Called by the coordinator's split serialization path.</p>
+ * (IndexEvalHint, IndexPredicate) with the canonical DataSplit and IndexEvalHintDetail.</p>
  */
 public final class IndexEvalHintProtoCodec {
 
     private IndexEvalHintProtoCodec() {}
 
-    /**
-     * Serializes an IndexEvaluatedSplit to proto bytes with eval hints injected.
-     *
-     * <p>Takes the delegate split's proto bytes, parses as SplitInfo, appends
-     * IndexEvalHintInfo messages from the eval result, and re-serializes.</p>
-     *
-     * @param evaluatedSplit the split with eval hints attached
-     * @return serialized SplitInfo proto bytes with hints included
-     */
-    public static byte[] serializeWithHints(IndexEvaluatedSplit evaluatedSplit) {
-        byte[] delegateBytes = evaluatedSplit.unwrap().toSplitInfoProto();
-        SplitIndexEvalResult evalResult = evaluatedSplit.evalResult();
-        if (!evalResult.hasEvalHints()) {
-            return delegateBytes;
-        }
-        try {
-            DataSplit split = DataSplit.parseFrom(delegateBytes);
-            FileSplitDetail.Builder detail = DataSplitProtoCodec.fileDetail(split).toBuilder();
-            appendHints(detail, evalResult.evalHints());
-            return DataSplitProtoCodec.withFileDetail(split, detail.build()).toByteArray();
-        } catch (com.google.protobuf.InvalidProtocolBufferException e) {
-            // Conservative: return original bytes if parsing fails
-            return delegateBytes;
-        }
+    /** Preserves the canonical split identity and attaches the applicable index hints. */
+    public static DataSplit withHints(DataSplit split, SplitIndexEvalResult evalResult) {
+        if (!evalResult.hasEvalHints()) return split;
+        FileSplitDetail.Builder detail = DataSplitProtoCodec.fileDetail(split).toBuilder();
+        appendHints(detail, evalResult.evalHints());
+        return DataSplitProtoCodec.withFileDetail(split, detail.build());
     }
 
     private static void appendHints(

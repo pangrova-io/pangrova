@@ -28,6 +28,9 @@ public final class JdbcRowPolicyStore extends JdbcPolicyStoreSupport implements 
     private static final String SELECT_POLICIES = "SELECT policy_id, policy_name, catalog_name, schema_name, "
             + "table_name, filter_expression, apply_to_roles, enabled, priority, table_id FROM row_policy ";
     private static final String ORDER_POLICIES = " ORDER BY priority DESC, policy_id";
+    private static final String CURRENT_TABLE_POLICIES = SELECT_POLICIES
+            + "WHERE enabled AND (table_id=CAST(? AS uuid) OR "
+            + "(table_id IS NULL AND catalog_name=? AND schema_name=? AND table_name=?))" + ORDER_POLICIES;
 
     @Override
     public List<RowPolicy> getPolicies(String catalog, String schema, String table) {
@@ -41,37 +44,39 @@ public final class JdbcRowPolicyStore extends JdbcPolicyStoreSupport implements 
                 java.util.Objects.requireNonNull(tableId, "tableId"));
     }
 
+    @Override
+    public List<RowPolicy> getPoliciesForCurrentTable(String catalog, String schema, String table,
+            java.util.UUID tableId) {
+        return query(CURRENT_TABLE_POLICIES, tableId, catalog, schema, table);
+    }
+
     private List<RowPolicy> query(String sql, Object... parameters) {
-        try (Connection connection = dataSource.getConnection();
-                PreparedStatement statement = connection.prepareStatement(sql)) {
-            for (int index = 0; index < parameters.length; index++) statement.setObject(index + 1, parameters[index]);
-            try (ResultSet row = statement.executeQuery()) {
-                return read(row);
-            }
+        try (Connection connection = dataSource.getConnection()) {
+            return query(connection, sql, parameters);
         } catch (SQLException failure) {
             throw new IllegalStateException("Failed loading row policies", failure);
         }
     }
 
-    /** Reads stable policy content without leaving a publication owner's existing transaction. */
-    public static List<RowPolicy> list(Connection connection, java.util.UUID tableId) throws SQLException {
-        try (var statement = connection.prepareStatement(SELECT_POLICIES
-                + "WHERE table_id=? AND enabled" + ORDER_POLICIES)) {
-            statement.setObject(1, java.util.Objects.requireNonNull(tableId, "tableId"));
-            try (var rows = statement.executeQuery()) {
-                return read(rows);
+    private static List<RowPolicy> query(Connection connection, String sql, Object... parameters) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            for (int index = 0; index < parameters.length; index++) statement.setObject(index + 1, parameters[index]);
+            try (ResultSet row = statement.executeQuery()) {
+                return read(row);
             }
         }
+    }
+
+    /** Reads current policy content without leaving the publication owner's transaction. */
+    public static List<RowPolicy> listForCurrentTable(Connection connection, String catalog, String schema,
+            String table, java.util.UUID tableId) throws SQLException {
+        return query(connection, CURRENT_TABLE_POLICIES, tableId, catalog, schema, table);
     }
 
     private static List<RowPolicy> read(ResultSet row) throws SQLException {
         List<RowPolicy> policies = new ArrayList<>();
         while (row.next()) {
-            policies.add(new RowPolicy(row.getLong("policy_id"), row.getString("policy_name"),
-                    row.getString("catalog_name"), row.getString("schema_name"), row.getString("table_name"),
-                    row.getString("filter_expression"), decodeRoles(row.getString("apply_to_roles")),
-                    row.getBoolean("enabled"), row.getInt("priority"),
-                    row.getObject("table_id", java.util.UUID.class)));
+            policies.add(readRowPolicy(row));
         }
         return List.copyOf(policies);
     }

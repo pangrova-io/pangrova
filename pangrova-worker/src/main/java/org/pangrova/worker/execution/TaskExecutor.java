@@ -1,6 +1,8 @@
 package org.pangrova.worker.execution;
 
 import org.pangrova.common.api.annotation.Stable;
+import org.pangrova.protocol.task.ValidatedTaskSubmission;
+import org.pangrova.protocol.v2.TaskRequest;
 
 import java.util.Optional;
 
@@ -16,19 +18,24 @@ import java.util.Optional;
  * native pointers managed by the underlying engine. Callers must
  * call {@link #releaseTask} when execution completes or fails.</p>
  *
- * <p>Data travels only through the actual Native Arrow transports. This SPI
- * carries task lifecycle, canonical reports and control commands, never rows.</p>
+ * <p>The executor owns task lifecycle and the fenced handoff to Native
+ * transport ingress.</p>
  */
 @Stable(since = "1.0")
 public interface TaskExecutor {
 
     /**
-     * Creates a task from serialized TaskRequest protobuf bytes.
+     * Creates a task from the canonical request parsed at Worker ingress.
      *
-     * @param taskRequestBytes serialized TaskRequest protobuf
+     * @param request canonical task and execution bindings
      * @return a non-negative executor handle for subsequent calls
      */
-    long createTask(byte[] taskRequestBytes);
+    long createTask(TaskRequest request);
+
+    /** Creates a task whose immutable request already passed Worker admission validation. */
+    default long createAdmittedTask(ValidatedTaskSubmission admission) {
+        return createTask(admission.submission().taskRequest());
+    }
 
     /**
      * Starts execution of a previously created task.
@@ -36,6 +43,9 @@ public interface TaskExecutor {
      * @param executorHandle handle returned by {@link #createTask}
      */
     void startTask(long executorHandle);
+
+    /** Starts a Native OUTPUT task and signals when its exact Flight registration is readable. */
+    void startResultTask(long executorHandle, Runnable onReady);
 
     /**
      * Releases all resources associated with the task.
@@ -71,6 +81,9 @@ public interface TaskExecutor {
      */
     byte[] executeCommand(long executorHandle, byte[] commandProto);
 
+    /** Passes frame metadata and one owned exchange chunk separately to Native ingress. */
+    byte[] pushExchangeChunk(long executorHandle, byte[] metadata, byte[] data);
+
     /**
      * Checks whether the task has finished execution (completed or failed).
      *
@@ -81,6 +94,9 @@ public interface TaskExecutor {
      * @return true if the task has finished (completed, failed, or cancelled)
      */
     boolean isFinished(long executorHandle);
+
+    /** Waits up to the supplied interval for this executor to publish a terminal state. */
+    boolean awaitFinished(long executorHandle, int waitMillis) throws InterruptedException;
 
     /**
      * Identifies a handle owned by a Worker-JVM execution backend rather than

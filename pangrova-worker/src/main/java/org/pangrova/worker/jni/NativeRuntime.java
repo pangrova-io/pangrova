@@ -126,9 +126,9 @@ public final class NativeRuntime {
     }
 
     public static void nativeStartTaskWithTrace(
-            long executorHandle, String traceId) {
+            long executorHandle, String traceId, Runnable onResultReady) {
         requireInitialized();
-        nativeStartTaskWithTrace0(executorHandle, traceId);
+        nativeStartTaskWithReadiness0(executorHandle, traceId, onResultReady);
     }
 
     public static void nativeCancelTask(long executorHandle) {
@@ -142,7 +142,19 @@ public final class NativeRuntime {
         return nativeReleaseExecutor0(executorHandle);
     }
 
+    /** Subscribes to the joined result owner for one finished Native executor. */
+    public static void nativeWatchResultDrain(long executorHandle, Runnable callback) {
+        requireInitialized();
+        nativeWatchResultDrain0(executorHandle, callback);
+    }
+
     // Status
+    /** Returns the canonical TaskState wire value without collecting task statistics. */
+    public static int nativeReadTaskState(long executorHandle, int waitMillis) {
+        requireInitialized();
+        return nativeReadTaskState0(executorHandle, waitMillis);
+    }
+
     public static byte[] nativeGetTaskStatus(long executorHandle) {
         requireInitialized();
         return nativeGetTaskStatus0(executorHandle);
@@ -161,6 +173,12 @@ public final class NativeRuntime {
     public static byte[] nativeCommand(long executorHandle, byte[] commandProto) {
         requireInitialized();
         return nativeCommand0(executorHandle, commandProto);
+    }
+
+    /** Hands a bounded exchange frame to Native as metadata and an independent byte payload. */
+    public static byte[] nativePushExchangeChunk(long executorHandle, byte[] metadata, byte[] data) {
+        requireInitialized();
+        return nativePushExchangeChunk0(executorHandle, metadata, data);
     }
 
     // Memory snapshot for heartbeat observability.
@@ -263,12 +281,17 @@ public final class NativeRuntime {
     private static native long nativeCreateTaskExecutorWithTraceContext0(byte[] taskRequestProto, String traceId,
             String spanId);
     private static native void nativeStartTask0(long executorHandle);
-    private static native void nativeStartTaskWithTrace0(long executorHandle, String traceId);
+    private static native void nativeStartTaskWithReadiness0(
+            long executorHandle, String traceId, Runnable onResultReady);
     private static native void nativeCancelTask0(long executorHandle);
     private static native byte[] nativeReleaseExecutor0(long executorHandle);
+    private static native void nativeWatchResultDrain0(long executorHandle, Runnable callback);
+    private static native int nativeReadTaskState0(long executorHandle, int waitMillis);
+
     private static native byte[] nativeGetTaskStatus0(long executorHandle);
     private static native byte[] nativeGetTaskStats0(long executorHandle);
     private static native byte[] nativeCommand0(long executorHandle, byte[] commandProto);
+    private static native byte[] nativePushExchangeChunk0(long executorHandle, byte[] metadata, byte[] data);
     private static native byte[] nativeGetMemorySnapshot0();
     private static native byte[] nativeSerializeBatchFromPointers0(long arrowArrayPtr, long arrowSchemaPtr);
     private static native int nativeGetBatchRowCount0(long arrowArrayPtr);

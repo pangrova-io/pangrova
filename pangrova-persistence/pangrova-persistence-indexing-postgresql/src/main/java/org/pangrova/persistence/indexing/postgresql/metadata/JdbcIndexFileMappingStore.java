@@ -5,7 +5,6 @@ import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFai
 import org.pangrova.persistence.catalog.api.exception.MetastoreException;
 import org.pangrova.persistence.indexing.api.metadata.IndexFileMapping;
 import org.pangrova.persistence.indexing.api.metadata.IndexFileSelection;
-import org.pangrova.indexing.api.enums.IndexState;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -13,8 +12,10 @@ import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.pangrova.persistence.indexing.postgresql.metadata.IndexMetadataMapper.bindMapping;
 
@@ -89,7 +90,7 @@ final class JdbcIndexFileMappingStore extends JdbcStoreSupport {
         for (int offset = 0; offset < excludedDataFiles.size(); offset += BATCH_PARTITION_SIZE) {
             List<String> batch = excludedDataFiles.subList(
                     offset, Math.min(offset + BATCH_PARTITION_SIZE, excludedDataFiles.size()));
-            try (var paths = JdbcTextSelection.create(connection, batch);
+            try (var paths = JdbcArraySelection.create(connection, batch);
                     var statement = connection.prepareStatement(
                             "DELETE FROM index_file_mappings WHERE index_id=? AND generation=? "
                                     + "AND data_file_path = ANY (?)")) {
@@ -161,6 +162,20 @@ final class JdbcIndexFileMappingStore extends JdbcStoreSupport {
                 IndexMetadataMapper::mapMappingList);
     }
 
+    Set<String> getIndexedDataFilePaths(String indexId, int generation) {
+        String sql = "SELECT data_file_path FROM index_file_mappings WHERE index_id=? AND generation=?";
+        return executeQuery(sql, statement -> {
+            statement.setString(1, indexId);
+            statement.setInt(2, generation);
+        }, rows -> {
+            Set<String> paths = new HashSet<>();
+            while (rows.next()) {
+                paths.add(rows.getString(1));
+            }
+            return Set.copyOf(paths);
+        });
+    }
+
     Map<String, Map<String, String>> batchGetIndexFileMappings(
             List<String> indexIds, List<String> dataFilePaths) {
         Map<String, Map<String, String>> result = new HashMap<>();
@@ -202,7 +217,7 @@ final class JdbcIndexFileMappingStore extends JdbcStoreSupport {
 
     private static void selectArtifacts(Connection connection, Map<String, IndexFileSelection> selections,
             List<String> distinctPaths, Map<String, Map<String, IndexFileMapping>> result) throws SQLException {
-        try (var ids = JdbcTextSelection.create(connection, List.copyOf(selections.keySet()));
+        try (var ids = JdbcArraySelection.create(connection, List.copyOf(selections.keySet()));
                 var statement = connection.prepareStatement("""
                         SELECT m.*, g.source_snapshot
                         FROM index_file_mappings m
@@ -213,7 +228,7 @@ final class JdbcIndexFileMappingStore extends JdbcStoreSupport {
             statement.setArray(1, ids.array());
             for (int offset = 0; offset < distinctPaths.size(); offset += BATCH_PARTITION_SIZE) {
                 int end = Math.min(offset + BATCH_PARTITION_SIZE, distinctPaths.size());
-                try (var paths = JdbcTextSelection.create(connection, distinctPaths.subList(offset, end))) {
+                try (var paths = JdbcArraySelection.create(connection, distinctPaths.subList(offset, end))) {
                     statement.setArray(2, paths.array());
                     try (var rows = statement.executeQuery()) {
                         collectArtifactResults(rows, selections, result);
@@ -259,8 +274,8 @@ final class JdbcIndexFileMappingStore extends JdbcStoreSupport {
                                    String snapshotToken,
                                    Map<String, Map<String, String>> result) {
         try (var connection = dataSource().getConnection();
-                var ids = JdbcTextSelection.create(connection, indexIds);
-                var paths = JdbcTextSelection.create(connection, batch);
+                var ids = JdbcArraySelection.create(connection, indexIds);
+                var paths = JdbcArraySelection.create(connection, batch);
                 var statement = connection.prepareStatement("""
                         SELECT index_id, data_file_path, index_file_path FROM index_file_mappings
                         WHERE index_id = ANY (?) AND data_file_path = ANY (?)
@@ -295,30 +310,6 @@ final class JdbcIndexFileMappingStore extends JdbcStoreSupport {
                 });
     }
 
-    boolean removeIndexFileMappingIfState(IndexFileMapping mapping,
-                                           IndexState expectedState,
-                                           int expectedGeneration) {
-        String sql = """
-                DELETE FROM index_file_mappings
-                WHERE index_id = ? AND data_file_path = ?
-                AND index_file_path = ? AND generation = ?
-                AND index_id IN (
-                    SELECT index_id FROM index_descriptors
-                    WHERE index_id = ? AND state = ? AND generation = ?
-                )
-                """;
-        int affected = executeUpdateCount(sql, ps -> {
-            ps.setString(1, mapping.indexId());
-            ps.setString(2, mapping.dataFilePath());
-            ps.setString(3, mapping.indexFilePath());
-            ps.setInt(4, mapping.generation());
-            ps.setString(5, mapping.indexId());
-            ps.setString(6, expectedState.name());
-            ps.setInt(7, expectedGeneration);
-        });
-        return affected > 0;
-    }
-
     Map<String, Integer> getIndexFileMappingCounts(
             List<String> indexIds, List<String> dataFilePaths) {
         Map<String, Integer> result = new HashMap<>();
@@ -336,8 +327,8 @@ final class JdbcIndexFileMappingStore extends JdbcStoreSupport {
     private void queryMappingCounts(List<String> indexIds, List<String> batch,
                                     Map<String, Integer> result) {
         try (var connection = dataSource().getConnection();
-                var ids = JdbcTextSelection.create(connection, indexIds);
-                var paths = JdbcTextSelection.create(connection, batch);
+                var ids = JdbcArraySelection.create(connection, indexIds);
+                var paths = JdbcArraySelection.create(connection, batch);
                 var statement = connection.prepareStatement("""
                         SELECT index_id, COUNT(*) AS cnt FROM index_file_mappings
                         WHERE index_id = ANY (?) AND data_file_path = ANY (?) GROUP BY index_id
@@ -369,7 +360,7 @@ final class JdbcIndexFileMappingStore extends JdbcStoreSupport {
 
     private List<String> queryIndexedFiles(String indexId, List<String> batch) {
         try (var connection = dataSource().getConnection();
-                var paths = JdbcTextSelection.create(connection, batch);
+                var paths = JdbcArraySelection.create(connection, batch);
                 var statement = connection.prepareStatement(
                         "SELECT data_file_path FROM index_file_mappings "
                                 + "WHERE index_id=? AND data_file_path = ANY (?)")) {

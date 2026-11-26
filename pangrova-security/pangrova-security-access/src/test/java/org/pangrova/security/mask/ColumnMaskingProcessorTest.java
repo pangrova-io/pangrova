@@ -39,7 +39,7 @@ class ColumnMaskingProcessorTest {
                 List.of("reader"), List.of(), true, null);
         var processor = new ColumnMaskingProcessor(new InMemoryColumnMaskStore(List.of(mask)));
 
-        assertThatThrownBy(() -> processor.getMask(subject, Set.of("reader"), "lake", "default", "users", "email"))
+        assertThatThrownBy(() -> processor.getMasks(subject, Set.of("reader"), "lake", "default", "users").mask("email"))
                 .isInstanceOf(AuthorizationDeniedException.class).hasMessageContaining("identity-context");
     }
 
@@ -50,9 +50,9 @@ class ColumnMaskingProcessorTest {
                 "user_attribute('department')", List.of("reader"), List.of("unmasked"), true, null);
         var processor = new ColumnMaskingProcessor(new InMemoryColumnMaskStore(List.of(mask)));
 
-        assertThat(processor.getMask(subject, Set.of("reader", "unmasked"),
-                "lake", "default", "users", "email")).isEmpty();
-        assertThatThrownBy(() -> processor.getMask(subject, Set.of(), "lake", "default", "users", "email"))
+        assertThat(processor.getMasks(subject, Set.of("reader", "unmasked"),
+                "lake", "default", "users").mask("email")).isEmpty();
+        assertThatThrownBy(() -> processor.getMasks(subject, Set.of(), "lake", "default", "users").mask("email"))
                 .isInstanceOf(AuthorizationDeniedException.class).hasMessageContaining("role applicability");
     }
 
@@ -64,7 +64,7 @@ class ColumnMaskingProcessorTest {
         var selected = new ColumnMask(2, "reader_mask", "lake", "default", "users", "email",
                 "{column}", List.of("reader"), List.of(), true, null);
         var processor = new ColumnMaskingProcessor(new InMemoryColumnMaskStore(List.of(uncertain, selected)));
-        assertThatThrownBy(() -> processor.getMask(subject, Set.of("reader"), "lake", "default", "users", "email"))
+        assertThatThrownBy(() -> processor.getMasks(subject, Set.of("reader"), "lake", "default", "users").mask("email"))
                 .isInstanceOf(AuthorizationDeniedException.class).hasMessageContaining("role applicability");
         assertThatThrownBy(() -> processor.hasApplicableMask(subject, Set.of("reader"), "lake", "default", "users"))
                 .isInstanceOf(AuthorizationDeniedException.class).hasMessageContaining("role applicability");
@@ -76,7 +76,7 @@ class ColumnMaskingProcessorTest {
     @Test
     void returnsEmptyWhenNoMasks() {
         ColumnMaskingProcessor processor = new ColumnMaskingProcessor(new EmptyColumnMaskStore());
-        Optional<String> mask = processor.getMask(ANALYST, java.util.Set.of("analyst"), "iceberg", "default", "users", "email");
+        Optional<String> mask = processor.getMasks(ANALYST, java.util.Set.of("analyst"), "iceberg", "default", "users").mask("email");
         assertThat(mask).isEmpty();
     }
 
@@ -87,7 +87,7 @@ class ColumnMaskingProcessorTest {
         InMemoryColumnMaskStore store = new InMemoryColumnMaskStore(List.of(mask));
         ColumnMaskingProcessor processor = new ColumnMaskingProcessor(store);
 
-        Optional<String> result = processor.getMask(ANALYST, java.util.Set.of("analyst"), "iceberg", "default", "users", "email");
+        Optional<String> result = processor.getMasks(ANALYST, java.util.Set.of("analyst"), "iceberg", "default", "users").mask("email");
         assertThat(result).isPresent();
         assertThat(result.get()).isEqualTo("MASK_EMAIL(\"email\")");
     }
@@ -99,7 +99,7 @@ class ColumnMaskingProcessorTest {
         InMemoryColumnMaskStore store = new InMemoryColumnMaskStore(List.of(mask));
         ColumnMaskingProcessor processor = new ColumnMaskingProcessor(store);
 
-        Optional<String> result = processor.getMask(ADMIN, java.util.Set.of("admin"), "iceberg", "default", "users", "email");
+        Optional<String> result = processor.getMasks(ADMIN, java.util.Set.of("admin"), "iceberg", "default", "users").mask("email");
         assertThat(result).isEmpty();
     }
 
@@ -110,7 +110,7 @@ class ColumnMaskingProcessorTest {
         InMemoryColumnMaskStore store = new InMemoryColumnMaskStore(List.of(mask));
         ColumnMaskingProcessor processor = new ColumnMaskingProcessor(store);
 
-        Optional<String> result = processor.getMask(ANALYST, java.util.Set.of("analyst"), "iceberg", "default", "users", "email");
+        Optional<String> result = processor.getMasks(ANALYST, java.util.Set.of("analyst"), "iceberg", "default", "users").mask("email");
         assertThat(result).isEmpty();
     }
 
@@ -121,8 +121,8 @@ class ColumnMaskingProcessorTest {
         InMemoryColumnMaskStore store = new InMemoryColumnMaskStore(List.of(mask));
         ColumnMaskingProcessor processor = new ColumnMaskingProcessor(store);
 
-        assertThat(processor.getMask(ANALYST, java.util.Set.of("analyst"), "iceberg", "default", "users", "email")).isPresent();
-        assertThat(processor.getMask(ADMIN, java.util.Set.of("admin"), "iceberg", "default", "users", "email")).isEmpty();
+        assertThat(processor.getMasks(ANALYST, java.util.Set.of("analyst"), "iceberg", "default", "users").mask("email")).isPresent();
+        assertThat(processor.getMasks(ADMIN, java.util.Set.of("admin"), "iceberg", "default", "users").mask("email")).isEmpty();
     }
 
     /**

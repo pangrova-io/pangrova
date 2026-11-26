@@ -44,25 +44,37 @@ import org.pangrova.shuffle.transport.RejectedWriteStream;
 import org.pangrova.shuffle.transport.SerialExecutor;
 import org.pangrova.shuffle.transport.PartitionWriteAccumulator;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import static org.pangrova.shuffle.server.ShuffleServiceModel.StoredBatch;
 
 /** gRPC boundary for the canonical v2 durable shuffle state machine. */
 final class CanonicalShuffleGrpcServer extends ShuffleServiceGrpc.ShuffleServiceImplBase
         implements AutoCloseable {
+    private static final Logger LOG = LoggerFactory.getLogger(CanonicalShuffleGrpcServer.class);
+    private static final int SETTLEMENT_THREADS = 4;
+    private static final long SETTLEMENT_SHUTDOWN_SECONDS = 5;
     private static final int BUFFER_PEAK_MULTIPLIER = 3;
+    private static final int MAX_INDEX_MEMORY_BYTES = 64 * 1024 * 1024;
 
     private final ShuffleServiceEngine engine;
     private final ShuffleServiceConfig.Limits limits;
     private final ExecutorService ioExecutor;
+    private final ExecutorService settlements;
     private final Semaphore writeStreams;
     private final Semaphore memoryBytes;
+    private final Semaphore indexMemoryBytes;
 
     CanonicalShuffleGrpcServer(ShuffleServiceEngine engine, ShuffleServiceConfig.Limits limits) {
         this.engine = engine;
         this.limits = limits;
         this.ioExecutor = boundedExecutor(limits);
+        int settlementThreads = Math.min(SETTLEMENT_THREADS, limits.ioThreads());
+        this.settlements = boundedExecutor(settlementThreads, limits.maxWriteStreams(), "shuffle-write-settlement-");
         this.writeStreams = new Semaphore(limits.maxWriteStreams());
         this.memoryBytes = new Semaphore(limits.maxInflightBytes());
+        this.indexMemoryBytes = new Semaphore(Math.min(limits.maxInflightBytes(), MAX_INDEX_MEMORY_BYTES));
     }
 
     @Override
@@ -208,15 +220,19 @@ final class CanonicalShuffleGrpcServer extends ShuffleServiceGrpc.ShuffleService
     }
 
     static ExecutorService boundedExecutor(ShuffleServiceConfig.Limits limits) {
+        return boundedExecutor(limits.ioThreads(), limits.maxQueuedOperations(), "shuffle-io-");
+    }
+
+    private static ExecutorService boundedExecutor(int threads, int queued, String name) {
         AtomicInteger sequence = new AtomicInteger();
         ThreadFactory factory = task -> {
-            Thread thread = new Thread(task, "shuffle-io-" + sequence.incrementAndGet());
+            Thread thread = new Thread(task, name + sequence.incrementAndGet());
             thread.setDaemon(true);
             return thread;
         };
-        return new ThreadPoolExecutor(limits.ioThreads(), limits.ioThreads(), 0L,
+        return new ThreadPoolExecutor(threads, threads, 0L,
                 TimeUnit.MILLISECONDS,
-                new ArrayBlockingQueue<>(limits.maxQueuedOperations()), factory,
+                new ArrayBlockingQueue<>(queued), factory,
                 new ThreadPoolExecutor.AbortPolicy());
     }
 
@@ -224,11 +240,13 @@ final class CanonicalShuffleGrpcServer extends ShuffleServiceGrpc.ShuffleService
         private final ServerCallStreamObserver<WriteBatchResponse> response;
         private final BatchStreamAssembler assembler = new BatchStreamAssembler(
                 limits.maxChunkBytes(), limits.maxBatchBytes());
+        private final AtomicBoolean closed = new AtomicBoolean();
+        private final ShuffleWriteSession writer = engine.writeSession(closed::get);
         private final Map<Integer, PartitionWriteAccumulator> acknowledgements = new HashMap<>();
         private final SerialExecutor serial;
-        private final AtomicBoolean closed = new AtomicBoolean();
         private int reservedBytes;
         private boolean inFlight;
+        private boolean disposed;
 
         private WriteStream(ServerCallStreamObserver<WriteBatchResponse> response) {
             this.response = response;
@@ -243,37 +261,27 @@ final class CanonicalShuffleGrpcServer extends ShuffleServiceGrpc.ShuffleService
             if (closed.get()) {
                 return;
             }
-            int bytes = request.getChunk().getData().size();
-            if (!reserveBytes(bytes)) {
+            if (!reserveBytes(request.getChunk().getData().size())) {
                 fail(Status.RESOURCE_EXHAUSTED.withDescription(
                         "shuffle write memory quota exhausted").asRuntimeException());
                 return;
             }
-            boolean admitted = serial.execute(() -> {
-                markInFlight(true);
-                try {
-                    if (closed.get()) {
-                        return;
-                    }
-                    CompleteWriteBatch complete = assembler.accept(request);
-                    if (complete != null) {
-                        StoredBatch stored = engine.acceptBatch(complete);
-                        acknowledgements.computeIfAbsent(complete.outputPartitionId(),
-                                ignored -> new PartitionWriteAccumulator()).accepted(
-                                        stored.identity().batchSequence(), stored.sizeBytes());
-                        releaseBytes(complete.canonicalSize());
-                    }
-                    if (!closed.get()) {
-                        response.request(1);
-                    }
-                } catch (RuntimeException failure) {
-                    fail(failure);
-                } finally {
-                    markInFlight(false);
-                }
-            });
-            if (!admitted) {
+            if (!serial.execute(() -> runIfOpen(() -> accept(request)))) {
                 fail(overloaded());
+            }
+        }
+
+        private void accept(WriteBatchRequest request) {
+            CompleteWriteBatch complete = assembler.accept(request);
+            if (complete != null) {
+                StoredBatch stored = writer.accept(complete);
+                acknowledgements.computeIfAbsent(complete.outputPartitionId(),
+                        ignored -> new PartitionWriteAccumulator()).accepted(
+                                stored.identity().batchSequence(), stored.sizeBytes());
+                releaseBytes(complete.canonicalSize());
+            }
+            if (!closed.get()) {
+                response.request(1);
             }
         }
 
@@ -284,55 +292,58 @@ final class CanonicalShuffleGrpcServer extends ShuffleServiceGrpc.ShuffleService
 
         @Override
         public void onCompleted() {
-            if (closed.get()) {
-                return;
-            }
-            boolean admitted = serial.execute(() -> {
-                try {
-                    if (closed.get()) {
-                        return;
-                    }
-                    assembler.requireComplete();
-                    WriteBatchResponse.Builder result = WriteBatchResponse.newBuilder();
-                    for (Map.Entry<Integer, PartitionWriteAccumulator> entry
-                            : acknowledgements.entrySet()) {
-                        result.addPartitions(entry.getValue().protocol(entry.getKey()));
-                        result.setTotalBatchesAccepted(result.getTotalBatchesAccepted()
-                            + entry.getValue().batches());
-                        result.setTotalBytesAccepted(result.getTotalBytesAccepted()
-                            + entry.getValue().bytes());
-                    }
-                    response.onNext(result.build());
-                    response.onCompleted();
-                    closeResources();
-                } catch (RuntimeException failure) {
-                    fail(failure);
-                }
-            });
-            if (!admitted) {
+            if (!closed.get() && !serial.execute(() -> runIfOpen(this::finish))) {
                 fail(overloaded());
+            }
+        }
+
+        private void finish() {
+            assembler.requireComplete();
+            writer.finish();
+            WriteBatchResponse.Builder result = WriteBatchResponse.newBuilder();
+            for (Map.Entry<Integer, PartitionWriteAccumulator> entry : acknowledgements.entrySet()) {
+                result.addPartitions(entry.getValue().protocol(entry.getKey()));
+                result.setTotalBatchesAccepted(result.getTotalBatchesAccepted() + entry.getValue().batches());
+                result.setTotalBytesAccepted(result.getTotalBytesAccepted() + entry.getValue().bytes());
+            }
+            if (closed.compareAndSet(false, true)) {
+                response.onNext(result.build());
+                response.onCompleted();
+            }
+        }
+
+        private void runIfOpen(Runnable operation) {
+            synchronized (this) {
+                if (closed.get()) {
+                    return;
+                }
+                inFlight = true;
+            }
+            try {
+                operation.run();
+            } catch (RuntimeException failure) {
+                fail(failure);
+            } finally {
+                synchronized (this) {
+                    inFlight = false;
+                    disposeIfIdle();
+                }
             }
         }
 
         private void fail(RuntimeException failure) {
             if (closed.compareAndSet(false, true)) {
-                writeStreams.release();
-                response.onError(status(failure));
-                releaseIfIdle();
+                try {
+                    response.onError(status(failure));
+                } finally {
+                    disposeIfIdle();
+                }
             }
         }
 
         private void cancel() {
             if (closed.compareAndSet(false, true)) {
-                writeStreams.release();
-                releaseIfIdle();
-            }
-        }
-
-        private void closeResources() {
-            if (closed.compareAndSet(false, true)) {
-                writeStreams.release();
-                releaseIfIdle();
+                disposeIfIdle();
             }
         }
 
@@ -345,28 +356,43 @@ final class CanonicalShuffleGrpcServer extends ShuffleServiceGrpc.ShuffleService
 
         private synchronized boolean reserveBytes(int bytes) {
             int permits = Math.multiplyExact(bytes, BUFFER_PEAK_MULTIPLIER);
-            if (!memoryBytes.tryAcquire(permits)) {
+            if (closed.get() || !memoryBytes.tryAcquire(permits)) {
                 return false;
             }
             reservedBytes = Math.addExact(reservedBytes, permits);
             return true;
         }
 
-        private synchronized void releaseAllBytes() {
+        private synchronized void disposeIfIdle() {
+            if (!closed.get() || inFlight || disposed) {
+                return;
+            }
+            disposed = true;
+            assembler.discard();
+            acknowledgements.clear();
             memoryBytes.release(reservedBytes);
             reservedBytes = 0;
-        }
-
-        private synchronized void markInFlight(boolean value) {
-            inFlight = value;
-            if (!value && closed.get()) {
-                releaseAllBytes();
+            if (writer.needsSettlement()) {
+                try {
+                    // Every unsettled writer retains its stream permit. The settlement queue
+                    // has at least that many slots, so only shutdown can reject it.
+                    settlements.execute(this::settleAndRelease);
+                } catch (RejectedExecutionException shutdown) {
+                    LOG.warn("event=shuffle_write_settlement_shutdown", shutdown);
+                    writeStreams.release();
+                }
+            } else {
+                settleAndRelease();
             }
         }
 
-        private synchronized void releaseIfIdle() {
-            if (!inFlight) {
-                releaseAllBytes();
+        private void settleAndRelease() {
+            try {
+                writer.close();
+            } catch (RuntimeException failure) {
+                LOG.warn("event=shuffle_write_settlement_failed", failure);
+            } finally {
+                writeStreams.release();
             }
         }
     }
@@ -393,7 +419,7 @@ final class CanonicalShuffleGrpcServer extends ShuffleServiceGrpc.ShuffleService
             }
             try {
                 ShuffleReadPump created = new ShuffleReadPump(engine, engine.read(request),
-                        response, ioExecutor, memoryBytes, limits);
+                        response, ioExecutor, memoryBytes, indexMemoryBytes, limits);
                 pump = created;
                 if (closed.get() || context.isCancelled()) {
                     created.cancel();
@@ -426,6 +452,15 @@ final class CanonicalShuffleGrpcServer extends ShuffleServiceGrpc.ShuffleService
     @Override
     public void close() {
         ioExecutor.shutdownNow();
+        settlements.shutdown();
+        try {
+            if (!settlements.awaitTermination(SETTLEMENT_SHUTDOWN_SECONDS, TimeUnit.SECONDS)) {
+                settlements.shutdownNow();
+            }
+        } catch (InterruptedException failure) {
+            settlements.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
     }
 
 }

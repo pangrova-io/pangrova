@@ -11,9 +11,6 @@ public enum AdmissionVerdict {
     /** The query is admitted and may proceed to scheduling. */
     ADMIT,
 
-    /** The query is queued because the resource group is at capacity. */
-    QUEUE,
-
     /** The query is rejected because a hard quota limit has been reached. */
     REJECT
 }

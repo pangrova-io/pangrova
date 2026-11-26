@@ -1,8 +1,10 @@
 package org.pangrova.connector.api.metadata;
 
 import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.enums.ReadSnapshotState;
 import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
 import org.pangrova.common.api.annotation.Stable;
+import org.pangrova.connector.api.metadata.table.ConnectorReadBinding;
 import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
 
 /**
@@ -35,6 +37,21 @@ public interface ConnectorSplitManager {
             ConnectorTableHandle table,
             DynamicFilter dynamicFilter,
             Constraint constraint);
+
+    /**
+     * Opens a scan for a nonempty, selected read. A backend that can validate
+     * the binding against the same table observation used for enumeration may
+     * override this operation and perform the two steps together.
+     */
+    default ConnectorSplitSource getBoundSplits(ConnectorTransactionHandle transaction,
+            ConnectorSession session, ConnectorMetadata metadata, ConnectorReadBinding binding,
+            DynamicFilter dynamicFilter, Constraint constraint) {
+        if (binding.state() == ReadSnapshotState.EMPTY) {
+            throw new IllegalArgumentException("An empty binding has no splits to enumerate");
+        }
+        metadata.validateReadBinding(session, binding);
+        return getSplits(transaction, session, binding.handle(), dynamicFilter, constraint);
+    }
 
     /**
      * Returns a split source containing only data files added between two

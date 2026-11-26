@@ -60,7 +60,7 @@ public final class WorkerNativeStorageTasks {
     }
 
     private static void requirePhysicalFiles(org.pangrova.protocol.v2.DataSplit split, CatalogControlLease lease) {
-        if (!split.getConnectorDetail().is(org.pangrova.protocol.v2.FileSplitDetail.class)) return;
+        if (!split.hasFileDetail()) return;
         var detail = DataSplitProtoCodec.fileDetail(split);
         for (var level : detail.getPaimon().getLsmLevelsList()) {
             for (var file : level.getFilesList()) {

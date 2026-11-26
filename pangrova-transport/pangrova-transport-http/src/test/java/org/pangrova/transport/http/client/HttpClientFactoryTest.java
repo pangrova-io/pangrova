@@ -2,6 +2,7 @@ package org.pangrova.transport.http.client;
 
 import java.net.Proxy;
 import java.net.URI;
+import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
@@ -106,17 +107,20 @@ class HttpClientFactoryTest {
     }
 
     @Test
-    void createdClientCanMakeHttpRequest() throws Exception {
-        ManagedHttpClient managed = HttpClientFactory.createDefault();
+    void internalClientUsesHttp11WithoutUpgradeOnRepeatedRequests() throws Exception {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create("http://localhost:" + port + "/echo"))
                 .GET()
                 .build();
-
-        HttpResponse<String> response = managed.httpClient().send(request, HttpResponse.BodyHandlers.ofString());
-        assertThat(response.statusCode()).isEqualTo(200);
-        assertThat(response.body()).isEqualTo("OK");
-        managed.close();
+        try (ManagedHttpClient managed = HttpClientFactory.createDefault()) {
+            for (int call = 0; call < 3; call++) {
+                var response = managed.httpClient().send(request, HttpResponse.BodyHandlers.ofString());
+                assertThat(response.statusCode()).isEqualTo(200);
+                assertThat(response.version()).isEqualTo(HttpClient.Version.HTTP_1_1);
+                assertThat(response.body()).isEqualTo("OK");
+                assertThat(response.headers().firstValue("X-Observed-H2c-Upgrade")).contains("false");
+            }
+        }
     }
 
     /** Minimal servlet returning "OK" for real HTTP round-trip testing. */
@@ -124,6 +128,8 @@ class HttpClientFactoryTest {
         @Override
         protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws java.io.IOException {
             resp.setStatus(200);
+            resp.setHeader("X-Observed-H2c-Upgrade", Boolean.toString(
+                    req.getHeader("Upgrade") != null || req.getHeader("HTTP2-Settings") != null));
             resp.getWriter().write("OK");
         }
     }

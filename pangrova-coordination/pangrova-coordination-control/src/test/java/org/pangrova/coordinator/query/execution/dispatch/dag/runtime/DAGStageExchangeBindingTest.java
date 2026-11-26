@@ -2,7 +2,6 @@ package org.pangrova.coordinator.query.execution.dispatch.dag.runtime;
 
 import org.pangrova.execution.task.StageDispatchRecord;
 
-import io.substrait.proto.Plan;
 import io.substrait.proto.ReadRel;
 import io.substrait.proto.Rel;
 import io.substrait.proto.Type;
@@ -41,12 +40,12 @@ class DAGStageExchangeBindingTest {
     })
     void liveExchangeUsesActualProducerSchemaInsteadOfPresentationNames(String sql) throws Exception {
         var fixture = fixture(sql);
-        var prepared = fixture.state().serializePlan(fixture.producer(), fixture.context().preOptColumnNames());
-        recordDispatchedProducer(fixture, prepared.planBytes());
-        var source = Plan.parseFrom(prepared.planBytes()).getRelations(0).getRoot();
+        var prepared = fixture.state().compilePlan(fixture.producer(), fixture.context().preOptColumnNames());
+        recordDispatchedProducer(fixture, prepared.plan().toByteArray());
+        var source = prepared.plan().getRelations(0).getRoot();
         var expected = SubstraitRelationLayout.describe(source.getInput()).outputSchema();
-        var output = Plan.parseFrom(fixture.state().serializePlan(
-                fixture.consumer(), fixture.context().preOptColumnNames()).planBytes())
+        var output = fixture.state().compilePlan(
+                fixture.consumer(), fixture.context().preOptColumnNames()).plan()
                 .getRelations(0).getRoot();
         var input = output.getInput().getExtensionLeaf().getDetail()
                 .unpack(RelationDetailEnvelope.class).getExchangeInput();
@@ -59,7 +58,7 @@ class DAGStageExchangeBindingTest {
     @Test
     void refusesToSerializeConsumerBeforeItsProducerIsPrepared() {
         var fixture = fixture("SELECT 2 AS x");
-        assertThatThrownBy(() -> fixture.state().serializePlan(
+        assertThatThrownBy(() -> fixture.state().compilePlan(
                 fixture.consumer(), fixture.context().preOptColumnNames()))
                 .hasMessageContaining("no dispatched producer plan");
     }
@@ -69,8 +68,8 @@ class DAGStageExchangeBindingTest {
         var fixture = fixture("SELECT 2 AS x");
         var bound = boundProducer(fixture, false);
         recordDispatchedProducer(fixture, bound.planBytes());
-        var output = Plan.parseFrom(fixture.state().serializePlan(
-                fixture.consumer(), fixture.context().preOptColumnNames()).planBytes())
+        var output = fixture.state().compilePlan(
+                fixture.consumer(), fixture.context().preOptColumnNames()).plan()
                 .getRelations(0).getRoot();
         var input = output.getInput().getExtensionLeaf().getDetail()
                 .unpack(RelationDetailEnvelope.class).getExchangeInput();
@@ -83,7 +82,7 @@ class DAGStageExchangeBindingTest {
         var fixture = fixture("SELECT 2 AS x");
         var bound = boundProducer(fixture, true);
         recordDispatchedProducer(fixture, bound.planBytes());
-        assertThatThrownBy(() -> fixture.state().serializePlan(
+        assertThatThrownBy(() -> fixture.state().compilePlan(
                 fixture.consumer(), fixture.context().preOptColumnNames()))
                 .hasMessageContaining("input type differs from producer");
     }
@@ -97,8 +96,8 @@ class DAGStageExchangeBindingTest {
     }
 
     private static SerializedPlanFragment boundProducer(Fixture fixture, boolean changeType) throws Exception {
-        var serialized = fixture.state().serializePlan(fixture.producer(), fixture.context().preOptColumnNames());
-        var plan = Plan.parseFrom(serialized.planBytes());
+        var serialized = fixture.state().compilePlan(fixture.producer(), fixture.context().preOptColumnNames());
+        var plan = serialized.plan();
         var root = plan.getRelations(0).getRoot();
         var schema = SubstraitRelationLayout.describe(root.getInput()).outputSchema().toBuilder()
                 .clearNames().addNames("bound_value");

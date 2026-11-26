@@ -12,7 +12,20 @@ public final class ProtocolChecksums {
 
     /** Hashes the supplied bytes without changing their serialization or ordering. */
     public static Checksum sha256(byte[] bytes) {
+        return sha256Value(DigestUtils.sha256().digest(bytes));
+    }
+
+    /** Hashes the immutable plan bytes without making a full-size array copy. */
+    public static Checksum sha256(ByteString bytes) {
+        var digest = DigestUtils.sha256();
+        for (var buffer : bytes.asReadOnlyByteBufferList()) {
+            digest.update(buffer);
+        }
+        return sha256Value(digest.digest());
+    }
+
+    private static Checksum sha256Value(byte[] digest) {
         return Checksum.newBuilder().setAlgorithm(Checksum.Algorithm.ALGORITHM_SHA256)
-                .setDigest(ByteString.copyFrom(DigestUtils.sha256().digest(bytes))).build();
+                .setDigest(ByteString.copyFrom(digest)).build();
     }
 }

@@ -41,6 +41,10 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import javax.sql.DataSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -91,14 +95,129 @@ class GeneratedValuePublicationIntegrationTest {
         publishBuild(buildStore, publicationStore, split);
         assertPublication(buildStore, publicationStore);
         assertTaskBinding(buildStore, publicationStore, split);
+        assertWindowMaterialization(dataSource, buildStore, publicationStore, split);
+        assertReadLocksShareAndStillWaitForWriters(dataSource, buildStore);
         assertClaimConnectionEvidence(dataSource, buildStore, publicationStore, split);
+    }
+
+    private static void assertReadLocksShareAndStillWaitForWriters(DataSource dataSource,
+            PostgresGenerationJobStore store) throws Exception {
+        var executor = Executors.newSingleThreadExecutor();
+        try (var holder = dataSource.getConnection()) {
+            holder.setAutoCommit(false);
+            lockPublishedJob(holder, false);
+            try {
+                var reader = executor.submit(() -> store.loadPublishedOutputs(TENANT, JOB_ID, Set.of("object-a")));
+                assertThat(reader.get(5, TimeUnit.SECONDS)).hasSize(2);
+            } finally {
+                holder.rollback();
+            }
+
+            int writer = lockPublishedJob(holder, true);
+            var reader = executor.submit(() -> store.loadPublishedSourceSplits(TENANT, JOB_ID, Set.of("object-a")));
+            try {
+                assertWaitsForWriter(dataSource, writer, reader);
+            } finally {
+                holder.rollback();
+            }
+            assertThat(reader.get(5, TimeUnit.SECONDS)).containsOnlyKeys("object-a");
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    private static int lockPublishedJob(java.sql.Connection connection, boolean writer) throws Exception {
+        String sql = "SELECT pg_backend_pid() FROM artifact_build_jobs WHERE tenant_id=? AND job_id=?"
+                + (writer ? " FOR UPDATE" : " FOR SHARE");
+        try (var statement = connection.prepareStatement(sql)) {
+            statement.setString(1, TENANT);
+            statement.setString(2, JOB_ID);
+            try (var rows = statement.executeQuery()) {
+                assertThat(rows.next()).isTrue();
+                return rows.getInt(1);
+            }
+        }
+    }
+
+    private static void assertWaitsForWriter(DataSource dataSource, int writer,
+            java.util.concurrent.Future<?> reader) throws Exception {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        boolean blocked = false;
+        while (!blocked && !reader.isDone() && System.nanoTime() < deadline) {
+            blocked = readerWaitsFor(dataSource, writer);
+            if (!blocked) Thread.sleep(10);
+        }
+        assertThat(blocked).isTrue();
+        assertThat(reader.isDone()).isFalse();
+    }
+
+    private static boolean readerWaitsFor(DataSource dataSource, int writer) throws Exception {
+        try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement("""
+                SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE ? = ANY(pg_blocking_pids(pid))
+                  AND wait_event_type = 'Lock' AND query LIKE 'SELECT%FROM artifact_build_jobs%')
+                """)) {
+            statement.setInt(1, writer);
+            try (var rows = statement.executeQuery()) {
+                assertThat(rows.next()).isTrue();
+                return rows.getBoolean(1);
+            }
+        }
+    }
+
+    private static void assertWindowMaterialization(javax.sql.DataSource dataSource, PostgresGenerationJobStore store,
+            JdbcGeneratedValuePublicationStore publicationStore, DataSplit split) throws Exception {
+        var second = split.toBuilder()
+                .setSplitId(org.pangrova.protocol.source.DataSplitProtoCodec.stableSplitId(
+                        "iceberg", SOURCE_ID, SNAPSHOT, "object-b", "s3://warehouse/object-b.parquet", 0, 0))
+                .setDataObjectId("object-b").setOpaqueLocation("s3://warehouse/object-b.parquet").build();
+        var resolution = new GeneratedValueGenerationBindingResolver(publicationStore, store)
+                .resolveTemplate(TENANT, SOURCE_ID, "embedding", SNAPSHOT, List.of(split, second)).orElseThrow();
+        var bindings = List.of(resolution.bind("scan-a"), resolution.bind("scan-b"));
+        var resolver = new PublishedGenerationBindingResolver(store);
+        try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
+            statement.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public");
+        }
+        for (int trial = 0; trial < 3; trial++) {
+            long before = materializationReads(dataSource);
+            var partitions = List.of(List.of(split), List.of(second));
+            var window = resolver.materializeForTasks(TENANT, bindings, partitions);
+            assertThat(window).hasSize(2);
+            for (int partition = 0; partition < window.size(); partition++) {
+                var actual = partitions.get(partition).get(0);
+                var results = window.get(partition);
+                assertThat(results).extracting(OperatorBinding::getPlanNodeId).containsExactly("scan-a", "scan-b");
+                for (var binding : results) {
+                    var artifact = binding.getArtifacts(0);
+                    PublishedGenerationBindingChecksum.verify(artifact);
+                    assertThat(artifact.getSplitObjectsList()).hasSize(2)
+                            .extracting(object -> object.getSourceObjectId()).containsOnly(actual.getDataObjectId());
+                }
+            }
+            long delta = materializationReads(dataSource) - before;
+            assertThat(delta).as("publication SELECTs per bounded window").isEqualTo(5);
+        }
+    }
+
+    private static long materializationReads(javax.sql.DataSource dataSource) throws Exception {
+        try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement("""
+                SELECT COALESCE(SUM(calls), 0)
+                FROM public.pg_stat_statements
+                WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+                  AND query LIKE 'SELECT%'
+                  AND (query LIKE '%FROM artifact_build_jobs%'
+                    OR query LIKE '%FROM artifact_build_dependencies%'
+                    OR query LIKE '%FROM artifact_build_outputs%')
+                  AND query NOT LIKE '%pg_stat_statements%'
+                """); var rows = statement.executeQuery()) {
+            assertThat(rows.next()).isTrue();
+            return rows.getLong(1);
+        }
     }
 
     private void assertClaimConnectionEvidence(javax.sql.DataSource dataSource, PostgresGenerationJobStore store,
             JdbcGeneratedValuePublicationStore publicationStore, DataSplit split) throws Exception {
-        String encoded = java.util.Base64.getEncoder().encodeToString(split.toByteArray());
         var read = new GeneratedValueGenerationBindingResolver(publicationStore, store).resolveTemplate(
-                TENANT, "scan-claim", SOURCE_ID, "embedding", SNAPSHOT, List.of(encoded)).orElseThrow();
+                TENANT, SOURCE_ID, "embedding", SNAPSHOT, List.of(split)).orElseThrow().bind("scan-claim");
         var original = dispatch();
         var sink = OperatorBindingSet.parseFrom(original.stageGraph().requireStage(0).bindingSetBytes())
                 .getBindings(0);
@@ -123,20 +242,55 @@ class GeneratedValuePublicationIntegrationTest {
             pool.setMaximumPoolSize(1);
             pool.setMinimumIdle(0);
             pool.setConnectionTimeout(500);
-            var claimed = ModelAuthorityFixtures.artifacts().stages(pool).preparePartition(
-                    new GenerationStageExecutionStore.PartitionClaim(
-                            new org.pangrova.generation.api.identity.GenerationJobKey(TENANT, consumerJob), owner,
-                            0, 0, 0, 10, Duration.ofSeconds(30), START), prepared -> {
-                        assertThat(pool.getHikariPoolMXBean().getActiveConnections()).isEqualTo(1);
-                        var result = PublishedGenerationBindingResolver.materializePrepared(List.of(read), List.of(encoded),
-                                prepared.publications());
-                        PublishedGenerationBindingChecksum.verify(result.get(0).getArtifacts(0));
-                        assertThat(prepared.publications()).hasSize(1);
-                        assertThat(prepared.dependencyOutputs()).isEmpty();
-                        return prepared.lease();
-                    });
-            assertThat(claimed).isPresent();
+            long guardBefore = publicationSelects(dataSource, "SELECT state FROM artifact_build_jobs%FOR SHARE");
+            String manifestSql = "SELECT * FROM artifact_build_jobs%staging_generation=%FOR SHARE";
+            long manifestBefore = publicationSelects(dataSource, manifestSql);
+            var claim = new GenerationStageExecutionStore.PartitionClaim(
+                    new org.pangrova.generation.api.identity.GenerationJobKey(TENANT, consumerJob), owner,
+                    0, 0, 0, 10, Duration.ofSeconds(30), START);
+            var stages = ModelAuthorityFixtures.artifacts().stages(pool);
+            var executor = Executors.newSingleThreadExecutor();
+            try (var holder = dataSource.getConnection()) {
+                holder.setAutoCommit(false);
+                int writer = lockPublishedJob(holder, true);
+                var readClaim = executor.submit(() -> stages.preparePartition(claim, prepared -> {
+                    assertThat(pool.getHikariPoolMXBean().getActiveConnections()).isEqualTo(1);
+                    var result = PublishedGenerationBindingResolver.materializePrepared(List.of(read), List.of(split),
+                            prepared.publications());
+                    PublishedGenerationBindingChecksum.verify(result.get(0).getArtifacts(0));
+                    assertThat(prepared.publications()).hasSize(1);
+                    assertThat(prepared.dependencyOutputs()).isEmpty();
+                    return prepared.lease();
+                }));
+                try {
+                    assertWaitsForWriter(dataSource, writer, readClaim);
+                } finally {
+                    holder.rollback();
+                }
+                assertThat(readClaim.get(5, TimeUnit.SECONDS)).isPresent();
+            } finally {
+                executor.shutdownNow();
+            }
+            assertThat(publicationSelects(dataSource, "SELECT state FROM artifact_build_jobs%FOR SHARE") - guardBefore)
+                    .as("separate publication guard queries in the claim transaction").isZero();
+            assertThat(publicationSelects(dataSource, manifestSql) - manifestBefore)
+                    .as("locked published manifest queries in the claim transaction").isOne();
             assertThat(pool.getHikariPoolMXBean().getActiveConnections()).isZero();
+        }
+    }
+
+    private static long publicationSelects(DataSource dataSource, String pattern) throws Exception {
+        try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement("""
+                SELECT COALESCE(SUM(calls), 0)
+                FROM public.pg_stat_statements
+                WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+                  AND query LIKE ?
+                """)) {
+            statement.setString(1, pattern);
+            try (var rows = statement.executeQuery()) {
+                assertThat(rows.next()).isTrue();
+                return rows.getLong(1);
+            }
         }
     }
 
@@ -215,12 +369,13 @@ class GeneratedValuePublicationIntegrationTest {
                                           JdbcGeneratedValuePublicationStore publicationStore, DataSplit split) {
         GeneratedValueGenerationBindingResolver resolver =
                 new GeneratedValueGenerationBindingResolver(publicationStore, buildStore);
-        String encodedSplit = java.util.Base64.getEncoder()
-                .encodeToString(split.toByteArray());
-        OperatorBinding template = resolver.resolveTemplate(
-                TENANT, "scan-a", SOURCE_ID, "embedding",
-                SNAPSHOT, List.of(encodedSplit))
+        var resolved = resolver.resolveTemplate(
+                TENANT, SOURCE_ID, "embedding",
+                SNAPSHOT, List.of(split))
                 .orElseThrow();
+        assertThat(resolved.definitionSnapshot()).isEqualTo(dispatch().authorizationScope().definitionSnapshot());
+        OperatorBinding template = resolved.bind("scan-a");
+        assertThat(resolved.bind("scan-b")).isEqualTo(template.toBuilder().setPlanNodeId("scan-b").build());
         assertThat(template.getCapability().getCapabilityId())
                 .isEqualTo(BuiltInCapabilityIdentifiers.GENERATED_VALUES_OVERLAY_ID);
         assertThat(template.getArtifacts(0).getSplitObjectsCount()).isZero();
@@ -233,8 +388,9 @@ class GeneratedValuePublicationIntegrationTest {
         assertThat(template.getExecutionPolicy().getFallbackPolicy()).isEqualTo(
                 org.pangrova.protocol.v2.FallbackPolicy.FALLBACK_POLICY_FORBID);
 
-        OperatorBinding taskBinding = resolver.materializeForTask(
-                TENANT, List.of(template), List.of(encodedSplit)).get(0);
+        OperatorBinding taskBinding = new PublishedGenerationBindingResolver(buildStore).materializeForTasks(
+                TENANT, List.of(template),
+                List.of(List.of(split))).get(0).get(0);
         assertThat(taskBinding.getArtifacts(0).getSplitObjectsList())
                 .extracting(object -> object.getObjectRole())
                 .containsExactly("GENERATED_VALUES", "ROW_LOCATORS");
@@ -245,15 +401,15 @@ class GeneratedValuePublicationIntegrationTest {
                 new PublishedGenerationBindingResolver.GenerationResolutionIntent(TENANT, ARTIFACT_ID,
                         GenerationOutputTypeIds.GENERATED_COLUMN_VALUES, GENERATION, SOURCE_ID, SNAPSHOT,
                         GenerationSourceCoverage.COMPLETE_GENERATION),
-                List.of(encodedSplit))).isEmpty();
-        String changedSource = java.util.Base64.getEncoder().encodeToString(split.toBuilder()
+                List.of(split))).isEmpty();
+        DataSplit changedSource = split.toBuilder()
                 .setOpaqueLocation("s3://warehouse/replaced-object.parquet")
                 .setSplitId(org.pangrova.protocol.source.DataSplitProtoCodec.stableSplitId(
                         "iceberg", SOURCE_ID, SNAPSHOT, "object-a",
                         "s3://warehouse/replaced-object.parquet", 0, 0))
-                .build().toByteArray());
+                .build();
         assertThatThrownBy(() -> resolver.resolveTemplate(
-                TENANT, "changed-scan", SOURCE_ID, "embedding", SNAPSHOT, List.of(changedSource)))
+                TENANT, SOURCE_ID, "embedding", SNAPSHOT, List.of(changedSource)))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("exactly cover");
     }
 

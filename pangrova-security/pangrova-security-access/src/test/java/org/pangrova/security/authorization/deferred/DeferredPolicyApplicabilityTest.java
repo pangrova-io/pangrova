@@ -82,7 +82,7 @@ class DeferredPolicyApplicabilityTest extends ContainerTestBase {
         }
         var authenticated = new UserIdentity("alice", Set.of("private-group"), Map.of(), Instant.now());
         var filter = access.getRowFilter(authenticated, "lake", "default", "orders");
-        var mask = access.getColumnMask(authenticated, "lake", "default", "orders", "email");
+        var mask = access.getColumnMasks(authenticated, "lake", "default", "orders").mask("email");
         assertThat(rowPolicy ? filter : mask).isPresent();
         var transformed = new DeferredAuthorizationScope(List.of(
                 new DeferredAuthorizationScope.TablePermission(TABLE, Set.of("email"), Privilege.SELECT,

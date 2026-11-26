@@ -115,12 +115,9 @@ final class IcebergIndexAccessors implements ConnectorIndexSupport {
         try {
             IcebergSnapshotAwareMetadata metadata =
                     new IcebergSnapshotAwareMetadata(catalog, schemaName, tableName);
-            Optional<String> snapshot = metadata.currentSnapshotId();
-            return snapshot.isEmpty()
-                    ? List.of()
-                    : metadata.listFilesAtSnapshot(snapshot.get()).stream()
-                            .map(SnapshotDataFile::path)
-                            .toList();
+            return metadata.currentSnapshotFiles()
+                    .map(snapshot -> snapshot.files().stream().map(SnapshotDataFile::path).toList())
+                    .orElseGet(List::of);
         } catch (Exception e) {
             throw new IllegalStateException(
                     "Failed to list complete Iceberg data files for "

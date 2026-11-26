@@ -1,9 +1,12 @@
 package org.pangrova.worker.execution;
 
 import org.junit.jupiter.api.Test;
+import org.pangrova.protocol.rest.task.SubmitTaskRequest;
+import org.pangrova.protocol.task.ValidatedTaskSubmission;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.protocol.v2.TaskKind;
 import org.pangrova.protocol.v2.TaskRequest;
+import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
 
 import java.util.Optional;
 
@@ -18,7 +21,7 @@ class CompositeTaskExecutorTest {
         RecordingBackend backend = new RecordingBackend();
         CompositeTaskExecutor executor = new CompositeTaskExecutor(nativeExecutor, backend);
 
-        long workerHandle = executor.createTask(cdcRequest().toByteArray());
+        long workerHandle = executor.createTask(cdcRequest());
         assertThat(executor.isWorkerExecuted(workerHandle)).isTrue();
         assertThat(nativeExecutor.created).isZero();
         assertThat(backend.created).isEqualTo(1);
@@ -31,11 +34,23 @@ class CompositeTaskExecutorTest {
                 .isInstanceOf(UnsupportedOperationException.class);
         assertThat(executor.releaseTask(workerHandle)).contains(new byte[]{7});
 
-        long nativeHandle = executor.createTask(nativeRequest().toByteArray());
+        long nativeHandle = executor.createTask(nativeRequest());
         assertThat(executor.isWorkerExecuted(nativeHandle)).isFalse();
         assertThat(nativeExecutor.created).isEqualTo(1);
         executor.close();
         assertThat(backend.closed).isTrue();
+    }
+
+    @Test
+    void forwardsTheSameAdmissionToTheNativeOwner() {
+        var nativeExecutor = new RecordingNative();
+        var admission = new ValidatedTaskSubmission(
+                SubmitTaskRequest.from(ActualNativeTaskFixture.valuesTaskRequest(false)));
+        try (var executor = new CompositeTaskExecutor(nativeExecutor, new RecordingBackend())) {
+            assertThat(executor.createAdmittedTask(admission)).isEqualTo(11);
+            assertThat(nativeExecutor.admission).isSameAs(admission);
+            assertThat(nativeExecutor.created).isZero();
+        }
     }
 
     @Test
@@ -94,6 +109,11 @@ class CompositeTaskExecutorTest {
         }
 
         @Override
+        public boolean awaitFinished(long handle, int waitMillis) {
+            return isFinished(handle);
+        }
+
+        @Override
         public byte[] getTaskStatus(long handle) {
             return new byte[]{7};
         }
@@ -120,15 +140,27 @@ class CompositeTaskExecutorTest {
 
     private static final class RecordingNative implements TaskExecutor {
         private int created;
+        private ValidatedTaskSubmission admission;
 
         @Override
-        public long createTask(byte[] taskRequestBytes) {
+        public long createAdmittedTask(ValidatedTaskSubmission value) {
+            admission = value;
+            return 11;
+        }
+
+        @Override
+        public long createTask(TaskRequest request) {
             created++;
             return 11;
         }
 
         @Override
         public void startTask(long executorHandle) {
+        }
+
+        @Override
+        public void startResultTask(long executorHandle, Runnable onReady) {
+            onReady.run();
         }
 
         @Override
@@ -146,8 +178,18 @@ class CompositeTaskExecutorTest {
         }
 
         @Override
+        public byte[] pushExchangeChunk(long executorHandle, byte[] metadata, byte[] data) {
+            return new byte[0];
+        }
+
+        @Override
         public boolean isFinished(long executorHandle) {
             return true;
+        }
+
+        @Override
+        public boolean awaitFinished(long executorHandle, int waitMillis) {
+            return isFinished(executorHandle);
         }
 
         @Override

@@ -146,6 +146,11 @@ class WorkerBootstrapPrestartOwnershipTest {
         }
 
         @Override
+        public boolean awaitFinished(long handle, int waitMillis) {
+            throw new AssertionError("No task was submitted");
+        }
+
+        @Override
         public byte[] getTaskStatus(long handle) {
             throw new AssertionError("No task was submitted");
         }

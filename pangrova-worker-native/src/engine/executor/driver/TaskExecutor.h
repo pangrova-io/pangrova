@@ -6,6 +6,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -42,6 +43,8 @@ class FunctionRegistrySnapshot;
 namespace pangrova::shuffle {
 class ShuffleEgressExecutor;
 }  // namespace pangrova::shuffle
+
+namespace pangrova::capability { class FunctionCatalogPublication; }
 
 namespace pangrova::executor {
 
@@ -125,8 +128,10 @@ struct ShuffleExecutionConfig {
 
 // Configuration extracted from TaskRequest protobuf for executor construction.
 struct TaskExecutorConfig {
+  static constexpr int kMaximumBuildKeyColumns = 4;
   // Admitted process-local factory owner; never re-read from a live registry.
   std::shared_ptr<const facebook::velox::exec::FunctionRegistrySnapshot> function_registry;
+  std::shared_ptr<const capability::FunctionCatalogPublication> function_catalog;
   // Serialized once after canonical admission, reused by every callback batch.
   std::string callback_context;
   // Process-local identity assigned by HandleRegistry before start(). It is
@@ -153,6 +158,7 @@ struct TaskExecutorConfig {
   // replayed through a second JNI command path.
   std::vector<pangrova::protocol::v2::RuntimeFilterBinding>
       initial_runtime_filters;
+  std::vector<uint32_t> build_key_ordinals;
   std::vector<split::SplitConfig> splits;
   std::unordered_map<std::string, std::string> session_properties;
   ResourceLimitConfig resource_limit;
@@ -203,7 +209,7 @@ struct TaskExecutorConfig {
 // Orchestrator: composes lifecycle, execution driver, and output routing.
 class TaskExecutor {
  public:
-  explicit TaskExecutor(const TaskExecutorConfig& config);
+  explicit TaskExecutor(TaskExecutorConfig config);
   ~TaskExecutor();
 
   // Non-copyable, non-movable.
@@ -211,7 +217,7 @@ class TaskExecutor {
   TaskExecutor& operator=(const TaskExecutor&) = delete;
 
   // Lifecycle — delegates to TaskLifecycle + PlanExecutionDriver.
-  void start();
+  void start(std::function<void()> on_result_ready = {});
   void cancel();
   void release();
   shuffle::ShuffleControlGate::Lease acquireShuffleStart();
@@ -231,6 +237,7 @@ class TaskExecutor {
   int getNextBatch(facebook::velox::RowVectorPtr& row_vector);
   // Status — delegates to TaskLifecycle.
   ExecutorState state() const;
+  ExecutorState awaitTerminal(std::chrono::milliseconds timeout) const;
   std::string taskId() const;
   std::string queryId() const;
   int32_t stageId() const;
@@ -249,6 +256,7 @@ class TaskExecutor {
   int64_t nativeMemoryLimitBytes() const;
   const std::string& callbackContext() const;
   bool isResultTask() const;
+  void watchResultDrain(std::function<void()> listener) const;
   int32_t shufflePartitionCount() const;
   bool usesExternalShuffle() const;
   bool usesLocalDiskShuffle() const;
@@ -256,13 +264,14 @@ class TaskExecutor {
   std::string errorMessage() const;
   TaskLifecycle::Snapshot lifecycleSnapshot() const;
   void recordExecutionError(const protocol::v2::ExecutionError& error);
+  void recordResultStreamFinished();
   void recordResultStreamFailure(const std::string& message);
   std::string nativeStackTrace() const;
   std::optional<protocol::v2::ArtifactWorkReport> artifactWorkReport() const;
 
   // Dynamic filter injection.
   void injectDynamicFilter(const std::string& plan_node_id,
-                           const std::string& filter_proto);
+      const google::protobuf::RepeatedPtrField<protocol::v2::RuntimeFilter>& filters);
 
   // Memory limit update from Java side — delegates to VeloxMemoryGovernor.
   void updateMemoryLimit(int64_t new_limit_bytes);
@@ -286,8 +295,7 @@ class TaskExecutor {
   observability::NativeMetricsCollector& metricsCollector();
 
   // Collect task stats from Velox TaskStats via VeloxTaskRunner.
-  // Returns serialized proto bytes; empty if VeloxTaskRunner is unavailable.
-  std::vector<uint8_t> collectTaskStats() const;
+  std::optional<protocol::v2::NativeTaskStats> collectTaskStats() const;
   bool hasFinalTaskStats() const;
   uint64_t requestedObjectReadBytes() const;
 

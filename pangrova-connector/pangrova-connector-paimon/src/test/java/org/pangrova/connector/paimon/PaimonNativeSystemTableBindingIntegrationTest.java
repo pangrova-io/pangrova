@@ -1,5 +1,6 @@
 package org.pangrova.connector.paimon;
 
+import org.pangrova.protocol.source.CanonicalConnectorSplit;
 import java.nio.file.Path;
 import java.nio.file.Files;
 import java.nio.file.attribute.FileTime;
@@ -38,7 +39,6 @@ import org.pangrova.connector.paimon.handle.PaimonSystemTableSplit;
 import org.pangrova.connector.paimon.handle.PaimonBranchTableHandle;
 import org.pangrova.connector.paimon.handle.PaimonBranchSystemTableSplit;
 import org.pangrova.protocol.v2.DataSplit;
-import org.pangrova.protocol.v2.FileSplitDetail;
 import org.pangrova.protocol.v2.SystemTableSplitDetail;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
@@ -98,10 +98,10 @@ class PaimonNativeSystemTableBindingIntegrationTest {
             assertThat(bound.objects().get(0).snapshotId()).isEqualTo(1);
             var split = new PaimonSystemTableSplit(
                     bound.tableName(), bound.sourceIdentity(), bound.kind(), bound.objects().get(0));
-            var encoded = DataSplit.parseFrom(split.toSplitInfoProto());
+            var encoded = DataSplit.parseFrom(CanonicalConnectorSplit.from(split).toByteArray());
             assertThat(encoded.getSourceSnapshot()).isEqualTo(bound.sourceIdentity());
             assertThat(encoded.getOpaqueLocation()).isEqualTo(bound.objects().get(0).uri());
-            var detail = encoded.getConnectorDetail().unpack(FileSplitDetail.class);
+            var detail = encoded.getFileDetail();
             assertThat(detail.getSystemTable().getKind())
                     .isEqualTo(SystemTableSplitDetail.Kind.PAIMON_SNAPSHOTS);
             assertThat(detail.getSystemTable().getSnapshotId()).isEqualTo(1);
@@ -144,8 +144,8 @@ class PaimonNativeSystemTableBindingIntegrationTest {
             metadata.validateReadBinding(SESSION, binding);
             var split = new PaimonSystemTableSplit(bound.tableName(), bound.sourceIdentity(),
                     bound.kind(), bound.objects().get(0));
-            var detail = DataSplit.parseFrom(split.toSplitInfoProto())
-                    .getConnectorDetail().unpack(FileSplitDetail.class).getSystemTable();
+            var detail = DataSplit.parseFrom(CanonicalConnectorSplit.from(split).toByteArray())
+                    .getFileDetail().getSystemTable();
             assertThat(detail.getKind()).isEqualTo(SystemTableSplitDetail.Kind.PAIMON_OPTIONS);
             assertThat(detail.getSchemaId()).isEqualTo(schema.id());
             assertThat(detail.getObjectSha256().size()).isEqualTo(32);
@@ -176,8 +176,8 @@ class PaimonNativeSystemTableBindingIntegrationTest {
                                 "\"primaryKeys\"", "\"options\"", "\"timeMillis\"");
                 var split = new PaimonSystemTableSplit(
                         bound.tableName(), bound.sourceIdentity(), bound.kind(), object);
-                var detail = DataSplit.parseFrom(split.toSplitInfoProto())
-                        .getConnectorDetail().unpack(FileSplitDetail.class).getSystemTable();
+                var detail = DataSplit.parseFrom(CanonicalConnectorSplit.from(split).toByteArray())
+                        .getFileDetail().getSystemTable();
                 assertThat(detail.getKind()).isEqualTo(SystemTableSplitDetail.Kind.PAIMON_SCHEMAS);
                 assertThat(detail.getSchemaId()).isEqualTo(object.schemaId());
                 assertThat(detail.getObjectSha256().size()).isEqualTo(32);
@@ -249,9 +249,9 @@ class PaimonNativeSystemTableBindingIntegrationTest {
                 for (var directory : bound.directories()) {
                     var split = new PaimonBranchSystemTableSplit(
                             bound.tableName(), bound.sourceIdentity(), directory);
-                    var encoded = DataSplit.parseFrom(split.toSplitInfoProto());
+                    var encoded = DataSplit.parseFrom(CanonicalConnectorSplit.from(split).toByteArray());
                     assertThat(encoded.getLength()).isZero();
-                    var detail = encoded.getConnectorDetail().unpack(FileSplitDetail.class);
+                    var detail = encoded.getFileDetail();
                     assertThat(detail.getFileFormat())
                             .isEqualTo(org.pangrova.protocol.v2.FileFormat.FILE_FORMAT_METADATA_DIRECTORY);
                     assertThat(detail.getSystemTable().getKind())
@@ -301,8 +301,8 @@ class PaimonNativeSystemTableBindingIntegrationTest {
             metadata.validateReadBinding(SESSION, binding);
             var split = new PaimonSystemTableSplit(bound.tableName(), bound.sourceIdentity(),
                     bound.kind(), bound.objects().get(0));
-            var encoded = DataSplit.parseFrom(split.toSplitInfoProto());
-            var detail = encoded.getConnectorDetail().unpack(FileSplitDetail.class).getSystemTable();
+            var encoded = DataSplit.parseFrom(CanonicalConnectorSplit.from(split).toByteArray());
+            var detail = encoded.getFileDetail().getSystemTable();
             assertThat(detail.getKind()).isEqualTo(SystemTableSplitDetail.Kind.PAIMON_TAGS);
             assertThat(detail.getTagName()).isEqualTo("v1");
             assertThat(detail.getSnapshotId()).isZero();
@@ -433,8 +433,8 @@ class PaimonNativeSystemTableBindingIntegrationTest {
             assertThat(binding.statistics().rowCount()).isEqualTo(1);
             var source = handle.manifests().get(0);
             var encoded = DataSplit.parseFrom(new PaimonFilesSystemTableSplit(
-                    handle.tableName(), source).toSplitInfoProto());
-            var detail = encoded.getConnectorDetail().unpack(FileSplitDetail.class);
+                    handle.tableName(), source).toDataSplit().toByteArray());
+            var detail = encoded.getFileDetail();
             assertThat(detail.getSystemTable().getKind()).isEqualTo(SystemTableSplitDetail.Kind.PAIMON_FILES);
             assertThat(detail.getSystemTable().getPaimonFiles()).isEqualTo(source.context());
             assertThat(encoded.getSourceSnapshot()).isEqualTo(handle.snapshot().getUri());
@@ -565,7 +565,7 @@ class PaimonNativeSystemTableBindingIntegrationTest {
                         assertThat(schema.getSchemaJson()).doesNotContain(
                                 "s3.secret-key", "canary-test-secret", "\"options\""));
                 assertThat(com.google.protobuf.ByteString.copyFrom(new PaimonFilesSystemTableSplit(
-                        handle.tableName(), manifest).toSplitInfoProto()).toStringUtf8())
+                        handle.tableName(), manifest).toDataSplit().toByteArray()).toStringUtf8())
                         .doesNotContain("s3.secret-key", "canary-test-secret");
             }
         }

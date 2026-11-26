@@ -1,6 +1,7 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag;
 
-import org.pangrova.query.api.task.QuerySplit;
+import org.pangrova.coordinator.query.execution.split.QuerySplit;
+import org.pangrova.protocol.v2.DataSplit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -108,10 +109,10 @@ class LeafStageDispatcherPartitionAlignmentTest {
     @Test
     void uniformSplits_twoPartitions() {
         List<QuerySplit> splits = List.of(
-                new QuerySplit("aaaa", List.of("s3://bucket/file0.parquet")),
-                new QuerySplit("bbbb", List.of("s3://bucket/file1.parquet")),
-                new QuerySplit("cccc", List.of("s3://bucket/file2.parquet")),
-                new QuerySplit("dddd", List.of("s3://bucket/file3.parquet")));
+                new QuerySplit(split("aaaa"), List.of("s3://bucket/file0.parquet")),
+                new QuerySplit(split("bbbb"), List.of("s3://bucket/file1.parquet")),
+                new QuerySplit(split("cccc"), List.of("s3://bucket/file2.parquet")),
+                new QuerySplit(split("dddd"), List.of("s3://bucket/file3.parquet")));
 
         List<List<String>> paths = pathsFor(splits, 2);
 
@@ -126,9 +127,9 @@ class LeafStageDispatcherPartitionAlignmentTest {
     @Test
     void singlePartition_getsAllPaths() {
         List<QuerySplit> splits = List.of(
-                new QuerySplit("aaa", List.of("s3://f1")),
-                new QuerySplit("bb", List.of("s3://f2")),
-                new QuerySplit("c", List.of("s3://f3")));
+                new QuerySplit(split("aaa"), List.of("s3://f1")),
+                new QuerySplit(split("bb"), List.of("s3://f2")),
+                new QuerySplit(split("c"), List.of("s3://f3")));
 
         List<List<String>> paths = pathsFor(splits, 1);
 
@@ -149,15 +150,15 @@ class LeafStageDispatcherPartitionAlignmentTest {
     @Test
     void multiFileSplits_allPathsDistributed() {
         List<QuerySplit> splits = List.of(
-                new QuerySplit("aaa",
-                        List.of("s3://bucket/level-0/f1.parquet", "s3://bucket/level-1/f2.parquet")),
-                new QuerySplit("bbbbbbbbb",
-                        List.of("s3://bucket/data/f3.parquet")));
+                new QuerySplit(split("serialized-small-scan"),
+                        List.of("s3://bucket/level-0/f1.parquet", "s3://bucket/level-1/f2.parquet"), 512),
+                new QuerySplit(split("big"),
+                        List.of("s3://bucket/data/f3.parquet"), 4096));
 
         List<List<String>> paths = pathsFor(splits, 2);
 
         assertThat(paths).hasSize(2);
-        // LPT assigns the larger serialized split to partition 0.
+        // Physical scan size determines placement.
         assertThat(paths.get(0)).containsExactly(
                 "s3://bucket/data/f3.parquet");
         assertThat(paths.get(1)).containsExactly(
@@ -165,11 +166,40 @@ class LeafStageDispatcherPartitionAlignmentTest {
     }
 
     @Test
+    void equalLengthDescriptorsWithUnequalScanRangesBalanceTheActualBytes() {
+        long large = 512L * 1024 * 1024;
+        long small = 512L * 1024;
+        List<QuerySplit> splits = List.of(
+                new QuerySplit(split("scan-a"), List.of("s3://a"), large),
+                new QuerySplit(split("scan-b"), List.of("s3://b"), small),
+                new QuerySplit(split("scan-c"), List.of("s3://c"), large),
+                new QuerySplit(split("scan-d"), List.of("s3://d"), small));
+
+        assertThat(pathsFor(splits, 2)).containsExactly(
+                List.of("s3://a", "s3://b"), List.of("s3://c", "s3://d"));
+    }
+
+    @Test
+    void largeCohortsAssignEverySplitInDeterministicPartitionOrder() {
+        var splits = java.util.stream.IntStream.range(0, 256)
+                .mapToObj(index -> new QuerySplit(split("split-" + index), List.of("s3://" + index), 1))
+                .toList();
+
+        var paths = pathsFor(splits, 128);
+
+        assertThat(paths).hasSize(128);
+        for (int partition = 0; partition < paths.size(); partition++) {
+            assertThat(paths.get(partition)).containsExactly(
+                    "s3://" + partition, "s3://" + (partition + 128));
+        }
+    }
+
+    @Test
     void splitsWithEmptyFilePaths() {
         List<QuerySplit> splits = List.of(
-                new QuerySplit("aaaa", List.of("s3://f1")),
-                new QuerySplit("bbb", List.of()),
-                new QuerySplit("cc", List.of("s3://f3")));
+                new QuerySplit(split("aaaa"), List.of("s3://f1")),
+                new QuerySplit(split("bbb"), List.of()),
+                new QuerySplit(split("cc"), List.of("s3://f3")));
 
         List<List<String>> paths = pathsFor(splits, 2);
 
@@ -181,7 +211,7 @@ class LeafStageDispatcherPartitionAlignmentTest {
     @Test
     void morePartitionsThanSplits_extraPartitionsEmpty() {
         List<QuerySplit> splits = List.of(
-                new QuerySplit("aaa", List.of("s3://f1")));
+                new QuerySplit(split("aaa"), List.of("s3://f1")));
 
         List<List<String>> paths = pathsFor(splits, 4);
 
@@ -194,9 +224,14 @@ class LeafStageDispatcherPartitionAlignmentTest {
 
     private static List<List<String>> pathsFor(
             List<QuerySplit> splits, int partitions) {
-        List<List<String>> assigned = org.pangrova.coordinator.query.execution.dispatch.dag.binding.StageSplitPartitions.partitionSplits(
-                splits.stream().map(QuerySplit::serializedData).toList(),
-                partitions);
-        return org.pangrova.coordinator.query.execution.dispatch.dag.binding.StageSplitPartitions.buildPartitionFilePaths(splits, assigned);
+        var assigned = org.pangrova.coordinator.query.execution.dispatch.dag.binding.StageSplitPartitions
+                .partitionSplits(splits, partitions, QuerySplit::estimatedScanBytes).stream()
+                .map(partition -> partition.stream().flatMap(split -> split.filePaths().stream()).toList())
+                .toList();
+        return assigned;
     }
+    private static DataSplit split(String id) {
+        return DataSplit.newBuilder().setSplitId(id).build();
+    }
+
 }

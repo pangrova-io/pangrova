@@ -43,7 +43,7 @@ final class TaskQueryCompletion {
         if (taskTracker.allTasksFinished(queryId)) {
             finalizeCompletedQuery(queryId);
         } else if (taskTracker.hasFailedTask(queryId)) {
-            writes.cleanupWriteStateOnFailure(queryId);
+            cleanupFailedWrite(queryId);
             clearQuerySequences(queryId);
             queryManager.onTaskFailed(queryId, TaskReportCompletion.failure(report));
         }
@@ -65,7 +65,7 @@ final class TaskQueryCompletion {
             stageCompletionCallback.onQueryTerminal(queryId, successful -> {
                 try {
                     if (!successful) {
-                        writes.cleanupWriteStateOnFailure(queryId);
+                        cleanupFailedWrite(queryId);
                         clearQuerySequences(queryId);
                     } else if (mayFinalize(queryId)) {
                         LOG.info("event=query_finalization_dag_complete queryId={}", queryId);
@@ -90,6 +90,17 @@ final class TaskQueryCompletion {
         }).isPresent();
     }
 
+    private boolean hasReadOnlyTaskExecution(String queryId) {
+        var state = queryManager.getStateMachine(queryId);
+        return state != null && state.hasReadOnlyTaskExecution();
+    }
+
+    private void cleanupFailedWrite(String queryId) {
+        if (!hasReadOnlyTaskExecution(queryId)) {
+            writes.cleanupWriteStateOnFailure(queryId);
+        }
+    }
+
     private void finalizeCompletedQuery(String queryId) {
         // Single-finalizer guard: only one thread may finalize a given query.
         // Prevents concurrent finalization race where a non-winner thread drives
@@ -100,7 +111,7 @@ final class TaskQueryCompletion {
         }
         try {
             try {
-                if (!writes.commitDistributedWriteIfNeeded(queryId)) {
+                if (!writes.commitDistributedWriteIfNeeded(queryId, hasReadOnlyTaskExecution(queryId))) {
                     LOG.warn("event=query_finalization_deferred queryId={} "
                             + "reason=execution_owner_fenced", queryId);
                     return;

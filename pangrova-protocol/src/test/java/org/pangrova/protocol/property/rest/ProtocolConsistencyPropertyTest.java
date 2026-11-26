@@ -38,7 +38,7 @@ class ProtocolConsistencyPropertyTest {
                 .filter(field -> !Modifier.isStatic(field.getModifiers()))
                 .map(field -> field.getName()).toList())
                 .containsExactlyInAnyOrder(
-                        "canonicalTaskRequest", "canonicalBytes", "taskRequest",
+                        "copyTaskBytes", "taskRequest",
                         "copySourceRead");
         assertThat(TaskRequest.getDescriptor().getFields())
                 .extracting(FieldDescriptor::getName)

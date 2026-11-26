@@ -2,7 +2,6 @@ package org.pangrova.indexing.pruning;
 
 import org.pangrova.connector.api.index.NativeIndexCapability;
 import org.pangrova.connector.api.index.NativeIndexEvaluator;
-import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.persistence.indexing.api.metadata.IndexFileMapping;
 import org.pangrova.connector.api.index.statistics.FileColumnStatistics;
 
@@ -24,7 +23,6 @@ import java.util.Map;
  * @param nativeEvaluator      connector-provided native index evaluator (nullable)
  * @param nativeCapabilities   native index capabilities (empty if no evaluator)
  * @param indexFileMappings    batch-prefetched: indexId → (dataFilePath → published artifact)
- * @param descriptorsByIndex   batch-prefetched: indexId → IndexDescriptor
  * @param querySnapshotToken   snapshot token for consistency filtering (nullable)
  * @param fileStatistics       L0 column statistics: dataFilePath → column stats (nullable)
  * @param limitK               query LIMIT value; 0 means no LIMIT
@@ -34,7 +32,6 @@ public record SplitEvalContext(
         NativeIndexEvaluator nativeEvaluator,
         List<NativeIndexCapability> nativeCapabilities,
         Map<String, Map<String, IndexFileMapping>> indexFileMappings,
-        Map<String, IndexDescriptor> descriptorsByIndex,
         String querySnapshotToken,
         Map<String, List<FileColumnStatistics>> fileStatistics,
         long limitK,
@@ -48,8 +45,6 @@ public record SplitEvalContext(
                         java.util.stream.Collectors.toUnmodifiableMap(
                                 Map.Entry::getKey, entry -> Map.copyOf(entry.getValue())))
                 : Map.of();
-        descriptorsByIndex = descriptorsByIndex != null
-                ? Map.copyOf(descriptorsByIndex) : Map.of();
         fileStatistics = fileStatistics != null
                 ? fileStatistics.entrySet().stream().collect(
                         java.util.stream.Collectors.toUnmodifiableMap(

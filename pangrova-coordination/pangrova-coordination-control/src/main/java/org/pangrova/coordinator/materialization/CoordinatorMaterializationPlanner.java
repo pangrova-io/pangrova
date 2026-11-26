@@ -321,10 +321,12 @@ public final class CoordinatorMaterializationPlanner implements DefinitionPlanne
                 request.definerGroups(), Map.of(), java.time.Instant.now());
         state.append(":row=").append(accessControl.getRowFilter(definer,
                 source.catalog(), source.schema(), source.table()).orElse(""));
-        for (String column : referencedColumns(planned, source)) {
-            state.append(":mask:").append(column).append('=')
-                    .append(accessControl.getColumnMask(definer, source.catalog(),
-                            source.schema(), source.table(), column).orElse(""));
+        var columns = referencedColumns(planned, source);
+        if (!columns.isEmpty()) {
+            var masks = accessControl.getColumnMasks(definer, source.catalog(), source.schema(), source.table());
+            for (String column : columns) {
+                state.append(":mask:").append(column).append('=').append(masks.mask(column).orElse(""));
+            }
         }
         return DigestUtils.sha256Hex(state.toString());
     }

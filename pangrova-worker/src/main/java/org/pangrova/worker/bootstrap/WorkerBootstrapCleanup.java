@@ -68,10 +68,7 @@ final class WorkerBootstrapCleanup {
             refs.taskManager().close();
         }
         // Task shutdown can still publish a terminal report. Retain its client if drain fails.
-        if (refs.statusReporter() != null) {
-            refs.statusReporter().close();
-            refs.setStatusReporter(null);
-        }
+        refs.closeStatusReporter();
     }
 
     private void closePendingWorkerBackend() {

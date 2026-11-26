@@ -97,7 +97,8 @@ final class FeatureExportStageGraph {
         var byBytes = splits.stream().collect(java.util.stream.Collectors.toUnmodifiableMap(
                 GenerationSplit::canonicalSplitBase64, java.util.function.Function.identity()));
         var allocations = producers.isEmpty() ? StageSplitPartitions.partitionSplits(
-                splits.stream().map(GenerationSplit::canonicalSplitBase64).toList(), stage.parallelism())
+                splits.stream().map(GenerationSplit::canonicalSplitBase64).toList(), stage.parallelism(),
+                ignored -> 1L)
                 : List.<List<String>>of();
         var result = new ArrayList<GenerationPage>();
         for (int partition = 0; partition < stage.parallelism(); partition++) {

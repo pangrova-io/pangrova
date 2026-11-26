@@ -67,8 +67,8 @@ public final class InMemoryQueryAuditStore implements QueryAuditStore {
     }
 
     @Override
-    public Optional<QueryAuditRecord> findById(String queryId) {
-        return Optional.ofNullable(cache.getIfPresent(queryId));
+    public Optional<QueryAuditRecord> findById(String queryId, String principal) {
+        return Optional.ofNullable(cache.getIfPresent(queryId)).filter(record -> principal.equals(record.userId()));
     }
 
     @Override

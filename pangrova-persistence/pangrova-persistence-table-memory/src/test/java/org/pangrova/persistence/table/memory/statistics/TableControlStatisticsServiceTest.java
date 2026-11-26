@@ -54,7 +54,7 @@ class TableControlStatisticsServiceTest {
         assertThat(first.versionToken()).isEqualTo(VERSION);
         assertThat(first.computedAt()).isEqualTo(NOW);
         assertThat(second.statsVersion()).isEqualTo(first.statsVersion() + 1);
-        assertThat(service.fresh("cat", "db", "orders")).contains(second);
+        assertThat(service.fresh(records.find("cat", "db", "orders").orElseThrow())).contains(second);
     }
 
     @Test
@@ -68,7 +68,7 @@ class TableControlStatisticsServiceTest {
                 .metadataRevision(record.metadataRevision() + 1)
                 .build());
 
-        assertThat(service.fresh("cat", "db", "orders")).isEmpty();
+        assertThat(service.fresh(records.find("cat", "db", "orders").orElseThrow())).isEmpty();
     }
 
     @Test
@@ -83,7 +83,7 @@ class TableControlStatisticsServiceTest {
         assertThat(records.find("cat", "db", "orders")).get()
                 .extracting(TableControlRecord::versionToken)
                 .isEqualTo("ICEBERG:uuid-orders:9");
-        assertThat(service.fresh("cat", "db", "orders")).contains(collected);
+        assertThat(service.fresh(records.find("cat", "db", "orders").orElseThrow())).contains(collected);
     }
 
     @Test
@@ -226,7 +226,7 @@ class TableControlStatisticsServiceTest {
         service.purge(record.tableId());
 
         assertThat(statistics.find(record.tableId())).isEmpty();
-        assertThat(service.fresh("cat", "db", "orders")).isEmpty();
+        assertThat(service.fresh(records.find("cat", "db", "orders").orElseThrow())).isEmpty();
     }
 
     private static TableControlRecord managed(String table, String versionToken) {

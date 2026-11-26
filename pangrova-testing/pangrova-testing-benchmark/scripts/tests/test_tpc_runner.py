@@ -16,6 +16,7 @@ import unittest
 SCRIPT_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPT_DIR))
 from run_tpc_benchmark import execution_receipt, write_results
+from tpc_clients import native_attempts_qualified
 from tpc_statistics import sample_statistics
 
 
@@ -62,6 +63,21 @@ class StatisticsTest(unittest.TestCase):
             with self.subTest(samples=samples):
                 with self.assertRaisesRegex(ValueError, "samples"):
                     sample_statistics(samples)
+
+
+class OperatorProfileTest(unittest.TestCase):
+    def test_terminal_attempts_qualify_and_partial_or_duplicate_receipts_do_not(self):
+        metric = dict(operatorType="TableScan", planNodeId="scan", inputRows=100, outputRows=10,
+                      inputBytes=800, outputBytes=80, cpuNanos=2, wallNanos=4, peakMemoryBytes=8,
+                      spillBytes=0)
+        attempt = dict(stageId=2, partitionId=3, planEpoch=1, attemptId=0, taskId="task-a",
+                       workerId="worker-a", reportState="FINISHED", operators=[metric])
+        profile = dict(telemetryAvailable=True, attempts=[attempt])
+        self.assertTrue(native_attempts_qualified(profile))
+        for changes in ({"reportState": "RUNNING"}, {"planEpoch": 0}, {"operators": []}):
+            self.assertFalse(native_attempts_qualified(dict(profile, attempts=[dict(attempt, **changes)])))
+        self.assertFalse(native_attempts_qualified(dict(profile, attempts=[attempt, attempt])))
+        self.assertFalse(native_attempts_qualified({"telemetryAvailable": False}))
 
 
 class ReceiptTest(unittest.TestCase):

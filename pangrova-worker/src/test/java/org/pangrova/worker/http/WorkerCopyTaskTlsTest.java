@@ -82,7 +82,7 @@ class WorkerCopyTaskTlsTest {
         server.start();
         assertThat(server.getCopyTaskTlsPort()).isPositive();
 
-        byte[] body = JsonMapperFactory.shared().writeValueAsBytes(copyTask());
+        byte[] body = copyTask().encode();
         HttpClient trusted = HttpClient.newBuilder().sslContext(PemMutualTls.context(
                 files.clientCert(), files.clientKey(), files.ca())).build();
         HttpRequest privateRequest = request("https://localhost:" + server.getCopyTaskTlsPort(), body);
@@ -102,20 +102,22 @@ class WorkerCopyTaskTlsTest {
         HttpResponse<String> wrongServiceIdentity = trusted.send(
                 HttpRequest.newBuilder(URI.create("https://localhost:"
                                 + server.getCopyTaskTlsPort() + "/v1/task"))
-                        .header("Content-Type", "application/json")
+                        .header("Content-Type", SubmitTaskRequest.MEDIA_TYPE)
                         .header("X-Internal-Auth", "wrong-secret")
                         .POST(HttpRequest.BodyPublishers.ofByteArray(body)).build(),
                 HttpResponse.BodyHandlers.ofString());
         assertThat(wrongServiceIdentity.statusCode()).isEqualTo(401);
 
-        HttpResponse<String> plaintext = HttpClient.newHttpClient().send(
+        HttpResponse<byte[]> plaintext = HttpClient.newHttpClient().send(
                 request("http://localhost:" + server.getPort(), body),
-                HttpResponse.BodyHandlers.ofString());
+                HttpResponse.BodyHandlers.ofByteArray());
         assertThat(plaintext.statusCode())
                 .as("plain COPY listener=%s secure listener=%s response=%s",
                         server.getPort(), server.getCopyTaskTlsPort(), plaintext.body())
                 .isEqualTo(403);
-        assertThat(plaintext.body()).contains("COPY_SECURE_TRANSPORT_REQUIRED");
+        var rejection = org.pangrova.protocol.http.TaskSubmitAck.parseFrom(plaintext.body());
+        assertThat(rejection.hasRejected()).isTrue();
+        assertThat(rejection.getRejected().getCode()).isEqualTo("COPY_SECURE_TRANSPORT_REQUIRED");
 
         HttpResponse<String> rejectedBeforeJson = HttpClient.newHttpClient().send(
                 HttpRequest.newBuilder(URI.create("http://localhost:" + server.getPort()
@@ -199,7 +201,7 @@ class WorkerCopyTaskTlsTest {
 
     private static HttpRequest request(String base, byte[] body) {
         return HttpRequest.newBuilder(URI.create(base + "/v1/task"))
-                .header("Content-Type", "application/json")
+                .header("Content-Type", SubmitTaskRequest.MEDIA_TYPE)
                 .header("X-Internal-Auth", "test-secret")
                 .POST(HttpRequest.BodyPublishers.ofByteArray(body)).build();
     }
@@ -249,7 +251,7 @@ class WorkerCopyTaskTlsTest {
                 .setSourceCommandSha256(task.getCopySourceStagingCommandSha256())
                 .setResourceGrant(task.getResourceGrant().toBuilder().clearNativeMemoryBytes().setJvmHeapBytes(1024 * 1024))
                 .build();
-        return JsonMapperFactory.shared().writeValueAsBytes(org.pangrova.protocol.rest.copy.PrepareCopySourceRequest
+        return JsonMapperFactory.shared().writeValueAsBytes(org.pangrova.protocol.rest.copy.preparation.PrepareCopySourceRequest
                 .from(preparation, nativeRequest.copySourceRead()));
     }
 

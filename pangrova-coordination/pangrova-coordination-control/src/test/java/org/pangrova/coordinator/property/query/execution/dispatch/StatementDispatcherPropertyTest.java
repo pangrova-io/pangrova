@@ -848,7 +848,6 @@ class StatementDispatcherPropertyTest {
             List<StatementExecutionFactory<?>> factories,
             List<StatementCompletionListener> listeners) {
         var context = new StatementDispatcherContext(
-                null,       // compiler — not needed for executeDirect
                 null,       // resultService — not needed for unit tests
                 factories,
                 listeners,
@@ -935,7 +934,7 @@ class StatementDispatcherPropertyTest {
         };
 
         var context = new StatementDispatcherContext(
-                null, null, List.of(metadataFactory, planFactory), List.of(), null);
+                null, List.of(metadataFactory, planFactory), List.of(), null);
         return new StatementDispatcher(context);
     }
 
@@ -1140,11 +1139,10 @@ class StatementDispatcherPropertyTest {
         }
 
         @Override
-        public Optional<String> getColumnMask(UserIdentity user, String catalog,
-                                               String schema, String table,
-                                               String column) {
-            calls.add("getColumnMask");
-            return Optional.empty();
+        public org.pangrova.security.api.mask.TableColumnMasks getColumnMasks(
+                UserIdentity user, String catalog, String schema, String table) {
+            calls.add("getColumnMasks");
+            return column -> Optional.empty();
         }
     }
 

@@ -1,9 +1,79 @@
 // ShufflePartitionAccumulator: Coalesces small per-partition row sets.
 #include "engine/shuffle/ShufflePartitionAccumulator.h"
 
+#include <algorithm>
+
 #include "velox/vector/BaseVector.h"
 
 namespace pangrova::shuffle {
+namespace {
+
+using facebook::velox::BaseVector;
+using facebook::velox::RowVector;
+using facebook::velox::RowVectorPtr;
+using facebook::velox::vector_size_t;
+
+RowVectorPtr selectPartitionRows(const RowVectorPtr& source, const std::vector<vector_size_t>& rows) {
+  auto* pool = source->pool();
+  auto indices = facebook::velox::allocateIndices(rows.size(), pool);
+  std::copy(rows.begin(), rows.end(), indices->asMutable<vector_size_t>());
+  auto count = static_cast<vector_size_t>(rows.size());
+  std::vector<facebook::velox::VectorPtr> children(source->childrenSize());
+  for (size_t column = 0; column < source->childrenSize(); ++column) {
+    children[column] = BaseVector::wrapInDictionary(nullptr, indices, count, source->childAt(column));
+  }
+  return std::make_shared<RowVector>(pool, source->type(), nullptr, count, std::move(children));
+}
+
+bool fitsCoalescingBudget(const std::vector<RowVectorPtr>& sources, int64_t rows, size_t limit) {
+  if (sources.size() <= 1 || rows > 2 * kMinPartitionFlushRows || limit <= kSerializedPageOverheadBytes) {
+    return false;
+  }
+  auto bytes_remaining = limit - kSerializedPageOverheadBytes;
+  const auto& fields = sources.front()->type()->asRow().children();
+  if (std::all_of(fields.begin(), fields.end(), [](const auto& field) {
+        return field->isFixedWidth();
+      })) {
+    // Bound the selected values and null flags in the copied vector. The
+    // serializer enforces the exact Arrow page limit after encoding.
+    size_t row_bytes = 0;
+    for (const auto& field : fields) {
+      row_bytes += field->cppSizeInBytes() + 1;
+    }
+    return row_bytes <= bytes_remaining / static_cast<size_t>(rows);
+  }
+  for (const auto& source : sources) {
+    const auto estimated = source->estimateFlatSize();
+    if (estimated > bytes_remaining) return false;
+    bytes_remaining -= estimated;
+  }
+  return true;
+}
+
+RowVectorPtr coalescePartitionRows(const std::vector<RowVectorPtr>& sources,
+    const std::vector<std::vector<vector_size_t>>& selections, vector_size_t count,
+    facebook::velox::memory::MemoryPool* pool) {
+  auto result = BaseVector::create<RowVector>(sources.front()->type(), count, pool);
+  vector_size_t target = 0;
+  std::vector<BaseVector::CopyRange> ranges;
+  for (size_t source = 0; source < sources.size(); ++source) {
+    VELOX_USER_CHECK(*sources[source]->type() == *result->type(), "Shuffle partition source schema changed");
+    ranges.clear();
+    for (const auto row : selections[source]) {
+      BaseVector::CopyRange next{row, target, 1};
+      if (!ranges.empty() && ranges.back().mergeable(next)) {
+        ++ranges.back().count;
+      } else {
+        ranges.push_back(next);
+      }
+      ++target;
+    }
+    result->copyRanges(sources[source].get(), folly::Range<const BaseVector::CopyRange*>(ranges.data(), ranges.size()));
+  }
+  return result;
+}
+
+}  // namespace
 
 ShufflePartitionAccumulator::ShufflePartitionAccumulator(
     int32_t num_partitions,
@@ -46,73 +116,35 @@ bool ShufflePartitionAccumulator::flushPartition(
     return true;
   }
 
-  // Fast path: single source vector — wrap children individually.
-  // BaseVector::wrapInDictionary on a RowVector creates DictionaryVector<ComplexType>
-  // which is NOT a RowVector subclass — dynamic_pointer_cast<RowVector> returns nullptr.
-  if (buf.vectors.size() == 1) {
-    const auto& rows = buf.indices[0];
-    auto indices = facebook::velox::allocateIndices(rows.size(), pool);
-    auto* raw = indices->asMutable<facebook::velox::vector_size_t>();
-    for (size_t i = 0; i < rows.size(); ++i) {
-      raw[i] = rows[i];
-    }
-    auto cnt = static_cast<facebook::velox::vector_size_t>(rows.size());
-    std::vector<facebook::velox::VectorPtr> wrappedChildren(
-        buf.vectors[0]->childrenSize());
-    for (size_t i = 0; i < buf.vectors[0]->childrenSize(); ++i) {
-      wrappedChildren[i] = facebook::velox::BaseVector::wrapInDictionary(
-          nullptr, indices, cnt, buf.vectors[0]->childAt(i));
-    }
-    auto subVector = std::make_shared<facebook::velox::RowVector>(
-        pool, buf.vectors[0]->type(), nullptr, cnt,
-        std::move(wrappedChildren));
-    auto serialized_batches = writer_->serializeBatches(subVector, pool);
+  const auto payload_limit = queue_->maximumPayloadBytes();
+  if (fitsCoalescingBudget(buf.vectors, buf.total_rows, payload_limit)) {
+    auto combined = coalescePartitionRows(buf.vectors, buf.indices,
+        static_cast<vector_size_t>(buf.total_rows), pool);
+    auto pages = writer_->serializeBatches(combined, pool, payload_limit);
+    combined.reset();
     buf = PartitionBuffer{};
-    for (auto& serialized : serialized_batches) {
-      ShuffleBatch batch;
-      batch.partition_id = partition_id;
-      batch.data = std::move(serialized.data);
-      batch.row_count = serialized.row_count;
-      if (!queue_->push(std::move(batch), push_timeout_)) {
-        return false;
-      }
-    }
-    return true;
+    return pushPages(partition_id, std::move(pages));
   }
 
-  // Multi-vector path: serialize each source's rows into bounded pages.
   for (size_t v = 0; v < buf.vectors.size(); ++v) {
-    const auto& rows = buf.indices[v];
-    if (rows.empty()) continue;
-    auto* vpool = buf.vectors[v]->pool();
-    auto indices = facebook::velox::allocateIndices(rows.size(), vpool);
-    auto* raw = indices->asMutable<facebook::velox::vector_size_t>();
-    for (size_t i = 0; i < rows.size(); ++i) {
-      raw[i] = rows[i];
-    }
-    auto cnt = static_cast<facebook::velox::vector_size_t>(rows.size());
-    std::vector<facebook::velox::VectorPtr> wrappedChildren(
-        buf.vectors[v]->childrenSize());
-    for (size_t ci = 0; ci < buf.vectors[v]->childrenSize(); ++ci) {
-      wrappedChildren[ci] = facebook::velox::BaseVector::wrapInDictionary(
-          nullptr, indices, cnt, buf.vectors[v]->childAt(ci));
-    }
-    auto subVector = std::make_shared<facebook::velox::RowVector>(
-        vpool, buf.vectors[v]->type(), nullptr, cnt,
-        std::move(wrappedChildren));
-    auto serialized_batches = writer_->serializeBatches(subVector, vpool);
-    for (auto& serialized : serialized_batches) {
-      ShuffleBatch batch;
-      batch.partition_id = partition_id;
-      batch.data = std::move(serialized.data);
-      batch.row_count = serialized.row_count;
-      if (!queue_->push(std::move(batch), push_timeout_)) {
-        buf = PartitionBuffer{};
-        return false;
-      }
+    auto selected = selectPartitionRows(buf.vectors[v], buf.indices[v]);
+    auto pages = writer_->serializeBatches(selected, selected->pool());
+    selected.reset();
+    if (!pushPages(partition_id, std::move(pages))) {
+      buf = PartitionBuffer{};
+      return false;
     }
   }
   buf = PartitionBuffer{};
+  return true;
+}
+
+bool ShufflePartitionAccumulator::pushPages(int32_t partition_id, std::vector<SerializedShuffleSlice> pages) {
+  for (auto& page : pages) {
+    if (!queue_->push(ShuffleBatch{partition_id, std::move(page.data), page.row_count}, push_timeout_)) {
+      return false;
+    }
+  }
   return true;
 }
 

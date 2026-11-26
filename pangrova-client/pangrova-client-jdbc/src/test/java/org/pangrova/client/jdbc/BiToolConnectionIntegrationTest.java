@@ -19,10 +19,13 @@ import java.sql.DatabaseMetaData;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Integration test simulating DBeaver and IntelliJ JDBC connection patterns.
@@ -203,6 +206,74 @@ class BiToolConnectionIntegrationTest {
     }
 
     @Test
+    void flightEofChecksTerminalFailureAfterRowsHaveBeenDelivered() throws Exception {
+        startOrdersResultServer();
+        registerSubmitEndpoint(new AtomicReference<>(), "RUNNING");
+        var terminalReads = new AtomicInteger();
+        var cancels = new AtomicInteger();
+        httpServer.createContext("/v1/query/", exchange -> {
+            String[] path = exchange.getRequestURI().getPath().split("/");
+            if (path[4].equals("state")) {
+                terminalReads.incrementAndGet();
+                sendJsonResponse(exchange, 200, """
+                        {"query_id":"%s","state":"FAILED","version":1,
+                         "error":{"error_code":"OUTPUT_FAILED","message":"Late output failure"}}
+                        """.formatted(path[3]));
+            } else {
+                cancels.incrementAndGet();
+                sendJsonResponse(exchange, 200, """
+                        {"query_id":"%s","outcome":"ALREADY_TERMINAL","cancelled":false}
+                        """.formatted(path[3]));
+            }
+        });
+        httpServer.start();
+
+        try (var conn = DriverManager.getConnection("jdbc:pangrova://127.0.0.1:" + httpPort);
+             var statement = conn.createStatement();
+             var result = statement.executeQuery("SELECT * FROM orders")) {
+            assertThat(result.getMetaData().getColumnCount()).isEqualTo(3);
+            assertThat(result.next()).isTrue();
+            assertThat(result.getInt(1)).isEqualTo(1);
+            assertThat(result.next()).isTrue();
+            assertThat(result.getInt(1)).isEqualTo(2);
+            assertThat(terminalReads).hasValue(0);
+            assertThatThrownBy(result::next).isInstanceOf(SQLException.class).hasMessageContaining("OUTPUT_FAILED");
+            assertThat(result.isClosed()).isTrue();
+            assertThat(terminalReads).hasValue(1);
+            assertThat(cancels).hasValue(1);
+        }
+    }
+
+    @Test
+    void closingPartialResultCancelsOnlyItsQueryAndStatementCanExecuteAgain() throws Exception {
+        startOrdersResultServer();
+        registerSubmitEndpoint(new AtomicReference<>(), "RUNNING");
+        var cancels = new java.util.concurrent.CopyOnWriteArrayList<String>();
+        httpServer.createContext("/v1/query/", exchange -> {
+            String[] path = exchange.getRequestURI().getPath().split("/");
+            assertThat(path[4]).isEqualTo("cancel");
+            cancels.add(path[3]);
+            sendJsonResponse(exchange, 202, """
+                    {"query_id":"%s","outcome":"CANCEL_ACCEPTED","cancelled":true}
+                    """.formatted(path[3]));
+        });
+        httpServer.start();
+
+        try (var conn = DriverManager.getConnection("jdbc:pangrova://127.0.0.1:" + httpPort);
+             var statement = conn.createStatement()) {
+            for (int execution = 0; execution < 2; execution++) {
+                try (var result = statement.executeQuery("SELECT * FROM orders")) {
+                    assertThat(result.next()).isTrue();
+                    assertThat(result.getInt(1)).isEqualTo(1);
+                    assertThat(cancels).hasSize(execution);
+                }
+                assertThat(cancels).hasSize(execution + 1);
+            }
+        }
+        assertThat(cancels).hasSize(2).doesNotHaveDuplicates();
+    }
+
+    @Test
     @DisplayName("DatabaseMetaData capability reporting for BI tool compatibility")
     void metadataCapabilityReporting() throws Exception {
         startCatalogResultServer();
@@ -241,6 +312,10 @@ class BiToolConnectionIntegrationTest {
     }
 
     private void registerSubmitEndpoint(AtomicReference<String> capturedSql) {
+        registerSubmitEndpoint(capturedSql, "FINISHED");
+    }
+
+    private void registerSubmitEndpoint(AtomicReference<String> capturedSql, String state) {
         httpServer.createContext("/v1/query/submit", exchange -> {
             String requestBody = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
             String sql = extractSqlFromRequest(requestBody);
@@ -250,7 +325,7 @@ class BiToolConnectionIntegrationTest {
             String response = """
                     {
                       "query_id": "%s",
-                      "state": "FINISHED",
+                      "state": "%s",
                       "result_endpoint": {
                         "host": "127.0.0.1",
                         "port": %d,
@@ -259,7 +334,7 @@ class BiToolConnectionIntegrationTest {
                       },
                       "column_names": []
                     }
-                    """.formatted(queryId, resultServer.endpoint().port(), resultServer.endpoint().ticket());
+                    """.formatted(queryId, state, resultServer.endpoint().port(), resultServer.endpoint().ticket());
             sendJsonResponse(exchange, 200, response);
         });
     }

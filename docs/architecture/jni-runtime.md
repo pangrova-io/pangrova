@@ -80,6 +80,10 @@ generate these fields from the same source:
 | 14 | `exchange_inputs` | repeated ExchangeInputBinding | Signed remote data-plane sources |
 | 15 | `initial_runtime_filters` | repeated RuntimeFilterBinding | Typed initial filters |
 
+The initial task binding and the decoded Native runtime command pass their
+typed runtime-filter predicates to the same Velox converter. The converter
+binds each admitted predicate to its assigned scan before row filtering.
+
 ### 1.5 `DataSplit` Field Alignment
 
 | Field # | Name | Type | Notes |
@@ -93,7 +97,10 @@ generate these fields from the same source:
 | 7 | `start_offset` | uint64 | Bounded range start |
 | 8 | `length` | uint64 | Bounded range length |
 | 9 | `partition_values` | repeated PartitionValue | Typed partition pruning metadata |
-| 10 | `connector_detail` | google.protobuf.Any | Type-URL-validated connector detail |
+| 11 | `catalog` | CatalogExecutionBinding | Exact catalog deployment for Native manifest partitions |
+| 12 | `file_detail` | FileSplitDetail | Typed format-specific scan metadata |
+
+Field number 10 and the former `connector_detail` field name are reserved.
 
 ### 1.6 Task kinds and terminal states
 

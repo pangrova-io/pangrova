@@ -72,7 +72,7 @@ final class IcebergTaskToSplit {
                 .fromSnapshotId(fromSnapshotId)
                 .toSnapshotId(toSnapshotId)
                 .deleteFiles(extractTypedDeleteFiles(task))
-                .columnMappings(withNullOnlyColumns(tableSchema, columnMappings))
+                .columnMappings(columnMappings)
                 .residualPredicate(residualPredicate)
                 .build();
     }
@@ -90,10 +90,7 @@ final class IcebergTaskToSplit {
                 break;
             }
         }
-        // This runs once per file. Without UNKNOWN columns the table-level list is
-        // already complete, and List.copyOf returns the same instance for an
-        // already-immutable input, so millions of splits share one list instead of
-        // each allocating a copy.
+        // Files scanned with the same selected schema share the immutable mappings.
         if (!hasUnknown) {
             return List.copyOf(mappings);
         }
@@ -234,7 +231,6 @@ final class IcebergTaskToSplit {
                 }
             }
         }
-        // Immutable so every split from this scan can share the instance.
-        return List.copyOf(mappings);
+        return withNullOnlyColumns(currentSchema, mappings);
     }
 }

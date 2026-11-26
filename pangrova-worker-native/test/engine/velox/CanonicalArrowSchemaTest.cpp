@@ -73,6 +73,7 @@ TEST(CanonicalArrowSchemaTest, MetadataRebindingRetainsActualPayloadBuffersAndCa
   const auto wire = canonicalArrowSchema(declared(integer(false)), pool.get());
   const auto rebound = bindCanonicalArrowSchema(source, wire);
   EXPECT_EQ(rebound->num_rows(), 2);
+  EXPECT_EQ(rebound->column(0).get(), values.get());
   EXPECT_EQ(rebound->column(0)->data()->buffers[1].get(), values->data()->buffers[1].get());
   EXPECT_EQ(std::static_pointer_cast<arrow::Int64Array>(rebound->column(0))->Value(1), 23);
   EXPECT_FALSE(rebound->schema()->field(0)->nullable());

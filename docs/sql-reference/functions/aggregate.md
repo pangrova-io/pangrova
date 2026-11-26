@@ -52,7 +52,11 @@ GROUP BY user_id;
 
 ```sql
 AVG(numeric_expr) → DOUBLE
+AVG(DECIMAL(p, s)) → DECIMAL(p, s)
 ```
+
+The DECIMAL aggregate uses decimal arithmetic and retains the input precision
+and scale. A group without a non-NULL value produces NULL.
 
 **Example:**
 

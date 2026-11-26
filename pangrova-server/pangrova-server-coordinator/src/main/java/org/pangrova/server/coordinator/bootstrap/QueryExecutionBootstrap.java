@@ -23,8 +23,7 @@ import org.pangrova.coordinator.query.execution.dispatch.dag.binding.CopySourceT
 import org.pangrova.coordinator.query.execution.dispatch.task.catalog.CatalogStatementTasks;
 import org.pangrova.coordinator.query.execution.dispatch.task.catalog.CreateSchemaTask;
 import org.pangrova.coordinator.query.execution.dispatch.task.catalog.ShowCatalogsTask;
-import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
-import org.pangrova.planner.runtimefilter.RuntimeFilterRegistry;
+import org.pangrova.coordinator.scheduler.placement.CacheAffinityAssigner;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.result.CoordinatorResultService;
 import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
@@ -127,23 +126,24 @@ final class QueryExecutionBootstrap {
 
     QueryDispatcher buildQueryDispatcher(
             WorkerManager wm, CoordinatorTaskTracker tt, SqlCompiler compilerTemplate,
-            RuntimeFilterRegistry runtimeFilters, TaskScheduler taskScheduler, IndexAwareSplitFetcher indexedReads,
+            TaskScheduler taskScheduler, IndexAwareSplitFetcher indexedReads,
             CircuitBreakerPolicy circuitBreaker, CoordinatorResultService resultSvc,
-            SplitAssignmentManager splitAssignmentManager,
+            CacheAffinityAssigner cacheAffinityAssigner,
             SpeculativeStageHandler speculativeStageHandler,
             QueryStateJournal stateJournal,
             org.pangrova.generation.publication.read.PublishedGenerationBindingResolver publishedReads,
             org.pangrova.coordinator.generation.read.GeneratedValueReadResolver generatedValueReads) {
         this.workerManager = java.util.Objects.requireNonNull(wm, "workerManager must not be null");
         this.resultService = java.util.Objects.requireNonNull(resultSvc, "resultService must not be null");
-        SqlCompiler scopedCompiler = compilerTemplate.withNativeCapabilities(() -> {
+        var nativeCapabilities = org.pangrova.planner.validation.NativeCapabilityRegistry.live(() -> {
             var inventories = wm.getActiveWorkers().stream().map(
                     org.pangrova.coordinator.worker.WorkerInfo::capabilityInventory).toList();
             if (inventories.isEmpty()) {
                 throw new org.pangrova.scheduler.api.exception.NoAvailableWorkerException();
             }
-            return org.pangrova.planner.validation.NativeCapabilityRegistry.fromInventories(inventories);
+            return inventories;
         });
+        SqlCompiler scopedCompiler = compilerTemplate.withNativeCapabilities(nativeCapabilities);
         this.compiler = scopedCompiler;
         CircuitBreakerPolicy cb = circuitBreaker;
         RemoteTaskDispatcher rtd = new RemoteTaskDispatcher(
@@ -179,7 +179,7 @@ final class QueryExecutionBootstrap {
                 accessControl == null ? null : new org.pangrova.planner.security.RowFilterApplier(accessControl));
         var scheduling = new org.pangrova.coordinator.query.execution.SchedulingContextBundle(
                 rtd, taskScheduler, wm, tt,
-                splitAssignmentManager, speculativeStageHandler,
+                cacheAffinityAssigner, speculativeStageHandler,
                 config.spillBudget(),
                 moduleWiring != null ? moduleWiring.getResilienceRegistry() : null);
         QueryDispatcherContext deps = new QueryDispatcherContext(
@@ -188,7 +188,6 @@ final class QueryExecutionBootstrap {
                 metadataBootstrap == null ? null : metadataBootstrap.catalogRegistry(),
                 moduleWiring != null ? moduleWiring.getLineageEmitter() : null,
                 config.effectiveTaskTimeoutSeconds(),
-                runtimeFilters,
                 new org.pangrova.planner.adaptive.AdaptiveQueryExecutor(),
                 org.pangrova.planner.adaptive.AdaptiveQueryConfig.ENABLED,
                 shuffleSession, coordinationService,
@@ -234,7 +233,7 @@ final class QueryExecutionBootstrap {
         // DML dispatch function: compiles statement SQL to RelNode, dispatches
         // through QueryDispatcher pipeline. Late-bound via queryDispatcherRef
         // because QueryDispatcher is constructed after StatementDispatcher.
-        // Uses executeDmlStatement() to bypass StatementDispatchPhase and
+        // Uses startDmlStatement() to bypass StatementDispatchPhase and
         // convert AST → SqlNode → RelNode directly without SQL string round-trip.
         org.pangrova.coordinator.query.execution.dispatch.NativeDmlCompileFunction dmlDispatch =
                 (sm, session, stmt) -> {
@@ -243,7 +242,7 @@ final class QueryExecutionBootstrap {
                         throw new IllegalStateException(
                                 "QueryDispatcher not initialized");
                     }
-                    return qd.executeDmlStatement(sm, stmt, session);
+                    return qd.startDmlStatement(sm, stmt, session);
                 };
 
         var ddlExecutor = new org.pangrova.coordinator.query.statement.DdlExecutor(
@@ -264,12 +263,6 @@ final class QueryExecutionBootstrap {
                         catalog, maintenancePolicyService,
                         moduleWiring != null ? moduleWiring.getDistributedLease() : null,
                         config.coordinatorId(), new OtelExecutionTraceContextFactory());
-        String internalSecret = config.internalAuthSecret();
-        if (internalSecret != null && !internalSecret.isBlank()) {
-            controlledMaintenance.setReclusterDispatcher(
-                    new org.pangrova.coordinator.clustering.WorkerReclusterDispatcher(
-                            () -> requireWorkerManager().getActiveWorkers(), internalSecret));
-        }
         var maintenanceExecutor = new org.pangrova.coordinator.query.statement.MaintenanceExecutor(
                 controlledMaintenance);
         ddlExecutor.setMaintenancePolicyService(maintenancePolicyService);
@@ -329,7 +322,7 @@ final class QueryExecutionBootstrap {
         }
 
         var context = new org.pangrova.coordinator.query.execution.dispatch.StatementDispatcherContext(
-                compilerSnapshot, resultSvc,
+                resultSvc,
                 List.copyOf(factories), List.of(schemaListener), accessControl, ddlGuard);
         return new org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher(context);
     }

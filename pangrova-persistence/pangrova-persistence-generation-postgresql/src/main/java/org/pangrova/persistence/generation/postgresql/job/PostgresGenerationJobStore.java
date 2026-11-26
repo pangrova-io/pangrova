@@ -3,7 +3,6 @@ package org.pangrova.persistence.generation.postgresql.job;
 import org.pangrova.persistence.jdbc.api.generation.GenerationTransactionAuthority;
 import org.pangrova.persistence.jdbc.api.generation.GenerationJobSubmissionTransactions;
 import org.pangrova.persistence.jdbc.api.generation.GenerationPublicationCandidates;
-import org.pangrova.persistence.jdbc.api.security.policy.CurrentDirectRoleReader;
 import org.pangrova.persistence.jdbc.api.generation.GenerationExecutionTransactionFence;
 import org.pangrova.persistence.generation.postgresql.execution.PostgresGenerationExecutionRoutes;
 
@@ -46,18 +45,16 @@ public final class PostgresGenerationJobStore extends PostgresGenerationJobStore
 
     private final GenerationTransactionAuthority transactionAuthority;
     private final GenerationExecutionTransactionFence executionFence;
-    private final CurrentDirectRoleReader currentRoles;
     private final GenerationPublicationCandidates publicationCandidates;
 
     /** Uses explicitly assembled current authority and execution fencing on each store transaction. */
     public PostgresGenerationJobStore(
             DataSource dataSource, GenerationTransactionAuthority transactionAuthority,
-            GenerationExecutionTransactionFence executionFence, CurrentDirectRoleReader currentRoles,
+            GenerationExecutionTransactionFence executionFence,
             GenerationPublicationCandidates publicationCandidates) {
         super(dataSource);
         this.transactionAuthority = java.util.Objects.requireNonNull(transactionAuthority, "transactionAuthority");
         this.executionFence = java.util.Objects.requireNonNull(executionFence, "executionFence");
-        this.currentRoles = java.util.Objects.requireNonNull(currentRoles, "currentRoles");
         this.publicationCandidates = Objects.requireNonNull(publicationCandidates, "publicationCandidates");
         this.reader = new PostgresGenerationJobReader(dataSource);
     }
@@ -178,7 +175,7 @@ public final class PostgresGenerationJobStore extends PostgresGenerationJobStore
         requireLeaseRequest(tenantId, jobId, leaseOwner, ownerEpoch, leaseDuration, now);
         return inTransaction("claim artifact build page", connection -> {
             var context = PostgresCurrentGenerationAuthority.resolve(
-                    transactionAuthority, executionFence, currentRoles, connection, tenantId, jobId,
+                    transactionAuthority, executionFence, connection, tenantId, jobId,
                     org.pangrova.generation.api.execution.GenerationExecutionOwner.from(executionAnchor));
             PostgresGenerationStageExchangeStore.lockValidatedBarriers(connection, context);
             GenerationJob job = findJob(connection, tenantId, jobId, true).orElse(null);

@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.runtime;
 
+import com.google.protobuf.ByteString;
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.execution.task.DispatchResult;
 import org.pangrova.execution.task.StageDispatchRecord;
@@ -7,6 +8,7 @@ import org.pangrova.coordinator.scheduler.placement.WorkerSelector;
 import org.pangrova.coordinator.query.execution.dispatch.dag.control.DurableStageRuntime;
 import org.pangrova.execution.authority.StageExecutionContext;
 import org.pangrova.coordinator.query.stage.StageDAG;
+import org.pangrova.planner.analysis.CompiledStagePlan;
 import org.pangrova.planner.analysis.SqlCompiler;
 import org.pangrova.planner.analysis.AuthorizedStageGraph;
 import org.pangrova.planner.analysis.StageTransfer;
@@ -27,38 +29,66 @@ import java.util.function.Consumer;
 public record DAGExecutionState(StageExecutionContext execution, StageDAG dag, SqlCompiler compiler,
         WorkerSelector workerSelector, DurableStageRuntime durable, List<StageDispatchRecord> dispatched,
         ConcurrentHashMap<Integer, DispatchResult> results, CompletableFuture<DispatchResult> completion,
-        AtomicBoolean cancelled, AtomicInteger runningStageCount,
-        ConcurrentHashMap<Integer, Throwable> dispatchFailures, Consumer<DispatchResult> resultReadySink) {
+        AtomicBoolean cancelled, AtomicInteger runningStageCount, AtomicInteger downstreamWakeups,
+        ConcurrentHashMap<Integer, Throwable> dispatchFailures, Consumer<DispatchResult> resultReadySink,
+        BuildFilterGate buildFilter) {
     /** Allocates only volatile bookkeeping, never a second planning or execution path. */
     public static DAGExecutionState create(StageExecutionContext execution, StageDAG dag, SqlCompiler compiler,
             WorkerSelector selector, DurableStageRuntime durable, Consumer<DispatchResult> sink) {
+        return create(execution, dag, compiler, selector, durable, sink, null);
+    }
+
+    /** Installs a gate for an eligible live read query. */
+    public static DAGExecutionState create(StageExecutionContext execution, StageDAG dag, SqlCompiler compiler,
+            WorkerSelector selector, DurableStageRuntime durable, Consumer<DispatchResult> sink,
+            BuildFilterGate buildFilter) {
         return new DAGExecutionState(execution, dag, compiler, selector, durable, new CopyOnWriteArrayList<>(),
                 new ConcurrentHashMap<>(), new CompletableFuture<>(), new AtomicBoolean(), new AtomicInteger(),
-                new ConcurrentHashMap<>(), sink);
+                new AtomicInteger(),
+                new ConcurrentHashMap<>(), sink, buildFilter);
     }
     public String queryId() { return execution.executionId(); }
     public QuerySession session() { return execution.requireLiveSession(); }
 
-    /** Serializes the actual live stage, preserving the pre-optimization output ordinal names. */
-    public org.pangrova.planner.api.fragment.SerializedPlanFragment serializePlan(
+    /** Compiles the actual live stage with the pre-optimization output ordinal names. */
+    public CompiledStagePlan compilePlan(
             org.pangrova.coordinator.query.stage.StageNode plan,
             List<String> preOptColumnNames) {
+        return bindLiveExchangeInputs(plan, compileUnboundPlan(plan, preOptColumnNames));
+    }
+
+    /** Compiles the logical exchange shape before the merge binds its source tag. */
+    private CompiledStagePlan compileUnboundPlan(
+            org.pangrova.coordinator.query.stage.StageNode plan, List<String> preOptColumnNames) {
         List<String> columns = plan.stagePlan().fieldNames();
         if (dag.findDownstreamEdge(plan.stageId()) == null && !preOptColumnNames.isEmpty()) {
             columns = List.copyOf(preOptColumnNames);
         }
-        var serialized = plan.stagePlan().toSerializedPlan(compiler, columns);
-        var incoming = dag.stageEdges().stream().filter(edge -> edge.downstreamStageId() == plan.stageId())
+        return plan.stagePlan().requireLiveFragment().compileStagePlan(compiler, columns);
+    }
+
+    /** Validates the Consumer's input against the dispatched producer wire schemas. */
+    private CompiledStagePlan bindLiveExchangeInputs(
+            org.pangrova.coordinator.query.stage.StageNode plan, CompiledStagePlan compiled) {
+        var incoming = incomingTransfers(plan.stageId());
+        if (incoming.isEmpty()) return compiled;
+        return AuthorizedStageGraph.bindLiveExchangeInputs(
+                plan.stageId(), compiled, incoming, producerPlans(incoming));
+    }
+
+    private List<StageTransfer> incomingTransfers(int stageId) {
+        return dag.stageEdges().stream().filter(edge -> edge.downstreamStageId() == stageId)
                 .map(edge -> new StageTransfer(edge.upstreamStageId(), edge.downstreamStageId(),
                         edge.shuffleType(), edge.distributionKeys(), edge.exchangeId(), edge.partitionCount(),
                         edge.batchSerde(), edge.requireComplete())).toList();
-        if (incoming.isEmpty()) return serialized;
-        Map<Integer, List<byte[]>> producerPlans = dispatched.stream()
+    }
+
+    private Map<Integer, List<ByteString>> producerPlans(List<StageTransfer> incoming) {
+        return dispatched.stream()
                 .filter(record -> record.request() != null)
                 .filter(record -> incoming.stream().anyMatch(edge -> edge.upstreamStageId() == record.stageId()))
                 .collect(Collectors.groupingBy(StageDispatchRecord::stageId,
-                        Collectors.mapping(record -> record.request().taskRequest().getSubstraitPlan().toByteArray(),
+                        Collectors.mapping(record -> record.request().taskRequest().getSubstraitPlan(),
                                 Collectors.toList())));
-        return AuthorizedStageGraph.bindLiveExchangeInputs(plan.stageId(), serialized, incoming, producerPlans);
     }
 }

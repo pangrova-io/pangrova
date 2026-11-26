@@ -1,8 +1,5 @@
 package org.pangrova.planner.statistics;
 
-import org.pangrova.planner.api.statistics.Histogram;
-import org.pangrova.planner.api.statistics.HistogramBucket;
-
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 
 import java.time.Duration;
@@ -11,6 +8,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.pangrova.connector.api.metadata.table.TableStatistics.ColumnStatistics;
@@ -26,7 +24,6 @@ public class StatisticsCollector {
 
     private static final Logger LOG = LoggerFactory.getLogger(StatisticsCollector.class);
 
-    static final int HISTOGRAM_BUCKET_COUNT = 256;
     static final double LOW_CARDINALITY_RATIO = 0.01;
 
     private final Map<QualifiedTableName, PlannerTableStatistics> store =
@@ -50,7 +47,7 @@ public class StatisticsCollector {
         // Try real connector statistics first
         if (connectorProvider != null) {
             org.pangrova.connector.api.metadata.table.TableStatistics spiStats =
-                    connectorProvider.getTableStatistics(tableName);
+                    connectorProvider.statistics(tableName);
             if (spiStats != null && spiStats.rowCount() >= 0) {
                 for (String col : columns) {
                     ColumnStatistics spiCol = spiStats.columnStats().get(col);
@@ -132,7 +129,7 @@ public class StatisticsCollector {
         if (connectorProvider != null) {
             try {
                 org.pangrova.connector.api.metadata.table.TableStatistics spiStats =
-                        connectorProvider.getTableStatistics(tableName);
+                        connectorProvider.statistics(tableName);
                 if (spiStats != null && spiStats.rowCount() >= 0) {
                     Map<String, org.pangrova.planner.api.statistics.ColumnStatistics> colStats = new HashMap<>();
                     for (var entry : spiStats.columnStats().entrySet()) {
@@ -223,6 +220,13 @@ public class StatisticsCollector {
         LOG.info("event=statistics_invalidate_all");
     }
 
+    /** Lets the query source share the lookup for two uncached join inputs. */
+    public void prepareJoinStatistics(QualifiedTableName left, QualifiedTableName right) {
+        if (connectorProvider != null && !left.equals(right) && !store.containsKey(left) && !store.containsKey(right)) {
+            connectorProvider.prepareStatistics(Set.of(left, right));
+        }
+    }
+
     /** Invalidates cached statistics for the given table. */
     public void invalidate(QualifiedTableName tableName) {
         if (tableName != null && store.remove(tableName) != null) {
@@ -234,67 +238,15 @@ public class StatisticsCollector {
 
     private org.pangrova.planner.api.statistics.ColumnStatistics convertFromSpi(
             ColumnStatistics spiCol, long tableRowCount) {
-        if (spiCol == null) {
-            return new org.pangrova.planner.api.statistics.ColumnStatistics(
-                    tableRowCount, 0, null, null, tableRowCount, 8.0, Optional.empty(), 0.5);
-        }
-        long ndv = spiCol.ndv() >= 0 ? spiCol.ndv() : tableRowCount;
-        Optional<Histogram> histogram = buildHistogramFromStats(
-                spiCol.min(), spiCol.max(), ndv, tableRowCount);
+        ColumnStatistics evidence = spiCol == null ? ColumnStatistics.UNKNOWN : spiCol;
         return new org.pangrova.planner.api.statistics.ColumnStatistics(
                 tableRowCount,
-                spiCol.nullCount() >= 0 ? spiCol.nullCount() : 0,
-                spiCol.min(), spiCol.max(),
-                ndv,
-                spiCol.avgSize() >= 0 ? spiCol.avgSize() : 8.0,
-                histogram,
-                1.0);
-    }
-
-    /**
-     * Builds an approximate equi-depth histogram from min/max/NDV/rowCount.
-     * When min and max are numeric, divides the range into uniform buckets.
-     * Returns empty when min/max are unavailable or non-numeric.
-     */
-    static Optional<Histogram> buildHistogramFromStats(
-            Comparable<?> min, Comparable<?> max, long ndv, long rowCount) {
-        if (min == null || max == null || rowCount <= 0 || ndv <= 0) {
-            return Optional.empty();
-        }
-        return buildNumericHistogram(min, max, ndv, rowCount);
-    }
-
-    private static Optional<Histogram> buildNumericHistogram(
-            Comparable<?> min, Comparable<?> max, long ndv, long rowCount) {
-        if (!(min instanceof Number minNum) || !(max instanceof Number maxNum)) {
-            return Optional.empty();
-        }
-        double minVal = minNum.doubleValue();
-        double maxVal = maxNum.doubleValue();
-        if (minVal >= maxVal) {
-            return Optional.empty();
-        }
-        int bucketCount = (int) Math.min(HISTOGRAM_BUCKET_COUNT, ndv);
-        if (bucketCount <= 0) {
-            return Optional.empty();
-        }
-        List<HistogramBucket> buckets = buildEquiDepthBuckets(minVal, maxVal, bucketCount, rowCount, ndv);
-        LOG.debug("event=histogram_built bucketCount={} rowCount={} ndv={}", bucketCount, rowCount, ndv);
-        return Optional.of(new Histogram(bucketCount, buckets));
-    }
-
-    private static List<HistogramBucket> buildEquiDepthBuckets(
-            double minVal, double maxVal, int bucketCount, long rowCount, long ndv) {
-        double step = (maxVal - minVal) / bucketCount;
-        long rowsPerBucket = Math.max(1, rowCount / bucketCount);
-        long distinctPerBucket = Math.max(1, ndv / bucketCount);
-        List<HistogramBucket> buckets = new java.util.ArrayList<>(bucketCount);
-        for (int i = 0; i < bucketCount; i++) {
-            double lower = minVal + i * step;
-            double upper = (i == bucketCount - 1) ? maxVal : minVal + (i + 1) * step;
-            buckets.add(new HistogramBucket(lower, upper, rowsPerBucket, distinctPerBucket));
-        }
-        return buckets;
+                evidence.nullCount(),
+                evidence.min(), evidence.max(),
+                evidence.ndv(),
+                evidence.avgSize(),
+                Optional.empty(),
+                spiCol == null ? 0.5 : 1.0);
     }
 
     /**
@@ -339,6 +291,8 @@ public class StatisticsCollector {
      */
     @FunctionalInterface
     public interface ConnectorStatisticsProvider {
-        org.pangrova.connector.api.metadata.table.TableStatistics getTableStatistics(QualifiedTableName tableName);
+        org.pangrova.connector.api.metadata.table.TableStatistics statistics(QualifiedTableName tableName);
+
+        default void prepareStatistics(Set<QualifiedTableName> tables) { }
     }
 }

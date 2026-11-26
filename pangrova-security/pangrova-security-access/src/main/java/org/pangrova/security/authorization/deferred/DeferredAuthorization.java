@@ -31,7 +31,7 @@ public final class DeferredAuthorization {
     }
 
     /** Metadata owners must provide their stable-identity policy projection on the same transaction. */
-    public void requireCurrent(Connection connection, String principal, DeferredAuthorizationScope scope,
+    public Set<String> requireCurrent(Connection connection, String principal, DeferredAuthorizationScope scope,
             PolicyObserver observer) throws SQLException {
         if (principal == null || principal.isBlank()) {
             throw new AuthorizationDeniedException("Deferred work requires its real authenticated subject");
@@ -45,6 +45,7 @@ public final class DeferredAuthorization {
                 requireCurrentPolicy(connection, principal, roles, permission, observer);
             }
         }
+        return roles;
     }
 
     private static void requirePermission(List<PrivilegeGrant> grants, TablePermission permission) {

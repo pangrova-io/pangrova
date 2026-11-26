@@ -1,5 +1,7 @@
 package org.pangrova.protocol.rest.copy;
 
+import org.pangrova.protocol.rest.copy.preparation.PrepareCopySourceRequest;
+import org.pangrova.protocol.rest.copy.preparation.PrepareCopySourceResponse;
 import org.pangrova.protocol.descriptor.CanonicalProtocolIdentity;
 
 import org.pangrova.protocol.checksum.ProtocolChecksums;

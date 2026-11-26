@@ -16,32 +16,28 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Tests QueryProfileService: wires InMemoryQueryAuditStore.findById into profile lookup
- * and verifies structured JSON output with operator tree, timing, and memory.
+ * and verifies structured JSON output with measured attempts, timing, and memory.
  */
 class QueryProfileServiceTest {
 
     @Test
     void profileCopiesInputCollectionsAndExposesOnlyImmutableLists() {
-        var children = new ArrayList<QueryProfileService.OperatorNode>();
-        var child = new QueryProfileService.OperatorNode("child", "task", 1, 1, 1, 1, List.of());
-        children.add(child);
-        var root = new QueryProfileService.OperatorNode("root", "root", 1, 1, 1, 1, children);
-        var tree = new ArrayList<>(List.of(root));
-        var frame = new QueryProfileService.FlameGraphFrame("root", 1);
-        var frames = new ArrayList<>(List.of(frame));
+        var operators = new ArrayList<OperatorStatsSource.Metric>();
+        var metric = new OperatorStatsSource.Metric("Scan", "node", 1, 1, 4, 4, 500, 700, 4, 0, 0, 0, 0, 0, 0);
+        operators.add(metric);
+        var attempt = new OperatorStatsSource.Attempt(0, 1, 1, 0, "task", "worker",
+                "FINISHED", 5, 1, 1, 0, operators);
+        var attempts = new ArrayList<>(List.of(attempt));
         var profile = new QueryProfileService.QueryProfile("q", "SELECT 1", true,
-                tree, new QueryProfileService.TimingBreakdown(1, 1, 0, 1, 1),
-                new QueryProfileService.MemoryUsage(1, 0, 1, 1, 0, 0), frames, false);
-        children.clear();
-        tree.clear();
-        frames.clear();
+                attempts, new QueryProfileService.TimingBreakdown(1, 1, 1, 1),
+                new QueryProfileService.MemoryUsage(1, 0, 1, 1, 0, 0), true, null);
+        operators.clear();
+        attempts.clear();
 
-        assertThat(profile.operatorTree()).containsExactly(root);
-        assertThat(root.children()).containsExactly(child);
-        assertThat(profile.flameGraph()).containsExactly(frame);
-        assertThatThrownBy(() -> profile.operatorTree().clear()).isInstanceOf(UnsupportedOperationException.class);
-        assertThatThrownBy(() -> root.children().clear()).isInstanceOf(UnsupportedOperationException.class);
-        assertThatThrownBy(() -> profile.flameGraph().clear()).isInstanceOf(UnsupportedOperationException.class);
+        assertThat(profile.attempts()).containsExactly(attempt);
+        assertThat(attempt.operators()).containsExactly(metric);
+        assertThatThrownBy(() -> profile.attempts().clear()).isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> attempt.operators().clear()).isInstanceOf(UnsupportedOperationException.class);
     }
 
     @Test
@@ -49,7 +45,7 @@ class QueryProfileServiceTest {
         var store = new InMemoryQueryAuditStore();
         var service = new QueryProfileService(new QueryAuditService(store));
 
-        Optional<QueryProfileService.QueryProfile> result = service.getProfile("nonexistent");
+        Optional<QueryProfileService.QueryProfile> result = service.getProfile("nonexistent", "user-1");
 
         assertThat(result).isEmpty();
     }
@@ -69,7 +65,7 @@ class QueryProfileServiceTest {
                 Instant.now(), true);
         auditService.persist(record);
 
-        Optional<QueryProfileService.QueryProfile> result = service.getProfile("q-profile-1");
+        Optional<QueryProfileService.QueryProfile> result = service.getProfile("q-profile-1", "user-1");
 
         assertThat(result).isPresent();
         var profile = result.get();
@@ -79,7 +75,7 @@ class QueryProfileServiceTest {
     }
 
     @Test
-    void profileDoesNotFabricateOperatorTreeWithoutTelemetry() {
+    void reportsTheAbsenceOfRetainedAttemptTelemetry() {
         var store = new InMemoryQueryAuditStore();
         var auditService = new QueryAuditService(store);
         var service = new QueryProfileService(auditService);
@@ -93,13 +89,10 @@ class QueryProfileServiceTest {
                 Instant.now(), true);
         auditService.persist(record);
 
-        var profile = service.getProfile("q-tree-1").orElseThrow();
+        var profile = service.getProfile("q-tree-1", "user-1").orElseThrow();
 
-        // No Coordinator-side operator telemetry consumer exists yet: the profile
-        // must say so instead of splitting totals into invented stages and tasks.
         assertThat(profile.telemetryAvailable()).isFalse();
-        assertThat(profile.operatorTree()).isEmpty();
-        assertThat(profile.flameGraph()).isEmpty();
+        assertThat(profile.attempts()).isEmpty();
         assertThat(profile.timing().totalWallMs()).isEqualTo(400L);
         assertThat(profile.timing().totalCpuMs()).isEqualTo(200L);
     }
@@ -109,8 +102,11 @@ class QueryProfileServiceTest {
         var store = new InMemoryQueryAuditStore();
         var auditService = new QueryAuditService(store);
         var metric = new OperatorStatsSource.Metric(
-                "TableScan", "node-1", 100, 50, 200, 100, 2_000_000, 3_000_000, 4096, 0);
-        var service = new QueryProfileService(auditService, queryId -> List.of(metric));
+                "TableScan", "node-1", 100, 50, 200, 100, 2_000_000, 3_000_000, 4096, 0,
+                1_500_000, 0, 0, 300_000, 1_200_000);
+        var attempt = new OperatorStatsSource.Attempt(2, 1, 4, 0, "task-1", "worker-1",
+                "FINISHED", 7, 3, 2, 1, List.of(metric));
+        var service = new QueryProfileService(auditService, queryId -> List.of(attempt));
 
         var record = new QueryAuditRecord(
                 "q-telemetry-1", "user-1", "SELECT 1", "t-1",
@@ -121,18 +117,11 @@ class QueryProfileServiceTest {
                 Instant.now(), true);
         auditService.persist(record);
 
-        var profile = service.getProfile("q-telemetry-1").orElseThrow();
+        var profile = service.getProfile("q-telemetry-1", "user-1").orElseThrow();
         assertThat(profile.telemetryAvailable()).isTrue();
-        var root = profile.operatorTree().get(0);
-        assertThat(root.name()).isEqualTo("QueryRoot");
-        assertThat(root.children()).singleElement().satisfies(node -> {
-            assertThat(node.name()).isEqualTo("TableScan[node-1]");
-            assertThat(node.type()).isEqualTo("operator");
-            assertThat(node.wallTimeMs()).isEqualTo(3L);
-            assertThat(node.cpuTimeMs()).isEqualTo(2L);
-            assertThat(node.outputRows()).isEqualTo(50L);
-        });
-        assertThat(profile.flameGraph()).isNotEmpty();
+        assertThat(profile.attempts()).containsExactly(attempt);
+        assertThat(profile.attempts().get(0).operators()).containsExactly(metric);
+        assertThat(profile.attempts().get(0).operators().get(0).waitForConnectorNanos()).isEqualTo(1_200_000);
     }
 
     @Test
@@ -150,12 +139,11 @@ class QueryProfileServiceTest {
                 Instant.now(), true);
         auditService.persist(record);
 
-        var profile = service.getProfile("q-timing-1").orElseThrow();
+        var profile = service.getProfile("q-timing-1", "user-1").orElseThrow();
         var timing = profile.timing();
 
         assertThat(timing.totalWallMs()).isEqualTo(500L);
         assertThat(timing.totalCpuMs()).isEqualTo(300L);
-        assertThat(timing.ioWaitMs()).isEqualTo(200L);
         assertThat(timing.inputRows()).isEqualTo(2000L);
         assertThat(timing.outputRows()).isEqualTo(1000L);
     }
@@ -175,7 +163,7 @@ class QueryProfileServiceTest {
                 Instant.now(), true);
         auditService.persist(record);
 
-        var profile = service.getProfile("q-mem-1").orElseThrow();
+        var profile = service.getProfile("q-mem-1", "user-1").orElseThrow();
         var memory = profile.memory();
 
         assertThat(memory.peakMemoryBytes()).isEqualTo(8192L);
@@ -184,27 +172,5 @@ class QueryProfileServiceTest {
         assertThat(memory.outputBytes()).isEqualTo(8192L);
         assertThat(memory.shuffleReadBytes()).isEqualTo(4096L);
         assertThat(memory.shuffleWriteBytes()).isEqualTo(2048L);
-    }
-
-    @Test
-    void flameGraphIsEmptyWhenNoTelemetryWasRetained() {
-        var store = new InMemoryQueryAuditStore();
-        var auditService = new QueryAuditService(store);
-        var service = new QueryProfileService(auditService);
-
-        var record = new QueryAuditRecord(
-                "q-flame-1", "user-1", "SELECT 1", "t-1",
-                1, 2,
-                400L, 800L, 4096L, 0L,
-                1000L, 500L, 2048L, 1024L,
-                0L, 0L,
-                Instant.now(), true);
-        auditService.persist(record);
-
-        var profile = service.getProfile("q-flame-1").orElseThrow();
-
-        // A flame graph without real operator telemetry would be fabricated.
-        assertThat(profile.telemetryAvailable()).isFalse();
-        assertThat(profile.flameGraph()).isEmpty();
     }
 }

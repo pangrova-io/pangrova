@@ -71,6 +71,8 @@ checks process identity. This is registration fencing, **not proof of safe physi
 scale-down**: persistent decommission/admission state and authoritative execution/output/reader
 inventory and drain are still pending.
 
+Coordinator snapshots retain the admitted immutable Native capability inventory across heartbeat and health updates. Registration and recovery validate new inventories before they enter the placement view.
+
 Heartbeat POST now requires `worker_execution_identity` with those same admission-domain and
 incarnation values. The registry atomically updates only that exact process; failure does not
 publish local metrics or tenant usage first. Missing registration yields `409/re-register`;

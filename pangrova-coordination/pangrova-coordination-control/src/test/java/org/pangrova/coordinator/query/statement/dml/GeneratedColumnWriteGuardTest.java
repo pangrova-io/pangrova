@@ -8,13 +8,9 @@ import org.pangrova.protocol.v2.GeneratedColumnDefinition;
 import org.pangrova.protocol.v2.GeneratedColumnSet;
 import org.pangrova.protocol.type.VectorLogicalType;
 import org.pangrova.connector.api.session.ConnectorSession;
-import org.pangrova.connector.api.metadata.ConnectorMetadata;
-import org.pangrova.connector.api.metadata.table.ColumnHandle;
-import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
 import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
-import org.pangrova.connector.api.metadata.table.TableStatistics;
 
 import java.util.List;
 import java.util.Map;
@@ -30,11 +26,10 @@ class GeneratedColumnWriteGuardTest {
 
     @Test
     void permitsOrdinaryTableAndRejectsUnmaterializedGeneratedWrite() {
-        ConnectorTableHandle handle = new Handle();
         ConnectorSession session = new Session();
 
         assertThatCode(() -> GeneratedColumnWriteGuard.requireNativeMaterializationPlan(
-                metadata(Map.of()), session, handle, TABLE, "INSERT", null, null))
+                metadata(Map.of()), session, TABLE, "INSERT", null, null))
                 .doesNotThrowAnyException();
 
         GeneratedColumnSet definitions = GeneratedColumnSet.newBuilder()
@@ -49,64 +44,26 @@ class GeneratedColumnWriteGuardTest {
                 .build();
         assertThatThrownBy(() -> GeneratedColumnWriteGuard.requireNativeMaterializationPlan(
                 metadata(GeneratedColumnMetadataCodec.encode(definitions)),
-                session, handle, TABLE, "INSERT", null,
+                session, TABLE, "INSERT", null,
                 new org.pangrova.security.api.identity.UserIdentity(
                         "alice", java.util.Set.of(), Map.of(), java.time.Instant.EPOCH)))
                 .hasMessageContaining("control plane is not installed");
         assertThatThrownBy(() -> GeneratedColumnWriteGuard.requireNativeMaterializationPlan(
                 metadata(GeneratedColumnMetadataCodec.encode(definitions)),
-                session, handle, TABLE, "INSERT", null, null))
+                session, TABLE, "INSERT", null, null))
                 .hasMessageContaining("authenticated user and resolved tenant");
         assertThatThrownBy(() -> GeneratedColumnWriteGuard.requireNativeMaterializationPlan(
                 metadata(GeneratedColumnMetadataCodec.encode(definitions)),
-                new Session(Map.of()), handle, TABLE, "INSERT", null,
+                new Session(Map.of()), TABLE, "INSERT", null,
                 new org.pangrova.security.api.identity.UserIdentity(
                         "alice", java.util.Set.of(), Map.of(), java.time.Instant.EPOCH)))
                 .hasMessageContaining("authenticated user and resolved tenant");
     }
 
-    private static ConnectorMetadata metadata(Map<String, String> properties) {
-        return new ConnectorMetadata() {
-            @Override
-            public ConnectorTableHandle getTableHandle(
-                    ConnectorSession session, SchemaTableName tableName) {
-                return new Handle();
-            }
-
-            @Override
-            public ConnectorTableMetadata getTableMetadata(
-                    ConnectorSession session, ConnectorTableHandle table) {
-                return new ConnectorTableMetadata(
-                        new SchemaTableName("default", "docs"),
-                        List.of("text", "embedding"), properties);
-            }
-
-            @Override
-            public Map<String, ColumnHandle> getColumnHandles(
-                    ConnectorSession session, ConnectorTableHandle table) {
-                return Map.of();
-            }
-
-            @Override
-            public TableStatistics getTableStatistics(
-                    ConnectorSession session, ConnectorTableHandle table) {
-                return TableStatistics.UNKNOWN;
-            }
-
-            @Override
-            public List<String> listSchemaNames(ConnectorSession session) {
-                return List.of("default");
-            }
-
-            @Override
-            public List<SchemaTableName> listTables(
-                    ConnectorSession session, Optional<String> schemaName) {
-                return List.of(new SchemaTableName("default", "docs"));
-            }
-        };
+    private static ConnectorTableMetadata metadata(Map<String, String> properties) {
+        return new ConnectorTableMetadata(new SchemaTableName("default", "docs"),
+                List.of("text", "embedding"), properties);
     }
-
-    private record Handle() implements ConnectorTableHandle {}
 
     private record Session(Map<String, String> properties) implements ConnectorSession {
         @Override

@@ -44,7 +44,7 @@ class ClientContractsClasspathTest {
                 }
             }
             for (String excluded : List.of("org.pangrova.client.http.PangrovaRestClient",
-                    "org.pangrova.protocol.rest.task.exchange.ShuffleEndpointDescriptor",
+                    "org.pangrova.protocol.http.TaskShuffleEndpoint",
                     "com.fasterxml.jackson.datatype.jsr310.JavaTimeModule",
                     "org.pangrova.execution.task.DispatchResult",
                     "org.pangrova.connector.api.plugin.Connector",

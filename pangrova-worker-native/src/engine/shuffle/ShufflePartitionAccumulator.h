@@ -4,7 +4,7 @@
 // (200+) and each callback batch yields only a few rows per partition.
 //
 // Thread-safe: consumer callbacks may be invoked from multiple Velox Driver
-// threads concurrently. All public methods are guarded by mutex_.
+// threads concurrently. Each partition owns its accumulation lock.
 //
 // Placement: shuffle/ — Native shuffle serialization components.
 #pragma once
@@ -49,6 +49,8 @@ class ShufflePartitionAccumulator {
   // Caller must hold mutex_.
   bool flushPartition(int32_t partition_id,
                       facebook::velox::memory::MemoryPool* pool);
+
+  bool pushPages(int32_t partition_id, std::vector<SerializedShuffleSlice> pages);
 
   // Per-partition accumulation state.
   struct PartitionBuffer {

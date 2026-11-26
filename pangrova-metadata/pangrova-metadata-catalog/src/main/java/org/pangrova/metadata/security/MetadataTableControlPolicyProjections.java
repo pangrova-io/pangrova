@@ -14,7 +14,7 @@ public final class MetadataTableControlPolicyProjections implements TableControl
     @Override
     public List<RowPolicy> projectRows(UUID tableId, String catalog, String schema, String table,
             List<RowPolicy> rows) {
-        return TableControlRowPolicyStore.project(tableId, catalog, schema, table, rows, List.of());
+        return TableControlRowPolicyStore.project(tableId, catalog, schema, table, rows);
     }
 
     @Override

@@ -16,12 +16,17 @@ public final class SubstraitPlanSerializer {
 
     /** Serializes a Substrait plan and stamps the canonical producer version. */
     public byte[] serialize(Plan plan) {
+        return toProto(plan).toByteArray();
+    }
+
+    /** Builds the canonical producer message for live in-process plan binding. */
+    public io.substrait.proto.Plan toProto(Plan plan) {
         try {
             io.substrait.proto.Plan.Builder builder = SubstraitProtoNormalizer
                     .normalize(protoConverter.toProto(plan))
                     .toBuilder();
             SubstraitProtocolVersion.stamp(builder);
-            return builder.build().toByteArray();
+            return builder.build();
         } catch (Exception e) {
             throw new SubstraitConversionException(
                     PangrovaErrorCode.SUBSTRAIT_TYPE_MAPPING_FAILURE,

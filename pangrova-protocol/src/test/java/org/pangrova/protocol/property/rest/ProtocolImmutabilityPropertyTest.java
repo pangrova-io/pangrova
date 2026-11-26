@@ -1,8 +1,10 @@
 package org.pangrova.protocol.property.rest;
 
+import com.google.protobuf.ByteString;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.client.result.ResultEndpoint;
+import org.pangrova.protocol.rest.task.TaskReportEvidence;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
@@ -58,16 +60,16 @@ class ProtocolImmutabilityPropertyTest {
      * Primitives are inherently immutable and handled separately.
      */
     private static final Set<Class<?>> ALLOWED_IMMUTABLE_TYPES = Set.of(
-            String.class, Long.class, Integer.class, Boolean.class,
+            String.class, UUID.class, Long.class, Integer.class, Boolean.class,
             Double.class, Float.class, Short.class, Byte.class,
-            Character.class, UUID.class
+            Character.class, ByteString.class
     );
 
     private static final List<Class<?>> ALL_DTO_CLASSES = discoverDtoClasses();
 
     @Test
-    void transportedResultAddressIsIncludedInTheImmutableDtoAudit() {
-        assertThat(ALL_DTO_CLASSES).contains(ResultEndpoint.class);
+    void resultAddressAndReportEvidenceAreIncludedInTheImmutableDtoAudit() {
+        assertThat(ALL_DTO_CLASSES).contains(ResultEndpoint.class, TaskReportEvidence.class);
     }
 
     /**
@@ -129,7 +131,8 @@ class ProtocolImmutabilityPropertyTest {
      * <p>For any REST DTO record, every component type must be either
      * a primitive, enum, a known immutable type (String, UUID, boxed primitives),
      * a {@link List}, {@link Map}, or {@link Set} (defensively copied in compact
-     * constructors), or another protocol record.</p>
+     * constructors), another protocol record, or the audited report evidence
+     * envelope.</p>
      *
      * <p><b>Validates: Requirements 2.1, 2.7, 7.9</b></p>
      */
@@ -172,7 +175,6 @@ class ProtocolImmutabilityPropertyTest {
             return true;
         }
         // byte[] is allowed when defensively copied in compact constructor and accessor
-        // (e.g., DynamicFilterPayload clones on construction and on access)
         if (type == byte[].class) {
             return true;
         }
@@ -186,7 +188,8 @@ class ProtocolImmutabilityPropertyTest {
                 || type.getPackageName().startsWith(root + "."))) {
             return true;
         }
-        return false;
+        // The envelope's final fields are checked separately by the DTO audit.
+        return type == TaskReportEvidence.class && ALL_DTO_CLASSES.contains(type);
     }
 
     /**

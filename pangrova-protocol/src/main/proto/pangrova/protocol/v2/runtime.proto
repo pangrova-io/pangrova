@@ -355,8 +355,7 @@ message UpdateResourceGrantRequest {
   StageResourceGrant resource_grant = 1;
 }
 
-// Cache prefetch consumes canonical v2 DataSplit locations. Connector-specific
-// details remain opaque Any values owned by the connector contract.
+// Cache prefetch consumes canonical v2 DataSplit locations and typed file details.
 message PrefetchArtifactsRequest {
   repeated DataSplit splits = 1;
 }

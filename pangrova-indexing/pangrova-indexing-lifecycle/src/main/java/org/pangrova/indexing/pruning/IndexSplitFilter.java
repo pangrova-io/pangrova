@@ -3,7 +3,6 @@ package org.pangrova.indexing.pruning;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.common.lifecycle.ResourceCloser;
-import org.pangrova.indexing.descriptor.IndexDescriptorCache;
 import org.pangrova.indexing.api.evaluation.CatalogIndexEvaluation;
 import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
 import org.pangrova.persistence.indexing.api.metadata.IndexFileMapping;
@@ -13,7 +12,6 @@ import org.pangrova.indexing.api.pruning.IndexHint;
 import org.pangrova.connector.api.index.NativeIndexCapability;
 import org.pangrova.connector.api.index.NativeIndexEvaluator;
 import org.pangrova.connector.api.metadata.ConnectorSplit;
-import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.connector.api.enums.IndexEvalResult;
 import org.pangrova.indexing.api.enums.IndexType;
 import org.pangrova.indexing.api.evaluation.IndexEvalHint;
@@ -54,21 +52,17 @@ public final class IndexSplitFilter implements AutoCloseable {
     private static final double COVERAGE_SKIP_THRESHOLD = 0.50;
 
     private final IndexMetadataStore metadataStore;
-    private final IndexDescriptorCache descriptorCache;
     private final IndexEvalConfig evalConfig;
     private final ExecutorService evalPool;
 
     /**
      * @param metadataStore     index metadata access
-     * @param descriptorCache   cached descriptor lookups (nullable — falls back to store)
      * @param evalConfig        evaluation configuration (metrics, timeout, parallelism)
      */
     public IndexSplitFilter(
             IndexMetadataStore metadataStore,
-            IndexDescriptorCache descriptorCache,
             IndexEvalConfig evalConfig) {
         this.metadataStore = Objects.requireNonNull(metadataStore);
-        this.descriptorCache = descriptorCache;
         this.evalConfig = Objects.requireNonNull(evalConfig);
         this.evalPool = evalConfig.evalParallelism() > 0
                 ? ManagedExecutorFactory.newFixedThreadPool("index-eval", evalConfig.evalParallelism())
@@ -146,8 +140,6 @@ public final class IndexSplitFilter implements AutoCloseable {
         if (effectiveHints.isEmpty()) {
             return splits;
         }
-        Map<String, IndexDescriptor> descriptorsByIndex = fetchDescriptors(List.copyOf(qualifying));
-
         // Resolve NativeIndexEvaluator and capabilities ONCE
         NativeIndexEvaluator nativeEvaluator = resolveNativeEvaluator(
                 catalogName, accessorResolver);
@@ -157,7 +149,7 @@ public final class IndexSplitFilter implements AutoCloseable {
 
         var ctx = new SplitEvalContext(
                 nativeEvaluator, nativeCapabilities,
-                indexFileMappings, descriptorsByIndex, querySnapshotToken,
+                indexFileMappings, querySnapshotToken,
                 fileStatistics, limitK, null);
 
         boolean parallel = evalPool != null
@@ -181,13 +173,6 @@ public final class IndexSplitFilter implements AutoCloseable {
         }
 
         return result;
-    }
-
-    private Map<String, IndexDescriptor> fetchDescriptors(List<String> indexIds) {
-        if (descriptorCache != null) {
-            return descriptorCache.findByIds(indexIds);
-        }
-        return metadataStore.findIndexesByIds(indexIds);
     }
 
     private NativeIndexEvaluator resolveNativeEvaluator(
@@ -475,11 +460,7 @@ public final class IndexSplitFilter implements AutoCloseable {
     }
 
     private IndexEvalHint buildSingleHint(String dataFilePath, IndexHint hint, SplitEvalContext ctx) {
-        IndexDescriptor descriptor = ctx.descriptorsByIndex().get(hint.indexId());
-        if (descriptor == null) {
-            return null;
-        }
-        if (descriptor.indexType() == IndexType.BLOOM_FILTER
+        if (hint.indexType() == IndexType.BLOOM_FILTER
                 && !hasNativeBloomKeyContract(hint.predicate())) {
             // The protocol string variant also carries Calcite DATE/TIMESTAMP
             // and DECIMAL fallback values. Their toString() is not the index
@@ -489,8 +470,7 @@ public final class IndexSplitFilter implements AutoCloseable {
         Map<String, IndexFileMapping> fileMappings = ctx.indexFileMappings()
                 .getOrDefault(hint.indexId(), Map.of());
         IndexFileMapping mapping = fileMappings.get(dataFilePath);
-        if (mapping == null || descriptor.generation() != hint.generation()
-                || descriptor.indexType() != hint.indexType()) {
+        if (mapping == null || mapping.generation() != hint.generation()) {
             return null;
         }
         return new IndexEvalHint(hint.indexId(), hint.indexType(),

@@ -29,6 +29,9 @@ public interface RoleStore {
     /** Looks up a single role by name. */
     Optional<Role> findRole(String roleName);
 
+    /** Reads the principal's current direct and group roles from one authorization view. */
+    Set<String> effectiveRoles(String principal, Set<String> groups);
+
     /**
      * Persists a new role. Idempotent: returns {@code false} when a role with the same name already exists.
      *

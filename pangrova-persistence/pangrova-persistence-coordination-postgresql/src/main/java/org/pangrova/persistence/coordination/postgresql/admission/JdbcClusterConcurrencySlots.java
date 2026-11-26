@@ -43,17 +43,11 @@ public final class JdbcClusterConcurrencySlots implements ClusterConcurrencySlot
         try (var connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try {
-                int active = lockTenant(connection, tenantId);
-                var owner = queryOwner(connection, queryId);
-                if (owner != null) {
-                    connection.commit();
-                    return owner.equals(tenantId);
-                }
-                if (active >= limit || !insertOwner(connection, tenantId, queryId)) {
+                if (!insertWithinLimit(connection, tenantId, queryId, limit)) {
+                    boolean alreadyReserved = tenantId.equals(queryOwner(connection, queryId));
                     connection.rollback();
-                    return false;
+                    return alreadyReserved;
                 }
-                adjustCount(connection, tenantId, 1);
                 connection.commit();
                 return true;
             } catch (SQLException | RuntimeException failure) {
@@ -72,15 +66,7 @@ public final class JdbcClusterConcurrencySlots implements ClusterConcurrencySlot
         try (var connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try {
-                lockTenant(connection, tenantId);
-                try (var statement = connection.prepareStatement(
-                        "DELETE FROM tenant_concurrency_queries WHERE tenant_id = ? AND query_id = ?")) {
-                    statement.setString(1, tenantId);
-                    statement.setString(2, queryId);
-                    if (statement.executeUpdate() == 1) {
-                        adjustCount(connection, tenantId, -1);
-                    }
-                }
+                releaseOwner(connection, tenantId, queryId);
                 connection.commit();
             } catch (SQLException | RuntimeException failure) {
                 rollbackAfterFailure(connection, failure);
@@ -112,20 +98,48 @@ public final class JdbcClusterConcurrencySlots implements ClusterConcurrencySlot
         }
     }
 
-    private static int lockTenant(Connection connection, String tenantId) throws SQLException {
-        try (var statement = connection.prepareStatement("INSERT INTO tenant_concurrency_slots "
-                + "(tenant_id, active_count) VALUES (?, 0) ON CONFLICT (tenant_id) DO NOTHING")) {
+    private static boolean insertWithinLimit(Connection connection, String tenantId, String queryId, int limit)
+            throws SQLException {
+        try (var statement = connection.prepareStatement("""
+                WITH reserved_tenant AS (
+                    INSERT INTO tenant_concurrency_slots (tenant_id, active_count) VALUES (?, 1)
+                    ON CONFLICT (tenant_id) DO UPDATE SET active_count = tenant_concurrency_slots.active_count + 1
+                    WHERE tenant_concurrency_slots.active_count < ?
+                    RETURNING tenant_id
+                )
+                INSERT INTO tenant_concurrency_queries (query_id, tenant_id)
+                SELECT ?, tenant_id FROM reserved_tenant ON CONFLICT (query_id) DO NOTHING
+                """)) {
             statement.setString(1, tenantId);
-            statement.executeUpdate();
+            statement.setInt(2, limit);
+            statement.setString(3, queryId);
+            return statement.executeUpdate() == 1;
         }
-        try (var statement = connection.prepareStatement(
-                "SELECT active_count FROM tenant_concurrency_slots WHERE tenant_id = ? FOR UPDATE")) {
+    }
+
+    private static void releaseOwner(Connection connection, String tenantId, String queryId) throws SQLException {
+        // Reservation and release acquire the tenant row before touching a query owner.
+        // The physical release receives the identity of an already committed reservation.
+        try (var statement = connection.prepareStatement("""
+                WITH locked_tenant AS MATERIALIZED (
+                    SELECT tenant_id FROM tenant_concurrency_slots WHERE tenant_id = ? FOR UPDATE
+                ), removed AS (
+                    DELETE FROM tenant_concurrency_queries AS owner USING locked_tenant AS tenant
+                    WHERE owner.tenant_id = tenant.tenant_id AND owner.query_id = ?
+                    RETURNING owner.tenant_id
+                ), adjusted AS (
+                    UPDATE tenant_concurrency_slots AS slot SET active_count = slot.active_count - 1
+                    FROM removed WHERE slot.tenant_id = removed.tenant_id AND slot.active_count > 0
+                    RETURNING slot.tenant_id
+                )
+                SELECT (SELECT COUNT(*) FROM removed), (SELECT COUNT(*) FROM adjusted)
+                """)) {
             statement.setString(1, tenantId);
+            statement.setString(2, queryId);
             try (var result = statement.executeQuery()) {
-                if (!result.next() || result.getInt(1) < 0) {
-                    throw new IllegalStateException("missing or invalid tenant admission authority");
+                if (!result.next() || result.getInt(1) != result.getInt(2)) {
+                    throw new IllegalStateException("cluster admission ownership/count mismatch");
                 }
-                return result.getInt(1);
             }
         }
     }
@@ -136,28 +150,6 @@ public final class JdbcClusterConcurrencySlots implements ClusterConcurrencySlot
             statement.setString(1, queryId);
             try (var result = statement.executeQuery()) {
                 return result.next() ? result.getString(1) : null;
-            }
-        }
-    }
-
-    private static boolean insertOwner(Connection connection, String tenantId, String queryId) throws SQLException {
-        try (var statement = connection.prepareStatement("INSERT INTO tenant_concurrency_queries "
-                + "(query_id, tenant_id) VALUES (?, ?) ON CONFLICT (query_id) DO NOTHING")) {
-            statement.setString(1, queryId);
-            statement.setString(2, tenantId);
-            return statement.executeUpdate() == 1;
-        }
-    }
-
-    private static void adjustCount(Connection connection, String tenantId, int delta) throws SQLException {
-        try (var statement = connection.prepareStatement("UPDATE tenant_concurrency_slots "
-                + "SET active_count = active_count + ? WHERE tenant_id = ? "
-                + "AND active_count + ? BETWEEN 0 AND 2147483647")) {
-            statement.setInt(1, delta);
-            statement.setString(2, tenantId);
-            statement.setInt(3, delta);
-            if (statement.executeUpdate() != 1) {
-                throw new IllegalStateException("cluster admission ownership/count mismatch");
             }
         }
     }

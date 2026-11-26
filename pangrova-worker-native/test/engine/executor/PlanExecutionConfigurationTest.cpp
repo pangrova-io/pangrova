@@ -104,19 +104,16 @@ TEST(PlanExecutionConfigurationTest, ConvertedWireBindingsRemainOwnedAfterConver
   task.is_result_task = true;
   task.resource_limit.max_shuffle_buffer_bytes = 1'048'576;
   velox::VeloxPlanConverter converter(task.function_registry);
-  const auto firstOutput = converter.convert(bytes("first_logical"), {}, true);
+  converter.convert(bytes("first_logical"), {});
   const auto first = makeRunnerConfig(task, converter, {});
-  ASSERT_EQ(first.serde_schema_bindings.size(), 1);
+  EXPECT_TRUE(first.serde_schema_bindings.empty());
   ASSERT_NE(first.canonical_output_schema, nullptr);
-  EXPECT_EQ(first.serde_schema_bindings.at(firstOutput->id()).SerializeAsString(),
-      first.canonical_output_schema->SerializeAsString());
   EXPECT_EQ(first.canonical_output_schema->names(0), "first_logical");
   EXPECT_EQ(first.result_column_labels, (std::vector<std::string>{"client_presentation"}));
-  converter.convert(bytes("second_logical"), {}, true);
+  converter.convert(bytes("second_logical"), {});
   const auto second = makeRunnerConfig(task, converter, {});
   EXPECT_EQ(second.canonical_output_schema->names(0), "second_logical");
   EXPECT_EQ(first.canonical_output_schema->names(0), "first_logical");
-  EXPECT_EQ(first.serde_schema_bindings.at(firstOutput->id()).names(0), "first_logical");
   EXPECT_EQ(first.function_registry, task.function_registry);
   EXPECT_EQ(first.serialized_output_buffer_threshold_bytes, 1'048'576);
 }

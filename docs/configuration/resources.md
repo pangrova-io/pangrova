@@ -91,13 +91,13 @@ Workers govern memory through the `worker.memory.*` keys (see
 
 ## Spill and Shuffle Backpressure
 
-When memory pressure rises, intermediate data spills to disk:
+The Coordinator grants each task a shuffle buffer budget in bytes. Native Flight
+also reserves separate Worker-wide retention, transit, and spill budgets under
+`worker.shuffle.service`. Velox operators spill intermediate data to the configured directory.
 
 | Key | Default | Description |
 |-----|---------|-------------|
 | `worker.spill.directory` | `data/worker-spill` | Spill directory; leaving it empty disables spill |
-| `worker.shuffle.spill-threshold` | `0.8` | Memory usage ratio (0.0–1.0) triggering shuffle spill |
-| `worker.shuffle.max-memory-bytes` | 512 MB | Total memory budget for all shuffle partitions |
 
 ## Concurrency
 

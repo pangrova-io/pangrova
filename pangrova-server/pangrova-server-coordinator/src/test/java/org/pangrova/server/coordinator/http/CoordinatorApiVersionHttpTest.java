@@ -35,8 +35,8 @@ class CoordinatorApiVersionHttpTest {
             var client = HttpClient.newHttpClient();
             var invalid = HttpRequest.newBuilder(base.resolve("/v1/task/status-report"))
                     .header(ApiVersion.HEADER_NAME, Integer.toString(ApiVersion.CURRENT + 1))
-                    .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString("{}")).build();
+                    .header("Content-Type", org.pangrova.protocol.rest.task.TaskStatusWire.MEDIA_TYPE)
+                    .POST(HttpRequest.BodyPublishers.ofByteArray(new byte[]{(byte) 0x80})).build();
             var error = client.send(invalid, HttpResponse.BodyHandlers.ofString());
             assertThat(error.statusCode()).isEqualTo(422);
             assertThat(error.headers().allValues(ApiVersion.HEADER_NAME)).containsExactly(Integer.toString(ApiVersion.CURRENT));

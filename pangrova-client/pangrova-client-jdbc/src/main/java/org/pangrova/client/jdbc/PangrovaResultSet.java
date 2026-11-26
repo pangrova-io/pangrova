@@ -15,7 +15,8 @@ package org.pangrova.client.jdbc;
 
 import org.pangrova.client.jdbc.value.VectorSqlArray;
 import org.pangrova.transport.client.ColumnDescriptor;
-import org.pangrova.transport.client.ResultBatch;
+import org.pangrova.transport.client.ResultCursor;
+import org.pangrova.transport.client.exception.TransportException;
 
 import java.io.InputStream;
 import java.io.Reader;
@@ -43,47 +44,85 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * JDBC ResultSet backed by a pre-decoded {@link ResultBatch}.
- * Contains no Arrow imports — Arrow decoding is done in {@code pangrova-transport}
- * before this ResultSet is constructed.
- *
- * <p>The complete result is currently held in heap memory. A bounded-memory
- * Flight-backed JDBC cursor is required before advertising large-result
- * streaming support.</p>
- */
+/** Forward-only JDBC result that reads cells from the current Flight batch. */
 public final class PangrovaResultSet implements ResultSet {
 
-    private List<Object[]> rows;
+    interface Completion {
+        void finish() throws SQLException;
+
+        void abandon() throws SQLException;
+
+        SQLException translate(TransportException failure);
+    }
+
+    private final ResultCursor cursor;
+    private final Completion completion;
     private List<ColumnDescriptor> columns;
     private final Statement owningStatement;
     private PangrovaResultSetMetaData metaData;
-    // PERF-T19: Lazy-built column name index for O(1) findColumn() lookups.
     private Map<String, Integer> columnIndexCache;
-    private int currentRowIndex = -1;
+    private int rowNumber;
+    private boolean exhausted;
     private boolean closed;
     private boolean wasNull;
 
-    PangrovaResultSet(ResultBatch batch, Statement owningStatement) {
-        this.rows = batch.rows();
-        this.columns = batch.columns();
+    PangrovaResultSet(ResultCursor cursor, Statement owningStatement, Completion completion) {
+        this.cursor = cursor;
+        this.completion = completion;
+        this.columns = cursor.columns();
         this.owningStatement = owningStatement;
     }
 
     @Override
     public boolean next() throws SQLException {
         checkOpen();
-        currentRowIndex++;
-        return currentRowIndex < rows.size();
+        if (exhausted) return false;
+        try {
+            if (cursor.next()) {
+                rowNumber++;
+                return true;
+            }
+            cursor.close();
+            completion.finish();
+            exhausted = true;
+            return false;
+        } catch (TransportException failure) {
+            throw closeAfterFailure(completion.translate(failure));
+        } catch (SQLException failure) {
+            throw closeAfterFailure(failure);
+        }
     }
 
     @Override
-    public void close() {
+    public void close() throws SQLException {
+        if (closed) return;
         closed = true;
-        rows = List.of();
         columns = List.of();
         metaData = null;
         columnIndexCache = null;
+        if (exhausted) return;
+        SQLException failure = null;
+        try {
+            cursor.close();
+        } catch (TransportException cleanup) {
+            failure = completion.translate(cleanup);
+        }
+        try {
+            completion.abandon();
+        } catch (SQLException cleanup) {
+            if (failure == null) throw cleanup;
+            failure.addSuppressed(cleanup);
+        }
+        if (failure != null) throw failure;
+    }
+
+    private SQLException closeAfterFailure(SQLException failure) {
+        try {
+            close();
+        } catch (SQLException cleanup) {
+            failure.addSuppressed(cleanup);
+        }
+        return failure;
     }
 
     @Override
@@ -195,10 +234,13 @@ public final class PangrovaResultSet implements ResultSet {
         if (columnIndex < 1 || columnIndex > columns.size()) {
             throw new SQLException("Column index out of range: " + columnIndex);
         }
-        Object[] row = rows.get(currentRowIndex);
-        Object value = row[columnIndex - 1];
-        wasNull = (value == null);
-        return value;
+        try {
+            Object value = cursor.value(columnIndex - 1);
+            wasNull = value == null;
+            return value;
+        } catch (TransportException failure) {
+            throw closeAfterFailure(completion.translate(failure));
+        }
     }
 
     private void checkOpen() throws SQLException {
@@ -206,7 +248,7 @@ public final class PangrovaResultSet implements ResultSet {
     }
 
     private void checkRow() throws SQLException {
-        if (currentRowIndex < 0 || currentRowIndex >= rows.size()) {
+        if (rowNumber == 0 || exhausted) {
             throw new SQLException("Invalid cursor position");
         }
     }
@@ -242,15 +284,15 @@ public final class PangrovaResultSet implements ResultSet {
     @Override public Reader getCharacterStream(String columnLabel) throws SQLException { throw unsupported(); }
     @Override public BigDecimal getBigDecimal(int columnIndex) throws SQLException { throw unsupported(); }
     @Override public BigDecimal getBigDecimal(String columnLabel) throws SQLException { throw unsupported(); }
-    @Override public boolean isBeforeFirst() { return currentRowIndex < 0 && !rows.isEmpty(); }
-    @Override public boolean isAfterLast() { return currentRowIndex >= rows.size(); }
-    @Override public boolean isFirst() { return currentRowIndex == 0; }
-    @Override public boolean isLast() { return currentRowIndex == rows.size() - 1; }
+    @Override public boolean isBeforeFirst() throws SQLException { throw unsupported(); }
+    @Override public boolean isAfterLast() { return exhausted && rowNumber > 0; }
+    @Override public boolean isFirst() { return getRow() == 1; }
+    @Override public boolean isLast() throws SQLException { throw unsupported(); }
     @Override public void beforeFirst() throws SQLException { throw unsupported(); }
     @Override public void afterLast() throws SQLException { throw unsupported(); }
     @Override public boolean first() throws SQLException { throw unsupported(); }
     @Override public boolean last() throws SQLException { throw unsupported(); }
-    @Override public int getRow() { return currentRowIndex >= 0 && currentRowIndex < rows.size() ? currentRowIndex + 1 : 0; }
+    @Override public int getRow() { return !closed && !exhausted ? rowNumber : 0; }
     @Override public boolean absolute(int row) throws SQLException { throw unsupported(); }
     @Override public boolean relative(int rowOffset) throws SQLException { throw unsupported(); }
     @Override public boolean previous() throws SQLException { throw unsupported(); }

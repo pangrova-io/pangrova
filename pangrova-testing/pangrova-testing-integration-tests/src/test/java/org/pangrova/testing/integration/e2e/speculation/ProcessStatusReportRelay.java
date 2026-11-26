@@ -6,6 +6,7 @@ import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
+import org.pangrova.protocol.rest.task.TaskStatusWire;
 import org.pangrova.protocol.rest.worker.WorkerRegistrationRequest;
 import org.pangrova.protocol.rest.worker.HeartbeatRequest;
 
@@ -124,7 +125,7 @@ final class ProcessStatusReportRelay implements AutoCloseable {
 
     private Delivery observe(HttpExchange exchange, byte[] body) throws IOException {
         if (!exchange.getRequestURI().getPath().equals("/v1/task/status-report")) return null;
-        var report = JsonMapperFactory.shared().readValue(body, TaskStatusReport.class);
+        var report = TaskStatusWire.decode(body);
         var delivery = new Delivery(report, body.clone(), System.nanoTime(), new AtomicReference<>());
         deliveries.add(delivery);
         return delivery;

@@ -5,7 +5,6 @@ import org.pangrova.protocol.descriptor.CanonicalProtocolIdentity;
 import org.pangrova.protocol.checksum.ProtocolChecksums;
 import org.pangrova.protocol.substrait.SubstraitProtocolVersion;
 
-import com.google.protobuf.Any;
 import com.google.protobuf.ByteString;
 import io.substrait.proto.NamedStruct;
 import io.substrait.proto.Plan;
@@ -20,6 +19,7 @@ import org.apache.arrow.flight.Ticket;
 import org.apache.arrow.memory.RootAllocator;
 import org.pangrova.protocol.rest.copy.CopySourceReadHttp;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
+import org.pangrova.protocol.task.ValidatedTaskSubmission;
 import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
 import org.pangrova.protocol.v2.FileFormat;
@@ -88,7 +88,7 @@ final class CopyNativeInputAssertions {
         var runtime = fixture.nativeRuntime;
         var executor = runtime.executor();
         var denied = tasks.apply(0);
-        var failure = catchThrowable(() -> executor.createCopyTask(denied));
+        var failure = catchThrowable(() -> executor.createAdmittedTask(new ValidatedTaskSubmission(denied)));
         assertThat(failure).isInstanceOf(NativeTaskCreationFailure.class);
         var noOwner = (NativeTaskCreationFailure) failure;
         assertThat(noOwner.withoutNativeOwner()).isTrue();
@@ -96,7 +96,7 @@ final class CopyNativeInputAssertions {
         assertThat(localInputs(stagingRoot)).isEmpty();
 
         var exhausted = tasks.apply(fileSize);
-        long exhaustedHandle = executor.createCopyTask(exhausted);
+        long exhaustedHandle = executor.createAdmittedTask(new ValidatedTaskSubmission(exhausted));
         assertThat(localInputs(stagingRoot)).hasSize(1);
         executor.startTask(exhaustedHandle);
         org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(20)).until(() ->
@@ -118,7 +118,7 @@ final class CopyNativeInputAssertions {
         assertThat(localInputs(stagingRoot)).isEmpty();
 
         var cancelled = tasks.apply(Math.addExact(8 * fileSize, 1024 * 1024));
-        long cancelledHandle = executor.createCopyTask(cancelled);
+        long cancelledHandle = executor.createAdmittedTask(new ValidatedTaskSubmission(cancelled));
         executor.cancelTask(cancelledHandle);
         assertThat(localInputs(stagingRoot)).hasSize(1);
         var cancelledRelease = TaskReport.parseFrom(executor.releaseTask(cancelledHandle).orElseThrow());
@@ -147,7 +147,8 @@ final class CopyNativeInputAssertions {
         assertThat(localInputs(stagingRoot)).isEmpty();
 
         var accepted = tasks.apply(Math.addExact(8 * fileSize, 1024 * 1024));
-        String id = submit(manager, accepted);
+        manager.observeControlEpoch(accepted.taskRequest().getAttempt().getControlEpoch());
+        String id = ActualNativeTaskFixture.submitReadable(manager, accepted);
         org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(20))
                 .until(() -> {
                     assertThat(manager.getTaskState(id).orElseThrow())
@@ -158,7 +159,7 @@ final class CopyNativeInputAssertions {
                 });
         assertThat(localInputs(stagingRoot)).hasSize(1);
         long handle = manager.getExecutorHandle(id).orElseThrow();
-        readExactValues(runtime, accepted.taskRequest());
+        readExactValues(runtime, accepted);
         org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(20))
                 .until(() -> manager.getTaskState(id).orElseThrow()
                         == org.pangrova.worker.enums.TaskState.FINISHED);
@@ -197,8 +198,7 @@ final class CopyNativeInputAssertions {
 
     private static String submit(org.pangrova.worker.task.TaskManager manager, SubmitTaskRequest request) {
         manager.observeControlEpoch(request.taskRequest().getAttempt().getControlEpoch());
-        return manager.submitTask(org.pangrova.protocol.rest.task.convert.TaskRequestDtoConverter
-                .toTaskDescriptor(request), request);
+        return manager.submitTask(request);
     }
 
     private static List<Path> localInputs(Path root) throws Exception {
@@ -208,7 +208,7 @@ final class CopyNativeInputAssertions {
         }
     }
 
-    private static void readExactValues(ActualNativeTaskFixture runtime, TaskRequest request) throws Exception {
+    private static void readExactValues(ActualNativeTaskFixture runtime, SubmitTaskRequest request) throws Exception {
         int rows = 0;
         try (var allocator = new RootAllocator(ActualNativeTaskFixture.TASK_MEMORY_BYTES);
              var client = FlightClient.builder(allocator,
@@ -249,8 +249,8 @@ final class CopyNativeInputAssertions {
                 .addSplits(DataSplit.newBuilder().setSplitId("copy-input").setConnectorId("copy")
                         .setSourceId(scope.stagingAttemptId()).setDataObjectId(scope.canonicalSourceUrl())
                         .setOpaqueLocation(scope.canonicalSourceUrl()).setSourceSnapshot(proof.sourceVersionId())
-                        .setLength(proof.contentSize()).setConnectorDetail(Any.pack(FileSplitDetail.newBuilder()
-                                .setFileFormat(FileFormat.FILE_FORMAT_PARQUET).build()))).build();
+                        .setLength(proof.contentSize()).setFileDetail(FileSplitDetail.newBuilder()
+                                .setFileFormat(FileFormat.FILE_FORMAT_PARQUET).build())).build();
         return SubmitTaskRequest.from(request);
     }
 

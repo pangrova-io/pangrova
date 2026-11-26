@@ -118,7 +118,7 @@ class TaskMemoryRequestorFailureTest {
             assertThat(node.tryReserve(16)).isEqualTo(16);
             var descriptor = new TaskDescriptor(new QueryId("request-query"), new TestPlanFragment(),
                     List.of(), Map.of(), 1, 0, "COMPUTE", new TaskResourceLimit(80, 1, 0, ""));
-            account = new TaskMemoryAccount("failing-task", "request-query", null, descriptor);
+            account = new TaskMemoryAccount("failing-task", "request-query", null, descriptor, descriptor.taskType());
             requestor = new TaskMemoryRequestor(arbitrator, 0.5);
             requestor.setNodeMemoryPool(node);
         }

@@ -15,11 +15,15 @@ package org.pangrova.coordinator.query.security;
 
 import org.pangrova.planner.enums.PlannedDmlOperation;
 import org.pangrova.planner.analysis.DmlWriteTarget;
+import org.pangrova.planner.security.ColumnMaskApplier;
+import org.pangrova.planner.security.RowFilterApplier;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.security.api.authorization.AccessControl;
+import org.pangrova.security.api.authorization.TableReadPolicySource;
 import org.pangrova.security.api.exception.AccessDeniedException;
 import org.pangrova.security.api.identity.UserIdentity;
 
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 
@@ -77,7 +81,31 @@ public final class AccessControlEnforcer {
                                   UserIdentity identity,
                                   Map<QualifiedTableName, QualifiedTableName> physicalToLogical,
                                   boolean internalMaterializationExecution) {
+        authorizeReadTables(tableReferences, identity, physicalToLogical, internalMaterializationExecution);
+        for (DmlWriteTarget target : dmlWriteTargets) {
+            QualifiedTableName ref = QualifiedTableName.resolve(target.qualifiedTableName());
+            if (!internalMaterializationExecution || !isReservedDynamicTableGeneration(ref)) {
+                rejectReservedGeneration(ref);
+            }
+            enforceWritePrivilege(identity, ref, target.operation());
+        }
+    }
+
+    /** Requires all protected-plan components to use the same authorization provider. */
+    public void requireSharedPolicyAuthority(ColumnMaskApplier masks, RowFilterApplier filters) {
+        if (!masks.usesAuthority(accessControl) || !filters.usesAuthority(accessControl)) {
+            throw new IllegalArgumentException("Query admission and row/column policies require one authority");
+        }
+    }
+
+    /** Authorizes the scans and returns the same subject context for their policy evaluation. */
+    public AccessControl.ReadAuthorization authorizeReadTables(List<List<String>> tableReferences,
+            UserIdentity identity, Map<QualifiedTableName, QualifiedTableName> physicalToLogical,
+            boolean internalMaterializationExecution) {
         rejectAnonymous(identity);
+        var authorization = accessControl.beginReadAuthorization(identity);
+        if (tableReferences.isEmpty()) return authorization;
+        var policyTargets = tableReferences.size() > 1 ? new LinkedHashSet<TableReadPolicySource.Target>() : null;
         for (List<String> qualifiedName : tableReferences) {
             QualifiedTableName ref = QualifiedTableName.resolve(qualifiedName);
             QualifiedTableName logical = physicalToLogical.get(ref);
@@ -86,15 +114,19 @@ public final class AccessControlEnforcer {
                 throw new AccessDeniedException("Direct access to a Dynamic Table generation is forbidden");
             }
             QualifiedTableName authorized = logical == null ? ref : logical;
-            checkRead(identity, authorized.catalog(), authorized.schema(), authorized.table());
-        }
-        for (DmlWriteTarget target : dmlWriteTargets) {
-            QualifiedTableName ref = QualifiedTableName.resolve(target.qualifiedTableName());
-            if (!internalMaterializationExecution || !isReservedDynamicTableGeneration(ref)) {
-                rejectReservedGeneration(ref);
+            String table = authorizedReadTable(authorized.table());
+            if (table.equals(authorized.table())) {
+                authorization.requireSelect(authorized.catalog(), authorized.schema(), table);
+                if (policyTargets != null) {
+                    policyTargets.add(new TableReadPolicySource.Target(
+                            authorized.catalog(), authorized.schema(), table));
+                }
+            } else {
+                authorization.requireUnfilteredMetadata(authorized.catalog(), authorized.schema(), table);
             }
-            enforceWritePrivilege(identity, ref, target.operation());
         }
+        if (policyTargets != null) authorization.preparePolicies(policyTargets);
+        return authorization;
     }
 
     /**
@@ -238,15 +270,16 @@ public final class AccessControlEnforcer {
     public void checkSelectFromTable(UserIdentity identity, String catalog, String schema, String table) {
         rejectAnonymous(identity);
         rejectReservedGeneration(new QualifiedTableName(catalog, schema, table));
-        checkRead(identity, catalog, schema, table);
+        checkRead(accessControl.beginReadAuthorization(identity), catalog, schema, table);
     }
 
-    private void checkRead(UserIdentity identity, String catalog, String schema, String table) {
+    private static void checkRead(AccessControl.ReadAuthorization authorization,
+            String catalog, String schema, String table) {
         String baseTable = authorizedReadTable(table);
         if (baseTable.equals(table)) {
-            accessControl.checkCanSelectFromTable(identity, catalog, schema, table);
+            authorization.requireSelect(catalog, schema, table);
         } else {
-            accessControl.checkCanReadTableMetadata(identity, catalog, schema, baseTable);
+            authorization.requireUnfilteredMetadata(catalog, schema, baseTable);
         }
     }
 

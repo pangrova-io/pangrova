@@ -14,5 +14,5 @@ import java.util.List;
 public interface CurrentPolicyReader {
     List<RowPolicy> readRows(Connection connection, TablePermission permission) throws SQLException;
 
-    List<ColumnMask> readMasks(Connection connection, TablePermission permission, String column) throws SQLException;
+    List<ColumnMask> readMasks(Connection connection, TablePermission permission) throws SQLException;
 }

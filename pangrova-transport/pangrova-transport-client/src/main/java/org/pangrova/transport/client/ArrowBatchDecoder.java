@@ -17,7 +17,6 @@ import org.pangrova.transport.client.exception.TransportException;
 
 import org.pangrova.protocol.type.VectorLogicalType;
 import org.pangrova.protocol.v2.LogicalType;
-import io.substrait.proto.Type;
 
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
@@ -124,26 +123,26 @@ public final class ArrowBatchDecoder {
                 throw new TransportException("RESULT_ROW_LIMIT_EXCEEDED",
                         "Result exceeds the requested row limit", null);
             }
-            appendRows(root, rows);
+            appendRows(root, columns, rows);
         }
         return new ResultBatch(columns, rows);
     }
 
-    private static void appendRows(VectorSchemaRoot root, List<Object[]> rows) {
+    private static void appendRows(VectorSchemaRoot root, List<ColumnDescriptor> columns, List<Object[]> rows) {
         int rowCount = root.getRowCount();
         List<FieldVector> vectors = root.getFieldVectors();
         for (int row = 0; row < rowCount; row++) {
             Object[] values = new Object[vectors.size()];
             for (int col = 0; col < vectors.size(); col++) {
-                values[col] = extractValue(vectors.get(col), row);
+                values[col] = extractValue(vectors.get(col), row, columns.get(col));
             }
             rows.add(values);
         }
     }
 
-    private static Object extractValue(FieldVector vector, int row) {
-        if (isVectorField(vector.getField())) {
-            return decodeVectorField(vector, row);
+    static Object extractValue(FieldVector vector, int row, ColumnDescriptor column) {
+        if (column.logicalType().isPresent()) {
+            return decodeVectorField(vector, row, column.precision(), column.allowsNull());
         }
         if (vector.isNull(row)) {
             return null;
@@ -153,6 +152,7 @@ public final class ArrowBatchDecoder {
         if (vector instanceof Float4Vector fv) return (double) fv.get(row);
         if (vector instanceof Float8Vector dv) return dv.get(row);
         if (vector instanceof VarCharVector sv) return new String(sv.get(row), StandardCharsets.UTF_8);
+        if ("UUID".equals(column.typeName())) return normalizeUuidValue(vector.getObject(row));
         return extractComplexValue(vector, row);
     }
 
@@ -179,14 +179,16 @@ public final class ArrowBatchDecoder {
         if (!isVectorField(vector.getField())) {
             throw invalidVector("field does not declare the Pangrova VECTOR extension");
         }
-        LogicalType declaration = vectorDeclaration(vector.getField());
+        Field field = vector.getField();
+        return decodeVectorField(vector, row, vectorDimension(field), field.isNullable());
+    }
+
+    private static Object decodeVectorField(FieldVector vector, int row, int dimension, boolean allowsNull) {
         if (vector.isNull(row)) {
-            if (declaration.getSubstraitType().getList().getNullability() == Type.Nullability.NULLABILITY_REQUIRED) {
-                throw invalidVector("required VECTOR row is null");
-            }
+            if (!allowsNull) throw invalidVector("required VECTOR row is null");
             return null;
         }
-        return extractVectorValue(vector, row, VectorLogicalType.requireStorageDimension(declaration));
+        return extractVectorValue(vector, row, dimension);
     }
 
     private static Object extractComplexValue(FieldVector vector, int row) {
@@ -275,64 +277,59 @@ public final class ArrowBatchDecoder {
         return result;
     }
 
-    private static Object extractVectorValue(
-            FieldVector vector, int row, int dimension) {
-        List<?> values;
-        if (vector instanceof ListVector || vector instanceof FixedSizeListVector) {
-            values = (List<?>) vector.getObject(row);
+    private static Object extractVectorValue(FieldVector vector, int row, int dimension) {
+        FieldVector data;
+        int first;
+        int end;
+        if (vector instanceof ListVector list) {
+            data = list.getDataVector();
+            first = list.getElementStartIndex(row);
+            end = list.getElementEndIndex(row);
+        } else if (vector instanceof FixedSizeListVector list) {
+            data = list.getDataVector();
+            first = list.getElementStartIndex(row);
+            end = list.getElementEndIndex(row);
         } else {
             throw invalidVector("VECTOR extension requires a list storage type");
         }
-        if (values == null || values.size() != dimension) {
+        if (first < 0 || end > data.getValueCount() || end - first != dimension) {
             throw invalidVector("VECTOR value length differs from declared dimension " + dimension);
         }
-        ArrowType.FloatingPoint element = (ArrowType.FloatingPoint)
-                vector.getField().getChildren().get(0).getType();
         boolean nullable = vector.getField().getChildren().get(0).isNullable();
-        if (element.getPrecision() == org.apache.arrow.vector.types.FloatingPointPrecision.SINGLE) {
-            return floatCoordinates(values, nullable);
-        }
-        return doubleCoordinates(values, nullable);
+        if (data instanceof Float4Vector floats) return floatCoordinates(floats, first, dimension, nullable);
+        if (data instanceof Float8Vector doubles) return doubleCoordinates(doubles, first, dimension, nullable);
+        throw invalidVector("VECTOR coordinates must match declared floating point precision");
     }
 
-    private static Object floatCoordinates(List<?> values, boolean nullable) {
+    private static Object floatCoordinates(Float4Vector values, int first, int size, boolean nullable) {
         if (nullable) {
-            Float[] result = new Float[values.size()];
-            for (int index = 0; index < values.size(); index++) {
-                result[index] = (Float) coordinate(values.get(index), Float.class, true);
-            }
+            Float[] result = new Float[size];
+            for (int index = 0; index < size; index++) result[index] = values.getObject(first + index);
             return result;
         }
-        float[] result = new float[values.size()];
-        for (int index = 0; index < values.size(); index++) {
-            result[index] = (Float) coordinate(values.get(index), Float.class, false);
+        float[] result = new float[size];
+        for (int index = 0; index < size; index++) {
+            if (values.isNull(first + index)) throw invalidVector("required Float VECTOR coordinate is null");
+            result[index] = values.get(first + index);
         }
         return result;
     }
 
-    private static Object doubleCoordinates(List<?> values, boolean nullable) {
+    private static Object doubleCoordinates(Float8Vector values, int first, int size, boolean nullable) {
         if (nullable) {
-            Double[] result = new Double[values.size()];
-            for (int index = 0; index < values.size(); index++) {
-                result[index] = (Double) coordinate(values.get(index), Double.class, true);
-            }
+            Double[] result = new Double[size];
+            for (int index = 0; index < size; index++) result[index] = values.getObject(first + index);
             return result;
         }
-        double[] result = new double[values.size()];
-        for (int index = 0; index < values.size(); index++) {
-            result[index] = (Double) coordinate(values.get(index), Double.class, false);
+        double[] result = new double[size];
+        for (int index = 0; index < size; index++) {
+            if (values.isNull(first + index)) throw invalidVector("required Double VECTOR coordinate is null");
+            result[index] = values.get(first + index);
         }
         return result;
     }
 
-    private static Object coordinate(Object value, Class<?> precision, boolean nullable) {
-        if (!precision.isInstance(value) && !(nullable && value == null)) {
-            throw invalidVector("VECTOR coordinates must match declared " + precision.getSimpleName() + " nullability");
-        }
-        return value;
-    }
-
-    private static List<ColumnDescriptor> buildColumns(Schema schema) {
+    static List<ColumnDescriptor> buildColumns(Schema schema) {
         List<Field> fields = schema.getFields();
         List<ColumnDescriptor> columns = new ArrayList<>(fields.size());
         for (Field field : fields) {
@@ -348,7 +345,7 @@ public final class ArrowBatchDecoder {
         }
         int vectorDimension = vectorDimension(field);
         if (vectorDimension > 0) {
-            LogicalType declaration = vectorDeclaration(field);
+            LogicalType declaration = vectorDeclaration(field, vectorDimension);
             return new ColumnDescriptor(
                     field.getName(), Types.ARRAY,
                     declaration.getCanonicalSql(), vectorDimension, 0, Optional.of(declaration));
@@ -374,8 +371,7 @@ public final class ArrowBatchDecoder {
         return true;
     }
 
-    private static LogicalType vectorDeclaration(Field field) {
-        int dimension = vectorDimension(field);
+    private static LogicalType vectorDeclaration(Field field, int dimension) {
         ArrowType.FloatingPoint element = (ArrowType.FloatingPoint) field.getChildren().get(0).getType();
         return VectorLogicalType.create(dimension,
                 element.getPrecision() == org.apache.arrow.vector.types.FloatingPointPrecision.DOUBLE

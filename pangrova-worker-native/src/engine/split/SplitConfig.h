@@ -1,10 +1,16 @@
 #pragma once
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
+
+namespace pangrova::protocol::v2 {
+class DeletionVectorReference;
+class IndexEvalHintDetail;
+}  // namespace pangrova::protocol::v2
 
 namespace pangrova::split {
 
@@ -101,7 +107,8 @@ struct PhysicalFileConfig {
   std::string file_path;
   FileFormatType file_format = FileFormatType::PARQUET;
   uint64_t file_size = 0;
-  std::string file_scan_detail;
+  std::string lance_read_unit;  // Encoded read unit for the Lance C FFI.
+  std::shared_ptr<const protocol::v2::DeletionVectorReference> deletion_vector;
   uint64_t min_sequence_number = 0;
   uint64_t max_sequence_number = 0;
   std::vector<ColumnMappingConfig> column_mappings;
@@ -141,17 +148,19 @@ struct PaimonConfig {
   std::unordered_map<std::string, std::string> partition_values;
 };
 
-// Simplified split configuration mirroring proto SplitInfo.
-// Used until proto generation is available.
+// Execution-facing split after validation of the canonical task.
 struct SplitConfig {
   std::string split_id;
   std::string connector_id;  // "iceberg" or "paimon"
   std::string table_name;    // Logical table name for split routing in multi-table joins.
   std::string source_snapshot;  // Immutable table snapshot pinned by the query.
   std::string data_object_id;   // Stable object identity within source_snapshot.
-  // JNI-local catalog credentials and canonical FileSplitDetail read unit.
+  // JNI-local catalog credentials.
   std::string storage_binding;
-  std::string file_scan_detail;
+  // Only Lance's C FFI needs a serialized read unit.
+  std::string lance_read_unit;
+  std::shared_ptr<const std::vector<protocol::v2::IndexEvalHintDetail>> index_hints;
+  std::shared_ptr<const protocol::v2::DeletionVectorReference> deletion_vector;
   bool physical_lance_file = false;
   std::string file_path;
   FileFormatType file_format = FileFormatType::PARQUET;

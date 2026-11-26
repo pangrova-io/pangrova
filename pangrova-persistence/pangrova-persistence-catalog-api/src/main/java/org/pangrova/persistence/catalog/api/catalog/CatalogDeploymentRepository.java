@@ -23,6 +23,11 @@ public interface CatalogDeploymentRepository {
 
     Optional<CatalogDescriptor> getCatalogDescriptor(String name);
 
+    /** Reads the current incarnation and revision used by table ownership fences. */
+    default Optional<CatalogDeploymentIdentity> findCurrentDeployment(String name) {
+        return getCatalogDescriptor(name).map(CatalogDescriptor::identity);
+    }
+
     /**
      * Reads exactly the requested immutable deployment. Empty means it does not exist;
      * an implementation without revision history must reject explicitly. Never return current

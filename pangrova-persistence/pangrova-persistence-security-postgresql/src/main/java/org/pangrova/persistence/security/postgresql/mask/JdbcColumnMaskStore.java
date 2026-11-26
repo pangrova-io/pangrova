@@ -2,12 +2,14 @@ package org.pangrova.persistence.security.postgresql.mask;
 
 import org.pangrova.persistence.security.postgresql.support.JdbcPolicyStoreSupport;
 
+import java.sql.Array;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 import javax.sql.DataSource;
 
@@ -23,6 +25,9 @@ public final class JdbcColumnMaskStore extends JdbcPolicyStoreSupport
         implements EnrichedColumnMaskStore {
     private static final String MASK_COLUMNS = "SELECT mask_id, mask_name, catalog_name, schema_name, table_name, "
             + "column_name, mask_expression, apply_to_roles, exempt_roles, enabled, table_id FROM column_mask ";
+    private static final String TABLE_MASKS = MASK_COLUMNS
+            + "WHERE catalog_name=? AND schema_name=? AND table_name=? AND enabled=TRUE";
+    private static final String MASK_ORDER = " ORDER BY mask_id";
 
     public JdbcColumnMaskStore(DataSource dataSource) {
         super(dataSource);
@@ -32,9 +37,7 @@ public final class JdbcColumnMaskStore extends JdbcPolicyStoreSupport
     public List<ColumnMask> getColumnMasks(String catalog, String schema, String table, String column) {
         java.util.Objects.requireNonNull(column, "column");
         try (Connection conn = dataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement(MASK_COLUMNS
-                     + "WHERE catalog_name=? AND schema_name=? AND table_name=? AND column_name=? "
-                     + "AND enabled=TRUE ORDER BY mask_id")) {
+             PreparedStatement ps = conn.prepareStatement(TABLE_MASKS + " AND column_name=?" + MASK_ORDER)) {
             bindTable(ps, catalog, schema, table);
             ps.setString(4, column);
             return readMasks(ps);
@@ -47,13 +50,31 @@ public final class JdbcColumnMaskStore extends JdbcPolicyStoreSupport
     @Override
     public List<ColumnMask> getTableMasks(String catalog, String schema, String table) {
         try (Connection conn = dataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement(MASK_COLUMNS
-                     + "WHERE catalog_name=? AND schema_name=? AND table_name=? AND enabled=TRUE ORDER BY mask_id")) {
+             PreparedStatement ps = conn.prepareStatement(TABLE_MASKS + MASK_ORDER)) {
             bindTable(ps, catalog, schema, table);
             return readMasks(ps);
         } catch (SQLException e) {
             throw new IllegalStateException(
                     "Failed loading table masks for " + catalog + "." + schema + "." + table, e);
+        }
+    }
+
+    /** Reads all requested columns on the caller's existing authorization transaction. */
+    public static List<ColumnMask> listEnabledForColumns(Connection connection, String catalog, String schema,
+            String table, Set<String> columns) throws SQLException {
+        if (columns.isEmpty()) {
+            return List.of();
+        }
+        try (PreparedStatement statement = connection.prepareStatement(
+                TABLE_MASKS + " AND column_name=ANY(?)" + MASK_ORDER)) {
+            bindTable(statement, catalog, schema, table);
+            Array names = connection.createArrayOf("text", columns.toArray(String[]::new));
+            try {
+                statement.setArray(4, names);
+                return readMasks(statement);
+            } finally {
+                names.free();
+            }
         }
     }
 
@@ -68,11 +89,7 @@ public final class JdbcColumnMaskStore extends JdbcPolicyStoreSupport
         try (ResultSet rs = statement.executeQuery()) {
             List<ColumnMask> masks = new ArrayList<>();
             while (rs.next()) {
-                masks.add(new ColumnMask(rs.getLong("mask_id"), rs.getString("mask_name"),
-                        rs.getString("catalog_name"), rs.getString("schema_name"), rs.getString("table_name"),
-                        rs.getString("column_name"), rs.getString("mask_expression"),
-                        decodeRoles(rs.getString("apply_to_roles")), decodeRoles(rs.getString("exempt_roles")),
-                        rs.getBoolean("enabled"), rs.getObject("table_id", java.util.UUID.class)));
+                masks.add(readColumnMask(rs));
             }
             return masks;
         }

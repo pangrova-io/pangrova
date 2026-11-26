@@ -9,7 +9,6 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.ResourceLock;
 import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
-import org.pangrova.worker.exception.NativeRuntimeException;
 
 /** Actual Native creation rejects invalid input instead of returning an invented zero handle. */
 @Tag("native-required")
@@ -19,9 +18,10 @@ class TaskManagerZeroHandleTest {
     void taskRejectsInvalidNativeRequestWithoutRegisteringHandle() {
         try (var runtime = new ActualNativeTaskFixture()) {
             long available = runtime.arbitrator().getAvailableMemory();
-            assertThatThrownBy(() -> runtime.executor().createTask(new byte[] {(byte) 0x80}))
+            assertThatThrownBy(() -> runtime.executor().createTask(
+                            org.pangrova.protocol.v2.TaskRequest.getDefaultInstance()))
                     .isInstanceOf(org.pangrova.worker.exception.NativeTaskCreationFailure.class)
-                    .hasCauseInstanceOf(NativeRuntimeException.class)
+                    .hasCauseInstanceOf(IllegalArgumentException.class)
                     .satisfies(
                             failure -> {
                                 var creation =
@@ -43,13 +43,13 @@ class TaskManagerZeroHandleTest {
     void taskSucceedsOnNonZeroHandle() throws Exception {
         try (var runtime = new ActualNativeTaskFixture();
                 var tasks = new ActualTaskManagerFixture(runtime, "actual-positive-handle")) {
-            var info = tasks.submit(runtime.valuesRequest(true));
+            var info = tasks.submitReadable(runtime.valuesRequest(true));
             assertThat(info.executorHandle()).isPositive();
             assertThat(tasks.consume(info).values()).containsExactly(42L);
             tasks.awaitState(info, TaskState.FINISHED);
             assertThat(info.executorHandle()).isZero();
             var receipt =
-                    org.pangrova.protocol.v2.TaskReport.parseFrom(info.executorReleaseReport());
+                    info.executorReleaseReceipt().report();
             assertThat(receipt.getAttempt()).isEqualTo(info.request().taskRequest().getAttempt());
             assertThat(receipt.getReportOrigin())
                     .isEqualTo(org.pangrova.protocol.v2.TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE);

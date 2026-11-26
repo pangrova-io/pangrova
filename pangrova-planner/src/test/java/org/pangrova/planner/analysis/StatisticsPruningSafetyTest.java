@@ -42,7 +42,7 @@ class StatisticsPruningSafetyTest {
                 return factory.builder().add("amount", SqlTypeName.BIGINT).nullable(true).build();
             }
         });
-        var context = new PlannerContext(statistics, null, null, null, null, null, null, null);
+        var context = new PlannerContext(statistics, null, null, null, null, null);
         var planner = new PangrovaPlanner(schema, List.of("test", "db"), context);
         var compiler = new SqlCompiler(planner, new SubstraitConverter(), new SubstraitPlanSerializer());
         String sql = "SELECT amount FROM orders WHERE " + predicate;

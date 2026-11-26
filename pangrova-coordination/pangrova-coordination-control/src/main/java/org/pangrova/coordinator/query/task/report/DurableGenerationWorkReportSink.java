@@ -9,6 +9,8 @@ import org.pangrova.persistence.generation.api.execution.GenerationStageExecutio
 import org.pangrova.protocol.v2.ArtifactObject;
 import org.pangrova.protocol.v2.ArtifactWorkReport;
 import org.pangrova.protocol.v2.Checksum;
+import org.pangrova.protocol.rest.task.TaskReportEvidence;
+import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.protocol.v2.TaskReport;
 
 import java.time.Clock;
@@ -34,12 +36,15 @@ public final class DurableGenerationWorkReportSink implements GenerationWorkRepo
     }
 
     @Override
-    public boolean commit(String tenantId, TaskReport status, byte[] originalWireBytes) {
+    public boolean commit(String tenantId, TaskReportEvidence evidence) {
         if (tenantId == null || tenantId.isBlank()) {
             throw new IllegalArgumentException("tenantId must not be blank");
         }
-        Objects.requireNonNull(status, "status must not be null");
-        requireOriginalReport(status, originalWireBytes);
+        Objects.requireNonNull(evidence, "evidence must not be null");
+        if (evidence.bytes().isEmpty() || evidence.bytes().size() > TaskStatusReport.MAX_CANONICAL_BYTES) {
+            throw new IllegalArgumentException("Durable completion requires bounded Native report evidence");
+        }
+        var status = evidence.report();
         requireFinishedAttempt(status);
         var job = store.findExecutionJob(status.getAttempt().getQueryOrJobId()).orElseThrow(() ->
                 new IllegalArgumentException("Native artifact completion has no durable execution association"));
@@ -47,12 +52,12 @@ public final class DurableGenerationWorkReportSink implements GenerationWorkRepo
             throw new IllegalArgumentException(
                     "Native artifact completion differs from its exact tenant/job association");
         }
-        if (!status.hasArtifactWork()) return completeProducer(job, status, originalWireBytes);
+        if (!status.hasArtifactWork()) return completeProducer(job, status, evidence.bytes().toByteArray());
         ArtifactWorkReport report = status.getArtifactWork();
         if (!status.getAttempt().getQueryOrJobId().equals(report.getJobId())) {
             throw new IllegalArgumentException("Native artifact report differs from its durable execution");
         }
-        byte[] bytes = originalWireBytes.clone();
+        byte[] bytes = evidence.bytes().toByteArray();
         return store.completePage(new GenerationPageCompletion(
                 tenantId,
                 job.jobId(), report.getPageId(), report.getFencingToken(),
@@ -64,16 +69,6 @@ public final class DurableGenerationWorkReportSink implements GenerationWorkRepo
                         status.getAttempt().getExecutionOwner().getOwnerId(),
                         status.getAttempt().getExecutionOwner().getOwnerIncarnation(),
                         status.getAttempt().getExecutionOwner().getFencingToken())));
-    }
-
-    @Override
-    public boolean ownsExecution(String tenantId, String executionId) {
-        return store.findExecutionJob(executionId).map(key -> {
-            if (!key.tenantId().equals(tenantId)) {
-                throw new IllegalArgumentException("Durable execution routing belongs to another tenant");
-            }
-            return true;
-        }).orElse(false);
     }
 
     private boolean completeProducer(org.pangrova.generation.api.identity.GenerationJobKey job,
@@ -93,19 +88,6 @@ public final class DurableGenerationWorkReportSink implements GenerationWorkRepo
         }
         if (!status.getAttempt().hasExecutionOwner()) {
             throw new IllegalArgumentException("Native artifact completion has no execution owner");
-        }
-    }
-
-    private static void requireOriginalReport(TaskReport status, byte[] originalWireBytes) {
-        Objects.requireNonNull(originalWireBytes, "originalWireBytes");
-        try {
-            if (originalWireBytes.length == 0 || originalWireBytes.length > 4 * 1024 * 1024
-                    || !TaskReport.parseFrom(originalWireBytes).equals(status)) {
-                throw new IllegalArgumentException(
-                        "Durable completion must retain the original validated Native wire report");
-            }
-        } catch (com.google.protobuf.InvalidProtocolBufferException malformed) {
-            throw new IllegalArgumentException("Original Native report bytes are malformed", malformed);
         }
     }
 

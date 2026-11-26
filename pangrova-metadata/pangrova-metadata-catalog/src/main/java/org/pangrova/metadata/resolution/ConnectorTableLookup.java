@@ -6,12 +6,8 @@ import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.metadata.ConnectorMetadata;
 import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
-import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
-
-import java.util.List;
-import java.util.Optional;
 
 /** Metadata lookups using caller-owned connector sessions and handles.
  * These operations do not grant authorization, commit writes, or close borrowed resources.
@@ -57,16 +53,5 @@ public final class ConnectorTableLookup {
             String catalog, ConnectorSession session) {
         CatalogHandle handle = registry.getCatalog(catalog);
         return handle.getMetadata(session);
-    }
-
-    /** Uses the explicit column order when present, otherwise the connector table column order. */
-    public static List<String> resolveInsertColumns(
-            Optional<List<String>> explicitColumns, ConnectorMetadata metadata,
-            ConnectorSession session, ConnectorTableHandle tableHandle) {
-        if (explicitColumns.isPresent()) {
-            return explicitColumns.get();
-        }
-        ConnectorTableMetadata tableMeta = metadata.getTableMetadata(session, tableHandle);
-        return tableMeta.columns();
     }
 }

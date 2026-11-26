@@ -3,10 +3,12 @@ package org.pangrova.coordinator.query.execution.dispatch.task;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletionStage;
 
 import org.pangrova.execution.task.DispatchResult;
 import org.pangrova.coordinator.query.execution.dispatch.MetadataTask;
 import org.pangrova.coordinator.query.execution.dispatch.NativeDmlCompileFunction;
+import org.pangrova.coordinator.query.execution.dispatch.dag.runtime.DAGCompletionEvaluator;
 import org.pangrova.query.api.enums.StatementCategory;
 import org.pangrova.query.dispatch.StatementExecutionContext;
 import org.pangrova.query.dispatch.StatementResult;
@@ -51,6 +53,12 @@ public final class CtasTask implements MetadataTask<CreateTableAsSelectStatement
 
     @Override
     public StatementResult execute(CreateTableAsSelectStatement statement, StatementExecutionContext context) {
+        return DAGCompletionEvaluator.awaitResult(start(statement, context), context.queryId(), () -> { });
+    }
+
+    @Override
+    public CompletionStage<StatementResult> start(
+            CreateTableAsSelectStatement statement, StatementExecutionContext context) {
         // 1. Compile the inner SELECT to derive output schema
         String innerSql = new AstPrinter().print(statement.query());
         PlannedQuery plannedQuery = compiler.get().forSession(
@@ -69,8 +77,12 @@ public final class CtasTask implements MetadataTask<CreateTableAsSelectStatement
 
         // 4. Route data insertion through native DML pipeline (workers write directly)
         InsertSelectStatement insertStmt = buildInsertSelect(statement);
-        DispatchResult result = dmlDispatch.apply(
-                context.stateMachine(), context.session(), insertStmt);
+        return dmlDispatch.apply(context.stateMachine(), context.session(), insertStmt)
+                .thenApply(result -> completeCtas(statement, context, result));
+    }
+
+    private static StatementResult completeCtas(CreateTableAsSelectStatement statement,
+            StatementExecutionContext context, DispatchResult result) {
         if (result == null) {
             throw new org.pangrova.common.exception.PangrovaException(
                     org.pangrova.common.enums.PangrovaErrorCode.RUNTIME_TASK_FAILED,

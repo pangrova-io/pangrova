@@ -2,7 +2,7 @@ package org.pangrova.shuffle.server;
 
 import org.pangrova.shuffle.server.enums.ShuffleAllocationState;
 
-import java.util.Arrays;
+import java.security.MessageDigest;
 import java.util.List;
 
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
@@ -56,7 +56,16 @@ final class ShuffleServiceModel {
             int producerPartitionId,
             int producerAttemptId,
             int outputPartitionId,
-            long batchSequence) {}
+            long batchSequence) {
+        String objectKey() {
+            return producerPrefix(shuffleId, producerPartitionId, producerAttemptId)
+                    + "output-" + outputPartitionId + "/batch-" + batchSequence + ".bin";
+        }
+
+        static String producerPrefix(String shuffleId, int producerPartitionId, int producerAttemptId) {
+            return shuffleId + "/producer-" + producerPartitionId + "/attempt-" + producerAttemptId + "/";
+        }
+    }
 
     record StoredBatch(
             BatchIdentity identity,
@@ -73,14 +82,32 @@ final class ShuffleServiceModel {
         public byte[] checksum() {
             return checksum.clone();
         }
+    }
 
-        boolean sameContent(StoredBatch other) {
-            return identity.equals(other.identity)
-                    && producerAttempt.equals(other.producerAttempt)
-                    && objectKey.equals(other.objectKey)
-                    && sizeBytes == other.sizeBytes
-                    && rowCount == other.rowCount
-                    && Arrays.equals(checksum, other.checksum);
+    record ReadBatch(long outputSequence, String objectKey, long sizeBytes, long rowCount, byte[] checksum) {
+        ReadBatch {
+            checksum = checksum.clone();
+        }
+
+        @Override
+        public byte[] checksum() {
+            return checksum.clone();
+        }
+    }
+
+    record PublishedPartition(
+            long planEpoch, int committedProducerCount, byte[] producerSetChecksum, PartitionPublication publication) {
+        PublishedPartition {
+            producerSetChecksum = producerSetChecksum.clone();
+        }
+
+        @Override
+        public byte[] producerSetChecksum() {
+            return producerSetChecksum.clone();
+        }
+
+        FinalizedPartition partition() {
+            return publication.partition();
         }
     }
 
@@ -128,6 +155,21 @@ final class ShuffleServiceModel {
         }
     }
 
+    record PartitionPublication(FinalizedPartition partition, byte[] manifestRoot) {
+        PartitionPublication {
+            long total = Math.addExact(partition.committedLastSequence(), 1);
+            if (total < 0 || manifestRoot.length != ShufflePartitionManifest.rootSize(total)) {
+                throw new IllegalArgumentException("manifest root does not match finalized partition");
+            }
+            manifestRoot = manifestRoot.clone();
+        }
+
+        @Override
+        public byte[] manifestRoot() {
+            return manifestRoot.clone();
+        }
+    }
+
     record FinalizeFence(
             long planEpoch,
             ExecutionOwnerIdentity owner,
@@ -142,12 +184,21 @@ final class ShuffleServiceModel {
         public byte[] producerSetChecksum() {
             return producerSetChecksum.clone();
         }
+
+        void requireBinding(Allocation allocation) {
+            if (!allocation.owner().equals(owner)
+                    || allocation.identity().planEpoch() != planEpoch
+                    || allocation.shape().expectedProducerCount() != expectedProducerCount
+                    || !MessageDigest.isEqual(allocation.shape().producerSetChecksum(), producerSetChecksum)) {
+                throw new SecurityException("shuffle finalization fence does not match allocation");
+            }
+        }
     }
 
     record FinalizeCommand(
             String shuffleId,
             FinalizeFence fence,
-            List<FinalizedPartition> partitions) {
+            List<PartitionPublication> partitions) {
         FinalizeCommand {
             partitions = List.copyOf(partitions);
         }

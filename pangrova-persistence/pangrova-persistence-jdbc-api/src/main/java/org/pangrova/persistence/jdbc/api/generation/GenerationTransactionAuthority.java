@@ -5,6 +5,8 @@ import org.pangrova.generation.api.job.GenerationDispatchSpec;
 
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.util.Objects;
+import java.util.Set;
 
 /**
  * Current domain authority on an artifact caller's transaction. Implementations
@@ -15,8 +17,20 @@ import java.sql.SQLException;
 @Internal
 public interface GenerationTransactionAuthority {
     /** Reads and validates the exact persisted tenant/job dispatch specification. */
-    GenerationDispatchSpec requireCurrent(Connection connection, String tenantId, String jobId)
-            throws SQLException;
+    default GenerationDispatchSpec requireCurrent(Connection connection, String tenantId, String jobId)
+            throws SQLException {
+        return authorize(connection, tenantId, jobId).dispatchSpec();
+    }
+
+    /** Includes the roles that authorized this exact persisted scope in the caller's transaction. */
+    AuthorizedDispatch authorize(Connection connection, String tenantId, String jobId) throws SQLException;
+
+    record AuthorizedDispatch(GenerationDispatchSpec dispatchSpec, Set<String> currentDirectRoles) {
+        public AuthorizedDispatch {
+            Objects.requireNonNull(dispatchSpec, "dispatchSpec");
+            currentDirectRoles = Set.copyOf(currentDirectRoles);
+        }
+    }
 
     /** Validates an explicit compiler-observed specification under current domain authority. */
     void requireCurrent(Connection connection, GenerationDispatchSpec spec) throws SQLException;

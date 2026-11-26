@@ -24,7 +24,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.connector.iceberg.IcebergConnector;
 import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
-import org.pangrova.coordinator.query.execution.ConnectorWriteBindingFactory;
+import org.pangrova.coordinator.metadata.ConnectorWriteBindingFactory;
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;

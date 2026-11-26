@@ -62,7 +62,7 @@ class RoleBasedDeploymentTest {
                 // Enable streaming + indexing flags — but QUERY role should skip them
                 new CoordinatorBootstrapConfig.FeatureFlags(
                         false, false, false, true, false, false, false, false,
-                        false, false, false, true),
+                        false, false, true),
                 CoordinatorBootstrapConfig.QueryConfig.defaults(),
                 CoordinatorBootstrapConfig.TransportConfig.defaults(),
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),

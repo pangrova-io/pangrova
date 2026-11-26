@@ -7,14 +7,18 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.persistence.indexing.postgresql.metadata.JdbcIndexMetadataStore;
+import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.indexing.api.pruning.IndexHint;
 import org.pangrova.connector.api.metadata.ConnectorSplit;
+import org.pangrova.indexing.api.enums.IndexState;
 import org.pangrova.indexing.api.enums.IndexType;
 import org.pangrova.connector.api.index.predicate.EqualTo;
 import org.pangrova.connector.api.index.statistics.DataFileStatistics;
 import org.pangrova.connector.api.index.statistics.FileColumnStatistics;
 
+import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -62,7 +66,10 @@ class IndexAwareFileStatisticsIntegrationTest {
 
     private java.util.Map<String, List<FileColumnStatistics>> fetch(
             String tenantId, String snapshot, String file, String column) {
-        var hint = new IndexHint("index", IndexType.BLOOM_FILTER, 0, new EqualTo(column, "alpha"));
+        var descriptor = new IndexDescriptor("index", "idx", "lake", "sales", "events", List.of(column),
+                IndexType.BLOOM_FILTER, Map.of(), IndexState.READY, null, 0,
+                snapshot, snapshot, Instant.EPOCH, Instant.EPOCH, tenantId);
+        var hint = new IndexHint(descriptor, new EqualTo(column, "alpha"));
         return fetcher.fetchFileStatistics(tenantId, "lake", "sales", "events", snapshot,
                 List.of(new FileSplit(file)), List.of(hint), null);
     }

@@ -9,6 +9,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.sql.DataSource;
+import java.sql.Array;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -17,6 +18,7 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 /**
  * JDBC-backed grant store persisted on the shared SQL state. Supports dynamic GRANT/REVOKE
@@ -28,6 +30,10 @@ import java.util.List;
 public final class JdbcGrantStore extends JdbcPolicyStoreSupport implements GrantStore {
 
     private static final Logger LOG = LoggerFactory.getLogger(JdbcGrantStore.class);
+    private static final String SELECT_GRANTS =
+            "SELECT grant_id, role_name, privilege, object_type, catalog_name, schema_name, "
+                    + "table_name, column_name, with_grant_option, cascade_revoke, granted_by, granted_at "
+                    + "FROM security_grants";
 
     public JdbcGrantStore(DataSource dataSource) {
         super(dataSource);
@@ -35,31 +41,38 @@ public final class JdbcGrantStore extends JdbcPolicyStoreSupport implements Gran
 
     @Override
     public List<PrivilegeGrant> listGrants() {
-        String sql = "SELECT grant_id, role_name, privilege, object_type, catalog_name, schema_name, "
-                + "table_name, column_name, with_grant_option, cascade_revoke, granted_by, granted_at "
-                + "FROM security_grants ORDER BY grant_id";
+        String sql = SELECT_GRANTS + " ORDER BY grant_id";
         try (Connection conn = dataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql);
-             ResultSet rs = ps.executeQuery()) {
-            return collectGrants(rs);
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            return readGrants(ps);
         } catch (SQLException e) {
             throw new IllegalStateException("Failed listing all grants", e);
         }
     }
 
     @Override
-    public List<PrivilegeGrant> listGrantsForRole(String roleName) {
-        String sql = "SELECT grant_id, role_name, privilege, object_type, catalog_name, schema_name, "
-                + "table_name, column_name, with_grant_option, cascade_revoke, granted_by, granted_at "
-                + "FROM security_grants WHERE role_name = ? ORDER BY grant_id";
+    public List<PrivilegeGrant> listGrantsForRoles(Set<String> roleNames) {
+        if (roleNames.isEmpty()) {
+            return List.of();
+        }
+        String sql = SELECT_GRANTS + " WHERE role_name = ANY (?) ORDER BY grant_id";
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, roleName);
-            try (ResultSet rs = ps.executeQuery()) {
-                return collectGrants(rs);
+            Array names = conn.createArrayOf("text", roleNames.toArray(String[]::new));
+            try {
+                ps.setArray(1, names);
+                return readGrants(ps);
+            } finally {
+                names.free();
             }
         } catch (SQLException e) {
-            throw new IllegalStateException("Failed listing grants for role " + roleName, e);
+            throw new IllegalStateException("Failed listing grants for effective roles", e);
+        }
+    }
+
+    private static List<PrivilegeGrant> readGrants(PreparedStatement statement) throws SQLException {
+        try (ResultSet rows = statement.executeQuery()) {
+            return collectGrants(rows);
         }
     }
 
@@ -144,21 +157,25 @@ public final class JdbcGrantStore extends JdbcPolicyStoreSupport implements Gran
     static List<PrivilegeGrant> collectGrants(ResultSet rs) throws SQLException {
         List<PrivilegeGrant> grants = new ArrayList<>();
         while (rs.next()) {
-            grants.add(new PrivilegeGrant(
-                    String.valueOf(rs.getLong("grant_id")),
-                    rs.getString("role_name"),
-                    Privilege.valueOf(rs.getString("privilege")),
-                    rs.getString("object_type"),
-                    rs.getString("catalog_name"),
-                    rs.getString("schema_name"),
-                    rs.getString("table_name"),
-                    rs.getString("column_name"),
-                    rs.getBoolean("with_grant_option"),
-                    rs.getBoolean("cascade_revoke"),
-                    rs.getString("granted_by"),
-                    rs.getTimestamp("granted_at") != null
-                            ? rs.getTimestamp("granted_at").toInstant() : null));
+            grants.add(readGrant(rs, rs.getLong("grant_id")));
         }
         return grants;
+    }
+
+    static PrivilegeGrant readGrant(ResultSet row, long grantId) throws SQLException {
+        var grantedAt = row.getTimestamp("granted_at");
+        return new PrivilegeGrant(
+                String.valueOf(grantId),
+                row.getString("role_name"),
+                Privilege.valueOf(row.getString("privilege")),
+                row.getString("object_type"),
+                row.getString("catalog_name"),
+                row.getString("schema_name"),
+                row.getString("table_name"),
+                row.getString("column_name"),
+                row.getBoolean("with_grant_option"),
+                row.getBoolean("cascade_revoke"),
+                row.getString("granted_by"),
+                grantedAt != null ? grantedAt.toInstant() : null);
     }
 }

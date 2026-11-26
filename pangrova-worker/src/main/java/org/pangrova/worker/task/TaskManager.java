@@ -8,6 +8,7 @@ import org.pangrova.worker.task.report.TaskStatusReporter;
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
+import org.pangrova.protocol.task.ValidatedTaskSubmission;
 import org.pangrova.protocol.execution.TaskDescriptor;
 import org.pangrova.worker.task.memory.TaskMemoryAllocator;
 import org.pangrova.worker.task.memory.TaskMemoryRequestor;
@@ -106,6 +107,16 @@ public class TaskManager implements AutoCloseable {
     volatile org.pangrova.worker.cache.RecentFileAccessTracker recentFileAccessTracker;
 
     final TaskDrainExecutor drainExecutor;
+    private static final int MAX_CONCURRENT_TASK_SETUPS = 64;
+    private static final int MAX_QUEUED_TASK_SETUPS = 64;
+    private static final long TASK_SETUP_DRAIN_TIMEOUT_MS = 30_000;
+
+    private final java.util.concurrent.ExecutorService taskSetupExecutor =
+            org.pangrova.common.concurrent.ManagedExecutorFactory.newBoundedThreadPool(
+                    "worker-task-setup", MAX_CONCURRENT_TASK_SETUPS, MAX_QUEUED_TASK_SETUPS);
+    private final java.util.concurrent.Semaphore taskSubmissionBytes =
+            new java.util.concurrent.Semaphore(SubmitTaskRequest.MAX_HTTP_BODY_BYTES);
+
     private final TaskSubmissionHandler submissionHandler;
     private final WorkerTaskCancellation cancellation;
     private final TaskAdmissionControl admissionControl = new TaskAdmissionControl(this);
@@ -169,6 +180,7 @@ public class TaskManager implements AutoCloseable {
     @Override
     public void close() {
         drainExecutor.beginDraining();
+        taskSetupExecutor.shutdown();
         TaskAdmissionRollback.release(
                 () -> {
                     var preparation = sourcePreparationControl;
@@ -183,8 +195,12 @@ public class TaskManager implements AutoCloseable {
                     for (TaskInfo info : tasks.values()) info.retryCleanup();
                 },
                 taskAdmissions::sealAndAwaitAdmissions,
-                () -> TaskManagerShutdown.close(deps, taskExecutor, lifecycleManager, lifecycleCallback,
-                        java.util.List.copyOf(tasks.values())));
+                () -> {
+                    org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(
+                            taskSetupExecutor, TASK_SETUP_DRAIN_TIMEOUT_MS);
+                    TaskManagerShutdown.close(deps, taskExecutor, lifecycleManager, lifecycleCallback,
+                            java.util.List.copyOf(tasks.values()));
+                });
         if (deps == null) admissionIncarnation.closeAfterDrain(() -> {});
     }
 
@@ -244,18 +260,99 @@ public class TaskManager implements AutoCloseable {
     }
 
     public org.pangrova.protocol.v2.SourcePreparationResult prepareSource(
-            org.pangrova.protocol.rest.copy.PrepareCopySourceRequest request) throws java.io.IOException {
+            org.pangrova.protocol.rest.copy.preparation.PrepareCopySourceRequest request) throws java.io.IOException {
         var preparation = java.util.Objects.requireNonNull(sourcePreparationControl, "Source preparation runtime");
         return preparation.execute(request);
     }
 
     SourcePreparationControl sourcePreparations() { return sourcePreparationControl; }
 
-    public String submitTask(TaskDescriptor descriptor, SubmitTaskRequest request) {
-        return submissionHandler.submitTask(descriptor, request);
+    /** Direct canonical submission for in-process Worker execution. */
+    public String submitTask(SubmitTaskRequest request) {
+        return submissionHandler.submitTask(request);
     }
 
-    public String submitTask(TaskDescriptor descriptor) {
+    /** Observes the actual admission without transferring or cancelling its ownership. */
+    public interface TaskAdmission {
+        boolean first();
+
+        boolean completed();
+
+        java.util.concurrent.CompletionStage<String> completion();
+    }
+
+    /** Acquires a Worker-local body lease that can be handed to the setup executor. */
+    public TaskBodyAdmission admitTaskBody() {
+        return new TaskBodyAdmission(taskSubmissionBytes);
+    }
+
+    /** The same byte allowance covers HTTP decode, queueing and running setup. */
+    public static final class TaskBodyAdmission implements AutoCloseable {
+        private final java.util.concurrent.Semaphore capacity;
+        private int bytes;
+        private boolean ingressClosed;
+
+        private TaskBodyAdmission(java.util.concurrent.Semaphore capacity) {
+            this.capacity = capacity;
+        }
+
+        /** Reserves a declared length or the next observed length before parsing more bytes. */
+        public void reserve(int length) {
+            if (ingressClosed) throw new IllegalStateException("Task body admission is no longer accepting bytes");
+            if (length <= bytes) return;
+            if (!capacity.tryAcquire(length - bytes)) {
+                throw new org.pangrova.worker.exception.TaskAdmissionException(
+                        org.pangrova.worker.enums.TaskAdmissionReason.CAPACITY,
+                        "Worker lacks task submission byte capacity");
+            }
+            bytes = length;
+        }
+
+        @Override
+        public void close() {
+            if (!ingressClosed) {
+                ingressClosed = true;
+                release();
+            }
+        }
+
+        private void release() {
+            capacity.release(bytes);
+            bytes = 0;
+        }
+    }
+
+    public TaskAdmission submitValidatedTask(
+            ValidatedTaskSubmission request, TaskBodyAdmission body) {
+        return submissionHandler.submitValidatedTask(request, body);
+    }
+
+    void scheduleTaskSetup(TaskBodyAdmission body, Runnable setup) {
+        if (body.capacity != taskSubmissionBytes || body.ingressClosed || body.bytes == 0) {
+            throw new IllegalStateException("Worker task setup requires its original task body admission");
+        }
+        // From this point either a scheduled setup or its rejection releases the allowance.
+        body.ingressClosed = true;
+        boolean scheduled = false;
+        try {
+            taskSetupExecutor.execute(() -> {
+                try {
+                    setup.run();
+                } finally {
+                    body.release();
+                }
+            });
+            scheduled = true;
+        } catch (java.util.concurrent.RejectedExecutionException rejected) {
+            throw new org.pangrova.worker.exception.TaskAdmissionException(
+                    org.pangrova.worker.enums.TaskAdmissionReason.CAPACITY,
+                    "Worker task setup is closed or at capacity");
+        } finally {
+            if (!scheduled) body.release();
+        }
+    }
+
+    String submitTask(TaskDescriptor descriptor) {
         return submissionHandler.submitTask(descriptor);
     }
 
@@ -414,17 +511,12 @@ public class TaskManager implements AutoCloseable {
         long evaluated = 0;
         long skipped = 0;
         for (TaskInfo info : tasks.values()) {
-            byte[] bytes = info.terminalTaskStats();
-            if (bytes == null || bytes.length == 0) {
+            var stats = info.terminalTaskStats();
+            if (stats == null || stats.getSerializedSize() == 0) {
                 continue;
             }
-            try {
-                var stats = org.pangrova.protocol.v2.NativeTaskStats.parseFrom(bytes);
-                evaluated = Math.addExact(evaluated, stats.getIndexSplitsEvaluated());
-                skipped = Math.addExact(skipped, stats.getIndexSplitsSkipped());
-            } catch (com.google.protobuf.InvalidProtocolBufferException malformed) {
-                throw new IllegalStateException("Captured NativeTaskStats is malformed", malformed);
-            }
+            evaluated = Math.addExact(evaluated, stats.getIndexSplitsEvaluated());
+            skipped = Math.addExact(skipped, stats.getIndexSplitsSkipped());
         }
         return new IndexSplitTotals(evaluated, skipped);
     }
@@ -489,7 +581,7 @@ public class TaskManager implements AutoCloseable {
                 tasks, retention, info -> {
                     drainExecutor.releaseTerminalTask(info);
                     removeCoordinatorIndex(info);
-                }, drainExecutor::resultResourcesDrained);
+                });
     }
 
     /**
@@ -523,6 +615,11 @@ public class TaskManager implements AutoCloseable {
             @Override
             public void clearCoordinatorIndex(TaskInfo info) {
                 removeCoordinatorIndex(info);
+            }
+
+            @Override
+            public void watchFinishedResult(TaskInfo info) {
+                drainExecutor.watchFinishedResult(info, taskExecutor, TaskManager.this::removeCoordinatorIndex);
             }
 
             @Override

@@ -11,6 +11,7 @@
 #include "engine/executor/driver/PlanExecutionWriteSinks.h"
 #include "engine/executor/driver/TaskExecutor.h"
 #include "engine/executor/NativeUnsupportedFeatureException.h"
+#include "engine/plan/SubstraitPlanParser.h"
 #include "jni/RuntimeInitializer.h"
 #include "engine/observability/NativeTracer.h"
 #include "engine/observability/PangrovaLog.h"
@@ -28,7 +29,7 @@ void PlanExecutionDriver::signalCompletion() {
   if (!completion_signalled_.exchange(true)) completion_promise_.set_value();
 }
 
-void PlanExecutionDriver::executeVeloxPlan() {
+void PlanExecutionDriver::executeVeloxPlan(const std::function<void()>& on_result_ready) {
   auto completion = folly::makeGuard([this] { signalCompletion(); });
   if (cancelled_.load()) return;
   std::shared_ptr<Execution> execution;
@@ -40,8 +41,8 @@ void PlanExecutionDriver::executeVeloxPlan() {
     }
     execution = prepareExecution(span.get());
     if (!execution || !publishRunner(execution)) return;
-    execution->runner->start();
-    if (dispatchExecution(execution)) completion.dismiss();
+    execution->runner->start(config_.splits);
+    if (dispatchExecution(execution, on_result_ready)) completion.dismiss();
   } catch (...) {
     auto failure = std::current_exception();
     const auto cleanupErrors = stopExecution(execution);
@@ -81,14 +82,19 @@ PlanExecutionDriver::prepareExecution(observability::SpanScope* span) {
     if (cancelled_.load()) task_read_budget_->requestCancel();
   }
   execution->artifactContext = std::move(context);
+  substrait::Plan substrait_plan;
+  if (config_.substrait_plan.empty() || !pangrova::plan::parseSubstraitPlan(
+          config_.substrait_plan.data(), config_.substrait_plan.size(), &substrait_plan)) {
+    throw std::runtime_error("Native task received an invalid Substrait plan");
+  }
   execution->retrieval = artifact::ArtifactRetrievalPlanner::prepare(
-      config_.substrait_plan, config_.operator_bindings, config_.splits,
+      substrait_plan, config_.operator_bindings, config_.splits,
       static_cast<uint64_t>(
           std::max<int64_t>(0, config_.resource_limit.max_object_store_read_bytes)),
       execution->artifactContext->read_budget);
-  velox::VeloxPlanConverter converter(config_.function_registry);
-  auto plan = converter.convert(config_.substrait_plan, execution->retrieval->splits,
-      config_.is_result_task, "ArrowBatch", config_.operator_bindings,
+  velox::VeloxPlanConverter converter(config_.function_registry, config_.function_catalog);
+  auto plan = converter.convertValidatedPlan(substrait_plan, config_.splits,
+      config_.operator_bindings,
       execution->artifactContext, execution->retrieval->split_overrides,
       config_.num_shuffle_partitions);
   if (!plan) throw std::runtime_error("Failed to convert Substrait plan to Velox PlanNode");
@@ -101,17 +107,14 @@ PlanExecutionDriver::prepareExecution(observability::SpanScope* span) {
   if (cancelled_.load()) return nullptr;
   execution->runner = std::make_shared<velox::VeloxTaskRunner>(
       makeRunnerConfig(config_, converter, execution->spillPolicy), plan,
-      execution->retrieval->splits, output_queue_, shuffle_queue_,
+      output_queue_, shuffle_queue_,
       converter.scanNodeSplitOverrides());
   return execution;
 }
 
 bool PlanExecutionDriver::publishRunner(const std::shared_ptr<Execution>& execution) {
   for (const auto& binding : config_.initial_runtime_filters) {
-    protocol::v2::InjectRuntimeFilterRequest payload;
-    payload.set_plan_node_id(binding.plan_node_id());
-    payload.mutable_filters()->CopyFrom(binding.filters());
-    injectDynamicFilter(binding.plan_node_id(), payload.SerializeAsString());
+    injectDynamicFilter(binding.plan_node_id(), binding.filters());
   }
   std::vector<PendingDynamicFilter> filters;
   {
@@ -176,10 +179,11 @@ void PlanExecutionDriver::drainWriteOutput(const std::shared_ptr<Execution>& exe
   }
 }
 
-bool PlanExecutionDriver::dispatchExecution(const std::shared_ptr<Execution>& execution) {
+bool PlanExecutionDriver::dispatchExecution(
+    const std::shared_ptr<Execution>& execution, const std::function<void()>& on_result_ready) {
   // Velox requires an empty task pool while initializing its drivers. Start
   // them before the write drain can allocate from a child of that pool.
-  auto taskCompletion = execution->runner->startAsync();
+  auto taskCompletion = execution->runner->startAsync(on_result_ready);
   startOutputDrains(execution);
   auto executor = jni::NativeEngineLifecycle::instance().executor();
   if (!executor) {

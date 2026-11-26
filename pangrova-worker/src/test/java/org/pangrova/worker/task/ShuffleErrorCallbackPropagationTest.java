@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.ResourceLock;
-import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.v2.TaskState;
 import org.pangrova.testing.nativefixture.ActualNativeShuffleRequests;
 import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
@@ -23,7 +22,7 @@ class ShuffleErrorCallbackPropagationTest {
                     runtime.bindWorker(ActualNativeShuffleRequests.producer(4, ActualNativeTaskPlans.failingCast()));
             var info = tasks.submit(request);
             tasks.awaitState(info, org.pangrova.worker.enums.TaskState.FAILED);
-            var report = TaskReport.parseFrom(info.terminalTaskReport());
+            var report = info.terminalTaskEvidence().report();
             assertThat(report.getAttempt()).isEqualTo(request.getAttempt());
             assertThat(report.getState()).isEqualTo(TaskState.TASK_STATE_FAILED);
             assertThat(report.hasError()).isTrue();
@@ -37,7 +36,7 @@ class ShuffleErrorCallbackPropagationTest {
     void computeTaskWithoutShuffleConfigIgnoresShufflePipeline() throws Exception {
         try (var runtime = new ActualNativeTaskFixture();
                 var tasks = new ActualTaskManagerFixture(runtime, "actual-no-shuffle")) {
-            var info = tasks.submit(runtime.valuesRequest(true));
+            var info = tasks.submitReadable(runtime.valuesRequest(true));
             assertThat(info.shuffleServerHandle()).isNull();
             assertThat(tasks.consume(info).values()).containsExactly(42L);
             tasks.awaitState(info, org.pangrova.worker.enums.TaskState.FINISHED);

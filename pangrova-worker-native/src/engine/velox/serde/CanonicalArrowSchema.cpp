@@ -75,6 +75,7 @@ std::shared_ptr<arrow::ArrayData> bindData(const std::shared_ptr<arrow::ArrayDat
   if (type->num_fields() == 0 && !data->type->Equals(type)) {
     throw std::invalid_argument("Canonical Arrow schema cannot change a scalar physical type");
   }
+  if (data->type->Equals(type, true)) return data;
   auto rebound = data->Copy();
   rebound->type = type;
   for (int index = 0; index < type->num_fields(); ++index) {
@@ -111,14 +112,15 @@ std::shared_ptr<arrow::RecordBatch> bindCanonicalArrowSchema(
   if (!batch || !schema || batch->num_columns() != schema->num_fields()) {
     throw std::invalid_argument("Canonical Arrow batch schema has a different arity");
   }
+  if (batch->schema() == schema) return batch;
   std::vector<std::shared_ptr<arrow::Array>> columns;
+  columns.reserve(batch->num_columns());
   for (int index = 0; index < batch->num_columns(); ++index) {
-    columns.push_back(arrow::MakeArray(bindData(batch->column(index)->data(), schema->field(index)->type())));
+    const auto& column = batch->column(index);
+    const auto rebound = bindData(column->data(), schema->field(index)->type());
+    columns.push_back(rebound == column->data() ? column : arrow::MakeArray(rebound));
   }
-  auto result = arrow::RecordBatch::Make(schema, batch->num_rows(), std::move(columns));
-  const auto status = result->ValidateFull();
-  if (!status.ok()) throw std::runtime_error(status.ToString());
-  return result;
+  return arrow::RecordBatch::Make(schema, batch->num_rows(), std::move(columns));
 }
 
 std::shared_ptr<arrow::Schema> physicalArrowSchema(

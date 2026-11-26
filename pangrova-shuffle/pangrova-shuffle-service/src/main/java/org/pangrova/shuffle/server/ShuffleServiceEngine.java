@@ -3,10 +3,12 @@ package org.pangrova.shuffle.server;
 import org.pangrova.protocol.descriptor.CanonicalProtocolIdentity;
 import org.pangrova.shuffle.checksum.ShuffleChecksums;
 
+import java.io.ByteArrayInputStream;
 import java.security.MessageDigest;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.BooleanSupplier;
 
 import org.pangrova.protocol.shuffle.codec.ShufflePartitionManifestChecksum;
 import org.pangrova.protocol.shuffle.codec.ShuffleProducerSetChecksum;
@@ -32,8 +34,8 @@ import org.pangrova.shuffle.security.CapabilityScope;
 import org.pangrova.shuffle.security.ShuffleCapabilityAuthority;
 import org.pangrova.shuffle.security.enums.CapabilityOperation;
 import org.pangrova.shuffle.server.enums.FailureKind;
+import org.pangrova.shuffle.server.enums.ShuffleAllocationState;
 import org.pangrova.shuffle.server.exception.ShuffleServiceException;
-import org.pangrova.shuffle.transport.CompleteWriteBatch;
 
 import static org.pangrova.shuffle.server.ShuffleServiceModel.Allocation;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.AllocationShape;
@@ -46,9 +48,12 @@ import static org.pangrova.shuffle.server.ShuffleServiceModel.FinalizeCommand;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.FinalizeFence;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.FinalizeResult;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.FinalizedPartition;
+import static org.pangrova.shuffle.server.ShuffleServiceModel.PublishedPartition;
+import static org.pangrova.shuffle.server.ShuffleServiceModel.PartitionPublication;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.PartitionExpectation;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.RegisterCommand;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.StoredBatch;
+import static org.pangrova.shuffle.server.ShuffleServiceModel.ReadBatch;
 
 /** Canonical v2 shuffle state machine over durable metadata and object storage. */
 final class ShuffleServiceEngine implements AutoCloseable {
@@ -95,38 +100,8 @@ final class ShuffleServiceEngine implements AutoCloseable {
         return registrationResponse(allocation);
     }
 
-    StoredBatch acceptBatch(CompleteWriteBatch batch) {
-        Allocation allocation = access.requireAllocation(batch.shuffleId());
-        access.verifyTask(CapabilityOperation.WRITE, allocation,
-                batch.attempt(), batch.capability());
-        ShuffleAccessControl.requireProducerAttempt(allocation, batch.attempt(), batch.outputPartitionId());
-        String key = objectKey(batch);
-        StoredBatch stored = new StoredBatch(
-                new BatchIdentity(batch.shuffleId(), batch.attempt().getPartitionId(),
-                        batch.attempt().getAttemptId(), batch.outputPartitionId(),
-                        batch.batchSequence()),
-                batch.attempt(), key, batch.canonicalSize(),
-                batch.rowCount(), batch.checksum());
-        String reservationId = batches.beginWriteIntent(stored,
-                Math.addExact(config.objectStorage().apiCallTimeout().toMillis(),
-                        WRITE_INTENT_DRAIN_GRACE_MILLIS));
-        // A failed network PUT is ambiguous: the object server can still commit it.
-        // Retain the IN_PROGRESS reservation so cleanup cannot pass a late PUT.
-        objects.putImmutable(key, batch::openCanonicalStream,
-                batch.canonicalSize(), batch.checksum());
-        try {
-            batches.completeWriteIntent(reservationId, stored);
-        } catch (RuntimeException | Error failure) {
-            try {
-                // Never delete here: a duplicate request may already have committed this key.
-                // Cleanup sweeps the durable reservation's shuffle prefix after write drain.
-                batches.abortWriteIntent(reservationId);
-            } catch (RuntimeException abortFailure) {
-                failure.addSuppressed(abortFailure);
-            }
-            throw failure;
-        }
-        return stored;
+    ShuffleWriteSession writeSession(BooleanSupplier cancelled) {
+        return new ShuffleWriteSession(access, batches, objects, clock, recoveryDelayMillis(), cancelled);
     }
 
     CommitProducerAttemptResponse commit(CommitProducerAttemptRequest request) {
@@ -159,86 +134,77 @@ final class ShuffleServiceEngine implements AutoCloseable {
     FinalizeShuffleResponse finalizeShuffle(FinalizeShuffleRequest request) {
         Allocation allocation = access.requireAllocation(request.getShuffleId());
         access.verify(CapabilityOperation.FINALIZE, allocation, request.getAccessCapability());
-        long version = batches.committedMetadataVersion(request.getShuffleId());
-        List<FinalizedPartition> partitions = new ArrayList<>(
-                allocation.shape().partitionCount());
-        for (int partition = 0; partition < allocation.shape().partitionCount(); partition++) {
-            partitions.add(finalizePartition(request.getShuffleId(), partition));
-        }
         FinalizeFence fence = new FinalizeFence(request.getPlanEpoch(),
                 request.getExecutionOwner(), request.getExpectedProducerPartitions(),
                 ShuffleChecksums.requireSha256(request.getExpectedProducerSetChecksum(),
-                        "producer set checksum"), version);
+                        "producer set checksum"), allocation.metadataVersion());
+        fence.requireBinding(allocation);
+        if (allocation.state() == ShuffleAllocationState.FINALIZED) {
+            return finalizationResponse(lifecycle.finalizeShuffle(
+                    new FinalizeCommand(request.getShuffleId(), fence, List.of())));
+        }
+        if (allocation.state() != ShuffleAllocationState.REGISTERED) {
+            throw new IllegalStateException("shuffle allocation is not writable");
+        }
         FinalizeResult result = lifecycle.finalizeShuffle(
-                new FinalizeCommand(request.getShuffleId(), fence, partitions));
+                new FinalizeCommand(request.getShuffleId(), fence, finalizePartitions(allocation)));
         return finalizationResponse(result);
     }
 
     ReadResult read(ReadPartitionRequest request) {
-        Allocation allocation = access.requireAllocation(request.getShuffleId());
-        access.verifyTask(CapabilityOperation.READ, allocation,
-                request.getConsumerAttempt(), request.getAccessCapability());
-        ShuffleAccessControl.requireConsumerAttempt(allocation, request.getConsumerAttempt());
+        var attempt = request.getConsumerAttempt();
+        access.verifyTask(CapabilityOperation.READ, request.getShuffleId(), attempt, request.getAccessCapability());
+        ShuffleAccessControl.requireConsumerIdentity(attempt);
         if (request.getDeadlineEpochMs() <= clock.millis()) {
             throw new ShuffleServiceException(FailureKind.DEADLINE,
                     "shuffle read deadline has expired");
         }
-        if (request.getPartitionId() < 0
-                || request.getPartitionId() >= allocation.shape().partitionCount()
-                || request.getStartSequence() < 0) {
+        if (request.getPartitionId() < 0 || request.getStartSequence() < 0) {
             throw new IllegalArgumentException("shuffle read range is invalid");
         }
-        FinalizeResult finalization = lifecycle.findFinalization(request.getShuffleId())
-                .orElseThrow(() -> new IllegalStateException("shuffle is not finalized"));
-        long last = finalization.partitions().stream()
-                .filter(partition -> partition.partitionId() == request.getPartitionId())
-                .findFirst().orElseThrow(() -> new IllegalStateException("finalized partition missing"))
-                .committedLastSequence();
-        if (request.getStartSequence() - 1 > last) {
-            throw new IllegalArgumentException("read start sequence exceeds partition end");
-        }
-        long readUntil = Math.min(request.getDeadlineEpochMs(), request.getAccessCapability().getExpiresAtEpochMs());
-        var pin = lifecycle.pinRead(allocation.identity().queryId(), allocation.owner(), readUntil,
+        long capabilityExpiry = request.getAccessCapability().getExpiresAtEpochMs();
+        long readUntil = Math.min(request.getDeadlineEpochMs(), capabilityExpiry);
+        String queryId = attempt.getQueryOrJobId();
+        var owner = attempt.getExecutionOwner();
+        long startedNanos = System.nanoTime();
+        long startedMillis = clock.millis();
+        var read = lifecycle.openRead(queryId, owner, request.getShuffleId(),
+                request.getPartitionId(), request.getStartSequence(), readUntil,
                 config.objectStorage().apiCallTimeout().toMillis());
-        return new ReadResult(allocation, finalization,
-                request.getPartitionId(), request.getStartSequence(),
-                request.getDeadlineEpochMs(),
-                request.getAccessCapability().getExpiresAtEpochMs(), pin, lifecycle);
+        return new ReadResult(request.getShuffleId(), read.published(), request.getStartSequence(),
+                request.getDeadlineEpochMs(), capabilityExpiry,
+                new ShuffleReadLease(lifecycle, queryId, owner, read.pin(), clock, startedNanos, startedMillis));
     }
 
-    List<StoredBatch> readPage(ReadResult result, long offset) {
-        requireReadLease(result);
-        if (result.deadlineEpochMs() <= clock.millis()) {
-            throw new ShuffleServiceException(FailureKind.DEADLINE,
-                    "shuffle read deadline expired during metadata retrieval");
-        }
-        lifecycle.requirePinnedRead(result.allocation().identity().queryId(),
-                result.allocation().owner(), result.pin());
-        return batches.readFinalizedPage(result.allocation().identity().shuffleId(),
-                result.partitionId(), offset, BATCH_PAGE_SIZE);
+    List<ReadBatch> readPage(ReadResult result, long offset) {
+        requireReadAuthority(result);
+        return result.manifest().page(offset, objects::get, () -> requireReadAuthority(result));
     }
 
-    byte[] readPayload(ReadResult result, StoredBatch batch) {
-        requireReadLease(result);
-        if (result.deadlineEpochMs() <= clock.millis()) {
-            throw new ShuffleServiceException(FailureKind.DEADLINE,
-                    "shuffle read deadline expired during object retrieval");
-        }
-        lifecycle.requirePinnedRead(result.allocation().identity().queryId(),
-                result.allocation().owner(), result.pin());
-        // The owner check can block. Recheck time before starting the bounded object GET.
-        requireReadLease(result);
-        if (result.deadlineEpochMs() <= clock.millis()) {
-            throw new ShuffleServiceException(FailureKind.DEADLINE, "shuffle read deadline expired before object GET");
-        }
-        byte[] payload = objects.get(batch.objectKey());
+    byte[] readPayload(ReadResult result, ReadBatch batch) {
+        requireReadAuthority(result);
+        byte[] payload = objects.get(batch.objectKey(), batch.sizeBytes());
         requireDigest(payload, batch.checksum(), "stored batch");
+        if (payload.length != batch.sizeBytes()) {
+            throw new IllegalStateException("stored batch length differs from finalized metadata");
+        }
+        requireReadAuthority(result);
         return payload;
     }
 
-    private void requireReadLease(ReadResult result) {
-        if (result.capabilityExpiresAtMs() <= clock.millis()) {
+    void requireReadAuthority(ReadResult result) {
+        long now = clock.millis();
+        requireReadDeadline(result, now);
+        result.lease().requireLive(now);
+        requireReadDeadline(result, clock.millis());
+    }
+
+    private static void requireReadDeadline(ReadResult result, long now) {
+        if (result.capabilityExpiresAtMs() <= now) {
             throw new SecurityException("shuffle read capability expired at batch boundary");
+        }
+        if (result.deadlineEpochMs() <= now) {
+            throw new ShuffleServiceException(FailureKind.DEADLINE, "shuffle read deadline has expired");
         }
     }
 
@@ -345,28 +311,45 @@ final class ShuffleServiceEngine implements AutoCloseable {
         return List.copyOf(result);
     }
 
-    private FinalizedPartition finalizePartition(String shuffleId, int partition) {
-        var manifest = ShufflePartitionManifestChecksum.accumulator();
-        long bytes = 0;
-        long rows = 0;
-        long count = 0;
-        int producerAfter = -1;
-        long batchAfter = -1;
+    private List<PartitionPublication> finalizePartitions(Allocation allocation) {
+        int partitionCount = allocation.shape().partitionCount();
+        List<PartitionPublication> publications = new ArrayList<>(partitionCount);
+        ShufflePartitionManifest.NodeWriter storeNode = (digest, bytes) -> putManifestNode(allocation, digest, bytes);
+        var inventory = new ShufflePartitionManifest.Writer(storeNode);
+        BatchIdentity after = null;
         List<StoredBatch> page;
         do {
-            page = batches.readCommittedPage(shuffleId, partition,
-                    producerAfter, batchAfter, BATCH_PAGE_SIZE);
+            page = batches.readCommittedPage(allocation, after, BATCH_PAGE_SIZE);
             for (StoredBatch batch : page) {
-                manifest.add(count, batch.sizeBytes(), batch.rowCount(), batch.checksum());
-                bytes = Math.addExact(bytes, batch.sizeBytes());
-                rows = Math.addExact(rows, batch.rowCount());
-                count++;
-                producerAfter = batch.identity().producerPartitionId();
-                batchAfter = batch.identity().batchSequence();
+                int partition = batch.identity().outputPartitionId();
+                if (partition < publications.size() || partition >= partitionCount) {
+                    throw new IllegalStateException("committed shuffle batch has an invalid partition");
+                }
+                while (publications.size() < partition) {
+                    publications.add(inventory.finish(publications.size()));
+                    inventory = new ShufflePartitionManifest.Writer(storeNode);
+                }
+                inventory.add(batch);
+                after = batch.identity();
             }
         } while (page.size() == BATCH_PAGE_SIZE);
-        return new FinalizedPartition(partition, bytes, rows, count - 1L,
-                manifest.finish());
+        publications.add(inventory.finish(publications.size()));
+        while (publications.size() < partitionCount) {
+            publications.add(new ShufflePartitionManifest.Writer(storeNode).finish(publications.size()));
+        }
+        return publications;
+    }
+
+    private void putManifestNode(Allocation allocation, byte[] digest, byte[] bytes) {
+        String shuffleId = allocation.identity().shuffleId();
+        String key = ShufflePartitionManifest.objectKey(shuffleId, digest);
+        String reservation = lifecycle.beginManifestWrite(allocation, key, recoveryDelayMillis());
+        objects.putImmutable(key, () -> new ByteArrayInputStream(bytes), bytes.length, digest);
+        lifecycle.settleManifestWrite(reservation, shuffleId, key);
+    }
+
+    private long recoveryDelayMillis() {
+        return Math.addExact(config.objectStorage().apiCallTimeout().toMillis(), WRITE_INTENT_DRAIN_GRACE_MILLIS);
     }
 
     private FinalizeShuffleResponse finalizationResponse(FinalizeResult result) {
@@ -412,14 +395,6 @@ final class ShuffleServiceEngine implements AutoCloseable {
         }
     }
 
-    private static String objectKey(CompleteWriteBatch batch) {
-        TaskAttemptId attempt = batch.attempt();
-        return batch.shuffleId() + "/producer-" + attempt.getPartitionId()
-                + "/attempt-" + attempt.getAttemptId()
-                + "/output-" + batch.outputPartitionId()
-                + "/batch-" + batch.batchSequence() + ".bin";
-    }
-
     @Override
     public void close() {
         RuntimeException failure = null;
@@ -443,16 +418,36 @@ final class ShuffleServiceEngine implements AutoCloseable {
     }
 
     record ReadResult(
-            Allocation allocation,
-            FinalizeResult finalization,
-            int partitionId,
+            FinalizedPartition partition,
+            long planEpoch,
+            int committedProducerCount,
+            byte[] producerSetChecksum,
             long startSequence,
             long deadlineEpochMs,
             long capabilityExpiresAtMs,
-            java.util.UUID pin, ShuffleLifecycleStore owner) implements AutoCloseable {
+            ShuffleReadLease lease,
+            ShufflePartitionManifest.Reader manifest) implements AutoCloseable {
+        ReadResult {
+            producerSetChecksum = producerSetChecksum.clone();
+        }
+
+        ReadResult(String shuffleId, PublishedPartition published, long startSequence,
+                long deadlineEpochMs, long capabilityExpiresAtMs, ShuffleReadLease lease) {
+            this(published.partition(), published.planEpoch(), published.committedProducerCount(),
+                    published.producerSetChecksum(), startSequence, deadlineEpochMs, capabilityExpiresAtMs, lease,
+                    new ShufflePartitionManifest.Reader(shuffleId, published.partition().partitionId(),
+                            published.partition().committedLastSequence(), published.publication().manifestRoot()));
+        }
+
+        @Override
+        public byte[] producerSetChecksum() {
+            return producerSetChecksum.clone();
+        }
+
         @Override
         public void close() {
-            owner.releaseRead(pin);
+            manifest.discard();
+            lease.close();
         }
     }
 }

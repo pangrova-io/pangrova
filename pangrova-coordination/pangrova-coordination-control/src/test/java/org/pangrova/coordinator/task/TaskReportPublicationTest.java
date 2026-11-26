@@ -8,9 +8,13 @@ import org.pangrova.protocol.rest.data.WriteResultDescriptor;
 import org.pangrova.common.client.error.ErrorDetail;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.TaskAttemptDescriptor;
-import org.pangrova.protocol.rest.task.TaskStats;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
+import org.pangrova.protocol.v2.ExecutionDrainState;
+import org.pangrova.protocol.v2.NativeTaskStats;
 import org.pangrova.protocol.v2.TaskKind;
+import org.pangrova.protocol.v2.TaskReport;
+import org.pangrova.protocol.v2.TaskReportOrigin;
+import org.pangrova.protocol.v2.TaskState;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /** Frozen report identity contracts, not Native execution or drain evidence. */
@@ -52,22 +56,30 @@ class TaskReportPublicationTest {
 
     @Test
     void canonicalBytesRemainExactAndCannotBecomeAbsentOnRetry() {
-        var original = report("FINISHED", stats(1), null, null, null, null, new byte[]{1, 2});
+        var receipt = TaskReport.newBuilder().setAttempt(request.taskRequest().getAttempt())
+                .setState(TaskState.TASK_STATE_FINISHED)
+                .setReportOrigin(TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE)
+                .setExecutionDrainState(ExecutionDrainState.EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED)
+                .build().toByteString();
+        var original = report("FINISHED", stats(1), null, null, null, null, receipt.toByteArray());
         var fact = new TaskReportPublication.Fact(request, original, false);
-        assertThat(fact.matches(report("FINISHED", stats(1), null, null, null, null, new byte[]{1, 2}))).isTrue();
-        assertThat(fact.matches(report("FINISHED", stats(1), null, null, null, null, new byte[]{1, 3}))).isFalse();
+        var retry = report("FINISHED", stats(1), null, null, null, null, receipt.toByteArray());
+        var reencoded = report("FINISHED", stats(1), null, null, null, null, receipt.concat(receipt).toByteArray());
+        assertThat(reencoded.canonicalStatus()).isEqualTo(original.canonicalStatus());
+        assertThat(fact.matches(retry)).isTrue();
+        assertThat(fact.matches(reencoded)).isFalse();
         assertThat(fact.matches(report("FINISHED", stats(1), null, null, null, null, null))).isFalse();
-        assertThat(fact.matches(report("FINISHED", stats(2), null, null, null, null, new byte[]{1, 2}))).isFalse();
+        assertThat(fact.matches(report("FINISHED", stats(2), null, null, null, null, receipt.toByteArray()))).isFalse();
     }
 
-    private TaskStatusReport report(String state, TaskStats stats, ErrorDetail error,
+    private TaskStatusReport report(String state, NativeTaskStats stats, ErrorDetail error,
             WriteResultDescriptor write, String code, Map<String, String> metadata, byte[] canonical) {
         return new TaskStatusReport("task", "query", 0, 0, "READ", "worker", state,
                 stats, error, write, 1, 1000, code, metadata,
                 TaskAttemptDescriptor.from(request.taskRequest().getAttempt()), canonical);
     }
 
-    private static TaskStats stats(long rows) {
-        return new TaskStats(rows, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, List.of(), 0, 0, 0, 0, 0);
+    private static NativeTaskStats stats(long rows) {
+        return NativeTaskStats.newBuilder().setRowsRead(rows).build();
     }
 }

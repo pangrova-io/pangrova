@@ -25,6 +25,9 @@ public interface WorkerExecutedTaskBackend extends AutoCloseable {
 
     boolean isFinished(long handle);
 
+    /** Waits for the Worker task's terminal report to become available. */
+    boolean awaitFinished(long handle, int waitMillis) throws InterruptedException;
+
     /** Returns the actual canonical terminal candidate; never a synthetic success. */
     byte[] getTaskStatus(long handle);
 

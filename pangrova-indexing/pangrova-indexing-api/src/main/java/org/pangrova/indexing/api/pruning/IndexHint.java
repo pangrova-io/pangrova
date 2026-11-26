@@ -1,7 +1,8 @@
 package org.pangrova.indexing.api.pruning;
 
-import org.pangrova.indexing.api.enums.IndexType;
 import org.pangrova.connector.api.index.predicate.IndexPredicate;
+import org.pangrova.indexing.api.descriptor.IndexDescriptor;
+import org.pangrova.indexing.api.enums.IndexType;
 
 import java.util.Objects;
 
@@ -12,24 +13,23 @@ import java.util.Objects;
  * <p>Immutable. Created by IndexPredicateAnalyzer, consumed by
  * IndexSplitFilter in the coordinator.</p>
  *
- * @param indexId   the index to use
- * @param indexType type of the index (for engine lookup)
- * @param generation generation observed during predicate analysis
+ * @param descriptor immutable descriptor selected for the authorized table
  * @param predicate the predicate to evaluate against the index
  */
 @org.pangrova.common.api.annotation.Experimental
-public record IndexHint(
-        String indexId,
-        IndexType indexType,
-        int generation,
-        IndexPredicate predicate) {
+public record IndexHint(IndexDescriptor descriptor, IndexPredicate predicate) {
 
     public IndexHint {
-        Objects.requireNonNull(indexId, "indexId must not be null");
-        Objects.requireNonNull(indexType, "indexType must not be null");
-        if (generation < 0) {
+        Objects.requireNonNull(descriptor, "descriptor must not be null");
+        if (descriptor.generation() < 0) {
             throw new IllegalArgumentException("generation must be non-negative");
         }
         Objects.requireNonNull(predicate, "predicate must not be null");
     }
+
+    public String indexId() { return descriptor.indexId(); }
+
+    public IndexType indexType() { return descriptor.indexType(); }
+
+    public int generation() { return descriptor.generation(); }
 }

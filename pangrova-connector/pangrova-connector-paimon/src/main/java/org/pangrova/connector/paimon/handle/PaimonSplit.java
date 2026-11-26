@@ -15,7 +15,8 @@ import org.pangrova.protocol.v2.PaimonMergeEngine;
 import org.pangrova.protocol.v2.PaimonReadMode;
 import org.pangrova.protocol.v2.PaimonSplitDetail;
 import org.pangrova.protocol.v2.SchemaEvolution;
-import org.pangrova.connector.api.metadata.ConnectorSplit;
+import org.pangrova.protocol.source.CanonicalConnectorSplit;
+import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.connector.api.metadata.SplitConstraint;
 import org.pangrova.connector.api.metadata.table.ColumnMapping;
 import org.pangrova.connector.api.metadata.table.TypePromotion;
@@ -24,10 +25,9 @@ import org.pangrova.connector.api.metadata.table.TypePromotion;
  * Paimon split descriptor for data reading.
  *
  * <p><b>Design note — SDK Split isolation:</b> The Paimon SDK {@code Split} object is
- * <em>not</em> stored in this record. Instead, it is held in a {@code PaimonSplitRegistry}
- * keyed by {@link #splitRegistryId()}. This prevents SDK type leakage across module
- * boundaries (the {@code ConnectorSplit} SPI is visible to coordinator and worker).
- * {@code PaimonPageSourceProvider} consumes the SDK Split from the registry at read time.</p>
+ * belongs to the Java page reader when that path is explicitly selected.
+ * Its registry key is local to that reader. Native scans carry physical file
+ * metadata and use {@link #NO_SDK_READER} for the registry key.</p>
  *
  * @param tableName                table name this split belongs to
  * @param splitRegistryId          key into PaimonSplitRegistry for the SDK Split object
@@ -72,7 +72,19 @@ public record PaimonSplit(
         List<ColumnMapping> columnMappings,
         List<TypePromotion> typePromotions,
         PaimonPhysicalFile primaryFile,
-        PaimonMergePolicy mergePolicy) implements ConnectorSplit {
+        PaimonMergePolicy mergePolicy) implements CanonicalConnectorSplit {
+
+    public static final long NO_SDK_READER = 0L;
+
+    @Override
+    public long estimatedScanBytes() {
+        if (lsmLevels.isEmpty()) {
+            return primaryFile.fileSize();
+        }
+        return lsmLevels.stream().flatMap(level -> level.files().stream())
+                .mapToLong(file -> file.physical().fileSize())
+                .reduce(0L, (left, right) -> left + Math.min(Long.MAX_VALUE - left, right));
+    }
 
     public PaimonSplit {
         java.util.Objects.requireNonNull(mergePolicy, "mergePolicy");
@@ -129,7 +141,7 @@ public record PaimonSplit(
      * <p>Validates: Requirements R14.5, R19.3</p>
      */
     @Override
-    public byte[] toSplitInfoProto() {
+    public DataSplit toDataSplit() {
         FileSplitDetail.Builder detail = FileSplitDetail.newBuilder()
                 .setFileFormat(resolveFileFormat())
                 .setPaimon(buildPaimonSplitDetail());
@@ -143,7 +155,7 @@ public record PaimonSplit(
         String filePath = resolveFilePath();
         return DataSplitProtoCodec.buildFileSplit(new DataSplitProtoCodec.FileSplitInput(
                 "paimon", tableName, Long.toString(snapshotId), filePath, filePath,
-                0L, resolveByteLength(), partitionValues, detail.build())).toByteArray();
+                0L, resolveByteLength(), partitionValues, detail.build()));
     }
 
     private PaimonSplitDetail buildPaimonSplitDetail() {

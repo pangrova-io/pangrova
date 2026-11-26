@@ -1,6 +1,8 @@
 package org.pangrova.query.dispatch;
 
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 
 import org.pangrova.parser.api.ast.Statement;
 
@@ -16,6 +18,11 @@ public interface StatementExecutionFactory<T extends Statement> {
 
     /** Executes the statement and returns the result. */
     StatementResult execute(T statement, StatementExecutionContext context);
+
+    /** Starts the statement and completes when its owned work has settled. */
+    default CompletionStage<StatementResult> start(T statement, StatementExecutionContext context) {
+        return CompletableFuture.completedFuture(execute(statement, context));
+    }
 
     /** Returns the concrete statement classes this factory handles. */
     Set<Class<? extends T>> supportedTypes();

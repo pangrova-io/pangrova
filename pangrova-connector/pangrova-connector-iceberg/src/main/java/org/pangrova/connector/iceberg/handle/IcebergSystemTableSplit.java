@@ -8,14 +8,15 @@ import org.pangrova.protocol.source.DataSplitProtoCodec;
 import org.pangrova.protocol.v2.FileFormat;
 import org.pangrova.protocol.v2.FileSplitDetail;
 import org.pangrova.protocol.v2.SystemTableSplitDetail;
-import org.pangrova.connector.api.metadata.ConnectorSplit;
+import org.pangrova.protocol.source.CanonicalConnectorSplit;
+import org.pangrova.protocol.v2.DataSplit;
 
 /** One pinned Iceberg metadata object scanned by a Native Worker. */
 public record IcebergSystemTableSplit(
         String tableName,
         IcebergSystemTableKind kind,
         String metadataLocation,
-        long metadataLength) implements ConnectorSplit {
+        long metadataLength) implements CanonicalConnectorSplit {
 
     public IcebergSystemTableSplit {
         if (tableName == null || tableName.isBlank()) {
@@ -41,7 +42,7 @@ public record IcebergSystemTableSplit(
     }
 
     @Override
-    public byte[] toSplitInfoProto() {
+    public DataSplit toDataSplit() {
         SystemTableSplitDetail.Kind protocolKind = switch (kind) {
             case SNAPSHOTS -> SystemTableSplitDetail.Kind.ICEBERG_SNAPSHOTS;
             case HISTORY -> SystemTableSplitDetail.Kind.ICEBERG_HISTORY;
@@ -55,6 +56,6 @@ public record IcebergSystemTableSplit(
                 .build();
         return DataSplitProtoCodec.buildFileSplit(new DataSplitProtoCodec.FileSplitInput(
                 "iceberg", tableName, metadataLocation, metadataLocation,
-                metadataLocation, 0, metadataLength, Map.of(), detail)).toByteArray();
+                metadataLocation, 0, metadataLength, Map.of(), detail));
     }
 }

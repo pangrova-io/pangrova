@@ -138,6 +138,10 @@ and model revision. It forwards real model scores through an adapter for the
 and the public query status endpoint.
 The model container needs outbound access to download its pinned weights.
 
+## Checking tenant quota recovery at fixed arrivals
+
+`PersistentTenantOverloadE2ETest` uses the staged Coordinator and two Native Worker JVMs, a persistent SDK client, LDAP authentication and mTLS Flight. It holds two exact PostgreSQL admission slots by leaving their Native result streams unopened. The test then offers 45 submissions at 20 per second across five SQL workloads and requires the tenant quota response for all 45. It warms each workload before holding the slots. After consuming both held results and observing zero slots, it offers 40 queries at five per second with one recovery query in flight and checks the result values, EOF and physical release. The log records the planned arrival, client queue time, HTTP admission response, EOF and drain offsets. Use the same staged-role inputs as the other independent-process tests.
+
 ## Measuring public SQL latency across two builds
 
 Use the same macOS arm64 machine, JDK 17, UTF-8 locale, Docker, Iceberg SDK

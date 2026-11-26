@@ -49,15 +49,22 @@ final class JournalEventSql {
     }
 
     private static void write(Connection connection, JournalPendingWrites.Write event) throws SQLException {
+        int inserted;
         if (event.query != null) {
             try (PreparedStatement statement = connection.prepareStatement(QUERY_INSERT)) {
                 bindQuery(statement, event.query);
-                statement.executeUpdate();
+                inserted = statement.executeUpdate();
+            }
+            if (inserted == 0) {
+                reconcileQuery(connection, event);
             }
         } else {
             try (PreparedStatement statement = connection.prepareStatement(TASK_INSERT)) {
                 bindTask(statement, event.task);
-                statement.executeUpdate();
+                inserted = statement.executeUpdate();
+            }
+            if (inserted == 0) {
+                reconcileTask(connection, event);
             }
         }
         if (event.query != null && event.query.lineage() != null) {
@@ -68,11 +75,6 @@ final class JournalEventSql {
                 rejected.addSuppressed(conflict);
                 throw rejected;
             }
-        }
-        if (event.query != null) {
-            reconcileQuery(connection, event);
-        } else {
-            reconcileTask(connection, event);
         }
     }
 

@@ -296,8 +296,8 @@ class DurableGeneratedValueBuildServiceTest extends org.pangrova.testing.testkit
         var factory = new PlanExecutionFactory(new PlanExecutionFactoryContext(
                 (state, session, statement) -> {
                     dispatches.incrementAndGet();
-                    return new DispatchResult("worker.invalid", "task-1",
-                            new ResultEndpoint("worker.invalid", 1, "ticket", "grpc"));
+                    return java.util.concurrent.CompletableFuture.completedFuture(new DispatchResult("worker.invalid", "task-1",
+                            new ResultEndpoint("worker.invalid", 1, "ticket", "grpc")));
                 }, null, (sql, session) -> sql, registry, coordinator));
         var statement = new InsertSelectStatement(
                 Identifier.of("lake", "sales", "documents"), Optional.empty(),

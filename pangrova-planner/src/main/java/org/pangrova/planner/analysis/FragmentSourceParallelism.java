@@ -16,6 +16,7 @@ package org.pangrova.planner.analysis;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.core.TableScan;
 import org.pangrova.connector.api.metadata.table.ConnectorReadBinding;
+import org.pangrova.planner.metadata.catalog.MetadataResolvedTable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -55,8 +56,13 @@ final class FragmentSourceParallelism {
         if (node instanceof TableScan scan) {
             var table = scan.getTable();
             if (table != null) {
-                var binding = table.unwrap(ConnectorReadBinding.class);
-                if (binding != null) units = binding.statistics().sourceWorkUnits();
+                var selected = table.unwrap(MetadataResolvedTable.class);
+                if (selected != null) {
+                    units = selected.selectedSourceWorkUnits();
+                } else {
+                    var binding = table.unwrap(ConnectorReadBinding.class);
+                    if (binding != null) units = binding.statistics().sourceWorkUnits();
+                }
             }
         }
         for (RelNode input : node.getInputs()) {

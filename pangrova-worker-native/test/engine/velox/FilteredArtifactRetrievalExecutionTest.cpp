@@ -8,7 +8,7 @@
 #include <algorithm>
 #include <atomic>
 #include <array>
-#include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <mutex>
@@ -55,9 +55,10 @@ class FilteredArtifactRetrievalExecutionTest : public ::testing::Test {
   void SetUp() override {
     root_ = pangrova::test::testRootPool("FilteredRetrievalExecution");
     leaf_ = root_->addLeafChild("fixture");
-    directory_ = std::filesystem::temp_directory_path() / ("pangrova-filtered-task-" +
-        std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
-    std::filesystem::create_directories(directory_);
+    auto directory = (std::filesystem::temp_directory_path() /
+                      "pangrova-filtered-task-XXXXXX").string();
+    ASSERT_NE(::mkdtemp(directory.data()), nullptr);
+    directory_ = directory;
     artifact::ImmutableArtifactCache::instance().shutdown();
     artifact::ImmutableArtifactCache::instance().configure((directory_ / "cache").string(), 4 * 1024 * 1024);
     if (vector::diskann::DiskAnnIndexCache::instance().enabled()) {
@@ -70,7 +71,9 @@ class FilteredArtifactRetrievalExecutionTest : public ::testing::Test {
   void TearDown() override {
     vector::diskann::DiskAnnIndexCache::instance().shutdown();
     artifact::ImmutableArtifactCache::instance().shutdown();
-    std::filesystem::remove_all(directory_);
+    if (!directory_.empty()) {
+      std::filesystem::remove_all(directory_);
+    }
     leaf_.reset();
     root_.reset();
   }

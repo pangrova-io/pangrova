@@ -197,11 +197,11 @@ class ResourceGovernanceTest {
     // -- HTTP helpers --
 
     private static HttpResponse<String> submitTaskHttp(int port) throws Exception {
-        String body = "{}";
+        byte[] body = {};
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create("http://localhost:" + port + "/v1/task"))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .header("Content-Type", "application/x-protobuf")
+                .POST(HttpRequest.BodyPublishers.ofByteArray(body))
                 .build();
         return HTTP.send(request, HttpResponse.BodyHandlers.ofString());
     }

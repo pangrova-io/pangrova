@@ -129,7 +129,7 @@ class MetadataVersionPinningTest {
         SchemaPlus catBSchema = catB.add("s", new org.apache.calcite.schema.impl.AbstractSchema() {});
         catBSchema.add("t2", createSimpleTable());
 
-        PlannerContext ctx = new PlannerContext(null, null, null, null, null, provider);
+        PlannerContext ctx = new PlannerContext(null, null, null, provider);
         return new PangrovaPlanner(rootSchema, List.of(""), ctx);
     }
 
@@ -138,7 +138,7 @@ class MetadataVersionPinningTest {
         SchemaPlus root = rootSchema.plus();
         root.add("t1", createSimpleTable());
 
-        PlannerContext ctx = new PlannerContext(null, null, null, null, null, provider);
+        PlannerContext ctx = new PlannerContext(null, null, null, provider);
         return new PangrovaPlanner(rootSchema, List.of(""), ctx);
     }
 

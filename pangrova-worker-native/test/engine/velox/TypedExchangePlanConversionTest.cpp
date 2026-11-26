@@ -87,7 +87,7 @@ TEST(TypedExchangePlanConversionTest, BuildsNativeExchangeNode) {
       unpack(exchangeInputRelation()).exchange_input().output_schema().SerializeAsString());
 }
 
-TEST(TypedExchangePlanConversionTest, WireBindingPrecedesEmitAndResultWriterUsesCanonicalNotPresentationNames) {
+TEST(TypedExchangePlanConversionTest, WireBindingPrecedesEmitAndResultKeepsCanonicalNames) {
   auto relation = exchangeInputRelation();
   auto envelope = unpack(relation);
   auto* declared = envelope.mutable_exchange_input()->mutable_output_schema();
@@ -99,24 +99,20 @@ TEST(TypedExchangePlanConversionTest, WireBindingPrecedesEmitAndResultWriterUses
   relation.mutable_extension_leaf()->mutable_common()->mutable_emit()->add_output_mapping(1);
   const auto registry = facebook::velox::exec::FunctionRegistrySnapshot::capture();
   VeloxPlanConverter converter(registry);
-  const auto result = converter.convert(serializePlan(relation), {}, true);
-  const auto output = std::dynamic_pointer_cast<const facebook::velox::core::PartitionedOutputNode>(result);
-  ASSERT_NE(output, nullptr);
-  ASSERT_EQ(output->sources().size(), 1);
-  const auto project = std::dynamic_pointer_cast<const facebook::velox::core::ProjectNode>(output->sources()[0]);
+  const auto result = converter.convert(serializePlan(relation), {});
+  const auto project = std::dynamic_pointer_cast<const facebook::velox::core::ProjectNode>(result);
   ASSERT_NE(project, nullptr);
   ASSERT_EQ(project->sources().size(), 1);
   const auto exchange = std::dynamic_pointer_cast<const facebook::velox::core::ExchangeNode>(project->sources()[0]);
   ASSERT_NE(exchange, nullptr);
-  ASSERT_EQ(converter.serdeSchemaBindings().size(), 2);
+  ASSERT_EQ(converter.serdeSchemaBindings().size(), 1);
   EXPECT_EQ(converter.serdeSchemaBindings().at(exchange->id()).SerializeAsString(), sourceContract);
-  const auto& resultContract = converter.serdeSchemaBindings().at(output->id());
-  EXPECT_EQ(resultContract.SerializeAsString(), converter.canonicalOutputSchema().SerializeAsString());
+  const auto& resultContract = converter.canonicalOutputSchema();
   ASSERT_EQ(resultContract.names_size(), 1);
   EXPECT_EQ(resultContract.names(0), "text");
   EXPECT_EQ(resultContract.struct_().types(0).string().nullability(), substrait::Type::NULLABILITY_NULLABLE);
   EXPECT_EQ(converter.resultColumnLabels(), (std::vector<std::string>{"id"}));
-  EXPECT_EQ(output->outputType()->nameOf(0), physicalFieldAlias(0));
+  EXPECT_EQ(project->outputType()->nameOf(0), physicalFieldAlias(0));
 }
 
 TEST(TypedExchangePlanConversionTest, RejectsUnboundPartitionCount) {

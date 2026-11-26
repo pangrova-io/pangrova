@@ -104,7 +104,7 @@ Implemented chain:
 
 ```
 SQL → Parser/Planner → Stage/Task dispatch → Worker NativeWriteExecutor
-    → TaskStatusReport write result → TaskStatusReceiver
+    → binary TaskStatusDelivery write evidence → TaskStatusReceiver
     → WriteCommitJournal → ConnectorMetadata.finishDistributedWrite()
 ```
 
@@ -134,12 +134,20 @@ Routing rule: relational writes, including DELETE ALL and VALUES, use Native tas
 
 ## 2. Write Transaction Atomicity
 
+Ordinary SQL writes use the execution owner's catalog and journal fences. The Coordinator checks the durable materialization consumer for trusted internal executions and during recovery. A COPY publication validates ownership after persisting its exact file receipt. A connector publication recorded by the journal carries its durable evidence into the remaining commit steps.
+
 ### Problem Statement
 
 There is an inherently ambiguous boundary between an external catalog commit and the coordinator
 marking its local journal committed. A coordinator crash or timeout in that interval cannot prove
 from the RPC result alone whether publication happened. Recovery therefore needs both a durable
 redo record and an externally visible idempotency marker.
+
+A successful PostgreSQL journal insert uses the affected-row count as evidence
+inside the transaction. Duplicate event IDs trigger an exact readback, and
+query events with lineage still commit with their outbox rows. The coordinator
+uses one loaded COMMITTED write entry for recovery, COPY proof, and deferred
+work acknowledgement.
 
 ### Failure Scenarios
 
@@ -270,6 +278,19 @@ catalog commit; it does not skip the index-event notification. This also applies
 OVERWRITE, which is a real truncate operation rather than an empty-fragment no-op. Paimon uses
 the fingerprint as the durable snapshot user marker and resolves the exact committed snapshot
 on replay, rather than substituting the current/latest snapshot.
+
+Each Iceberg commit attempt uses the same fresh metadata for fingerprint lookup and validation
+of the retained ancestry. The old secondary commit token is retired. SDK metadata checks for
+the atomic commit and the final publication observation still run at their respective boundaries.
+
+A fresh Iceberg JDBC table load already reads the authoritative metadata pointer. Pangrova uses
+that metadata for the UUID check and exact publication receipt. Required empty INSERTs publish
+a marker-bearing snapshot and verify it after publication. Their publication step uses the empty
+INSERT classification from the original fragment collection.
+
+The Iceberg fragment collector parses each Worker UTF-8 payload once per collection. It reads
+the operation and file lists from the same JSON tree and appends the file descriptors directly
+to the write's collection. The journal fingerprint still covers the original fragment bytes.
 
 If an Iceberg fingerprint is absent, the connector checks that every retained snapshot on the
 current parent chain back to the bound base snapshot is available. A gap caused by snapshot

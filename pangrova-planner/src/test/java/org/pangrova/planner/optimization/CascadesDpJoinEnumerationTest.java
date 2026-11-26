@@ -127,14 +127,15 @@ class CascadesDpJoinEnumerationTest {
         RexBuilder rexBuilder = new RexBuilder(typeFactory);
         VolcanoPlanner planner = new VolcanoPlanner(
                 new PangrovaCostFactory(CostModelConfig.SSD_DEFAULT),
-                Contexts.of(new CancelFlag(new java.util.concurrent.atomic.AtomicBoolean(false))));
+                Contexts.of(new CancelFlag(new java.util.concurrent.atomic.AtomicBoolean(false)),
+                        CostModelConfig.SSD_DEFAULT));
         planner.addRelTraitDef(ConventionTraitDef.INSTANCE);
         planner.addRelTraitDef(PangrovaDistributionTraitDef.INSTANCE);
         planner.setNoneConventionHasInfiniteCost(false);
         RelOptCluster cluster = RelOptCluster.create(planner, rexBuilder);
         cluster.setMetadataProvider(
                 org.apache.calcite.rel.metadata.ChainedRelMetadataProvider.of(List.of(
-                        new PangrovaRelMdJoinCost(CostModelConfig.SSD_DEFAULT).asProvider(),
+                        PangrovaRelMdJoinCost.provider(),
                         cluster.getMetadataProvider())));
 
         RelDataType intType = typeFactory.createSqlType(SqlTypeName.INTEGER);

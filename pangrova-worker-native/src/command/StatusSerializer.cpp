@@ -21,16 +21,14 @@
 
 // Access VeloxTaskRunner through PlanExecutionDriver.
 #include "engine/executor/driver/PlanExecutionDriver.h"
-#include "engine/velox/runner/VeloxTaskRunner.h"
+#include "engine/velox/runner/TaskStatsEncoding.h"
 
 #include "pangrova/protocol/v2/result.pb.h"
 #include "pangrova/protocol/v2/runtime.pb.h"
 
 namespace pangrova::jni {
-namespace {
 
-// Maps internal ExecutorState to proto TaskState enum.
-pangrova::protocol::v2::TaskState toProtoState(
+pangrova::protocol::v2::TaskState toProtoTaskState(
     executor::ExecutorState state) {
   switch (state) {
     case executor::ExecutorState::PENDING:
@@ -46,17 +44,15 @@ pangrova::protocol::v2::TaskState toProtoState(
     case executor::ExecutorState::CANCELLED:
       return pangrova::protocol::v2::TASK_STATE_CANCELLED;
   }
-  return pangrova::protocol::v2::TASK_STATE_PENDING;
+  throw std::logic_error("Unknown native executor state");
 }
-
-}  // namespace
 
 std::vector<uint8_t> serializeTaskStatus(
     executor::TaskExecutor& executor) {
   pangrova::protocol::v2::TaskReport status;
   const auto lifecycle = executor.lifecycleSnapshot();
   *status.mutable_attempt() = admittedTaskAttempt(executor);
-  status.set_state(toProtoState(lifecycle.state));
+  status.set_state(toProtoTaskState(lifecycle.state));
   status.set_report_origin(
       pangrova::protocol::v2::TASK_REPORT_ORIGIN_NATIVE);
   if (executor.isExecutionReleased()) {
@@ -65,12 +61,8 @@ std::vector<uint8_t> serializeTaskStatus(
   }
   // Refresh actual operator copies before sampling task-owned usage. Final
   // stats survive reader/task deletion; live stats cover failed/cancelled scans.
-  const auto actual_stats = executor.collectTaskStats();
-  if (!actual_stats.empty()) {
-    if (!status.mutable_native_task_stats()->ParseFromArray(
-            actual_stats.data(), static_cast<int>(actual_stats.size()))) {
-      throw std::runtime_error("Actual native task statistics are malformed");
-    }
+  if (auto actual_stats = executor.collectTaskStats(); actual_stats) {
+    *status.mutable_native_task_stats() = std::move(*actual_stats);
   }
   // The task-owned accumulator survives writer errors and destruction. No
   // commit fragment is required to observe an allocation that already happened.
@@ -151,17 +143,8 @@ std::vector<uint8_t> serializeTaskStatus(
 
 std::vector<uint8_t> serializeTaskStats(
     executor::TaskExecutor& executor) {
-  // P1-STAT-3: Unified stats serialization.
-  // Primary path: collect from Velox TaskStats via VeloxTaskRunner.
-  // This provides per-operator metrics (wall time, CPU time, rows, memory,
-  // spill) directly from the Velox execution engine.
-  // Both paths serialize to the same canonical TaskStats proto.
-  auto* runner = executor.veloxTaskRunner();
-  if (runner) {
-    auto veloxStats = runner->collectTaskStats();
-    if (!veloxStats.empty()) {
-      return veloxStats;
-    }
+  if (auto stats = executor.collectTaskStats()) {
+    return velox::serializeNativeTaskStats(*stats);
   }
 
   // Fallback: use NativeMetricsCollector snapshot for top-level aggregates.
@@ -176,9 +159,7 @@ std::vector<uint8_t> serializeTaskStats(
   stats.set_peak_memory_bytes(snap.peak_memory_bytes);
   stats.set_elapsed_time_ms(snap.wall_time_ns / 1'000'000);
 
-  std::vector<uint8_t> buf(stats.ByteSizeLong());
-  stats.SerializeToArray(buf.data(), static_cast<int>(buf.size()));
-  return buf;
+  return velox::serializeNativeTaskStats(stats);
 }
 
 std::vector<uint8_t> serializeNativeCacheStats(

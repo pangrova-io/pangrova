@@ -2,10 +2,9 @@ package org.pangrova.worker.result;
 
 import org.pangrova.common.util.DigestUtils;
 
-import org.pangrova.protocol.task.CanonicalTaskRequests;
+import org.pangrova.protocol.task.ValidatedTaskSubmission;
 import org.pangrova.protocol.v2.ResultReadGrant;
 import org.pangrova.protocol.v2.ResultReadScope;
-import org.pangrova.protocol.v2.TaskRequest;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
@@ -26,14 +25,14 @@ public final class ResultReadTickets {
     }
 
     public org.pangrova.common.client.result.ResultEndpoint endpoint(
-            TaskRequest request, String host, int port, String protocol) {
+            ValidatedTaskSubmission request, String host, int port, String protocol) {
         return new org.pangrova.common.client.result.ResultEndpoint(
                 host, port, issue(request), protocol);
     }
 
     /** A completed task remains readable only while its exact live registration is retained. */
-    public String issue(TaskRequest request) {
-        CanonicalTaskRequests.validateForAdmission(request);
+    public String issue(ValidatedTaskSubmission submission) {
+        var request = submission.submission().taskRequest();
         if (!request.getExecutionOptions().getDirectResultOutput()
                 || request.getDeadlineEpochMs() <= System.currentTimeMillis()) {
             throw new IllegalArgumentException(

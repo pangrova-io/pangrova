@@ -42,66 +42,50 @@ std::shared_ptr<const core::PlanNode> VeloxPlanConverter::projectGroupingOutput(
 std::shared_ptr<const core::PlanNode> VeloxPlanConverter::convertMultiGroupingAggregate(
     const substrait::AggregateRel& aggregate,
     std::shared_ptr<const core::PlanNode> input, const RowTypePtr& inputType) {
-  std::vector<std::string> names;
-  std::vector<core::AggregationNode::Aggregate> measures;
-  auto prepared = convertAggregateMeasures(aggregate, input, inputType, names, measures);
-  const auto preparedType = prepared->outputType();
-  std::unordered_map<uint32_t, size_t> keyOrdinals;
+  auto prepared = prepareAggregate(aggregate, std::move(input), inputType);
+  const auto aliasOffset = prepared.group_id_alias_offset;
+  const auto& inputKeys = prepared.keys;
   std::vector<core::GroupIdNode::GroupingKeyInfo> keyInfos;
   std::vector<std::vector<std::string>> sets;
   std::vector<vector_size_t> globalSets;
-  for (int index = 0; index < aggregate.grouping_expressions_size(); ++index) {
-    keyInfos.push_back({physicalFieldAlias(preparedType->size() + index),
-        field(preparedType, inputType->size() + index)});
+  for (size_t index = 0; index < inputKeys.size(); ++index) {
+    keyInfos.push_back({physicalFieldAlias(aliasOffset + index), inputKeys[index]});
   }
   for (const auto& grouping : aggregate.groupings()) {
     std::vector<std::string> set;
     std::unordered_set<uint32_t> used;
     for (const auto index : grouping.expression_references()) {
-      if (index >= static_cast<uint32_t>(aggregate.grouping_expressions_size())) {
-        throw std::runtime_error("Grouping expression reference is out of bounds");
-      }
       if (!used.emplace(index).second) continue;
-      keyOrdinals.emplace(index, index);
-      const auto name = physicalFieldAlias(preparedType->size() + index);
+      const auto name = physicalFieldAlias(aliasOffset + index);
       set.push_back(name);
     }
     if (set.empty()) globalSets.push_back(static_cast<vector_size_t>(sets.size()));
     sets.push_back(std::move(set));
   }
-  if (keyOrdinals.size() != static_cast<size_t>(aggregate.grouping_expressions_size())) {
-    throw std::runtime_error("Every grouping expression must be referenced");
-  }
-  std::vector<core::FieldAccessTypedExprPtr> passthrough;
-  for (size_t i = 0; i < preparedType->size(); ++i) passthrough.push_back(field(preparedType, i));
   auto expanded = std::make_shared<core::GroupIdNode>(nextNodeId(), std::move(sets),
-      std::move(keyInfos), std::move(passthrough),
-      physicalFieldAlias(preparedType->size() + keyOrdinals.size()), prepared);
+      std::move(keyInfos), std::move(prepared.group_id_inputs),
+      physicalFieldAlias(aliasOffset + inputKeys.size()), std::move(prepared.input));
   const auto expandedType = expanded->outputType();
   std::vector<core::FieldAccessTypedExprPtr> keys;
-  for (size_t i = 0; i < keyOrdinals.size(); ++i) keys.push_back(field(expandedType, i));
+  for (size_t i = 0; i < inputKeys.size(); ++i) keys.push_back(field(expandedType, i));
   auto groupId = field(expandedType, expandedType->size() - 1);
   keys.push_back(groupId);
   // The one preparation projection evaluated arguments in the original
   // context. GroupId retains those fields; it never rebinds proto ordinals.
-  bool requiresSingle = false;
-  for (int i = 0; i < aggregate.measures_size(); ++i) {
-    requiresSingle |= measures[i].distinct || !measures[i].sortingKeys.empty();
-  }
-  const auto step = resolveAggregationStep(aggregate);
   const std::optional<core::FieldAccessTypedExprPtr> globalGroupId =
       globalSets.empty() ? std::nullopt : std::make_optional(groupId);
   std::shared_ptr<const core::PlanNode> result;
-  if (step == core::AggregationNode::Step::kSingle && !requiresSingle) {
-    result = buildParallelAggregation(keys, {}, names, measures, expanded, globalSets, globalGroupId);
+  const auto measureCount = prepared.measures.size();
+  if (prepared.usesLocalPartial()) {
+    result = buildParallelAggregation(keys, {}, prepared, expanded, globalSets, globalGroupId);
   } else {
-    auto source = requiresSingle ? core::LocalPartitionNode::gather(nextNodeId(), {expanded})
-                           : std::shared_ptr<const core::PlanNode>(expanded);
-    result = std::make_shared<core::AggregationNode>(nextNodeId(), step, keys,
-        std::vector<core::FieldAccessTypedExprPtr>{}, names, measures,
-        globalSets, globalGroupId, false, false, source);
+    auto source = prepared.requires_single ? core::LocalPartitionNode::gather(nextNodeId(), {expanded})
+                                          : std::shared_ptr<const core::PlanNode>(expanded);
+    result = std::make_shared<core::AggregationNode>(nextNodeId(), prepared.step, std::move(keys),
+        std::vector<core::FieldAccessTypedExprPtr>{}, std::move(prepared.names), std::move(prepared.measures),
+        globalSets, globalGroupId, false, false, std::move(source));
   }
-  return projectGroupingOutput(result, keyOrdinals.size(), measures.size());
+  return projectGroupingOutput(result, inputKeys.size(), measureCount);
 }
 
 }  // namespace pangrova::velox

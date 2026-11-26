@@ -38,7 +38,8 @@ final class SubstraitRelationShapes {
             case FETCH -> unary(inputs);
             case EXCHANGE -> exchange(relation, unary(inputs));
             case CROSS -> binary(inputs, context);
-            case EXTENSION_LEAF, EXTENSION_SINGLE, EXTENSION_MULTI -> SubstraitExtensionShape.describe(relation);
+            case EXTENSION_LEAF, EXTENSION_SINGLE, EXTENSION_MULTI ->
+                    SubstraitExtensionShape.describe(relation, inputs);
             case EXPAND -> expand(relation, unary(inputs));
             case TOP_N -> sorted(relation.getTopN().getSortsList(), unary(inputs));
             default -> structural(relation, inputs);

@@ -34,6 +34,38 @@ def bearer(config):
     return os.environ[name]
 
 
+def native_attempts_qualified(profile):
+    attempts = profile.get('attempts')
+    if profile.get('telemetryAvailable') is not True or not isinstance(attempts, list) or not attempts:
+        return False
+    identities = set()
+    for attempt in attempts:
+        if not isinstance(attempt, dict) or attempt.get('reportState') not in ('FINISHED', 'FAILED', 'CANCELLED'):
+            return False
+        coordinates = tuple(attempt.get(key) for key in ('stageId', 'partitionId', 'planEpoch', 'attemptId'))
+        if any(type(value) is not int or value < 0 for value in coordinates) or coordinates[2] == 0:
+            return False
+        task, worker = attempt.get('taskId'), attempt.get('workerId')
+        if not all(isinstance(value, str) and value for value in (task, worker)):
+            return False
+        identity = (*coordinates, task)
+        if identity in identities:
+            return False
+        identities.add(identity)
+        operators = attempt.get('operators')
+        if not isinstance(operators, list) or not operators or not all(
+            isinstance(operator, dict) and all(
+                isinstance(operator.get(key), str) and operator[key] for key in ('operatorType', 'planNodeId')
+            )
+            and all(type(operator.get(key)) is int and operator[key] >= 0 for key in (
+                'inputRows', 'outputRows', 'inputBytes', 'outputBytes', 'cpuNanos', 'wallNanos',
+                'peakMemoryBytes', 'spillBytes'))
+            for operator in operators
+        ):
+            return False
+    return True
+
+
 class PangrovaClient:
     def __init__(self, config, engine):
         jar = Path(config['classpath']).resolve()
@@ -140,11 +172,10 @@ class PangrovaClient:
             response = self.request('/v1/query/profile/' + urllib.parse.quote(query_id, safe='') + '/json')
             if response.get('queryId') != query_id or response.get('success') is not True:
                 raise QueryFailure('profile-identity-or-status-invalid', query_id)
-            # The current public profile tree divides query totals among synthetic
-            # stages/tasks; it is not the protocol's measured Native OperatorStats.
-            return {'status': 'available', 'scope': 'query-audit-aggregate',
-                    'operatorMetricsQualified': False,
-                    'derivedFields': ['operatorTree', 'flameGraph', 'timing.ioWaitMs'], 'data': response}
+            qualified = native_attempts_qualified(response)
+            scope = 'native-task-attempts' if response.get('telemetryAvailable') is True else 'query-audit-aggregate'
+            return {'status': 'available', 'scope': scope,
+                    'operatorMetricsQualified': qualified, 'data': response}
         except urllib.error.HTTPError as error:
             if error.code != 404 or self.config.get('requireProfile'):
                 raise QueryFailure('profile-unavailable', query_id) from error

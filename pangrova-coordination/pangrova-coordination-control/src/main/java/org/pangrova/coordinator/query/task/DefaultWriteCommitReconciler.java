@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.query.task;
 
+import org.pangrova.coordinator.metadata.ConnectorWriteBindingFactory;
 import org.pangrova.coordinator.enums.WriteRecoveryOutcome;
 import org.pangrova.coordinator.exception.NativeDatasetWorkerUnavailableException;
 import org.pangrova.persistence.query.api.enums.WriteCommitState;
@@ -101,7 +102,8 @@ public final class DefaultWriteCommitReconciler implements WriteCommitReconciler
                 confirmRecordedCopyPublication(metadata, session, handle, entry, recorded.orElseThrow());
                 return WriteRecoveryOutcome.COMMITTED;
             }
-            RequiredWritePublication.commit(journal, metadata, session, handle, entry);
+            RequiredWritePublication.commit(journal, metadata, session, handle, entry,
+                    journal.requiresPublication(entry));
             if (entry.copyFile() != null) {
                 if (!(metadata instanceof CopyFilePublicationMetadata copyMetadata)) {
                     throw new IllegalStateException("COPY target connector cannot prove snapshot publication");
@@ -212,7 +214,7 @@ public final class DefaultWriteCommitReconciler implements WriteCommitReconciler
                 || !handle.targetTable().equals(Optional.of(table))
                 || !handle.writeMode().equals(entry.writeMode())
                 || handle.writeBaseSnapshotId().orElse(-1L) != entry.baseSnapshotId()
-                || !org.pangrova.coordinator.query.execution.ConnectorWriteBindingFactory
+                || !ConnectorWriteBindingFactory
                         .create(catalog, handle).equals(binding)) {
             throw new IllegalArgumentException("Decoded output allocation differs from durable write intent");
         }

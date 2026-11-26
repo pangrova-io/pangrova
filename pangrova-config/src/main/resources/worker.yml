@@ -48,9 +48,6 @@ worker:
 
   # ---- Shuffle ----
   shuffle:
-    buffer-capacity: 100
-    max-memory-bytes: 536870912   # 512 MB
-    spill-threshold: 0.8
     client:
       # ManagedChannel owners, including in-flight creation and failed joins;
       # not OS TCP sockets or concurrent RPCs. Shared by ingress and egress.

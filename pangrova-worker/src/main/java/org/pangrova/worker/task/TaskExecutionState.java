@@ -1,5 +1,8 @@
 package org.pangrova.worker.task;
 
+import org.pangrova.protocol.rest.task.TaskReportEvidence;
+
+import org.pangrova.protocol.v2.NativeTaskStats;
 import org.pangrova.worker.enums.TaskState;
 
 import java.util.concurrent.CountDownLatch;
@@ -10,7 +13,6 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import org.pangrova.worker.resource.memory.TaskMemoryPool;
 import org.pangrova.shuffle.api.ShuffleServerHandle;
-import org.pangrova.worker.buffer.OutputBufferManager;
 import org.pangrova.common.concurrent.ThreadSafe;
 
 /**
@@ -32,7 +34,7 @@ final class TaskExecutionState {
     private final AtomicReference<TaskState> state =
             new AtomicReference<>(TaskState.RECEIVED);
     private final AtomicLong executorHandle = new AtomicLong(0);
-    private final AtomicReference<CompletableFuture<byte[]>> executorRelease =
+    private final AtomicReference<CompletableFuture<TaskReportEvidence>> executorRelease =
             new AtomicReference<>();
     private final AtomicReference<CompletableFuture<Void>> resourcesRelease =
             new AtomicReference<>();
@@ -65,9 +67,6 @@ final class TaskExecutionState {
     private final AtomicLong outputBatches = new AtomicLong(0);
     private final AtomicLong outputBytes = new AtomicLong(0);
 
-    // Buffer reference (legacy path)
-    private final AtomicReference<OutputBufferManager> taskBuffer = new AtomicReference<>();
-
     // Write commit metadata (set by NativeWriteExecutor.commitWrite)
     private final AtomicReference<byte[]> commitMetadata = new AtomicReference<>();
 
@@ -76,10 +75,10 @@ final class TaskExecutionState {
             new AtomicReference<>(java.util.List.of());
 
     // Canonical v2 TaskReport captured before the native handle is released.
-    private final AtomicReference<byte[]> terminalTaskReport = new AtomicReference<>();
+    private final AtomicReference<TaskReportEvidence> initialTerminalReport = new AtomicReference<>();
 
     // Canonical v2 NativeTaskStats captured before the native handle is released.
-    private final AtomicReference<byte[]> terminalTaskStats = new AtomicReference<>();
+    private final AtomicReference<NativeTaskStats> terminalTaskStats = new AtomicReference<>();
 
     // Per-task shuffle server port (set by TaskLifecycleManager.startShuffleViaSpi)
     private final AtomicLong shufflePort = new AtomicLong(0);
@@ -134,15 +133,14 @@ final class TaskExecutionState {
         return executorHandle.compareAndSet(expected, update);
     }
 
-    CompletableFuture<byte[]> claimExecutorRelease(CompletableFuture<byte[]> candidate) {
+    CompletableFuture<TaskReportEvidence> claimExecutorRelease(
+            CompletableFuture<TaskReportEvidence> candidate) {
         return claimRelease(executorRelease, candidate);
     }
 
-    byte[] executorReleaseReport() {
+    TaskReportEvidence executorReleaseReceipt() {
         var release = executorRelease.get();
-        if (release == null) return null;
-        byte[] receipt = release.join();
-        return receipt == null ? null : receipt.clone();
+        return release == null ? null : release.join();
     }
 
     CompletableFuture<Void> claimResourcesRelease(CompletableFuture<Void> candidate) {
@@ -194,12 +192,6 @@ final class TaskExecutionState {
 
     void addOutputBytes(long bytes) { outputBytes.addAndGet(bytes); }
 
-    // --- Buffer ---
-
-    OutputBufferManager taskBuffer() { return taskBuffer.get(); }
-
-    void setTaskBuffer(OutputBufferManager buffer) { taskBuffer.set(buffer); }
-
     // --- Write commit metadata ---
 
     byte[] commitMetadata() { return commitMetadata.get(); }
@@ -208,31 +200,25 @@ final class TaskExecutionState {
 
     // --- Canonical terminal status ---
 
-    byte[] terminalTaskReport() {
+    TaskReportEvidence terminalTaskEvidence() {
         var release = executorRelease.get();
         if (release != null && release.isDone() && !release.isCompletedExceptionally()) {
-            byte[] receipt = release.join();
-            if (receipt != null) return receipt.clone();
+            var receipt = release.join();
+            if (receipt != null) return receipt;
         }
-        byte[] value = terminalTaskReport.get();
-        return value == null ? null : value.clone();
+        return initialTerminalReport.get();
     }
 
-    void setTerminalTaskReport(byte[] status) {
-        if (status != null && status.length > 0) {
-            terminalTaskReport.compareAndSet(null, status.clone());
-        }
+    void setTerminalTaskEvidence(TaskReportEvidence status) {
+        initialTerminalReport.compareAndSet(null, status);
     }
 
-    byte[] terminalTaskStats() {
-        byte[] value = terminalTaskStats.get();
-        return value == null ? null : value.clone();
+    NativeTaskStats terminalTaskStats() {
+        return terminalTaskStats.get();
     }
 
-    void setTerminalTaskStats(byte[] stats) {
-        if (stats != null && stats.length > 0) {
-            terminalTaskStats.compareAndSet(null, stats.clone());
-        }
+    void setTerminalTaskStats(NativeTaskStats stats) {
+        terminalTaskStats.compareAndSet(null, stats);
     }
 
     java.util.List<byte[]> terminalCommitFragments() {
@@ -245,8 +231,8 @@ final class TaskExecutionState {
                 : fragments.stream().map(byte[]::clone).toList());
     }
 
-    void setReleasedTaskStats(byte[] stats) {
-        terminalTaskStats.set(stats == null ? null : stats.clone());
+    void setReleasedTaskStats(NativeTaskStats stats) {
+        terminalTaskStats.set(stats);
     }
 
     // --- Shuffle port ---

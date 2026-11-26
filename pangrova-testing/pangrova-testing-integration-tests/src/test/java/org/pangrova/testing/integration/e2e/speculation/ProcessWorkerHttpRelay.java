@@ -4,7 +4,6 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 
 import java.io.IOException;
@@ -116,7 +115,7 @@ final class ProcessWorkerHttpRelay implements AutoCloseable {
         boolean isTaskSubmission() { return method.equals("POST") && path.getPath().equals("/v1/task"); }
         SubmitTaskRequest submittedTask() throws IOException {
             if (!isTaskSubmission()) throw new IllegalStateException("Not a task submission");
-            return JsonMapperFactory.shared().readValue(body, SubmitTaskRequest.class);
+            return SubmitTaskRequest.decode(body);
         }
     }
 }

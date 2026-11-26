@@ -14,7 +14,8 @@ import org.pangrova.protocol.v2.FileSplitDetail;
 import org.pangrova.protocol.v2.IcebergReadMode;
 import org.pangrova.protocol.v2.IcebergSplitDetail;
 import org.pangrova.protocol.v2.SchemaEvolution;
-import org.pangrova.connector.api.metadata.ConnectorSplit;
+import org.pangrova.protocol.source.CanonicalConnectorSplit;
+import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.connector.api.metadata.SplitConstraint;
 import org.pangrova.connector.api.metadata.table.ColumnMapping;
 import org.pangrova.connector.api.metadata.table.TypePromotion;
@@ -59,7 +60,12 @@ public record IcebergSplit(
         List<IcebergDeleteFile> deleteFiles,
         List<ColumnMapping> columnMappings,
         List<TypePromotion> typePromotions,
-        byte[] residualPredicate) implements ConnectorSplit {
+        byte[] residualPredicate) implements CanonicalConnectorSplit {
+
+    @Override
+    public long estimatedScanBytes() {
+        return Math.max(0L, fileLength);
+    }
 
     public IcebergSplit {
         if (fileFormat != null && "LANCE".equalsIgnoreCase(fileFormat)) {
@@ -217,7 +223,7 @@ public record IcebergSplit(
      * schema_evolution (column_mappings + type_promotions).</p>
      */
     @Override
-    public byte[] toSplitInfoProto() {
+    public DataSplit toDataSplit() {
         FileSplitDetail.Builder detail = FileSplitDetail.newBuilder()
                 .setFileFormat(resolveFileFormat())
                 .setIceberg(buildIcebergSplitDetail());
@@ -227,7 +233,7 @@ public record IcebergSplit(
 
         return DataSplitProtoCodec.buildFileSplit(new DataSplitProtoCodec.FileSplitInput(
                 "iceberg", tableName, Long.toString(snapshotId), filePath, filePath,
-                fileOffset, fileLength, partitionValues, detail.build())).toByteArray();
+                fileOffset, fileLength, partitionValues, detail.build()));
     }
 
     private IcebergSplitDetail buildIcebergSplitDetail() {

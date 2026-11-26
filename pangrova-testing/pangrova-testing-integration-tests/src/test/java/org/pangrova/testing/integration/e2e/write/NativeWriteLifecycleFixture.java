@@ -9,7 +9,7 @@ import org.apache.arrow.vector.ipc.ArrowStreamWriter;
 import org.apache.iceberg.TableProperties;
 import org.pangrova.connector.iceberg.handle.IcebergOutputTableHandle;
 import org.pangrova.connector.iceberg.handle.IcebergTableHandle;
-import org.pangrova.coordinator.query.execution.ConnectorWriteBindingFactory;
+import org.pangrova.coordinator.metadata.ConnectorWriteBindingFactory;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;

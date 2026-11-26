@@ -1,6 +1,7 @@
 package org.pangrova.coordinator.query.stage;
 
 import org.pangrova.query.api.enums.StageState;
+import org.pangrova.query.api.stage.StageCompletionCallback.BuildKeyRange;
 
 import org.pangrova.query.api.stage.StageRetryPolicy;
 import org.pangrova.query.stage.StageStateMachine;
@@ -16,6 +17,7 @@ import org.apache.calcite.rex.RexBuilder;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -58,6 +60,75 @@ class StageTest {
 
         stage.onTaskFinished("t2");
         assertThat(stage.stateMachine().getState()).isEqualTo(StageState.FINISHED);
+    }
+
+    @Test
+    void buildRangeUsesExactlyOneSuccessfulReportForEveryCurrentSlot() {
+        Stage stage = Stage.create(dummyNode(0), "q1");
+        stage.stateMachine().transitionTo(StageState.SCHEDULING);
+        stage.stateMachine().transitionTo(StageState.RUNNING);
+        stage.addTaskId("first");
+        stage.addTaskId("second");
+        int generation = stage.currentGeneration();
+
+        stage.onTaskFinished("first", generation, Map.of(0, List.of(new BuildKeyRange(-8, -2))));
+        stage.onTaskFinished("first", generation, Map.of(0, List.of(new BuildKeyRange(Long.MIN_VALUE, Long.MAX_VALUE))));
+        stage.onTaskFinished("second", generation + 1, Map.of(0, List.of(new BuildKeyRange(-40, 40))));
+        assertThat(stage.completeBuildKeyRanges()).isNull();
+        stage.onTaskFinished("second", generation, Map.of(0, List.of()));
+
+        assertThat(stage.stateMachine().getState()).isEqualTo(StageState.FINISHED);
+        assertThat(stage.completeBuildKeyRanges().get(0)).containsExactly(new BuildKeyRange(-8, -2));
+    }
+
+    @Test
+    void missingBuildRangePreservesFullProbeEvenWhenEveryTaskSucceeded() {
+        Stage stage = Stage.create(dummyNode(0), "q1");
+        stage.stateMachine().transitionTo(StageState.SCHEDULING);
+        stage.stateMachine().transitionTo(StageState.RUNNING);
+        stage.addTaskId("first");
+        stage.addTaskId("second");
+        stage.onTaskFinished("first", stage.currentGeneration(), Map.of(0, List.of()));
+        stage.onTaskFinished("second");
+
+        assertThat(stage.stateMachine().getState()).isEqualTo(StageState.FINISHED);
+        assertThat(stage.completeBuildKeyRanges()).isNull();
+    }
+
+    @Test
+    void completeBuildPreservesGapsAndCoalescesOverlappingOrAdjacentSignedRanges() {
+        var ranges = List.of(new BuildKeyRange(Long.MAX_VALUE, Long.MAX_VALUE),
+                new BuildKeyRange(12, 15), new BuildKeyRange(0, 1),
+                new BuildKeyRange(Long.MIN_VALUE, Long.MIN_VALUE),
+                new BuildKeyRange(2, 3), new BuildKeyRange(11, 12),
+                new BuildKeyRange(Long.MAX_VALUE - 2, Long.MAX_VALUE - 1));
+        assertThat(completedBuild(ranges).completeBuildKeyRanges().get(0)).containsExactly(
+                new BuildKeyRange(Long.MIN_VALUE, Long.MIN_VALUE), new BuildKeyRange(0, 3),
+                new BuildKeyRange(11, 15), new BuildKeyRange(Long.MAX_VALUE - 2, Long.MAX_VALUE));
+        assertThat(completedBuildSummaries(List.of(List.of())).completeBuildKeyRanges().get(0)).isEmpty();
+    }
+
+    @Test
+    void excessiveDisjointBuildRangesUseConservativeBoundedCoverage() {
+        var ranges = java.util.stream.LongStream.range(0, 17)
+                .mapToObj(i -> new BuildKeyRange(2 * i, 2 * i)).toList();
+        assertThat(completedBuild(ranges.subList(0, 16)).completeBuildKeyRanges().get(0)).hasSize(16);
+        assertThat(completedBuild(ranges).completeBuildKeyRanges().get(0)).containsExactly(new BuildKeyRange(0, 32));
+    }
+
+    private Stage completedBuild(List<BuildKeyRange> ranges) {
+        return completedBuildSummaries(ranges.stream().map(List::of).toList());
+    }
+
+    private Stage completedBuildSummaries(List<List<BuildKeyRange>> summaries) {
+        var stage = Stage.create(dummyNode(0), "q1");
+        stage.stateMachine().transitionTo(StageState.SCHEDULING);
+        stage.stateMachine().transitionTo(StageState.RUNNING);
+        for (int index = 0; index < summaries.size(); index++) stage.addTaskId("task-" + index);
+        for (int index = 0; index < summaries.size(); index++) {
+            stage.onTaskFinished("task-" + index, stage.currentGeneration(), Map.of(0, summaries.get(index)));
+        }
+        return stage;
     }
 
     @Test

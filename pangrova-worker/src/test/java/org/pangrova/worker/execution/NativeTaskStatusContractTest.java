@@ -6,30 +6,25 @@ import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.protocol.v2.ExecutionError;
 import org.pangrova.protocol.v2.TaskReport;
+import org.pangrova.protocol.v2.TaskState;
 import org.pangrova.worker.exception.NativeRuntimeException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/** Real generated report decoding; this is not a Native task execution test. */
+/** Canonical wire state and error decoding at the Native boundary. */
 class NativeTaskStatusContractTest {
 
     @ParameterizedTest
-    @ValueSource(ints = {1, 2, 3})
-    void admittedNonterminalStatesKeepPolling(int state) {
-        assertThat(NativeTaskExecutor.evaluateNativeStatus(report(state), 41)).isFalse();
-    }
-
-    @ParameterizedTest
-    @ValueSource(ints = {4, 6})
-    void successfulAndCancelledTerminalStatesStopPolling(int state) {
-        assertThat(NativeTaskExecutor.evaluateNativeStatus(report(state), 41)).isTrue();
+    @ValueSource(ints = {1, 2, 3, 4, 5, 6})
+    void decodesTheCanonicalTaskState(int state) {
+        assertThat(NativeTaskExecutor.requireNativeTaskState(state)).isEqualTo(TaskState.forNumber(state));
     }
 
     @ParameterizedTest
     @ValueSource(ints = {-1, 0, 7, Integer.MAX_VALUE})
     void unknownAndUnspecifiedStatesNeverClaimCompletion(int state) {
-        assertThatThrownBy(() -> NativeTaskExecutor.evaluateNativeStatus(report(state), 41))
+        assertThatThrownBy(() -> NativeTaskExecutor.requireNativeTaskState(state))
                 .isInstanceOf(NativeRuntimeException.class)
                 .hasMessageContaining("invalid task state");
     }
@@ -37,14 +32,14 @@ class NativeTaskStatusContractTest {
     @ParameterizedTest
     @NullAndEmptySource
     void missingReportsAreProtocolFailures(byte[] report) {
-        assertThatThrownBy(() -> NativeTaskExecutor.evaluateNativeStatus(report, 41))
+        assertThatThrownBy(() -> NativeTaskExecutor.nativeTaskFailure(report))
                 .isInstanceOf(NativeRuntimeException.class)
                 .hasMessageContaining("empty v2 TaskReport");
     }
 
     @Test
     void malformedReportsAreProtocolFailures() {
-        assertThatThrownBy(() -> NativeTaskExecutor.evaluateNativeStatus(new byte[] {10}, 41))
+        assertThatThrownBy(() -> NativeTaskExecutor.nativeTaskFailure(new byte[] {10}))
                 .isInstanceOf(NativeRuntimeException.class)
                 .hasMessageContaining("malformed v2 TaskReport");
     }
@@ -54,22 +49,24 @@ class NativeTaskStatusContractTest {
         byte[] report = TaskReport.newBuilder().setStateValue(5)
                 .setError(ExecutionError.newBuilder().setMessage("provider response exceeds grant"))
                 .build().toByteArray();
-        assertThatThrownBy(() -> NativeTaskExecutor.evaluateNativeStatus(report, 41))
-                .isInstanceOf(NativeRuntimeException.class)
+        assertThat(NativeTaskExecutor.nativeTaskFailure(report))
                 .hasMessageContaining("provider response exceeds grant");
     }
 
     @Test
     void failedReportWithoutDetailsStillFails() {
-        assertThatThrownBy(() -> NativeTaskExecutor.evaluateNativeStatus(report(5), 41))
-                .isInstanceOf(NativeRuntimeException.class)
+        assertThat(NativeTaskExecutor.nativeTaskFailure(report(TaskState.TASK_STATE_FAILED)))
                 .hasMessageContaining("Native task failed");
     }
 
-    private static byte[] report(int state) {
-        // Proto3 omits the default enum value. Keep the report nonempty so
-        // UNSPECIFIED exercises state validation rather than missing bytes.
-        return TaskReport.newBuilder().setReportOriginValue(1)
-                .setStateValue(state).build().toByteArray();
+    @Test
+    void failureProbeRequiresAFailedReport() {
+        assertThatThrownBy(() -> NativeTaskExecutor.nativeTaskFailure(report(TaskState.TASK_STATE_FINISHED)))
+                .isInstanceOf(NativeRuntimeException.class)
+                .hasMessageContaining("unexpected task state");
+    }
+
+    private static byte[] report(TaskState state) {
+        return TaskReport.newBuilder().setState(state).build().toByteArray();
     }
 }

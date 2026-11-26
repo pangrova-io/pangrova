@@ -24,8 +24,10 @@ sidebar_label: "Native Execution Layer"
 ![Coordinator JVM: SQL/planning → canonical v2 task binding → admission/scheduling](../../website/static/img/diagrams/generated/native-execution-01-3b9f6c7978.svg)
 
 The main relational execution path places operators and vector Top-K merging on
-Native Workers. The separate Coordinator-local CDC sink remains a migration gap;
-see [Current Capability Status](../getting-started/capability-status.md). The Worker JVM is not a per-batch network shuffle relay. Read-dependent
+Native Workers. With both streaming and query roles enabled, CDC ingestion runs in
+Worker JVMs. The streaming-only role uses a local connector sink. Native Flight carries relational shuffle
+traffic directly between Workers. See [Current Capability Status](../getting-started/capability-status.md).
+Read-dependent
 Iceberg/Paimon writes are staged through the Java connector SDK from a Native
 write-drain callback; the final catalog commit remains Coordinator-owned.
 Lance's Rust/C++ FFI is a separate Native storage adapter whose public SQL
@@ -49,7 +51,10 @@ The handwritten Java protocol code is organized by wire capability. Shared
 Worker execution identity lives in `protocol.execution.identity`; both task
 admission and REST registration consume it. `descriptor.CanonicalProtocolIdentity`
 owns the existing exact version, descriptor hash and rollout identity used by
-startup finalization and task admission. `checksum.ProtocolChecksums` hashes
+startup finalization and task admission. The JVM retains one immutable protocol
+version for task construction and validation. Native admission and capability
+inventory share the corresponding identity computed once in the Native process.
+`checksum.ProtocolChecksums` hashes
 caller-selected bytes without owning task validation or changing serialization.
 Capability identities, inventory validation, source bindings and write receipts
 live in their respective `capability`, `capability.inventory`, `source` and
@@ -81,10 +86,38 @@ pruning followed by a Native final Top-K. These are Native data-plane
 operators: the Coordinator only binds stages and never combines rows in its
 JVM. Pipeline consumers may start only after upstream producer task records
 exist, not while that stage is still `SCHEDULING`. The Native shuffle writer's
-compression codec is also installed in Velox's Exchange QueryConfig and the
-task-scoped Flight result decoder so both Native exchange pages and result
-OutputBuffer pages use the same codec. The singleton global Sort
-remains a scale bottleneck until distributed range-sort/merge is validated.
+compression codec is installed in Velox's Exchange QueryConfig for inter-Worker
+exchange pages. An OUTPUT Driver admits the canonical Arrow batch and prepares
+its standard Flight record message once. A task-owned byte window controls
+ready messages and retained transport buffers. A full window suspends the
+Driver until a buffer is released. Flight sends the display schema and the
+prepared record messages. Successful producer completion seals the queue, and
+Flight commits the result task after writing the stream to EOF. The task releases
+its resources after the producer, registered authority, reader and retained
+buffers have all drained. The singleton global Sort remains a scale bottleneck
+until distributed range-sort/merge is validated.
+
+Native aggregate conversion binds distinct direct grouping columns to the source
+vectors. It adds a projection when a computed key, nested argument, or repeated
+grouping alias needs its own field. Grouping sets reuse the same prepared inputs
+in the GroupId expansion while preserving the grouping set identifier. The local
+Partial uses the accumulator type returned by the raw signature binding. The
+Final keeps the original raw argument types alongside its state input. For
+DECIMAL(22,7) SUM, the local accumulator is VARBINARY and the result is
+DECIMAL(38,7).
+
+For cross-stage aggregation, the Substrait Aggregate enhancement identifies
+the exact Native implementation build and each registered function signature.
+The final stage carries the original raw input types and reads one typed state
+field per measure. Native validates the build, signature and state type before
+constructing the task. The current DECIMAL state contains four 64-bit values.
+Shuffle payload bytes count serialized pages accepted by the task queue. The
+counter is exported with Native task statistics and excludes transport framing
+and resend traffic.
+
+Substrait grouping sets use original input ordinals for keys, arguments and
+masks. The Native preparation keeps exactly the fields that GroupId must load,
+and GroupId carries only measure inputs alongside the grouping keys and set ID.
 
 Splitless sources such as `GENERATE_SERIES` need two cardinality boundaries:
 the planner assigns one producer task to a stage containing the source, and
@@ -92,6 +125,14 @@ the zero-input Native table-function node limits its Velox source pipeline to
 one driver. A task may still use multiple drivers for other pipelines, including
 the scan side of a mixed `UNION ALL`. Table functions with input rows retain
 per-input parallelism.
+
+An admitted runtime filter is published for a task and scan node. Each scan
+driver advances its own cursor through that publication sequence. Filters
+available before a file opens can enter the reader's scan specification when
+the physical column and type match and no deletion or conversion affects the
+row. A late filter runs on materialized logical rows after applicable deletes,
+partition values and schema evolution. A batch with zero matches retains its
+identity as a batch so a driver continues to the next read.
 
 Result-service shutdown first seals registration and revokes each retained result
 authority, waking its actual pending SDK fetch. It then cancels transport calls
@@ -101,6 +142,21 @@ Transport cancellation alone is not task drain: producer stop, queue cleanup,
 reader leases and retained batch owners must still satisfy the task's existing
 drain contract before resources are released. Failed queue cleanup remains owned
 for retry and is reported to the caller.
+
+For a finished result task, Native signals once after the producer stops,
+the result authority is revoked, the queue clears, and all reader and exported
+buffer leases exit. The Worker subscribes against the exact live executor
+handle after reserving its FINISHED report and before sending that report.
+The JNI callback only schedules release. The Worker cleanup owner joins the
+Native executor and returns the memory grant before publishing the physical
+drain receipt. It retains the local admission seal after the physical release.
+Terminal HTTP attempts and backoff run asynchronously outside the cleanup
+thread. Each result task preserves its initial FINISHED envelope until the
+Coordinator acknowledges it. The physical receipt follows that ACK and keeps
+its own exact sequence and body for retry. The registry entry remains until
+delivery is acknowledged. Each retained result also has a deadline, which is
+cancelled when its owner is removed. The slow retention pass schedules aged
+owners and retries failed deliveries for registered result tasks.
 
 ## 2. Design Philosophy: Separation of Control Plane and Data Plane
 
@@ -194,12 +250,19 @@ TaskReport; the Worker then publishes a failed, zero-completed-coverage
 reconciliation with the Native failure attached. A result stream that returns
 an error is not a successful producer EOF.
 
+Result IPC decoding checks the admitted schema, Arrow array layout and required
+values together. The public schema binds names and metadata to the validated
+arrays and buffers. The reader verifies declared vector dimensions and retains
+ownership of each batch during transport.
+
 ## 6. JNI Boundary
 
 The JNI layer transfers task-control commands, canonical v2 task bytes and
-fenced status between the Java Worker and Native runtime. Native result and
-shuffle streams remain in Native Flight; no Java batch puller or per-batch
-shuffle JNI bridge is part of the production data path.
+fenced status between the Java Worker and Native runtime. Results and direct
+Worker-to-Worker shuffle stream through Native Flight. External shuffle
+consumption uses a Java gRPC reader and a bounded JNI handoff for each verified
+chunk. Its control envelope carries the attempt and frame metadata. The chunk
+bytes are copied into a Native-owned buffer as a separate argument.
 
 Read-dependent writes are the deliberate exception: the Native drain sends
 Arrow IPC bytes synchronously to Java `NativeWriteExecutor`, which decodes
@@ -285,12 +348,34 @@ Connector-specific read semantics are documented in
 Producer output is partitioned and serialized by the Native execution path.
 `SerializedShuffleQueue` owns queued pages; `FlightShuffleServer` serves
 ticket-scoped DoGet streams; `PangrovaExchangeSource` consumes upstream
-partitions directly in Native. There is no Java per-batch shuffle relay. The
-exchange source aligns Arrow binary offsets when Flight delivers them
-unaligned, keeping the page payload buffer in place.
+partitions directly in Native.
+The Native gRPC channel connects directly to the assigned Worker endpoint.
+
+Concurrently active shuffle streams share a Flight client for the same host,
+port, TLS peer name and credential configuration. Each stream carries its
+own task ticket and cancellation token. Busy peers can use additional
+channels to preserve stream capacity. A connection is released after its
+last stream ends. Rotating transport credentials starts a fresh client pool.
+[Arrow Flight client reuse](https://arrow.apache.org/docs/cpp/flight.html#re-use-clients-whenever-possible)
+Worker-to-Worker Shuffle requires connectivity on the cluster network.
+A canonical one-page Flight response retains the received Arrow value buffer
+as the Velox page, including any clones needed by the decoder. The queue
+continues to account for the page bytes. The last clone releases the Arrow
+buffer. Batches with multiple values use independent page buffers to keep
+their release accounting granular.
 `ShuffleBufferStore` bounds demux retention separately from the producer
 queue. The current/default deployment must not be described as zero-copy or
 producer-loss recoverable without matching storage and fault tests.
+
+The external Shuffle provider reads committed partition streams through the
+Worker's Remote Shuffle client. A live, partition-local computation can bind
+up to 32 adjacent source partitions. The binding carries the original starting
+partition and one exact publication receipt per partition, including empty ones.
+The Worker verifies and closes each read before opening the next. It advances
+the Native batch sequence over the group while retaining each remote batch's
+bytes. One Native ingress enforces shared backpressure, checksum validation and
+the total batch count before EOF. Each read retains its own exact attempt and
+publication identity. Each durable replay input binds one original partition.
 
 ## 12. Delete and Merge Semantics
 
@@ -335,11 +420,20 @@ isolation, type contract and public-entry E2E before publication.
 
 ## 16. Serialization
 
-Worker-to-Worker shuffle uses `ShuffleBatchSerializer` and serialized Velox
-pages carried in a Flight binary cell. The final result path uses
-`FlightResultServer` and its own Arrow result serialization. Arrow C Data
-interop is not the shuffle wire format. The canonical task/report proto
-remains the sole control contract.
+`ShuffleBatchSerializer` encodes bounded Arrow IPC pages. Direct exchanges
+carry these pages in Native Flight binary cells. Remote Shuffle publishes the
+same pages through gRPC. Each producing Velox driver owns its partition hash
+and selection scratch state. For fixed-width columns the accumulator estimates
+the size of the selected rows. Variable-width selections use a conservative
+source-size bound. Both serializers prepare the schema and batch payloads with
+the task allocator and include the Arrow EOF marker in the exact wire size.
+Once that size fits the configured ceiling, they write the IPC messages directly
+to the Velox output stream. The iterative serializer retains the prepared
+payloads from size calculation through flush. A wire-limit failure occurs before
+the first output byte, so the partition selector can split the page. The JNI
+write bridge uses the same payload preparation and allocates its contiguous
+callback buffer at the exact committed size. `FlightResultServer` encodes result
+batches for the client. The canonical task/report proto carries the control messages.
 
 ## 17. Expression Execution
 
@@ -387,7 +481,7 @@ registries or WASM hosts are not executable implementation contracts.
 
 ## 20. Native Shuffle Throughput and Memory
 
-The current shuffle data path does not cross JNI per batch. The producer's
+Direct Worker-to-Worker shuffle does not cross JNI per batch. The producer's
 Velox callback partitions rows, serializes bounded pages, and copies page bytes
 into the independently owned `SerializedShuffleQueue`. Native Flight serves
 ticket-scoped partitions; the downstream Native ExchangeSource consumes them.
@@ -533,21 +627,18 @@ through cancellation. Publish released terminal state only after actual
 transport and Native owners exit. Retain successful per-owner cleanup
 checkpoints when a later join fails; sealed Native operation admission must
 not be reopened or bypassed to retry already-completed control commands.
-For a direct-result task, start acknowledgement is a preparation boundary,
-not merely background-work submission. Its task-local preparation must exit
-before the endpoint is advertised; successful preparation binds the actual
-authority, canonical schema and allocator. Keep this wait outside the start
-gate and bounded by the admitted deadline so cancellation remains possible.
-The checkpoint does not claim successful execution, a first batch, EOF or
-drain. Failed/cancelled preparation retains its actual terminal evidence.
-Result decoding and wire-schema failures must fail the actual Native producer
-before deleting its output queue. Queue cleanup otherwise releases the SDK's
-output-consumption wait and can turn a failed read into successful completion.
-The task adapter supplies a weakly owned failure port; result readers do not
-import executor or JNI ownership. Closing a reader before committed EOF also
-reports failure before cleanup. Explicit authority revocation and cancellation
-remain with their admitted lifecycle owner, and cannot overwrite a won terminal
-state. A transport error is not successful EOF or evidence of complete results.
+A direct-result task can advertise its signed endpoint after Native start is
+submitted. Flight verifies the admitted grant against the registered schema,
+allocator and live output buffer. An early DoGet has a bounded readiness wait.
+
+If a reader fails or the transport destroys it before committed EOF, it
+claims result revocation and reports the failure before deleting the output
+queue. The task adapter records the canonical error and stops the exact
+Velox task. This ordering releases producers blocked by output backpressure
+and preserves the failure when cleanup unblocks the SDK. If the task owner
+already revoked authority, it retains its cancellation or failure outcome.
+Physical release still waits for the task, reader, transport buffers and
+output queue to exit.
 
 Control acknowledgement buffers own their expiration tasks. After accepted query
 and publication owners drain, seal acknowledgement admission and cancel only the

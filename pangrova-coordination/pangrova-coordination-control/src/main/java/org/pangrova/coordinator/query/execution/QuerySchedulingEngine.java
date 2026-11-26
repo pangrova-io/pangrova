@@ -13,19 +13,20 @@
  */
 package org.pangrova.coordinator.query.execution;
 
+import org.pangrova.coordinator.metadata.ConnectorWriteBindingFactory;
 import org.pangrova.execution.write.WriteAuthorityAdmission;
 import org.pangrova.query.api.write.WriteAuthorityResolver;
 import org.pangrova.query.api.write.WriteAuthorityRequest;
 
-import org.pangrova.query.api.task.QuerySplit;
+import org.pangrova.coordinator.query.execution.split.QuerySplit;
 
 import org.pangrova.query.api.enums.QueryState;
 
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ExecutionException;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
@@ -108,10 +109,8 @@ final class QuerySchedulingEngine {
 
     // ── Main dispatch entry point ──
 
-    DispatchResult dispatchQuery(QueryStateMachine sm,
-                                 QuerySession session,
-                                 PlannedQuery plannedQuery,
-                                 DispatchQueryContext ctx) {
+    CompletionStage<DispatchResult> startQuery(QueryStateMachine sm, QuerySession session,
+            PlannedQuery plannedQuery, DispatchQueryContext ctx) {
         LOG.info("event=dispatch_query queryId={} user={} sql_preview={}",
                 session.queryId(),
                 session.userIdentity() != null
@@ -139,27 +138,23 @@ final class QuerySchedulingEngine {
 
     // ── Worker dispatch ──
 
-    private DispatchResult dispatchToWorker(QueryStateMachine sm,
-                                            QuerySession session,
-                                            PlannedQuery plannedQuery,
-                                            DispatchQueryContext ctx) {
+    private CompletionStage<DispatchResult> dispatchToWorker(QueryStateMachine sm,
+            QuerySession session, PlannedQuery plannedQuery, DispatchQueryContext ctx) {
         if (!sm.tryTransition(QueryState.SCHEDULING)) {
-            return null;
+            return CompletableFuture.completedFuture(null);
         }
-        try {
-            if (ctx.dmlWriteContext().isPresent()) {
-                ensureWriteContextRegistered(session, ctx.dmlWriteContext().get());
-            }
-            DispatchResult result = dispatchByTopology(sm, session, plannedQuery, ctx);
-            if (ctx.dmlWriteContext().isPresent()) {
-                awaitWriteCompletion(sm, session.queryId(), result.taskId(), deps.dagDispatchTimeoutMs());
-            }
-            return result;
-        } catch (Exception e) {
-            LOG.warn("event=dispatch_to_worker_failed queryId={} error={}",
-                    session.queryId(), e.getMessage());
-            throw e;
+        if (ctx.dmlWriteContext().isEmpty()) {
+            return dispatchByTopology(sm, session, plannedQuery, ctx);
         }
+        ensureWriteContextRegistered(session, ctx.dmlWriteContext().orElseThrow());
+        return dispatchByTopology(sm, session, plannedQuery, ctx).thenCompose(result -> {
+            var commit = requireWriteCompletion(sm, session.queryId(), result.taskId());
+            deps.dagEngine().armDeadline(commit, deps.dagDispatchTimeoutMs(), () -> new PangrovaException(
+                    PangrovaErrorCode.RUNTIME_TASK_FAILED,
+                    "Native DML task timed out after " + TimeUnit.MILLISECONDS.toSeconds(deps.dagDispatchTimeoutMs())
+                            + "s: queryId=" + session.queryId() + " taskId=" + result.taskId()));
+            return commit.thenApply(ignored -> result);
+        });
     }
 
     // ── DAG topology dispatch ──
@@ -356,7 +351,7 @@ final class QuerySchedulingEngine {
         return Map.copyOf(result);
     }
 
-    private DispatchResult dispatchByTopology(
+    private CompletionStage<DispatchResult> dispatchByTopology(
             QueryStateMachine sm,
             QuerySession session,
             PlannedQuery plannedQuery,
@@ -368,9 +363,15 @@ final class QuerySchedulingEngine {
                 .MAX_TASKS_PER_WORKER;
         int clusterParallelismLimit = workerCount > Integer.MAX_VALUE / tasksPerWorker
                 ? Integer.MAX_VALUE : Math.max(1, workerCount * tasksPerWorker);
-        var fragments = artifactIntents.isEmpty()
-                ? plannedQuery.fragmentForCluster(clusterParallelismLimit)
-                : plannedQuery.fragmentWithPhysicalRetrievalIdentity(clusterParallelismLimit);
+        var merge = retrievalIntents.collectRetrievalMergeIntent(ctx.vectorSearchNode(), ctx.rerankerPlan());
+        java.util.Optional<RerankIntent> rerank = retrievalIntents.collectRerankIntent(ctx.rerankerPlan());
+        boolean needsRetrievalReducer = merge.isPresent() || rerank.isPresent();
+        boolean usesDefaultDrivers = !session.sessionProperties().containsKey("velox.max_drivers");
+        var fragments = artifactIntents.isEmpty() && !needsRetrievalReducer
+                ? ctx.compiler().fragmentQueryForCluster(plannedQuery, clusterParallelismLimit,
+                        parallelism -> usesDefaultDrivers
+                                ? deps.workerSelector().estimateMaximumTaskDrivers(workerCount, parallelism) : 0)
+                : plannedQuery.fragmentWithPhysicalRetrievalIdentity(clusterParallelismLimit, needsRetrievalReducer);
         ctx.vectorSearchNode().ifPresent(vector -> LOG.info(
                 "event=vector_retrieval_plan queryId={} indexId={} intentCount={} stageCount={}",
                 session.queryId(), vector.indexId(), artifactIntents.size(),
@@ -384,21 +385,22 @@ final class QuerySchedulingEngine {
                         d.partitionSpec(), writeFileFormat(session.queryId()), 0,
                         connectorWriteBinding(session.queryId())))
                 .orElse(null);
-        java.util.Optional<RerankIntent> rerank = retrievalIntents.collectRerankIntent(ctx.rerankerPlan());
+        if (writeConfig == null && dag.stages().stream().noneMatch(stage -> "WRITE".equals(stage.taskType()))) {
+            sm.markReadOnlyTaskExecution();
+        }
         var dagQueryContext = new QueryExecutionScope(
                 new org.pangrova.execution.authority.StageExecutionContext.Live(session),
                 ctx.snapshotOverrides(), ctx.originalSql(),
                 ctx.preOptColumnNames(), writeConfig,
                 artifactIntents,
-                retrievalIntents.collectRetrievalMergeIntent(ctx.vectorSearchNode(), ctx.rerankerPlan()),
-                rerank);
+                merge, rerank);
 
-        DispatchResult result = deps.dagEngine().dispatch(
-                session, dag, ctx.compiler(), deps.workerSelector(),
-                deps.dagDispatchTimeoutMs(), dagQueryContext,
-                ready -> onTaskReady(sm, ctx, ready.resultEndpoint()));
-        sm.tryTransition(QueryState.RUNNING);
-        return result;
+        return deps.dagEngine().start(session, dag, ctx.compiler(), deps.workerSelector(),
+                deps.dagDispatchTimeoutMs(), dagQueryContext, ready -> onTaskReady(sm, ctx, ready.resultEndpoint()))
+                .thenApply(result -> {
+                    sm.tryTransition(QueryState.RUNNING);
+                    return result;
+                });
     }
 
     static void onTaskReady(QueryStateMachine sm, DispatchQueryContext context,
@@ -439,37 +441,17 @@ final class QuerySchedulingEngine {
 
     // ── Task completion ──
 
-    static void awaitWriteCompletion(QueryStateMachine query, String queryId, String taskId,
-                                     long timeoutMs) {
-        long timeoutSec = TimeUnit.MILLISECONDS.toSeconds(timeoutMs);
-        try {
-            QueryState terminal = query.nativeWriteCompletionReady()
-                    .get(timeoutMs, TimeUnit.MILLISECONDS);
+    static CompletableFuture<QueryState> requireWriteCompletion(QueryStateMachine query, String queryId,
+            String taskId) {
+        return query.nativeWriteCompletionReady().thenApply(terminal -> {
             if (terminal != QueryState.FINISHED) {
                 throw new PangrovaException(PangrovaErrorCode.RUNTIME_TASK_FAILED,
                         "Native DML task failed: queryId=" + queryId
                                 + " taskId=" + taskId + " state=" + terminal
                                 + " error=" + query.getError().map(error -> error.message()).orElse("none"));
             }
-        } catch (TimeoutException e) {
-            throw new PangrovaException(
-                    PangrovaErrorCode.RUNTIME_TASK_FAILED,
-                    "Native DML task timed out after " + timeoutSec
-                            + "s: queryId=" + queryId
-                            + " taskId=" + taskId);
-        } catch (ExecutionException e) {
-            throw new PangrovaException(
-                    PangrovaErrorCode.RUNTIME_TASK_FAILED,
-                    "Native DML task failed: queryId=" + queryId
-                            + " taskId=" + taskId
-                            + " error=" + e.getCause().getMessage());
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new PangrovaException(
-                    PangrovaErrorCode.RUNTIME_TASK_FAILED,
-                    "Interrupted waiting for DML task: queryId="
-                            + queryId);
-        }
+            return terminal;
+        });
     }
 
     // ── Split and stage infrastructure ──

@@ -3,16 +3,18 @@ package org.pangrova.testing.integration.e2e.cancellation;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
-import org.pangrova.protocol.rest.task.SubmitTaskResponse;
+import org.pangrova.protocol.http.TaskSubmitAck;
 import org.pangrova.protocol.v2.ExecutionDrainState;
 import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.testing.testkit.E2ETest;
 
+import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
 /** Real SQL and HTTP faults against one in-JVM Native Worker; not restart or multi-process proof. */
 @E2ETest
@@ -63,7 +65,15 @@ class TaskAdmissionCancellationE2ETest extends TaskCancellationTestBase {
                 start.countDown();
                 assertThat(cancellation.get(30, TimeUnit.SECONDS).statusCode()).isEqualTo(202);
                 assertThat(delivery.get(30, TimeUnit.SECONDS).statusCode()).isIn(200, 409);
-                var actual = receipt(seal(scenario.submission.request()), scenario.submission.request());
+                var request = scenario.submission.request();
+                var drained = await().atMost(Duration.ofSeconds(30)).until(() -> seal(request), response -> {
+                    if (response.statusCode() == 202) {
+                        assertThat(response.body()).isEmpty();
+                        return false;
+                    }
+                    return true;
+                });
+                var actual = receipt(drained, request);
                 assertThat(actual.getExecutionDrainState()).isIn(
                         ExecutionDrainState.EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED,
                         ExecutionDrainState.EXECUTION_DRAIN_STATE_ADMISSION_CLOSED_WITHOUT_NATIVE_OWNER);
@@ -83,9 +93,9 @@ class TaskAdmissionCancellationE2ETest extends TaskCancellationTestBase {
         try (var scenario = scenario()) {
             var expired = SubmitTaskRequest.from(scenario.submission.request().taskRequest()
                     .toBuilder().setDeadlineEpochMs(1).build());
-            var response = replay(MAPPER.writeValueAsBytes(expired), scenario.submission.headers());
+            var response = replay(expired.encode(), scenario.submission.headers());
             assertThat(response.statusCode()).isEqualTo(408);
-            assertThat(MAPPER.readValue(response.body(), SubmitTaskResponse.class).accepted()).isFalse();
+            assertThat(TaskSubmitAck.parseFrom(response.body()).hasRejected()).isTrue();
             assertThat(cancelQuery(scenario.queryId()).statusCode()).isEqualTo(202);
             var actual = receipt(scenario.transport.awaitDrainResponse(), scenario.submission.request());
             assertThat(actual.getExecutionDrainState())
@@ -103,9 +113,9 @@ class TaskAdmissionCancellationE2ETest extends TaskCancellationTestBase {
             var original = scenario.submission.request().taskRequest();
             var conflicting = SubmitTaskRequest.from(original.toBuilder()
                     .setDeadlineEpochMs(Math.addExact(original.getDeadlineEpochMs(), 1)).build());
-            var response = replay(MAPPER.writeValueAsBytes(conflicting), scenario.submission.headers());
+            var response = replay(conflicting.encode(), scenario.submission.headers());
             assertThat(response.statusCode()).isEqualTo(409);
-            assertThat(MAPPER.readValue(response.body(), SubmitTaskResponse.class).accepted()).isFalse();
+            assertThat(TaskSubmitAck.parseFrom(response.body()).hasRejected()).isTrue();
             assertThat(consumeSubmittedQuery(scenario.awaitSubmittedQuery())).extracting(row -> row.getLong("id"))
                     .containsExactlyInAnyOrder(7L, 9L);
             assertThat(pollUntilTerminal(scenario.queryId())).contains("\"FINISHED\"");

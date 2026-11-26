@@ -1,5 +1,8 @@
 package org.pangrova.coordinator.query.task;
 
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.query.api.error.QueryFailure;
@@ -11,9 +14,25 @@ public final class TaskReportCompletion {
 
     /** Routes an accepted attempt to its selected logical slot when DAG tracking is enabled. */
     static void notifyStageTerminal(StageCompletionCallback callback, String logicalTaskId, TaskStatusReport report) {
-        if (callback != null) {
+        if (callback == null) return;
+        if (!"FINISHED".equals(report.state())) {
             callback.onTaskTerminal(report.queryId(), logicalTaskId, report.state(), failure(report));
+            return;
         }
+        var decoded = report.canonicalStatus();
+        Map<Integer, List<StageCompletionCallback.BuildKeyRange>> buildKeys = null;
+        if (decoded != null && decoded.getNativeTaskStats().getBuildKeySummariesCount() != 0) {
+            buildKeys = new LinkedHashMap<>();
+            for (var summary : decoded.getNativeTaskStats().getBuildKeySummariesList()) {
+                buildKeys.put(summary.getOrdinal(), summary.getRangesList().stream()
+                        .map(range -> new StageCompletionCallback.BuildKeyRange(range.getMinimum(), range.getMaximum()))
+                        .toList());
+            }
+        }
+        var attempt = report.attempt();
+        var selected = new StageCompletionCallback.SuccessfulAttempt(report.taskId(), report.partitionId(),
+                attempt.planEpoch(), attempt.attemptId());
+        callback.onSuccessfulTaskTerminal(report.queryId(), logicalTaskId, selected, buildKeys);
     }
 
     /**

@@ -4,7 +4,6 @@ import org.pangrova.persistence.generation.postgresql.execution.PostgresCurrentG
 
 import org.pangrova.persistence.jdbc.api.generation.GenerationTransactionAuthority;
 import org.pangrova.persistence.generation.api.exchange.GenerationStageExchangeStore;
-import org.pangrova.persistence.jdbc.api.security.policy.CurrentDirectRoleReader;
 import org.pangrova.persistence.jdbc.api.generation.GenerationExecutionTransactionFence;
 
 import org.pangrova.generation.codec.execution.GenerationExchangeEvidenceCodec;
@@ -15,31 +14,58 @@ import org.pangrova.generation.api.identity.GenerationJobKey;
 import org.pangrova.generation.api.exchange.GenerationExchangeFinalization;
 import org.pangrova.generation.api.exchange.GenerationExchangeRegistration;
 import org.pangrova.generation.api.execution.GenerationExecutionOwner;
+import org.pangrova.generation.api.graph.GenerationStageGraph.Exchange;
 import org.pangrova.persistence.generation.api.exception.GenerationStorageException;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /** Immutable external exchange evidence, gated by current security and the actual execution anchor. */
 @org.pangrova.common.api.annotation.Internal
 public final class PostgresGenerationStageExchangeStore implements GenerationStageExchangeStore {
+    private static final String LOCKED_EXCHANGE_EVIDENCE = """
+            WITH locked_edges AS MATERIALIZED (
+                SELECT tenant_id, job_id, exchange_id, producer_stage_id, consumer_stage_id, graph_sha256
+                FROM artifact_stage_exchanges WHERE tenant_id = ? AND job_id = ?
+                ORDER BY exchange_id FOR SHARE
+            ), locked_registrations AS MATERIALIZED (
+                SELECT r.exchange_id, r.registration_bytes, r.registration_sha256
+                FROM artifact_exchange_registrations r
+                JOIN locked_edges e USING (tenant_id, job_id, exchange_id)
+                ORDER BY r.exchange_id FOR SHARE OF r
+            ), locked_finalizations AS MATERIALIZED (
+                SELECT f.exchange_id, f.finalization_bytes, f.finalization_sha256
+                FROM artifact_exchange_finalizations f
+                JOIN locked_edges e USING (tenant_id, job_id, exchange_id)
+                ORDER BY f.exchange_id FOR SHARE OF f
+            )
+            SELECT e.exchange_id, e.producer_stage_id, e.consumer_stage_id, e.graph_sha256,
+                   j.source_snapshot, r.registration_bytes, r.registration_sha256,
+                   f.finalization_bytes, f.finalization_sha256
+            FROM locked_edges e
+            JOIN artifact_build_jobs j USING (tenant_id, job_id)
+            LEFT JOIN locked_registrations r ON r.exchange_id = e.exchange_id
+            LEFT JOIN locked_finalizations f ON f.exchange_id = e.exchange_id
+            ORDER BY e.exchange_id
+            """;
     private final DataSource dataSource;
     private final GenerationTransactionAuthority transactionAuthority;
     private final GenerationExecutionTransactionFence executionFence;
-    private final CurrentDirectRoleReader currentRoles;
 
     /** Uses the same PostgreSQL authority and owner transaction as durable stage claims. */
     public PostgresGenerationStageExchangeStore(
             DataSource dataSource, GenerationTransactionAuthority transactionAuthority,
-            GenerationExecutionTransactionFence executionFence, CurrentDirectRoleReader currentRoles) {
+            GenerationExecutionTransactionFence executionFence) {
         this.transactionAuthority = java.util.Objects.requireNonNull(transactionAuthority, "transactionAuthority");
         this.executionFence = java.util.Objects.requireNonNull(executionFence, "executionFence");
-        this.currentRoles = java.util.Objects.requireNonNull(currentRoles, "currentRoles");
         this.dataSource = Objects.requireNonNull(dataSource, "dataSource");
     }
 
@@ -49,8 +75,8 @@ public final class PostgresGenerationStageExchangeStore implements GenerationSta
             GenerationExchangeRegistration registration) {
         transaction(connection -> {
             var context = PostgresCurrentGenerationAuthority.resolve(
-                    transactionAuthority, executionFence, currentRoles, connection, job.tenantId(), job.jobId(), owner);
-            validateRegistration(connection, context, registration);
+                    transactionAuthority, executionFence, connection, job.tenantId(), job.jobId(), owner);
+            validateRegistration(connection, context, registration, requireGraphEdges(connection, context));
             var existing = findRegistration(connection, job, registration.exchangeId(), true);
             if (existing.isPresent()) {
                 if (!existing.orElseThrow().equals(registration)) {
@@ -74,10 +100,10 @@ public final class PostgresGenerationStageExchangeStore implements GenerationSta
             GenerationExchangeFinalization finalization) {
         transaction(connection -> {
             var context = PostgresCurrentGenerationAuthority.resolve(
-                    transactionAuthority, executionFence, currentRoles, connection, job.tenantId(), job.jobId(), owner);
+                    transactionAuthority, executionFence, connection, job.tenantId(), job.jobId(), owner);
             var registration = findRegistration(connection, job, finalization.exchangeId(), true).orElseThrow(() ->
                     new IllegalStateException("Cannot finalize an unregistered durable exchange"));
-            validateRegistration(connection, context, registration);
+            validateRegistration(connection, context, registration, requireGraphEdges(connection, context));
             GenerationExchangeEvidenceCodec.requireRegistration(finalization, registration);
             if (!owner.equals(finalization.finalizingOwner())) {
                 throw new IllegalArgumentException("External finalize response belongs to a different current owner");
@@ -100,7 +126,7 @@ public final class PostgresGenerationStageExchangeStore implements GenerationSta
     public List<ExchangeEvidence> load(GenerationJobKey job, GenerationExecutionOwner owner) {
         return transaction(connection -> {
             var context = PostgresCurrentGenerationAuthority.resolve(
-                    transactionAuthority, executionFence, currentRoles, connection, job.tenantId(), job.jobId(), owner);
+                    transactionAuthority, executionFence, connection, job.tenantId(), job.jobId(), owner);
             return loadValidatedEvidence(connection, context);
         });
     }
@@ -108,21 +134,7 @@ public final class PostgresGenerationStageExchangeStore implements GenerationSta
     /** Same-connection immutable evidence for pure partition preparation; never access capabilities. */
     public static List<ExchangeEvidence> loadValidatedEvidence(Connection connection,
             PostgresCurrentGenerationAuthority context) throws SQLException {
-        requireGraphEdges(connection, context);
-        var spec = context.dispatchSpec();
-        var job = new GenerationJobKey(spec.tenantId(), spec.jobId());
-        var result = new ArrayList<ExchangeEvidence>();
-        for (var edge : spec.stageGraph().exchanges()) {
-            var registration = findRegistration(connection, job, edge.exchangeId(), true);
-            if (registration.isPresent()) {
-                validateRegistration(connection, context, registration.orElseThrow());
-                var finalized = findFinalization(connection, job, edge.exchangeId(), true);
-                finalized.ifPresent(value -> GenerationExchangeEvidenceCodec.requireRegistration(
-                        value, registration.orElseThrow()));
-                result.add(new ExchangeEvidence(registration.orElseThrow(), finalized));
-            }
-        }
-        return List.copyOf(result);
+        return readLockedEvidence(connection, context, false, true);
     }
 
     /** Stores the exact submitted graph's immutable consumer edges on the creating transaction. */
@@ -147,50 +159,102 @@ public final class PostgresGenerationStageExchangeStore implements GenerationSta
     /** Called before job/page locks. A successful metadata page alone can never open an exchange consumer. */
     public static void lockValidatedBarriers(Connection connection, PostgresCurrentGenerationAuthority context)
             throws SQLException {
-        requireGraphEdges(connection, context);
+        readLockedEvidence(connection, context, true, false);
+    }
+
+    /** Locks each barrier and returns the same validated registration and finalization bytes. */
+    public static List<ExchangeEvidence> lockAndLoadValidatedEvidence(Connection connection,
+            PostgresCurrentGenerationAuthority context) throws SQLException {
+        return readLockedEvidence(connection, context, true, true);
+    }
+
+    private static List<ExchangeEvidence> readLockedEvidence(Connection connection,
+            PostgresCurrentGenerationAuthority context, boolean verifyWinners, boolean retainEvidence)
+            throws SQLException {
         var spec = context.dispatchSpec();
         var job = new GenerationJobKey(spec.tenantId(), spec.jobId());
-        for (var edge : spec.stageGraph().exchanges()) {
-            var registration = findRegistration(connection, job, edge.exchangeId(), true);
-            var finalization = findFinalization(connection, job, edge.exchangeId(), true);
-            if (finalization.isPresent()) {
-                var allocated = registration.orElseThrow(() -> new IllegalStateException("Barrier has no allocation"));
-                validateRegistration(connection, context, allocated);
-                GenerationExchangeEvidenceCodec.requireRegistration(finalization.orElseThrow(), allocated);
-                requireProducerWinners(connection, job, allocated);
+        var expected = graphEdges(context);
+        String graphSha256 = GenerationStageGraphCodec.sha256(spec.stageGraph());
+        var evidence = new ArrayList<ExchangeEvidence>();
+        try (var statement = connection.prepareStatement(LOCKED_EXCHANGE_EVIDENCE)) {
+            // Each evidence column can carry 16 MiB. Keep the driver's raw fetch window bounded.
+            statement.setFetchSize(4);
+            statement.setString(1, job.tenantId());
+            statement.setString(2, job.jobId());
+            try (var rows = statement.executeQuery()) {
+                int count = 0;
+                while (rows.next()) {
+                    var edge = expected.get(rows.getString("exchange_id"));
+                    requireGraphEdge(rows, edge, graphSha256);
+                    count++;
+                    byte[] finalized = rows.getBytes("finalization_bytes");
+                    if (finalized == null && !retainEvidence) continue;
+                    var value = readExchangeEvidence(context, rows, edge, graphSha256, finalized);
+                    if (value == null) continue;
+                    if (verifyWinners && value.finalization().isPresent()) {
+                        requireProducerWinners(connection, job, value.registration());
+                    }
+                    if (retainEvidence) evidence.add(value);
+                }
+                requireEdgeCount(expected.size(), count);
             }
         }
+        return List.copyOf(evidence);
+    }
+
+    private static ExchangeEvidence readExchangeEvidence(PostgresCurrentGenerationAuthority context,
+            ResultSet row, Exchange edge, String graphSha256, byte[] finalized) throws SQLException {
+        byte[] registered = row.getBytes("registration_bytes");
+        if (registered == null) {
+            if (finalized != null) throw new IllegalStateException("Barrier has no allocation");
+            return null;
+        }
+        var allocation = GenerationExchangeEvidenceCodec.decodeRegistration(
+                registered, row.getString("registration_sha256"));
+        var stage = context.dispatchSpec().stageGraph().requireStage(edge.upstreamStageId());
+        requireRegistrationIdentity(context, allocation, stage, edge, graphSha256);
+        requireSourceSnapshot(allocation, row.getString("source_snapshot"));
+        var finalization = Optional.<GenerationExchangeFinalization>empty();
+        if (finalized != null) {
+            var value = GenerationExchangeEvidenceCodec.decodeFinalization(
+                    finalized, row.getString("finalization_sha256"));
+            GenerationExchangeEvidenceCodec.requireRegistration(value, allocation);
+            finalization = Optional.of(value);
+        }
+        return new ExchangeEvidence(allocation, finalization);
     }
 
     private static void validateRegistration(Connection connection, PostgresCurrentGenerationAuthority context,
-            GenerationExchangeRegistration registration) throws SQLException {
-        requireGraphEdges(connection, context);
+            GenerationExchangeRegistration registration, String graphSha256) throws SQLException {
         var spec = context.dispatchSpec();
         var graph = spec.stageGraph();
         var edge = graph.exchanges().stream().filter(value -> value.exchangeId().equals(registration.exchangeId()))
                 .findFirst().orElseThrow(() ->
                         new IllegalArgumentException("Exchange is not part of the persisted graph"));
         var stage = graph.requireStage(edge.upstreamStageId());
-        requireRegistrationIdentity(context, registration, stage, edge);
+        requireRegistrationIdentity(context, registration, stage, edge, graphSha256);
         try (var statement = connection.prepareStatement("SELECT source_snapshot FROM artifact_build_jobs "
                 + "WHERE tenant_id=? AND job_id=?")) {
             statement.setString(1, spec.tenantId());
             statement.setString(2, spec.jobId());
             try (var row = statement.executeQuery()) {
-                if (!row.next() || !registration.sourceSnapshot().equals(row.getString(1))) {
-                    throw new IllegalArgumentException("External allocation changes the pinned source snapshot");
-                }
+                requireSourceSnapshot(registration, row.next() ? row.getString(1) : null);
             }
+        }
+    }
+
+    private static void requireSourceSnapshot(GenerationExchangeRegistration registration, String snapshot) {
+        if (!registration.sourceSnapshot().equals(snapshot)) {
+            throw new IllegalArgumentException("External allocation changes the pinned source snapshot");
         }
     }
 
     private static void requireRegistrationIdentity(PostgresCurrentGenerationAuthority context,
             GenerationExchangeRegistration registration,
             org.pangrova.generation.api.graph.GenerationStageGraph.StagePlan stage,
-            org.pangrova.generation.api.graph.GenerationStageGraph.Exchange edge) {
+            org.pangrova.generation.api.graph.GenerationStageGraph.Exchange edge, String graphSha256) {
         if (!registration.executionId().equals(context.executionAnchor().executionId())
-                || !registration.graphSha256().equals(
-                        GenerationStageGraphCodec.sha256(context.dispatchSpec().stageGraph()))
+                || !registration.graphSha256().equals(graphSha256)
                 || !registration.stagePlanSha256().equals(stage.planSha256())
                 || registration.producerStageId() != stage.stageId()
                 || registration.producerCount() != stage.parallelism()
@@ -200,11 +264,10 @@ public final class PostgresGenerationStageExchangeStore implements GenerationSta
     }
 
     /** Verifies the whole allocation index, including absent and unexpected rows, before using it as a gate. */
-    private static void requireGraphEdges(Connection connection, PostgresCurrentGenerationAuthority context)
+    private static String requireGraphEdges(Connection connection, PostgresCurrentGenerationAuthority context)
             throws SQLException {
         var spec = context.dispatchSpec();
-        var expected = spec.stageGraph().exchanges().stream().collect(java.util.stream.Collectors.toMap(
-                org.pangrova.generation.api.graph.GenerationStageGraph.Exchange::exchangeId, value -> value));
+        var expected = graphEdges(context);
         String graphSha256 = GenerationStageGraphCodec.sha256(spec.stageGraph());
         try (var statement = connection.prepareStatement("SELECT exchange_id,producer_stage_id,consumer_stage_id,"
                 + "graph_sha256 FROM artifact_stage_exchanges WHERE tenant_id=? AND job_id=? "
@@ -214,22 +277,31 @@ public final class PostgresGenerationStageExchangeStore implements GenerationSta
             int count = 0;
             try (var row = statement.executeQuery()) {
                 while (row.next()) {
-                    var edge = expected.get(row.getString("exchange_id"));
-                    if (edge == null || edge.upstreamStageId() != row.getInt("producer_stage_id")
-                            || edge.downstreamStageId() != row.getInt("consumer_stage_id")
-                            || !java.security.MessageDigest.isEqual(
-                                    graphSha256.getBytes(java.nio.charset.StandardCharsets.US_ASCII),
-                                    row.getString("graph_sha256")
-                                            .getBytes(java.nio.charset.StandardCharsets.US_ASCII))) {
-                        throw new IllegalStateException(
-                                "Persisted exchange edges differ from the immutable stage graph");
-                    }
+                    requireGraphEdge(row, expected.get(row.getString("exchange_id")), graphSha256);
                     count++;
                 }
             }
-            if (count != expected.size()) {
-                throw new IllegalStateException("Persisted exchange edges are missing from the immutable stage graph");
-            }
+            requireEdgeCount(expected.size(), count);
+        }
+        return graphSha256;
+    }
+
+    private static Map<String, Exchange> graphEdges(PostgresCurrentGenerationAuthority context) {
+        return context.dispatchSpec().stageGraph().exchanges().stream()
+                .collect(Collectors.toMap(Exchange::exchangeId, value -> value));
+    }
+
+    private static void requireGraphEdge(ResultSet row, Exchange edge, String graphSha256) throws SQLException {
+        if (edge == null || edge.upstreamStageId() != row.getInt("producer_stage_id")
+                || edge.downstreamStageId() != row.getInt("consumer_stage_id")
+                || !graphSha256.equals(row.getString("graph_sha256"))) {
+            throw new IllegalStateException("Persisted exchange edges differ from the immutable stage graph");
+        }
+    }
+
+    private static void requireEdgeCount(int expected, int actual) {
+        if (actual != expected) {
+            throw new IllegalStateException("Persisted exchange edges are missing from the immutable stage graph");
         }
     }
 

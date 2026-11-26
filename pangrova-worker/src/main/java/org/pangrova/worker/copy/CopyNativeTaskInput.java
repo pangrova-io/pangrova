@@ -3,7 +3,6 @@ package org.pangrova.worker.copy;
 import org.pangrova.protocol.source.DataSplitProtoCodec;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.v2.FileFormat;
-import org.pangrova.protocol.v2.FileSplitDetail;
 import org.pangrova.protocol.v2.WorkerLocalCopyInput;
 import com.google.protobuf.ByteString;
 
@@ -24,7 +23,7 @@ public final class CopyNativeTaskInput {
             throw new IllegalArgumentException("COPY Native input requires one exact private source binding");
         }
         var split = request.getSplits(0);
-        if (!"copy".equals(split.getConnectorId()) || !split.getConnectorDetail().is(FileSplitDetail.class)
+        if (!"copy".equals(split.getConnectorId()) || !split.hasFileDetail()
                 || DataSplitProtoCodec.fileDetail(split).getFileFormat() != FileFormat.FILE_FORMAT_PARQUET
                 || split.hasCatalog() || split.getStartOffset() != 0 || split.getLength() <= 0
                 || split.getSourceSnapshot().isBlank()

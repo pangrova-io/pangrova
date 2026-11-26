@@ -1,12 +1,11 @@
 package org.pangrova.coordinator.query.execution.split;
 
-import org.pangrova.query.api.task.QuerySplit;
-
 import java.util.List;
 import java.util.Map;
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.planner.analysis.PlanFragment;
+import org.pangrova.planner.analysis.SplitSourceDescriptor;
 
 /** Enumerates the authenticated pinned catalog read without index pruning. Borrows its registry. */
 public final class CatalogStageSplitSource implements StageSplitSource {
@@ -18,9 +17,9 @@ public final class CatalogStageSplitSource implements StageSplitSource {
 
     @Override
     public List<QuerySplit> fetchAndFilterSplits(
-            PlanFragment fragment, Map<String, Long> snapshotOverrides,
+            PlanFragment fragment, List<SplitSourceDescriptor> sources, Map<String, Long> snapshotOverrides,
             String queryId, QuerySession session) {
-        return SplitFetcher.fetchSplitsWithFilePaths(fragment.splitSources(), catalogs,
+        return SplitFetcher.fetchSplitsWithFilePaths(sources, catalogs,
                 snapshotOverrides, fragment.queryOutputColumns(), session);
     }
 }

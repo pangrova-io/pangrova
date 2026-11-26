@@ -7,7 +7,6 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.ResourceLock;
 import org.pangrova.protocol.v2.TaskExecutionOptions;
-import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.protocol.v2.TaskState;
 import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
@@ -22,7 +21,7 @@ class TaskManagerOutputConfigWiringTest {
         try (var runtime = new ActualNativeTaskFixture();
                 var tasks = new ActualTaskManagerFixture(runtime, "output-custom-grant")) {
             var request = runtime.bindWorker(request(true, 4L * 1024 * 1024, 3));
-            var info = tasks.submit(request);
+            var info = tasks.submitReadable(request);
             assertThat(info.allocatedBufferMemory())
                     .isEqualTo(request.getResourceGrant().getShuffleBufferBytes());
             assertThat(tasks.consume(info).values()).containsExactly(0L, 1L, 2L);
@@ -42,7 +41,7 @@ class TaskManagerOutputConfigWiringTest {
             assertThat(request.getExecutionOptions().getDirectResultOutput()).isFalse();
             assertThat(info.executorHandle()).isZero();
             assertThat(info.allocatedBufferMemory()).isZero();
-            var report = TaskReport.parseFrom(info.terminalTaskReport());
+            var report = info.terminalTaskEvidence().report();
             assertThat(report.getState()).isEqualTo(TaskState.TASK_STATE_FINISHED);
             assertThat(report.hasNativeTaskStats()).isTrue();
             assertThat(report.getNativeTaskStats().getOperatorStatsList())
@@ -55,7 +54,7 @@ class TaskManagerOutputConfigWiringTest {
         try (var runtime = new ActualNativeTaskFixture();
                 var tasks = new ActualTaskManagerFixture(runtime, "output-exact-budget")) {
             var request = runtime.bindWorker(request(true, 1024L * 1024, 1));
-            var info = tasks.submit(request);
+            var info = tasks.submitReadable(request);
             assertThat(info.allocatedBufferMemory()).isEqualTo(1024L * 1024);
             assertThat(runtime.arbitrator().queryAllocationsSnapshot())
                     .containsEntry("buffer:" + info.taskId(), 1024L * 1024);
@@ -87,7 +86,7 @@ class TaskManagerOutputConfigWiringTest {
         try (var runtime = new ActualNativeTaskFixture();
                 var tasks = new ActualTaskManagerFixture(runtime, "output-default-request")) {
             var request = runtime.valuesRequest(true);
-            var info = tasks.submit(request);
+            var info = tasks.submitReadable(request);
             assertThat(request.getResourceGrant().getShuffleBufferBytes())
                     .isEqualTo(8L * 1024 * 1024);
             assertThat(info.allocatedBufferMemory())

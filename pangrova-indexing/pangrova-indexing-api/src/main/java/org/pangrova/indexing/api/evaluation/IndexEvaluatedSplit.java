@@ -52,8 +52,8 @@ public final class IndexEvaluatedSplit implements ConnectorSplit {
     }
 
     @Override
-    public byte[] toSplitInfoProto() {
-        return delegate.toSplitInfoProto();
+    public long estimatedScanBytes() {
+        return delegate.estimatedScanBytes();
     }
 
     /**

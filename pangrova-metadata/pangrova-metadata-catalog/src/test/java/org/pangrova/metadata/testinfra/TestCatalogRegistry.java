@@ -35,7 +35,9 @@ public class TestCatalogRegistry extends CatalogRegistry {
 
     public void setTableControlService(TableControlService service) {
         control = Objects.requireNonNull(service);
-        statistics = new TableControlStatisticsService(service, statisticsStore);
+        statistics = service == super.tableControl()
+                ? super.tableStatistics()
+                : new TableControlStatisticsService(service, statisticsStore);
     }
 
     public void setGovernanceBindingStore(TablePolicyRepository store) {

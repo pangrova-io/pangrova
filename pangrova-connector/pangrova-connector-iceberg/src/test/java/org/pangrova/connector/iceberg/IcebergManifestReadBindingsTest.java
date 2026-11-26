@@ -1,5 +1,6 @@
 package org.pangrova.connector.iceberg;
 
+import org.pangrova.protocol.source.CanonicalConnectorSplit;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -85,7 +86,7 @@ class IcebergManifestReadBindingsTest {
             try {
                 var splits = source.getNextBatch(10);
                 assertThat(splits).singleElement().isInstanceOf(IcebergManifestTableSplit.class);
-                DataSplit split = DataSplit.parseFrom(splits.get(0).toSplitInfoProto());
+                DataSplit split = DataSplit.parseFrom(CanonicalConnectorSplit.from(splits.get(0)).toByteArray());
                 assertThat(split.getOpaqueLocation()).isEqualTo(selected.manifestListLocation());
                 assertThat(split.getLength()).isEqualTo(selected.manifestListLength());
                 var detail = DataSplitProtoCodec.fileDetail(split);

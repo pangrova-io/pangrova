@@ -8,8 +8,9 @@ import org.pangrova.common.api.annotation.Experimental;
 public interface ShuffleCleanupRecovery {
     /**
      * Reconciles the pending intent under the current fenced execution owner, including when
-     * this process never held the original registration. Normal return permits the caller to
-     * confirm completion in the authority store. An unknown outcome must remain retryable.
+     * this process never held the original registration. A normal return confirms physical
+     * cleanup and durable consumption of the intent. Pending or unknown outcomes must throw
+     * and remain retryable.
      */
     void recoverCleanupShuffle(String queryId);
 }

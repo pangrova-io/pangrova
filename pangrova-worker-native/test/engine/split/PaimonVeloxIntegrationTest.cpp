@@ -184,16 +184,15 @@ TEST_F(PaimonVeloxIntegrationTest, CowNoMerge) {
 TEST_F(PaimonVeloxIntegrationTest, MowDeletionVector) {
   auto split = makePaimonSplit("/data/paimon/bucket-0/data-001.parquet");
   split.paimon->deletion_vectors_enabled = true;
-  protocol::v2::FileSplitDetail detail;
-  auto* vector = detail.mutable_physical_file_scan()->mutable_deletion_vector();
+  auto vector = std::make_shared<protocol::v2::DeletionVectorReference>();
   vector->set_opaque_location("/data/paimon/dv/dv-001.bin");
   vector->set_byte_offset(12);
   vector->set_byte_length(64);
-  split.file_scan_detail = detail.SerializeAsString();
+  split.deletion_vector = std::move(vector);
   split.paimon->needs_merge = false;
 
   EXPECT_TRUE(split.paimon->deletion_vectors_enabled);
-  EXPECT_FALSE(split.file_scan_detail.empty());
+  EXPECT_TRUE(split.deletion_vector);
 
   // MOW with DV: no merge reader, DV filter applied instead.
   auto reader = merge::MergeReaderFactory::create(split.paimon.value(), outputType_);

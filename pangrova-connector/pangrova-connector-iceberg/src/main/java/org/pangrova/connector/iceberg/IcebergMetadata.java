@@ -80,7 +80,13 @@ public class IcebergMetadata extends IcebergReadMetadata implements CopyFilePubl
     public IcebergMetadata(Catalog catalog, String catalogName, long pinTtlMs,
                            long commitTimeoutMs, Set<String> accessibleEncryptionKeys,
                            org.apache.iceberg.io.FileIO fileIO) {
-        super(catalog, catalogName, pinTtlMs, accessibleEncryptionKeys);
+        this(catalog, catalogName, pinTtlMs, commitTimeoutMs, accessibleEncryptionKeys, fileIO, false);
+    }
+
+    IcebergMetadata(Catalog catalog, String catalogName, long pinTtlMs,
+                    long commitTimeoutMs, Set<String> accessibleEncryptionKeys,
+                    org.apache.iceberg.io.FileIO fileIO, boolean exactTableNameLookup) {
+        super(catalog, catalogName, pinTtlMs, accessibleEncryptionKeys, exactTableNameLookup);
         this.catalog = catalog;
         this.catalogName = catalogName;
         this.maintenanceProcedures = new IcebergMaintenanceProcedures(catalog);
@@ -206,7 +212,7 @@ public class IcebergMetadata extends IcebergReadMetadata implements CopyFilePubl
         finishIcebergDistributedWrite(session, outputHandle, fragments, context);
     }
 
-    private void finishIcebergDistributedWrite(
+    private boolean finishIcebergDistributedWrite(
             ConnectorSession session,
             ConnectorOutputTableHandle outputHandle,
             List<byte[]> fragments,
@@ -252,8 +258,7 @@ public class IcebergMetadata extends IcebergReadMetadata implements CopyFilePubl
             }
         }
         TableIdentifier tableId = TableIdentifier.of(handle.schemaName(), handle.tableName());
-        Table icebergTable = catalog.loadTable(tableId);
-        icebergTable.refresh();
+        Table icebergTable = IcebergCatalogTables.resolveTable(catalog, tableId);
         if (!handle.tableUuid().equals(IcebergOutputHandles.tableUuid(icebergTable))) {
             throw new IllegalStateException(
                     "Iceberg table UUID changed since the distributed write was planned");
@@ -263,7 +268,7 @@ public class IcebergMetadata extends IcebergReadMetadata implements CopyFilePubl
                 || !handle.tableUuid().equals(context.copyFile().tableUuid()))) {
             throw new IllegalArgumentException("COPY claim does not match the Iceberg INSERT target");
         }
-        writeCommitter.finishDistributedWrite(
+        return writeCommitter.finishDistributedWrite(
                 icebergTable, handle, fragments, tenantId, context);
     }
 
@@ -272,16 +277,15 @@ public class IcebergMetadata extends IcebergReadMetadata implements CopyFilePubl
             ConnectorSession session, ConnectorOutputTableHandle outputHandle,
             List<byte[]> fragments, DistributedWriteCommitContext context) {
         java.util.Objects.requireNonNull(context, "Required publication needs its exact commit context");
-        finishIcebergDistributedWrite(session, outputHandle, fragments, context);
+        boolean emptyInsert = finishIcebergDistributedWrite(session, outputHandle, fragments, context);
         IcebergOutputTableHandle handle = (IcebergOutputTableHandle) outputHandle;
-        Table table = catalog.loadTable(TableIdentifier.of(handle.schemaName(), handle.tableName()));
-        table.refresh();
+        Table table = IcebergCatalogTables.resolveTable(
+                catalog, TableIdentifier.of(handle.schemaName(), handle.tableName()));
         if (!handle.tableUuid().equals(IcebergOutputHandles.tableUuid(table))) {
             throw new IllegalStateException("Iceberg table UUID changed before required publication proof");
         }
-        writeCommitter.ensureEmptyInsertPublication(table, handle, fragments, tenantId(session), context);
-        table.refresh();
-        var snapshot = IcebergDistributedCommitMarker.publishedSnapshot(table, context);
+        var snapshot = writeCommitter.publishedSnapshotOrCommitEmptyInsert(
+                table, handle, emptyInsert, tenantId(session), context);
         if (snapshot == null || snapshot.manifestListLocation() == null) {
             throw new IllegalStateException("Required Iceberg publication marker or manifest is absent");
         }
@@ -307,8 +311,8 @@ public class IcebergMetadata extends IcebergReadMetadata implements CopyFilePubl
                 || !IcebergOutputTableHandle.MODE_INSERT.equals(handle.writeMode())) {
             throw new IllegalArgumentException("COPY publication target differs from its write intent");
         }
-        Table table = catalog.loadTable(TableIdentifier.of(handle.schemaName(), handle.tableName()));
-        table.refresh();
+        Table table = IcebergCatalogTables.resolveTable(
+                catalog, TableIdentifier.of(handle.schemaName(), handle.tableName()));
         if (!handle.tableUuid().equals(IcebergOutputHandles.tableUuid(table))) {
             throw new IllegalStateException("Iceberg table UUID changed before COPY publication proof");
         }

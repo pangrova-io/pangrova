@@ -105,7 +105,7 @@ class TaskStatusReportPropertyTest {
         assertThat(report.queryId()).isEqualTo(queryId);
         assertThat(report.workerId()).isEqualTo(workerId);
         assertThat(report.state()).isEqualTo(state);
-        assertThat(report.stats()).isNull();
+        assertThat(report.supplementalStats()).isNull();
         assertThat(report.error()).isNull();
         assertThat(report.writeResult()).isNull();
         assertThat(report.attempt()).isEqualTo(TaskAttemptDescriptor.of(1, 0));

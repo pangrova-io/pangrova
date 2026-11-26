@@ -2,7 +2,7 @@ package org.pangrova.worker.task;
 
 import org.pangrova.worker.enums.TaskAdmissionReason;
 import org.pangrova.worker.exception.TaskAdmissionException;
-import org.pangrova.protocol.rest.copy.PrepareCopySourceRequest;
+import org.pangrova.protocol.rest.copy.preparation.PrepareCopySourceRequest;
 import org.pangrova.protocol.task.CanonicalTaskAdmissionSeals;
 import org.pangrova.protocol.v2.SourcePreparationResult;
 import org.pangrova.protocol.v2.TaskAdmissionSealRequest;

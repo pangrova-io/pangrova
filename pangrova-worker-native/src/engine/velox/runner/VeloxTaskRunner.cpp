@@ -1,22 +1,28 @@
 // VeloxTaskRunner: Drives Velox exec::Task and feeds output to OutputQueue.
 #include "engine/velox/runner/VeloxTaskRunner.h"
+#include "engine/executor/driver/TaskExecutor.h"
 
+#include <algorithm>
+#include <array>
 #include <chrono>
 #include <filesystem>
-#include <set>
+#include <limits>
 #include <stdexcept>
 #include <unordered_set>
 #include <vector>
 
+#include <folly/ScopeGuard.h>
+
 #include "jni/RuntimeInitializer.h"
 #include "indexing/index/IndexHintFilter.h"
 #include "engine/observability/PangrovaLog.h"
-#include "engine/observability/NativeProfiler.h"
+#include "engine/observability/NativeMetricsCollector.h"
 #include "engine/shuffle/SerializedShuffleQueue.h"
 #include "engine/shuffle/ShuffleBatchSerializer.h"
 
 #include "engine/velox/runner/TaskStatsEncoding.h"
 #include "engine/result/FlightResultServer.h"
+#include "engine/result/ResultPayloadProducer.h"
 #include "capabilities/capability/LogicalTypeContract.h"
 
 // Logging for dynamic filter injection warnings.
@@ -40,6 +46,7 @@
 #include "velox/common/future/VeloxPromise.h"
 #include "velox/exec/HashPartitionFunction.h"
 #include "velox/exec/Exchange.h"
+#include "velox/vector/DecodedVector.h"
 
 namespace pangrova::velox {
 
@@ -153,14 +160,12 @@ void scheduleDeferredOutput(
 VeloxTaskRunner::VeloxTaskRunner(
     const VeloxTaskRunnerConfig& config,
     std::shared_ptr<const facebook::velox::core::PlanNode> plan,
-    const std::vector<split::SplitConfig>& splits,
     pangrova::executor::OutputQueue* output_queue,
     pangrova::shuffle::SerializedShuffleQueue* shuffle_queue,
     std::unordered_map<std::string, std::vector<split::SplitConfig>>
         scan_split_overrides)
     : config_(config),
       plan_(std::move(plan)),
-      splits_(splits),
       scan_split_overrides_(std::move(scan_split_overrides)),
       output_queue_(output_queue),
       shuffle_queue_(shuffle_queue) {
@@ -176,8 +181,11 @@ VeloxTaskRunner::VeloxTaskRunner(
   if (config_.is_result_task && !config_.canonical_output_schema) {
     throw std::invalid_argument("Result task requires its admitted canonical output schema");
   }
-  // Result tasks use Velox OutputBufferManager instead of OutputQueue,
-  // so output_queue may be nullptr for result tasks.
+  if (config_.is_result_task) {
+    result_ownership_ = std::make_shared<result::ResultOwnershipState>();
+    result_queue_ = std::make_shared<result::ResultPayloadQueue>(
+        config_.serialized_output_buffer_threshold_bytes);
+  }
   if (!output_queue && !config_.is_result_task) {
     throw std::invalid_argument(
         "VeloxTaskRunner: output_queue must not be null for non-result tasks");
@@ -192,7 +200,17 @@ VeloxTaskRunner::~VeloxTaskRunner() {
   cancel();
 }
 
-void VeloxTaskRunner::start() {
+void VeloxTaskRunner::start(const std::vector<split::SplitConfig>& splits) {
+  if (config_.build_key_ordinals.size() > executor::TaskExecutorConfig::kMaximumBuildKeyColumns) {
+    throw std::invalid_argument("Too many runtime-filter build keys");
+  }
+  for (const auto ordinal : config_.build_key_ordinals) {
+    if (!config_.is_shuffle_task || ordinal >= plan_->outputType()->size() ||
+        plan_->outputType()->childAt(ordinal)->kind() != facebook::velox::TypeKind::BIGINT) {
+      throw std::invalid_argument("Runtime-filter build keys require BIGINT shuffle output columns");
+    }
+  }
+  build_key_ranges_.resize(config_.build_key_ordinals.size());
   // Precondition: this object must be managed by a shared_ptr before start()
   // is called, because the consumer callback captures weak_from_this().
   // PlanExecutionDriver::executeVeloxPlan() creates the runner via
@@ -218,7 +236,7 @@ void VeloxTaskRunner::start() {
   // independently. The pinned SDK defaults to sharing these expressions;
   // this is a semantic invariant, not a session performance override.
   query_config_values[facebook::velox::core::QueryConfig::kExprDedupNonDeterministic] = "false";
-  if (config_.is_result_task || config_.is_shuffle_task) {
+  if (config_.is_shuffle_task) {
     if (config_.serialized_output_buffer_threshold_bytes <= 0) {
       throw std::runtime_error("Serialized output requires a positive serialized-buffer grant");
     }
@@ -427,28 +445,42 @@ void VeloxTaskRunner::start() {
     }
   }
 
-  // For parallel mode, set up a consumer callback that pushes results to
-  // the output queue (or shuffle queue for shuffle tasks).
-  // Velox calls this from Driver threads with output batches.
-  //
-  // RESULT TASK EXCEPTION: When is_result_task is true, the plan contains a
-  // PartitionedOutputNode that serializes output via ArrowBatchVectorSerde and
-  // routes it through Velox's OutputBufferManager automatically. No consumer
-  // callback is needed — passing nullptr lets Velox use OutputBufferManager.
-  // FlightResultServer pulls the canonical Arrow streams from OutputBufferManager.
-  //
-  // VELOX VERSION CONSTRAINT: This lambda captures `this` and relies on
-  // velox_task_->requestCancel().wait() blocking until all Driver threads
-  // exit (guaranteed as of Velox 0.1.x). If upgrading Velox, verify that
-  // requestCancel().wait() still provides this guarantee.
-  //
-  // P0-BUG-2: Safety guarantee for `this` capture: VeloxTaskRunner destructor
-  // calls cancel() which invokes requestCancel().wait(), ensuring all Driver
-  // threads have stopped before `this` is destroyed. The cancelled_ atomic
-  // flag provides an additional early-exit guard.
+  // Velox calls this from Drivers. A suspended Driver yields on a future
+  // after transferring its output to the appropriate consumer.
   facebook::velox::exec::Consumer consumer = nullptr;
-  if (execMode == facebook::velox::exec::Task::ExecutionMode::kParallel &&
-      !config_.is_result_task) {
+  if (config_.is_result_task) {
+    consumer = [weak = weak_from_this()](
+        facebook::velox::RowVectorPtr rows, bool /*atEnd*/, facebook::velox::ContinueFuture* future) {
+      auto self = weak.lock();
+      if (!self || !rows || rows->size() == 0 || self->cancelled_.load()) {
+        return facebook::velox::exec::BlockingReason::kNotBlocked;
+      }
+      // Count work that races cancellation before there is an IPC frame.
+      // A revoked attempt cannot start another allocation or publish drain early.
+      if (!self->result_ownership_->tryAcquireBatch()) {
+        return facebook::velox::exec::BlockingReason::kNotBlocked;
+      }
+      const auto preparation = folly::makeGuard([&] { self->result_ownership_->releaseBatch(); });
+      auto prepared = self->result_producer_->prepare(rows, self->velox_task_);
+      VELOX_USER_CHECK(prepared.ok(), "Cannot encode result payload: {}", prepared.status().ToString());
+      auto frames = std::move(*prepared);
+      if (frames.size() == 1) {
+        const auto pushed = self->result_queue_->tryPush(frames.front());
+        if (pushed.status().IsCancelled()) return facebook::velox::exec::BlockingReason::kNotBlocked;
+        VELOX_USER_CHECK(pushed.ok(), "Cannot publish result payload: {}", pushed.status().ToString());
+        if (*pushed) return facebook::velox::exec::BlockingReason::kNotBlocked;
+      }
+      VELOX_CHECK_NOT_NULL(future);
+      auto [promise, resume] = facebook::velox::makeVeloxContinuePromiseContract("Result Flight credit");
+      auto wake = std::make_shared<facebook::velox::ContinuePromise>(std::move(promise));
+      const auto queued = self->result_queue_->pushOrDefer(std::move(frames),
+          [wake](const arrow::Status&) { wake->setValue(); });
+      if (queued.IsCancelled()) return facebook::velox::exec::BlockingReason::kNotBlocked;
+      VELOX_USER_CHECK(queued.ok(), "Cannot queue result payload: {}", queued.ToString());
+      *future = std::move(resume);
+      return facebook::velox::exec::BlockingReason::kWaitForConsumer;
+    };
+  } else {
     if (config_.is_shuffle_task && shuffle_writer_ && shuffle_queue_) {
       // Shuffle path: serialize RowVector via ShuffleBatchSerializer and push
       // ShuffleBatch to SerializedShuffleQueue.
@@ -463,16 +495,24 @@ void VeloxTaskRunner::start() {
       // backpressure — the Driver thread waits until space is available,
       // which is acceptable because Velox's executor has multiple threads.
       auto weak_self = weak_from_this();
-      consumer = [weak_self](
+      // Velox copies this prototype into each Driver's CallbackSink. Keep the
+      // mutable hash decoder and its scratch with that Driver's consumer.
+      consumer = [weak_self,
+                  partitioner = std::shared_ptr<facebook::velox::exec::HashPartitionFunction>{},
+                  partitions = std::vector<uint32_t>{},
+                  partition_rows = std::vector<std::vector<facebook::velox::vector_size_t>>{}](
           facebook::velox::RowVectorPtr vector,
           bool /*drained*/,
-          facebook::velox::ContinueFuture* /*future*/) -> facebook::velox::exec::BlockingReason {
+          facebook::velox::ContinueFuture* /*future*/) mutable -> facebook::velox::exec::BlockingReason {
         auto self = weak_self.lock();
         if (!self || !vector || vector->size() == 0) {
           return facebook::velox::exec::BlockingReason::kNotBlocked;
         }
         if (self->cancelled_.load()) {
           return facebook::velox::exec::BlockingReason::kNotBlocked;
+        }
+        if (!self->config_.build_key_ordinals.empty()) {
+          self->collectBuildKeyRanges(*vector);
         }
 
         // F-NATIVE-SHUF-09: Use configurable timeout from VeloxTaskRunnerConfig.
@@ -523,29 +563,17 @@ void VeloxTaskRunner::start() {
           // row sets. The accumulator coalesces small partitions and flushes
           // automatically when a partition exceeds kMinPartitionFlushRows.
           auto numRows = vector->size();
-          std::vector<uint32_t> partitions(numRows);
-          std::optional<uint32_t> singlePartition;
-          {
-            // HashPartitionFunction::partition() mutates its VectorHasher
-            // DecodedVector and scratch buffers, so it is not thread-safe.
-            // The consumer is shared by all Drivers of a Task, so the cached
-            // partitioner must be serialized.
-            std::lock_guard<std::mutex> lock(self->shuffle_partitioner_mutex_);
-            if (!self->shuffle_partitioner_) {
-              auto inputType = std::dynamic_pointer_cast<
-                  const facebook::velox::RowType>(vector->type());
-              auto keyChannels = self->shuffle_key_channels_;
-              if (keyChannels.empty() && vector->childrenSize() > 0) {
-                keyChannels.push_back(0);
-              }
-              self->shuffle_partitioner_ =
-                  std::make_shared<facebook::velox::exec::HashPartitionFunction>(
-                      false, self->config_.num_shuffle_partitions,
-                      inputType, keyChannels);
+          partitions.resize(numRows);
+          if (!partitioner) {
+            auto inputType = std::dynamic_pointer_cast<const facebook::velox::RowType>(vector->type());
+            auto keyChannels = self->shuffle_key_channels_;
+            if (keyChannels.empty() && vector->childrenSize() > 0) {
+              keyChannels.push_back(0);
             }
-            singlePartition =
-                self->shuffle_partitioner_->partition(*vector, partitions);
+            partitioner = std::make_shared<facebook::velox::exec::HashPartitionFunction>(
+                false, self->config_.num_shuffle_partitions, inputType, keyChannels);
           }
+          const auto singlePartition = partitioner->partition(*vector, partitions);
 
           if (singlePartition.has_value()) {
             // All rows in one partition — accumulate as a single chunk.
@@ -564,40 +592,31 @@ void VeloxTaskRunner::start() {
                   ", task_id=" + self->config_.task_id + ")";
             }
           } else {
-            // Distribute rows to partitions via accumulator.
-            // L2-4: thread_local container reuse — avoids re-allocating the
-            // outer vector + inner vectors on every batch. Each Velox Driver
-            // thread processes batches sequentially, so thread_local is safe
-            // and eliminates heap allocation in the hot path (10K+ batches/sec).
-            thread_local std::vector<std::vector<facebook::velox::vector_size_t>>
-                partitionRows;
             auto numPartitions = self->config_.num_shuffle_partitions;
-            if (static_cast<int32_t>(partitionRows.size()) != numPartitions) {
-              partitionRows.resize(numPartitions);
+            if (static_cast<int32_t>(partition_rows.size()) != numPartitions) {
+              partition_rows.resize(numPartitions);
             }
             // Clear sub-vectors (retains capacity from previous batch).
-            for (auto& pv : partitionRows) {
+            for (auto& pv : partition_rows) {
               pv.clear();
             }
             // Reserve on first use or when batch size grows.
             auto estimatedRowsPerPartition = static_cast<size_t>(
                 numRows / numPartitions) + 1;
-            for (auto& pv : partitionRows) {
+            for (auto& pv : partition_rows) {
               if (pv.capacity() < estimatedRowsPerPartition) {
                 pv.reserve(estimatedRowsPerPartition);
               }
             }
             for (facebook::velox::vector_size_t r = 0; r < numRows; ++r) {
-              partitionRows[partitions[r]].push_back(r);
+              partition_rows[partitions[r]].push_back(r);
             }
             for (int32_t pid = 0;
                  pid < self->config_.num_shuffle_partitions; ++pid) {
-              if (partitionRows[pid].empty()) continue;
-              // Pass by copy (not move) to preserve thread_local capacity.
-              // The copy cost is O(rows_in_partition) integers — trivial
-              // compared to the serialization work that follows.
+              if (partition_rows[pid].empty()) continue;
+              // The accumulator retains its own row selections across callbacks.
               if (!self->shuffle_accumulator_->accumulate(
-                      pid, vector, partitionRows[pid])) {
+                      pid, vector, partition_rows[pid])) {
                 self->cancelled_.store(true);
                 std::lock_guard<std::mutex> lock(self->error_mutex_);
                 self->error_message_ =
@@ -729,13 +748,13 @@ void VeloxTaskRunner::start() {
       0,  // memoryArbitrationPriority
       std::move(spillDiskOpts));
 
-  // Publish the result schema before the OutputBuffer becomes visible to
-  // Flight DoGet. The cache carries exact logical column types with the
-  // physical Velox row type as one atomic registration.
+  // Construct the one producer and register its exact schema and authority
+  // before Drivers can publish payloads.
   if (config_.is_result_task) {
     auto output_type = std::dynamic_pointer_cast<const facebook::velox::RowType>(
         plan_->outputType());
-    if (output_type) {
+    VELOX_CHECK_NOT_NULL(output_type);
+    {
       pangrova::result::FlightResultServer::TaskOutputInfo info;
       info.output_type = output_type;
       info.result_column_types = config_.result_column_types;
@@ -758,15 +777,24 @@ void VeloxTaskRunner::start() {
         }
         capability::validateVectorResultField(column.logical_type, *info.wire_schema->field(column.column_index));
       }
-      result_ownership_ = std::make_shared<pangrova::result::ResultOwnershipState>();
       info.ownership = result_ownership_;
-      result_buffers_ = facebook::velox::exec::OutputBufferManager::getInstanceRef();
-      info.buffers = result_buffers_;
+      info.queue = result_queue_;
+      result_producer_ = std::make_unique<result::ResultPayloadProducer>(
+          *config_.canonical_output_schema, info.wire_schema, info.result_column_types,
+          info.pool, result_ownership_);
       // Direct runner tests have no executor registry owner. Canonical Task
       // execution always binds a positive handle before the runner is built.
       if (config_.executor_handle > 0) {
-        info.report_stream_failure = [handle = config_.executor_handle, reporter = config_.failure_reporter](const std::string& failure) {
+        info.report_stream_finished = [handle = config_.executor_handle, reporter = config_.failure_reporter] {
+          reporter->reportResultStreamFinished(handle);
+        };
+        const std::weak_ptr<facebook::velox::exec::Task> producer = velox_task_;
+        info.report_stream_failure = [handle = config_.executor_handle, reporter = config_.failure_reporter,
+                                      producer](const std::string& failure) {
           reporter->reportResultStreamFailure(handle, failure);
+          // A reader may exit while the producer is waiting for Flight credit.
+          // Publish the canonical failure before stopping the actual SDK task.
+          if (const auto task = producer.lock()) task->setError(failure);
         };
       }
       if (!info.authority.ParseFromString(config_.callback_context)) {
@@ -818,7 +846,7 @@ void VeloxTaskRunner::start() {
     for (const auto& split_config : override->second) {
       bool index_evaluated = false;
       if (!index::IndexHintFilter::shouldKeepTypedSplit(
-              split_config.file_scan_detail, split_config.file_path, &index_evaluated)) {
+              split_config.index_hints.get(), split_config.file_path, &index_evaluated)) {
         ++index_split_total;
         ++index_split_skipped;
         continue;
@@ -837,37 +865,14 @@ void VeloxTaskRunner::start() {
         "Retrieval split override references an unknown scan node");
   }
 
-  // Deduplicate splits by (split_id, table_name, file_path, start_offset, length).
-  // When a plan has multiple scan nodes for the same table (e.g. UNION ALL),
-  // the coordinator may send one split per scan node — all pointing to the
-  // same file.  Without dedup, the routing loop below broadcasts each
-  // duplicate to every matching leaf node, causing N× data multiplication.
-  // Note: start_offset and length are included in the key to avoid
-  // over-deduplicating partitioned tables where multiple splits share
-  // the same file path but cover different byte ranges.
-  // split_id is included to prevent over-deduplication in self-join
-  // scenarios where the same file appears on both sides of the join
-  // with different split_ids but an empty table_name.
-  std::vector<split::SplitConfig> uniqueSplits;
-  {
-    std::set<std::tuple<std::string, std::string, std::string, int64_t, int64_t>> seen;
-    for (const auto& s : splits_) {
-      auto key = std::make_tuple(s.split_id, s.table_name, s.file_path,
-                                 s.start_offset, s.length);
-      if (seen.insert(key).second) {
-        uniqueSplits.push_back(s);
-      }
-    }
-  }
-
   // Route splits to scan nodes by matching split table name to scan node
   // table name.  Supports both exact match and suffix match (the split may
   // carry "schema.table" while the scan node only has "table").
   // If no match is found, broadcast to all leaf nodes as fallback.
-  for (const auto& splitConfig : uniqueSplits) {
+  for (const auto& splitConfig : splits) {
     bool index_evaluated = false;
     if (!index::IndexHintFilter::shouldKeepTypedSplit(
-            splitConfig.file_scan_detail, splitConfig.file_path, &index_evaluated)) {
+            splitConfig.index_hints.get(), splitConfig.file_path, &index_evaluated)) {
       ++index_split_total;
       ++index_split_skipped;
       continue;
@@ -916,11 +921,6 @@ void VeloxTaskRunner::start() {
   for (const auto& leaf : splitLeafNodes) {
     velox_task_->noMoreSplits(leaf.nodeId);
   }
-
-  // Register with NativeProfiler for operator-level profiling.
-  observability::NativeProfiler::instance().registerTask(
-      config_.task_id, velox_task_);
-
 }
 
 void VeloxTaskRunner::cancel() {
@@ -955,6 +955,17 @@ void VeloxTaskRunner::releaseTaskAndWaitForDeletion() {
   deletion_future.wait();
 }
 
+bool VeloxTaskRunner::startInitializedTask() {
+  const int32_t drivers = config_.max_drivers_override > 0
+      ? config_.max_drivers_override
+      : config_.max_drivers;
+  velox_task_->start(drivers);
+  if (!result_queue_ || cancelled_.load()) return false;
+  if (result::FlightResultServer::markTaskOutputReady(config_.task_id)) return true;
+  if (cancelled_.load()) return false;
+  throw std::runtime_error("Started result task has no active Flight registration");
+}
+
 bool VeloxTaskRunner::waitForCompletion() {
   if (!velox_task_) {
     {
@@ -966,21 +977,11 @@ bool VeloxTaskRunner::waitForCompletion() {
   }
 
   try {
-    // Parallel mode: Task::start() initiates multi-Driver execution.
-    // Use per-query override if set (> 0), otherwise fall back to default max_drivers.
-    int32_t effective_drivers = config_.max_drivers_override > 0
-        ? config_.max_drivers_override
-        : config_.max_drivers;
-    velox_task_->start(effective_drivers);
+    startInitializedTask();
 
-    // Wait until the task finishes via taskCompletionFuture.
-    // For result tasks with PartitionedOutputNode, this future resolves
-    // only after all output is consumed by FlightResultServer::DoGet().
-    // The Java DAG dispatch layer handles the result-task lifecycle:
-    // it completes the DAG future when the task reaches RUNNING state
-    // (not FINISHED), allowing the coordinator to fetch results via
-    // FlightResultServer, which unblocks the Velox task completion.
+    // This waits for the producer. Result frames may still be in Flight.
     velox_task_->taskCompletionFuture().wait();
+    if (result_ownership_) result_ownership_->stopProducer();
 
     if (cancelled_.load()) {
       if (output_queue_) {
@@ -990,23 +991,10 @@ bool VeloxTaskRunner::waitForCompletion() {
       return true;
     }
 
-    auto state = velox_task_->state();
-    if (state == facebook::velox::exec::TaskState::kFailed) {
-      {
-        std::lock_guard<std::mutex> lock(error_mutex_);
-        error_message_ = velox_task_->errorMessage();
-      }
-#if __has_include(<glog/logging.h>)
-      LOG(ERROR) << "velox_task_failed"
-                 << " query_id=" << config_.query_id
-                 << " task_id=" << config_.task_id
-                 << " error_type=velox_execution"
-                 << " error_detail=" << velox_task_->errorMessage();
-#endif
-      cleanup();
-      finished_.store(true);
-      return false;
+    if (velox_task_->state() == facebook::velox::exec::TaskState::kFailed) {
+      return handleTaskCompletion();
     }
+    if (!commitResultOutput()) return false;
 
     // Defer cleanup() to PlanExecutionDriver — it must drain the OutputQueue
     // before cleanup closes it and releases RowVector memory pools.
@@ -1053,7 +1041,7 @@ bool VeloxTaskRunner::waitForCompletion() {
   }
 }
 
-folly::SemiFuture<bool> VeloxTaskRunner::startAsync() {
+folly::SemiFuture<bool> VeloxTaskRunner::startAsync(const std::function<void()>& on_result_ready) {
   if (!velox_task_) {
     {
       std::lock_guard<std::mutex> lock(error_mutex_);
@@ -1063,10 +1051,7 @@ folly::SemiFuture<bool> VeloxTaskRunner::startAsync() {
     return folly::makeSemiFuture(false);
   }
   try {
-    const int32_t effective_drivers = config_.max_drivers_override > 0
-        ? config_.max_drivers_override
-        : config_.max_drivers;
-    velox_task_->start(effective_drivers);
+    if (startInitializedTask() && on_result_ready) on_result_ready();
   } catch (const std::exception& e) {
     {
       std::lock_guard<std::mutex> lock(error_mutex_);
@@ -1083,6 +1068,7 @@ folly::SemiFuture<bool> VeloxTaskRunner::startAsync() {
 }
 
 bool VeloxTaskRunner::handleTaskCompletion() {
+  if (result_ownership_) result_ownership_->stopProducer();
   if (cancelled_.load()) {
     if (output_queue_) {
       output_queue_->close();
@@ -1116,6 +1102,7 @@ bool VeloxTaskRunner::handleTaskCompletion() {
                << " error_type=velox_execution"
                << " error_detail=" << velox_task_->errorMessage();
 #endif
+    failResultOutput(failure);
     cleanup();
     finished_.store(true);
     return false;
@@ -1131,10 +1118,12 @@ bool VeloxTaskRunner::isFinished() const {
 
 pangrova::result::ResultOwnershipState::Evidence VeloxTaskRunner::resultDrainEvidence() const {
   if (!result_ownership_) return {false, false, false, 0, 0};
-  if (velox_task_ && velox_task_->state() != facebook::velox::exec::TaskState::kRunning) {
-    result_ownership_->stopProducer();
-  }
   return result_ownership_->evidence();
+}
+
+void VeloxTaskRunner::watchResultDrain(std::function<void()> listener) const {
+  if (!result_ownership_) throw std::logic_error("Task has no result ownership");
+  result_ownership_->watchDrain(std::move(listener));
 }
 
 std::string VeloxTaskRunner::errorMessage() const {
@@ -1173,16 +1162,53 @@ facebook::velox::exec::Task* VeloxTaskRunner::veloxTask() const {
   return velox_task_.get();
 }
 
-std::vector<uint8_t> VeloxTaskRunner::collectTaskStats() const {
-  if (!velox_task_) {
-    return {};
+void VeloxTaskRunner::collectBuildKeyRanges(const facebook::velox::RowVector& rows) {
+  const auto count = config_.build_key_ordinals.size();
+  std::array<BuildKeyRanges, executor::TaskExecutorConfig::kMaximumBuildKeyColumns> batch;
+  bool containsKey = false;
+  for (size_t channel = 0; channel < count; ++channel) {
+    facebook::velox::DecodedVector key(*rows.childAt(config_.build_key_ordinals[channel]));
+    for (facebook::velox::vector_size_t index = 0; index < rows.size(); ++index) {
+      if (!key.isNullAt(index)) batch[channel].add(key.valueAt<int64_t>(index));
+    }
+    containsKey |= !batch[channel].ranges().empty();
   }
-  // Delegate to shared serialization utility to avoid duplicate logic
-  // with the wire-format per-operator counters.
-  return serializeNativeTaskStats(
-      velox_task_->taskStats(),
+  if (!containsKey) return;
+  std::lock_guard lock(build_key_ranges_mutex_);
+  for (size_t channel = 0; channel < count; ++channel) {
+    build_key_ranges_[channel].merge(batch[channel]);
+  }
+}
+
+std::optional<protocol::v2::NativeTaskStats> VeloxTaskRunner::collectTaskStats(
+    observability::NativeMetricsCollector* metrics) const {
+  if (!velox_task_) {
+    return std::nullopt;
+  }
+  const auto snapshot = velox_task_->taskStats();
+  if (metrics) {
+    metrics->observeColumnarReadTaskStats(snapshot);
+  }
+  auto stats = encodeNativeTaskStats(
+      snapshot,
       index_splits_evaluated_.load(std::memory_order_acquire),
       index_splits_skipped_.load(std::memory_order_acquire));
+  if (!config_.build_key_ordinals.empty() && velox_task_->state() == facebook::velox::exec::TaskState::kFinished) {
+    std::lock_guard lock(build_key_ranges_mutex_);
+    for (size_t channel = 0; channel < config_.build_key_ordinals.size(); ++channel) {
+      auto* summary = stats.add_build_key_summaries();
+      summary->set_ordinal(config_.build_key_ordinals[channel]);
+      for (const auto& interval : build_key_ranges_[channel].ranges()) {
+        auto* range = summary->add_ranges();
+        range->set_minimum(interval.minimum);
+        range->set_maximum(interval.maximum);
+      }
+    }
+  }
+  if (stats.operator_stats().empty() && stats.ByteSizeLong() == 0) {
+    return std::nullopt;
+  }
+  return stats;
 }
 
 void VeloxTaskRunner::finalizeShuffleOutput() {
@@ -1198,24 +1224,34 @@ void VeloxTaskRunner::finalizeShuffleOutput() {
   shuffle_accumulator_.reset();
 }
 
+bool VeloxTaskRunner::commitResultOutput() {
+  if (!result_queue_) return true;
+  const auto sealed = result_queue_->seal();
+  if (sealed.IsCancelled() || cancelled_.load()) return false;
+  VELOX_CHECK(sealed.ok(), "Cannot seal result payloads: {}", sealed.ToString());
+  return true;
+}
+
+void VeloxTaskRunner::failResultOutput(const std::string& failure) {
+  if (!result_queue_) return;
+  result_ownership_->revokeAuthority();
+  result_queue_->abort(arrow::Status::ExecutionError(failure));
+  revokeResultOutput();
+}
+
 void VeloxTaskRunner::revokeResultOutput() {
-  if (config_.is_result_task) {
-    if (result_ownership_) result_ownership_->revokeAuthority();
-    pangrova::result::FlightResultServer::unregisterTaskOutputType(config_.task_id);
-    if (result_buffers_) {
-      result_buffers_->deleteResults(config_.task_id, 0);
-      if (result_ownership_) result_ownership_->revokeAndClearQueue();
-    }
-  }
+  if (!result_queue_) return;
+  result_ownership_->revokeAuthority();
+  result::FlightResultServer::unregisterTaskOutputType(config_.task_id, result_ownership_);
+  result_queue_->abort(arrow::Status::Cancelled("Result task was cancelled or released"));
+  result_ownership_->revokeAndClearQueue();
 }
 
 void VeloxTaskRunner::cleanup() {
   std::call_once(cleanup_once_, [this] {
-    observability::NativeProfiler::instance().unregisterTask(config_.task_id);
     PendingFilterRegistry::instance().remove(config_.task_id);
     // Successful producer completion is not consumption or result revocation.
     if (cancelled_.load() || !errorMessage().empty()) revokeResultOutput();
-    // Result tasks use Velox OutputBufferManager — no OutputQueue to close.
     // A successful producer flushes explicitly before publishing FINISHED.
     // Cancellation/failure discards buffered rows; its queue is aborted.
     {

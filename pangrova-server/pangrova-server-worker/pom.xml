@@ -15,8 +15,24 @@
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-ai-worker</artifactId><scope>runtime</scope></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-ai-qwen</artifactId><scope>runtime</scope></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-ai-openai</artifactId><scope>runtime</scope></dependency>
-        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-connector-iceberg</artifactId><scope>runtime</scope></dependency>
-        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-connector-paimon</artifactId><scope>runtime</scope></dependency>
+        <!-- The Worker HTTP runtime gets its Jakarta REST API from Jersey.
+             Hadoop's copy uses the older javax.ws.rs package under the same Maven coordinates. -->
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-connector-iceberg</artifactId>
+            <scope>runtime</scope>
+            <exclusions>
+                <exclusion><groupId>jakarta.ws.rs</groupId><artifactId>jakarta.ws.rs-api</artifactId></exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.pangrova</groupId>
+            <artifactId>pangrova-connector-paimon</artifactId>
+            <scope>runtime</scope>
+            <exclusions>
+                <exclusion><groupId>jakarta.ws.rs</groupId><artifactId>jakarta.ws.rs-api</artifactId></exclusion>
+            </exclusions>
+        </dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-server-bootstrap</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-worker</artifactId></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-streaming-worker</artifactId></dependency>

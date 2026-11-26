@@ -27,6 +27,8 @@ import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -104,13 +106,15 @@ class IcebergMetadataAtomicCommitTest {
         assertThat(countSnapshots(table)).isEqualTo(1);
     }
 
-    @Test
-    void requiredEmptyInsertCommitsOneRealSnapshotAndReplaysExactly() {
+    @ParameterizedTest
+    @ValueSource(ints = {0, 1, 32})
+    void requiredEmptyInsertCommitsOneRealSnapshotAndReplaysExactly(int fragmentCount) {
         Table table = createTable("required_empty");
         var handle = beginInsert("required_empty");
-        var context = context("required-empty", handle, List.of());
+        var fragments = java.util.Collections.nCopies(fragmentCount, "[]".getBytes(StandardCharsets.UTF_8));
+        var context = context("required-empty", handle, fragments);
         assertThat(table.currentSnapshot()).isNull();
-        var receipt = metadata.finishDistributedWriteWithPublication(SESSION, handle, List.of(), context);
+        var receipt = metadata.finishDistributedWriteWithPublication(SESSION, handle, fragments, context);
         table.refresh();
         assertThat(table.currentSnapshot().snapshotId()).isEqualTo(receipt.publishedVersion());
         assertThat(table.currentSnapshot().summary()).containsEntry(
@@ -120,7 +124,7 @@ class IcebergMetadataAtomicCommitTest {
         } catch (java.io.IOException failure) {
             throw new java.io.UncheckedIOException(failure);
         }
-        assertThat(metadata.finishDistributedWriteWithPublication(SESSION, handle, List.of(), context))
+        assertThat(metadata.finishDistributedWriteWithPublication(SESSION, handle, fragments, context))
                 .isEqualTo(receipt);
         table.refresh();
         assertThat(countSnapshots(table)).isEqualTo(1);
@@ -203,14 +207,17 @@ class IcebergMetadataAtomicCommitTest {
                 .containsEntry(IcebergDistributedCommitMarker.BASE_SNAPSHOT_ID,
                         String.valueOf(handle.baseSnapshotId()));
 
-        DataFile unrelated = DataFiles.builder(table.spec())
-                .withPath(table.location() + "/data/unrelated.parquet")
-                .withFormat(FileFormat.PARQUET)
-                .withRecordCount(1)
-                .withFileSizeInBytes(100)
-                .build();
-        table.newAppend().appendFile(unrelated).commit();
+        for (int later = 0; later < 25; later++) {
+            DataFile unrelated = DataFiles.builder(table.spec())
+                    .withPath(table.location() + "/data/unrelated-" + later + ".parquet")
+                    .withFormat(FileFormat.PARQUET)
+                    .withRecordCount(1)
+                    .withFileSizeInBytes(100)
+                    .build();
+            table.newAppend().appendFile(unrelated).commit();
+        }
         int snapshotsBeforeReplay = countSnapshots(table);
+        long latestSnapshot = table.currentSnapshot().snapshotId();
 
         IcebergOutputTableHandle rebuilt = (IcebergOutputTableHandle)
                 metadata.reconstructOutputHandle(
@@ -218,8 +225,46 @@ class IcebergMetadataAtomicCommitTest {
                         "INSERT", handle.baseSnapshotId());
         metadata.finishDistributedWrite(SESSION, rebuilt, List.of(fragment), context);
 
+        table.refresh();
         assertThat(rebuilt.baseSnapshotId()).isEqualTo(handle.baseSnapshotId());
         assertThat(countSnapshots(table)).isEqualTo(snapshotsBeforeReplay);
+        assertThat(table.currentSnapshot().snapshotId()).isEqualTo(latestSnapshot);
+    }
+
+    @Test
+    void replayRejectsMatchingFingerprintWithDifferentTenant() {
+        Table table = createTable("inconsistent_marker");
+        var handle = beginInsert("inconsistent_marker");
+        var fragments = List.of(buildAppendFragmentBytes(table, "staged.parquet", 3, 1024));
+        var context = context("inconsistent-marker", handle, fragments);
+        var append = table.newAppend();
+        IcebergDistributedCommitMarker.apply(append, context);
+        append.set(IcebergDistributedCommitMarker.TENANT_ID, "foreign-tenant").commit();
+
+        assertThatThrownBy(() -> metadata.finishDistributedWrite(SESSION, handle, fragments, context))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining(IcebergDistributedCommitMarker.TENANT_ID);
+        table.refresh();
+        assertThat(countSnapshots(table)).isOne();
+    }
+
+    @Test
+    void replayRejectsMultipleSnapshotsWithTheSameFingerprint() {
+        Table table = createTable("duplicate_marker");
+        var handle = beginInsert("duplicate_marker");
+        var fragments = List.of(buildAppendFragmentBytes(table, "first.parquet", 3, 1024));
+        var context = context("duplicate-marker", handle, fragments);
+        metadata.finishDistributedWrite(SESSION, handle, fragments, context);
+        table.refresh();
+        var append = table.newAppend();
+        IcebergDistributedCommitMarker.apply(append, context);
+        append.commit();
+
+        assertThatThrownBy(() -> metadata.finishDistributedWrite(SESSION, handle, fragments, context))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("appears in multiple snapshots");
+        table.refresh();
+        assertThat(countSnapshots(table)).isEqualTo(2);
     }
 
     @Test

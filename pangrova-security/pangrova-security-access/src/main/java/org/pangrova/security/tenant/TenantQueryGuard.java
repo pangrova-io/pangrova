@@ -2,10 +2,8 @@ package org.pangrova.security.tenant;
 
 import org.pangrova.security.exception.TenantQuotaExceededException;
 
-import org.pangrova.common.enums.PangrovaErrorCode;
-import org.pangrova.common.exception.PangrovaException;
+import org.pangrova.security.api.exception.AuthorizationDeniedException;
 import org.pangrova.security.api.identity.UserIdentity;
-import org.pangrova.security.api.enums.TenantStatus;
 import org.pangrova.security.api.tenant.ResolvedTenantContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,8 +16,8 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
  * Pre-submit gate that resolves tenant membership and enforces quota limits.
  * Implements fail-close semantics: unmapped users are denied by default.
  *
- * @throws PangrovaException with TENANT_NOT_FOUND if user has no tenant mapping (fail-close)
- * @throws TenantQuotaExceededException if quota exceeded or tenant suspended
+ * @throws AuthorizationDeniedException if there is no authenticated tenant membership (fail-close)
+ * @throws TenantQuotaExceededException if quota exceeded or tenant inactive
  */
 public final class TenantQueryGuard {
 
@@ -37,37 +35,37 @@ public final class TenantQueryGuard {
     }
 
     /**
-     * Resolves tenant and checks quota. Returns tenantId on success.
+     * Resolves tenant and checks quota. Returns the membership and tenant from that authority read.
      * Fail-close: denies access when identity is null or has no tenant mapping.
      *
-     * @throws PangrovaException with TENANT_NOT_FOUND if user has no tenant mapping
-     * @throws TenantQuotaExceededException if quota exceeded or tenant suspended
+     * @throws AuthorizationDeniedException if there is no authenticated tenant membership
+     * @throws TenantQuotaExceededException if quota exceeded or tenant inactive
      */
-    public String checkAndResolve(UserIdentity identity) {
+    public ResolvedTenantContext checkAndResolve(UserIdentity identity) {
         if (identity == null) {
             LOG.warn("event=tenant_guard_deny reason=null_identity");
-            throw new PangrovaException(PangrovaErrorCode.TENANT_NOT_FOUND,
+            throw new AuthorizationDeniedException(
                     "Access denied: no user identity provided (fail-close)");
         }
         Optional<ResolvedTenantContext> ctx = resolver.resolve(identity);
         if (ctx.isEmpty()) {
             LOG.warn("event=tenant_guard_deny reason=unmapped_tenant user={}",
                     identity.principal());
-            throw new PangrovaException(PangrovaErrorCode.TENANT_NOT_FOUND,
+            throw new AuthorizationDeniedException(
                     "Access denied: user '%s' has no tenant mapping (fail-close)"
                             .formatted(identity.principal()));
         }
         ResolvedTenantContext tenant = ctx.get();
-        rejectIfSuspended(tenant);
+        requireActiveTenant(tenant);
         enforceQuota(tenant);
         LOG.debug("Tenant resolved: tenantId={}, user={}", tenant.tenant().tenantId(), identity.principal());
-        return tenant.tenant().tenantId();
+        return tenant;
     }
 
-    private void rejectIfSuspended(ResolvedTenantContext ctx) {
-        if (ctx.tenant().status() == TenantStatus.SUSPENDED) {
+    private void requireActiveTenant(ResolvedTenantContext ctx) {
+        if (!ctx.isActive()) {
             throw new TenantQuotaExceededException(
-                    "Tenant '%s' is suspended".formatted(ctx.tenant().tenantId()));
+                    "Tenant '%s' is %s".formatted(ctx.tenantId(), ctx.tenant().status()));
         }
     }
 

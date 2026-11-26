@@ -17,7 +17,8 @@ final class IcebergJdbcTestDatabase {
         private static PostgreSQLContainer<?> start() {
             var postgres = new PostgreSQLContainer<>("postgres:16-alpine")
                     .withDatabaseName("pangrova_metadata_test")
-                    .withUsername("pangrova").withPassword("pangrova_test");
+                    .withUsername("pangrova").withPassword("pangrova_test")
+                    .withCommand("postgres", "-c", "shared_preload_libraries=pg_stat_statements");
             postgres.start();
             return postgres;
         }

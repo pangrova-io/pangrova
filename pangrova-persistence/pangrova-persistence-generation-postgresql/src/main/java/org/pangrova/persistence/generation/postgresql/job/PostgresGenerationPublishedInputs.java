@@ -30,15 +30,17 @@ import static org.pangrova.persistence.jdbc.support.JdbcSupport.getInstant;
 /** Same-connection immutable publication reads, shared by query resolution and durable claim preparation. */
 final class PostgresGenerationPublishedInputs {
     private static final PostgresGenerationQueries INPUTS = new PostgresGenerationQueries();
+    private static final String PUBLISHED_MANIFEST =
+            "SELECT * FROM artifact_build_jobs WHERE tenant_id=? AND artifact_id=? "
+                    + "AND staging_generation=? AND source_snapshot=? AND state='PUBLISHED'";
+    private static final String LOCKED_PUBLISHED_MANIFEST = PUBLISHED_MANIFEST + " FOR SHARE";
 
     private PostgresGenerationPublishedInputs() {}
 
     static Optional<GenerationManifest> findManifest(Connection connection, String tenantId,
-            String artifactId, String generation, String sourceSnapshot) throws SQLException {
+            String artifactId, String generation, String sourceSnapshot, boolean lock) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT * FROM artifact_build_jobs WHERE tenant_id=? AND artifact_id=? "
-                        + "AND staging_generation=? AND source_snapshot=? "
-                        + "AND state='PUBLISHED'")) {
+                lock ? LOCKED_PUBLISHED_MANIFEST : PUBLISHED_MANIFEST)) {
             statement.setString(1, tenantId);
             statement.setString(2, artifactId);
             statement.setString(3, generation);
@@ -84,16 +86,17 @@ final class PostgresGenerationPublishedInputs {
         var requested = splits.stream().map(GenerationSplit::dataObjectId).sorted().distinct().toList();
         for (var read : reads) {
             var manifest = findManifest(connection, tenantId, read.artifactId(), read.generation(),
-                    read.sourceSnapshot()).orElseThrow(() -> new IllegalStateException("Pinned publication is absent"));
+                    read.sourceSnapshot(), true).orElseThrow(
+                            () -> new IllegalStateException("Pinned publication is absent"));
             if (!manifest.sourceId().equals(read.sourceId())
                     || !manifest.manifestSha256().equals(read.manifestSha256())) {
                 throw new IllegalStateException("Pinned stage publication identity or digest differs");
             }
-            var outputs = PostgresGenerationOutputQueries.loadPublished(
+            var outputs = PostgresGenerationOutputQueries.loadLockedPublishedOutputs(
                     connection, tenantId, manifest.jobId(), requested);
             Map<String, String> covered = splitChecksums(splits, outputs);
-            if (!PostgresGenerationOutputQueries.matchesPublishedSplits(connection, tenantId, manifest.jobId(),
-                    List.copyOf(covered.keySet()), covered)) {
+            if (!PostgresGenerationOutputQueries.matchesLockedPublishedSplits(
+                    connection, tenantId, manifest.jobId(), List.copyOf(covered.keySet()), covered)) {
                 throw new IllegalStateException("Pinned artifact source allocation differs from durable task inputs");
             }
             result.put(read, new PublishedInput(manifest, outputs, covered.keySet()));

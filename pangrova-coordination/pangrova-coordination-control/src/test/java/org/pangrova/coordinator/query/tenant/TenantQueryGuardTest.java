@@ -6,6 +6,7 @@ import org.pangrova.security.api.tenant.ResourceQuota;
 import org.pangrova.security.api.tenant.Tenant;
 import org.pangrova.security.api.enums.TenantRole;
 import org.pangrova.security.api.enums.TenantStatus;
+import org.pangrova.security.api.exception.AuthorizationDeniedException;
 import org.pangrova.security.tenant.QuotaChecker;
 import org.pangrova.security.exception.TenantQuotaExceededException;
 import org.pangrova.security.tenant.TenantUsage;
@@ -48,9 +49,10 @@ class TenantQueryGuardTest {
         store.createTenant(activeTenant("t-active", 10));
         store.addUserToTenant("t-active", "alice", TenantRole.MEMBER);
 
-        String result = guard.checkAndResolve(identity("alice"));
+        var result = guard.checkAndResolve(identity("alice"));
 
-        assertThat(result).isEqualTo("t-active");
+        assertThat(result.tenantId()).isEqualTo("t-active");
+        assertThat(result.tenant().quota().maxConcurrentQueries()).isEqualTo(10);
     }
 
     @Test
@@ -58,10 +60,10 @@ class TenantQueryGuardTest {
         UserIdentity unknown = identity("nobody");
 
         assertThatThrownBy(() -> guard.checkAndResolve(unknown))
-                .isInstanceOf(PangrovaException.class)
+                .isInstanceOf(AuthorizationDeniedException.class)
                 .satisfies(ex -> {
                     PangrovaException ae = (PangrovaException) ex;
-                    assertThat(ae.getErrorCode()).isEqualTo(PangrovaErrorCode.TENANT_NOT_FOUND);
+                    assertThat(ae.getErrorCode()).isEqualTo(PangrovaErrorCode.ACCESS_DENIED);
                 })
                 .hasMessageContaining("no tenant mapping")
                 .hasMessageContaining("fail-close")
@@ -71,10 +73,10 @@ class TenantQueryGuardTest {
     @Test
     void nullIdentityDeniedWithFailClose() {
         assertThatThrownBy(() -> guard.checkAndResolve(null))
-                .isInstanceOf(PangrovaException.class)
+                .isInstanceOf(AuthorizationDeniedException.class)
                 .satisfies(ex -> {
                     PangrovaException ae = (PangrovaException) ex;
-                    assertThat(ae.getErrorCode()).isEqualTo(PangrovaErrorCode.TENANT_NOT_FOUND);
+                    assertThat(ae.getErrorCode()).isEqualTo(PangrovaErrorCode.ACCESS_DENIED);
                 })
                 .hasMessageContaining("no user identity")
                 .hasMessageContaining("fail-close");
@@ -87,7 +89,20 @@ class TenantQueryGuardTest {
 
         assertThatThrownBy(() -> guard.checkAndResolve(identity("bob")))
                 .isInstanceOf(TenantQuotaExceededException.class)
-                .hasMessageContaining("suspended");
+                .hasMessageContaining("SUSPENDED");
+    }
+
+    @Test
+    void deletedTenantDenied() {
+        var tenant = activeTenant("t-deleted", 10);
+        store.createTenant(new Tenant(tenant.tenantId(), tenant.name(), TenantStatus.DELETED, tenant.quota(),
+                tenant.allowedCatalogs(), tenant.allowedSchemas(), tenant.resourcePool(), tenant.properties(),
+                tenant.createdAt(), tenant.createdBy()));
+        store.addUserToTenant("t-deleted", "bob", TenantRole.MEMBER);
+
+        assertThatThrownBy(() -> guard.checkAndResolve(identity("bob")))
+                .isInstanceOf(TenantQuotaExceededException.class)
+                .hasMessageContaining("DELETED");
     }
 
     @Test

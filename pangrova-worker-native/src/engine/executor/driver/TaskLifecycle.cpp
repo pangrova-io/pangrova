@@ -29,11 +29,20 @@ bool TaskLifecycle::transitionToLocked(ExecutorState new_state) {
   while (true) {
     if (isTerminal(current)) return false;
     if (!isValidTransition(current, new_state)) return false;
-    if (state_.compare_exchange_weak(current, new_state)) return true;
+    if (state_.compare_exchange_weak(current, new_state)) {
+      if (isTerminal(new_state)) terminal_signal_.notify_all();
+      return true;
+    }
   }
 }
 
 ExecutorState TaskLifecycle::state() const { return state_.load(); }
+
+ExecutorState TaskLifecycle::awaitTerminal(std::chrono::milliseconds timeout) const {
+  std::unique_lock<std::mutex> lock(error_mutex_);
+  terminal_signal_.wait_for(lock, timeout, [this] { return isTerminal(); });
+  return state_.load();
+}
 
 bool TaskLifecycle::isTerminal() const { return isTerminal(state_.load()); }
 
@@ -79,6 +88,12 @@ std::string TaskLifecycle::nativeStackTrace() const {
 
 void TaskLifecycle::notifyTaskComplete() {
   transitionTo(ExecutorState::FLUSHING);
+}
+
+bool TaskLifecycle::finishResultStream() {
+  std::lock_guard<std::mutex> lock(error_mutex_);
+  return !error_ && transitionToLocked(ExecutorState::FLUSHING) &&
+      transitionToLocked(ExecutorState::FINISHED);
 }
 
 void TaskLifecycle::notifyTaskFailed(const std::string& message) {

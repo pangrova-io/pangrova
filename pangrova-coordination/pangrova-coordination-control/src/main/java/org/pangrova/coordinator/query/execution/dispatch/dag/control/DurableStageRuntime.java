@@ -5,7 +5,6 @@ import org.pangrova.coordinator.query.execution.dispatch.shuffle.generation.Dura
 import org.pangrova.execution.authority.StageExecutionContext;
 import org.pangrova.observability.api.tracing.ExecutionTraceContextFactory;
 import org.pangrova.coordinator.generation.template.PersistedStagePlan;
-import org.pangrova.generation.execution.template.FrozenStageBindings;
 import org.pangrova.execution.task.DispatchResult;
 import org.pangrova.execution.stage.QueryExecutionScope;
 import org.pangrova.coordinator.query.stage.StageDAG;
@@ -25,7 +24,6 @@ import org.pangrova.planner.enums.ShuffleType;
 import org.pangrova.planner.analysis.AuthorizedStageGraph;
 import org.pangrova.planner.api.fragment.SerializedPlanFragment;
 import org.pangrova.planner.analysis.StageTransfer;
-import org.pangrova.protocol.execution.BoundExecutionPlan;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.v2.BatchSerde;
 import org.pangrova.protocol.v2.TaskReport;
@@ -147,34 +145,51 @@ public final class DurableStageRuntime {
     }
 
     /** Reads only frozen bytes and exact model contracts; does not resolve a new model version or publication. */
-    public BoundExecutionPlan boundPlan(StageNode node) {
+    public DurablePartitionRequest.StageRequestPlan prepareRequestPlan(StageNode node) {
         var graph = execution.authority().dispatchSpec().stageGraph();
         if (!(node.stagePlan() instanceof PersistedStagePlan persisted)
                 || !persisted.stage().equals(graph.requireStage(node.stageId()))) {
             throw new IllegalStateException("Runtime stage differs from its immutable graph envelope");
         }
-        return FrozenStageBindings.read(persisted.stage(), graph.modelSnapshots());
+        return new DurablePartitionRequest.StageRequestPlan(persisted.stage(), graph.modelSnapshots());
     }
 
-    /** Current progress is read by exact coordinates, without an unbounded source-page materialization. */
-    public PartitionProgress inspect(int stage, int partition) {
-        return dependencies.stages().inspectPartition(job, execution.authority().executionAnchor(), stage, partition);
+    /** Current progress is read in a bounded window of exact consecutive partitions. */
+    public List<PartitionProgress> inspect(int stage, int firstPartition, int count) {
+        return dependencies.stages().inspectPartitions(job, execution.authority().executionAnchor(), stage,
+                firstPartition, count);
     }
 
-    /** Captures Worker/registry state before taking a PG connection; the claim callback below is purely local. */
-    public Optional<PreparedTask> prepare(int stage, int partition, PartitionProgress progress,
-            DurablePartitionRequest.ExchangeAccess exchange, Instant now) {
-        List<WorkerInfo> snapshot = List.copyOf(dependencies.workers().getActiveWorkers());
+    /** Placement and exact claim for one partition of a bound stage. */
+    @FunctionalInterface
+    public interface StageTasks {
+        /** Prepares the exact partition without re-reading tenant placement. */
+        Optional<PreparedTask> prepare(int partition, PartitionProgress progress,
+                DurablePartitionRequest.ExchangeAccess exchange, Instant now);
+    }
+
+    /** Freezes one tenant placement before taking a partition claim connection. */
+    public StageTasks bindStageTasks(int stage, DurablePartitionRequest.StageRequestPlan requestPlan) {
+        var placement = dependencies.scheduler().bindTenant(job.tenantId());
+        return (partition, progress, exchange, now) ->
+                prepare(stage, partition, progress, requestPlan, exchange, now, placement);
+    }
+
+    private Optional<PreparedTask> prepare(int stage, int partition, PartitionProgress progress,
+            DurablePartitionRequest.StageRequestPlan requestPlan,
+            DurablePartitionRequest.ExchangeAccess exchange, Instant now, TaskScheduler placement) {
+        // The claim callback uses the local Worker snapshot and the already resolved tenant pool.
+        List<WorkerInfo> snapshot = dependencies.workers().getActiveWorkers();
         long term = dependencies.controlTerm().getAsLong();
         var claim = new GenerationStageExecutionStore.PartitionClaim(job, execution.authority().executionAnchor(),
                 stage, partition, progress.pageOrdinal(), term, dependencies.leaseDuration(), now);
         return dependencies.stages().preparePartition(claim, evidence -> {
-            var request = DurablePartitionRequest.prepare(evidence, exchange, now, control.traceContext());
+            var request = DurablePartitionRequest.prepare(evidence, requestPlan, exchange, now, control.traceContext());
             var bindings = request.taskRequest().getOperatorBindingsList();
             long memory = request.taskRequest().getResourceGrant().getNativeMemoryBytes();
-            var eligible = dependencies.scheduler().eligibleWorkersForTenant(memory, snapshot, job.tenantId());
-            var selected = bindings.isEmpty() ? dependencies.scheduler().selectWorker(memory, eligible)
-                    : dependencies.scheduler().selectWorkerWithBindings(memory, eligible, bindings,
+            var eligible = placement.eligibleWorkersForTenant(memory, snapshot, job.tenantId());
+            var selected = bindings.isEmpty() ? placement.selectWorker(memory, eligible)
+                    : placement.selectWorkerWithBindings(memory, eligible, bindings,
                             WorkerInfo::capabilityInventory);
             var worker = selected.orElseThrow(() -> new IllegalStateException(
                     "No actual Worker satisfies the frozen stage capabilities and admitted resource grant"));

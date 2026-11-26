@@ -16,6 +16,7 @@ import org.pangrova.server.coordinator.http.request.RequestLimitConfig;
 import org.pangrova.common.client.error.ErrorDetail;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.protocol.rest.worker.WorkerRegistrationRequest;
+import org.pangrova.transport.http.SizeLimitedInputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -124,7 +125,7 @@ public final class RequestLimitFilter implements ContainerRequestFilter {
         InputStream original = requestContext.getEntityStream();
         if (original != null) {
             requestContext.setEntityStream(
-                    new SizeLimitedInputStream(original, limit));
+                    new SizeLimitedInputStream(original, limit, RequestLimitFilter::payloadTooLarge));
         }
     }
 
@@ -168,67 +169,8 @@ public final class RequestLimitFilter implements ContainerRequestFilter {
         return counter != null ? counter.get() : 0;
     }
 
-    /**
-     * InputStream wrapper that enforces a byte-count limit during read.
-     * Throws HTTP 413 if the stream exceeds the configured maximum.
-     */
-    static final class SizeLimitedInputStream extends InputStream {
-
-        private final InputStream delegate;
-        private final int maxBytes;
-        private int bytesRead;
-        private boolean exceeded;
-
-        SizeLimitedInputStream(InputStream delegate, int maxBytes) {
-            this.delegate = delegate;
-            this.maxBytes = maxBytes;
-        }
-
-        @Override
-        public int read() throws IOException {
-            if (exceeded) {
-                throw tooLarge();
-            }
-            if (bytesRead >= maxBytes) {
-                if (delegate.read() == -1) return -1;
-                exceeded = true;
-                throw tooLarge();
-            }
-            int b = delegate.read();
-            if (b != -1) {
-                bytesRead++;
-            }
-            return b;
-        }
-
-        @Override
-        public int read(byte[] buf, int off, int len) throws IOException {
-            java.util.Objects.checkFromIndexSize(off, len, buf.length);
-            if (len == 0) return 0;
-            if (exceeded) {
-                throw tooLarge();
-            }
-            if (bytesRead >= maxBytes) {
-                if (delegate.read() == -1) return -1;
-                exceeded = true;
-                throw tooLarge();
-            }
-            int allowedLen = Math.min(len, maxBytes - bytesRead);
-            int n = delegate.read(buf, off, allowedLen);
-            if (n > 0) {
-                bytesRead += n;
-            }
-            return n;
-        }
-
-        @Override
-        public void close() throws IOException {
-            delegate.close();
-        }
-
-        private WebApplicationException tooLarge() {
-            return new WebApplicationException("Request body exceeds maximum size of " + maxBytes + " bytes",
-                    Response.status(HTTP_STATUS_PAYLOAD_TOO_LARGE).build());
-        }
+    private static WebApplicationException payloadTooLarge(int maxBytes) {
+        return new WebApplicationException("Request body exceeds maximum size of " + maxBytes + " bytes",
+                Response.status(HTTP_STATUS_PAYLOAD_TOO_LARGE).build());
     }
 }

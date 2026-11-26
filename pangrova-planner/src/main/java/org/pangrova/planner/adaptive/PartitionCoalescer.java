@@ -4,19 +4,19 @@ import org.pangrova.planner.api.adaptive.CoalesceResult;
 import org.pangrova.planner.api.adaptive.PartitionGroup;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.function.IntToLongFunction;
 
+import org.pangrova.shuffle.api.ShuffleCommitReceipt;
 import org.pangrova.shuffle.api.ShufflePartitionStats;
 
 /**
- * Merges small shuffle partitions using greedy bin-packing.
+ * Forms adjacent partition ranges under a byte budget.
  *
- * <p>Sorts partitions ascending by size and greedily packs them into groups
- * up to {@link AdaptiveQueryConfig#targetPartitionBytes()}. Returns
- * {@link CoalesceResult#NO_OP} when partition stats are unavailable or
- * coalescing would not reduce count.</p>
+ * <p>Original partition order makes it possible to align inputs of a
+ * partitioned operator. A candidate requires statistics for every original
+ * partition, including an explicit zero for an empty partition.</p>
  */
 public class PartitionCoalescer {
 
@@ -25,50 +25,47 @@ public class PartitionCoalescer {
      */
     public CoalesceResult evaluate(ShuffleStageStats stats, AdaptiveQueryConfig config) {
         Map<Integer, ShufflePartitionStats> partitionStats = stats.partitionStats();
-        if (partitionStats.isEmpty() || partitionStats.size() < config.minPartitionsForCoalesce()) {
+        return group(partitionStats.size(), config, Integer.MAX_VALUE, partition -> {
+            var observed = partitionStats.get(partition);
+            return observed != null && observed.partitionId() == partition ? observed.dataBytes() : -1;
+        });
+    }
+
+    /** Bounds reads per consumer using the committed publication, without copying its partition statistics. */
+    public CoalesceResult evaluate(ShuffleCommitReceipt receipt, int partitionCount,
+            AdaptiveQueryConfig config, int maxPartitionsPerGroup) {
+        if (receipt.partitions().size() != partitionCount || maxPartitionsPerGroup < 2) {
             return CoalesceResult.NO_OP;
         }
-        List<PartitionGroup> groups = packPartitions(partitionStats, config.targetPartitionBytes());
-        if (groups.size() >= partitionStats.size()) {
+        return group(partitionCount, config, maxPartitionsPerGroup,
+                partition -> receipt.partitions().get(partition).bytes());
+    }
+
+    private static CoalesceResult group(int partitionCount, AdaptiveQueryConfig config,
+            int maxPartitionsPerGroup, IntToLongFunction partitionBytes) {
+        if (partitionCount < Math.max(2, config.minPartitionsForCoalesce())) {
             return CoalesceResult.NO_OP;
         }
-        return new CoalesceResult(groups, partitionStats.size(), groups.size());
-    }
-
-    private List<PartitionGroup> packPartitions(Map<Integer, ShufflePartitionStats> partitionStats,
-                                                long targetBytes) {
-        List<Map.Entry<Integer, ShufflePartitionStats>> sorted = sortBySize(partitionStats);
-        return binPack(sorted, targetBytes);
-    }
-
-    private static List<Map.Entry<Integer, ShufflePartitionStats>> sortBySize(
-            Map<Integer, ShufflePartitionStats> partitionStats) {
-        return partitionStats.entrySet()
-                .stream()
-                .sorted(Comparator.comparingLong(e -> e.getValue().dataBytes()))
-                .toList();
-    }
-
-    private static List<PartitionGroup> binPack(
-            List<Map.Entry<Integer, ShufflePartitionStats>> sorted, long targetBytes) {
         List<PartitionGroup> groups = new ArrayList<>();
-        List<Integer> currentIds = new ArrayList<>();
+        long targetBytes = config.targetPartitionBytes();
+        int firstPartition = 0;
         long currentBytes = 0;
-
-        for (Map.Entry<Integer, ShufflePartitionStats> entry : sorted) {
-            long partBytes = entry.getValue().dataBytes();
-            if (!currentIds.isEmpty() && currentBytes + partBytes > targetBytes) {
-                groups.add(new PartitionGroup(currentIds, currentBytes));
-                currentIds = new ArrayList<>();
+        for (int partition = 0; partition < partitionCount; partition++) {
+            long partBytes = partitionBytes.applyAsLong(partition);
+            if (partBytes < 0) {
+                return CoalesceResult.NO_OP;
+            }
+            if (partition > firstPartition && (partition - firstPartition == maxPartitionsPerGroup
+                    || currentBytes > targetBytes - partBytes)) {
+                groups.add(new PartitionGroup(firstPartition, partition, currentBytes));
+                firstPartition = partition;
                 currentBytes = 0;
             }
-            currentIds.add(entry.getKey());
             currentBytes += partBytes;
         }
-        if (!currentIds.isEmpty()) {
-            groups.add(new PartitionGroup(currentIds, currentBytes));
-        }
-        return groups;
+        groups.add(new PartitionGroup(firstPartition, partitionCount, currentBytes));
+        return groups.size() < partitionCount
+                ? new CoalesceResult(groups, partitionCount, groups.size()) : CoalesceResult.NO_OP;
     }
 
 }

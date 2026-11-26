@@ -5,7 +5,6 @@ import org.pangrova.server.coordinator.http.CoordinatorHttpServer;
 import org.pangrova.common.exception.BootstrapFailedException;
 import org.pangrova.server.coordinator.http.CoordinatorHttpServerContext;
 import org.pangrova.query.runtime.QueryManager;
-import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
 import org.pangrova.coordinator.query.task.TaskStatusReceiver;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.metadata.api.resolution.MetadataService;
@@ -36,7 +35,6 @@ final class HttpBootstrap {
     private final WorkerManager workerManager;
     private final CdcLifecycleManager cdcLifecycleManager;
     private final CoordinatorBootstrap coordinatorBootstrap;
-    private final SplitAssignmentManager splitAssignmentManager;
     private final MetadataService metadataService;
 
     private CoordinatorHttpServer httpServer;
@@ -49,7 +47,6 @@ final class HttpBootstrap {
                   WorkerManager workerManager,
                   CdcLifecycleManager cdcLifecycleManager,
                   CoordinatorBootstrap coordinatorBootstrap,
-                  SplitAssignmentManager splitAssignmentManager,
                   MetadataService metadataService) {
         this.config = config;
         this.tracingProvider = tracingProvider;
@@ -60,7 +57,6 @@ final class HttpBootstrap {
         this.workerManager = workerManager;
         this.cdcLifecycleManager = cdcLifecycleManager;
         this.coordinatorBootstrap = coordinatorBootstrap;
-        this.splitAssignmentManager = splitAssignmentManager;
         this.metadataService = metadataService;
     }
 
@@ -72,8 +68,8 @@ final class HttpBootstrap {
             var httpDeps = new CoordinatorHttpServerContext(
                     taskStatusReceiver, queryManager, tracingFilter,
                     authenticationManager, healthEndpoint, workerManager,
-                    profilerEndpoint, cdcLifecycleManager, splitAssignmentManager,
-                    queryProfileService, metadataService, config.internalAuthSecret(),
+                    profilerEndpoint, cdcLifecycleManager, queryProfileService, metadataService,
+                    config.internalAuthSecret(),
                     coordinatorBootstrap::currentCoordinatorEpoch,
                     coordinatorBootstrap.copySourceReadResource(),
                     coordinatorBootstrap.fileSpaceFilesResource());

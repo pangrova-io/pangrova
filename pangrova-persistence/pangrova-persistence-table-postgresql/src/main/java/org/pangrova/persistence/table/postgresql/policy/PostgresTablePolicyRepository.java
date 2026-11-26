@@ -86,7 +86,7 @@ public final class PostgresTablePolicyRepository
                 GovernanceBinding persisted;
                 try (ResultSet rows = ps.executeQuery()) {
                     if (!rows.next()) throw new SQLException("Governance binding upsert returned no row");
-                    persisted = mapRow(rows);
+                    persisted = readBinding(rows);
                 }
                 conn.commit();
                 return persisted;
@@ -110,7 +110,7 @@ public final class PostgresTablePolicyRepository
             ps.setString(2, type.name());
             ps.setString(3, bindingRef);
             try (ResultSet rs = ps.executeQuery()) {
-                return rs.next() ? Optional.of(mapRow(rs)) : Optional.empty();
+                return rs.next() ? Optional.of(readBinding(rs)) : Optional.empty();
             }
         } catch (SQLException e) {
             throw new TableControlException("Failed to load governance binding "
@@ -134,7 +134,7 @@ public final class PostgresTablePolicyRepository
             statement.setObject(1, tableId);
             try (var rows = statement.executeQuery()) {
                 List<GovernanceBinding> result = new ArrayList<>();
-                while (rows.next()) result.add(mapRow(rows));
+                while (rows.next()) result.add(readBinding(rows));
                 return List.copyOf(result);
             }
         }
@@ -184,7 +184,8 @@ public final class PostgresTablePolicyRepository
         }
     }
 
-    private static GovernanceBinding mapRow(ResultSet rs) throws SQLException {
+    /** Decodes the governance binding columns selected by an authority query. */
+    public static GovernanceBinding readBinding(ResultSet rs) throws SQLException {
         return new GovernanceBinding(
                 rs.getObject("binding_id", UUID.class),
                 rs.getObject("table_id", UUID.class),

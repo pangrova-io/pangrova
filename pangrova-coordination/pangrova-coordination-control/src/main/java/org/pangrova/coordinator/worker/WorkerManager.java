@@ -408,7 +408,7 @@ public final class WorkerManager implements org.pangrova.query.recovery.Recovere
                 existing.performanceScore(), existing.resourcePoolId(),
                 existing.protocolVersion(),
                 existing.rackId(), existing.dataLocality(), newSummary,
-                existing.capabilityInventory(), existing.copyTaskTlsPort(), existing.workerExecutionIdentity(),
+                existing.admittedInventory(), existing.copyTaskTlsPort(), existing.workerExecutionIdentity(),
                 existing.shuffleDeployment(), existing.cdcIngestSupported());
     }
 
@@ -514,7 +514,7 @@ public final class WorkerManager implements org.pangrova.query.recovery.Recovere
                 info.lastHeartbeat().toEpochMilli(),
                 info.resultServerPort(),
                 info.cacheSummary(),
-                inventoryPool.encode(info.capabilityInventory()),
+                inventoryPool.encode(info.admittedInventory()),
                 info.copyTaskTlsPort(), info.workerExecutionIdentity().admissionDomainId(),
                 info.workerExecutionIdentity().incarnationId(), info.shuffleDeployment(), info.cdcIngestSupported());
     }

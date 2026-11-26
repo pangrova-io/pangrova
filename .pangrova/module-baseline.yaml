@@ -339,6 +339,7 @@ artifacts:
       test:
         - pangrova-client-http
         - pangrova-common
+        - pangrova-transport-client
     exportedPackages:
       - org.pangrova.client.cli
     providers:
@@ -1080,7 +1081,6 @@ artifacts:
       - org.pangrova.coordinator.ai.branch
       - org.pangrova.coordinator.ai.embedding
       - org.pangrova.coordinator.ai.layout
-      - org.pangrova.coordinator.clustering
       - org.pangrova.coordinator.coordination
       - org.pangrova.coordinator.dynamictable
       - org.pangrova.coordinator.enums
@@ -1114,7 +1114,6 @@ artifacts:
       - org.pangrova.coordinator.query.execution.dispatch.task.storage
       - org.pangrova.coordinator.query.execution.dispatch.task.stream
       - org.pangrova.coordinator.query.execution.security
-      - org.pangrova.coordinator.query.execution.split
       - org.pangrova.coordinator.query.scheduling
       - org.pangrova.coordinator.query.security
       - org.pangrova.coordinator.query.session
@@ -1230,6 +1229,7 @@ artifacts:
       - org.pangrova.execution.authority
       - org.pangrova.execution.binding
       - org.pangrova.execution.deadline
+      - org.pangrova.execution.split
       - org.pangrova.execution.stage
       - org.pangrova.execution.stage.binding
       - org.pangrova.execution.stage.enums
@@ -3135,6 +3135,7 @@ artifacts:
       - org.pangrova.persistence.security.postgresql.mask
       - org.pangrova.persistence.security.postgresql.policy
       - org.pangrova.persistence.security.postgresql.rowfilter
+      - org.pangrova.persistence.security.postgresql.support
       - org.pangrova.persistence.security.postgresql.tenant
       - org.pangrova.persistence.security.postgresql.transaction
     providers:
@@ -3254,7 +3255,6 @@ artifacts:
       - org.pangrova.persistence.table.memory.maintenance
       - org.pangrova.persistence.table.memory.policy
       - org.pangrova.persistence.table.memory.provider
-      - org.pangrova.persistence.table.memory.statistics
     providers:
       "org.pangrova.persistence.table.api.provider.TableStoreFactory":
         - org.pangrova.persistence.table.memory.provider.MemoryTableStoreFactory
@@ -3372,7 +3372,11 @@ artifacts:
         - pangrova-metadata-api
         - pangrova-persistence-catalog-api
         - pangrova-persistence-catalog-postgresql
+        - pangrova-persistence-security-postgresql
+        - pangrova-persistence-table-postgresql
         - pangrova-persistence-workflow-api
+        - pangrova-security-api
+        - pangrova-table
         - pangrova-testing-kit
     exportedPackages:
       - org.pangrova.persistence.workflow.postgresql.generation
@@ -3421,7 +3425,6 @@ artifacts:
       - org.pangrova.planner.retrieval
       - org.pangrova.planner.rewrite
       - org.pangrova.planner.rule
-      - org.pangrova.planner.runtimefilter
       - org.pangrova.planner.security
       - org.pangrova.planner.security.expression
       - org.pangrova.planner.stability
@@ -3505,7 +3508,6 @@ artifacts:
       - org.pangrova.planner.rerank
       - org.pangrova.planner.retrieval
       - org.pangrova.planner.rewrite
-      - org.pangrova.planner.runtimefilter
       - org.pangrova.planner.security
       - org.pangrova.planner.statistics
       - org.pangrova.planner.substrait
@@ -3537,12 +3539,11 @@ artifacts:
       - org.pangrova.protocol.rest.catalog
       - org.pangrova.protocol.rest.config
       - org.pangrova.protocol.rest.copy
+      - org.pangrova.protocol.rest.copy.preparation
       - org.pangrova.protocol.rest.data
-      - org.pangrova.protocol.rest.filter
       - org.pangrova.protocol.rest.maintenance
       - org.pangrova.protocol.rest.shuffle
       - org.pangrova.protocol.rest.task
-      - org.pangrova.protocol.rest.task.convert
       - org.pangrova.protocol.rest.task.exchange
       - org.pangrova.protocol.rest.version
       - org.pangrova.protocol.rest.worker
@@ -3595,12 +3596,11 @@ artifacts:
       - org.pangrova.protocol.rest.catalog
       - org.pangrova.protocol.rest.config
       - org.pangrova.protocol.rest.copy
+      - org.pangrova.protocol.rest.copy.preparation
       - org.pangrova.protocol.rest.data
-      - org.pangrova.protocol.rest.filter
       - org.pangrova.protocol.rest.maintenance
       - org.pangrova.protocol.rest.shuffle
       - org.pangrova.protocol.rest.task
-      - org.pangrova.protocol.rest.task.convert
       - org.pangrova.protocol.rest.task.exchange
       - org.pangrova.protocol.rest.version
       - org.pangrova.protocol.rest.worker
@@ -3629,7 +3629,6 @@ artifacts:
       - org.pangrova.query.api.session
       - org.pangrova.query.api.stage
       - org.pangrova.query.api.submission
-      - org.pangrova.query.api.task
       - org.pangrova.query.api.write
       - org.pangrova.query.audit
       - org.pangrova.query.dispatch
@@ -3637,9 +3636,11 @@ artifacts:
       - org.pangrova.query.exception
       - org.pangrova.query.lifecycle
       - org.pangrova.query.profiling
+      - org.pangrova.query.profiling.enums
       - org.pangrova.query.recovery
       - org.pangrova.query.retention
       - org.pangrova.query.runtime
+      - org.pangrova.query.runtime.enums
       - org.pangrova.query.session
       - org.pangrova.query.stage
       - org.pangrova.query.statement
@@ -3686,7 +3687,6 @@ artifacts:
       - org.pangrova.query.api.session
       - org.pangrova.query.api.stage
       - org.pangrova.query.api.submission
-      - org.pangrova.query.api.task
       - org.pangrova.query.api.write
       - org.pangrova.query.audit
       - org.pangrova.query.dispatch
@@ -3694,6 +3694,7 @@ artifacts:
       - org.pangrova.query.exception
       - org.pangrova.query.lifecycle
       - org.pangrova.query.profiling
+      - org.pangrova.query.profiling.enums
       - org.pangrova.query.recovery
       - org.pangrova.query.runtime
       - org.pangrova.query.session
@@ -3747,28 +3748,21 @@ artifacts:
       pangrova-common: compile
       pangrova-persistence-coordination-api: compile
       pangrova-persistence-coordination-postgresql: test
-      pangrova-persistence-security-api: compile
-      pangrova-persistence-security-memory: test
       pangrova-protocol: compile
       pangrova-scheduler-api: compile
-      pangrova-security-api: compile
       pangrova-testing-kit: test
     imports:
       main:
         - pangrova-common
         - pangrova-persistence-coordination-api
-        - pangrova-persistence-security-api
         - pangrova-protocol
         - pangrova-scheduler-api
-        - pangrova-security-api
       test:
         - pangrova-common
         - pangrova-persistence-coordination-api
         - pangrova-persistence-coordination-postgresql
-        - pangrova-persistence-security-memory
         - pangrova-protocol
         - pangrova-scheduler-api
-        - pangrova-security-api
         - pangrova-testing-kit
     exportedPackages:
       - org.pangrova.scheduler.admission
@@ -5157,7 +5151,6 @@ artifacts:
         - pangrova-persistence-workflow-api
         - pangrova-protocol
         - pangrova-security-api
-        - pangrova-shuffle-api
         - pangrova-shuffle-exchange
         - pangrova-types
       test:
@@ -5165,6 +5158,7 @@ artifacts:
         - pangrova-file
         - pangrova-filesystem-api
         - pangrova-persistence-security-api
+        - pangrova-protocol
         - pangrova-security-api
     exportedPackages:
       - org.pangrova.testing.testkit
@@ -5299,7 +5293,6 @@ artifacts:
       - org.pangrova.worker.exchange.source
       - org.pangrova.worker.exchange.transport
       - org.pangrova.worker.execution
-      - org.pangrova.worker.execution.filter
       - org.pangrova.worker.file
       - org.pangrova.worker.function
       - org.pangrova.worker.heartbeat
@@ -5315,7 +5308,6 @@ artifacts:
       - org.pangrova.worker.resource.thread
       - org.pangrova.worker.result
       - org.pangrova.worker.shuffle
-      - org.pangrova.worker.split
       - org.pangrova.worker.task
       - org.pangrova.worker.task.memory
       - org.pangrova.worker.task.report

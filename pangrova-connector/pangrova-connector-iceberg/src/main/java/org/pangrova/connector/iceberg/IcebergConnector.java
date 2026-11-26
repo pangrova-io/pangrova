@@ -64,12 +64,17 @@ public class IcebergConnector implements Connector {
     public IcebergConnector(String catalogName, Catalog catalog,
                             FileIO fileIO,
                             java.util.Set<String> accessibleEncryptionKeys) {
+        this(catalogName, catalog, fileIO, accessibleEncryptionKeys, false);
+    }
+
+    IcebergConnector(String catalogName, Catalog catalog, FileIO fileIO,
+                     java.util.Set<String> accessibleEncryptionKeys, boolean exactTableNameLookup) {
         this.catalogName = catalogName;
         this.catalog = catalog;
         this.ownedFileIO = fileIO;
         this.metadata = new IcebergMetadata(catalog, catalogName,
                 IcebergMetadata.DEFAULT_PIN_TTL_MS, IcebergMetadata.DEFAULT_COMMIT_TIMEOUT_MS,
-                accessibleEncryptionKeys, fileIO);
+                accessibleEncryptionKeys, fileIO, exactTableNameLookup);
         this.splitManager = new IcebergSplitManager(catalogName, catalog, new IcebergExpressionToSubstrait(), metadata);
         this.pageSourceProvider = new IcebergPageSourceProvider(catalog);
         this.pageSinkProvider = new IcebergPageSinkProvider(catalog);

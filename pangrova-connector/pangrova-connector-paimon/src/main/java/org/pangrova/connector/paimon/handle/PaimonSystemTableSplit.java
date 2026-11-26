@@ -10,14 +10,15 @@ import org.pangrova.protocol.source.DataSplitProtoCodec;
 import org.pangrova.protocol.v2.FileFormat;
 import org.pangrova.protocol.v2.FileSplitDetail;
 import org.pangrova.protocol.v2.SystemTableSplitDetail;
-import org.pangrova.connector.api.metadata.ConnectorSplit;
+import org.pangrova.protocol.source.CanonicalConnectorSplit;
+import org.pangrova.protocol.v2.DataSplit;
 
 /** One pinned Paimon snapshot JSON object read by a Native Worker. */
 public record PaimonSystemTableSplit(
         String tableName,
         String sourceIdentity,
         PaimonSystemTableKind kind,
-        PaimonSystemTableHandle.MetadataObject object) implements ConnectorSplit {
+        PaimonSystemTableHandle.MetadataObject object) implements CanonicalConnectorSplit {
 
     @Override
     public Map<String, String> splitProperties() {
@@ -30,7 +31,7 @@ public record PaimonSystemTableSplit(
     }
 
     @Override
-    public byte[] toSplitInfoProto() {
+    public DataSplit toDataSplit() {
         SystemTableSplitDetail.Kind protocolKind = switch (kind) {
             case SNAPSHOTS -> SystemTableSplitDetail.Kind.PAIMON_SNAPSHOTS;
             case TAGS -> SystemTableSplitDetail.Kind.PAIMON_TAGS;
@@ -49,6 +50,6 @@ public record PaimonSystemTableSplit(
                 .build();
         return DataSplitProtoCodec.buildFileSplit(new DataSplitProtoCodec.FileSplitInput(
                 "paimon", tableName, sourceIdentity, object.uri(), object.uri(),
-                0, object.length(), Map.of(), detail)).toByteArray();
+                0, object.length(), Map.of(), detail));
     }
 }

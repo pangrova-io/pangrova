@@ -9,13 +9,14 @@ import org.pangrova.protocol.v2.CatalogExecutionBinding;
 import org.pangrova.protocol.v2.Checksum;
 import org.pangrova.protocol.v2.ScanPartitionDetail;
 import org.pangrova.connector.api.metadata.NativeDatasetScanPage;
-import org.pangrova.connector.api.metadata.ConnectorSplit;
+import org.pangrova.protocol.source.CanonicalConnectorSplit;
+import org.pangrova.protocol.v2.DataSplit;
 import java.util.Map;
 
 /** Canonical dataset split pinned to the catalog-visible Lance version. */
 public record LanceDataSplit(LanceTableHandle table, NativeDatasetScanPage.Partition partition,
         byte[] serializedCatalogBinding, byte[] manifestSha256,
-        org.pangrova.connector.api.metadata.AcceptedSourceSnapshot snapshot) implements ConnectorSplit {
+        org.pangrova.connector.api.metadata.AcceptedSourceSnapshot snapshot) implements CanonicalConnectorSplit {
     public LanceDataSplit {
         if (table.version() <= 0) throw new IllegalArgumentException("Lance scan requires a published version");
         if (snapshot.version() != table.version() || !snapshot.tableId().equals(table.tableId())
@@ -29,7 +30,7 @@ public record LanceDataSplit(LanceTableHandle table, NativeDatasetScanPage.Parti
     @Override public Map<String, String> splitProperties() {
         return Map.of("file_path", table.datasetUri(), "file_format", "lance", "connector_id", "lance");
     }
-    @Override public byte[] toSplitInfoProto() {
+    @Override public DataSplit toDataSplit() {
         return DataSplitProtoCodec.buildFileSplit(new DataSplitProtoCodec.FileSplitInput(
                 "lance", table.catalog() + "." + table.table(), Long.toString(table.version()),
                 table.tableId() + ":" + table.version() + ":" + partition.id(), table.datasetUri(), 0, 0, Map.of(),
@@ -39,7 +40,7 @@ public record LanceDataSplit(LanceTableHandle table, NativeDatasetScanPage.Parti
                                 .setAcceptedSnapshot(org.pangrova.protocol.source.SourceSnapshotBindings.encode(
                                         snapshot, catalogBinding()))
                                 .setPhysicalSchemaSha256(checksum(table.schemaFence()))).build()))
-                .toBuilder().setCatalog(catalogBinding()).build().toByteArray();
+                .toBuilder().setCatalog(catalogBinding()).build();
     }
 
     private CatalogExecutionBinding catalogBinding() {

@@ -24,6 +24,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
 
 /** Real SDK split registrations scoped by the actual engine query creation owner. */
 class PaimonSplitRegistryTest {
@@ -169,6 +170,25 @@ class PaimonSplitRegistryTest {
             try (var lease = configured.claim(query.authority(), id)) { assertThat(lease.split()).isSameAs(split); }
             query.seal();
             configured.releaseQuery(query.authority());
+        }
+    }
+
+    @Test
+    void expiredPendingRegistrationsAreReleasedPastAnOlderActiveReader() throws Exception {
+        try (var expiring = new PaimonSplitRegistry(3, Duration.ofSeconds(1))) {
+            expiring.beginQuery(query.authority());
+            long claimed = expiring.register(query.authority(), table, split);
+            try (var lease = expiring.claim(query.authority(), claimed)) {
+                long pending = expiring.register(query.authority(), table, split);
+                await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertThat(expiring.size()).isZero());
+                assertThat(lease.split()).isSameAs(split);
+                assertThatThrownBy(() -> expiring.claim(query.authority(), claimed))
+                        .hasMessageContaining("already consumed");
+                assertThatThrownBy(() -> expiring.claim(query.authority(), pending))
+                        .hasMessageContaining("No Paimon SDK Split registered");
+            }
+            query.seal();
+            expiring.releaseQuery(query.authority());
         }
     }
 

@@ -46,12 +46,35 @@ final class ActualShuffleService implements AutoCloseable {
     private final java.util.Map<String, ShuffleCommitReceipt> receipts = new java.util.HashMap<>();
     private org.pangrova.common.lifecycle.ProcessIncarnationStore workerIncarnation;
 
-    static org.pangrova.shuffle.pangrova.client.PangrovaPartitionRead partitionRead(
-            org.pangrova.shuffle.exchange.ExternalShuffleTransport input) {
+    record ReadBinding(org.pangrova.protocol.v2.ExternalShuffleInput input,
+                       org.pangrova.protocol.v2.TaskAttemptId consumerAttempt) {
+        org.pangrova.shuffle.api.ShuffleAccess readAccess() {
+            var grant = input.getReadCapability();
+            return new org.pangrova.shuffle.api.ShuffleAccess(grant.getToken().toByteArray(),
+                    grant.getExpiresAtEpochMs());
+        }
+
+        org.pangrova.shuffle.api.ShuffleServerEndpoint selectedEndpoint() {
+            int partition = input.getSourcePartitionStart();
+            var endpoint = input.getEndpointsList().stream().filter(candidate ->
+                    candidate.getPartitionStart() <= partition && partition < candidate.getPartitionEnd())
+                    .findFirst().orElseThrow();
+            return new org.pangrova.shuffle.api.ShuffleServerEndpoint(endpoint.getHost(), endpoint.getPort(),
+                    endpoint.getPartitionStart(), endpoint.getPartitionEnd(), endpoint.getTlsIdentity());
+        }
+    }
+
+    static org.pangrova.shuffle.pangrova.client.PangrovaPartitionRead partitionRead(ReadBinding read) {
+        var input = read.input();
+        var part = input.getPublications(0);
         return new org.pangrova.shuffle.pangrova.client.PangrovaPartitionRead(
-                input.shuffleId(), new org.pangrova.shuffle.api.identity.ExchangeChannelContext(
-                        input.consumerAttempt(), input.outputPartitionId(), input.deadlineEpochMs()),
-                input.planEpoch(), input.expectedProducerPartitions(), input.expectedProducerSetChecksum(), input.publication());
+                input.getShuffleId(), new org.pangrova.shuffle.api.identity.ExchangeChannelContext(
+                        org.pangrova.shuffle.nativewire.NativeExchangeAttempts.decode(read.consumerAttempt()),
+                        input.getSourcePartitionStart(), input.getDeadlineEpochMs()),
+                input.getPlanEpoch(), input.getExpectedProducerPartitions(),
+                input.getExpectedProducerSetChecksum().getDigest().toByteArray(), new ShuffleCommitReceipt.Partition(
+                        part.getLastSequence(), part.getTotalBytes(), part.getTotalRows(),
+                        java.util.HexFormat.of().formatHex(part.getManifestSha256().toByteArray())));
     }
 
     ActualShuffleService(Path directory, int partitions, int serviceCount) throws Exception {
@@ -288,34 +311,32 @@ final class ActualShuffleService implements AutoCloseable {
         }
     }
 
-    org.pangrova.shuffle.exchange.ExternalShuffleTransport delegateRead(
-            AdmittedProducer producer, TaskRequest consumer) {
+    ReadBinding delegateRead(AdmittedProducer producer, TaskRequest consumer) {
+        return delegateRead(producer, consumer, 0, 1);
+    }
+
+    ReadBinding delegateRead(AdmittedProducer producer, TaskRequest consumer, int start, int end) {
         var attempt = consumer.getAttempt();
         var owner = attempt.getExecutionOwner();
-        var exchangeOwner = new org.pangrova.shuffle.api.ShuffleExecutionOwner(
-                owner.getOwnerId(), owner.getOwnerIncarnation(), owner.getFencingToken());
-        var exchangeAttempt = new org.pangrova.shuffle.api.identity.ExchangeTaskAttempt(
-                attempt.getQueryOrJobId(), attempt.getStageId(), attempt.getPartitionId(),
-                attempt.getTaskId(), attempt.getControlEpoch(),
-                new org.pangrova.shuffle.api.identity.ExchangeAttemptFence(attempt.getPlanEpoch(),
-                        attempt.getAttemptId(), attempt.getFencingToken()), exchangeOwner,
-                attempt.getWorkerExecutionIdentity().getAdmissionDomainId(),
-                attempt.getWorkerExecutionIdentity().getIncarnationId());
         var capability = control().renewAccess(RenewAccessRequest.newBuilder()
                 .setOperation(ShuffleAccessOperation.SHUFFLE_ACCESS_OPERATION_READ)
                 .setShuffleId(producer.registration().getShuffleId()).setExecutionOwner(owner)
                 .setTaskAttempt(attempt).build()).getAccessCapability();
         var binding = producer.request().getExecutionOptions().getShuffle().getExecutionBinding();
-        var endpoints = binding.getEndpointsList().stream().map(endpoint ->
-                new org.pangrova.shuffle.api.ShuffleServerEndpoint(endpoint.getHost(), endpoint.getPort(),
-                        endpoint.getPartitionStart(), endpoint.getPartitionEnd(), endpoint.getTlsIdentity())).toList();
-        var commit = binding.getCommitAddress();
-        return new org.pangrova.shuffle.exchange.ExternalShuffleTransport(binding.getShuffleId(),
-                endpoints, new org.pangrova.shuffle.api.ShuffleServiceAddress(commit.getHost(), commit.getPort(),
-                        commit.getTlsIdentity()), 0, partitions, attempt.getPlanEpoch(), exchangeOwner,
-                exchangeAttempt, consumer.getDeadlineEpochMs(),
-                new org.pangrova.shuffle.api.ShuffleAccess(capability.getToken().toByteArray(),
-                        capability.getExpiresAtEpochMs()), 1, producer.producerSetChecksum().getDigest().toByteArray(),
-                receipts.get(binding.getShuffleId()).partitions().get(0));
+        var input = org.pangrova.protocol.v2.ExternalShuffleInput.newBuilder().setShuffleId(binding.getShuffleId())
+                .addAllEndpoints(binding.getEndpointsList()).setCommitAddress(binding.getCommitAddress())
+                .setSourcePartitionStart(start).setPartitionCount(partitions).setPlanEpoch(
+                        producer.request().getAttempt().getPlanEpoch())
+                .setExecutionOwner(owner).setDeadlineEpochMs(consumer.getDeadlineEpochMs())
+                .setReadCapability(capability).setExpectedProducerPartitions(1)
+                .setExpectedProducerSetChecksum(producer.producerSetChecksum());
+        for (int id = start; id < end; id++) {
+            var part = receipts.get(binding.getShuffleId()).partitions().get(id);
+            input.addPublications(org.pangrova.protocol.v2.ShufflePartitionPublication.newBuilder()
+                    .setLastSequence(part.lastSequence()).setTotalBytes(part.bytes()).setTotalRows(part.rows())
+                    .setManifestSha256(com.google.protobuf.ByteString.copyFrom(
+                            java.util.HexFormat.of().parseHex(part.manifestSha256()))));
+        }
+        return new ReadBinding(input.build(), attempt);
     }
 }

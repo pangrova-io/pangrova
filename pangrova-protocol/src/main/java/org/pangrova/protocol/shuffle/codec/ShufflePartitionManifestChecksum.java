@@ -24,6 +24,7 @@ public final class ShufflePartitionManifestChecksum {
     /** Mutable single-owner accumulator for fixed-width canonical manifest entries. */
     public static final class Accumulator {
         private final MessageDigest digest;
+        private final ByteBuffer encodedEntry = ByteBuffer.allocate(Long.BYTES * 3).order(ByteOrder.BIG_ENDIAN);
         private long nextSequence;
         private boolean finished;
 
@@ -39,10 +40,8 @@ public final class ShufflePartitionManifestChecksum {
                 long rowCount,
                 byte[] payloadSha256) {
             requireEntry(sequence, sizeBytes, rowCount, payloadSha256);
-            ByteBuffer metadata = ByteBuffer.allocate(Long.BYTES * 3)
-                    .order(ByteOrder.BIG_ENDIAN)
-                    .putLong(sequence).putLong(sizeBytes).putLong(rowCount);
-            digest.update(metadata.array());
+            encodedEntry.clear().putLong(sequence).putLong(sizeBytes).putLong(rowCount);
+            digest.update(encodedEntry.array());
             digest.update(payloadSha256);
             nextSequence++;
             return this;

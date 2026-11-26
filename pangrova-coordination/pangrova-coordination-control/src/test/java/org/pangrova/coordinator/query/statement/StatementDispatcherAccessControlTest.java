@@ -7,7 +7,6 @@ import org.pangrova.query.api.enums.StatementCategory;
 import org.pangrova.parser.api.ast.Identifier;
 import org.pangrova.parser.api.ast.Statement;
 import org.pangrova.parser.api.ast.statement.DropTableStatement;
-import org.pangrova.parser.api.ast.statement.ShowClusteringStatusStatement;
 import org.pangrova.security.api.authorization.AccessControl;
 import org.pangrova.security.api.exception.AccessDeniedException;
 import org.pangrova.security.api.identity.UserIdentity;
@@ -45,15 +44,6 @@ class StatementDispatcherAccessControlTest {
     }
 
     @Test
-    void showClusteringStatusDeniedByAccessControl() {
-        StatementDispatcher dispatcher = buildDispatcher(new DenyAllAccessControl());
-        var show = new ShowClusteringStatusStatement(Identifier.of("catalog", "schema", "orders"));
-
-        assertThatThrownBy(() -> dispatcher.executeDirect(show, null, "q-clustering-status", SESSION_WITH_USER))
-                .isInstanceOf(AccessDeniedException.class);
-    }
-
-    @Test
     void executeWithoutAccessControlSkipsPermissionCheck() {
         StatementDispatcher dispatcher = buildDispatcher(null);
 
@@ -80,10 +70,9 @@ class StatementDispatcherAccessControlTest {
                 List.of(), List.of(), null, StatementCategory.DDL);
         var tasks = new HashMap<Class<? extends Statement>, MetadataTask<?>>();
         tasks.put(DropTableStatement.class, noOp);
-        tasks.put(ShowClusteringStatusStatement.class, noOp);
         var factory = new MetadataExecutionFactory(tasks);
         var context = new StatementDispatcherContext(
-                null, null, List.of(factory), List.of(), accessControl);
+                null, List.of(factory), List.of(), accessControl);
         return new StatementDispatcher(context);
     }
 
@@ -157,8 +146,9 @@ class StatementDispatcherAccessControlTest {
         @Override public Optional<String> getRowFilter(UserIdentity u, String c, String s, String t) {
             return Optional.empty();
         }
-        @Override public Optional<String> getColumnMask(UserIdentity u, String c, String s, String t, String col) {
-            return Optional.empty();
+        @Override public org.pangrova.security.api.mask.TableColumnMasks getColumnMasks(
+                UserIdentity u, String c, String s, String t) {
+            return column -> Optional.empty();
         }
     }
 }

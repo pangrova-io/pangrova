@@ -32,6 +32,7 @@ import org.pangrova.indexing.api.enums.IndexType;
 import org.pangrova.security.api.authorization.AccessControl;
 import org.pangrova.security.api.exception.AccessDeniedException;
 import org.pangrova.security.api.identity.UserIdentity;
+import org.pangrova.security.api.mask.TableColumnMasks;
 
 import java.lang.reflect.Proxy;
 import java.time.Instant;
@@ -197,8 +198,8 @@ class IndexDdlReadAuthorizationTest {
                         yield null;
                     }
                     case "getRowFilter" -> rowFilter ? Optional.of("region = 'west'") : Optional.empty();
-                    case "getColumnMask" -> columnMask && "col1".equals(arguments[4])
-                            ? Optional.of("NULL") : Optional.empty();
+                    case "getColumnMasks" -> (TableColumnMasks) column ->
+                            columnMask && "col1".equals(column) ? Optional.of("NULL") : Optional.empty();
                     default -> throw new AssertionError("Unexpected access check: " + method.getName());
                 });
     }

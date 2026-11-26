@@ -1,5 +1,5 @@
 LogicalSort(sort0=[$0], dir0=[ASC], fetch=[100])
-  LogicalAggregate(group=[{3}], total_profit=[$SUM0($0)])
+  LogicalAggregate(group=[{3}], total_profit=[SUM($0)])
     LogicalFilter(condition=[AND(=($2, 2), =($1, 1998))])
       LogicalJoin(condition=[=($4, $5)], joinType=[inner])
         LogicalProject(ss_net_profit=[$0], d_year=[$1], d_qoy=[$2], s_store_name=[$3], ca_address_sk=[$5])

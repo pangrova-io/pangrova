@@ -37,6 +37,9 @@ public class SecurityPolicyApplier {
                                  AccessControlEnforcer accessControlEnforcer,
                                  ColumnMaskApplier columnMaskApplier,
                                  RowFilterApplier rowFilterApplier) {
+        if (accessControlEnforcer != null && columnMaskApplier != null && rowFilterApplier != null) {
+            accessControlEnforcer.requireSharedPolicyAuthority(columnMaskApplier, rowFilterApplier);
+        }
         this.compilerHolder = new VersionedCompilerHolder(compiler);
         this.accessControlEnforcer = accessControlEnforcer;
         this.columnMaskApplier = columnMaskApplier;
@@ -107,14 +110,14 @@ public class SecurityPolicyApplier {
                     "Protected compilation requires complete authorization and policy enforcement");
         }
         var physicalToLogical = plan.physicalToLogicalDynamicTables();
-        accessControlEnforcer.checkTableAccess(plan.tableReferences(), session.userIdentity(),
+        var authorization = accessControlEnforcer.authorizeReadTables(plan.tableReferences(), session.userIdentity(),
                 physicalToLogical, session.internalMaterializationExecution());
         ObservedQueryPolicies observations = new ObservedQueryPolicies();
         PlannedQuery protectedPlan = plan
-                .applyColumnMasks(columnMaskApplier.withAuthorityMapping(physicalToLogical)
-                        .observing(observations), session.userIdentity())
-                .applyRowFilters(rowFilterApplier.withAuthorityMapping(physicalToLogical)
-                        .observing(observations), session.userIdentity());
+                .applyAuthorizedMasks(columnMaskApplier.withAuthorityMapping(physicalToLogical)
+                        .observing(observations), authorization)
+                .applyAuthorizedFilters(rowFilterApplier.withAuthorityMapping(physicalToLogical)
+                        .observing(observations), authorization);
         return new ObservedPlan(protectedPlan, observations.snapshot());
     }
 

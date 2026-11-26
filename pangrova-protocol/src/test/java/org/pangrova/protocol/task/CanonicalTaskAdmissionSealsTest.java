@@ -106,9 +106,9 @@ class CanonicalTaskAdmissionSealsTest {
         var split = org.pangrova.protocol.v2.DataSplit.newBuilder().setSplitId("copy-file")
                 .setConnectorId("copy").setSourceId("copy-source").setSourceSnapshot("version-one")
                 .setDataObjectId("s3://incoming/data.parquet").setOpaqueLocation("s3://incoming/data.parquet")
-                .setLength(1024).setConnectorDetail(com.google.protobuf.Any.pack(
+                .setLength(1024).setFileDetail(
                         org.pangrova.protocol.v2.FileSplitDetail.newBuilder().setFileFormat(
-                                org.pangrova.protocol.v2.FileFormat.FILE_FORMAT_PARQUET).build())).build();
+                                org.pangrova.protocol.v2.FileFormat.FILE_FORMAT_PARQUET).build()).build();
         var unbound = request().toBuilder().addSplits(split).build();
         assertThatThrownBy(() -> org.pangrova.protocol.task.CanonicalTaskRequests.validateForAdmission(unbound))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("COPY");

@@ -5,6 +5,7 @@ import org.pangrova.query.api.enums.StageState;
 import java.util.ArrayDeque;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -24,6 +25,9 @@ import org.pangrova.coordinator.query.execution.dispatch.dag.handler.StageLifecy
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.StageLifecycleHandler;
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.ShuffleStageHandler;
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.TaskTerminalRegistry;
+import org.pangrova.coordinator.query.task.QueryStageObservations;
+import org.pangrova.query.api.stage.StageCompletionCallback.BuildKeyRange;
+import org.pangrova.query.api.stage.StageCompletionCallback.SuccessfulAttempt;
 import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageNode;
@@ -120,6 +124,12 @@ public final class DAGLifecycleController {
         return queryContexts.get(queryId);
     }
 
+    /** Records selections made by this exact live DAG's task terminal registry. */
+    public void observeTaskSelections(String queryId, StageDAG dag, QueryStageObservations observations) {
+        RegisteredDAG current = queryDags.get(queryId);
+        if (current != null && current.dag() == dag) current.terminals().observeTaskSelections(observations);
+    }
+
     /** Registers a task in the terminal-state correlator. */
     public void registerTask(String queryId, String taskId, Stage stage) {
         RegisteredDAG registration = queryDags.get(queryId);
@@ -186,6 +196,13 @@ public final class DAGLifecycleController {
             String queryId, String taskId, String state, QueryFailure error) {
         RegisteredDAG owner = queryDags.get(queryId);
         if (owner != null) owner.terminals().onTerminal(queryId, taskId, state, error);
+    }
+
+    /** Routes the selected physical attempt to its still-current logical slot. */
+    public void onSuccessfulTaskTerminal(String queryId, String logicalTaskId, SuccessfulAttempt attempt,
+            Map<Integer, List<BuildKeyRange>> ranges) {
+        var owner = queryDags.get(queryId);
+        if (owner != null) owner.terminals().onSuccessfulTerminal(queryId, logicalTaskId, attempt, ranges);
     }
 
     /** A retained terminal signal also owns late reports until query cleanup. */

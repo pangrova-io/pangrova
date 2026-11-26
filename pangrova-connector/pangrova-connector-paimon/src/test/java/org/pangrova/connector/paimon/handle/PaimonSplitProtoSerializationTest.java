@@ -1,5 +1,6 @@
 package org.pangrova.connector.paimon.handle;
 
+import org.pangrova.protocol.source.CanonicalConnectorSplit;
 import org.junit.jupiter.api.Test;
 import org.pangrova.protocol.source.DataSplitProtoCodec;
 import org.pangrova.protocol.v2.DataSplit;
@@ -119,7 +120,7 @@ class PaimonSplitProtoSerializationTest {
 
     @Test
     void generatedV2MessageRoundTripsByteForByte() throws Exception {
-        byte[] bytes = fullSplit("DEDUPLICATE", "NONE", "APPEND").toSplitInfoProto();
+        byte[] bytes = fullSplit("DEDUPLICATE", "NONE", "APPEND").toDataSplit().toByteArray();
         assertThat(DataSplit.parseFrom(bytes).toByteArray()).isEqualTo(bytes);
     }
 
@@ -183,7 +184,7 @@ class PaimonSplitProtoSerializationTest {
         var mappings = new ArrayList<>(List.of(mapping));
         var promotions = new ArrayList<>(List.of(promotion));
         var split = splitWithCollections(primaryKeys, levels, aggregations, partitions, mappings, promotions);
-        byte[] originalBytes = split.toSplitInfoProto();
+        byte[] originalBytes = CanonicalConnectorSplit.from(split).toByteArray();
         var originalDetail = DataSplitProtoCodec.fileDetail(DataSplit.parseFrom(originalBytes));
         assertThat(originalDetail.getPaimon().getPrimaryKeysList()).containsExactly("id");
         assertThat(originalDetail.getSchemaEvolution().getColumnMappings(0).getTargetName()).isEqualTo("new");
@@ -202,7 +203,7 @@ class PaimonSplitProtoSerializationTest {
         assertThat(split.partitionValues()).containsExactlyEntriesOf(Map.of("dt", "2024-06-01"));
         assertThat(split.columnMappings()).containsExactly(mapping);
         assertThat(split.typePromotions()).containsExactly(promotion);
-        assertThat(split.toSplitInfoProto()).isEqualTo(originalBytes);
+        assertThat(CanonicalConnectorSplit.from(split).toByteArray()).isEqualTo(originalBytes);
     }
 
     @Test
@@ -212,7 +213,7 @@ class PaimonSplitProtoSerializationTest {
                 Map.of("amount", "SUM"), Map.of("dt", "2024-06-01"),
                 List.of(new ColumnMapping(1, 2, "old", "new")),
                 List.of(new TypePromotion(2, "INTEGER", "BIGINT", "new")));
-        byte[] originalBytes = split.toSplitInfoProto();
+        byte[] originalBytes = CanonicalConnectorSplit.from(split).toByteArray();
 
         assertThatThrownBy(() -> split.primaryKeys().clear()).isInstanceOf(UnsupportedOperationException.class);
         assertThatThrownBy(() -> split.lsmLevels().clear()).isInstanceOf(UnsupportedOperationException.class);
@@ -220,7 +221,7 @@ class PaimonSplitProtoSerializationTest {
         assertThatThrownBy(() -> split.partitionValues().clear()).isInstanceOf(UnsupportedOperationException.class);
         assertThatThrownBy(() -> split.columnMappings().clear()).isInstanceOf(UnsupportedOperationException.class);
         assertThatThrownBy(() -> split.typePromotions().clear()).isInstanceOf(UnsupportedOperationException.class);
-        assertThat(split.toSplitInfoProto()).isEqualTo(originalBytes);
+        assertThat(CanonicalConnectorSplit.from(split).toByteArray()).isEqualTo(originalBytes);
     }
 
     private static PaimonSplit splitWithCollections(List<String> primaryKeys, List<PaimonLsmLevel> levels,
@@ -249,7 +250,7 @@ class PaimonSplitProtoSerializationTest {
     }
 
     private static DataSplit parse(PaimonSplit split) throws Exception {
-        return DataSplit.parseFrom(split.toSplitInfoProto());
+        return DataSplit.parseFrom(CanonicalConnectorSplit.from(split).toByteArray());
     }
 
     private static PaimonLsmFile lsmFile(String path, long rows) {

@@ -1,16 +1,23 @@
 package org.pangrova.planner.substrait;
 
 import org.pangrova.planner.exception.SubstraitConversionException;
+import org.pangrova.planner.extension.EnforceSingleRowRelDetail;
+import org.pangrova.planner.exchange.StageAggregate;
+import org.pangrova.protocol.v2.AggregatePhaseDetail;
+import org.pangrova.protocol.v2.AggregatePhaseMeasure;
 
+import com.google.protobuf.Any;
 import io.substrait.expression.Expression;
+import io.substrait.extension.ImmutableAdvancedExtension;
+import io.substrait.proto.AggregationPhase;
 import io.substrait.expression.ExpressionCreator;
 import io.substrait.expression.FieldReference;
 import io.substrait.expression.ImmutableAggregateFunctionInvocation;
 import io.substrait.relation.Aggregate;
+import io.substrait.relation.ExtensionSingle;
 import io.substrait.relation.ImmutableAggregate;
 import io.substrait.relation.ImmutableGrouping;
 import io.substrait.relation.ImmutableMeasure;
-import io.substrait.relation.ImmutableProject;
 import io.substrait.relation.Rel;
 import io.substrait.type.Type;
 import io.substrait.type.TypeCreator;
@@ -18,13 +25,10 @@ import org.apache.calcite.rel.core.AggregateCall;
 import org.apache.calcite.rel.logical.LogicalAggregate;
 import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.sql.SqlKind;
+import org.apache.calcite.sql.type.SqlTypeName;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.TreeSet;
 
 import org.pangrova.common.enums.PangrovaErrorCode;
 
@@ -42,145 +46,83 @@ final class AggregateConverter {
     }
 
     Rel convert(LogicalAggregate agg, Rel input) {
-        if (agg.getGroupSets().size() > 1) {
-            return convertMultiGroupSet(agg, input);
+        if (agg.getAggCallList().stream().anyMatch(AggregateConverter::singleValue)) {
+            return enforceSingleRow(agg, input);
         }
-
         List<Aggregate.Grouping> groupings = buildGroupings(agg);
+        RelDataType inputRowType = agg.getInput().getRowType();
         List<Aggregate.Measure> measures = agg.getAggCallList().stream()
-                .map(call -> buildMeasure(call, agg.getInput().getRowType()))
+                .map(call -> buildMeasure(call, inputRowType))
                 .toList();
         var builder = ImmutableAggregate.builder()
                 .input(input).groupings(groupings).measures(measures);
-
+        if (groupings.size() > 1) {
+            // Hide the structural grouping set identifier from the SQL row.
+            builder.remap(Rel.Remap.offset(0, agg.getRowType().getFieldCount()));
+        }
         return builder.build();
     }
 
-    /**
-     * Handles multi-grouping-set aggregates (ROLLUP/CUBE/GROUPING SETS).
-     * Inserts a compact Project below the Aggregate so that field indices
-     * are contiguous starting from 0. The native GroupIdNode expects compact
-     * indices — without this normalization, field references from the original
-     * scan (e.g. index 3 for o_totalprice in a 9-column table) exceed the
-     * GroupIdNode output column count.
-     */
-    private Rel convertMultiGroupSet(LogicalAggregate agg, Rel input) {
-        RelDataType inputRowType = agg.getInput().getRowType();
-        CompactLayout layout = buildCompactLayout(agg, inputRowType);
-        Rel aggInput = layout.needsProject()
-                ? buildCompactingProject(input, inputRowType, layout.sortedIndices())
-                : input;
-        List<Aggregate.Grouping> groupings = buildCompactedGroupings(
-                agg, inputRowType, layout.indexMapping());
-        List<Aggregate.Measure> measures = agg.getAggCallList().stream()
-                .map(call -> buildMeasureWithMapping(call, inputRowType, layout.indexMapping()))
-                .toList();
-        return ImmutableAggregate.builder()
-                .input(aggInput).groupings(groupings).measures(measures)
-                .remap(Rel.Remap.offset(0, agg.getRowType().getFieldCount()))
-                .build();
-    }
-
-    /** Compact field layout derived from the indices referenced by a multi-grouping-set aggregate. */
-    private record CompactLayout(List<Integer> sortedIndices,
-                                 Map<Integer, Integer> indexMapping,
-                                 boolean needsProject) {
-    }
-
-    private CompactLayout buildCompactLayout(LogicalAggregate agg, RelDataType inputRowType) {
-        Set<Integer> referencedIndices = new TreeSet<>();
-        for (var groupSet : agg.getGroupSets()) {
-            referencedIndices.addAll(groupSet.asList());
-        }
-        for (AggregateCall call : agg.getAggCallList()) {
-            referencedIndices.addAll(call.getArgList());
-            if (call.filterArg >= 0) {
-                referencedIndices.add(call.filterArg);
+    Rel convert(StageAggregate aggregate, Rel input) {
+        boolean producesState = aggregate.phase() == AggregationPhase.AGGREGATION_PHASE_INITIAL_TO_INTERMEDIATE;
+        var phase = producesState ? Expression.AggregationPhase.INITIAL_TO_INTERMEDIATE
+                : Expression.AggregationPhase.INTERMEDIATE_TO_RESULT;
+        var calls = aggregate.calls();
+        var bindings = aggregate.bindings();
+        var detail = AggregatePhaseDetail.newBuilder()
+                .setImplementationBuildId(bindings.get(0).implementationBuildId());
+        var measures = new ArrayList<Aggregate.Measure>(calls.size());
+        var fields = aggregate.getRowType().getFieldList();
+        for (int ordinal = 0; ordinal < calls.size(); ordinal++) {
+            var call = calls.get(ordinal);
+            var binding = bindings.get(ordinal);
+            var ref = functionMapper.map(call.getAggregation());
+            if (!binding.function().getName().equals(ref.name())
+                    || !binding.implementationBuildId().equals(detail.getImplementationBuildId())) {
+                throw new IllegalArgumentException("Stage aggregate does not match its bound function");
             }
-        }
-        List<Integer> sortedIndices = new ArrayList<>(referencedIndices);
-        Map<Integer, Integer> indexMapping = new HashMap<>();
-        for (int i = 0; i < sortedIndices.size(); i++) {
-            indexMapping.put(sortedIndices.get(i), i);
-        }
-        boolean needsProject = sortedIndices.size() < inputRowType.getFieldCount();
-        for (int i = 0; i < sortedIndices.size() && !needsProject; i++) {
-            if (sortedIndices.get(i) != i) {
-                needsProject = true;
+            var measureDetail = AggregatePhaseMeasure.newBuilder()
+                    .setRegistrationSha256(binding.actualRegistrationSha256());
+            if (!producesState) {
+                measureDetail.setOriginalRawArguments(binding.originalArguments());
             }
+            detail.addMeasures(measureDetail);
+            measures.add(buildMeasure(call, ref, aggregate.getInput().getRowType(),
+                    producesState ? call.getArgList() : List.of(ordinal), producesState ? call.filterArg : -1,
+                    phase, typeMapper.map(fields.get(ordinal).getType())));
         }
-        return new CompactLayout(sortedIndices, indexMapping, needsProject);
+        var phaseDetail = detail.build();
+        var enhancement = ImmutableAdvancedExtension
+                .<PangrovaOptimization, PangrovaExtensionProtoConverter.Enhancement>builder()
+                .enhancement(() -> Any.pack(phaseDetail)).build();
+        return ImmutableAggregate.builder().input(input).measures(measures)
+                .groupings(List.of(ImmutableGrouping.builder().build())).extension(enhancement).build();
     }
 
-    private Rel buildCompactingProject(Rel input, RelDataType inputRowType,
-                                       List<Integer> sortedIndices) {
-        List<Expression> projections = sortedIndices.stream()
-                .map(idx -> {
-                    Type type = typeMapper.map(inputRowType.getFieldList().get(idx).getType());
-                    return (Expression) FieldReference.newRootStructReference(idx, type);
-                })
-                .toList();
-        return ImmutableProject.builder().input(input).expressions(projections)
-                .remap(Rel.Remap.offset(input.getRecordType().fields().size(), projections.size())).build();
+    private static boolean singleValue(AggregateCall call) {
+        return call.getAggregation().getKind() == SqlKind.SINGLE_VALUE;
     }
 
-    private List<Aggregate.Grouping> buildCompactedGroupings(LogicalAggregate agg,
-            RelDataType inputRowType, Map<Integer, Integer> indexMapping) {
-        return agg.getGroupSets().stream()
-                .map(groupSet -> {
-                    List<Expression> groupExprs = groupSet.asList().stream()
-                            .map(idx -> {
-                                int compactIdx = indexMapping.get(idx);
-                                Type type = typeMapper.map(
-                                        inputRowType.getFieldList().get(idx).getType());
-                                return (Expression) FieldReference.newRootStructReference(
-                                        compactIdx, type);
-                            })
-                            .toList();
-                    return (Aggregate.Grouping) ImmutableGrouping.builder()
-                            .expressions(groupExprs).build();
-                })
-                .toList();
-    }
-
-    private Aggregate.Measure buildMeasureWithMapping(AggregateCall call,
-            RelDataType inputRowType, Map<Integer, Integer> indexMapping) {
-        FunctionReference ref;
-        String opName = call.getAggregation().getName();
-        if (call.getAggregation().getKind() == SqlKind.SINGLE_VALUE
-                || "LITERAL_AGG".equals(opName)) {
-            ref = new FunctionReference("aggregate", "min");
-        } else {
-            ref = functionMapper.map(call.getAggregation());
+    private static Rel enforceSingleRow(LogicalAggregate aggregate, Rel input) {
+        if (aggregate.getGroupCount() != 0 || aggregate.getGroupSets().size() != 1
+                || aggregate.getAggCallList().size() != 1) {
+            throw new SubstraitConversionException(PangrovaErrorCode.SUBSTRAIT_TYPE_MAPPING_FAILURE,
+                    "Single-row enforcement requires one scalar subquery result");
         }
-        var variant = functionMapper.resolveAggregateVariant(ref);
-        Type outputType = resolveAggregateOutputType(call, ref);
-        List<Expression> args = call.getArgList().stream()
-                .map(idx -> {
-                    int compactIdx = indexMapping.get(idx);
-                    Type t = typeMapper.map(inputRowType.getFieldList().get(idx).getType());
-                    return (Expression) FieldReference.newRootStructReference(compactIdx, t);
-                })
-                .toList();
-        if (args.isEmpty()) {
-            args = List.of(ExpressionCreator.bool(false, true));
+        var call = aggregate.getAggCallList().get(0);
+        if (call.getArgList().size() != 1 || call.filterArg >= 0 || call.isDistinct() || call.isApproximate()
+                || call.ignoreNulls() || call.distinctKeys != null || call.hasCollation() || !call.rexList.isEmpty()) {
+            throw new SubstraitConversionException(PangrovaErrorCode.SUBSTRAIT_TYPE_MAPPING_FAILURE,
+                    "Single-row enforcement requires one unmodified input value");
         }
-        var invocation = ImmutableAggregateFunctionInvocation.builder()
-                .declaration(variant).outputType(outputType)
-                .aggregationPhase(Expression.AggregationPhase.INITIAL_TO_RESULT)
-                .invocation(call.isDistinct()
-                        ? Expression.AggregationInvocation.DISTINCT
-                        : Expression.AggregationInvocation.ALL)
-                .arguments(args).build();
-        var measureBuilder = ImmutableMeasure.builder().function(invocation);
-        if (call.filterArg >= 0) {
-            int compactFilterIdx = indexMapping.get(call.filterArg);
-            Type filterType = typeMapper.map(
-                    inputRowType.getFieldList().get(call.filterArg).getType());
-            measureBuilder.preMeasureFilter(
-                    FieldReference.newRootStructReference(compactFilterIdx, filterType));
+        int ordinal = call.getArgList().get(0);
+        var fields = input.getRecordType().fields();
+        if (ordinal < 0 || ordinal >= fields.size()) {
+            throw new SubstraitConversionException(PangrovaErrorCode.SUBSTRAIT_TYPE_MAPPING_FAILURE,
+                    "Single-row value is outside the scalar subquery input");
         }
-        return measureBuilder.build();
+        var detail = new EnforceSingleRowRelDetail(ordinal);
+        return ExtensionSingle.from(detail, input).build();
     }
 
     /**
@@ -212,26 +154,18 @@ final class AggregateConverter {
     }
 
     private Aggregate.Measure buildMeasure(AggregateCall call, RelDataType inputRowType) {
-        // SINGLE_VALUE: Calcite's scalar subquery enforcement (exactly one row).
-        // LITERAL_AGG: Calcite's internal aggregate for decorrelation of NOT IN
-        // subqueries — produces a constant value per group. Both have no Substrait
-        // equivalent; min() is semantically safe (single-row or constant input).
-        // WARNING: If Calcite decorrelation produces multi-row input for SINGLE_VALUE
-        // (a Calcite bug), min() will silently return the wrong result instead of
-        // raising an error. The native engine should assert single-row semantics
-        // for SINGLE_VALUE-mapped aggregates.
-        FunctionReference ref;
-        String opName = call.getAggregation().getName();
-        if (call.getAggregation().getKind() == SqlKind.SINGLE_VALUE
-                || "LITERAL_AGG".equals(opName)) {
-            ref = new FunctionReference("aggregate", "min");
-        } else {
-            ref = functionMapper.map(call.getAggregation());
-        }
+        // The decorrelator uses LITERAL_AGG for one constant per group.
+        var ref = "LITERAL_AGG".equals(call.getAggregation().getName())
+                ? new FunctionReference("aggregate", "min") : functionMapper.map(call.getAggregation());
+        return buildMeasure(call, ref, inputRowType, call.getArgList(), call.filterArg,
+                Expression.AggregationPhase.INITIAL_TO_RESULT, resolveAggregateOutputType(call, ref));
+    }
+
+    private Aggregate.Measure buildMeasure(AggregateCall call, FunctionReference ref, RelDataType inputRowType,
+            List<Integer> argumentOrdinals, int filterOrdinal, Expression.AggregationPhase phase, Type outputType) {
         var variant = functionMapper.resolveAggregateVariant(ref);
-        Type outputType = resolveAggregateOutputType(call, ref);
         int fieldCount = inputRowType.getFieldCount();
-        List<Expression> args = call.getArgList().stream()
+        List<Expression> args = argumentOrdinals.stream()
                 .map(idx -> {
                     if (idx < 0 || idx >= fieldCount) {
                         throw new SubstraitConversionException(
@@ -250,34 +184,32 @@ final class AggregateConverter {
         }
         var invocation = ImmutableAggregateFunctionInvocation.builder()
                 .declaration(variant).outputType(outputType)
-                .aggregationPhase(Expression.AggregationPhase.INITIAL_TO_RESULT)
+                .aggregationPhase(phase)
                 .invocation(call.isDistinct()
                         ? Expression.AggregationInvocation.DISTINCT
                         : Expression.AggregationInvocation.ALL)
                 .arguments(args).build();
         var measureBuilder = ImmutableMeasure.builder().function(invocation);
-        if (call.filterArg >= 0) {
-            if (call.filterArg >= fieldCount) {
+        if (filterOrdinal >= 0) {
+            if (filterOrdinal >= fieldCount) {
                 throw new SubstraitConversionException(
                         PangrovaErrorCode.SUBSTRAIT_TYPE_MAPPING_FAILURE,
-                        "Aggregate FILTER arg index " + call.filterArg + " out of bounds for "
+                        "Aggregate FILTER arg index " + filterOrdinal + " out of bounds for "
                                 + fieldCount + " input fields");
             }
             Type filterType = typeMapper.map(
-                    inputRowType.getFieldList().get(call.filterArg).getType());
+                    inputRowType.getFieldList().get(filterOrdinal).getType());
             measureBuilder.preMeasureFilter(
-                    FieldReference.newRootStructReference(call.filterArg, filterType));
+                    FieldReference.newRootStructReference(filterOrdinal, filterType));
         }
         return measureBuilder.build();
     }
 
-    /**
-     * The native engine's avg() always returns FP64 regardless of input type.
-     * Calcite returns INTEGER for AVG(INTEGER), causing a type mismatch
-     * at the native execution layer. Override to FP64 for avg.
-     */
     private Type resolveAggregateOutputType(AggregateCall call, FunctionReference ref) {
-        if ("avg".equals(ref.name())) {
+        // The actual DECIMAL registration returns the original precision and
+        // scale. Calcite can declare integral AVG as integral while Velox
+        // returns FP64 for that registered signature.
+        if ("avg".equals(ref.name()) && call.getType().getSqlTypeName() != SqlTypeName.DECIMAL) {
             TypeCreator creator = TypeCreator.of(call.getType().isNullable());
             return creator.FP64;
         }

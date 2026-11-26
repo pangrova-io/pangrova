@@ -4,10 +4,11 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.ResourceLock;
 import org.pangrova.protocol.v2.TaskRequest;
-import org.pangrova.shuffle.exchange.DirectExchangeTransport;
-import org.pangrova.shuffle.exchange.ExchangeEndpoint;
-import org.pangrova.shuffle.exchange.ExchangeInput;
-import org.pangrova.shuffle.api.identity.ExchangeTaskAttempt;
+import org.pangrova.protocol.v2.DirectExchangeInput;
+import org.pangrova.protocol.v2.ExchangeInputBinding;
+import org.pangrova.protocol.v2.ExchangePartitionSource;
+import org.pangrova.protocol.v2.TaskAttemptId;
+import com.google.protobuf.ByteString;
 import org.pangrova.testing.nativefixture.ActualNativeShuffleRequests;
 import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
 import org.pangrova.worker.shuffle.NativeShuffleProducerRegistration;
@@ -17,7 +18,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/** Real Native endpoint registration and exact mapper metadata; not distributed execution proof. */
+/** Real Native endpoint registration with the admitted protobuf identities and tickets. */
 @Tag("native-required")
 @ResourceLock(ActualNativeTaskFixture.RUNTIME_LOCK)
 class NativeExchangeTransportTest {
@@ -36,10 +37,11 @@ class NativeExchangeTransportTest {
             long handle = runtime.createPending(consumer);
             var firstSource = endpoint(producer, firstServer);
             var secondSource = endpoint(secondRequest, secondServer);
-            var input = new ExchangeInput("exchange-node", "exchange-1", 2,
-                    new DirectExchangeTransport(List.of(firstSource, secondSource)));
+            var input = ExchangeInputBinding.newBuilder().setPlanNodeId("exchange-node").setExchangeId("exchange-1")
+                    .setExpectedSourcePartitions(2).setDirect(DirectExchangeInput.newBuilder()
+                            .addSources(firstSource).addSources(secondSource)).build();
             runtime.transports().exchangeTransport().bindInputs(handle, attempt(consumer), List.of(input));
-            var source = ExchangeProtocolMapper.directSource(firstSource);
+            var source = input.getDirect().getSources(0);
             assertThat(source.getSourceTaskId()).isEqualTo(producer.getAttempt().getTaskId());
             assertThat(source.getSourceStageId()).isEqualTo(producer.getAttempt().getStageId());
             assertThat(source.getSourcePartitionId()).isZero();
@@ -48,7 +50,6 @@ class NativeExchangeTransportTest {
             assertThat(source.getFencingToken()).isEqualTo(producer.getAttempt().getFencingToken());
             assertThat(source.getSignedTicket().toByteArray()).isEqualTo(firstServer.partitionTickets().get(0).signedTicket());
             assertThat(source.getTicketExpiresAtEpochMs()).isEqualTo(firstServer.partitionTickets().get(0).expiresAtEpochMs());
-            assertThat(org.pangrova.shuffle.nativewire.NativeExchangeAttempts.encode(attempt(consumer))).isEqualTo(consumer.getAttempt());
             assertThat(runtime.executor().releaseTask(handle)).isPresent();
             assertThatThrownBy(() -> runtime.transports().exchangeTransport()
                     .bindInputs(handle, attempt(consumer), List.of(input))).isInstanceOf(IllegalStateException.class);
@@ -97,15 +98,20 @@ class NativeExchangeTransportTest {
                 .isInstanceOf(NullPointerException.class).hasMessageContaining("taskExecutor must not be null");
     }
 
-    static ExchangeTaskAttempt attempt(TaskRequest request) {
-        return org.pangrova.shuffle.nativewire.NativeExchangeAttempts.decode(request.getAttempt());
+    static TaskAttemptId attempt(TaskRequest request) {
+        return request.getAttempt();
     }
 
-    private static ExchangeEndpoint endpoint(TaskRequest request, org.pangrova.shuffle.api.ShuffleServerHandle server) {
+    private static ExchangePartitionSource endpoint(TaskRequest request,
+            org.pangrova.shuffle.api.ShuffleServerHandle server) {
         var value = request.getAttempt();
         var ticket = server.partitionTickets().get(0);
-        return new ExchangeEndpoint(value.getTaskId(), value.getStageId(), value.getPartitionId(), ticket.partitionId(),
-                value.getPlanEpoch(), value.getAttemptId(), value.getFencingToken(), server.host(), server.port(),
-                server.tlsIdentity(), ticket.signedTicket(), ticket.expiresAtEpochMs(), 0, 0);
+        return ExchangePartitionSource.newBuilder().setSourceTaskId(value.getTaskId())
+                .setSourceStageId(value.getStageId()).setSourcePartitionId(value.getPartitionId())
+                .setOutputPartitionId(ticket.partitionId()).setPlanEpoch(value.getPlanEpoch())
+                .setAttemptId(value.getAttemptId()).setFencingToken(value.getFencingToken())
+                .setHost(server.host()).setPort(server.port()).setTlsIdentity(server.tlsIdentity())
+                .setSignedTicket(ByteString.copyFrom(ticket.signedTicket()))
+                .setTicketExpiresAtEpochMs(ticket.expiresAtEpochMs()).build();
     }
 }

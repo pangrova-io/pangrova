@@ -16,6 +16,7 @@ import org.pangrova.connector.api.metadata.Constraint;
 import org.pangrova.connector.api.metadata.Domain;
 import org.pangrova.connector.api.metadata.table.ColumnHandle;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -65,6 +66,19 @@ class IcebergConstraintExpressionsTest {
     }
 
     @Test
+    void disjointBigintRangesSkipFilesBetweenThemAndKeepIndependentConstraints() {
+        var ranges = new Domain.RangeUnion(List.of(new Domain.Range(1L, 2L, true, true),
+                new Domain.Range(100L, 101L, true, true)));
+        Constraint constraint = () -> Map.of(ROW_ID, ranges, ID, new Domain.IsNotNull());
+        var expression = IcebergConstraintExpressions.fromConstraint(constraint, SCHEMA);
+        var evaluator = new InclusiveMetricsEvaluator(SCHEMA, expression, true);
+        assertThat(evaluator.eval(file(ZERO, ALL, 0, 0, 1))).isTrue();
+        assertThat(evaluator.eval(file(ZERO, ALL, 0, 3, 99))).isFalse();
+        assertThat(evaluator.eval(file(ZERO, ALL, 0, 99, 100))).isTrue();
+        assertThat(evaluator.eval(file(ZERO, ALL, 4, 99, 100))).isFalse();
+    }
+
+    @Test
     void uuidNullCountsStillPruneFiles() {
         Constraint constraint = () -> Map.of(ID, new Domain.IsNull());
         var expression = IcebergConstraintExpressions.fromConstraint(constraint, SCHEMA);
@@ -72,13 +86,17 @@ class IcebergConstraintExpressionsTest {
     }
 
     private static DataFile file(UUID lower, UUID upper, long nulls) {
+        return file(lower, upper, nulls, 1, 4);
+    }
+
+    private static DataFile file(UUID lower, UUID upper, long nulls, long lowId, long highId) {
         return DataFiles.builder(PartitionSpec.unpartitioned()).withPath("/data/uuid.parquet")
                 .withFormat("parquet").withFileSizeInBytes(1024)
                 .withMetrics(new Metrics(4L, null, Map.of(1, 4L, 2, 4L), Map.of(1, nulls, 2, 0L), null,
                         Map.of(1, Conversions.toByteBuffer(Types.UUIDType.get(), lower),
-                                2, Conversions.toByteBuffer(Types.LongType.get(), 1L)),
+                                2, Conversions.toByteBuffer(Types.LongType.get(), lowId)),
                         Map.of(1, Conversions.toByteBuffer(Types.UUIDType.get(), upper),
-                                2, Conversions.toByteBuffer(Types.LongType.get(), 4L))))
+                                2, Conversions.toByteBuffer(Types.LongType.get(), highId))))
                 .build();
     }
 }

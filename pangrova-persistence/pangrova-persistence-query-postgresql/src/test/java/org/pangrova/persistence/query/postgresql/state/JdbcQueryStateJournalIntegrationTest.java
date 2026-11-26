@@ -31,7 +31,8 @@ class JdbcQueryStateJournalIntegrationTest {
 
     @Container
     private static final PostgreSQLContainer<?> POSTGRES =
-            new PostgreSQLContainer<>("postgres:16-alpine").withDatabaseName("pangrova_test");
+            new PostgreSQLContainer<>("postgres:16-alpine").withDatabaseName("pangrova_test")
+                    .withCommand("postgres", "-c", "shared_preload_libraries=pg_stat_statements");
 
     private DataSource dataSource;
     private JdbcQueryStateJournal journal;
@@ -290,6 +291,41 @@ class JdbcQueryStateJournalIntegrationTest {
         assertEquals(event, journal.latestQueryEvent("q-exact").orElseThrow());
         assertEquals(1, countQueryRows("query_state_journal", "q-exact"));
         assertEquals(rowId, eventRowId(event.context().eventId()));
+    }
+
+    @Test
+    void freshQueryAndTaskEventsNeedNoReadbackWhileExactRetriesDo() throws Exception {
+        try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
+            statement.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements");
+            statement.execute("SELECT pg_stat_statements_reset()");
+        }
+        var query = new QueryStateEvent(
+                org.pangrova.query.api.journal.JournalEventContext.create(1234, "issuer"),
+                "q-sql-count", "SELECT 1", "{}", "QUEUED");
+        var task = new TaskStateEvent(
+                org.pangrova.query.api.journal.JournalEventContext.create(1235, "issuer"),
+                "q-sql-count", "t-sql-count", "worker-1", "RUNNING", 0, 1L);
+
+        journal.appendQueryEventSync(query);
+        journal.appendTaskEventSync(task);
+        assertEquals(0L, eventReadbacks());
+
+        journal.appendQueryEventSync(query);
+        journal.appendTaskEventSync(task);
+        assertEquals(2L, eventReadbacks());
+    }
+
+    private long eventReadbacks() throws Exception {
+        try (var connection = dataSource.getConnection();
+                var statement = connection.createStatement();
+                var rows = statement.executeQuery("""
+                        SELECT COALESCE(SUM(calls), 0) FROM pg_stat_statements
+                        WHERE query LIKE 'SELECT event_id,% FROM query_state_journal WHERE event_id = $%'
+                           OR query LIKE 'SELECT event_id,% FROM task_state_journal WHERE event_id = $%'
+                        """)) {
+            rows.next();
+            return rows.getLong(1);
+        }
     }
 
     @Test

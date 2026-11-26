@@ -9,10 +9,8 @@ import org.pangrova.persistence.generation.postgresql.execution.PostgresGenerati
 import org.pangrova.persistence.jdbc.api.generation.GenerationExecutionTransactionFence;
 import org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionTransactionFence;
 import org.pangrova.persistence.jdbc.api.generation.GenerationPublicationCandidates;
-import org.pangrova.persistence.jdbc.api.security.policy.CurrentDirectRoleReader;
 import org.pangrova.persistence.jdbc.api.security.model.CurrentModelAuthority;
 import org.pangrova.persistence.security.api.tenant.DeferredTenantAuthority;
-import org.pangrova.persistence.security.postgresql.policy.JdbcCurrentDirectRoleReader;
 import org.pangrova.persistence.security.postgresql.tenant.PostgresDeferredTenantAuthority;
 import org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate;
 
@@ -36,7 +34,6 @@ public final class PostgresGenerationStores {
     private static final GenerationExecutionTransactionFence EXECUTION_FENCE =
             new PostgresGenerationExecutionFence(new JdbcExecutionTransactionFence());
 
-    private static final CurrentDirectRoleReader CURRENT_ROLES = new JdbcCurrentDirectRoleReader();
     private static final DeferredTenantAuthority TENANT_AUTHORITY = new PostgresDeferredTenantAuthority();
     private static final GenerationPublicationCandidates PUBLICATION_CANDIDATES =
             new PostgresGenerationPublicationCandidates();
@@ -47,9 +44,6 @@ public final class PostgresGenerationStores {
         authority = new PostgresGenerationTransactionAuthority(inputs, modelAuthority,
                 TENANT_AUTHORITY, AuthorizationTransactionGate::lockPublication, tableAuthority);
     }
-
-    /** Current Security-owned direct roles on the caller connection. */
-    public static CurrentDirectRoleReader currentRoles() { return CURRENT_ROLES; }
 
     /** Shared-database publication candidate projection, never an execution owner authority. */
     public static GenerationPublicationCandidates publicationCandidates() { return PUBLICATION_CANDIDATES; }
@@ -62,15 +56,15 @@ public final class PostgresGenerationStores {
 
     public PostgresGenerationJobStore builds(DataSource dataSource) {
         return new PostgresGenerationJobStore(
-                dataSource, authority, EXECUTION_FENCE, CURRENT_ROLES, PUBLICATION_CANDIDATES);
+                dataSource, authority, EXECUTION_FENCE, PUBLICATION_CANDIDATES);
     }
 
     public GenerationStageExecutionStore stages(DataSource dataSource) {
-        return new PostgresGenerationStageExecutionStore(dataSource, authority, EXECUTION_FENCE, CURRENT_ROLES);
+        return new PostgresGenerationStageExecutionStore(dataSource, authority, EXECUTION_FENCE);
     }
 
     public GenerationStageExchangeStore exchanges(DataSource dataSource) {
-        return new PostgresGenerationStageExchangeStore(dataSource, authority, EXECUTION_FENCE, CURRENT_ROLES);
+        return new PostgresGenerationStageExchangeStore(dataSource, authority, EXECUTION_FENCE);
     }
 
     public JdbcIndexGenerationPublicationStore indexPublications(DataSource dataSource) {

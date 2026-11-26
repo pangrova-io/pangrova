@@ -1,6 +1,6 @@
 LogicalProject(i_item_id=[$2], i_item_desc=[$3], s_store_id=[$0], s_store_name=[$1], store_sales_profit=[$4], store_returns_loss=[$5], catalog_sales_profit=[$6])
   LogicalSort(sort0=[$2], sort1=[$3], sort2=[$0], sort3=[$1], dir0=[ASC], dir1=[ASC], dir2=[ASC], dir3=[ASC], fetch=[100])
-    LogicalAggregate(group=[{10, 11, 13, 14}], store_sales_profit=[$SUM0($1)], store_returns_loss=[$SUM0($2)], catalog_sales_profit=[$SUM0($3)])
+    LogicalAggregate(group=[{10, 11, 13, 14}], store_sales_profit=[SUM($1)], store_returns_loss=[SUM($2)], catalog_sales_profit=[SUM($3)])
       LogicalFilter(condition=[AND(=($5, 4), =($4, 2001), SEARCH($7, Sarg[[4..10]]), =($6, 2001), SEARCH($9, Sarg[[4..10]]), =($8, 2001))])
         LogicalJoin(condition=[=($12, $0)], joinType=[inner])
           LogicalProject(ss_item_sk=[$0], ss_net_profit=[$2], sr_net_loss=[$3], cs_net_profit=[$4], d_year=[$5], d_moy=[$6], d_year0=[$7], d_moy0=[$8], d_year1=[$9], d_moy1=[$10], s_store_id=[$12], s_store_name=[$13])

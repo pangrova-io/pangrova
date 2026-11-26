@@ -18,8 +18,14 @@ class StageResourceGrantCodecTest {
     @ParameterizedTest(name = "rejects unsigned overflow in {0}")
     @MethodSource("overflowingGrants")
     void rejectsUnsignedValuesOutsideJavaAccounting(String field, StageResourceGrant grant) {
+        String expected = field.equals("cpu_slots") ? "resource grant is incomplete" : field;
+        assertThatThrownBy(() -> StageResourceGrants.validate(grant))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining(expected);
+        assertThatThrownBy(() -> StageResourceGrants.validateSourcePreparation(
+                grant.toBuilder().setJvmHeapBytes(field.equals("jvm_heap_bytes") ? -1L : 1024L).build()))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining(expected);
         assertThatThrownBy(() -> StageResourceGrantCodec.encode(grant))
-                .isInstanceOf(IllegalArgumentException.class);
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining(expected);
         String encoded = Base64.getEncoder().encodeToString(grant.toByteArray());
         assertThatThrownBy(() -> StageResourceGrantCodec.decode(encoded))
                 .isInstanceOf(IllegalArgumentException.class);

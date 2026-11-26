@@ -3,6 +3,7 @@ package org.pangrova.worker.execution;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -25,15 +26,14 @@ class TaskExecutorControlContractTest {
     @Test
     void allControlsRequireActualImplementationAndExposeNoDataPull() {
         var methods = TaskExecutor.class.getDeclaredMethods();
-        assertThat(methods).hasSize(10);
+        var defaults = Set.of("createAdmittedTask", "isWorkerExecuted", "getTaskCommitFragments");
         assertThat(Arrays.stream(methods).map(java.lang.reflect.Method::getName))
-                .containsExactlyInAnyOrder("createTask", "startTask", "releaseTask", "cancelTask",
-                        "executeCommand", "isFinished", "getTaskStatus", "getTaskStats",
-                        "isWorkerExecuted", "getTaskCommitFragments")
+                .containsExactlyInAnyOrder("createTask", "createAdmittedTask", "startTask", "startResultTask",
+                        "releaseTask", "cancelTask", "executeCommand", "pushExchangeChunk", "isFinished",
+                        "awaitFinished", "getTaskStatus", "getTaskStats", "isWorkerExecuted", "getTaskCommitFragments")
                 .doesNotContain("getNextBatchResult", "getShuffleBatchResult");
         assertThat(methods).allSatisfy(method -> {
-            if (method.getName().equals("isWorkerExecuted")
-                    || method.getName().equals("getTaskCommitFragments")) {
+            if (defaults.contains(method.getName())) {
                 assertThat(method.isDefault()).isTrue();
             } else {
                 assertThat(java.lang.reflect.Modifier.isAbstract(method.getModifiers())).isTrue();

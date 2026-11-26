@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.query.execution.split;
 
+import org.pangrova.protocol.source.CanonicalConnectorSplit;
 import org.pangrova.query.api.enums.QueryState;
 
 import org.junit.jupiter.api.Test;
@@ -46,7 +47,7 @@ class SplitFetcherSdkIntegrationTest extends ContainerTestBase {
                 assertThat(source.finalBatch).isTrue();
                 for (var split : splits) {
                     assertThat(split.dataFilePaths()).isNotEmpty();
-                    var wire = DataSplit.parseFrom(split.toSplitInfoProto());
+                    var wire = DataSplit.parseFrom(CanonicalConnectorSplit.from(split).toByteArray());
                     assertThat(wire.getConnectorId()).isEqualTo("paimon");
                     assertThat(wire.getSourceSnapshot()).isEqualTo(Long.toString(snapshot));
                 }

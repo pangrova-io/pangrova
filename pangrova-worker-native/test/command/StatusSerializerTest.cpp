@@ -130,6 +130,13 @@ TEST_F(StatusSerializerTest, ConsumerWaitMetricDoesNotIncludeIoOrOtherBlockingRe
   pangrova::protocol::v2::NativeTaskStats decoded;
   ASSERT_TRUE(decoded.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())));
   EXPECT_EQ(decoded.backpressure_wait_ms(), 7);
+  ASSERT_EQ(decoded.operator_stats_size(), 1);
+  const auto& completed = decoded.operator_stats(0);
+  EXPECT_EQ(completed.blocked_nanos(), 999'000'000);
+  EXPECT_EQ(completed.wait_for_consumer_nanos(), 7'500'000);
+  EXPECT_EQ(completed.wait_for_connector_nanos(), 990'000'000);
+  EXPECT_EQ(completed.wait_for_producer_nanos(), 0);
+  EXPECT_EQ(completed.wait_for_split_nanos(), 0);
 }
 
 TEST_F(StatusSerializerTest, SerializeSingleOperator) {

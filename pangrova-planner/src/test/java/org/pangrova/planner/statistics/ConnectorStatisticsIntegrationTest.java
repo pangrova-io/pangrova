@@ -100,6 +100,10 @@ class ConnectorStatisticsIntegrationTest {
         assertThat(idStats.nullCount()).isEqualTo(0);
         assertThat(idStats.ndv()).isEqualTo(50_000);
         assertThat(idStats.confidenceScore()).isEqualTo(1.0);
+        assertThat(idStats.histogram()).isEmpty();
+        var estimator = new StatisticsBasedCostEstimator(collector);
+        assertThat(estimator.histogramRangeSelectivity(stats.tableName(), "id", null, 500L))
+                .isEqualTo(estimator.histogramRangeSelectivity(stats.tableName(), "unmeasured", null, 500L));
     }
 
     @Test
@@ -113,6 +117,23 @@ class ConnectorStatisticsIntegrationTest {
         // Should fall back to default when connector returns UNKNOWN
         double rowCount = estimator.estimateRowCount(new QualifiedTableName("catalog", "db", "missing"));
         assertThat(rowCount).isEqualTo(CBO_DEFAULT_ROW_COUNT);
+    }
+
+    @Test
+    void knownTableCardinalityDoesNotInventUnknownColumnSelectivity() {
+        var table = new QualifiedTableName("catalog", "schema", "orders");
+        var collector = new StatisticsCollector(ignored -> new TableStatistics(50_000, 400_000, 1,
+                Map.of("price", new TableStatistics.ColumnStatistics(-1, -1, 10L, 20L, -1.0))));
+        var estimator = new StatisticsBasedCostEstimator(collector);
+
+        var price = collector.getStatistics(table).orElseThrow().columns().get("price");
+        assertThat(price.ndv()).isEqualTo(-1);
+        assertThat(price.nullCount()).isEqualTo(-1);
+        assertThat(price.avgSize()).isEqualTo(-1.0);
+        assertThat(price.histogram()).isEmpty();
+        assertThat(estimator.estimateRowCount(table)).isEqualTo(50_000.0);
+        assertThat(estimator.estimateSelectivity(table, "price"))
+                .isEqualTo(estimator.estimateSelectivity(table, "unmeasured"));
     }
 
     @Test

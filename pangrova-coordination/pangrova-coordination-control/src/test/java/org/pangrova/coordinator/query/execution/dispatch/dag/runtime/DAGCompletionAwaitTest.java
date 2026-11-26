@@ -17,7 +17,7 @@ class DAGCompletionAwaitTest {
         var completion = new CompletableFuture<DispatchResult>();
         Thread.currentThread().interrupt();
         try {
-            assertThatThrownBy(() -> DAGCompletionEvaluator.awaitCompletion(completion, 30_000, "q"))
+            assertThatThrownBy(() -> DAGCompletionEvaluator.awaitResult(completion, "q", () -> completion.cancel(false)))
                     .isInstanceOfSatisfying(PangrovaException.class, failure ->
                             assertThat(failure.getErrorCode())
                                     .isEqualTo(PangrovaErrorCode.COORDINATOR_DISPATCH_INTERRUPTED));
@@ -29,21 +29,12 @@ class DAGCompletionAwaitTest {
     }
 
     @Test
-    void deadlineSettlesExceptionallyInsteadOfLeavingAnOrphanCompletion() {
-        var completion = new CompletableFuture<DispatchResult>();
-        assertThatThrownBy(() -> DAGCompletionEvaluator.awaitCompletion(completion, 0, "q"))
-                .isInstanceOfSatisfying(PangrovaException.class, failure ->
-                        assertThat(failure.getErrorCode()).isEqualTo(PangrovaErrorCode.RUNTIME_QUERY_TIMEOUT));
-        assertThat(completion.isCompletedExceptionally()).isTrue();
-    }
-
-    @Test
     void completedResultAndOriginalFailureArePreserved() {
         var result = new DispatchResult("worker", "task", new ResultEndpoint("worker", 1, "task", "grpc"));
-        assertThat(DAGCompletionEvaluator.awaitCompletion(CompletableFuture.completedFuture(result), 0, "q"))
+        assertThat(DAGCompletionEvaluator.awaitResult(CompletableFuture.completedFuture(result), "q", () -> { }))
                 .isSameAs(result);
         var failure = new PangrovaException(PangrovaErrorCode.RUNTIME_TASK_FAILED, "actual task failure");
-        assertThatThrownBy(() -> DAGCompletionEvaluator.awaitCompletion(
-                CompletableFuture.failedFuture(failure), 30_000, "q")).isSameAs(failure);
+        assertThatThrownBy(() -> DAGCompletionEvaluator.awaitResult(
+                CompletableFuture.failedFuture(failure), "q", () -> { })).isSameAs(failure);
     }
 }

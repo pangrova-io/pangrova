@@ -70,7 +70,7 @@ class QueryTerminalFrontendOwnershipTest {
         assertThat(manager.getQueryState(id)).contains(QueryState.FINISHED);
         assertThat(manager.awaitAllQueries(1)).isFalse();
         operation.close();
-        advanceRetry();
+        manager.retryPendingTerminalCompletions();
         assertThat(manager.cleanupTerminalQueries(Duration.ZERO)).isEqualTo(1);
         assertThat(manager.getQueryState(id)).isEmpty();
     }
@@ -110,7 +110,7 @@ class QueryTerminalFrontendOwnershipTest {
             manager.onAllTasksFinished(id);
         }
         assertThat(manager.getActiveQueryCount()).isEqualTo(10);
-        advanceRetry(); // Four actual attempts remain blocked on the still-owned frontend.
+        advanceRetry(); // Live frontend operations do not queue timed cleanup attempts.
         assertThat(manager.getActiveQueryCount()).isEqualTo(10);
         manager.retryPendingTerminalCompletions();
         assertThat(manager.getActiveQueryCount()).isEqualTo(10);
@@ -175,7 +175,7 @@ class QueryTerminalFrontendOwnershipTest {
             operation.close();
             scheduler.submit(() -> { }).get(3, TimeUnit.SECONDS);
             assertThat(manager.getActiveQueryCount()).isEqualTo(1);
-            advanceRetry();
+            manager.retryPendingTerminalCompletions();
             assertThat(manager.getActiveQueryCount()).isZero();
         } finally {
             manager.stopPeriodicCleanup();
@@ -187,7 +187,8 @@ class QueryTerminalFrontendOwnershipTest {
     @Test
     void drainedFrontendReleasesAdmissionBeforePeriodicSweep() throws Exception {
         String id = registerRunningQuery();
-        var operation = enter(id);
+        var first = enter(id);
+        var last = enter(id);
         var timer = Executors.newSingleThreadScheduledExecutor();
         var cleanupWorker = Executors.newSingleThreadExecutor();
         try {
@@ -195,7 +196,10 @@ class QueryTerminalFrontendOwnershipTest {
                     Duration.ZERO, Duration.ofHours(1));
             manager.onAllTasksFinished(id);
             assertThat(manager.getActiveQueryCount()).isEqualTo(1);
-            operation.close();
+            first.close();
+            manager.retryPendingTerminalCompletions();
+            assertThat(manager.getActiveQueryCount()).isEqualTo(1);
+            last.close();
             org.awaitility.Awaitility.await("drained frontend admission release")
                     .atMost(Duration.ofSeconds(3))
                     .untilAsserted(() -> assertThat(manager.getActiveQueryCount()).isZero());

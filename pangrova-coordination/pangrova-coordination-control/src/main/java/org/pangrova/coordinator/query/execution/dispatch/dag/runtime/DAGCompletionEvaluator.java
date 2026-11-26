@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.CompletionStage;
 
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
@@ -95,28 +95,23 @@ public final class DAGCompletionEvaluator {
                         .mapToInt(Stage::stageId).max().orElse(0));
     }
 
-    /** Waits for DAG completion, translating timeout and interruption into query failures. */
-    public static DispatchResult awaitCompletion(
-            CompletableFuture<DispatchResult> completion,
-            long timeoutMs, String queryId) {
+    /** Synchronous callers await the same completion and deadline as asynchronous submission. */
+    public static <T> T awaitResult(CompletionStage<T> completion, String queryId, Runnable cancel) {
         try {
-            return completion.get(timeoutMs, TimeUnit.MILLISECONDS);
+            return completion.toCompletableFuture().get();
         } catch (InterruptedException interrupted) {
-            Thread.currentThread().interrupt();
             var failure = new PangrovaException(PangrovaErrorCode.COORDINATOR_DISPATCH_INTERRUPTED,
                     "DAG dispatch interrupted [queryId=" + queryId + "]", interrupted);
-            completion.completeExceptionally(failure);
-            throw failure;
-        } catch (java.util.concurrent.TimeoutException timeout) {
-            var failure = new PangrovaException(PangrovaErrorCode.RUNTIME_QUERY_TIMEOUT,
-                    "DAG dispatch timed out [queryId=" + queryId + "]", timeout);
-            completion.completeExceptionally(failure);
+            try {
+                cancel.run();
+            } catch (RuntimeException | Error cleanup) {
+                if (cleanup != failure) failure.addSuppressed(cleanup);
+            } finally {
+                Thread.currentThread().interrupt();
+            }
             throw failure;
         } catch (java.util.concurrent.ExecutionException failed) {
-            Throwable cause = failed.getCause();
-            throw DispatchCanceller.wrapIfNeeded(
-                    cause instanceof Exception ex ? ex
-                            : new RuntimeException(cause), queryId);
+            throw DispatchCanceller.wrapIfNeeded(failed.getCause(), queryId);
         }
     }
 

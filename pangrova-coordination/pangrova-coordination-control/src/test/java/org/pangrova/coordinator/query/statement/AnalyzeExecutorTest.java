@@ -85,7 +85,7 @@ class AnalyzeExecutorTest {
         assertThatThrownBy(() -> executor.execute(analyze("orders"), context()))
                 .isInstanceOf(AccessDeniedException.class).hasMessageContaining("identity");
         assertThat(metadata.statisticsReads).isZero();
-        assertThat(registry.tableStatistics().fresh("test_cat", "default", "orders")).isEmpty();
+        assertThat(freshOrdersStatistics()).isEmpty();
     }
 
     @Test
@@ -100,7 +100,7 @@ class AnalyzeExecutorTest {
                 .isInstanceOf(AccessDeniedException.class).hasMessageContaining("control record changed");
         assertThat(registry.tableControl().find("test_cat", "default", "orders").orElseThrow().versionToken())
                 .isEqualTo("uuid:v2");
-        assertThat(registry.tableStatistics().fresh("test_cat", "default", "orders")).isEmpty();
+        assertThat(freshOrdersStatistics()).isEmpty();
     }
 
     @Test
@@ -118,7 +118,7 @@ class AnalyzeExecutorTest {
             assertThat(row.getString("version_token")).isEqualTo("uuid:v1");
             assertThat(row.getRaw("stats_version")).isEqualTo(0L);
         });
-        var collected = registry.tableStatistics().fresh("test_cat", "default", "orders")
+        var collected = freshOrdersStatistics()
                 .orElseThrow();
         assertThat(collected.tableId()).isEqualTo(record.tableId());
         assertThat(collected.versionToken()).isEqualTo("uuid:v1");
@@ -135,7 +135,7 @@ class AnalyzeExecutorTest {
         assertThat(registry.tableControl().find("test_cat", "default", "orders")).get()
                 .extracting(TableControlRecord::versionToken)
                 .isEqualTo("uuid:v2");
-        assertThat(registry.tableStatistics().fresh("test_cat", "default", "orders"))
+        assertThat(freshOrdersStatistics())
                 .hasValueSatisfying(stats ->
                         assertThat(stats.versionToken()).isEqualTo("uuid:v2"));
     }
@@ -149,7 +149,7 @@ class AnalyzeExecutorTest {
         assertThatThrownBy(() -> executor.execute(analyze("orders"), context()))
                 .isInstanceOf(org.pangrova.common.exception.PangrovaException.class)
                 .hasMessageContaining("changed during collection");
-        assertThat(registry.tableStatistics().fresh("test_cat", "default", "orders")).isEmpty();
+        assertThat(freshOrdersStatistics()).isEmpty();
     }
 
     @Test
@@ -160,7 +160,7 @@ class AnalyzeExecutorTest {
         assertThatThrownBy(() -> executor.execute(analyze("orders"), context()))
                 .isInstanceOf(org.pangrova.common.exception.PangrovaException.class)
                 .hasMessageContaining("no statistics");
-        assertThat(registry.tableStatistics().fresh("test_cat", "default", "orders")).isEmpty();
+        assertThat(freshOrdersStatistics()).isEmpty();
     }
 
     @Test
@@ -172,7 +172,11 @@ class AnalyzeExecutorTest {
         assertThatThrownBy(() -> executor.execute(analyze("orders"), context()))
                 .isInstanceOf(org.pangrova.common.exception.PangrovaException.class)
                 .hasMessageContaining("cannot observe a version");
-        assertThat(registry.tableStatistics().fresh("test_cat", "default", "orders")).isEmpty();
+        assertThat(freshOrdersStatistics()).isEmpty();
+    }
+
+    private java.util.Optional<org.pangrova.table.api.statistics.TableControlStatistics> freshOrdersStatistics() {
+        return registry.tableControl().find("test_cat", "default", "orders").flatMap(registry.tableStatistics()::fresh);
     }
 
     private TableControlRecord managed(String table, TableVersionToken version) {

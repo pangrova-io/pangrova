@@ -3,7 +3,7 @@ package org.pangrova.coordinator.query.task;
 import org.pangrova.coordinator.enums.WriteRecoveryOutcome;
 import org.pangrova.persistence.query.api.enums.WriteCommitState;
 import org.pangrova.persistence.query.memory.transaction.InMemoryWriteCommitJournal;
-import org.pangrova.coordinator.query.execution.ConnectorWriteBindingFactory;
+import org.pangrova.coordinator.metadata.ConnectorWriteBindingFactory;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.api.enums.CatalogState;
 import org.pangrova.metadata.api.enums.CatalogType;

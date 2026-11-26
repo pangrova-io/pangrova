@@ -4,7 +4,7 @@ package org.pangrova.server.coordinator.query.task;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.pangrova.common.json.JsonMapperFactory;
+import org.pangrova.protocol.rest.task.TaskStatusWire;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
@@ -34,7 +34,7 @@ class TaskStatusReceiverJournalTest extends ContainerTestBase {
             try {
                 fixture.startWithoutConsumingResult();
                 var attempt = actualAttempt(fixture);
-                var report = JsonMapperFactory.shared().readValue(attempt.body(), TaskStatusReport.class);
+                var report = TaskStatusWire.decode(attempt.body());
                 var issuedAttempt = fixture.issuedAttempt(report);
                 await("Actual task INSERT waits on table lock").atMost(Duration.ofSeconds(5)).until(store::actualInsertWaiting);
                 await("RUNNING HTTP acknowledgment precedes actual commit").atMost(Duration.ofSeconds(5))
@@ -62,7 +62,7 @@ class TaskStatusReceiverJournalTest extends ContainerTestBase {
              })) {
             try {
                 var attempt = actualAttempt(fixture);
-                var report = JsonMapperFactory.shared().readValue(attempt.body(), TaskStatusReport.class);
+                var report = TaskStatusWire.decode(attempt.body());
                 var issuedAttempt = fixture.issuedAttempt(report);
                 await("Actual task INSERT waits on table lock").atMost(Duration.ofSeconds(5)).until(store::actualInsertWaiting);
                 assertThat(attempt.response().get()).as("Terminal HTTP handler must await the actual journal commit").isNull();

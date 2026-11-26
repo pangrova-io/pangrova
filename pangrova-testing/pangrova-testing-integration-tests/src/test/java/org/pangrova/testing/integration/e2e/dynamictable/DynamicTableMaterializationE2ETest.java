@@ -436,6 +436,32 @@ class DynamicTableMaterializationE2ETest extends SqlE2ETestBase {
     }
 
     @Test
+    void continuousQueryPublishesAFullGenerationAndPersistsItsRefreshInterval() {
+        String suffix = Long.toHexString(System.nanoTime());
+        String sourceTable = "cq_source_" + suffix;
+        String source = CATALOG + "." + SCHEMA + "." + sourceTable;
+        String logical = CATALOG + "." + SCHEMA + ".cq_rollup_" + suffix;
+        dataSetup.createTestTable(CATALOG, SCHEMA, sourceTable, "id BIGINT");
+        sqlRunner.execute("INSERT INTO " + source + " VALUES (17)");
+
+        sqlRunner.executeDdl("CREATE CONTINUOUS QUERY " + logical
+                + " REFRESH EVERY 'PT2M' AS SELECT id FROM " + source);
+        try {
+            assertThat(published(logical).refreshKind()).isEqualTo(RefreshKind.FULL);
+            assertIds(logical, 17L);
+            assertThat(sqlRunner.execute("SHOW DYNAMIC TABLES")).anySatisfy(row -> {
+                assertThat(row.getString("dt_name")).isEqualTo(logical);
+                assertThat(row.getString("refresh_mode")).isEqualTo("FULL");
+                assertThat(row.getString("schedule_state")).isEqualTo("ACTIVE");
+                assertThat(row.getString("target_lag")).isEqualTo("PT2M");
+            });
+        } finally {
+            sqlRunner.executeDdl("DROP DYNAMIC TABLE " + logical);
+            sqlRunner.executeDdl("DROP TABLE " + source);
+        }
+    }
+
+    @Test
     void ddlChangesFollowTheKernelContract() throws Exception {
         String suffix = Long.toHexString(System.nanoTime());
         String sourceTable = "dt_ddl_source_" + suffix;

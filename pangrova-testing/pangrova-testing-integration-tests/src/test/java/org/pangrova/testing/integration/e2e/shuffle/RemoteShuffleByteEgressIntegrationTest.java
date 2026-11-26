@@ -201,13 +201,16 @@ class RemoteShuffleByteEgressIntegrationTest extends ContainerTestBase {
     @Test void exactRequestReleaseJoinsItsProducerAndRejectsSubsequentWrites() {
         install();
         write(0, 2, buffer("before-exact-release"));
-        await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertDurableRows(1, 0));
+        await().atMost(Duration.ofSeconds(5)).until(() -> service.backend().uploadedObjects() == 1);
+        assertDurableRows(0, 0);
+        assertWriteReservations(1);
         egress.releaseTask(request);
         egress.releaseTask(request);
         assertThatThrownBy(() -> write(0, 1, buffer("after-exact-release")))
                 .isInstanceOf(RemoteShuffleClientException.class).hasMessageContaining("No installed external shuffle task");
+        await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertWriteReservations(0));
         assertThat(calls(0, CommitProducerAttemptRequest.class)).isEmpty();
-        assertDurableProducerCommits(0);
+        assertDurableRows(0, 0);
     }
 
     @Test void creationRollbackForConflictingBindingDoesNotAbortTheExistingRealProducer() {
@@ -218,7 +221,7 @@ class RemoteShuffleByteEgressIntegrationTest extends ContainerTestBase {
         // JNI. It is not proof that a Native task was created or completed.
         var executor = new org.pangrova.worker.execution.NativeTaskExecutor(egress);
         try {
-            assertThatThrownBy(() -> executor.createTask(conflict.toByteArray()))
+            assertThatThrownBy(() -> executor.createTask(conflict))
                     .isInstanceOf(org.pangrova.worker.exception.NativeTaskCreationFailure.class)
                     .satisfies(failure -> assertThat(((org.pangrova.worker.exception.NativeTaskCreationFailure) failure)
                             .withoutNativeOwner()).isTrue());
@@ -439,6 +442,17 @@ class RemoteShuffleByteEgressIntegrationTest extends ContainerTestBase {
             assertThat(rows.getInt(1)).isEqualTo(commits);
         } catch (java.sql.SQLException failure) {
             throw new IllegalStateException("Actual producer commit state read failed", failure);
+        }
+    }
+
+    private void assertWriteReservations(int expected) {
+        try (var connection = service.backend().jdbc().getConnection();
+             var statement = connection.createStatement();
+             var rows = statement.executeQuery("SELECT count(*) FROM shuffle.shuffle_write_intent")) {
+            assertThat(rows.next()).isTrue();
+            assertThat(rows.getInt(1)).isEqualTo(expected);
+        } catch (java.sql.SQLException failure) {
+            throw new IllegalStateException("Actual write reservation state read failed", failure);
         }
     }
 

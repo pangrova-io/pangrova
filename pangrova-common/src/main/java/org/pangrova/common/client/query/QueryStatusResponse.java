@@ -10,9 +10,8 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 /**
  * Immutable response body for querying the status of a submitted query.
  *
- * <p>Includes result endpoint for transport data retrieval when available.
- * Null optional fields (error, stats, result_endpoint) are omitted from JSON
- * to maintain backward compatibility with existing clients.
+ * <p>The version and drain evidence describe the live owner projection.
+ * Historical journal state does not carry either fact.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record QueryStatusResponse(
@@ -20,8 +19,16 @@ public record QueryStatusResponse(
     @JsonProperty("state") String state,
     @JsonProperty("error") ErrorDetail error,
     @JsonProperty("stats") QueryStats stats,
-    @JsonProperty("result_endpoint") ResultEndpoint resultEndpoint
+    @JsonProperty("result_endpoint") ResultEndpoint resultEndpoint,
+    @JsonProperty("version") Long version,
+    @JsonProperty("drained") Boolean drained
 ) {
+    public static final long MAX_WAIT_MILLIS = 5_000;
+
+    public QueryStatusResponse(String queryId, String state, ErrorDetail error, QueryStats stats,
+                               ResultEndpoint resultEndpoint) {
+        this(queryId, state, error, stats, resultEndpoint, null, null);
+    }
 
     /**
      * Compact constructor enforcing non-null mandatory fields.
@@ -41,7 +48,7 @@ public record QueryStatusResponse(
         return new QueryStatusResponse(queryId, state, error, null, resultEndpoint);
     }
 
-    /** Backward-compatible factory without resultEndpoint. */
+    /** Factory for status with statistics and no result endpoint. */
     public static QueryStatusResponse withoutEndpoint(
             String queryId, String state, ErrorDetail error, QueryStats stats) {
         return new QueryStatusResponse(queryId, state, error, stats, null);

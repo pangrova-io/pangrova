@@ -4,20 +4,27 @@ import org.pangrova.shuffle.api.coordinator.ExternalShuffleDescriptorEncoder;
 import org.pangrova.coordinator.query.execution.dispatch.dag.runtime.DAGCompletionEvaluator;
 import org.pangrova.coordinator.scheduler.placement.WorkerSelector;
 import org.pangrova.execution.stage.QueryExecutionScope;
-import org.pangrova.query.api.task.QuerySplit;
+import org.pangrova.coordinator.query.execution.split.QuerySplit;
 import org.pangrova.query.api.enums.StageState;
 import org.pangrova.query.api.stage.StageCompletionCallback;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
+import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.enums.PangrovaErrorCode;
+import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.generation.publication.read.PublishedGenerationBindingResolver;
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.execution.task.DispatchResult;
-import org.pangrova.coordinator.query.execution.dispatch.adaptive.AdaptiveStagePlanResolver;
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.DispatchCanceller;
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.StageLifecycleEvent;
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.StageLifecycleHandler;
@@ -25,7 +32,9 @@ import org.pangrova.coordinator.query.execution.dispatch.dag.retrieval.Retrieval
 import org.pangrova.coordinator.query.execution.dispatch.dag.binding.DAGStagePlanBinder;
 import org.pangrova.coordinator.query.execution.dispatch.dag.runtime.DAGLifecycleController;
 import org.pangrova.coordinator.query.execution.dispatch.dag.runtime.DAGExecutionState;
+import org.pangrova.coordinator.query.execution.dispatch.dag.runtime.BuildFilterGate;
 import org.pangrova.coordinator.query.execution.dispatch.dag.control.DurableStageRuntime;
+import org.pangrova.coordinator.query.execution.dispatch.dag.control.DurablePartitionRequest.StageRequestPlan;
 import org.pangrova.execution.authority.StageExecutionContext;
 import org.pangrova.shuffle.api.coordinator.RecoverableShuffleControl;
 import org.pangrova.shuffle.api.coordinator.ShuffleTaskAccess;
@@ -34,7 +43,9 @@ import org.pangrova.coordinator.query.execution.dispatch.dag.binding.StageSplitF
 import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageNode;
-import org.pangrova.planner.api.fragment.SerializedPlanFragment;
+import org.pangrova.coordinator.query.task.QueryOperatorStatsRegistry;
+import org.pangrova.coordinator.query.task.QueryStageObservations;
+import org.pangrova.query.profiling.enums.DispatchPhase;
 import org.pangrova.planner.analysis.SqlCompiler;
 import org.pangrova.protocol.execution.BoundExecutionPlan;
 import org.pangrova.query.api.error.QueryFailure;
@@ -43,27 +54,21 @@ import org.slf4j.LoggerFactory;
 
 /** Drives asynchronous event-based dispatch for multi-stage queries. */
 @ThreadSafe
-public final class DAGDispatchEngine implements StageCompletionCallback {
+public final class DAGDispatchEngine implements StageCompletionCallback, AutoCloseable {
     private static final Logger LOG = LoggerFactory.getLogger(DAGDispatchEngine.class);
 
     private final org.pangrova.coordinator.task.TaskCancelRetrier cancelRetrier;
     private final PipelineConfig pipelineConfig;
     private final LeafStageDispatcher leafStageDispatcher;
-    private final AdaptiveStagePlanResolver adaptivePlanResolver;
     private final DAGStagePlanBinder stagePlanBinder;
     private final StageSplitFetcher stageSplitFetcher;
+    private final CoalescedShuffleInputs coalescedShuffleInputs;
+    private final DownstreamStageScheduler downstreamStageScheduler;
+    private final ScheduledExecutorService deadlines = ManagedExecutorFactory.newScheduledThreadPool(
+            "dag-dispatch-deadline", 2);
     private final DAGLifecycleController lifecycle;
+    private volatile QueryOperatorStatsRegistry operatorStats;
     private final org.pangrova.coordinator.query.execution.dispatch.dag.runtime.DurableDAGControl durableControl;
-
-    /** Creates a dispatch engine without adaptive sub-plan reoptimization. */
-    public DAGDispatchEngine(
-            DAGDispatchContext dependencies,
-            List<StageLifecycleHandler> handlers,
-            org.pangrova.coordinator.query.execution.split.StageSplitSource splitFetcher,
-            PublishedGenerationBindingResolver artifactResolver,
-            org.pangrova.coordinator.generation.read.GeneratedValueReadResolver generatedValueReads) {
-        this(dependencies, handlers, splitFetcher, artifactResolver, generatedValueReads, null);
-    }
 
     /** Creates a dispatch engine with the supplied execution dependencies. */
     public DAGDispatchEngine(
@@ -71,8 +76,7 @@ public final class DAGDispatchEngine implements StageCompletionCallback {
             List<StageLifecycleHandler> handlers,
             org.pangrova.coordinator.query.execution.split.StageSplitSource splitFetcher,
             PublishedGenerationBindingResolver artifactResolver,
-            org.pangrova.coordinator.generation.read.GeneratedValueReadResolver generatedValueReads,
-            org.pangrova.planner.analysis.SubPlanReoptimizer subPlanReoptimizer) {
+            org.pangrova.coordinator.generation.read.GeneratedValueReadResolver generatedValueReads) {
         DispatchCanceller canceller = new DispatchCanceller(
                 dependencies.dispatcher(), dependencies.taskTracker());
         this.cancelRetrier = canceller.cancelRetrier();
@@ -85,15 +89,14 @@ public final class DAGDispatchEngine implements StageCompletionCallback {
         this.stagePlanBinder = new DAGStagePlanBinder(new RetrievalGenerationResolver(artifactResolver),
                 generatedValueReads);
         this.stageSplitFetcher = new StageSplitFetcher(dependencies.catalogRegistry(), splitFetcher);
-        this.adaptivePlanResolver =
-                new AdaptiveStagePlanResolver(subPlanReoptimizer);
+        this.coalescedShuffleInputs = new CoalescedShuffleInputs(dependencies.adaptiveQueryConfig());
+        this.downstreamStageScheduler = new DownstreamStageScheduler(dependencies.taskTracker());
         this.lifecycle = new DAGLifecycleController(
                 dependencies.dispatcher(), canceller,
                 dependencies.shuffleLifecycleManager(), dependencies.lineageEmitter(),
                 handlers);
         this.leafStageDispatcher = new LeafStageDispatcher(
-                dependencies.dispatcher(), dependencies.runtimeFilterRegistry(),
-                dependencies.stateJournal(), dependencies.taskTimeoutSeconds(),
+                dependencies.dispatcher(), dependencies.stateJournal(), dependencies.taskTimeoutSeconds(),
                 canceller, lifecycle::registerTask,
                 new LeafStageDispatcher.LeafDispatchOptions(
                         artifactResolver, pipelineConfig.localShuffle(),
@@ -106,6 +109,11 @@ public final class DAGDispatchEngine implements StageCompletionCallback {
                                         : java.util.function.UnaryOperator.identity()));
         this.durableControl = new org.pangrova.coordinator.query.execution.dispatch.dag.runtime.DurableDAGControl(
                 lifecycle, externalShuffle);
+    }
+
+    /** Attaches the bounded diagnostics used by the query profile. */
+    public void setOperatorStatsRegistry(QueryOperatorStatsRegistry registry) {
+        operatorStats = registry;
     }
 
     /** The same exact-attempt cancellation queue is used by stage, query and speculative cleanup. */
@@ -131,25 +139,12 @@ public final class DAGDispatchEngine implements StageCompletionCallback {
     /** Replays through this engine's same listener and ordinary root scheduling. */
     public CompletableFuture<DispatchResult> startDurable(DurableStageRuntime runtime) {
         return durableControl.start(runtime, state -> {
-            registerListeners(state);
-            scheduleRootStages(state);
+            scheduleRootStages(state, registerListeners(state));
         });
     }
 
-    /** Dispatches a DAG with its immutable query context. */
-    public DispatchResult dispatch(
-            QuerySession session,
-            StageDAG dag,
-            SqlCompiler compiler,
-            WorkerSelector workerSelector,
-            long timeoutMs,
-            QueryExecutionScope queryContext) {
-        return dispatch(session, dag, compiler, workerSelector, timeoutMs,
-                queryContext, ignored -> { });
-    }
-
-    /** Publishes the OUTPUT endpoint once Worker dispatch is acknowledged. */
-    public DispatchResult dispatch(
+    /** Schedules a live DAG and publishes its OUTPUT endpoint after Worker acknowledgement. */
+    public CompletionStage<DispatchResult> start(
             QuerySession session,
             StageDAG dag,
             SqlCompiler compiler,
@@ -158,52 +153,58 @@ public final class DAGDispatchEngine implements StageCompletionCallback {
             QueryExecutionScope queryContext,
             Consumer<DispatchResult> resultReadySink) {
         lifecycle.registerQuery(session.queryId(), dag, queryContext);
-        return dispatchRegistered(session, dag, compiler, workerSelector, timeoutMs, resultReadySink);
-    }
-
-    /** Dispatches a DAG using any previously registered query context. */
-    public DispatchResult dispatch(
-            QuerySession session,
-            StageDAG dag,
-            SqlCompiler compiler,
-            WorkerSelector workerSelector,
-            long timeoutMs) {
-        lifecycle.registerDagIfAbsent(session.queryId(), dag);
-        return dispatchRegistered(session, dag, compiler, workerSelector, timeoutMs, ignored -> { });
-    }
-
-    private DispatchResult dispatchRegistered(
-            QuerySession session,
-            StageDAG dag,
-            SqlCompiler compiler,
-            WorkerSelector workerSelector,
-            long timeoutMs,
-            Consumer<DispatchResult> resultReadySink) {
+        var scope = lifecycle.queryContext(session.queryId());
+        var filter = scope == null || scope.writeConfig() != null ? null : BuildFilterGate.create(dag);
         DAGExecutionState state = DAGExecutionState.create(new StageExecutionContext.Live(session), dag,
                 compiler, pipelineConfig.localShuffle() && !dag.stageEdges().isEmpty()
                         ? new org.pangrova.coordinator.scheduler.placement.LocalShufflePlacement(workerSelector)
-                        : workerSelector, null, resultReadySink);
+                        : workerSelector, null, resultReadySink, filter);
         lifecycle.registerLiveExecution(state);
         try {
-            registerListeners(state);
-            scheduleRootStages(state);
-            return DAGCompletionEvaluator.awaitCompletion(
-                    state.completion(), timeoutMs, session.queryId());
-        } catch (Exception failure) {
-            lifecycle.failDispatch(
-                    state.queryId(), state.dag(), state.cancelled(), state.dispatched());
-            throw failure;
+            scheduleRootStages(state, registerListeners(state));
+            armDeadline(state.completion(), timeoutMs, () -> new PangrovaException(
+                    PangrovaErrorCode.RUNTIME_QUERY_TIMEOUT,
+                    "DAG dispatch timed out [queryId=" + state.queryId() + "]"));
+        } catch (RuntimeException | LinkageError failure) {
+            state.completion().completeExceptionally(failure);
         }
+        return state.completion().handle((result, failure) -> {
+            if (failure == null) return result;
+            if (failure instanceof CancellationException cancelled) throw cancelled;
+            var dispatchFailure = DispatchCanceller.wrapIfNeeded(failure, state.queryId());
+            try {
+                lifecycle.failDispatch(state.queryId(), state.dag(), state.cancelled(), state.dispatched());
+            } catch (RuntimeException | Error cleanup) {
+                if (cleanup != dispatchFailure) dispatchFailure.addSuppressed(cleanup);
+            }
+            throw dispatchFailure;
+        });
     }
 
-    private void registerListeners(DAGExecutionState state) {
+    /** Arms a deadline owned by the execution engine and removes it on completion. */
+    public void armDeadline(CompletableFuture<?> completion, long timeoutMs,
+            Supplier<? extends RuntimeException> failure) {
+        if (completion.isDone()) return;
+        var deadline = deadlines.schedule(() -> completion.completeExceptionally(failure.get()),
+                timeoutMs, TimeUnit.MILLISECONDS);
+        completion.whenComplete((result, caught) -> deadline.cancel(false));
+    }
+
+    private QueryStageObservations registerListeners(DAGExecutionState state) {
+        var registry = operatorStats;
+        var observations = registry != null && state.execution() instanceof StageExecutionContext.Live
+                ? registry.beginExecution(state.queryId(), state.dag()) : null;
+        if (observations != null) lifecycle.observeTaskSelections(state.queryId(), state.dag(), observations);
         for (Stage stage : state.dag().stageEntities()) {
             stage.stateMachine().addStateChangeListener((id, previous, next) -> {
                 if (!lifecycle.owns(state.queryId(), state.dag()) || state.cancelled().get()) return;
+                if (observations != null) {
+                    observations.record(stage.stageId(), stage.currentGeneration(), previous, next);
+                }
                 updateRunningCount(previous, next, state.runningStageCount());
                 try {
-                    onStateChange(stage, next, state);
-                } catch (Exception failure) {
+                    onStateChange(stage, next, state, observations);
+                } catch (Exception | LinkageError failure) {
                     LOG.error("event=stage_listener_exception stageId={} queryId={}"
                                     + " transition={}→{} error={}",
                             id, state.queryId(), previous, next,
@@ -213,29 +214,31 @@ public final class DAGDispatchEngine implements StageCompletionCallback {
                 }
             });
         }
+        return observations;
     }
 
     private void onStateChange(
-            Stage stage, StageState next, DAGExecutionState state) {
+            Stage stage, StageState next, DAGExecutionState state, QueryStageObservations observations) {
         switch (next) {
-            case RUNNING -> onStageRunning(stage, state);
+            case RUNNING -> onStageRunning(state, observations);
             case FINISHED -> {
                 fireHandlerEvent(stage, state, StageLifecycleHandler::onFinished);
-                onStageFinished(state);
+                if (state.buildFilter() != null) state.buildFilter().onFinished(stage);
+                onStageFinished(state, observations);
             }
-            case FAILED -> onFailedState(stage, state);
+            case FAILED -> onFailedState(stage, state, observations);
             default -> {
             }
         }
     }
 
-    private void onFailedState(Stage stage, DAGExecutionState state) {
+    private void onFailedState(Stage stage, DAGExecutionState state, QueryStageObservations observations) {
         fireHandlerEvent(stage, state, StageLifecycleHandler::onFailed);
         if (stage.stateMachine().getState() == StageState.PLANNED) {
             state.dispatchFailures().remove(stage.stageId());
             LOG.info("event=stage_retry_reschedule queryId={} stageId={} retryCount={}",
                     state.queryId(), stage.stageId(), stage.retryCount());
-            scheduleStage(stage, state);
+            scheduleStage(stage, state, observations);
             return;
         }
         state.cancelled().set(true);
@@ -272,16 +275,36 @@ public final class DAGDispatchEngine implements StageCompletionCallback {
                 call);
     }
 
-    private void scheduleRootStages(DAGExecutionState state) {
+    private void scheduleRootStages(DAGExecutionState state, QueryStageObservations observations) {
         List<Stage> roots = state.dag().rootStageEntities();
         if (roots.isEmpty()) {
             throw new IllegalStateException(
                     "DAG has no root stages for query " + state.queryId());
         }
-        roots.forEach(stage -> scheduleStage(stage, state));
+        roots.forEach(stage -> scheduleStage(stage, state, observations));
+        var gate = state.buildFilter();
+        if (gate == null) return;
+
+        long waitStarted = observations == null ? 0L : observations.elapsedNanos();
+        gate.releaseProbe(state.completion(), deadlines).thenAccept(release -> {
+            try {
+                var probe = state.dag().findStage(gate.plan().probeStageId());
+                if (observations != null) {
+                    observations.recordRuntimeFilterWait(gate.plan().buildStageId(), probe.stageId(),
+                            probe.currentGeneration(), waitStarted, release.outcome(), release.rangeCount());
+                }
+                if (!state.completion().isDone() && !state.cancelled().get()
+                        && lifecycle.owns(state.queryId(), state.dag())) {
+                    requestReadyDownstream(state, observations);
+                }
+            } catch (RuntimeException | LinkageError failure) {
+                state.cancelled().set(true);
+                state.completion().completeExceptionally(failure);
+            }
+        });
     }
 
-    private void onStageRunning(Stage stage, DAGExecutionState state) {
+    private void onStageRunning(DAGExecutionState state, QueryStageObservations observations) {
         if (state.durable() != null || !pipelineConfig.enabled() || state.cancelled().get()) {
             return;
         }
@@ -292,18 +315,45 @@ public final class DAGDispatchEngine implements StageCompletionCallback {
                     pipelineConfig.maxConcurrentStages());
             return;
         }
-        scheduleReadyDownstream(stage.stageId(), state);
+        requestReadyDownstream(state, observations);
     }
 
-    private void onStageFinished(DAGExecutionState state) {
+    private void onStageFinished(DAGExecutionState state, QueryStageObservations observations) {
         if (DAGCompletionEvaluator.allStagesFinished(state.dag())) {
             completeQuery(state);
         } else if (!state.cancelled().get()) {
-            scheduleReadyDownstream(-1, state);
+            requestReadyDownstream(state, observations);
         }
     }
 
-    private void scheduleReadyDownstream(int triggerStageId, DAGExecutionState state) {
+    private void requestReadyDownstream(DAGExecutionState state, QueryStageObservations observations) {
+        var context = lifecycle.queryContext(state.queryId());
+        if (state.durable() == null && context != null && context.writeConfig() == null) {
+            downstreamStageScheduler.request(state, observations, () -> scheduleReadyDownstream(state, observations));
+        } else {
+            scheduleReadyDownstream(state, observations);
+        }
+    }
+
+    @Override
+    public void close() {
+        try {
+            downstreamStageScheduler.close();
+        } finally {
+            deadlines.shutdownNow();
+        }
+    }
+
+    private void scheduleReadyDownstream(DAGExecutionState state, QueryStageObservations observations) {
+        var gate = state.buildFilter();
+        if (gate != null && !gate.blocks(gate.plan().probeStageId())) {
+            // The probe is a source root. Like the initial roots, it can feed the
+            // producer/consumer pipeline even when the downstream cap is reached.
+            var probe = state.dag().findStage(gate.plan().probeStageId());
+            if (probe.stateMachine().getState() == StageState.PLANNED) {
+                scheduleStage(probe, state, observations);
+            }
+        }
         Set<Integer> activeIds = activeStageIds(state);
         for (Stage downstream : state.dag().readyStageEntities(activeIds)) {
             if (state.cancelled().get() || atConcurrencyLimit(state)) {
@@ -311,8 +361,7 @@ public final class DAGDispatchEngine implements StageCompletionCallback {
             }
             if (downstream.stateMachine().getState()
                     == StageState.PLANNED) {
-                logPipelineSchedule(triggerStageId, downstream, state.queryId());
-                scheduleStage(downstream, state);
+                scheduleStage(downstream, state, observations);
             }
         }
         if (!state.completion().isDone() && !state.cancelled().get()
@@ -336,63 +385,93 @@ public final class DAGDispatchEngine implements StageCompletionCallback {
                         >= pipelineConfig.maxConcurrentStages();
     }
 
-    private static void logPipelineSchedule(
-            int triggerStageId, Stage downstream, String queryId) {
-        if (triggerStageId >= 0) {
-            LOG.info("event=pipeline_schedule queryId={} triggerStageId={}"
-                            + " downstreamStageId={}",
-                    queryId, triggerStageId, downstream.stageId());
-        }
-    }
-
-    private void scheduleStage(Stage stage, DAGExecutionState state) {
-        if (state.cancelled().get() || !state.dag().admitInputs(stage.stageId())
+    private void scheduleStage(Stage stage, DAGExecutionState state, QueryStageObservations observations) {
+        if (state.cancelled().get() || (state.buildFilter() != null && state.buildFilter().blocks(stage.stageId()))
+                || !state.dag().admitInputs(stage.stageId())
                 || !stage.stateMachine().tryTransitionTo(
                         StageState.SCHEDULING)) {
             return;
         }
-        fireHandlerEvent(stage, state, StageLifecycleHandler::onScheduling);
         try {
-            PreparedStage prepared = prepareStage(stage, state);
+            freezePhysicalInputs(stage, state);
+            fireHandlerEvent(stage, state, StageLifecycleHandler::onScheduling);
+            int generation = stage.currentGeneration();
+            PreparedStage prepared = prepareStage(stage, state, generation, observations);
+            long submissionStarted = dispatchTimestamp(observations);
             List<PartitionDispatch> partitions =
-                    leafStageDispatcher.dispatchLeafStage(prepared.dispatch());
-            awaitStageDispatch(stage, prepared.plan(), partitions, state);
+                    leafStageDispatcher.dispatchLeafStage(prepared.dispatch(), prepared.durablePlan());
+            recordDispatchWork(observations, stage.stageId(), generation, DispatchPhase.SUBMIT_TASKS,
+                    submissionStarted, partitions.size(), true);
+            awaitStageDispatch(stage, prepared.plan(), partitions, state, observations);
+        } catch (LinkageError failure) {
+            failStageDispatch(stage, failure, state);
+            throw DispatchCanceller.wrapIfNeeded(failure, state.queryId());
         } catch (Exception failure) {
-            stage.stateMachine().tryTransitionTo(StageState.FAILED);
+            failStageDispatch(stage, failure, state);
             lifecycle.failQuery(state.queryId(), state.dag());
             throw propagateSchedulingFailure(failure);
         }
     }
 
-    private PreparedStage prepareStage(Stage stage, DAGExecutionState state) {
-        if (state.durable() != null) {
-            return new PreparedStage(stage.plan(), new LeafStageDispatcher.LeafDispatch(
-                    state.execution(), stage.plan(), state.durable().boundPlan(stage.plan()), List.of(), null,
-                    state.dag(), state.dispatched(), null, false,
-                    state.durable().control().planEpoch(stage.stageId()), state.durable()));
+    private void freezePhysicalInputs(Stage stage, DAGExecutionState state) {
+        if (state.durable() != null) return;
+        var context = lifecycle.queryContext(state.queryId());
+        if (context == null || context.writeConfig() != null || context.retrievalMerge().isPresent()
+                || !context.retrievalArtifacts().isEmpty()) {
+            return;
         }
-        StageNode plan = adaptivePlanResolver.apply(stage.plan(), state.dag(), state.compiler());
+        var inputs = coalescedShuffleInputs.select(stage, state.dag());
+        stage.freezeCoalescedInputs(inputs);
+        if (inputs.isCoalesced()) {
+            LOG.info("event=shuffle_input_coalesced queryId={} stageId={} sourcePartitions={} consumers={}",
+                    state.queryId(), stage.stageId(), inputs.originalCount(), inputs.coalescedCount());
+        }
+    }
+
+    private PreparedStage prepareStage(Stage stage, DAGExecutionState state, int generation,
+            QueryStageObservations observations) {
+        if (state.durable() != null) {
+            var durablePlan = state.durable().prepareRequestPlan(stage.plan());
+            return new PreparedStage(stage.plan(), new LeafStageDispatcher.LeafDispatch(
+                    state.execution(), stage.plan(), null, List.of(), null,
+                    state.dag(), state.dispatched(), null, false,
+                    state.durable().control().planEpoch(stage.stageId()), state.durable(), List.of()),
+                    durablePlan);
+        }
+        StageNode plan = stage.plan();
         if (stage.retryCount() > 0) {
             state.dispatched().removeIf(record ->
                     record.stageId() == stage.stageId());
         }
         QueryExecutionScope queryContext = lifecycle.queryContext(state.queryId());
         lifecycle.emitStageLineage(state.queryId(), plan, true);
-        SerializedPlanFragment serialized = state.serializePlan(
-                plan, queryContext == null ? List.of() : queryContext.preOptColumnNames());
+        boolean outputStage = state.dag().findDownstreamEdge(plan.stageId()) == null;
+        List<String> visibleColumns = queryContext == null ? List.of() : queryContext.preOptColumnNames();
+        long serializationStarted = dispatchTimestamp(observations);
+        var compiled = state.compilePlan(plan, visibleColumns);
+        recordDispatchWork(observations, plan.stageId(), generation, DispatchPhase.SERIALIZE_PLAN,
+                serializationStarted, null, true);
         if (queryContext != null && !queryContext.retrievalArtifacts().isEmpty()) {
             LOG.info("event=retrieval_stage_hints queryId={} stageId={} hints={}",
-                    state.queryId(), plan.stageId(), serialized.retrievalTopKHints().stream()
+                    state.queryId(), plan.stageId(), compiled.retrievalTopKHints().stream()
                             .map(hint -> hint.kind() + ":" + hint.sourceKey()).toList());
         }
-        List<QuerySplit> splits = stageSplitFetcher.fetch(
+        long enumerationStarted = dispatchTimestamp(observations);
+        var fetched = stageSplitFetcher.fetch(
                 plan, queryContext == null ? null : queryContext.requireLiveSession(),
                 queryContext == null ? Map.of() : queryContext.snapshotOverrides(),
                 queryContext == null || queryContext.writeConfig() == null
-                        ? null : queryContext.writeConfig().writeMode());
+                        ? null : queryContext.writeConfig().writeMode(), state.buildFilter());
+        List<QuerySplit> splits = fetched.splits();
+        recordDispatchWork(observations, plan.stageId(), generation, DispatchPhase.ENUMERATE_SPLITS,
+                enumerationStarted, splits.size(), true);
+        long bindingStarted = dispatchTimestamp(observations);
+        org.pangrova.execution.split.CanonicalSplitValidator.validateAll(
+                () -> splits.stream().map(QuerySplit::data).iterator(), state.queryId(), plan.stageId());
         BoundExecutionPlan boundPlan = stagePlanBinder.bind(new DAGStagePlanBinder.Input(
-                serialized, plan, splits, queryContext, state.session(), state.workerSelector(),
-                state.dag().findDownstreamEdge(plan.stageId()) == null));
+                compiled, plan, fetched, queryContext, state.session(), state.workerSelector(), outputStage));
+        recordDispatchWork(observations, plan.stageId(), generation, DispatchPhase.VALIDATE_AND_BIND_PLAN,
+                bindingStarted, null, true);
         // Only the terminal stage owns the table write. Upstream stages must
         // produce their ExchangeRel shuffle output with a shuffle task binding.
         var writeConfig = queryContext == null
@@ -401,29 +480,52 @@ public final class DAGDispatchEngine implements StageCompletionCallback {
         var dispatch = new LeafStageDispatcher.LeafDispatch(
                 state.execution(), plan, boundPlan, splits, state.workerSelector(),
                 state.dag(), state.dispatched(), writeConfig,
-                !serialized.retrievalTopKHints().isEmpty(),
-                Math.addExact(stage.currentGeneration(), 1L), null);
-        return new PreparedStage(plan, dispatch);
+                !compiled.retrievalTopKHints().isEmpty(),
+                Math.addExact(stage.currentGeneration(), 1L), null,
+                state.buildFilter() == null ? List.of() : state.buildFilter().buildOrdinals(stage.stageId()));
+        return new PreparedStage(plan, dispatch, null);
     }
 
     private void awaitStageDispatch(
             Stage stage,
             StageNode plan,
             List<PartitionDispatch> partitions,
-            DAGExecutionState state) {
+            DAGExecutionState state,
+            QueryStageObservations observations) {
         int generation = stage.currentGeneration();
-        CompletableFuture.allOf(partitions.stream()
+        long waitStarted = dispatchTimestamp(observations);
+        var acknowledgements = CompletableFuture.allOf(partitions.stream()
                         .map(PartitionDispatch::future)
-                        .toArray(CompletableFuture[]::new))
+                        .toArray(CompletableFuture[]::new));
+        acknowledgements
                 .thenRun(() -> {
-                    if (stage.currentGeneration() == generation) finishStageDispatch(stage, plan, partitions, state);
+                    if (stage.currentGeneration() == generation) {
+                        recordDispatchWork(observations, stage.stageId(), generation, DispatchPhase.OBSERVE_COHORT_ACK,
+                                waitStarted, partitions.size(), true);
+                        finishStageDispatch(stage, plan, partitions, state);
+                    }
                 })
                 .exceptionally(failure -> {
                     if (stage.currentGeneration() == generation && lifecycle.owns(state.queryId(), state.dag())) {
+                        if (acknowledgements.isCompletedExceptionally()) {
+                            recordDispatchWork(observations, stage.stageId(), generation,
+                                    DispatchPhase.OBSERVE_COHORT_ACK, waitStarted, partitions.size(), false);
+                        }
                         failStageDispatch(stage, failure, state);
                     }
                     return null;
                 });
+    }
+
+    private static long dispatchTimestamp(QueryStageObservations observations) {
+        return observations == null ? 0 : observations.elapsedNanos();
+    }
+
+    private static void recordDispatchWork(QueryStageObservations observations, int stageId, int generation,
+            DispatchPhase phase, long start, Integer itemCount, boolean successful) {
+        if (observations != null) {
+            observations.recordDispatchWork(stageId, generation, phase, start, itemCount, successful);
+        }
     }
 
     private void finishStageDispatch(
@@ -519,6 +621,12 @@ public final class DAGDispatchEngine implements StageCompletionCallback {
         lifecycle.onTaskTerminal(queryId, taskId, state, error);
     }
 
+    @Override
+    public void onSuccessfulTaskTerminal(String queryId, String logicalTaskId, SuccessfulAttempt attempt,
+            Map<Integer, List<BuildKeyRange>> ranges) {
+        lifecycle.onSuccessfulTaskTerminal(queryId, logicalTaskId, attempt, ranges);
+    }
+
     /** Removes all per-query dispatch state. */
     public void cancelDurable(String executionId) {
         durableControl.cancel(executionId);
@@ -544,6 +652,6 @@ public final class DAGDispatchEngine implements StageCompletionCallback {
             org.pangrova.protocol.v2.TaskReport winner) {}
 
     private record PreparedStage(
-            StageNode plan, LeafStageDispatcher.LeafDispatch dispatch) {}
+            StageNode plan, LeafStageDispatcher.LeafDispatch dispatch, StageRequestPlan durablePlan) {}
 
 }

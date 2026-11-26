@@ -21,7 +21,6 @@ import org.pangrova.metadata.catalog.federation.FederationCatalogHandle;
 import org.pangrova.metadata.catalog.handle.internal.InternalCatalogHandle;
 import org.pangrova.common.client.error.ErrorDetail;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
-import org.pangrova.protocol.rest.task.TaskStatusReportResponse;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.coordinator.exception.UnregisteredWorkerException;
 import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
@@ -149,9 +148,11 @@ class CatalogHandleAndStatusProtocolConsistencyTest {
 
     @Test
     void taskStatusReportResponseFieldsPreserved() {
-        TaskStatusReportResponse resp = new TaskStatusReportResponse("task-42", "CONTINUE");
-        assertEquals("task-42", resp.taskId());
-        assertEquals("CONTINUE", resp.command());
+        var resp = org.pangrova.protocol.http.TaskStatusAck.newBuilder().setTaskId("task-42")
+                .setSequence(3).setDirective(org.pangrova.protocol.http.TaskStatusAck.Directive.CONTINUE).build();
+        assertEquals("task-42", resp.getTaskId());
+        assertEquals(3L, resp.getSequence());
+        assertEquals(org.pangrova.protocol.http.TaskStatusAck.Directive.CONTINUE, resp.getDirective());
     }
 
     // ── TaskStatusReceiver integration ──

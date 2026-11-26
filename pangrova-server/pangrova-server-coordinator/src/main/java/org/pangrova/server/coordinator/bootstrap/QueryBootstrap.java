@@ -19,14 +19,12 @@ import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.coordinator.indexing.IndexAwareSplitFetcher;
 import org.pangrova.planner.analysis.SqlCompiler;
-import org.pangrova.planner.runtimefilter.RuntimeFilterRegistry;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
 import org.pangrova.coordinator.metadata.MetadataBootstrap;
 import org.pangrova.query.runtime.QueryManager;
 import org.pangrova.query.lifecycle.QueryTimeoutScheduler;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.scheduler.placement.CacheAffinityAssigner;
-import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
 import org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchEngine;
 import org.pangrova.query.api.stage.StageCompletionCallback;
 import org.pangrova.coordinator.query.task.TaskStatusReceiver;
@@ -59,8 +57,6 @@ final class QueryBootstrap {
 
     private static final Logger LOG = LoggerFactory.getLogger(QueryBootstrap.class);
     private static final long EXECUTOR_DRAIN_TIMEOUT_MILLIS = 5_000;
-    private static final long SPLIT_ASSIGNMENT_LEASE_MILLIS = 60_000;
-    private static final long SPLIT_RECLAMATION_INTERVAL_MILLIS = 10_000;
 
     private final CoordinatorBootstrapConfig config;
     private final TracingProvider tracingProvider;
@@ -81,6 +77,7 @@ final class QueryBootstrap {
     private QueryManager queryManager;
     private final QueryAuditServices queryAuditServices;
     private java.util.concurrent.ExecutorService asyncSubmitExecutor;
+    private ScheduledExecutorService submitDeadlines;
     private TaskStatusReceiver taskStatusReceiver;
     private CoordinatorTaskTracker taskTracker;
     private AuditEventEmitter auditEmitter;
@@ -94,7 +91,6 @@ final class QueryBootstrap {
     private ExecutorService terminalCleanupExecutor;
     private ExecutorService readerPinRenewalExecutor;
     private ExecutorService shuffleCleanupExecutor;
-    private SplitAssignmentManager splitAssignmentManager;
     private CacheAffinityAssigner cacheAffinityAssigner;
     private SpeculativeStageHandler speculativeStageHandler;
     private SpeculativeTaskLauncher speculativeTaskLauncher;
@@ -189,10 +185,8 @@ final class QueryBootstrap {
         initCoordinatorMetrics();
         taskTracker = new CoordinatorTaskTracker();
         controlPlaneResultService = startControlPlaneResultTransport();
-        initSplitAssignment();
-        if (cacheAffinityAssigner != null) {
-            workerManager.addTopologyListener(cacheAffinityAssigner);
-        }
+        cacheAffinityAssigner = new CacheAffinityAssigner();
+        workerManager.addTopologyListener(cacheAffinityAssigner);
         initSpeculation();
         stateJournal = runtimeFactory.createStateJournal();
         CatalogRegistry catalog = metadataBootstrap != null
@@ -201,9 +195,8 @@ final class QueryBootstrap {
                 ? new org.pangrova.coordinator.query.task.write.NativeWriteCommitTracker() : null;
         org.pangrova.materialization.usecase.ReaderPinLeases readerPinLeases =
                 createReaderPinLeases();
-        var runtimeFilters = new RuntimeFilterRegistry();
         SqlCompiler compiler = new SqlCompilerFactory(config, metadataBootstrap, readerPinLeases, accessControl)
-                .buildSqlCompiler(runtimeFilters);
+                .buildSqlCompiler();
         queryScheduling = new QuerySchedulingRuntime(
                 moduleWiring != null ? moduleWiring.getTenantStore() : null, config.query().placementProvider());
         taskScheduler = queryScheduling.scheduler();
@@ -213,13 +206,14 @@ final class QueryBootstrap {
         }
         embeddingModelRegistry = runtimeFactory.createEmbeddingModelRegistry();
         auditEmitter = runtimeFactory.createAuditEmitter();
-        wireExecutionContext(compiler, runtimeFilters, createIndexedReads(moduleWiring, catalog), catalog);
+        wireExecutionContext(compiler, createIndexedReads(moduleWiring, catalog), catalog);
         var queryManagerResult = runtimeFactory.buildQueryManager(
                 queryDispatcher, stateJournal, auditEmitter,
                 java.util.Optional.ofNullable(readerPinLeases)
                         .map(org.pangrova.coordinator.materialization.QueryReaderPinLifecycle::new));
         queryManager = queryManagerResult.queryManager();
         asyncSubmitExecutor = queryManagerResult.asyncExecutor();
+        submitDeadlines = queryManagerResult.submitDeadlines();
         durableRecovery.installShuffleCleanup(queryManager, queryDispatcher);
         taskStatusReceiver = buildTaskStatusReceiver();
         startTimeoutScheduler();
@@ -241,29 +235,26 @@ final class QueryBootstrap {
         selfIntelligence.initialize(executionWiring);
         selfIntelligence.wireIntoQueryDispatcher(queryDispatcher);
         // P1-5b: enforce tenant budget limits across coordinators on the submission path.
-        if (moduleWiring != null) {
-            var admission = SecurityBootstrap.createClusterAdmissionController(
-                    moduleWiring.getTenantStore(), workerManager.tenantUsageView(),
-                    metadataDataSource);
-            if (admission != null) {
-                queryManager.setClusterAdmissionController(admission);
-            }
+        if (moduleWiring != null && moduleWiring.getTenantResolver() != null
+                && moduleWiring.getQuotaChecker() != null) {
+            queryManager.setClusterAdmissionController(SecurityBootstrap.createClusterAdmissionController(
+                    workerManager.tenantUsageView(), metadataDataSource));
         }
-        LOG.info("event=query_bootstrap_complete speculation={} pullMode={} embedding={}",
-                config.speculationEnabled(), config.pullModeSplitAssignmentEnabled(),
+        LOG.info("event=query_bootstrap_complete speculation={} embedding={}",
+                config.speculationEnabled(),
                 config.embeddingEnabled());
     }
 
     /** Builds the execution wiring, dispatcher, and speculative dependencies. */
-    private void wireExecutionContext(SqlCompiler compiler, RuntimeFilterRegistry runtimeFilters,
+    private void wireExecutionContext(SqlCompiler compiler,
             IndexAwareSplitFetcher indexedReads, CatalogRegistry catalog) {
         var materializationFactory = new QueryMaterializationFactory(
                 new QueryMaterializationFactory.Dependencies(
                         config, moduleWiring, metadataDataSource, artifactBuildStore,
-                        workerManager, taskScheduler, splitAssignmentManager,
+                        workerManager, taskScheduler, cacheAffinityAssigner,
                         aiInfrastructureStores, accessControl, embeddingModelRegistry, modelAuthority));
         generatedValueMaterialization = materializationFactory.createGeneratedValue(catalog);
-        var generatedValueReads = materializationFactory.createGeneratedValueReads(catalog);
+        var generatedValueReads = materializationFactory.createGeneratedValueReads();
         var publishedReads = artifactBuildStore == null ? null
                 : new org.pangrova.generation.publication.read.PublishedGenerationBindingResolver(
                         artifactBuildStore);
@@ -279,9 +270,9 @@ final class QueryBootstrap {
                 featureViewService, embeddingModelRegistry,
                 durableRecovery::resolveShuffleOwner, metadataDataSource, auditEmitter, modelAuthority);
         queryDispatcher = executionWiring.buildQueryDispatcher(workerManager, taskTracker,
-                compiler, runtimeFilters, taskScheduler, indexedReads, resolveCircuitBreaker(),
+                compiler, taskScheduler, indexedReads, resolveCircuitBreaker(),
                         controlPlaneResultService,
-                splitAssignmentManager, speculativeStageHandler, stateJournal, publishedReads, generatedValueReads);
+                cacheAffinityAssigner, speculativeStageHandler, stateJournal, publishedReads, generatedValueReads);
         this.remoteTaskDispatcher = executionWiring.remoteTaskDispatcher();
         if (speculativeTaskLauncher != null) {
             speculativeTaskLauncher.setDispatchDependencies(
@@ -333,8 +324,7 @@ final class QueryBootstrap {
         ResourceCloser.closeAll(null,
                 () -> { if (materializationMaintenance != null) materializationMaintenance.close(); },
                 () -> { if (speculationScheduler != null) speculationScheduler.close(); },
-                () -> CoordinatorShutdownSequence.stopTimeoutScheduler(queryTimeoutScheduler),
-                () -> { if (splitAssignmentManager != null) splitAssignmentManager.stopLeaseReclamation(); });
+                () -> CoordinatorShutdownSequence.stopTimeoutScheduler(queryTimeoutScheduler));
         ResourceCloser.closeAll(null,
                 () -> {
                     if (readerPinRenewalExecutor != null) {
@@ -354,7 +344,9 @@ final class QueryBootstrap {
                                 shuffleCleanupExecutor, EXECUTOR_DRAIN_TIMEOUT_MILLIS);
                     }
                 },
+                () -> CoordinatorShutdownSequence.shutdownSchedulerExecutor(submitDeadlines),
                 () -> CoordinatorShutdownSequence.shutdownSchedulerExecutor(schedulerExecutor),
+                () -> { if (queryDispatcher != null) queryDispatcher.dagEngine().close(); },
                 () -> { if (queryScheduling != null) queryScheduling.close(); });
     }
 
@@ -495,18 +487,6 @@ final class QueryBootstrap {
                 config.queryTimeoutSeconds(), config.timeoutCheckIntervalSeconds());
     }
 
-    private void initSplitAssignment() {
-        cacheAffinityAssigner = new CacheAffinityAssigner();
-        if (!config.pullModeSplitAssignmentEnabled()) {
-            LOG.info("event=split_assignment_initialized cacheAffinity=enabled pullMode=false");
-            return;
-        }
-        splitAssignmentManager = new SplitAssignmentManager(
-                SPLIT_ASSIGNMENT_LEASE_MILLIS, cacheAffinityAssigner);
-        splitAssignmentManager.startLeaseReclamation(SPLIT_RECLAMATION_INTERVAL_MILLIS);
-        LOG.info("event=split_assignment_initialized cacheAffinity=enabled pullMode=true");
-    }
-
     private void initSpeculation() {
         // The launcher also dispatches worker-loss task retries, so it exists even
         // when straggler speculation is disabled; only the detector stays gated.
@@ -542,6 +522,7 @@ final class QueryBootstrap {
         CatalogRegistry catalog = metadataBootstrap != null
                 ? metadataBootstrap.catalogRegistry() : null;
         DAGDispatchEngine engine = queryDispatcher.dagEngine();
+        engine.setOperatorStatsRegistry(queryAuditServices.operatorStatsRegistry());
         writeCommitJournal = WriteCommitComponentFactory.createJournal(metadataDataSource);
         writeCommitRecoveryService = WriteCommitComponentFactory.createRecoveryService(
                 writeCommitJournal, catalog,
@@ -622,7 +603,6 @@ final class QueryBootstrap {
     CircuitBreakerPolicy circuitBreaker() { return circuitBreaker; }
     /** Exposed for lifecycle tests; this server only carries control-plane statements. */
     TransportServerLifecycle coordinatorTransportServer() { return controlPlaneResultServer; }
-    SplitAssignmentManager splitAssignmentManager() { return splitAssignmentManager; }
     CacheAffinityAssigner cacheAffinityAssigner() { return cacheAffinityAssigner; }
     QueryDispatcher queryDispatcher() { return queryDispatcher; }
 

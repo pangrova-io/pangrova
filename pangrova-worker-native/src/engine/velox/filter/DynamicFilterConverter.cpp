@@ -1,25 +1,4 @@
-// DynamicFilterConverter: Proto → Velox Filter direct conversion.
-// See header for supported mappings and error handling strategy.
-//
-// A canonical RuntimeFilter contract carries two complementary scopes:
-//
-// 1. Java-side DPP (Dynamic Partition Pruning):
-//    - Applied in TaskRequestBuilder.applyDynamicFilters() BEFORE native execution.
-//    - Operates on Base64-encoded SplitInfo proto bytes.
-//    - Prunes entire splits (partitions) based on partition column values.
-//    - Uses DynamicFilterApplicator with DynamicFilterPayload from coordinator.
-//    - Effective for partition-level filtering (e.g., date partitions).
-//
-// 2. Native-side Dynamic Filters (row-level):
-//    - Applied in PangrovaVeloxDataSource::applyDynamicFilters() DURING scan.
-//    - Injected via PendingFilterRegistry (Java → JNI → nativeInjectDynamicFilter).
-//    - Converted from proto DynamicFilterEntry to Velox Filter objects here.
-//    - Operates on individual rows within a batch using column-level evaluation.
-//    - Effective for runtime bloom/range filters from hash join build side.
-//
-// Both scopes share the same canonical protocol and column naming convention,
-// but execute at different granularities. The coordinator assigns scope from
-// table partition metadata; the Worker consumes each scope exactly once.
+// Converts canonical row filters to Velox predicates for the scan registry.
 #include "engine/velox/filter/DynamicFilterConverter.h"
 
 #include <algorithm>
@@ -341,12 +320,11 @@ std::unique_ptr<facebook::velox::common::Filter> convertDynamicFilterEntry(
 }
 
 std::vector<ConvertedDynamicFilter> convertDynamicFilters(
-    const proto::InjectRuntimeFilterRequest& payload) {
+    const google::protobuf::RepeatedPtrField<proto::RuntimeFilter>& filters) {
   std::vector<ConvertedDynamicFilter> results;
-  results.reserve(payload.filters_size());
+  results.reserve(filters.size());
 
-  for (int i = 0; i < payload.filters_size(); ++i) {
-    const auto& entry = payload.filters(i);
+  for (const auto& entry : filters) {
     if (entry.scope() == proto::RUNTIME_FILTER_SCOPE_PARTITION_PRUNING) {
       continue;
     }

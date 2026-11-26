@@ -49,8 +49,8 @@ class TagBasedSecurityPolicyIntegrationTest {
 
         // Verify mask is visible through AccessControl
         UserIdentity user = new UserIdentity("alice", Set.of("analyst"), Map.of(), Instant.now());
-        Optional<String> mask = accessControl.getColumnMask(
-                user, "catalog", "schema", "users", "email");
+        Optional<String> mask = accessControl.getColumnMasks(
+                user, "catalog", "schema", "users").mask("email");
         assertThat(mask).isPresent();
         assertThat(mask.get()).contains("***@***");
     }
@@ -73,7 +73,7 @@ class TagBasedSecurityPolicyIntegrationTest {
 
         // Verify mask exists
         UserIdentity user = new UserIdentity("bob", Set.of("analyst"), Map.of(), Instant.now());
-        assertThat(accessControl.getColumnMask(user, "catalog", "schema", "users", "ssn"))
+        assertThat(accessControl.getColumnMasks(user, "catalog", "schema", "users").mask("ssn"))
                 .isPresent();
 
         // Remove tag
@@ -82,7 +82,7 @@ class TagBasedSecurityPolicyIntegrationTest {
                 "pii_type", "PII_SSN", null, null));
 
         // Verify mask is gone
-        assertThat(accessControl.getColumnMask(user, "catalog", "schema", "users", "ssn"))
+        assertThat(accessControl.getColumnMasks(user, "catalog", "schema", "users").mask("ssn"))
                 .isEmpty();
     }
 

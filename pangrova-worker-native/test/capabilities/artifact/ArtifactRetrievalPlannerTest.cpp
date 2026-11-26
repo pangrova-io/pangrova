@@ -156,7 +156,7 @@ void addOption(
   *option->mutable_value() = value;
 }
 
-std::vector<uint8_t> buildPlan(
+substrait::Plan buildPlan(
     AnnAlgorithm algorithm = AnnAlgorithm::DISKANN,
     const std::string& metric_name = "L2", uint32_t candidate_limit = 2) {
   substrait::Plan plan;
@@ -229,11 +229,10 @@ std::vector<uint8_t> buildPlan(
   addOption(invocation, search_parameter, search_list);
   extension->mutable_detail()->PackFrom(envelope);
 
-  const auto bytes = pangrova::test::canonicalTestPlan(plan).SerializeAsString();
-  return {bytes.begin(), bytes.end()};
+  return pangrova::test::canonicalTestPlan(std::move(plan));
 }
 
-std::vector<uint8_t> buildBm25Plan() {
+substrait::Plan buildBm25Plan() {
   substrait::Plan plan;
   auto* root = plan.add_relations()->mutable_root();
   root->add_names("id");
@@ -284,8 +283,7 @@ std::vector<uint8_t> buildBm25Plan() {
   b.set_double_value(0.75);
   addOption(invocation, "b", b);
   extension->mutable_detail()->PackFrom(envelope);
-  const auto bytes = pangrova::test::canonicalTestPlan(plan).SerializeAsString();
-  return {bytes.begin(), bytes.end()};
+  return pangrova::test::canonicalTestPlan(std::move(plan));
 }
 
 proto::OperatorBinding buildBinding(
@@ -436,9 +434,8 @@ TEST(ArtifactRetrievalPlannerTest, RejectsIncompatibleVersionBeforeRetrievalInsp
       plan.mutable_version()->set_producer("future-producer");
       plan.mutable_version()->set_major_number(1);
     }
-    const auto wire = plan.SerializeAsString();
     try {
-      ArtifactRetrievalPlanner::prepare(std::vector<uint8_t>(wire.begin(), wire.end()), {}, {}, 0);
+      ArtifactRetrievalPlanner::prepare(plan, {}, {}, 0);
       FAIL() << "Incompatible plan reached retrieval preparation";
     } catch (const std::runtime_error& failure) {
       const char* expected[] = {"missing required Version", "producer is empty", "major-version mismatch"};
@@ -461,10 +458,10 @@ TEST(ArtifactRetrievalPlannerTest, MaterializesSearchesAndReusesImmutableCache) 
   split.data_object_id = "object-1";
   split.file_path = (directory.path() / "data.parquet").string();
 
+  const std::vector<split::SplitConfig> splits{split};
   auto prepared = ArtifactRetrievalPlanner::prepare(
-      buildPlan(), {{"diskann-1", binding}}, {split}, 16 * 1024 * 1024);
-  ASSERT_EQ(prepared->splits.size(), 1);
-  EXPECT_FALSE(prepared->splits[0].row_position_filter_enabled);
+      buildPlan(), {{"diskann-1", binding}}, splits, 16 * 1024 * 1024);
+  EXPECT_FALSE(splits[0].row_position_filter_enabled);
   ASSERT_TRUE(prepared->split_overrides.contains("diskann-1"));
   const auto& prepared_split = prepared->split_overrides.at("diskann-1")[0];
   EXPECT_TRUE(prepared_split.row_position_filter_enabled);
@@ -486,9 +483,7 @@ TEST(ArtifactRetrievalPlannerTest, MaterializesSearchesAndReusesImmutableCache) 
 TEST(ArtifactRetrievalPlannerTest, ExactTopKRequiresZeroDetailRescoreAndNoArtifact) {
   TestDirectory directory;
   buildArtifacts(directory.path());
-  auto bytes = buildPlan();
-  substrait::Plan plan;
-  ASSERT_TRUE(plan.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())));
+  auto plan = buildPlan();
   auto* extension = plan.mutable_relations(0)
       ->mutable_root()
       ->mutable_input()
@@ -501,7 +496,7 @@ TEST(ArtifactRetrievalPlannerTest, ExactTopKRequiresZeroDetailRescoreAndNoArtifa
   detail->mutable_invocation()->clear_options();
   detail->set_exact_rescore_limit(0);
   extension->mutable_detail()->PackFrom(envelope);
-  const auto serialized = pangrova::test::canonicalTestPlan(plan).SerializeAsString();
+  plan = pangrova::test::canonicalTestPlan(std::move(plan));
 
   auto binding = buildBinding(directory.path());
   *binding.mutable_capability() =
@@ -513,9 +508,8 @@ TEST(ArtifactRetrievalPlannerTest, ExactTopKRequiresZeroDetailRescoreAndNoArtifa
   split::SplitConfig split;
   split.split_id = "split-1";
   auto prepared = ArtifactRetrievalPlanner::prepare(
-      {serialized.begin(), serialized.end()}, {{"diskann-1", binding}},
-      {split}, 0);
-  EXPECT_EQ(prepared->splits.size(), 1);
+      plan, {{"diskann-1", binding}}, {split}, 0);
+  EXPECT_EQ(prepared->downloaded_bytes, 0);
   EXPECT_TRUE(prepared->split_overrides.empty());
   EXPECT_TRUE(prepared->leases.empty());
 }
@@ -535,8 +529,10 @@ TEST(ArtifactRetrievalPlannerTest, HnswAndIvfPqExecuteInNativeWithExactRescore) 
     split.data_object_id = "object-1";
 
     const std::string plan_node = annName(algorithm) + "-1";
+    const auto plan = buildPlan(algorithm);
+    const std::vector<split::SplitConfig> splits{split};
     auto prepared = ArtifactRetrievalPlanner::prepare(
-        buildPlan(algorithm), {{plan_node, binding}}, {split},
+        plan, {{plan_node, binding}}, splits,
         16 * 1024 * 1024);
     const auto& positions = prepared->split_overrides.at(plan_node)[0]
         .row_position_allowlist;
@@ -547,9 +543,8 @@ TEST(ArtifactRetrievalPlannerTest, HnswAndIvfPqExecuteInNativeWithExactRescore) 
     const auto converter_registry =
         facebook::velox::exec::FunctionRegistrySnapshot::capture();
     pangrova::velox::VeloxPlanConverter converter(converter_registry);
-    auto converted = converter.convert(
-        buildPlan(algorithm), prepared->splits, false, "ArrowBatch",
-        {{plan_node, binding}}, nullptr, prepared->split_overrides);
+    auto converted = converter.convertValidatedPlan(
+        plan, splits, {{plan_node, binding}}, nullptr, prepared->split_overrides, 0);
     auto final_topn = std::dynamic_pointer_cast<
         const facebook::velox::core::TopNNode>(converted);
     ASSERT_NE(final_topn, nullptr);
@@ -700,11 +695,11 @@ TEST(ArtifactRetrievalPlannerTest, MaterializesBm25CandidatesAndExactScores) {
   split.data_object_id = "object-1";
   split.file_path = (directory.path() / "data.parquet").string();
 
+  const std::vector<split::SplitConfig> splits{split};
   auto prepared = ArtifactRetrievalPlanner::prepare(
-      buildBm25Plan(), {{"bm25-1", binding}}, {split}, 16 * 1024 * 1024);
+      buildBm25Plan(), {{"bm25-1", binding}}, splits, 16 * 1024 * 1024);
 
-  ASSERT_EQ(prepared->splits.size(), 1);
-  EXPECT_FALSE(prepared->splits[0].row_position_filter_enabled);
+  EXPECT_FALSE(splits[0].row_position_filter_enabled);
   ASSERT_TRUE(prepared->split_overrides.contains("bm25-1"));
   const auto& prepared_split = prepared->split_overrides.at("bm25-1")[0];
   EXPECT_TRUE(prepared_split.row_position_filter_enabled);

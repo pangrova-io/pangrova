@@ -214,29 +214,38 @@ std::shared_ptr<const core::PlanNode> VeloxPlanConverter::convertReadRel(
   if (read.has_virtual_table()) {
     source = convertVirtualTable(read, physicalType);
   } else {
-    connector::ColumnHandleMap assignments;
-    for (size_t i = 0; i < logicalType->size(); ++i) {
-      assignments.emplace(physicalType->nameOf(i),
-          std::make_shared<const PangrovaColumnHandle>(logicalType->nameOf(i)));
-    }
-    std::string tableName = "default_table";
-    if (read.has_named_table() && read.named_table().names_size() > 0) {
-      tableName = read.named_table().names(read.named_table().names_size() - 1);
-    }
-    const auto scanId = nextNodeId();
-    auto handle = std::make_shared<const PangrovaTableHandle>(
-        PangrovaVeloxConnector::kConnectorId, tableName, scanId, logicalType, filter,
-        artifact_build_context_ ? artifact_build_context_->read_budget : nullptr);
-    source = std::make_shared<core::TableScanNode>(
-        scanId, physicalType, std::move(handle), std::move(assignments));
-    // External dynamic filters use logical names and these exact scan ordinals.
-    scan_node_output_types_[scanId] = logicalType;
+    source = namedTableScan(read, logicalType, logicalType, physicalType, filter);
   }
   if (filter) {
     source = std::make_shared<core::FilterNode>(nextNodeId(), filter, source);
   }
   return read.has_projection() ? convertReadProjection(read.projection(), source)
                                : source;
+}
+
+std::shared_ptr<const core::PlanNode> VeloxPlanConverter::namedTableScan(
+    const substrait::ReadRel& read,
+    const RowTypePtr& baseType,
+    const RowTypePtr& scanType,
+    const RowTypePtr& physicalType,
+    core::TypedExprPtr filter) {
+  connector::ColumnHandleMap assignments;
+  for (size_t i = 0; i < scanType->size(); ++i) {
+    assignments.emplace(physicalType->nameOf(i),
+        std::make_shared<const PangrovaColumnHandle>(scanType->nameOf(i)));
+  }
+  std::string tableName = "default_table";
+  if (read.has_named_table() && read.named_table().names_size() > 0) {
+    tableName = read.named_table().names(read.named_table().names_size() - 1);
+  }
+  const auto scanId = nextNodeId();
+  auto handle = std::make_shared<const PangrovaTableHandle>(
+      PangrovaVeloxConnector::kConnectorId, tableName, scanId, baseType, std::move(filter),
+      artifact_build_context_ ? artifact_build_context_->read_budget : nullptr);
+  // External dynamic filters use logical names and these exact scan ordinals.
+  scan_node_output_types_[scanId] = scanType;
+  return std::make_shared<core::TableScanNode>(
+      scanId, physicalType, std::move(handle), std::move(assignments));
 }
 
 std::shared_ptr<const core::PlanNode> VeloxPlanConverter::convertFilterRel(

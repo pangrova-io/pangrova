@@ -85,7 +85,7 @@ TEST(CanonicalFailureEvidenceTest, AcceptedIngressFailureRecordsBeforeConsumptio
   const auto deadline = static_cast<uint64_t>(
       std::chrono::duration_cast<std::chrono::milliseconds>(
           std::chrono::system_clock::now().time_since_epoch()).count() + 10000);
-  velox::ExternalShuffleIngress ingress(1024, 1024, deadline);
+  velox::ExternalShuffleIngress ingress(1024, 1024, deadline, 1);
   TaskLifecycle lifecycle;
   const auto failure = corruption();
   ingress.fail(failure.message(), [&] { lifecycle.recordExecutionError(failure); });
@@ -105,7 +105,7 @@ TEST(CanonicalFailureEvidenceTest, AllocationFailureBeforeAcceptanceDoesNotClose
   const auto deadline = static_cast<uint64_t>(
       std::chrono::duration_cast<std::chrono::milliseconds>(
           std::chrono::system_clock::now().time_since_epoch()).count() + 10000);
-  velox::ExternalShuffleIngress ingress(1024, 1024, deadline);
+  velox::ExternalShuffleIngress ingress(1024, 1024, deadline, 0);
   // This is an acceptance-callback allocation boundary, not a JVM OOME oracle.
   EXPECT_THROW(ingress.fail("allocation failure", [] { throw std::bad_alloc(); }),
                std::bad_alloc);

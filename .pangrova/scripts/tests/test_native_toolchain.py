@@ -11,11 +11,12 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[3]
 ACTION = ROOT / ".github/actions/setup-native-build/action.yml"
+MACOS_CACHE_ACTION = ROOT / ".github/actions/setup-macos-native-cache/action.yml"
 BOOTSTRAP = ROOT / "pangrova-worker-native/bin/setup-native-build-env.sh"
 
 
-def action_script(name):
-    action = ACTION.read_text()
+def action_script(name, action_path=ACTION):
+    action = action_path.read_text()
     step = action.split(f"    - name: {name}\n", 1)[1].split("\n    - name:", 1)[0]
     return "\n".join(line[8:] for line in step.split("      run: |\n", 1)[1].splitlines())
 
@@ -35,7 +36,7 @@ class NativeToolchainTest(unittest.TestCase):
         path.write_text("#!/bin/sh\n" + body + "\n")
         path.chmod(0o755)
 
-    def run_action(self, name):
+    def run_action(self, name, action_path=ACTION):
         github_env = self.root / "github-env"
         github_path = self.root / "github-path"
         github_env.touch()
@@ -43,7 +44,7 @@ class NativeToolchainTest(unittest.TestCase):
         env = dict(self.env, GITHUB_ENV=str(github_env), GITHUB_PATH=str(github_path),
                    TRACE=str(self.root / "trace"), LLVM_PREFIX=str(self.root / "llvm"),
                    TEST_SDKROOT=str(self.root / "macos sdk"), RUNNER_TEMP=str(self.root))
-        result = subprocess.run(["bash", "-e", "-c", action_script(name)], env=env,
+        result = subprocess.run(["bash", "-e", "-c", action_script(name, action_path)], env=env,
                                 text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         return github_env.read_text(), github_path.read_text(), (self.root / "trace").read_text()
@@ -166,6 +167,35 @@ fi
         self.assertNotIn("install bison\n", trace)
         self.assertNotIn("install flex\n", trace)
 
+    def test_macos_compiler_cache_is_installed_and_exported(self):
+        self.executable(self.bin / "brew", """
+printf '%s\\n' "$*" >> "$TRACE"
+if [ "$*" = "install ccache" ]; then
+    printf '#!/bin/sh\\nprintf "ccache 4\\\\n"\\n' > "$HOME/bin/ccache"
+    chmod +x "$HOME/bin/ccache"
+fi
+""")
+        environment, _, trace = self.run_action("Provision compiler cache (macOS)", MACOS_CACHE_ACTION)
+        self.assertIn("install ccache", trace)
+        self.assertIn(f"CCACHE_DIR={self.root}/.cache/ccache", environment)
+        self.assertIn("CCACHE_COMPILERCHECK=content", environment)
+        self.assertIn("CMAKE_CXX_COMPILER_LAUNCHER=ccache", environment)
+        self.assertIn("CMAKE_C_COMPILER_LAUNCHER=ccache", environment)
+
+    def test_macos_compiler_cache_reuses_working_binary(self):
+        self.executable(self.bin / "ccache", 'printf "%s\\n" "$*" >> "$TRACE"')
+        self.executable(self.bin / "brew", 'exit 1')
+        environment, _, trace = self.run_action("Provision compiler cache (macOS)", MACOS_CACHE_ACTION)
+        self.assertIn("--version", trace)
+        self.assertIn("CCACHE_MAXSIZE=3G", environment)
+
+    def test_macos_compiler_cache_install_failure_is_not_ignored(self):
+        self.executable(self.bin / "brew", "exit 1")
+        env = dict(self.env, GITHUB_ENV=str(self.root / "github-env"))
+        result = subprocess.run(["bash", "-e", "-c", action_script("Provision compiler cache (macOS)", MACOS_CACHE_ACTION)],
+                                env=env, text=True, capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+
     def test_macos_action_installs_bison_when_only_the_system_version_exists(self):
         self.macos_tooling(bison_installed=False)
         _, path, trace = self.run_action("Install build tools (macOS)")
@@ -196,6 +226,16 @@ esac
         for name in ("cmake", "ninja", "git", "cargo", "rustc", "rg", "autoconf",
                      "automake", "pkg-config", "glibtoolize", "xcode-select", "brew"):
             self.executable(self.bin / name, "exit 0")
+        openssl = self.root / "OpenSSL 3"
+        for name in ("include/openssl/ssl.h", "lib/libssl.a", "lib/libcrypto.a"):
+            path = openssl / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.touch()
+        self.executable(self.bin / "brew", """
+if [ "$*" = "--prefix openssl@3" ]; then
+    printf '%s\\n' "$TEST_OPENSSL_PREFIX"
+fi
+""")
         self.executable(self.bin / "xcrun", 'printf "%s\\n" "$TEST_SDKROOT"')
         sdk = self.root / "macos sdk"
         (sdk / "usr/include").mkdir(parents=True, exist_ok=True)
@@ -203,6 +243,7 @@ esac
         self.executable(default, "echo default-clang")
         env = dict(self.env, PANGROVA_HOME=str(self.root / ".pangrova"),
                    PANGROVA_NATIVE_BUILD_DIR=str(self.root / "build"),
+                   PANGROVA_BREW=str(self.bin / "brew"), TEST_OPENSSL_PREFIX=str(openssl),
                    TEST_SDKROOT=str(sdk), CMAKE_BUILD_PARALLEL_LEVEL="1")
         env.pop("PANGROVA_LLVM_PREFIX", None)
         env.pop("SDKROOT", None)
@@ -223,7 +264,10 @@ esac
         if build_deps:
             env["SKIP_DEPS"] = "0"
             env["TRACE"] = str(self.root / "cmake-trace")
-            self.executable(self.bin / "cmake", 'printf "%s\\n" "$@" >> "$TRACE"')
+            self.executable(self.bin / "cmake", """
+printf 'ssl=%s\\npc=%s\\n' "$OPENSSL_ROOT_DIR" "$PKG_CONFIG_PATH" >> "$TRACE"
+printf '%s\\n' "$@" >> "$TRACE"
+""")
             for name in ("abseil-cpp", "protobuf", "re2", "grpc"):
                 (self.root / "build" / name).mkdir(parents=True, exist_ok=True)
             copts = self.root / "build/abseil-cpp/absl/copts/AbseilConfigureCopts.cmake"
@@ -246,6 +290,62 @@ esac
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("-DCMAKE_OSX_ARCHITECTURES=arm64",
                       (self.root / "cmake-trace").read_text())
+
+    def test_macos_bootstrap_propagates_openssl3_to_dependency_builds_and_consumers(self):
+        self.env["OPENSSL_ROOT_DIR"] = "/system/openssl@4"
+        self.env["PKG_CONFIG_PATH"] = "/system/pkgconfig"
+        result = self.bootstrap(full=True, build_deps=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        openssl = self.root / "OpenSSL 3"
+        trace = (self.root / "cmake-trace").read_text()
+        self.assertTrue(trace.startswith(f"ssl={openssl}\npc={openssl}/lib/pkgconfig:/system/pkgconfig\n"))
+        self.assertIn(f"-DOPENSSL_ROOT_DIR={openssl}\n", trace)
+        self.assertNotIn("/system/openssl@4", trace)
+        env_file = self.root / ".pangrova/env.sh"
+        activated = subprocess.check_output(
+            ["bash", "-c", 'source "$1"; printf "%s\\n" "$OPENSSL_ROOT_DIR"', "bash", str(env_file)],
+            env=self.env, text=True,
+        )
+        self.assertEqual(activated, f"{openssl}\n")
+
+    def test_darwin_fbthrift_replaces_an_unqualified_cached_install(self):
+        source = BOOTSTRAP.read_text()
+        body = source.split("    install_fbthrift() {\n", 1)[1].split("\n    }", 1)[0]
+        reuse = "    if [[ -f \"$fbthrift_stamp\" ]]; then\n" + source.split(
+            '    if [[ -f "$fbthrift_stamp" ]]; then\n', 1
+        )[1].split("\n  elif", 1)[0]
+        prefix = self.root / "prefix"
+        (prefix / "include").mkdir(parents=True)
+        (prefix / "include/xxhash.h").touch()
+        dependency_dir = self.root / "sources"
+        builder = dependency_dir / "fbthrift/thrift/lib/cpp2/dynamic/TypeSystemBuilder.cpp"
+        builder.parent.mkdir(parents=True)
+        builder.write_text("    auto uninitDef = std::invoke([&]() -> TSDefinition {\n")
+        stamp = prefix / ".pangrova-fbthrift-ready"
+        stamp.touch()
+        openssl = self.root / "OpenSSL 3"
+        env = dict(self.env, INSTALL_PREFIX=str(prefix), DEPENDENCY_DIR=str(dependency_dir),
+                   OPENSSL_PREFIX=str(openssl), FB_OS_VERSION="test-version", fbthrift_stamp=str(stamp))
+
+        script = """
+die() { printf '%s\\n' "$*" >&2; exit 1; }
+wget_and_untar() { :; }
+cmake_install_dir() { printf '%s\\n' "$@"; }
+darwin_folly_has_alignment_patch() { return 0; }
+run_and_time() {
+    if [[ "$1" == install_fbthrift ]]; then install_fbthrift; fi
+}
+folly_alignment_digest=unused
+install_fbthrift() {
+""" + body + "\n}\n" + reuse
+        result = subprocess.run(["bash", "-eu", "-c", script], env=env, text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(f"-DOPENSSL_ROOT_DIR={openssl}\n", result.stdout)
+        self.assertEqual(stamp.read_text(), "openssl@3\n")
+
+        reused = subprocess.run(["bash", "-eu", "-c", script], env=env, text=True, capture_output=True)
+        self.assertEqual(reused.returncode, 0, reused.stdout + reused.stderr)
+        self.assertEqual(reused.stdout, "")
 
     def test_optional_argument_arrays_preserve_empty_and_quoted_values(self):
         for script in (BOOTSTRAP, BOOTSTRAP.with_name("setup-native-asan-env.sh")):
@@ -279,7 +379,10 @@ esac
         self.executable(self.bin / "bash", "exit 0")
         self.executable(self.bin / "cmake", 'printf "compiled\\n" >> "$TRACE"; exit 73')
         source = BOOTSTRAP.read_text()
-        function = "build_velox() {" + source.split("\nbuild_velox() {", 1)[1].split("\n}\n", 1)[0] + "\n}"
+        function = "\n".join(
+            name + "() {" + source.split(f"\n{name}() {{", 1)[1].split("\n}\n", 1)[0] + "\n}"
+            for name in ("prepare_velox_dependencies", "build_velox")
+        )
         env = dict(self.env, VELOX_DIR=str(sdk), WORK_DIR=str(self.root),
                    VELOX_REF="fixture", GRPC_VERSION="fixture", PROTOBUF_VERSION="fixture",
                    ABSEIL_VERSION="fixture", OS="Linux", NPROC="1", CC="cc", CXX="c++",
@@ -296,6 +399,56 @@ esac
                 self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
                 self.assertIn("prepared", trace.read_text())
                 self.assertEqual("compiled" in trace.read_text(), phase == "velox")
+
+    def test_prepared_macos_velox_requires_prerequisites_and_does_not_rebuild_them(self):
+        sdk = self.root / "velox"
+        (sdk / ".git").mkdir(parents=True)
+        self.executable(sdk / "scripts/setup-macos.sh", 'export INSTALL_PREFIX="$VELOX_DIR/deps-install"')
+        for relative in ("lib/libfolly.a", "lib/cmake/Snappy/SnappyConfig.cmake",
+                         "lib/libsnappy.a", "lib/cmake/AWSSDK/AWSSDKConfig.cmake"):
+            output = sdk / "deps-install" / relative
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.touch()
+        import hashlib
+        patch = BOOTSTRAP.parent.parent / "patches/folly-2026.01.05-spookyhash-alignment.patch"
+        stamp = sdk / "deps-install/.pangrova-folly-alignment"
+        stamp.write_text(hashlib.sha256(patch.read_bytes()).hexdigest() + "\n")
+        fbthrift = sdk / "deps-install/.pangrova-fbthrift-ready"
+        fbthrift.write_text("openssl@3\n")
+        self.executable(self.bin / "git", "exit 0")
+        self.executable(self.bin / "bash", "exit 0")
+        link = self.root / "libevent"
+        for relative in ("include/event.h", "lib/libevent.a"):
+            output = link / relative
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.touch()
+        self.executable(self.bin / "brew", f'printf "%s\\n" "{link}"')
+        source = BOOTSTRAP.read_text()
+        functions = "\n".join(
+            name + "() {" + source.split(f"\n{name}() {{", 1)[1].split("\n}\n", 1)[0] + "\n}"
+            for name in ("darwin_folly_has_alignment_patch", "verify_prepared_velox_dependencies")
+        )
+        command = ('set -euo pipefail\nstep() { :; }\n'
+                   'die() { echo "$*" >&2; exit 1; }\n'
+                   'ensure_folly_compiler_abi() { printf "checked Folly ABI\\n"; }\n'
+                   + functions + '\nverify_prepared_velox_dependencies')
+        env = dict(self.env, OS="Darwin", SKIP_DEPS="1", VELOX_DIR=str(sdk),
+                   PANGROVA_BREW=str(self.bin / "brew"),
+                   PANGROVA_BOOTSTRAP_SCRIPT_DIR=str(BOOTSTRAP.parent),
+                   GRPC_VERSION="fixture", PROTOBUF_VERSION="fixture", ABSEIL_VERSION="fixture")
+        result = subprocess.run(["/bin/bash", "-c", command], env=env,
+                                text=True, capture_output=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("checked Folly ABI", result.stdout)
+        fbthrift.unlink()
+        result = subprocess.run(["/bin/bash", "-c", command], env=env,
+                                text=True, capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("dependency installation is incomplete", result.stderr)
+        result = subprocess.run(["/bin/bash", "-c", command], env=dict(env, OS="Linux"),
+                                text=True, capture_output=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("requires a verified macOS dependency prefix", result.stderr)
 
     def test_darwin_snappy_requires_a_complete_static_package(self):
         source = BOOTSTRAP.read_text()

@@ -29,6 +29,14 @@ public interface ConnectorSchemaMetadata {
     List<String> listSchemaNames(ConnectorSession session);
 
     /**
+     * Proves that this exact spelling is a visible schema without listing the catalog.
+     * Returns false when a named lookup is unsupported or cannot establish a match.
+     */
+    default boolean hasExactSchemaName(ConnectorSession session, String schemaName) {
+        return false;
+    }
+
+    /**
      * Lists tables in the specified schema, or all schemas if not specified.
      *
      * @param session    the current session context

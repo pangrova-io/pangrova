@@ -1,0 +1,406 @@
+package org.pangrova.client.cli;
+
+import org.pangrova.transport.client.ArrowBatchDecoder;
+import org.pangrova.transport.client.ColumnDescriptor;
+import org.pangrova.transport.client.ResultCursor;
+
+import org.apache.arrow.memory.BufferAllocator;
+import org.apache.arrow.memory.RootAllocator;
+import org.apache.arrow.vector.BigIntVector;
+import org.apache.arrow.vector.BitVector;
+import org.apache.arrow.vector.Float4Vector;
+import org.apache.arrow.vector.Float8Vector;
+import org.apache.arrow.vector.FixedSizeBinaryVector;
+import org.apache.arrow.vector.IntVector;
+import org.apache.arrow.vector.VarCharVector;
+import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.arrow.vector.complex.ListVector;
+import org.apache.arrow.vector.ipc.ArrowStreamWriter;
+import org.apache.arrow.vector.types.FloatingPointPrecision;
+import org.apache.arrow.vector.types.pojo.ArrowType;
+import org.apache.arrow.vector.types.pojo.Field;
+import org.apache.arrow.vector.types.pojo.FieldType;
+import org.apache.arrow.vector.types.pojo.Schema;
+import org.junit.jupiter.api.Test;
+
+import java.io.ByteArrayOutputStream;
+import java.io.PrintStream;
+import java.nio.channels.Channels;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+/** Checks CLI cell rendering and bounded table delivery. */
+class ResultDisplayTest {
+
+    @Test
+    void canonicalUuidWireValuesRenderAsUuidStringsAndSqlNull() throws Exception {
+        Field field = new Field("id", new FieldType(true, new ArrowType.FixedSizeBinary(16), null,
+                Map.of("ARROW:extension:name", "arrow.uuid", "ARROW:extension:metadata", "")), null);
+        byte[] wire;
+        try (BufferAllocator allocator = new RootAllocator();
+             VectorSchemaRoot root = VectorSchemaRoot.create(new Schema(List.of(field)), allocator)) {
+            root.allocateNew();
+            FixedSizeBinaryVector values = (FixedSizeBinaryVector) root.getVector(0);
+            values.setSafe(0, ByteBuffer.allocate(16).putLong(0x0011223344556677L)
+                    .putLong(0x8899aabbccddeeffL).array());
+            values.setNull(1);
+            root.setRowCount(2);
+            wire = serializeToIpc(root);
+        }
+        var result = decode(wire);
+        assertThat(result.columnNames()).containsExactly("id");
+        assertThat(result.rows()).containsExactly(
+                List.of("00112233-4455-6677-8899-aabbccddeeff"), List.of("NULL"));
+        assertThat(render(wire))
+                .contains("id", "00112233-4455-6677-8899-aabbccddeeff", "NULL");
+    }
+
+    @Test
+    void nullableCoordinatesRenderValuesAndSqlNullInsteadOfArrayIdentity() throws Exception {
+        for (var precision : List.of(FloatingPointPrecision.SINGLE, FloatingPointPrecision.DOUBLE)) {
+            Field child = new Field("item", FieldType.nullable(new ArrowType.FloatingPoint(precision)), null);
+            Field field = new Field("embedding", new FieldType(true, ArrowType.List.INSTANCE, null,
+                    Map.of("ARROW:extension:name", "pangrova.vector", "ARROW:extension:metadata", "3")), List.of(child));
+            try (BufferAllocator allocator = new RootAllocator();
+                 VectorSchemaRoot root = VectorSchemaRoot.create(new Schema(List.of(field)), allocator)) {
+                root.allocateNew();
+                ListVector list = (ListVector) root.getVector(0);
+                list.startNewValue(0);
+                if (precision == FloatingPointPrecision.DOUBLE) {
+                    Float8Vector values = (Float8Vector) list.getDataVector();
+                    values.setSafe(0, 1.0000000000000002);
+                    values.setNull(1);
+                    values.setSafe(2, -123456789.12345679);
+                } else {
+                    Float4Vector values = (Float4Vector) list.getDataVector();
+                    values.setSafe(0, 0.25f);
+                    values.setNull(1);
+                    values.setSafe(2, -0.5f);
+                }
+                list.endValue(0, 3);
+                list.setNull(1);
+                root.setRowCount(2);
+                var decoded = decode(serializeToIpc(root));
+                assertThat(decoded.rows().get(0)).containsExactly(precision == FloatingPointPrecision.DOUBLE
+                        ? "[1.0000000000000002, null, -1.2345678912345679E8]" : "[0.25, null, -0.5]");
+                assertThat(decoded.rows().get(1)).containsExactly("NULL");
+            }
+        }
+    }
+
+    @Test
+    void actualSchemaDisplaysRowsWhenAsynchronousSubmitHasNoColumns() throws Exception {
+        String display = render(buildIpcWithIntAndString());
+        assertThat(display).contains("id", "name", "Alice", "Bob", "Charlie");
+        assertThat(display).doesNotContain("OK (no result set)");
+    }
+
+    @Test
+    void actualEmptyResultSchemaOverridesStaleSubmitColumnNames() throws Exception {
+        String display = render(buildEmptyIpc());
+        assertThat(display).contains("id", "name").doesNotContain("stale");
+    }
+
+    @Test
+    void decodesIntAndStringColumnsIntoRows() throws Exception {
+        byte[] batchData = buildIpcWithIntAndString();
+
+        DisplayValues result = decode(batchData);
+
+        assertThat(result.columnNames()).containsExactly("id", "name");
+        assertThat(result.rows()).hasSize(3);
+        assertThat(result.rows().get(0)).containsExactly("1", "Alice");
+        assertThat(result.rows().get(1)).containsExactly("2", "Bob");
+        assertThat(result.rows().get(2)).containsExactly("3", "Charlie");
+    }
+
+    @Test
+    void handlesNullValues() throws Exception {
+        byte[] batchData = buildIpcWithNulls();
+
+        DisplayValues result = decode(batchData);
+
+        assertThat(result.columnNames()).containsExactly("id", "name");
+        assertThat(result.rows()).hasSize(2);
+        assertThat(result.rows().get(0)).containsExactly("1", "NULL");
+        assertThat(result.rows().get(1)).containsExactly("NULL", "Bob");
+    }
+
+    @Test
+    void handlesEmptyResult() throws Exception {
+        byte[] batchData = buildEmptyIpc();
+
+        DisplayValues result = decode(batchData);
+
+        assertThat(result.columnNames()).containsExactly("id", "name");
+        assertThat(result.rows()).isEmpty();
+    }
+
+    @Test
+    void decodesMultipleArrowTypes() throws Exception {
+        byte[] batchData = buildIpcWithMultipleTypes();
+
+        DisplayValues result = decode(batchData);
+
+        assertThat(result.columnNames()).containsExactly("int_col", "float_col", "bool_col", "bigint_col");
+        assertThat(result.rows()).hasSize(2);
+        assertThat(result.rows().get(0).get(0)).isEqualTo("42");
+        assertThat(result.rows().get(0).get(1)).isEqualTo("3.14");
+        assertThat(result.rows().get(0).get(2)).isEqualTo("true");
+        assertThat(result.rows().get(0).get(3)).isEqualTo("9999999999");
+    }
+
+    @Test
+    void truncatesLongValues() throws Exception {
+        String longValue = "x".repeat(100);
+        byte[] batchData = buildIpcWithLongValue(longValue);
+
+        DisplayValues result = decode(batchData);
+
+        assertThat(result.rows()).hasSize(1);
+        String cell = result.rows().get(0).get(0);
+        assertThat(cell).hasSize(TableFormatter.MAX_CELL_WIDTH);
+        assertThat(cell).endsWith("...");
+    }
+
+    @Test
+    void formattedTableContainsActualData() throws Exception {
+        String table = render(buildIpcWithIntAndString());
+
+        assertThat(table).contains("Alice");
+        assertThat(table).contains("Bob");
+        assertThat(table).contains("Charlie");
+        assertThat(table).contains("id");
+        assertThat(table).contains("name");
+        assertThat(table).contains("3 rows");
+    }
+
+    @Test
+    void formatsVectorCoordinatesInsteadOfArrayIdentity() throws Exception {
+        Field child = new Field("item", FieldType.notNullable(
+                new ArrowType.FloatingPoint(FloatingPointPrecision.SINGLE)), null);
+        Field vector = new Field("embedding", new FieldType(true, ArrowType.List.INSTANCE,
+                null, Map.of("ARROW:extension:name", "pangrova.vector",
+                        "ARROW:extension:metadata", "2")), List.of(child));
+        try (BufferAllocator allocator = new RootAllocator(Long.MAX_VALUE);
+             VectorSchemaRoot root = VectorSchemaRoot.create(new Schema(List.of(vector)), allocator)) {
+            root.allocateNew();
+            ListVector list = (ListVector) root.getVector(0);
+            list.startNewValue(0);
+            Float4Vector coordinates = (Float4Vector) list.getDataVector();
+            coordinates.setSafe(0, 0.25f);
+            coordinates.setSafe(1, -0.5f);
+            list.endValue(0, 2);
+            root.setRowCount(1);
+
+            DisplayValues result = decode(serializeToIpc(root));
+
+            assertThat(result.rows().get(0)).containsExactly("[0.25, -0.5]");
+        }
+    }
+
+    @Test
+    void formatsDoubleVectorWithoutLosingCoordinatePrecision() throws Exception {
+        Field child = new Field("item", FieldType.notNullable(
+                new ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE)), null);
+        Field vector = new Field("embedding", new FieldType(true, ArrowType.List.INSTANCE,
+                null, Map.of("ARROW:extension:name", "pangrova.vector",
+                        "ARROW:extension:metadata", "2")), List.of(child));
+        try (BufferAllocator allocator = new RootAllocator(Long.MAX_VALUE);
+             VectorSchemaRoot root = VectorSchemaRoot.create(new Schema(List.of(vector)), allocator)) {
+            root.allocateNew();
+            ListVector list = (ListVector) root.getVector(0);
+            list.startNewValue(0);
+            Float8Vector coordinates = (Float8Vector) list.getDataVector();
+            coordinates.setSafe(0, 1.0000000000000002);
+            coordinates.setSafe(1, -123456789.12345679);
+            list.endValue(0, 2);
+            root.setRowCount(1);
+            assertThat(decode(serializeToIpc(root)).rows().get(0))
+                    .containsExactly("[1.0000000000000002, -1.2345678912345679E8]");
+        }
+    }
+
+    // ---- Arrow IPC byte builders ----
+
+    @Test
+    void formatsLargeResultsInPagesAndReportsTheWholeRowCount() throws Exception {
+        var batch = ArrowBatchDecoder.decode(buildIpcWithIntAndString());
+        var output = new ByteArrayOutputStream();
+        try (var print = new PrintStream(output, true, StandardCharsets.UTF_8);
+             var cursor = new ResultCursor() {
+                 private int row;
+                 public List<ColumnDescriptor> columns() { return batch.columns(); }
+                 public boolean next() { return ++row <= 300; }
+                 public Object value(int column) { return column == 0 ? row : "value-" + row; }
+                 public void close() {}
+             }) {
+            var display = new SqlShell.ResultDisplay(batch.columnNames(), print);
+            for (int index = 0; index < 129; index++) {
+                assertThat(cursor.next()).isTrue();
+                display.add(cursor);
+            }
+            assertThat(output.toString(StandardCharsets.UTF_8)).contains("value-128").doesNotContain("value-129");
+            while (cursor.next()) display.add(cursor);
+            display.finish();
+        }
+        assertThat(output.toString(StandardCharsets.UTF_8)).contains("value-300").endsWith("300 rows" + System.lineSeparator());
+    }
+
+    private record DisplayValues(List<String> columnNames, List<List<String>> rows) {}
+
+    private static DisplayValues decode(byte[] data) {
+        var batch = ArrowBatchDecoder.decode(data);
+        return new DisplayValues(batch.columnNames(), batch.rows().stream()
+                .map(row -> Arrays.stream(row).map(TableFormatter::formatCell).toList()).toList());
+    }
+
+    private static String render(byte[] data) {
+        var batch = ArrowBatchDecoder.decode(data);
+        var output = new ByteArrayOutputStream();
+        try (var print = new PrintStream(output, true, StandardCharsets.UTF_8);
+             var cursor = new ResultCursor() {
+                 private final List<Object[]> rows = batch.rows();
+                 private int row = -1;
+                 public List<ColumnDescriptor> columns() { return batch.columns(); }
+                 public boolean next() { return ++row < rows.size(); }
+                 public Object value(int column) { return rows.get(row)[column]; }
+                 public void close() {}
+             }) {
+            var display = new SqlShell.ResultDisplay(batch.columnNames(), print);
+            while (cursor.next()) display.add(cursor);
+            display.finish();
+        }
+        return output.toString(StandardCharsets.UTF_8);
+    }
+
+    private static byte[] buildIpcWithIntAndString() throws Exception {
+        Schema schema = new Schema(List.of(
+                new Field("id", FieldType.nullable(new ArrowType.Int(32, true)), null),
+                new Field("name", FieldType.nullable(ArrowType.Utf8.INSTANCE), null)));
+
+        try (BufferAllocator allocator = new RootAllocator(Long.MAX_VALUE);
+             VectorSchemaRoot root = VectorSchemaRoot.create(schema, allocator)) {
+
+            IntVector idVec = (IntVector) root.getVector("id");
+            VarCharVector nameVec = (VarCharVector) root.getVector("name");
+
+            root.allocateNew();
+            idVec.setSafe(0, 1);
+            nameVec.setSafe(0, "Alice".getBytes(StandardCharsets.UTF_8));
+            idVec.setSafe(1, 2);
+            nameVec.setSafe(1, "Bob".getBytes(StandardCharsets.UTF_8));
+            idVec.setSafe(2, 3);
+            nameVec.setSafe(2, "Charlie".getBytes(StandardCharsets.UTF_8));
+            root.setRowCount(3);
+
+            return serializeToIpc(root);
+        }
+    }
+
+    private static byte[] buildIpcWithNulls() throws Exception {
+        Schema schema = new Schema(List.of(
+                new Field("id", FieldType.nullable(new ArrowType.Int(32, true)), null),
+                new Field("name", FieldType.nullable(ArrowType.Utf8.INSTANCE), null)));
+
+        try (BufferAllocator allocator = new RootAllocator(Long.MAX_VALUE);
+             VectorSchemaRoot root = VectorSchemaRoot.create(schema, allocator)) {
+
+            IntVector idVec = (IntVector) root.getVector("id");
+            VarCharVector nameVec = (VarCharVector) root.getVector("name");
+
+            root.allocateNew();
+            idVec.setSafe(0, 1);
+            nameVec.setNull(0);
+            idVec.setNull(1);
+            nameVec.setSafe(1, "Bob".getBytes(StandardCharsets.UTF_8));
+            root.setRowCount(2);
+
+            return serializeToIpc(root);
+        }
+    }
+
+    private static byte[] buildEmptyIpc() throws Exception {
+        Schema schema = new Schema(List.of(
+                new Field("id", FieldType.nullable(new ArrowType.Int(32, true)), null),
+                new Field("name", FieldType.nullable(ArrowType.Utf8.INSTANCE), null)));
+
+        try (BufferAllocator allocator = new RootAllocator(Long.MAX_VALUE);
+             VectorSchemaRoot root = VectorSchemaRoot.create(schema, allocator)) {
+            root.allocateNew();
+            root.setRowCount(0);
+            // Write schema only, no batches with data
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            try (ArrowStreamWriter writer = new ArrowStreamWriter(
+                    root, null, Channels.newChannel(baos))) {
+                writer.start();
+                writer.end();
+            }
+            return baos.toByteArray();
+        }
+    }
+
+    private static byte[] buildIpcWithMultipleTypes() throws Exception {
+        Schema schema = new Schema(List.of(
+                new Field("int_col", FieldType.nullable(new ArrowType.Int(32, true)), null),
+                new Field("float_col", FieldType.nullable(new ArrowType.FloatingPoint(
+                        org.apache.arrow.vector.types.FloatingPointPrecision.DOUBLE)), null),
+                new Field("bool_col", FieldType.nullable(ArrowType.Bool.INSTANCE), null),
+                new Field("bigint_col", FieldType.nullable(new ArrowType.Int(64, true)), null)));
+
+        try (BufferAllocator allocator = new RootAllocator(Long.MAX_VALUE);
+             VectorSchemaRoot root = VectorSchemaRoot.create(schema, allocator)) {
+
+            IntVector intVec = (IntVector) root.getVector("int_col");
+            Float8Vector floatVec = (Float8Vector) root.getVector("float_col");
+            BitVector boolVec = (BitVector) root.getVector("bool_col");
+            BigIntVector bigintVec = (BigIntVector) root.getVector("bigint_col");
+
+            root.allocateNew();
+            intVec.setSafe(0, 42);
+            floatVec.setSafe(0, 3.14);
+            boolVec.setSafe(0, 1);
+            bigintVec.setSafe(0, 9999999999L);
+
+            intVec.setSafe(1, 0);
+            floatVec.setSafe(1, -1.5);
+            boolVec.setSafe(1, 0);
+            bigintVec.setSafe(1, -100L);
+
+            root.setRowCount(2);
+            return serializeToIpc(root);
+        }
+    }
+
+    private static byte[] buildIpcWithLongValue(String longValue) throws Exception {
+        Schema schema = new Schema(List.of(
+                new Field("data", FieldType.nullable(ArrowType.Utf8.INSTANCE), null)));
+
+        try (BufferAllocator allocator = new RootAllocator(Long.MAX_VALUE);
+             VectorSchemaRoot root = VectorSchemaRoot.create(schema, allocator)) {
+
+            VarCharVector vec = (VarCharVector) root.getVector("data");
+            root.allocateNew();
+            vec.setSafe(0, longValue.getBytes(StandardCharsets.UTF_8));
+            root.setRowCount(1);
+
+            return serializeToIpc(root);
+        }
+    }
+
+    private static byte[] serializeToIpc(VectorSchemaRoot root) throws Exception {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        try (ArrowStreamWriter writer = new ArrowStreamWriter(
+                root, null, Channels.newChannel(baos))) {
+            writer.start();
+            writer.writeBatch();
+            writer.end();
+        }
+        return baos.toByteArray();
+    }
+}

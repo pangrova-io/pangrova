@@ -15,6 +15,8 @@ import org.pangrova.common.lifecycle.HealthCheckEndpoint;
 import org.pangrova.filesystem.api.blob.BlobStorageFactory;
 import org.pangrova.filesystem.api.blob.ManagedBlobStorage;
 import org.pangrova.filesystem.api.blob.ManagedBlobStorageFactory;
+import org.pangrova.protocol.v2.ExchangeInputBinding;
+import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.shuffle.exchange.ExchangeTransport;
 import org.pangrova.worker.PangrovaWorker;
 import org.pangrova.worker.WorkerComponents;
@@ -69,7 +71,7 @@ public final class WorkerHttpBootstrap {
                             resultProtocol,
                             copyTaskTls(config.transportSecurityConfig()));
             HealthCheckEndpoint healthEndpoint = buildHealthEndpoint(started, refs);
-            ExchangeTransport exchangeTransport = refs.exchangeTransport();
+            ExchangeTransport<TaskAttemptId, ExchangeInputBinding> exchangeTransport = refs.exchangeTransport();
             NativeDatasetControlService control = null;
             CopyStageLeases stageLeases = null;
             FileSpaceFileResource fileSpace = null;

@@ -334,6 +334,9 @@ class IndexCommitHandlerLeaderGateTest {
         @Override public void dropIndex(String id, Instant t) {}
         @Override public void purgeIndex(String id) {}
         @Override public void batchRegisterIndexFiles(String owner, List<IndexFileMapping> m) {}
+        @Override public Set<String> getIndexedDataFilePaths(String id, int generation) {
+            return Set.of();
+        }
         @Override public List<IndexFileMapping> getIndexFileMappings(String id) {
             return List.of();
         }

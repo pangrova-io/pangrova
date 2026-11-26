@@ -37,6 +37,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInfo;
 
 import java.util.List;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -193,7 +194,7 @@ class StorageProfileE2ETest extends PangrovaE2ETestBase {
         }
 
         void ensureManage() {
-            if (grants.listGrantsForRole(role).stream()
+            if (grants.listGrantsForRoles(Set.of(role)).stream()
                     .noneMatch(grant -> grant.privilege() == Privilege.MANAGE_STORAGE_PROFILE
                             && grant.coversStorageProfile("*"))) {
                 grants.addGrant(PrivilegeGrant.of(role, Privilege.MANAGE_STORAGE_PROFILE,

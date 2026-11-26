@@ -21,11 +21,13 @@ import org.pangrova.worker.enums.TaskState;
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
+import org.pangrova.protocol.task.ValidatedTaskSubmission;
 import org.pangrova.protocol.execution.TaskDescriptor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Admits a task, reserves execution resources and hands the exact request to its lifecycle owner.
@@ -40,17 +42,102 @@ final class TaskSubmissionHandler {
         this.owner = owner;
     }
 
-    String submitTask(TaskDescriptor descriptor, SubmitTaskRequest request) {
-        checkNotNull(descriptor, "descriptor must not be null");
+    String submitTask(SubmitTaskRequest request) {
+        requireSubmissionAuthority(request);
+        var admission = new ValidatedTaskSubmission(request);
+        var reservation = reserveSubmission(request);
+        if (!reservation.first()) return reservation.awaitAdmission();
+        submitReserved(admission, reservation.workerTaskId(), reservation, null);
+        return reservation.workerTaskId();
+    }
+
+    TaskManager.TaskAdmission submitValidatedTask(
+            ValidatedTaskSubmission admission, TaskManager.TaskBodyAdmission body) {
+        var request = admission.submission();
+        requireSubmissionAuthority(request);
+        var reservation = reserveSubmission(request);
+        if (!reservation.first()) return reservation;
+
+        var result = new java.util.concurrent.CompletableFuture<String>();
+        try {
+            owner.scheduleTaskSetup(body, () -> runTaskSetup(admission, reservation, result));
+        } catch (RuntimeException | Error rejected) {
+            reservation.rejectedBeforeOwnership(rejected);
+            throw rejected;
+        }
+        return new FirstTaskSubmission(result);
+    }
+
+    private void runTaskSetup(ValidatedTaskSubmission admission,
+            TaskAdmissionRegistry.Reservation reservation, java.util.concurrent.CompletableFuture<String> result) {
+        boolean entered = false;
+        try {
+            var request = admission.submission().taskRequest();
+            var trace = request.getTraceContext();
+            org.pangrova.observability.logging.LogContext.set(trace.getTraceId(), trace.getSpanId());
+            // A queued owner rechecks the local fences immediately before preparation.
+            owner.verifyControlEpochForAdmission(request.getAttempt().getControlEpoch());
+            owner.verifyExecutionOwnerForAdmission(admission.submission());
+            entered = true;
+            var outputReady = request.getExecutionOptions().getDirectResultOutput() && owner.lifecycleManager != null
+                    ? new CompletableFuture<Void>() : null;
+            var failure = submitReserved(admission, reservation.workerTaskId(), reservation, outputReady);
+            if (failure != null) {
+                result.completeExceptionally(failure);
+            } else if (outputReady == null) {
+                result.complete(reservation.workerTaskId());
+            } else {
+                outputReady.whenComplete((ignored, unavailable) -> publishResultAck(reservation, result, unavailable));
+            }
+        } catch (RuntimeException | Error failure) {
+            if (!entered) reservation.rejectedBeforeOwnership(failure);
+            result.completeExceptionally(failure);
+        } finally {
+            org.pangrova.observability.logging.LogContext.clear();
+        }
+    }
+
+    private static void publishResultAck(TaskAdmissionRegistry.Reservation reservation,
+            CompletableFuture<String> result, Throwable unavailable) {
+        if (unavailable == null) {
+            try {
+                reservation.completeTaskSetup();
+                result.complete(reservation.workerTaskId());
+                return;
+            } catch (RuntimeException | Error failure) {
+                unavailable = failure;
+            }
+        }
+        reservation.failAfterHandoff(unavailable);
+        result.completeExceptionally(unavailable);
+    }
+
+    // The first response preserves the setup failure while duplicates join any outstanding rollback.
+    private record FirstTaskSubmission(java.util.concurrent.CompletableFuture<String> outcome)
+            implements TaskManager.TaskAdmission {
+        @Override
+        public boolean first() { return true; }
+
+        @Override
+        public boolean completed() { return outcome.isDone(); }
+
+        @Override
+        public java.util.concurrent.CompletionStage<String> completion() {
+            return outcome.minimalCompletionStage();
+        }
+    }
+
+    private void requireSubmissionAuthority(SubmitTaskRequest request) {
         checkNotNull(request, "request must not be null");
-        // Leadership fencing must run before draining checks, tenant admission,
-        // deduplication, memory allocation, or Native task creation. In
-        // particular, a stale leader must not receive a successful dedup reply.
+        // A stale leader must not reach an existing reservation or setup side effect.
         var canonical = request.taskRequest();
         owner.verifyWorkerExecutionIdentity(canonical.getAttempt());
         owner.verifyControlEpochForAdmission(canonical.getAttempt().getControlEpoch());
         owner.taskAdmissions.requireUnexpired(canonical.getDeadlineEpochMs());
-        org.pangrova.protocol.task.CanonicalTaskRequests.validateForAdmission(canonical);
+    }
+
+    private TaskAdmissionRegistry.Reservation reserveSubmission(SubmitTaskRequest request) {
+        var canonical = request.taskRequest();
         owner.verifyExecutionOwnerForAdmission(request);
         if (canonical.getTaskKind() == org.pangrova.protocol.v2.TaskKind.TASK_KIND_CDC_INGEST
                 && !owner.cdcIngestSupported()) {
@@ -70,23 +157,22 @@ final class TaskSubmissionHandler {
             throw new TaskAdmissionException(TaskAdmissionReason.CLOSED,
                     "Worker is draining — new tasks are rejected");
         }
-        String taskId =
-                owner.tasks.nextId(descriptor.queryId().toString());
-        var reservation = owner.taskAdmissions.reserve(canonical, taskId);
-        if (!reservation.first()) return reservation.awaitAdmission();
-        return submitReserved(descriptor, request, taskId, reservation);
+        String taskId = owner.tasks.nextId(canonical.getAttempt().getQueryOrJobId());
+        return owner.taskAdmissions.reserve(canonical, taskId);
     }
 
-    private String submitReserved(
-            TaskDescriptor descriptor,
-            SubmitTaskRequest request,
+    private RuntimeException submitReserved(
+            ValidatedTaskSubmission admission,
             String taskId,
-            TaskAdmissionRegistry.Reservation reservation) {
-        String queryId = descriptor.queryId().toString();
+            TaskAdmissionRegistry.Reservation reservation, CompletableFuture<Void> outputReady) {
+        var request = admission.submission();
+        String queryId = request.taskRequest().getAttempt().getQueryOrJobId();
         TaskInfo info = null;
         try {
+            // The queued setup cannot outlive its admission deadline or an exact seal.
+            reservation.checkCanPublish();
             owner.tasks.requireCapacity();
-            info = new TaskInfo(taskId, queryId, request, descriptor, Instant.now());
+            info = new TaskInfo(taskId, request, Instant.now());
             reserveTenantQuota(info);
             if (owner.lifecycleManager != null) {
                 owner.lifecycleManager.reserveAdmissionResources(info);
@@ -95,18 +181,29 @@ final class TaskSubmissionHandler {
             reservation.publish(() -> owner.tasks.register(published));
             owner.transition(taskId, TaskState.INITIALIZING);
             registerSubmittedTask(taskId, queryId, request);
-            reservation.admitted();
+            reservation.handOff();
         } catch (RuntimeException | Error failure) {
             rejectBeforeOwnership(info, reservation, failure);
             throw failure;
         }
-        LOG.info("event=task_submitted taskId={} queryId={}", taskId, queryId);
-        if (owner.lifecycleManager != null) {
-            owner.lifecycleManager.executeTask(taskId, info, owner.lifecycleCallback);
-        } else {
-            autoFinishIfConfigured(taskId, queryId, request);
+        try {
+            LOG.info("event=task_submitted taskId={} queryId={}", taskId, queryId);
+            if (owner.lifecycleManager != null) {
+                var failure = owner.lifecycleManager.executeTask(
+                        taskId, info, admission, owner.lifecycleCallback, outputReady);
+                if (failure != null) {
+                    reservation.failAfterHandoff(failure);
+                    return failure;
+                }
+            } else {
+                autoFinishIfConfigured(taskId, queryId, request);
+            }
+            if (outputReady == null) reservation.completeTaskSetup();
+            return null;
+        } catch (RuntimeException | Error failure) {
+            reservation.failAfterHandoff(failure);
+            throw failure;
         }
-        return taskId;
     }
 
     private void rejectBeforeOwnership(
@@ -154,7 +251,7 @@ final class TaskSubmissionHandler {
         String taskId =
                 owner.tasks.nextId(descriptor.queryId().toString());
         String queryId = descriptor.queryId().toString();
-        TaskInfo info = new TaskInfo(taskId, queryId, null, descriptor, Instant.now());
+        TaskInfo info = new TaskInfo(taskId, queryId, descriptor, Instant.now());
         owner.tasks.register(info);
         owner.transition(taskId, TaskState.INITIALIZING);
         QueryCancellationPropagator prop = owner.cancellationPropagator;
@@ -229,7 +326,7 @@ final class TaskSubmissionHandler {
                         queryId,
                         canonical.getAttempt().getStageId(),
                         canonical.getAttempt().getPartitionId(),
-                        owner.tasks.get(taskId).descriptor().taskType(),
+                        owner.tasks.get(taskId).taskType(),
                         "auto-finish-worker",
                         "FINISHED",
                         null,

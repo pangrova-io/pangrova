@@ -9,7 +9,7 @@ import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.protocol.v2.TaskState;
 import org.pangrova.protocol.v2.shuffle.CommitProducerAttemptRequest;
 import org.pangrova.protocol.v2.shuffle.WriteBatchRequest;
-import org.pangrova.shuffle.exchange.ExchangeInput;
+import org.pangrova.protocol.v2.ExchangeInputBinding;
 import org.pangrova.shuffle.api.worker.ShuffleByteEgress;
 import org.pangrova.testing.nativefixture.ActualNativeResultReader;
 import org.pangrova.testing.nativefixture.ActualNativeShuffleRequests;
@@ -45,7 +45,7 @@ class NativeShuffleEgressContractIntegrationTest extends ContainerTestBase {
             NativeRuntime.nativeRegisterEgress(callbacks);
             var producer = service.registerProducer(base -> runtime.bindWorker(withActualExchangeSink(base)));
             var request = producer.request();
-            long producerHandle = producerExecutor.createTask(request.toByteArray());
+            long producerHandle = producerExecutor.createTask(request);
             producerExecutor.startTask(producerHandle);
             await().atMost(Duration.ofSeconds(20)).until(() -> producerExecutor.isFinished(producerHandle));
             var produced = TaskReport.parseFrom(producerExecutor.getTaskStatus(producerHandle));
@@ -66,10 +66,11 @@ class NativeShuffleEgressContractIntegrationTest extends ContainerTestBase {
             var consumer = runtime.bindWorker(ActualExternalShuffleTask.consumer(producer));
             var binding = service.delegateRead(producer, consumer);
             long consumerHandle = runtime.createPending(consumer);
-            consumerTransport.bindInputs(consumerHandle, binding.consumerAttempt(), List.of(
-                    new ExchangeInput(ActualExternalShuffleTask.PLAN_NODE,
-                            ActualExternalShuffleTask.EXCHANGE_ID, 1, binding)));
-            runtime.executor().startTask(consumerHandle);
+            consumerTransport.bindInputs(consumerHandle, consumer.getAttempt(), List.of(
+                    ExchangeInputBinding.newBuilder().setPlanNodeId(ActualExternalShuffleTask.PLAN_NODE)
+                            .setExchangeId(ActualExternalShuffleTask.EXCHANGE_ID)
+                            .setExpectedSourcePartitions(1).setExternal(binding.input()).build()));
+            runtime.startReadable(consumerHandle);
             var values = ActualNativeResultReader.count(runtime, consumer);
             assertThat(values.rows()).isEqualTo(1);
             assertThat(values.sum()).isEqualTo(42);

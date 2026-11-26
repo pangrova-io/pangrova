@@ -22,10 +22,16 @@ import org.pangrova.metadata.api.enums.CatalogType;
 import org.pangrova.metadata.connector.ConnectorCatalogHandle;
 import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
 import org.pangrova.persistence.indexing.api.metadata.IndexFileMapping;
+import org.pangrova.persistence.indexing.api.metadata.IndexGenerationFormat;
+import org.pangrova.persistence.indexing.api.metadata.IndexGenerationManifest;
 import org.pangrova.connector.api.plugin.Connector;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.data.ConnectorPageSourceProvider;
 import org.pangrova.connector.api.enums.CommitEventType;
+import org.pangrova.connector.api.enums.SnapshotRelation;
+import org.pangrova.connector.api.index.SnapshotAwareMetadata;
+import org.pangrova.connector.api.index.SnapshotDataFile;
+import org.pangrova.connector.api.index.SnapshotFileDelta;
 import org.pangrova.connector.api.metadata.ConnectorMetadata;
 import org.pangrova.connector.api.metadata.ConnectorSplitManager;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
@@ -102,6 +108,31 @@ class IndexCommitHandlerStatisticsTest {
 
         assertThat(env.store.insertedStats).isEmpty();
         assertThat(processed.get()).isEqualTo(1);
+    }
+
+    @Test
+    void replayedAndSupersededCommitEventsSkipFileEnumeration() {
+        var snapshots = new SupersededSnapshotMetadata();
+        var env = buildTestEnv(new StatisticsConnectorMetadata(List.of(), snapshots), "sch", true);
+        var timestamp = Instant.now();
+        var descriptor = new IndexDescriptor(
+                "index-1", "test-index", "cat", "sch", "tbl", List.of("col1"),
+                IndexType.BLOOM_FILTER, Map.of(), IndexState.READY, null, 0,
+                "snap-0", "snap-0", timestamp, timestamp, "tenant-a");
+        env.store.indexesForTable = List.of(descriptor);
+        var processed = new AtomicInteger();
+        env.handler.registerDurableCommitProcessor(event -> processed.incrementAndGet());
+
+        var format = new IndexGenerationFormat("bloom-filter", 1, 0, "a".repeat(64), "fixture");
+        for (String snapshot : List.of("snap-1", "snap-2")) {
+            env.store.active = new IndexGenerationManifest(descriptor.indexId(), "cat.sch.tbl", 0, snapshot,
+                    "BLOOM_FILTER", format, 1, 1, 128, "b".repeat(64), 1, timestamp);
+            env.handler.processTableCommit(merged(CommitEventType.APPEND, List.of(), List.of()));
+        }
+
+        assertThat(snapshots.lineageReads.get()).isOne();
+        assertThat(snapshots.fileLists.get()).isZero();
+        assertThat(processed.get()).isEqualTo(2);
     }
 
     @Test
@@ -319,6 +350,7 @@ class IndexCommitHandlerStatisticsTest {
         volatile String deleteSchema;
         volatile String deleteTable;
         List<IndexDescriptor> indexesForTable = List.of();
+        IndexGenerationManifest active;
         boolean authorizedFixture;
 
         @Override public String loadAuthorizedBuildPrincipal(IndexDescriptor descriptor) {
@@ -353,14 +385,18 @@ class IndexCommitHandlerStatisticsTest {
                 Instant timestamp, Instant expected, IndexState state, int generation) { return false; }
         @Override public org.pangrova.persistence.indexing.api.metadata.IndexGenerationManifest publishIndexGeneration(
                 org.pangrova.persistence.indexing.api.metadata.IndexPublicationRequest request) { throw new AssertionError(); }
-        @Override public Optional<org.pangrova.persistence.indexing.api.metadata.IndexGenerationManifest>
-                findActiveIndexGeneration(String id) { return Optional.empty(); }
+        @Override public Optional<IndexGenerationManifest> findActiveIndexGeneration(String id) {
+            return Optional.ofNullable(active).filter(manifest -> manifest.indexId().equals(id));
+        }
         @Override public Optional<IndexDescriptor> findIndex(String id) { return Optional.empty(); }
         @Override public List<IndexDescriptor> findIndexesByTable(String tenantId, String c, String s, String t) { return indexesForTable; }
         @Override public List<IndexDescriptor> findReadyIndexesForColumns(String tenantId, String c, String s, String t, List<String> cols, boolean includeStale) { return List.of(); }
         @Override public void dropIndex(String id, Instant t) {}
         @Override public void purgeIndex(String id) {}
         @Override public void batchRegisterIndexFiles(String owner, List<IndexFileMapping> m) {}
+        @Override public Set<String> getIndexedDataFilePaths(String id, int generation) {
+            return Set.of();
+        }
         @Override public List<IndexFileMapping> getIndexFileMappings(String id) { return List.of(); }
         @Override public Map<String, Map<String, String>> batchGetIndexFileMappings(List<String> ids, List<String> paths) { return Map.of(); }
         @Override public void removeIndexFileMapping(String id, String path) {}
@@ -376,10 +412,48 @@ class IndexCommitHandlerStatisticsTest {
         @Override public void updateLastIndexedSnapshotId(String id, String snap) {}
     }
 
+    private static final class SupersededSnapshotMetadata implements SnapshotAwareMetadata {
+        private final AtomicInteger lineageReads = new AtomicInteger();
+        private final AtomicInteger fileLists = new AtomicInteger();
+
+        @Override public Optional<String> currentSnapshotId() { throw new AssertionError("Expected exact commit"); }
+        @Override public Optional<CurrentSnapshotFiles> currentSnapshotFiles() {
+            throw new AssertionError("Expected exact commit");
+        }
+        @Override public SnapshotRelation relation(String left, String right) {
+            throw new AssertionError("Commit handling uses a single lineage observation");
+        }
+        @Override public SnapshotAdvance observeAdvance(String left, String right) {
+            assertThat(left).isEqualTo("snap-2");
+            assertThat(right).isEqualTo("snap-1");
+            lineageReads.incrementAndGet();
+            return SnapshotAdvance.noAdvance(SnapshotRelation.RIGHT_ANCESTOR);
+        }
+        @Override public List<SnapshotDataFile> listFilesAtSnapshot(String snapshotId) {
+            fileLists.incrementAndGet();
+            return List.of();
+        }
+        @Override public SnapshotFileDelta diffFiles(String from, String to) {
+            throw new AssertionError("Superseded commits have no new file delta");
+        }
+    }
+
     /** ConnectorMetadata returning pre-configured file statistics. */
     static final class StatisticsConnectorMetadata implements ConnectorMetadata {
         private final List<DataFileStatistics> stats;
-        StatisticsConnectorMetadata(List<DataFileStatistics> stats) { this.stats = stats; }
+        private final SnapshotAwareMetadata snapshots;
+
+        StatisticsConnectorMetadata(List<DataFileStatistics> stats) { this(stats, null); }
+
+        StatisticsConnectorMetadata(List<DataFileStatistics> stats, SnapshotAwareMetadata snapshots) {
+            this.stats = stats;
+            this.snapshots = snapshots;
+        }
+
+        @Override
+        public Optional<SnapshotAwareMetadata> getSnapshotAwareMetadata(String schema, String table) {
+            return Optional.ofNullable(snapshots);
+        }
 
         @Override
         public List<DataFileStatistics> getFileStatistics(

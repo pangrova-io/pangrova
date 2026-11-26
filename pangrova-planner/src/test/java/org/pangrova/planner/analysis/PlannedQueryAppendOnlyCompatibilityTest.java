@@ -74,7 +74,7 @@ class PlannedQueryAppendOnlyCompatibilityTest {
     }
 
     private static PlannedQuery query(RelNode node) {
-        return new PlannedQuery(node, List.of(), List.of(), java.util.Map.of());
+        return new PlannedQuery(node, List.of(), java.util.Map.of());
     }
 
     private static RelBuilder builder() {

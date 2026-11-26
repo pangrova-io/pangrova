@@ -1,6 +1,6 @@
 LogicalProject(l_orderkey=[$0], revenue=[$3], o_orderdate=[$1], o_shippriority=[$2])
   LogicalSort(sort0=[$3], sort1=[$1], dir0=[DESC], dir1=[ASC])
-    LogicalAggregate(group=[{0, 1, 2}], revenue=[$SUM0($3)])
+    LogicalAggregate(group=[{0, 1, 2}], revenue=[SUM($3)])
       LogicalProject(l_orderkey=[$6], o_orderdate=[$4], o_shippriority=[$5], $f3=[*($7, -(1, $8))])
         LogicalJoin(condition=[=($6, $2)], joinType=[inner])
           LogicalJoin(condition=[=($0, $3)], joinType=[inner])

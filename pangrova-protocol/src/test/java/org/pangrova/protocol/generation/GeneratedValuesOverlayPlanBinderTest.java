@@ -10,9 +10,11 @@ import io.substrait.proto.ReadRel;
 import io.substrait.proto.Rel;
 import io.substrait.proto.RelCommon;
 import io.substrait.proto.RelRoot;
+import io.substrait.proto.SetRel;
 import io.substrait.proto.Type;
 import org.junit.jupiter.api.Test;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
+import org.pangrova.protocol.execution.BoundExecutionPlan;
 import org.pangrova.protocol.v2.ArtifactBinding;
 import org.pangrova.protocol.v2.OperatorBinding;
 import org.pangrova.protocol.v2.RelationDetailEnvelope;
@@ -32,7 +34,7 @@ class GeneratedValuesOverlayPlanBinderTest {
         var read = read().toBuilder().setFilter(condition).setBestEffortFilter(condition)
                 .setCommon(RelCommon.newBuilder().setEmit(RelCommon.Emit.newBuilder()
                         .addOutputMapping(2).addOutputMapping(0).addOutputMapping(2))).build();
-        var bound = GeneratedValuesOverlayPlanBinder.bind(plan(Rel.newBuilder().setRead(read).build()),
+        var bound = bind(plan(Rel.newBuilder().setRead(read).build()),
                 List.of(intent(0, "overlay-0")));
         var root = Plan.parseFrom(bound.planBytes()).getRelations(0).getRoot();
         var emitted = root.getInput().getProject();
@@ -65,7 +67,7 @@ class GeneratedValuesOverlayPlanBinderTest {
         var protectedPlan = Rel.newBuilder().setProject(ProjectRel.newBuilder().setInput(protectedRead)
                 .addExpressions(mask).setCommon(RelCommon.newBuilder().setEmit(RelCommon.Emit.newBuilder()
                         .addOutputMapping(0).addOutputMapping(3).addOutputMapping(2)))).build();
-        var bound = GeneratedValuesOverlayPlanBinder.bind(plan(protectedPlan), List.of(intent(0, "overlay")));
+        var bound = bind(plan(protectedPlan), List.of(intent(0, "overlay")));
         var project = Plan.parseFrom(bound.planBytes()).getRelations(0).getRoot().getInput().getProject();
         assertThat(project.getExpressionsList()).containsExactly(mask);
         assertThat(project.getCommon()).isEqualTo(protectedPlan.getProject().getCommon());
@@ -77,7 +79,7 @@ class GeneratedValuesOverlayPlanBinderTest {
     void retainsNonEmittedFilterColumnAndCanReplaceGeneratedFilterOnlyColumn() throws Exception {
         var read = read().toBuilder().setFilter(isNotNull(2)).setCommon(RelCommon.newBuilder()
                 .setEmit(RelCommon.Emit.newBuilder().addOutputMapping(0))).build();
-        var bound = GeneratedValuesOverlayPlanBinder.bind(plan(Rel.newBuilder().setRead(read).build()),
+        var bound = bind(plan(Rel.newBuilder().setRead(read).build()),
                 List.of(intent(0, "filter-only")));
         var project = Plan.parseFrom(bound.planBytes()).getRelations(0).getRoot().getInput().getProject();
         assertThat(project.getCommon().getEmit().getOutputMappingList()).containsExactly(0);
@@ -88,26 +90,80 @@ class GeneratedValuesOverlayPlanBinderTest {
 
     @Test
     void bindsRepeatedReadsByExactOrdinalRatherThanTableNameAlone() throws Exception {
-        var original = Plan.parseFrom(plan(Rel.newBuilder().setRead(read()).build()));
-        var repeated = original.toBuilder().addRelations(original.getRelations(0)).build().toByteArray();
-        var bound = GeneratedValuesOverlayPlanBinder.bind(repeated,
+        var original = plan(Rel.newBuilder().setRead(read()).build());
+        var repeated = original.toBuilder().addRelations(original.getRelations(0)).build();
+        var bound = bind(repeated,
                 List.of(intent(0, "left"), intent(1, "right")));
         assertThat(bound.operatorBindings()).extracting(OperatorBinding::getPlanNodeId)
                 .containsExactly("left", "right");
-        assertThat(GeneratedValuesOverlayPlanBinder.reads(bound.planBytes())).hasSize(2);
+        var verified = GeneratedValuesOverlayPlanBinder.resolve(Plan.parseFrom(bound.planBytes()), reads -> {
+            assertThat(reads).hasSize(2);
+            return List.of();
+        });
+        assertThat(verified.planBytes()).containsExactly(bound.planBytes());
+    }
+
+    @Test
+    void preservesRepeatedSetScanOrderAndLeavesOtherInputsIntact() throws Exception {
+        var first = read().toBuilder().setFilter(isNotNull(0)).build();
+        var second = read().toBuilder().setFilter(isNotNull(1)).build();
+        var firstInput = Rel.newBuilder().setRead(first).build();
+        var secondInput = Rel.newBuilder().setRead(second).build();
+        var set = SetRel.newBuilder().setOp(SetRel.SetOp.SET_OP_UNION_ALL)
+                .addInputs(firstInput).addInputs(secondInput).addInputs(firstInput);
+        Plan original = plan(Rel.newBuilder().setSet(set).build());
+        var bound = GeneratedValuesOverlayPlanBinder.resolve(original, reads -> {
+            assertThat(reads).extracting(GeneratedValuesOverlayPlanBinder.ReadSite::read)
+                    .containsExactly(first, second, first);
+            return List.of(intent(1, "middle"));
+        });
+        var rewritten = Plan.parseFrom(bound.planBytes()).getRelations(0).getRoot().getInput().getSet();
+        assertThat(rewritten.getOp()).isEqualTo(set.getOp());
+        assertThat(rewritten.getInputs(0)).isEqualTo(firstInput);
+        assertThat(rewritten.getInputs(1).getProject().getInput().getFilter().getCondition()).isEqualTo(second.getFilter());
+        assertThat(rewritten.getInputs(2)).isEqualTo(firstInput);
+        assertThat(bound.operatorBindings()).containsExactly(intent(1, "middle").binding());
+    }
+
+    @Test
+    void skipsUnusedGeneratedColumnButRetainsFilterAndInputExpressionDependencies() {
+        var physical = Rel.newBuilder().setRead(read()).build();
+        var visible = RelCommon.newBuilder().setEmit(RelCommon.Emit.newBuilder().addOutputMapping(3));
+        var filter = FilterRel.newBuilder().setInput(physical).setCondition(isNotNull(0));
+        var project = ProjectRel.newBuilder().setInput(Rel.newBuilder().setFilter(filter))
+                .addExpressions(field(0)).setCommon(visible);
+        assertGeneratedFieldUsed(Rel.newBuilder().setProject(project).build(), false);
+
+        filter.setCondition(isNotNull(2));
+        project.setInput(Rel.newBuilder().setFilter(filter));
+        assertGeneratedFieldUsed(Rel.newBuilder().setProject(project).build(), true);
+
+        filter.setCondition(isNotNull(0));
+        project.setInput(Rel.newBuilder().setFilter(filter)).setExpressions(0, field(2));
+        assertGeneratedFieldUsed(Rel.newBuilder().setProject(project).build(), true);
+    }
+
+    private static void assertGeneratedFieldUsed(Rel root, boolean used) {
+        Plan original = plan(root);
+        var untouched = GeneratedValuesOverlayPlanBinder.resolve(original, reads -> {
+            assertThat(reads).singleElement().satisfies(site ->
+                    assertThat(site.usesColumn("embedding")).isEqualTo(used));
+            return List.of();
+        });
+        assertThat(untouched.planBytes()).containsExactly(original.toByteArray());
     }
 
     @Test
     void rejectsWrongReadIdentityDuplicateTargetAndMissingReadOrdinal() {
-        byte[] original = plan(Rel.newBuilder().setRead(read()).build());
+        Plan original = plan(Rel.newBuilder().setRead(read()).build());
         var wrong = new GeneratedValuesOverlayPlanBinder.ReadOverlay(
                 0, List.of("lake", "sales", "other"), "embedding", binding("wrong"));
-        assertThatThrownBy(() -> GeneratedValuesOverlayPlanBinder.bind(original, List.of(wrong)))
+        assertThatThrownBy(() -> bind(original, List.of(wrong)))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("complete named");
-        assertThatThrownBy(() -> GeneratedValuesOverlayPlanBinder.bind(original,
+        assertThatThrownBy(() -> bind(original,
                 List.of(intent(0, "first"), intent(0, "second"))))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("duplicated");
-        assertThatThrownBy(() -> GeneratedValuesOverlayPlanBinder.bind(original, List.of(intent(1, "missing"))))
+        assertThatThrownBy(() -> bind(original, List.of(intent(1, "missing"))))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("exactly one");
     }
 
@@ -122,10 +178,14 @@ class GeneratedValuesOverlayPlanBinderTest {
         var badEmit = read().toBuilder().setCommon(RelCommon.newBuilder()
                 .setEmit(RelCommon.Emit.newBuilder().addOutputMapping(3))).build();
         for (var invalid : List.of(scalar, hidden, badEmit)) {
-            assertThatThrownBy(() -> GeneratedValuesOverlayPlanBinder.bind(
+            assertThatThrownBy(() -> bind(
                     plan(Rel.newBuilder().setRead(invalid).build()), List.of(intent(0, "invalid"))))
                     .isInstanceOf(IllegalArgumentException.class);
         }
+    }
+
+    private static BoundExecutionPlan bind(Plan plan, List<GeneratedValuesOverlayPlanBinder.ReadOverlay> overlays) {
+        return GeneratedValuesOverlayPlanBinder.resolve(plan, reads -> overlays);
     }
 
     private static GeneratedValuesOverlayPlanBinder.ReadOverlay intent(int ordinal, String node) {
@@ -153,12 +213,12 @@ class GeneratedValuesOverlayPlanBinderTest {
                 .setNamedTable(ReadRel.NamedTable.newBuilder().addAllNames(TABLE)).build();
     }
 
-    private static byte[] plan(Rel relation) {
+    private static Plan plan(Rel relation) {
         return Plan.newBuilder().addExtensions(io.substrait.proto.SimpleExtensionDeclaration.newBuilder()
                 .setExtensionFunction(io.substrait.proto.SimpleExtensionDeclaration.ExtensionFunction.newBuilder()
                         .setFunctionAnchor(1).setName("is_not_null:any")))
                 .addRelations(PlanRel.newBuilder().setRoot(RelRoot.newBuilder()
-                .setInput(relation).addAllNames(List.of("embedding", "id", "embedding")))).build().toByteArray();
+                .setInput(relation).addAllNames(List.of("embedding", "id", "embedding")))).build();
     }
 
     private static Expression field(int ordinal) {

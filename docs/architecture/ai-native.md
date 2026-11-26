@@ -219,6 +219,12 @@ schema and snapshot identity. Expired, missing, cyclic or inconsistent metadata
 history cannot be replaced by current properties; time travel then requires
 retained declaration evidence. These SDK/PG regressions do not by themselves
 establish public SQL overlay visibility.
+
+The Iceberg read binding owns the historical declaration proof. Split enumeration
+verifies the live table and the selected snapshot, then takes the physical
+projection from its schema ID. Metadata history traversal stays at declaration
+resolution.
+
 Distributed Iceberg write handles now capture the actual SDK UUID, location,
 full schema, partition specification, format version and canonical generated/vector
 declaration in one immutable metadata observation. The sole output-handle codec

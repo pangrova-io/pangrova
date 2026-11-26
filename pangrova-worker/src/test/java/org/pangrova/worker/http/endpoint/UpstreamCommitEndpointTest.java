@@ -1,6 +1,8 @@
 package org.pangrova.worker.http.endpoint;
 
 import org.pangrova.protocol.rest.task.UpstreamCommitNotification;
+import org.pangrova.protocol.v2.ExchangeInputBinding;
+import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.shuffle.exchange.ExchangeTransport;
 import org.pangrova.testing.testkit.TestExchangeTransport;
 import org.pangrova.worker.exchange.source.ExchangeSourceRegistry;
@@ -51,7 +53,7 @@ class UpstreamCommitEndpointTest {
 
     private TaskResource createResource() {
         TaskManager taskManager = TaskManager.forHttpWiringOnly();
-        ExchangeTransport exchangeTransport = TestExchangeTransport.INSTANCE;
+        ExchangeTransport<TaskAttemptId, ExchangeInputBinding> exchangeTransport = TestExchangeTransport.INSTANCE;
         ExchangeSourceRegistry registry = new ExchangeSourceRegistry();
         return new TaskResource(taskManager, exchangeTransport, registry, "localhost", 8816, null);
     }

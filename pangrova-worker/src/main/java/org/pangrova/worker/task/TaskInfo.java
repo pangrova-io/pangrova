@@ -1,5 +1,8 @@
 package org.pangrova.worker.task;
 
+import org.pangrova.protocol.rest.task.TaskReportEvidence;
+
+import org.pangrova.protocol.v2.NativeTaskStats;
 import org.pangrova.worker.enums.TaskState;
 
 import java.time.Instant;
@@ -9,12 +12,11 @@ import org.pangrova.worker.task.memory.TaskMemoryAccount;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.worker.resource.memory.TaskMemoryPool;
 import org.pangrova.protocol.execution.TaskDescriptor;
-import org.pangrova.worker.buffer.OutputBufferManager;
 
 /**
  * Task tracking record: immutable metadata + delegated mutable execution state.
  *
- * <p>Metadata fields (taskId, queryId, request, descriptor, startTime) are final and set at
+ * <p>Task identity, classification and request are final and set at
  * construction. Execution state (executor handle and output stats) is owned by
  * {@link TaskExecutionState}; admission memory reservations are owned by
  * {@link TaskMemoryAccount}. Both are accessed through the same per-task owners.
@@ -26,6 +28,7 @@ public final class TaskInfo {
     private final String queryId;
     private final SubmitTaskRequest request;
     private final TaskDescriptor descriptor;
+    private final String taskType;
     private final Instant startTime;
 
     // --- Mutable execution state (delegated) ---
@@ -34,19 +37,32 @@ public final class TaskInfo {
     private final TaskCleanupRetry cleanupRetry = new TaskCleanupRetry();
     private final TaskNativeCreation nativeCreation = new TaskNativeCreation();
     private final TaskTerminalPublication terminalPublication = new TaskTerminalPublication();
+    @org.pangrova.common.concurrent.GuardedBy("this")
+    private TaskResultRelease resultRelease;
 
-    TaskInfo(
+    TaskInfo(String taskId, SubmitTaskRequest request, Instant startTime) {
+        this(taskId, request.taskRequest().getAttempt().getQueryOrJobId(), request, null,
+                request.taskType(), startTime);
+    }
+
+    TaskInfo(String taskId, String queryId, TaskDescriptor descriptor, Instant startTime) {
+        this(taskId, queryId, null, descriptor, descriptor == null ? "unknown" : descriptor.taskType(), startTime);
+    }
+
+    private TaskInfo(
             String taskId,
             String queryId,
             SubmitTaskRequest request,
             TaskDescriptor descriptor,
+            String taskType,
             Instant startTime) {
         this.taskId = taskId;
         this.queryId = queryId;
         this.request = request;
         this.descriptor = descriptor;
+        this.taskType = taskType;
         this.startTime = startTime;
-        this.memoryAccount = new TaskMemoryAccount(taskId, queryId, request, descriptor);
+        this.memoryAccount = new TaskMemoryAccount(taskId, queryId, request, descriptor, taskType);
     }
 
     // --- Immutable accessors ---
@@ -63,8 +79,20 @@ public final class TaskInfo {
         return request;
     }
 
-    public TaskDescriptor descriptor() {
-        return descriptor;
+    String taskType() {
+        return taskType;
+    }
+
+    boolean hasTaskMetadata() {
+        return request != null || descriptor != null;
+    }
+
+    int stageId() {
+        return request == null ? descriptor.stageId() : request.taskRequest().getAttempt().getStageId();
+    }
+
+    int partitionId() {
+        return request == null ? descriptor.partitionId() : request.taskRequest().getAttempt().getPartitionId();
     }
 
     public Instant startTime() {
@@ -80,6 +108,31 @@ public final class TaskInfo {
 
     boolean retryCleanup() {
         return cleanupRetry.retry();
+    }
+
+    synchronized boolean installResultRelease(TaskResultRelease registration) {
+        if (resultRelease != null) return false;
+        resultRelease = registration;
+        return true;
+    }
+
+    void cancelResultRelease() {
+        TaskResultRelease registration;
+        synchronized (this) {
+            registration = resultRelease;
+            resultRelease = null;
+        }
+        if (registration != null) registration.cancel();
+    }
+
+    boolean scheduleRegisteredResultCleanup(Instant cutoff) {
+        TaskResultRelease registration;
+        synchronized (this) {
+            registration = resultRelease;
+        }
+        if (registration == null) return false;
+        registration.retryOrExpire(TaskCleanupScheduler.terminalRetentionElapsed(this, cutoff));
+        return true;
     }
 
     // --- State machine (delegated) ---
@@ -149,13 +202,13 @@ public final class TaskInfo {
         return execution.compareAndSetExecutorHandle(expected, update);
     }
 
-    java.util.concurrent.CompletableFuture<byte[]> claimExecutorRelease(
-            java.util.concurrent.CompletableFuture<byte[]> candidate) {
+    java.util.concurrent.CompletableFuture<TaskReportEvidence> claimExecutorRelease(
+            java.util.concurrent.CompletableFuture<TaskReportEvidence> candidate) {
         return execution.claimExecutorRelease(candidate);
     }
 
-    byte[] executorReleaseReport() {
-        return execution.executorReleaseReport();
+    TaskReportEvidence executorReleaseReceipt() {
+        return execution.executorReleaseReceipt();
     }
 
     byte[] stagedExecutorReleaseReceipt() {
@@ -179,10 +232,9 @@ public final class TaskInfo {
     }
 
     org.pangrova.protocol.v2.ExecutionDrainState executionDrainState() {
-        byte[] receipt = executorReleaseReport();
+        var receipt = executorReleaseReceipt();
         if (receipt != null) {
-            return TaskCompletionMonitor.requireCanonicalTaskReport(request.taskRequest(), receipt)
-                    .getExecutionDrainState();
+            return receipt.report().getExecutionDrainState();
         }
         if (!nativeCreation.sealWithoutOwnerOrAwaitExit()) {
             throw new IllegalStateException("Created Native owner has no actual release receipt");
@@ -215,6 +267,23 @@ public final class TaskInfo {
                     "Terminal publication precedes actual resource release");
         }
         terminalPublication.publish(released, prepare, send);
+    }
+
+    java.util.concurrent.CompletionStage<Void> publishResultStatus(
+            boolean released,
+            java.util.function.Supplier<org.pangrova.protocol.rest.task.TaskStatusReport> prepare,
+            java.util.function.Function<org.pangrova.protocol.rest.task.TaskStatusReport,
+                    java.util.concurrent.CompletionStage<Void>> send,
+            Runnable onAcknowledgement) {
+        if (released && !resourcesReleased()) {
+            throw new IllegalStateException("Terminal publication precedes actual resource release");
+        }
+        return terminalPublication.publishAsync(released, prepare, send, onAcknowledgement);
+    }
+
+    void retryInitialResultStatus(java.util.function.Function<org.pangrova.protocol.rest.task.TaskStatusReport,
+            java.util.concurrent.CompletionStage<Void>> send) {
+        terminalPublication.retryFailedInitialDelivery(send);
     }
 
     // --- Resource accounting (delegated) ---
@@ -266,16 +335,6 @@ public final class TaskInfo {
         execution.addOutputBytes(bytes);
     }
 
-    // --- Buffer (delegated) ---
-
-    public OutputBufferManager taskBuffer() {
-        return execution.taskBuffer();
-    }
-
-    public void setTaskBuffer(OutputBufferManager buffer) {
-        execution.setTaskBuffer(buffer);
-    }
-
     // --- Derived queries ---
 
     public boolean isWriteTask() {
@@ -302,19 +361,19 @@ public final class TaskInfo {
 
     // --- Canonical terminal status (delegated) ---
 
-    public byte[] terminalTaskReport() {
-        return execution.terminalTaskReport();
+    TaskReportEvidence terminalTaskEvidence() {
+        return execution.terminalTaskEvidence();
     }
 
-    public void setTerminalTaskReport(byte[] status) {
-        execution.setTerminalTaskReport(status);
+    void setTerminalTaskEvidence(TaskReportEvidence status) {
+        execution.setTerminalTaskEvidence(status);
     }
 
-    public byte[] terminalTaskStats() {
+    NativeTaskStats terminalTaskStats() {
         return execution.terminalTaskStats();
     }
 
-    public void setTerminalTaskStats(byte[] stats) {
+    void setTerminalTaskStats(NativeTaskStats stats) {
         execution.setTerminalTaskStats(stats);
     }
 
@@ -326,7 +385,7 @@ public final class TaskInfo {
         execution.setTerminalCommitFragments(fragments);
     }
 
-    void setReleasedTaskStats(byte[] stats) {
+    void setReleasedTaskStats(NativeTaskStats stats) {
         execution.setReleasedTaskStats(stats);
     }
 

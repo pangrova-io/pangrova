@@ -3,7 +3,6 @@ package org.pangrova.persistence.generation.postgresql.job;
 import org.pangrova.persistence.jdbc.api.generation.GenerationTransactionAuthority;
 import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore;
 import org.pangrova.persistence.generation.api.exchange.GenerationStageExchangeStore.ExchangeEvidence;
-import org.pangrova.persistence.jdbc.api.security.policy.CurrentDirectRoleReader;
 import org.pangrova.persistence.jdbc.api.generation.GenerationExecutionTransactionFence;
 
 import org.pangrova.generation.api.job.GenerationJob;
@@ -31,44 +30,37 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
         implements GenerationStageExecutionStore {
     private final GenerationTransactionAuthority transactionAuthority;
     private final GenerationExecutionTransactionFence executionFence;
-    private final CurrentDirectRoleReader currentRoles;
 
     /** Resolves current authority, execution fencing and roles on each stage transaction. */
     public PostgresGenerationStageExecutionStore(
             DataSource dataSource, GenerationTransactionAuthority transactionAuthority,
-            GenerationExecutionTransactionFence executionFence, CurrentDirectRoleReader currentRoles) {
+            GenerationExecutionTransactionFence executionFence) {
         super(dataSource);
         this.transactionAuthority = java.util.Objects.requireNonNull(transactionAuthority, "transactionAuthority");
         this.executionFence = java.util.Objects.requireNonNull(executionFence, "executionFence");
-        this.currentRoles = java.util.Objects.requireNonNull(currentRoles, "currentRoles");
     }
 
-    /** Reads one partition's progress after current authority and actual owner validation on the same connection. */
+    /** Checks the current authority and actual owner once per bounded window of exact partitions. */
     @Override
-    public PartitionProgress inspectPartition(GenerationJobKey key, ExecutionAnchor anchor,
-            int stageId, int partitionId) {
+    public List<PartitionProgress> inspectPartitions(GenerationJobKey key, ExecutionAnchor anchor,
+            int stageId, int firstPartition, int count) {
         if (!key.executionId().equals(anchor.executionId())) {
             throw new IllegalArgumentException("Partition inspection belongs to another durable execution");
         }
-        return inTransaction("inspect current durable stage partition", connection -> {
+        if (firstPartition < 0 || count < 1 || count > PARTITION_INSPECTION_WINDOW) {
+            throw new IllegalArgumentException("Invalid partition inspection window");
+        }
+        return inTransaction("inspect current durable stage partitions", connection -> {
             var context = PostgresCurrentGenerationAuthority.resolve(
-                    transactionAuthority, executionFence, currentRoles, connection, key.tenantId(), key.jobId(),
+                    transactionAuthority, executionFence, connection, key.tenantId(), key.jobId(),
                     GenerationExecutionOwner.from(anchor));
             PostgresGenerationStageExchangeStore.lockValidatedBarriers(connection, context);
             var stage = context.dispatchSpec().stageGraph().requireStage(stageId);
-            if (partitionId < 0 || partitionId >= stage.parallelism()) {
-                throw new IllegalArgumentException("Inspected partition differs from its immutable stage cohort");
+            if (count > stage.parallelism() - firstPartition) {
+                throw new IllegalArgumentException("Inspected partitions differ from their immutable stage cohort");
             }
-            var row = PostgresGenerationPageSelection.findPartition(connection, key.tenantId(), key.jobId(),
-                    stageId, partitionId).orElseThrow();
-            if (row.kind() != stage.pageKind()) {
-                throw new IllegalStateException("Persisted page kind differs from its immutable stage");
-            }
-            var winner = "SUCCEEDED".equals(row.state())
-                    ? Optional.of(new NativeWinner(row.pageId(), row.attemptId(), row.fencingToken(), row.ownerEpoch(),
-                            row.executionOwner(), row.reportBytes(), row.reportSha256()))
-                    : Optional.<NativeWinner>empty();
-            return new PartitionProgress(row.pageOrdinal(), row.kind(), row.state(), winner);
+            return PostgresGenerationPageSelection.inspectWindow(connection, key.tenantId(), key.jobId(),
+                    stageId, stage.pageKind(), firstPartition, count);
         });
     }
 
@@ -82,12 +74,11 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
         }
         return inTransaction("prepare authorized durable stage graph", connection -> {
             var authority = PostgresCurrentGenerationAuthority.resolve(
-                    transactionAuthority, executionFence, currentRoles, connection, key.tenantId(), key.jobId(),
+                    transactionAuthority, executionFence, connection, key.tenantId(), key.jobId(),
                     GenerationExecutionOwner.from(anchor));
-            PostgresGenerationStageExchangeStore.lockValidatedBarriers(connection, authority);
+            var evidence = PostgresGenerationStageExchangeStore.lockAndLoadValidatedEvidence(connection, authority);
             var job = findJob(connection, key.tenantId(), key.jobId(), true).orElseThrow();
-            return new PreparedExecution(authority, job,
-                    PostgresGenerationStageExchangeStore.loadValidatedEvidence(connection, authority));
+            return new PreparedExecution(authority, job, evidence);
         });
     }
 
@@ -98,22 +89,22 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
         return inTransaction("complete authorized durable Native producer", connection -> {
             var key = completion.job();
             var context = PostgresCurrentGenerationAuthority.resolve(
-                    transactionAuthority, executionFence, currentRoles, connection, key.tenantId(), key.jobId(),
+                    transactionAuthority, executionFence, connection, key.tenantId(), key.jobId(),
                     completion.executionOwner());
-            PostgresGenerationStageExchangeStore.lockValidatedBarriers(connection, context);
+            var evidence = PostgresGenerationStageExchangeStore.lockAndLoadValidatedEvidence(connection, context);
             var stage = context.dispatchSpec().stageGraph().requireStage(completion.stageId());
             if (stage.pageKind() != GenerationPageKind.RELATIONAL_COMPUTE
                     || completion.partitionId() >= stage.parallelism()) {
                 throw new IllegalArgumentException(
                         "Native producer report does not belong to a persisted compute stage");
             }
-            var allocations = PostgresGenerationStageExchangeStore.loadValidatedEvidence(connection, context).stream()
+            var allocations = evidence.stream()
                     .map(ExchangeEvidence::registration)
                     .filter(value -> value.producerStageId() == stage.stageId()).toList();
             if (allocations.size() != 1 || allocations.get(0).planEpoch() != completion.planEpoch()) {
                 throw new IllegalStateException("Native producer winner differs from its original external allocation");
             }
-            findJob(connection, key.tenantId(), key.jobId(), true).orElseThrow();
+            var job = findJob(connection, key.tenantId(), key.jobId(), true).orElseThrow();
             var page = PostgresGenerationPageSelection.findPartition(connection, key.tenantId(), key.jobId(),
                     completion.stageId(), completion.partitionId()).orElseThrow();
             if (!matchesIssuedProducer(page, completion)) return false;
@@ -123,7 +114,8 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
                     completion.controlTerm(), bytes, org.pangrova.common.util.DigestUtils.sha256Hex(bytes), List.of(),
                     completion.completedAt(), completion.executionOwner());
             requireCompletion(report);
-            return PostgresGenerationCompletion.complete(transactionAuthority, executionFence, connection, report);
+            return PostgresGenerationCompletion.completeLockedProducer(
+                    transactionAuthority, executionFence, connection, report, job, page);
         });
     }
 
@@ -145,7 +137,7 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
         return inTransaction("prepare authorized durable stage partition", connection -> {
             var key = request.job();
             var authority = PostgresCurrentGenerationAuthority.resolve(
-                    transactionAuthority, executionFence, currentRoles, connection, key.tenantId(), key.jobId(),
+                    transactionAuthority, executionFence, connection, key.tenantId(), key.jobId(),
                     GenerationExecutionOwner.from(request.anchor()));
             PostgresGenerationStageExchangeStore.lockValidatedBarriers(connection, authority);
             var stage = authority.dispatchSpec().stageGraph().requireStage(request.stageId());
@@ -156,7 +148,6 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
             if (terminal(job.state())) return Optional.empty();
             var coordinates = new PostgresGenerationPageSelection.Coordinates(
                     request.stageId(), request.partitionId(), request.pageOrdinal());
-            PostgresGenerationPageSelection.requireCoordinates(connection, key.tenantId(), key.jobId(), coordinates);
             var selected = PostgresGenerationPageSelection.selectClaimablePage(connection,
                     new PostgresGenerationPageSelection.Selection(key.tenantId(), key.jobId(), request.now(),
                             Optional.of(coordinates)));
@@ -184,7 +175,7 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
         Objects.requireNonNull(prepare, "prepare");
         return inTransaction("prepare current issued durable partition", connection -> {
             var authority = PostgresCurrentGenerationAuthority.resolve(
-                    transactionAuthority, executionFence, currentRoles, connection, lease.tenantId(), lease.jobId(),
+                    transactionAuthority, executionFence, connection, lease.tenantId(), lease.jobId(),
                     GenerationExecutionOwner.from(lease.executionAnchor()));
             PostgresGenerationStageExchangeStore.lockValidatedBarriers(connection, authority);
             var job = findJob(connection, lease.tenantId(), lease.jobId(), true).orElseThrow();

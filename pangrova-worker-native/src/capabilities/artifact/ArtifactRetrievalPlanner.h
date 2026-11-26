@@ -13,13 +13,16 @@
 #include "pangrova/protocol/v2/execution_binding.pb.h"
 #include "engine/split/SplitConfig.h"
 
+namespace substrait {
+class Plan;
+}
+
 namespace pangrova::artifact {
 
 class ArtifactVectorSearch;
 
 /** Task-local result of resolving immutable retrieval artifacts in Native. */
 struct ArtifactRetrievalPreparation final {
-  std::vector<split::SplitConfig> splits;
   std::unordered_map<std::string, std::vector<split::SplitConfig>>
       split_overrides;
   std::vector<MaterializedArtifact> leases;
@@ -35,7 +38,7 @@ struct ArtifactRetrievalPreparation final {
 class ArtifactRetrievalPlanner final {
  public:
   static std::shared_ptr<ArtifactRetrievalPreparation> prepare(
-      const std::vector<uint8_t>& substrait_plan,
+      const substrait::Plan& plan,
       const std::unordered_map<
           std::string, protocol::v2::OperatorBinding>& operator_bindings,
       const std::vector<split::SplitConfig>& splits,

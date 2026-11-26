@@ -155,6 +155,16 @@ protected:
     return parseResponse(dispatchCommandWithHandle(bytes, handle_));
   }
 
+  proto::RuntimeCommandResponse sendChunk(proto::PushExchangeBatchRequest frame) const {
+    auto body = std::move(*frame.mutable_chunk()->mutable_data());
+    frame.mutable_chunk()->clear_data();
+    auto request = command(proto::RUNTIME_COMMAND_TYPE_PUSH_EXCHANGE_BATCH);
+    request.mutable_payload()->PackFrom(frame);
+    std::vector<uint8_t> metadata(request.ByteSizeLong());
+    EXPECT_TRUE(request.SerializeToArray(metadata.data(), metadata.size()));
+    return parseResponse(dispatchExchangeChunk(metadata, handle_, std::move(body)));
+  }
+
   proto::ConnectExchangeSourceRequest externalConnect() const {
     proto::ConnectExchangeSourceRequest request;
     request.set_plan_node_id(kPlanNodeId);
@@ -167,7 +177,7 @@ protected:
     endpoint->set_partition_start(0);
     endpoint->set_partition_end(4);
     endpoint->set_tls_identity("shuffle.example.internal");
-    external->set_output_partition_id(3);
+    external->set_source_partition_start(3);
     external->set_plan_epoch(9);
     auto* owner = external->mutable_execution_owner();
     owner->set_owner_id("coordinator-1");
@@ -188,7 +198,7 @@ protected:
         proto::Checksum::ALGORITHM_SHA256);
     external->mutable_expected_producer_set_checksum()->set_digest(
         std::string(32, 'p'));
-    auto* publication = external->mutable_publication();
+    auto* publication = external->add_publications();
     publication->set_last_sequence(0);
     publication->set_total_bytes(1024);
     publication->set_total_rows(1);
@@ -252,21 +262,23 @@ TEST_F(NativeCommandExchangeTest, RegistersDirectTransportFromCanonicalOneof) {
 
 TEST_F(NativeCommandExchangeTest, RejectsMissingOrInconsistentPublication) {
   auto request = externalConnect();
-  request.mutable_external()->clear_publication();
+  request.mutable_external()->clear_publications();
+  auto missing = dispatch(proto::RUNTIME_COMMAND_TYPE_CONNECT_EXCHANGE_SOURCE, request);
+  EXPECT_FALSE(missing.success());
+  EXPECT_EQ(missing.error().code(), "INVALID_EXTERNAL_SHUFFLE_SOURCE");
   auto reject = [&]() {
     auto response = dispatch(proto::RUNTIME_COMMAND_TYPE_CONNECT_EXCHANGE_SOURCE, request);
     EXPECT_FALSE(response.success());
     EXPECT_NE(response.error().message().find("partition publication"), std::string::npos);
   };
+  request = externalConnect();
+  request.mutable_external()->mutable_publications(0)->set_manifest_sha256("short");
   reject();
   request = externalConnect();
-  request.mutable_external()->mutable_publication()->set_manifest_sha256("short");
+  request.mutable_external()->mutable_publications(0)->set_last_sequence(-1);
   reject();
-  request = externalConnect();
-  request.mutable_external()->mutable_publication()->set_last_sequence(-1);
-  reject();
-  request.mutable_external()->mutable_publication()->set_total_bytes(0);
-  request.mutable_external()->mutable_publication()->set_total_rows(0);
+  request.mutable_external()->mutable_publications(0)->set_total_bytes(0);
+  request.mutable_external()->mutable_publications(0)->set_total_rows(0);
   EXPECT_TRUE(dispatch(proto::RUNTIME_COMMAND_TYPE_CONNECT_EXCHANGE_SOURCE, request).success());
 }
 
@@ -285,7 +297,7 @@ TEST_F(NativeCommandExchangeTest, ExternalPushAndFinishReachTakenIngress) {
 
   const std::string batch = "serialized-page";
   auto push = pushRequest(0, batch, 0, sha256(batch));
-  auto pushed = dispatch(proto::RUNTIME_COMMAND_TYPE_PUSH_EXCHANGE_BATCH, push);
+  auto pushed = sendChunk(push);
   ASSERT_TRUE(pushed.success()) << pushed.error().message();
   auto data = endpoint->external_ingress->take(std::chrono::seconds(1));
   ASSERT_EQ(data.kind,
@@ -383,7 +395,7 @@ TEST_F(NativeCommandExchangeTest, UsesDefaultBudgetForUnboundLocalExecutor) {
       proto::Checksum::ALGORITHM_SHA256);
   chunk->mutable_batch_checksum()->set_digest(std::string(32, 'b'));
   auto rejected =
-      dispatch(proto::RUNTIME_COMMAND_TYPE_PUSH_EXCHANGE_BATCH, push);
+      sendChunk(push);
   ASSERT_FALSE(rejected.success());
   EXPECT_EQ(rejected.error().code(), "INVALID_EXCHANGE_CHUNK");
 }
@@ -403,7 +415,7 @@ TEST_F(NativeCommandExchangeTest, RejectsMissingTransportAndCorruptBatch) {
   push.mutable_chunk()->mutable_chunk_checksum()->set_digest(
       std::string(32, 'x'));
   auto corrupt =
-      dispatch(proto::RUNTIME_COMMAND_TYPE_PUSH_EXCHANGE_BATCH, push);
+      sendChunk(push);
   ASSERT_FALSE(corrupt.success());
   EXPECT_EQ(corrupt.error().error_class(), proto::ERROR_CLASS_DATA_CORRUPTION);
   EXPECT_EQ(corrupt.error().code(), "EXCHANGE_CHUNK_CHECKSUM_MISMATCH");
@@ -426,9 +438,7 @@ TEST_F(NativeCommandExchangeTest, ReassemblesBatchAcrossCanonicalChunks) {
       1 + (batch.size() - 1) /
           pangrova::velox::kExternalShuffleChunkBytes);
   for (uint32_t index = 0; index < chunk_count; ++index) {
-    auto pushed = dispatch(
-        proto::RUNTIME_COMMAND_TYPE_PUSH_EXCHANGE_BATCH,
-        pushRequest(0, batch, index, checksum));
+    auto pushed = sendChunk(pushRequest(0, batch, index, checksum));
     ASSERT_TRUE(pushed.success()) << pushed.error().message();
   }
 
@@ -445,20 +455,14 @@ TEST_F(NativeCommandExchangeTest, RejectsCorruptReassembledBatchAndChunkOrder) {
       pangrova::velox::kExternalShuffleChunkBytes + 9, 'c');
   const auto checksum = sha256(batch);
 
-  auto out_of_order = dispatch(
-      proto::RUNTIME_COMMAND_TYPE_PUSH_EXCHANGE_BATCH,
-      pushRequest(0, batch, 1, checksum));
+  auto out_of_order = sendChunk(pushRequest(0, batch, 1, checksum));
   ASSERT_FALSE(out_of_order.success());
   EXPECT_EQ(out_of_order.error().code(), "INVALID_EXCHANGE_CHUNK_STATE");
 
   const std::string corrupt_checksum(32, 'x');
-  auto first = dispatch(
-      proto::RUNTIME_COMMAND_TYPE_PUSH_EXCHANGE_BATCH,
-      pushRequest(0, batch, 0, corrupt_checksum));
+  auto first = sendChunk(pushRequest(0, batch, 0, corrupt_checksum));
   ASSERT_TRUE(first.success()) << first.error().message();
-  auto second = dispatch(
-      proto::RUNTIME_COMMAND_TYPE_PUSH_EXCHANGE_BATCH,
-      pushRequest(0, batch, 1, corrupt_checksum));
+  auto second = sendChunk(pushRequest(0, batch, 1, corrupt_checksum));
   ASSERT_FALSE(second.success());
   EXPECT_EQ(second.error().error_class(), proto::ERROR_CLASS_DATA_CORRUPTION);
   EXPECT_EQ(second.error().code(), "EXCHANGE_BATCH_CHECKSUM_MISMATCH");
@@ -511,6 +515,39 @@ TEST_F(NativeCommandExchangeTest, PropagatesStructuredExternalFailure) {
   EXPECT_EQ(report.state(), proto::TASK_STATE_FAILED);
   ASSERT_TRUE(report.has_error());
   EXPECT_EQ(report.error().SerializeAsString(), valid.failure().SerializeAsString());
+}
+
+TEST_F(NativeCommandExchangeTest, RejectsExchangeDataOnTheCommandChannel) {
+  connectAndSealExternal();
+  auto frame = pushRequest(0, "one frame", 0, sha256("one frame"));
+  auto inline_data = dispatch(proto::RUNTIME_COMMAND_TYPE_PUSH_EXCHANGE_BATCH, frame);
+  ASSERT_FALSE(inline_data.success());
+  EXPECT_EQ(inline_data.error().code(), "INVALID_EXCHANGE_CHUNK");
+  auto separated = sendChunk(std::move(frame));
+  EXPECT_TRUE(separated.success()) << separated.error().message();
+}
+
+TEST_F(NativeCommandExchangeTest, RuntimeFilterCommandValidatesTheDecodedBinding) {
+  constexpr auto commandType = proto::RUNTIME_COMMAND_TYPE_INJECT_RUNTIME_FILTER;
+  proto::InjectRuntimeFilterRequest request;
+  auto* filter = request.add_filters();
+  filter->set_column_name("id");
+  filter->set_scope(proto::RUNTIME_FILTER_SCOPE_ROW_FILTER);
+  filter->mutable_in_list()->add_values()->set_int64_value(42);
+
+  const auto missingNode = dispatch(commandType, request);
+  ASSERT_FALSE(missingNode.success());
+  EXPECT_NE(missingNode.error().message().find("plan_node_id"), std::string::npos);
+
+  request.set_plan_node_id("iceberg-read");
+  const auto accepted = dispatch(commandType, request);
+  ASSERT_TRUE(accepted.success()) << accepted.error().message();
+
+  filter->clear_in_list();
+  const auto invalidPredicate = dispatch(commandType, request);
+  ASSERT_FALSE(invalidPredicate.success());
+  EXPECT_NE(invalidPredicate.error().message().find("Unsupported or invalid Native dynamic filter"),
+            std::string::npos);
 }
 
 TEST_F(NativeCommandExchangeTest, RejectsWrongPayloadAndUnknownCommand) {

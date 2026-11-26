@@ -15,11 +15,8 @@ import java.util.Map;
  * Evaluates filter predicates against Parquet row-group-level min/max statistics
  * to determine which row groups can be skipped entirely.
  *
- * <p>This is the sub-file counterpart to {@code L0StatisticsPruner} (file-level)
- * and {@code ConstraintBasedSplitFilter} (split-level). Where those operate on
- * file-level statistics to skip entire files/splits, this pruner operates on
- * per-row-group column statistics (zone maps) to skip individual row groups
- * within a file.</p>
+ * <p>Per-row-group column statistics (zone maps) describe which parts of a
+ * file can be skipped after file-level pruning.</p>
  *
  * <p>Thread-safe: stateless, safe to share across threads.</p>
  *

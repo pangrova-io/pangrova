@@ -33,15 +33,15 @@ class TaskStatusReportEnrichmentTest {
             assertThat(reports).hasSizeGreaterThanOrEqualTo(2);
             var running = reports.get(0);
             assertThat(running.state()).isEqualTo("RUNNING");
-            assertThat(running.stats()).isNotNull();
+            assertThat(running.supplementalStats()).isNotNull();
             assertThat(running.reportSequence()).isEqualTo(1);
             var finished = tasks.terminalReport(info);
-            assertThat(finished.stats()).isNotNull();
-            assertThat(finished.stats().elapsedTimeMs()).isGreaterThanOrEqualTo(0);
+            assertThat(finished.supplementalStats()).isNull();
+            var terminal = finished.canonicalStatus();
+            assertThat(terminal.getNativeTaskStats().getElapsedTimeMs()).isNotNegative();
             assertThat(finished.reportSequence()).isGreaterThan(running.reportSequence());
-            assertThat(TaskReport.parseFrom(finished.canonicalTaskReport()).getState())
-                    .isEqualTo(TaskState.TASK_STATE_FINISHED);
-            assertThat(finished.stats().operatorStats()).isNotEmpty();
+            assertThat(terminal.getState()).isEqualTo(TaskState.TASK_STATE_FINISHED);
+            assertThat(terminal.getNativeTaskStats().getOperatorStatsList()).isNotEmpty();
             assertThat(info.executorHandle()).isZero();
         }
     }
@@ -53,19 +53,19 @@ class TaskStatusReportEnrichmentTest {
             var request =
                     runtime.bindWorker(ActualNativeTaskFixture.planTaskRequest(
                             true, ActualNativeTaskPlans.values(5, 2)));
-            var info = tasks.submit(request);
+            var info = tasks.submitReadable(request);
             assertThat(tasks.consume(info).rows()).isEqualTo(10);
             tasks.awaitState(info, org.pangrova.worker.enums.TaskState.FINISHED);
-            // Output rows are the terminal relation cardinality, not source/each-operator sums.
+            // CallbackSink receives the exact terminal relation sent to the Native Flight producer.
             tasks.manager().statusCollector.reportStatus(info, "FINISHED", null);
             var finished = taskReports(tasks, info).get(taskReports(tasks, info).size() - 1);
-            assertThat(finished.stats()).isNotNull();
-            assertThat(finished.stats().operatorStats())
-                    .filteredOn(operator -> operator.operatorType().equals("PartitionedOutput"))
+            assertThat(finished.supplementalStats()).isNull();
+            var terminal = finished.canonicalStatus();
+            assertThat(terminal.hasNativeTaskStats()).isTrue();
+            assertThat(terminal.getNativeTaskStats().getOperatorStatsList())
+                    .filteredOn(operator -> operator.getOperatorType().equals("CallbackSink"))
                     .singleElement()
-                    .satisfies(operator -> assertThat(operator.inputRows()).isEqualTo(10));
-            assertThat(TaskReport.parseFrom(finished.canonicalTaskReport()).hasNativeTaskStats())
-                    .isTrue();
+                    .satisfies(operator -> assertThat(operator.getInputRows()).isEqualTo(10));
         }
     }
 
@@ -110,7 +110,7 @@ class TaskStatusReportEnrichmentTest {
     void sequenceIsMonotonicallyIncreasingAcrossReports() throws Exception {
         try (var runtime = new ActualNativeTaskFixture();
                 var tasks = new ActualTaskManagerFixture(runtime, "enrichment-sequence")) {
-            var info = tasks.submit(runtime.valuesRequest(true));
+            var info = tasks.submitReadable(runtime.valuesRequest(true));
             tasks.awaitState(info, org.pangrova.worker.enums.TaskState.RUNNING);
             tasks.manager().statusCollector.reportStatus(info, "RUNNING", null);
             assertThat(tasks.consume(info).values()).containsExactly(42L);

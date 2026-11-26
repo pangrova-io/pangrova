@@ -97,6 +97,73 @@ class ArrowBatchAppendTest : public ::testing::Test {
   ArrowBatchVectorSerde::StreamOptions options_;
 };
 
+TEST_F(ArrowBatchAppendTest, SerializesFourMiBPageWithTwoMiBOfScratchCapacity) {
+  constexpr vector_size_t rows = 524288;
+  constexpr int64_t bodyBytes = rows * sizeof(int64_t);
+  auto serializationTask = pangrova::test::testMemoryManager()->addRootPool(
+      "arrow-direct-page-task", bodyBytes / 2);
+  auto serializationPool = serializationTask->addLeafChild("serialization");
+  facebook::velox::test::VectorMaker maker(pool_.get());
+  auto ids = maker.flatVector<int64_t>(rows, [](auto row) { return row * 3; });
+  auto input = maker.rowVector({"id"}, {ids});
+  const auto type = std::dynamic_pointer_cast<const RowType>(input->type());
+  const IndexRange range{0, rows};
+  Scratch scratch;
+  IOBufOutputStream batchOutput(*pool_);
+  auto batchWriter = serde_.createBatchSerializer(serializationPool.get(), &options_);
+  ASSERT_NO_THROW(batchWriter->serialize(input, folly::Range(&range, 1), scratch, &batchOutput));
+  EXPECT_GT(static_cast<int64_t>(batchOutput.tellp()), bodyBytes);
+  EXPECT_EQ(serializationPool->usedBytes(), 0);
+
+  StreamArena serializationArena(serializationPool.get());
+  auto iterative = serde_.createIterativeSerializer(type, 0, &serializationArena, &options_);
+  iterative->append(input);
+  size_t pageSize = 0;
+  ASSERT_NO_THROW(pageSize = iterative->maxSerializedSize());
+  EXPECT_GT(pageSize, bodyBytes);
+  IOBufOutputStream iterativeOutput(*pool_);
+  ASSERT_NO_THROW(iterative->flush(&iterativeOutput));
+  EXPECT_EQ(static_cast<size_t>(iterativeOutput.tellp()), pageSize);
+  EXPECT_EQ(serializationPool->usedBytes(), 0);
+  EXPECT_EQ(iterative->maxSerializedSize(), 0);
+
+  for (auto* output : {&batchOutput, &iterativeOutput}) {
+    auto wire = output->getIOBuf();
+    BufferInputStream stream(byteRangesFromIOBuf(wire.get()));
+    RowVectorPtr decoded;
+    serde_.deserialize(&stream, pool_.get(), type, &decoded, &options_);
+    ASSERT_NE(decoded, nullptr);
+    ASSERT_EQ(decoded->size(), rows);
+    EXPECT_TRUE(decoded->equalValueAt(input.get(), 0, 0));
+    EXPECT_TRUE(decoded->equalValueAt(input.get(), rows - 1, rows - 1));
+    EXPECT_TRUE(stream.atEnd());
+  }
+}
+
+TEST_F(ArrowBatchAppendTest, WireLimitLeavesBothVeloxOutputsUntouched) {
+  options_.maximum_bytes = 1024;
+  const auto input = values(std::vector<std::optional<int64_t>>(8192, 7));
+  const auto type = std::dynamic_pointer_cast<const RowType>(input->type());
+  const IndexRange range{0, input->size()};
+  Scratch scratch;
+  IOBufOutputStream stream(*pool_);
+  auto batchWriter = serde_.createBatchSerializer(pool_.get(), &options_);
+  EXPECT_THROW(batchWriter->serialize(input, folly::Range(&range, 1), scratch, &stream),
+      ArrowBatchWireLimitException);
+  EXPECT_EQ(stream.tellp(), 0);
+
+  StreamArena arena(pool_.get());
+  auto iterative = serde_.createIterativeSerializer(type, 0, &arena, &options_);
+  iterative->append(input);
+  EXPECT_THROW(iterative->maxSerializedSize(), ArrowBatchWireLimitException);
+  EXPECT_THROW(iterative->flush(&stream), ArrowBatchWireLimitException);
+  EXPECT_EQ(stream.tellp(), 0);
+  iterative->clear();
+  iterative->append(values({42}));
+  ASSERT_NO_THROW(iterative->flush(&stream));
+  EXPECT_GT(stream.tellp(), 0);
+}
+
 TEST_F(ArrowBatchAppendTest, AppendsTwoActualPagesWithoutChangingPublishedPrefix) {
   EXPECT_TRUE(serde_.supportsAppendInDeserialize());
   RowVectorPtr result;

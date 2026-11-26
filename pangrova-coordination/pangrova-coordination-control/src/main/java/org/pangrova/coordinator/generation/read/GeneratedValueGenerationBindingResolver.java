@@ -6,7 +6,15 @@ import org.pangrova.generation.api.constants.GenerationOutputTypeIds;
 import org.pangrova.persistence.generation.api.generated.GeneratedValueBuildMetadataStore;
 import org.pangrova.persistence.generation.api.generated.GeneratedValueGenerationReference;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
+import org.pangrova.protocol.v2.ArtifactBinding;
+import org.pangrova.protocol.v2.CoveragePolicy;
+import org.pangrova.protocol.v2.DataSplit;
+import org.pangrova.protocol.v2.ExecutionPolicy;
+import org.pangrova.protocol.v2.FallbackPolicy;
 import org.pangrova.protocol.v2.OperatorBinding;
+import org.pangrova.protocol.v2.OperatorResourceRequirement;
+import org.pangrova.protocol.v2.RetryClass;
+import org.pangrova.security.api.authorization.DeferredAuthorizationScope.DefinitionSnapshot;
 
 import java.util.List;
 import java.util.Objects;
@@ -19,7 +27,6 @@ public final class GeneratedValueGenerationBindingResolver {
 
     private final GeneratedValueBuildMetadataStore metadataStore;
     private final PublishedGenerationBindingResolver artifactResolver;
-    private final org.pangrova.persistence.generation.api.job.GenerationJobStore buildStore;
 
     /** Resolves generated templates through the same immutable artifact metadata and partition reader. */
     public GeneratedValueGenerationBindingResolver(
@@ -28,28 +35,30 @@ public final class GeneratedValueGenerationBindingResolver {
         this.metadataStore = Objects.requireNonNull(
                 metadataStore, "metadataStore must not be null");
         this.artifactResolver = new PublishedGenerationBindingResolver(buildStore);
-        this.buildStore = Objects.requireNonNull(buildStore, "buildStore");
     }
 
     /**
-     * Returns an object-free plan binding only for the exact source snapshot.
-     * Task-local object expansion is delegated to PublishedArtifactBindingResolver.
+     * Returns verified, object-free publication evidence for the exact source snapshot.
+     * The caller binds that evidence to each eligible read node.
      */
-    public Optional<OperatorBinding> resolveTemplate(
+    public Optional<ResolvedRead> resolveTemplate(
             String tenantId,
-            String planNodeId,
             String sourceId,
             String targetColumn,
             String sourceSnapshot,
-            List<String> serializedSplits) {
+            List<DataSplit> splits) {
         requireText(tenantId, "tenantId");
-        requireText(planNodeId, "planNodeId");
         GeneratedValueGenerationReference reference = metadataStore.findGeneration(
                 tenantId, sourceId, targetColumn, sourceSnapshot).orElse(null);
         if (reference == null) {
             return Optional.empty();
         }
-        var artifact = artifactResolver.resolveTemplate(
+        if (!reference.tenantId().equals(tenantId) || !reference.sourceId().equals(sourceId)
+                || !reference.sourceSnapshot().equals(sourceSnapshot)
+                || !reference.targetColumn().equalsIgnoreCase(targetColumn)) {
+            throw new IllegalStateException("Generated publication reference differs from the query scope");
+        }
+        var resolved = artifactResolver.resolveTemplate(
                         new PublishedGenerationBindingResolver.GenerationResolutionIntent(
                                 reference.tenantId(),
                                 reference.artifactId(),
@@ -57,34 +66,31 @@ public final class GeneratedValueGenerationBindingResolver {
                                 reference.generation(), reference.sourceId(),
                                 reference.sourceSnapshot(),
                                 GenerationSourceCoverage.QUERY_SOURCE_SUBSET),
-                        serializedSplits)
+                        splits)
                 .orElseThrow(() -> new IllegalStateException(
                         "Published generated values do not exactly cover the query source objects"));
-        return Optional.of(template(tenantId, planNodeId, artifact));
-    }
-
-    private OperatorBinding template(String tenant, String node, org.pangrova.protocol.v2.ArtifactBinding artifact) {
-        var manifest = buildStore.findPublishedGeneration(tenant, artifact.getArtifactId(), artifact.getGeneration(),
-                artifact.getSourceSnapshot()).orElseThrow();
-        if (manifest.rowCount() <= 0 || manifest.totalBytes() <= 0) {
+        if (resolved.rowCount() <= 0 || resolved.totalBytes() <= 0) {
             throw new IllegalStateException("Generated publication has invalid source-row resource totals");
         }
-        return OperatorBinding.newBuilder().setPlanNodeId(node)
-                .setCapability(BuiltInCapabilityCatalog.generatedValuesOverlayPlanRef()).addArtifacts(artifact)
-                .setExecutionPolicy(org.pangrova.protocol.v2.ExecutionPolicy.newBuilder()
-                        .setCoveragePolicy(org.pangrova.protocol.v2.CoveragePolicy.COVERAGE_POLICY_REQUIRE_COMPLETE)
-                        .setFallbackPolicy(org.pangrova.protocol.v2.FallbackPolicy.FALLBACK_POLICY_FORBID)
-                        .setRetryClass(org.pangrova.protocol.v2.RetryClass.RETRY_CLASS_IDEMPOTENT))
-                .setResources(org.pangrova.protocol.v2.OperatorResourceRequirement.newBuilder()
-                        .setFillKeys(manifest.rowCount()).setObjectStoreReadBytes(manifest.totalBytes()))
-                .build();
+        return Optional.of(new ResolvedRead(resolved.binding(), OperatorResourceRequirement.newBuilder()
+                .setFillKeys(resolved.rowCount()).setObjectStoreReadBytes(resolved.totalBytes()).build(),
+                resolved.definitionSnapshot()));
     }
 
-    /** Uses the canonical task-local object expansion shared by all artifact capabilities. */
-    public List<OperatorBinding> materializeForTask(
-            String tenantId, List<OperatorBinding> bindings,
-            List<String> serializedSplits) {
-        return artifactResolver.materializeForTask(
-                tenantId, bindings, serializedSplits);
+    /** Immutable publication evidence reusable by scans of the same declaration and source snapshot. */
+    public record ResolvedRead(ArtifactBinding artifact, OperatorResourceRequirement resources,
+            Optional<DefinitionSnapshot> definitionSnapshot) {
+        /** Attaches the shared publication to the exact scan's node ID. */
+        public OperatorBinding bind(String planNodeId) {
+            return OperatorBinding.newBuilder().setPlanNodeId(requireText(planNodeId, "planNodeId"))
+                    .setCapability(BuiltInCapabilityCatalog.generatedValuesOverlayPlanRef())
+                    .addArtifacts(artifact)
+                    .setExecutionPolicy(ExecutionPolicy.newBuilder()
+                            .setCoveragePolicy(CoveragePolicy.COVERAGE_POLICY_REQUIRE_COMPLETE)
+                            .setFallbackPolicy(FallbackPolicy.FALLBACK_POLICY_FORBID)
+                            .setRetryClass(RetryClass.RETRY_CLASS_IDEMPOTENT))
+                    .setResources(resources)
+                    .build();
+        }
     }
 }

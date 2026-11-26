@@ -173,13 +173,9 @@ final class IcebergCommitExecutor {
 
     void executeIdempotently(
             Table table, DistributedWriteCommitContext context, Runnable action) {
-        String token = IdempotentCommitController.tokenFor(context);
         retry.execute(() -> {
             table.refresh();
             if (IcebergDistributedCommitMarker.isPublished(table, context)) {
-                return;
-            }
-            if (IdempotentCommitController.isAlreadyCommitted(table, token)) {
                 return;
             }
             IcebergDistributedCommitMarker.requireCompleteHistorySinceBase(table, context);

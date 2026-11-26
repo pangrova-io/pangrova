@@ -1,94 +1,71 @@
 package org.pangrova.coordinator.query.execution;
 
-import org.pangrova.query.api.task.QuerySplit;
+import org.pangrova.coordinator.query.execution.split.QuerySplit;
+import org.pangrova.coordinator.query.execution.split.SplitFetcher;
+import org.pangrova.connector.api.metadata.ConnectorSplit;
+import org.pangrova.common.enums.PangrovaErrorCode;
+import org.pangrova.common.exception.PangrovaException;
+import org.pangrova.protocol.v2.DataSplit;
+import org.pangrova.protocol.source.CanonicalConnectorSplit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.List;
 
-import org.pangrova.coordinator.query.execution.split.SplitAssignment;
 import org.junit.jupiter.api.Test;
 
 /**
- * Tests for file path extraction from ConnectorSplit via QuerySplit
- * and SplitAssignment construction with file paths for cache affinity routing.
+ * Tests the split locations carried into cache affinity placement.
  */
 class SplitFilePathExtractionTest {
 
     @Test
     void splitWithPathsPreservesFilePaths() {
-        var swp = new QuerySplit("data", List.of("s3://bucket/file1.parquet"));
-        assertThat(swp.serializedData()).isEqualTo("data");
+        var data = split("data");
+        var swp = new QuerySplit(data, List.of("s3://bucket/file1.parquet"));
+        assertThat(swp.data()).isSameAs(data);
         assertThat(swp.filePaths()).containsExactly("s3://bucket/file1.parquet");
     }
 
     @Test
     void splitWithPathsDefensiveCopy() {
         var paths = new java.util.ArrayList<>(List.of("s3://a", "s3://b"));
-        var swp = new QuerySplit("data", paths);
+        var swp = new QuerySplit(split("data"), paths);
         paths.add("s3://c");
         assertThat(swp.filePaths()).hasSize(2);
     }
 
     @Test
     void splitWithPathsNullFilePathsDefaultsToEmpty() {
-        var swp = new QuerySplit("data", null);
+        var swp = new QuerySplit(split("data"), null);
         assertThat(swp.filePaths()).isEmpty();
     }
 
     @Test
-    void splitAssignmentWithFilePathsForCacheAffinity() {
-        long now = System.currentTimeMillis();
-        SplitAssignment assignment = new SplitAssignment(
-                0, "serialized-data", List.of("node-1"),
-                List.of("s3://bucket/table/part-0.parquet"), now);
-
-        assertThat(assignment.splitIndex()).isZero();
-        assertThat(assignment.splitData()).isEqualTo("serialized-data");
-        assertThat(assignment.dataLocations()).containsExactly("node-1");
-        assertThat(assignment.filePaths()).containsExactly("s3://bucket/table/part-0.parquet");
-        assertThat(assignment.enqueueTimeMs()).isEqualTo(now);
+    void keepsTheExactConnectorMessageWhenBuildingTheStageSplit() {
+        var data = split("data");
+        CanonicalConnectorSplit connector = () -> data;
+        assertThat(SplitFetcher.toSplitWithPaths(List.of(connector))).singleElement()
+                .satisfies(stage -> assertThat(stage.data()).isSameAs(data));
     }
 
     @Test
-    void splitAssignmentWithMultipleFilePaths() {
-        // Paimon splits can have multiple file paths (LSM levels)
-        long now = System.currentTimeMillis();
-        SplitAssignment assignment = new SplitAssignment(
-                1, "paimon-data", List.of(),
-                List.of("s3://bucket/level-0/f1.parquet", "s3://bucket/level-1/f2.parquet"), now);
-
-        assertThat(assignment.filePaths()).hasSize(2);
-        assertThat(assignment.filePaths()).containsExactly(
-                "s3://bucket/level-0/f1.parquet", "s3://bucket/level-1/f2.parquet");
+    void missingOrEmptyExecutionMetadataFailsBeforeTheSplitEntersTheStage() {
+        CanonicalConnectorSplit empty = DataSplit::getDefaultInstance;
+        assertRejected(new ConnectorSplit() {});
+        assertRejected(empty);
     }
 
-    @Test
-    void splitAssignmentConvenienceConstructorHasEmptyFilePaths() {
-        SplitAssignment assignment = new SplitAssignment(0, "data", List.of("node-1"));
-        assertThat(assignment.filePaths()).isEmpty();
-        assertThat(assignment.enqueueTimeMs()).isGreaterThan(0);
+    private static void assertRejected(ConnectorSplit invalid) {
+        assertThatThrownBy(() -> SplitFetcher.toSplitWithPaths(List.of(invalid)))
+                .isInstanceOfSatisfying(PangrovaException.class, failure ->
+                        assertThat(failure.getErrorCode()).isEqualTo(PangrovaErrorCode.CONNECTOR_SPLIT_FETCH_FAILED))
+                .hasCauseInstanceOf(IllegalArgumentException.class);
     }
 
-    @Test
-    void pullModeDispatchBuildsAssignmentsWithFilePaths() {
-        // Simulate what dispatchPullMode does: convert QuerySplit to SplitAssignment
-        List<QuerySplit> splitsWithPaths = List.of(
-                new QuerySplit("s0", List.of("s3://f0.parquet")),
-                new QuerySplit("s1", List.of("s3://f1.parquet")),
-                new QuerySplit("s2", List.of()));
-
-        long now = System.currentTimeMillis();
-        List<SplitAssignment> assignments = new java.util.ArrayList<>();
-        for (int i = 0; i < splitsWithPaths.size(); i++) {
-            QuerySplit swp = splitsWithPaths.get(i);
-            assignments.add(new SplitAssignment(i, swp.serializedData(), List.of(),
-                    swp.filePaths(), now));
-        }
-
-        assertThat(assignments).hasSize(3);
-        assertThat(assignments.get(0).filePaths()).containsExactly("s3://f0.parquet");
-        assertThat(assignments.get(1).filePaths()).containsExactly("s3://f1.parquet");
-        assertThat(assignments.get(2).filePaths()).isEmpty();
+    private static DataSplit split(String id) {
+        return DataSplit.newBuilder().setSplitId(id).build();
     }
+
 }

@@ -27,7 +27,9 @@ its exact issued `ConnectorQueryAuthority`; copying a session never creates,
 replaces or closes that lifetime. Tenant/property enrichment retains source
 snapshots, incremental ranges and the trusted internal-materialization marker.
 Client properties cannot set those trusted fields. SPI session conversion does
-not authenticate a caller or derive a trusted tenant from a name.
+not authenticate a caller or derive a trusted tenant from a name. The Query API
+exposes the journal session identity as a data record. Admission and recovery
+JSON use the shared canonical mapper through standard Java value types.
 
 Execution correlation is an Observability API snapshot. Entry services receive an
 explicit `ExecutionTraceContextFactory`; Server selects the OpenTelemetry factory.
@@ -41,6 +43,35 @@ ports; the Coordinator supplies the adapters. Query API still loads without the
 SDK, Coordinator, Worker, Client DTOs or provider implementations.
 
 ## 1. End-to-End Query Flow
+
+
+### Query submission and execution completion
+
+The HTTP submission exchange suspends while the query waits for readiness.
+Concurrent retries with the same authenticated principal, idempotency key and
+request fingerprint observe the same owned receipt. They release their HTTP
+threads while the original request is pending, and cancelling an observer
+does not cancel the admitted query.
+
+The bounded asynchronous submission executor runs SQL planning and starts the
+distributed DAG. The DAG publishes its OUTPUT endpoint after Worker acknowledgement
+and settles the execution through its completion stage. A running query does not
+hold a submission thread while its Workers produce or finish results. The
+execution operation remains admitted through terminal callbacks, while task and
+result owners account for their own physical drain.
+
+Literal INSERT and INSERT OVERWRITE resolve the target metadata once during
+statement admission. Column order, FILE MIME validation, managed-file validation,
+and generated-column admission use that same observation. Iceberg reads the
+current declaration directly by name from one catalog pointer and returns typed
+schema and properties. Write allocation and
+the final commit still validate against the current connector authority.
+
+Native INSERT, UPDATE, DELETE, MERGE, and CTAS attach their result publication to
+the fenced write completion. Connector and journal effects are resolved before
+the statement publishes its control-plane result. Synchronous callers await the
+same completion. Cancellation and the existing deadline settle the owned
+execution and leave physical cleanup with the task and query owners.
 
 ![End-to-end query execution: client submission, Coordinator parse/plan/admit/schedule, canonical task binding, Worker JVM and Native execution, Output Worker result stream, and Coordinator terminal handling](../../website/static/img/diagrams/query-execution-flow.svg)
 
@@ -59,6 +90,22 @@ Generation service discovery. A provider failure, cancellation or authorization
 rejection propagates to the query. A real table scan without its configured catalog
 registry fails; a source-free plan can legitimately have no connector splits.
 Whole-table OVERWRITE/UPDATE enumeration keeps its unpruned path.
+For a bound Iceberg data scan, the split manager validates the chosen snapshot and
+opens the file plan on the first batch request. Full, historical and incremental
+scans convert only the splits requested by the consumer. The Coordinator applies a
+single 30-second elapsed-time budget and a 100,000-split cap across the stage's
+sources. A batch that arrives after the deadline or would exceed the cap fails the
+stage and closes the source. An empty binding is still validated against its
+admitted table identity before returning zero splits.
+The direct JDBC catalog reads the metadata pointer during load. Catalog wrappers
+that can return cached SDK tables refresh that observation before validation.
+
+With PostgreSQL table control, read-owner checks use one authority statement to
+match the active name reservation, table identity, physical format identity, and
+catalog deployment. The Coordinator compares the same deployment to its local
+catalog handle before admitting the read. The checks bracket both snapshot binding
+and split enumeration. A physical identity mismatch still follows the table
+control quarantine path.
 
 `QueryBootstrap` creates the published-artifact reader and obtains the generated-value
 reader from `QueryMaterializationFactory`. It passes both readers explicitly into
@@ -66,10 +113,9 @@ Query/DAG construction. Dispatch borrows the readers independently of whether in
 pruning is enabled. Storage connections, current authorization, transaction fencing
 and publication facts retain their existing owners.
 
-`StageSplitSource` and the stage binder still reside in the existing Coordinator
-artifact during this migration: their signatures include live Planner and session
-types. Only the closed `QuerySplit` value lives in Query API; the remaining
-Query/Planner contracts must be separated before moving the whole execution family.
+The Coordinator owns `StageSplitSource` and the stage binder. Their inputs include
+live Planner and session types. Published generation binding resolves resource
+totals from the same manifest used to validate source coverage.
 Index descriptor caching, mapping persistence orchestration and evaluation metrics
 now belong to Indexing Core; the catalog-scoped connector access adapter is separate
 from DDL command handling.
@@ -95,9 +141,81 @@ replace Planner validation.
 
 ### 2.1 The Role of Calcite in Pangrova
 
+Stage serialization reuses the validated capability union while the active Worker inventory identities match. An inventory change rebuilds the union from the actual manifests. Worker selection and task admission still check the exact function, signature and execution identity.
+
 ![SQL Query](../../website/static/img/diagrams/generated/query-execution-01-60cdcff82f.svg)
 
-**Substrait serialization boundary**: After the Plan Fragmenter completes Stage division on the Coordinator, the Substrait Converter serializes the Calcite RelNode subtree of each Stage into a Substrait Plan (Protobuf bytes). The serialized bytes are carried as `TaskDescriptor.substraitPlan` (base64-encoded) and dispatched to the Worker over HTTP REST. Upon receipt, the Worker passes the bytes directly to the Native layer (`TaskRequest.substrait_plan`) without re-serialization.
+After the Plan Fragmenter divides the Calcite tree into stages, the Coordinator
+builds an immutable Substrait message. Live exchange and generated-value binding
+use this message before creating task plan bytes. Worker submission carries
+these bytes in the binary Protobuf
+`TaskRequest.substrait_plan` field over HTTP. The Worker prepares and serializes its local
+task request for JNI. Native decodes the enclosed Substrait plan once per task.
+Retrieval preparation checks the plan version before any artifact lookup.
+Velox conversion uses the same parsed plan. Ordinary scan splits stay in the
+task configuration. Retrieval preparation owns only the overrides and their leases.
+Native validates unique split identities when admitting the task. Velox borrows
+those splits for initialization and attaches them to scan leaves without
+rebuilding a duplicate split list.
+
+The SDK-to-wire normalizer walks only Protobuf fields whose descriptors can
+contain Fetch, hash join or merge join relations, including subqueries. It
+reuses unchanged messages and rebuilds the ancestors of each corrected relation.
+Native task admission retains typed Bloom index hints and Paimon deletion-vector
+references for the in-process scanner. The Lance read unit stays encoded for its
+Rust FFI call.
+
+A direct projection of distinct table columns uses the standard Substrait
+ReadRel output mapping. The Native scan assigns the selected columns and
+keeps the canonical table schema for connector binding and schema evolution.
+When the projected columns include every sort key, fragmentation moves the
+projection before the sort and its gather. Sort direction, null ordering,
+offset and limit retain their original semantics. A direct projection over a
+single filtered table retains the output columns and the predicate dependencies
+in the scan. The filter checks the predicate and discards its hidden input
+columns before downstream operators. Split pruning uses the original Calcite
+filter. The SQL authorization check
+still covers the logical relation. [Trino projection pushdown](https://trino.io/docs/current/optimizer/pushdown.html#projection-pushdown) · [Velox table scan assignments](https://facebookincubator.github.io/velox/develop/operators.html#tablescannode)
+
+For a Parquet scan that requests at most half of the canonical top-level
+columns, the Native reader uses a 64 KiB speculative footer read. It can
+load the footer and selected column chunks separately above that size.
+Small files can still load as a unit. Other scan shapes use the existing
+buffering and asynchronous prefetch. [Parquet file layout](https://parquet.apache.org/docs/file-format/) · [Velox reader options](https://facebookincubator.github.io/velox/configs.html)
+
+A current catalog check reads the catalog name, incarnation and revision. The
+initial catalog load owns the deployment payload. The compact check keeps the
+revision fence at each existing ownership boundary.
+
+Managed cluster control clients use HTTP/1.1 to match their Jetty listeners.
+This covers task submission, Worker reports, heartbeats and registration.
+The private COPY client uses HTTP/1.1 with mutual TLS.
+
+A stage with no retrieval or AI binding hints reuses its immutable bound plan.
+Generated-value binding visits the live Substrait message in input order. Scans
+of the same table share the exact source snapshot and declaration. Every scan
+checks its schema. A publication lookup for the same generated column and snapshot
+is shared, including absence, and each scan retains its own binding node ID.
+A generated-value overlay rebuilds the affected scan and its ancestors before
+encoding the plan. The output stage validates declared logical result types.
+
+Live stage preparation retains split source descriptors for both enumeration and
+artifact binding. It rechecks the captured owners after connector I/O and before
+dispatch. The frozen descriptors preserve the original snapshot and predicates.
+
+A projection and an immediately adjacent filter can prove that a generated
+column has no effect on expressions or emitted fields. This skips its
+publication lookup and artifact binding. A column referenced by a filter,
+policy expression or visible output still uses the published snapshot.
+
+Live artifact-bound tasks read publication metadata in windows of up to 16
+tasks, after split placement. The Coordinator loads each publication for the
+assigned source objects and builds task bindings with only their own source
+outputs and the publication's generation-wide outputs. PostgreSQL checks publication
+state under a shared row lock, allowing other readers while publication changes
+and deletion wait for the metadata transaction. A durable partition claim
+locks the exact published manifest on its claim connection, then uses that same
+observation to read output objects and verify canonical source splits.
 
 The converter materializes Calcite's validated numeric result type in the function
 arguments. When an arithmetic expression has a floating result and a DECIMAL
@@ -116,14 +234,37 @@ supplies each borrowed catalog handle and the table ownership checks. Server wir
 the live registry. The planner package has no compile dependency on Coordinator
 or the Metadata implementation.
 
-`LazyMetadataSchema` uses a direct connector lookup for a named table and lists
-tables for explicit enumeration. Catalog failures propagate as metadata errors.
+`LazyMetadataSchema` discovers named tables through the compilation's connector
+metadata scope. When Calcite requests the declaration, the same metadata provider
+can bind the discovered selector. Subsequent lookups of a bound table share the
+selected snapshot. Explicit enumeration lists tables. Catalog failures propagate as
+metadata errors.
 Each compilation owns one `PlanningReadBindings` instance shared by Calcite table
 declarations and cost statistics. It verifies table identity, the selected snapshot
-or incremental range, and retained query authority. A reused binding is checked
-against the current table owner. `CatalogStatisticsProvider` can use statistics
-from ANALYZE while the stored version matches. Worker receives the bound execution
-plan; Calcite schemas remain in the coordinator process.
+or incremental range, and retained query authority. Calcite's row types and row-count
+estimates use the same immutable binding. Requests that unwrap a connector declaration
+or binding check the current table owner before handing it to the caller. Optional Calcite
+table capabilities use in-memory type checks. The post-bind physical identity check uses
+the connector's exact schema evidence when supplied. The generated-value reader uses
+the admitted declaration and verifies the split snapshot and compiled schema
+before binding the overlay. The cost model uses the same binding and its admitted stable
+table ID. It reads published ANALYZE statistics at most once per eligible source in
+the compilation. The connector's selected version, the captured control record and the
+statistics row must agree. Historical Iceberg and Paimon reads use estimates from the
+selected snapshot. Append-range reads carry unknown cardinality until a range estimate is
+available. Lance derives its declaration and row count from one verified publication.
+Worker receives the bound execution plan. Calcite schemas remain in the coordinator process.
+
+A controlled read checks the current catalog deployment once when matching its physical table format identity. Planning can inspect the selected read binding to recognize a physical scan. Expansion verifies current ownership of a connector-derived table before replacing that scan with its definition. Split enumeration and generated column overlay binding check the authority at their respective handoffs.
+
+A live read with an eligible runtime filter starts the build and releases probe
+enumeration on build completion, deadline, or query termination. One leaf shuffle
+producer can collect ranges for up to four BIGINT equality columns. The Coordinator
+unions the ranges per ordinal across the complete winning build cohort. It applies
+the domains together when the probe's Iceberg snapshot, schema, source and field
+identities match. The join still evaluates the full condition for each matching row.
+Missing evidence or a timeout releases an unfiltered probe. A late report leaves
+the already issued probe ranges unchanged.
 
 ### 2.3 Custom Optimization Rules
 
@@ -135,6 +276,14 @@ logical joins only: changing the inputs or predicate of an already selected
 physical join would invalidate its algorithm and required exchanges. Stage
 serialization continues to reject equality joins with empty keys and broadcast
 joins without a broadcast exchange.
+
+Calcite's structural subquery expansion can expose ordinary WHERE predicates
+below a correlated subquery after the main join rules have run. The planner
+pushes the eligible predicates into those inner joins before serialization.
+When a connected inner join has a Cartesian left child, the planner can
+reassociate the inputs if both resulting joins receive a predicate. This
+rule uses deterministic, unhinted logical join conditions and preserves the
+output column ordinals.
 
 Production fragment validation captures the union of current active Workers'
 validated relation, expression and function inventories. The standalone compiler's
@@ -215,8 +364,8 @@ from other storage and JNI interfaces:
 
 | Transfer Scenario | Serialization Format | Zero-copy | Note |
 |----------|-----------|--------|------|
-| Worker-to-Worker Shuffle (Native Flight) | Velox PrestoVectorSerde page in one Arrow binary cell | ✗ | Native producer callback → serialized shuffle queue → Flight DoGet → Native ExchangeSource; no per-batch Java/JNI hop |
-| Output Worker→Client (Flight) | Arrow IPC RecordBatch where supported | ✗ | Result path is separate from the shuffle page format |
+| Worker-to-Worker Shuffle (Native Flight) | Canonical Arrow batch stream page in one Arrow binary cell | ✗ | Native producer callback → serialized shuffle queue → Flight DoGet → Native ExchangeSource; no per-batch Java/JNI hop |
+| Output Worker→Client (Flight) | Standard Arrow Flight schema and record messages | Buffer reuse where supported | OUTPUT prepares each final record message in Velox and sends it through the task's byte window |
 | Native→Java columnar bridge | Arrow C Data Interface | Potentially | Interface exists, but is not the current Worker-to-Worker shuffle path |
 | RAM Cache storage | Component-specific | — | Not the shuffle wire contract |
 | Velox operator spill | Velox-managed | — | Not an Arrow IPC shuffle persistence guarantee |
@@ -226,8 +375,8 @@ from other storage and JNI interfaces:
 
 The Native Flight server wraps each serialized shuffle page as the value of a
 single Arrow binary cell; the consumer extracts and deserializes that page into
-Velox. Flight's Arrow IPC framing must not be confused with the shuffle
-payload's PrestoVectorSerde format.
+Velox. The shuffle page carries its own schema, batches and EOF inside the
+outer Flight frame. Client results use one Flight schema and standard record messages.
 
 The current Arrow Flight reader exposes synchronous `Next()` calls. Native
 exchange reads therefore run on a dedicated blocking-I/O CPU pool; Flight
@@ -248,6 +397,12 @@ equijoin; the serializer removes those duplicate fields only when each entry
 matches its current key. Native rejects plans that still contain deprecated
 join key lists.
 
+An uncorrelated scalar subquery sends its selected value to one complete owner.
+The typed Substrait relation selects the input ordinal and derives its nullable
+output directly from the input schema. Velox enforces the cardinality after
+gathering local drivers. A second row fails immediately, including a repeated
+value or a NULL. The empty input produces one SQL NULL.
+
 For a join with an ON predicate that contains both equijoin keys and residual
 conditions, the planner serializes the complete predicate inside `JoinRel`.
 The native join evaluates the residual while matching rows. A filter placed
@@ -267,6 +422,12 @@ Key performance points:
 ### 3.3 Output Task Interaction Protocol (the Coordinator never participates in data processing)
 
 The Coordinator executes no data-processing operators. All Output Stages (including Gather, Merge, Limit, and Final Aggregation) run on a dedicated Output Worker. The Coordinator acts purely as a proxy, redirecting the Client to the Output Worker's Arrow Flight endpoint.
+
+Eligible global counts and integral minima and maxima reduce on the parallel scan tasks. The final stage gathers the scalar results and merges them. Each scan task evaluates the original aggregate inputs and filter masks.
+
+Eligible global DECIMAL SUM and AVG can exchange the Velox accumulator. The planner starts with the snapshot row estimate and the producer Driver allocation. It estimates the state rows and the Arrow IPC page metadata for each producer Driver. It selects partial aggregation when both the estimated row count and byte count are lower. Scan tasks apply the original filters. The final task uses the raw input precision and scale to bind the function that merges those states. The decision uses the admitted Worker function catalogue held in memory.
+
+Eligible grouped counts and integral minima and maxima also reduce on scan tasks. The planner estimates combinations from snapshot-matched distinct counts for every direct grouping column, with a NULL bucket where applicable. It requires lower estimated exchange rows and bytes. The exchange hashes the complete grouping key, and the downstream stage merges matching groups, including NULL keys.
 
 #### 3.3.1 Design Goals and Constraints
 
@@ -459,155 +620,78 @@ Response:
 { "queryId": "query-20260206-001", "state": "CANCELLED" }
 ```
 
-**Task API (Worker REST)**
+**Internal Worker task API**
 
-Submit Task `POST /v1/task`
+`POST /v1/task` uses `application/x-protobuf` for both the request and the
+acknowledgement. `TaskSubmission.task` carries one typed v2 `TaskRequest`.
+Private COPY submissions use the Worker mutual-TLS listener and carry the
+original canonical bytes and scoped ticket in `TaskSubmission.copy`. The
+Worker keeps the ticket outside the Native request. HTTP admission verifies the
+immutable task structure and plan checksum once in Worker Java. The validated
+submission is passed through task routing to Native task creation and projected
+directly into typed AI callback authority for local registration. Binary callback
+decoding and validation apply when a callback crosses JNI. Native also validates
+the local execution request at that boundary. Worker admission, memory accounting
+and progress reports read task metadata from the canonical request. Scan split
+messages are passed to Native as the task's canonical split list. The HTTP
+contract carries the attempt identity, resource grant and task kind directly.
+The Worker derives its scheduling classification from the task kind and the
+direct-result option. Worker validation reads generated resource grant fields
+directly. Unsigned values beyond Java accounting range and unknown grant fields
+are rejected.
 
+The Worker decodes the binary HTTP request directly from a bounded stream.
+It rejects a declared or observed body over 128 MiB. COPY retains the exact
+embedded task bytes for ticket redemption.
 
-Request: the body is a `SubmitTaskRequest` transport envelope with exactly one
-field, `canonical_task_request`. Its value is the Base64 encoding of one complete
-canonical v2 `TaskRequest`. The Worker validates and parses those bytes but does
-not reconstruct protocol state from REST fields.
+The Worker returns a `TaskSubmitAck` with an `admitted` or `rejected` outcome.
+An admitted acknowledgement carries the canonical task ID and any result or
+Shuffle endpoint owned by that task. Shuffle tickets remain opaque bytes and
+are ordered by output partition for direct lookup. A repeat delivery of the
+same task waits asynchronously for the original task's endpoint setup.
+For OUTPUT tasks, the original acknowledgement and replays wait for Native to
+register the exact Flight producer, schema and queue and to start its drivers.
+Native signals this transition on the task start call's callback. The Worker
+releases its HTTP body and setup budget after JNI setup and waits for the signal
+without a Jetty or setup thread. A failure before registration settles the same
+acknowledgement with the captured Native error and retains its drain path.
+Flight authenticates the signed ticket and claims the matching readable
+registration immediately. An absent, revoked or unready registration is rejected
+without a separate registration wait in the data plane.
+The Worker bounds pending retry acknowledgements and uses the original task
+deadline for each HTTP observation. The first request hands setup to a separate
+Worker executor after the exact reservation, with 64 active setups and 64 queued
+setups. A shared 128 MiB allowance covers the bytes entering decode and the
+bodies queued or running through setup. Declared lengths acquire allowance before
+decode. Streams without a declared length acquire it as bytes arrive. Exact
+replays release their request bytes after joining the existing admission.
+Setup rechecks
+authority before allocating task resources. Cancellation and shutdown can
+identify the actual owner during setup. Setup failures return a rejected acknowledgement
+with the original diagnostic after recording the task's terminal outcome.
+The Coordinator verifies
+the returned identity and endpoint scope before recording the dispatch result.
 
-Response:
-```json
-{
-    "accepted": true,
-    "reject_reason": null,
-    "task_id": "task-1",
-    "result_endpoint": {
-        "host": "worker-3",
-        "port": 8082,
-        "ticket": "task-1",
-        "protocol": "arrow-flight"
-    },
-    "shuffle_endpoint": null
-}
-```
+| Scenario | HTTP status | Acknowledgement |
+|----------|-------------|-----------------|
+| Task admitted | 200 | `admitted` |
+| Missing, malformed, or invalid task | 400 | `rejected` |
+| Authentication or private transport rejected | 401 or 403 | The auth filter rejects unauthenticated callers. The task endpoint rejects plaintext COPY |
+| Stale control or execution owner | 409 | `rejected` |
+| Task request body exceeds 128 MiB | 413 | `rejected` |
+| Unsupported request media type | 415 | The router rejects the request |
+| Worker has yet to observe the submitted control epoch | 425 | `rejected`. The Coordinator can resend the identical binary body within its deadline |
+| Worker control not ready or task admission, body, or setup capacity exceeded | 503 | `rejected` |
+| Internal submission failure | 500 | `rejected` |
 
+`DELETE /v1/task/{taskId}` seals the exact issued attempt using a binary
+`TaskAdmissionSealRequest`. HTTP 202 leaves physical release pending. HTTP 200
+returns the canonical `TaskReport` receipt for completed release.
 
-
-| Scenario | HTTP Status | `accepted` | Description |
-|----------|-------------|------------|-------------|
-| Task accepted | 200 OK | `true` | Canonical admission and task creation succeeded |
-| Missing, malformed, or non-canonical request | 400 Bad Request | — | REST decoding or request validation rejects the body |
-| Stale control/owner fence | 409 Conflict | `false` | Attempt cannot execute under the active ownership epoch |
-| Control plane not ready | 503 Service Unavailable | `false` | Worker has not received a usable control epoch |
-| Other admission/start failure | 500 Internal Server Error | `false` | Task is not accepted; the Coordinator handles the classified dispatch failure |
-
-Cancel Task `DELETE /v1/task/{taskId}`
-
-Exchange sources are complete, fenced task-admission bindings carried by
-`POST /v1/task`. There is deliberately no REST API that replaces sources for a
-running task: a producer retry creates a new downstream attempt, and the old
-attempt is fenced. This prevents mixing rows from different attempts.
-
-**Historical expanded TaskDescriptor design (not a production API)**
-
-The following expanded shape is retained only to explain older diagrams in this
-document. It is not accepted by `POST /v1/task`; all fields shown below now live
-inside the canonical v2 protobuf named above.
-
-
-
-
-
-
-```json
-{
-    "taskId": "task-1",
-    "queryId": "query-20260206-001",
-    "stageId": 0,
-    "partitionId": 0,
-    "taskType": "COMPUTE",
-    "substraitPlan": "<base64-encoded Substrait Plan Protobuf bytes>",
-    "splits": [
-        "<base64-encoded SplitInfo Protobuf bytes>",
-        "<base64-encoded SplitInfo Protobuf bytes>"
-    ],
-    "exchangeSources": [
-        {
-            "plan_node_id": "exchange-input-ex-1",
-            "exchange_id": "ex-1",
-            "expected_source_partitions": 1,
-            "source_task_id": "task-2",
-            "source_stage_id": 1,
-            "source_partition_id": 0,
-            "output_partition_id": 0,
-            "plan_epoch": 41,
-            "attempt_id": 0,
-            "fencing_token": 176093659137,
-            "host": "worker-1",
-            "transport_port": 8082,
-            "tls_identity": "worker-1.internal",
-            "signed_ticket": "<opaque-producer-issued-ticket>",
-            "ticket_expires_at_epoch_ms": 1788300000000,
-            "expected_rows": 0,
-            "expected_bytes": 0,
-            "read_mode": "BLOCKING"
-        }
-    ],
-    "resourceLimit": {
-        "maxMemoryBytes": 34359738368,
-        "maxThreads": 16,
-        "maxSpillBytes": 1099511627776,
-        "spillDirectory": "/data/spill"
-    },
-    "sessionProperties": {"timezone": "UTC"},
-    "outputConfig": {
-        "ticket": "query-20260206-001",
-        "maxBufferedBytes": 33554432,
-        "maxBufferedBatches": 64,
-        "clientIdleTimeoutMs": 300000
-    },
-    "writeConfig": null
-}
-```
-
-> **Field Notes**:
-> - `taskType`: One of `COMPUTE`, `OUTPUT`, `WRITE`. Coordinator sets this explicitly. If absent (legacy), Worker infers: `writeConfig != null` → WRITE; `outputConfig != null` → OUTPUT; otherwise → COMPUTE.
-> - This expanded JSON is historical design context, not the production request
-> schema. The actual `SubmitTaskRequest` contains one Base64-encoded canonical v2
-> `TaskRequest`; its `splits` field is repeated `DataSplit`. REST does not mirror
-> task identity, plan, splits, exchange, resource, security, or write fields.
-> - `stageId` / `partitionId`: Passed through to `TaskRequest` Protobuf for Native-layer logging and metrics correlation. See the field mapping table in [03 §5.3](./native-execution.md).
-> - `exchangeSources`: converted into typed Native `ExchangeInput` bindings before
-> task start. JVM performs validation and lifecycle wiring only; Arrow batches,
-> partition routing, retry isolation and merge execution remain in Native.
-> - Every source has a stable logical producer identity
-> `(source_stage_id, source_partition_id)` plus `(plan_epoch, attempt_id,
-> fencing_token)`. Duplicate logical producers and missing fences fail closed.
-> - Producer-issued tickets are opaque, partition-scoped credentials. They are
-> never synthesized by the Coordinator.
-
-
-
-**Write Task TaskDescriptor**: For INSERT/UPDATE/DELETE statements, the `writeConfig` field is populated:
-
-```json
-{
-    "taskId": "write-task-1",
-    "queryId": "query-20260206-002",
-    "stageId": 0,
-    "partitionId": 0,
-    "substraitPlan": "<base64 of SELECT part>",
-    "splits": ["..."],
-    "exchangeSources": [],
-    "resourceLimit": { "maxMemoryBytes": 34359738368 },
-    "sessionProperties": {"timezone": "UTC"},
-    "outputConfig": null,
-    "writeConfig": {
-        "targetTable": "iceberg_prod.warehouse.fact_orders",
-        "writeMode": "APPEND",
-        "partitionSpec": ["order_date"],
-        "transactionId": "txn-20260206-001",
-        "fileFormat": "PARQUET",
-        "targetFileSize": 134217728
-    }
-}
-```
-
-
+The canonical task carries the Substrait plan, splits, resource grant, security
+context and fenced exchange bindings. A producer retry uses a new downstream
+attempt. The stable producer identity and epoch, attempt and fencing token
+protect consumers from mixing output from different attempts.
 
 **Composite Task Model**: A read-dependent write runs as a Worker task. The
 Native execution/drain path and Java connector sink share the task lifecycle:
@@ -616,44 +700,18 @@ Native execution/drain path and Java connector sink share the task lifecycle:
 2. **Write drain**: Native serializes each output batch to Arrow IPC and synchronously invokes the Java `NativeWriteExecutor`/`ConnectorPageSink` through JNI. `finishWithMetadata()` returns a staged connector fragment; it does not publish the catalog snapshot.
 3. **Catalog publication**: The Coordinator collects fenced task fragments and calls the connector's `finishDistributedWrite()` after all required tasks succeed. See [distributed-writes.md](./distributed-writes.md) for recovery limits.
 
-The Coordinator identifies Write Tasks by the presence of `writeConfig` in the TaskDescriptor. The `taskType` field in the Native TaskRequest Protobuf is set to `TASK_TYPE_WRITE` for these tasks.
+The Coordinator signs distributed write tasks as `TASK_KIND_WRITE` with the canonical write binding.
 
 
 
-**WriteResult Reporting**: When a Write Task completes (state=FINISHED), the TaskStatusReport includes a `writeResult` field:
+**Write completion**
 
-```json
-{
-    "taskId": "write-task-1",
-    "queryId": "query-20260206-002",
-    "state": "FINISHED",
-    "stats": {"outputRows": 50000, "outputBytes": 67108864},
-    "writeResult": {
-        "dataFiles": [
-            {"path": "s3://bucket/warehouse/fact_orders/data/00001.parquet", "sizeBytes": 67108864, "rowCount": 50000, "partition": "order_date=2026-02-06"}
-        ],
-        "totalRows": 50000,
-        "totalBytes": 67108864
-    },
-    "error": null
-}
-```
-
-The Coordinator collects `writeResult` from all Write Tasks, then performs an atomic commit via the table format SDK (Iceberg `commitTransaction()` / Paimon commit). If any Write Task fails, the Coordinator aborts the transaction and triggers orphan file cleanup (see §6.5).
-
-
-
-**Multi-Worker Write Coordination Protocol**:
-
-1. Coordinator dispatches Write Tasks to N Workers (one per partition range or hash bucket).
-2. Each Worker executes SELECT + Write phases independently, reporting `writeResult` via `TaskStatusReport`.
-3. Coordinator tracks Write Task states in `QueryStateMachine`:
-   - All N tasks reach `FINISHED` → collect all `dataFiles` lists → atomic commit.
-   - Any task reaches `FAILED` → abort: cancel remaining tasks, mark transaction as FAILED, trigger orphan cleanup (§6.5).
-   - Coordinator crash during commit → on failover, new Coordinator reads `pending_writes` from PostgreSQL, detects incomplete transaction, triggers orphan cleanup.
-4. Partial success is NOT supported — the commit is all-or-nothing (Iceberg/Paimon transaction semantics).
-
-
+A finished write task publishes its connector commit metadata or staged
+fragments in `TaskWriteEvidence`. The Coordinator validates the attempt and
+write binding before collecting any fragment. It publishes one connector
+commit after the required logical tasks succeed. On query failure it seals
+remaining admissions and starts orphan cleanup. The durable write journal
+fences publication and records the commit outcome for recovery.
 
 **Write Path Backpressure**: The Native write drain synchronously invokes the
 Java page sink for each IPC batch. A slow connector delays draining the bounded
@@ -661,46 +719,47 @@ output queue and backpressures the Native producer. Queue closure alone does
 not authorize publication: the drain checks the producer's terminal outcome
 before finalizing the staged fragment.
 
-**TaskStatusReport (Worker -> Coordinator)**
+**Worker status delivery**
 
-`POST /v1/task/status-report`
+`POST /v1/task/status-report` uses `application/x-protobuf`. A
+`TaskStatusDelivery` carries the Worker ID, task role, report sequence and
+timestamp. Progress carries the complete issued `TaskAttemptId` and the
+lifecycle state. Terminal delivery carries the exact canonical `TaskReport`
+bytes. The Coordinator parses the report once at ingress. A durable generation
+commit uses that parsed report and the same original bytes for exact replay.
+The Coordinator reads attempt, lifecycle state, usage, coverage,
+structured error and Native statistics from that message. Supplemental
+statistics are allowed when canonical Native statistics are absent. Write
+commit evidence travels as opaque binary fragments in the same delivery.
 
-The REST body projects the fenced attempt identity from the canonical v2
-`TaskRequest`. Terminal reports also carry `canonical_task_report` (base64-encoded
-protobuf bytes in JSON). REST state, task ID, attempt, control epoch, execution
-owner, coverage, and resource usage must agree with the Coordinator's retained
-request; REST fields alone are not completion evidence.
-This POST has an 8 MiB HTTP body limit to carry the bounded 4 MiB canonical
-report after JSON/Base64 encoding. Other task and public routes retain the
-generic 1 MiB request limit.
+The Coordinator validates the report against the exact issued task and joins
+any required publication work. `TaskStatusAck` carries the task ID, sequence
+and a typed directive. An unchanged retry can obtain the same acknowledgement.
+A stale or changed report is rejected. A retired read-result notice can be
+acknowledged separately from physical release.
 
-Request:
-```json
-{
-    "task_id": "task-1",
-    "query_id": "query-20260206-001",
-    "stage_id": 1,
-    "partition_id": 0,
-    "task_type": "COMPUTE",
-    "worker_id": "worker-1",
-    "state": "RUNNING",
-    "attempt": {"plan_epoch": 1, "attempt_id": 0, "fencing_token": 4294967297},
-    "error": null,
-    "report_sequence": 7,
-    "timestamp_ms": 1707300000000
-}
-```
+The authenticated status route accepts up to 8 MiB including write fragments.
+Canonical terminal evidence is bounded to 4 MiB. Other Coordinator task and
+public routes retain their configured request limit.
 
-Response:
-```json
-{
-    "task_id": "task-1",
-    "command": "CONTINUE"
-}
-```
-
-For `FINISHED`, Native completion and a validated Native-origin `TaskReport`
-are required; result-buffer readiness alone does not finish the task. For
+The Worker completion monitor reads a scalar Native lifecycle state through JNI.
+Its in-progress wait wakes on terminal publication and has a 50 ms timeout for
+live quota checks. Worker-executed CDC tasks signal after storing their terminal
+receipt.
+Terminal handling reads the full Native report for usage, coverage, and statistics
+when available.
+Native derives those fields from one Velox statistics snapshot. The Worker
+retains the parsed immutable statistics through terminal handling and replaces
+them with the final report's statistics on actual release. Both execution
+backends retain the validated release report alongside its exact canonical
+bytes. Drain checks and publication of that same terminal fact use the retained
+report. A release retry after executor retirement uses the staged receipt. The
+first terminal report retains its validated bytes and parsed message as well.
+The Worker derives structured errors from that evidence and builds
+reconciled reports as typed messages before encoding them for publication.
+The failure path also reads the Native report to extract the original error.
+Native tasks publish `FINISHED` with a validated Native-origin `TaskReport`.
+Worker-executed CDC tasks use their own completion and drain evidence. For
 `FAILED` or `CANCELLED`, the Worker may produce a fenced
 `TASK_REPORT_ORIGIN_WORKER_RECONCILED` report when Native did not produce a
 usable terminal report. That report preserves a structured Native error only
@@ -709,7 +768,7 @@ resource grant. Its zero completed work units mean no trustworthy successful
 work-unit evidence was available; they do not claim that every split physically
 ran and failed. A reconciled report cannot claim success. Terminal reports with
 an unspecified origin, missing canonical bytes, or mismatched identity/coverage
-are rejected rather than downgraded to REST-only completion.
+are rejected.
 
 A cancellation request first enters the Worker-only, nonterminal `CANCELLING`
 state and signals Native. This local state or Native's `CANCELLED` status alone
@@ -734,108 +793,39 @@ silently truncate these identities.
 
 #### 3.3.4 Arrow Flight Data-Plane Protocol
 
-**Flight Ticket encoding**
+**Flight tickets**
 
-All Arrow Flight interactions use a unified Ticket encoding:
+Worker-to-Worker Flight uses the producer route supplied by the sealed
+Exchange input binding. The ticket identifies the signed producer handle,
+query, stage, output partition, plan epoch, attempt and fencing token. The
+server validates the route against the owning attempt before returning
+serialized pages. The consumer enqueues those pages for its Velox Exchange
+operator and closes the input on producer EOF.
 
-```protobuf
-// Internal structure of the Flight Ticket (serialized to bytes and placed in the Arrow Flight Ticket)
-message FlightTicket {
-    string query_id = 1;
-    string task_id = 2;
-    int32 output_partition = 3;         // Shuffle partition number
-    TicketType type = 4;
-}
+![Output Worker and Compute Worker](../../website/static/img/diagrams/generated/query-execution-22-af8a736534.svg)
 
-enum TicketType {
-    TICKET_TYPE_UNSPECIFIED = 0;
-    TICKET_TYPE_SHUFFLE = 1;            // Shuffle data between Compute Workers
-    TICKET_TYPE_RESULT = 2;             // Final result: Output Worker → Client
-}
-```
+**Result pull (Client to Output Worker)**
 
-**Shuffle data pull (Output Worker → Compute Worker)**
+The HTTP result endpoint contains the Worker address and an opaque signed
+ticket. The client passes that ticket directly to Flight DoGet. The signed
+payload contains a ResultReadGrant that binds the task attempt, caller security
+context, scope and expiry. DoGet validates the grant against the registered
+Native output before claiming the stream.
+The stream retains the admitted task identity and uses it for batch reads. Each read checks the live cancellation, revocation and deadline conditions before publishing data.
 
-```
-Exchange pull flow after the Output Worker starts:
+HTTP can advertise the endpoint while Native initializes the task. An early
+DoGet waits up to 750 ms for the readiness notification. The Worker activates
+the registration after the Velox task has started. The same registry lock
+guards readiness and the one allowed stream claim. Registration retirement
+and server shutdown wake pending readers and producers.
 
-1. Parse TaskDescriptor.exchange_sources to obtain the Flight endpoints of all upstream Tasks
-2. For each ExchangeSource, construct a FlightTicket:
-   {query_id, source_task_id, output_partition=0 (GATHER), type=SHUFFLE}
-3. Call Arrow Flight DoGet(ticket) to establish a streaming connection
-
-
-
-
-> **REPARTITION Scenario**: In REPARTITION shuffle (§3.3.9), Stage N+1 Task-k pulls partition k from every Stage N task. The FlightTicket is constructed as:
-> `{query_id, source_task_id=task-j, output_partition=k, type=SHUFFLE}`
-> where `task-j` iterates over all Stage N tasks and `k` is the target partition assigned to the consuming task. In GATHER mode (single Output Worker), `output_partition` is always 0.
-4. Receive the RecordBatch stream and feed it into the input queue of the Velox Exchange Operator
-5. Once all upstream Sources complete, the Exchange Operator marks the input as finished
-```
-
-![Output Worker                      Compute Worker](../../website/static/img/diagrams/generated/query-execution-22-af8a736534.svg)
-
-**Result pull (Client → Output Worker)**
-
-```
-Client result-pull flow:
-
-1. The Client obtains the Output Worker address from SubmitQueryResponse.result_endpoint
-2. The Client constructs a FlightTicket: {query_id, task_id="", output_partition=0, type=RESULT}
-3. The Client calls GetFlightInfo(ticket) to obtain Schema information
-
-
-
-> **Ticket Conversion Rule**: The `resultEndpoint.ticket` string returned by the REST API (e.g., `"query-20260206-001"`) maps directly to `FlightTicket.query_id`. The Client constructs the full FlightTicket Protobuf as: `{query_id = resultEndpoint.ticket, task_id = "", output_partition = 0, type = RESULT}`, serializes it to bytes, and passes it as the Arrow Flight `Ticket` in DoGet/GetFlightInfo calls.
-4. The Client calls DoGet(ticket) to establish a streaming connection
-5. The Output Worker reads RecordBatches from the Output Operator of the Velox Pipeline
-6. Sends them batch by batch to the Client until all data is sent
-7. Sends a COMPLETED signal, and the Client closes the connection
-```
-
-**Flight Server implementation notes**
-
-```java
-/**
- * The Arrow Flight Server on the Worker, serving both Shuffle and Result requests
- */
-public class PangrovaFlightProducer extends NoOpFlightProducer {
-
-    private final ExchangeManager exchangeManager;
-    private final OutputBufferManager outputBufferManager;
-
-    @Override
-    public FlightInfo getFlightInfo(CallContext context, FlightDescriptor descriptor) {
-        FlightTicket ticket = FlightTicket.parseFrom(descriptor.getCommand());
-
-        switch (ticket.getType()) {
-            case TICKET_TYPE_SHUFFLE:
-                return getShuffleFlightInfo(ticket);
-            case TICKET_TYPE_RESULT:
-                return getResultFlightInfo(ticket);
-            default:
-                throw new FlightRuntimeException(
-                    CallStatus.INVALID_ARGUMENT.withDescription("Unknown ticket type"));
-        }
-    }
-
-    @Override
-    public void getStream(CallContext context, Ticket ticket,
-                          ServerStreamListener listener) {
-        FlightTicket flightTicket = FlightTicket.parseFrom(ticket.getBytes());
-
-        switch (flightTicket.getType()) {
-            case TICKET_TYPE_SHUFFLE:
-                streamShuffleData(flightTicket, listener);
-                break;
-            case TICKET_TYPE_RESULT:
-                streamResultData(flightTicket, listener);
-                break;
-        }
-    }
-}
-```
+Each OUTPUT Driver prepares final Arrow record messages into a shared byte
+window. Queued messages and buffers held by Flight use the same credit. A
+full window suspends the Driver until a message's last buffer is released.
+Successful producer completion seals the queue. The Flight transport commits
+the result task after writing the stream, and an earlier disconnect fails it.
+The client reads to EOF and observes physical cleanup through the HTTP query state. The
+Coordinator serves control-plane statement results through its own result source.
 
 #### 3.3.5 Full Interaction Timeline
 
@@ -849,7 +839,7 @@ public class PangrovaFlightProducer extends NoOpFlightProducer {
 |------|------|------|
 | Compute Tasks scheduled before Output Task | The Coordinator must schedule Stage 1 before Stage 0 | The Output Task needs to know the Flight endpoints of upstream Tasks |
 | Return to Client only after Output Task is scheduled | SubmitQueryResponse must include resultEndpoint | The Client needs to know where to pull results |
-| Client may connect to the Output Worker before data is ready | The Output Worker's Flight Server accepts connections as soon as the Task starts | DoGet blocks and waits for the first RecordBatch |
+| Client may connect before Native output is ready | DoGet waits for the actual output registration | The stream carries its schema and then waits for the first RecordBatch |
 | Compute Tasks may produce data before the Output Worker connects | The Shuffle Buffer caches data, waiting for downstream to pull | Decouples upstream/downstream startup ordering |
 
 **State machines**
@@ -951,11 +941,37 @@ queue; a downstream reader must fail on aborted or incomplete input rather
 than treating it as clean EOF. Flight demultiplexing and the bounded queue
 provide backpressure without a Java `addBatch` bridge.
 
+The Coordinator routes durable Shuffle producer reports by the exact task kind it issued. Progress reports use that local binding. A finished report is published with the durable job association and execution-owner fence before its stage advances.
+Durable recovery and producer completion use the exchange registration and finalization evidence read under the same barrier locks in their transaction.
+One PostgreSQL query reads the exchange graph, registration, finalization, and pinned source snapshot with shared row locks and a bounded JDBC cursor window. Finalized producer winners are verified against their authoritative partition records.
+
+An exact durable partition claim checks its persisted page coordinates and selects
+the eligible locked page in a single PostgreSQL statement. The result distinguishes
+an invalid allocation from a valid page that is unavailable or already locked.
+
+Producer completion revalidates authorization and execution ownership using the
+current transaction. It uses the job and page already locked by the producer
+report and skips split loading when the page publishes only Shuffle data.
+Durable stage scheduling inspects up to eight consecutive partition records per authority and barrier transaction. The scheduler checks the whole window before dispatching any of its partitions and revalidates each exact claim against the current owner and page state.
+Loading the durable dispatch specification and validating its authorization scope share the same transaction-level publication lock.
+
+Before opening partition-claim transactions, relational replay decodes the
+immutable stage bindings and computes the request plan checksum. Each claim
+matches its current stage and model declarations against that prepared contract,
+then binds its own split, publication, lease, and resource evidence.
+Durable stage scheduling inspects up to eight consecutive partition records per authority and barrier transaction. The scheduler checks the whole window before dispatching any of its partitions and revalidates each exact claim against the current owner and page state.
+Loading the durable dispatch specification and validating its authorization scope share the same transaction-level publication lock.
+Task preparation uses the direct roles already verified by table authorization on this connection. Tenant membership, table policy, model authority, and the exact execution owner are checked within the transaction.
+
 #### 3.3.8 Coordinator Scheduler Design
 
 **Stage scheduling order**
 
+Each live or durable dispatch cohort resolves its tenant placement before the first task is issued. The PostgreSQL placement lookup reads the current tenant status and its assigned resource pool. Later stages and retries repeat that lookup. Local Shuffle still requires the same exact Worker incarnation. Durable partition claims use the resolved pool and current in-memory Worker inventory during the claim transaction.
+
 The Coordinator schedules in topological order of the Stage DAG: leaf Stages are scheduled first, and the Output Stage is scheduled last.
+
+For live reads, Worker progress and task acknowledgement release downstream preparation onto a bounded Coordinator pool. Multiple readiness signals for the same query share one queued operation. The operation holds query issuance until preparation exits, including split-source close. Queue saturation fails the affected query with a resource-exhaustion error. A Java linkage failure during preparation fails the query with the dispatch error and retains the original cause. The dispatch waiter is notified immediately, and preparation releases its issuance operation as it exits. Fenced publication and durable recovery retain their authoritative completion order.
 
 ![Stage DAG example (SELECT ... JOIN ... ORDER BY ... LIMIT):](../../website/static/img/diagrams/generated/query-execution-33-90eae7ac69.svg)
 
@@ -1067,25 +1083,55 @@ try (Connection conn = DriverManager.getConnection("jdbc:pangrova://coordinator:
 ```
 SDK internal flow:
 1. POST /v1/query/submit→ Coordinator
-2. Poll the canonical query status until a readable result endpoint is published
-3. Arrow Flight DoGet(resultEndpoint), then verify terminal query success; a JDBC
-   query timeout also bounds the Flight call and every batch read
-4. Decode the received Arrow IPC bytes into a ResultSet; the current JDBC driver
-   buffers the full result and does not yet provide bounded-memory streaming or
-   automatic reconnection after a broken Flight stream
+2. Use a readable endpoint from the submit receipt or wait for the next status
+   version on the Coordinator endpoint that accepted the query
+3. Open Arrow Flight DoGet(resultEndpoint) and return a forward-only ResultSet
+   after receiving the schema and first data batch or EOF
+4. Advance the Flight batches through ResultSet.next() and decode only the values
+   requested by getters. At EOF, close Flight and confirm terminal query success.
+   The JDBC query timeout covers both Flight reads and terminal confirmation.
 ```
 
+The query owner publishes state, error, result endpoint and physical drain in
+one immutable version. Checking the observed version and registering a waiter
+share the same synchronization boundary. A suspended wait owns no Jetty request
+thread. Timeout and connection completion detach its observer. State changes
+schedule HTTP response work on Jetty. An explicit historical status read can
+consult the query journal.
+
+A first execution acquires its PostgreSQL advisory lock before the anchor INSERT
+allocates and returns the fencing token. A separate statement starts the lease
+clock after the inserted row is exclusively owned, including when the INSERT
+waited for a competing uncommitted row.
+
+A live DAG with a verified read-only plan skips the write commit journal during task completion. Query finalization still checks the current execution anchor and evaluates the lease against the PostgreSQL clock in the same SELECT. Write publication and recovery keep their durable commit checks.
+
+After physical cleanup, ownership release locks the execution anchor and starts a fresh PostgreSQL statement. That statement computes the database time, evaluates the write recovery obligation, and retires the exact owner. An unresolved, unquarantined write expires the anchor for takeover. A release with no outstanding write recovery deletes the anchor. A write intent that commits while release waits for the lock is visible to the retirement statement.
+
+Terminal publication can complete while local operations, required journal
+publication or exact Worker drain receipts are still outstanding. The cleanup
+owner seals new issuance and waits for progress without polling the scope.
+Report publication exit and exact receipts from cancellation responses both
+queue immediate work on the bounded cleanup executor. Once all receipts and
+dependent cleanup are available, the owner
+releases pins, execution ownership, tenant admission, and the local query
+lifetime. Failures and rejected dispatch remain eligible for bounded retry.
+
+In remote Shuffle mode, terminal transition locks the execution anchor before
+checking scope ownership and recording the durable cleanup intent. The service
+acknowledges cleanup after its object cleanup and intent deletion complete. The
+Coordinator uses this acknowledgement to release execution ownership.
+
 For resultless DML, the submit response may return `RUNNING` after the actual
-WRITE task is dispatched, with no Flight endpoint. The client polls canonical
-query status through the final catalog commit. The 30-second submit timeout
+WRITE task is dispatched, with no Flight endpoint. The client waits on the owner status through the final catalog commit. The 30-second submit timeout
 bounds compilation and initial dispatch, not data-file writing or commit.
 
 `Statement.execute()` and `executeQuery()` use this same Flight endpoint path.
 An absent endpoint is waited for while the query runs and is an error if the
-query finishes without one. The historical REST `/v1/query/{id}/result` page
-client had no production server route and has been removed; it is not a
-fallback for an unavailable Flight stream. Bounded-memory JDBC cursoring is a
-separate required improvement before large-result support is claimed.
+query finishes without one. The JDBC result set holds the current Flight batch,
+while the Arrow allocator bounds the transport receive window. Closing a partial
+result closes the Flight call and requests cancellation for its active query
+identity. Cancellation acknowledgement and physical release are separate events.
 
 #### 3.3.12 Configuration Reference
 
@@ -1224,6 +1270,17 @@ Note: Velox internally uses a shared thread pool (`thread-pool-size`) to schedul
 | SinkOperator | Data output | Native shuffle callback or result output |
 
 ## 5. Dynamic Filtering
+
+For an eligible inner equality join, the Coordinator binds the BIGINT key
+ordinal of an actual build exchange to a direct Iceberg scan field. The binding
+retains the selected snapshot and stable field identity. A small build can use
+the existing broadcast exchange when a probe needs at least 32 files or 128 MiB.
+Native collects one signed range while producing the exchange. The range travels
+with the task's canonical terminal report. The Coordinator combines ranges from
+the full winning cohort and waits at most 200 ms before allowing probe discovery.
+An incomplete or late cohort leaves the scan unconstrained. A proven all-NULL
+cohort still validates the pinned read authority and emits no probe splits. A
+nonempty range joins the existing static constraints in the same Iceberg scan.
 
 ![Scenario: SELECT * FROM orders o JOIN customers c ON o.customer_id = c.id](../../website/static/img/diagrams/generated/query-execution-42-97f613bbd6.svg)
 
@@ -1795,117 +1852,26 @@ dynamic-filter:
 
 
 
-## 16. Adaptive Query Execution (AQE)
+## 16. Shuffle feedback and adaptive execution
 
-This section describes the Adaptive Query Execution framework that re-optimizes query plans at runtime using actual shuffle statistics. Workers report `ShuffleStageStatsReport`; after a shuffle stage completes, the Coordinator's `AdaptiveQueryEvaluator` builds `ShuffleStageStats`, while planner-side `StageReplanCoordinator` coordinates coalescing and replan decisions for downstream work.
+The Coordinator derives bytes and rows per output partition from the external
+Shuffle commit receipt. The receipt belongs to one allocation and plan epoch
+and proves the exact producer set. The adaptive evaluator uses these statistics
+to report candidate coalescing, skew, and strategy changes. A stage without
+published Shuffle statistics skips evaluation. Candidate coalescing preserves
+the original partition order as contiguous ranges and requires an observed
+entry for each source partition, including explicitly empty partitions.
 
-For the statistics foundation that AQE depends on, see [query-optimization.md §Statistics Collection](./query-optimization.md).
+Dispatch uses the original stage and exchange coordinates. Each consumer
+binds its corresponding published partition or the direct producer tickets.
+A task count alone cannot describe which producer ranges a consumer reads.
+An adaptive dispatch contract must freeze a complete range mapping against the
+committed allocation and keep consumer attempt identity separate from source
+partition identity. Multi-input stages must agree on matching partitions, and
+retry must keep the chosen mapping and allocation epoch.
 
-### 16.1 Architecture
-
-![Coordinator](../../website/static/img/diagrams/generated/query-execution-73-dbb4223a6b.svg)
-
-### 16.2 Capability 1 — Dynamic Coalescing of Shuffle Partitions
-
-When actual shuffle output is much smaller than estimated, many partitions become tiny. AQE merges adjacent small partitions into larger ones to reduce scheduling overhead.
-
-```pseudocode
-function coalesceShufflePartitions(stageResult: ShuffleStageResult):
-    partitionSizes = stageResult.getPartitionSizes()   // actual bytes per partition
-    targetSize     = config.aqe.targetPartitionSize     // default 64 MB
-    minPartitions  = config.aqe.minPartitions           // default 1
-
-    coalescedGroups = []
-    currentGroup = []
-    currentSize  = 0
-
-    for partition in partitionSizes:
-        if currentSize + partition.size > targetSize AND currentGroup.nonEmpty:
-            coalescedGroups.append(currentGroup)
-            currentGroup = [partition]
-            currentSize  = partition.size
-        else:
-            currentGroup.append(partition)
-            currentSize += partition.size
-
-    if currentGroup.nonEmpty:
-        coalescedGroups.append(currentGroup)
-
-    while coalescedGroups.size < minPartitions:
-        splitLargest(coalescedGroups)
-
-    return coalescedGroups   // downstream stage reads coalesced partitions
-```
-
-### 16.3 Capability 2 — Dynamic Join Strategy Switching
-
-After the build side of a join completes, AQE checks actual data size. If the build side is small enough, it converts a SortMergeJoin or ShuffleHashJoin into a BroadcastHashJoin, cancelling the probe-side shuffle.
-
-```pseudocode
-function maybeConvertToBroadcastJoin(joinStage: JoinStage, buildStats: ShuffleStats):
-    buildSideSize      = buildStats.totalBytes
-    broadcastThreshold = config.aqe.broadcastThreshold   // default 10 MB
-
-    if buildSideSize <= broadcastThreshold:
-        newPlan = convertToBroadcastJoin(joinStage)
-        cancelShuffleStage(joinStage.probeSideShuffleStage)
-        broadcastData(buildStats.data, joinStage.probeSideTasks)
-        return newPlan
-
-    return joinStage   // keep original plan
-```
-
-Key integration points:
-- `StageScheduler.onShuffleStageComplete(stageId, ShuffleStats)` — callback that triggers re-evaluation
-- `cancelShuffleStage()` — cancels already-scheduled probe-side shuffle tasks
-- Broadcast uses the existing Arrow Flight data distribution path
-
-### 16.4 Capability 3 — Dynamic Skew Join Handling
-
-When a single partition receives disproportionate data (> 5× median AND > 256 MB), AQE splits it into sub-partitions and replicates the matching partition from the other join side.
-
-```pseudocode
-function handleSkewedJoin(joinStage: JoinStage, shuffleStats: ShuffleStats):
-    medianSize    = shuffleStats.medianPartitionSize
-    skewThreshold = config.aqe.skewThreshold   // default 5x median AND > 256 MB
-
-    for partition in shuffleStats.partitions:
-        if partition.size > skewThreshold * medianSize AND partition.size > 256MB:
-            numSplits = ceil(partition.size / medianSize)
-            subPartitions = splitPartition(partition, numSplits)
-
-            for sub in subPartitions:
-                createTask(sub, replicatedOtherSide = partition.matchingPartition)
-
-    return updatedJoinStage
-```
-
-### 16.5 Affected SPI Interfaces
-
-| Interface | Change | Description |
-|-----------|--------|-------------|
-| `StageScheduler` | New callback | `onShuffleStageComplete(stageId, ShuffleStats)` |
-| `TaskRequest` Protobuf | New field | `coalesced_partition_ranges` for coalesced reads |
-| Worker heartbeat | New field | `shuffle_partition_stats` reporting per-partition sizes |
-
-### 16.6 Trade-offs
-
-| Aspect | Without AQE | With AQE |
-|--------|-------------|----------|
-| Performance | Fixed plan; may be fragile with imperfect statistics | Can correct skew or misestimation between stages; gains require workload measurement |
-| Complexity | Simple — plan once, execute | Medium — Coordinator tracks shuffle stats and re-plans between stages |
-| Risk | High — wrong plan decisions unrecoverable | Low — AQE only improves; worst case is no change |
-| Latency overhead | None | ~50-100 ms per shuffle stage boundary |
-| Memory overhead | None | ~1 KB per partition × partition count (ShuffleStats in Coordinator) |
-
-### 16.7 Migration Path
-
-| Phase | Scope | Description |
-|-------|-------|-------------|
-| 1 | ShuffleStats Collection | Add `shuffle_partition_stats` to Worker heartbeat; Coordinator collects and logs — no plan changes |
-| 2 | Dynamic Coalescing | Merge small partitions in `StageScheduler`; safest capability — only merges, never changes join strategy |
-| 3 | Dynamic Join Switching | Broadcast join conversion; requires `cancelShuffleStage()` and broadcast distribution |
-| 4 | Skew Handling | Partition splitting + other-side replication; most complex, requires shuffle dedup logic |
+The implementation and verification requirements are tracked in the
+[query performance plan](../development/query-performance-parity-plan.md#q3-让-cbo聚合和-aqe-缩减跨节点工作).
 
 ---
 
@@ -2090,6 +2056,28 @@ its full API/Core/Provider split remains pending. Query session adaptation still
 lives in Coordinator until the session contract closure is extracted.
 
 ### Compiled relation ownership
+
+PostgreSQL read admission loads the table registration and current catalog
+deployment in one statement before opening the connector. A registered table
+with a removed deployment fails admission. The Coordinator also verifies the
+local catalog and rechecks the table owner after resolving the handle and
+binding the snapshot.
+
+Iceberg checks the live format identity against the metadata already opened
+for snapshot binding. The connector checks that identity before choosing the
+snapshot. Split planning verifies the selected source against the current
+catalog table as a separate boundary.
+
+Foreground authorization observes current subject roles and grants once per
+protected compilation. Row filters and column masks share the verified table
+identity in that scope. The next compilation reads current policy. Durable
+execution verifies publication authority in its own transaction.
+
+The query journal recovery contract carries the query identifier, tenant and
+admitted principal. In-memory and PostgreSQL recovery use the same Query
+session payload at the persistence boundary.
+
+Calcite reuses generated metadata handlers across queries with the same planning features. Each relational node resolves its statistics estimator and cost model through its own planner context. Query authorizations, catalog handles, and column lineage stay in the query scope.
 
 Planner Core owns `analysis.AuthorizedRelation` and
 `substrait.CompiledScanSchemas`. Query's authenticated compilation pipeline

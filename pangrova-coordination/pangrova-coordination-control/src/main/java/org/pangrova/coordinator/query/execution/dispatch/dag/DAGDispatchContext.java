@@ -1,7 +1,6 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag;
 
 import org.pangrova.coordinator.query.execution.dispatch.shuffle.UnavailableExternalShuffleLifecycle;
-import org.pangrova.coordinator.query.execution.split.SplitAssignmentManager;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
 import org.pangrova.scheduler.speculation.SpeculativeStageHandler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
@@ -9,7 +8,6 @@ import org.pangrova.governance.runtime.lineage.LineageEventEmitter;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.planner.adaptive.AdaptiveQueryConfig;
 import org.pangrova.planner.adaptive.AdaptiveQueryExecutor;
-import org.pangrova.planner.runtimefilter.RuntimeFilterRegistry;
 import org.pangrova.coordinator.resilience.resilience4j.ResilienceRegistry;
 import org.pangrova.persistence.query.api.state.QueryStateJournal;
 import org.pangrova.shuffle.api.ShuffleLifecycleManager;
@@ -27,12 +25,10 @@ public record DAGDispatchContext(
         CatalogRegistry catalogRegistry,
         long taskTimeoutSeconds,
         AdaptiveQueryExecutor adaptiveQueryExecutor,
-        RuntimeFilterRegistry runtimeFilterRegistry,
         AdaptiveQueryConfig adaptiveQueryConfig,
         SpeculativeStageHandler speculativeStageHandler,
         PipelineConfig pipelineConfig,
         ShuffleLifecycleManager shuffleLifecycleManager,
-        SplitAssignmentManager splitAssignmentManager,
         ResilienceRegistry resilienceRegistry,
         QueryStateJournal stateJournal
 ) {
@@ -42,7 +38,6 @@ public record DAGDispatchContext(
     public DAGDispatchContext {
         checkNotNull(dispatcher, "dispatcher must not be null");
         // catalogRegistry: nullable — absent in minimal bootstrap without metadata module
-        checkNotNull(splitAssignmentManager, "splitAssignmentManager must not be null");
         if (taskTimeoutSeconds < 0) {
             throw new IllegalArgumentException("Configured task timeout must not be negative");
         }

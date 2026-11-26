@@ -3,18 +3,21 @@ package org.pangrova.planner.analysis;
 import org.pangrova.planner.api.fragment.SerializedPlanFragment;
 
 import com.google.protobuf.Any;
+import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
 import io.substrait.proto.NamedStruct;
 import io.substrait.proto.Plan;
 import io.substrait.proto.Rel;
 import io.substrait.proto.RelRoot;
 import org.pangrova.protocol.substrait.SubstraitRelationLayout;
+import org.pangrova.protocol.substrait.SubstraitPlanCodec;
 import org.pangrova.protocol.v2.BatchSerde;
 import org.pangrova.protocol.v2.ExchangeInputDetail;
 import org.pangrova.protocol.v2.RelationDetailEnvelope;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
@@ -26,9 +29,9 @@ import java.util.stream.Collectors;
 final class AuthorizedStageExchangeBindings {
     private AuthorizedStageExchangeBindings() {}
 
-    static SerializedPlanFragment bindLive(int stageId, SerializedPlanFragment consumer,
-            List<StageTransfer> incoming, Map<Integer, List<byte[]>> producerPlans) {
-        Fragment target = fragment(stageId, consumer);
+    static CompiledStagePlan bindLive(int stageId, CompiledStagePlan consumer,
+            List<StageTransfer> incoming, Map<Integer, List<ByteString>> producerPlans) {
+        Fragment target = fragment(stageId, consumer.plan());
         var edges = incoming.stream().collect(Collectors.toMap(StageTransfer::exchangeId, Function.identity()));
         requireInputs(target, edges);
         if (edges.isEmpty()) return consumer;
@@ -38,22 +41,7 @@ final class AuthorizedStageExchangeBindings {
             if (input == null) continue;
             var edge = edges.get(input.getExchangeId());
             validateInput(input, edge);
-            var plans = producerPlans.get(edge.upstreamStageId());
-            if (plans == null || plans.isEmpty()) {
-                throw new IllegalArgumentException("Live exchange has no dispatched producer plan: "
-                        + edge.exchangeId());
-            }
-            NamedStruct schema = null;
-            for (byte[] bytes : plans) {
-                var source = fragment(edge.upstreamStageId(),
-                        new SerializedPlanFragment(bytes, List.of(), List.of()));
-                validateProducer(source, edge);
-                if (schema != null && !schema.equals(source.schema())) {
-                    throw new IllegalArgumentException("Live exchange producer partitions have different schemas: "
-                            + edge.exchangeId());
-                }
-                schema = source.schema();
-            }
+            NamedStruct schema = requireProducerSchema(edge, producerPlans);
             if (!schema.getStruct().equals(input.getOutputSchema().getStruct())) {
                 throw new IllegalArgumentException("Live exchange input type differs from producer: "
                         + edge.exchangeId() + " consumer="
@@ -68,8 +56,33 @@ final class AuthorizedStageExchangeBindings {
         Rel root = SubstraitRelationLayout.replaceRelations(target.root().getInput(), replacements);
         var plan = target.plan().toBuilder().setRelations(0, target.plan().getRelations(0).toBuilder()
                 .setRoot(target.root().toBuilder().setInput(root))).build();
-        return new SerializedPlanFragment(plan.toByteArray(), consumer.retrievalTopKHints(),
-                consumer.aiInvocationHints());
+        return consumer.withPlan(plan);
+    }
+
+    static NamedStruct requireProducerSchema(StageTransfer edge, Map<Integer, List<ByteString>> producerPlans) {
+        var plans = producerPlans.get(edge.upstreamStageId());
+        if (plans == null || plans.isEmpty()) {
+            throw new IllegalArgumentException("Live exchange has no dispatched producer plan: "
+                    + edge.exchangeId());
+        }
+        var first = plans.get(0);
+        var reference = fragment(edge.upstreamStageId(), first);
+        validateProducer(reference, edge);
+        NamedStruct schema = reference.schema();
+        var distinct = new HashSet<ByteString>();
+        for (int index = 1; index < plans.size(); index++) {
+            var bytes = plans.get(index);
+            if (first.equals(bytes) || !distinct.add(bytes)) {
+                continue;
+            }
+            var source = fragment(edge.upstreamStageId(), bytes);
+            validateProducer(source, edge);
+            if (!schema.equals(source.schema())) {
+                throw new IllegalArgumentException("Live exchange producer partitions have different schemas: "
+                        + edge.exchangeId());
+            }
+        }
+        return schema;
     }
 
     static void validate(List<AuthorizedStageGraph.SerializedStage> stages, List<StageTransfer> transfers) {
@@ -170,12 +183,22 @@ final class AuthorizedStageExchangeBindings {
     }
 
     private static Fragment fragment(int stageId, SerializedPlanFragment serialized) {
-        Plan plan;
         try {
-            plan = org.pangrova.protocol.substrait.SubstraitPlanCodec.parse(serialized.planBytes());
+            return fragment(stageId, SubstraitPlanCodec.parse(serialized.planBytes()));
         } catch (InvalidProtocolBufferException failure) {
             throw new IllegalArgumentException("Stage requires canonical serialized plan: " + stageId, failure);
         }
+    }
+
+    private static Fragment fragment(int stageId, ByteString bytes) {
+        try {
+            return fragment(stageId, SubstraitPlanCodec.parse(bytes));
+        } catch (InvalidProtocolBufferException failure) {
+            throw new IllegalArgumentException("Stage requires canonical serialized plan: " + stageId, failure);
+        }
+    }
+
+    private static Fragment fragment(int stageId, Plan plan) {
         if (plan.getRelationsCount() != 1 || !plan.getRelations(0).hasRoot()) {
             throw new IllegalArgumentException("Stage requires one canonical root: " + stageId);
         }

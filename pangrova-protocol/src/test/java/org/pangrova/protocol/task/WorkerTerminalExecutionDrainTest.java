@@ -107,7 +107,7 @@ class WorkerTerminalExecutionDrainTest {
         return CanonicalTaskRequestTestFixture.builder("task", "query", TaskKind.TASK_KIND_READ, new byte[]{1}).build();
     }
     private static TaskReport reconcile(org.pangrova.protocol.v2.TaskRequest request, TaskReport actual) throws Exception {
-        return TaskReport.parseFrom(WorkerTerminalTaskReports.unsuccessful(request, TaskState.TASK_STATE_CANCELLED,
-                new ErrorDetail("TASK_CANCELLED", "CANCELLED", "Actual Worker cancellation metadata"), actual.toByteArray()));
+        return WorkerTerminalTaskReports.unsuccessful(request, TaskState.TASK_STATE_CANCELLED,
+                new ErrorDetail("TASK_CANCELLED", "CANCELLED", "Actual Worker cancellation metadata"), actual);
     }
 }

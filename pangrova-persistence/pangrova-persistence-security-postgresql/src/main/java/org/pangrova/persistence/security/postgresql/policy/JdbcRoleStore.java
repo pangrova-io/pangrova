@@ -4,7 +4,9 @@ import static org.pangrova.persistence.jdbc.support.JdbcSupport.rollbackAfterFai
 
 import org.pangrova.persistence.security.postgresql.support.JdbcPolicyStoreSupport;
 
+import org.pangrova.security.api.authorization.ReadAuthorizationSubjectSource;
 import org.pangrova.security.api.policy.GroupRoleMapping;
+import org.pangrova.security.api.policy.PrivilegeGrant;
 import org.pangrova.security.api.policy.Role;
 import org.pangrova.persistence.security.api.policy.RoleStore;
 import org.pangrova.security.api.policy.UserRoleAssignment;
@@ -38,9 +40,54 @@ import java.util.Set;
  * <p>Per naming rule C13 this is {@code Persistent*} because {@code pangrova-security} is a policy
  * module rather than the owning persistence module.
  */
-public final class JdbcRoleStore extends JdbcPolicyStoreSupport implements RoleStore {
+public final class JdbcRoleStore extends JdbcPolicyStoreSupport implements RoleStore, ReadAuthorizationSubjectSource {
 
     private static final Logger LOG = LoggerFactory.getLogger(JdbcRoleStore.class);
+    private static final String EFFECTIVE_ROLES = """
+            SELECT registered.role_name FROM pangrova_roles registered
+            JOIN (
+                SELECT role_name FROM pangrova_user_roles WHERE user_id = ?
+                UNION
+                SELECT role_name FROM pangrova_group_roles WHERE group_name = ANY (?)
+            ) membership USING (role_name)
+            """;
+    private static final String READ_SUBJECT = "WITH effective AS (" + EFFECTIVE_ROLES + """
+            )
+            SELECT effective.role_name AS subject_role, grants.grant_id, grants.role_name, grants.privilege,
+                   grants.object_type, grants.catalog_name, grants.schema_name, grants.table_name,
+                   grants.column_name, grants.with_grant_option, grants.cascade_revoke,
+                   grants.granted_by, grants.granted_at
+            FROM effective LEFT JOIN security_grants grants USING (role_name)
+            ORDER BY grants.grant_id NULLS LAST
+            """;
+
+    @Override
+    public Subject read(String principal, Set<String> groups) {
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement statement = conn.prepareStatement(READ_SUBJECT)) {
+            var groupNames = conn.createArrayOf("text", groups.toArray(String[]::new));
+            try {
+                statement.setString(1, principal);
+                statement.setArray(2, groupNames);
+                try (ResultSet rows = statement.executeQuery()) {
+                    Set<String> roles = new HashSet<>();
+                    List<PrivilegeGrant> grants = new ArrayList<>();
+                    while (rows.next()) {
+                        roles.add(rows.getString("subject_role"));
+                        long grantId = rows.getLong("grant_id");
+                        if (!rows.wasNull()) {
+                            grants.add(JdbcGrantStore.readGrant(rows, grantId));
+                        }
+                    }
+                    return new Subject(roles, grants);
+                }
+            } finally {
+                groupNames.free();
+            }
+        } catch (SQLException failure) {
+            throw new IllegalStateException("Failed resolving the read authorization subject", failure);
+        }
+    }
 
     public JdbcRoleStore(DataSource dataSource) {
         super(dataSource);
@@ -78,6 +125,23 @@ public final class JdbcRoleStore extends JdbcPolicyStoreSupport implements RoleS
             }
         } catch (SQLException e) {
             throw new IllegalStateException("Failed loading role " + roleName, e);
+        }
+    }
+
+    @Override
+    public Set<String> effectiveRoles(String principal, Set<String> groups) {
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(EFFECTIVE_ROLES)) {
+            var groupNames = conn.createArrayOf("text", groups.toArray(String[]::new));
+            try {
+                ps.setString(1, principal);
+                ps.setArray(2, groupNames);
+                return readRoleNames(ps);
+            } finally {
+                groupNames.free();
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("Failed loading effective roles for " + principal, e);
         }
     }
 
@@ -149,15 +213,19 @@ public final class JdbcRoleStore extends JdbcPolicyStoreSupport implements RoleS
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, userId);
-            try (ResultSet rs = ps.executeQuery()) {
-                Set<String> roles = new HashSet<>();
-                while (rs.next()) {
-                    roles.add(rs.getString(1));
-                }
-                return Set.copyOf(roles);
-            }
+            return readRoleNames(ps);
         } catch (SQLException e) {
             throw new IllegalStateException("Failed loading roles for user " + userId, e);
+        }
+    }
+
+    private static Set<String> readRoleNames(PreparedStatement statement) throws SQLException {
+        try (ResultSet rows = statement.executeQuery()) {
+            Set<String> names = new HashSet<>();
+            while (rows.next()) {
+                names.add(rows.getString(1));
+            }
+            return Set.copyOf(names);
         }
     }
 
@@ -232,13 +300,7 @@ public final class JdbcRoleStore extends JdbcPolicyStoreSupport implements RoleS
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, groupName);
-            try (ResultSet rs = ps.executeQuery()) {
-                Set<String> roles = new HashSet<>();
-                while (rs.next()) {
-                    roles.add(rs.getString(1));
-                }
-                return Set.copyOf(roles);
-            }
+            return readRoleNames(ps);
         } catch (SQLException e) {
             throw new IllegalStateException("Failed loading roles for group " + groupName, e);
         }

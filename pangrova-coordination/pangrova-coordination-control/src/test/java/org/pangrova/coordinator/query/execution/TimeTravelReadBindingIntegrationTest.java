@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.query.execution;
 
+import org.pangrova.protocol.source.CanonicalConnectorSplit;
 import org.pangrova.planner.metadata.catalog.MetadataSchemaBuilder;
 
 import org.apache.paimon.catalog.Identifier;
@@ -47,7 +48,7 @@ class TimeTravelReadBindingIntegrationTest extends ContainerTestBase {
                     assertThat(source.readBinding()).contains(binding));
             assertThat(fixture.splits(binding, extracted.snapshotOverrides())).isNotEmpty().allSatisfy(split -> {
                 try {
-                    assertThat(DataSplit.parseFrom(split.toSplitInfoProto()).getSourceSnapshot()).isEqualTo(Long.toString(version));
+                    assertThat(DataSplit.parseFrom(CanonicalConnectorSplit.from(split).toByteArray()).getSourceSnapshot()).isEqualTo(Long.toString(version));
                 } catch (com.google.protobuf.InvalidProtocolBufferException error) {
                     throw new AssertionError(error);
                 }

@@ -63,7 +63,7 @@ final class PostgresGenerationJobReader extends PostgresGenerationJobStoreSuppor
         requireText(sourceSnapshot, "sourceSnapshot");
         try (Connection connection = dataSource.getConnection()) {
             return PostgresGenerationPublishedInputs.findManifest(
-                    connection, tenantId, artifactId, generation, sourceSnapshot);
+                    connection, tenantId, artifactId, generation, sourceSnapshot, false);
         } catch (SQLException failure) {
             throw failure("find published artifact generation", failure);
         }

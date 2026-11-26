@@ -3,6 +3,7 @@ package org.pangrova.coordinator.query.execution.dispatch.dag;
 import org.pangrova.execution.task.StageDispatchRecord;
 
 import java.util.List;
+import java.util.stream.IntStream;
 
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageNode;
@@ -18,7 +19,18 @@ public final class ExchangeInputTestAccess {
             StageDAG dag,
             List<StageDispatchRecord> dispatched,
             int partitionId) {
-        return ExchangeSourceBuilder.buildExchangeInputs(
-                stage, dag, dispatched, partitionId);
+        return ExchangeSourceBuilder.prepare(stage, dag, dispatched).bind(partitionId, null);
+    }
+
+    public static List<ExchangeInputBinding> buildExternalCohort(StageNode stage, StageDAG dag) {
+        var prepared = ExchangeSourceBuilder.prepare(stage, dag, List.of());
+        var consumer = dag.findStage(stage.stageId());
+        int tasks = consumer == null ? stage.parallelism() : consumer.physicalTaskCount();
+        return IntStream.range(0, tasks).mapToObj(partition -> prepared.bind(partition, null).get(0)).toList();
+    }
+
+    public static void freezeCoalescedInputs(org.pangrova.coordinator.query.stage.Stage stage, StageDAG dag) {
+        var selector = new CoalescedShuffleInputs(org.pangrova.planner.adaptive.AdaptiveQueryConfig.ENABLED);
+        stage.freezeCoalescedInputs(selector.select(stage, dag));
     }
 }

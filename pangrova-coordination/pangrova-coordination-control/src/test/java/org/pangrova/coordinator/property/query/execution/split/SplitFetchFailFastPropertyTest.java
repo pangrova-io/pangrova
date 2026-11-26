@@ -1,10 +1,12 @@
 package org.pangrova.coordinator.property.query.execution.split;
 
 import org.pangrova.coordinator.enums.SplitFetchOutcome;
-import org.pangrova.query.api.task.QuerySplit;
+import org.pangrova.coordinator.query.execution.split.QuerySplit;
+import org.pangrova.protocol.v2.DataSplit;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
@@ -15,7 +17,6 @@ import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.coordinator.query.execution.split.SplitFetchResult;
 import org.pangrova.coordinator.query.execution.split.SplitFetcher;
-import org.pangrova.connector.api.metadata.ConnectorSplit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -35,10 +36,9 @@ class SplitFetchFailFastPropertyTest {
 
     @Property(tries = 10)
     void timeoutAlwaysThrows(@ForAll("splitCounts") int splitCount) {
-        List<ConnectorSplit> splits = createSplitList(splitCount);
-        long expiredDeadline = System.currentTimeMillis() - 1;
+        long expiredDeadline = System.nanoTime() - 1;
 
-        assertThatThrownBy(() -> SplitFetcher.checkSplitFetchLimits(splits, expiredDeadline))
+        assertThatThrownBy(() -> SplitFetcher.checkSplitFetchLimits(splitCount, expiredDeadline))
                 .isInstanceOf(PangrovaException.class)
                 .satisfies(ex -> {
                     PangrovaException ae = (PangrovaException) ex;
@@ -52,10 +52,9 @@ class SplitFetchFailFastPropertyTest {
 
     @Property(tries = 10)
     void limitReachedAlwaysThrows(@ForAll("overLimitCounts") int splitCount) {
-        List<ConnectorSplit> splits = createSplitList(splitCount);
-        long futureDeadline = System.currentTimeMillis() + 60_000;
+        long futureDeadline = System.nanoTime() + TimeUnit.MINUTES.toNanos(1);
 
-        assertThatThrownBy(() -> SplitFetcher.checkSplitFetchLimits(splits, futureDeadline))
+        assertThatThrownBy(() -> SplitFetcher.checkSplitFetchLimits(splitCount, futureDeadline))
                 .isInstanceOf(PangrovaException.class)
                 .satisfies(ex -> {
                     PangrovaException ae = (PangrovaException) ex;
@@ -69,10 +68,9 @@ class SplitFetchFailFastPropertyTest {
 
     @Property(tries = 10)
     void withinLimitsNeverThrows(@ForAll("underLimitCounts") int splitCount) {
-        List<ConnectorSplit> splits = createSplitList(splitCount);
-        long futureDeadline = System.currentTimeMillis() + 60_000;
+        long futureDeadline = System.nanoTime() + TimeUnit.MINUTES.toNanos(1);
 
-        SplitFetcher.checkSplitFetchLimits(splits, futureDeadline);
+        SplitFetcher.checkSplitFetchLimits(splitCount, futureDeadline);
         // no exception = pass
     }
 
@@ -128,10 +126,9 @@ class SplitFetchFailFastPropertyTest {
 
     @Property(tries = 10)
     void timeoutPrecedesLimitWhenBothViolated(@ForAll("overLimitCounts") int splitCount) {
-        List<ConnectorSplit> splits = createSplitList(splitCount);
-        long expiredDeadline = System.currentTimeMillis() - 1;
+        long expiredDeadline = System.nanoTime() - 1;
 
-        assertThatThrownBy(() -> SplitFetcher.checkSplitFetchLimits(splits, expiredDeadline))
+        assertThatThrownBy(() -> SplitFetcher.checkSplitFetchLimits(splitCount, expiredDeadline))
                 .isInstanceOf(PangrovaException.class)
                 .satisfies(ex -> {
                     PangrovaException ae = (PangrovaException) ex;
@@ -149,12 +146,12 @@ class SplitFetchFailFastPropertyTest {
 
     @Provide
     Arbitrary<Integer> overLimitCounts() {
-        return Arbitraries.integers().between(100_000, 100_050);
+        return Arbitraries.integers().between(100_001, 100_050);
     }
 
     @Provide
     Arbitrary<Integer> underLimitCounts() {
-        return Arbitraries.integers().between(0, 99_999);
+        return Arbitraries.integers().between(0, 100_000);
     }
 
     @Provide
@@ -165,25 +162,16 @@ class SplitFetchFailFastPropertyTest {
 
     // ── Helpers ──
 
-    private static List<ConnectorSplit> createSplitList(int count) {
-        List<ConnectorSplit> splits = new ArrayList<>(count);
-        for (int i = 0; i < count; i++) {
-            splits.add(new StubConnectorSplit("split-" + i));
-        }
-        return splits;
-    }
-
     private static List<QuerySplit> createSplitWithPathsList(int count) {
         List<QuerySplit> splits = new ArrayList<>(count);
         for (int i = 0; i < count; i++) {
-            splits.add(new QuerySplit("data-" + i, List.of()));
+            splits.add(new QuerySplit(split("data-" + i), List.of()));
         }
         return splits;
     }
 
-    /**
-     * Minimal ConnectorSplit stub for property tests.
-     * No mocking framework — just a plain implementation.
-     */
-    private record StubConnectorSplit(String id) implements ConnectorSplit {}
+    private static DataSplit split(String id) {
+        return DataSplit.newBuilder().setSplitId(id).build();
+    }
+
 }

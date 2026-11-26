@@ -291,6 +291,11 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
     }
 
     @Override
+    public Set<String> getIndexedDataFilePaths(String indexId, int generation) {
+        return fileMappingStore.getIndexedDataFilePaths(indexId, generation);
+    }
+
+    @Override
     public Map<String, Map<String, String>> batchGetIndexFileMappings(
             List<String> indexIds, List<String> dataFilePaths) {
         return fileMappingStore.batchGetIndexFileMappings(indexIds, dataFilePaths);
@@ -315,11 +320,9 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
     }
 
     @Override
-    public boolean removeIndexFileMappingIfState(IndexFileMapping mapping,
-                                                  IndexState expectedState,
-                                                  int expectedGeneration) {
-        return fileMappingStore.removeIndexFileMappingIfState(
-                mapping, expectedState, expectedGeneration);
+    public OrphanRemoval removeOrphanMappings(String indexId, IndexState expectedState,
+                                              int expectedGeneration, List<IndexFileMapping> mappings) {
+        return gcStore.removeOrphanMappings(indexId, expectedState, expectedGeneration, mappings);
     }
 
     @Override

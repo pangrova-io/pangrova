@@ -202,7 +202,7 @@ class JournalRecoveryOwnerScopeTest {
                 new org.pangrova.coordinator.query.execution.SchedulingContextBundle(transport,
                         new TaskScheduler(new LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty()), workers, tracker,
                         null, null, null, null),
-                null, null, 0, null, null, null, null, null, null, journal, null, null, null, null);
+                null, null, 0, null, null, null, null, null, journal, null, null, null, null);
         var dispatcher = new QueryDispatcher(dispatcherContext, null, null);
         return new QueryManager(new QueryManagerContext(dispatcher,
                 org.pangrova.testing.testkit.constants.TestObservability.TRACING, null, null,

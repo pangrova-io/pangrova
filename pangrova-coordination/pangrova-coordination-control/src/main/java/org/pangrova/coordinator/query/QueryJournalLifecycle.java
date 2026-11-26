@@ -52,6 +52,9 @@ final class QueryJournalLifecycle
     @Override public Optional<QueryStateEvent> latestQueryEvent(String queryId) {
         return journal.latestQueryEvent(queryId);
     }
+    @Override public Optional<String> latestQueryStateForPrincipal(String queryId, String principal) {
+        return journal.latestQueryStateForPrincipal(queryId, principal);
+    }
     @Override public boolean hasLatestEvent(String queryId) {
         return journal.latestQueryEvent(queryId).isPresent();
     }
@@ -61,7 +64,7 @@ final class QueryJournalLifecycle
         QueryStateEvent fact = state.journalEvent(QueryState.QUEUED,
                 () -> new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(
                         System.currentTimeMillis(), coordinatorId), queryId, sql,
-                        org.pangrova.query.session.JournalSessionPayload.encode(session),
+                        org.pangrova.query.api.session.JournalSessionPayload.encode(session),
                         QueryState.QUEUED.name(), state.lineageStart()));
         record(state, () -> journal.appendQueryEventSync(fact));
     }
@@ -109,13 +112,20 @@ final class QueryJournalLifecycle
 
     @Override
     public Optional<QueryState> lookup(String queryId) {
-        return journal.latestQueryEvent(queryId).flatMap(event -> {
-            try {
-                return Optional.of(QueryState.valueOf(event.state()));
-            } catch (IllegalArgumentException malformed) {
-                LOG.warn("event=journal_state_unparseable queryId={} state={}", queryId, event.state());
-                return Optional.empty();
-            }
-        });
+        return journal.latestQueryEvent(queryId).flatMap(event -> readState(queryId, event.state()));
+    }
+
+    @Override
+    public Optional<QueryState> lookupForPrincipal(String queryId, String principal) {
+        return latestQueryStateForPrincipal(queryId, principal).flatMap(state -> readState(queryId, state));
+    }
+
+    private static Optional<QueryState> readState(String queryId, String state) {
+        try {
+            return Optional.of(QueryState.valueOf(state));
+        } catch (IllegalArgumentException malformed) {
+            LOG.warn("event=journal_state_unparseable queryId={} state={}", queryId, state);
+            return Optional.empty();
+        }
     }
 }

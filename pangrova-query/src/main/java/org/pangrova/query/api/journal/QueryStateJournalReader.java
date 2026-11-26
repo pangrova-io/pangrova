@@ -23,4 +23,7 @@ public interface QueryStateJournalReader {
     }
     /** Returns the last committed query fact by journal row/insertion order. */
     Optional<QueryStateEvent> latestQueryEvent(String queryId);
+
+    /** Returns the latest state when the original admission belongs to this principal. */
+    Optional<String> latestQueryStateForPrincipal(String queryId, String principal);
 }

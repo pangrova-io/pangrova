@@ -1,5 +1,6 @@
 package org.pangrova.worker.task;
 
+import org.pangrova.protocol.task.ValidatedTaskSubmission;
 import org.pangrova.worker.execution.TaskExecutor;
 import org.pangrova.worker.exception.NativeTaskCreationFailure;
 
@@ -7,21 +8,17 @@ import org.pangrova.worker.exception.NativeTaskCreationFailure;
 final class TaskExecutorCreation {
     private TaskExecutorCreation() {}
 
-    static long create(TaskInfo info, TaskExecutor executor, Runnable preparation) {
+    static long create(TaskInfo info, TaskExecutor executor, ValidatedTaskSubmission admission,
+            Runnable preparation) {
         boolean nativeInvoked = false;
         try {
             preparation.run();
-            byte[] request = info.request().canonicalBytes();
-            long handle;
-            if (info.request().copySourceRead() != null) {
-                var nativeExecutor = org.pangrova.worker.execution.NativeTaskExecutor.ownerOf(executor)
-                        .orElseThrow(() -> new IllegalStateException("COPY requires the Native execution owner"));
-                nativeInvoked = true;
-                handle = nativeExecutor.createCopyTask(info.request());
-            } else {
-                nativeInvoked = true;
-                handle = executor.createTask(request);
+            if (admission.submission().copySourceRead() != null
+                    && org.pangrova.worker.execution.NativeTaskExecutor.ownerOf(executor).isEmpty()) {
+                throw new IllegalStateException("COPY requires the Native execution owner");
             }
+            nativeInvoked = true;
+            long handle = executor.createAdmittedTask(admission);
             if (handle <= 0) {
                 throw new IllegalStateException(
                         "Task creation returned no positive actual owner: " + info.taskId());

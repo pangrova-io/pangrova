@@ -9,28 +9,37 @@ import org.pangrova.query.api.enums.QueryState;
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
 import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.GET;
+import jakarta.ws.rs.HeaderParam;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.QueryParam;
+import jakarta.ws.rs.container.AsyncResponse;
+import jakarta.ws.rs.container.Suspended;
 import jakarta.ws.rs.container.ContainerRequestContext;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import org.pangrova.server.coordinator.http.request.IdempotencyKeyRegistry;
+import org.pangrova.server.coordinator.http.request.QueryStatusWaits;
 import org.pangrova.query.runtime.QueryManager;
+import org.pangrova.query.lifecycle.QueryStateMachine;
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.observability.profiling.ProfilerEndpoint;
 import org.pangrova.query.profiling.QueryProfileService;
 import org.pangrova.common.client.error.ErrorDetail;
 import org.pangrova.common.client.query.QueryStatusResponse;
-import org.pangrova.common.client.result.ResultEndpoint;
+import org.pangrova.common.enums.QueryWaitTarget;
 import org.pangrova.common.client.query.SubmitQueryRequest;
 import org.pangrova.common.client.query.SubmitQueryResponse;
 import org.pangrova.security.api.exception.AuthenticationRequiredException;
 import org.pangrova.security.api.identity.UserIdentity;
 
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.CompletionStage;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -47,32 +56,36 @@ public final class QueryResource {
     private final ExecutionTraceContextFactory traceContexts;
 
     private static final int HTTP_STATUS_ACCEPTED = 202;
+    private static final int OBSERVER_UUID_LENGTH = 36;
 
     private final QueryManager queryManager;
     private final ProfilerEndpoint profilerEndpoint;
     private final QueryProfileService queryProfileService;
     private final IdempotencyKeyRegistry idempotencyRegistry;
+    private final QueryStatusWaits statusWaits;
 
     /** Creates a resource wiring query lifecycle, profiling, and idempotency components. */
     public QueryResource(QueryManager queryManager, ProfilerEndpoint profilerEndpoint,
                          QueryProfileService queryProfileService,
-                         IdempotencyKeyRegistry idempotencyRegistry, ExecutionTraceContextFactory traceContexts) {
+                         IdempotencyKeyRegistry idempotencyRegistry, ExecutionTraceContextFactory traceContexts,
+                         QueryStatusWaits statusWaits) {
         this.traceContexts = java.util.Objects.requireNonNull(traceContexts, "traceContexts");
         this.queryManager = checkNotNull(queryManager, "queryManager must not be null");
         this.profilerEndpoint = profilerEndpoint;
         this.queryProfileService = queryProfileService;
         this.idempotencyRegistry = idempotencyRegistry;
+        this.statusWaits = java.util.Objects.requireNonNull(statusWaits, "statusWaits");
     }
 
     /** Submits a new query, deduplicating retries when an Idempotency-Key is supplied. */
     @POST
     @Path("/submit")
-    public Response submitQuery(SubmitQueryRequest request,
-                                @Context ContainerRequestContext requestContext) {
+    public void submitQuery(SubmitQueryRequest request, @Context ContainerRequestContext requestContext,
+            @Suspended AsyncResponse response) {
         validateSubmitRequest(request);
         UserIdentity identity = extractUserIdentity(requestContext);
         String key = requestContext == null ? null : requestContext.getHeaderString("Idempotency-Key");
-        SubmitQueryResponse receipt;
+        CompletionStage<SubmitQueryResponse> receipt;
         if (idempotencyRegistry != null && key != null && !key.isBlank()) {
             if (identity == null || identity.principal() == null || identity.principal().isBlank()) {
                 throw new AuthenticationRequiredException("Idempotent query submission requires a principal");
@@ -82,32 +95,51 @@ public final class QueryResource {
         } else {
             receipt = doSubmit(UUID.randomUUID().toString(), request, identity);
         }
-        return Response.ok(receipt).build();
+        receipt.whenComplete((result, failure) -> {
+            if (failure == null) {
+                response.resume(Response.ok(result).build());
+            } else {
+                response.resume(unwrap(failure));
+            }
+        });
     }
 
-    private SubmitQueryResponse submitWithIdempotency(SubmitQueryRequest request, UserIdentity identity) {
+    private CompletionStage<SubmitQueryResponse> submitWithIdempotency(
+            SubmitQueryRequest request, UserIdentity identity) {
         String queryId = UUID.randomUUID().toString();
         try {
-            return doSubmit(queryId, request, identity);
+            return doSubmit(queryId, request, identity).exceptionally(failure -> {
+                Throwable cause = unwrap(failure);
+                if (cause instanceof RuntimeException runtime) throw recordedFailure(queryId, runtime);
+                if (cause instanceof Error error) throw error;
+                throw new CompletionException(cause);
+            });
         } catch (RuntimeException failure) {
-            boolean recorded;
-            try {
-                recorded = queryManager.getQueryStateWithJournalFallback(queryId).isPresent();
-            } catch (RuntimeException checkFailure) {
-                failure.addSuppressed(checkFailure);
-                recorded = true;
-            }
-            if (recorded) {
-                throw new RecordedSubmissionException(queryId, failure);
-            }
-            throw failure;
+            throw recordedFailure(queryId, failure);
         }
     }
 
-    private SubmitQueryResponse doSubmit(String queryId, SubmitQueryRequest request, UserIdentity identity) {
+    private RuntimeException recordedFailure(String queryId, RuntimeException failure) {
+        boolean recorded;
+        try {
+            recorded = queryManager.getQueryStateWithJournalFallback(queryId).isPresent();
+        } catch (RuntimeException checkFailure) {
+            failure.addSuppressed(checkFailure);
+            recorded = true;
+        }
+        return recorded ? new RecordedSubmissionException(queryId, failure) : failure;
+    }
+
+    private CompletionStage<SubmitQueryResponse> doSubmit(
+            String queryId, SubmitQueryRequest request, UserIdentity identity) {
         QuerySession session = new QuerySession(
                 queryId, request.sessionProperties(), identity, null, Optional.empty(), traceContexts.capture());
-        return QueryResponseMapper.submission(queryManager.submitQuery(queryId, request.query(), session));
+        return queryManager.submitQueryAsync(queryId, request.query(), session)
+                .thenApply(QueryResponseMapper::submission);
+    }
+
+    private static Throwable unwrap(Throwable failure) {
+        return failure instanceof CompletionException && failure.getCause() != null ? failure.getCause() : failure;
     }
 
     private static UserIdentity extractUserIdentity(ContainerRequestContext ctx) {
@@ -118,38 +150,79 @@ public final class QueryResource {
         return (prop instanceof UserIdentity uid) ? uid : null;
     }
 
-    /** Returns the current state of a query, with journal fallback for peer-submitted queries. */
+    /** Reads the owner projection or suspends an observer until its selected event or deadline. */
     @GET
     @Path("/{queryId}/state")
-    public Response getQueryState(@PathParam("queryId") String queryId) {
-        // A-XNODE-01: journal fallback lets any coordinator in an Active-Active
-        // cluster answer state polls for queries accepted by a peer node.
-        Optional<QueryState> state =
-                queryManager.getQueryStateWithJournalFallback(queryId);
-        if (state.isEmpty()) {
-            return Response.status(Response.Status.NOT_FOUND)
-                    .entity(new ErrorDetail("NOT_FOUND", null,
-                            "Query not found: " + queryId))
-                    .build();
+    public void getQueryState(@PathParam("queryId") String queryId,
+                              @QueryParam("afterVersion") @DefaultValue("-1") long afterVersion,
+                              @QueryParam("waitMs") @DefaultValue("0") long waitMillis,
+                              @QueryParam("until") @DefaultValue("NEXT_VERSION") QueryWaitTarget target,
+                              @HeaderParam("X-Pangrova-Query-Observer") String observer,
+                              @Context ContainerRequestContext requestContext,
+                              @Suspended AsyncResponse response) {
+        if (afterVersion < -1 || waitMillis < 0 || waitMillis > QueryStatusResponse.MAX_WAIT_MILLIS
+                || (waitMillis > 0 && (afterVersion < 0 || observer == null
+                        || observer.length() != OBSERVER_UUID_LENGTH))) {
+            throw new IllegalArgumentException("Invalid query status wait parameters");
         }
-        ResultEndpoint endpoint = queryManager.getResultEndpoint(queryId).orElse(null);
-        ErrorDetail error = queryManager.getQueryError(queryId).map(QueryResponseMapper::failure).orElse(null);
-        QueryStatusResponse body = QueryStatusResponse.of(
-                queryId, state.get().name(), error, endpoint);
-        return Response.ok(body).build();
+        String principal = AuthenticationFilter.queryPrincipal(requestContext);
+        QueryStateMachine owner = queryManager.getStateMachine(queryId);
+        if (owner == null) {
+            resumeWithoutOwner(queryId, principal, afterVersion, response);
+            return;
+        }
+        if (!owner.isOwnedBy(principal)) {
+            response.resume(queryNotFound(queryId));
+            return;
+        }
+        var current = owner.status();
+        if (waitMillis == 0 || current.reaches(target, afterVersion)) {
+            response.resume(statusResponse(queryId, current));
+            return;
+        }
+        statusWaits.suspend(queryId, principal, observer,
+                owner, target, afterVersion, waitMillis, response, status -> statusResponse(queryId, status));
+    }
+
+    private void resumeWithoutOwner(String queryId, String principal, long afterVersion, AsyncResponse response) {
+        if (afterVersion >= 0) {
+            response.resume(Response.status(Response.Status.NOT_FOUND)
+                    .entity(new ErrorDetail("QUERY_OWNER_UNAVAILABLE", null,
+                            "Live query owner is unavailable on this coordinator"))
+                    .build());
+            return;
+        }
+        Optional<QueryState> state = queryManager.getHistoricalQueryState(queryId, principal);
+        if (state.isPresent()) {
+            response.resume(Response.ok(QueryStatusResponse.of(queryId, state.get().name(), null, null)).build());
+        } else {
+            response.resume(queryNotFound(queryId));
+        }
+    }
+
+    private static Response queryNotFound(String queryId) {
+        return Response.status(Response.Status.NOT_FOUND)
+                .entity(new ErrorDetail("NOT_FOUND", null, "Query not found: " + queryId)).build();
+    }
+
+    private static Response statusResponse(String queryId, QueryStateMachine.Status status) {
+        ErrorDetail error = status.error() == null ? null : QueryResponseMapper.failure(status.error());
+        return Response.ok(new QueryStatusResponse(queryId, status.state().name(),
+                error, null, status.endpoint(), status.version(), status.drained())).build();
     }
 
     /** Requests cancellation of a running query. */
     @POST
     @Path("/{queryId}/cancel")
-    public Response cancelQuery(@PathParam("queryId") String queryId) {
-        Optional<QueryState> state = queryManager.getQueryState(queryId);
-        if (state.isEmpty()) {
+    public Response cancelQuery(@PathParam("queryId") String queryId,
+            @Context ContainerRequestContext requestContext) {
+        var owner = queryManager.getStateMachine(queryId);
+        if (owner == null || !owner.isOwnedBy(AuthenticationFilter.queryPrincipal(requestContext))) {
             return Response.status(Response.Status.NOT_FOUND)
                     .entity(new CancelResponse(queryId, false, "NOT_FOUND"))
                     .build();
         }
-        if (isTerminalState(state.get())) {
+        if (isTerminalState(owner.status().state())) {
             return Response.ok(new CancelResponse(queryId, false, "ALREADY_TERMINAL"))
                     .build();
         }
@@ -167,12 +240,18 @@ public final class QueryResource {
     @GET
     @Path("/profile/{queryId}")
     @Produces("image/svg+xml")
-    public Response getProfile(@PathParam("queryId") String queryId) {
+    public Response getProfile(@PathParam("queryId") String queryId,
+            @Context ContainerRequestContext requestContext) {
         if (profilerEndpoint == null) {
             return Response.status(Response.Status.NOT_FOUND)
                     .type(MediaType.APPLICATION_JSON)
                     .entity(new ErrorDetail("NOT_FOUND", "NOT_FOUND", "Profiler not available"))
                     .build();
+        }
+        var owner = queryManager.getStateMachine(queryId);
+        String principal = AuthenticationFilter.queryPrincipal(requestContext);
+        if (owner != null && !owner.isOwnedBy(principal)) {
+            return profileNotFound(queryId);
         }
         byte[] flameGraphData;
         try {
@@ -184,12 +263,8 @@ public final class QueryResource {
                             unavailable.getMessage()))
                     .build();
         }
-        if (flameGraphData == null || flameGraphData.length == 0) {
-            return Response.status(Response.Status.NOT_FOUND)
-                    .type(MediaType.APPLICATION_JSON)
-                    .entity(new ErrorDetail("NOT_FOUND", "NOT_FOUND",
-                            "No profile data for query: " + queryId))
-                    .build();
+        if (flameGraphData == null || flameGraphData.length == 0 || owner == null) {
+            return profileNotFound(queryId);
         }
         return Response.ok(flameGraphData, "image/svg+xml").build();
     }
@@ -198,21 +273,27 @@ public final class QueryResource {
     @GET
     @Path("/profile/{queryId}/json")
     @Produces(MediaType.APPLICATION_JSON)
-    public Response getProfileJson(@PathParam("queryId") String queryId) {
+    public Response getProfileJson(@PathParam("queryId") String queryId,
+            @Context ContainerRequestContext requestContext) {
         if (queryProfileService == null) {
             return Response.status(Response.Status.NOT_FOUND)
                     .entity(new ErrorDetail("NOT_FOUND", "NOT_FOUND",
                             "Query profile service not available"))
                     .build();
         }
-        var profile = queryProfileService.getProfile(queryId);
-        if (profile.isEmpty()) {
-            return Response.status(Response.Status.NOT_FOUND)
-                    .entity(new ErrorDetail("NOT_FOUND", "NOT_FOUND",
-                            "No profile data for query: " + queryId))
-                    .build();
+        var owner = queryManager.getStateMachine(queryId);
+        String principal = AuthenticationFilter.queryPrincipal(requestContext);
+        if (owner != null && !owner.isOwnedBy(principal)) {
+            return profileNotFound(queryId);
         }
-        return Response.ok(profile.get()).build();
+        return queryProfileService.getProfile(queryId, principal)
+                .map(profile -> Response.ok(profile).build()).orElseGet(() -> profileNotFound(queryId));
+    }
+
+    private static Response profileNotFound(String queryId) {
+        return Response.status(Response.Status.NOT_FOUND).type(MediaType.APPLICATION_JSON)
+                .entity(new ErrorDetail("NOT_FOUND", "NOT_FOUND", "No profile data for query: " + queryId))
+                .build();
     }
 
     private static void validateSubmitRequest(SubmitQueryRequest request) {
