@@ -27,35 +27,40 @@ class TaskStatusReceiverJournalTest extends ContainerTestBase {
     void failedStateJournaledSynchronously() throws Exception { assertSynchronous("FAILED"); }
 
     @Test
-    void nonTerminalStateJournaledAsynchronously() throws Exception {
+    void runningProgressReachesHttpAndFlightWithOnlyAdmissionAndTerminalJournalFacts() throws Exception {
         try (var store = new TaskJournalStoreFixture();
-             var fixture = new NativeReportDeliveryFixture(directory, "RUNNING", false, 0, 0, store.journal());
-             var blocker = store.blockTaskInserts()) {
+             var fixture = new NativeReportDeliveryFixture(directory, "RUNNING", false, 0, 0, store);
+             var blocker = store.blockTaskReportInserts()) {
+            var queryId = fixture.queryId();
             try {
                 fixture.startWithoutConsumingResult();
                 var attempt = actualAttempt(fixture);
                 var report = TaskStatusWire.decode(attempt.body());
-                var issuedAttempt = fixture.issuedAttempt(report);
-                await("Actual task INSERT waits on table lock").atMost(Duration.ofSeconds(5)).until(store::actualInsertWaiting);
-                await("RUNNING HTTP acknowledgment precedes actual commit").atMost(Duration.ofSeconds(5))
+                await("RUNNING HTTP acknowledgment").atMost(Duration.ofSeconds(5))
                         .until(() -> attempt.response().get() != null);
                 assertThat(attempt.response().get().statusCode()).isEqualTo(200);
                 assertThat(report.state()).isEqualTo("RUNNING");
-                assertThat(store.committed(report, issuedAttempt)).isZero();
+                assertThat(fixture.queries().getQueryState(queryId))
+                        .contains(org.pangrova.query.api.enums.QueryState.RUNNING);
+                assertThat(store.actualInsertWaiting()).isFalse();
+                assertThat(store.queryStates(queryId)).containsExactly("QUEUED");
+                assertThat(store.taskStates(queryId)).containsExactly("SCHEDULED");
+            } finally {
                 blocker.rollback();
-                await("Actual asynchronous journal commit").atMost(Duration.ofSeconds(5))
-                        .untilAsserted(() -> assertThat(store.committed(report, issuedAttempt)).isEqualTo(1));
-            } finally { blocker.rollback(); }
+            }
             fixture.consumeResult();
             fixture.recoverAndDrain();
             assertThat(fixture.rows()).containsExactly(java.util.List.of(42));
+            assertThat(store.queryStates(queryId)).containsExactly("QUEUED", "FINISHED");
+            assertThat(store.taskStates(queryId)).startsWith("SCHEDULED").contains("FINISHED")
+                    .allMatch(state -> state.equals("SCHEDULED") || state.equals("FINISHED"));
         }
     }
 
     private void assertSynchronous(String state) throws Exception {
         try (var store = new TaskJournalStoreFixture();
-             var fixture = new NativeReportDeliveryFixture(directory, state, false, 0, 0, store.journal());
-             var blocker = store.blockTaskInserts();
+             var fixture = new NativeReportDeliveryFixture(directory, state, false, 0, 0, store);
+             var blocker = store.blockTaskReportInserts();
              var execution = new TaskJournalExecutionOwner(() -> {
                  if (state.equals("FINISHED")) fixture.finish();
                  else fixture.failDuringExecution();

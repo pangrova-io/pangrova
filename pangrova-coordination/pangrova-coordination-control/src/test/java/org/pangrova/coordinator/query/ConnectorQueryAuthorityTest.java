@@ -60,7 +60,7 @@ class ConnectorQueryAuthorityTest {
         var authority = state.bindConnectorAuthority(tracker.openQueryIssuance("record-failure"));
         var entered = new CountDownLatch(1);
         var release = new CountDownLatch(1);
-        state.setTransitionRecorder((previous, next) -> {
+        state.setBeforeTerminalTransition(() -> {
             entered.countDown();
             try {
                 if (!release.await(5, TimeUnit.SECONDS)) throw new IllegalStateException("Recorder release timed out");
@@ -85,7 +85,7 @@ class ConnectorQueryAuthorityTest {
             try (var operation = authority.enterOperation()) {
                 assertThatThrownBy(authority::requireDrained).isInstanceOf(IllegalStateException.class);
             }
-            state.setTransitionRecorder((previous, next) -> { });
+            state.setBeforeTerminalTransition(() -> { });
             state.tryTransition(QueryState.CANCELLED);
             tracker.sealQueryIssuance(authority.queryId());
             authority.requireDrained();

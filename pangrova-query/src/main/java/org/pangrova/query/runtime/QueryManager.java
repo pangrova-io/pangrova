@@ -365,7 +365,6 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
                 enriched = enriched.withQueryAuthority(sm.connectorAuthority())
                         .withPublicationRevision(ownership.publicationRevision());
             }
-            registerJournalListener(queryId, sm);
             applyPendingCancellation(queryId, sm);
             if (!sm.isTerminal()) {
                 sm.acquireAdmissionHealthProbe(admission::acquireHealthProbe);
@@ -377,7 +376,6 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
             sm.resolveOwnership(false);
             if (!registered && sm.hasJournalOwnership()) {
                 registerCandidateStateMachine(queryId, sm);
-                registerJournalListener(queryId, sm);
                 registered = true;
             }
             if (!registered) {
@@ -535,10 +533,6 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
         }
         releaseQueryOwnership(queryId, state);
         if (state.hasConnectorAuthority()) queryDispatcher.retireQueryIssuance(queryId);
-    }
-
-    private void registerJournalListener(String queryId, QueryStateMachine sm) {
-        journalLifecycle.registerListener(queryId, sm);
     }
 
     private void applyDispatchResult(String queryId, QueryStateMachine sm, QueryDispatchOutcome result) {

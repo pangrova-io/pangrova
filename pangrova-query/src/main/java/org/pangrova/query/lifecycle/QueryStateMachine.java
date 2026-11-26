@@ -174,9 +174,9 @@ public class QueryStateMachine {
 
     private final List<QueryStateChangeListener> listeners = new CopyOnWriteArrayList<>();
     private volatile Runnable beforeTerminalTransition = () -> { };
-    private volatile java.util.function.BiConsumer<QueryState, QueryState> transitionRecorder;
     private volatile java.util.function.Supplier<QueryOperation> transitionOperations;
-    private final ConcurrentHashMap<QueryState, QueryStateEvent> journalFacts = new ConcurrentHashMap<>();
+    private volatile QueryStateEvent admissionJournalFact;
+    private volatile QueryStateEvent terminalJournalFact;
     private final CompletableFuture<Boolean> ownershipReady;
     private final boolean locallySubmitted;
     /** A reserved terminal transition; waiters join only after leaving this monitor. */
@@ -362,8 +362,6 @@ public class QueryStateMachine {
             if (executionOwned && TRANSITIONS.getOrDefault(target, Set.of()).isEmpty()) {
                 beforeTerminalTransition.run();
             }
-            java.util.function.BiConsumer<QueryState, QueryState> recorder = transitionRecorder;
-            if (recorder != null) recorder.accept(decision.previous(), target);
         } catch (RuntimeException | Error failure) {
             synchronized (this) {
                 terminalTransitionPending = null;
@@ -392,24 +390,28 @@ public class QueryStateMachine {
 
     private record Transition(QueryState previous, CompletableFuture<Void> pending) { }
 
-    /** Journal owner installs recording before publication; recording failure prevents the transition. */
-    public void setTransitionRecorder(java.util.function.BiConsumer<QueryState, QueryState> recorder) {
-        transitionRecorder = java.util.Objects.requireNonNull(recorder);
-    }
-
     /** Execution owner installs the permit supplier before publication; each transition closes its permit. */
     public void setTransitionOperations(java.util.function.Supplier<QueryOperation> operations) {
         transitionOperations = java.util.Objects.requireNonNull(operations);
     }
 
-    /** Retains one immutable event per target state for exact journal retries. */
-    public org.pangrova.query.api.journal.QueryStateEvent journalEvent(QueryState target,
-            java.util.function.Supplier<org.pangrova.query.api.journal.QueryStateEvent> create) {
-        var existing = journalFacts.get(target);
+    /** Retains only the immutable admission and terminal facts for exact journal retries. */
+    public QueryStateEvent journalEvent(QueryState target, java.util.function.Supplier<QueryStateEvent> create) {
+        boolean admission = target == QueryState.QUEUED;
+        if (!admission && !TRANSITIONS.getOrDefault(target, Set.of()).isEmpty()) {
+            throw new IllegalArgumentException("Query progress belongs to the live projection");
+        }
+        var existing = admission ? admissionJournalFact : terminalJournalFact;
         if (existing != null) return existing;
         var candidate = create.get();
-        var retained = journalFacts.putIfAbsent(target, candidate);
-        return retained != null ? retained : candidate;
+        synchronized (this) {
+            if (admission) {
+                if (admissionJournalFact == null) admissionJournalFact = candidate;
+                return admissionJournalFact;
+            }
+            if (terminalJournalFact == null) terminalJournalFact = candidate;
+            return terminalJournalFact;
+        }
     }
 
     /** Persists terminal cleanup responsibility before a terminal state becomes visible. */

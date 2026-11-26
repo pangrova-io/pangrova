@@ -165,44 +165,16 @@ final class QueryJournalLifecycle
             if (audit != null) audit.persistTerminalLineage(context.queryId(), context.state());
             return;
         }
-        append(context.state(), context.state().journalEvent(context.state().getState(),
+        var state = context.state();
+        var grant = state.journalGrant();
+        var terminal = state.getState();
+        var fact = state.journalEvent(terminal,
                 () -> new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(
-                        System.currentTimeMillis(), journalOwner(context.state())),
-                        context.queryId(), null, null, context.state().getState().name(), audit == null ? null
-                                : audit.terminalFact(context.queryId(), context.state(), context.state().getState()))),
-                true);
-    }
-
-    @Override
-    public void registerListener(String queryId, QueryStateMachine state) {
-        state.setTransitionRecorder((previous, current) -> {
-            if (!state.hasJournalOwnership()) return;
-            if (current == QueryState.PLANNING || current == QueryState.SCHEDULING
-                    || current == QueryState.RUNNING || current == QueryState.FINISHING
-                    || current == QueryState.CANCELLED) {
-                append(state, state.journalEvent(current,
-                        () -> new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(
-                                System.currentTimeMillis(), journalOwner(state)), queryId, null, null, current.name(),
-                                current == QueryState.CANCELLED && audit != null
-                                        ? audit.terminalFact(queryId, state, current) : null)), false);
-            }
-        });
-    }
-
-    private String journalOwner(QueryStateMachine state) {
-        var grant = state.journalGrant();
-        return grant == null ? coordinatorId : grant.ownerId();
-    }
-
-    private void append(QueryStateMachine state, QueryStateEvent event, boolean synchronous) {
-        var grant = state.journalGrant();
-        if (grant != null) {
-            journal.appendOwnedQueryEvent(event, grant, synchronous);
-        } else if (synchronous) {
-            journal.appendQueryEventSync(event);
-        } else {
-            journal.appendQueryEvent(event);
-        }
+                        System.currentTimeMillis(), grant == null ? coordinatorId : grant.ownerId()),
+                        context.queryId(), null, null, terminal.name(), audit == null ? null
+                                : audit.terminalFact(context.queryId(), state, terminal)));
+        if (grant == null) journal.appendQueryEventSync(fact);
+        else journal.appendOwnedTerminalSync(fact, grant);
     }
 
     private static void record(QueryStateMachine state, Runnable append) {

@@ -23,8 +23,6 @@ public interface QueryJournalLifecyclePort extends QueryStateJournalPort {
 
     void terminal(QueryTerminalCleanup.Context context);
 
-    void registerListener(String queryId, QueryStateMachine state);
-
     Optional<QueryState> lookup(String queryId);
 
     Optional<QueryState> lookupForPrincipal(String queryId, String principal);

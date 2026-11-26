@@ -239,9 +239,9 @@ class QueryManagerDurableAcceptanceTest {
         }
 
         @Override
-        public void appendOwnedQueryEvent(QueryStateEvent event,
-                org.pangrova.execution.api.ownership.ExecutionAnchor anchor, boolean synchronous) {
-            delegate.appendOwnedQueryEvent(event, anchor, synchronous);
+        public void appendOwnedTerminalSync(QueryStateEvent event,
+                org.pangrova.execution.api.ownership.ExecutionAnchor anchor) {
+            delegate.appendOwnedTerminalSync(event, anchor);
         }
 
         @Override

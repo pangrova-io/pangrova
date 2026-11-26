@@ -72,27 +72,39 @@ final class NativeReportDeliveryFixture implements AutoCloseable {
     }
 
     NativeReportDeliveryFixture(Path directory, String selectedState, boolean drained, int before, int after,
-            QueryStateJournal journal) throws Exception {
+            TaskJournalStoreFixture store) throws Exception {
         try {
-            initialize(directory, selectedState, drained, before, after, journal);
+            initialize(directory, selectedState, drained, before, after, store);
         } catch (Exception | Error failure) {
             try { close(); } catch (Exception cleanup) { failure.addSuppressed(cleanup); }
             throw failure;
         }
     }
 
-    private void initialize(Path directory, String state, boolean drained, int before, int after, QueryStateJournal journal)
-            throws Exception {
+    private void initialize(Path directory, String state, boolean drained, int before, int after,
+            TaskJournalStoreFixture store) throws Exception {
         worker = new SourceFreeNativeWorkerFixture(workerId, directory);
         workers.registerWorker(worker.workerInfo());
         dispatcher = new RemoteTaskDispatcher(CircuitBreakerPolicy.noOp(), TestObservability.TRACING);
         dispatcher.setControlEpochSupplier(() -> 1L);
         dispatcher.setExecutionOwnerResolver(ignored -> new ExecutionOwnerIdentity(
                 "report-coordinator", "report-coordinator-incarnation", 1L));
-        var context = QueryDispatcherContext.withDefaults(new SqlCompiler(), null, null, null, dispatcher,
-                new TaskScheduler(new LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty()), workers, tracker, null, null, null, 30L);
+        var scheduler = new TaskScheduler(new LoadBalancedStrategy(),
+                ignoredTenantForPlacement -> java.util.Optional.empty());
+        var context = QueryDispatcherContext.withDefaults(new SqlCompiler(), null, null, null,
+                dispatcher, scheduler, workers, tracker, null, null, null, 30L);
+        if (store != null) {
+            var authority = store.authority();
+            dispatcher.setExecutionOwnerResolver(query -> {
+                var grant = authority.requireExecutionAnchor(query);
+                return new ExecutionOwnerIdentity(grant.ownerId(), grant.ownerIncarnation(), grant.fencingToken());
+            });
+            context = new QueryDispatcherContext(null, context.compiler(), context.security(), context.scheduling(),
+                    null, null, context.taskTimeoutSeconds(), null, null, null,
+                    authority, "report-coordinator", store.journal(), null, null, null, null);
+        }
         var execution = new QueryDispatcher(SourceFreeQueryFixture.withPolicies(context), null, null);
-        connectQueries(execution, tracker, journal);
+        connectQueries(execution, tracker, store == null ? null : store.journal());
         authentication = new AuthenticationManager(List.of());
         coordinator = new CoordinatorHttpServer(0, new CoordinatorHttpServerContext(worker.statusReceiver(),
                 queries, null, authentication, null, workers, null, null, null, null, SECRET, () -> 1L));

@@ -1,6 +1,9 @@
 package org.pangrova.server.coordinator.query.task;
 
 import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
+import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
+import org.pangrova.persistence.coordination.memory.lease.InMemoryDistributedLease;
+import org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore;
 import org.pangrova.persistence.query.postgresql.state.JdbcQueryStateJournal;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.persistence.query.api.state.StateJournalConfig;
@@ -9,6 +12,8 @@ import org.postgresql.ds.PGSimpleDataSource;
 import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 /** Real task insert locks and committed observations remain observable after normal query journal purge. */
@@ -16,6 +21,7 @@ final class TaskJournalStoreFixture implements AutoCloseable {
     private final DataSource administrator;
     private final String application = "native_task_journal_" + UUID.randomUUID();
     private final JdbcQueryStateJournal journal;
+    private final HighAvailabilityCoordinationService authority;
 
     TaskJournalStoreFixture() throws SQLException {
         administrator = SharedPostgresContainer.migratedDataSource("actual_task_journal");
@@ -27,6 +33,21 @@ final class TaskJournalStoreFixture implements AutoCloseable {
                     + "BEGIN INSERT INTO " + schema + ".task_insert_observations SELECT NEW.*; RETURN NEW; END $$");
             statement.execute("CREATE TRIGGER observe_actual_task_insert AFTER INSERT ON task_state_journal "
                     + "FOR EACH ROW EXECUTE FUNCTION observe_task_insert()");
+            statement.execute("""
+                    CREATE FUNCTION hold_task_report() RETURNS trigger LANGUAGE plpgsql AS $$
+                    BEGIN
+                        PERFORM pg_advisory_xact_lock(hashtext(current_schema()), 1874);
+                        RETURN NEW;
+                    END;
+                    $$;
+                    CREATE TRIGGER hold_task_report BEFORE INSERT ON task_state_journal
+                    FOR EACH ROW WHEN (NEW.admission_seal IS NULL) EXECUTE FUNCTION hold_task_report()
+                    """);
+            statement.execute("CREATE TABLE query_insert_observations (LIKE query_state_journal)");
+            statement.execute("CREATE FUNCTION observe_query_insert() RETURNS trigger LANGUAGE plpgsql AS $$"
+                    + "BEGIN INSERT INTO " + schema + ".query_insert_observations SELECT NEW.*; RETURN NEW; END $$");
+            statement.execute("CREATE TRIGGER observe_actual_query_insert AFTER INSERT ON query_state_journal "
+                    + "FOR EACH ROW EXECUTE FUNCTION observe_query_insert()");
         }
         var source = new PGSimpleDataSource();
         var postgres = SharedPostgresContainer.instance();
@@ -35,16 +56,22 @@ final class TaskJournalStoreFixture implements AutoCloseable {
         source.setPassword(postgres.getPassword());
         source.setCurrentSchema(schema);
         source.setApplicationName(application);
+        authority = new HighAvailabilityCoordinationService(
+                new InMemoryDistributedLease(), new JdbcExecutionAnchorStore(source));
         journal = new JdbcQueryStateJournal(source, new StateJournalConfig("JDBC", source.getURL(), 20, 20, 24, 50_000));
     }
 
     JdbcQueryStateJournal journal() { return journal; }
 
-    Connection blockTaskInserts() throws SQLException {
+    HighAvailabilityCoordinationService authority() { return authority; }
+
+    Connection blockTaskReportInserts() throws SQLException {
         var connection = administrator.getConnection();
         try {
             connection.setAutoCommit(false);
-            try (var statement = connection.createStatement()) { statement.execute("LOCK TABLE task_state_journal IN ACCESS EXCLUSIVE MODE"); }
+            try (var statement = connection.createStatement()) {
+                statement.execute("SELECT pg_advisory_xact_lock(hashtext(current_schema()), 1874)");
+            }
             return connection;
         } catch (SQLException | RuntimeException | Error failure) {
             try { connection.close(); } catch (SQLException cleanupFailure) { failure.addSuppressed(cleanupFailure); }
@@ -55,7 +82,8 @@ final class TaskJournalStoreFixture implements AutoCloseable {
     boolean actualInsertWaiting() throws SQLException {
         try (var connection = administrator.getConnection(); var statement = connection.prepareStatement(
                 "SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE application_name = ? "
-                        + "AND wait_event_type = 'Lock' AND query LIKE 'INSERT INTO task_state_journal%')")) {
+                        + "AND wait_event_type = 'Lock' AND wait_event = 'advisory' "
+                        + "AND query LIKE '%INSERT INTO task_state_journal%')")) {
             statement.setString(1, application);
             try (var result = statement.executeQuery()) { result.next(); return result.getBoolean(1); }
         }
@@ -80,5 +108,26 @@ final class TaskJournalStoreFixture implements AutoCloseable {
         }
     }
 
-    @Override public void close() { journal.close(); }
+    List<String> queryStates(String queryId) throws SQLException {
+        return observedStates("SELECT state FROM query_insert_observations WHERE query_id=? ORDER BY id", queryId);
+    }
+
+    List<String> taskStates(String queryId) throws SQLException {
+        return observedStates("SELECT state FROM task_insert_observations WHERE query_id=? ORDER BY id", queryId);
+    }
+
+    private List<String> observedStates(String sql, String queryId) throws SQLException {
+        try (var connection = administrator.getConnection(); var statement = connection.prepareStatement(sql)) {
+            statement.setString(1, queryId);
+            try (var rows = statement.executeQuery()) {
+                var states = new ArrayList<String>();
+                while (rows.next()) states.add(rows.getString(1));
+                return List.copyOf(states);
+            }
+        }
+    }
+
+    @Override public void close() {
+        org.pangrova.common.lifecycle.ResourceCloser.closeAll(null, journal::close, authority::close);
+    }
 }

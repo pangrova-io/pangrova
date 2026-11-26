@@ -25,8 +25,20 @@ public interface QueryStateJournal extends QueryStateJournalReader, AutoCloseabl
     void appendQueryEvent(QueryStateEvent event);
     /** Commits the exact frozen query event or reports an unestablished outcome for retry. */
     void appendQueryEventSync(QueryStateEvent event);
-    /** Publishes a lifecycle fact only while the exact original execution grant is current. */
-    void appendOwnedQueryEvent(QueryStateEvent event, ExecutionAnchor anchor, boolean synchronous);
+    /** Commits the terminal fact under the exact originally admitted execution grant. */
+    void appendOwnedTerminalSync(QueryStateEvent event, ExecutionAnchor anchor);
+
+    /** The owned journal retains only outcomes after admission. */
+    static void requireOwnedTerminal(QueryStateEvent event, ExecutionAnchor anchor) {
+        boolean terminal = switch (event.state()) {
+            case "FINISHED", "FAILED", "CANCELLED" -> true;
+            default -> false;
+        };
+        if (!terminal || !event.queryId().equals(anchor.executionId())
+                || !anchor.ownerId().equals(event.context().coordinatorId()) || event.acceptance() != null) {
+            throw new IllegalArgumentException("Execution grant must match the terminal query event");
+        }
+    }
 
     /** Atomically accepts or replays the initial QUEUED event carrying idempotency authority. */
     QueryAcceptanceAdmission acceptQuerySync(QueryStateEvent event);

@@ -81,14 +81,10 @@ public final class JdbcQueryStateJournal implements QueryStateJournal, Recovered
     @Override public void appendQueryEvent(QueryStateEvent event) {
         pending.admit(new JournalPendingWrites.Write(pending, event), false);
     }
-    @Override public void appendOwnedQueryEvent(QueryStateEvent event, ExecutionAnchor anchor, boolean synchronous) {
-        Objects.requireNonNull(anchor, "anchor");
-        if (!event.queryId().equals(anchor.executionId()) || !anchor.ownerId().equals(event.context().coordinatorId())
-                || "QUEUED".equals(event.state()) || event.acceptance() != null) {
-            throw new IllegalArgumentException("Execution grant must match a post-admission query event");
-        }
-        var owner = pending.admit(new JournalPendingWrites.Write(pending, event, anchor), synchronous);
-        if (synchronous) await(owner.attempt());
+    @Override public void appendOwnedTerminalSync(QueryStateEvent event, ExecutionAnchor anchor) {
+        QueryStateJournal.requireOwnedTerminal(event, anchor);
+        var owner = pending.admit(new JournalPendingWrites.Write(pending, event, anchor), true);
+        await(owner.attempt());
     }
 
     @Override public void appendTaskEvent(TaskStateEvent event) {

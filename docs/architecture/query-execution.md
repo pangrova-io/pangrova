@@ -83,6 +83,18 @@ listener before membership registration, so the registry records the actual
 port and the same process incarnation used in the receipt. The listener serves
 requests once Coordinator initialization completes.
 
+Query planning, scheduling, running and finishing states live in the owning
+Coordinator's status projection. The query journal commits admission and the
+terminal outcome, including its lineage when configured. An explicit historical
+lookup can show `QUEUED` until the outcome commits. Active status, result
+readiness and operator progress come from the live owner.
+
+Nonterminal Worker reports update the issued attempt, scheduling metrics and
+speculation timestamps in memory. The receiver compares the issued grant
+against the locally held grant for ordinary SQL progress. It transfers no
+intermediate report to the journal. Durable records still include the exact
+pre-HTTP task issuance, synchronous terminal reports and recovered exit receipts.
+
 Recovery checks journal presence for only the claimed execution IDs. The
 bounded statement probes the query and task indexes and returns IDs that have
 evidence. It does not load historical plans, sessions, or report payloads to
@@ -131,7 +143,7 @@ distributed SQL journal stay outside this retirement path. A committed write
 row remains available while the SQL execution is active, even after deferred
 work acknowledges it.
 
-Worker report and query lifecycle inserts use the original execution grant in
+Terminal Worker reports and query outcome inserts use the original execution grant in
 the same statement that records the event. Journal retirement also checks that
 grant. A former Coordinator cannot add a late Worker fact, rewrite the
 successor's terminal outcome, or purge the successor's evidence. For a proven

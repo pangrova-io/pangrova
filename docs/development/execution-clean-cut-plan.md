@@ -21,7 +21,7 @@ unlisted: true
 | ID | 当前事实与缺口 | 实施工作包 |
 |---|---|---|
 | A1 | WP1.1 已将 principal/key digest、canonical fingerprint、lineage 和确定性 `QUEUED`/`PENDING` 回执原子写入初始 journal；正常新受理一次 INSERT，冲突/未知提交读取权威行，active query 不因 TTL 过期，terminal 后由有界 sweep 清理 | WP1.1，本地 PostgreSQL/查询链验证后提交；双 Coordinator 进程 E2E 待续 |
-| A2 | 已有原子状态版本、签名回执转发和精确 Worker 派发凭证。普通 DAG、投机副本、失败重派和 Worker CDC 在发送前提交已绑定的派发凭证。接管方分批核验并按当前租约持久化匹配的退出回执。单查询最多核验一页，全局最多四页并行，等待 HTTP 不占清理线程。仍存活的原 Worker 为已过期且没有存续执行者的精确尝试出具退出回执，并禁止迟到重放和时钟回拨重新准入。PostgreSQL 将持久租户槽位与执行租约同事务准入，并在本地实际清理后同事务退还。已经取得租约但尚未写入准入 journal 的执行也可在接管后归还槽位。接管批次只读取有 journal 证据的执行 ID。已派发的运行中 SQL 在完整退出证明后原子落下终态，已发布写入保留成功语义。Worker 状态、查询生命周期和 journal 删除按原执行租约验证归属，远端 Shuffle 清理后同事务归还快照 pin、租约和槽位。普通 SQL 的 Shuffle 删除由实际排空后的终态清理触发，暖路径复用现有能力票据，无 scope 时通过 PostgreSQL 直接消除意图，已去掉空闲扫描。剩余工作包括客户端回执重新绑定、无 Worker 签发记录的本地结果退出证明、验证生产派发入口与 COPY 私有准备接口、替换只调用旧重放入口的测试，以及独立进程故障和跨主机验收 | WP1.2 |
+| A2 | 已有原子状态版本、签名回执转发和精确 Worker 派发凭证。普通 DAG、投机副本、失败重派和 Worker CDC 在发送前提交已绑定的派发凭证。接管方分批核验并按当前租约持久化匹配的退出回执。单查询最多核验一页，全局最多四页并行，等待 HTTP 不占清理线程。仍存活的原 Worker 为已过期且没有存续执行者的精确尝试出具退出回执，并禁止迟到重放和时钟回拨重新准入。PostgreSQL 将持久租户槽位与执行租约同事务准入，并在本地实际清理后同事务退还。已经取得租约但尚未写入准入 journal 的执行也可在接管后归还槽位。接管批次只读取有 journal 证据的执行 ID。已派发的运行中 SQL 在完整退出证明后原子落下终态，已发布写入保留成功语义。查询阶段与 Worker 非终态进度使用实时投影，已移除这两类 journal 写入。终态、派发凭证和接管退出回执仍持久化，终态写入与 journal 删除按原执行租约验证归属，远端 Shuffle 清理后同事务归还快照 pin、租约和槽位。普通 SQL 的 Shuffle 删除由实际排空后的终态清理触发，暖路径复用现有能力票据，无 scope 时通过 PostgreSQL 直接消除意图，已去掉空闲扫描。剩余工作包括客户端回执重新绑定、无 Worker 签发记录的本地结果退出证明、验证生产派发入口与 COPY 私有准备接口、替换只调用旧重放入口的测试，以及独立进程故障和跨主机验收 | WP1.2 |
 | A3 | WP1.3 已引入显式 `PENDING` / `STREAM` / `NONE`，并贯通 dispatch、状态机、REST、JDBC、CLI 和 benchmark；代码合同已闭合，跨主机 resultless/延迟发布 E2E 仍待验收 | WP1.3，本地验证后提交；生产验收待续 |
 | A4 | 已有阶段观测和固定到达率样本；尚未接入完整 production phase/queue/rejection/timeout/drain KPI 与容量矩阵 | WP2 |
 | A5 | Paimon 仍 eager 调用 `plan().splits()`；外层 deadline/count 无法约束 SDK 内部规划 | WP3.2 |
@@ -108,7 +108,7 @@ unlisted: true
 
 ## 固定三条稳态零读库门槛（目标状态）
 
-1. **状态订阅和诊断读取。** 活跃 query 由 owner 的认证状态投影提供。正常状态读取与客户端重连在投影窗口内产生零 journal SELECT。只在接管、冷启动重放、明确的历史查询读取数据库。以两个 Coordinator 和大量同 query 的客户端断言次数，覆盖 Ready endpoint 和错误细节。已验证本机直连和签名票据定向转发，接管仍见 A2。
+1. **状态订阅和诊断读取。** 活跃 query 由 owner 的认证状态投影提供。正常状态读取与客户端重连在投影窗口内产生零 journal SELECT。接管按认领的执行 ID 查证，显式历史查询返回最后写入的准入或终态。以两个 Coordinator 和大量同 query 的客户端断言次数，覆盖 Ready endpoint 和错误细节。已验证本机直连和签名票据定向转发，接管仍见 A2。
 2. **持久 journal。** 正常新受理和新事件各一次 INSERT，独立 SELECT 为零。A1 的初始 `QUEUED` 行同时承载 principal、key digest、request fingerprint、lineage 和确定性 `QUEUED`/`PENDING` 回执；`INSERT ... ON CONFLICT DO NOTHING` 的正常路径不读回，只有 event/idempotency 冲突或未知提交结果才 SELECT 核对。事务、lineage 原子性和最终 ACK 所代表的 durability 保持一致。对已提交写的状态判断只读取一次，未知提交仍从权威证据核对。
 3. **Shuffle steady state。** 只在建流、续租、最终关闭与恢复触及读租约数据库。manifest 是由已提交 attempt 发布的不可变数据。每 batch 禁止同步数据库操作，同时本地核验 scope/epoch、租约有效期、撤销与 byte credit；已有在途读取保有精确保护时间。测试每 batch/每 chunk 的 SQL 计数和撤销后新数据是否可见。durable revocation 收敛尚未实现，见 A11。
 

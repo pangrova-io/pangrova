@@ -388,8 +388,8 @@ class JdbcQueryStateJournalIntegrationTest {
                 new TaskStateEvent(JournalEventContext.create(113, prior.ownerId()), prior.executionId(),
                         "task-0", "worker-id", "FINISHED", 1, 3, null, authority)));
         assertThat(rejected).hasMessageContaining("Task report execution grant is no longer current");
-        journal.appendOwnedQueryEvent(new QueryStateEvent(JournalEventContext.create(Long.MAX_VALUE, prior.ownerId()),
-                prior.executionId(), null, null, "FINISHED"), prior, true);
+        journal.appendOwnedTerminalSync(new QueryStateEvent(JournalEventContext.create(Long.MAX_VALUE, prior.ownerId()),
+                prior.executionId(), null, null, "FINISHED"), prior);
         assertEquals("FAILED", journal.latestQueryEvent(prior.executionId()).orElseThrow().state());
         assertEquals(prior.executionId(), journal.findAcceptance("alice", "a".repeat(64))
                 .orElseThrow().receipt().queryId());
