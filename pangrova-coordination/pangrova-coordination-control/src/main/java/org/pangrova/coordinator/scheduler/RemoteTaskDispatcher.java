@@ -190,6 +190,15 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
 
     @Override
     public DispatchResult dispatch(SubmitTaskRequest request, WorkerInfo worker) {
+        return sendTask(request, worker, false);
+    }
+
+    @Override
+    public DispatchResult dispatchBound(SubmitTaskRequest request, WorkerInfo worker) {
+        return sendTask(request, worker, true);
+    }
+
+    private DispatchResult sendTask(SubmitTaskRequest request, WorkerInfo worker, boolean alreadyBound) {
         checkNotNull(request, "request must not be null");
         checkNotNull(worker, "worker must not be null");
 
@@ -199,7 +208,9 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
         }
 
         try {
-            DispatchResult result = doDispatch(request, worker);
+            var stamped = alreadyBound ? request
+                    : bindSourceInput(bindControlIdentity(bindWorkerIdentity(request, worker)));
+            DispatchResult result = doDispatch(stamped, worker);
             circuitBreakerPolicy.recordSuccess(breakerKey);
             return result;
         } catch (Exception e) {
@@ -209,8 +220,7 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
         }
     }
 
-    private DispatchResult doDispatch(SubmitTaskRequest request, WorkerInfo worker) {
-        SubmitTaskRequest stamped = bindSourceInput(bindControlIdentity(bindWorkerIdentity(request, worker)));
+    private DispatchResult doDispatch(SubmitTaskRequest stamped, WorkerInfo worker) {
         requireEncryptedCopyTaskTransport(stamped, worker);
         byte[] body = stamped.encode();
         long deadline = System.nanoTime() + EPOCH_CATCHUP_TIMEOUT_NANOS;

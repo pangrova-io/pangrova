@@ -43,7 +43,6 @@ import org.slf4j.LoggerFactory;
 final class LeafStageDispatcher {
 
     private static final Logger LOG = LoggerFactory.getLogger(LeafStageDispatcher.class);
-    private static final int ARTIFACT_DISPATCH_WINDOW = 16;
     private static final long MAX_DML_MEMORY_BYTES = 256L * 1024 * 1024;
 
     private final org.pangrova.coordinator.scheduler.TaskDispatcher dispatcher;
@@ -125,9 +124,8 @@ final class LeafStageDispatcher {
             artifactBindingResolver.retainSnapshotPinsForExecution(
                     input.session().tenantId(), input.execution().executionId(), templates);
         }
-        int window = prepared.hasArtifacts() ? ARTIFACT_DISPATCH_WINDOW : QueryStateJournal.MAX_TASK_ISSUANCE_BATCH;
         for (int first = 0; first < prepared.taskCount();) {
-            int last = first + Math.min(window, prepared.taskCount() - first);
+            int last = first + Math.min(QueryStateJournal.MAX_TASK_ISSUANCE_BATCH, prepared.taskCount() - first);
             var taskBindings = prepared.hasArtifacts()
                     ? materializeArtifactBindings(input.session().tenantId(), templates,
                             prepared.partitionedSplits().subList(first, last))
@@ -147,19 +145,15 @@ final class LeafStageDispatcher {
     private void dispatchPreparedWindow(LeafDispatch input, PreparedDispatch prepared,
             List<DAGDispatchEngine.PartitionDispatch> dispatches, int first, int last,
             List<List<OperatorBinding>> taskBindings) {
-        for (int start = first; start < last;) {
-            int end = start + Math.min(QueryStateJournal.MAX_TASK_ISSUANCE_BATCH, last - start);
-            List<StagePartitionDispatcher.Candidate> candidates = new ArrayList<>(end - start);
-            for (int partition = start; partition < end; partition++) {
-                var worker = selectWorker(input, prepared, partition);
-                var request = buildTaskRequest(input, prepared, partition, worker, taskBindings.get(partition - first));
-                candidates.add(new StagePartitionDispatcher.Candidate(request, worker));
-            }
-            var issued = partitions.dispatchCohort(candidates);
-            for (int index = 0; index < issued.size(); index++) {
-                dispatches.add(dispatchRecord(issued.get(index), candidates.get(index).worker()));
-            }
-            start = end;
+        List<StagePartitionDispatcher.Candidate> candidates = new ArrayList<>(last - first);
+        for (int partition = first; partition < last; partition++) {
+            var worker = selectWorker(input, prepared, partition);
+            var request = buildTaskRequest(input, prepared, partition, worker, taskBindings.get(partition - first));
+            candidates.add(new StagePartitionDispatcher.Candidate(request, worker));
+        }
+        var issued = partitions.dispatchCohort(candidates);
+        for (int index = 0; index < issued.size(); index++) {
+            dispatches.add(dispatchRecord(issued.get(index), candidates.get(index).worker()));
         }
     }
 

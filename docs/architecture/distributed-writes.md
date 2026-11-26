@@ -403,7 +403,13 @@ rejects later mutation. The Worker completion path accepts a CDC result only as 
 statistics; Native task reports keep their existing `NATIVE` contract. When a Coordinator
 hosts both streaming and query roles, the streaming scheduler selects the supervised Worker
 CDC runtime and disables the local Coordinator pipeline; leadership loss blocks publication
-and offset acknowledgement. A reusable Worker
+and offset acknowledgement. The Worker runtime writes the exact bound task
+issuance under the current execution anchor before HTTP. That write verifies
+execution ownership atomically. The stream identity and maintenance epoch are
+checked separately. On failure, the Coordinator yields its anchor so the
+successor can reconcile any admitted attempt even if publication never began.
+Successful completion removes the task journal facts after each Worker owner
+has drained and publication and acknowledgement have finished. A reusable Worker
 range ingestor seeks each admitted partition start, filters records to the exact intervals,
 decodes and stages each batch, and returns commit fragments without publishing the catalog
 or acknowledging source offsets. Empty polls probe exact source end offsets and only complete

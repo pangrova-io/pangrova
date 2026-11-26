@@ -18,6 +18,8 @@ import org.pangrova.common.client.enums.ResultProtocol;
 import org.pangrova.protocol.source.DataSplitProtoCodec;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.protocol.v2.TaskKind;
+import org.pangrova.protocol.v2.TaskRequest;
+import org.pangrova.protocol.task.CanonicalTaskAdmissionSeals;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.testing.testkit.E2ETest;
 import org.testcontainers.containers.KafkaContainer;
@@ -52,7 +54,37 @@ class IndependentCdcProcessesE2ETest extends ContainerTestBase {
 
     @Test
     void combinedCoordinatorPublishesKafkaRangesThroughWorkerHttpAndPaimon() throws Exception {
-        verifyPublication(Scenario.COMBINED);
+        try (var kafka = new KafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.6.0"))) {
+            kafka.start();
+            String broker = kafka.getBootstrapServers();
+            var firstTarget = new AtomicReference<URI>();
+            var secondTarget = new AtomicReference<URI>();
+            var issuedId = new AtomicReference<String>();
+            try (var processes = IndependentLocalProcesses.cdc(broker);
+                    var first = new ProcessWorkerHttpRelay(firstTarget::get);
+                    var second = new ProcessWorkerHttpRelay(secondTarget::get)) {
+                processes.reports().mapWorkerHttpPorts(worker -> {
+                    boolean isFirst = worker.workerId().equals("local-worker-1");
+                    (isFirst ? firstTarget : secondTarget).set(URI.create(
+                            "http://" + worker.httpHost() + ":" + worker.httpPort()));
+                    return (isFirst ? first : second).port();
+                });
+                recordCdcIssuanceOnDelivery(processes, first, issuedId);
+                recordCdcIssuanceOnDelivery(processes, second, issuedId);
+                try {
+                    assertPublication(broker, processes, Scenario.COMBINED,
+                            IndependentCdcProcessesE2ETest::verifyWorkerExit);
+                    assertThat(issuedId.get()).isNotBlank();
+                    await("successful CDC exits the task journal and releases its lease").atMost(Duration.ofSeconds(10))
+                            .until(() -> executionReleased(processes, issuedId.get())
+                                    && cdcIssuanceCleared(processes, issuedId.get()));
+                } catch (Exception | Error failure) {
+                    failure.addSuppressed(new IllegalStateException(
+                            "CDC process diagnostics retained at " + processes.retainDiagnostics()));
+                    throw failure;
+                }
+            }
+        }
     }
 
     @Test
@@ -562,6 +594,58 @@ class IndependentCdcProcessesE2ETest extends ContainerTestBase {
         } else {
             assertThat(paimonPayloads(processes)).containsExactly("cdc-visible");
             assertThat(paimonSnapshot(processes)).isEqualTo(1L);
+        }
+    }
+
+    private static void recordCdcIssuanceOnDelivery(IndependentLocalProcesses processes,
+            ProcessWorkerHttpRelay workerHttp, AtomicReference<String> issuedId) {
+        workerHttp.beforeDelivery(transfer -> {
+            if (!transfer.isTaskSubmission()) return;
+            try {
+                var request = transfer.submittedTask().taskRequest();
+                if (request.getTaskKind() == TaskKind.TASK_KIND_CDC_INGEST) {
+                    assertCommittedCdcIssuance(processes, request, workerHttp.port());
+                    issuedId.set(request.getAttempt().getQueryOrJobId());
+                }
+            } catch (IOException malformed) {
+                throw new UncheckedIOException(malformed);
+            } catch (SQLException failure) {
+                throw new IllegalStateException("Cannot inspect committed CDC issuance", failure);
+            }
+        });
+    }
+
+    private static void assertCommittedCdcIssuance(
+            IndependentLocalProcesses processes, TaskRequest request, int controlPort) throws SQLException {
+        var attempt = request.getAttempt();
+        try (var connection = processes.metadataDataSource().getConnection();
+                var statement = connection.prepareStatement("""
+                        SELECT t.worker_http_port, t.admission_seal, t.owner_fencing_token, a.fencing_token
+                        FROM task_state_journal t JOIN execution_anchor a ON t.query_id = a.execution_id
+                        WHERE t.query_id = ? AND t.task_id = ? AND t.admission_seal IS NOT NULL
+                        """)) {
+            statement.setString(1, attempt.getQueryOrJobId());
+            statement.setString(2, attempt.getTaskId());
+            try (var rows = statement.executeQuery()) {
+                assertThat(rows.next()).isTrue();
+                assertThat(rows.getInt("worker_http_port")).isEqualTo(controlPort);
+                assertThat(rows.getBytes("admission_seal"))
+                        .isEqualTo(CanonicalTaskAdmissionSeals.create(request).toByteArray());
+                assertThat(rows.getLong("owner_fencing_token")).isEqualTo(attempt.getExecutionOwner().getFencingToken());
+                assertThat(rows.getLong("fencing_token")).isEqualTo(attempt.getExecutionOwner().getFencingToken());
+                assertThat(rows.next()).isFalse();
+            }
+        }
+    }
+
+    private static boolean cdcIssuanceCleared(IndependentLocalProcesses processes, String executionId)
+            throws SQLException {
+        try (var connection = processes.metadataDataSource().getConnection();
+                var statement = connection.prepareStatement("SELECT 1 FROM task_state_journal WHERE query_id = ?")) {
+            statement.setString(1, executionId);
+            try (var rows = statement.executeQuery()) {
+                return !rows.next();
+            }
         }
     }
 

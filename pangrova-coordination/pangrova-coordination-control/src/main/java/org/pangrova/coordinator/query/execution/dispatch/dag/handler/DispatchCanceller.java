@@ -82,20 +82,7 @@ public final class DispatchCanceller {
     public void prepareTaskDispatch(
             org.pangrova.protocol.rest.task.SubmitTaskRequest request,
             org.pangrova.coordinator.worker.WorkerInfo worker) {
-        var attempt = request.taskRequest().getAttempt();
-        String taskId = attempt.getTaskId();
-        String queryId = attempt.getQueryOrJobId();
-        taskTracker.registerTask(queryId, taskId);
-        try {
-            taskTracker.registerTaskRequest(taskId, request);
-            taskTracker.bindDispatchTarget(request, worker);
-            taskTracker.markScheduled(queryId, taskId);
-            taskTracker.assignWorker(taskId, worker.workerId());
-            taskTracker.setDeadline(taskId, java.time.Instant.ofEpochMilli(request.taskRequest().getDeadlineEpochMs()));
-        } catch (RuntimeException failure) {
-            taskTracker.unregisterUndispatchedTask(queryId, taskId);
-            throw failure;
-        }
+        taskTracker.prepareTaskDispatch(request, worker);
     }
 
     public void enterTaskDispatch(org.pangrova.protocol.rest.task.SubmitTaskRequest request) {
@@ -106,14 +93,7 @@ public final class DispatchCanceller {
     public org.pangrova.query.api.journal.TaskStateEvent issuanceFact(
             org.pangrova.protocol.rest.task.SubmitTaskRequest request,
             org.pangrova.coordinator.worker.WorkerInfo worker) {
-        var seal = org.pangrova.protocol.task.CanonicalTaskAdmissionSeals.create(request.taskRequest());
-        var owner = seal.getAttempt().getExecutionOwner();
-        var fact = taskTracker.scheduledJournalEvent(seal.getAttempt().getTaskId());
-        var issuance = new org.pangrova.query.api.journal.TaskIssuance(
-                worker.host(), worker.httpPort(), owner.getOwnerIncarnation(), owner.getFencingToken(),
-                seal.toByteArray());
-        return new org.pangrova.query.api.journal.TaskStateEvent(fact.context(), fact.queryId(), fact.taskId(),
-                fact.workerId(), fact.state(), fact.stageId(), fact.reportSequence(), issuance);
+        return taskTracker.issuanceFact(request, worker);
     }
 
     /** Rolls back a prepared task only when dispatch did not start. */

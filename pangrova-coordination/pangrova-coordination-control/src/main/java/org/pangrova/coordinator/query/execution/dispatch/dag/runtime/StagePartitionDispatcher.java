@@ -5,6 +5,7 @@ import org.pangrova.coordinator.query.execution.dispatch.dag.handler.DispatchCan
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.persistence.query.api.state.QueryStateJournal;
+import org.pangrova.query.api.journal.TaskStateEvent;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.common.api.annotation.Internal;
 
@@ -19,7 +20,7 @@ public final class StagePartitionDispatcher {
     private final TaskDispatcher dispatcher;
     private final DispatchCanceller canceller;
     private final UnaryOperator<SubmitTaskRequest> accessBinder;
-    private final QueryStateJournal journal;
+    private final java.util.function.Consumer<List<TaskStateEvent>> recordIssuances;
 
     public StagePartitionDispatcher(TaskDispatcher dispatcher, DispatchCanceller canceller,
             UnaryOperator<SubmitTaskRequest> accessBinder) {
@@ -32,7 +33,7 @@ public final class StagePartitionDispatcher {
         this.dispatcher = java.util.Objects.requireNonNull(dispatcher, "dispatcher");
         this.canceller = java.util.Objects.requireNonNull(canceller, "canceller");
         this.accessBinder = java.util.Objects.requireNonNull(accessBinder, "accessBinder");
-        this.journal = journal;
+        recordIssuances = journal == null ? null : journal::appendTaskIssuancesSync;
     }
 
     /** Returns the actual bound request and HTTP acknowledgement; no result or owner is synthesized. */
@@ -48,8 +49,8 @@ public final class StagePartitionDispatcher {
         List<Candidate> bound = new ArrayList<>(candidates.size());
         try {
             for (var candidate : candidates) bound.add(prepare(candidate));
-            if (journal != null && !bound.isEmpty()) {
-                journal.appendTaskIssuancesSync(bound.stream()
+            if (recordIssuances != null && !bound.isEmpty()) {
+                recordIssuances.accept(bound.stream()
                         .map(candidate -> canceller.issuanceFact(candidate.request(), candidate.worker())).toList());
             }
         } catch (RuntimeException | Error failure) {

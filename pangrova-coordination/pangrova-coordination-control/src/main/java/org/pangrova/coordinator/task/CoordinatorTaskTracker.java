@@ -1,6 +1,9 @@
 package org.pangrova.coordinator.task;
 
 import org.pangrova.coordinator.enums.ScheduledTaskState;
+import org.pangrova.coordinator.worker.WorkerInfo;
+import org.pangrova.query.api.journal.TaskStateEvent;
+import org.pangrova.query.api.journal.TaskIssuance;
 import org.pangrova.query.api.lifecycle.QueryOperation;
 
 import java.time.Instant;
@@ -15,6 +18,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.TaskAttemptDescriptor;
+import org.pangrova.protocol.task.CanonicalTaskAdmissionSeals;
 import org.pangrova.scheduler.api.speculation.TaskDuration;
 
 /**
@@ -446,6 +450,36 @@ public class CoordinatorTaskTracker implements org.pangrova.query.recovery.Recov
         return taskIdentityStore.enterReport(request, report, resourceOnly,
                 () -> publishExecutionDrain(report.taskId()),
                 () -> notifyQueryDrainProgress(report.queryId()));
+    }
+
+    /** Installs the local attempt and target before the journal or Worker can observe this issuance. */
+    public void prepareTaskDispatch(SubmitTaskRequest request, WorkerInfo worker) {
+        var attempt = request.taskRequest().getAttempt();
+        String taskId = attempt.getTaskId();
+        String queryId = attempt.getQueryOrJobId();
+        registerTask(queryId, taskId);
+        try {
+            registerTaskRequest(taskId, request);
+            bindDispatchTarget(request, worker);
+            markScheduled(queryId, taskId);
+            assignWorker(taskId, worker.workerId());
+            setDeadline(taskId, Instant.ofEpochMilli(request.taskRequest().getDeadlineEpochMs()));
+        } catch (RuntimeException | Error failure) {
+            org.pangrova.common.lifecycle.ResourceCloser.closeAll(failure,
+                    () -> unregisterUndispatchedTask(queryId, taskId));
+            throw failure;
+        }
+    }
+
+    /** Encodes the exact frozen attempt and Worker endpoint without any discovery or journal read. */
+    public TaskStateEvent issuanceFact(SubmitTaskRequest request, WorkerInfo worker) {
+        var seal = CanonicalTaskAdmissionSeals.create(request.taskRequest());
+        var owner = seal.getAttempt().getExecutionOwner();
+        var fact = taskIdentityStore.scheduledEvent(seal.getAttempt().getTaskId());
+        var issuance = new TaskIssuance(worker.host(), worker.httpPort(), owner.getOwnerIncarnation(),
+                owner.getFencingToken(), seal.toByteArray());
+        return new TaskStateEvent(fact.context(), fact.queryId(), fact.taskId(), fact.workerId(),
+                fact.state(), fact.stageId(), fact.reportSequence(), issuance);
     }
 
     /** Captures the actual target before transport admission, never a later WorkerId lookup. */

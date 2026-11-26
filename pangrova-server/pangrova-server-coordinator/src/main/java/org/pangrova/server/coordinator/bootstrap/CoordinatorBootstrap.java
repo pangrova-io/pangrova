@@ -163,10 +163,7 @@ public final class CoordinatorBootstrap {
         if (streamingBootstrap == null) {
             return;
         }
-        var workers = new JournaledCdcRuntime.WorkerDispatch(ha.haService(),
-                query.queryDispatcher().taskDispatcher(),
-                query.queryDispatcher().workerSelector(),
-                query.taskTracker(), query.taskStatusReceiver());
+        var workers = query.cdcWorkerDispatch(ha.haService());
         cdcRuntime = new JournaledCdcRuntime(streamingBootstrap, metadataBootstrap.catalogRegistry(),
                 query.writeCommitJournal(),
                 query.queryDispatcher().writeAuthorityResolver(),

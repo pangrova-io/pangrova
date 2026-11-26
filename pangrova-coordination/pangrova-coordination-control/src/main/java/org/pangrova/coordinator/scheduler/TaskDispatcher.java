@@ -44,6 +44,11 @@ public interface TaskDispatcher {
 
     DispatchResult dispatch(SubmitTaskRequest request, WorkerInfo worker);
 
+    /** Sends an already bound request without replacing its persisted attempt. */
+    default DispatchResult dispatchBound(SubmitTaskRequest request, WorkerInfo worker) {
+        return dispatch(request, worker);
+    }
+
     /**
      * Asynchronously dispatches a task to a target worker.
      * Default implementation wraps the synchronous dispatch in a CompletableFuture.

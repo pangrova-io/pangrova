@@ -102,7 +102,10 @@ and settles the execution through its completion stage. Each DAG dispatch cohort
 commits the exact binary Worker admission seals and control addresses before
 sending HTTP requests. PostgreSQL records up to 16 attempts in one
 execution-fenced task-journal statement. The sender uses the frozen requests
-for HTTP admission.
+for HTTP admission. Speculative copies and dead-Worker retries use the same
+pre-send fence for their newly bound attempt. Failure to persist that fence
+prevents transport entry. An attempt that may have crossed the HTTP boundary
+still needs its exact drain receipt.
 
 An acquired recovery claim starts an off-path scan of up to 16 outstanding
 predecessor seals at a time, including terminal and orphaned executions. The

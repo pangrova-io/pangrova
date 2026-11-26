@@ -112,6 +112,7 @@ final class QueryBootstrap {
     private org.pangrova.observability.sdk.metrics.CoordinatorMetrics coordinatorMetrics;
     private QueryDispatcher queryDispatcher;
     private org.pangrova.persistence.query.api.state.QueryStateJournal stateJournal;
+    private CoordinatorSpeculativeTaskRegistry speculativeTaskRegistry;
     private QueryExecutionBootstrap executionWiring;
 
     QueryExecutionBootstrap executionWiring() {
@@ -189,8 +190,9 @@ final class QueryBootstrap {
         controlPlaneResultService = startControlPlaneResultTransport();
         cacheAffinityAssigner = new CacheAffinityAssigner();
         workerManager.addTopologyListener(cacheAffinityAssigner);
-        initSpeculation();
         stateJournal = runtimeFactory.createStateJournal();
+        speculativeTaskRegistry = new CoordinatorSpeculativeTaskRegistry(taskTracker, stateJournal);
+        initSpeculation();
         CatalogRegistry catalog = metadataBootstrap != null
                 ? metadataBootstrap.catalogRegistry() : null;
         this.writeCommitTracker = catalog != null
@@ -284,7 +286,7 @@ final class QueryBootstrap {
             speculativeTaskLauncher.setDispatchDependencies(
                     new CoordinatorSpeculativeAttemptDispatcher(remoteTaskDispatcher),
                     new CoordinatorSpeculativeWorkerInventory(workerManager),
-                    new CoordinatorSpeculativeTaskRegistry(taskTracker));
+                    speculativeTaskRegistry);
             speculativeTaskLauncher.setCancelRetrier(
                     new CoordinatorSpeculativeAttemptCanceller(
                             queryDispatcher.cancelRetrier()));
@@ -513,7 +515,7 @@ final class QueryBootstrap {
         speculativeStageHandler = new SpeculativeStageHandler(
                 speculationConfig, new StragglerDetector(speculationConfig),
                 speculativeTaskLauncher,
-                new CoordinatorSpeculativeTaskRegistry(taskTracker));
+                speculativeTaskRegistry);
         LOG.info("event=speculation_initialized");
     }
 
@@ -524,7 +526,7 @@ final class QueryBootstrap {
         speculationScheduler = new org.pangrova.scheduler.speculation.SpeculativeExecutionScheduler(
                 speculativeStageHandler,
                 new CoordinatorSpeculativeQueryInventory(queryManager),
-                new CoordinatorSpeculativeTaskRegistry(taskTracker),
+                speculativeTaskRegistry,
                 SpeculationConfig.DEFAULT_DETECTION_INTERVAL_MS);
         speculationScheduler.start();
     }
@@ -549,6 +551,11 @@ final class QueryBootstrap {
             receiver.setWriteCommitFencer(fencer);
         }
         return receiver;
+    }
+
+    JournaledCdcRuntime.WorkerDispatch cdcWorkerDispatch(HighAvailabilityCoordinationService service) {
+        return new JournaledCdcRuntime.WorkerDispatch(service, queryDispatcher.taskDispatcher(),
+                queryDispatcher.workerSelector(), taskTracker, taskStatusReceiver, stateJournal);
     }
 
     void trackRecoveredTaskDrains(java.util.List<org.pangrova.execution.api.ownership.ExecutionAnchor> claims) {

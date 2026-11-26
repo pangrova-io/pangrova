@@ -16,6 +16,7 @@ import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.persistence.query.api.commit.CdcSourceIdentity;
 import org.pangrova.persistence.query.api.commit.WriteCommitJournal;
+import org.pangrova.persistence.query.api.state.QueryStateJournal;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
 import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
@@ -114,11 +115,13 @@ final class JournaledCdcRuntime implements AutoCloseable {
     }
 
     record WorkerDispatch(HighAvailabilityCoordinationService coordination,
-                          WorkerCdcTaskDispatcher dispatcher, CdcTaskCompletionRegistry completions) {
+                          WorkerCdcTaskDispatcher dispatcher, CdcTaskCompletionRegistry completions,
+                          java.util.function.Consumer<String> purgeTaskJournal) {
         WorkerDispatch(HighAvailabilityCoordinationService coordination, TaskDispatcher dispatcher,
-                WorkerSelector selector, CoordinatorTaskTracker tracker, TaskStatusReceiver receiver) {
-            this(coordination, new WorkerCdcTaskDispatcher(dispatcher, selector, tracker),
-                    new CdcTaskCompletionRegistry(tracker));
+                WorkerSelector selector, CoordinatorTaskTracker tracker, TaskStatusReceiver receiver,
+                QueryStateJournal taskJournal) {
+            this(coordination, new WorkerCdcTaskDispatcher(dispatcher, selector, tracker, taskJournal),
+                    new CdcTaskCompletionRegistry(tracker), taskJournal::purgeQuery);
             receiver.setCdcCompletions(completions);
         }
     }
@@ -211,7 +214,7 @@ final class JournaledCdcRuntime implements AutoCloseable {
             executeBatch(state, catalog, session, metadata, reader, starts, owner);
         } catch (RuntimeException | Error failure) {
             try {
-                if (journal.getEntry(executionId).isPresent()) {
+                if (workers != null || journal.getEntry(executionId).isPresent()) {
                     yieldAnchor(anchor);
                 } else {
                     release(anchor);
@@ -300,12 +303,16 @@ final class JournaledCdcRuntime implements AutoCloseable {
         }
         CdcStreamExecution execution = new CdcStreamExecution(
                 request -> {
-                    requireCurrentOwner(state, owner);
+                    requireCurrentStream(state, owner.maintenanceEpoch());
+                    if (workers.coordination().getActiveLeaderEpoch() != owner.controlEpoch()) {
+                        throw lostOwner(anchor);
+                    }
                     workers.dispatcher().dispatch(request);
                 }, workers.completions(), journal, publisher, acknowledger,
                 TASK_TIMEOUT);
         execution.execute(plan, writePlan, state, session, source, baseSnapshotId,
                 System.currentTimeMillis(), anchor.ownerId(), anchor.ownerIncarnation(), anchor.fencingToken());
+        workers.purgeTaskJournal().accept(anchor.executionId());
         LOG.info("event=cdc_worker_stream_committed stream={} tasks={}", state.streamName(), plan.tasks().size());
     }
 
@@ -373,8 +380,12 @@ final class JournaledCdcRuntime implements AutoCloseable {
                         && workers.coordination().validateDurableExecutionToken(
                                 anchor.executionId(), anchor.fencingToken());
         if (owner.controlEpoch() <= 0 || !current) {
-            throw new IllegalStateException("CDC execution lost its current owner: " + anchor.executionId());
+            throw lostOwner(anchor);
         }
+    }
+
+    private static IllegalStateException lostOwner(ExecutionAnchor anchor) {
+        return new IllegalStateException("CDC execution lost its current owner: " + anchor.executionId());
     }
 
     private record BatchOwner(ExecutionAnchor anchor, long controlEpoch, long maintenanceEpoch) {}
