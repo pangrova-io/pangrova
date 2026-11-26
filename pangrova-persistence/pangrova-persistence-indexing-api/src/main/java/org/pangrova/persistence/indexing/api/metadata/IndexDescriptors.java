@@ -19,6 +19,11 @@ public interface IndexDescriptors {
      */
     void registerIndex(IndexDescriptor descriptor);
 
+    /** Registers the Native descriptor and caller-captured admission attempt in the same transaction. */
+    default void registerNativeIndex(IndexDescriptor descriptor, String attemptId) {
+        throw new UnsupportedOperationException("Durable Native submission admission is unavailable");
+    }
+
     /** Atomically registers a scalar descriptor with its real deferred build subject. */
     default void registerIndexWithBuildAuthority(IndexDescriptor descriptor, String principal) {
         throw new UnsupportedOperationException("Durable scalar index authority is unavailable");

@@ -143,11 +143,12 @@ public final class IndexDdlExecutor implements AutoCloseable {
                 buildInput.sourceSnapshot(), tenantId, schemaFingerprint);
         requireNativeBuildSupport(descriptor);
 
-        List<TypedRow> earlyResult = registerIndexOrSkip(descriptor, stmt, user, tableRef, tenantId);
+        String nativeAttempt = nativeArtifact ? UUID.randomUUID().toString() : null;
+        List<TypedRow> earlyResult = registerIndexOrSkip(descriptor, stmt, user, tableRef, tenantId, nativeAttempt);
         if (earlyResult != null) {
             return earlyResult;
         }
-        submitAsyncBuild(descriptor, tableRef, buildInput.dataFiles(), context);
+        submitAsyncBuild(descriptor, tableRef, buildInput.dataFiles(), context, nativeAttempt);
         LOG.info("action=create_index indexId={} index={} table={} type={}",
                 descriptor.indexId(), stmt.indexName(), tableRef, indexType);
         return buildCreateResult(descriptor.indexId(), IndexState.BUILDING);
@@ -155,10 +156,10 @@ public final class IndexDdlExecutor implements AutoCloseable {
 
     private List<TypedRow> registerIndexOrSkip(
             IndexDescriptor descriptor, CreateIndexStatement stmt, UserIdentity user,
-            QualifiedTableName tableRef, String tenantId) {
+            QualifiedTableName tableRef, String tenantId, String nativeAttempt) {
         try {
             if (requiresNativeArtifact(descriptor.indexType())) {
-                deps.indexMetadataStore().registerIndex(descriptor);
+                deps.indexMetadataStore().registerNativeIndex(descriptor, nativeAttempt);
             } else {
                 if (user == null || user.principal() == null || user.principal().isBlank()) {
                     throw new AccessDeniedException("Scalar index build requires an authenticated subject");
@@ -299,9 +300,10 @@ public final class IndexDdlExecutor implements AutoCloseable {
 
         boolean nativeArtifact = requiresNativeArtifact(target.indexType());
         IndexBuildInput buildInput = resolveBuildInput(tableRef, !nativeArtifact, context);
-        IndexDescriptor rebuilt = prepareRebuild(target, buildInput.sourceSnapshot(), schemaFingerprint);
-        requireNativeBuildSupport(rebuilt);
-        submitAsyncBuild(rebuilt, tableRef, buildInput.dataFiles(), context);
+        requireNativeBuildSupport(target);
+        BuildAdmission admission = prepareRebuild(target, buildInput.sourceSnapshot(), schemaFingerprint);
+        IndexDescriptor rebuilt = admission.descriptor();
+        submitAsyncBuild(rebuilt, tableRef, buildInput.dataFiles(), context, admission.nativeAttempt());
         emitRebuildCacheEvent(target, tableRef);
         LOG.info("action=alter_index_rebuild indexId={} index={} generation={}",
                 target.indexId(), stmt.indexName(), rebuilt.generation());
@@ -322,7 +324,7 @@ public final class IndexDdlExecutor implements AutoCloseable {
         return target;
     }
 
-    private IndexDescriptor prepareRebuild(
+    private BuildAdmission prepareRebuild(
             IndexDescriptor target, String sourceSnapshot, String sourceSchemaFingerprint) {
         // Retry with fresh read on optimistic lock failure. CREATE INDEX completes
         // asynchronously and may update updatedAt between findRebuildableIndex()
@@ -336,11 +338,15 @@ public final class IndexDdlExecutor implements AutoCloseable {
                     .withSourceSchemaFingerprint(sourceSchemaFingerprint)
                     .withGeneration(newGeneration, now)
                     .withBuildSnapshotId(sourceSnapshot, now), IndexState.BUILDING, now);
-            boolean updated = deps.indexMetadataStore().beginIndexGeneration(
+            String nativeAttempt = requiresNativeArtifact(current.indexType()) ? UUID.randomUUID().toString() : null;
+            boolean updated = nativeAttempt == null ? deps.indexMetadataStore().beginIndexGeneration(
                     current.indexId(), newGeneration, sourceSnapshot,
-                    now, current.updatedAt(), current.state(), current.generation(), sourceSchemaFingerprint);
+                    now, current.updatedAt(), current.state(), current.generation(), sourceSchemaFingerprint)
+                    : deps.indexMetadataStore().beginNativeIndexGeneration(current.indexId(), newGeneration,
+                            sourceSnapshot, now, current.updatedAt(), current.state(), current.generation(),
+                            sourceSchemaFingerprint, nativeAttempt);
             if (updated) {
-                return rebuilt;
+                return new BuildAdmission(rebuilt, nativeAttempt);
             }
             LOG.debug("action=rebuild_retry attempt={} indexId={}", attempt + 1, current.indexId());
             // Re-read fresh descriptor for next attempt
@@ -387,9 +393,7 @@ public final class IndexDdlExecutor implements AutoCloseable {
             IndexDescriptor descriptor,
             QualifiedTableName tableRef,
             List<org.pangrova.indexing.build.DataFileInfo> dataFiles,
-            QuerySession context) {
-        var accessors = deps.accessorResolver().forSession(
-                SessionContextConverter.toConnectorSession(context, tableRef.catalog(), tableRef.schema()));
+            QuerySession context, String nativeAttempt) {
         try {
             if (requiresNativeArtifact(descriptor.indexType())) {
                 DurableIndexBuildService nativeBuild = deps.buildServices().aiNative();
@@ -400,7 +404,7 @@ public final class IndexDdlExecutor implements AutoCloseable {
                                     + descriptor.properties().getOrDefault(
                                             "algorithm", "default"));
                 }
-                String jobId = nativeBuild.submit(descriptor, tableRef, context);
+                String jobId = nativeBuild.submit(descriptor, tableRef, context, nativeAttempt);
                 LOG.info("event=native_index_build_queued indexId={} generation={} jobId={}",
                         descriptor.indexId(), descriptor.generation(), jobId);
                 return;
@@ -413,6 +417,8 @@ public final class IndexDdlExecutor implements AutoCloseable {
                                 descriptor, dataFiles, null, null));
                 return;
             }
+            var accessors = deps.accessorResolver().forSession(
+                    SessionContextConverter.toConnectorSession(context, tableRef.catalog(), tableRef.schema()));
             var fsAccessor = accessors.resolve(tableRef.catalog());
             var columnReader = accessors.resolveColumnValueReader(tableRef.catalog());
 
@@ -425,7 +431,7 @@ public final class IndexDdlExecutor implements AutoCloseable {
                     descriptor, dataFiles, fsAccessor, columnReader, mappingConsumer);
             registerBuildCompletionHandler(descriptor, future);
         } catch (Exception e) {
-            recordBuildFailure(descriptor, e);
+            recordBuildFailure(descriptor, nativeAttempt, e);
             throw new PangrovaException(
                     PangrovaErrorCode.METADATA_INDEX_VALIDATION_ERROR,
                     "Index build could not be submitted for '" + descriptor.indexName() + "'",
@@ -497,12 +503,26 @@ public final class IndexDdlExecutor implements AutoCloseable {
 
     @org.pangrova.common.VisibleForTesting
     void recordBuildFailure(IndexDescriptor building, Exception failure) {
+        recordBuildFailure(building, null, failure);
+    }
+
+    @org.pangrova.common.VisibleForTesting
+    void recordBuildFailure(IndexDescriptor building, String nativeAttempt, Exception failure) {
         try {
             String reason = failure.getMessage() == null
                     ? "build_error" : failure.getMessage();
-            boolean failed = deps.indexMetadataStore().failIndexGeneration(
-                    building.indexId(), building.generation(), building.updatedAt(),
-                    Instant.now(), reason);
+            boolean failed;
+            if (requiresNativeArtifact(building.indexType())) {
+                if (nativeAttempt == null) {
+                    throw new IllegalStateException("Native failure has no captured submission attempt");
+                }
+                failed = deps.indexMetadataStore().failNativeSubmissionAttempt(
+                        building.indexId(), building.generation(), nativeAttempt, building.updatedAt(),
+                        Instant.now(), reason);
+            } else {
+                failed = deps.indexMetadataStore().failIndexGeneration(
+                        building.indexId(), building.generation(), building.updatedAt(), Instant.now(), reason);
+            }
             if (!failed) {
                 LOG.warn("event=build_failure_fence_lost indexId={} generation={}",
                         building.indexId(), building.generation());
@@ -585,6 +605,8 @@ public final class IndexDdlExecutor implements AutoCloseable {
         return new org.pangrova.indexing.build.DataFileInfo(
                 file.path(), file.rowCount(), file.sizeBytes(), file.format());
     }
+
+    private record BuildAdmission(IndexDescriptor descriptor, String nativeAttempt) {}
 
     private record IndexBuildInput(
             String sourceSnapshot,

@@ -55,17 +55,22 @@ final class JdbcIndexDescriptorStore extends JdbcStoreSupport {
     }
 
     void registerIndex(IndexDescriptor descriptor) {
-        registerIndex(descriptor, null, null);
+        registerIndex(descriptor, null, null, null);
     }
 
     void registerIndexWithBuildAuthority(IndexDescriptor descriptor, String principal) {
         if (principal == null || principal.isBlank()) {
             throw new AccessDeniedException("Scalar index build requires its authenticated subject");
         }
-        registerIndex(descriptor, principal, exactScope(descriptor));
+        registerIndex(descriptor, principal, exactScope(descriptor), null);
     }
 
-    private void registerIndex(IndexDescriptor descriptor, String principal, DeferredAuthorizationScope scope) {
+    void registerNativeIndex(IndexDescriptor descriptor, String attemptId) {
+        registerIndex(descriptor, null, null, requireCanonicalAttempt(attemptId));
+    }
+
+    private void registerIndex(IndexDescriptor descriptor, String principal,
+                               DeferredAuthorizationScope scope, String attemptId) {
         String sql = "INSERT INTO index_descriptors "
                 + "(index_id, index_name, catalog_name, schema_name, table_name, "
                 + "column_names, index_type, properties, state, stale_reason, "
@@ -87,6 +92,16 @@ final class JdbcIndexDescriptorStore extends JdbcStoreSupport {
                         scope == null ? null : DeferredAuthorizationScopeCodec.encode(scope));
                 ps.setString(SOURCE_SCHEMA_FINGERPRINT_PARAMETER, descriptor.sourceSchemaFingerprint());
                 ps.executeUpdate();
+                if (attemptId != null) {
+                    try (PreparedStatement attempt = connection.prepareStatement(
+                            "UPDATE index_descriptors SET native_submission_attempt_id=? WHERE index_id=?")) {
+                        attempt.setString(1, attemptId);
+                        attempt.setString(2, descriptor.indexId());
+                        if (attempt.executeUpdate() != 1) {
+                            throw new IllegalStateException("Native submission admission identity was not persisted");
+                        }
+                    }
+                }
                 connection.commit();
             } catch (SQLException | RuntimeException failure) {
                 rollbackAfterFailure(connection, failure);
@@ -306,12 +321,26 @@ final class JdbcIndexDescriptorStore extends JdbcStoreSupport {
             IndexState expectedState,
             int expectedGeneration,
             String sourceSchemaFingerprint) {
-        validateGenerationTransition(
-                newGeneration, expectedState, expectedGeneration);
+        return beginGeneration(indexId, newGeneration, buildSnapshotId, timestamp,
+                expectedUpdatedAt, expectedState, expectedGeneration, sourceSchemaFingerprint, null);
+    }
+
+    boolean beginNativeIndexGeneration(String indexId, int newGeneration, String buildSnapshotId,
+                                       Instant timestamp, Instant expectedUpdatedAt, IndexState expectedState,
+                                       int expectedGeneration, String sourceSchemaFingerprint, String attemptId) {
+        return beginGeneration(indexId, newGeneration, buildSnapshotId, timestamp,
+                expectedUpdatedAt, expectedState, expectedGeneration,
+                sourceSchemaFingerprint, requireCanonicalAttempt(attemptId));
+    }
+
+    private boolean beginGeneration(String indexId, int newGeneration, String buildSnapshotId,
+                                    Instant timestamp, Instant expectedUpdatedAt, IndexState expectedState,
+                                    int expectedGeneration, String sourceSchemaFingerprint, String attemptId) {
+        validateGenerationTransition(newGeneration, expectedState, expectedGeneration);
         try (Connection conn = dataSource().getConnection()) {
             return reserveGeneration(conn, new GenerationReservation(
                     indexId, newGeneration, buildSnapshotId, timestamp,
-                    expectedUpdatedAt, expectedState, expectedGeneration, sourceSchemaFingerprint));
+                    expectedUpdatedAt, expectedState, expectedGeneration, sourceSchemaFingerprint, attemptId));
         } catch (SQLException e) {
             throw new MetastoreException(
                     "Failed to begin fenced index generation", e);
@@ -357,12 +386,31 @@ final class JdbcIndexDescriptorStore extends JdbcStoreSupport {
                         request.expectedGeneration(), request.buildSnapshotId(),
                         request.timestamp());
             }
+            if (request.nativeSubmissionAttemptId() != null) {
+                try (PreparedStatement attempt = conn.prepareStatement(
+                        "UPDATE index_generation_builds SET native_submission_attempt_id=? "
+                                + "WHERE index_id=? AND generation=? AND state='BUILDING'")) {
+                    attempt.setString(1, request.nativeSubmissionAttemptId());
+                    attempt.setString(2, request.indexId());
+                    attempt.setInt(3, request.newGeneration());
+                    if (attempt.executeUpdate() != 1) {
+                        throw new IllegalStateException("Native staging admission identity was not persisted");
+                    }
+                }
+            }
             conn.commit();
             return true;
         } catch (SQLException | RuntimeException failure) {
             rollbackAfterFailure(conn, failure);
             throw failure;
         }
+    }
+
+    private static String requireCanonicalAttempt(String attemptId) {
+        if (attemptId == null || !java.util.UUID.fromString(attemptId).toString().equals(attemptId)) {
+            throw new IllegalArgumentException("Native submission attempt must be a canonical UUID");
+        }
+        return attemptId;
     }
 
     boolean failIndexGeneration(
@@ -388,7 +436,8 @@ final class JdbcIndexDescriptorStore extends JdbcStoreSupport {
         try (Connection conn = dataSource().getConnection()) {
             conn.setAutoCommit(false);
             try {
-                FailureTarget target = lockFailureTarget(conn, indexId, generation, expectedBuildUpdatedAt);
+                FailureTarget target = lockFailureTarget(conn, indexId, generation,
+                        org.pangrova.persistence.jdbc.support.JdbcSupport.canonicalInstant(expectedBuildUpdatedAt));
                 if (target != null && attemptId != null && !attemptId.equals(target.attemptId())) {
                     target = null;
                 }

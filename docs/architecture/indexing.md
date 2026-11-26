@@ -216,7 +216,10 @@ The initial descriptor or staging-generation reservation persists a unique
 submission ID; restarting a failed staging reservation creates a new ID,
 even for the same snapshot and logical generation. Admission retries and
 unbound recovery reuse the existing ID, job, page identities and artifact
-directory. New submissions use a per-attempt directory; terminal attempts
+directory. DDL and refresh capture the attempt before the admission transaction
+and carry it through submission and failure; a late callback cannot look up
+or fail a newer reservation, even when timestamps coincide.
+New submissions use a per-attempt directory; terminal attempts
 remain in history and are cleaned up by their exact pin owner. There can be
 only one live or published Native job per logical generation; other artifact
 types retain generation uniqueness. Recovery never reattaches a superseded

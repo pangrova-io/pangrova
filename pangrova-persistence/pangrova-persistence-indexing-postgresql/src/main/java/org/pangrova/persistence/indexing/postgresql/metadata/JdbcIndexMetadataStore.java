@@ -77,6 +77,11 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
     }
 
     @Override
+    public void registerNativeIndex(IndexDescriptor descriptor, String attemptId) {
+        descriptorStore.registerNativeIndex(descriptor, attemptId);
+    }
+
+    @Override
     public void registerIndexWithBuildAuthority(IndexDescriptor descriptor, String principal) {
         descriptorStore.registerIndexWithBuildAuthority(descriptor, principal);
     }
@@ -175,6 +180,15 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
         return descriptorStore.beginIndexGeneration(
                 indexId, newGeneration, buildSnapshotId, timestamp,
                 expectedUpdatedAt, expectedState, expectedGeneration, sourceSchemaFingerprint);
+    }
+
+    @Override
+    public boolean beginNativeIndexGeneration(String indexId, int newGeneration, String buildSnapshotId,
+                                              Instant timestamp, Instant expectedUpdatedAt, IndexState expectedState,
+                                              int expectedGeneration, String sourceSchemaFingerprint,
+                                              String attemptId) {
+        return descriptorStore.beginNativeIndexGeneration(indexId, newGeneration, buildSnapshotId, timestamp,
+                expectedUpdatedAt, expectedState, expectedGeneration, sourceSchemaFingerprint, attemptId);
     }
 
     @Override

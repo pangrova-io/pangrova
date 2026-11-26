@@ -39,6 +39,14 @@ public interface IndexBuildGenerations {
                 expectedUpdatedAt, expectedState, expectedGeneration);
     }
 
+    /** Reserves a staging generation and its exact captured Native attempt atomically. */
+    default boolean beginNativeIndexGeneration(String indexId, int newGeneration, String buildSnapshotId,
+                                               Instant timestamp, Instant expectedUpdatedAt, IndexState expectedState,
+                                               int expectedGeneration, String sourceSchemaFingerprint,
+                                               String attemptId) {
+        throw new UnsupportedOperationException("Durable Native submission admission is unavailable");
+    }
+
     /**
      * Fences and records a failed initial or staging generation. Initial builds move
      * the exact BUILDING descriptor to STALE; online builds fail only the staging row

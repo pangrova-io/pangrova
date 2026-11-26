@@ -114,9 +114,10 @@ public final class DurableIndexBuildService {
                 || (descriptor.indexType() == IndexType.INVERTED && algorithm.equals("BM25"));
     }
 
-    /** Persists a replayable Native index build and returns its stable job identity. */
-    public String submit(
-            IndexDescriptor descriptor, QualifiedTableName table, QuerySession context) {
+    /** Submits only the captured Native admission; stale callers cannot adopt a later reservation. */
+    public String submit(IndexDescriptor descriptor, QualifiedTableName table, QuerySession context,
+                         String expectedAttemptId) {
+        Objects.requireNonNull(expectedAttemptId, "captured Native submission attempt");
         if (!supports(descriptor)) {
             throw new IllegalArgumentException("descriptor is not a supported Native index");
         }
@@ -130,13 +131,14 @@ public final class DurableIndexBuildService {
         }
         ConnectorSession session = SessionContextConverter.toConnectorSession(
                 context, table.catalog(), table.schema());
-        return submitScoped(descriptor, table, tenantId, session);
+        return submitScoped(descriptor, table, tenantId, session, expectedAttemptId);
     }
 
-    /** Reauthorizes the original durable subject before a commit-driven replacement generation. */
-    public String submitReplacement(IndexDescriptor previous, IndexDescriptor replacement) {
+    /** Reauthorizes and submits the exact captured replacement reservation. */
+    public String submitReplacement(IndexDescriptor previous, IndexDescriptor replacement, String expectedAttemptId) {
+        Objects.requireNonNull(expectedAttemptId, "captured Native submission attempt");
         var resolved = DeferredIndexAuthorityResolver.resolve(store, indexMetadataStore, previous, replacement);
-        return submitScoped(replacement, resolved.table(), resolved.tenantId(), resolved.session());
+        return submitScoped(replacement, resolved.table(), resolved.tenantId(), resolved.session(), expectedAttemptId);
     }
 
     /** Reauthorizes the durable Native submitter for connector metadata maintenance. */
@@ -145,13 +147,13 @@ public final class DurableIndexBuildService {
     }
 
     private String submitScoped(IndexDescriptor descriptor, QualifiedTableName table,
-                                String tenantId, ConnectorSession session) {
+                                String tenantId, ConnectorSession session, String expectedAttemptId) {
         AtomicReference<String> jobId = new AtomicReference<>();
         indexMetadataStore.withIndexLifecycleLock(descriptor.indexId(), () -> {
             IndexDescriptor current = indexMetadataStore.findIndex(descriptor.indexId()).orElseThrow(() ->
                     new IllegalStateException("Native index descriptor disappeared before submission"));
             requireBuildableReservation(current, descriptor);
-            jobId.set(submitScopedLocked(descriptor, table, tenantId, session));
+            jobId.set(submitScopedLocked(descriptor, table, tenantId, session, expectedAttemptId));
         });
         return jobId.get();
     }
@@ -172,10 +174,13 @@ public final class DurableIndexBuildService {
     }
 
     private String submitScopedLocked(IndexDescriptor descriptor, QualifiedTableName table,
-                                      String tenantId, ConnectorSession session) {
+                                      String tenantId, ConnectorSession session, String expectedAttemptId) {
         String attempt = indexMetadataStore.findIndexGenerationSubmissionAttempt(
                 descriptor.indexId(), descriptor.generation(), descriptor.buildSnapshotId())
                 .orElseThrow(() -> new IllegalStateException("Native index submission identity is absent"));
+        if (!expectedAttemptId.equals(attempt)) {
+            throw new IllegalStateException("Native index submission attempt is no longer current");
+        }
         String jobId = jobId(tenantId, descriptor, attempt);
         NativeBuildSpec build = prepareBuild(descriptor, table, session);
         String sourceId = String.join(".", table.catalog(), table.schema(), table.table());
@@ -511,7 +516,7 @@ public final class DurableIndexBuildService {
                 intent.tenantId(), intent.indexId(), intent.generation(), intent.attemptId(),
                 intent.sourceId(), intent.sourceSnapshot(), intent.authority(), intent.createdAt()));
         var resolved = DeferredIndexAuthorityResolver.resolveSubmission(intent.authority());
-        submitScopedLocked(requested, resolved.table(), intent.tenantId(), resolved.session());
+        submitScopedLocked(requested, resolved.table(), intent.tenantId(), resolved.session(), intent.attemptId());
         return true;
     }
 
