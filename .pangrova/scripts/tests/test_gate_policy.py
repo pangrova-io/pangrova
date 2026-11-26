@@ -435,6 +435,18 @@ class RuntimeScopeTest(unittest.TestCase):
         self.assertIn('matrix.sanitizer.name',
                       sanitizer_caches['Cache compiler results'])
 
+    def test_native_platform_stage_names_do_not_depend_on_skipped_input_evaluation(self):
+        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
+        platform_workflow = (ROOT / '.github/workflows/native-platform.yml').read_text()
+        self.assertIn('name: Native Build (${{ matrix.platform.name }})', workflow)
+        for job, name in (('macos-native-core', 'macOS Native prerequisites'),
+                          ('macos-native-sdk', 'macOS Native SDK'),
+                          ('native-build', 'Build and test')):
+            with self.subTest(job=job):
+                # The caller already names the platform. Skipped child jobs can
+                # be displayed before their input expressions are evaluated.
+                self.assertIn(f'  {job}:\n    name: {name}\n', platform_workflow)
+
     def test_macos_cold_build_stages_preserve_native_test_and_report_gates(self):
         workflow = (ROOT / '.github/workflows/ci.yml').read_text()
         platform_workflow = (ROOT / '.github/workflows/native-platform.yml').read_text()
