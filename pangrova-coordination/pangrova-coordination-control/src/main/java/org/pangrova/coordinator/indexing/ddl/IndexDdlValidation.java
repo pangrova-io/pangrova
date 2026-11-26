@@ -50,14 +50,34 @@ final class IndexDdlValidation {
 
     static List<String> validateColumns(QualifiedTableName ref, List<String> columns,
                                         IndexType indexType, ConnectorTableMetadata tableMeta) {
+        return validateColumns(ref, columns, indexType, tableMeta, false);
+    }
+
+    static List<String> validateExistingColumns(QualifiedTableName ref, List<String> columns,
+                                                IndexType indexType, ConnectorTableMetadata tableMeta) {
+        return validateColumns(ref, columns, indexType, tableMeta, true);
+    }
+
+    private static List<String> validateColumns(QualifiedTableName ref, List<String> columns,
+                                                IndexType indexType, ConnectorTableMetadata tableMeta,
+                                                boolean alreadyResolved) {
         List<String> resolvedColumns = new ArrayList<>(columns.size());
         for (String col : columns) {
-            ConnectorTableMetadata.Column matched = tableMeta.typedColumns().stream()
-                    .filter(c -> c.name().equalsIgnoreCase(col))
-                    .findFirst()
-                    .orElseThrow(() -> new PangrovaException(
-                            PangrovaErrorCode.METADATA_INDEX_VALIDATION_ERROR,
-                            "Column '" + col + "' not found in table " + ref));
+            ConnectorTableMetadata.Column matched;
+            try {
+                matched = alreadyResolved
+                        ? org.pangrova.indexing.api.descriptor.IndexSchemaFingerprint.resolveExactColumn(
+                                col, tableMeta.typedColumns())
+                        : org.pangrova.indexing.api.descriptor.IndexSchemaFingerprint.resolveColumn(
+                                col, tableMeta.typedColumns());
+            } catch (IllegalArgumentException failure) {
+                throw new PangrovaException(PangrovaErrorCode.METADATA_INDEX_VALIDATION_ERROR,
+                        failure.getMessage() + " in table " + ref, failure);
+            }
+            if (resolvedColumns.contains(matched.name())) {
+                throw new PangrovaException(PangrovaErrorCode.METADATA_INDEX_VALIDATION_ERROR,
+                        "Duplicate indexed column '" + matched.name() + "' in table " + ref);
+            }
 
             if (!IndexTypeCompatibility.isCompatible(indexType, matched.type().name())) {
                 throw new PangrovaException(PangrovaErrorCode.METADATA_INDEX_VALIDATION_ERROR,

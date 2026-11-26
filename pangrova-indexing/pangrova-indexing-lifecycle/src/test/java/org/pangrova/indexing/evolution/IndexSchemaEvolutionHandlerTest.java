@@ -49,6 +49,36 @@ class IndexSchemaEvolutionHandlerTest {
     }
 
     @Test
+    void caseDistinctRenameDoesNotRebindAnotherIndexedColumn() {
+        var descriptor = descriptor(IndexType.BLOOM_FILTER, "Value", PangrovaType.BIGINT);
+        var event = SchemaChangeEvent.renameColumn("tenant", "lake", "raw", "items", "value", "renamed");
+        var observed = new ConnectorTableMetadata(new SchemaTableName("raw", "items"),
+                List.of("Value", "renamed"), List.of(
+                        new ConnectorTableMetadata.Column("Value", PangrovaType.BIGINT, OptionalInt.of(1), null),
+                        new ConnectorTableMetadata.Column("renamed", PangrovaType.BIGINT, OptionalInt.of(2), null)),
+                Map.of());
+        assertThat(apply(event, descriptor, observed)).singleElement().satisfies(transition -> {
+            assertThat(transition.newState()).isEqualTo(IndexState.STALE);
+            assertThat(transition.newColumnNames()).containsExactly("Value");
+            assertThat(transition.sourceSchemaFingerprint()).isEqualTo(descriptor.sourceSchemaFingerprint());
+        });
+    }
+
+    @Test
+    void legacyTypeFingerprintIsNotComparedAsIfItWereCanonical() {
+        var descriptor = descriptor(IndexType.INVERTED, "value", PangrovaType.VARCHAR)
+                .withSourceSchemaFingerprint("a".repeat(64));
+        var event = SchemaChangeEvent.modifyColumnType("tenant", "lake", "raw", "items", "value", "VARCHAR",
+                "VARCHAR");
+        assertThat(apply(event, descriptor, metadata("value", PangrovaType.VARCHAR))).singleElement()
+                .satisfies(transition -> {
+                    assertThat(transition.newState()).isEqualTo(IndexState.STALE);
+                    assertThat(transition.sourceSchemaFingerprint()).isEqualTo(descriptor.sourceSchemaFingerprint());
+                    assertThat(transition.staleReason()).isEqualTo("source_schema_fingerprint_v2_required");
+                });
+    }
+
+    @Test
     void incompatibleTextTypeChangeDropsTheIndexInsteadOfPublishingIt() {
         var descriptor = descriptor(IndexType.INVERTED, "value", PangrovaType.VARCHAR);
         var event = SchemaChangeEvent.modifyColumnType(

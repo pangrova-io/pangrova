@@ -179,7 +179,7 @@ class JdbcIndexSchemaEvolutionStoreTest extends ContainerTestBase {
         store.registerIndex(descriptor());
         store.fenceIndexSchemaMismatch(descriptor(), "source_schema_mismatch", NOW);
         var stale = store.findIndex("index-1").orElseThrow();
-        String currentFingerprint = "b".repeat(64);
+        String currentFingerprint = "v2:" + "b".repeat(64);
         assertThat(store.beginIndexGeneration(stale.indexId(), 1, "snapshot-2", NOW.plusSeconds(1),
                 stale.updatedAt(), stale.state(), stale.generation(), currentFingerprint)).isTrue();
         assertThat(store.findIndex(stale.indexId()).orElseThrow().sourceSchemaFingerprint())

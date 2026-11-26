@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.connector.api.enums.FieldIdStability;
 import org.pangrova.connector.paimon.handle.PaimonTableIdentity;
 import org.pangrova.connector.api.metadata.table.ConnectorReadBinding;
+import org.pangrova.connector.api.metadata.table.ColumnSchemaEncoding;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -36,6 +37,8 @@ class PaimonReadSchemaIdentityIntegrationTest extends PaimonDeleteTestSupport {
             assertThat(selected.stability()).isEqualTo(FieldIdStability.SELECTED_SOURCE);
             assertThat(selected.fieldNamespace()).isEqualTo("paimon.branch-fields.v1:main");
             assertThat(current.snapshotId()).isEqualTo(historical.snapshotId());
+            assertThat(ColumnSchemaEncoding.encode(current.schemaIdentity().orElseThrow().fields().get(0)))
+                    .isEqualTo(ColumnSchemaEncoding.encode(selected.fields().get(0)));
         }
     }
 
@@ -58,6 +61,8 @@ class PaimonReadSchemaIdentityIntegrationTest extends PaimonDeleteTestSupport {
             assertThat(replacement.tableIdentity().schemaFingerprint())
                     .isNotEqualTo(first.tableIdentity().schemaFingerprint());
             assertThat(replacement.stability()).isEqualTo(FieldIdStability.SELECTED_SOURCE);
+            assertThat(ColumnSchemaEncoding.encode(replacement.fields().get(4)))
+                    .isNotEqualTo(ColumnSchemaEncoding.encode(first.fields().get(4)));
         }
     }
 

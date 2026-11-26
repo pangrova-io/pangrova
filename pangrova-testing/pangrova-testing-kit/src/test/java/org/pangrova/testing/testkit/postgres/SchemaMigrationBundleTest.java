@@ -204,7 +204,7 @@ class SchemaMigrationBundleTest extends ContainerTestBase {
             }
         }
 
-        Flyway.configure().dataSource(source).locations("classpath:db/migration").load().migrate();
+        Flyway.configure().dataSource(source).locations("classpath:db/migration").target("122").load().migrate();
 
         try (var connection = source.getConnection(); var statement = connection.createStatement();
                 var rows = statement.executeQuery("SELECT index_id,state,stale_reason,source_schema_fingerprint "
@@ -250,6 +250,81 @@ class SchemaMigrationBundleTest extends ContainerTestBase {
                     + "WHERE catalog_name='lake' AND schema_name='raw' AND table_name='items'")) {
                 assertThat(rows.next()).isTrue();
                 assertThat(rows.getInt(1)).isEqualTo(2);
+            }
+        }
+    }
+
+    @Test
+    void version124FencesLegacyBindingsWithoutRewritingPendingOwnership() throws Exception {
+        var source = SharedPostgres.isolatedDataSource();
+        Flyway.configure().dataSource(source).locations("classpath:db/migration").target("123").load().migrate();
+        try (var connection = source.getConnection(); var statement = connection.prepareStatement(
+                "INSERT INTO index_descriptors(index_id,index_name,catalog_name,schema_name,table_name,"
+                        + "column_names,index_type,properties,state,generation,created_at,updated_at,tenant_id,"
+                        + "source_schema_fingerprint,stale_reason) VALUES (?,?,'lake','raw',?,"
+                        + "'[\"value\"]','BLOOM_FILTER','{}',?,0,?::timestamptz,?::timestamptz,'tenant',?,?)")) {
+            for (String state : List.of("READY", "BUILDING", "STALE", "DROPPED")) {
+                statement.setString(1, "legacy-" + state);
+                statement.setString(2, "index-" + state);
+                statement.setString(3, state.equals("STALE") ? "pending" : "items");
+                statement.setString(4, state);
+                statement.setString(5, "2026-11-26T00:00:00Z");
+                statement.setString(6, "2026-11-26T00:00:00Z");
+                statement.setString(7, state.equals("BUILDING") ? null : "a".repeat(64));
+                statement.setString(8, state.equals("STALE") ? "schema_change_pending" : null);
+                statement.executeUpdate();
+            }
+        }
+        try (var connection = source.getConnection(); var statement = connection.createStatement()) {
+            statement.executeUpdate("INSERT INTO index_generation_builds(index_id,generation,base_generation,"
+                    + "source_snapshot,state,started_at,updated_at) VALUES "
+                    + "('legacy-READY',1,0,'snapshot-2','BUILDING',now(),now())");
+            statement.executeUpdate("INSERT INTO index_schema_evolution_outbox(operation_id,tenant_id,"
+                    + "catalog_name,schema_name,table_name,event_type,state,created_at,updated_at) VALUES "
+                    + "('00000000-0000-0000-0000-000000000003','tenant','lake','raw','pending',"
+                    + "'DROP_TABLE','COMMITTED',now(),now())");
+            statement.executeUpdate("INSERT INTO index_schema_scope_locks VALUES ('lake','raw','pending')");
+            statement.executeUpdate("INSERT INTO index_schema_operation_claims VALUES "
+                    + "('lake','raw','pending','00000000-0000-0000-0000-000000000003')");
+            statement.executeUpdate("INSERT INTO index_schema_operation_targets VALUES "
+                    + "('00000000-0000-0000-0000-000000000003','legacy-STALE','2026-11-26T00:00:00Z')");
+        }
+        var upgraded = Flyway.configure().dataSource(source).locations("classpath:db/migration").target("124").load();
+        assertThat(upgraded.migrate().migrationsExecuted).isOne();
+        upgraded.validate();
+        try (var connection = source.getConnection(); var statement = connection.createStatement()) {
+            try (var rows = statement.executeQuery("SELECT state,stale_reason,source_schema_fingerprint "
+                    + "FROM index_descriptors WHERE index_id IN ('legacy-READY','legacy-BUILDING') ORDER BY index_id")) {
+                assertThat(rows.next()).isTrue();
+                assertThat(rows.getString(1)).isEqualTo("STALE");
+                assertThat(rows.getString(2)).isEqualTo("source_schema_fingerprint_v2_required");
+                assertThat(rows.getString(3)).isNull();
+                assertThat(rows.next()).isTrue();
+                assertThat(rows.getString(1)).isEqualTo("STALE");
+                assertThat(rows.getString(2)).isEqualTo("source_schema_fingerprint_v2_required");
+                assertThat(rows.getString(3)).isEqualTo("a".repeat(64));
+                assertThat(rows.next()).isFalse();
+            }
+            try (var rows = statement.executeQuery("SELECT count(*) FROM index_schema_operation_targets t "
+                    + "JOIN index_descriptors d ON d.index_id=t.index_id AND d.updated_at=t.fenced_at "
+                    + "WHERE d.state='STALE' AND d.stale_reason='schema_change_pending'")) {
+                assertThat(rows.next()).isTrue();
+                assertThat(rows.getInt(1)).isOne();
+            }
+            try (var rows = statement.executeQuery("SELECT state,failure_reason FROM index_generation_builds "
+                    + "WHERE index_id='legacy-READY'")) {
+                assertThat(rows.next()).isTrue();
+                assertThat(rows.getString(1)).isEqualTo("FAILED");
+                assertThat(rows.getString(2)).isEqualTo("source_schema_fingerprint_v2_required");
+            }
+            try (var rows = statement.executeQuery("SELECT state FROM index_descriptors WHERE index_id='legacy-DROPPED'")) {
+                assertThat(rows.next()).isTrue();
+                assertThat(rows.getString(1)).isEqualTo("DROPPED");
+            }
+            try (var update = connection.prepareStatement(
+                    "UPDATE index_descriptors SET source_schema_fingerprint=? WHERE index_id='legacy-STALE'")) {
+                update.setString(1, "v2:" + "b".repeat(64));
+                assertThat(update.executeUpdate()).isOne();
             }
         }
     }

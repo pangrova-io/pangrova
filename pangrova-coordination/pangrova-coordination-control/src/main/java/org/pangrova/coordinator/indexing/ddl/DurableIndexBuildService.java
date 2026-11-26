@@ -562,10 +562,12 @@ public final class DurableIndexBuildService {
             throw validation("Table disappeared while resolving index column: " + table);
         }
         ConnectorTableMetadata tableMetadata = metadata.getTableMetadata(session, handle);
-        return tableMetadata.typedColumns().stream()
-                .filter(candidate -> candidate.name().equalsIgnoreCase(columnName))
-                .findFirst()
-                .orElseThrow(() -> validation("Index column disappeared: " + columnName));
+        try {
+            return org.pangrova.indexing.api.descriptor.IndexSchemaFingerprint.resolveExactColumn(
+                    columnName, tableMetadata.typedColumns());
+        } catch (IllegalArgumentException failure) {
+            throw validation("Index column binding is unavailable: " + columnName, failure);
+        }
     }
 
     private static List<NamedValue> diskAnnProperties(

@@ -86,8 +86,7 @@ public final class IndexAwareSplitFetcher implements org.pangrova.coordinator.qu
         }
         return metadataStore.findIndexesByTable(
                 tenantId, parts[0], parts[1], parts[2]).stream()
-                .filter(d -> d.columnNames().stream()
-                        .anyMatch(c -> c.equalsIgnoreCase(columnName)))
+                .filter(d -> d.columnNames().contains(columnName))
                 .toList();
     }
 
@@ -107,10 +106,19 @@ public final class IndexAwareSplitFetcher implements org.pangrova.coordinator.qu
         if (source.isEmpty()) {
             return List.of();
         }
+        String resolvedColumn;
+        try {
+            var fields = source.orElseThrow().readBinding()
+                    .flatMap(org.pangrova.connector.api.metadata.table.ConnectorReadBinding::schemaIdentity)
+                    .orElseThrow().fields();
+            resolvedColumn = org.pangrova.indexing.api.descriptor.IndexSchemaFingerprint
+                    .resolveColumn(columnName, fields).name();
+        } catch (IllegalArgumentException unresolved) {
+            return List.of();
+        }
         return metadataStore.findIndexesByTable(tenantId, parts[0], parts[1], parts[2]).stream()
                 .filter(index -> index.state() == org.pangrova.indexing.api.enums.IndexState.READY)
-                .filter(index -> index.columnNames().stream()
-                        .anyMatch(column -> column.equalsIgnoreCase(columnName)))
+                .filter(index -> index.columnNames().contains(resolvedColumn))
                 .filter(index -> matchesSourceSchema(index, source.orElseThrow()))
                 .toList();
     }
@@ -271,6 +279,9 @@ public final class IndexAwareSplitFetcher implements org.pangrova.coordinator.qu
     private boolean matchesSourceSchema(
             org.pangrova.indexing.api.descriptor.IndexDescriptor index,
             SplitSourceDescriptor source) {
+        if (!org.pangrova.indexing.api.descriptor.IndexSchemaFingerprint.isCurrent(index.sourceSchemaFingerprint())) {
+            return false;
+        }
         var schema = source.readBinding()
                 .flatMap(org.pangrova.connector.api.metadata.table.ConnectorReadBinding::schemaIdentity);
         if (schema.isEmpty()) {

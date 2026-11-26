@@ -286,7 +286,7 @@ public final class IndexDdlExecutor implements AutoCloseable {
                 tableRef, stmt.indexName(), tenantId);
         var session = SessionContextConverter.toConnectorSession(context, tableRef.catalog(), tableRef.schema());
         var tableMetadata = IndexDdlValidation.resolveTable(tableRef, deps.catalogRegistry(), session);
-        List<String> columns = IndexDdlValidation.validateColumns(
+        List<String> columns = IndexDdlValidation.validateExistingColumns(
                 tableRef, target.columnNames(), target.indexType(), tableMetadata);
         String schemaFingerprint = org.pangrova.indexing.api.descriptor.IndexSchemaFingerprint.of(
                 columns, tableMetadata.typedColumns());
@@ -355,6 +355,11 @@ public final class IndexDdlExecutor implements AutoCloseable {
                     .findFirst()
                     .orElseThrow(() -> new PangrovaException(PangrovaErrorCode.METADATA_INDEX_NOT_FOUND,
                             "Index '" + indexName + "' was dropped during rebuild"));
+            if (!current.columnNames().equals(target.columnNames()) || current.indexType() != target.indexType()
+                    || !java.util.Objects.equals(current.sourceSchemaFingerprint(), target.sourceSchemaFingerprint())) {
+                throw new PangrovaException(PangrovaErrorCode.METADATA_INDEX_VALIDATION_ERROR,
+                        "Index source binding changed during rebuild; retry with the current declaration");
+            }
             if (current.state() != IndexState.STALE && current.sourceSchemaFingerprint() != null
                     && !sourceSchemaFingerprint.equals(current.sourceSchemaFingerprint())) {
                 throw new PangrovaException(PangrovaErrorCode.METADATA_INDEX_VALIDATION_ERROR,

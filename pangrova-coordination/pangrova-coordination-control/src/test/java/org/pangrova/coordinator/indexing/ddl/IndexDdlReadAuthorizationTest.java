@@ -108,6 +108,48 @@ class IndexDdlReadAuthorizationTest {
     }
 
     @Test
+    void createResolvesExactCaseDistinctColumnWithoutBorrowingAnotherField() {
+        var checkedColumns = new AtomicReference<Set<String>>();
+        executor = executor(accessControl(checkedColumns, true, false, false), metadataStore(null),
+                table("value", "Value"));
+        var statement = new CreateIndexStatement("idx", TABLE, List.of("Value"),
+                "BLOOM_FILTER", false, Map.of());
+
+        assertThatThrownBy(() -> executor.executeCreateIndex(statement, SESSION))
+                .isInstanceOf(AccessDeniedException.class).hasMessageContaining("source SELECT denied");
+        assertThat(checkedColumns.get()).containsExactly("Value");
+    }
+
+    @Test
+    void createRejectsAmbiguousCaseInsensitiveFallbackBeforeSourceRead() {
+        var checkedColumns = new AtomicReference<Set<String>>();
+        executor = executor(accessControl(checkedColumns, false, false, false), metadataStore(null),
+                table("value", "Value"));
+        var statement = new CreateIndexStatement("idx", TABLE, List.of("VALUE"),
+                "BLOOM_FILTER", false, Map.of());
+
+        assertThatThrownBy(() -> executor.executeCreateIndex(statement, SESSION))
+                .isInstanceOf(org.pangrova.common.exception.PangrovaException.class)
+                .hasMessageContaining("Ambiguous indexed column");
+        assertThat(checkedColumns.get()).isNull();
+    }
+
+    @Test
+    void staleRebuildCannotSubstituteAnotherCaseDistinctColumn() {
+        var existing = new IndexDescriptor("index-1", "idx", "cat", "sch", "tbl", List.of("Value"),
+                IndexType.BLOOM_FILTER, Map.of(), IndexState.STALE, "legacy", 0,
+                "snap-1", "snap-1", Instant.EPOCH, Instant.EPOCH, "tenant-a");
+        var checkedColumns = new AtomicReference<Set<String>>();
+        executor = executor(accessControl(checkedColumns, false, false, false), metadataStore(existing),
+                table("value"));
+
+        assertThatThrownBy(() -> executor.executeAlterIndex(new AlterIndexStatement("idx", TABLE), SESSION))
+                .isInstanceOf(org.pangrova.common.exception.PangrovaException.class)
+                .hasMessageContaining("absent");
+        assertThat(checkedColumns.get()).isNull();
+    }
+
+    @Test
     void rebuildChecksThePersistedIndexColumnsBeforeReadingSourceFiles() {
         var checkedColumns = new AtomicReference<Set<String>>();
         executor = executor(accessControl(checkedColumns, true, false, false), metadataStore(index()));
@@ -129,6 +171,34 @@ class IndexDdlReadAuthorizationTest {
                 .isInstanceOf(AccessDeniedException.class)
                 .hasMessageContaining("source SELECT denied");
         assertThat(checkedColumns.get()).containsExactly("col1");
+    }
+
+    @Test
+    void optimisticRebuildRetryDoesNotReuseFingerprintAfterDescriptorColumnRebind() {
+        var original = org.pangrova.indexing.descriptor.IndexDescriptorTransitions.transition(
+                index().withSourceSchemaFingerprint("a".repeat(64)), IndexState.STALE, Instant.EPOCH);
+        var rebound = new IndexDescriptor(original.indexId(), original.indexName(), "cat", "sch", "tbl",
+                List.of("col2"), IndexType.BLOOM_FILTER, original.properties(), IndexState.STALE, "schema_evolution",
+                0, "snap-1", "snap-1", Instant.EPOCH, Instant.EPOCH.plusSeconds(1), "tenant-a");
+        var reads = new java.util.concurrent.atomic.AtomicInteger();
+        var reservations = new java.util.concurrent.atomic.AtomicInteger();
+        IndexMetadataStore store = (IndexMetadataStore) Proxy.newProxyInstance(
+                IndexMetadataStore.class.getClassLoader(), new Class<?>[] {IndexMetadataStore.class},
+                (proxy, method, arguments) -> switch (method.getName()) {
+                    case "findIndexesByTable" -> List.of(reads.getAndIncrement() == 0 ? original : rebound);
+                    case "beginIndexGeneration" -> {
+                        reservations.incrementAndGet();
+                        yield false;
+                    }
+                    default -> throw new AssertionError("Unexpected metadata access: " + method.getName());
+                });
+        executor = executor(accessControl(new AtomicReference<>(), false, false, false), store,
+                table("col1", "col2"));
+
+        assertThatThrownBy(() -> executor.executeAlterIndex(new AlterIndexStatement("idx", TABLE), SESSION))
+                .isInstanceOf(org.pangrova.common.exception.PangrovaException.class)
+                .hasMessageContaining("source binding changed during rebuild");
+        assertThat(reservations).hasValue(1);
     }
 
     @Test
@@ -178,10 +248,15 @@ class IndexDdlReadAuthorizationTest {
     }
 
     private IndexDdlExecutor executor(AccessControl accessControl, IndexMetadataStore store) {
+        return executor(accessControl, store, table("col1"));
+    }
+
+    private IndexDdlExecutor executor(AccessControl accessControl, IndexMetadataStore store,
+                                      ConnectorTableMetadata table) {
         builder = new IndexBuildCoordinator(new IndexBuildContext(
                 new IndexingConfig("index-ddl-authorization", false, null, null),
                 null, null, null), null);
-        var registry = catalogRegistry();
+        var registry = catalogRegistry(table);
         var dependencies = new IndexDdlContext(store, new IndexBuildServices(builder, null),
                 registry, new ConnectorAccessorResolver(registry));
         return new IndexDdlExecutor(dependencies, null, accessControl);
@@ -225,10 +300,13 @@ class IndexDdlReadAuthorizationTest {
                 });
     }
 
-    private static CatalogRegistry catalogRegistry() {
-        var table = new ConnectorTableMetadata(new SchemaTableName("sch", "tbl"),
-                List.of("col1"), List.of(new ConnectorTableMetadata.Column("col1", PangrovaType.VARCHAR)),
-                Map.of());
+    private static ConnectorTableMetadata table(String... names) {
+        return new ConnectorTableMetadata(new SchemaTableName("sch", "tbl"), List.of(names),
+                java.util.Arrays.stream(names).map(name ->
+                        new ConnectorTableMetadata.Column(name, PangrovaType.VARCHAR)).toList(), Map.of());
+    }
+
+    private static CatalogRegistry catalogRegistry(ConnectorTableMetadata table) {
         ConnectorTableHandle tableHandle = new ConnectorTableHandle() {};
         var metadata = (ConnectorMetadata) Proxy.newProxyInstance(
                 ConnectorMetadata.class.getClassLoader(), new Class<?>[] {ConnectorMetadata.class},

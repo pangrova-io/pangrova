@@ -46,6 +46,41 @@ class IndexSchemaGuardTest {
     }
 
     @Test
+    void queryForAnotherCaseDistinctColumnDoesNotSelectTheBoundIndex() {
+        var value = new ConnectorTableMetadata.Column("value", PangrovaType.BIGINT, OptionalInt.of(1), null);
+        var other = new ConnectorTableMetadata.Column("Value", PangrovaType.BIGINT, OptionalInt.of(2), null);
+        var metadata = new ConnectorTableMetadata(new SchemaTableName("raw", "items"),
+                List.of("value", "Value"), List.of(value, other), Map.of());
+        var identity = Optional.of(new ConnectorReadSchemaIdentity(
+                new TableIdentity("TEST", "table-uuid", "file:///items", "schema-1"),
+                "test-field-namespace", List.of(value, other), FieldIdStability.SELECTED_SOURCE));
+        var binding = new ConnectorReadBinding(new ConnectorTableHandle() {},
+                new ConnectorTableReadMetadata(metadata, TableDeclarationEvidence.EXACT),
+                TableStatistics.UNKNOWN, ReadSnapshotState.SNAPSHOT, OptionalLong.of(1), "source-1",
+                identity, Optional.empty());
+        var read = new SplitSourceDescriptor("lake", "raw", "items", Constraint.EMPTY,
+                List.of("value", "Value"), Optional.of(binding));
+        var fetcher = fetcher(descriptor(), new AtomicReference<>());
+
+        assertThat(fetcher.lookupIndexesForQuery("tenant", "lake.raw.items", "Value", List.of(read))).isEmpty();
+        assertThat(fetcher.lookupIndexesForQuery("tenant", "lake.raw.items", "VALUE", List.of(read))).isEmpty();
+        assertThat(fetcher.lookupIndexesForQuery("tenant", "lake.raw.items", "value", List.of(read)))
+                .extracting(IndexDescriptor::indexId).containsExactly("index-1");
+        assertThat(fetcher.lookupIndexesForQuery("tenant", "lake.raw.items", "VALUE",
+                List.of(source(PangrovaType.BIGINT, true))))
+                .extracting(IndexDescriptor::indexId).containsExactly("index-1");
+    }
+
+    @Test
+    void legacyBindingNeverQualifiesEvenWhenSelectedColumnsMatch() {
+        var fenced = new AtomicReference<IndexDescriptor>();
+        var fetcher = fetcher(descriptor().withSourceSchemaFingerprint("a".repeat(64)), fenced);
+        assertThat(fetcher.lookupIndexesForQuery("tenant", "lake.raw.items", "value",
+                List.of(source(PangrovaType.BIGINT, true)))).isEmpty();
+        assertThat(fenced).hasValue(null);
+    }
+
+    @Test
     void selectedHistoricalSchemaMismatchSkipsWithoutChangingTheActiveDescriptor() {
         var fenced = new AtomicReference<IndexDescriptor>();
         var fetcher = fetcher(descriptor(), fenced);

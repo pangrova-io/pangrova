@@ -120,7 +120,10 @@ descriptor fields follow the existing positional result columns:
   table. An explicit rebuild of a `STALE` descriptor binds its current indexed-
   column schema after validating source access and compatibility; unresolved
   connector schema operations still block rebuilding the claimed table.
-  Indexes created before schema V122 without a binding become `STALE` on upgrade.
+  Indexes without a versioned V124 binding become `STALE` on upgrade. A legacy
+  display-text fingerprint is not converted automatically. Explicit rebuild
+  requires the exact persisted connector column names; ambiguous user column
+  spelling is rejected and a different case-distinct field is never substituted.
   The JVM strategy contract builds a payload from the supplied file rows.
   Commit-driven maintenance and checkpointing belong to the Coordinator lifecycle.
   The Coordinator checks the active snapshot and its lineage before listing

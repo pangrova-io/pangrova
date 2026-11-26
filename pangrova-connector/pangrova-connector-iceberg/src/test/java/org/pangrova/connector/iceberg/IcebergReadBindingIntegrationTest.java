@@ -185,6 +185,10 @@ class IcebergReadBindingIntegrationTest {
             assertThat(historical.schemaIdentity().orElseThrow().tableIdentity().schemaFingerprint())
                     .isEqualTo(DigestUtils.sha256Hex(historicalHandle.schemaJson()));
             assertThat(historical.schemaIdentity().orElseThrow().fields()).hasSize(1);
+            assertThat(org.pangrova.connector.api.metadata.table.ColumnSchemaEncoding.encode(
+                    current.schemaIdentity().orElseThrow().fields().get(0)))
+                    .isEqualTo(org.pangrova.connector.api.metadata.table.ColumnSchemaEncoding.encode(
+                            historical.schemaIdentity().orElseThrow().fields().get(0)));
             assertThat(splits(catalog, current)).hasSize(1);
             assertThat(splits(catalog, historical)).hasSize(1);
         }

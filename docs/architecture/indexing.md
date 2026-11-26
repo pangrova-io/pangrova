@@ -51,6 +51,32 @@ binding before the replacement generation can be published. An interrupted
 initial `BUILDING` descriptor remains recoverable through the existing stuck-build
 path and cannot become query-eligible without the binding.
 
+Schema V124 upgrades that binding to `v2:<64 lowercase SHA-256 hex digits>`.
+The old display-text digest has no equivalent canonical representation: it is
+preserved for inspection, never rehashed or treated as a v2 binding. Quiesce old
+coordinators before migration. READY and BUILDING descriptors carrying old or
+missing fingerprints become STALE; staging generation claims become FAILED.
+Existing STALE descriptor timestamps and reasons are preserved, including V123
+operation targets; published generations and retention records are not deleted.
+Only an explicit rebuild under current source access can establish a usable
+v2 binding. Do not downgrade to a writer that emits the old representation.
+
+The v2 digest uses a binary, big-endian grammar. A frame is a four-byte byte
+length followed by that many octets; text is exact UTF-8. The outer digest
+contains a frame of `pangrova:index-schema:v2`, a four-byte ordered column count,
+and one frame per column. A column declaration contains frames for exact name
+and canonical type enum name, one presence byte and optional four-byte field
+ID, then one presence byte and optional structured type signature. A signature
+contains a frame for its base name and four-byte parameter count; each parameter
+contains a named-field presence byte and optional name frame, a numeric-value
+selector byte, and either an eight-byte integer or recursively encoded signature.
+This contract does not use Java `toString`, display type text, or available-column
+ordering. CREATE resolves an exact spelling first, otherwise a unique
+case-insensitive user spelling; ambiguity is rejected. An already bound
+column must match its exact persisted connector spelling, including on rebuild
+and query dispatch. The fingerprint is a schema declaration binding, not proof
+of physical table incarnation or field-ID lifetime across a format's history.
+
 Current hard bounds are 50 MiB per scalar Bloom artifact, 100,000 retrieval
 candidate rows per plan and 1,000,000 source objects per Native build. These are
 fail-closed resource limits, not capacity claims. Oversized inputs retain the

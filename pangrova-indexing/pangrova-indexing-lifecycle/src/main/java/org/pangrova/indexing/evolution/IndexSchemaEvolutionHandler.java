@@ -125,13 +125,17 @@ public final class IndexSchemaEvolutionHandler {
         try {
             fingerprint = IndexSchemaFingerprint.of(
                     descriptor.columnNames(), source.orElseThrow().typedColumns());
-        } catch (IllegalArgumentException missing) {
+        } catch (IllegalArgumentException invalid) {
+            String reason = missingExactColumn(descriptor.columnNames(), source.orElseThrow())
+                    ? "indexed_column_missing" : "source_schema_unverifiable";
             return stillLeader.getAsBoolean() && metadataStore.fenceIndexSchemaMismatch(
-                    descriptor, "indexed_column_missing", Instant.now()).isPresent();
+                    descriptor, reason, Instant.now()).isPresent();
         }
         if (!fingerprint.equals(descriptor.sourceSchemaFingerprint())) {
+            String reason = IndexSchemaFingerprint.isCurrent(descriptor.sourceSchemaFingerprint())
+                    ? "source_schema_mismatch" : "source_schema_fingerprint_v2_required";
             return stillLeader.getAsBoolean() && metadataStore.fenceIndexSchemaMismatch(
-                    descriptor, "source_schema_mismatch", Instant.now()).isPresent();
+                    descriptor, reason, Instant.now()).isPresent();
         }
         return false;
     }
@@ -213,27 +217,31 @@ public final class IndexSchemaEvolutionHandler {
         Optional<ConnectorTableMetadata> source = observed.metadata();
         List<String> columns = new ArrayList<>(descriptor.columnNames());
         if (SchemaChangeType.RENAME_COLUMN.equals(event.type())) {
-            columns.replaceAll(name -> IndexSchemaFingerprint.normalizeColumnName(name).equals(
-                    IndexSchemaFingerprint.normalizeColumnName(event.oldColumnName()))
-                    ? event.newColumnName() : name);
+            columns.replaceAll(name -> name.equals(event.oldColumnName()) ? event.newColumnName() : name);
         }
         if (SchemaChangeType.DROP_COLUMN.equals(event.type())
-                && containsColumn(columns, event.oldColumnName())) {
+                && columns.contains(event.oldColumnName())) {
             return dropped(event, descriptor);
         }
         String fingerprint;
         try {
             fingerprint = IndexSchemaFingerprint.of(columns, source.orElseThrow().typedColumns());
-        } catch (IllegalArgumentException missing) {
-            return dropped(event, descriptor);
+        } catch (IllegalArgumentException invalid) {
+            // A malformed or ambiguous declaration is not proof of a dropped column.
+            // A rename with unverified exact spelling must not rebind a different field.
+            return event.type() != SchemaChangeType.RENAME_COLUMN
+                    && missingExactColumn(columns, source.orElseThrow())
+                    ? dropped(event, descriptor) : conservativeStale(descriptor);
         }
         String schemaName = SchemaChangeType.RENAME_TABLE.equals(event.type())
                 ? targetSchema(event) : descriptor.schemaName();
         // Existing active generation records do not prove physical table
         // incarnation. Even an unchanged schema cannot establish that proof.
         IndexState state = IndexState.STALE;
+        boolean canonicalBinding = IndexSchemaFingerprint.isCurrent(descriptor.sourceSchemaFingerprint());
         if (TEXT_SENSITIVE_TYPES.contains(descriptor.indexType())
                 && SchemaChangeType.MODIFY_COLUMN_TYPE.equals(event.type())
+                && canonicalBinding
                 && !fingerprint.equals(descriptor.sourceSchemaFingerprint())) {
             state = IndexState.DROPPED;
         }
@@ -241,8 +249,9 @@ public final class IndexSchemaEvolutionHandler {
                 ? event.tableName() : descriptor.tableName();
         return new IndexSchemaTransition(
                 descriptor.indexId(), descriptor.catalogName(), descriptor.schemaName(),
-                state, tableName, columns, fingerprint,
-                state == IndexState.STALE ? "schema_evolution" : null,
+                state, tableName, columns, canonicalBinding ? fingerprint : descriptor.sourceSchemaFingerprint(),
+                state == IndexState.STALE ? (canonicalBinding ? "schema_evolution"
+                        : "source_schema_fingerprint_v2_required") : null,
                 descriptor.updatedAt(), descriptor.state(), descriptor.generation(), schemaName);
     }
 
@@ -256,15 +265,11 @@ public final class IndexSchemaEvolutionHandler {
                     || !targetSchema(event).equals(source.table().schema());
         }
         if (SchemaChangeType.RENAME_COLUMN.equals(event.type())) {
-            String renamed = IndexSchemaFingerprint.normalizeColumnName(event.newColumnName());
             boolean renamedPresent = source.typedColumns().stream().anyMatch(column ->
-                    IndexSchemaFingerprint.normalizeColumnName(column.name()).equals(renamed));
-            if (renamedPresent) {
-                return false;
-            }
-            String original = IndexSchemaFingerprint.normalizeColumnName(event.oldColumnName());
-            return source.typedColumns().stream().anyMatch(column ->
-                    IndexSchemaFingerprint.normalizeColumnName(column.name()).equals(original));
+                    column.name().equals(event.newColumnName()));
+            boolean originalPresent = source.typedColumns().stream().anyMatch(column ->
+                    column.name().equals(event.oldColumnName()));
+            return !renamedPresent || (originalPresent && !event.oldColumnName().equals(event.newColumnName()));
         }
         return false;
     }
@@ -289,13 +294,12 @@ public final class IndexSchemaEvolutionHandler {
                         ? targetSchema(event) : descriptor.schemaName());
     }
 
-    private static String targetSchema(SchemaChangeEvent event) {
-        return event.newSchemaName() == null ? event.schemaName() : event.newSchemaName();
+    private static boolean missingExactColumn(List<String> names, ConnectorTableMetadata source) {
+        return names.stream().anyMatch(name -> source.typedColumns().stream()
+                .noneMatch(column -> column.name().equals(name)));
     }
 
-    private static boolean containsColumn(List<String> columns, String name) {
-        String normalized = IndexSchemaFingerprint.normalizeColumnName(name);
-        return columns.stream().anyMatch(column ->
-                IndexSchemaFingerprint.normalizeColumnName(column).equals(normalized));
+    private static String targetSchema(SchemaChangeEvent event) {
+        return event.newSchemaName() == null ? event.schemaName() : event.newSchemaName();
     }
 }
