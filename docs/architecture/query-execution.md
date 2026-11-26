@@ -88,9 +88,10 @@ from the durable owner store. PostgreSQL returns both event streams from one
 statement snapshot in their respective insertion order. The replay retains
 the original admission and later events across owner incarnations. The restored
 projection keeps the journal ownership established by the replay batch. When
-remote Shuffle is enabled, recovery checks cleanup intents for the eligible claimed
-IDs in one batch before replay. Write recovery can defer an execution out of
-that batch, and each cleanup still checks its execution authority when applied.
+remote Shuffle is enabled, a successor waits for durable predecessor exit
+proof before it can redeem cleanup control. Write recovery can defer an
+execution before replay, and cleanup still checks its execution authority
+when applied.
 Claim settlement uses the exact fencing token. A claim with neither query nor
 task journal evidence and no local projection can be released. A terminal
 journal fact or a task whose query projection is absent keeps the grant with
@@ -126,6 +127,17 @@ from its admission registry. It checks for an owner and advances the admission
 deadline cutoff under the same lock. A late delivery of that request remains
 ineligible after a wall-clock rollback. An expired attempt with a registered
 owner still requires actual drain evidence.
+
+After the last receipt page, PostgreSQL locks the exact successor grant and
+checks for complete terminal SQL issuance in a fresh snapshot. The proof
+blocks new dispatch under that grant. A missing issuance, a nonterminal
+projection, or a non-SQL execution does not produce this proof. For a proven
+terminal predecessor without a live local projection, remote Shuffle must
+remove its scope and cleanup intent first. The fenced retirement then removes
+the predecessor's reader pins, issued task journal, anchor and tenant slot in
+one transaction. Keyed receipts retain their journal retention. Query pin
+admission checks the live, fresh execution anchor in the existing generation
+lock statement so a stale Coordinator cannot recreate a released pin.
 The collector has no idle database polls. Releasing the query's resources still
 requires complete attempt coverage and the result and Shuffle drain gates.
 

@@ -38,7 +38,7 @@ class RecoveredTaskDrainPollTest {
             observed.add(event.taskId());
             return CompletableFuture.completedFuture(pending
                     ? SchedulerCancelResult.pending() : SchedulerCancelResult.drained(next));
-        }, executor, 25)) {
+        }, anchor -> true, executor, 25)) {
             poll.start(scheduler);
             poll.track(List.of(claim));
             await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
@@ -66,7 +66,7 @@ class RecoveredTaskDrainPollTest {
             if (event.taskId().equals("2")) return CompletableFuture.failedFuture(
                     new IllegalStateException("control response unavailable"));
             return CompletableFuture.completedFuture(SchedulerCancelResult.drained(receipt));
-        }, executor, 25)) {
+        }, anchor -> true, executor, 25)) {
             poll.start(scheduler);
             poll.track(List.of(claim));
             await().atMost(Duration.ofSeconds(3)).untilAsserted(() ->
@@ -93,7 +93,7 @@ class RecoveredTaskDrainPollTest {
         var poll = new RecoveredTaskDrainPoll(journal, event -> {
             if (event.queryId().equals("query-" + limit)) return CompletableFuture.completedFuture(receipt);
             return slowReplies.computeIfAbsent(event.queryId(), ignored -> new CompletableFuture<>());
-        }, executor, 25);
+        }, anchor -> true, executor, 25);
         try {
             poll.start(scheduler);
             poll.track(claims);
@@ -130,7 +130,7 @@ class RecoveredTaskDrainPollTest {
                 return blockedReply;
             }
             return CompletableFuture.completedFuture(receipt);
-        }, executor, 25);
+        }, anchor -> true, executor, 25);
         try {
             poll.start(scheduler);
             poll.track(List.of(older));
@@ -168,6 +168,9 @@ class RecoveredTaskDrainPollTest {
         }
 
         @Override
+        public DrainOutcome confirmRecoveredTaskDrains(ExecutionAnchor claim) { return DrainOutcome.CONFIRMED; }
+
+        @Override
         public boolean retainTaskDrains(ExecutionAnchor claim, List<DrainReceipt> receipts) {
             retained.add(claim);
             return true;
@@ -189,6 +192,9 @@ class RecoveredTaskDrainPollTest {
                             claim.executionId(), Long.toString(id), "worker", "SCHEDULED", 0, 0)))
                     .toList();
         }
+
+        @Override
+        public DrainOutcome confirmRecoveredTaskDrains(ExecutionAnchor claim) { return DrainOutcome.CONFIRMED; }
 
         @Override
         public boolean retainTaskDrains(ExecutionAnchor claim, List<DrainReceipt> receipts) {

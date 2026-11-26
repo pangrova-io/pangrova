@@ -238,14 +238,26 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
         assertThat(protectedReaders("query-1")).isZero();
         assertThatThrownBy(() -> restarted.engine.readPayload(read, page.get(0)))
                 .isInstanceOf(SecurityException.class).hasMessageContaining("closed or expired");
-        var cleanup = restarted.engine.cleanup(CleanupRequest.newBuilder()
-                .setQueryId("query-1").setExecutionOwner(owner())
-                .setAccessCapability(registration.getCleanupCapability()).build());
-        assertThat(cleanup.getBytesFreed()).isPositive();
-        var repeatedCleanup = restarted.engine.cleanup(CleanupRequest.newBuilder()
-                .setQueryId("query-1").setExecutionOwner(owner())
-                .setAccessCapability(registration.getCleanupCapability()).build());
-        assertThat(repeatedCleanup.getBytesFreed()).isZero();
+        var successor = owner().toBuilder().setOwnerId("recovery-coordinator")
+                .setOwnerIncarnation("recovery-process").setFencingToken(2).build();
+        replaceAnchor("query-1", successor);
+        var renew = org.pangrova.protocol.v2.shuffle.RenewAccessRequest.newBuilder()
+                .setOperation(org.pangrova.protocol.v2.shuffle.ShuffleAccessOperation.SHUFFLE_ACCESS_OPERATION_CLEANUP)
+                .setQueryId("query-1").setExecutionOwner(successor).build();
+        try (var database = DriverManager.getConnection(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(),
+                POSTGRES.getPassword()); var proof = database.prepareStatement(
+                        "UPDATE public.execution_anchor SET recovery_drain_state=? WHERE execution_id='query-1'")) {
+            proof.setInt(1, 1);
+            assertThat(proof.executeUpdate()).isOne();
+            assertThatThrownBy(() -> restarted.engine.renewAccess(renew, true)).isInstanceOf(SecurityException.class);
+            proof.setInt(1, 2);
+            assertThat(proof.executeUpdate()).isOne();
+        }
+        var permit = restarted.engine.renewAccess(renew, true).getAccessCapability();
+        var cleanupRequest = CleanupRequest.newBuilder().setQueryId("query-1").setExecutionOwner(successor)
+                .setAccessCapability(permit).build();
+        assertThat(restarted.engine.cleanup(cleanupRequest).getBytesFreed()).isPositive();
+        assertThat(restarted.engine.cleanup(cleanupRequest).getBytesFreed()).isZero();
         restarted.engine.close();
     }
 

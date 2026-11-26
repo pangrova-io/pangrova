@@ -241,6 +241,14 @@ public final class JdbcQueryStateJournal implements QueryStateJournal, Recovered
         }
     }
 
+    @Override public DrainOutcome confirmRecoveredTaskDrains(ExecutionAnchor claim) {
+        try {
+            return pending.enterSql().perform(dataSource, connection -> JournalTaskDrainSql.confirm(connection, claim));
+        } catch (SQLException failure) {
+            throw JournalPendingWrites.failure("Failed to confirm predecessor exit", failure);
+        }
+    }
+
     @Override public Optional<QueryStateEvent> latestQueryEvent(String queryId) {
         Objects.requireNonNull(queryId, "queryId");
         try {

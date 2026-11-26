@@ -40,11 +40,11 @@ final class JournalTaskIssuanceSql {
     private static final String TASK_ROWS_16 = TASK_ROWS_15 + ", " + TASK_ROW;
     private static final String INSERT_PREFIX = """
             WITH locked AS MATERIALIZED (
-                SELECT expires_at FROM execution_anchor
+                SELECT expires_at, recovery_drain_state FROM execution_anchor
                 WHERE execution_id = ? AND owner_id = ? AND owner_incarnation = ? AND fencing_token = ?
                 FOR SHARE
             ), authorized AS MATERIALIZED (
-                SELECT 1 FROM locked WHERE expires_at > clock_timestamp()
+                SELECT 1 FROM locked WHERE expires_at > clock_timestamp() AND recovery_drain_state <> 2
             ), issued (
             """ + JournalEventSql.TASK_COLUMNS + ") AS (VALUES ";
     private static final String INSERT_SUFFIX = """

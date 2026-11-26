@@ -13,6 +13,8 @@ public final class ExecutionAnchorFence {
             + "fencing_token, expires_at > clock_timestamp() AS live "
             + "FROM public.execution_anchor WHERE execution_id = ?";
     private static final String LOCKED_LIVE_ANCHOR = LIVE_ANCHOR + " FOR SHARE";
+    private static final String CLEANUP_ANCHOR = LIVE_ANCHOR
+            + " AND recovery_drain_state <> 1 FOR SHARE";
 
     private ExecutionAnchorFence() {}
 
@@ -22,18 +24,31 @@ public final class ExecutionAnchorFence {
             String queryId,
             ExecutionOwnerIdentity requested,
             boolean lock) throws SQLException {
-        String sql = lock ? LOCKED_LIVE_ANCHOR : LIVE_ANCHOR;
-        try (PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setString(1, queryId);
-            try (ResultSet row = statement.executeQuery()) {
-                if (!row.next() || !row.getBoolean("live")
-                        || !row.getString("owner_id").equals(requested.getOwnerId())
-                        || !row.getString("owner_incarnation")
-                                .equals(requested.getOwnerIncarnation())
-                        || row.getLong("fencing_token") != requested.getFencingToken()) {
-                    throw new SecurityException(
-                            "shuffle execution owner is not the live durable anchor");
-                }
+        try (PreparedStatement statement = lock ? connection.prepareStatement(LOCKED_LIVE_ANCHOR)
+                : connection.prepareStatement(LIVE_ANCHOR)) {
+            requireOwner(statement, queryId, requested);
+        }
+    }
+
+    /** Requires either the original execution or proven predecessor exit before adopting cleanup. */
+    public static void requireCleanupOwner(Connection connection, String queryId, ExecutionOwnerIdentity requested)
+            throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(CLEANUP_ANCHOR)) {
+            requireOwner(statement, queryId, requested);
+        }
+    }
+
+    private static void requireOwner(PreparedStatement statement, String queryId, ExecutionOwnerIdentity requested)
+            throws SQLException {
+        statement.setString(1, queryId);
+        try (ResultSet row = statement.executeQuery()) {
+            if (!row.next() || !row.getBoolean("live")
+                    || !row.getString("owner_id").equals(requested.getOwnerId())
+                    || !row.getString("owner_incarnation")
+                            .equals(requested.getOwnerIncarnation())
+                    || row.getLong("fencing_token") != requested.getFencingToken()) {
+                throw new SecurityException(
+                        "shuffle execution owner is not the live durable anchor");
             }
         }
     }

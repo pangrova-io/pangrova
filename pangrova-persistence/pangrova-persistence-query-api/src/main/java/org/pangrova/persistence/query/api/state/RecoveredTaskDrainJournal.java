@@ -19,6 +19,14 @@ public interface RecoveredTaskDrainJournal {
     /** Retains validated Worker receipts for this claim. Returns false after the exact grant expires or changes. */
     boolean retainTaskDrains(ExecutionAnchor claim, List<DrainReceipt> receipts);
 
+    /** Closes the terminal SQL predecessor's issuance only after exact drain coverage is proven. */
+    DrainOutcome confirmRecoveredTaskDrains(ExecutionAnchor claim);
+
+    /** Outcomes of an authoritative drain check under the current execution fence. */
+    enum DrainOutcome {
+        LOST_CLAIM, NO_SQL_EVIDENCE, AWAITING_TERMINAL, MISSING_ISSUANCE, PENDING_RECEIPTS, CONFIRMED
+    }
+
     /** Original immutable task issuance and its opaque paging key. */
     record IssuedAttempt(long rowId, TaskStateEvent event) { }
 

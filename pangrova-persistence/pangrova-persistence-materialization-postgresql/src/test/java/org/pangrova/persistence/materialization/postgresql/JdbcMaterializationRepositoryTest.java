@@ -280,6 +280,7 @@ class JdbcMaterializationRepositoryTest extends ContainerTestBase {
         assertThat(replayed.generation().id()).isEqualTo(generationId);
         assertReaderPinFailure(dataSource, repository, generationId, now, failure, rollbackFailure);
         assertReaderNamespacesIsolated(repository, generationId, now);
+        assertSqlReaderCannotPinAfterTakeover(dataSource, repository, generationId, now);
         assertThat(repository.findObject(object).orElseThrow().revision()).isEqualTo(1);
 
         PublishCommand stale = new PublishCommand(object, 0, candidate, attempt, evidence, fence,
@@ -366,6 +367,36 @@ class JdbcMaterializationRepositoryTest extends ContainerTestBase {
 
         assertThat(repository.findObject(object)).isEmpty();
         assertTransactionFailure(caught, failure, rollbackFailure);
+    }
+
+    private static void assertSqlReaderCannotPinAfterTakeover(DataSource dataSource,
+            MaterializationRepository repository, GenerationId generation, Instant now) throws SQLException {
+        String queryId = "pin-proof-" + java.util.UUID.randomUUID();
+        var pin = new ReaderPin(generation, ReaderId.query(new QueryId(queryId)), "reader", now.plusSeconds(60), now);
+        try (var connection = dataSource.getConnection(); var insert = connection.prepareStatement("""
+                INSERT INTO execution_anchor (execution_id, owner_id, owner_incarnation, fencing_token,
+                    acquired_at, expires_at)
+                VALUES (?, 'prior', 'prior-boot', nextval('execution_anchor_token_seq'),
+                    clock_timestamp(), clock_timestamp() + INTERVAL '1 minute')
+                """)) {
+            insert.setString(1, queryId);
+            assertThat(insert.executeUpdate()).isOne();
+        }
+        repository.pinActiveQueryReader(pin);
+        assertReaderPinCount(dataSource, pin, 1);
+        try (var connection = dataSource.getConnection(); var takeover = connection.prepareStatement("""
+                UPDATE execution_anchor SET owner_id='successor', owner_incarnation='next-boot',
+                    fencing_token=nextval('execution_anchor_token_seq'), recovery_drain_state=1
+                WHERE execution_id=?
+                """)) {
+            takeover.setString(1, queryId);
+            assertThat(takeover.executeUpdate()).isOne();
+        }
+        assertThat(catchThrowable(() -> repository.pinActiveQueryReader(pin))).isInstanceOf(
+                MaterializationException.class);
+        assertReaderPinCount(dataSource, pin, 1);
+        repository.releaseReaderPin(generation, pin.reader());
+        assertReaderPinCount(dataSource, pin, 0);
     }
 
     private static void assertReaderNamespacesIsolated(MaterializationRepository repository,

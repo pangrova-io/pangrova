@@ -114,7 +114,7 @@ class RoleBasedDeploymentTest {
     }
 
     @Test
-    void queryRoleRecoversACommittedSealAndPersistsTheMatchingExitReceipt() throws Exception {
+    void recoveredTerminalRetainsItsSlotUntilTheExactWorkerExitReceipt() throws Exception {
         var configuration = withAuthority(queryRole("task-drain-successor"));
         var jdbc = configuration.metadataJdbcConfig();
         var source = new PGSimpleDataSource();
@@ -123,11 +123,12 @@ class RoleBasedDeploymentTest {
         source.setPassword(jdbc.password());
         SchemaMigrationRunner.migrate(source);
         var anchors = new JdbcExecutionAnchorStore(source);
-        var prior = anchors.tryAcquire("terminal-with-issuance", "prior", "prior-incarnation", Duration.ofMinutes(1))
-                .orElseThrow();
+        var prior = anchors.tryAcquireLimitedQuery("terminal-with-issuance", "prior", "prior-incarnation",
+                Duration.ofMinutes(1), "recovery-slot", 1).orElseThrow().anchor();
         var seal = recoverySeal(prior);
         var receipt = CanonicalTaskAdmissionSeals.closedWithoutOwner(seal).toByteArray();
         var delivered = new CompletableFuture<TaskAdmissionSealRequest>();
+        var exited = new java.util.concurrent.atomic.AtomicBoolean();
         var peer = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         peer.createContext("/v1/task/recovery-attempt", exchange -> {
             try (exchange) {
@@ -136,6 +137,10 @@ class RoleBasedDeploymentTest {
                     return;
                 }
                 delivered.complete(TaskAdmissionSealRequest.parseFrom(exchange.getRequestBody().readAllBytes()));
+                if (!exited.get()) {
+                    exchange.sendResponseHeaders(202, -1);
+                    return;
+                }
                 exchange.getResponseHeaders().set("Content-Type", "application/x-protobuf");
                 exchange.sendResponseHeaders(200, receipt.length);
                 exchange.getResponseBody().write(receipt);
@@ -158,21 +163,30 @@ class RoleBasedDeploymentTest {
             bootstrap.start();
 
             assertThat(delivered.get(10, TimeUnit.SECONDS)).isEqualTo(seal);
-            org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
-                    assertThat(retainedWorkerReceipt(source, prior.executionId())).isEqualTo(receipt));
             assertThat(anchors.current(prior.executionId())).hasValueSatisfying(anchor ->
                     assertThat(anchor.ownerId()).isEqualTo("task-drain-successor"));
+            assertRecoveredResources(source, prior.executionId(), 1);
+            exited.set(true);
+            org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(20)).untilAsserted(() ->
+                    assertRecoveredResources(source, prior.executionId(), 0));
         } finally {
             peer.stop(0);
         }
     }
 
-    private static byte[] retainedWorkerReceipt(PGSimpleDataSource source, String queryId) throws Exception {
-        try (var connection = source.getConnection(); var statement = connection.prepareStatement(
-                "SELECT recovery_drain_receipt FROM task_state_journal WHERE query_id = ?")) {
+    private static void assertRecoveredResources(PGSimpleDataSource source, String queryId, int expected)
+            throws Exception {
+        try (var connection = source.getConnection(); var statement = connection.prepareStatement("""
+                WITH target(id) AS (VALUES (CAST(? AS text)))
+                SELECT (SELECT COUNT(*) FROM execution_anchor a, target WHERE a.execution_id = target.id),
+                       (SELECT COUNT(*) FROM task_state_journal t, target WHERE t.query_id = target.id),
+                       (SELECT COUNT(*) FROM tenant_concurrency_queries q, target WHERE q.query_id = target.id),
+                       (SELECT active_count FROM tenant_concurrency_slots WHERE tenant_id = 'recovery-slot')
+                """)) {
             statement.setString(1, queryId);
             try (var rows = statement.executeQuery()) {
-                return rows.next() ? rows.getBytes(1) : null;
+                assertThat(rows.next()).isTrue();
+                for (int i = 1; i <= 4; i++) assertThat(rows.getInt(i)).isEqualTo(expected);
             }
         }
     }

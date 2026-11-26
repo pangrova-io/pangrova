@@ -1,6 +1,5 @@
 package org.pangrova.server.coordinator.bootstrap;
 
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -102,7 +101,12 @@ final class QueryDurableRecovery implements AutoCloseable {
             }
             return batch;
         };
-        cleanupAction = queryDispatcher::retryPendingShuffleCleanup;
+        cleanupAction = queryId -> {
+            var query = queryManager.getStateMachine(queryId);
+            if (query != null && query.isTerminal() && dispatcher.tryCleanupUnadmittedQuery(queryId)) {
+                dispatcher.retryPendingShuffleCleanup(queryId);
+            }
+        };
     }
 
     void wireHighAvailability(
@@ -187,30 +191,25 @@ final class QueryDurableRecovery implements AutoCloseable {
             deferred = writeCommitRecoveryService.recover(tokens, service::validateDurableExecutionToken)
                     .deferredExecutionIds();
         }
-        // Keep deferred writes out of ordinary query and shuffle recovery until they can publish.
-        Set<String> handled = new HashSet<>(deferred);
+        // Write handoff precedes task reconciliation. Shuffle cleanup waits for worker exit proof.
         for (ExecutionAnchor anchor : claimed) {
             if (deferred.contains(anchor.executionId())) {
                 service.yieldExecution(anchor);
             }
         }
-        handled.addAll(recoverShuffleCleanupIntents(claimed, deferred));
-        return Set.copyOf(handled);
+        return deferred;
     }
 
-    private Set<String> recoverShuffleCleanupIntents(List<ExecutionAnchor> claimed, Set<String> deferred) {
-        if (shuffleCleanupIntents == null) {
-            return Set.of();
-        }
-        Set<String> eligible = claimed.stream().map(ExecutionAnchor::executionId)
-                .filter(id -> !deferred.contains(id)).collect(Collectors.toUnmodifiableSet());
-        Set<String> pending = shuffleCleanupIntents.pendingForQueries(eligible);
-        for (ExecutionAnchor anchor : claimed) {
-            if (pending.contains(anchor.executionId())) {
-                queryDispatcher.retryPendingShuffleCleanup(anchor.executionId());
+    boolean releaseRecoveredQuery(ExecutionAnchor claim) {
+        var service = liveCoordination.get();
+        if (service == null) throw new IllegalStateException("execution recovery is not initialized");
+        if (shuffleCleanupIntents != null) {
+            var owner = new ShuffleExecutionOwner(claim.ownerId(), claim.ownerIncarnation(), claim.fencingToken());
+            if (shuffleCleanupIntents.prepareProvenRecovery(claim.executionId(), owner)) {
+                queryDispatcher.retryPendingShuffleCleanup(claim.executionId());
             }
         }
-        return pending;
+        return service.releaseDrainedRecoveryClaim(claim, shuffleCleanupIntents != null);
     }
 
     private void submitShuffleCleanupScan(Executor cleanupExecutor) {

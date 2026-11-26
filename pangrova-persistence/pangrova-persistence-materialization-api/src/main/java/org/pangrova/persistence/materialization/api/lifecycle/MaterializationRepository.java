@@ -449,6 +449,11 @@ public interface MaterializationRepository {
      */
     void pinReader(ReaderPin pin);
 
+    /** Pins a SQL reader only while its durable fresh execution can still admit work. */
+    default void pinActiveQueryReader(ReaderPin pin) {
+        throw new UnsupportedOperationException("Durable query reader authority is unavailable");
+    }
+
     /**
      * Releases a reader pin.
      *

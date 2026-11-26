@@ -241,6 +241,21 @@ final class QueryOwnershipRegistry {
         return retire(anchor.executionId(), current -> sameOwner(current, anchor), store::release);
     }
 
+    boolean releaseDrainedQuery(ExecutionAnchor anchor, boolean remoteShuffle) {
+        // A remote scope or commit can still be pending. Keep the local grant renewable while it is live.
+        Ownership retiring = claimRetirement(anchor.executionId(), current -> sameOwner(current, anchor));
+        if (retiring == null) return false;
+        try {
+            if (store.releaseDrainedQuery(anchor, remoteShuffle)) {
+                ownership.remove(anchor.executionId(), retiring);
+                return true;
+            }
+            return false;
+        } finally {
+            ownership.replace(anchor.executionId(), retiring, new Ownership(retiring.anchor(), false));
+        }
+    }
+
     boolean yield(ExecutionAnchor anchor) {
         return retire(anchor.executionId(), current -> sameOwner(current, anchor), store::yield);
     }

@@ -26,6 +26,8 @@ import org.pangrova.query.api.journal.TaskStateEvent;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.pangrova.persistence.query.api.state.RecoveredTaskDrainJournal.DrainOutcome;
+import org.pangrova.persistence.query.api.state.RecoveredTaskDrainJournal.DrainReceipt;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -305,6 +307,44 @@ class JdbcQueryStateJournalIntegrationTest {
         var laterOwner = store.tryAcquire(terminal.executionId(), "third", "third-boot", lease).orElseThrow();
         assertFalse(journal.retainTaskDrains(recoveredTerminal, receipts));
         assertThat(journal.pendingTaskDrains(laterOwner, 0)).hasSize(4);
+    }
+
+    @Test
+    void provesOnlyCoveredTerminalAttemptsAndClosesSameClaimIssuance() {
+        var store = new JdbcExecutionAnchorStore(dataSource);
+        var lease = Duration.ofMinutes(1);
+        var original = store.tryAcquire("proof-terminal", "prior", "prior-boot", lease).orElseThrow();
+        var missing = store.tryAcquire("proof-missing", "prior", "prior-boot", lease).orElseThrow();
+        var active = store.tryAcquire("proof-active", "prior", "prior-boot", lease).orElseThrow();
+        for (var anchor : List.of(original, missing, active)) {
+            String state = anchor.equals(active) ? "RUNNING" : "FAILED";
+            journal.appendQueryEventSync(new QueryStateEvent(JournalEventContext.create(101, "prior"),
+                    anchor.executionId(), "SELECT 1", "{}", state));
+            journal.appendTaskIssuancesSync(recoveryIssuances(anchor, 0, 1));
+            assertTrue(store.yield(anchor));
+        }
+        var claim = store.tryAcquire(original.executionId(), "successor", "next-boot", lease).orElseThrow();
+        var missingClaim = store.tryAcquire(missing.executionId(), "successor", "next-boot", lease).orElseThrow();
+        var activeClaim = store.tryAcquire(active.executionId(), "successor", "next-boot", lease).orElseThrow();
+        assertEquals(DrainOutcome.LOST_CLAIM, journal.confirmRecoveredTaskDrains(original));
+        assertEquals(DrainOutcome.PENDING_RECEIPTS, journal.confirmRecoveredTaskDrains(claim));
+        for (var recovered : List.of(claim, missingClaim, activeClaim)) {
+            var attempt = journal.pendingTaskDrains(recovered, 0).get(0);
+            assertTrue(journal.retainTaskDrains(recovered, List.of(new DrainReceipt(attempt.rowId(), new byte[] {1}))));
+        }
+        journal.appendTaskEventSync(new TaskStateEvent(JournalEventContext.create(106, "prior"),
+                original.executionId(), "task-0", "worker-id", "FINISHED", 1, 1));
+        journal.appendTaskEventSync(new TaskStateEvent(JournalEventContext.create(106, "prior"),
+                missing.executionId(), "unbound-report", "worker-id", "FINISHED", 1, 1));
+        assertEquals(DrainOutcome.CONFIRMED, journal.confirmRecoveredTaskDrains(claim));
+        assertEquals(DrainOutcome.MISSING_ISSUANCE, journal.confirmRecoveredTaskDrains(missingClaim));
+        assertEquals(DrainOutcome.AWAITING_TERMINAL, journal.confirmRecoveredTaskDrains(activeClaim));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                journal.appendTaskIssuancesSync(recoveryIssuances(claim, 1, 1)))
+                .isInstanceOf(org.pangrova.persistence.query.api.exception.JournalWriteException.class);
+        assertFalse(store.releaseDrainedQuery(missingClaim, false));
+        assertTrue(store.releaseDrainedQuery(claim, false));
+        assertEquals(DrainOutcome.LOST_CLAIM, journal.confirmRecoveredTaskDrains(claim));
     }
 
     private List<TaskStateEvent> recoveryIssuances(

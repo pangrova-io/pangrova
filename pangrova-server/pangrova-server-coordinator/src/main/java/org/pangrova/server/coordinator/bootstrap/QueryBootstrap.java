@@ -229,7 +229,7 @@ final class QueryBootstrap {
                 "coordinator-shuffle-cleanup", 4, 64);
         if (stateJournal instanceof org.pangrova.persistence.query.api.state.RecoveredTaskDrainJournal drainJournal) {
             recoveredTaskDrains = new RecoveredTaskDrainPoll(drainJournal, remoteTaskDispatcher::recoverTaskDrain,
-                    shuffleCleanupExecutor, config.workerHealthCheckIntervalMs());
+                    this::releaseDrainedRecovery, shuffleCleanupExecutor, config.workerHealthCheckIntervalMs());
         }
         if (readerPinLeases != null) {
             readerPinRenewalExecutor = ManagedExecutorFactory.newBoundedThreadPool(
@@ -494,7 +494,7 @@ final class QueryBootstrap {
         }
         var repository = metadataBootstrap.materializationRepository();
         return repository == null ? null
-                : new org.pangrova.materialization.usecase.ReaderPinLeases(
+                : org.pangrova.materialization.usecase.ReaderPinLeases.forActiveQueries(
                         repository, java.time.Instant::now);
     }
 
@@ -563,6 +563,12 @@ final class QueryBootstrap {
     JournaledCdcRuntime.WorkerDispatch cdcWorkerDispatch(HighAvailabilityCoordinationService service) {
         return new JournaledCdcRuntime.WorkerDispatch(service, queryDispatcher.taskDispatcher(),
                 queryDispatcher.workerSelector(), taskTracker, taskStatusReceiver, stateJournal);
+    }
+
+    private boolean releaseDrainedRecovery(org.pangrova.execution.api.ownership.ExecutionAnchor claim) {
+        // A replayed live projection still has process-local lifecycle owners.
+        if (queryManager.getStateMachine(claim.executionId()) != null) return true;
+        return durableRecovery.releaseRecoveredQuery(claim);
     }
 
     void trackRecoveredTaskDrains(java.util.List<org.pangrova.execution.api.ownership.ExecutionAnchor> claims) {

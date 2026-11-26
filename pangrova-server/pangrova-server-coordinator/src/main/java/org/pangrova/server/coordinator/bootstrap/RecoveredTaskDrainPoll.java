@@ -32,6 +32,7 @@ final class RecoveredTaskDrainPoll implements AutoCloseable {
 
     private final RecoveredTaskDrainJournal journal;
     private final Function<TaskStateEvent, CompletableFuture<SchedulerCancelResult>> seal;
+    private final java.util.function.Predicate<ExecutionAnchor> retire;
     private final Executor executor;
     private final long retryNanos;
     private final CoordinatorCallbackLifetime callbacks = new CoordinatorCallbackLifetime();
@@ -45,9 +46,10 @@ final class RecoveredTaskDrainPoll implements AutoCloseable {
 
     RecoveredTaskDrainPoll(RecoveredTaskDrainJournal journal,
             Function<TaskStateEvent, CompletableFuture<SchedulerCancelResult>> seal,
-            Executor executor, long retryMillis) {
+            java.util.function.Predicate<ExecutionAnchor> retire, Executor executor, long retryMillis) {
         this.journal = journal;
         this.seal = seal;
+        this.retire = retire;
         this.executor = executor;
         retryNanos = TimeUnit.MILLISECONDS.toNanos(retryMillis);
     }
@@ -199,7 +201,20 @@ final class RecoveredTaskDrainPoll implements AutoCloseable {
         if (page.size() == RecoveredTaskDrainJournal.PAGE_SIZE) {
             return new Scan(current.claim(), page.get(page.size() - 1).rowId(), unresolved, System.nanoTime());
         }
-        return unresolved ? new Scan(current.claim(), 0, false, System.nanoTime() + retryNanos) : null;
+        if (unresolved) return retrySweep(current);
+        return switch (journal.confirmRecoveredTaskDrains(current.claim())) {
+            case PENDING_RECEIPTS -> retrySweep(current);
+            case CONFIRMED -> retire.test(current.claim()) ? null : retrySweep(current);
+            case MISSING_ISSUANCE -> {
+                LOG.warn("event=recovered_task_drain_incomplete_issuance queryId={}", current.claim().executionId());
+                yield null;
+            }
+            case LOST_CLAIM, NO_SQL_EVIDENCE, AWAITING_TERMINAL -> null;
+        };
+    }
+
+    private Scan retrySweep(Scan current) {
+        return new Scan(current.claim(), 0, false, System.nanoTime() + retryNanos);
     }
 
     /** One unavailable attempt must not discard the receipts or callback lifetime of its peers. */

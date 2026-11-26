@@ -66,7 +66,7 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
             """;
     private static final String REPLACE_EXPIRED =
             "UPDATE execution_anchor SET owner_id=?, owner_incarnation=?, fencing_token=?, "
-                    + "acquired_at=?, expires_at=?, version=version+1 "
+                    + "acquired_at=?, expires_at=?, version=version+1, recovery_drain_state=1 "
                     + "WHERE execution_id=? AND fencing_token=? AND version=? AND expires_at<=? "
                     + "AND NOT EXISTS (SELECT 1 FROM execution_read_window w "
                     + "WHERE w.execution_id=execution_anchor.execution_id "
@@ -109,7 +109,30 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
                 SELECT release_tenant_query_slot(execution_id, NULL, TRUE) AS released FROM removed
             )
             SELECT EXISTS (SELECT 1 FROM retained) OR EXISTS (SELECT 1 FROM removed),
-                   COALESCE((SELECT bool_and(released) FROM slots), TRUE)
+                   COALESCE((SELECT bool_and(released) FROM slots), TRUE),
+                   EXISTS (SELECT 1 FROM removed)
+            """;
+    private static final String DRAINED_FOR_RETIREMENT = """
+            SELECT 1 FROM execution_anchor a
+            WHERE a.execution_id = ? AND a.recovery_drain_state = 2 AND a.expires_at > clock_timestamp()
+            """;
+    private static final String REMOTE_DRAINED_FOR_RETIREMENT = DRAINED_FOR_RETIREMENT + """
+            AND NOT EXISTS (SELECT 1 FROM shuffle.shuffle_query_scope s WHERE s.query_id = a.execution_id)
+            AND NOT EXISTS (SELECT 1 FROM shuffle.shuffle_cleanup_intent i WHERE i.query_id = a.execution_id)
+            """;
+    private static final String PURGE_RECOVERED_QUERY = """
+            WITH target(query_id) AS (VALUES (CAST(? AS text))),
+            pins AS (
+                DELETE FROM materialization.reader_pins p USING target t
+                WHERE p.reader_kind = 'QUERY' AND p.reader_id = t.query_id
+            ), tasks AS (
+                DELETE FROM task_state_journal j USING target t WHERE j.query_id = t.query_id
+            )
+            DELETE FROM query_state_journal q USING target t
+            WHERE q.query_id = t.query_id AND NOT EXISTS (
+                SELECT 1 FROM query_state_journal accepted
+                WHERE accepted.query_id = t.query_id AND accepted.idempotency_key_digest IS NOT NULL
+            )
             """;
     private static final String YIELD =
             "UPDATE execution_anchor SET expires_at=?, version=version+1 "
@@ -326,11 +349,44 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
             // The admission lock orders same-ID reservation and retirement before tenant or anchor row locks.
             // Start a fresh statement after the row lock so a preceding write intent is visible.
             boolean released = lockRetirement(connection, anchor)
-                    && releaseLockedAnchor(connection, anchor);
+                    && releaseLockedAnchor(connection, anchor).completed();
             connection.commit();
             return released;
         } catch (SQLException failure) {
             throw storeFailure("release", anchor.executionId(), failure);
+        }
+    }
+
+    @Override
+    public boolean releaseDrainedQuery(ExecutionAnchor anchor, boolean remoteShuffle) {
+        Objects.requireNonNull(anchor, "anchor");
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            if (!lockRetirement(connection, anchor)
+                    || !readyForRecoveredRetirement(connection, anchor.executionId(), remoteShuffle)
+                    || !releaseLockedAnchor(connection, anchor).removed()) {
+                connection.rollback();
+                return false;
+            }
+            try (var statement = connection.prepareStatement(PURGE_RECOVERED_QUERY)) {
+                statement.setString(1, anchor.executionId());
+                statement.executeUpdate();
+            }
+            connection.commit();
+            return true;
+        } catch (SQLException failure) {
+            throw storeFailure("release drained query", anchor.executionId(), failure);
+        }
+    }
+
+    private static boolean readyForRecoveredRetirement(Connection connection, String executionId,
+            boolean remoteShuffle) throws SQLException {
+        try (var statement = remoteShuffle ? connection.prepareStatement(REMOTE_DRAINED_FOR_RETIREMENT)
+                : connection.prepareStatement(DRAINED_FOR_RETIREMENT)) {
+            statement.setString(1, executionId);
+            try (var rows = statement.executeQuery()) {
+                return rows.next();
+            }
         }
     }
 
@@ -360,7 +416,9 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
         }
     }
 
-    private static boolean releaseLockedAnchor(Connection connection, ExecutionAnchor anchor)
+    private record Retirement(boolean completed, boolean removed) { }
+
+    private static Retirement releaseLockedAnchor(Connection connection, ExecutionAnchor anchor)
             throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(RELEASE)) {
             bindOwner(statement, 1, anchor);
@@ -369,7 +427,7 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
                     connection.rollback();
                     throw new IllegalStateException("cluster admission ownership/count mismatch");
                 }
-                return result.getBoolean(1);
+                return new Retirement(result.getBoolean(1), result.getBoolean(3));
             }
         }
     }

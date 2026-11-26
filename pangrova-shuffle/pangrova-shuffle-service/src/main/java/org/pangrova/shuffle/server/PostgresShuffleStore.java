@@ -262,7 +262,7 @@ final class PostgresShuffleStore implements ShuffleLifecycleStore {
             String queryId, ExecutionOwnerIdentity owner, long expiresAtMs) {
         transaction(dataSource, connection -> {
             requireFutureExpiry(connection, expiresAtMs);
-            ExecutionAnchorFence.requireLiveOwner(connection, queryId, owner, true);
+            ExecutionAnchorFence.requireCleanupOwner(connection, queryId, owner);
             QueryScope scope = lockExistingQueryScope(connection, queryId);
             if (scope == null) {
                 return null;

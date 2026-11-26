@@ -238,6 +238,32 @@ class JdbcShuffleCleanupIntentStoreIntegrationTest {
         assertThat(second).containsExactly(prefix + "-3");
     }
 
+    @Test
+    void onlyTheProvenSuccessorCanAdoptAPredecessorScopeWithoutAnIntent() throws Exception {
+        String queryId = "drained-recovery-" + UUID.randomUUID();
+        seedAnchor(queryId);
+        try (var connection = dataSource.getConnection()) {
+            seedScope(connection, queryId, new ShuffleExecutionOwner("predecessor", "older-boot", 6));
+        }
+        setDrainState(queryId, 1);
+        assertThatThrownBy(() -> store.prepareProvenRecovery(queryId, OWNER))
+                .isInstanceOf(SecurityException.class).hasMessageContaining("predecessor exit proof");
+        assertThat(store.isPending(queryId)).isFalse();
+        setDrainState(queryId, 2);
+        assertThat(store.prepareProvenRecovery(queryId, OWNER)).isTrue();
+        assertThat(store.isPending(queryId)).isTrue();
+        assertThat(store.pendingForOwner(OWNER.ownerId(), 100)).doesNotContain(queryId);
+    }
+
+    private static void setDrainState(String queryId, int state) throws Exception {
+        try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement(
+                "UPDATE public.execution_anchor SET recovery_drain_state = ? WHERE execution_id = ?")) {
+            statement.setInt(1, state);
+            statement.setString(2, queryId);
+            assertThat(statement.executeUpdate()).isOne();
+        }
+    }
+
     private static void seedAnchor(String queryId) throws Exception {
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(

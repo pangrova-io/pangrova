@@ -46,6 +46,50 @@ public final class JdbcShuffleCleanupIntentStore implements ShuffleCleanupIntent
         }
     }
 
+    /** Ensures a proven predecessor has a cleanup intent if its remote scope still exists. */
+    public boolean prepareProvenRecovery(String queryId, ShuffleExecutionOwner owner) {
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                if (requireLiveAnchor(connection, queryId, owner) != 2) {
+                    throw new SecurityException("Recovered Shuffle cleanup lacks predecessor exit proof");
+                }
+                boolean pending = recordRecoveredIntent(connection, queryId);
+                connection.commit();
+                return pending;
+            } catch (SQLException | RuntimeException failure) {
+                try {
+                    connection.rollback();
+                } catch (SQLException rollback) {
+                    if (rollback != failure) failure.addSuppressed(rollback);
+                }
+                throw failure;
+            }
+        } catch (SQLException failure) {
+            throw new IllegalStateException("shuffle recovery cleanup intent persistence failed", failure);
+        }
+    }
+
+    private static boolean recordRecoveredIntent(Connection connection, String queryId) throws SQLException {
+        try (var statement = connection.prepareStatement("""
+                WITH target(query_id) AS (VALUES (CAST(? AS text))),
+                allocated AS MATERIALIZED (
+                    SELECT s.query_id FROM shuffle.shuffle_query_scope s JOIN target t USING (query_id)
+                ), recorded AS (
+                    INSERT INTO shuffle.shuffle_cleanup_intent (query_id)
+                    SELECT query_id FROM allocated ON CONFLICT (query_id) DO NOTHING
+                )
+                SELECT EXISTS (SELECT 1 FROM allocated)
+                       OR EXISTS (SELECT 1 FROM shuffle.shuffle_cleanup_intent i JOIN target t USING (query_id))
+                """)) {
+            statement.setString(1, queryId);
+            try (var rows = statement.executeQuery()) {
+                if (!rows.next()) throw new SQLException("Recovered Shuffle intent returned no outcome");
+                return rows.getBoolean(1);
+            }
+        }
+    }
+
     /** Returns whether cleanup remains due, including after Coordinator restart. */
     @Override
     public boolean isPending(String queryId) {
@@ -101,6 +145,7 @@ public final class JdbcShuffleCleanupIntentStore implements ShuffleCleanupIntent
                         "SELECT i.query_id FROM shuffle.shuffle_cleanup_intent i "
                                 + "JOIN public.execution_anchor a ON a.execution_id = i.query_id "
                                 + "WHERE a.owner_id = ? AND a.expires_at > clock_timestamp() "
+                                + "AND a.recovery_drain_state = 0 "
                                 + "AND (? IS NULL OR i.query_id > ?) "
                                 + "ORDER BY i.query_id LIMIT ?")) {
             statement.setString(1, ownerId);
@@ -124,12 +169,12 @@ public final class JdbcShuffleCleanupIntentStore implements ShuffleCleanupIntent
         }
     }
 
-    private static void requireLiveAnchor(
+    private static int requireLiveAnchor(
             Connection connection, String queryId, ShuffleExecutionOwner owner)
             throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "SELECT owner_id, owner_incarnation, fencing_token, "
-                        + "expires_at > clock_timestamp() AS live "
+                        + "expires_at > clock_timestamp() AS live, recovery_drain_state "
                         + "FROM public.execution_anchor WHERE execution_id = ? FOR UPDATE")) {
             statement.setString(1, queryId);
             try (ResultSet rows = statement.executeQuery()) {
@@ -139,6 +184,7 @@ public final class JdbcShuffleCleanupIntentStore implements ShuffleCleanupIntent
                         || rows.getLong("fencing_token") != owner.fencingToken()) {
                     throw new SecurityException("shuffle cleanup intent owner is not live");
                 }
+                return rows.getInt("recovery_drain_state");
             }
         }
     }

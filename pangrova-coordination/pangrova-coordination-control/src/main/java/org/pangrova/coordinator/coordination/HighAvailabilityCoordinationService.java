@@ -331,6 +331,11 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
         return ownership.release(anchor);
     }
 
+    /** Retires a drained SQL predecessor, preserving grants that still own durable dependencies. */
+    public boolean releaseDrainedRecoveryClaim(ExecutionAnchor anchor, boolean remoteShuffle) {
+        return ownership.releaseDrainedQuery(anchor, remoteShuffle);
+    }
+
     /** Relinquishes one failed recovery claim without marking the query complete. */
     public boolean yieldExecution(ExecutionAnchor anchor) {
         return ownership.yield(anchor);

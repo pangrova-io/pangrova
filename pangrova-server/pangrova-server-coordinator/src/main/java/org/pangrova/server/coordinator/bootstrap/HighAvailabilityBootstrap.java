@@ -208,17 +208,18 @@ final class HighAvailabilityBootstrap {
                 return;
             }
             var ordinaryClaims = claimed.stream().filter(anchor -> !isArtifactExecution(anchor)).toList();
-            var deferredOrShufflePending = query.recoverWriteCommitIntents(ordinaryClaims, haService);
+            var deferredWrites = query.recoverWriteCommitIntents(ordinaryClaims, haService);
             var queryIds = ordinaryClaims.stream()
                     .map(ExecutionAnchor::executionId)
-                    .filter(id -> !deferredOrShufflePending.contains(id))
+                    .filter(id -> !deferredWrites.contains(id))
                     .collect(java.util.stream.Collectors.toUnmodifiableSet());
             var recovered = new JournalRecoveryService(
                     journal, queryManager, taskTracker, workerManager,
                     null, workerLivenessGraceMs).recoverClaimed(queryIds);
             settleRecoveryClaims(claimed, recovered.withoutJournalEvidence());
             query.trackRecoveredTaskDrains(ordinaryClaims.stream()
-                    .filter(anchor -> !recovered.withoutJournalEvidence().contains(anchor.executionId()))
+                    .filter(anchor -> !deferredWrites.contains(anchor.executionId())
+                            && !recovered.withoutJournalEvidence().contains(anchor.executionId()))
                     .toList());
             LOG.info("event=execution_anchor_recovery_completed "
                             + "queriesClaimed={} queriesRecovered={} graceMs={}",

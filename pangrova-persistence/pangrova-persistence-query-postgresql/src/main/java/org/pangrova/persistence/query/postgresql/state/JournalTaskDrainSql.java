@@ -28,6 +28,50 @@ final class JournalTaskDrainSql {
             ORDER BY t.id LIMIT ?
             """;
 
+    // Anchor locking and this proof use separate READ COMMITTED snapshots. A same-token
+    // issuance that held FOR SHARE before our lock must be visible to the proof.
+    private static final String LOCK_CLAIM = CLAIM + " FOR UPDATE";
+    private static final String CONFIRM = """
+            WITH claim AS MATERIALIZED (
+            """ + CLAIM + """
+                AND expires_at > clock_timestamp() AND recovery_drain_state IN (1, 2)
+            ), outcome AS MATERIALIZED (
+                SELECT CASE
+                    WHEN NOT EXISTS (SELECT 1 FROM claim) THEN 'LOST_CLAIM'
+                    WHEN EXISTS (SELECT 1 FROM execution_anchor a JOIN claim c USING (execution_id)
+                                 WHERE a.recovery_drain_state = 2) THEN 'CONFIRMED'
+                    WHEN NOT EXISTS (SELECT 1 FROM query_state_journal q JOIN claim c ON q.query_id = c.execution_id)
+                        THEN 'NO_SQL_EVIDENCE'
+                    WHEN NOT EXISTS (SELECT 1 FROM query_state_journal q JOIN claim c ON q.query_id = c.execution_id
+                                     WHERE q.state IN ('FINISHED', 'FAILED', 'CANCELLED'))
+                        THEN 'AWAITING_TERMINAL'
+                    WHEN NOT EXISTS (SELECT 1 FROM task_state_journal t JOIN claim c ON t.query_id = c.execution_id
+                                     WHERE t.admission_seal IS NOT NULL)
+                         OR EXISTS (
+                             SELECT 1 FROM task_state_journal t JOIN claim c ON t.query_id = c.execution_id
+                             WHERE t.owner_fencing_token >= c.fencing_token
+                                OR (t.admission_seal IS NULL AND NOT EXISTS (
+                                    SELECT 1 FROM task_state_journal issued
+                                    WHERE issued.query_id = t.query_id AND issued.task_id = t.task_id
+                                      AND issued.worker_id = t.worker_id AND issued.stage_id = t.stage_id
+                                      AND issued.coordinator_id = t.coordinator_id
+                                      AND issued.admission_seal IS NOT NULL
+                                ))
+                         ) THEN 'MISSING_ISSUANCE'
+                    WHEN EXISTS (
+                        SELECT 1 FROM task_state_journal t JOIN claim c ON t.query_id = c.execution_id
+                        WHERE t.admission_seal IS NOT NULL AND t.recovery_drain_receipt IS NULL
+                    ) THEN 'PENDING_RECEIPTS'
+                    ELSE 'CONFIRMED'
+                END AS state
+            ), sealed AS (
+                UPDATE execution_anchor a SET recovery_drain_state = 2
+                FROM claim c, outcome o
+                WHERE a.execution_id = c.execution_id AND o.state = 'CONFIRMED' AND a.recovery_drain_state = 1
+            )
+            SELECT state FROM outcome
+            """;
+
     private static final String RETAIN = """
             WITH locked AS MATERIALIZED (
             """ + CLAIM + """
@@ -78,6 +122,36 @@ final class JournalTaskDrainSql {
                 if (!rows.next()) throw new SQLException("Task drain update returned no outcome");
                 return rows.getBoolean(1);
             }
+        }
+    }
+
+    static RecoveredTaskDrainJournal.DrainOutcome confirm(Connection connection, ExecutionAnchor claim)
+            throws SQLException {
+        connection.setAutoCommit(false);
+        try (var lock = connection.prepareStatement(LOCK_CLAIM)) {
+            bindClaim(lock, claim);
+            try (var rows = lock.executeQuery()) {
+                if (!rows.next()) {
+                    connection.rollback();
+                    return RecoveredTaskDrainJournal.DrainOutcome.LOST_CLAIM;
+                }
+            }
+            try (var statement = connection.prepareStatement(CONFIRM)) {
+                bindClaim(statement, claim);
+                try (var rows = statement.executeQuery()) {
+                    if (!rows.next()) throw new SQLException("Task drain proof returned no outcome");
+                    var outcome = RecoveredTaskDrainJournal.DrainOutcome.valueOf(rows.getString(1));
+                    connection.commit();
+                    return outcome;
+                }
+            }
+        } catch (SQLException | RuntimeException failure) {
+            try {
+                connection.rollback();
+            } catch (SQLException rollback) {
+                if (rollback != failure) failure.addSuppressed(rollback);
+            }
+            throw failure;
         }
     }
 

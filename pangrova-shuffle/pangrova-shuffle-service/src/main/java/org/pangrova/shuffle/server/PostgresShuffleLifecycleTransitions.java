@@ -121,7 +121,7 @@ final class PostgresShuffleLifecycleTransitions {
     Optional<CleanupPlan> beginCleanup(CleanupCommand command, CleanupLease lease) {
         String queryId = command.queryId();
         CleanupAdmission admission = transaction(dataSource, connection -> {
-            ExecutionAnchorFence.requireLiveOwner(connection, queryId, command.owner(), true);
+            ExecutionAnchorFence.requireCleanupOwner(connection, queryId, command.owner());
             PostgresShuffleStore.QueryScope scope = PostgresShuffleStore.lockExistingQueryScope(connection, queryId);
             if (scope == null) {
                 deleteCleanupIntent(connection, queryId);

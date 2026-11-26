@@ -89,6 +89,11 @@ public interface ExecutionAnchorStore {
      */
     boolean release(ExecutionAnchor anchor);
 
+    /** Retires a proven terminal SQL predecessor and its durable pins under the exact recovery fence. */
+    default boolean releaseDrainedQuery(ExecutionAnchor anchor, boolean remoteShuffle) {
+        throw new UnsupportedOperationException("Durable query drain retirement is unavailable");
+    }
+
     /** Makes one exact fenced execution immediately eligible for takeover. */
     boolean yield(ExecutionAnchor anchor);
 
