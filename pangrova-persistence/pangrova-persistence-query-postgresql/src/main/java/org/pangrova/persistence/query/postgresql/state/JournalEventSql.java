@@ -41,8 +41,11 @@ final class JournalEventSql {
             + "AND state = 'QUEUED' ORDER BY id LIMIT 1 FOR UPDATE";
     private static final String SELECT_TASK_EVENT = "SELECT " + TASK_COLUMNS
             + " FROM task_state_journal WHERE event_id = ?";
-    private static final String SELECT_TERMINAL_TIMESTAMP = "SELECT MAX(timestamp_ms) FROM query_state_journal "
-            + "WHERE query_id = ? AND state IN ('FINISHED', 'FAILED', 'CANCELLED')";
+    private static final String SELECT_RETIRED_TERMINAL_TIMESTAMP = """
+            SELECT MAX(q.timestamp_ms) FROM query_state_journal q
+            WHERE q.query_id = ? AND q.state IN ('FINISHED', 'FAILED', 'CANCELLED')
+              AND NOT EXISTS (SELECT 1 FROM execution_anchor a WHERE a.execution_id = q.query_id)
+            """;
     private static final int REQUEST_FINGERPRINT_PARAMETER = 11;
     private static final int ACCEPTANCE_RECEIPT_PARAMETER = 12;
     private static final int RETENTION_PARAMETER = 13;
@@ -172,7 +175,7 @@ final class JournalEventSql {
 
     private static boolean isExpired(Connection connection, QueryStateEvent acceptance) throws SQLException {
         Long terminal;
-        try (PreparedStatement select = connection.prepareStatement(SELECT_TERMINAL_TIMESTAMP)) {
+        try (PreparedStatement select = connection.prepareStatement(SELECT_RETIRED_TERMINAL_TIMESTAMP)) {
             select.setString(1, acceptance.queryId());
             try (ResultSet rows = select.executeQuery()) {
                 terminal = rows.next() ? rows.getLong(1) : null;

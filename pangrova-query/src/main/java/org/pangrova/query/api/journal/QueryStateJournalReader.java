@@ -12,14 +12,15 @@ public interface QueryStateJournalReader {
     List<QueryStateEvent> replayActiveQueries();
     /** Returns ordered task facts for active journaled queries. */
     List<TaskStateEvent> replayActiveTasks();
-    /** Reads ordered query and task facts for exactly the claimed executions in one store snapshot. */
+    /** Reads replayable facts and identifies retained evidence within the exact claim in one snapshot. */
     RecoveryBatch replayClaimedQueries(Set<String> queryIds);
 
-    /** Ordered committed facts for the active queries within a single claim batch. */
-    record RecoveryBatch(List<QueryStateEvent> queries, List<TaskStateEvent> tasks) {
+    /** Ordered active facts and the IDs with any committed journal evidence, including skipped terminal facts. */
+    record RecoveryBatch(List<QueryStateEvent> queries, List<TaskStateEvent> tasks, Set<String> observedExecutionIds) {
         public RecoveryBatch {
             queries = List.copyOf(queries);
             tasks = List.copyOf(tasks);
+            observedExecutionIds = Set.copyOf(observedExecutionIds);
         }
     }
 

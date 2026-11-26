@@ -220,6 +220,10 @@ final class QueryOwnershipRegistry {
         return claimed;
     }
 
+    boolean release(ExecutionAnchor anchor) {
+        return retire(anchor.executionId(), current -> sameOwner(current, anchor), store::release);
+    }
+
     boolean yield(ExecutionAnchor anchor) {
         return retire(anchor.executionId(), current -> sameOwner(current, anchor), store::yield);
     }

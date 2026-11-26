@@ -1,7 +1,5 @@
 package org.pangrova.server.coordinator.bootstrap;
 
-import org.pangrova.query.api.enums.QueryState;
-
 import org.pangrova.persistence.workflow.postgresql.generation.PostgresGenerationStores;
 import org.pangrova.persistence.jdbc.api.security.model.CurrentModelAuthority;
 
@@ -20,6 +18,7 @@ import org.pangrova.persistence.coordination.api.membership.CoordinatorRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -216,13 +215,13 @@ final class HighAvailabilityBootstrap {
                     .map(ExecutionAnchor::executionId)
                     .filter(id -> !terminalCleaned.contains(id))
                     .collect(java.util.stream.Collectors.toUnmodifiableSet());
-            int recovered = new JournalRecoveryService(
+            var recovered = new JournalRecoveryService(
                     journal, queryManager, taskTracker, workerManager,
-                    null, workerLivenessGraceMs).recover(queryIds);
-            settleRecoveryClaims(claimed);
+                    null, workerLivenessGraceMs).recoverClaimed(queryIds);
+            settleRecoveryClaims(claimed, recovered.withoutJournalEvidence());
             LOG.info("event=execution_anchor_recovery_completed "
                             + "queriesClaimed={} queriesRecovered={} graceMs={}",
-                    claimed.size(), recovered, workerLivenessGraceMs);
+                    claimed.size(), recovered.recoveredQueries(), workerLivenessGraceMs);
         } catch (Exception e) {
             // NEW-COORD-05: per-entry poison rows are already isolated inside JournalRecoveryService
             // (each query/task replay is try/caught + skipped with a warning). A failure reaching
@@ -242,7 +241,7 @@ final class HighAvailabilityBootstrap {
         }
     }
 
-    private void settleRecoveryClaims(java.util.List<ExecutionAnchor> claimed) {
+    private void settleRecoveryClaims(java.util.List<ExecutionAnchor> claimed, Set<String> withoutJournalEvidence) {
         for (ExecutionAnchor anchor : claimed) {
             var artifact = artifactJob(anchor);
             if (artifact.isPresent()) {
@@ -252,14 +251,15 @@ final class HighAvailabilityBootstrap {
                 if (job.state() == org.pangrova.generation.api.enums.GenerationJobState.PUBLISHED
                         || job.state() == org.pangrova.generation.api.enums.GenerationJobState.FAILED
                         || job.state() == org.pangrova.generation.api.enums.GenerationJobState.CANCELLED) {
-                    haService.releaseQueryOwnership(anchor.executionId(), config.coordinatorId());
+                    haService.releaseRecoveryClaim(anchor);
                 }
                 continue;
             }
-            var state = queryManager.getQueryState(anchor.executionId());
-            if (state.isEmpty() || isTerminal(state.orElseThrow())) {
-                haService.releaseQueryOwnership(
-                        anchor.executionId(), config.coordinatorId());
+            // Admission is committed before dispatch. A local projection or a logical terminal
+            // event does not prove that every originally issued attempt has actually exited.
+            if (withoutJournalEvidence.contains(anchor.executionId())
+                    && queryManager.getStateMachine(anchor.executionId()) == null) {
+                haService.releaseRecoveryClaim(anchor);
             }
         }
     }
@@ -274,12 +274,6 @@ final class HighAvailabilityBootstrap {
         }
         return java.util.Optional.of(artifactExecutions.findExecutionJob(anchor.executionId()).orElseThrow(() ->
                 new IllegalStateException("artifact recovery has no exact durable association")));
-    }
-
-    private static boolean isTerminal(QueryState state) {
-        return state == QueryState.FINISHED
-                || state == QueryState.FAILED
-                || state == QueryState.CANCELLED;
     }
 
     private void recoverExecutionsIfControlLeader() {

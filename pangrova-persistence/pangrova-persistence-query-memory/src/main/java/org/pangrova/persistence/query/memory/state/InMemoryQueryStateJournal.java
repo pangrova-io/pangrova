@@ -2,6 +2,7 @@ package org.pangrova.persistence.query.memory.state;
 
 import org.pangrova.persistence.query.api.enums.JournalAdmissionOutcome;
 
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Objects;
@@ -113,13 +114,17 @@ public final class InMemoryQueryStateJournal implements QueryStateJournal {
     @Override public synchronized RecoveryBatch replayClaimedQueries(Set<String> queryIds) {
         requireOpen();
         Set<String> claimed = Set.copyOf(queryIds);
+        var claimedQueries = queries.values().stream().filter(event -> claimed.contains(event.queryId())).toList();
+        var claimedTasks = tasks.values().stream().filter(event -> claimed.contains(event.queryId())).toList();
         Set<String> terminal = terminalQueries();
-        var queryEvents = queries.values().stream().filter(event ->
-                claimed.contains(event.queryId()) && !terminal.contains(event.queryId())).toList();
+        var queryEvents = claimedQueries.stream().filter(event -> !terminal.contains(event.queryId())).toList();
         Set<String> active = queryEvents.stream().map(QueryStateEvent::queryId)
                 .collect(java.util.stream.Collectors.toSet());
-        var taskEvents = tasks.values().stream().filter(event -> active.contains(event.queryId())).toList();
-        return new RecoveryBatch(queryEvents, taskEvents);
+        var taskEvents = claimedTasks.stream().filter(event -> active.contains(event.queryId())).toList();
+        Set<String> observed = new HashSet<>();
+        claimedQueries.forEach(event -> observed.add(event.queryId()));
+        claimedTasks.forEach(event -> observed.add(event.queryId()));
+        return new RecoveryBatch(queryEvents, taskEvents, observed);
     }
     @Override public synchronized Optional<QueryStateEvent> latestQueryEvent(String queryId) {
         requireOpen();

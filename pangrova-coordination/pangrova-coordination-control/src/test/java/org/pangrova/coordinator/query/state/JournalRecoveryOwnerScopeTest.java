@@ -81,7 +81,7 @@ class JournalRecoveryOwnerScopeTest {
                 journal, queryManager, tracker,
                 null, "coord-1", 0);
 
-        int recovered = recovery.recover(Set.of("q-orphan"));
+        int recovered = recovery.recoverClaimed(Set.of("q-orphan")).recoveredQueries();
 
         assertEquals(1, recovered);
         assertTrue(queryManager.getQueryState("q-orphan").isPresent());

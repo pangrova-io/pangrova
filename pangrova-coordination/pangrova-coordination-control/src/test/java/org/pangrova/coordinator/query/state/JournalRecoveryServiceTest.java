@@ -83,7 +83,9 @@ class JournalRecoveryServiceTest {
                 statement.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public");
             }
             long reads = recoveryReads();
-            assertThat(fixture.recovery.recover(java.util.Set.of("claimed", "missing"))).isEqualTo(1);
+            var recovered = fixture.recovery.recoverClaimed(java.util.Set.of("claimed", "missing"));
+            assertThat(recovered.recoveredQueries()).isEqualTo(1);
+            assertThat(recovered.withoutJournalEvidence()).containsExactly("missing");
             assertThat(recoveryReads() - reads).isEqualTo(1);
             assertThat(fixture.manager.getStateMachine("claimed").hasJournalOwnership()).isTrue();
             assertThat(fixture.manager.getStateMachine("claimed").isOwnedBy("alice")).isTrue();
@@ -164,7 +166,7 @@ class JournalRecoveryServiceTest {
                 var rows = statement.executeQuery("""
                         SELECT COALESCE(SUM(calls), 0) FROM public.pg_stat_statements
                         WHERE query NOT LIKE '%FROM public.pg_stat_statements%'
-                          AND (query LIKE 'WITH claimed_events AS MATERIALIZED%'
+                          AND (query LIKE 'WITH claimed AS MATERIALIZED%'
                                OR query LIKE 'SELECT event_id,% FROM query_state_journal WHERE query_id%'
                                OR query LIKE 'SELECT event_id,% FROM task_state_journal WHERE query_id%')
                         """)) {

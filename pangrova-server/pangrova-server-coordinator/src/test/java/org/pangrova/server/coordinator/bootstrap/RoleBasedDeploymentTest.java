@@ -5,6 +5,14 @@ import org.pangrova.common.client.query.QueryStatusResponse;
 import org.pangrova.common.client.query.SubmitQueryResponse;
 import org.pangrova.common.enums.ResultDisposition;
 import org.pangrova.common.json.JsonMapperFactory;
+import org.pangrova.persistence.jdbc.support.SchemaMigrationRunner;
+import org.pangrova.persistence.query.api.state.StateJournalConfig;
+import org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore;
+import org.pangrova.persistence.query.postgresql.state.JdbcQueryStateJournal;
+import org.pangrova.query.api.journal.JournalEventContext;
+import org.pangrova.query.api.journal.QueryStateEvent;
+import org.pangrova.query.api.journal.TaskStateEvent;
+import org.postgresql.ds.PGSimpleDataSource;
 import org.pangrova.server.coordinator.enums.CoordinatorDeploymentRole;
 import org.pangrova.transport.client.ColumnDescriptor;
 import org.pangrova.transport.client.FlightResultFetcher;
@@ -34,6 +42,58 @@ class RoleBasedDeploymentTest {
     private static final String JOURNAL_LOOKUP = "SELECT%FROM query_state_journal%";
 
     private CoordinatorBootstrap bootstrap;
+
+    @Test
+    void queryRecoveryReleasesAnEmptyClaimAndRetainsTerminalOrTaskEvidence() throws Exception {
+        var configuration = withAuthority(queryRole("recovery-successor"));
+        var jdbc = configuration.metadataJdbcConfig();
+        var source = new PGSimpleDataSource();
+        source.setURL(jdbc.jdbcUrl());
+        source.setUser(jdbc.username());
+        source.setPassword(jdbc.password());
+        SchemaMigrationRunner.migrate(source);
+
+        var terminal = "failed-before-drain";
+        var taskOnly = "task-without-query-projection";
+        var empty = "before-admission";
+        var priorContext = JournalEventContext.create(System.currentTimeMillis(), "prior-coordinator");
+        var journalConfig = new StateJournalConfig("JDBC", jdbc.jdbcUrl(), 20, 20, 24, 1024);
+        try (var journal = new JdbcQueryStateJournal(source, journalConfig)) {
+            journal.appendQueryEventSync(new QueryStateEvent(priorContext, terminal, null, null, "FAILED"));
+            journal.appendTaskEventSync(new TaskStateEvent(priorContext, taskOnly,
+                    "unresolved-task", "prior-worker", "RUNNING", 0, 1));
+        }
+        var anchors = new JdbcExecutionAnchorStore(source);
+        var terminalClaim = expireAnchor(anchors, terminal);
+        var taskClaim = expireAnchor(anchors, taskOnly);
+        expireAnchor(anchors, empty);
+
+        bootstrap = new CoordinatorBootstrap(configuration);
+        bootstrap.start();
+
+        assertThat(anchors.current(terminal)).hasValueSatisfying(anchor -> {
+            assertThat(anchor.ownerId()).isEqualTo("recovery-successor");
+            assertThat(anchor.fencingToken()).isGreaterThan(terminalClaim);
+        });
+        assertThat(anchors.current(taskOnly)).hasValueSatisfying(anchor -> {
+            assertThat(anchor.ownerId()).isEqualTo("recovery-successor");
+            assertThat(anchor.fencingToken()).isGreaterThan(taskClaim);
+        });
+        try (var connection = source.getConnection(); var statement = connection.prepareStatement(
+                "SELECT execution_id FROM execution_anchor WHERE execution_id = ?")) {
+            statement.setString(1, empty);
+            try (var rows = statement.executeQuery()) {
+                assertThat(rows.next()).isFalse();
+            }
+        }
+    }
+
+    private static long expireAnchor(JdbcExecutionAnchorStore anchors, String queryId) {
+        var anchor = anchors.tryAcquire(queryId, "prior-coordinator", "prior-incarnation", Duration.ofMinutes(1))
+                .orElseThrow();
+        assertThat(anchors.yield(anchor)).isTrue();
+        return anchor.fencingToken();
+    }
 
     @AfterEach
     void tearDown() {

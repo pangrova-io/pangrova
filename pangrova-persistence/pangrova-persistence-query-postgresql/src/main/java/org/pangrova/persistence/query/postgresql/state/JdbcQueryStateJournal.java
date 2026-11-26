@@ -5,6 +5,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -30,24 +31,33 @@ public final class JdbcQueryStateJournal implements QueryStateJournal {
     private static final String ACTIVE = "query_id NOT IN (SELECT query_id FROM query_state_journal "
             + "WHERE state IN ('FINISHED','FAILED','CANCELLED'))";
     private static final String REPLAY_CLAIMED = """
-            WITH claimed_events AS MATERIALIZED (
-                SELECT q.* FROM unnest(?::varchar[]) AS claimed(query_id)
-                JOIN query_state_journal q USING (query_id)
-            ), active AS MATERIALIZED (
-                SELECT query_id FROM claimed_events GROUP BY query_id
-                HAVING NOT bool_or(state IN ('FINISHED','FAILED','CANCELLED'))
+            WITH claimed AS MATERIALIZED (
+                SELECT query_id FROM unnest(?::varchar[]) AS ids(query_id)
+            ), claimed_events AS MATERIALIZED (
+                SELECT q.* FROM claimed JOIN query_state_journal q USING (query_id)
+            ), query_facts AS MATERIALIZED (
+                SELECT query_id, bool_or(state IN ('FINISHED','FAILED','CANCELLED')) AS terminal
+                FROM claimed_events GROUP BY query_id
             )
             SELECT 0 AS event_kind, q.id, q.event_id, q.query_id, q.state, q.timestamp_ms, q.coordinator_id,
                    q.sql_text, q.session_json, q.lineage_payload, q.principal, q.idempotency_key_digest,
                    q.request_fingerprint, q.acceptance_receipt_json, q.retention_ms,
                    NULL::varchar AS task_id, NULL::varchar AS worker_id, NULL::integer AS stage_id,
                    NULL::bigint AS report_sequence
-            FROM active JOIN claimed_events q USING (query_id)
+            FROM query_facts JOIN claimed_events q USING (query_id) WHERE NOT terminal
             UNION ALL
             SELECT 1, t.id, t.event_id, t.query_id, t.state, t.timestamp_ms, t.coordinator_id,
                    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
                    t.task_id, t.worker_id, t.stage_id, t.report_sequence
-            FROM active JOIN task_state_journal t USING (query_id)
+            FROM query_facts JOIN task_state_journal t USING (query_id) WHERE NOT terminal
+            UNION ALL
+            SELECT 2, NULL, NULL, claimed.query_id, NULL, NULL, NULL,
+                   NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+                   NULL, NULL, NULL, NULL
+            FROM claimed LEFT JOIN query_facts USING (query_id)
+            WHERE CASE WHEN query_facts.query_id IS NOT NULL THEN query_facts.terminal
+                  ELSE (SELECT true FROM task_state_journal t WHERE t.query_id = claimed.query_id LIMIT 1) IS TRUE
+                  END
             ORDER BY event_kind, id
             """;
 
@@ -138,7 +148,7 @@ public final class JdbcQueryStateJournal implements QueryStateJournal {
 
     @Override public RecoveryBatch replayClaimedQueries(Set<String> queryIds) {
         Set<String> claimed = Set.copyOf(queryIds);
-        if (claimed.isEmpty()) return new RecoveryBatch(List.of(), List.of());
+        if (claimed.isEmpty()) return new RecoveryBatch(List.of(), List.of(), Set.of());
         try {
             return pending.enterSql().perform(dataSource, connection -> readClaimed(connection, claimed));
         } catch (SQLException failure) {
@@ -149,22 +159,25 @@ public final class JdbcQueryStateJournal implements QueryStateJournal {
     private static RecoveryBatch readClaimed(Connection connection, Set<String> claimed) throws SQLException {
         List<QueryStateEvent> queries = new ArrayList<>();
         List<TaskStateEvent> tasks = new ArrayList<>();
+        Set<String> observed = new HashSet<>();
         var ids = connection.createArrayOf("varchar", claimed.toArray(String[]::new));
         try (var statement = connection.prepareStatement(REPLAY_CLAIMED)) {
             statement.setArray(1, ids);
             try (var rows = statement.executeQuery()) {
                 while (rows.next()) {
-                    if (rows.getInt("event_kind") == 0) {
-                        queries.add(JournalEventSql.readQuery(rows));
-                    } else {
-                        tasks.add(JournalEventSql.readTask(rows));
+                    switch (rows.getInt("event_kind")) {
+                        case 0 -> queries.add(JournalEventSql.readQuery(rows));
+                        case 1 -> tasks.add(JournalEventSql.readTask(rows));
+                        case 2 -> { }
+                        default -> throw new SQLException("Unknown recovery row kind");
                     }
+                    observed.add(rows.getString("query_id"));
                 }
             }
         } finally {
             ids.free();
         }
-        return new RecoveryBatch(queries, tasks);
+        return new RecoveryBatch(queries, tasks, observed);
     }
 
     @Override public Optional<QueryStateEvent> latestQueryEvent(String queryId) {
@@ -243,6 +256,9 @@ public final class JdbcQueryStateJournal implements QueryStateJournal {
                         WITH expired AS (
                           SELECT a.query_id FROM query_state_journal a
                           WHERE a.idempotency_key_digest IS NOT NULL
+                            AND NOT EXISTS (
+                              SELECT 1 FROM execution_anchor e WHERE e.execution_id = a.query_id
+                            )
                             AND EXISTS (
                               SELECT 1 FROM query_state_journal t
                               WHERE t.query_id = a.query_id

@@ -149,9 +149,11 @@ class JdbcQueryStateJournalIntegrationTest {
         var empty = journal.replayClaimedQueries(Set.of());
         assertThat(empty.queries()).isEmpty();
         assertThat(empty.tasks()).isEmpty();
+        assertThat(empty.observedExecutionIds()).isEmpty();
         var batch = journal.replayClaimedQueries(Set.of("q-claimed", "q-terminal", "q-orphan", "q-absent"));
         assertThat(batch.queries()).containsExactly(admission, running);
         assertThat(batch.tasks()).containsExactly(task);
+        assertThat(batch.observedExecutionIds()).containsExactlyInAnyOrder("q-claimed", "q-terminal", "q-orphan");
         try (var connection = dataSource.getConnection(); var statement = connection.createStatement();
                 var rows = statement.executeQuery("""
                         SELECT calls, rows FROM pg_stat_statements
@@ -161,7 +163,7 @@ class JdbcQueryStateJournalIntegrationTest {
                         """)) {
             assertTrue(rows.next());
             assertEquals(1L, rows.getLong("calls"));
-            assertEquals(3L, rows.getLong("rows"));
+            assertEquals(5L, rows.getLong("rows"));
             assertFalse(rows.next());
         }
     }
@@ -453,6 +455,37 @@ class JdbcQueryStateJournalIntegrationTest {
         executeSql("UPDATE query_state_journal SET timestamp_ms = timestamp_ms - 120000 WHERE query_id = 'q-sweep'");
         journal.purgeExpiredAcceptances();
         assertThat(countQueryRows("query_state_journal", "q-sweep")).isEqualTo(0);
+    }
+
+    @Test
+    void terminalAcceptanceAndTaskFactsSurviveExpiryDuringOwnerTakeover() throws Exception {
+        String originalId = "q-undrained";
+        var original = acceptanceEvent(originalId, "alice", "a", "b", 60_000);
+        assertThat(journal.acceptQuerySync(original).newExecution()).isTrue();
+        var task = new TaskStateEvent(JournalEventContext.create(100, "original-owner"), originalId,
+                "task-undrained", "worker", "RUNNING", 0, 1);
+        journal.appendTaskEventSync(task);
+        journal.appendQueryEventSync(new QueryStateEvent(
+                JournalEventContext.create(System.currentTimeMillis(), "original-owner"),
+                originalId, null, null, "FAILED"));
+        executeSql("UPDATE query_state_journal SET timestamp_ms = timestamp_ms - 120000 "
+                + "WHERE query_id = 'q-undrained'");
+        var anchors = new org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore(dataSource);
+        var duration = java.time.Duration.ofMinutes(1);
+        var previous = anchors.tryAcquire(originalId, "original-owner", "previous", duration).orElseThrow();
+        assertTrue(anchors.yield(previous));
+
+        journal.purgeExpiredAcceptances();
+        assertThat(journal.acceptQuerySync(acceptanceEvent("q-retry", "alice", "a", "b", 60_000)).acceptance())
+                .isEqualTo(original.acceptance());
+        assertThat(countQueryRows("query_state_journal", originalId)).isEqualTo(2);
+        assertThat(countQueryRows("task_state_journal", originalId)).isEqualTo(1);
+
+        var recovered = anchors.tryAcquire(originalId, "new-owner", "next", duration).orElseThrow();
+        assertTrue(anchors.release(recovered));
+        journal.purgeExpiredAcceptances();
+        assertThat(countQueryRows("query_state_journal", originalId)).isZero();
+        assertThat(countQueryRows("task_state_journal", originalId)).isZero();
     }
 
     @Test

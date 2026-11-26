@@ -113,35 +113,33 @@ public final class JournalRecoveryService {
      * @return the number of queries successfully recovered (not failed)
      */
     public int recover() {
-        return recover(null);
+        if (previousLeaderId == null) {
+            return replay(journal.replayActiveQueries(), journal.replayActiveTasks());
+        }
+        var queryEvents = journal.replayActiveQueriesForOwner(previousLeaderId);
+        var taskEvents = journal.replayActiveTasksForOwner(previousLeaderId);
+        LOG.info("event=journal_recovery_scoped previousLeader={} queryEvents={} taskEvents={}",
+                previousLeaderId, queryEvents.size(), taskEvents.size());
+        return replay(queryEvents, taskEvents);
     }
 
-    /**
-     * Recovers only the supplied query IDs. A null set retains the configured
-     * owner/all scope; an empty set performs no recovery. A claim batch
-     * always includes the complete history for each claimed query across owner
-     * incarnations, including the original admission.
-     */
-    public int recover(Set<String> queryIds) {
-        if (queryIds != null && queryIds.isEmpty()) {
-            return 0;
-        }
-        List<QueryStateEvent> queryEvents;
-        List<TaskStateEvent> taskEvents;
-        if (queryIds != null) {
-            var batch = journal.replayClaimedQueries(queryIds);
-            queryEvents = batch.queries();
-            taskEvents = batch.tasks();
-        } else if (previousLeaderId != null) {
-            queryEvents = journal.replayActiveQueriesForOwner(previousLeaderId);
-            taskEvents = journal.replayActiveTasksForOwner(previousLeaderId);
-            LOG.info("event=journal_recovery_scoped previousLeader={} queryEvents={} taskEvents={}",
-                    previousLeaderId, queryEvents.size(), taskEvents.size());
-        } else {
-            queryEvents = journal.replayActiveQueries();
-            taskEvents = journal.replayActiveTasks();
-        }
+    /** Replays the claim batch and distinguishes missing journal evidence from excluded terminal facts. */
+    public ClaimedRecovery recoverClaimed(Set<String> queryIds) {
+        Set<String> missing = new HashSet<>(queryIds);
+        if (missing.isEmpty()) return new ClaimedRecovery(0, Set.of());
+        var batch = journal.replayClaimedQueries(queryIds);
+        missing.removeAll(batch.observedExecutionIds());
+        return new ClaimedRecovery(replay(batch.queries(), batch.tasks()), missing);
+    }
 
+    /** Recovery result for a batch read from the durable journal. */
+    public record ClaimedRecovery(int recoveredQueries, Set<String> withoutJournalEvidence) {
+        public ClaimedRecovery {
+            withoutJournalEvidence = Set.copyOf(withoutJournalEvidence);
+        }
+    }
+
+    private int replay(List<QueryStateEvent> queryEvents, List<TaskStateEvent> taskEvents) {
         Set<String> recoveredQueries = recoverQueries(queryEvents);
         int tasksRecovered = recoverTasks(taskEvents);
 

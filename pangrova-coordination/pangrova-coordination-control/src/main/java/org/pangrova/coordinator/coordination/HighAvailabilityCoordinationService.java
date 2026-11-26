@@ -319,6 +319,11 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
                 requireLocalIncarnation(), maxBatchSize);
     }
 
+    /** Releases an exact recovery grant after its execution is established to have no remaining work. */
+    public boolean releaseRecoveryClaim(ExecutionAnchor anchor) {
+        return ownership.release(anchor);
+    }
+
     /** Relinquishes one failed recovery claim without marking the query complete. */
     public boolean yieldExecution(ExecutionAnchor anchor) {
         return ownership.yield(anchor);
