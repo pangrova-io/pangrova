@@ -39,12 +39,16 @@ final class IcebergSnapshotResolver {
                                              String refType, String refName) {
         TableIdentifier tableId = TableIdentifier.of(tableName.schema(), tableName.table());
         Table table = catalog.loadTable(tableId);
+        return resolveRefSnapshotId(table, refType, refName);
+    }
+
+    static OptionalLong resolveRefSnapshotId(Table table, String refType, String refName) {
         SnapshotRef ref = table.refs().get(refName);
         if (ref == null) {
             return OptionalLong.empty();
         }
         LOG.info("event=ref_snapshot_resolved table={} refType={} refName={} snapshotId={}",
-                tableName, refType, refName, ref.snapshotId());
+                table.name(), refType, refName, ref.snapshotId());
         return OptionalLong.of(ref.snapshotId());
     }
 }

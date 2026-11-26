@@ -103,7 +103,9 @@ public class SqlCompiler {
             return this;
         }
         CompilerSessionScope scope = CompilerSessionScope.of(session);
-        return new SqlCompiler(Objects.requireNonNull(sessionPlanner.apply(scope), "query planner"),
+        var planningSession = org.pangrova.planner.metadata.catalog.PlanningSnapshotSelectors
+                .preserveDiscoveries(session, scope);
+        return new SqlCompiler(Objects.requireNonNull(sessionPlanner.apply(planningSession), "query planner"),
                 converter, serializer, validator, null, scope);
     }
 

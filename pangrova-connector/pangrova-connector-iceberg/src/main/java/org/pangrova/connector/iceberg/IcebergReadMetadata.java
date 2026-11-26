@@ -152,7 +152,7 @@ abstract class IcebergReadMetadata implements ConnectorMetadata, QuerySnapshotRe
                     var selected = (IcebergTableHandle) selector;
                     requireSameTable(handle, selected);
                     return IcebergReadBindings.bindData(table, selected, check);
-                });
+                }, (type, refName) -> IcebergSnapshotResolver.resolveRefSnapshotId(table, type, refName));
     }
 
     @Override

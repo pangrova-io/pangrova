@@ -17,6 +17,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 
+import org.pangrova.connector.api.metadata.ConnectorReadDiscovery;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.audit.QueryLineageCapture;
 import org.pangrova.planner.analysis.PlannedQuery;
@@ -61,13 +63,15 @@ public final class CompilationPhase implements QueryExecutionPhase {
     }
 
     /** Result of time-travel extraction. */
-    public record TimeTravelResult(String strippedSql, Map<String, Long> snapshotOverrides) {
+    public record TimeTravelResult(String strippedSql, Map<String, Long> snapshotOverrides,
+            Map<QualifiedTableName, ConnectorReadDiscovery> discoveries) {
         public TimeTravelResult {
             snapshotOverrides = Map.copyOf(snapshotOverrides);
+            discoveries = Map.copyOf(discoveries);
         }
 
         public static TimeTravelResult passthrough(String sql) {
-            return new TimeTravelResult(sql, Map.of());
+            return new TimeTravelResult(sql, Map.of(), Map.of());
         }
     }
 
@@ -99,7 +103,7 @@ public final class CompilationPhase implements QueryExecutionPhase {
                 : TimeTravelResult.passthrough(context.sql());
         SqlCompiler currentCompiler = ttResult.snapshotOverrides().isEmpty() ? extractionCompiler
                 : snapshot.forSession(org.pangrova.planner.metadata.catalog.PlanningSnapshotSelectors.bind(
-                        session, ttResult.snapshotOverrides()));
+                        session, ttResult.snapshotOverrides(), ttResult.discoveries()));
         QueryExecutionContext updated = context.withCompiler(currentCompiler)
                 .withTimeTravelResult(ttResult.strippedSql(), ttResult.snapshotOverrides());
 

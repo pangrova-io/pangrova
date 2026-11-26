@@ -4,6 +4,7 @@ import org.pangrova.metadata.api.catalog.CatalogReadAccess;
 import org.pangrova.table.api.ownership.TableControlRecord;
 import org.pangrova.metadata.api.exception.MetadataResolutionException;
 import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.connector.api.metadata.ConnectorMetadata;
 import org.pangrova.connector.api.metadata.ConnectorReadDiscovery;
 import org.pangrova.connector.api.metadata.table.ConnectorReadBinding;
 import org.pangrova.connector.api.metadata.table.ConnectorReadSchemaIdentity;
@@ -17,6 +18,7 @@ import org.pangrova.table.api.statistics.TableControlStatistics;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -31,6 +33,7 @@ public final class PlanningReadBindings implements ConnectorStatisticsProvider {
     private final CatalogReadAccess catalogs;
     private final ConnectorSession authenticatedSession;
     private final CurrentTableStatistics persistedStatistics;
+    private final Map<QualifiedTableName, ConnectorReadDiscovery> selectedDiscoveries;
     private final ConcurrentHashMap<QualifiedTableName, CompletableFuture<AdmittedRead>> bindings =
             new ConcurrentHashMap<>();
 
@@ -46,6 +49,7 @@ public final class PlanningReadBindings implements ConnectorStatisticsProvider {
         this.authenticatedSession = PlanningConnectorSession.bind(session,
                 session.getCatalog().orElse(null), session.getSchema().orElse(null));
         this.persistedStatistics = persistedStatistics;
+        this.selectedDiscoveries = PlanningSnapshotSelectors.discoveries(session);
     }
 
     /** Resolves once; the winning owner performs actual connector I/O without a cache lock. */
@@ -95,9 +99,21 @@ public final class PlanningReadBindings implements ConnectorStatisticsProvider {
                 var admitted = bindings.get(table);
                 if (admitted != null) return discoveredFromBinding(table, admitted);
             }
-            var discovery = metadata.discoverRead(session, new SchemaTableName(table.schema(), table.table()));
+            var discovery = discoverSource(table, session, metadata);
             return discovery == null ? null : MetadataResolvedTable.fromReadBinding(this, table, discovery);
         });
+    }
+
+    private ConnectorReadDiscovery discoverSource(
+            QualifiedTableName table, ConnectorSession session, ConnectorMetadata metadata) {
+        var selected = selectedDiscoveries.get(table);
+        if (selected == null) {
+            return metadata.discoverRead(session, new SchemaTableName(table.schema(), table.table()));
+        }
+        if (selected.metadata() != metadata) {
+            throw new IllegalStateException("Selected source belongs to another catalog deployment: " + table);
+        }
+        return selected;
     }
 
     private MetadataResolvedTable discoveredFromBinding(QualifiedTableName table,
@@ -238,7 +254,7 @@ public final class PlanningReadBindings implements ConnectorStatisticsProvider {
                 : Optional.<TableControlRecord>empty();
         var metadata = catalogs.metadataForQuery(key.catalog(), session);
         var discovered = discovery != null && discovery.metadata() == metadata ? discovery
-                : metadata.discoverRead(session, new SchemaTableName(key.schema(), key.table()));
+                : discoverSource(key, session, metadata);
         if (discovered == null) return new AdmittedRead(Optional.empty(), controlled);
         var handle = discovered.handle();
         var liveHandle = handle;

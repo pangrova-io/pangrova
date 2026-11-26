@@ -28,6 +28,8 @@ import org.pangrova.coordinator.query.execution.security.SecurityPolicyApplier;
 import org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher;
 import org.pangrova.coordinator.query.audit.QueryLineageCapture;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
+import org.pangrova.connector.api.metadata.ConnectorReadDiscovery;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.pangrova.observability.sdk.tracing.QueryTracer;
 import org.pangrova.parser.api.ast.statement.dml.MergeStatement;
@@ -392,31 +394,54 @@ final class QueryPipelineExecutor {
                         context, catalog, schema, table, refType, refName));
     }
 
-    private java.util.OptionalLong resolveRefSnapshot(
+    private Optional<TimeTravelExtractor.ResolvedReference> resolveRefSnapshot(
             QuerySession context,
             String catalog, String schema, String table,
             String refType, String refName) {
         if (catalogRegistry == null) {
-            return java.util.OptionalLong.empty();
+            return Optional.empty();
         }
         String selectedCatalog = canonicalName(catalog, catalogRegistry.listCatalogNames());
         if (selectedCatalog == null) {
-            return java.util.OptionalLong.empty();
+            return Optional.empty();
         }
         securityPolicyApplier.requireBranchRead(selectedCatalog, schema, table, context);
         catalogRegistry.requireVisibleDescriptor(selectedCatalog, context.tenantId());
         var session = org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(
                 context, selectedCatalog, schema);
         var metadata = catalogRegistry.metadataForQuery(selectedCatalog, session);
+        boolean exactLookup = metadata.supportsExactTableNameLookup()
+                && schema.indexOf('.') < 0 && table.indexOf('$') < 0;
+        if (exactLookup) {
+            var discovery = metadata.discoverRead(session, new SchemaTableName(schema, table));
+            if (discovery != null) {
+                return selectReference(new QualifiedTableName(selectedCatalog, schema, table),
+                        discovery, refType, refName);
+            }
+        }
         String selectedSchema = canonicalName(schema, metadata.listSchemaNames(session));
-        if (selectedSchema == null) return java.util.OptionalLong.empty();
+        if (selectedSchema == null) return Optional.empty();
         session = org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(
                 context, selectedCatalog, selectedSchema);
         String selectedTable = canonicalName(table, metadata.listTables(session, java.util.Optional.of(selectedSchema))
                 .stream().map(SchemaTableName::table).toList());
-        if (selectedTable == null) return java.util.OptionalLong.empty();
-        return metadata.resolveRefSnapshotId(session,
-                new SchemaTableName(selectedSchema, selectedTable), refType, refName);
+        if (selectedTable == null) return Optional.empty();
+        var tableName = new SchemaTableName(selectedSchema, selectedTable);
+        var qualified = new QualifiedTableName(selectedCatalog, selectedSchema, selectedTable);
+        if (exactLookup) {
+            var discovery = metadata.discoverRead(session, tableName);
+            return discovery == null ? Optional.empty() : selectReference(qualified, discovery, refType, refName);
+        }
+        var snapshot = metadata.resolveRefSnapshotId(session, tableName, refType, refName);
+        return snapshot.isEmpty() ? Optional.empty() : Optional.of(
+                new TimeTravelExtractor.ResolvedReference(snapshot.getAsLong(), qualified, Optional.empty()));
+    }
+
+    private static Optional<TimeTravelExtractor.ResolvedReference> selectReference(
+            QualifiedTableName table, ConnectorReadDiscovery discovery, String refType, String refName) {
+        var snapshot = discovery.referenceSnapshot().apply(refType, refName);
+        return snapshot.isEmpty() ? Optional.empty() : Optional.of(
+                new TimeTravelExtractor.ResolvedReference(snapshot.getAsLong(), table, Optional.of(discovery)));
     }
 
     private static String canonicalName(String requested, List<String> names) {

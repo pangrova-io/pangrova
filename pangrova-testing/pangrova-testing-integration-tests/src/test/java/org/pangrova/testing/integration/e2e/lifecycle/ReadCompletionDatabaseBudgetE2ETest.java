@@ -19,6 +19,7 @@ import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 
 /** Measures PostgreSQL reads from SQL submission through physical drain. */
@@ -46,6 +47,8 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
             "SELECT DISTINCT table_namespace FROM iceberg_tables WHERE catalog_name = %";
     private static final String ICEBERG_PROPERTY_NAMESPACE_LIST =
             "SELECT DISTINCT namespace FROM iceberg_namespace_properties WHERE catalog_name = %";
+    private static final String ICEBERG_TABLE_LIST =
+            "SELECT * FROM iceberg_tables WHERE catalog_name = $1 AND table_namespace = $2";
     private static final String ICEBERG_NAMED_NAMESPACE_LOOKUP =
             "SELECT table_namespace FROM iceberg_tables WHERE catalog_name = %"
                     + "AND%table_namespace = %OR table_namespace LIKE %LIMIT %";
@@ -205,6 +208,48 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
         assertThat(subjectReads).isOne();
         assertThat(policyReads).isOne();
         assertThat(admissionReads).isEqualTo(tables);
+    }
+
+    @Test
+    void exactNamedVersionSharesTableDiscoveryWithReadBinding() throws SQLException {
+        String table = "iceberg_catalog.default.named_version_database_budget";
+        sqlRunner.executeDdl("CREATE TABLE " + table + " (id BIGINT)");
+        sqlRunner.execute("INSERT INTO " + table + " VALUES (42)");
+        sqlRunner.executeDdl("ALTER TABLE " + table + " CREATE TAG pinned");
+        sqlRunner.execute("INSERT INTO " + table + " VALUES (43)");
+
+        long pointerBefore = calls(ICEBERG_POINTER_LOOKUP);
+        long namespaceBefore = calls(ICEBERG_TABLE_NAMESPACE_LIST) + calls(ICEBERG_PROPERTY_NAMESPACE_LIST);
+        long tablesBefore = icebergTableListings();
+        String named = table + " VERSION AS OF TAG 'pinned'";
+        assertThat(sqlRunner.execute("SELECT id FROM " + named))
+                .extracting(row -> row.getLong("id")).containsExactly(42L);
+
+        long pointers = calls(ICEBERG_POINTER_LOOKUP) - pointerBefore;
+        long namespaces = calls(ICEBERG_TABLE_NAMESPACE_LIST) + calls(ICEBERG_PROPERTY_NAMESPACE_LIST)
+                - namespaceBefore;
+        long tables = icebergTableListings() - tablesBefore;
+        org.slf4j.LoggerFactory.getLogger(ReadCompletionDatabaseBudgetE2ETest.class).info(
+                "event=named_version_catalog_reads pointers={} namespaceLists={} tableLists={}",
+                pointers, namespaces, tables);
+        assertThat(pointers).as("source discovery and live split validation").isEqualTo(2L);
+        assertThat(namespaces).isZero();
+        assertThat(tables).isZero();
+
+        assertThat(sqlRunner.execute("SELECT a.id AS left_id, b.id AS right_id FROM " + named
+                + " a CROSS JOIN " + named + " b")).singleElement().satisfies(row -> {
+                    assertThat(row.getLong("left_id")).isEqualTo(42L);
+                    assertThat(row.getLong("right_id")).isEqualTo(42L);
+                });
+        assertThat(sqlRunner.execute("SELECT id FROM iceberg_catalog.DEFAULT.NAMED_VERSION_DATABASE_BUDGET"
+                + " VERSION AS OF TAG 'pinned'"))
+                .extracting(row -> row.getLong("id")).containsExactly(42L);
+        assertThatThrownBy(() -> sqlRunner.execute("SELECT id FROM " + table + " VERSION AS OF TAG 'missing'"))
+                .hasMessageContaining("Selected source ref is unavailable: missing");
+    }
+
+    private static long icebergTableListings() throws SQLException {
+        return calls(ICEBERG_TABLE_LIST) + calls(ICEBERG_TABLE_LIST + " AND (iceberg_type = %");
     }
 
     @Test

@@ -21,11 +21,11 @@ unlisted: true
 | 事项 | 检查状态与续做条件 |
 |---|---|
 | 初始读准入、目录指针和命名空间 | 双表连接实测 2 次初始读准入和 4 次 Iceberg JDBC 目录指针读取，单表限定名另有 1 次命名空间检查。逐笔区分名称发现、选定快照和 split 前的身份核验。验证同名表重建、目录版本变化、外部快照到期、时间旅行、引号、CTE、视图和显式目录枚举后，再收敛可共享的读取。验收同时记录 SQL 次数、实际元数据对象打开和物理释放。Trino JDBC 在查询关联的目录对象内复用元数据，split 枚举继续使用已选定的快照；借鉴前应验证 Pangrova 现有的 split 前权威检查。[Trino JDBC 目录](https://github.com/trinodb/trino/blob/master/plugin/trino-iceberg/src/main/java/io/trino/plugin/iceberg/catalog/jdbc/TrinoJdbcCatalog.java) · [Trino split 枚举](https://github.com/trinodb/trino/blob/master/plugin/trino-iceberg/src/main/java/io/trino/plugin/iceberg/IcebergSplitManager.java) |
-| 正式发布回归 | 以当前发布提交的 GitHub Actions `Validation result` 为准，包含 Linux 生产镜像回归与适用的 Native 检查。已通过的本地组合范围见下方验证记录。主分支 `833a8d8c6` 的运行记录可查询各任务状态。[GitHub Actions](https://github.com/pangrova-io/pangrova/actions/runs/45387103711) |
+| 正式发布回归 | 以发布提交的 GitHub Actions `Validation result` 为准，包含 Linux 生产镜像回归与适用的 Native 检查。`6d83b0eca` 的 Linux 构建和 ASan/UBSan 已通过，macOS Docker 虚拟机启动失败后生产回归跳过。macOS 流水线修复已合入，`86f403861` 的复测以对应运行记录为准。 [旧运行](https://github.com/pangrova-io/pangrova/actions/runs/45412205156) · [流水线修复](https://github.com/pangrova-io/pangrova/pull/101) · [复测](https://github.com/pangrova-io/pangrova/actions/runs/45777706208) |
 | 同类引擎性能验收 | TPC-H/TPC-DS SF100/SF1000 仍需共享硬件、同一快照及对应配置。收尾检查时仓库没有注册专用 runner，当前会话也缺少受控 TPC 配置。可运行时按独立窗口采集 Trino、Spark 和 Pangrova 的吞吐、P95、首批、完整消费、读写量和结果摘要。 |
 
 下表保留逐阶段验收条件。多 Coordinator 混合负载、跨主机 Shuffle、AQE 偏斜、Velox spill 和高并发写入仍在验收范围。
-本轮的组合回归夹具修复和 Iceberg 历史分片优化已提交。两项的合入及正式 Linux 生产回归以对应 PR 的 `Validation result` 为准。 [组合回归 PR #90](https://github.com/pangrova-io/pangrova/pull/90) · [历史分片 PR #91](https://github.com/pangrova-io/pangrova/pull/91)
+组合回归夹具修复和 Iceberg 历史分片优化已合入 `main`。 [组合回归 PR #90](https://github.com/pangrova-io/pangrova/pull/90) · [历史分片 PR #91](https://github.com/pangrova-io/pangrova/pull/91)
 
 ## 证据口径
 
@@ -38,7 +38,7 @@ unlisted: true
 | 环节 | 剩余工作 | 验收证据 |
 |---|---|---|
 | 客户端、准入和状态 | 扩大已完成的本地固定到达率压测到多 Coordinator，定位过载时点查和分组 P95 上升。验证认证状态投影、客户端重连、长短查询干扰与租户槽位归还 | 每条路径的首批、P95、超时、拒绝、耗尽恢复和零正常状态 SELECT |
-| 多表授权与目录 | 审查逐表的初始读准入与目录读取。具名分支和标签的现有路径枚举命名空间和 schema 内的表，再加载目标表以解析引用。同一具名引用在自连接中逐处解析。把精确名称的引用解析并入读绑定，复用同一份目录元数据。量化大小写回退和显式枚举的实际使用频率 | PostgreSQL 分别记录授权、命名空间枚举、表枚举与目录指针读取。覆盖重复别名、大小写及歧义、CTE、展开视图、缺失或移动的引用、撤权、目录部署变化、表更替和快照到期 |
+| 多表授权与目录 | 审查逐表的初始读准入与目录读取。量化大小写回退和显式枚举的实际使用频率。按同一查询的授权范围合并可共享的读取，继续验证其他连接器的具名快照 | PostgreSQL 分别记录授权、命名空间枚举、表枚举与目录指针读取。覆盖重复别名、大小写及歧义、CTE、展开视图、缺失或移动的引用、撤权、目录部署变化、表更替和快照到期 |
 | SQL 预处理与规划 | 普通 SQL 也经过 `TimeTravelSqlClauses` 的完整 ANTLR 解析，随后进入规划器解析。量化解析 CPU 和分配，再让时间旅行选择器、视图展开和规划共享同一份语法结构 | 对照简单点查、复杂 JOIN、CTE、引号及错误 SQL 的解析次数、线程分配、源位置与完整结果。验证语法限额及不合法快照选择器的错误路径 |
 | 快照和 split 枚举 | 扩展动态过滤的连接器、类型和晚到覆盖，验证对未下发分片的影响。大文件按合法范围拆分，小文件按工作量组包。有界枚举与实际读放大按连接器验证 | 冻结相同快照与授权。比较 split 数、实际对象 GET 和读取字节，覆盖缺失、晚到、失败、删除文件、快照演进和取消 |
 | 计划、分配和控制面 | 测量实际多 Worker 混合负载下，多个大请求同时解码、排队及 Native 创建时的驻留内存和尾时延。量化下游准备隔离在固定到达率、受阻目录 I/O 与写入混合负载下的 P95。以混合负载校准单输入 AQE 的阈值和尾时延，再验证多输入、偏斜拆分和持久重放 | 基线和候选完成同一完整结果。检查覆盖、滞后、重试、投机获胜和 durable replay |
@@ -674,6 +674,8 @@ gRPC 单块输入直接复用已校验的 Protobuf payload 和摘要。多块输
 补充验证覆盖 SDK 缓存包装器中已过期的快照、当前 owner 变化、历史声明和快照 pin 生命周期。修正本地 Maven 进程的 UTF-8 locale 后，最终代码的 Iceberg 包内 301 项测试和独立双 Worker E2E 通过。
 
 Iceberg 在读绑定阶段验证历史声明及其相邻版本文件，分片枚举继续复核当前表与已选快照，直接从快照的 schema ID 取物理列。含真实 Parquet 文件、列重命名和后续元数据提交的 SDK 对照中，绑定读取 5 份历史元数据，分片阶段的历史元数据读取从 5 次降到 0 次。分片仍携带原快照 ID。Iceberg 模块 416 项测试和 macOS arm64 角色包 43 项端到端测试通过，覆盖实际时间旅行、分支和标签、双 Worker Shuffle 与 PostgreSQL 查询预算。739 项角色清单 SHA-256 为 `3c31c4c2323e1d8383ded1f9c4b204a423ac6c4d0221d6f5da58c64b7571b9e3`。
+
+精确命名的 Iceberg JDBC 分支和标签复用一次表加载来选定引用和绑定读快照。同一语句的重复别名复用该引用解析。以主分支 `86f403861` 为基线，两套角色包在实际 PostgreSQL 和 Flight 上执行同一标签查询并返回历史行 42。目录指针读取从 3 次降到 2 次，命名空间枚举从 2 次降到 0，表枚举从 1 次降到 0。两次指针读取分别服务于精确名称发现和分片前的快照核验。26 项定向测试与 29 项端到端测试通过，覆盖同表别名、大小写回退、缺失标签、Iceberg 分支和 Paimon 标签。在测试模块对齐 Commons IO 版本后，Testcontainers 能将 TLS 文件复制到测试容器。
 
 实施批次 2 移除了 split pull HTTP 路由、Worker 客户端、配置和租约回收器。Worker 拓扑直接更新缓存亲和放置。真实 Coordinator 上两个旧 POST 路由都返回 404，放置、启动、取消和 Shuffle 回收定向测试通过。实时 Stage 在签发前校验整组 split，之后复用已解析的 Protobuf 与冻结的 Substrait 字节和摘要。持久任务使用从已认领分区解析出的同一份 split 绑定产物和构造请求。任务封装与绑定的 51 项定向用例、真实独立双 Worker 的 Join 和全局 Top-K E2E、基准工具的 113 项测试均通过。SF100/SF1000 仍需专用环境中的跨引擎测量。
 
