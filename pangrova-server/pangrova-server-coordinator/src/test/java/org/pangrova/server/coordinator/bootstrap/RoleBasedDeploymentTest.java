@@ -22,6 +22,11 @@ import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
 import org.pangrova.protocol.v2.TaskAdmissionSealRequest;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.protocol.v2.WorkerExecutionIdentity;
+import org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore;
+import org.pangrova.security.api.enums.TenantRole;
+import org.pangrova.security.api.enums.TenantStatus;
+import org.pangrova.security.api.tenant.ResourceQuota;
+import org.pangrova.security.api.tenant.Tenant;
 import org.postgresql.ds.PGSimpleDataSource;
 import org.pangrova.server.coordinator.enums.CoordinatorDeploymentRole;
 import org.pangrova.transport.client.ColumnDescriptor;
@@ -30,6 +35,7 @@ import org.pangrova.transport.client.FlightResultFetcher;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.pangrova.coordinator.testinfra.SignedOidcIssuer;
 
 import java.net.InetSocketAddress;
 import java.net.URI;
@@ -79,7 +85,9 @@ class RoleBasedDeploymentTest {
         var anchors = new JdbcExecutionAnchorStore(source);
         var terminalClaim = expireAnchor(anchors, terminal);
         var taskClaim = expireAnchor(anchors, taskOnly);
-        expireAnchor(anchors, empty);
+        var beforeAdmission = anchors.tryAcquireLimitedQuery(empty, "prior", "prior-incarnation",
+                Duration.ofMinutes(1), "limited-tenant", 1).orElseThrow().anchor();
+        assertThat(anchors.yield(beforeAdmission)).isTrue();
 
         bootstrap = new CoordinatorBootstrap(configuration);
         bootstrap.start();
@@ -92,11 +100,15 @@ class RoleBasedDeploymentTest {
             assertThat(anchor.ownerId()).isEqualTo("recovery-successor");
             assertThat(anchor.fencingToken()).isGreaterThan(taskClaim);
         });
-        try (var connection = source.getConnection(); var statement = connection.prepareStatement(
-                "SELECT execution_id FROM execution_anchor WHERE execution_id = ?")) {
+        try (var connection = source.getConnection(); var statement = connection.prepareStatement("""
+                SELECT active_count, NOT EXISTS (SELECT 1 FROM execution_anchor WHERE execution_id = ?)
+                FROM tenant_concurrency_slots WHERE tenant_id = 'limited-tenant'
+                """)) {
             statement.setString(1, empty);
             try (var rows = statement.executeQuery()) {
-                assertThat(rows.next()).isFalse();
+                assertThat(rows.next()).isTrue();
+                assertThat(rows.getInt(1)).isZero();
+                assertThat(rows.getBoolean(2)).isTrue();
             }
         }
     }
@@ -252,6 +264,97 @@ class RoleBasedDeploymentTest {
         }
     }
 
+    @Test
+    void concurrentHttpOwnersShareTheBoundSlotUntilQueryDrain() throws Exception {
+        try (var issuer = new SignedOidcIssuer()) {
+            exerciseTwoCoordinatorQuota(issuer);
+        }
+    }
+
+    private void exerciseTwoCoordinatorQuota(SignedOidcIssuer issuer) throws Exception {
+        var base = queryRole("quota-primary");
+        var flags = new CoordinatorBootstrapConfig.FeatureFlags(
+                false, false, false, false, false, false, true, false, false,
+                false, false, false, false, base.featureFlags().shuffleMode(), java.util.List.of(),
+                base.featureFlags().shuffleProvider(), java.util.Map.of());
+        var security = new CoordinatorBootstrapConfig.SecurityConfig("OAUTH2", "quota-test-internal-secret",
+                java.util.Map.of("issuerUri", issuer.uri(), "audience", "bootstrap-tests"));
+        var configuration = withAuthority(new CoordinatorBootstrapConfig(base.core(), flags, base.query(),
+                base.transport(), base.workerHealth(), null, security, base.observabilityBootstrapConfig()));
+        String authorization = "Bearer " + issuer.token("bootstrap-tests", true);
+        bootstrap = new CoordinatorBootstrap(configuration);
+        bootstrap.start();
+
+        var source = bootstrap.metadataDataSource();
+        var quota = new ResourceQuota(1L << 30, 1, 100, 60_000, 1L << 30, 100, 1L << 40, 1L << 40);
+        var tenants = new JdbcTenantStore(source);
+        tenants.createTenant(new Tenant("http-slot", "HTTP slot", TenantStatus.ACTIVE, quota,
+                java.util.List.of(), java.util.List.of(), null, java.util.Map.of(), java.time.Instant.EPOCH, "test"));
+        tenants.addUserToTenant("http-slot", "alice", TenantRole.MEMBER);
+
+        var peer = new CoordinatorBootstrap(new CoordinatorBootstrapConfig(queryRole("quota-peer").core(),
+                configuration.featureFlags(), configuration.query(), configuration.transport(),
+                configuration.workerHealth(), configuration.metadataJdbcConfig(), configuration.securityConfig(),
+                configuration.observabilityBootstrapConfig()));
+        peer.start();
+        try {
+            try (var connection = source.getConnection(); var statement = connection.createStatement()) {
+                statement.execute("""
+                        CREATE FUNCTION wait_before_query_journal() RETURNS trigger LANGUAGE plpgsql AS $$
+                        BEGIN
+                            PERFORM pg_advisory_xact_lock(hashtext(current_schema()), 713);
+                            RETURN NEW;
+                        END;
+                        $$;
+                        CREATE TRIGGER wait_before_query_journal BEFORE INSERT ON query_state_journal
+                        FOR EACH ROW WHEN (NEW.state = 'QUEUED') EXECUTE FUNCTION wait_before_query_journal()
+                        """);
+            }
+            var client = HttpClient.newHttpClient();
+            CompletableFuture<HttpResponse<String>> submitted;
+            try (var guard = source.getConnection(); var statement = guard.createStatement()) {
+                guard.setAutoCommit(false);
+                statement.execute("SELECT pg_advisory_xact_lock(hashtext(current_schema()), 713)");
+                submitted = client.sendAsync(showRequest(bootstrap.getHttpPort(), null, authorization),
+                        HttpResponse.BodyHandlers.ofString());
+                org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(6))
+                        .until(() -> boundHttpQuota(source) == 1);
+                var rejected = client.send(showRequest(peer.getHttpPort(), null, authorization),
+                        HttpResponse.BodyHandlers.ofString());
+                assertThat(rejected.statusCode()).as("%s", rejected.body()).isEqualTo(429);
+                assertThat(rejected.body()).contains("TENANT-0001");
+                assertThat(submitted).isNotDone();
+                guard.rollback();
+            }
+            var response = submitted.get(10, TimeUnit.SECONDS);
+            assertThat(response.statusCode()).as("%s", response.body()).isEqualTo(200);
+            var receipt = JsonMapperFactory.create().readValue(response.body(), SubmitQueryResponse.class);
+            try (var fetcher = new FlightResultFetcher();
+                 var cursor = fetcher.open(receipt.resultEndpoint(), System.currentTimeMillis() + 5_000)) {
+                assertThat(cursor.next()).isFalse();
+            }
+            org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(8))
+                    .until(() -> boundHttpQuota(source) == 0
+                            && bootstrap.getQueryManager().getStateMachine(receipt.queryId()).status().drained());
+        } finally {
+            peer.shutdown();
+        }
+    }
+
+    private static int boundHttpQuota(javax.sql.DataSource source) throws Exception {
+        try (var connection = source.getConnection(); var statement = connection.createStatement();
+             var result = statement.executeQuery("""
+                     SELECT COUNT(*), COUNT(a.execution_id) FILTER (WHERE q.execution_bound)
+                     FROM tenant_concurrency_queries q
+                     LEFT JOIN execution_anchor a ON a.execution_id = q.query_id
+                     WHERE q.tenant_id = 'http-slot'
+                     """)) {
+            assertThat(result.next()).isTrue();
+            assertThat(result.getInt(1)).isEqualTo(result.getInt(2));
+            return result.getInt(1);
+        }
+    }
+
     private static CoordinatorBootstrapConfig queryRole(String coordinatorId) {
         return new CoordinatorBootstrapConfig(
                 new CoordinatorBootstrapConfig.CoreConfig(coordinatorId, 0,
@@ -263,16 +366,19 @@ class RoleBasedDeploymentTest {
     }
 
     private static SubmitQueryResponse submitShow(HttpClient client, int port, String idempotencyKey) throws Exception {
+        var response = client.send(showRequest(port, idempotencyKey, null), HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).as("%s", response.body()).isEqualTo(200);
+        return JsonMapperFactory.create().readValue(response.body(), SubmitQueryResponse.class);
+    }
+
+    private static HttpRequest showRequest(int port, String idempotencyKey, String authorization) {
         var request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/v1/query/submit"))
                 .timeout(Duration.ofSeconds(10))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString("{\"query\":\"SHOW DYNAMIC TABLES\"}"));
-        if (idempotencyKey != null) {
-            request.header("Idempotency-Key", idempotencyKey);
-        }
-        var response = client.send(request.build(), HttpResponse.BodyHandlers.ofString());
-        assertThat(response.statusCode()).as("%s", response.body()).isEqualTo(200);
-        return JsonMapperFactory.create().readValue(response.body(), SubmitQueryResponse.class);
+        if (idempotencyKey != null) request.header("Idempotency-Key", idempotencyKey);
+        if (authorization != null) request.header("Authorization", authorization);
+        return request.build();
     }
 
     private void assertProfileReadBudget(String queryId) throws Exception {

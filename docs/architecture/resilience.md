@@ -245,7 +245,13 @@ public class CircuitBreakerConfig {
 
 The query admission breaker acquires a probe for one local submission. The terminal owner settles that probe once. Expected tenant quota, policy and validation rejections and explicit cancellation release the probe without recording a health outcome. Successful queries and infrastructure failures continue to inform the breaker. An open admission breaker or a draining Coordinator returns HTTP 503 with `COORDINATOR-0002`. Tenant quota rejections return HTTP 429 with `TENANT-0001`. This includes saturation in the shared slot store when capacity remains in the local Coordinator view.
 
-The PostgreSQL store reserves capacity and inserts its exact owner in one statement within the same transaction. The release statement locks the tenant row, deletes the matching owner, and decrements the count for the deleted owner. Explicit diagnostic requests can observe the count. Routine admission responses use the quota decision returned by the reservation. Shared slot saturation returns HTTP 429 immediately. Workload queues retain their own scheduling and backlog policy. An available memory estimate is checked before reserving capacity. A definitive refusal discards the provisional release action. A failed acknowledgement keeps that action available for the physical cleanup of the exact query owner. [PostgreSQL INSERT](https://www.postgresql.org/docs/16/sql-insert.html) · [PostgreSQL WITH](https://www.postgresql.org/docs/16/queries-with.html)
+For a PostgreSQL-backed Coordinator, SQL query admission commits the tenant slot and the exact
+execution anchor together. Shared slot saturation returns HTTP 429 from the reservation outcome.
+Explicit diagnostic requests can observe the count. Workload queues retain their scheduling and
+backlog policy. After physical cleanup, a fenced transaction retires the exact anchor, removes its
+matching slot, and decrements the tenant count. A write recovery handoff keeps both records. An
+uncertain transaction acknowledgement leaves any committed slot discoverable through the same
+execution anchor. [PostgreSQL INSERT](https://www.postgresql.org/docs/16/sql-insert.html) · [PostgreSQL WITH](https://www.postgresql.org/docs/16/queries-with.html)
 
 A submission resolves its authenticated membership and active tenant together. The Scheduler uses the concurrency and memory limits supplied by that authority read. Later placement cohorts observe their current tenant policy. An identity without tenant membership receives HTTP 403 with `SECURITY-0002`.
 

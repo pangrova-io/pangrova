@@ -1227,7 +1227,17 @@ under a row lock for the takeover decision.
 
 A live DAG with a verified read-only plan skips the write commit journal during task completion. Query finalization still checks the current execution anchor and evaluates the lease against the PostgreSQL clock in the same SELECT. Write publication and recovery keep their durable commit checks.
 
-After physical cleanup, ownership release locks the execution anchor and starts a fresh PostgreSQL statement. That statement computes the database time, evaluates the write recovery obligation, and retires the exact owner. An unresolved, unquarantined write expires the anchor for takeover. A release with no outstanding write recovery deletes the anchor. A write intent that commits while release waits for the lock is visible to the retirement statement.
+PostgreSQL admits a tenant-scoped SQL query by reserving its concurrency slot and creating
+the execution anchor in the same transaction. The grant also captures the tenant publication
+epoch. A full tenant quota creates no anchor or query journal record.
+
+The Coordinator keeps the anchor while Worker tasks, Shuffle, connectors, reader pins,
+and local admission finish cleanup. Final release takes the same per-execution admission
+lock and locks the anchor row. A fresh statement then reads the backend clock and any
+write-recovery obligation, including an intent that committed while release waited on
+the row lock. An unresolved, unquarantined write yields the anchor and keeps the slot
+for its successor. Otherwise the exact fenced anchor and its slot retire in one
+transaction. A recovered pre-journal grant uses the same retirement operation.
 
 Terminal publication can complete while local operations, required journal
 publication or exact Worker drain receipts are still outstanding. The cleanup

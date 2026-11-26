@@ -51,6 +51,24 @@ public interface ExecutionAnchorStore {
     }
 
     /**
+     * Acquires a fresh query, reserves its tenant slot, and samples publication visibility in one transaction.
+     * @throws TenantCapacityExceeded if the tenant has no available query slot
+     */
+    default Optional<QueryAcquisition> tryAcquireLimitedQuery(String executionId, String ownerId,
+            String ownerIncarnation, Duration leaseDuration, String tenantId, int maxConcurrentQueries) {
+        throw new UnsupportedOperationException("Atomic durable query admission is unavailable");
+    }
+
+    /** The durable tenant capacity gate denied the candidate. */
+    final class TenantCapacityExceeded extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+
+        public TenantCapacityExceeded(String tenantId, int capacity) {
+            super("concurrent query limit reached for tenant " + tenantId + " (capacity " + capacity + ")");
+        }
+    }
+
+    /**
      * Renews every live anchor held by one exact process incarnation in one batch.
      *
      * <p>The immutable receipt contains the exact execution identity, process,

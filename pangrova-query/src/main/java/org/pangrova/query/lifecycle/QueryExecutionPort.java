@@ -35,6 +35,11 @@ public interface QueryExecutionPort extends QueryExecutionCleanup {
     /** Acquires durable execution ownership and samples the authenticated tenant's publication revision. */
     Ownership acquireQueryOwnership(String queryId, String tenantId);
 
+    /** Atomically acquires fresh SQL execution ownership and reserves one authorized tenant slot. */
+    default Ownership acquireLimitedQueryOwnership(String queryId, String tenantId, int maxConcurrentQueries) {
+        throw new UnsupportedOperationException("Atomic durable query admission is unavailable");
+    }
+
     /** Exact grant and publication revision for the submitted query, or a process-local grant. */
     record Ownership(boolean acquired, OptionalLong publicationRevision, ExecutionAnchor anchor) {
         public Ownership(boolean acquired, OptionalLong publicationRevision) {
@@ -42,7 +47,7 @@ public interface QueryExecutionPort extends QueryExecutionCleanup {
         }
     }
 
-    /** Releases only the candidate execution grant without implying local issuance cleanup. */
+    /** Releases the execution grant after its local or recovered dependencies have drained. */
     void releaseQueryOwnership(String queryId);
 
     /** Binds the exact connector authority for the query lifetime. */

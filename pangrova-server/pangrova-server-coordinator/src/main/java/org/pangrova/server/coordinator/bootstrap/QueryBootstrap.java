@@ -1,5 +1,7 @@
 package org.pangrova.server.coordinator.bootstrap;
 
+import org.pangrova.persistence.coordination.postgresql.admission.JdbcClusterConcurrencySlots;
+import org.pangrova.scheduler.admission.TenantQuotaAdmissionController;
 import org.pangrova.common.lifecycle.ResourceCloser;
 import org.pangrova.generation.api.constants.GenerationOutputTypeIds;
 
@@ -245,8 +247,13 @@ final class QueryBootstrap {
         // P1-5b: enforce tenant budget limits across coordinators on the submission path.
         if (moduleWiring != null && moduleWiring.getTenantResolver() != null
                 && moduleWiring.getQuotaChecker() != null) {
-            queryManager.setClusterAdmissionController(SecurityBootstrap.createClusterAdmissionController(
-                    workerManager.tenantUsageView(), metadataDataSource));
+            if (metadataDataSource != null) {
+                JdbcClusterConcurrencySlots.verifyAuthority(metadataDataSource);
+                queryManager.enableDurableTenantCapacity();
+            } else {
+                queryManager.setClusterAdmissionController(new TenantQuotaAdmissionController(
+                        workerManager.tenantUsageView(), null));
+            }
         }
         LOG.info("event=query_bootstrap_complete speculation={} embedding={}",
                 config.speculationEnabled(),

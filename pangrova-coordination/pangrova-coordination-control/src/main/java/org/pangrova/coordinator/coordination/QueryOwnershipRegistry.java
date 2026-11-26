@@ -13,6 +13,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.OptionalInt;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -58,8 +59,14 @@ final class QueryOwnershipRegistry {
     }
 
     Optional<QueryAcquisition> acquire(String queryId, String coordinatorId, String incarnation, String tenantId) {
+        return acquire(queryId, coordinatorId, incarnation, tenantId, OptionalInt.empty());
+    }
+
+    Optional<QueryAcquisition> acquire(String queryId, String coordinatorId, String incarnation,
+            String tenantId, OptionalInt capacity) {
         Ownership cached = ownership.get(queryId);
         if (cached != null) {
+            if (capacity.isPresent()) return Optional.empty();
             if (!cached.active() || !ownedBy(cached.anchor(), coordinatorId, incarnation)) {
                 return Optional.empty();
             }
@@ -85,11 +92,9 @@ final class QueryOwnershipRegistry {
             return Optional.empty();
         }
         try {
-            Optional<QueryAcquisition> acquired = tenantId == null
-                    ? store.tryAcquire(queryId, coordinatorId, incarnation, leaseDuration)
-                            .map(anchor -> new QueryAcquisition(anchor, OptionalLong.empty()))
-                    : store.tryAcquireQuery(queryId, coordinatorId, incarnation, leaseDuration, tenantId);
-            if (acquired.isEmpty()) {
+            Optional<QueryAcquisition> acquired = acquireFresh(queryId, coordinatorId, incarnation,
+                    tenantId, capacity);
+            if (acquired.isEmpty() && capacity.isEmpty()) {
                 acquired = store.current(queryId).filter(anchor -> ownedBy(anchor, coordinatorId, incarnation))
                         .map(anchor -> new QueryAcquisition(anchor, OptionalLong.empty()));
             }
@@ -106,6 +111,18 @@ final class QueryOwnershipRegistry {
         } finally {
             ownership.remove(queryId, acquiring);
         }
+    }
+
+    private Optional<QueryAcquisition> acquireFresh(String queryId, String coordinatorId, String incarnation,
+            String tenantId, OptionalInt capacity) {
+        if (capacity.isPresent()) {
+            return store.tryAcquireLimitedQuery(queryId, coordinatorId, incarnation, leaseDuration,
+                    tenantId, capacity.getAsInt());
+        }
+        if (tenantId != null) return store.tryAcquireQuery(queryId, coordinatorId, incarnation, leaseDuration,
+                tenantId);
+        return store.tryAcquire(queryId, coordinatorId, incarnation, leaseDuration)
+                .map(anchor -> new QueryAcquisition(anchor, OptionalLong.empty()));
     }
 
     private static boolean sameOwner(ExecutionAnchor first, ExecutionAnchor second) {

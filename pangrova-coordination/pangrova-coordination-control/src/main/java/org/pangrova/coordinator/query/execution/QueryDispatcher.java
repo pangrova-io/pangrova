@@ -238,6 +238,12 @@ public class QueryDispatcher implements org.pangrova.query.lifecycle.QueryExecut
     }
 
     @Override
+    public Ownership acquireLimitedQueryOwnership(String queryId, String tenantId, int maxConcurrentQueries) {
+        return ownershipTracker.acquireQueryOwnership(queryId, tenantId,
+                java.util.OptionalInt.of(maxConcurrentQueries));
+    }
+
+    @Override
     public void releaseQueryOwnership(String queryId) {
         ownershipTracker.releaseQueryOwnership(queryId);
     }

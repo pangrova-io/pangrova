@@ -102,12 +102,7 @@ final class QueryDurableRecovery implements AutoCloseable {
             }
             return batch;
         };
-        cleanupAction = queryId -> {
-            queryDispatcher.retryPendingShuffleCleanup(queryId);
-            if (!queryDispatcher.tryCleanupQuery(queryId)) {
-                LOG.debug("event=shuffle_cleanup_awaiting_local_operations queryId={}", queryId);
-            }
-        };
+        cleanupAction = queryDispatcher::retryPendingShuffleCleanup;
     }
 
     void wireHighAvailability(

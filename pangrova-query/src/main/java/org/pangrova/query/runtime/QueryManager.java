@@ -88,6 +88,7 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
     private final ExecutorService asyncExecutor;
     private final ScheduledExecutorService submitDeadlines;
     private volatile java.util.function.Consumer<String> shuffleCleanupPending = ignored -> { };
+    private volatile boolean durableTenantCapacity;
     private final Optional<ReaderPinLifecycle> readerPinLifecycle;
     private final Optional<ReaderPinRenewal> readerPinRenewal;
 
@@ -328,8 +329,7 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
             sm.setTenantId(tenantId);
             enriched = session.withTenantId(tenantId);
             admission.checkThrottle(queryId, enriched);
-            admission.checkCluster(queryId, tenant, sm);
-            var ownership = acquireOwnershipOrReject(queryId, tenantId);
+            var ownership = admitExecution(queryId, tenantId, tenant, sm);
             queryDispatcher.bindConnectorAuthority(sm, queryId);
             sm.resolveOwnership(true);
             applyPendingCancellation(queryId, sm);
@@ -430,8 +430,17 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
                 this::failQuery, this::applyDispatchResult).start(queryId, sql, session, state);
     }
 
-    private QueryExecutionPort.Ownership acquireOwnershipOrReject(String queryId, String tenantId) {
-        var ownership = queryDispatcher.acquireQueryOwnership(queryId, tenantId);
+    private QueryExecutionPort.Ownership admitExecution(String queryId, String tenantId,
+            ResolvedTenantContext tenant, QueryStateMachine state) {
+        QueryExecutionPort.Ownership ownership;
+        if (durableTenantCapacity) {
+            if (tenant == null) throw new IllegalStateException("Cluster admission requires a resolved tenant");
+            ownership = queryDispatcher.acquireLimitedQueryOwnership(queryId, tenantId,
+                    tenant.tenant().quota().maxConcurrentQueries());
+        } else {
+            admission.checkCluster(queryId, tenant, state);
+            ownership = queryDispatcher.acquireQueryOwnership(queryId, tenantId);
+        }
         if (!ownership.acquired()) {
             throw new QueryRejectedException(
                     "Failed to acquire query ownership for queryId=" + queryId);
@@ -483,7 +492,7 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
             if (cleanupFailure == null) cleanupFailure = rejected;
             else cleanupFailure.addSuppressed(rejected);
         }
-        if (queries.get(queryId) == null) {
+        if (cleanupFailure == null && queries.get(queryId) == null) {
             try {
                 cleanupCandidate(queryId, state);
             } catch (RuntimeException | Error rejected) {
@@ -513,16 +522,11 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
     }
 
     private void cleanupCandidate(String queryId, QueryStateMachine state) {
-        try {
-            if (state.hasConnectorAuthority()) {
-                if (!queryDispatcher.tryCleanupUnadmittedQuery(queryId)) {
-                    throw new IllegalStateException("Candidate issuance cleanup is not complete: " + queryId);
-                }
-                queryDispatcher.retireQueryIssuance(queryId);
-            }
-        } finally {
-            queryDispatcher.releaseQueryOwnership(queryId);
+        if (state.hasConnectorAuthority() && !queryDispatcher.tryCleanupUnadmittedQuery(queryId)) {
+            throw new IllegalStateException("Candidate issuance cleanup is not complete: " + queryId);
         }
+        queryDispatcher.releaseQueryOwnership(queryId);
+        if (state.hasConnectorAuthority()) queryDispatcher.retireQueryIssuance(queryId);
     }
 
     private void registerJournalListener(String queryId, QueryStateMachine sm) {
@@ -551,6 +555,9 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
     private static String unscopedTenantId(QuerySession session) {
         return session.tenantId() == null || session.tenantId().isBlank() ? "default" : session.tenantId();
     }
+
+    /** Uses the PostgreSQL execution grant as the sole owner of tenant concurrency slots. */
+    public void enableDurableTenantCapacity() { durableTenantCapacity = true; }
 
     public void setClusterAdmissionController(
             org.pangrova.scheduler.api.admission.ClusterAdmissionController controller) {
@@ -745,6 +752,7 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
         journalLifecycle.purge(context.queryId(), context.state());
         context.state().releaseAdmission();
         admission.releaseThrottle(context.queryId());
+        queryDispatcher.releaseQueryOwnership(context.queryId());
         queryDispatcher.retireQueryIssuance(context.queryId());
         queries.complete(context.queryId(), context.state());
     }

@@ -86,12 +86,19 @@ public final class QueryOwnershipTracker {
 
     /** Acquires the query grant from the configured ownership backend. */
     public Ownership acquireQueryOwnership(String queryId, String tenantId) {
+        return acquireQueryOwnership(queryId, tenantId, java.util.OptionalInt.empty());
+    }
+
+    /** Acquires fresh ownership and an authorized durable slot as one grant when capacity is supplied. */
+    Ownership acquireQueryOwnership(String queryId, String tenantId, java.util.OptionalInt capacity) {
         OwnershipSnapshot snapshot = ownershipSnapshot.get();
         if (snapshot == null) {
+            if (capacity.isPresent()) throw new IllegalStateException("Durable query admission requires ownership");
             return new Ownership(true, OptionalLong.empty());
         }
         try {
-            var acquired = snapshot.service().acquireQueryOwnership(queryId, snapshot.coordinatorId(), tenantId);
+            var acquired = snapshot.service().acquireQueryOwnership(queryId, snapshot.coordinatorId(),
+                    tenantId, capacity);
             if (acquired.isEmpty()) {
                 LOG.warn("event=query_ownership_denied queryId={} coordinatorId={}",
                         queryId, snapshot.coordinatorId());
@@ -99,6 +106,8 @@ public final class QueryOwnershipTracker {
             }
             var grant = acquired.orElseThrow();
             return new Ownership(true, grant.publicationRevision(), grant.anchor());
+        } catch (org.pangrova.persistence.query.api.coordination.ExecutionAnchorStore.TenantCapacityExceeded denied) {
+            throw new org.pangrova.security.exception.TenantQuotaExceededException(denied.getMessage());
         } catch (RuntimeException failure) {
             LOG.warn("event=query_ownership_acquire_failed queryId={} coordinatorId={} error={}",
                     queryId, snapshot.coordinatorId(), failure.getMessage());
@@ -114,10 +123,10 @@ public final class QueryOwnershipTracker {
         }
     }
 
-    /** Cleans up split assignment state, releases ownership, and notifies connectors. */
+    /** Drains split, connector and Shuffle owners while retaining the execution grant. */
     public boolean tryCleanupQuery(String queryId) {
         if (!tryCleanupLocalQuery(queryId)) return false;
-        cleanupExecutionOwnership(queryId);
+        cleanupShuffle(queryId);
         return true;
     }
 
@@ -128,7 +137,7 @@ public final class QueryOwnershipTracker {
         return true;
     }
 
-    private void cleanupExecutionOwnership(String queryId) {
+    private void cleanupShuffle(String queryId) {
         CleanupBinding cleanup = shuffleCleanup;
         if (cleanup != null) {
             ShuffleCleanupIntentStore intents = cleanup.intents();
@@ -139,10 +148,6 @@ public final class QueryOwnershipTracker {
             if (intents.isPending(queryId)) {
                 cleanup.recovery().recoverCleanupShuffle(queryId);
             }
-        }
-        OwnershipSnapshot snapshot = ownershipSnapshot.get();
-        if (snapshot != null) {
-            snapshot.service().releaseQueryOwnership(queryId, snapshot.coordinatorId());
         }
     }
 
