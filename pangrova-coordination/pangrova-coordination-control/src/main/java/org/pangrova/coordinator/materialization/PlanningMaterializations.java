@@ -14,9 +14,6 @@ import org.pangrova.persistence.materialization.api.publication.MaterializationP
 /** One tenant publication directory shared by the planning paths of an admitted query. */
 @ThreadSafe
 public final class PlanningMaterializations {
-    /** Reserved session value installed from the trusted query admission grant. */
-    public static final String ADMISSION_REVISION_PROPERTY = "pangrova.materialization.publication-revision";
-
     private final MaterializationCatalog catalog;
     private final TenantId tenant;
     private final OptionalLong admissionRevision;
@@ -30,13 +27,11 @@ public final class PlanningMaterializations {
         this.admissionRevision = Objects.requireNonNull(admissionRevision, "admissionRevision");
     }
 
-    /** Binds the directory to an authenticated connector session. */
+    /** Binds the directory to the authenticated tenant and its query admission revision. */
     public static PlanningMaterializations forSession(MaterializationCatalog catalog,
-            ConnectorSession session, String defaultTenantId) {
-        var properties = session.getProperties();
-        String revision = properties.get(ADMISSION_REVISION_PROPERTY);
-        return new PlanningMaterializations(catalog, properties.getOrDefault("tenant_id", defaultTenantId),
-                revision == null ? OptionalLong.empty() : OptionalLong.of(Long.parseLong(revision)));
+            ConnectorSession session, String defaultTenantId, OptionalLong admissionRevision) {
+        return new PlanningMaterializations(catalog, session.getProperties().getOrDefault("tenant_id", defaultTenantId),
+                admissionRevision);
     }
 
     /** Resolves the snapshot once for both direct name resolution and transparent rewrite. */

@@ -66,7 +66,7 @@ final class SqlCompilerFactory {
     }
 
     private PangrovaPlanner buildMetadataAwarePlanner(
-            org.pangrova.connector.api.session.ConnectorSession session) {
+            org.pangrova.connector.api.session.ConnectorSession session, java.util.OptionalLong publicationRevision) {
         var readBindings = new org.pangrova.planner.metadata.catalog.PlanningReadBindings(
                 metadataBootstrap.catalogRegistry(), session, metadataBootstrap.catalogRegistry().tableStatistics());
         var rootSchema = new MetadataSchemaBuilder(
@@ -77,7 +77,8 @@ final class SqlCompilerFactory {
                 .map(schema -> List.of(catalog, schema)).orElse(List.of(catalog))).orElse(List.of(""));
         DynamicTableRewriter dynamicTableRewriter = null;
         var catalog = metadataBootstrap.materializationCatalog();
-        var publications = catalog == null ? null : PlanningMaterializations.forSession(catalog, session, "default");
+        var publications = catalog == null ? null
+                : PlanningMaterializations.forSession(catalog, session, "default", publicationRevision);
         var pinner = readerPin(session);
         if (publications != null) {
             dynamicTableRewriter = new DynamicTableRewriter(new DurableDynamicTableResolver(

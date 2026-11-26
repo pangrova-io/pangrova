@@ -152,7 +152,8 @@ final class QueryPipelineExecutor {
     AuthorizedRelation compileAuthorizedRelation(String sql, QuerySession session) {
         requireAuthorizedSession(session);
         SqlCompiler compiler = securityPolicyApplier.getCompiler().forSession(
-                org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(session));
+                org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(session),
+                session.publicationRevision());
         var parsed = TimeTravelSqlClauses.extract(sql);
         var statement = parsed.statement();
         if (!(statement instanceof org.pangrova.parser.api.ast.Query)
@@ -191,7 +192,8 @@ final class QueryPipelineExecutor {
     private CompletionStage<DispatchResult> startDmlSql(QueryStateMachine sm, String sql,
             QuerySession session, String writeModeOverride) {
         SqlCompiler compiler = securityPolicyApplier.getCompiler().forSession(
-                org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(session));
+                org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(session),
+                session.publicationRevision());
         var observed = securityPolicyApplier.applyPoliciesObserved(compiler.compileToPlannedQuery(sql), session);
         PlannedQuery plan = observed.plan();
         LOG.info("event=dml_plan_dump sql_preview={} plan=\n{}",
@@ -217,7 +219,8 @@ final class QueryPipelineExecutor {
     CompletionStage<DispatchResult> startDmlStatement(QueryStateMachine sm,
             org.pangrova.parser.api.ast.Statement stmt, QuerySession session) {
         SqlCompiler compiler = securityPolicyApplier.getCompiler().forSession(
-                org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(session));
+                org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(session),
+                session.publicationRevision());
 
         // A MERGE must be dispatched as one Native write and one catalog commit.
         if (stmt instanceof MergeStatement merge) {

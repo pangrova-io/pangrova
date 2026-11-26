@@ -1,7 +1,6 @@
 package org.pangrova.coordinator.query;
 
 import org.pangrova.query.api.session.QuerySession;
-import org.pangrova.coordinator.materialization.PlanningMaterializations;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.security.api.identity.UserIdentity;
@@ -29,14 +28,12 @@ class SessionContextConverterTest {
     @Test
     void connectorQueryIdentityAndSnapshotSelectorsCannotBeSpoofedByClientProperties() {
         var context = new QuerySession("admitted-query",
-                Map.of("queryId", "forged", "pangrova.source_snapshot.cat.db.table", "42",
-                        PlanningMaterializations.ADMISSION_REVISION_PROPERTY, "0"),
+                Map.of("queryId", "forged", "pangrova.source_snapshot.cat.db.table", "42"),
                 null, "tenant", Optional.empty(),
                 new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory().capture());
         var session = SessionContextConverter.toConnectorSession(context);
         assertThat(session.getProperties()).containsEntry("queryId", "admitted-query")
-                .doesNotContainKeys("pangrova.source_snapshot.cat.db.table",
-                        PlanningMaterializations.ADMISSION_REVISION_PROPERTY);
+                .doesNotContainKey("pangrova.source_snapshot.cat.db.table");
     }
 
     // ── SPI → Coordinator ──
