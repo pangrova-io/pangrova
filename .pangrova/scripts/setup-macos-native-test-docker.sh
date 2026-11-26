@@ -31,13 +31,47 @@ tar -xzf "$archive" -C "$tools_dir"
 
 export LIMA_HOME="$RUNNER_TEMP/native-lima"
 lima="$tools_dir/bin/limactl"
+instance_dir="$LIMA_HOME/native-ci"
+
+# Lima's startup result identifies the failing readiness stage. Keep the
+# host and guest evidence even when the instance never reaches running.
+report_startup_failure() {
+    local log
+    for log in "$instance_dir"/ha.stderr.log "$instance_dir"/serial*.log; do
+        if [[ -s "$log" ]]; then
+            printf 'Lima startup log %s\n' "${log##*/}" >&2
+            tail -c 16384 "$log" >&2
+            printf '\n' >&2
+        fi
+    done
+    if [[ -r "$instance_dir/ssh.config" ]]; then
+        python3 - "$instance_dir/ssh.config" <<'PYTHON'
+import subprocess
+import sys
+
+try:
+    result = subprocess.run(
+        ["ssh", "-F", sys.argv[1], "-o", "BatchMode=yes", "-o", "ConnectTimeout=5",
+         "lima-native-ci", "sudo", "-n", "tail", "-c", "16384", "/var/log/cloud-init-output.log"],
+        timeout=10,
+    )
+    if result.returncode:
+        print("Lima guest provisioning log is unavailable", file=sys.stderr)
+except (OSError, subprocess.TimeoutExpired) as error:
+    print(f"Could not read Lima guest provisioning log: {error}", file=sys.stderr)
+PYTHON
+    fi
+}
+
+trap 'status=$?; set +e; report_startup_failure; exit "$status"' ERR
 "$lima" start --tty=false --name native-ci --vm-type "$vm_type" \
     --cpus 1 --memory 2 --disk 8 --mount-none template:docker-rootful
 
-docker_socket="$LIMA_HOME/native-ci/sock/docker.sock"
+docker_socket="$instance_dir/sock/docker.sock"
 test -S "$docker_socket"
 ping=$(curl --unix-socket "$docker_socket" --connect-timeout 15 --max-time 30 -fsS http://localhost/_ping)
 test "$ping" = OK
+trap - ERR
 {
     printf 'DOCKER_HOST=unix://%s\n' "$docker_socket"
     printf 'TESTCONTAINERS_HOST_OVERRIDE=127.0.0.1\n'

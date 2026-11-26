@@ -81,6 +81,8 @@ default. Set `-Dpangrova.lance.fixture.tool` when using another build directory.
 On GitHub-hosted macOS, the Native test job runs the PostgreSQL TestContainer
 through a temporary Lima Docker VM with loopback port forwarding. The Native
 test binary and its Java fixture broker run on the macOS host.
+If Docker startup fails, the job prints the Lima host agent and guest boot logs,
+plus the guest provisioning log when SSH is available.
 
 ### 1.3 Matching AddressSanitizer Dependencies
 
