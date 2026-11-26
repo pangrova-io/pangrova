@@ -266,7 +266,9 @@ int compareFloating(T left, T right) {
   return left < right ? -1 : 1;
 }
 
-std::optional<int> compareKeys(const Key& left, const Key& right) {
+// The serialized pages are ordered with Java Comparable semantics. Keep this
+// comparator for integrity checks and do not use it to prove SQL absence.
+std::optional<int> compareStoredKeys(const Key& left, const Key& right) {
   if (left.index() != right.index()) return std::nullopt;
   if (const auto* a = std::get_if<std::u16string>(&left)) {
     const auto comparison = a->compare(*std::get_if<std::u16string>(&right));
@@ -291,6 +293,51 @@ std::optional<int> compareKeys(const Key& left, const Key& right) {
     return *a == b ? 0 : *a ? 1 : -1;
   }
   return std::nullopt;
+}
+
+// For valid Unicode scalar values, unsigned UTF-8 byte order (Velox StringView)
+// is the code-point order. Java UTF-16 order instead sorts supplementary
+// characters before part of the BMP. Reject unpaired surrogates before pruning.
+uint32_t nextCodePoint(const std::u16string& value, size_t& offset) {
+  const auto first = static_cast<uint32_t>(value[offset++]);
+  if (first >= 0xd800 && first <= 0xdbff) {
+    if (offset == value.size()) malformed();
+    const auto second = static_cast<uint32_t>(value[offset++]);
+    if (second < 0xdc00 || second > 0xdfff) malformed();
+    return 0x10000 + ((first - 0xd800) << 10) + second - 0xdc00;
+  }
+  if (first >= 0xdc00 && first <= 0xdfff) malformed();
+  return first;
+}
+
+void validateSqlKey(const Key& key) {
+  if (const auto* value = std::get_if<std::u16string>(&key)) {
+    size_t offset = 0;
+    while (offset < value->size()) nextCodePoint(*value, offset);
+  }
+}
+
+std::optional<int> compareSqlKeys(const Key& left, const Key& right) {
+  if (left.index() != right.index()) return std::nullopt;
+  if (const auto* a = std::get_if<std::u16string>(&left)) {
+    const auto& b = *std::get_if<std::u16string>(&right);
+    size_t ai = 0, bi = 0;
+    while (ai < a->size() && bi < b.size()) {
+      const auto ac = nextCodePoint(*a, ai);
+      const auto bc = nextCodePoint(b, bi);
+      if (ac != bc) return ac < bc ? -1 : 1;
+    }
+    return ai < a->size() ? 1 : bi < b.size() ? -1 : 0;
+  }
+  // Velox equality and ordering treat the two signed zeros as equal; NaN
+  // still compares equal to NaN and greater than all non-NaN values.
+  if (const auto* a = std::get_if<double>(&left)) {
+    if (*a == *std::get_if<double>(&right)) return 0;
+  }
+  if (const auto* a = std::get_if<float>(&left)) {
+    if (*a == *std::get_if<float>(&right)) return 0;
+  }
+  return compareStoredKeys(left, right);
 }
 
 enum class PredicateKind {
@@ -368,23 +415,23 @@ std::optional<Predicate> parsePredicate(const proto::IndexPredicate& predicate) 
 bool matches(const Key& key, const Predicate& predicate) {
   switch (predicate.kind) {
     case PredicateKind::kEqual:
-      return compareKeys(key, predicate.values.front()) == 0;
+      return compareSqlKeys(key, predicate.values.front()) == 0;
     case PredicateKind::kRange: {
       if (predicate.lower) {
-        const auto comparison = compareKeys(key, *predicate.lower);
+        const auto comparison = compareSqlKeys(key, *predicate.lower);
         if (!comparison || (predicate.lowerInclusive ? *comparison < 0 : *comparison <= 0)) {
           return false;
         }
       }
       if (predicate.upper) {
-        const auto comparison = compareKeys(key, *predicate.upper);
+        const auto comparison = compareSqlKeys(key, *predicate.upper);
         return comparison && (predicate.upperInclusive ? *comparison <= 0 : *comparison < 0);
       }
       return true;
     }
     case PredicateKind::kInList:
       for (const auto& value : predicate.values) {
-        if (compareKeys(key, value) == 0) return true;
+        if (compareSqlKeys(key, value) == 0) return true;
       }
       return false;
     case PredicateKind::kIsNull:
@@ -428,12 +475,13 @@ BTreeIndexReader::Result BTreeIndexReader::evaluate(
       std::optional<Key> previous;
       for (uint32_t index = 0; index < keyCount; ++index) {
         auto key = requireKey(parseKey(input, true));
+        validateSqlKey(key);
         if (queryKey && !sameKeyType(key, *queryKey)) {
           return Result::kUnknown;
         }
         if (!first.has_value()) first = key;
         if (previous.has_value()) {
-          const auto comparison = compareKeys(*previous, key);
+          const auto comparison = compareStoredKeys(*previous, key);
           if (!comparison || *comparison > 0) malformed();
         }
         if (queryKey && matches(key, query)) mayMatch = true;
@@ -442,14 +490,14 @@ BTreeIndexReader::Result BTreeIndexReader::evaluate(
       }
       const auto minimum = requireKey(parseKey(input, true));
       const auto maximum = requireKey(parseKey(input, true));
-      const auto minimumComparison = first ? compareKeys(minimum, *first) : std::nullopt;
-      const auto maximumComparison = previous ? compareKeys(maximum, *previous) : std::nullopt;
+      const auto minimumComparison = first ? compareStoredKeys(minimum, *first) : std::nullopt;
+      const auto maximumComparison = previous ? compareStoredKeys(maximum, *previous) : std::nullopt;
       if (!minimumComparison || *minimumComparison != 0
           || !maximumComparison || *maximumComparison != 0) {
         malformed();
       }
       if (previousPageMaximum) {
-        const auto pageComparison = compareKeys(*previousPageMaximum, minimum);
+        const auto pageComparison = compareStoredKeys(*previousPageMaximum, minimum);
         if (!pageComparison || *pageComparison > 0) malformed();
       }
       previousPageMaximum = maximum;

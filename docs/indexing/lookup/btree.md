@@ -37,10 +37,13 @@ min/max statistics; it does not replace an existing Pangrova index.
 ## Native split pruning
 
 Native pruning supports single-column equality, `IN`, and range predicates on
-exact String, Integer, Long, Float and Double values. String ordering matches
-Java UTF-16 comparison, and floating-point ordering preserves Java NaN and
-signed-zero semantics. Composite keys, null predicates, empty indexes,
-unsupported scalar types, and missing or malformed artifacts retain the split.
+exact String, Integer, Long, Float and Double values. Serialized page integrity
+is checked using Java ordering. The actual pruning predicate uses Velox SQL
+ordering: UTF-8 byte order for valid strings, equal signed zeros, and NaN above
+other values. Coordinator file statistics use the same string ordering and
+treat missing NaN coverage conservatively. Invalid Unicode keys retain the split.
+Composite keys, null predicates, empty indexes, unsupported scalar types, and
+missing or malformed artifacts retain the split.
 A skipped split is reported through `NativeTaskStats.index_splits_skipped`.
 
 ## Query Behavior

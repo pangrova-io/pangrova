@@ -321,7 +321,12 @@ paths use their own durable artifact formats.
 Predicate analysis retains the selected immutable index descriptor. Split evaluation uses it alongside the exact active artifact generation and selected source snapshot. It reads published file mappings in batches and reuses the selected descriptor for availability checks and Worker hints.
 
 The Coordinator evaluates connector file statistics and native connector
-capabilities, then attaches snapshot-bound `IndexEvalHintDetail` values to
+capabilities. For string bounds from Iceberg and Paimon, statistics comparisons use
+unsigned UTF-8 (Unicode scalar order), not Java UTF-16 order. Floating-point bounds
+may omit NaN; without NaN counts, the Coordinator does not use an upper bound to
+exclude a greater value or claim every value is equal/below an upper bound.
+Invalid or inconsistent bounds do not prove a negative result. The Coordinator then
+attaches snapshot-bound `IndexEvalHintDetail` values to
 surviving canonical v2 file splits. It does not load scalar index artifacts.
 The Native Worker validates the hint's data-file identity, reads the mapped
 artifact through its configured filesystem, and verifies its exact byte length and
@@ -331,8 +336,9 @@ before enqueuing the split for scan. Only a proven negative result skips a split
 missing, corrupt, incompatible or unsupported indexes retain it. Equality and
 `IN` on canonical string, integer and boolean keys participate in the Native
 Bloom path. Single-column B-tree equality, `IN`, and range predicates support
-exact String, Integer, Long, Float and Double values with Java-compatible
-ordering, including modified UTF-8 strings, NaN and signed zero.
+exact String, Integer, Long, Float and Double values. Java UTF-16 and
+signed-zero ordering validates the serialized pages; predicate comparisons use
+Velox SQL ordering (UTF-8 byte order, equal signed zeros, NaN above other values).
 Bitmap has a JVM strategy and a typed key-to-Roaring payload. Worker scalar
 file pruning recognizes Bloom and single-column B-tree artifacts. BSI has no
 registered scalar strategy. Paimon deletion vectors use their connector-owned

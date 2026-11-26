@@ -74,6 +74,11 @@ void appendKey(std::string& bytes, double value) {
   appendDouble(bytes, value);
 }
 
+void appendKey(std::string& bytes, float value) {
+  bytes.push_back(5);
+  appendU32(bytes, std::bit_cast<uint32_t>(value));
+}
+
 void appendKey(std::string& bytes, const std::u16string& value) {
   bytes.push_back(1);
   appendModifiedUtf8(bytes, value);
@@ -252,7 +257,7 @@ TEST(BTreeIndexReaderTest, RowPositionsAreConsumedAndCorruptCountsFailOpen) {
             BTreeIndexReader::evaluate(corrupt, equalInt64(1)));
 }
 
-TEST(BTreeIndexReaderTest, StringOrderingMatchesJavaUtf16IncludingSurrogatesAndNul) {
+TEST(BTreeIndexReaderTest, JavaPageOrderAndSqlStringOrderAreDistinct) {
   const std::u16string supplementary = u"\U00010000";
   const auto bytes = payload({page<std::u16string>(
       {std::u16string(1, u'\0'), u"A", supplementary, u"\uE000"})});
@@ -270,17 +275,44 @@ TEST(BTreeIndexReaderTest, StringOrderingMatchesJavaUtf16IncludingSurrogatesAndN
   auto* range = belowBmpPrivateUse.mutable_range_query();
   range->mutable_upper()->set_string_value("\xEE\x80\x80");
   range->set_upper_inclusive(false);
+  EXPECT_EQ(BTreeIndexReader::Result::kProvenAbsent,
+            BTreeIndexReader::evaluate(supplementaryOnly, belowBmpPrivateUse));
+  range->clear_upper();
+  range->mutable_lower()->set_string_value("\xEE\x80\x80");
+  range->set_lower_inclusive(false);
   EXPECT_EQ(BTreeIndexReader::Result::kMayMatch,
             BTreeIndexReader::evaluate(supplementaryOnly, belowBmpPrivateUse));
+  const auto bmpOnly = payload({page<std::u16string>({u"\uE000"})});
+  range->clear_lower();
+  range->mutable_upper()->set_string_value("\xF0\x90\x80\x80");
+  range->set_upper_inclusive(false);
+  EXPECT_EQ(BTreeIndexReader::Result::kMayMatch,
+            BTreeIndexReader::evaluate(bmpOnly, belowBmpPrivateUse));
+  const auto invalid = payload({page<std::u16string>({std::u16string(1, 0xd800)})});
+  EXPECT_EQ(BTreeIndexReader::Result::kUnknown,
+            BTreeIndexReader::evaluate(invalid, equalString("A")));
 }
 
-TEST(BTreeIndexReaderTest, FloatingOrderingMatchesJavaNanAndSignedZero) {
+TEST(BTreeIndexReaderTest, JavaPageOrderAndSqlSignedZeroEqualityAreDistinct) {
   const auto positiveZero = payload({page<double>({0.0})});
   proto::IndexPredicate negativeZero;
   negativeZero.set_column("value");
   negativeZero.mutable_equal_to()->mutable_value()->set_double_value(-0.0);
-  EXPECT_EQ(BTreeIndexReader::Result::kProvenAbsent,
+  EXPECT_EQ(BTreeIndexReader::Result::kMayMatch,
             BTreeIndexReader::evaluate(positiveZero, negativeZero));
+  const auto negativeZeroPage = payload({page<double>({-0.0})});
+  negativeZero.mutable_equal_to()->mutable_value()->set_double_value(0.0);
+  EXPECT_EQ(BTreeIndexReader::Result::kMayMatch,
+            BTreeIndexReader::evaluate(negativeZeroPage, negativeZero));
+  proto::IndexPredicate range;
+  range.set_column("value");
+  range.mutable_range_query()->mutable_lower()->set_double_value(0.0);
+  range.mutable_range_query()->set_lower_inclusive(true);
+  EXPECT_EQ(BTreeIndexReader::Result::kMayMatch,
+            BTreeIndexReader::evaluate(negativeZeroPage, range));
+  range.mutable_range_query()->set_lower_inclusive(false);
+  EXPECT_EQ(BTreeIndexReader::Result::kProvenAbsent,
+            BTreeIndexReader::evaluate(negativeZeroPage, range));
 
   const auto bytes = payload({page<double>({-0.0, 0.0,
       std::numeric_limits<double>::quiet_NaN()})});
@@ -290,6 +322,26 @@ TEST(BTreeIndexReaderTest, FloatingOrderingMatchesJavaNanAndSignedZero) {
       std::numeric_limits<double>::quiet_NaN());
   EXPECT_EQ(BTreeIndexReader::Result::kMayMatch,
             BTreeIndexReader::evaluate(bytes, nan));
+}
+
+TEST(BTreeIndexReaderTest, FloatEqualityInListAndRangeUseSqlOrdering) {
+  const auto negativeZero = payload({page<float>({-0.0f})});
+  proto::IndexPredicate predicate;
+  predicate.set_column("value");
+  predicate.mutable_equal_to()->mutable_value()->set_float_value(0.0f);
+  EXPECT_EQ(BTreeIndexReader::Result::kMayMatch,
+            BTreeIndexReader::evaluate(negativeZero, predicate));
+  auto* list = predicate.mutable_in_list();
+  list->add_values()->set_float_value(-1.0f);
+  list->add_values()->set_float_value(0.0f);
+  EXPECT_EQ(BTreeIndexReader::Result::kMayMatch,
+            BTreeIndexReader::evaluate(negativeZero, predicate));
+  auto* range = predicate.mutable_range_query();
+  range->mutable_lower()->set_float_value(1.0f);
+  range->set_lower_inclusive(false);
+  const auto nan = payload({page<float>({std::numeric_limits<float>::quiet_NaN()})});
+  EXPECT_EQ(BTreeIndexReader::Result::kMayMatch,
+            BTreeIndexReader::evaluate(nan, predicate));
 }
 
 TEST(BTreeIndexReaderTest, Int32KeysUseTheirExactWireType) {
