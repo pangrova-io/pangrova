@@ -116,7 +116,7 @@ jobs:
           exit "$failed"
       - name: Retain success, failure, calibration and cleanup evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: tpc-${{ inputs.scale_factor || '100' }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: |

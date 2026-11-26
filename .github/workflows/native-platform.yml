@@ -55,7 +55,7 @@ jobs:
       - name: Package same-run prerequisite outputs
         run: bash .pangrova/scripts/macos-native-stage.sh pack core "$RUNNER_TEMP/macos-core"
       - name: Upload macOS prerequisite outputs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: macos-core-${{ fromJSON(inputs.platform).name }}
           path: ${{ runner.temp }}/macos-core/
@@ -111,7 +111,7 @@ jobs:
       - name: Package same-run Native SDK outputs
         run: bash .pangrova/scripts/macos-native-stage.sh pack sdk "$RUNNER_TEMP/macos-sdk"
       - name: Upload macOS Native SDK outputs
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: macos-sdk-${{ fromJSON(inputs.platform).name }}
           path: ${{ runner.temp }}/macos-sdk/
@@ -361,7 +361,7 @@ jobs:
 
       - name: Upload native test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: native-test-results-${{ fromJSON(inputs.platform).name }}
           path: |
@@ -407,7 +407,7 @@ jobs:
             -DskipTests
 
       - name: Upload native library
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: native-library-${{ fromJSON(inputs.platform).name }}
           path: pangrova-worker-native/build/libpangrova_native.*
@@ -423,7 +423,7 @@ jobs:
 
       - name: Upload Java Native test runtime
         if: fromJSON(inputs.platform).name == 'linux-x86_64'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: java-native-test-runtime-linux-x86_64
           path: ${{ runner.temp }}/java-native-test-runtime.tar.gz
@@ -431,7 +431,7 @@ jobs:
           retention-days: 1
 
       - name: Upload classifier JAR
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: native-bundle-${{ fromJSON(inputs.platform).classifier }}
           path: pangrova-native-bundle/target/pangrova-native-bundle-*-${{ fromJSON(inputs.platform).classifier }}.jar
