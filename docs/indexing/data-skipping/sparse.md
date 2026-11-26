@@ -21,8 +21,12 @@ full min/max footers for every block.
 CREATE INDEX idx_events_time
 ON prod.analytics.events (event_time)
 USING SPARSE
-WITH ('sparse.stride' = '1000');
+WITH ('sparse.stride' = '1000')
+FORCE;
 ```
+
+`FORCE` overrides a conflicting connector-native capability such as Iceberg
+min/max statistics; it does not replace an existing Pangrova index.
 
 ## Options
 

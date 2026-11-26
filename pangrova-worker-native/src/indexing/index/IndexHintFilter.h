@@ -8,7 +8,7 @@ class IndexEvalHintDetail;
 }
 namespace pangrova::index {
 
-/// Applies a published, verified Bloom hint before Velox enqueues a data split.
+/// Applies published, verified Bloom and B-tree hints before Velox enqueues a data split.
 class IndexHintFilter {
  public:
   /// Unusable hints retain the split. A negative proof must use the bytes

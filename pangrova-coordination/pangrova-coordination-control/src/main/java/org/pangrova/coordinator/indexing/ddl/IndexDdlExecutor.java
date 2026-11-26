@@ -268,6 +268,8 @@ public final class IndexDdlExecutor implements AutoCloseable {
 
         return indexes.stream()
                 .filter(d -> d.state() != IndexState.DROPPED)
+                .sorted(java.util.Comparator.comparing(IndexDescriptor::indexName)
+                        .thenComparing(IndexDescriptor::indexId))
                 .map(IndexDdlExecutor::descriptorToRow)
                 .toList();
     }
@@ -624,6 +626,13 @@ public final class IndexDdlExecutor implements AutoCloseable {
             builder.putString("algorithm", "");
             builder.putString("metric", "");
         }
-        return builder.build();
+        // Preserve the positional contract of the existing result columns.
+        return builder.putString("index_id", d.indexId())
+                .putInt("generation", d.generation())
+                .putString("build_snapshot_id", d.buildSnapshotId() == null ? "" : d.buildSnapshotId())
+                .putString("last_indexed_snapshot_id",
+                        d.lastIndexedSnapshotId() == null ? "" : d.lastIndexedSnapshotId())
+                .putString("updated_at", d.updatedAt() != null ? d.updatedAt().toString() : "")
+                .build();
     }
 }

@@ -222,16 +222,8 @@ public final class PangrovaDatabaseMetaData implements DatabaseMetaData {
     @Override
     public ResultSet getIndexInfo(String catalog, String schema, String table, boolean unique,
                                   boolean approximate) throws SQLException {
-        return MetadataResultSets.empty(
-                List.of("TABLE_CAT", "TABLE_SCHEM", "TABLE_NAME", "NON_UNIQUE",
-                        "INDEX_QUALIFIER", "INDEX_NAME", "TYPE", "ORDINAL_POSITION",
-                        "COLUMN_NAME", "ASC_OR_DESC", "CARDINALITY", "PAGES",
-                        "FILTER_CONDITION"),
-                List.of(Types.VARCHAR, Types.VARCHAR, Types.VARCHAR,
-                        Types.BOOLEAN, Types.VARCHAR, Types.VARCHAR,
-                        Types.SMALLINT, Types.SMALLINT, Types.VARCHAR,
-                        Types.VARCHAR, Types.INTEGER, Types.INTEGER,
-                        Types.VARCHAR));
+        throw new SQLFeatureNotSupportedException(
+                "Pangrova JDBC does not expose index metadata; use SHOW INDEXES");
     }
     @Override public boolean supportsResultSetType(int type) { return type == ResultSet.TYPE_FORWARD_ONLY; }
 

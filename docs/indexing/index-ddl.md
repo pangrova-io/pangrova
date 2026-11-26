@@ -68,6 +68,45 @@ ALTER INDEX idx_orders_status ON prod.analytics.orders REBUILD;
 SHOW INDEXES ON prod.analytics.events;
 ```
 
+The result is ordered by `index_name`, then `index_id`, and excludes `DROPPED`
+descriptors. Every row has the same columns in the order shown below. New
+descriptor fields follow the existing positional result columns:
+
+| Column | Meaning |
+|---|---|
+| `index_name` | SQL index name |
+| `index_type` | Canonical index type |
+| `columns` | Comma-separated indexed columns in key order |
+| `state` | `BUILDING`, `READY`, or `STALE` |
+| `stale_reason` | Fenced stale reason, or null |
+| `created_at` | Descriptor creation timestamp |
+| `algorithm` | Vector algorithm or full-text analyzer, otherwise empty |
+| `metric` | Vector metric, otherwise empty |
+| `index_id` | Stable Pangrova descriptor identity |
+| `generation` | Integer current descriptor generation |
+| `build_snapshot_id` | Snapshot reserved by the current build, or empty |
+| `last_indexed_snapshot_id` | Last published source snapshot, or empty |
+| `updated_at` | Last descriptor transition timestamp |
+
+## Result and error contracts
+
+- `CREATE INDEX` and `ALTER INDEX ... REBUILD` return one row with `index_id`
+  and `state`. The state describes the accepted descriptor transition, not build
+  completion.
+- `CREATE INDEX IF NOT EXISTS` returns the existing descriptor's real `index_id`
+  and current `state`; it does not submit another build.
+- `FORCE` only overrides a conflicting connector-native index capability. It
+  does not rebuild or replace an existing Pangrova index.
+- `DROP INDEX` returns no rows. `DROP INDEX IF EXISTS` also returns no rows when
+  the index is absent.
+- An existing name without `IF NOT EXISTS` uses `METADATA_INDEX_ALREADY_EXISTS`.
+  A missing index uses `METADATA_INDEX_NOT_FOUND`. Invalid index definitions,
+  unsupported algorithms, and incompatible rebuild schemas use
+  `METADATA_INDEX_VALIDATION_ERROR`.
+- JDBC `DatabaseMetaData.getIndexInfo` is explicitly unsupported and throws
+  `SQLFeatureNotSupportedException`; clients must use `SHOW INDEXES` rather than
+  interpreting an empty JDBC result as proof that no indexes exist.
+
 ## Notes
 
 - The index type name after `USING` is an identifier; options in `WITH (...)` are
