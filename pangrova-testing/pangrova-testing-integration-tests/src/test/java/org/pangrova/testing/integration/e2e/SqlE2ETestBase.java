@@ -1178,6 +1178,11 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
 
     protected static String e2eTenantId() { return E2E_TENANT_ID; }
 
+    protected static org.pangrova.server.coordinator.bootstrap.IndexingBootstrap e2eIndexingBootstrap() {
+        return java.util.Objects.requireNonNull(sharedIndexingBootstrap,
+                "E2E indexing bootstrap must be initialized before index maintenance");
+    }
+
     protected static org.pangrova.protocol.v2.CapabilityInventory e2eNativeCapabilityInventory() {
         return java.util.Objects.requireNonNull(e2eCapabilityAdvertisement,
                 "E2E Native advertisement must be initialized before Worker registration").inventory();
@@ -2468,8 +2473,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                     new org.pangrova.coordinator.query.execution.dispatch.task.AlterIndexTask(indexExecutor));
             statementDispatcher.registerFactory(metadataFactory);
 
-            var schemaEvolutionHandler = new org.pangrova.indexing.evolution.IndexSchemaEvolutionHandler(indexMetadataStore);
-            if (sharedDdlExecutor != null) {
+            var schemaEvolutionHandler = sharedIndexingBootstrap.getSchemaEvolutionHandler();
+            if (sharedDdlExecutor != null && schemaEvolutionHandler != null) {
                 sharedDdlExecutor.setSchemaEvolutionHandler(schemaEvolutionHandler);
             }
 

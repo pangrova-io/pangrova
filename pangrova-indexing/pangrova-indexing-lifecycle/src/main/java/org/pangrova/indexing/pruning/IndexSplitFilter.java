@@ -20,6 +20,7 @@ import org.pangrova.indexing.api.evaluation.SplitIndexEvalResult;
 import org.pangrova.connector.api.index.predicate.EqualTo;
 import org.pangrova.connector.api.index.predicate.IndexPredicate;
 import org.pangrova.connector.api.index.predicate.InList;
+import org.pangrova.connector.api.index.predicate.RangeQuery;
 import org.pangrova.connector.api.index.statistics.FileColumnStatistics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -467,6 +468,9 @@ public final class IndexSplitFilter implements AutoCloseable {
             // writer's verified canonical key, so Native must not prune them.
             return null;
         }
+        if (hint.indexType() == IndexType.BTREE && !hasNativeBTreeContract(hint)) {
+            return null;
+        }
         Map<String, IndexFileMapping> fileMappings = ctx.indexFileMappings()
                 .getOrDefault(hint.indexId(), Map.of());
         IndexFileMapping mapping = fileMappings.get(dataFilePath);
@@ -476,6 +480,30 @@ public final class IndexSplitFilter implements AutoCloseable {
         return new IndexEvalHint(hint.indexId(), hint.indexType(),
                 hint.predicate(), mapping.indexFilePath(), mapping.generation(),
                 mapping.indexSizeBytes(), mapping.checksum());
+    }
+
+    static boolean hasNativeBTreeContract(IndexHint hint) {
+        if (hint.descriptor().columnNames().size() != 1) {
+            return false;
+        }
+        if (hint.predicate() instanceof EqualTo equal) {
+            return hasNativeBTreeKeyContract(equal.value());
+        }
+        if (hint.predicate() instanceof RangeQuery range) {
+            return (range.lower() != null || range.upper() != null)
+                    && (range.lower() == null || hasNativeBTreeKeyContract(range.lower()))
+                    && (range.upper() == null || hasNativeBTreeKeyContract(range.upper()));
+        }
+        if (hint.predicate() instanceof InList inList) {
+            return !inList.values().isEmpty()
+                    && inList.values().stream().allMatch(IndexSplitFilter::hasNativeBTreeKeyContract);
+        }
+        return false;
+    }
+
+    private static boolean hasNativeBTreeKeyContract(Comparable<?> value) {
+        return value instanceof String || value instanceof Integer || value instanceof Long
+                || value instanceof Double || value instanceof Float;
     }
 
     private static boolean hasNativeBloomKeyContract(IndexPredicate predicate) {

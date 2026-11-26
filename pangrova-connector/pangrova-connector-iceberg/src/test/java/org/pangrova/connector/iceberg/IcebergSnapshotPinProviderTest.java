@@ -16,13 +16,83 @@ import org.pangrova.connector.api.index.SnapshotPinOwner;
 import org.pangrova.connector.api.index.SnapshotPinReference;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.Base64;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class IcebergSnapshotPinProviderTest {
     @TempDir Path warehouse;
+
+    @Test
+    void mixedEncodingHoldsCanBeReadAndReleasedAfterRestart() throws IOException {
+        HadoopTestGuard.assumeHadoopCompatible();
+        var id = TableIdentifier.of("db", "items");
+        String token;
+        var oldOwner = new SnapshotPinOwner("index-1", 0, "attempt-1");
+        var newOwner = new SnapshotPinOwner("index-1", 1, "attempt-2");
+        String legacyName = SnapshotPinTags.indexPrefix(oldOwner.indexId());
+        try (var catalog = new HadoopCatalog(new Configuration(), warehouse.toString())) {
+            catalog.createNamespace(Namespace.of("db"));
+            var table = catalog.createTable(id, new Schema(Types.NestedField.required(1, "id", Types.LongType.get())));
+            var file = DataFiles.builder(table.spec()).withPath(table.location() + "/data/items.parquet")
+                    .withFormat(FileFormat.PARQUET).withRecordCount(1).withFileSizeInBytes(32).build();
+            table.newFastAppend().appendFile(file).commit();
+            long snapshot = table.currentSnapshot().snapshotId();
+            token = Long.toString(snapshot);
+            String base64 = legacyName + "_v2_0_YXR0ZW1wdC0x_" + Base64.getEncoder()
+                    .encodeToString(token.getBytes(StandardCharsets.UTF_8));
+            String hex = SnapshotPinTags.forSnapshot(oldOwner.indexId(), 0, oldOwner.attemptId(), token)
+                    .replace("_v3_", "_v2_");
+            table.manageSnapshots().createTag(base64, snapshot).createTag(hex, snapshot)
+                    .createTag(legacyName, snapshot).createTag(legacyName + "_" + token, snapshot).commit();
+            var pins = new IcebergSnapshotPinProvider(catalog);
+            pins.pinSnapshot("cat", "db", "items", token, oldOwner);
+            table.refresh();
+            assertThat(table.refs()).doesNotContainKey(SnapshotPinTags.forSnapshot(
+                    oldOwner.indexId(), 0, oldOwner.attemptId(), token));
+            pins.pinSnapshot("cat", "db", "items", token, newOwner);
+        }
+        try (var catalog = new HadoopCatalog(new Configuration(), warehouse.toString())) {
+            var pins = new IcebergSnapshotPinProvider(catalog);
+            var legacyOwner = new SnapshotPinOwner("index-1", 0, "legacy");
+            pins.validateSnapshotPin("cat", "db", "items", token, oldOwner);
+            pins.validateSnapshotPin("cat", "db", "items", token, newOwner);
+            assertThatThrownBy(() -> pins.validateSnapshotPin("cat", "db", "items", token, legacyOwner))
+                    .isInstanceOf(SnapshotExpiredException.class);
+            assertThat(pins.getPinnedSnapshots("cat", "db", "items")).containsExactly(token);
+            assertThat(pins.getSnapshotPinsForIndex("cat", "db", "items", "index-1"))
+                    .containsExactlyInAnyOrder(new SnapshotPinReference(token, oldOwner),
+                            new SnapshotPinReference(token, newOwner), new SnapshotPinReference(token, legacyOwner));
+            var table = catalog.loadTable(id);
+            var replacementFile = DataFiles.builder(table.spec())
+                    .withPath(table.location() + "/data/replacement.parquet")
+                    .withFormat(FileFormat.PARQUET).withRecordCount(1).withFileSizeInBytes(32).build();
+            table.newFastAppend().appendFile(replacementFile).commit();
+            String conflicting = SnapshotPinTags.forSnapshot(oldOwner.indexId(), 0, oldOwner.attemptId(), token);
+            table.manageSnapshots().createTag(conflicting, table.currentSnapshot().snapshotId()).commit();
+            assertThatThrownBy(() -> pins.validateSnapshotPin("cat", "db", "items", token, oldOwner))
+                    .isInstanceOf(IllegalStateException.class);
+            assertThatThrownBy(() -> pins.unpinSnapshot("cat", "db", "items", token, oldOwner))
+                    .isInstanceOf(IllegalStateException.class);
+            table.refresh();
+            assertThat(table.refs()).containsKey(conflicting);
+            table.manageSnapshots().removeTag(conflicting).commit();
+            assertThat(pins.getSnapshotPinsForIndex("cat", "db", "items", "index-1"))
+                    .containsExactlyInAnyOrder(new SnapshotPinReference(token, oldOwner),
+                            new SnapshotPinReference(token, newOwner), new SnapshotPinReference(token, legacyOwner));
+            pins.unpinSnapshot("cat", "db", "items", token, oldOwner);
+            pins.unpinSnapshot("cat", "db", "items", token, oldOwner);
+            assertThat(pins.getSnapshotPinsForIndex("cat", "db", "items", "index-1"))
+                    .containsExactlyInAnyOrder(new SnapshotPinReference(token, newOwner),
+                            new SnapshotPinReference(token, legacyOwner));
+            pins.unpinSnapshot("cat", "db", "items", token, legacyOwner);
+            pins.unpinSnapshot("cat", "db", "items", token, newOwner);
+            assertThat(pins.getPinnedSnapshots("cat", "db", "items")).isEmpty();
+        }
+    }
 
     @Test
     void tagSurvivesCatalogRestartAndUnpinsOnlyExactSnapshot() throws IOException {

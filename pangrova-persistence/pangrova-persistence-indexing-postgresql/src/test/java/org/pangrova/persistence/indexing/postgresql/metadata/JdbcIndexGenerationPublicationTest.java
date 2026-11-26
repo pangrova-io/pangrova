@@ -90,6 +90,23 @@ class JdbcIndexGenerationPublicationTest {
     }
 
     @Test
+    void pendingSchemaOperationBlocksScalarPublication() {
+        IndexDescriptor descriptor = descriptor();
+        store.registerIndex(descriptor);
+        assertThat(new JdbcIndexBuildClaimRepository(dataSource).tryClaim(
+                descriptor.indexId(), 0, OWNER, Instant.now())).isTrue();
+        store.registerIndexFile(OWNER, mapping(0));
+        var operation = store.prepareSchemaEvolution(
+                org.pangrova.indexing.api.evolution.SchemaChangeEvent.addColumn(
+                        descriptor.tenantId(), descriptor.catalogName(), descriptor.schemaName(),
+                        descriptor.tableName(), "other", "BIGINT"), Instant.now());
+        assertThatThrownBy(() -> store.publishIndexGeneration(request(descriptor, 1)))
+                .hasStackTraceContaining("Index schema operation " + operation + " is unresolved");
+        assertThat(store.findActiveIndexGeneration(descriptor.indexId())).isEmpty();
+        assertThat(store.findIndex(descriptor.indexId()).orElseThrow().state()).isEqualTo(IndexState.STALE);
+    }
+
+    @Test
     void failedOnlineGenerationLeavesActiveGenerationQueryable() {
         IndexDescriptor descriptor = descriptor();
         store.registerIndex(descriptor);

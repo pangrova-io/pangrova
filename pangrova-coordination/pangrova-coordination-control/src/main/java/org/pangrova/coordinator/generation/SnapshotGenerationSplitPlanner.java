@@ -68,7 +68,6 @@ public final class SnapshotGenerationSplitPlanner {
         if (EMPTY_SNAPSHOT.equals(snapshotToken)) {
             return List.of();
         }
-        long snapshotId = numericSnapshot(snapshotToken);
         CatalogHandle catalog = Objects.requireNonNull(
                 catalogLookup.apply(table.catalog()),
                 "catalog lookup returned null for " + table.catalog());
@@ -78,22 +77,12 @@ public final class SnapshotGenerationSplitPlanner {
         if (current == null) {
             throw validation("Table disappeared while planning artifact build: " + table);
         }
-        ConnectorTableHandle pinned = current.withTimeTravelSnapshot(snapshotId);
+        ConnectorTableHandle pinned = current.withTimeTravelSnapshot(snapshotToken);
         if (pinned == current) {
             throw validation(
                     "Connector did not produce a snapshot-pinned table handle for " + table);
         }
         return drain(catalog, session, pinned, snapshotToken);
-    }
-
-    private static long numericSnapshot(String snapshotToken) {
-        try {
-            return Long.parseLong(snapshotToken);
-        } catch (NumberFormatException failure) {
-            throw validation(
-                    "Native artifact build requires a numeric immutable snapshot token",
-                    failure);
-        }
     }
 
     private static List<GenerationSplit> drain(

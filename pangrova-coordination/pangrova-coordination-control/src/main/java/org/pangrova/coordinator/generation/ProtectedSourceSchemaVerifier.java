@@ -27,7 +27,9 @@ public final class ProtectedSourceSchemaVerifier {
                 || !source.schema().equals(session.getSchema().orElse(null))) {
             throw invalid("Protected source connector scope differs from the compiled source");
         }
-        long version = exactSnapshot(snapshot);
+        if (snapshot == null || snapshot.isBlank()) {
+            throw invalid("Protected materialization requires one exact source snapshot token");
+        }
         byte[] expected = compiled.sourceSchemas().get(source.toString());
         if (expected == null || expected.length == 0 || compiled.sourceSchemas().size() != 1) {
             throw invalid("Authenticated compiler did not provide one exact source scan schema");
@@ -37,7 +39,7 @@ public final class ProtectedSourceSchemaVerifier {
         if (current == null) {
             throw invalid("Protected source table no longer exists");
         }
-        var pinned = current.withTimeTravelSnapshot(version);
+        var pinned = current.withTimeTravelSnapshot(snapshot);
         if (pinned == current) {
             throw invalid("Protected source connector did not bind the exact historical snapshot");
         }
@@ -58,18 +60,6 @@ public final class ProtectedSourceSchemaVerifier {
             }
         } catch (com.google.protobuf.InvalidProtocolBufferException failure) {
             throw invalid("Authenticated compiler returned an invalid source schema");
-        }
-    }
-
-    private static long exactSnapshot(String snapshot) {
-        try {
-            long version = Long.parseLong(snapshot);
-            if (version <= 0 || !Long.toString(version).equals(snapshot)) {
-                throw new NumberFormatException("not a canonical positive snapshot");
-            }
-            return version;
-        } catch (NumberFormatException failure) {
-            throw invalid("Protected materialization requires one exact positive numeric source snapshot");
         }
     }
 

@@ -32,7 +32,7 @@ import org.pangrova.persistence.indexing.postgresql.metadata.JdbcIndexMetadataSt
 import org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory;
 import org.pangrova.persistence.generation.api.job.SnapshotPinIntent;
 import org.pangrova.persistence.generation.api.job.SnapshotPinReservation;
-import org.pangrova.persistence.generation.api.job.SnapshotPinState;
+import org.pangrova.persistence.generation.api.enums.SnapshotPinState;
 import org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStore;
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
@@ -141,6 +141,33 @@ class DurableIndexBuildSnapshotPinTest extends ContainerTestBase {
         assertThat(store.findSnapshotPinForJob(TENANT, jobId).orElseThrow().state())
                 .isEqualTo(SnapshotPinState.RELEASED);
         assertThat(emptyConnector.enumerations()).isZero();
+    }
+
+    @Test
+    void opaqueSnapshotTokenIsPreservedThroughPinAndSplitPlanning() throws Exception {
+        String snapshot = "snapshot:opaque/42";
+        try (var connection = dataSource.getConnection();
+             var statement = connection.prepareStatement(
+                     "UPDATE index_descriptors SET build_snapshot_id=? WHERE index_id='index-1'")) {
+            statement.setString(1, snapshot);
+            statement.executeUpdate();
+        }
+        var opaqueConnector = new GeneratedBuildTestConnectors.SnapshotConnector(
+                Map.of(), snapshot, pins::requirePinned);
+        var catalog = new org.pangrova.metadata.connector.ConnectorCatalogHandle(
+                new org.pangrova.metadata.api.catalog.CatalogDescriptor(
+                        "lake", org.pangrova.metadata.api.enums.CatalogType.CONNECTOR, "test",
+                        org.pangrova.metadata.api.enums.CatalogState.ACTIVE, Map.of(), "", Set.of()),
+                opaqueConnector);
+        var opaqueService = new DurableIndexBuildService(store, indexes,
+                new GeneratedBuildTestConnectors.FixedCatalogRegistry(catalog),
+                "s3://warehouse/indexes", session -> pins);
+
+        String jobId = opaqueService.submit(descriptor(snapshot), TABLE, session());
+
+        assertThat(pins.tokens).containsExactly(snapshot);
+        assertThat(opaqueConnector.enumerations()).isOne();
+        assertThat(store.findJob(TENANT, jobId).orElseThrow().sourceSnapshot()).isEqualTo(snapshot);
     }
 
     @Test

@@ -247,7 +247,7 @@ public final class PlanningReadBindings implements ConnectorStatisticsProvider {
         if (snapshot.isPresent() && range.isPresent()) {
             throw new IllegalStateException("A source cannot bind both an exact snapshot and an incremental range");
         }
-        if (snapshot.isPresent()) handle = handle.withTimeTravelSnapshot(snapshot.getAsLong());
+        if (snapshot.isPresent()) handle = handle.withTimeTravelSnapshot(Long.toString(snapshot.getAsLong()));
         if (range.isPresent()) handle = handle.withIncrementalRange(range.orElseThrow());
         ConnectorReadBinding binding;
         if (controlled.isPresent()) {

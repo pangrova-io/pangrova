@@ -22,7 +22,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 
@@ -65,6 +67,93 @@ class PaimonExpireSnapshotsTest {
         tableId = Identifier.create("db", "test_expire");
         catalog.createTable(tableId, schema, false);
         metadata = new PaimonMetadata(catalog, "test_catalog", new org.pangrova.connector.paimon.PaimonSplitRegistry());
+    }
+
+    @Test
+    void mixedEncodingHoldsSurviveReopeningAndReleaseIndependently() throws Exception {
+        commitData(0);
+        FileStoreTable table = (FileStoreTable) catalog.getTable(tableId);
+        long snapshot = table.snapshotManager().latestSnapshotId();
+        String token = Long.toString(snapshot);
+        var oldOwner = new SnapshotPinOwner("index-1", 0, "attempt-1");
+        var newOwner = new SnapshotPinOwner("index-1", 1, "attempt-2");
+        var legacyOwner = new SnapshotPinOwner("index-1", 0, "legacy");
+        String prefix = SnapshotPinTags.indexPrefix(oldOwner.indexId());
+        String base64 = prefix + "_v2_0_YXR0ZW1wdC0x_" + Base64.getEncoder()
+                .encodeToString(token.getBytes(StandardCharsets.UTF_8));
+        String current = SnapshotPinTags.forSnapshot(oldOwner.indexId(), 0, oldOwner.attemptId(), token);
+        table.createTag(base64, snapshot, null);
+        table.createTag(current.replace("_v3_", "_v2_"), snapshot, null);
+        table.createTag(prefix, snapshot, null);
+        table.createTag(prefix + "_" + token, snapshot, null);
+        var pins = new PaimonSnapshotPinProvider(catalog);
+        pins.pinSnapshot("cat", "db", "test_expire", token, oldOwner);
+        assertThat(table.tagManager().tagExists(current)).isFalse();
+        pins.pinSnapshot("cat", "db", "test_expire", token, newOwner);
+        Options options = new Options();
+        options.set("warehouse", warehouse.toUri().toString());
+        try (Catalog reopened = CatalogFactory.createCatalog(CatalogContext.create(options))) {
+            var reopenedPins = new PaimonSnapshotPinProvider(reopened);
+            reopenedPins.validateSnapshotPin("cat", "db", "test_expire", token, oldOwner);
+            reopenedPins.validateSnapshotPin("cat", "db", "test_expire", token, newOwner);
+            assertThatThrownBy(() -> reopenedPins.validateSnapshotPin("cat", "db", "test_expire", token, legacyOwner))
+                    .isInstanceOf(SnapshotExpiredException.class);
+            assertThat(reopenedPins.getPinnedSnapshots("cat", "db", "test_expire")).containsExactly(token);
+            assertThat(reopenedPins.getSnapshotPinsForIndex("cat", "db", "test_expire", "index-1"))
+                    .containsExactlyInAnyOrder(new SnapshotPinReference(token, oldOwner),
+                            new SnapshotPinReference(token, newOwner), new SnapshotPinReference(token, legacyOwner));
+            commitData(1);
+            var reopenedTable = (FileStoreTable) reopened.getTable(tableId);
+            long replacement = reopenedTable.snapshotManager().latestSnapshotId();
+            reopenedTable.createTag(current, replacement, null);
+            assertThatThrownBy(() -> reopenedPins.validateSnapshotPin("cat", "db", "test_expire", token, oldOwner))
+                    .isInstanceOf(IllegalStateException.class);
+            assertThatThrownBy(() -> reopenedPins.unpinSnapshot("cat", "db", "test_expire", token, oldOwner))
+                    .isInstanceOf(IllegalStateException.class);
+            assertThat(reopenedTable.tagManager().tagExists(current)).isTrue();
+            reopenedTable.deleteTag(current);
+            assertThat(reopenedPins.getSnapshotPinsForIndex("cat", "db", "test_expire", "index-1"))
+                    .containsExactlyInAnyOrder(new SnapshotPinReference(token, oldOwner),
+                            new SnapshotPinReference(token, newOwner), new SnapshotPinReference(token, legacyOwner));
+            reopenedPins.unpinSnapshot("cat", "db", "test_expire", token, oldOwner);
+            reopenedPins.unpinSnapshot("cat", "db", "test_expire", token, oldOwner);
+            assertThat(reopenedPins.getSnapshotPinsForIndex("cat", "db", "test_expire", "index-1"))
+                    .containsExactlyInAnyOrder(new SnapshotPinReference(token, newOwner),
+                            new SnapshotPinReference(token, legacyOwner));
+            reopenedPins.unpinSnapshot("cat", "db", "test_expire", token, legacyOwner);
+            reopenedPins.unpinSnapshot("cat", "db", "test_expire", token, newOwner);
+            assertThat(reopenedPins.getPinnedSnapshots("cat", "db", "test_expire")).isEmpty();
+        }
+    }
+
+    @Test
+    void legacyPublishedPinCanBeAdoptedAfterNumberedSnapshotExpires() throws Exception {
+        commitData(0);
+        var table = (FileStoreTable) catalog.getTable(tableId);
+        long snapshot = table.snapshotManager().latestSnapshotId();
+        String token = Long.toString(snapshot);
+        var legacyOwner = new SnapshotPinOwner("index-one", 0, "legacy");
+        var adoptedOwner = new SnapshotPinOwner("index-one", 0, "legacy-" + "a".repeat(32));
+        String legacyTag = SnapshotPinTags.indexPrefix(legacyOwner.indexId()) + "_" + token;
+        table.createTag(legacyTag, snapshot, null);
+        for (int i = 1; i < 5; i++) {
+            commitData(i);
+        }
+        metadata.executeProcedure(null, "expire_snapshots",
+                Map.of("arg0", "db.test_expire", "retain_max", "1"));
+        assertThat(((FileStoreTable) catalog.getTable(tableId)).snapshotManager().snapshotExists(snapshot)).isFalse();
+
+        var pins = new PaimonSnapshotPinProvider(catalog);
+        pins.pinSnapshot("cat", "db", "test_expire", token, adoptedOwner);
+        pins.validateSnapshotPin("cat", "db", "test_expire", token, adoptedOwner);
+        assertThat(pins.getSnapshotPinsForIndex("cat", "db", "test_expire", "index-one"))
+                .containsExactlyInAnyOrder(new SnapshotPinReference(token, legacyOwner),
+                        new SnapshotPinReference(token, adoptedOwner));
+        pins.unpinSnapshot("cat", "db", "test_expire", token, adoptedOwner);
+        assertThat(pins.getSnapshotPinsForIndex("cat", "db", "test_expire", "index-one"))
+                .containsExactly(new SnapshotPinReference(token, legacyOwner));
+        pins.unpinSnapshot("cat", "db", "test_expire", token, legacyOwner);
+        assertThat(pins.getPinnedSnapshots("cat", "db", "test_expire")).isEmpty();
     }
 
     @Test
@@ -138,8 +227,9 @@ class PaimonExpireSnapshotsTest {
                 .containsExactlyInAnyOrder(
                         new SnapshotPinReference(oldToken, firstOwner),
                         new SnapshotPinReference(currentToken, replacementOwner));
-        assertThat(reopened.getSnapshotAwareMetadata("db", "test_expire")
-                .orElseThrow().listFilesAtSnapshot(oldToken)).isNotEmpty();
+        var snapshots = reopened.getSnapshotAwareMetadata("db", "test_expire").orElseThrow();
+        assertThat(snapshots.currentSnapshotId()).contains(currentToken);
+        assertThat(snapshots.listFilesAtSnapshot(oldToken)).isNotEmpty();
 
         reopenedPins.unpinSnapshot("test_catalog", "db", "test_expire", oldToken, firstOwner);
         assertThat(reopenedPins.getSnapshotPinsForIndex(
@@ -149,6 +239,8 @@ class PaimonExpireSnapshotsTest {
         reopenedPins.unpinSnapshot("test_catalog", "db", "test_expire", currentToken, replacementOwner);
         assertThat(reopenedPins.getSnapshotPinsForIndex(
                 "test_catalog", "db", "test_expire", "index-one")).isEmpty();
+        assertThatThrownBy(() -> snapshots.listFilesAtSnapshot(oldToken))
+                .isInstanceOf(SnapshotExpiredException.class);
         assertThatThrownBy(() -> reopenedPins.pinSnapshot(
                 "test_catalog", "db", "test_expire", "0",
                 new SnapshotPinOwner("index-one", 2, "attempt-3")))

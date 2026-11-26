@@ -77,6 +77,18 @@ public final class JdbcIndexGenerationPublicationStore
                 List<GenerationOutput> outputs =
                         outputValidator.loadAndValidate(connection, job);
                 Aggregate aggregate = aggregate(job, outputs);
+                try (PreparedStatement schemaLock = connection.prepareStatement(
+                        "SELECT pangrova_assert_index_schema_descriptor_available(?)")) {
+                    schemaLock.setString(1, job.artifactId());
+                    schemaLock.executeQuery().close();
+                } catch (SQLException blocked) {
+                    if ("55000".equals(blocked.getSQLState())) {
+                        // The write-ahead schema fence has invalidated this exact
+                        // generation. Do not spin a terminal publication indefinitely.
+                        throw new GenerationPublicationFenceException(blocked.getMessage());
+                    }
+                    throw blocked;
+                }
                 DescriptorFence descriptor = lockDescriptor(connection, job.artifactId());
                 IndexPublicationMode mode = validateDescriptorFence(connection, descriptor, job);
                 long publicationEpoch = nextPublicationEpoch(connection, job.artifactId());

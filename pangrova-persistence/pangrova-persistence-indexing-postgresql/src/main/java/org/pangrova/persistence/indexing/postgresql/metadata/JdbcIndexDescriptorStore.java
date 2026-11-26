@@ -44,6 +44,7 @@ import static org.pangrova.persistence.jdbc.support.JdbcSupport.setInstant;
 final class JdbcIndexDescriptorStore extends JdbcStoreSupport {
     private static final int BUILD_PRINCIPAL_PARAMETER = 17;
     private static final int BUILD_SCOPE_PARAMETER = 18;
+    private static final int SOURCE_SCHEMA_FINGERPRINT_PARAMETER = 19;
 
     private final CurrentTableAuthorization authorization;
 
@@ -68,16 +69,30 @@ final class JdbcIndexDescriptorStore extends JdbcStoreSupport {
                 + "(index_id, index_name, catalog_name, schema_name, table_name, "
                 + "column_names, index_type, properties, state, stale_reason, "
                 + "generation, build_snapshot_id, last_indexed_snapshot_id, created_at, updated_at, "
-                + "tenant_id, build_principal, build_authorization_scope) "
-                + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
-        try {
-            executeUpdate(sql, ps -> {
+                + "tenant_id, build_principal, build_authorization_scope, source_schema_fingerprint) "
+                + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
+        try (Connection connection = dataSource().getConnection()) {
+            connection.setAutoCommit(false);
+            try (PreparedStatement lock = connection.prepareStatement(
+                    "SELECT pangrova_assert_index_schema_scope_available(?,?,?)");
+                 PreparedStatement ps = connection.prepareStatement(sql)) {
+                lock.setString(1, descriptor.catalogName());
+                lock.setString(2, descriptor.schemaName());
+                lock.setString(3, descriptor.tableName());
+                lock.executeQuery().close();
                 bindDescriptor(ps, descriptor);
                 ps.setString(BUILD_PRINCIPAL_PARAMETER, principal);
                 ps.setBytes(BUILD_SCOPE_PARAMETER,
                         scope == null ? null : DeferredAuthorizationScopeCodec.encode(scope));
-            });
-        } catch (MetastoreException e) {
+                ps.setString(SOURCE_SCHEMA_FINGERPRINT_PARAMETER, descriptor.sourceSchemaFingerprint());
+                ps.executeUpdate();
+                connection.commit();
+            } catch (SQLException | RuntimeException failure) {
+                rollbackAfterFailure(connection, failure);
+                throw failure;
+            }
+        } catch (SQLException failure) {
+            MetastoreException e = new MetastoreException("Failed to register index", failure);
             if (isUniqueConstraintViolation(e)) {
                 throw new IndexAlreadyExistsException(descriptor.indexName(), descriptor.tableName());
             }
@@ -277,15 +292,41 @@ final class JdbcIndexDescriptorStore extends JdbcStoreSupport {
             Instant expectedUpdatedAt,
             IndexState expectedState,
             int expectedGeneration) {
+        return beginIndexGeneration(indexId, newGeneration, buildSnapshotId, timestamp,
+                expectedUpdatedAt, expectedState, expectedGeneration, null);
+    }
+
+    boolean beginIndexGeneration(
+            String indexId,
+            int newGeneration,
+            String buildSnapshotId,
+            Instant timestamp,
+            Instant expectedUpdatedAt,
+            IndexState expectedState,
+            int expectedGeneration,
+            String sourceSchemaFingerprint) {
         validateGenerationTransition(
                 newGeneration, expectedState, expectedGeneration);
         try (Connection conn = dataSource().getConnection()) {
             return reserveGeneration(conn, new GenerationReservation(
                     indexId, newGeneration, buildSnapshotId, timestamp,
-                    expectedUpdatedAt, expectedState, expectedGeneration));
+                    expectedUpdatedAt, expectedState, expectedGeneration, sourceSchemaFingerprint));
         } catch (SQLException e) {
             throw new MetastoreException(
                     "Failed to begin fenced index generation", e);
+        }
+    }
+
+    private static void bindSourceSchema(
+            Connection conn, String indexId, String sourceSchemaFingerprint) throws SQLException {
+        if (sourceSchemaFingerprint == null) {
+            return;
+        }
+        try (PreparedStatement statement = conn.prepareStatement(
+                "UPDATE index_descriptors SET source_schema_fingerprint=? WHERE index_id=?")) {
+            statement.setString(1, sourceSchemaFingerprint);
+            statement.setString(2, indexId);
+            statement.executeUpdate();
         }
     }
 
@@ -293,6 +334,11 @@ final class JdbcIndexDescriptorStore extends JdbcStoreSupport {
             throws SQLException {
         conn.setAutoCommit(false);
         try {
+            try (PreparedStatement lock = conn.prepareStatement(
+                    "SELECT pangrova_assert_index_schema_descriptor_available(?)")) {
+                lock.setString(1, request.indexId());
+                lock.executeQuery().close();
+            }
             if (!lockExpectedDescriptor(
                     conn, request.indexId(), request.expectedUpdatedAt(),
                     request.expectedState(), request.expectedGeneration())
@@ -300,6 +346,7 @@ final class JdbcIndexDescriptorStore extends JdbcStoreSupport {
                 conn.rollback();
                 return false;
             }
+            bindSourceSchema(conn, request.indexId(), request.sourceSchemaFingerprint());
             if (!restartFailedGeneration(
                     conn, request.indexId(), request.newGeneration(),
                     request.expectedGeneration(), request.buildSnapshotId(),

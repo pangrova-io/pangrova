@@ -20,6 +20,7 @@
 
     <dependencies>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-indexing-postgresql</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-types</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-persistence-security-postgresql</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-access</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.pangrova</groupId><artifactId>pangrova-security-policy-builtin</artifactId><scope>test</scope></dependency>

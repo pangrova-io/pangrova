@@ -155,7 +155,8 @@ class SnapshotPinReleaseFenceIntegrationTest extends ContainerTestBase {
             try (var statement = writer.createStatement()) {
                 statement.execute("LOCK TABLE artifact_build_jobs IN ROW EXCLUSIVE MODE");
             }
-            var upgraded = Flyway.configure().dataSource(source).locations("classpath:db/migration").load();
+            var upgraded = Flyway.configure().dataSource(source).locations("classpath:db/migration")
+                    .target("121").load();
             var migration = executor.submit(() -> upgraded.migrate().migrationsExecuted);
             org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(5)).until(() -> {
                 try (var connection = source.getConnection(); var statement = connection.createStatement();

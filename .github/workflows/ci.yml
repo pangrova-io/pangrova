@@ -4,8 +4,9 @@ on:
   workflow_call:
   push:
     branches: [main, develop]
+  # Stacked PRs may target feature branches; retain ordinary pull_request
+  # execution and its existing fork permissions for every target.
   pull_request:
-    branches: [main, develop]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

@@ -4,7 +4,7 @@ import org.pangrova.coordinator.indexing.connector.ConnectorAccessorResolver;
 
 import org.pangrova.persistence.generation.api.job.GenerationJobStore;
 import org.pangrova.persistence.generation.api.job.SnapshotPinIntent;
-import org.pangrova.persistence.generation.api.job.SnapshotPinState;
+import org.pangrova.persistence.generation.api.enums.SnapshotPinState;
 import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
 import org.pangrova.connector.api.index.SnapshotPinProvider;
 import org.pangrova.connector.api.index.SnapshotPinOwner;

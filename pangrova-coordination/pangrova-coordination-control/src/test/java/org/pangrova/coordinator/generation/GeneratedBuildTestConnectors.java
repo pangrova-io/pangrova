@@ -85,7 +85,7 @@ public final class GeneratedBuildTestConnectors {
         @Override
         public ConnectorTableHandle getTableHandle(
                 ConnectorSession session, SchemaTableName tableName) {
-            return new SnapshotTableHandle(-1);
+            return new SnapshotTableHandle("");
         }
 
         @Override
@@ -144,10 +144,10 @@ public final class GeneratedBuildTestConnectors {
         }
     }
 
-    record SnapshotTableHandle(long snapshot) implements ConnectorTableHandle {
+    record SnapshotTableHandle(String snapshot) implements ConnectorTableHandle {
         @Override
-        public ConnectorTableHandle withTimeTravelSnapshot(long snapshotId) {
-            return new SnapshotTableHandle(snapshotId);
+        public ConnectorTableHandle withTimeTravelSnapshot(String snapshotToken) {
+            return new SnapshotTableHandle(snapshotToken);
         }
     }
 
