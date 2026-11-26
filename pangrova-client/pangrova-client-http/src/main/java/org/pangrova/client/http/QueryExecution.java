@@ -5,7 +5,7 @@ import org.pangrova.common.client.query.QueryStatusResponse;
 import org.pangrova.common.enums.QueryWaitTarget;
 import org.pangrova.common.client.query.SubmitQueryResponse;
 
-/** Owns status and cancellation on the endpoint that accepted a submission. */
+/** Owns controls for one submission, including signed receipt recovery after owner loss. */
 public interface QueryExecution {
     SubmitQueryResponse submission();
 

@@ -9,6 +9,7 @@ import java.net.URI;
 import java.net.http.HttpRequest;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.IntStream;
 
 /** Owns bounded endpoint selection and identity-based failure advancement for one REST client. */
 @ThreadSafe
@@ -36,6 +37,12 @@ final class EndpointRouting {
         if (ownerEndpoint == null || endpoints.size() == 1) return ingress;
         int selected = endpoints.indexOf(ownerEndpoint.origin(scheme));
         return selected < 0 || selected == ingress.index ? ingress : new Selection(selected);
+    }
+
+    List<Selection> alternatives(Selection selection) {
+        requireOwned(selection);
+        return IntStream.range(0, endpoints.size()).filter(index -> index != selection.index)
+                .mapToObj(Selection::new).toList();
     }
 
     String routeTicket(Selection selection, QueryOwnerEndpoint ownerEndpoint) {

@@ -83,6 +83,23 @@ listener before membership registration, so the registry records the actual
 port and the same process incarnation used in the receipt. The listener serves
 requests once Coordinator initialization completes.
 
+When an owner cannot serve a signed receipt, the client can read its durable
+outcome through another configured ingress or the same ingress after restart.
+The recovery endpoint authenticates the principal and signature before accessing
+PostgreSQL. One indexed statement checks the exact keyed acceptance, latest
+terminal fact, and absence of the execution anchor in one snapshot. An existing
+anchor keeps the recovery pending even after its lease expires. This lets the
+successor finish Worker exits, write reconciliation and physical cleanup before
+reporting a recovered terminal state. The regular live path continues to use the
+owner projection without a journal read.
+
+A recovered outcome includes durable drain evidence and omits the live status
+version and Flight endpoint. `NONE` identifies a successful resultless
+execution. `UNAVAILABLE` identifies successful execution whose stream can
+no longer be served.
+The SDK retains a recovered outcome on its query handle and does not resubmit
+the SQL.
+
 Query planning, scheduling, running and finishing states live in the owning
 Coordinator's status projection. The query journal commits admission and the
 terminal outcome, including its lineage when configured. An explicit historical

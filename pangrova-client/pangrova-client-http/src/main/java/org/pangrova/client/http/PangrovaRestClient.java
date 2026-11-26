@@ -1,6 +1,7 @@
 package org.pangrova.client.http;
 
 import org.pangrova.common.util.UriComponents;
+import org.pangrova.common.concurrent.ThreadUtils;
 import org.pangrova.common.client.metadata.MetadataTableIdentifier;
 import org.pangrova.common.client.metadata.MetadataTableInfo;
 import org.pangrova.client.http.authentication.ClientAuthentication;
@@ -18,6 +19,7 @@ import org.pangrova.common.client.query.SubmitQueryRequest;
 import org.pangrova.common.client.query.SubmitQueryResponse;
 import org.pangrova.common.client.enums.CancelOutcome;
 import org.pangrova.common.client.exception.PangrovaConnectionException;
+import org.pangrova.common.client.exception.PangrovaClientException;
 import org.pangrova.common.client.exception.PangrovaProtocolException;
 import org.pangrova.common.client.session.ConnectionPoolConfig;
 import org.pangrova.common.client.session.RetryPolicy;
@@ -54,6 +56,10 @@ import java.util.Map;
 public final class PangrovaRestClient implements QueryClient, AutoCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(PangrovaRestClient.class);
+    private static final long RECOVERY_MAX_WAIT_MS = 60_000;
+    private static final long RECOVERY_INTERVAL_MS = 1_000;
+    private static final String OWNER_UNAVAILABLE = "QUERY_OWNER_UNAVAILABLE";
+    private static final String RECOVERY_PENDING = "QUERY_RECOVERY_PENDING";
 
     private final PangrovaRestClientConfig config;
     private final java.util.concurrent.ConcurrentMap<String,
@@ -285,17 +291,18 @@ public final class PangrovaRestClient implements QueryClient, AutoCloseable {
         return new Builder();
     }
 
+    private record QueryControlRoute(EndpointRouting.Selection selection, String ticket) {}
+
     private final class OwnerQuery implements QueryExecution {
         private final SubmitQueryResponse receipt;
-        private final EndpointRouting.Selection selection;
-        private final String routeTicket;
         private final String observer = java.util.UUID.randomUUID().toString();
+        private volatile QueryControlRoute route;
+        private volatile QueryStatusResponse recovered;
         private Long version;
 
         OwnerQuery(SubmitQueryResponse receipt, EndpointRouting.Selection selection) {
             this.receipt = receipt;
-            this.selection = selection;
-            this.routeTicket = routing.routeTicket(selection, receipt.ownerEndpoint());
+            this.route = routeFor(selection);
         }
 
         @Override
@@ -306,32 +313,54 @@ public final class PangrovaRestClient implements QueryClient, AutoCloseable {
         @Override
         public QueryStatusResponse awaitStatus(QueryWaitTarget target, long deadlineEpochMillis) {
             java.util.Objects.requireNonNull(target, "target");
+            var terminal = recovered;
+            if (terminal != null) return terminal;
+            var current = route;
+            try {
+                return readLive(current, target, deadlineEpochMillis, true);
+            } catch (PangrovaClientException failure) {
+                if (signedReceipt() == null) throw failure;
+                if (OWNER_UNAVAILABLE.equals(failure.errorCode())) {
+                    return awaitRetirement(current.selection(), deadlineEpochMillis);
+                }
+                if (!canFailOver(failure)) throw failure;
+                for (var alternate : routing.alternatives(current.selection())) {
+                    try {
+                        var candidate = routeFor(alternate);
+                        var status = readLive(candidate, target, deadlineEpochMillis, false);
+                        route = candidate;
+                        return status;
+                    } catch (PangrovaClientException alternateFailure) {
+                        if (OWNER_UNAVAILABLE.equals(alternateFailure.errorCode())) {
+                            return awaitRetirement(alternate, deadlineEpochMillis);
+                        }
+                        if (!canFailOver(alternateFailure)) throw alternateFailure;
+                    }
+                }
+                throw failure;
+            }
+        }
+
+        private QueryStatusResponse readLive(QueryControlRoute selected, QueryWaitTarget target,
+                long deadlineEpochMillis, boolean wait) {
             long now = System.currentTimeMillis();
             if (deadlineEpochMillis <= now) throw statusDeadline(null);
             long remaining = deadlineEpochMillis == Long.MAX_VALUE ? Long.MAX_VALUE : deadlineEpochMillis - now;
             long configuredMillis = config.requestTimeout().toMillis();
             long requestMillis = Math.min(configuredMillis, remaining);
             boolean followVersion = target == QueryWaitTarget.NEXT_VERSION;
-            long waitMillis = followVersion && version == null ? 0
+            long waitMillis = !wait || (followVersion && version == null) ? 0
                     : Math.min(QueryStatusResponse.MAX_WAIT_MILLIS, requestMillis / 2);
             String path = "/v1/query/" + receipt.queryId() + "/state?afterVersion="
                     + (version == null ? 0 : version) + "&waitMs=" + waitMillis;
             if (!followVersion) path += "&until=" + target.name();
-            var builder = HttpRequest.newBuilder(URI.create(selection.baseUrl() + path))
+            var builder = HttpRequest.newBuilder(URI.create(selected.selection().baseUrl() + path))
                     .timeout(Duration.ofMillis(Math.max(1, requestMillis))).GET()
                     .header("Accept", "application/json")
                     .header("X-Pangrova-Query-Observer", observer);
             addRequestHeaders(builder);
-            addRouteTicket(builder, routeTicket);
-            HttpResponse<String> response;
-            try {
-                response = executor.execute(routing.bind(selection, builder.build()));
-            } catch (PangrovaConnectionException failure) {
-                if ("REQUEST_TIMEOUT".equals(failure.errorCode()) && remaining <= configuredMillis) {
-                    throw statusDeadline(failure);
-                }
-                throw failure;
-            }
+            addRouteTicket(builder, selected.ticket());
+            var response = executeObservation(selected.selection(), builder, remaining);
             responseHandler.check(response);
             var status = responseHandler.deserialize(response.body(), QueryStatusResponse.class, "GET " + path);
             if (!hasCoherentLiveStatus(status)) {
@@ -341,6 +370,68 @@ public final class PangrovaRestClient implements QueryClient, AutoCloseable {
             }
             version = status.version();
             return status;
+        }
+
+        private QueryStatusResponse awaitRetirement(EndpointRouting.Selection selected, long deadlineEpochMillis) {
+            long recoveryDeadline = Math.min(deadlineEpochMillis, System.currentTimeMillis() + RECOVERY_MAX_WAIT_MS);
+            while (true) {
+                try {
+                    return readRecovered(selected, recoveryDeadline);
+                } catch (PangrovaClientException failure) {
+                    if (!RECOVERY_PENDING.equals(failure.errorCode())) throw failure;
+                    long remaining = recoveryDeadline - System.currentTimeMillis();
+                    if (remaining <= RECOVERY_INTERVAL_MS) {
+                        if (recoveryDeadline == deadlineEpochMillis) throw statusDeadline(failure);
+                        throw failure;
+                    }
+                    ThreadUtils.sleepQuietly(RECOVERY_INTERVAL_MS);
+                    if (Thread.currentThread().isInterrupted()) {
+                        throw new PangrovaConnectionException("CONNECTION_INTERRUPTED",
+                                "Interrupted waiting for query retirement queryId=" + receipt.queryId(), failure);
+                    }
+                }
+            }
+        }
+
+        private QueryStatusResponse readRecovered(EndpointRouting.Selection selected, long deadlineEpochMillis) {
+            long remaining = deadlineEpochMillis - System.currentTimeMillis();
+            if (remaining <= 0) throw statusDeadline(null);
+            String path = "/v1/query/" + receipt.queryId() + "/receipt-recovery";
+            var builder = HttpRequest.newBuilder(URI.create(selected.baseUrl() + path))
+                    .timeout(Duration.ofMillis(Math.max(1, Math.min(config.requestTimeout().toMillis(), remaining))))
+                    .GET().header("Accept", "application/json");
+            addRequestHeaders(builder);
+            addRouteTicket(builder, signedReceipt());
+            var response = executeObservation(selected, builder, remaining);
+            responseHandler.check(response);
+            var status = responseHandler.deserialize(response.body(), QueryStatusResponse.class, "GET " + path);
+            if (!receipt.queryId().equals(status.queryId()) || !status.recovered()) {
+                throw new PangrovaProtocolException("QUERY_RECOVERY_INVALID",
+                        "Receipt recovery requires a matching, physically drained terminal outcome",
+                        response.statusCode());
+            }
+            recovered = status;
+            return status;
+        }
+
+        private HttpResponse<String> executeObservation(EndpointRouting.Selection selected,
+                HttpRequest.Builder builder, long remaining) {
+            try {
+                return executor.execute(routing.bind(selected, builder.build()));
+            } catch (PangrovaConnectionException failure) {
+                if ("REQUEST_TIMEOUT".equals(failure.errorCode()) && remaining <= config.requestTimeout().toMillis()) {
+                    throw statusDeadline(failure);
+                }
+                throw failure;
+            }
+        }
+
+        private QueryControlRoute routeFor(EndpointRouting.Selection selected) {
+            return new QueryControlRoute(selected, routing.routeTicket(selected, receipt.ownerEndpoint()));
+        }
+
+        private String signedReceipt() {
+            return receipt.ownerEndpoint() == null ? null : receipt.ownerEndpoint().routeTicket();
         }
 
         private boolean hasCoherentLiveStatus(QueryStatusResponse status) {
@@ -358,8 +449,49 @@ public final class PangrovaRestClient implements QueryClient, AutoCloseable {
 
         @Override
         public CancelOutcome cancel() {
-            return cancelQuery(receipt.queryId(), selection, true, routeTicket);
+            if (recovered != null) return CancelOutcome.ALREADY_TERMINAL;
+            var current = route;
+            CancelOutcome outcome;
+            try {
+                outcome = cancelQuery(receipt.queryId(), current.selection(), true, current.ticket());
+            } catch (PangrovaClientException failure) {
+                if (signedReceipt() == null) throw failure;
+                if (OWNER_UNAVAILABLE.equals(failure.errorCode())) {
+                    return observeCancellation(current.selection(), failure);
+                }
+                if (!canFailOver(failure)) throw failure;
+                for (var alternate : routing.alternatives(current.selection())) {
+                    try {
+                        return observeCancellation(alternate, failure);
+                    } catch (PangrovaClientException alternateFailure) {
+                        if (!canFailOver(alternateFailure)) throw alternateFailure;
+                    }
+                }
+                throw failure;
+            }
+            return outcome == CancelOutcome.NOT_FOUND && signedReceipt() != null
+                    ? observeCancellation(current.selection(), null) : outcome;
         }
+
+        private CancelOutcome observeCancellation(EndpointRouting.Selection selected,
+                PangrovaClientException original) {
+            try {
+                readRecovered(selected, Long.MAX_VALUE);
+                return CancelOutcome.ALREADY_TERMINAL;
+            } catch (PangrovaClientException failure) {
+                if (!"NOT_FOUND".equals(failure.errorCode())) throw failure;
+                if (original != null) throw original;
+                return CancelOutcome.NOT_FOUND;
+            }
+        }
+    }
+
+    private static boolean canFailOver(PangrovaClientException failure) {
+        return failure instanceof PangrovaConnectionException && switch (failure.errorCode()) {
+            case "CONNECTION_TIMEOUT", "REQUEST_TIMEOUT", "CONNECTION_REFUSED",
+                    "DNS_RESOLUTION_FAILED", "CONNECTION_FAILED" -> true;
+            default -> false;
+        };
     }
 
     // ---- internal HTTP helpers ----

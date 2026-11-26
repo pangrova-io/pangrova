@@ -17,6 +17,7 @@ import org.pangrova.common.json.JsonMapperFactory;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -85,6 +86,101 @@ class QueryOwnerRoutingTest {
             unconfigured.stop(0);
             owner.stop(0);
             ingress.stop(0);
+        }
+    }
+
+    @Test
+    void ownerConnectionLossRecoversTheSignedReceiptWithoutResubmitting() throws Exception {
+        var owner = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        var peer = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        var original = new QueryOwnerEndpoint("coord-original", "incarnation-original",
+                "127.0.0.1", owner.getAddress().getPort(), "fixture-route-ticket");
+        var receipt = new SubmitQueryResponse("q", "QUEUED", ResultDisposition.PENDING,
+                null, List.of(), null, original);
+        var receipts = new AtomicInteger();
+        var unexpected = new CopyOnWriteArrayList<String>();
+        var observed = new CopyOnWriteArrayList<String>();
+        var tickets = new CopyOnWriteArrayList<String>();
+        owner.start();
+        var pool = ConnectionPoolConfig.withFailover(List.of(authority(owner), authority(peer)));
+        owner.stop(0);
+
+        peer.createContext("/v1/query/q/state", exchange -> {
+            observed.add(exchange.getRequestURI().getRawQuery());
+            tickets.add(exchange.getRequestHeaders().getFirst(QueryOwnerEndpoint.ROUTE_HEADER));
+            reply(exchange, 503, """
+                    {"error_code":"QUERY_OWNER_UNAVAILABLE","message":"Original owner is unavailable"}
+                    """);
+        });
+        peer.createContext("/v1/query/q/receipt-recovery", exchange -> {
+            tickets.add(exchange.getRequestHeaders().getFirst(QueryOwnerEndpoint.ROUTE_HEADER));
+            if (receipts.incrementAndGet() == 1) {
+                reply(exchange, 503, """
+                        {"error_code":"QUERY_RECOVERY_PENDING","message":"Waiting for retirement"}
+                        """);
+            } else {
+                reply(exchange, 200, """
+                        {"query_id":"q","state":"FINISHED","result_disposition":"UNAVAILABLE","drained":true}
+                        """);
+            }
+        });
+        peer.createContext("/", exchange -> {
+            unexpected.add(exchange.getRequestMethod() + " " + exchange.getRequestURI().getPath());
+            reply(exchange, 404, "{}");
+        });
+        peer.start();
+        try (var client = PangrovaRestClient.builder().bearerToken("route-test-credential")
+                .connectionPoolConfig(pool).requestTimeout(Duration.ofSeconds(2)).build()) {
+            var query = client.resumeQuery(receipt);
+            long deadline = System.currentTimeMillis() + 5_000;
+            var terminal = query.awaitStatus(QueryWaitTarget.DRAINED, deadline);
+            assertThat(terminal.recovered()).isTrue();
+            assertThat(terminal.version()).isNull();
+            assertThat(terminal.resultEndpoint()).isNull();
+            assertThat(terminal.resultDisposition()).isEqualTo(ResultDisposition.UNAVAILABLE);
+            assertThat(query.awaitStatus(QueryWaitTarget.TERMINAL, deadline)).isSameAs(terminal);
+            assertThat(query.cancel()).isEqualTo(CancelOutcome.ALREADY_TERMINAL);
+            assertThat(query.submission()).isEqualTo(receipt);
+            assertThat(observed).containsExactly("afterVersion=0&waitMs=0&until=DRAINED");
+            assertThat(tickets).containsOnly(original.routeTicket()).hasSize(3);
+            assertThat(receipts.get()).isEqualTo(2);
+            assertThat(unexpected).isEmpty();
+        } finally {
+            peer.stop(0);
+        }
+    }
+
+    @Test
+    void cancellationOfARecoveredQueryObservesRetirementWithoutReplayingThePost() throws Exception {
+        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        var original = new QueryOwnerEndpoint("coord", "old-incarnation", "127.0.0.1",
+                server.getAddress().getPort(), "signed-receipt");
+        var receipt = new SubmitQueryResponse("q", "QUEUED", ResultDisposition.PENDING,
+                null, List.of(), null, original);
+        var methods = new CopyOnWriteArrayList<String>();
+        server.createContext("/v1/query/q/cancel", exchange -> {
+            methods.add(exchange.getRequestMethod());
+            reply(exchange, 404, """
+                    {"query_id":"q","cancelled":false,"outcome":"NOT_FOUND"}
+                    """);
+        });
+        server.createContext("/v1/query/q/receipt-recovery", exchange -> {
+            methods.add(exchange.getRequestMethod());
+            reply(exchange, 200, """
+                    {"query_id":"q","state":"FINISHED","result_disposition":"NONE","drained":true}
+                    """);
+        });
+        server.start();
+        try (var client = PangrovaRestClient.builder().coordinatorHost(original.host())
+                .coordinatorPort(original.port()).build()) {
+            var query = client.resumeQuery(receipt);
+            assertThat(query.cancel()).isEqualTo(CancelOutcome.ALREADY_TERMINAL);
+            assertThat(query.awaitStatus(QueryWaitTarget.TERMINAL, Long.MAX_VALUE).resultDisposition())
+                    .isEqualTo(ResultDisposition.NONE);
+            assertThat(query.cancel()).isEqualTo(CancelOutcome.ALREADY_TERMINAL);
+            assertThat(methods).containsExactly("POST", "GET");
+        } finally {
+            server.stop(0);
         }
     }
 

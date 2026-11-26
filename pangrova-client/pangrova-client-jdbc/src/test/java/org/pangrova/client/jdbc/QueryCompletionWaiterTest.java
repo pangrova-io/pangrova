@@ -6,6 +6,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.client.http.PangrovaRestClient;
 import org.pangrova.common.client.exception.PangrovaProtocolException;
+import org.pangrova.common.client.query.QueryOwnerEndpoint;
+import org.pangrova.common.client.query.SubmitQueryResponse;
 import org.pangrova.common.enums.ResultDisposition;
 
 import java.io.IOException;
@@ -13,6 +15,7 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.sql.SQLException;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -59,6 +62,31 @@ class QueryCompletionWaiterTest {
             // DoGet consumes the stream while the query is still RUNNING.
             streamConsumed.set(true);
             QueryCompletionWaiter.awaitTerminalSuccess(query, deadline, 5);
+        }
+    }
+
+    @Test
+    void unavailableRecoveredStreamCannotBecomeASuccessfulResultlessQuery() throws Exception {
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        var endpoint = new QueryOwnerEndpoint("coord", "prior-incarnation", "127.0.0.1",
+                server.getAddress().getPort(), "signed-receipt");
+        var receipt = new SubmitQueryResponse("q-retired", "QUEUED", ResultDisposition.PENDING,
+                null, List.of(), null, endpoint);
+        server.createContext("/v1/query/q-retired/state", exchange -> sendJson(exchange, 404, """
+                {"error_code":"QUERY_OWNER_UNAVAILABLE","message":"Original owner is unavailable"}
+                """));
+        server.createContext("/v1/query/q-retired/receipt-recovery", exchange -> sendJson(exchange, """
+                {"query_id":"q-retired","state":"FINISHED","result_disposition":"UNAVAILABLE","drained":true}
+                """));
+        server.start();
+
+        try (var client = client()) {
+            var query = client.resumeQuery(receipt);
+            long deadline = QueryCompletionWaiter.deadlineFor(5);
+            assertThatThrownBy(() -> QueryCompletionWaiter.awaitResult(query, deadline, 5))
+                    .isInstanceOf(SQLException.class)
+                    .hasMessageContaining("Query result is no longer available");
+            assertThat(QueryCompletionWaiter.awaitTerminalSuccess(query, deadline, 5).recovered()).isTrue();
         }
     }
 
@@ -197,9 +225,13 @@ class QueryCompletionWaiterTest {
     }
 
     private static void sendJson(HttpExchange exchange, String body) throws IOException {
+        sendJson(exchange, 200, body);
+    }
+
+    private static void sendJson(HttpExchange exchange, int status, String body) throws IOException {
         byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().add("Content-Type", "application/json");
-        exchange.sendResponseHeaders(200, bytes.length);
+        exchange.sendResponseHeaders(status, bytes.length);
         exchange.getResponseBody().write(bytes);
         exchange.close();
     }

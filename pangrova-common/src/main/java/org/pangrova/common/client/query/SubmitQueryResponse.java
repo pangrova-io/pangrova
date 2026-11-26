@@ -32,6 +32,9 @@ public record SubmitQueryResponse(
         if (resultDisposition == null) {
             throw new IllegalArgumentException("resultDisposition must not be null");
         }
+        if (resultDisposition == ResultDisposition.UNAVAILABLE) {
+            throw new IllegalArgumentException("Submission cannot contain a recovered disposition");
+        }
         resultDisposition.validateEndpoint(resultEndpoint);
         if (resultDisposition == ResultDisposition.PENDING && QueryStatusResponse.isTerminalState(state)) {
             throw new IllegalArgumentException("PENDING must not survive terminal completion");

@@ -163,6 +163,30 @@ public final class QueryResource {
         observe(queryId, principal, observation, owner, response);
     }
 
+    /** Returns the original authenticated receipt outcome after durable physical retirement. */
+    @GET
+    @Path("/{queryId}/receipt-recovery")
+    public Response recoverReceipt(@PathParam("queryId") String queryId,
+            @HeaderParam(QueryOwnerEndpoint.ROUTE_HEADER) String ticket,
+            @Context ContainerRequestContext requestContext) {
+        UserIdentity identity = extractUserIdentity(requestContext);
+        if (identity == null || queryPeers == null
+                || !queryPeers.authenticatesReceipt(ticket, queryId, identity.principal())) {
+            return queryNotFound(queryId);
+        }
+        var recovery = queryManager.recoverReceipt(queryId, identity.principal(), ticket);
+        if (recovery.isEmpty()) return queryNotFound(queryId);
+        var receipt = recovery.orElseThrow();
+        if (receipt.pending()) {
+            return Response.status(Response.Status.SERVICE_UNAVAILABLE)
+                    .entity(new ErrorDetail("QUERY_RECOVERY_PENDING", null, "Query retirement is still pending"))
+                    .build();
+        }
+        var outcome = receipt.outcome();
+        return Response.ok(QueryStatusResponse.recovered(queryId, receipt.terminalState(),
+                QueryResponseMapper.failure(outcome.error()), outcome.resultDisposition())).build();
+    }
+
     private static void validateObservation(Observation observation, boolean history) {
         long afterVersion = observation.afterVersion();
         long waitMillis = observation.waitMillis();

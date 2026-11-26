@@ -288,7 +288,11 @@ class JdbcWriteCommitJournalTest extends ContainerTestBase {
             journal.purge(intent.queryId());
             assertThat(journal.getEntry(intent.queryId())).isPresent();
             assertThat(facts.confirmRecoveredTaskDrains(successor)).isEqualTo(DrainOutcome.CONFIRMED);
-            assertThat(facts.latestQueryEvent(intent.queryId()).orElseThrow().state()).isEqualTo("FINISHED");
+            var terminal = facts.latestQueryEvent(intent.queryId()).orElseThrow();
+            assertThat(terminal.state()).isEqualTo("FINISHED");
+            assertThat(terminal.terminalOutcome().resultDisposition())
+                    .isEqualTo(org.pangrova.common.enums.ResultDisposition.NONE);
+            assertThat(terminal.terminalOutcome().error()).isNull();
             assertThat(anchors.releaseDrainedQuery(successor, false)).isTrue();
             assertThat(journal.getEntry(intent.queryId())).isEmpty();
         }

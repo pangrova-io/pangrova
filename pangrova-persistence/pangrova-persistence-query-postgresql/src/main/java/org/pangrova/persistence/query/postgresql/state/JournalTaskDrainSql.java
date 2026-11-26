@@ -90,13 +90,19 @@ final class JournalTaskDrainSql {
                 WHERE a.execution_id = c.execution_id AND o.state = 'CONFIRMED' AND a.recovery_drain_state = 1
                 RETURNING a.execution_id, a.owner_id
             ), terminal AS (
-                INSERT INTO query_state_journal (event_id, query_id, state, timestamp_ms, coordinator_id)
+                INSERT INTO query_state_journal (event_id, query_id, state, timestamp_ms, coordinator_id,
+                                                 terminal_outcome)
                 SELECT gen_random_uuid(), s.execution_id,
-                       CASE WHEN EXISTS (SELECT 1 FROM write_commit_journal w
-                                         WHERE w.query_id = s.execution_id AND w.state = 'COMMITTED')
-                            THEN 'FINISHED' ELSE 'FAILED' END,
-                       (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::bigint, s.owner_id
-                FROM sealed s
+                       CASE WHEN completed.committed THEN 'FINISHED' ELSE 'FAILED' END,
+                       (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::bigint, s.owner_id,
+                       jsonb_build_object('resultDisposition', 'NONE', 'error',
+                            CASE WHEN NOT completed.committed THEN jsonb_build_object(
+                                'errorCode', 'QUERY_OWNER_LOST', 'errorType', 'EXECUTION',
+                                'message', 'Original query execution stopped before completion') END)
+                FROM sealed s CROSS JOIN LATERAL (
+                    SELECT EXISTS (SELECT 1 FROM write_commit_journal w
+                                   WHERE w.query_id = s.execution_id AND w.state = 'COMMITTED') AS committed
+                ) completed
                 WHERE NOT EXISTS (
                     SELECT 1 FROM query_state_journal q WHERE q.query_id = s.execution_id
                     AND q.state IN ('FINISHED', 'FAILED', 'CANCELLED')

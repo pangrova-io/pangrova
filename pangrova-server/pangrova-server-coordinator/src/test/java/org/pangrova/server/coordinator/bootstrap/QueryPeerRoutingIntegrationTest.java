@@ -5,6 +5,7 @@ import org.pangrova.common.client.query.QueryOwnerEndpoint;
 import org.pangrova.common.client.query.QueryStatusResponse;
 import org.pangrova.common.client.query.SubmitQueryResponse;
 import org.pangrova.common.json.JsonMapperFactory;
+import org.pangrova.common.enums.ResultDisposition;
 import org.pangrova.config.PangrovaConfiguration;
 import org.pangrova.coordinator.testinfra.SignedOidcIssuer;
 import org.pangrova.persistence.coordination.postgresql.membership.JdbcCoordinatorRegistry;
@@ -58,6 +59,86 @@ class QueryPeerRoutingIntegrationTest extends ContainerTestBase {
                 owner.shutdown();
             }
         }
+    }
+
+    @Test
+    void exactReceiptRecoversAfterTheKnownOwnerStopsAndPhysicalDrainCommits() throws Exception {
+        try (var issuer = new SignedOidcIssuer()) {
+            var config = config(issuer);
+            var owner = new CoordinatorBootstrap(config);
+            owner.start();
+            var ingress = new CoordinatorBootstrap(new CoordinatorBootstrapConfig(
+                    core("query-ingress"), config.featureFlags(), config.query(), config.transport(),
+                    config.workerHealth(), config.metadataJdbcConfig(), config.securityConfig(),
+                    config.observabilityBootstrapConfig()));
+            try {
+                ingress.start();
+                enableCounters(ingress);
+                var http = HttpClient.newHttpClient();
+                String alice = "Bearer " + issuer.token(AUDIENCE, true, "alice");
+                String bob = "Bearer " + issuer.token(AUDIENCE, true, "bob");
+                int ingressPort = ingress.getHttpPort();
+                SubmitQueryResponse receipt;
+                try (var barrier = lockPublication(owner)) {
+                    receipt = submit(http, owner.getHttpPort(), "recover-original-receipt", alice);
+                    String path = recovery(receipt);
+                    String ticket = receipt.ownerEndpoint().routeTicket();
+                    long before = lookupCalls(ingress);
+                    assertThat(read(http, ingressPort, path, bob, ticket).statusCode()).isEqualTo(404);
+                    assertThat(read(http, ingressPort, path, alice, ticket + "x").statusCode()).isEqualTo(404);
+                    assertThat(lookupCalls(ingress) - before).isZero();
+                    var pending = read(http, ingressPort, path, alice, ticket);
+                    assertThat(pending.statusCode()).as("%s", pending.body()).isEqualTo(503);
+                    assertThat(pending.body()).contains("QUERY_RECOVERY_PENDING");
+                    assertThat(lookupCalls(ingress) - before).isEqualTo(1);
+                    barrier.commit();
+                }
+
+                org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(8)).untilAsserted(() -> {
+                    var state = owner.getQueryManager().getStateMachine(receipt.queryId()).status();
+                    assertThat(state.endpoint()).isNotNull();
+                });
+                var stateMachine = owner.getQueryManager().getStateMachine(receipt.queryId());
+                try (var fetcher = new FlightResultFetcher();
+                     var cursor = fetcher.open(stateMachine.status().endpoint(), System.currentTimeMillis() + 5_000)) {
+                    assertThat(cursor.columns()).isNotEmpty();
+                    assertThat(cursor.next()).isFalse();
+                }
+                org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(8)).until(
+                        () -> stateMachine.status().drained());
+                owner.shutdown();
+
+                String ticket = receipt.ownerEndpoint().routeTicket();
+                long before = lookupCalls(ingress);
+                var live = read(http, ingressPort, status(receipt) + "?afterVersion=0", alice, ticket);
+                assertThat(live.statusCode()).as("%s", live.body()).isEqualTo(503);
+                assertThat(live.body()).contains("QUERY_OWNER_UNAVAILABLE");
+                assertThat(lookupCalls(ingress) - before).isZero();
+                var reply = read(http, ingressPort, recovery(receipt), alice, ticket);
+                assertThat(reply.statusCode()).as("%s", reply.body()).isEqualTo(200);
+                var terminal = JsonMapperFactory.shared().readValue(reply.body(), QueryStatusResponse.class);
+                assertThat(terminal.queryId()).isEqualTo(receipt.queryId());
+                assertThat(terminal.state()).isEqualTo("FINISHED");
+                assertThat(terminal.recovered()).isTrue();
+                assertThat(terminal.resultDisposition()).isEqualTo(ResultDisposition.UNAVAILABLE);
+                assertThat(lookupCalls(ingress) - before).isEqualTo(1);
+            } finally {
+                try {
+                    ingress.shutdown();
+                } finally {
+                    owner.shutdown();
+                }
+            }
+        }
+    }
+
+    private static String recovery(SubmitQueryResponse receipt) {
+        return "/v1/query/" + receipt.queryId() + "/receipt-recovery";
+    }
+
+    private static HttpResponse<String> read(HttpClient http, int port, String path, String auth, String ticket)
+            throws Exception {
+        return http.send(control(port, path, auth, ticket).GET().build(), HttpResponse.BodyHandlers.ofString());
     }
 
     private static void exerciseWaitsAndProfiles(HttpClient http, CoordinatorBootstrap owner, int ingressPort,

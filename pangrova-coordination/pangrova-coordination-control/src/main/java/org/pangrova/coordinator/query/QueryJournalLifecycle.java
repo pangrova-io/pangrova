@@ -1,6 +1,9 @@
 package org.pangrova.coordinator.query;
 
+import org.pangrova.common.enums.ResultDisposition;
 import org.pangrova.persistence.query.api.enums.JournalAdmissionOutcome;
+import org.pangrova.query.api.error.QueryFailure;
+import org.pangrova.query.api.journal.QueryTerminalOutcome;
 import org.pangrova.query.api.exception.IdempotencyConflictException;
 import org.pangrova.query.api.journal.QueryAcceptance;
 import org.pangrova.query.api.journal.QueryAcceptanceAdmission;
@@ -172,9 +175,25 @@ final class QueryJournalLifecycle
                 () -> new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(
                         System.currentTimeMillis(), grant == null ? coordinatorId : grant.ownerId()),
                         context.queryId(), null, null, terminal.name(), audit == null ? null
-                                : audit.terminalFact(context.queryId(), state, terminal)));
+                                : audit.terminalFact(context.queryId(), state, terminal),
+                        null, grant == null ? null : terminalOutcome(state.status())));
         if (grant == null) journal.appendQueryEventSync(fact);
         else journal.appendOwnedTerminalSync(fact, grant);
+    }
+
+    private static QueryTerminalOutcome terminalOutcome(QueryStateMachine.Status status) {
+        var disposition = status.state() == QueryState.FINISHED
+                && status.disposition() == ResultDisposition.STREAM
+                ? ResultDisposition.UNAVAILABLE
+                : ResultDisposition.NONE;
+        var error = status.state() == QueryState.FAILED ? status.error() : null;
+        return new QueryTerminalOutcome(disposition, error == null ? null
+                : new QueryFailure(error.errorCode(), error.errorType(), error.message()));
+    }
+
+    @Override
+    public Optional<ReceiptRecovery> recoverReceipt(String queryId, String principal, String ticket) {
+        return journal.recoverReceipt(queryId, principal, ticket);
     }
 
     private static void record(QueryStateMachine state, Runnable append) {

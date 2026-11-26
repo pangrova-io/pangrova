@@ -44,20 +44,20 @@ public final class JdbcQueryStateJournal implements QueryStateJournal, Recovered
             )
             SELECT 0 AS event_kind, q.id, q.event_id, q.query_id, q.state, q.timestamp_ms, q.coordinator_id,
                    q.sql_text, q.session_json, q.lineage_payload, q.principal, q.idempotency_key_digest,
-                   q.request_fingerprint, q.acceptance_receipt_json, q.retention_ms,
+                   q.request_fingerprint, q.acceptance_receipt_json, q.retention_ms, q.terminal_outcome,
                    NULL::varchar AS task_id, NULL::varchar AS worker_id, NULL::integer AS stage_id,
                    NULL::bigint AS report_sequence, NULL::text AS worker_host, NULL::integer AS worker_http_port,
                    NULL::text AS owner_incarnation, NULL::bigint AS owner_fencing_token, NULL::bytea AS admission_seal
             FROM query_facts JOIN claimed_events q USING (query_id) WHERE NOT terminal
             UNION ALL
             SELECT 1, t.id, t.event_id, t.query_id, t.state, t.timestamp_ms, t.coordinator_id,
-                   NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+                   NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
                    t.task_id, t.worker_id, t.stage_id, t.report_sequence,
                    t.worker_host, t.worker_http_port, t.owner_incarnation, t.owner_fencing_token, t.admission_seal
             FROM query_facts JOIN task_state_journal t USING (query_id) WHERE NOT terminal
             UNION ALL
             SELECT 2, NULL, NULL, claimed.query_id, NULL, NULL, NULL,
-                   NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+                   NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
                    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
             FROM claimed LEFT JOIN query_facts USING (query_id)
             WHERE CASE WHEN query_facts.query_id IS NOT NULL THEN query_facts.terminal
@@ -281,6 +281,46 @@ public final class JdbcQueryStateJournal implements QueryStateJournal, Recovered
             });
         } catch (SQLException failure) {
             throw JournalPendingWrites.failure("Failed to read latest query event", failure);
+        }
+    }
+
+    @Override public Optional<ReceiptRecovery> recoverReceipt(String queryId, String principal, String ticket) {
+        try {
+            return pending.enterSql().perform(dataSource,
+                    connection -> readReceiptRecovery(connection, queryId, principal, ticket));
+        } catch (SQLException failure) {
+            throw JournalPendingWrites.failure("Failed to reconcile the query receipt", failure);
+        }
+    }
+
+    private static Optional<ReceiptRecovery> readReceiptRecovery(
+            Connection connection, String queryId, String principal, String ticket) throws SQLException {
+        try (var statement = connection.prepareStatement("""
+                SELECT a.principal, a.idempotency_key_digest, a.request_fingerprint,
+                       a.acceptance_receipt_json, a.retention_ms, t.state AS terminal_state, t.terminal_outcome,
+                       (x.execution_id IS NULL) AS retired
+                FROM query_state_journal a
+                LEFT JOIN execution_anchor x ON x.execution_id = a.query_id
+                LEFT JOIN query_state_journal t ON t.query_id = a.query_id AND t.terminal_outcome IS NOT NULL
+                WHERE a.query_id = ? AND a.principal = ? AND a.state = 'QUEUED'
+                      AND a.idempotency_key_digest IS NOT NULL
+                      AND (t.state IS NULL
+                           OR a.retention_ms > (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::bigint
+                                                - GREATEST(a.timestamp_ms, t.timestamp_ms)
+                           OR x.execution_id IS NOT NULL)
+                """)) {
+            statement.setString(1, queryId);
+            statement.setString(2, principal);
+            try (var rows = statement.executeQuery()) {
+                if (!rows.next()) return Optional.empty();
+                var owner = JournalEventSql.readAcceptance(rows).receipt().ownerEndpoint();
+                if (owner == null || !ticket.equals(owner.routeTicket())) return Optional.empty();
+                if (!rows.getBoolean("retired")) return Optional.of(new ReceiptRecovery(null, null));
+                String state = rows.getString("terminal_state");
+                if (state == null) return Optional.empty();
+                var outcome = JournalEventSql.readTerminalOutcome(rows.getString("terminal_outcome"));
+                return Optional.of(new ReceiptRecovery(state, outcome));
+            }
         }
     }
 

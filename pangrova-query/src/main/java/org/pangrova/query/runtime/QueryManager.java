@@ -607,6 +607,12 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
         return journalLifecycle.lookupForPrincipal(queryId, principal);
     }
 
+    /** Resolves an authenticated receipt after a live owner cannot answer. */
+    public Optional<org.pangrova.query.api.journal.QueryStateJournalReader.ReceiptRecovery> recoverReceipt(
+            String queryId, String principal, String ticket) {
+        return journalLifecycle.recoverReceipt(queryId, principal, ticket);
+    }
+
     public void setLocalCoordinatorId(String coordinatorId) {
         journalLifecycle.setOwner(coordinatorId);
     }

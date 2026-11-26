@@ -28,6 +28,7 @@ require `result_disposition`.
 | `GET` | `/v1/server/info` | Discover current and minimum supported API versions |
 | `POST` | `/v1/query/submit` | Submit a SQL query |
 | `GET` | `/v1/query/{queryId}/state` | Get query execution state |
+| `GET` | `/v1/query/{queryId}/receipt-recovery` | Recover the terminal outcome for a signed, keyed receipt |
 | `POST` | `/v1/query/{queryId}/cancel` | Cancel a running query |
 | `GET` | `/v1/query/profile/{queryId}` | Get query flame graph (SVG) |
 | `GET` | `/v1/query/profile/{queryId}/json` | Get audit totals and retained Native task-attempt counters |
@@ -311,14 +312,26 @@ allows one pending wait per observer, principal and query, with additional
 principal, tenant and process limits. A configured ingress routes a ticketed
 live request to the Coordinator incarnation that issued the receipt.
 Live waits return `QUERY_OWNER_UNAVAILABLE` when the owner cannot serve the
-request. Use `GET /v1/query/{queryId}/state?history=true`
-for a journal lookup. Ordinary state reads use the local query projection.
-State, wait, and cancellation requests are scoped to the
-submitting principal. Historical diagnostics verify the original journal admission
-and return only `query_id` and the recorded `state`. The journal does not retain
-result disposition or endpoint authority, so historical responses omit
-`result_disposition`, `result_endpoint`, `version`, and `drained` and must not be
-used to open a result stream.
+request. Ordinary state reads use the live owner projection. State, wait, and
+cancellation requests are scoped to the submitting principal.
+`GET /v1/query/{queryId}/state?history=true` reads diagnostic history and returns
+only `query_id` and the recorded `state`.
+
+#### Recover a signed receipt
+
+After `QUERY_OWNER_UNAVAILABLE`, call
+`GET /v1/query/{queryId}/receipt-recovery` using the original
+`X-Pangrova-Query-Route` value and the submitting principal. A known receipt whose
+physical release is still pending returns HTTP 503 with `QUERY_RECOVERY_PENDING`.
+A missing, expired or nonmatching receipt returns HTTP 404. A recovered terminal
+outcome returns HTTP 200 with `drained: true` and omits `version` and
+`result_endpoint`. For a successful terminal outcome, `NONE` means the query
+was resultless and `UNAVAILABLE` means the original stream cannot be recovered.
+Once an outcome is recovered, clients can keep it for the lifetime of the query
+handle. An unavailable stream has no Flight ticket to open or resume.
+If a cancellation response cannot be established with the original owner, the
+SDK can check for physical retirement with a read. It does not replay the
+cancellation request.
 
 Java SDK applications use `client.openResult(endpoint, deadlineEpochMs)` in
 try-with-resources. Read the schema with `columns()`, advance with `next()`,

@@ -188,6 +188,11 @@ public final class QueryPeerRouting implements AutoCloseable {
         }
     }
 
+    boolean authenticatesReceipt(String ticket, String queryId, String principal) {
+        Route route = readRoute(ticket);
+        return route != null && queryId.equals(route.queryId()) && principal.equals(route.principal());
+    }
+
     private Route readRoute(String ticket) {
         if (ticket == null || ticket.length() > MAX_TICKET_LENGTH) return null;
         int split = ticket.indexOf('.');

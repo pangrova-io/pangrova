@@ -30,6 +30,9 @@ public record QuerySubmissionResult(
         Objects.requireNonNull(queryId, "queryId");
         Objects.requireNonNull(state, "state");
         Objects.requireNonNull(resultDisposition, "resultDisposition");
+        if (resultDisposition == ResultDisposition.UNAVAILABLE) {
+            throw new IllegalArgumentException("Submission cannot contain a recovered disposition");
+        }
         resultDisposition.validateEndpoint(resultEndpoint);
         if (resultDisposition == ResultDisposition.PENDING && isTerminal(state)) {
             throw new IllegalArgumentException("PENDING must not survive terminal completion");

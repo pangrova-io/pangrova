@@ -11,7 +11,8 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  * Immutable response body for querying the status of a submitted query.
  *
  * <p>The version and drain evidence describe the live owner projection.
- * Historical journal state does not carry either fact.
+ * Diagnostic history has neither fact. A recovered terminal receipt has durable drain evidence
+ * and no live version or stream endpoint.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record QueryStatusResponse(
@@ -43,6 +44,14 @@ public record QueryStatusResponse(
             }
         } else {
             resultDisposition.validateEndpoint(resultEndpoint);
+            boolean recovered = version == null && Boolean.TRUE.equals(drained);
+            if ((recovered && (!isTerminalState(state) || resultEndpoint != null
+                            || resultDisposition == ResultDisposition.PENDING
+                            || (error != null && !"FAILED".equals(state))))
+                    || (resultDisposition == ResultDisposition.UNAVAILABLE && (!recovered || !"FINISHED".equals(state)))
+                    || (version == null && Boolean.FALSE.equals(drained))) {
+                throw new IllegalArgumentException("Recovered status requires a drained terminal outcome");
+            }
             if (resultDisposition == ResultDisposition.PENDING && isTerminalState(state)) {
                 throw new IllegalArgumentException("PENDING must not survive terminal completion");
             }
@@ -55,6 +64,18 @@ public record QueryStatusResponse(
             ResultDisposition resultDisposition, ResultEndpoint resultEndpoint) {
         return new QueryStatusResponse(queryId, state, error, null,
                 requireLiveDisposition(resultDisposition), resultEndpoint);
+    }
+
+    /** Returns an immutable outcome after durable physical retirement. */
+    public static QueryStatusResponse recovered(
+            String queryId, String state, ErrorDetail error, ResultDisposition disposition) {
+        return new QueryStatusResponse(queryId, state, error, null,
+                requireLiveDisposition(disposition), null, null, true);
+    }
+
+    /** Whether the response proves durable retirement without a live projection version. */
+    public boolean recovered() {
+        return version == null && Boolean.TRUE.equals(drained);
     }
 
     /** Factory for durable diagnostic state without live result or drain authority. */

@@ -9,6 +9,9 @@ import java.util.Set;
 import javax.sql.DataSource;
 
 import org.postgresql.ds.PGSimpleDataSource;
+import org.pangrova.common.client.query.QueryOwnerEndpoint;
+import org.pangrova.common.enums.ResultDisposition;
+import org.pangrova.query.api.journal.QueryTerminalOutcome;
 import org.pangrova.query.api.journal.JournalEventContext;
 import org.pangrova.query.api.journal.QueryAcceptance;
 import org.pangrova.query.api.journal.QueryAcceptanceRequest;
@@ -347,6 +350,8 @@ class JdbcQueryStateJournalIntegrationTest {
         var recoveredTerminal = journal.latestQueryEvent(active.executionId()).orElseThrow();
         assertEquals("FAILED", recoveredTerminal.state());
         assertEquals("successor", recoveredTerminal.context().coordinatorId());
+        assertThat(recoveredTerminal.terminalOutcome().resultDisposition()).isEqualTo(ResultDisposition.NONE);
+        assertThat(recoveredTerminal.terminalOutcome().error().errorCode()).isEqualTo("QUERY_OWNER_LOST");
         assertEquals(DrainOutcome.CONFIRMED, journal.confirmRecoveredTaskDrains(activeClaim));
         assertEquals(recoveredTerminal, journal.latestQueryEvent(active.executionId()).orElseThrow());
         assertTrue(store.releaseDrainedQuery(activeClaim, false));
@@ -634,6 +639,36 @@ class JdbcQueryStateJournalIntegrationTest {
         assertEquals(event.acceptance(), replay.acceptance());
         assertThat(anchors.current(queryId)).contains(successor);
         assertEquals(1, countQueryRows("query_state_journal", queryId));
+    }
+
+    @Test
+    void exactDurableReceiptExposesTerminalOutcomeOnlyAfterAnchorRetirement() {
+        String queryId = "receipt-recovery";
+        var owner = new QueryOwnerEndpoint("original", "original-boot", "localhost", 8080, "original-ticket");
+        var request = new QueryAcceptanceRequest("alice", "a".repeat(64), "b".repeat(64), owner);
+        var acceptance = QueryAcceptance.pending(request, queryId, 60_000);
+        var context = JournalEventContext.create(System.currentTimeMillis(), owner.coordinatorId());
+        var admission = new QueryStateEvent(context, queryId, "SELECT 1", "{}", "QUEUED", null, acceptance);
+        var anchors = new JdbcExecutionAnchorStore(dataSource);
+        var anchor = anchors.tryAcquire(queryId, owner.coordinatorId(), owner.incarnation(), Duration.ofMinutes(1))
+                .orElseThrow();
+        assertTrue(journal.acceptFencedQuerySync(admission, anchor).newExecution());
+        assertThat(journal.recoverReceipt(queryId, "alice", owner.routeTicket()).orElseThrow().pending()).isTrue();
+        assertThat(journal.recoverReceipt(queryId, "bob", owner.routeTicket())).isEmpty();
+        assertThat(journal.recoverReceipt(queryId, "alice", "other-ticket")).isEmpty();
+
+        var outcome = new QueryTerminalOutcome(ResultDisposition.UNAVAILABLE, null);
+        journal.appendOwnedTerminalSync(new QueryStateEvent(
+                JournalEventContext.create(System.currentTimeMillis(), owner.coordinatorId()),
+                queryId, null, null, "FINISHED", null, null, outcome), anchor);
+        assertThat(journal.latestQueryEvent(queryId).orElseThrow().terminalOutcome()).isEqualTo(outcome);
+        assertThat(journal.recoverReceipt(queryId, "alice", owner.routeTicket()).orElseThrow().pending()).isTrue();
+        journal.purgeOwnedQuery(anchor);
+        assertTrue(anchors.release(anchor));
+        var recovered = journal.recoverReceipt(queryId, "alice", owner.routeTicket()).orElseThrow();
+        assertThat(recovered.pending()).isFalse();
+        assertThat(recovered.terminalState()).isEqualTo("FINISHED");
+        assertThat(recovered.outcome()).isEqualTo(outcome);
     }
 
     @Test

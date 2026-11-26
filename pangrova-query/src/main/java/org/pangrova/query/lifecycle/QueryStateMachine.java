@@ -557,8 +557,8 @@ public class QueryStateMachine {
     public record Status(long version, QueryState state, QueryFailure error,
                          ResultDisposition disposition, ResultEndpoint endpoint, boolean drained) {
         public Status {
-            if (disposition == null) {
-                throw new IllegalArgumentException("disposition must not be null");
+            if (disposition == null || disposition == ResultDisposition.UNAVAILABLE) {
+                throw new IllegalArgumentException("Live status requires a live result disposition");
             }
             disposition.validateEndpoint(endpoint);
             if (disposition == ResultDisposition.PENDING && TRANSITIONS.get(state).isEmpty()) {

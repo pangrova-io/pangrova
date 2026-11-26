@@ -9,6 +9,7 @@ import org.pangrova.query.api.journal.JournalEventContext;
 import org.pangrova.query.api.journal.QueryAcceptance;
 import org.pangrova.query.api.journal.QueryAcceptanceAdmission;
 import org.pangrova.query.api.journal.QueryStateEvent;
+import org.pangrova.query.api.journal.QueryTerminalOutcome;
 import org.pangrova.query.api.journal.TaskIssuance;
 import org.pangrova.query.api.journal.TaskStateEvent;
 import org.pangrova.query.api.submission.QuerySubmissionResult;
@@ -28,7 +29,8 @@ import java.util.UUID;
 final class JournalEventSql {
     static final String QUERY_COLUMNS =
             "event_id, query_id, sql_text, session_json, state, timestamp_ms, coordinator_id, lineage_payload, "
-                    + "principal, idempotency_key_digest, request_fingerprint, acceptance_receipt_json, retention_ms";
+                    + "principal, idempotency_key_digest, request_fingerprint, acceptance_receipt_json, "
+                    + "retention_ms, terminal_outcome";
     static final String TASK_COLUMNS =
             "event_id, query_id, task_id, worker_id, state, stage_id, report_sequence, timestamp_ms, coordinator_id, "
                     + "worker_host, worker_http_port, owner_incarnation, owner_fencing_token, admission_seal";
@@ -37,7 +39,7 @@ final class JournalEventSql {
     private static final int TASK_OWNER_INCARNATION_PARAMETER = 12;
     private static final int TASK_OWNER_FENCING_TOKEN_PARAMETER = 13;
     private static final String QUERY_INSERT = "INSERT INTO query_state_journal (" + QUERY_COLUMNS
-            + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING";
+            + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?::jsonb) ON CONFLICT DO NOTHING";
     private static final String LOCK_ACTIVE_GRANT = """
             WITH locked AS MATERIALIZED (
                 SELECT expires_at, recovery_drain_state FROM execution_anchor
@@ -56,7 +58,7 @@ final class JournalEventSql {
                 INSERT INTO query_state_journal (
             """ + QUERY_COLUMNS + """
                 )
-                SELECT ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ? FROM authorized
+                SELECT ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?, ?::jsonb FROM authorized
                 ON CONFLICT DO NOTHING RETURNING 1
             )
             """ + FENCED_INSERT_OUTCOME;
@@ -87,6 +89,7 @@ final class JournalEventSql {
     private static final int REQUEST_FINGERPRINT_PARAMETER = 11;
     private static final int ACCEPTANCE_RECEIPT_PARAMETER = 12;
     private static final int RETENTION_PARAMETER = 13;
+    private static final int TERMINAL_OUTCOME_PARAMETER = 14;
 
     private JournalEventSql() { }
 
@@ -339,6 +342,8 @@ final class JournalEventSql {
         } else {
             statement.setLong(offset + RETENTION_PARAMETER, acceptance.retentionMs());
         }
+        statement.setString(offset + TERMINAL_OUTCOME_PARAMETER, event.terminalOutcome() == null ? null
+                : CanonicalJsonMapper.writeValueAsStringUnchecked(event.terminalOutcome()));
     }
 
     static void bindTask(PreparedStatement statement, TaskStateEvent event, int offset) throws SQLException {
@@ -375,10 +380,21 @@ final class JournalEventSql {
         return new QueryStateEvent(context(rows), rows.getString("query_id"), rows.getString("sql_text"),
                 rows.getString("session_json"), rows.getString("state"),
                 rows.getString("lineage_payload") == null ? null
-                        : QueryLineageFactSql.decode(rows.getString("lineage_payload")), acceptance);
+                        : QueryLineageFactSql.decode(rows.getString("lineage_payload")), acceptance,
+                readTerminalOutcome(rows.getString("terminal_outcome")));
     }
 
-    private static QueryAcceptance readAcceptance(ResultSet rows) throws SQLException {
+    static QueryTerminalOutcome readTerminalOutcome(String body) throws SQLException {
+        if (body == null) return null;
+        try {
+            return CanonicalJsonMapper.readValue(body.getBytes(StandardCharsets.UTF_8),
+                    QueryTerminalOutcome.class);
+        } catch (IOException | RuntimeException failure) {
+            throw new SQLException("Stored terminal outcome is malformed", failure);
+        }
+    }
+
+    static QueryAcceptance readAcceptance(ResultSet rows) throws SQLException {
         String digest = rows.getString("idempotency_key_digest");
         if (digest == null) return null;
         String receipt = rows.getString("acceptance_receipt_json");

@@ -3038,6 +3038,7 @@ artifacts:
         - pangrova-query
         - pangrova-security-codec
       test:
+        - pangrova-common
         - pangrova-execution-api
         - pangrova-governance-api
         - pangrova-persistence-query-api
