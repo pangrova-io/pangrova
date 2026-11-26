@@ -19,15 +19,20 @@ public final class QueryRegistry {
     private final ConcurrentHashMap<String, QueryStateMachine> queries = new ConcurrentHashMap<>();
     // Initializers may call external services. Reserve the identity outside shared map operations.
     private final ConcurrentHashMap<String, QueryStateMachine> registering = new ConcurrentHashMap<>();
-    private final Set<String> pendingSubmissions = ConcurrentHashMap.newKeySet();
+    private final ConcurrentHashMap<String, QueryStateMachine> pendingSubmissions = new ConcurrentHashMap<>();
+    private final Object submissionGate = new Object();
     private final AtomicInteger outstanding = new AtomicInteger();
     private final ReentrantLock drainLock = new ReentrantLock();
     private final Condition progressed = drainLock.newCondition();
 
     /** Initializes a new lifetime before making it visible. A duplicate never invokes the initializer. */
     public QueryStateMachine register(String id, QueryStateMachine state, Runnable initialize) {
-        QueryStateMachine competing = registering.putIfAbsent(id, state);
-        if (competing != null) return competing;
+        synchronized (submissionGate) {
+            QueryStateMachine pending = pendingSubmissions.get(id);
+            if (pending != null && pending != state) return pending;
+            QueryStateMachine competing = registering.putIfAbsent(id, state);
+            if (competing != null) return competing;
+        }
         try {
             QueryStateMachine current = queries.get(id);
             if (current != null) return current;
@@ -40,14 +45,22 @@ public final class QueryRegistry {
         }
     }
 
-    /** Reserves drain accountability before a candidate performs blocking admission work. */
-    public boolean reserveSubmission(String id) {
-        return pendingSubmissions.add(id);
+    /** Atomically publishes a drain-accounted candidate before admission can block. */
+    public boolean reserveSubmission(String id, QueryStateMachine state) {
+        synchronized (submissionGate) {
+            if (queries.containsKey(id) || registering.containsKey(id)) return false;
+            return pendingSubmissions.putIfAbsent(id, state) == null;
+        }
     }
 
-    /** Releases a candidate reservation after registration or definitive cleanup. */
-    public void releaseSubmission(String id) {
-        if (pendingSubmissions.remove(id)) signalDrained();
+    /** Returns the exact candidate that has not yet entered the executable registry. */
+    public QueryStateMachine pendingSubmission(String id) {
+        return pendingSubmissions.get(id);
+    }
+
+    /** Releases only the exact candidate reservation after registration or definitive cleanup. */
+    public void releaseSubmission(String id, QueryStateMachine state) {
+        if (pendingSubmissions.remove(id, state)) signalDrained();
     }
 
     /** Called after physical resources have been released. The lifetime owns the once-only transition. */

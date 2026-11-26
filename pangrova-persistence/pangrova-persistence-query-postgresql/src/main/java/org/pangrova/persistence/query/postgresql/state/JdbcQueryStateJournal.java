@@ -15,6 +15,7 @@ import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.query.api.journal.QueryAcceptance;
 import org.pangrova.query.api.journal.QueryAcceptanceAdmission;
 import org.pangrova.query.api.journal.QueryStateEvent;
+import org.pangrova.persistence.query.api.exception.JournalWriteException;
 import org.pangrova.persistence.query.api.state.QueryStateJournal;
 import org.pangrova.persistence.query.api.state.StateJournalConfig;
 import org.pangrova.query.api.journal.TaskStateEvent;
@@ -73,6 +74,9 @@ public final class JdbcQueryStateJournal implements QueryStateJournal {
             Thread.currentThread().interrupt();
             throw JournalPendingWrites.failure("Interrupted awaiting journal commit; event remains owned", interrupted);
         } catch (ExecutionException failure) {
+            if (failure.getCause() instanceof JournalWriteException rejected) {
+                throw rejected;
+            }
             throw JournalPendingWrites.failure("Journal commit was not established", failure.getCause());
         }
     }

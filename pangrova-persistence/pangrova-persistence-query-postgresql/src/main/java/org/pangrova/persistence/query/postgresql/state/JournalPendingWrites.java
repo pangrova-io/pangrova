@@ -148,7 +148,14 @@ final class JournalPendingWrites {
             }
             notifyAll();
         }
-        batch.attempts().forEach(attempt -> attempt.completeExceptionally(failure));
+        for (int index = 0; index < batch.writes().size(); index++) {
+            boolean rejected = batch.writes().get(index).key().equals(confirmedRejected);
+            JournalWriteException outcome = rejected
+                    ? new JournalWriteException("Journal event was rejected", error,
+                            JournalAdmissionOutcome.REJECTED_BEFORE_TRANSFER)
+                    : failure;
+            batch.attempts().get(index).completeExceptionally(outcome);
+        }
     }
 
     private void removeOwned(Write owner) {

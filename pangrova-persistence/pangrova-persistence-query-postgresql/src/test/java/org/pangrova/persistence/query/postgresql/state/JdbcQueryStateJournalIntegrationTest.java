@@ -346,8 +346,10 @@ class JdbcQueryStateJournalIntegrationTest {
     @Test
     void acceptanceFingerprintConflictIsRejectedWithoutASecondQueryRow() throws Exception {
         journal.acceptQuerySync(acceptanceEvent("q-accept", "alice", "a", "b", 60_000));
-        assertThrows(org.pangrova.persistence.query.api.exception.JournalWriteException.class,
+        var failure = assertThrows(org.pangrova.persistence.query.api.exception.JournalWriteException.class,
                 () -> journal.acceptQuerySync(acceptanceEvent("q-conflict", "alice", "a", "c", 60_000)));
+        assertThat(failure.admissionOutcome()).isEqualTo(
+                org.pangrova.persistence.query.api.enums.JournalAdmissionOutcome.REJECTED_BEFORE_TRANSFER);
         assertThat(countQueryRows("query_state_journal", "q-accept")).isEqualTo(1);
         assertThat(countQueryRows("query_state_journal", "q-conflict")).isEqualTo(0);
         assertThat(journal.findAcceptance("alice", "a".repeat(64))).isPresent();

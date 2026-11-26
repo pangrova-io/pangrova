@@ -105,10 +105,14 @@ class QueryManagerDurableAcceptanceTest {
         first.submitQueryAsync("q-original", "SELECT 1", session("q-original", "alice"),
                 acceptance("alice", FINGERPRINT));
 
-        assertThatThrownBy(() -> manager(secondDispatcher, journal).submitQueryAsync(
+        var admission = new CountingAdmission();
+        var second = manager(secondDispatcher, journal, admission);
+        assertThatThrownBy(() -> second.submitQueryAsync(
                 "q-conflict", "SELECT 2", session("q-conflict", "alice"),
                 acceptance("alice", "c".repeat(64))))
                 .isInstanceOf(IdempotencyConflictException.class);
+        assertThat(admission.throttleReleases).hasValue(1);
+        assertThat(admission.clusterReleases).hasValue(1);
         assertThat(secondDispatcher.calls).hasValue(0);
     }
 

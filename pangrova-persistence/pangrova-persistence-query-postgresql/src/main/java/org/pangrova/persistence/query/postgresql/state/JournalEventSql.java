@@ -38,7 +38,7 @@ final class JournalEventSql {
             + " FROM query_state_journal WHERE event_id = ?";
     private static final String SELECT_ACCEPTANCE = "SELECT " + QUERY_COLUMNS
             + " FROM query_state_journal WHERE principal = ? AND idempotency_key_digest = ? "
-            + "AND state = 'QUEUED' ORDER BY id LIMIT 1";
+            + "AND state = 'QUEUED' ORDER BY id LIMIT 1 FOR UPDATE";
     private static final String SELECT_TASK_EVENT = "SELECT " + TASK_COLUMNS
             + " FROM task_state_journal WHERE event_id = ?";
     private static final String SELECT_TERMINAL_TIMESTAMP = "SELECT MAX(timestamp_ms) FROM query_state_journal "
@@ -90,9 +90,6 @@ final class JournalEventSql {
                 if (!reconciliation.retryInsert()) {
                     if (reconciliation.publishLineage()) appendLineage(connection, event.query);
                     return reconciliation.admission();
-                }
-                if (event.query.acceptance() == null || !deleteExpiredAcceptance(connection, event.query)) {
-                    throw new JournalPayloadConflictException(event.key());
                 }
             }
             throw new JournalPayloadConflictException(event.key());
@@ -147,7 +144,9 @@ final class JournalEventSql {
             select.setString(1, event.query.acceptance().principal());
             select.setString(2, event.query.acceptance().idempotencyKeyDigest());
             try (ResultSet rows = select.executeQuery()) {
-                if (!rows.next()) throw new JournalPayloadConflictException(event.key());
+                if (!rows.next()) {
+                    return new QueryReconciliation(null, true, false);
+                }
                 var existing = readQuery(rows);
                 if (rows.next()) throw new JournalPayloadConflictException(event.key());
                 var accepted = existing.acceptance();
@@ -161,6 +160,8 @@ final class JournalEventSql {
                     return new QueryReconciliation(new QueryAcceptanceAdmission(true, accepted), false, false);
                 }
                 if (isExpired(connection, existing)) {
+                    deleteQueryState(connection, existing.queryId());
+                    deleteTaskState(connection, existing.queryId());
                     return new QueryReconciliation(null, true, false);
                 }
                 return new QueryReconciliation(new QueryAcceptanceAdmission(false, accepted), false, false);
@@ -181,22 +182,6 @@ final class JournalEventSql {
         long retainedFrom = Math.max(acceptance.context().timestampMs(), terminal);
         long now = System.currentTimeMillis();
         return now >= retainedFrom && acceptance.acceptance().retentionMs() <= now - retainedFrom;
-    }
-
-    private static boolean deleteExpiredAcceptance(Connection connection, QueryStateEvent candidate)
-            throws SQLException {
-        try (PreparedStatement select = connection.prepareStatement(SELECT_ACCEPTANCE)) {
-            select.setString(1, candidate.acceptance().principal());
-            select.setString(2, candidate.acceptance().idempotencyKeyDigest());
-            try (ResultSet rows = select.executeQuery()) {
-                if (!rows.next()) return false;
-                var existing = readQuery(rows);
-                if (!isExpired(connection, existing)) return false;
-                deleteQueryState(connection, existing.queryId());
-                deleteTaskState(connection, existing.queryId());
-                return true;
-            }
-        }
     }
 
     private static void reconcileTask(Connection connection, JournalPendingWrites.Write event)

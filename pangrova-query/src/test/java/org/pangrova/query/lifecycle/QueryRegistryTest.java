@@ -3,6 +3,7 @@ package org.pangrova.query.lifecycle;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -29,11 +30,12 @@ class QueryRegistryTest {
     @Test
     void pendingSubmissionReservationBlocksDrainUntilReleased() {
         var registry = new QueryRegistry();
-        assertThat(registry.reserveSubmission("candidate")).isTrue();
-        assertThat(registry.reserveSubmission("candidate")).isFalse();
+        var state = new QueryStateMachine();
+        assertThat(registry.reserveSubmission("candidate", state)).isTrue();
+        assertThat(registry.reserveSubmission("candidate", new QueryStateMachine())).isFalse();
         assertThat(registry.outstandingCount()).isOne();
         assertThat(registry.awaitDrain(0, () -> {})).isFalse();
-        registry.releaseSubmission("candidate");
+        registry.releaseSubmission("candidate", state);
         assertThat(registry.outstandingCount()).isZero();
         assertThat(registry.awaitDrain(0, () -> {})).isTrue();
     }
@@ -42,13 +44,28 @@ class QueryRegistryTest {
     void registrationTransfersPendingReservationWithoutDrainGap() {
         var registry = new QueryRegistry();
         var state = new QueryStateMachine();
-        assertThat(registry.reserveSubmission("candidate")).isTrue();
+        assertThat(registry.reserveSubmission("candidate", state)).isTrue();
         assertThat(registry.register("candidate", state, () -> {})).isNull();
-        registry.releaseSubmission("candidate");
+        registry.releaseSubmission("candidate", state);
         assertThat(registry.outstandingCount()).isOne();
         assertThat(registry.awaitDrain(0, () -> {})).isFalse();
         registry.complete("candidate", state);
         assertThat(registry.awaitDrain(0, () -> {})).isTrue();
+    }
+
+    @Test
+    void recoveryCannotPublishACompetingLifetimeWhileCandidateAdmissionIsPending() {
+        var registry = new QueryRegistry();
+        var candidate = new QueryStateMachine();
+        var recovered = new QueryStateMachine();
+        var initialized = new AtomicInteger();
+        assertThat(registry.reserveSubmission("shared", candidate)).isTrue();
+        assertThat(registry.register("shared", recovered, initialized::incrementAndGet)).isSameAs(candidate);
+        assertThat(initialized).hasValue(0);
+        assertThat(registry.get("shared")).isNull();
+        registry.releaseSubmission("shared", candidate);
+        assertThat(registry.register("shared", recovered, initialized::incrementAndGet)).isNull();
+        assertThat(registry.get("shared")).isSameAs(recovered);
     }
 
     @Test

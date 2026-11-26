@@ -237,6 +237,23 @@ class QueryManagerDrainConcurrencyTest {
     }
 
     @Test
+    void drainWaitsForCandidateCleanupToFinish() throws Exception {
+        var dispatcher = new CleanupBlockingDispatcher();
+        QueryManager manager = new QueryManager(
+                QueryManagerTestContexts.minimal(dispatcher, TestObservability.TRACING));
+        Future<?> submission = executor.submit(() -> manager.submitQuery(
+                "cleanup-drain", "SELECT 1", testSession()));
+        assertThat(dispatcher.cleanupEntered.await(3, TimeUnit.SECONDS)).isTrue();
+        Future<Boolean> drain = executor.submit(() -> manager.awaitAllQueries(5000));
+        assertThatThrownBy(() -> drain.get(100, TimeUnit.MILLISECONDS))
+                .isInstanceOf(TimeoutException.class);
+        dispatcher.allowCleanup.countDown();
+        assertThatThrownBy(() -> submission.get(3, TimeUnit.SECONDS))
+                .hasCauseInstanceOf(IllegalStateException.class);
+        assertThat(drain.get(3, TimeUnit.SECONDS)).isTrue();
+    }
+
+    @Test
     void deniedOwnershipUnblocksCancellationWithoutCleanup() throws Exception {
         BlockingOwnershipDispatcher dispatcher = new BlockingOwnershipDispatcher(false);
         QueryManager manager = new QueryManager(
@@ -404,6 +421,30 @@ class QueryManagerDrainConcurrencyTest {
             sm.toFinisher().run();
             return CompletableFuture.completedFuture(new DispatchResult(
                     "local", "task-local", new ResultEndpoint("local", 0, "/results/local", "grpc")));
+        }
+    }
+
+    private static final class CleanupBlockingDispatcher extends FinishingDispatcher {
+        private final CountDownLatch cleanupEntered = new CountDownLatch(1);
+        private final CountDownLatch allowCleanup = new CountDownLatch(1);
+
+        @Override
+        public org.pangrova.connector.api.metadata.ConnectorMetadataScope bindConnectorAuthority(
+                QueryStateMachine state, String queryId) {
+            throw new IllegalStateException("issuance bind failed");
+        }
+
+        @Override
+        public void releaseQueryOwnership(String queryId) {
+            cleanupEntered.countDown();
+            try {
+                if (!allowCleanup.await(3, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("cleanup release timed out");
+                }
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(interrupted);
+            }
         }
     }
 
