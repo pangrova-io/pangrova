@@ -47,11 +47,18 @@ SDK, Coordinator, Worker, Client DTOs or provider implementations.
 
 ### Query submission and execution completion
 
-The HTTP submission exchange suspends while the query waits for readiness.
-Concurrent retries with the same authenticated principal, idempotency key and
-request fingerprint observe the same owned receipt. They release their HTTP
-threads while the original request is pending, and cancelling an observer
-does not cancel the admitted query.
+The HTTP submission exchange suspends while a non-idempotent query waits for
+readiness. With an authenticated `Idempotency-Key`, the candidate query first
+passes admission and execution-owner acquisition, then atomically commits its initial
+`QUEUED` journal fact with principal, key digest, request fingerprint, lineage, and a
+`QUEUED`/`PENDING` acceptance receipt. Only that durable acceptance publishes the
+query into the executable registry. Matching retries return the stored receipt and
+query ID without a second execution; different fingerprints fail with HTTP 409.
+Unknown commit outcomes reconcile the same authoritative row. Acceptance survives
+restart and remains for ten minutes after the later of acceptance or terminal
+completion. Pending candidates reserve drain capacity before blocking admission work;
+cancellation requests are recorded until acceptance and registration complete, and a
+replay releases its candidate admission and throttle reservations. Cancelling an observer does not cancel the admitted query.
 
 The bounded asynchronous submission executor runs SQL planning and starts the
 distributed DAG. The DAG publishes its OUTPUT endpoint after Worker acknowledgement
@@ -419,9 +426,13 @@ Key performance points:
 - Worker-to-Worker shuffle uses Native Arrow Flight and serialized pages; it does not cross JNI per batch
 - The downstream Native ExchangeSource reads the Flight stream directly into Velox
 
-### 3.3 Output Task Interaction Protocol (the Coordinator never participates in data processing)
+### 3.3 Output Task Interaction Protocol (the Coordinator never executes relational data-processing operators)
 
-The Coordinator executes no data-processing operators. All Output Stages (including Gather, Merge, Limit, and Final Aggregation) run on a dedicated Output Worker. The Coordinator acts purely as a proxy, redirecting the Client to the Output Worker's Arrow Flight endpoint.
+The Coordinator executes no relational data-processing operators. Output Stages
+(including Gather, Merge, Limit, and Final Aggregation) run on a dedicated Output
+Worker, and the Coordinator redirects streaming clients to that Worker's Arrow
+Flight endpoint. Bounded control-plane statement results use the Coordinator's
+separate result source; resultless statements publish no endpoint.
 
 Eligible global counts and integral minima and maxima reduce on the parallel scan tasks. The final stage gathers the scalar results and merges them. Each scan task evaluates the original aggregate inputs and filter masks.
 
@@ -435,7 +446,7 @@ Eligible grouped counts and integral minima and maxima also reduce on scan tasks
 
 | Principle | Description |
 |------|------|
-| Coordinator zero data processing | The Coordinator only performs scheduling and state management; it never touches any RecordBatch |
+| Coordinator zero relational data processing | The Coordinator schedules and manages state; bounded control-plane rows use a separate result source rather than a relational Output Stage |
 | Output Task = ordinary Task | The Output Task's Substrait Plan contains Exchange(Gather) + Final operators, but no TableScan |
 | Unidirectional data flow | Compute Worker → Output Worker → Client; there is no reverse data flow |
 | End-to-end backpressure propagation | Client consumes slowly → Output Worker pauses → Compute Worker pauses |
@@ -538,87 +549,95 @@ change publication authority, lock order, or caller-owned transaction boundaries
 Arrow Flight (data plane):
 - Shuffle data pull + Client result pull (gRPC streaming)
 
-**Query API (Coordinator REST)**
+**Query API (Coordinator REST, v2)**
+
+Version-checked REST requests send `X-Pangrova-Api-Version: 2`. The Coordinator
+accepts version 2 only. Query submission, live state, cancellation, and result
+retrieval share the explicit result-disposition contract.
 
 Submit query `POST /v1/query/submit`
 
 Request:
 ```json
 {
-    "sessionId": "session-123",
-    "sql": "SELECT * FROM orders",
-    "sessionProperties": {"catalog": "iceberg"},
-    "options": {
-        "maxExecutionTimeMs": 1800000,
-        "maxMemoryBytes": 34359738368,
-        "resourceGroup": "interactive",
-        "explainOnly": false
-    }
+    "query": "SELECT * FROM orders",
+    "session_properties": {"catalog": "iceberg", "schema": "analytics"}
 }
 ```
 
 Response:
 ```json
 {
-    "queryId": "query-20260206-001",
-    "state": "RUNNING",
-    "resultEndpoint": {
-        "host": "worker-3",
-        "port": 8082,
-        "ticket": "query-20260206-001",
-        "protocol": "arrow-flight"
-    }
+    "query_id": "query-20260206-001",
+    "state": "QUEUED",
+    "result_disposition": "PENDING",
+    "result_endpoint": null,
+    "column_names": []
 }
 ```
 
-Every relational query returns the direct Output Worker `resultEndpoint`. This
-includes tableless constants, folded expressions, `LIMIT 0`, and connector
-system-table `SELECT` statements: none may be evaluated, buffered, cached, or
-proxied by the Coordinator. Bounded DDL/SHOW/DML acknowledgement rows are the
-only exception and use an isolated control-plane result transport.
+The response above shows a pending submission receipt. `PENDING` means the query
+has no readable result endpoint yet. `STREAM` means the response carries an
+opaque Arrow Flight `result_endpoint`; its publication and disposition are visible
+in the same live status version. `NONE` means the statement is legally resultless
+and must not carry an endpoint. `PENDING` must not survive a terminal state, and a
+query cannot change between `NONE` and `STREAM`. Empty `SELECT` statements and
+control-plane results with a schema remain `STREAM`, even when they return zero
+rows.
 
-
-
-> **INSERT/UPDATE/DELETE Response**: For DML statements, the response carries a `resultEndpoint` pointing to the Coordinator Flight server. The Client retrieves the affected-row-count result via Arrow Flight `doGet()`, same as any other query.
->
-> ```json
-> {
->     "queryId": "query-20260206-002",
->     "state": "FINISHED",
->     "resultEndpoint": {
->         "host": "coordinator-1",
->         "port": 8083,
->         "ticket": "query-20260206-002",
->         "protocol": "arrow-flight"
->     }
-> }
-> ```
->
-> For long-running DML (large INSERT INTO ... SELECT), the initial response returns `state: "RUNNING"` with `resultEndpoint` pointing to the Output Worker. The Client polls `GET /v1/query/{queryId}/state` until `state: "FINISHED"`, then calls Flight `doGet()` to retrieve the final result.
+Clients poll live state while the disposition is `PENDING` and open Flight only
+for `STREAM`. A terminal `FINISHED/NONE` outcome is successful completion without
+rows to fetch. Resultless DDL/DML therefore do not require an Output Worker or
+Coordinator Flight endpoint. An asynchronous Native write can report `PENDING`
+while it commits; the outer statement subsequently publishes either the
+materialized control-plane `STREAM` or terminal `NONE`. Bounded output still
+requires an active reader before the query can finish.
 
 Query state `GET /v1/query/{queryId}/state`
 
-Response:
+Live response:
 ```json
 {
-    "queryId": "query-20260206-001",
+    "query_id": "query-20260206-001",
     "state": "RUNNING",
-    "resultEndpoint": {"host": "worker-3", "port": 8082, "ticket": "query-20260206-001"},
-    "error": null,
+    "result_disposition": "STREAM",
+    "result_endpoint": {
+        "host": "worker-3",
+        "port": 9090,
+        "ticket": "opaque-ticket",
+        "protocol": "grpc"
+    },
+    "version": 7,
+    "drained": false,
     "stats": {
-        "elapsedTimeMs": 2300,
-        "processedRows": 1000000,
-        "processedBytes": 128000000
+        "elapsed_time_ms": 2300,
+        "queued_time_ms": 12,
+        "rows_returned": 1000000
     }
 }
 ```
 
+Live status always includes `result_disposition`, `version`, and `drained`.
+Optional `error`, `stats`, and `result_endpoint` fields are omitted when absent.
+Result endpoint protocols are canonical: `grpc` or `grpc+tls`.
+`version` orders live owner snapshots and supports bounded waits; `drained`
+reports physical resource release rather than logical cancellation. Historical
+journal diagnostics contain only `query_id` and `state` because durable history
+does not carry live result, version, or drain authority.
+
 Cancel query `POST /v1/query/{queryId}/cancel`
 
-Response:
+Response (HTTP 202):
 ```json
-{ "queryId": "query-20260206-001", "state": "CANCELLED" }
+{
+    "query_id": "query-20260206-001",
+    "cancelled": true,
+    "outcome": "CANCEL_ACCEPTED"
+}
 ```
+
+Cancellation acceptance is not physical-drain evidence. Clients use a targeted
+live state wait for `DRAINED` when they need resource-release confirmation.
 
 **Internal Worker task API**
 
@@ -806,8 +825,8 @@ operator and closes the input on producer EOF.
 
 **Result pull (Client to Output Worker)**
 
-The HTTP result endpoint contains the Worker address and an opaque signed
-ticket. The client passes that ticket directly to Flight DoGet. The signed
+For Worker output, the HTTP result endpoint contains the Worker address and an
+opaque signed ticket. The client passes that ticket directly to Flight DoGet. The signed
 payload contains a ResultReadGrant that binds the task attempt, caller security
 context, scope and expiry. DoGet validates the grant against the registered
 Native output before claiming the stream.
@@ -838,7 +857,7 @@ Coordinator serves control-plane statement results through its own result source
 | Constraint | Description | Rationale |
 |------|------|------|
 | Compute Tasks scheduled before Output Task | The Coordinator must schedule Stage 1 before Stage 0 | The Output Task needs to know the Flight endpoints of upstream Tasks |
-| Return to Client only after Output Task is scheduled | SubmitQueryResponse must include resultEndpoint | The Client needs to know where to pull results |
+| Result transport published atomically with STREAM | SubmitQueryResponse can return PENDING until the output or control-plane endpoint is registered | Clients never mistake pending publication for a resultless query |
 | Client may connect before Native output is ready | DoGet waits for the actual output registration | The stream carries its schema and then waits for the first RecordBatch |
 | Compute Tasks may produce data before the Output Worker connects | The Shuffle Buffer caches data, waiting for downstream to pull | Decouples upstream/downstream startup ordering |
 
@@ -863,7 +882,11 @@ State transition rules:
 | FINISHING | Client finished pulling or timed out | FINISHED | Release all Task resources |
 | RUNNING | Client cancels | CANCELLED | Cancel all Tasks |
 
-
+A streaming query waits for EOF or timeout before logical completion can
+finish. A resultless statement publishes `FINISHED/NONE` without waiting for a
+Flight reader. Terminal publication converts any unresolved `PENDING`
+disposition to `NONE`; an already published `STREAM` endpoint remains attached
+for failure and cancellation diagnostics.
 
 #### 3.3.6 Exception-Scenario Interaction Timelines
 
@@ -1085,12 +1108,15 @@ SDK internal flow:
 1. POST /v1/query/submit→ Coordinator
 2. Use a readable endpoint from the submit receipt or wait for the next status
    version on the Coordinator endpoint that accepted the query
-3. Open Arrow Flight DoGet(resultEndpoint) and return a forward-only ResultSet
-   after receiving the schema and first data batch or EOF
+3. For STREAM, open Arrow Flight DoGet(resultEndpoint) and return a forward-only
+   ResultSet after receiving the schema and first data batch or EOF
 4. Advance the Flight batches through ResultSet.next() and decode only the values
    requested by getters. At EOF, close Flight and confirm terminal query success.
    The JDBC query timeout covers both Flight reads and terminal confirmation.
 ```
+
+A JDBC `executeQuery` call requires `STREAM`. Update paths wait for terminal
+success and accept `NONE` without opening Flight.
 
 The query owner publishes state, error, result endpoint and physical drain in
 one immutable version. Checking the observed version and registering a waiter
@@ -1126,9 +1152,10 @@ For resultless DML, the submit response may return `RUNNING` after the actual
 WRITE task is dispatched, with no Flight endpoint. The client waits on the owner status through the final catalog commit. The 30-second submit timeout
 bounds compilation and initial dispatch, not data-file writing or commit.
 
-`Statement.execute()` and `executeQuery()` use this same Flight endpoint path.
-An absent endpoint is waited for while the query runs and is an error if the
-query finishes without one. The JDBC result set holds the current Flight batch,
+`Statement.execute()` and `executeQuery()` use the explicit disposition contract.
+`PENDING` waits for endpoint publication or terminal completion. `executeQuery()`
+requires `STREAM`; update paths accept terminal `NONE` without opening Flight. The
+JDBC result set holds the current Flight batch,
 while the Arrow allocator bounds the transport receive window. Closing a partial
 result closes the Flight call and requests cancellation for its active query
 identity. Cancellation acknowledgement and physical release are separate events.

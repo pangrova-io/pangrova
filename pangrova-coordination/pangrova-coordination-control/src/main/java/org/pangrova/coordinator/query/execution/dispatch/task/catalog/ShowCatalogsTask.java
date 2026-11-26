@@ -24,6 +24,6 @@ public final class ShowCatalogsTask implements MetadataTask<ShowCatalogsStatemen
     @Override
     public StatementResult execute(ShowCatalogsStatement statement, StatementExecutionContext context) {
         List<TypedRow> rows = executor.executeShowCatalogs();
-        return StatementResult.fromRows(rows, null, StatementCategory.SHOW);
+        return new StatementResult(rows, List.of("catalog_name"), null, StatementCategory.SHOW);
     }
 }

@@ -126,7 +126,7 @@ class DispatchParallelismPropertyTest {
                         .setSignedTicket(com.google.protobuf.ByteString.copyFromUtf8("ticket-" + tid + "-" + partition))
                         .setExpiresAtEpochMs(expiresAt).build())
                 .toList();
-        var ep = new ResultEndpoint(h, 8080, "tk", "http");
+        var ep = new ResultEndpoint(h, 8080, "tk", "grpc");
         var dr = new DispatchResult(h, tid, ep, null,
                 TaskShuffleEndpoint.newBuilder().setHost(h).setPort(9090).addAllPartitionTickets(tickets).build());
         SubmitTaskRequest request =

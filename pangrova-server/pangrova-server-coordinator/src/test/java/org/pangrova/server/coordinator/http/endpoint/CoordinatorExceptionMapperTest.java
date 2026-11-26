@@ -63,6 +63,14 @@ class CoordinatorExceptionMapperTest {
     }
 
     @Test
+    void idempotencyFingerprintConflictReturnsConflict() {
+        try (var response = mapper.toResponse(new org.pangrova.query.api.exception.IdempotencyConflictException())) {
+            assertThat(response.getStatus()).isEqualTo(409);
+            assertThat(((ErrorDetail) response.getEntity()).errorCode()).isEqualTo("CONFLICT");
+        }
+    }
+
+    @Test
     void unexpectedFailuresRemainInternalErrors() {
         try (var response = mapper.toResponse(new IllegalStateException("storage unavailable"))) {
             assertThat(response.getStatus()).isEqualTo(500);

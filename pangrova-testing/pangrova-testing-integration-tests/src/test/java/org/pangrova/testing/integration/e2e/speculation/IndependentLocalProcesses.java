@@ -487,6 +487,7 @@ final class IndependentLocalProcesses implements AutoCloseable {
         String queryId = record.path("queryId").asText();
         QueryStatusResponse publicStatus = status(queryId);
         if (!"FINISHED".equals(publicStatus.state())
+                || publicStatus.resultDisposition() != org.pangrova.common.enums.ResultDisposition.STREAM
                 || publicStatus.resultEndpoint() == null
                 || !expectedProtocol.value().equals(publicStatus.resultEndpoint().protocol())) {
             preserveDiagnostics = true;

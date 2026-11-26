@@ -16,10 +16,16 @@ Submit and manage queries over the Coordinator HTTP API.
 http://<coordinator-host>:<port>/v1
 ```
 
+This contract is REST API version 2. `GET /v1/server/info` advertises the
+current and minimum supported versions in `api_version` and `min_api_version`.
+Version 1 is rejected on version-checked endpoints because live query responses
+require `result_disposition`.
+
 ### Endpoints
 
 | Method | Path | Description |
 |--------|------|-------------|
+| `GET` | `/v1/server/info` | Discover current and minimum supported API versions |
 | `POST` | `/v1/query/submit` | Submit a SQL query |
 | `GET` | `/v1/query/{queryId}/state` | Get query execution state |
 | `POST` | `/v1/query/{queryId}/cancel` | Cancel a running query |
@@ -95,6 +101,7 @@ Request:
 curl -X POST http://localhost:8080/v1/query/submit \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <token>" \
+  -H "X-Pangrova-Api-Version: 2" \
   -d '{
     "query": "SELECT * FROM catalog.schema.table LIMIT 10",
     "session_properties": {
@@ -110,30 +117,46 @@ Response:
 {
   "query_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
   "state": "QUEUED",
+  "result_disposition": "PENDING",
   "result_endpoint": null,
   "column_names": []
 }
 ```
 
-The initial receipt can have a null `result_endpoint` and no column names while
-planning is pending. Poll the state endpoint until the result endpoint is available.
-It identifies the Worker serving Arrow Flight results (`ticket` is opaque and
-`protocol` identifies the transport). Consume a readable `RUNNING` or `FINISHING`
-stream before waiting for `FINISHED`; bounded output can require an active reader
-to finish. The `session_properties` field is optional and defaults to an
-empty map. When an authenticated principal submits an `Idempotency-Key`, the
-Coordinator retains the original submission receipt for ten minutes after completion.
-A retry with the same SQL and session properties returns that receipt, including its
-original state and result endpoint. Poll the state endpoint for later transitions.
-Changing the SQL or session properties with the same key returns HTTP 409. Each
-principal has an independent key space. Concurrent matching requests share the first
-submission. Receipt expiry is processed in bounded batches during subsequent submissions.
+`result_disposition` is required and has three values:
 
-A rejection before query registration, such as a draining Coordinator, releases the
-key. If the submission throws after registration or registration cannot be confirmed,
-the Coordinator preserves the error for the same retention window and returns
-`X-Pangrova-Query-Id` so the client can look up the execution. These guarantees cover
-one running Coordinator. Restart and failover discard its in-memory submission keys.
+- `PENDING`: the query has not resolved whether it will expose a result stream.
+- `STREAM`: the response carries an Arrow Flight `result_endpoint` for Worker
+  output or Coordinator control-plane rows.
+- `NONE`: the query intentionally returns no client result set, as with resultless
+  DDL and DML completion.
+
+`STREAM` always carries an endpoint, `NONE` never carries one, and `PENDING` cannot
+survive `FINISHED`, `FAILED`, or `CANCELLED`. An empty `SELECT` is still `STREAM`.
+The initial receipt can have no column names while planning is pending. Poll the
+state endpoint until the disposition is `STREAM` or the query reaches a terminal
+state. The endpoint identifies the host serving Arrow Flight results (`ticket`
+is opaque and `protocol` identifies the transport); this can be a Worker or the
+Coordinator for bounded control-plane rows. The protocol is canonical and must be
+`grpc` or `grpc+tls`. Consume a readable `RUNNING`
+or `FINISHING` stream before waiting for `FINISHED`; bounded output can require an
+active reader to finish. The `session_properties` field is optional and defaults
+to an empty map. When an authenticated principal submits an `Idempotency-Key`, the
+Coordinator atomically records the principal, key digest, canonical request
+fingerprint, lineage, and a deterministic `QUEUED`/`PENDING` acceptance receipt in
+the initial journal row. A normal new acceptance performs one journal INSERT and no
+readback. During the acceptance window, a matching retry returns the same query ID
+and acceptance receipt without executing the SQL again; changing SQL or session
+properties returns HTTP 409. Each principal has an independent key space.
+
+Acceptance facts remain until ten minutes after the later of acceptance or terminal
+completion. Once that window elapses, a new candidate may reuse the key with either
+an identical or a different request, even before the periodic sweep removes its old
+terminal acceptance. Active queries never expire. Conflict and uncertain-commit paths read the authoritative row and
+compare its fingerprint; restart and failover do not discard idempotency state.
+Poll the state endpoint for later transitions. A rejection before durable acceptance
+releases the key, while a failure after acceptance remains attached to the accepted
+query ID.
 
 ### Query Lifecycle
 
@@ -148,7 +171,8 @@ States `FAILED` and `CANCELLED` can be reached from any non-terminal state.
 ### Get Query State
 
 ```bash
-curl http://localhost:8080/v1/query/a1b2c3d4-e5f6-7890-abcd-ef1234567890/state
+curl http://localhost:8080/v1/query/a1b2c3d4-e5f6-7890-abcd-ef1234567890/state \
+  -H "X-Pangrova-Api-Version: 2"
 ```
 
 Response:
@@ -157,19 +181,24 @@ Response:
 {
   "query_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
   "state": "FINISHED",
+  "result_disposition": "STREAM",
+  "version": 7,
+  "drained": false,
   "stats": { "elapsed_time_ms": 1234, "queued_time_ms": 12, "rows_returned": 100 },
-  "result_endpoint": { "host": "worker-1", "port": 9090, "ticket": "...", "protocol": "arrow_flight" }
+  "result_endpoint": { "host": "worker-1", "port": 9090, "ticket": "...", "protocol": "grpc" }
 }
 ```
 
 Absent optional `error`, `stats`, and `result_endpoint` fields are omitted from
-state responses rather than serialized as null. Field availability depends on
-the current query state and retained execution evidence.
+live state responses rather than serialized as null. `result_disposition`,
+`version`, and `drained` are mandatory for live state responses. Field availability
+otherwise depends on the current query state and retained execution evidence.
 
 ### Cancel a Query
 
 ```bash
-curl -X POST http://localhost:8080/v1/query/a1b2c3d4-e5f6-7890-abcd-ef1234567890/cancel
+curl -X POST http://localhost:8080/v1/query/a1b2c3d4-e5f6-7890-abcd-ef1234567890/cancel \
+  -H "X-Pangrova-Api-Version: 2"
 ```
 
 Response (HTTP 202):
@@ -239,8 +268,9 @@ For queries returning large result sets, the REST API returns a `result_endpoint
 
 ```
 1. POST /v1/query/submit and retain query_id.
-2. Use the submit response if it has a readable result endpoint. Otherwise wait
-   on the accepting Coordinator for that endpoint or the terminal outcome.
+2. Use the submit response only when its disposition is STREAM. Otherwise wait
+   on the accepting Coordinator for STREAM or the terminal outcome. NONE means
+   there is no result reader to open.
 3. Consume Arrow Flight batches through EOF while the query is RUNNING or FINISHING.
 4. Confirm FINISHED on the owner. FAILED or CANCELLED can arrive after partial output.
 5. Close the result reader and client.
@@ -266,7 +296,10 @@ principal, tenant and process limits. A request on a different Coordinator
 receives `QUERY_OWNER_UNAVAILABLE`. Use the plain `GET /v1/query/{queryId}/state`
 for diagnostic reads. State, wait, and cancellation requests are scoped to the
 submitting principal. Historical diagnostics verify the original journal admission
-and return the recorded state with `version` and `drained` omitted.
+and return only `query_id` and the recorded `state`. The journal does not retain
+result disposition or endpoint authority, so historical responses omit
+`result_disposition`, `result_endpoint`, `version`, and `drained` and must not be
+used to open a result stream.
 
 Java SDK applications use `client.openResult(endpoint, deadlineEpochMs)` in
 try-with-resources. Read the schema with `columns()`, advance with `next()`,

@@ -1,7 +1,5 @@
 package org.pangrova.server.coordinator.http.endpoint;
 
-import org.pangrova.server.coordinator.exception.RecordedSubmissionException;
-
 import org.pangrova.observability.api.tracing.ExecutionTraceContextFactory;
 
 import org.pangrova.query.api.enums.QueryState;
@@ -23,7 +21,8 @@ import jakarta.ws.rs.container.ContainerRequestContext;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import org.pangrova.server.coordinator.http.request.IdempotencyKeyRegistry;
+import org.pangrova.query.api.journal.QueryAcceptanceRequest;
+import org.pangrova.server.coordinator.http.request.QueryRequestFingerprint;
 import org.pangrova.server.coordinator.http.request.QueryStatusWaits;
 import org.pangrova.query.runtime.QueryManager;
 import org.pangrova.query.lifecycle.QueryStateMachine;
@@ -61,19 +60,16 @@ public final class QueryResource {
     private final QueryManager queryManager;
     private final ProfilerEndpoint profilerEndpoint;
     private final QueryProfileService queryProfileService;
-    private final IdempotencyKeyRegistry idempotencyRegistry;
     private final QueryStatusWaits statusWaits;
 
     /** Creates a resource wiring query lifecycle, profiling, and idempotency components. */
     public QueryResource(QueryManager queryManager, ProfilerEndpoint profilerEndpoint,
                          QueryProfileService queryProfileService,
-                         IdempotencyKeyRegistry idempotencyRegistry, ExecutionTraceContextFactory traceContexts,
-                         QueryStatusWaits statusWaits) {
+                         ExecutionTraceContextFactory traceContexts, QueryStatusWaits statusWaits) {
         this.traceContexts = java.util.Objects.requireNonNull(traceContexts, "traceContexts");
         this.queryManager = checkNotNull(queryManager, "queryManager must not be null");
         this.profilerEndpoint = profilerEndpoint;
         this.queryProfileService = queryProfileService;
-        this.idempotencyRegistry = idempotencyRegistry;
         this.statusWaits = java.util.Objects.requireNonNull(statusWaits, "statusWaits");
     }
 
@@ -86,14 +82,15 @@ public final class QueryResource {
         UserIdentity identity = extractUserIdentity(requestContext);
         String key = requestContext == null ? null : requestContext.getHeaderString("Idempotency-Key");
         CompletionStage<SubmitQueryResponse> receipt;
-        if (idempotencyRegistry != null && key != null && !key.isBlank()) {
+        if (key != null && !key.isBlank()) {
             if (identity == null || identity.principal() == null || identity.principal().isBlank()) {
                 throw new AuthenticationRequiredException("Idempotent query submission requires a principal");
             }
-            receipt = idempotencyRegistry.submit(identity.principal(), key, request, () -> submitWithIdempotency(
-                    request, identity));
+            var acceptance = new QueryAcceptanceRequest(identity.principal(),
+                    QueryRequestFingerprint.keyDigest(key), QueryRequestFingerprint.request(request));
+            receipt = doSubmit(UUID.randomUUID().toString(), request, identity, acceptance);
         } else {
-            receipt = doSubmit(UUID.randomUUID().toString(), request, identity);
+            receipt = doSubmit(UUID.randomUUID().toString(), request, identity, null);
         }
         receipt.whenComplete((result, failure) -> {
             if (failure == null) {
@@ -104,37 +101,12 @@ public final class QueryResource {
         });
     }
 
-    private CompletionStage<SubmitQueryResponse> submitWithIdempotency(
-            SubmitQueryRequest request, UserIdentity identity) {
-        String queryId = UUID.randomUUID().toString();
-        try {
-            return doSubmit(queryId, request, identity).exceptionally(failure -> {
-                Throwable cause = unwrap(failure);
-                if (cause instanceof RuntimeException runtime) throw recordedFailure(queryId, runtime);
-                if (cause instanceof Error error) throw error;
-                throw new CompletionException(cause);
-            });
-        } catch (RuntimeException failure) {
-            throw recordedFailure(queryId, failure);
-        }
-    }
-
-    private RuntimeException recordedFailure(String queryId, RuntimeException failure) {
-        boolean recorded;
-        try {
-            recorded = queryManager.getQueryStateWithJournalFallback(queryId).isPresent();
-        } catch (RuntimeException checkFailure) {
-            failure.addSuppressed(checkFailure);
-            recorded = true;
-        }
-        return recorded ? new RecordedSubmissionException(queryId, failure) : failure;
-    }
-
     private CompletionStage<SubmitQueryResponse> doSubmit(
-            String queryId, SubmitQueryRequest request, UserIdentity identity) {
+            String queryId, SubmitQueryRequest request, UserIdentity identity,
+            QueryAcceptanceRequest acceptance) {
         QuerySession session = new QuerySession(
                 queryId, request.sessionProperties(), identity, null, Optional.empty(), traceContexts.capture());
-        return queryManager.submitQueryAsync(queryId, request.query(), session)
+        return queryManager.submitQueryAsync(queryId, request.query(), session, acceptance)
                 .thenApply(QueryResponseMapper::submission);
     }
 
@@ -194,7 +166,8 @@ public final class QueryResource {
         }
         Optional<QueryState> state = queryManager.getHistoricalQueryState(queryId, principal);
         if (state.isPresent()) {
-            response.resume(Response.ok(QueryStatusResponse.of(queryId, state.get().name(), null, null)).build());
+            response.resume(Response.ok(QueryStatusResponse.historical(
+                    queryId, state.get().name())).build());
         } else {
             response.resume(queryNotFound(queryId));
         }
@@ -208,7 +181,7 @@ public final class QueryResource {
     private static Response statusResponse(String queryId, QueryStateMachine.Status status) {
         ErrorDetail error = status.error() == null ? null : QueryResponseMapper.failure(status.error());
         return Response.ok(new QueryStatusResponse(queryId, status.state().name(),
-                error, null, status.endpoint(), status.version(), status.drained())).build();
+                error, null, status.disposition(), status.endpoint(), status.version(), status.drained())).build();
     }
 
     /** Requests cancellation of a running query. */

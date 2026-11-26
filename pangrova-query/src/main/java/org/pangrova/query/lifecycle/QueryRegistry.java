@@ -19,14 +19,22 @@ public final class QueryRegistry {
     private final ConcurrentHashMap<String, QueryStateMachine> queries = new ConcurrentHashMap<>();
     // Initializers may call external services. Reserve the identity outside shared map operations.
     private final ConcurrentHashMap<String, QueryStateMachine> registering = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, QueryStateMachine> pendingSubmissions = new ConcurrentHashMap<>();
+    private final Object submissionGate = new Object();
     private final AtomicInteger outstanding = new AtomicInteger();
     private final ReentrantLock drainLock = new ReentrantLock();
     private final Condition progressed = drainLock.newCondition();
 
     /** Initializes a new lifetime before making it visible. A duplicate never invokes the initializer. */
     public QueryStateMachine register(String id, QueryStateMachine state, Runnable initialize) {
-        QueryStateMachine competing = registering.putIfAbsent(id, state);
-        if (competing != null) return competing;
+        synchronized (submissionGate) {
+            QueryStateMachine pending = pendingSubmissions.get(id);
+            if (pending != null && pending != state) {
+                throw new QueryRegistrationPendingException(id);
+            }
+            QueryStateMachine competing = registering.putIfAbsent(id, state);
+            if (competing != null) return competing;
+        }
         try {
             QueryStateMachine current = queries.get(id);
             if (current != null) return current;
@@ -39,11 +47,35 @@ public final class QueryRegistry {
         }
     }
 
+    /** Atomically publishes a drain-accounted candidate before admission can block. */
+    public boolean reserveSubmission(String id, QueryStateMachine state) {
+        synchronized (submissionGate) {
+            if (queries.containsKey(id) || registering.containsKey(id)) return false;
+            return pendingSubmissions.putIfAbsent(id, state) == null;
+        }
+    }
+
+    /** Returns the exact candidate that has not yet entered the executable registry. */
+    public QueryStateMachine pendingSubmission(String id) {
+        return pendingSubmissions.get(id);
+    }
+
+    /** Releases only the exact candidate reservation after registration or definitive cleanup. */
+    public void releaseSubmission(String id, QueryStateMachine state) {
+        if (pendingSubmissions.remove(id, state)) signalDrained();
+    }
+
     /** Called after physical resources have been released. The lifetime owns the once-only transition. */
     public void complete(String id, QueryStateMachine state) {
         if (!state.claimPhysicalCleanup()) return;
         if (state.discardUnadmittedQuery()) queries.remove(id, state);
         if (outstanding.decrementAndGet() == 0) {
+            signalDrained();
+        }
+    }
+
+    private void signalDrained() {
+        if (outstanding.get() == 0 && pendingSubmissions.isEmpty()) {
             drainLock.lock();
             try {
                 progressed.signalAll();
@@ -76,18 +108,18 @@ public final class QueryRegistry {
     }
 
     public int outstandingCount() {
-        return outstanding.get();
+        return outstanding.get() + pendingSubmissions.size();
     }
 
     /** Admission is sealed by the caller. Pending cleanup is retried without holding the wait lock. */
     public boolean awaitDrain(long timeoutMillis, Runnable retryPending) {
         long started = System.nanoTime();
         long budget = TimeUnit.MILLISECONDS.toNanos(Math.max(0, timeoutMillis));
-        while (outstanding.get() > 0) {
+        while (outstanding.get() > 0 || !pendingSubmissions.isEmpty()) {
             retryPending.run();
             drainLock.lock();
             try {
-                if (outstanding.get() == 0) return true;
+                if (outstanding.get() == 0 && pendingSubmissions.isEmpty()) return true;
                 long remaining = budget - (System.nanoTime() - started);
                 if (remaining <= 0) return false;
                 progressed.awaitNanos(Math.min(remaining, TimeUnit.MILLISECONDS.toNanos(100)));

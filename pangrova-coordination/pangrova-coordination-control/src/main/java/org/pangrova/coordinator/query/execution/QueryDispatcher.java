@@ -184,9 +184,21 @@ public class QueryDispatcher implements org.pangrova.query.lifecycle.QueryExecut
     /** Registers the exact public state-bound lifetime before planning can perform connector I/O. */
     public org.pangrova.connector.api.metadata.ConnectorMetadataScope bindConnectorAuthority(
             QueryStateMachine state, String queryId) {
-        var authority = state.bindConnectorAuthority(taskTracker.openQueryIssuance(queryId));
-        ownershipTracker.registerConnectorAuthority(authority);
-        return authority;
+        var issued = taskTracker.openQueryIssuance(queryId);
+        try {
+            var authority = state.bindConnectorAuthority(issued);
+            ownershipTracker.registerConnectorAuthority(authority);
+            return authority;
+        } catch (RuntimeException | Error failure) {
+            try {
+                if (taskTracker.tryClaimQueryCleanup(queryId)) {
+                    taskTracker.retireQueryIssuance(queryId);
+                }
+            } catch (RuntimeException | Error cleanup) {
+                failure.addSuppressed(cleanup);
+            }
+            throw failure;
+        }
     }
 
     public List<String> removeColumnNames(String queryId) {
@@ -223,6 +235,11 @@ public class QueryDispatcher implements org.pangrova.query.lifecycle.QueryExecut
 
     public boolean acquireQueryOwnership(String queryId) {
         return ownershipTracker.acquireQueryOwnership(queryId);
+    }
+
+    @Override
+    public void releaseQueryOwnership(String queryId) {
+        ownershipTracker.releaseQueryOwnership(queryId);
     }
 
     public org.pangrova.connector.api.query.ConnectorQueryAuthority openQueryIssuance(String queryId) {
@@ -288,17 +305,19 @@ public class QueryDispatcher implements org.pangrova.query.lifecycle.QueryExecut
 
     @Override
     public QueryDispatchOutcome dispatch(QueryStateMachine sm, String sql, QuerySession session) {
-        return dispatchOutcome(execute(sm, sql, session));
+        execute(sm, sql, session);
+        return dispatchOutcome(sm);
     }
 
     @Override
     public CompletionStage<QueryDispatchOutcome> dispatchAsync(
             QueryStateMachine sm, String sql, QuerySession session) {
-        return executeAsync(sm, sql, session).thenApply(QueryDispatcher::dispatchOutcome);
+        return executeAsync(sm, sql, session).thenApply(ignored -> dispatchOutcome(sm));
     }
 
-    private static QueryDispatchOutcome dispatchOutcome(DispatchResult result) {
-        return result == null ? null : new QueryDispatchOutcome(result.resultEndpoint());
+    private static QueryDispatchOutcome dispatchOutcome(QueryStateMachine state) {
+        var status = state.status();
+        return new QueryDispatchOutcome(status.disposition(), status.endpoint());
     }
 
     @Override

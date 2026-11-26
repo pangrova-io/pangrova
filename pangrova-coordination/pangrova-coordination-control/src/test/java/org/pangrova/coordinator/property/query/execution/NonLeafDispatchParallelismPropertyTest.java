@@ -108,7 +108,7 @@ class NonLeafDispatchParallelismPropertyTest {
                         .setSignedTicket(com.google.protobuf.ByteString.copyFromUtf8("ticket-" + tid + "-" + partition))
                         .setExpiresAtEpochMs(expiresAt).build())
                 .toList();
-        ResultEndpoint ep = new ResultEndpoint(host, 8080, "tk", "http");
+        ResultEndpoint ep = new ResultEndpoint(host, 8080, "tk", "grpc");
         DispatchResult dr = new DispatchResult(host, tid, ep, null,
                 TaskShuffleEndpoint.newBuilder().setHost(host).setPort(9090).addAllPartitionTickets(tickets).build());
         SubmitTaskRequest request =

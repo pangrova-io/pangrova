@@ -1,5 +1,6 @@
 package org.pangrova.common.client.query;
 
+import org.pangrova.common.enums.ResultDisposition;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.RecordComponent;
@@ -15,10 +16,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ClientQueryProtocolContractTest {
 
     private static final Set<String> QUERY_SUBMIT_RESPONSE_REQUIRED_FIELDS = Set.of(
-            "queryId", "state");
+            "queryId", "state", "resultDisposition");
 
     private static final Set<String> QUERY_STATUS_RESPONSE_REQUIRED_FIELDS = Set.of(
-            "queryId", "state");
+            "queryId", "state", "resultDisposition");
 
     @Test
     void submitQueryResponseContainsRequiredFields() {
@@ -65,8 +66,16 @@ class ClientQueryProtocolContractTest {
     }
 
     @Test
+    void resultDispositionTypeConsistentAcrossQueryDtos() {
+        assertThat(fieldType(SubmitQueryResponse.class, "resultDisposition"))
+                .isEqualTo(ResultDisposition.class);
+        assertThat(fieldType(QueryStatusResponse.class, "resultDisposition"))
+                .isEqualTo(ResultDisposition.class);
+    }
+
+    @Test
     void queryResponseDtosShareCommonFieldConcepts() {
-        Set<String> sharedFields = Set.of("queryId", "state", "resultEndpoint");
+        Set<String> sharedFields = Set.of("queryId", "state", "resultDisposition", "resultEndpoint");
         Set<String> submitOnlyFields = Set.of("columnNames", "branchSelection");
         Set<String> statusOnlyFields = Set.of("error", "stats", "version", "drained");
 
@@ -103,9 +112,9 @@ class ClientQueryProtocolContractTest {
 
     @Test
     void queryDtoFieldCountsMatchExpected() {
-        assertFieldCount(SubmitQueryResponse.class, 5,
+        assertFieldCount(SubmitQueryResponse.class, 6,
                 "SubmitQueryResponse field count changed — verify QueryStatusResponse symmetry");
-        assertFieldCount(QueryStatusResponse.class, 7,
+        assertFieldCount(QueryStatusResponse.class, 8,
                 "QueryStatusResponse field count changed — verify SubmitQueryResponse symmetry");
     }
 

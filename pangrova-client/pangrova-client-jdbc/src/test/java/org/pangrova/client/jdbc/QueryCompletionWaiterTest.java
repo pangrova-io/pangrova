@@ -5,6 +5,8 @@ import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.client.http.PangrovaRestClient;
+import org.pangrova.common.client.exception.PangrovaProtocolException;
+import org.pangrova.common.enums.ResultDisposition;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -33,13 +35,15 @@ class QueryCompletionWaiterTest {
         AtomicBoolean streamConsumed = new AtomicBoolean(false);
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/v1/query/submit", exchange -> sendJson(exchange,
-                "{\"query_id\":\"q-stream\",\"state\":\"RUNNING\"}"));
+                "{\"query_id\":\"q-stream\",\"state\":\"RUNNING\","
+                        + "\"result_disposition\":\"PENDING\"}"));
         server.createContext("/v1/query/q-stream/state", exchange -> {
             String state = streamConsumed.get() ? "FINISHED" : "RUNNING";
             sendJson(exchange, """
-                    {"query_id":"q-stream","state":"%s","version":%d,
+                    {"query_id":"q-stream","state":"%s","version":%d,"drained":false,
+                     "result_disposition":"STREAM",
                      "result_endpoint":{"host":"127.0.0.1","port":12345,
-                                        "ticket":"q-stream","protocol":"flight"}}
+                                        "ticket":"q-stream","protocol":"grpc"}}
                     """.formatted(state, streamConsumed.get() ? 2 : 1));
         });
         server.start();
@@ -47,8 +51,9 @@ class QueryCompletionWaiterTest {
         try (PangrovaRestClient client = client()) {
             long deadline = QueryCompletionWaiter.deadlineFor(5);
             var query = client.beginQuery("SELECT 1", Map.of());
-            var ready = QueryCompletionWaiter.awaitReadableEndpoint(query, deadline, 5);
+            var ready = QueryCompletionWaiter.awaitResult(query, deadline, 5);
             assertThat(ready.terminal()).isFalse();
+            assertThat(ready.disposition()).isEqualTo(ResultDisposition.STREAM);
             assertThat(ready.endpoint().ticket()).isEqualTo("q-stream");
 
             // DoGet consumes the stream while the query is still RUNNING.
@@ -61,17 +66,19 @@ class QueryCompletionWaiterTest {
     void terminalFailureTakesPrecedenceOverPublishedEndpoint() throws Exception {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/v1/query/submit", exchange -> sendJson(exchange,
-                "{\"query_id\":\"q-failed\",\"state\":\"RUNNING\"}"));
+                "{\"query_id\":\"q-failed\",\"state\":\"RUNNING\","
+                        + "\"result_disposition\":\"PENDING\"}"));
         server.createContext("/v1/query/q-failed/state", exchange -> sendJson(exchange, """
-                {"query_id":"q-failed","state":"FAILED","version":1,
+                {"query_id":"q-failed","state":"FAILED","version":1,"drained":false,
+                 "result_disposition":"STREAM",
                  "result_endpoint":{"host":"127.0.0.1","port":12345,
-                                    "ticket":"q-failed","protocol":"flight"}}
+                                    "ticket":"q-failed","protocol":"grpc"}}
                 """));
         server.start();
 
         try (PangrovaRestClient client = client()) {
             var query = client.beginQuery("SELECT 1", Map.of());
-            assertThatThrownBy(() -> QueryCompletionWaiter.awaitReadableEndpoint(
+            assertThatThrownBy(() -> QueryCompletionWaiter.awaitResult(
                     query, QueryCompletionWaiter.deadlineFor(5), 5))
                     .isInstanceOf(SQLException.class)
                     .hasMessageContaining("Query failed");
@@ -83,14 +90,100 @@ class QueryCompletionWaiterTest {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/v1/query/submit", exchange -> sendJson(exchange, """
                 {"query_id":"q-ready","state":"RUNNING",
-                 "result_endpoint":{"host":"127.0.0.1","port":12345,"ticket":"q-ready","protocol":"flight"}}
+                 "result_disposition":"STREAM",
+                 "result_endpoint":{"host":"127.0.0.1","port":12345,"ticket":"q-ready","protocol":"grpc"}}
                 """));
         server.start();
         try (PangrovaRestClient client = client()) {
             var query = client.beginQuery("SELECT 1", Map.of());
-            var ready = QueryCompletionWaiter.awaitReadableEndpoint(query, QueryCompletionWaiter.deadlineFor(5), 5);
+            var ready = QueryCompletionWaiter.awaitResult(query, QueryCompletionWaiter.deadlineFor(5), 5);
             assertThat(ready.endpoint()).isEqualTo(query.submission().resultEndpoint());
             assertThat(ready.terminal()).isFalse();
+        }
+    }
+
+    @Test
+    void finishedNoResultIsAValidTerminalOutcome() throws Exception {
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/query/submit", exchange -> sendJson(exchange,
+                "{\"query_id\":\"q-ddl\",\"state\":\"FINISHED\","
+                        + "\"result_disposition\":\"NONE\"}"));
+        server.start();
+
+        try (PangrovaRestClient client = client()) {
+            var query = client.beginQuery("CREATE TABLE t (id INT)", Map.of());
+            var ready = QueryCompletionWaiter.awaitResult(query, QueryCompletionWaiter.deadlineFor(5), 5);
+            assertThat(ready.disposition()).isEqualTo(ResultDisposition.NONE);
+            assertThat(ready.endpoint()).isNull();
+            assertThat(ready.terminal()).isTrue();
+        }
+    }
+
+    @Test
+    void pendingStatusWaitsForDelayedEndpointPublication() throws Exception {
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/query/submit", exchange -> sendJson(exchange,
+                "{\"query_id\":\"q-delayed\",\"state\":\"RUNNING\","
+                        + "\"result_disposition\":\"PENDING\"}"));
+        var reads = new java.util.concurrent.atomic.AtomicInteger();
+        server.createContext("/v1/query/q-delayed/state", exchange -> {
+            boolean published = reads.incrementAndGet() > 1;
+            sendJson(exchange, published ? """
+                    {"query_id":"q-delayed","state":"RUNNING","version":2,"drained":false,
+                     "result_disposition":"STREAM",
+                     "result_endpoint":{"host":"127.0.0.1","port":12345,
+                                        "ticket":"delayed","protocol":"grpc"}}
+                    """ : """
+                    {"query_id":"q-delayed","state":"RUNNING","version":1,"drained":false,
+                     "result_disposition":"PENDING"}
+                    """);
+        });
+        server.start();
+
+        try (PangrovaRestClient client = client()) {
+            var query = client.beginQuery("SELECT 1", Map.of());
+            var ready = QueryCompletionWaiter.awaitResult(query, QueryCompletionWaiter.deadlineFor(5), 5);
+            assertThat(ready.disposition()).isEqualTo(ResultDisposition.STREAM);
+            assertThat(ready.endpoint().ticket()).isEqualTo("delayed");
+            assertThat(ready.terminal()).isFalse();
+        }
+    }
+
+    @Test
+    void cancellationBeforePublicationDoesNotWaitForAnEndpoint() throws Exception {
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/query/submit", exchange -> sendJson(exchange,
+                "{\"query_id\":\"q-cancelled\",\"state\":\"RUNNING\","
+                        + "\"result_disposition\":\"PENDING\"}"));
+        server.createContext("/v1/query/q-cancelled/state", exchange -> sendJson(exchange,
+                "{\"query_id\":\"q-cancelled\",\"state\":\"CANCELLED\",\"version\":2,"
+                        + "\"result_disposition\":\"NONE\",\"drained\":false}"));
+        server.start();
+
+        try (PangrovaRestClient client = client()) {
+            var query = client.beginQuery("SELECT 1", Map.of());
+            assertThatThrownBy(() -> QueryCompletionWaiter.awaitResult(
+                    query, QueryCompletionWaiter.deadlineFor(5), 5))
+                    .isInstanceOf(SQLException.class)
+                    .hasMessageContaining("cancelled");
+        }
+    }
+
+    @Test
+    void liveStatusRequiresDrainEvidence() throws Exception {
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/v1/query/submit", exchange -> sendJson(exchange,
+                "{\"query_id\":\"q-no-drain\",\"state\":\"RUNNING\","
+                        + "\"result_disposition\":\"PENDING\"}"));
+        server.createContext("/v1/query/q-no-drain/state", exchange -> sendJson(exchange,
+                "{\"query_id\":\"q-no-drain\",\"state\":\"RUNNING\",\"version\":1,"
+                        + "\"result_disposition\":\"PENDING\"}"));
+        server.start();
+        try (PangrovaRestClient client = client()) {
+            var query = client.beginQuery("SELECT 1", Map.of());
+            assertThatThrownBy(() -> QueryCompletionWaiter.awaitResult(
+                    query, QueryCompletionWaiter.deadlineFor(5), 5))
+                    .isInstanceOf(PangrovaProtocolException.class);
         }
     }
 

@@ -31,7 +31,7 @@ class JournalPendingWritesTest {
 
         var attempt = owner.admit(write, false);
         assertThat(owner.admit(new JournalPendingWrites.Write(owner, event), true)).isSameAs(attempt);
-        assertThat(attempt.isDone()).isFalse();
+        assertThat(attempt.attempt().isDone()).isFalse();
         assertThat(owner.drained()).isFalse();
         assertThat(foreign.drained()).isTrue();
     }
@@ -49,7 +49,7 @@ class JournalPendingWritesTest {
                                 .isEqualTo(JournalAdmissionOutcome.REJECTED_BEFORE_TRANSFER));
         var attempt = foreign.admit(new JournalPendingWrites.Write(foreign, event), false);
         assertThat(foreign.admit(new JournalPendingWrites.Write(foreign, event), true)).isSameAs(attempt);
-        assertThat(attempt.isDone()).isFalse();
+        assertThat(attempt.attempt().isDone()).isFalse();
         assertThat(owner.drained()).isTrue();
         assertThat(foreign.drained()).isFalse();
     }

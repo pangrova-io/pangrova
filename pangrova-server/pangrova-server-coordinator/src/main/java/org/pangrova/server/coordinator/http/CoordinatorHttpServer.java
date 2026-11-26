@@ -2,7 +2,6 @@ package org.pangrova.server.coordinator.http;
 
 import org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory;
 
-import org.pangrova.server.coordinator.http.request.IdempotencyKeyRegistry;
 import org.pangrova.server.coordinator.http.request.RequestLimitConfig;
 
 import java.net.InetSocketAddress;
@@ -158,12 +157,9 @@ public final class CoordinatorHttpServer {
         config.register(new org.pangrova.server.coordinator.http.endpoint.ServerInfoResource(
                 CoordinatorHttpServer.class.getPackage().getImplementationVersion()));
         config.register(new CoordinatorTaskResource(deps.receiver()));
-        // A-CLIENT-01: one shared idempotency registry per coordinator so retried write submissions
-        // carrying the same Idempotency-Key resolve to the same queryId instead of executing twice.
-        IdempotencyKeyRegistry idempotencyRegistry = new IdempotencyKeyRegistry();
         registerIfPresent(config, deps.queryManager(),
                 qm -> new QueryResource(qm, deps.profilerEndpoint(), deps.queryProfileService(),
-                        idempotencyRegistry, new OtelExecutionTraceContextFactory(), statusWaits));
+                        new OtelExecutionTraceContextFactory(), statusWaits));
         registerIfPresent(config, deps.healthCheckEndpoint(), CoordinatorHealthResource::new);
         registerIfPresent(config, deps.workerManager(),
                 manager -> new WorkerResource(manager, deps.coordinatorEpochSupplier()));
