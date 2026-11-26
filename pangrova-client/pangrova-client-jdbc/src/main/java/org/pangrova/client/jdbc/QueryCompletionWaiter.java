@@ -1,6 +1,7 @@
 package org.pangrova.client.jdbc;
 
 import org.pangrova.client.http.QueryExecution;
+import org.pangrova.client.jdbc.exception.QueryCancelledException;
 import org.pangrova.common.client.exception.PangrovaConnectionException;
 import org.pangrova.common.client.query.QueryStatusResponse;
 import org.pangrova.common.enums.ResultDisposition;
@@ -83,7 +84,7 @@ final class QueryCompletionWaiter {
                 throw failedQueryException(status, queryId);
             }
             if (STATE_CANCELLED.equals(status.state())) {
-                throw new SQLException("Query was cancelled, queryId=" + queryId);
+                throw new QueryCancelledException(queryId);
             }
             if (STATE_FINISHED.equals(status.state())) {
                 return status;
@@ -95,7 +96,7 @@ final class QueryCompletionWaiter {
     private static ReadyResult checkImmediateResult(SubmitQueryResponse response,
                                                       String queryId) throws SQLException {
         if (STATE_CANCELLED.equals(response.state())) {
-            throw new SQLException("Query cancelled, queryId=" + queryId);
+            throw new QueryCancelledException(queryId);
         }
         if (response.resultDisposition() == ResultDisposition.STREAM && isReadableState(response.state())) {
             return new ReadyResult(ResultDisposition.STREAM, response.resultEndpoint(),
@@ -128,7 +129,7 @@ final class QueryCompletionWaiter {
             throw failedQueryException(status, queryId);
         }
         if (STATE_CANCELLED.equals(state)) {
-            throw new SQLException("Query was cancelled, queryId=" + queryId);
+            throw new QueryCancelledException(queryId);
         }
         return switch (status.resultDisposition()) {
             case STREAM -> isReadableState(state)

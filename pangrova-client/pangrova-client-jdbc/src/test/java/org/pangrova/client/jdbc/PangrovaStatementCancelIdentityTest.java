@@ -95,6 +95,7 @@ class PangrovaStatementCancelIdentityTest {
                 oldQuery.state.set("CANCELLED");
                 assertThat((Throwable) first.get(5, TimeUnit.SECONDS)).isInstanceOf(SQLException.class)
                         .hasMessageContaining("cancelled");
+                assertThat(oldQuery.cancelRequests).hasValue(1);
                 var newQuery = peer.query("query-new", null);
                 var second = peer.executeAsync();
                 assertThat(newQuery.polled.await(5, TimeUnit.SECONDS)).isTrue();
