@@ -66,6 +66,7 @@ import org.pangrova.materialization.api.domain.TenantId;
 import org.pangrova.materialization.api.enums.TriggerKind;
 import org.pangrova.materialization.api.port.CommandRecord;
 import org.pangrova.persistence.materialization.api.publication.MaterializationCatalog;
+import org.pangrova.persistence.materialization.api.publication.MaterializationPublicationSnapshot;
 import org.pangrova.materialization.api.port.MaterializationEvent;
 import org.pangrova.materialization.api.enums.MaterializationEventType;
 import org.pangrova.persistence.materialization.api.lifecycle.MaterializationRepository;
@@ -122,7 +123,11 @@ class JdbcMaterializationRepositoryTest extends ContainerTestBase {
     @MethodSource("transactionFailures")
     void reservesCommitsAndPublishesExactlyOnceWithIdempotentReplay(
             Throwable failure, SQLException rollbackFailure) throws Exception {
-        DataSource dataSource = MigratedPostgres.create();
+        exercisePublicationLifecycle(MigratedPostgres.create(), failure, rollbackFailure);
+    }
+
+    private static void exercisePublicationLifecycle(
+            DataSource dataSource, Throwable failure, SQLException rollbackFailure) throws Exception {
         MaterializationRepository repository = new JdbcMaterializationRepository(dataSource);
         MaterializationCatalog catalog = new JdbcMaterializationCatalog(dataSource);
 
@@ -294,7 +299,10 @@ class JdbcMaterializationRepositoryTest extends ContainerTestBase {
         assertThat(repository.findSchedule(object)).get()
                 .satisfies(found -> assertThat(found.version()).isEqualTo(1));
 
-        Instant suspendedAt = publishedAt.plusSeconds(3);
+        head = assertPublishedDefinitionSurvivesRedefinition(repository, catalog, otherCoordinator,
+                head, definition, projection, afterPublication, publishedAt.plusSeconds(3));
+
+        Instant suspendedAt = publishedAt.plusSeconds(4);
         repository.updateObject(head.transitionTo(ObjectState.SUSPENDED, head.revision(), suspendedAt),
                 head.revision(), CommandId.random(), event(
                         MaterializationEventType.OBJECT_ALTERED, object, requester, definer, suspendedAt));
@@ -305,6 +313,35 @@ class JdbcMaterializationRepositoryTest extends ContainerTestBase {
         assertThat(otherCoordinator.snapshot(object.tenant(), OptionalLong.of(suspendedRevision)).find(object.name()))
                 .isEmpty();
         assertThat(afterPublication.find(object.name())).contains(projection);
+    }
+
+    private static MaterializationObject assertPublishedDefinitionSurvivesRedefinition(
+            MaterializationRepository repository, MaterializationCatalog catalog,
+            MaterializationCatalog otherCoordinator, MaterializationObject head, DefinitionRevision definition,
+            PublishedMaterialization projection, MaterializationPublicationSnapshot afterPublication,
+            Instant redefinedAt) {
+        var object = head.id();
+        var sql = definition.sql() + " WHERE total IS NOT NULL";
+        var replacement = new DefinitionRevision(object, 2, sql, new Binding(sql, "d".repeat(64)),
+                definition.outputSchema(), definition.sources(), Set.of(), definition.policySnapshot(),
+                definition.securityMode(), definition.definer(), definition.sessionProperties(), redefinedAt);
+        var redefined = head.withDefinitionRevision(2, head.revision(), redefinedAt);
+        repository.replaceDefinition(replacement, redefined, head.revision(), CommandId.random(),
+                event(MaterializationEventType.OBJECT_ALTERED, object, definition.definer(),
+                        definition.definer(), redefinedAt));
+        assertThat(repository.findObject(object).orElseThrow().definitionRevision()).isEqualTo(2);
+        assertThat(repository.findDefinition(object, 2).orElseThrow().sql()).isEqualTo(sql);
+        long redefinedRevision = catalog.registryEpoch(object.tenant());
+        assertThat(redefinedRevision).isGreaterThan(afterPublication.revision());
+        // The head describes the next definition; until refresh publishes it, readers see the old generation.
+        assertThat(catalog.findPublished(object)).contains(projection);
+        assertThat(catalog.listPublished(object.tenant())).containsExactly(projection);
+        assertThat(catalog.snapshot(object.tenant(), OptionalLong.of(redefinedRevision)).find(object.name()))
+                .contains(projection);
+        assertThat(otherCoordinator.snapshot(object.tenant(), OptionalLong.of(redefinedRevision)).find(object.name()))
+                .contains(projection);
+        assertThat(afterPublication.find(object.name())).contains(projection);
+        return redefined;
     }
 
     @ParameterizedTest
