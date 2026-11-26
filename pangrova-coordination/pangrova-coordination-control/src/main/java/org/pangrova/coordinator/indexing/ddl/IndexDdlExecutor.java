@@ -227,12 +227,14 @@ public final class IndexDdlExecutor implements AutoCloseable {
                 .toList();
 
         for (IndexDescriptor descriptor : allGenerations) {
-            deps.buildServices().dataSkipping().cancelBuild(descriptor.indexId());
-            if (deps.buildServices().aiNative() != null) {
-                deps.buildServices().aiNative().cancel(
-                        descriptor.indexId(), tenantId, Instant.now());
-            }
-            deps.indexMetadataStore().dropIndex(descriptor.indexId(), Instant.now());
+            deps.indexMetadataStore().withIndexLifecycleLock(descriptor.indexId(), () -> {
+                deps.buildServices().dataSkipping().cancelBuild(descriptor.indexId());
+                if (deps.buildServices().aiNative() != null) {
+                    deps.buildServices().aiNative().cancel(
+                            descriptor.indexId(), tenantId, Instant.now());
+                }
+                deps.indexMetadataStore().dropIndex(descriptor.indexId(), Instant.now());
+            });
             if (indexCache != null) {
                 indexCache.invalidateIndex(descriptor.indexId());
             }
@@ -286,7 +288,7 @@ public final class IndexDdlExecutor implements AutoCloseable {
                 tableRef, target.columnNames(), target.indexType(), tableMetadata);
         String schemaFingerprint = org.pangrova.indexing.api.descriptor.IndexSchemaFingerprint.of(
                 columns, tableMetadata.typedColumns());
-        if (target.sourceSchemaFingerprint() != null
+        if (target.state() != IndexState.STALE && target.sourceSchemaFingerprint() != null
                 && !schemaFingerprint.equals(target.sourceSchemaFingerprint())) {
             throw new PangrovaException(PangrovaErrorCode.METADATA_INDEX_VALIDATION_ERROR,
                     "Index source schema changed; wait for fenced schema reconciliation before rebuild");
@@ -351,7 +353,7 @@ public final class IndexDdlExecutor implements AutoCloseable {
                     .findFirst()
                     .orElseThrow(() -> new PangrovaException(PangrovaErrorCode.METADATA_INDEX_NOT_FOUND,
                             "Index '" + indexName + "' was dropped during rebuild"));
-            if (current.sourceSchemaFingerprint() != null
+            if (current.state() != IndexState.STALE && current.sourceSchemaFingerprint() != null
                     && !sourceSchemaFingerprint.equals(current.sourceSchemaFingerprint())) {
                 throw new PangrovaException(PangrovaErrorCode.METADATA_INDEX_VALIDATION_ERROR,
                         "Index source schema changed during rebuild");

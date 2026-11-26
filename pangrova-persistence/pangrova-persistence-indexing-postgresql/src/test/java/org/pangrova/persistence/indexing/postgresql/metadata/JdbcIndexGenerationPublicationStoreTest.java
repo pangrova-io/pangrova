@@ -73,6 +73,21 @@ class JdbcIndexGenerationPublicationStoreTest extends ContainerTestBase {
     }
 
     @Test
+    void pendingSchemaOperationBlocksNativePublication() {
+        GenerationJob claim = completedAndClaimedJob(completeBundle());
+        var descriptor = indexStore.findIndex("index-1").orElseThrow();
+        var operation = indexStore.prepareSchemaEvolution(
+                org.pangrova.indexing.api.evolution.SchemaChangeEvent.addColumn(
+                        descriptor.tenantId(), descriptor.catalogName(), descriptor.schemaName(),
+                        descriptor.tableName(), "other", "BIGINT"), START.plusSeconds(2));
+        assertThatThrownBy(() -> publicationStore.publishClaimed(
+                claim, "maintenance-a", 7, START.plusSeconds(3)))
+                .hasStackTraceContaining("Index schema operation " + operation + " is unresolved");
+        assertThat(indexStore.findActiveIndexGeneration(descriptor.indexId())).isEmpty();
+        assertThat(indexStore.findIndex(descriptor.indexId()).orElseThrow().state()).isEqualTo(IndexState.STALE);
+    }
+
+    @Test
     void publishesCompleteDiskAnnBundleAndIndexPointerInOneTransaction() {
         GenerationJob claim = completedAndClaimedJob(completeBundle());
 

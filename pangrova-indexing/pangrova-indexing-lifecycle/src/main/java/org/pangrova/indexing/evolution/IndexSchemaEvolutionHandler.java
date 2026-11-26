@@ -7,6 +7,7 @@ import org.pangrova.indexing.api.enums.IndexType;
 import org.pangrova.indexing.api.evolution.SchemaChangeEvent;
 import org.pangrova.indexing.api.enums.SchemaChangeType;
 import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
+import org.pangrova.connector.api.metadata.table.TableIdentity;
 import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
 import org.pangrova.persistence.indexing.api.metadata.IndexSchemaEvolutionStore.IndexSchemaEvolutionRecord;
 import org.pangrova.persistence.indexing.api.metadata.IndexSchemaEvolutionStore.IndexSchemaTransition;
@@ -16,7 +17,6 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -30,24 +30,53 @@ public final class IndexSchemaEvolutionHandler {
             IndexType.INVERTED, IndexType.GIN);
 
     private final IndexMetadataStore metadataStore;
-    private final BiFunction<IndexDescriptor, SchemaChangeEvent, Optional<ConnectorTableMetadata>> sourceObserver;
+    private final BiFunction<IndexDescriptor, SchemaChangeEvent, SchemaObservation> sourceObserver;
 
     public IndexSchemaEvolutionHandler(
             IndexMetadataStore metadataStore,
-            BiFunction<IndexDescriptor, SchemaChangeEvent, Optional<ConnectorTableMetadata>> sourceObserver) {
+            BiFunction<IndexDescriptor, SchemaChangeEvent, SchemaObservation> sourceObserver) {
         this.metadataStore = java.util.Objects.requireNonNull(metadataStore, "metadataStore");
         this.sourceObserver = java.util.Objects.requireNonNull(sourceObserver, "sourceObserver");
     }
 
+    /** Current connector metadata and format identity, observed together under exact authority. */
+    public record SchemaObservation(Optional<ConnectorTableMetadata> metadata, Optional<TableIdentity> identity) {
+        public SchemaObservation {
+            java.util.Objects.requireNonNull(metadata, "metadata");
+            java.util.Objects.requireNonNull(identity, "identity");
+            if (metadata.isEmpty() && identity.isPresent()) {
+                throw new IllegalArgumentException("Missing table cannot have current identity evidence");
+            }
+        }
+
+        public static SchemaObservation absent() {
+            return new SchemaObservation(Optional.empty(), Optional.empty());
+        }
+    }
+
     /** Persists the write-ahead fence before connector schema mutation starts. */
     public UUID prepare(SchemaChangeEvent event) {
-        return metadataStore.prepareSchemaEvolution(event, Instant.now());
+        return prepare(event, Optional.empty());
+    }
+
+    public UUID prepare(SchemaChangeEvent event, Optional<TableIdentity> sourceIdentity) {
+        return metadataStore.prepareSchemaEvolution(event, sourceIdentity, Instant.now());
     }
 
     public void committed(UUID operationId) {
-        metadataStore.markSchemaEvolutionCommitted(operationId, Instant.now());
+        committed(operationId, Optional.empty());
     }
 
+    public void committed(UUID operationId, Optional<TableIdentity> targetIdentity) {
+        metadataStore.markSchemaEvolutionCommitted(operationId, targetIdentity, Instant.now());
+    }
+
+    /** No connector implementation may manufacture an abort from a generic exception. */
+    public void unknown(UUID operationId) {
+        metadataStore.markSchemaEvolutionUnknown(operationId, Instant.now());
+    }
+
+    /** Only callers proving mutation did not start may use this transition. */
     public void aborted(UUID operationId) {
         metadataStore.markSchemaEvolutionAborted(operationId, Instant.now());
     }
@@ -72,24 +101,22 @@ public final class IndexSchemaEvolutionHandler {
         SchemaChangeEvent event = new SchemaChangeEvent(
                 SchemaChangeType.SCHEMA_MISMATCH, descriptor.tenantId(), descriptor.catalogName(),
                 descriptor.schemaName(), descriptor.tableName(), null, null, null, null, null, null);
-        Optional<ConnectorTableMetadata> source = sourceObserver.apply(descriptor, event);
+        Optional<ConnectorTableMetadata> source = sourceObserver.apply(descriptor, event).metadata();
         if (source.isEmpty()) {
-            metadataStore.fenceIndexSchemaMismatch(descriptor, "source_table_missing", Instant.now());
-            return true;
+            return metadataStore.fenceIndexSchemaMismatch(descriptor, "source_table_missing", Instant.now())
+                    .isPresent();
         }
         String fingerprint;
         try {
             fingerprint = IndexSchemaFingerprint.of(
                     descriptor.columnNames(), source.orElseThrow().typedColumns());
         } catch (IllegalArgumentException missing) {
-            metadataStore.fenceIndexSchemaMismatch(
-                    descriptor, "indexed_column_missing", Instant.now());
-            return true;
+            return metadataStore.fenceIndexSchemaMismatch(
+                    descriptor, "indexed_column_missing", Instant.now()).isPresent();
         }
         if (!fingerprint.equals(descriptor.sourceSchemaFingerprint())) {
-            metadataStore.fenceIndexSchemaMismatch(
-                    descriptor, "source_schema_mismatch", Instant.now());
-            return true;
+            return metadataStore.fenceIndexSchemaMismatch(
+                    descriptor, "source_schema_mismatch", Instant.now()).isPresent();
         }
         return false;
     }
@@ -99,8 +126,10 @@ public final class IndexSchemaEvolutionHandler {
         int applied = 0;
         for (IndexSchemaEvolutionRecord record : metadataStore.listPendingSchemaEvolution(100)) {
             try {
-                if (record.state() == IndexSchemaEvolutionState.INTENDED) {
-                    metadataStore.markSchemaEvolutionCommitted(record.operationId(), Instant.now());
+                // INTENDED/UNKNOWN are not connector success receipts. A connector
+                // with no exact outcome authority cannot auto-promote either state.
+                if (record.state() != IndexSchemaEvolutionState.COMMITTED) {
+                    continue;
                 }
                 List<IndexSchemaTransition> transitions = transitions(record);
                 metadataStore.applySchemaEvolution(
@@ -109,53 +138,44 @@ public final class IndexSchemaEvolutionHandler {
             } catch (RuntimeException failure) {
                 LOG.warn("event=index_schema_evolution_retry operationId={} indexId={} error={}",
                         record.operationId(), record.indexId(), failure.getMessage(), failure);
+                try {
+                    metadataStore.deferSchemaEvolutionRetry(record.operationId(), Instant.now());
+                } catch (RuntimeException retryFailure) {
+                    LOG.warn("event=index_schema_evolution_retry_defer_failed operationId={} error={}",
+                            record.operationId(), retryFailure.getMessage());
+                }
             }
         }
         return applied;
     }
 
     private List<IndexSchemaTransition> transitions(IndexSchemaEvolutionRecord record) {
-        List<IndexDescriptor> descriptors = descriptors(record);
         List<IndexSchemaTransition> transitions = new ArrayList<>();
-        for (IndexDescriptor descriptor : descriptors) {
+        for (IndexDescriptor descriptor : metadataStore.listSchemaEvolutionTargets(record.operationId())) {
             if (descriptor.state() == IndexState.DROPPED) {
                 continue;
             }
-            transitions.add(transition(record.event(), descriptor));
+            transitions.add(transition(record, descriptor));
         }
         return transitions;
     }
 
-    private List<IndexDescriptor> descriptors(IndexSchemaEvolutionRecord record) {
-        if (record.indexId() != null) {
-            return metadataStore.findIndex(record.indexId()).map(List::of).orElseGet(List::of);
-        }
-        Set<String> indexIds = new HashSet<>();
-        if (SchemaChangeType.RENAME_TABLE.equals(record.event().type())) {
-            indexIds.addAll(indexIds(record.event().tenantId(), record.event().catalogName(),
-                    record.event().schemaName(), record.event().oldTableName()));
-        }
-        indexIds.addAll(indexIds(record.event().tenantId(), record.event().catalogName(),
-                targetSchema(record.event()), record.event().tableName()));
-        return indexIds.stream()
-                .flatMap(indexId -> metadataStore.findIndex(indexId).stream())
-                .toList();
-    }
-
-    private List<String> indexIds(String tenantId, String catalog, String schema, String table) {
-        return metadataStore.findIndexesByTable(tenantId, catalog, schema, table).stream()
-                .map(IndexDescriptor::indexId)
-                .toList();
-    }
-
-    private IndexSchemaTransition transition(SchemaChangeEvent event, IndexDescriptor descriptor) {
-        Optional<ConnectorTableMetadata> source = sourceObserver.apply(descriptor, event);
-        if (source.isEmpty()) {
+    private IndexSchemaTransition transition(IndexSchemaEvolutionRecord record, IndexDescriptor descriptor) {
+        SchemaChangeEvent event = record.event();
+        if (event.type() == SchemaChangeType.DROP_TABLE) {
+            // The connector returned success for this exact write-ahead operation.
             return dropped(event, descriptor);
         }
-        if (mutationNotObserved(event, source.orElseThrow())) {
-            return unchanged(descriptor);
+        if (record.targetIdentity().isEmpty()) {
+            return conservativeStale(descriptor);
         }
+        SchemaObservation observed = sourceObserver.apply(descriptor, event);
+        if (observed.metadata().isEmpty()
+                || !record.targetIdentity().equals(observed.identity())
+                || mutationNotObserved(event, observed.metadata().orElseThrow())) {
+            return conservativeStale(descriptor);
+        }
+        Optional<ConnectorTableMetadata> source = observed.metadata();
         List<String> columns = new ArrayList<>(descriptor.columnNames());
         if (SchemaChangeType.RENAME_COLUMN.equals(event.type())) {
             columns.replaceAll(name -> IndexSchemaFingerprint.normalizeColumnName(name).equals(
@@ -172,16 +192,14 @@ public final class IndexSchemaEvolutionHandler {
         } catch (IllegalArgumentException missing) {
             return dropped(event, descriptor);
         }
-        boolean unchanged = fingerprint.equals(descriptor.sourceSchemaFingerprint())
-                && columns.equals(descriptor.columnNames())
-                && descriptor.tableName().equals(event.tableName())
-                && descriptor.schemaName().equals(targetSchema(event));
         String schemaName = SchemaChangeType.RENAME_TABLE.equals(event.type())
                 ? targetSchema(event) : descriptor.schemaName();
-        IndexState state = unchanged && metadataStore.findActiveIndexGeneration(descriptor.indexId()).isPresent()
-                ? IndexState.READY : IndexState.STALE;
-        if (!unchanged && TEXT_SENSITIVE_TYPES.contains(descriptor.indexType())
-                && SchemaChangeType.MODIFY_COLUMN_TYPE.equals(event.type())) {
+        // Existing active generation records do not prove physical table
+        // incarnation. Even an unchanged schema cannot establish that proof.
+        IndexState state = IndexState.STALE;
+        if (TEXT_SENSITIVE_TYPES.contains(descriptor.indexType())
+                && SchemaChangeType.MODIFY_COLUMN_TYPE.equals(event.type())
+                && !fingerprint.equals(descriptor.sourceSchemaFingerprint())) {
             state = IndexState.DROPPED;
         }
         String tableName = SchemaChangeType.RENAME_TABLE.equals(event.type())
@@ -216,14 +234,12 @@ public final class IndexSchemaEvolutionHandler {
         return false;
     }
 
-    private IndexSchemaTransition unchanged(IndexDescriptor descriptor) {
-        IndexState state = metadataStore.findActiveIndexGeneration(descriptor.indexId()).isPresent()
-                ? IndexState.READY : IndexState.STALE;
+    private static IndexSchemaTransition conservativeStale(IndexDescriptor descriptor) {
         return new IndexSchemaTransition(
-                descriptor.indexId(), descriptor.catalogName(), descriptor.schemaName(), state,
+                descriptor.indexId(), descriptor.catalogName(), descriptor.schemaName(), IndexState.STALE,
                 descriptor.tableName(), descriptor.columnNames(), descriptor.sourceSchemaFingerprint(),
-                state == IndexState.STALE ? "schema_change_pending" : null,
-                descriptor.updatedAt(), descriptor.state(), descriptor.generation(), descriptor.schemaName());
+                "schema_identity_unverified", descriptor.updatedAt(), descriptor.state(), descriptor.generation(),
+                descriptor.schemaName());
     }
 
     private static IndexSchemaTransition dropped(SchemaChangeEvent event, IndexDescriptor descriptor) {

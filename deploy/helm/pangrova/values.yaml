@@ -181,7 +181,7 @@ config:
       # Automatic maintenance stays off until the lifecycle gates pass. Set a
       # shared durable root before enabling; PostgreSQL stores metadata only.
       enabled: false
-      base-path: "${PANGROVA_INDEX_BASE_PATH:-/opt/pangrova/indexes}"
+      base-path: "/opt/pangrova/indexes"
   worker: |
     worker:
       host: "0.0.0.0"

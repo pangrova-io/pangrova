@@ -119,6 +119,19 @@ class IndexDdlReadAuthorizationTest {
     }
 
     @Test
+    void staleRebuildWithChangedFingerprintStillRequiresCurrentRawReadAuthority() {
+        var stale = org.pangrova.indexing.descriptor.IndexDescriptorTransitions.transition(
+                index().withSourceSchemaFingerprint("a".repeat(64)), IndexState.STALE, Instant.now());
+        var checkedColumns = new AtomicReference<Set<String>>();
+        executor = executor(accessControl(checkedColumns, true, false, false), metadataStore(stale));
+
+        assertThatThrownBy(() -> executor.executeAlterIndex(new AlterIndexStatement("idx", TABLE), SESSION))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessageContaining("source SELECT denied");
+        assertThat(checkedColumns.get()).containsExactly("col1");
+    }
+
+    @Test
     void createIfNotExistsReturnsTheExistingDescriptorIdentity() {
         executor = executor(accessControl(new AtomicReference<>(), false, false, false),
                 metadataStore(index(), true));

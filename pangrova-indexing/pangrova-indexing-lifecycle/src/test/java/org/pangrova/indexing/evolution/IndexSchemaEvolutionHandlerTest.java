@@ -3,6 +3,7 @@ package org.pangrova.indexing.evolution;
 import org.junit.jupiter.api.Test;
 import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.metadata.table.TableIdentity;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.indexing.api.descriptor.IndexSchemaFingerprint;
 import org.pangrova.indexing.api.enums.IndexState;
@@ -27,6 +28,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class IndexSchemaEvolutionHandlerTest {
     private static final Instant NOW = Instant.parse("2026-11-26T00:00:00Z");
+    private static final TableIdentity IDENTITY = new TableIdentity("ICEBERG", "table-id", "warehouse/path", "schema");
 
     @Test
     void compatibleRenameRebindsColumnsAndFingerprintUnderTheExistingFence() {
@@ -75,7 +77,7 @@ class IndexSchemaEvolutionHandlerTest {
     }
 
     @Test
-    void uncertainDropKeepsTheExistingBindingWhenTheSourceStillExists() {
+    void confirmedDropNeverReusesTheOldBinding() {
         var descriptor = descriptor(IndexType.BLOOM_FILTER, "value", PangrovaType.BIGINT);
         var event = SchemaChangeEvent.dropTable("tenant", "lake", "raw", "items");
 
@@ -83,7 +85,7 @@ class IndexSchemaEvolutionHandlerTest {
         assertThat(transitions).hasSize(1);
         var transition = transitions.get(0);
 
-        assertThat(transition.newState()).isEqualTo(IndexState.STALE);
+        assertThat(transition.newState()).isEqualTo(IndexState.DROPPED);
         assertThat(transition.newSchemaName()).isEqualTo("raw");
         assertThat(transition.newTableName()).isEqualTo("items");
     }
@@ -112,25 +114,46 @@ class IndexSchemaEvolutionHandlerTest {
             if (descriptor.indexId().equals("first")) {
                 throw new IllegalStateException("connector unavailable");
             }
-            return Optional.empty();
+            return IndexSchemaEvolutionHandler.SchemaObservation.absent();
         });
 
         assertThat(handler.reconcile()).isOne();
         assertThat(fenced).hasValue("second");
     }
 
+    @Test
+    void unresolvedConnectorOutcomeNeverBecomesAnAppliedOperation() {
+        var event = SchemaChangeEvent.dropTable("tenant", "lake", "raw", "items");
+        var records = List.of(
+                new IndexSchemaEvolutionRecord(UUID.randomUUID(), null, event,
+                        IndexSchemaEvolutionState.INTENDED, NOW, NOW),
+                new IndexSchemaEvolutionRecord(UUID.randomUUID(), null, event,
+                        IndexSchemaEvolutionState.UNKNOWN, NOW, NOW));
+        IndexMetadataStore store = (IndexMetadataStore) Proxy.newProxyInstance(
+                IndexSchemaEvolutionHandlerTest.class.getClassLoader(),
+                new Class<?>[] {IndexMetadataStore.class}, (proxy, method, arguments) -> {
+                    if (method.getName().equals("listPendingSchemaEvolution")) {
+                        return records;
+                    }
+                    throw new AssertionError("Unresolved outcome cannot call " + method.getName());
+                });
+        var handler = new IndexSchemaEvolutionHandler(store,
+                (descriptor, change) -> { throw new AssertionError("No connector observation without receipt"); });
+        assertThat(handler.recoverPending()).isZero();
+    }
+
     private static List<IndexSchemaTransition> apply(
             SchemaChangeEvent event, IndexDescriptor descriptor, ConnectorTableMetadata source) {
         var record = new IndexSchemaEvolutionRecord(
-                UUID.randomUUID(), null, event, IndexSchemaEvolutionState.COMMITTED, NOW, NOW);
+                UUID.randomUUID(), null, event, IndexSchemaEvolutionState.COMMITTED, NOW, NOW,
+                Optional.of(IDENTITY), Optional.of(IDENTITY));
         var transitions = new AtomicReference<List<IndexSchemaTransition>>();
         IndexMetadataStore store = (IndexMetadataStore) Proxy.newProxyInstance(
                 IndexSchemaEvolutionHandlerTest.class.getClassLoader(),
                 new Class<?>[] {IndexMetadataStore.class},
                 (proxy, method, arguments) -> switch (method.getName()) {
                     case "listPendingSchemaEvolution" -> List.of(record);
-                    case "findIndexesByTable" -> List.of(descriptor);
-                    case "findIndex" -> Optional.of(descriptor);
+                    case "listSchemaEvolutionTargets" -> List.of(descriptor);
                     case "findActiveIndexGeneration" -> Optional.empty();
                     case "applySchemaEvolution" -> {
                         @SuppressWarnings("unchecked")
@@ -146,7 +169,8 @@ class IndexSchemaEvolutionHandlerTest {
                             "Unexpected IndexMetadataStore call: " + method.getName());
                 });
         var handler = new IndexSchemaEvolutionHandler(
-                store, (ignoredDescriptor, ignoredEvent) -> Optional.of(source));
+                store, (ignoredDescriptor, ignoredEvent) -> new IndexSchemaEvolutionHandler.SchemaObservation(
+                        Optional.of(source), Optional.of(IDENTITY)));
 
         assertThat(handler.recoverPending()).isOne();
         return transitions.get();

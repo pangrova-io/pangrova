@@ -126,7 +126,7 @@ class DdlExecutorAlterTableTest {
     }
 
     @Test
-    void abortFailureIsSuppressedWithoutMaskingTheConnectorFailure() {
+    void unknownOutcomeFailureIsSuppressedWithoutMaskingTheConnectorFailure() {
         var connectorFailure = new IllegalArgumentException("connector failed");
         recordingMetadata.dropFailure = connectorFailure;
         ddlExecutor.setSchemaEvolutionHandler(schemaHandler(
@@ -139,6 +139,34 @@ class DdlExecutorAlterTableTest {
         assertThat(failure).isSameAs(connectorFailure);
         assertThat(failure.getSuppressed()).singleElement().satisfies(suppressed ->
                 assertThat(suppressed).isInstanceOf(IllegalStateException.class).hasMessage("abort failed"));
+    }
+
+    @Test
+    void connectorFailureRecordsUnknownRatherThanAssumingAnAbort() {
+        recordingMetadata.dropFailure = new IllegalArgumentException("connector result unavailable");
+        ddlExecutor.setSchemaEvolutionHandler(schemaHandler(
+                recordingMetadata.operations, new AtomicReference<>(), null));
+        var stmt = new AlterTableStatement.DropColumn(
+                Identifier.of("test_cat", "default", "users"), "name");
+        assertThat(catchThrowable(() -> ddlExecutor.executeAlterTable(stmt, statementSession())))
+                .isSameAs(recordingMetadata.dropFailure);
+        assertThat(recordingMetadata.operations).containsExactly("prepare", "dropColumn(name)", "unknown");
+    }
+
+    @Test
+    void changedSourceIdentityAbortsBeforeConnectorMutation() {
+        recordingMetadata.identities.add(new org.pangrova.connector.api.metadata.table.TableIdentity(
+                "ICEBERG", "table-a", "warehouse/a", "schema-a"));
+        recordingMetadata.identities.add(new org.pangrova.connector.api.metadata.table.TableIdentity(
+                "ICEBERG", "table-b", "warehouse/b", "schema-b"));
+        ddlExecutor.setSchemaEvolutionHandler(schemaHandler(
+                recordingMetadata.operations, new AtomicReference<>(), null));
+        var stmt = new AlterTableStatement.DropColumn(
+                Identifier.of("test_cat", "default", "users"), "name");
+        assertThat(catchThrowable(() -> ddlExecutor.executeAlterTable(stmt, statementSession())))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("source identity changed");
+        assertThat(recordingMetadata.operations).containsExactly("prepare", "abort");
+        assertThat(recordingMetadata.columns).containsKey("name");
     }
 
     private static IndexSchemaEvolutionHandler schemaHandler(
@@ -158,6 +186,10 @@ class DdlExecutorAlterTableTest {
                     }
                     case "markSchemaEvolutionAborted" -> {
                         operations.add("abort");
+                        yield null;
+                    }
+                    case "markSchemaEvolutionUnknown" -> {
+                        operations.add("unknown");
                         if (abortFailure != null) {
                             throw abortFailure;
                         }
@@ -169,7 +201,8 @@ class DdlExecutorAlterTableTest {
                     default -> throw new AssertionError(
                             "Unexpected IndexMetadataStore call: " + method.getName());
                 });
-        return new IndexSchemaEvolutionHandler(store, (descriptor, event) -> Optional.empty());
+        return new IndexSchemaEvolutionHandler(store, (descriptor, event) ->
+                IndexSchemaEvolutionHandler.SchemaObservation.absent());
     }
 
     @Test
@@ -233,6 +266,8 @@ class DdlExecutorAlterTableTest {
         final List<String> operations = new CopyOnWriteArrayList<>();
         final Map<String, Object> defaults = new LinkedHashMap<>();
         RuntimeException dropFailure;
+        final java.util.ArrayDeque<org.pangrova.connector.api.metadata.table.TableIdentity> identities =
+                new java.util.ArrayDeque<>();
         final Map<String, String> columns = new LinkedHashMap<>(Map.of(
                 "id", "INTEGER",
                 "name", "VARCHAR"
@@ -241,6 +276,12 @@ class DdlExecutorAlterTableTest {
         @Override
         public ConnectorTableHandle getTableHandle(ConnectorSession session, SchemaTableName name) {
             return new TestTableHandle(name.schema(), name.table());
+        }
+
+        @Override
+        public Optional<org.pangrova.connector.api.metadata.table.TableIdentity> getTableIdentity(
+                ConnectorSession session, ConnectorTableHandle table) {
+            return Optional.ofNullable(identities.poll());
         }
 
         @Override

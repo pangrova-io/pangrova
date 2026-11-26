@@ -126,6 +126,27 @@ class SchemaMigrationBundleTest extends ContainerTestBase {
     }
 
     @Test
+    void version121DetachesDeletedBuildWithoutDiscardingTenantPin() throws Exception {
+        var source = SharedPostgres.isolatedDataSource();
+        Flyway.configure().dataSource(source).locations("classpath:db/migration").target("120").load().migrate();
+        insertPublishedNativeJob(source, true);
+        Flyway.configure().dataSource(source).locations("classpath:db/migration").target("121").load().migrate();
+
+        try (var connection = source.getConnection(); var statement = connection.createStatement()) {
+            assertThat(statement.executeUpdate("DELETE FROM artifact_build_jobs "
+                    + "WHERE tenant_id='tenant-a' AND job_id='job-a'")).isOne();
+            try (var rows = statement.executeQuery("SELECT tenant_id, job_id, state "
+                    + "FROM artifact_snapshot_pins WHERE index_id='artifact-a'")) {
+                assertThat(rows.next()).isTrue();
+                assertThat(rows.getString("tenant_id")).isEqualTo("tenant-a");
+                assertThat(rows.getString("job_id")).isNull();
+                assertThat(rows.getString("state")).isEqualTo("INTENDED");
+                assertThat(rows.next()).isFalse();
+            }
+        }
+    }
+
+    @Test
     void version121RejectsPublishedNativeJobsWithoutReplayAuthority() throws Exception {
         var source = SharedPostgres.isolatedDataSource();
         Flyway.configure().dataSource(source).locations("classpath:db/migration").target("120").load().migrate();
@@ -201,6 +222,35 @@ class SchemaMigrationBundleTest extends ContainerTestBase {
             assertThat(rows.getString("state")).isEqualTo("STALE");
             assertThat(rows.getString("stale_reason")).isEqualTo("source_schema_fingerprint_required");
             assertThat(rows.next()).isFalse();
+        }
+    }
+
+    @Test
+    void version123RetainsAllUncertainLegacyOperationClaimsOnUpgrade() throws Exception {
+        var source = SharedPostgres.isolatedDataSource();
+        Flyway.configure().dataSource(source).locations("classpath:db/migration").target("122").load().migrate();
+        try (var connection = source.getConnection(); var statement = connection.createStatement()) {
+            statement.executeUpdate("INSERT INTO index_schema_evolution_outbox(operation_id,tenant_id,"
+                    + "catalog_name,schema_name,table_name,event_type,state,created_at,updated_at) VALUES "
+                    + "('00000000-0000-0000-0000-000000000001','tenant-a','lake','raw','items',"
+                    + "'DROP_TABLE','INTENDED',now(),now()),"
+                    + "('00000000-0000-0000-0000-000000000002','tenant-a','lake','raw','items',"
+                    + "'DROP_TABLE','COMMITTED',now(),now())");
+        }
+        var upgraded = Flyway.configure().dataSource(source).locations("classpath:db/migration").target("123").load();
+        assertThat(upgraded.migrate().migrationsExecuted).isOne();
+        upgraded.validate();
+        try (var connection = source.getConnection(); var statement = connection.createStatement()) {
+            try (var rows = statement.executeQuery("SELECT count(*) FROM index_schema_evolution_outbox "
+                    + "WHERE state='UNKNOWN'")) {
+                assertThat(rows.next()).isTrue();
+                assertThat(rows.getInt(1)).isEqualTo(2);
+            }
+            try (var rows = statement.executeQuery("SELECT count(*) FROM index_schema_operation_claims "
+                    + "WHERE catalog_name='lake' AND schema_name='raw' AND table_name='items'")) {
+                assertThat(rows.next()).isTrue();
+                assertThat(rows.getInt(1)).isEqualTo(2);
+            }
         }
     }
 

@@ -169,6 +169,7 @@ class PaimonNativeSystemTableBindingIntegrationTest {
             var bound = (PaimonSystemTableHandle) binding.handle();
             assertThat(bound.objects()).extracting(PaimonSystemTableHandle.MetadataObject::schemaId)
                     .containsExactly(0L, 1L, 2L);
+            assertThat(metadata.bindRead(SESSION, selector).sourceIdentity()).isEqualTo(binding.sourceIdentity());
             metadata.validateReadBinding(SESSION, binding);
             for (var object : bound.objects()) {
                 assertThat(Files.readString(Path.of(object.uri())))

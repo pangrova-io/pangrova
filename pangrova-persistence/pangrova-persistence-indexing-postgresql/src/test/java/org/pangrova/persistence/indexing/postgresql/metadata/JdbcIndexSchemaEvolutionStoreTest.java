@@ -44,7 +44,8 @@ class JdbcIndexSchemaEvolutionStoreTest extends ContainerTestBase {
                 SchemaChangeEvent.dropColumn("tenant", "lake", "raw", "items", "value"), NOW);
 
         assertThat(store.findIndex("index-1").orElseThrow().state()).isEqualTo(IndexState.STALE);
-        assertThat(store.listPendingSchemaEvolution(10)).singleElement().satisfies(record -> {
+        assertThat(store.listPendingSchemaEvolution(10)).isEmpty();
+        assertThat(store.findSchemaEvolution(operationId)).hasValueSatisfying(record -> {
             assertThat(record.operationId()).isEqualTo(operationId);
             assertThat(record.state()).isEqualTo(IndexSchemaEvolutionState.INTENDED);
         });
@@ -77,10 +78,13 @@ class JdbcIndexSchemaEvolutionStoreTest extends ContainerTestBase {
         IndexDescriptor ready = descriptor();
         store.registerIndex(ready);
 
-        assertThat(store.fenceIndexSchemaMismatch(ready, "source_schema_mismatch", NOW)).isPresent();
+        UUID mismatch = store.fenceIndexSchemaMismatch(ready, "source_schema_mismatch", NOW).orElseThrow();
         assertThat(store.findIndex("index-1").orElseThrow().state()).isEqualTo(IndexState.STALE);
-        assertThat(store.listPendingSchemaEvolution(10)).singleElement()
-                .satisfies(record -> assertThat(record.indexId()).isEqualTo("index-1"));
+        assertThat(store.listPendingSchemaEvolution(10)).isEmpty();
+        assertThat(store.findSchemaEvolution(mismatch)).hasValueSatisfying(record -> {
+            assertThat(record.indexId()).isEqualTo("index-1");
+            assertThat(record.state()).isEqualTo(IndexSchemaEvolutionState.APPLIED);
+        });
         assertThat(store.fenceIndexSchemaMismatch(ready, "duplicate", NOW.plusSeconds(1))).isEmpty();
     }
 
@@ -140,6 +144,157 @@ class JdbcIndexSchemaEvolutionStoreTest extends ContainerTestBase {
                 unbound.state(), unbound.generation(), FINGERPRINT)).isTrue();
 
         assertThat(store.findIndex("index-1").orElseThrow().sourceSchemaFingerprint()).isEqualTo(FINGERPRINT);
+    }
+
+    @Test
+    void explicitStaleRebuildCanBindTheCurrentSchemaAfterTheScopeIsFree() {
+        store.registerIndex(descriptor());
+        store.fenceIndexSchemaMismatch(descriptor(), "source_schema_mismatch", NOW);
+        var stale = store.findIndex("index-1").orElseThrow();
+        String currentFingerprint = "b".repeat(64);
+        assertThat(store.beginIndexGeneration(stale.indexId(), 1, "snapshot-2", NOW.plusSeconds(1),
+                stale.updatedAt(), stale.state(), stale.generation(), currentFingerprint)).isTrue();
+        assertThat(store.findIndex(stale.indexId()).orElseThrow().sourceSchemaFingerprint())
+                .isEqualTo(currentFingerprint);
+    }
+
+    @Test
+    void unknownOutcomeKeepsSourceAndRenameTargetOwnedUntilVerified() {
+        store.registerIndex(descriptor());
+        UUID operation = store.prepareSchemaEvolution(SchemaChangeEvent.renameTable(
+                "tenant", "lake", "raw", "items", "curated", "moved"), NOW);
+        store.markSchemaEvolutionUnknown(operation, NOW.plusSeconds(1));
+        assertThat(store.findSchemaEvolution(operation)).hasValueSatisfying(record ->
+                assertThat(record.state()).isEqualTo(IndexSchemaEvolutionState.UNKNOWN));
+        assertThat(store.listPendingSchemaEvolution(10)).isEmpty();
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> store.prepareSchemaEvolution(
+                SchemaChangeEvent.dropTable("tenant", "lake", "curated", "moved"), NOW.plusSeconds(2)))
+                .isInstanceOf(IllegalStateException.class);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> store.prepareSchemaEvolution(
+                SchemaChangeEvent.dropTable("tenant", "lake", "raw", "items"), NOW.plusSeconds(2)))
+                .isInstanceOf(IllegalStateException.class);
+        IndexDescriptor fenced = store.findIndex("index-1").orElseThrow();
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> store.beginIndexGeneration(
+                fenced.indexId(), 1, "snapshot-2", NOW.plusSeconds(3), fenced.updatedAt(),
+                fenced.state(), fenced.generation(), FINGERPRINT)).isInstanceOf(RuntimeException.class);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> store.registerIndex(new IndexDescriptor(
+                "index-2", "items_other", "lake", "raw", "items", List.of("value"),
+                IndexType.BLOOM_FILTER, Map.of(), IndexState.BUILDING, null, 0, "snapshot-2",
+                null, NOW, NOW, "tenant"))).hasStackTraceContaining(operation.toString());
+        assertThat(store.prepareSchemaEvolution(SchemaChangeEvent.dropTable(
+                "tenant", "lake", "raw", "independent"), NOW.plusSeconds(3))).isNotNull();
+        assertThat(store.findIndex("index-1").orElseThrow().state()).isEqualTo(IndexState.STALE);
+    }
+
+    @Test
+    void completedOperationReleasesItsExactScopeButFencesOldStagingGeneration() {
+        store.registerIndex(descriptor());
+        IndexDescriptor initial = store.findIndex("index-1").orElseThrow();
+        assertThat(store.beginIndexGeneration(initial.indexId(), 1, "snapshot-2", NOW.plusSeconds(1),
+                initial.updatedAt(), initial.state(), initial.generation(), FINGERPRINT)).isTrue();
+        UUID operation = store.prepareSchemaEvolution(
+                SchemaChangeEvent.addColumn("tenant", "lake", "raw", "items", "other", "BIGINT"),
+                NOW.plusSeconds(2));
+        assertThat(store.isIndexGenerationBuildable(initial.indexId(), 1)).isFalse();
+        store.markSchemaEvolutionCommitted(operation, NOW.plusSeconds(3));
+        store.applySchemaEvolution(operation, List.of(), NOW.plusSeconds(4));
+        assertThat(store.findSchemaEvolution(operation)).hasValueSatisfying(record ->
+                assertThat(record.state()).isEqualTo(IndexSchemaEvolutionState.APPLIED));
+        assertThat(store.isIndexGenerationBuildable(initial.indexId(), 1)).isFalse();
+        assertThat(store.prepareSchemaEvolution(
+                SchemaChangeEvent.dropTable("tenant", "lake", "raw", "items"), NOW.plusSeconds(5))).isNotNull();
+    }
+
+    @Test
+    void concurrentTablePreparationHasOneDurableOwner() throws Exception {
+        store.registerIndex(descriptor());
+        var second = new JdbcIndexMetadataStore(dataSource, TableWriteAuthorityFixture.create()::requireCurrent);
+        var workers = java.util.concurrent.Executors.newFixedThreadPool(2);
+        var start = new java.util.concurrent.CountDownLatch(1);
+        var event = SchemaChangeEvent.dropTable("tenant", "lake", "raw", "items");
+        try {
+            java.util.concurrent.Callable<Optional<UUID>> prepareFirst = () -> {
+                start.await();
+                try {
+                    return Optional.of(store.prepareSchemaEvolution(event, NOW));
+                } catch (IllegalStateException alreadyOwned) {
+                    return Optional.empty();
+                }
+            };
+            java.util.concurrent.Callable<Optional<UUID>> prepareSecond = () -> {
+                start.await();
+                try {
+                    return Optional.of(second.prepareSchemaEvolution(event, NOW));
+                } catch (IllegalStateException alreadyOwned) {
+                    return Optional.empty();
+                }
+            };
+            var first = workers.submit(prepareFirst);
+            var another = workers.submit(prepareSecond);
+            start.countDown();
+            var admitted = java.util.stream.Stream.of(first.get(10, java.util.concurrent.TimeUnit.SECONDS),
+                    another.get(10, java.util.concurrent.TimeUnit.SECONDS)).flatMap(Optional::stream).toList();
+            assertThat(admitted).hasSize(1);
+            assertThat(store.listUnresolvedSchemaEvolution(10)).singleElement().satisfies(record ->
+                    assertThat(record.operationId()).isEqualTo(admitted.get(0)));
+            assertThat(store.findIndex("index-1").orElseThrow().state()).isEqualTo(IndexState.STALE);
+        } finally {
+            workers.shutdownNow();
+            assertThat(workers.awaitTermination(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test
+    void confirmedPreConnectorAbortReleasesScopeButUnknownCannotBeAborted() {
+        var event = SchemaChangeEvent.dropTable("tenant", "lake", "raw", "items");
+        UUID beforeCall = store.prepareSchemaEvolution(event, NOW);
+        store.markSchemaEvolutionAborted(beforeCall, NOW.plusSeconds(1));
+        assertThat(store.findSchemaEvolution(beforeCall)).hasValueSatisfying(record ->
+                assertThat(record.state()).isEqualTo(IndexSchemaEvolutionState.ABORTED));
+        UUID uncertain = store.prepareSchemaEvolution(event, NOW.plusSeconds(2));
+        store.markSchemaEvolutionUnknown(uncertain, NOW.plusSeconds(3));
+        store.markSchemaEvolutionAborted(uncertain, NOW.plusSeconds(4));
+        assertThat(store.findSchemaEvolution(uncertain)).hasValueSatisfying(record ->
+                assertThat(record.state()).isEqualTo(IndexSchemaEvolutionState.UNKNOWN));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                store.prepareSchemaEvolution(event, NOW.plusSeconds(5))).hasMessageContaining(uncertain.toString());
+    }
+
+    @Test
+    void lostPrepareCommitResponseReleasesOnlyProvablyPreConnectorClaim() {
+        var lost = new java.util.concurrent.atomic.AtomicBoolean(false);
+        DataSource responseLoss = (DataSource) java.lang.reflect.Proxy.newProxyInstance(
+                getClass().getClassLoader(), new Class<?>[] {DataSource.class}, (proxy, method, args) -> {
+                    try {
+                        Object result = method.invoke(dataSource, args);
+                        if ("getConnection".equals(method.getName()) && result instanceof java.sql.Connection physical) {
+                            return java.lang.reflect.Proxy.newProxyInstance(getClass().getClassLoader(),
+                                    new Class<?>[] {java.sql.Connection.class}, (connection, call, values) -> {
+                                        try {
+                                            Object value = call.invoke(physical, values);
+                                            if ("commit".equals(call.getName()) && lost.compareAndSet(false, true)) {
+                                                throw new java.sql.SQLException("simulated lost prepare commit response");
+                                            }
+                                            return value;
+                                        } catch (java.lang.reflect.InvocationTargetException failure) {
+                                            throw failure.getCause();
+                                        }
+                                    });
+                        }
+                        return result;
+                    } catch (java.lang.reflect.InvocationTargetException failure) {
+                        throw failure.getCause();
+                    }
+                });
+        var recovering = new JdbcIndexMetadataStore(responseLoss, TableWriteAuthorityFixture.create()::requireCurrent);
+        var event = SchemaChangeEvent.dropTable("tenant", "lake", "raw", "items");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> recovering.prepareSchemaEvolution(event, NOW))
+                .hasStackTraceContaining("simulated lost prepare commit response");
+        assertThat(lost.get()).isTrue();
+        assertThat(store.listUnresolvedSchemaEvolution(10)).isEmpty();
+        // The prepare never returned an operation ID; consequently no connector
+        // DDL could start, and a fresh operation may safely own this table.
+        assertThat(store.prepareSchemaEvolution(event, NOW.plusSeconds(1))).isNotNull();
     }
 
     private static IndexDescriptor descriptor() {

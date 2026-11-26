@@ -1,5 +1,6 @@
 package org.pangrova.persistence.generation.postgresql.job;
 
+import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
@@ -7,6 +8,7 @@ import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
 import org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.testing.testkit.postgres.MigratedPostgres;
+import org.pangrova.testing.testkit.postgres.SharedPostgres;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -77,6 +79,99 @@ class SnapshotPinReleaseFenceIntegrationTest extends ContainerTestBase {
             connection.commit();
         }
         assertThat(pinState()).isEqualTo("RELEASED");
+    }
+
+    @Test
+    void maintenanceRetainsCurrentPublishedGenerationAndReleasesDroppedGeneration() throws Exception {
+        Instant cutoff = NOW.plusSeconds(1);
+        try (var connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            assertThat(PostgresSnapshotPinLedger.cleanupCandidates(connection, 10, cutoff, cutoff)).isEmpty();
+            assertThat(PostgresSnapshotPinLedger.claimCleanup(
+                    connection, TENANT, OWNER, cutoff, cutoff, cutoff)).isEmpty();
+            connection.commit();
+        }
+        try (var connection = dataSource.getConnection()) {
+            execute(connection, "UPDATE index_descriptors SET state='DROPPED' WHERE index_id=?", INDEX);
+        }
+        try (var connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            assertThat(PostgresSnapshotPinLedger.cleanupCandidates(connection, 10, cutoff, cutoff)).hasSize(1);
+            assertThat(PostgresSnapshotPinLedger.claimCleanup(
+                    connection, TENANT, OWNER, cutoff, cutoff, cutoff))
+                    .hasValueSatisfying(intent -> assertThat(intent.state().name()).isEqualTo("RELEASING"));
+            connection.commit();
+        }
+        // Connector outcome may be uncertain, so RELEASING must be recoverable.
+        try (var connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            assertThat(PostgresSnapshotPinLedger.claimCleanup(
+                    connection, TENANT, OWNER, cutoff, cutoff, cutoff)).isPresent();
+            assertThat(PostgresSnapshotPinLedger.markReleased(connection, TENANT, OWNER, cutoff)).isTrue();
+            assertThat(PostgresSnapshotPinLedger.cleanupCandidates(connection, 10, cutoff, cutoff)).isEmpty();
+            connection.commit();
+        }
+    }
+
+    @Test
+    void maintenanceRetainsReservedPinForAnUnfinishedGeneration() throws Exception {
+        Instant cutoff = NOW.plusSeconds(1);
+        try (var connection = dataSource.getConnection()) {
+            execute(connection, "UPDATE artifact_snapshot_pins SET job_id=NULL WHERE tenant_id=? AND pin_owner=?",
+                    TENANT, OWNER);
+            execute(connection, "UPDATE index_descriptors SET state='BUILDING' WHERE index_id=?", INDEX);
+        }
+        try (var connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            assertThat(PostgresSnapshotPinLedger.cleanupCandidates(connection, 10, cutoff, cutoff)).isEmpty();
+            assertThat(PostgresSnapshotPinLedger.claimCleanup(
+                    connection, TENANT, OWNER, cutoff, cutoff, cutoff)).isEmpty();
+            connection.commit();
+        }
+        assertThat(pinState()).isEqualTo("PINNED");
+    }
+
+    @Test
+    void oneJobCannotBindMultipleSnapshotPins() {
+        assertThatThrownBy(() -> {
+            try (var connection = dataSource.getConnection()) {
+                execute(connection, "INSERT INTO artifact_snapshot_pins (tenant_id,pin_owner,index_id,generation,"
+                        + "attempt_id,source_id,source_snapshot,principal,authorization_scope_bytes,state,job_id,"
+                        + "created_at,updated_at,pinned_at) VALUES (?,?,?,0,'other-attempt','lake.raw.items',"
+                        + "'snapshot-b','alice',?,'PINNED',?,?,?,?)",
+                        TENANT, OWNER + ":other", INDEX, new byte[] {1}, JOB, NOW, NOW, NOW);
+            }
+        }).isInstanceOf(java.sql.SQLException.class)
+                .hasMessageContaining("uq_snapshot_pin_job");
+    }
+
+    @Test
+    void version121WaitsForActiveNativeJobWriters() throws Exception {
+        var source = SharedPostgres.isolatedDataSource();
+        Flyway.configure().dataSource(source).locations("classpath:db/migration").target("120").load().migrate();
+        var executor = Executors.newSingleThreadExecutor();
+        try (var writer = source.getConnection()) {
+            writer.setAutoCommit(false);
+            try (var statement = writer.createStatement()) {
+                statement.execute("LOCK TABLE artifact_build_jobs IN ROW EXCLUSIVE MODE");
+            }
+            var upgraded = Flyway.configure().dataSource(source).locations("classpath:db/migration")
+                    .target("121").load();
+            var migration = executor.submit(() -> upgraded.migrate().migrationsExecuted);
+            org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(5)).until(() -> {
+                try (var connection = source.getConnection(); var statement = connection.createStatement();
+                        var rows = statement.executeQuery("SELECT EXISTS(SELECT 1 FROM pg_stat_activity "
+                                + "WHERE pid<>pg_backend_pid() AND wait_event_type='Lock')")) {
+                    rows.next();
+                    return rows.getBoolean(1);
+                }
+            });
+            writer.commit();
+            assertThat(migration.get(10, TimeUnit.SECONDS)).isOne();
+        } finally {
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+        }
     }
 
     @Test

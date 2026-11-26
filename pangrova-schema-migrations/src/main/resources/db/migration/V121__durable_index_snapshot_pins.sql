@@ -20,7 +20,7 @@ CREATE TABLE artifact_snapshot_pins (
     CONSTRAINT uq_snapshot_pin_generation UNIQUE
         (tenant_id, index_id, generation, source_snapshot),
     CONSTRAINT fk_snapshot_pin_job FOREIGN KEY (tenant_id, job_id)
-        REFERENCES artifact_build_jobs(tenant_id, job_id) ON DELETE SET NULL,
+        REFERENCES artifact_build_jobs(tenant_id, job_id) ON DELETE SET NULL (job_id),
     CONSTRAINT chk_snapshot_pin_generation CHECK (generation >= 0),
     CONSTRAINT chk_snapshot_pin_state CHECK
         (state IN ('INTENDED', 'PINNED', 'RELEASING', 'RELEASED')),
@@ -30,6 +30,10 @@ CREATE TABLE artifact_snapshot_pins (
          OR (state = 'RELEASING' AND pinned_at IS NOT NULL AND released_at IS NULL)
          OR (state = 'RELEASED' AND pinned_at IS NOT NULL AND released_at IS NOT NULL))
 );
+
+-- Block old Coordinators from publishing Native jobs while the backfill and
+-- authorization validation observe one stable job set during rolling upgrade.
+LOCK TABLE artifact_build_jobs IN ACCESS EXCLUSIVE MODE;
 
 -- Adopt already-published Native jobs that still carry their exact persisted
 -- dispatch authority. They remain INTENDED until maintenance acquires and
@@ -99,7 +103,7 @@ CREATE TABLE artifact_snapshot_pin_references (
 
 CREATE INDEX idx_snapshot_pin_cleanup
     ON artifact_snapshot_pins (state, created_at, tenant_id, index_id);
-CREATE INDEX idx_snapshot_pin_job
-    ON artifact_snapshot_pins (tenant_id, job_id);
+CREATE UNIQUE INDEX uq_snapshot_pin_job
+    ON artifact_snapshot_pins (tenant_id, job_id) WHERE job_id IS NOT NULL;
 CREATE INDEX idx_snapshot_pin_reference_execution
     ON artifact_snapshot_pin_references (execution_id);

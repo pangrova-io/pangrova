@@ -8,5 +8,6 @@ public enum IndexSchemaEvolutionState {
     INTENDED,
     COMMITTED,
     APPLIED,
-    ABORTED
+    ABORTED,
+    UNKNOWN
 }

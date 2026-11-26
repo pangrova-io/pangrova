@@ -162,17 +162,22 @@ public final class ConnectorAccessorResolver implements CatalogIndexEvaluation {
         catalogRegistry.registerCommitListener(catalogName, listener);
     }
 
-    /** Resolves current table metadata under the exact authorized connector scope. */
-    public org.pangrova.connector.api.metadata.table.ConnectorTableMetadata resolveTableMetadata(
+    /** Resolves current metadata and identity under the exact authorized connector scope. */
+    public org.pangrova.indexing.evolution.IndexSchemaEvolutionHandler.SchemaObservation resolveTableObservation(
             String catalogName, String schemaName, String tableName) {
         var metadata = getMetadata(catalogName, schemaName);
         var name = new org.pangrova.connector.api.metadata.table.SchemaTableName(schemaName, tableName);
         try {
             var handle = metadata.getTableHandle(session, name);
-            return handle == null ? null : metadata.getTableMetadata(session, handle);
+            if (handle == null) {
+                return org.pangrova.indexing.evolution.IndexSchemaEvolutionHandler.SchemaObservation.absent();
+            }
+            return new org.pangrova.indexing.evolution.IndexSchemaEvolutionHandler.SchemaObservation(
+                    Optional.ofNullable(metadata.getTableMetadata(session, handle)),
+                    metadata.getTableIdentity(session, handle));
         } catch (org.pangrova.connector.api.exception.ConnectorException missing) {
             if (missing.getErrorCode() == org.pangrova.common.enums.PangrovaErrorCode.CONNECTOR_TABLE_NOT_FOUND) {
-                return null;
+                return org.pangrova.indexing.evolution.IndexSchemaEvolutionHandler.SchemaObservation.absent();
             }
             throw missing;
         }

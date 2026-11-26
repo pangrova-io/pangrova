@@ -71,15 +71,28 @@ final class JdbcIndexDescriptorStore extends JdbcStoreSupport {
                 + "generation, build_snapshot_id, last_indexed_snapshot_id, created_at, updated_at, "
                 + "tenant_id, build_principal, build_authorization_scope, source_schema_fingerprint) "
                 + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)";
-        try {
-            executeUpdate(sql, ps -> {
+        try (Connection connection = dataSource().getConnection()) {
+            connection.setAutoCommit(false);
+            try (PreparedStatement lock = connection.prepareStatement(
+                    "SELECT pangrova_assert_index_schema_scope_available(?,?,?)");
+                 PreparedStatement ps = connection.prepareStatement(sql)) {
+                lock.setString(1, descriptor.catalogName());
+                lock.setString(2, descriptor.schemaName());
+                lock.setString(3, descriptor.tableName());
+                lock.executeQuery().close();
                 bindDescriptor(ps, descriptor);
                 ps.setString(BUILD_PRINCIPAL_PARAMETER, principal);
                 ps.setBytes(BUILD_SCOPE_PARAMETER,
                         scope == null ? null : DeferredAuthorizationScopeCodec.encode(scope));
                 ps.setString(SOURCE_SCHEMA_FINGERPRINT_PARAMETER, descriptor.sourceSchemaFingerprint());
-            });
-        } catch (MetastoreException e) {
+                ps.executeUpdate();
+                connection.commit();
+            } catch (SQLException | RuntimeException failure) {
+                rollbackAfterFailure(connection, failure);
+                throw failure;
+            }
+        } catch (SQLException failure) {
+            MetastoreException e = new MetastoreException("Failed to register index", failure);
             if (isUniqueConstraintViolation(e)) {
                 throw new IndexAlreadyExistsException(descriptor.indexName(), descriptor.tableName());
             }
@@ -321,6 +334,11 @@ final class JdbcIndexDescriptorStore extends JdbcStoreSupport {
             throws SQLException {
         conn.setAutoCommit(false);
         try {
+            try (PreparedStatement lock = conn.prepareStatement(
+                    "SELECT pangrova_assert_index_schema_descriptor_available(?)")) {
+                lock.setString(1, request.indexId());
+                lock.executeQuery().close();
+            }
             if (!lockExpectedDescriptor(
                     conn, request.indexId(), request.expectedUpdatedAt(),
                     request.expectedState(), request.expectedGeneration())
@@ -731,6 +749,89 @@ final class JdbcIndexDescriptorStore extends JdbcStoreSupport {
             throw new MetastoreException(
                     "Failed to validate buildable index generation", failure);
         }
+    }
+
+    private static final String ABANDONED_NATIVE_RESERVATIONS = """
+            SELECT d.*, COALESCE(b.generation,d.generation) AS recovery_generation,
+                   COALESCE(b.updated_at,d.updated_at) AS recovery_updated_at
+            FROM index_descriptors d
+            LEFT JOIN index_generation_builds b ON b.index_id=d.index_id
+                 AND b.base_generation=d.generation AND b.generation=d.generation+1 AND b.state='BUILDING'
+            WHERE d.index_type IN ('VECTOR','INVERTED')
+              AND ((d.state='BUILDING' AND b.generation IS NULL)
+                   OR (d.state IN ('READY','STALE') AND b.generation IS NOT NULL))
+              AND COALESCE(b.updated_at,d.updated_at)<=?
+              AND NOT EXISTS (SELECT 1 FROM artifact_snapshot_pins p
+                   WHERE p.tenant_id=d.tenant_id AND p.index_id=d.index_id
+                     AND p.generation=COALESCE(b.generation,d.generation))
+              AND NOT EXISTS (SELECT 1 FROM artifact_build_jobs j
+                   WHERE j.tenant_id=d.tenant_id AND j.artifact_id=d.index_id
+                     AND j.staging_generation=CAST(COALESCE(b.generation,d.generation) AS text))
+            """;
+
+    List<IndexBuildCandidate> listAbandonedNativeReservations(int limit, Instant cutoff) {
+        if (limit <= 0) {
+            throw new IllegalArgumentException("limit must be positive");
+        }
+        Objects.requireNonNull(cutoff, "cutoff");
+        String sql = ABANDONED_NATIVE_RESERVATIONS + " ORDER BY recovery_updated_at,d.index_id LIMIT ?";
+        return executeQuery(sql, statement -> {
+            setInstant(statement, 1, cutoff);
+            statement.setInt(2, limit);
+        }, rows -> {
+            List<IndexBuildCandidate> candidates = new java.util.ArrayList<>();
+            while (rows.next()) {
+                candidates.add(mapAbandonedNativeReservation(rows));
+            }
+            return List.copyOf(candidates);
+        });
+    }
+
+    Optional<IndexBuildCandidate> findAbandonedNativeReservation(String indexId, int generation, Instant cutoff) {
+        Objects.requireNonNull(cutoff, "cutoff");
+        String sql = ABANDONED_NATIVE_RESERVATIONS + " AND d.index_id=? AND COALESCE(b.generation,d.generation)=?";
+        return executeQuery(sql, statement -> {
+            setInstant(statement, 1, cutoff);
+            statement.setString(2, indexId);
+            statement.setInt(3, generation);
+        }, rows -> rows.next() ? Optional.of(mapAbandonedNativeReservation(rows)) : Optional.empty());
+    }
+
+    private static IndexBuildCandidate mapAbandonedNativeReservation(ResultSet row) throws SQLException {
+        return new IndexBuildCandidate(mapDescriptor(row), row.getInt("recovery_generation"), "BUILDING",
+                getInstant(row, "recovery_updated_at"), null);
+    }
+
+    Optional<Instant> findIndexGenerationSnapshotReservation(String indexId, int generation, String snapshotId) {
+        if (generation < 0 || snapshotId == null || snapshotId.isBlank()) {
+            return Optional.empty();
+        }
+        String sql = "SELECT d.updated_at FROM index_descriptors d WHERE d.index_id=? "
+                + "AND d.state='BUILDING' AND d.generation=? AND d.build_snapshot_id=? "
+                + "UNION ALL SELECT b.updated_at FROM index_generation_builds b "
+                + "JOIN index_descriptors d ON d.index_id=b.index_id WHERE d.index_id=? "
+                + "AND d.state IN ('READY','STALE') AND d.generation=? AND b.base_generation=d.generation "
+                + "AND b.generation=? AND b.state='BUILDING' AND b.source_snapshot=?";
+        return executeQuery(sql, statement -> {
+            statement.setString(1, indexId);
+            statement.setInt(2, generation);
+            statement.setString(3, snapshotId);
+            statement.setString(4, indexId);
+            statement.setInt(5, generation - 1);
+            statement.setInt(6, generation);
+            statement.setString(7, snapshotId);
+        }, rows -> rows.next() ? Optional.of(getInstant(rows, "updated_at")) : Optional.empty());
+    }
+
+    boolean isIndexGenerationSnapshotBuildable(
+            String indexId, int generation, String snapshotId, Instant reservationUpdatedAt) {
+        if (reservationUpdatedAt == null) {
+            return false;
+        }
+        return findIndexGenerationSnapshotReservation(indexId, generation, snapshotId)
+                .map(updatedAt -> updatedAt.equals(
+                        org.pangrova.persistence.jdbc.support.JdbcSupport.canonicalInstant(reservationUpdatedAt)))
+                .orElse(false);
     }
 
     private static boolean lockExpectedDescriptor(

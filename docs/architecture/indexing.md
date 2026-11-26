@@ -29,9 +29,13 @@ payload bytes.
   objects, and the Worker cache is never a metadata authority.
 
 The base path must be durable and shared by every process that reads or writes
-scalar artifacts. Native artifact staging must use a filesystem/object-store URI
+scalar artifacts. The Coordinator uses one validated root for scalar and Native
+artifact storage; conflicting bootstrap and indexing configuration roots are
+rejected. Native artifact staging must use a filesystem/object-store URI
 supported by the Worker. Production installations must isolate tenant access,
-configure retention and backups, and keep automatic maintenance disabled until
+configure retention and backups. Snapshot pin recovery runs only under verified
+maintenance leadership; demotion stops new recovery work, while a claimed
+operation can finish its exact ledger transition. Keep automatic maintenance disabled until
 the lifecycle gates pass. Schema V121 adopts already-published Native jobs that
 carry exact persisted dispatch authority as `INTENDED`; maintenance must acquire
 and validate their real connector pins before query retention can use them.
@@ -138,9 +142,52 @@ names are rejected before dispatch.
 Retries reuse stable work-unit identities while attempt IDs and fencing tokens
 advance. No in-memory build state is authoritative. Publication revalidates the
 exact durable and connector pin; cancellation of an expired or revoked job is
-fenced by the current publication owner, epoch and token. Pin cleanup first moves
-a reference-free ledger row to `RELEASING`, so a concurrent execution retention
-either inserts its reference before release or fails closed before dispatch.
+fenced by the current publication owner, epoch and token. A maintenance scan is
+only a candidate list. Cleanup rechecks the current build binding, active
+generation and execution references while claiming the exact ledger row. The
+durable transition to `RELEASING` prevents new job binding and retention before
+the connector release happens outside the cleanup transaction. An uncertain
+connector outcome remains `RELEASING` for exact, idempotent recovery.
+A persisted unbound submission is recoverable only if its exact generation,
+source snapshot and durable authorization still match a live build reservation.
+Online replacement resolves the staging reservation rather than the active
+descriptor's generation. Recovery does not synthesize a missing submitter or
+release a pin when the current source obligation remains uncertain. A stale
+reservation with neither a durable pin intent nor a job is fenced as failed
+after rechecking the same reservation, allowing an authenticated explicit
+rebuild; recovery does not issue connector operations for that reservation.
+
+Snapshot holds in Iceberg and Paimon use a persistent versioned tag namespace.
+New holds use `pangrova_index_<sha256-index-id>_v3_<generation>_<hex-attempt>_<hex-token>`,
+with UTF-8 lowercase hexadecimal fields. Existing v2 holds (original padded
+Base64, and the interim hex encoding used on the development branch) are read
+without renaming; ambiguous or malformed v2 names require explicit reconciliation
+and must never be automatically released. Repeated acquisition of an exact
+existing hold does not create another tag. Enumeration deduplicates equivalent
+encodings, and release removes only matching owner-and-token tags after checking
+their stored snapshot. Pre-owner tags have a synthetic generation-zero legacy
+owner for cleanup only; validation requires an exact owner-tag. V121 backfilled attempts retain their
+own `legacy-<md5-job-id>` identity; adoption acquires a new exact hold before
+marking it pinned, including a Paimon snapshot retained solely by a legacy tag.
+
+Paimon 1.4.1 stores tags as `tag-<name>` filenames. With the current decimal
+signed-long snapshot ID (at most 19 digits), non-negative integer generation
+(at most 10 digits), and the longest current attempt (`legacy-` plus a
+32-character digest), the v3 filename occupies at most 215 ASCII bytes,
+within the common 255-byte component limit. This does not imply an unlimited
+opaque-token storage capacity: a future connector with longer or nonnumeric
+tokens must explicitly validate its storage limits and introduce a new codec
+version if its persistent representation needs to change.
+
+This is a forward-only write-format upgrade. Quiesce old coordinators and pin
+cleanup workers before enabling the new writer; do not run old and new writers
+or cleanup workers concurrently. Older binaries cannot read v3 holds. Rolling
+back requires stopping new writers, draining all v3 holds and verifying that
+the durable ledger has no live or pending v3 pin and the affected tables have
+no v3 tags before restarting the old binary. Do not remove live holds merely
+to enable rollback; if the system cannot drain them safely, remain on the
+new reader/writer. No existing tag is automatically rewritten or dropped on
+startup.
 
 Incremental index maintenance observes lineage before opening the snapshot file inventories. For a forward commit, the Connector uses one bound table observation, reads each immutable inventory once and derives the file delta from the same target inventory used for coverage validation. Replayed or superseded snapshots require only the lineage decision.
 
@@ -380,3 +427,68 @@ fenced STALE update persists its reason atomically; non-STALE transitions clear 
 the reason-aware operation. Lifecycle transition validation remains the domain owner's
 responsibility. Other persistence ports and remaining optional defaults still require
 the planned domain/backend split; this state-update correction does not complete that work.
+
+### Durable table schema operation ownership (V123)
+
+The table-scoped index schema journal is the state owner for index effects of
+connector DDL. A write-ahead transaction claims the source name and the rename
+target in deterministic order, captures the exact fenced descriptor IDs and
+timestamps, and fails in-flight staging generations before connector IO begins.
+The physical catalog/schema/table scope is shared across tenants because the
+catalog registry is global. Peer-tenant descriptors are conservatively fenced;
+their original authority is not borrowed for rebinding. Unrelated table names
+remain independent. Index registration, generation reservation and both scalar
+and Native publication take the same scope-first transaction lock before
+descriptor locks, then release it on commit. No SQL transaction remains open
+while a connector operation or observation runs.
+
+The connector DDL caller records COMMITTED only after the actual operation
+returns success, capturing source and post-operation identity where supported.
+A generic connector error is UNKNOWN, not an abort: it may follow an external
+commit. A process loss can leave INTENDED; neither state is runnable work.
+The bounded recovery loop applies only confirmed COMMITTED records, compares
+the exact observed post-operation identity, and applies changes only to the
+original captured descriptor fence. Missing/mismatched identity conservatively
+keeps the descriptor STALE without rebinding to a replacement table. A failed
+observation is deferred behind other committed operations. A connector without
+an exact operation-outcome receipt cannot safely infer completion from a current
+schema, so automated UNKNOWN recovery is intentionally unavailable. An operator
+must inspect the operation ID and connector-side authoritative operation history;
+the persistence inspection APIs distinguish unresolved from runnable operations.
+No generic override or fabricated connector authorization is provided. Explicit
+rebuild is required after an uncertain descriptor identity.
+
+V123 is a forward migration; V121 and V122 checksums are retained. Older pending
+INTENDED and COMMITTED rows both become UNKNOWN because V122 recovery could not
+prove which commits were externally completed. Every overlapping legacy claim
+is retained, not silently awarded to the oldest. Upgrade requires quiescing old
+Coordinators (including schema DDL, builds and publication), applying V123, and
+starting only code that participates in the scope lock protocol. Rollback to
+V122 writers is not supported while V123 ownership is in use; stop writers and
+preserve the metadata backup/claims for a verified forward repair instead.
+
+The ownership boundary deliberately avoids either a long-lived database lock
+across a connector RPC (pool consumption and automatic lock release after
+process loss) or an optimistic descriptor CAS alone (which cannot serialize
+two connector mutations). Durable per-name claims plus short transactional
+locks retain ownership across crashes without holding a JDBC connection.
+A future connector can extend outcome recovery with an exact operation receipt
+adapter, but only a receipt bound to the original operation and physical owner
+may discharge an UNKNOWN claim. Observed column names, schema equality or
+elapsed time alone are not sufficient. Until generation records carry their
+physical owner, completed schema changes leave previously active indexes STALE
+and explicitly rebuildable rather than automatically restoring READY.
+
+An authorized metadata operator may inspect unresolved records using the
+read-only query:
+
+```sql
+SELECT operation_id, tenant_id, catalog_name, schema_name, table_name,
+       event_type, state, created_at, updated_at
+FROM index_schema_evolution_outbox
+WHERE state IN ('INTENDED', 'UNKNOWN')
+ORDER BY created_at, operation_id;
+```
+
+Do not clear these records or their claims merely because the table appears
+unchanged: the original connector operation could still be unresolved.

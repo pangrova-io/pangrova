@@ -194,6 +194,29 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
     }
 
     @Override
+    public List<IndexBuildCandidate> listAbandonedNativeReservations(int limit, Instant cutoff) {
+        return descriptorStore.listAbandonedNativeReservations(limit, cutoff);
+    }
+
+    @Override
+    public Optional<IndexBuildCandidate> findAbandonedNativeReservation(
+            String indexId, int generation, Instant cutoff) {
+        return descriptorStore.findAbandonedNativeReservation(indexId, generation, cutoff);
+    }
+
+    @Override
+    public Optional<Instant> findIndexGenerationSnapshotReservation(String indexId, int generation, String snapshotId) {
+        return descriptorStore.findIndexGenerationSnapshotReservation(indexId, generation, snapshotId);
+    }
+
+    @Override
+    public boolean isIndexGenerationSnapshotBuildable(
+            String indexId, int generation, String snapshotId, Instant reservationUpdatedAt) {
+        return descriptorStore.isIndexGenerationSnapshotBuildable(
+                indexId, generation, snapshotId, reservationUpdatedAt);
+    }
+
+    @Override
     public boolean isIndexSnapshotBuildable(String indexId, String snapshotId) {
         return descriptorStore.isIndexSnapshotBuildable(indexId, snapshotId);
     }
@@ -462,8 +485,45 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
     }
 
     @Override
+    public UUID prepareSchemaEvolution(SchemaChangeEvent event,
+            Optional<org.pangrova.connector.api.metadata.table.TableIdentity> sourceIdentity, Instant now) {
+        return schemaEvolutionStore.prepare(event, sourceIdentity, now);
+    }
+
+    @Override
     public void markSchemaEvolutionCommitted(UUID operationId, Instant now) {
         schemaEvolutionStore.markCommitted(operationId, now);
+    }
+
+    @Override
+    public void markSchemaEvolutionCommitted(UUID operationId,
+            Optional<org.pangrova.connector.api.metadata.table.TableIdentity> targetIdentity, Instant now) {
+        schemaEvolutionStore.markCommitted(operationId, targetIdentity, now);
+    }
+
+    @Override
+    public void markSchemaEvolutionUnknown(UUID operationId, Instant now) {
+        schemaEvolutionStore.markUnknown(operationId, now);
+    }
+
+    @Override
+    public Optional<IndexSchemaEvolutionStore.IndexSchemaEvolutionRecord> findSchemaEvolution(UUID operationId) {
+        return schemaEvolutionStore.find(operationId);
+    }
+
+    @Override
+    public List<IndexSchemaEvolutionStore.IndexSchemaEvolutionRecord> listUnresolvedSchemaEvolution(int limit) {
+        return schemaEvolutionStore.listUnresolved(limit);
+    }
+
+    @Override
+    public void deferSchemaEvolutionRetry(UUID operationId, Instant now) {
+        schemaEvolutionStore.deferRetry(operationId, now);
+    }
+
+    @Override
+    public List<IndexDescriptor> listSchemaEvolutionTargets(UUID operationId) {
+        return schemaEvolutionStore.targets(operationId);
     }
 
     @Override

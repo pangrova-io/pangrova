@@ -29,9 +29,7 @@ final class IcebergSnapshotPinProvider implements SnapshotPinProvider {
         Table table = load(schemaName, tableName);
         long snapshotId = snapshotId(snapshotToken);
         String tag = tag(owner, snapshotToken);
-        SnapshotRef existing = table.refs().get(tag);
-        if (existing != null) {
-            requireExactTag(existing, snapshotId, tag);
+        if (!exactTags(table, owner, snapshotToken, snapshotId).isEmpty()) {
             return;
         }
         if (table.snapshot(snapshotId) == null) {
@@ -47,12 +45,15 @@ final class IcebergSnapshotPinProvider implements SnapshotPinProvider {
                               String snapshotToken, SnapshotPinOwner owner) {
         Table table = load(schemaName, tableName);
         long snapshotId = snapshotId(snapshotToken);
-        String tag = tag(owner, snapshotToken);
-        SnapshotRef existing = table.refs().get(tag);
-        if (existing != null) {
-            requireExactTag(existing, snapshotId, tag);
-            table.manageSnapshots().removeTag(tag).commit();
+        List<String> exact = exactTags(table, owner, snapshotToken, snapshotId);
+        if (!exact.isEmpty()) {
+            var update = table.manageSnapshots();
+            exact.forEach(update::removeTag);
+            update.commit();
             table.refresh();
+        }
+        if (!isLegacyOwner(owner)) {
+            return;
         }
         String legacyTag = SnapshotPinTags.indexPrefix(owner.indexId());
         SnapshotRef legacy = table.refs().get(legacyTag);
@@ -73,15 +74,9 @@ final class IcebergSnapshotPinProvider implements SnapshotPinProvider {
                                     String snapshotToken, SnapshotPinOwner owner) {
         Table table = load(schemaName, tableName);
         long snapshotId = snapshotId(snapshotToken);
-        SnapshotRef exact = table.refs().get(tag(owner, snapshotToken));
-        if (exact != null) {
-            requireExactTag(exact, snapshotId, tag(owner, snapshotToken));
-        } else {
-            SnapshotRef legacy = table.refs().get(SnapshotPinTags.indexPrefix(owner.indexId()));
-            if (legacy == null || legacy.snapshotId() != snapshotId) {
-                throw new SnapshotExpiredException(snapshotToken,
-                        "Iceberg index snapshot pin is absent for " + owner.id());
-            }
+        if (exactTags(table, owner, snapshotToken, snapshotId).isEmpty()) {
+            throw new SnapshotExpiredException(snapshotToken,
+                    "Iceberg index snapshot pin is absent for " + owner.id());
         }
         if (table.snapshot(snapshotId) == null) {
             throw new SnapshotExpiredException(snapshotToken,
@@ -122,7 +117,7 @@ final class IcebergSnapshotPinProvider implements SnapshotPinProvider {
                         new SnapshotPinOwner(indexId, 0, "legacy")));
             }
         }
-        return List.copyOf(result);
+        return result.stream().distinct().toList();
     }
 
     private List<String> snapshotTokens(String schemaName, String tableName) {
@@ -135,6 +130,7 @@ final class IcebergSnapshotPinProvider implements SnapshotPinProvider {
             }
             SnapshotPinTags.DecodedSnapshotPin decoded = SnapshotPinTags.decodeAny(tag);
             if (decoded != null) {
+                requireExactTag(entry.getValue(), snapshotId(decoded.snapshotToken()), tag);
                 result.add(decoded.snapshotToken());
                 continue;
             }
@@ -153,6 +149,21 @@ final class IcebergSnapshotPinProvider implements SnapshotPinProvider {
         Table table = catalog.loadTable(TableIdentifier.of(schemaName, tableName));
         table.refresh();
         return table;
+    }
+
+    private static List<String> exactTags(Table table, SnapshotPinOwner owner, String token, long snapshotId) {
+        return SnapshotPinTags.matchingNames(owner.indexId(), owner.generation(), owner.attemptId(), token, tag -> {
+            SnapshotRef ref = table.refs().get(tag);
+            if (ref == null) {
+                return false;
+            }
+            requireExactTag(ref, snapshotId, tag);
+            return true;
+        });
+    }
+
+    private static boolean isLegacyOwner(SnapshotPinOwner owner) {
+        return owner.generation() == 0 && owner.attemptId().equals("legacy");
     }
 
     private static String tag(SnapshotPinOwner owner, String snapshotToken) {

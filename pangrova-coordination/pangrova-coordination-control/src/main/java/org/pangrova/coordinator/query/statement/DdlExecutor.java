@@ -172,14 +172,14 @@ public final class DdlExecutor {
             record.ifPresent(captured -> tableControl.requireCurrentCatalog(captured, "DROP TABLE"));
         }
         List<String> columns = tableColumns(metadata, session, handle);
-        java.util.UUID schemaOperation = prepareDropTableEvent(context.tenantId(), ref);
+        java.util.UUID schemaOperation = prepareDropTableEvent(context.tenantId(), ref, metadata, session, handle);
         try {
             metadata.dropTable(session, handle);
         } catch (RuntimeException | Error failure) {
-            abortSchemaChange(schemaOperation, failure);
+            unknownSchemaChange(schemaOperation, failure);
             throw failure;
         }
-        commitSchemaChange(schemaOperation);
+        commitSchemaChange(schemaOperation, java.util.Optional.empty());
         record.ifPresent(tableControl.registrations()::markDropped);
         record.ifPresent(target -> tableControlOperations.purgeTableState(target, context));
         record.ifPresent(target -> tableControlOperations.purgeColumnMasks(target, columns));
@@ -216,26 +216,33 @@ public final class DdlExecutor {
         validateGeneratedColumnEvolution(metadata, session, handle, stmt);
         var renameTarget = resolveRenameTarget(stmt, ref);
         List<String> columns = renameTarget == null ? List.of() : tableColumns(metadata, session, handle);
-        // Move ownership before the physical rename so a target that already has a
-        // live control record is rejected while the catalog is still untouched.
+        java.util.UUID schemaOperation = prepareSchemaChangeEvent(
+                context.tenantId(), ref, stmt, metadata, session, handle);
+        // Reserve the index schema operation before changing logical rename ownership.
+        // A control failure here is provably before the connector DDL starts.
         org.pangrova.table.api.ownership.TableControlRecord movedControl = null;
-        if (renameTarget != null && tableControl.enabled()) {
-            var sourceControl = tableControl.find(ref.catalog(), ref.schema(), ref.table());
-            if (sourceControl.isPresent()) {
-                movedControl = tableControl.renames().begin(sourceControl.get(),
-                        renameTarget.schema(), renameTarget.table());
-            }
-        }
-        // An exception can follow a committed or still-running connector rename.
-        // Keep both names reserved until reconciliation proves the outcome.
-        java.util.UUID schemaOperation = prepareSchemaChangeEvent(context.tenantId(), ref, stmt);
         try {
-            applyAlterOperation(metadata, session, handle, stmt);
+            if (renameTarget != null && tableControl.enabled()) {
+                var sourceControl = tableControl.find(ref.catalog(), ref.schema(), ref.table());
+                if (sourceControl.isPresent()) {
+                    movedControl = tableControl.renames().begin(sourceControl.get(),
+                            renameTarget.schema(), renameTarget.table());
+                }
+            }
         } catch (RuntimeException | Error failure) {
             abortSchemaChange(schemaOperation, failure);
             throw failure;
         }
-        commitSchemaChange(schemaOperation);
+        try {
+            applyAlterOperation(metadata, session, handle, stmt);
+        } catch (RuntimeException | Error failure) {
+            unknownSchemaChange(schemaOperation, failure);
+            throw failure;
+        }
+        if (schemaOperation != null) {
+            var target = renameTarget == null ? ref : renameTarget;
+            commitSchemaChange(schemaOperation, observeCommittedIdentity(metadata, session, target));
+        }
         if (renameTarget != null) {
             tableControlOperations.moveNameScopedGovernance(ref, renameTarget, columns, context);
             if (movedControl != null) {
@@ -446,13 +453,14 @@ public final class DdlExecutor {
     }
 
     private java.util.UUID prepareSchemaChangeEvent(
-            String tenantId, QualifiedTableName ref, AlterTableStatement stmt) {
+            String tenantId, QualifiedTableName ref, AlterTableStatement stmt,
+            ConnectorMetadata metadata, ConnectorSession session, ConnectorTableHandle handle) {
         var handler = schemaEvolutionHandler;
         if (handler == null) {
             return null;
         }
         var event = toSchemaChangeEvent(tenantId, ref, stmt);
-        return event == null ? null : handler.prepare(event);
+        return event == null ? null : prepareAndVerifySchemaChange(handler, event, metadata, session, handle);
     }
 
     private static org.pangrova.indexing.api.evolution.SchemaChangeEvent toSchemaChangeEvent(
@@ -484,16 +492,65 @@ public final class DdlExecutor {
         return null;
     }
 
-    private java.util.UUID prepareDropTableEvent(String tenantId, QualifiedTableName ref) {
+    private java.util.UUID prepareDropTableEvent(String tenantId, QualifiedTableName ref,
+            ConnectorMetadata metadata, ConnectorSession session, ConnectorTableHandle handle) {
         var handler = schemaEvolutionHandler;
-        return handler == null ? null : handler.prepare(
+        return handler == null ? null : prepareAndVerifySchemaChange(handler,
                 org.pangrova.indexing.api.evolution.SchemaChangeEvent.dropTable(
-                        tenantId, ref.catalog(), ref.schema(), ref.table()));
+                        tenantId, ref.catalog(), ref.schema(), ref.table()), metadata, session, handle);
     }
 
-    private void commitSchemaChange(java.util.UUID operationId) {
+    private java.util.UUID prepareAndVerifySchemaChange(
+            org.pangrova.indexing.evolution.IndexSchemaEvolutionHandler handler,
+            org.pangrova.indexing.api.evolution.SchemaChangeEvent event,
+            ConnectorMetadata metadata, ConnectorSession session, ConnectorTableHandle handle) {
+        var identity = metadata.getTableIdentity(session, handle);
+        java.util.UUID operationId = handler.prepare(event, identity);
+        try {
+            if (identity.isPresent() && !identity.equals(metadata.getTableIdentity(session, handle))) {
+                throw new IllegalStateException("Index schema operation " + operationId
+                        + " source identity changed before the connector mutation");
+            }
+        } catch (RuntimeException | Error failure) {
+            abortSchemaChange(operationId, failure);
+            throw failure;
+        }
+        return operationId;
+    }
+
+    private static java.util.Optional<org.pangrova.connector.api.metadata.table.TableIdentity>
+            observeCommittedIdentity(ConnectorMetadata metadata, ConnectorSession session, QualifiedTableName target) {
+        try {
+            var handle = metadata.getTableHandle(session,
+                    new org.pangrova.connector.api.metadata.table.SchemaTableName(target.schema(), target.table()));
+            return handle == null ? java.util.Optional.empty() : metadata.getTableIdentity(session, handle);
+        } catch (RuntimeException failure) {
+            // The connector DDL already returned success, but the post-state is
+            // unknown. Preserve the durable success receipt without inventing identity.
+            LOG.warn("event=index_schema_post_identity_unavailable table={} error={}", target, failure.getMessage());
+            return java.util.Optional.empty();
+        }
+    }
+
+    private void commitSchemaChange(java.util.UUID operationId,
+            java.util.Optional<org.pangrova.connector.api.metadata.table.TableIdentity> targetIdentity) {
         if (operationId != null) {
-            schemaEvolutionHandler.committed(operationId);
+            try {
+                schemaEvolutionHandler.committed(operationId, targetIdentity);
+            } catch (RuntimeException | Error failure) {
+                unknownSchemaChange(operationId, failure);
+                throw failure;
+            }
+        }
+    }
+
+    private void unknownSchemaChange(java.util.UUID operationId, Throwable failure) {
+        if (operationId != null) {
+            try {
+                schemaEvolutionHandler.unknown(operationId);
+            } catch (RuntimeException unknownFailure) {
+                failure.addSuppressed(unknownFailure);
+            }
         }
     }
 

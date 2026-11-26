@@ -7,12 +7,15 @@ import org.pangrova.connector.api.index.SnapshotPinProvider;
 import org.pangrova.connector.api.exception.SnapshotExpiredException;
 import org.pangrova.connector.paimon.handle.PaimonTableIdentity;
 
+import org.apache.paimon.Snapshot;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.utils.SnapshotNotExistException;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /** Persists each index attempt's snapshot hold as a Paimon tag without an expiry time. */
@@ -29,16 +32,16 @@ final class PaimonSnapshotPinProvider implements SnapshotPinProvider {
         FileStoreTable table = load(schemaName, tableName);
         long snapshotId = snapshotId(snapshotToken);
         String tag = tag(owner, snapshotToken);
-        Long existing = taggedSnapshot(table, tag);
-        if (existing != null) {
-            requireExact(existing, snapshotId, tag);
+        if (!exactTags(table, owner, snapshotToken, snapshotId).isEmpty()) {
             return;
         }
-        if (!table.snapshotManager().snapshotExists(snapshotId)) {
+        try {
+            // Paimon also resolves snapshots retained by a tag after numbered snapshot expiration.
+            table.createTag(tag, snapshotId, null);
+        } catch (SnapshotNotExistException expired) {
             throw new SnapshotExpiredException(snapshotToken,
                     "Cannot pin expired Paimon snapshot " + snapshotToken);
         }
-        table.createTag(tag, snapshotId, null);
         requireExact(taggedSnapshot(load(schemaName, tableName), tag), snapshotId, tag);
     }
 
@@ -47,11 +50,11 @@ final class PaimonSnapshotPinProvider implements SnapshotPinProvider {
                               String snapshotToken, SnapshotPinOwner owner) {
         FileStoreTable table = load(schemaName, tableName);
         long snapshotId = snapshotId(snapshotToken);
-        String tag = tag(owner, snapshotToken);
-        Long existing = taggedSnapshot(table, tag);
-        if (existing != null) {
-            requireExact(existing, snapshotId, tag);
+        for (String tag : exactTags(table, owner, snapshotToken, snapshotId)) {
             table.deleteTag(tag);
+        }
+        if (!isLegacyOwner(owner)) {
+            return;
         }
         String legacyPrefix = SnapshotPinTags.indexPrefix(owner.indexId());
         for (String legacy : List.of(legacyPrefix, legacyPrefix + "_" + snapshotToken)) {
@@ -68,14 +71,7 @@ final class PaimonSnapshotPinProvider implements SnapshotPinProvider {
                                     String snapshotToken, SnapshotPinOwner owner) {
         FileStoreTable table = load(schemaName, tableName);
         long snapshotId = snapshotId(snapshotToken);
-        String tag = tag(owner, snapshotToken);
-        Long exact = taggedSnapshot(table, tag);
-        if (exact != null) {
-            requireExact(exact, snapshotId, tag);
-            return;
-        }
-        Long legacy = taggedSnapshot(table, SnapshotPinTags.indexPrefix(owner.indexId()));
-        if (legacy == null || legacy != snapshotId) {
+        if (exactTags(table, owner, snapshotToken, snapshotId).isEmpty()) {
             throw new SnapshotExpiredException(snapshotToken,
                     "Paimon index snapshot pin is absent for " + owner.id());
         }
@@ -109,10 +105,13 @@ final class PaimonSnapshotPinProvider implements SnapshotPinProvider {
                     requireExact(entry.getKey().id(), snapshotId(legacy), tag);
                     result.add(new SnapshotPinReference(legacy,
                             new SnapshotPinOwner(indexId, 0, "legacy")));
+                } else if (tag.equals(prefix)) {
+                    result.add(new SnapshotPinReference(Long.toString(entry.getKey().id()),
+                            new SnapshotPinOwner(indexId, 0, "legacy")));
                 }
             }
         }
-        return List.copyOf(result);
+        return result.stream().distinct().toList();
     }
 
     private List<String> snapshotTokens(String schemaName, String tableName) {
@@ -125,6 +124,7 @@ final class PaimonSnapshotPinProvider implements SnapshotPinProvider {
                 }
                 SnapshotPinTags.DecodedSnapshotPin decoded = SnapshotPinTags.decodeAny(tag);
                 if (decoded != null) {
+                    requireExact(entry.getKey().id(), snapshotId(decoded.snapshotToken()), tag);
                     result.add(decoded.snapshotToken());
                     continue;
                 }
@@ -152,8 +152,12 @@ final class PaimonSnapshotPinProvider implements SnapshotPinProvider {
     }
 
     private static Long taggedSnapshot(FileStoreTable table, String tagName) {
+        return taggedSnapshot(table.tagManager().tags(), tagName);
+    }
+
+    private static Long taggedSnapshot(Map<Snapshot, List<String>> tags, String tagName) {
         Long result = null;
-        for (var entry : table.tagManager().tags().entrySet()) {
+        for (var entry : tags.entrySet()) {
             if (entry.getValue().contains(tagName)) {
                 if (result != null) {
                     throw new IllegalStateException("Paimon tag resolves to multiple snapshots: " + tagName);
@@ -174,6 +178,22 @@ final class PaimonSnapshotPinProvider implements SnapshotPinProvider {
         } catch (NumberFormatException invalid) {
             throw new IllegalArgumentException("Invalid Paimon snapshot token", invalid);
         }
+    }
+
+    private static List<String> exactTags(FileStoreTable table, SnapshotPinOwner owner, String token, long snapshotId) {
+        var tags = table.tagManager().tags();
+        return SnapshotPinTags.matchingNames(owner.indexId(), owner.generation(), owner.attemptId(), token, tag -> {
+            Long actual = taggedSnapshot(tags, tag);
+            if (actual == null) {
+                return false;
+            }
+            requireExact(actual, snapshotId, tag);
+            return true;
+        });
+    }
+
+    private static boolean isLegacyOwner(SnapshotPinOwner owner) {
+        return owner.generation() == 0 && owner.attemptId().equals("legacy");
     }
 
     private static String tag(SnapshotPinOwner owner, String snapshotToken) {

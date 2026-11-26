@@ -60,6 +60,29 @@ public interface IndexBuildGenerations {
         throw new UnsupportedOperationException("Durable index generation lookup is required");
     }
 
+    /** Lists expired Native reservations that have no durable job or pin to replay. */
+    default List<IndexBuildCandidate> listAbandonedNativeReservations(int limit, Instant cutoff) {
+        throw new UnsupportedOperationException("Durable Native reservation recovery is required");
+    }
+
+    /** Rechecks one abandoned Native reservation before fencing it. */
+    default Optional<IndexBuildCandidate> findAbandonedNativeReservation(
+            String indexId, int generation, Instant cutoff) {
+        throw new UnsupportedOperationException("Durable Native reservation recovery is required");
+    }
+
+    /** Finds the exact durable publication fence for a current build reservation. */
+    default Optional<Instant> findIndexGenerationSnapshotReservation(
+            String indexId, int generation, String snapshotId) {
+        throw new UnsupportedOperationException("Exact durable index generation lookup is required");
+    }
+
+    /** Confirms the exact generation and source snapshot belong to the same reservation. */
+    default boolean isIndexGenerationSnapshotBuildable(
+            String indexId, int generation, String snapshotId, Instant reservationUpdatedAt) {
+        throw new UnsupportedOperationException("Exact durable index generation lookup is required");
+    }
+
     /** Confirms that the exact snapshot is reserved by a currently building generation. */
     default boolean isIndexSnapshotBuildable(String indexId, String snapshotId) {
         throw new UnsupportedOperationException("Durable index build generation fences are required");

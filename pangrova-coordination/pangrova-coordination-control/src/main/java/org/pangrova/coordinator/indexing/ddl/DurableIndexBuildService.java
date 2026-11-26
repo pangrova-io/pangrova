@@ -14,6 +14,9 @@ import org.pangrova.generation.api.page.GenerationSplit;
 import org.pangrova.persistence.generation.api.job.GenerationJobStore;
 import org.pangrova.persistence.generation.api.job.SnapshotPinIntent;
 import org.pangrova.persistence.generation.api.job.SnapshotPinReservation;
+import org.pangrova.persistence.generation.api.enums.SnapshotPinState;
+import org.pangrova.generation.api.enums.GenerationJobState;
+import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.query.api.session.QuerySession;
@@ -49,8 +52,11 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
+import java.util.function.BooleanSupplier;
 
 /** Maintenance compiler for snapshot-pinned Native index work; persists canonical control metadata, never row bytes. */
 public final class DurableIndexBuildService {
@@ -74,6 +80,7 @@ public final class DurableIndexBuildService {
     private static final int MAX_VECTOR_DIMENSION = 65_535;
 
     private final GenerationJobStore store;
+    private final IndexMetadataStore indexMetadataStore;
     private final CatalogRegistry catalogRegistry;
     private final SnapshotGenerationSplitPlanner splitPlanner;
     private final String baseArtifactUri;
@@ -82,10 +89,11 @@ public final class DurableIndexBuildService {
 
     /** Creates the sole durable Native index compiler over catalog and metadata authority. */
     public DurableIndexBuildService(
-            GenerationJobStore store, CatalogRegistry catalogRegistry,
-            String baseArtifactUri,
+            GenerationJobStore store, IndexMetadataStore indexMetadataStore,
+            CatalogRegistry catalogRegistry, String baseArtifactUri,
             Function<ConnectorSession, SnapshotPinProvider> pinProviders) {
         this.store = Objects.requireNonNull(store, "store must not be null");
+        this.indexMetadataStore = Objects.requireNonNull(indexMetadataStore, "indexMetadataStore must not be null");
         this.catalogRegistry = Objects.requireNonNull(
                 catalogRegistry, "catalogRegistry must not be null");
         this.splitPlanner = new SnapshotGenerationSplitPlanner(catalogRegistry);
@@ -138,6 +146,33 @@ public final class DurableIndexBuildService {
 
     private String submitScoped(IndexDescriptor descriptor, QualifiedTableName table,
                                 String tenantId, ConnectorSession session) {
+        AtomicReference<String> jobId = new AtomicReference<>();
+        indexMetadataStore.withIndexLifecycleLock(descriptor.indexId(), () -> {
+            IndexDescriptor current = indexMetadataStore.findIndex(descriptor.indexId()).orElseThrow(() ->
+                    new IllegalStateException("Native index descriptor disappeared before submission"));
+            requireBuildableReservation(current, descriptor);
+            jobId.set(submitScopedLocked(descriptor, table, tenantId, session));
+        });
+        return jobId.get();
+    }
+
+    private void requireBuildableReservation(IndexDescriptor current, IndexDescriptor requested) {
+        if (!current.tenantId().equals(requested.tenantId())
+                || !current.catalogName().equals(requested.catalogName())
+                || !current.schemaName().equals(requested.schemaName())
+                || !current.tableName().equals(requested.tableName())
+                || !current.columnNames().equals(requested.columnNames())
+                || !current.properties().equals(requested.properties())
+                || current.indexType() != requested.indexType()
+                || !indexMetadataStore.isIndexGenerationSnapshotBuildable(
+                        requested.indexId(), requested.generation(),
+                        requested.buildSnapshotId(), requested.updatedAt())) {
+            throw new IllegalStateException("Native index descriptor is no longer buildable");
+        }
+    }
+
+    private String submitScopedLocked(IndexDescriptor descriptor, QualifiedTableName table,
+                                      String tenantId, ConnectorSession session) {
         NativeBuildSpec build = prepareBuild(descriptor, table, session);
         String jobId = jobId(tenantId, descriptor);
         String sourceId = String.join(".", table.catalog(), table.schema(), table.table());
@@ -154,12 +189,12 @@ public final class DurableIndexBuildService {
             pinProvider.pinSnapshot(table.catalog(), table.schema(), table.table(),
                     intent.sourceSnapshot(), owner);
         }
-        if (!store.markSnapshotPinPinned(tenantId, intent.pinOwner(), Instant.now())) {
-            throw new IllegalStateException("Snapshot pin could not transition to PINNED");
-        }
         if (!emptySnapshot) {
             requirePinProvider(session).validateSnapshotPin(table.catalog(), table.schema(), table.table(),
                     intent.sourceSnapshot(), owner);
+        }
+        if (!store.markSnapshotPinPinned(tenantId, intent.pinOwner(), Instant.now())) {
+            throw new IllegalStateException("Snapshot pin could not transition to PINNED");
         }
         List<GenerationSplit> splits = splitPlanner.enumerate(
                 table, intent.sourceSnapshot(), session);
@@ -275,19 +310,15 @@ public final class DurableIndexBuildService {
         snapshotValidator.validate(job);
     }
 
-    /** Releases one exact ledger pin after its durable source references have drained. */
-    public void releaseSnapshotPin(SnapshotPinIntent intent) {
-        Instant now = Instant.now();
-        if (!store.beginSnapshotPinRelease(intent.tenantId(), intent.pinOwner(), now)) {
-            return;
-        }
+    /** Completes a durable cleanup claim; uncertain connector outcomes remain RELEASING for retry. */
+    private void finishSnapshotPinRelease(SnapshotPinIntent intent) {
         if (!SnapshotGenerationSplitPlanner.EMPTY_SNAPSHOT.equals(intent.sourceSnapshot())) {
             var resolved = DeferredIndexAuthorityResolver.resolveSubmission(intent.authority());
             requirePinProvider(resolved.session()).unpinSnapshot(
                     resolved.table().catalog(), resolved.table().schema(), resolved.table().table(),
                     intent.sourceSnapshot(), owner(intent));
         }
-        if (!store.markSnapshotPinReleased(intent.tenantId(), intent.pinOwner(), now)) {
+        if (!store.markSnapshotPinReleased(intent.tenantId(), intent.pinOwner(), Instant.now())) {
             throw new IllegalStateException("Released snapshot pin is absent from the durable ledger");
         }
         LOG.info("event=index_snapshot_pin_released indexId={} generation={} attemptId={} snapshotId={}",
@@ -296,49 +327,195 @@ public final class DurableIndexBuildService {
 
     /** Acquires real connector pins for published jobs adopted by the V121 ledger backfill. */
     public int adoptLegacySnapshotPins() {
+        return adoptLegacySnapshotPins(() -> true);
+    }
+
+    /** Stops admitting new maintenance work when the current leadership epoch ends. */
+    public int adoptLegacySnapshotPins(BooleanSupplier stillLeader) {
+        Objects.requireNonNull(stillLeader, "stillLeader");
         int adopted = 0;
-        for (SnapshotPinIntent intent : store.listSnapshotPinsForAdoption(100)) {
+        for (SnapshotPinIntent candidate : store.listSnapshotPinsForAdoption(100)) {
+            if (!stillLeader.getAsBoolean()) {
+                break;
+            }
             try {
-                if (SnapshotGenerationSplitPlanner.EMPTY_SNAPSHOT.equals(intent.sourceSnapshot())) {
-                    if (!store.markSnapshotPinPinned(intent.tenantId(), intent.pinOwner(), Instant.now())) {
-                        throw new IllegalStateException("Legacy empty snapshot pin could not transition to PINNED");
+                boolean[] completed = {false};
+                indexMetadataStore.withIndexLifecycleLock(candidate.indexId(), () -> {
+                    if (stillLeader.getAsBoolean()) {
+                        completed[0] = adoptLegacyPin(candidate);
                     }
-                } else {
-                    var resolved = DeferredIndexAuthorityResolver.resolveSubmission(intent.authority());
-                    SnapshotPinProvider provider = requirePinProvider(resolved.session());
-                    provider.pinSnapshot(
-                            resolved.table().catalog(), resolved.table().schema(), resolved.table().table(),
-                            intent.sourceSnapshot(), owner(intent));
-                    if (!store.markSnapshotPinPinned(intent.tenantId(), intent.pinOwner(), Instant.now())) {
-                        throw new IllegalStateException("Legacy snapshot pin could not transition to PINNED");
-                    }
-                    provider.validateSnapshotPin(
-                            resolved.table().catalog(), resolved.table().schema(), resolved.table().table(),
-                            intent.sourceSnapshot(), owner(intent));
+                });
+                if (completed[0]) {
+                    adopted++;
                 }
-                adopted++;
             } catch (RuntimeException failure) {
                 LOG.warn("event=index_snapshot_pin_adoption_retry indexId={} generation={} attemptId={} error={}",
-                        intent.indexId(), intent.generation(), intent.attemptId(), failure.getMessage());
+                        candidate.indexId(), candidate.generation(), candidate.attemptId(), failure.getMessage());
             }
         }
         return adopted;
     }
 
+    private boolean adoptLegacyPin(SnapshotPinIntent candidate) {
+        // The list is only a hint. The lifecycle lock serializes this connector acquisition
+        // with submission and cleanup; the ledger state is checked again under that lock.
+        var current = store.findSnapshotPin(candidate.tenantId(), candidate.pinOwner());
+        if (current.isEmpty()) {
+            return false;
+        }
+        SnapshotPinIntent intent = current.orElseThrow();
+        if (intent.state() != SnapshotPinState.INTENDED || !intent.attemptId().startsWith("legacy-")
+                || intent.jobId() == null || store.findJob(intent.tenantId(), intent.jobId())
+                        .map(job -> job.state() != GenerationJobState.PUBLISHED).orElse(true)) {
+            return false;
+        }
+        if (!SnapshotGenerationSplitPlanner.EMPTY_SNAPSHOT.equals(intent.sourceSnapshot())) {
+            var resolved = DeferredIndexAuthorityResolver.resolveSubmission(intent.authority());
+            SnapshotPinProvider provider = requirePinProvider(resolved.session());
+            provider.pinSnapshot(resolved.table().catalog(), resolved.table().schema(), resolved.table().table(),
+                    intent.sourceSnapshot(), owner(intent));
+            provider.validateSnapshotPin(resolved.table().catalog(), resolved.table().schema(),
+                    resolved.table().table(), intent.sourceSnapshot(), owner(intent));
+        }
+        if (!store.markSnapshotPinPinned(intent.tenantId(), intent.pinOwner(), Instant.now())) {
+            throw new IllegalStateException("Legacy snapshot pin could not transition to PINNED");
+        }
+        return true;
+    }
+
+    /** Fences reservations interrupted before an original subject was durably recorded; no replay or IO. */
+    public int fenceAbandonedNativeReservations(BooleanSupplier stillLeader) {
+        Objects.requireNonNull(stillLeader, "stillLeader");
+        Instant cutoff = Instant.now().minus(Duration.ofHours(1));
+        int fenced = 0;
+        for (var candidate : indexMetadataStore.listAbandonedNativeReservations(100, cutoff)) {
+            if (!stillLeader.getAsBoolean()) {
+                break;
+            }
+            try {
+                boolean[] completed = {false};
+                indexMetadataStore.withIndexLifecycleLock(candidate.descriptor().indexId(), () -> {
+                    if (!stillLeader.getAsBoolean()) {
+                        return;
+                    }
+                    var current = indexMetadataStore.findAbandonedNativeReservation(
+                            candidate.descriptor().indexId(), candidate.generation(), cutoff);
+                    if (current.isPresent()) {
+                        var reservation = current.orElseThrow();
+                        if (reservation.updatedAt().equals(candidate.updatedAt())
+                                && reservation.descriptor().tenantId().equals(candidate.descriptor().tenantId())) {
+                            completed[0] = indexMetadataStore.failIndexGeneration(
+                                    candidate.descriptor().indexId(), candidate.generation(), candidate.updatedAt(),
+                                    Instant.now(), "native_submission_missing_durable_intent");
+                        }
+                    }
+                });
+                if (completed[0]) {
+                    fenced++;
+                }
+            } catch (RuntimeException failure) {
+                LOG.warn("event=index_native_abandoned_reservation_retry indexId={} generation={} error={}",
+                        candidate.descriptor().indexId(), candidate.generation(), failure.getMessage());
+            }
+        }
+        return fenced;
+    }
+
+    /** Replays unbound Native submissions only when their exact durable intent and reservation still exist. */
+    public int recoverUnboundSnapshotPins(BooleanSupplier stillLeader) {
+        Objects.requireNonNull(stillLeader, "stillLeader");
+        Instant cutoff = Instant.now().minus(Duration.ofHours(1));
+        var candidates = store.listUnboundSnapshotPinsForRecovery(100, cutoff);
+        int recovered = 0;
+        for (var candidate : candidates) {
+            if (!stillLeader.getAsBoolean()) {
+                break;
+            }
+            try {
+                boolean[] completed = {false};
+                indexMetadataStore.withIndexLifecycleLock(candidate.indexId(), () -> {
+                    if (stillLeader.getAsBoolean()) {
+                        var reservation = indexMetadataStore.findIndexGenerationSnapshotReservation(
+                                candidate.indexId(), candidate.generation(), candidate.sourceSnapshot());
+                        if (reservation.isPresent()) {
+                            completed[0] = recoverUnboundSnapshotPin(candidate, reservation.orElseThrow(), cutoff);
+                        }
+                    }
+                });
+                if (completed[0]) {
+                    recovered++;
+                }
+            } catch (RuntimeException failure) {
+                LOG.warn("event=index_snapshot_pin_submission_retry indexId={} generation={} error={}",
+                        candidate.indexId(), candidate.generation(), failure.getMessage());
+            }
+        }
+        return recovered;
+    }
+
+    private boolean recoverUnboundSnapshotPin(
+            SnapshotPinIntent candidate, Instant reservationUpdatedAt, Instant cutoff) {
+        var claimed = store.claimSnapshotPinRecovery(
+                candidate.tenantId(), candidate.pinOwner(), cutoff, Instant.now());
+        if (claimed.isEmpty()) {
+            return false;
+        }
+        SnapshotPinIntent intent = claimed.orElseThrow();
+        int generation = intent.generation();
+        IndexDescriptor current = indexMetadataStore.findIndex(intent.indexId()).orElse(null);
+        if (current == null || !supports(current)) {
+            return false;
+        }
+        IndexDescriptor requested = current.withGeneration(generation, reservationUpdatedAt)
+                .withBuildSnapshotId(intent.sourceSnapshot(), reservationUpdatedAt);
+        requireBuildableReservation(current, requested);
+        var table = new QualifiedTableName(current.catalogName(), current.schemaName(), current.tableName());
+        var expected = DeferredAuthorizationScope.raw(table, Set.copyOf(current.columnNames()), table);
+        if (!intent.authority().authorizationScope().equals(expected)
+                || !intent.sourceId().equals(String.join(".", table.catalog(), table.schema(), table.table()))) {
+            throw new IllegalStateException("Snapshot intent differs from its exact recovery source scope");
+        }
+        // Reauthorize the original durable subject before metadata or connector effects.
+        store.reserveSnapshotPin(new SnapshotPinReservation(
+                intent.tenantId(), intent.indexId(), intent.generation(), intent.attemptId(),
+                intent.sourceId(), intent.sourceSnapshot(), intent.authority(), intent.createdAt()));
+        var resolved = DeferredIndexAuthorityResolver.resolveSubmission(intent.authority());
+        submitScopedLocked(requested, resolved.table(), intent.tenantId(), resolved.session());
+        return true;
+    }
+
     /** Runs bounded idempotent cleanup for ambiguous pin/job and terminal build crash windows. */
     public int cleanupSnapshotPins() {
-        Instant now = Instant.now();
-        List<SnapshotPinIntent> candidates = store.listSnapshotPinCleanupCandidates(
-                100, now.minus(Duration.ofHours(1)), now.minus(Duration.ofHours(1)));
+        return cleanupSnapshotPins(() -> true);
+    }
+
+    /** Claims only currently eligible pins; listing does not grant release authority. */
+    public int cleanupSnapshotPins(BooleanSupplier stillLeader) {
+        Objects.requireNonNull(stillLeader, "stillLeader");
+        Instant cutoff = Instant.now().minus(Duration.ofHours(1));
+        List<SnapshotPinIntent> candidates = store.listSnapshotPinCleanupCandidates(100, cutoff, cutoff);
         int released = 0;
         for (SnapshotPinIntent candidate : candidates) {
+            if (!stillLeader.getAsBoolean()) {
+                break;
+            }
             try {
-                releaseSnapshotPin(candidate);
-                released++;
+                var claim = new AtomicReference<Optional<SnapshotPinIntent>>(Optional.empty());
+                indexMetadataStore.withIndexLifecycleLock(candidate.indexId(), () -> {
+                    if (stillLeader.getAsBoolean()) {
+                        claim.set(store.claimSnapshotPinCleanup(candidate.tenantId(), candidate.pinOwner(),
+                                cutoff, cutoff, Instant.now()));
+                    }
+                });
+                if (claim.get().isPresent()) {
+                    // RELEASING prevents new acquisition, job binding and retention. Do not
+                    // hold the lifecycle DB connection during the connector release.
+                    finishSnapshotPinRelease(claim.get().orElseThrow());
+                    released++;
+                }
             } catch (RuntimeException failure) {
                 LOG.warn("event=index_snapshot_pin_cleanup_retry indexId={} generation={} attemptId={} error={}",
-                        candidate.indexId(), candidate.generation(), candidate.attemptId(),
-                        failure.getMessage(), failure);
+                        candidate.indexId(), candidate.generation(), candidate.attemptId(), failure.getMessage());
             }
         }
         return released;

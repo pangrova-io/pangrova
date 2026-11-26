@@ -47,6 +47,7 @@ class IndexBuildSnapshotPinTest {
         }
     }
 
+    @Test
     void opaqueSnapshotIdentifierIsPassedToTheConnectorWithoutNumericCoercion() {
         var provider = new RecordingPinProvider();
         try (var builder = builder(provider)) {
@@ -86,6 +87,23 @@ class IndexBuildSnapshotPinTest {
     }
 
     @Test
+    void failedFileBuildReleasesTheExactAttemptPin() {
+        var provider = new RecordingPinProvider();
+        var context = new IndexBuildContext(new IndexingConfig("test-index", false, null, null),
+                new IndexEngineRegistry(List.of()), new IndexStorageManager(),
+                new IndexSerializer(null), null, null, provider, null);
+        try (var builder = new IndexBuildCoordinator(context, null)) {
+            var file = new DataFileInfo("/data/source.parquet", 1, 100, "parquet");
+            var result = builder.submitBuildTask(descriptor("42"), List.of(file), null, null).join();
+
+            assertThat(result.isFullySuccessful()).isFalse();
+            assertThat(provider.unpins.get()).isOne();
+            assertThat(provider.snapshot).isEqualTo("42");
+            assertThat(provider.owner.indexId()).isEqualTo("index-1");
+        }
+    }
+
+    @Test
     void tableWithoutAnySnapshotNeedsNoPin() {
         var provider = new RecordingPinProvider();
         try (var builder = builder(provider)) {
@@ -110,6 +128,7 @@ class IndexBuildSnapshotPinTest {
 
     private static final class RecordingPinProvider implements SnapshotPinProvider {
         private final AtomicInteger pins = new AtomicInteger();
+        private final AtomicInteger unpins = new AtomicInteger();
         private String snapshot;
         private SnapshotPinOwner owner;
         private boolean fail;
@@ -128,6 +147,7 @@ class IndexBuildSnapshotPinTest {
         @Override
         public void unpinSnapshot(String catalog, String schema, String table, String snapshotToken,
                                   SnapshotPinOwner pinOwner) {
+            unpins.incrementAndGet();
         }
 
         @Override
