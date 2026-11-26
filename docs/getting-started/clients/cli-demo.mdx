@@ -16,6 +16,7 @@ current `main` branch or a released build.
 
 <video
   controls
+  aria-label="Pangrova CLI workflow demonstration"
   preload="metadata"
   poster={useBaseUrl('/media/pangrova-cli-demo-poster.png')}
   src={useBaseUrl('/media/pangrova-cli-demo.mp4')}
@@ -24,9 +25,9 @@ current `main` branch or a released build.
   Your browser does not support embedded video.
 </video>
 
-<a href={useBaseUrl('/media/pangrova-cli-demo.mp4')}>Download the MP4</a> · 1080p · English narration and captions
+<a href={useBaseUrl('/media/pangrova-cli-demo.mp4')} download="pangrova-cli-demo.mp4">Download the MP4</a> · 1080p · English narration and on-screen captions
 
-## What the demo covers
+## Workflow at a glance
 
 1. Register a local Apache Iceberg catalog.
 2. Create an analytics schema and a partitioned events table.
@@ -34,11 +35,16 @@ current `main` branch or a released build.
 4. Insert six rows in one statement.
 5. Query the detail rows and aggregate them by region and event type.
 
-The matching SQL is available in
-[`examples/cli-workflow.sql`](https://github.com/pangrova-io/pangrova/blob/de453b55d9ff047a598cdb8c399efa0cedbe07a8/examples/cli-workflow.sql).
-Run it only against a fresh, isolated development instance with permission to
-create catalogs, schemas, and tables. Ensure the example catalog/schema/table
-names and local warehouse path are unused before starting.
+## Replay the example
+
+The equivalent SQL workflow is available in
+[`examples/cli-workflow.sql`](https://github.com/pangrova-io/pangrova/blob/2d8efa28545e033e6bac68c5904048d3ae513a24/examples/cli-workflow.sql)
+with a different local warehouse path than the recording. Follow the
+[Standalone quickstart](../quickstart.md) to prepare and start the local
+Coordinator and Worker. Run the following from the repository root only against
+a fresh, isolated development instance with permission to create catalogs,
+schemas, and tables. Ensure that `demo_iceberg.analytics.events` and
+`/tmp/pangrova-cli-warehouse` are unused before starting.
 
 ```bash
 bin/pangrova-cli.sh --host localhost --port 8080 < examples/cli-workflow.sql
@@ -53,4 +59,17 @@ the interactive shell alone does not establish successful execution.
 For fail-fast automation, execute the eight statements in order using eight
 separate single-statement UTF-8 files and `--file` for each invocation, stopping
 on the first nonzero exit. The example is a multi-statement file and must not be
-passed directly to `--file`.
+passed directly to `--file`. See [the CLI reference](./cli.md#script-mode) for
+script-mode output and execution receipts.
+
+## Optional cleanup
+
+After verifying the results, you can remove the table and unregister the
+example catalog. Run these statements only if they refer to the objects created
+by this demo, not shared or production data. They are intentionally separate
+from the replay file.
+
+```sql
+DROP TABLE demo_iceberg.analytics.events;
+DROP CATALOG demo_iceberg;
+```
