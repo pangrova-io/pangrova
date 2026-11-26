@@ -142,6 +142,16 @@ The model container needs outbound access to download its pinned weights.
 
 `PersistentTenantOverloadE2ETest` uses the staged Coordinator and two Native Worker JVMs, a persistent SDK client, LDAP authentication and mTLS Flight. It holds two exact PostgreSQL admission slots by leaving their Native result streams unopened. The test then offers 45 submissions at 20 per second across five SQL workloads and requires the tenant quota response for all 45. It warms each workload before holding the slots. After consuming both held results and observing zero slots, it offers 40 queries at five per second with one recovery query in flight and checks the result values, EOF and physical release. The log records the planned arrival, client queue time, HTTP admission response, EOF and drain offsets. Use the same staged-role inputs as the other independent-process tests.
 
+The two-Coordinator case starts two independent Coordinator and Worker pairs against the
+same PostgreSQL schema and LDAP tenant. Each client uses the address of its own
+Coordinator and its Worker returns status to that Coordinator. A held Native result
+on each pair consumes one of the two shared slots. The test offers 40 requests at
+40 per second during saturation, then drains both results and offers 80 queries at
+eight per second across both Coordinators. It validates exact results, first row,
+EOF, physical drain and the shared slot count. Twelve status reads after reconnecting
+to each live owner produce zero query-journal SELECTs. Shared Worker routing and
+cross-host latency have separate acceptance conditions in the execution plan.
+
 ## Measuring public SQL latency across two builds
 
 Use the same macOS arm64 machine, JDK 17, UTF-8 locale, Docker, Iceberg SDK
