@@ -142,9 +142,9 @@ class IndependentCdcProcessesE2ETest extends ContainerTestBase {
         }
         processes.startCoordinatorAndFirstWorker();
         processes.createSourceCatalog();
-        processes.query("CREATE SCHEMA IF NOT EXISTS spec_catalog.default", ResultProtocol.GRPC_TLS);
-        processes.query("CREATE TABLE spec_catalog.default.orders (id BIGINT, payload VARCHAR)", ResultProtocol.GRPC_TLS);
-        processes.query("INSERT INTO spec_catalog.default.orders VALUES (99, 'unrelated')", ResultProtocol.GRPC_TLS);
+        processes.command("CREATE SCHEMA IF NOT EXISTS spec_catalog.default", ResultProtocol.GRPC_TLS);
+        processes.command("CREATE TABLE spec_catalog.default.orders (id BIGINT, payload VARCHAR)", ResultProtocol.GRPC_TLS);
+        processes.command("INSERT INTO spec_catalog.default.orders VALUES (99, 'unrelated')", ResultProtocol.GRPC_TLS);
         processes.query("CREATE STREAM orders_stream FROM KAFKA ("
                 + "'bootstrap.servers'='" + broker + "', 'topic'='" + topic + "',"
                 + "'group.id'='independent-cdc-orders') FORMAT 'debezium-json' INTO spec_catalog.default.orders"
@@ -432,15 +432,15 @@ class IndependentCdcProcessesE2ETest extends ContainerTestBase {
             processes.createSourceCatalog();
         } else {
             String warehouse = processes.warehouse().toString().replace("'", "''");
-            processes.query("CREATE CATALOG spec_catalog WITH ('connector'='paimon', 'warehouse'='"
+            processes.command("CREATE CATALOG spec_catalog WITH ('connector'='paimon', 'warehouse'='"
                     + warehouse + "')", ResultProtocol.GRPC_TLS);
         }
-        processes.query("CREATE SCHEMA IF NOT EXISTS spec_catalog.default", ResultProtocol.GRPC_TLS);
+        processes.command("CREATE SCHEMA IF NOT EXISTS spec_catalog.default", ResultProtocol.GRPC_TLS);
         String key = iceberg ? "" : ", PRIMARY KEY (id) NOT ENFORCED";
-        processes.query("CREATE TABLE spec_catalog.default.orders (id BIGINT, payload VARCHAR"
+        processes.command("CREATE TABLE spec_catalog.default.orders (id BIGINT, payload VARCHAR"
                 + key + ")", ResultProtocol.GRPC_TLS);
         if (iceberg) {
-            var seed = processes.query(
+            var seed = processes.command(
                     "INSERT INTO spec_catalog.default.orders VALUES (42, 'cdc-visible'), (99, 'unrelated')",
                     ResultProtocol.GRPC_TLS);
             await("setup INSERT releases its execution anchor before the Worker fault")
