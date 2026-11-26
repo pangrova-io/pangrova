@@ -102,7 +102,7 @@ final class PlanExecutionFactoryDeleteTestSupport {
         final CatalogRegistry registry;
         Consumer<Statement> onDispatch = statement -> {};
         DispatchResult dispatchResult = new DispatchResult("worker.invalid", "delete-task",
-                new ResultEndpoint("worker.invalid", 0, "delete-ticket", "http"));
+                new ResultEndpoint("worker.invalid", 0, "delete-ticket", "grpc"));
 
         Fixture(boolean partitioned) {
             metadata = new DeleteMetadata(partitioned, events);

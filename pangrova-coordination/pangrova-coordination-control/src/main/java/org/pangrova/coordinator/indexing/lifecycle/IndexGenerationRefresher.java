@@ -17,6 +17,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.LinkedHashSet;
 import java.util.List;
 
@@ -45,15 +46,19 @@ final class IndexGenerationRefresher {
         IndexBuildCoordinator coordinator = deps.buildServices().dataSkipping();
         boolean nativeArtifact = DurableIndexBuildService.supports(descriptor);
         if (!nativeArtifact && !input.addedFiles().isEmpty()
-                && !coordinator.canAcceptBuild()) {
+                && !coordinator.canAcceptBuild(descriptor.tenantId())) {
             return false;
         }
         int nextGeneration = Math.addExact(descriptor.generation(), 1);
-        Instant startedAt = Instant.now();
-        boolean started = store.beginIndexGeneration(
+        // Keep the reservation timestamp identical to the persisted publication fence.
+        Instant startedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        String nativeAttempt = nativeArtifact ? java.util.UUID.randomUUID().toString() : null;
+        boolean started = nativeAttempt == null ? store.beginIndexGeneration(
                 descriptor.indexId(), nextGeneration, sourceSnapshot,
-                startedAt, descriptor.updatedAt(), descriptor.state(),
-                descriptor.generation());
+                startedAt, descriptor.updatedAt(), descriptor.state(), descriptor.generation())
+                : store.beginNativeIndexGeneration(descriptor.indexId(), nextGeneration, sourceSnapshot,
+                        startedAt, descriptor.updatedAt(), descriptor.state(), descriptor.generation(),
+                        null, nativeAttempt);
         if (!started) {
             return false;
         }
@@ -67,9 +72,9 @@ final class IndexGenerationRefresher {
                         store, deps.buildServices(), deps.connectorAccessorResolver(), descriptor);
             }
             return refreshGeneration(
-                    store, coordinator, descriptor, rebuilding, input, nativeArtifact);
+                    store, coordinator, descriptor, rebuilding, input, nativeArtifact, nativeAttempt);
         } catch (RuntimeException failure) {
-            recordFailure(store, rebuilding, failure);
+            recordFailure(store, rebuilding, nativeAttempt, failure);
             LOG.error("action=index_generation_refresh_failed indexId={} generation={} error={}",
                     descriptor.indexId(), nextGeneration, failure.getMessage(), failure);
             return false;
@@ -82,16 +87,22 @@ final class IndexGenerationRefresher {
             IndexDescriptor descriptor,
             IndexDescriptor rebuilding,
             IndexRefreshInput input,
-            boolean nativeArtifact) {
+            boolean nativeArtifact, String nativeAttempt) {
         if (nativeArtifact) {
-            submitNativeGeneration(descriptor, rebuilding);
+            submitNativeGeneration(descriptor, rebuilding, nativeAttempt);
             LOG.info("action=native_index_generation_queued indexId={} generation={} snapshot={}",
                     descriptor.indexId(), rebuilding.generation(), input.sourceSnapshot());
             return true;
         }
-        long reused = store.copyIndexGenerationMappings(
-                descriptor.indexId(), descriptor.generation(), rebuilding.generation(),
-                List.copyOf(new LinkedHashSet<>(input.removedFiles())));
+        long reused = store.findActiveIndexGeneration(descriptor.indexId())
+                .map(active -> {
+                    if (active.generation() != descriptor.generation()) {
+                        throw new IllegalStateException(
+                                "Active index generation differs from refresh base: " + descriptor.indexId());
+                    }
+                    return copyReusableMappings(store, descriptor, rebuilding, input);
+                })
+                .orElse(0L);
         long built = buildAddedFiles(store, coordinator, rebuilding, input.addedFiles());
         if (store.findIndex(descriptor.indexId()).isEmpty()) {
             throw new IllegalStateException(
@@ -105,12 +116,20 @@ final class IndexGenerationRefresher {
         return true;
     }
 
-    private void submitNativeGeneration(IndexDescriptor previous, IndexDescriptor rebuilding) {
+    private static long copyReusableMappings(
+            IndexMetadataStore store, IndexDescriptor descriptor,
+            IndexDescriptor rebuilding, IndexRefreshInput input) {
+        return store.copyIndexGenerationMappings(
+                descriptor.indexId(), descriptor.generation(), rebuilding.generation(),
+                List.copyOf(new LinkedHashSet<>(input.removedFiles())));
+    }
+
+    private void submitNativeGeneration(IndexDescriptor previous, IndexDescriptor rebuilding, String nativeAttempt) {
         var service = deps.buildServices().aiNative();
         if (service == null) {
             throw new IllegalStateException("Native index maintenance has no durable build service");
         }
-        service.submitReplacement(previous, rebuilding);
+        service.submitReplacement(previous, rebuilding, nativeAttempt);
     }
 
     private long buildAddedFiles(
@@ -158,6 +177,7 @@ final class IndexGenerationRefresher {
     private static void recordFailure(
             IndexMetadataStore store,
             IndexDescriptor rebuilding,
+            String nativeAttempt,
             RuntimeException failure) {
         if (store.findIndex(rebuilding.indexId())
                 .filter(current -> current.state() != IndexState.DROPPED)
@@ -166,9 +186,10 @@ final class IndexGenerationRefresher {
         }
         String reason = failure.getMessage() == null
                 ? "generation_refresh_failed" : failure.getMessage();
-        boolean failed = store.failIndexGeneration(
-                rebuilding.indexId(), rebuilding.generation(), rebuilding.updatedAt(),
-                Instant.now(), reason);
+        boolean failed = nativeAttempt == null ? store.failIndexGeneration(
+                rebuilding.indexId(), rebuilding.generation(), rebuilding.updatedAt(), Instant.now(), reason)
+                : store.failNativeSubmissionAttempt(rebuilding.indexId(), rebuilding.generation(), nativeAttempt,
+                        rebuilding.updatedAt(), Instant.now(), reason);
         if (!failed) {
             LOG.warn("action=index_generation_failure_fence_lost indexId={} generation={}",
                     rebuilding.indexId(), rebuilding.generation());

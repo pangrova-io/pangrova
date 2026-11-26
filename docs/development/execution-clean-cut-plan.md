@@ -8,11 +8,64 @@ unlisted: true
 
 项目可以使用同版本 Coordinator、Worker、Native bundle、Shuffle Service、CLI、JDBC 和 benchmark 一起切换。删除只为过渡服务的协议、开关、路由和后台任务。上一轮的兼容入口、混部、双格式和迁移安排由本计划替代。底线仍是授权、快照一致性、精确 attempt、可恢复提交与资源实际归还。读 SQL、写 SQL、DDL 和 Java 执行的 CDC 是不同业务路径，各自应有明确入口和共同的任务生命周期。
 
-待实施工作围绕扫描输入、持久 Shuffle、回调隔离和真实负载验证。已验证的协议收敛、数据库去重和所有权修复集中记入[验证记录](#验证记录与覆盖边界)。 原始调用链和基线见[逐节点协议与数据库审查](./end-to-end-protocol-optimization.md)及[微测与线程分析](./performance-remediation-plan.md)。
+待实施工作先收敛 durable acceptance、owner routing 和 result disposition，再推进 production 归因、扫描输入、动态过滤、AQE、持久 Shuffle、结果与写入恢复。已验证的协议收敛、数据库去重和所有权修复集中记入[验证记录](#验证记录与覆盖边界)。原始调用链和基线见[逐节点协议与数据库审查](./end-to-end-protocol-optimization.md)及[微测与线程分析](./performance-remediation-plan.md)。
 
 查询性能对齐的对标引擎、扫描权重反例、跨 Stage 动态过滤、阶段聚合缺口和性能验收，见 [查询性能对齐与执行引擎修正计划](./query-performance-parity-plan.md)。
 
-## 2026-11-24 收尾检查
+## 2026-11-25 代码审计与剩余工作
+
+以下状态以提交 `6d83b0eca` 的生产源码、测试和配置复核为准。**A** 表示缺少代码或合同，**B** 表示机制已经存在但缺少生产验收，**C** 表示文档陈旧或已被后续实现取代。历史批次只能证明当时机制，不能替代当前状态或跨主机、同源、规模验收。
+
+### A：缺失代码或合同
+
+| ID | 当前事实与缺口 | 实施工作包 |
+|---|---|---|
+| A1 | WP1.1 已将 principal/key digest、canonical fingerprint、lineage 和确定性 `QUEUED`/`PENDING` 回执原子写入初始 journal；正常新受理一次 INSERT，冲突/未知提交读取权威行，active query 不因 TTL 过期，terminal 后由有界 sweep 清理 | WP1.1，本地 PostgreSQL/查询链验证后提交；双 Coordinator 进程 E2E 待续 |
+| A2 | 状态机已有原子版本、waiter 和 drain；缺少可信 query-owner directory/forward，非 owner 请求直接失败 | WP1.2 |
+| A3 | WP1.3 已引入显式 `PENDING` / `STREAM` / `NONE`，并贯通 dispatch、状态机、REST、JDBC、CLI 和 benchmark；代码合同已闭合，跨主机 resultless/延迟发布 E2E 仍待验收 | WP1.3，本地验证后提交；生产验收待续 |
+| A4 | 已有阶段观测和固定到达率样本；尚未接入完整 production phase/queue/rejection/timeout/drain KPI 与容量矩阵 | WP2 |
+| A5 | Paimon 仍 eager 调用 `plan().splits()`；外层 deadline/count 无法约束 SDK 内部规划 | WP3.2 |
+| A6 | split 成本仍主要是文件字节；object-open、delete/decode、rows/backlog 和 unknown 尚未进入统一估计 | WP3.3 |
+| A7 | `DataSplit` range 已解析，但 Native 多数 reader 仍整对象打开；缺少格式能力矩阵和 fail-closed admission | WP3.4 |
+| A8 | 对象读取只导出 requested bytes；attempt/retry/returned/wire bytes 尚未贯通 task report/profile | WP3.1 |
+| A9 | 动态过滤已有 Native 类型、稀疏区间和等待门；planner 仍限定单 filter/单 BIGINT/Iceberg，running probe 无 production late injection | WP4 |
+| A10 | live 单输入 AQE 已存在；durable replay 关闭 AQE，多输入对齐和可执行 skew split 缺失 | WP5 |
+| A11 | Shuffle 已有 lease/window/fence；缺少 durable revocation generation、participant ACK 和 convergence receipt | WP6 |
+| A12 | 普通 distributed write 完成后会 purge commit journal；跨重试/外部可见写入的 receipt matrix 与 retention 未统一 | WP8 |
+| A13 | Paimon abort 仍是 best-effort unlink；ambiguous commit 没有 durable abort barrier | WP8 |
+| A14 | nightly TPC 已存在；release 不校验同源 Linux/TPC 不可变证据，SF100 零值基线仍不合格 | WP9，需先批准 CI/基础设施变更 |
+
+### B：机制已实现但必须补生产验收
+
+| ID | 已存在机制 | 尚缺证据 |
+|---|---|---|
+| B1 | journal conflict reconciliation、execution anchor fencing、恢复 | 双 Coordinator 并发、未知提交、owner incarnation 与真实 PostgreSQL 故障组合 |
+| B2 | `QueryStateMachine` 原子 version/waiter/drain | production provider 接线、租户/principal 上限、终态后 drain 归因 |
+| B3 | callback 隔离、query-order/admission、阶段准备和 durable commit 容量 | 固定到达率叠加阻塞目录、慢对象存储和终态报告压力 |
+| B4 | identity projection 移除、local aggregate reduction | 真实聚合 CPU、首批/完成时延、跨 Worker 与 benchmark 结果 |
+| B5 | live 单输入 AQE 和连续 range mapping | 不同 Join/NULL/重复键/重试/混合负载的阈值与尾时延校准 |
+| B6 | Native result ownership、byte credit、explicit EOF/drain、early-close failure | 跨主机吞吐、soak、完整 ASan/UBSan 和 phase 归因 |
+| B7 | Shuffle read/write window、atomic bounded publication、零逐 batch 授权 SQL | 真实 PostgreSQL 计数、热点、owner 切换、对象清理和并发读取 |
+| B8 | fenced write journal、intent-before-catalog、ambiguous reconciliation | Iceberg/Paimon/Lance/COPY/CDC 高并发和故障组合、跨引擎结果 |
+| B9 | 固定到达率混合样本和阶段事件 | Linux 专用 runner/config、共享 SF100/SF1000、非零三窗口与 Trino/Spark reference |
+
+### C：需要纠正的历史陈述
+
+| ID | 当前事实 | 文档处理 |
+|---|---|---|
+| C1 | `JournalEventSql` 使用 `executeUpdate()`，仅冲突时 SELECT 核对，不是当前 `RETURNING` 实现 | 将 `RETURNING` 标为目标方案；当前正常路径为一次 INSERT |
+| C2 | 逐 batch `requirePinnedRead` 的 anchor/scope/pin 查询是历史基线 | 当前按 read lease/window 验收；保留历史调用链但不作为现状 |
+| C3 | 逐 batch 两事务/八 SQL 是历史基线 | 当前为有界 publication window；验收逐 batch/chunk 零授权 SQL |
+| C4 | 常规 100 ms `ConsumedResultSweep` 已由批次 18 删除 | 旧轮询段落标为 superseded，当前按事件驱动 drain |
+| C5 | `BackpressureE2ETest.verifyAbruptFlightDisconnect` 已覆盖本地 abrupt disconnect | 本地已覆盖；跨主机和长驻留仍归 B6 |
+| C6 | 当前 `QueryResource` 对非 owner 不转发，batch 115 的 directed-wait 零读取当前不可复现 | 标为历史声明；A2 完成前不得作为验收证据 |
+| C7 | public JSON profile 已公开实际 DAG、stage observation、accepted attempt 和 Native operator counters | 区分实际字段、audit totals 与仍 unavailable 的 result phase/物理 I/O 字段 |
+| C8 | migration 编号会随并行工作变化 | 文档不固定编号；实施时扫描下一个未用编号 |
+| C9 | 单输入 AQE、local aggregate、write recovery 的代码机制存在 | 历史记录增加“机制状态 / 验收状态 / 后续 WP”，不写成整体完成 |
+
+工作包按 WP1 → WP2 → WP3 → WP4/WP5/WP6 → WP7/WP8 → WP9 推进。WP1 的 durable acceptance、owner routing 和 result disposition 是后续执行合同的前置条件；WP3 先提供真实 I/O 归因，再校准 WP5 的 AQE 阈值。任何 SDK、CI、模块所有权或基础设施变更都必须先取得明确批准。
+
+## 2026-11-24 收尾检查（历史记录）
 
 原始提交超时、DAG 中断和 `ExchangeInputLeafDetail` 运行时缺类的修复已进入 `main`。
 四表策略读取合并、Iceberg 多键剪裁和 CBO 统计批读均已进入 `main`，各项样本计数和独立回归见[验证记录](#验证记录与覆盖边界)。
@@ -47,11 +100,11 @@ unlisted: true
 | 写入与提交 | 用高并发和故障窗口校准文件大小、写放大、提交时延及各格式恢复。原子发布和跨引擎结果独立验收 | Iceberg/Paimon/Lance/COPY/CDC 保留快照、offset、精确 fence 和资源归还证据 |
 | 发布门槛 | 同硬件、同快照对比 Trino 和 Spark 的 SF100/SF1000，并执行 Linux Native 完整链路回归 | 同源产物、结果摘要、物理 Profile、全量可复核的吞吐和延迟，以及限定环境记录 |
 
-## 固定三条稳态零读库门槛
+## 固定三条稳态零读库门槛（目标状态）
 
-1. **状态订阅和诊断读取。** 活跃 query 由 owner 的认证状态投影提供。正常状态读取与客户端重连在投影窗口内产生零 journal SELECT。只在接管、冷启动重放、明确的历史查询读取数据库。以两个 Coordinator 和大量同 query 的客户端断言次数，覆盖 Ready endpoint 和错误细节。
-2. **持久 journal。** 正常新事件一次 INSERT/RETURNING 或等价的单次 SQL。独立 SELECT 为零。事务、lineage 原子性和最终 ACK 所代表的 durability 保持一致。对已提交写的状态判断只读取一次，未知提交仍从权威证据核对。
-3. **Shuffle steady state。** 只在建流、续租、最终关闭与恢复触及读租约数据库。manifest 是由已提交 attempt 发布的不可变数据。每 batch 禁止同步数据库操作，同时本地核验 scope/epoch、租约有效期、撤销与 byte credit；已有在途读取保有精确保护时间。测试每 batch/每 chunk 的 SQL 计数和撤销后新数据是否可见。
+1. **状态订阅和诊断读取。** 活跃 query 由 owner 的认证状态投影提供。正常状态读取与客户端重连在投影窗口内产生零 journal SELECT。只在接管、冷启动重放、明确的历史查询读取数据库。以两个 Coordinator 和大量同 query 的客户端断言次数，覆盖 Ready endpoint 和错误细节。当前非 owner 定向路由尚未实现，见 A2。
+2. **持久 journal。** 正常新受理和新事件各一次 INSERT，独立 SELECT 为零。A1 的初始 `QUEUED` 行同时承载 principal、key digest、request fingerprint、lineage 和确定性 `QUEUED`/`PENDING` 回执；`INSERT ... ON CONFLICT DO NOTHING` 的正常路径不读回，只有 event/idempotency 冲突或未知提交结果才 SELECT 核对。事务、lineage 原子性和最终 ACK 所代表的 durability 保持一致。对已提交写的状态判断只读取一次，未知提交仍从权威证据核对。
+3. **Shuffle steady state。** 只在建流、续租、最终关闭与恢复触及读租约数据库。manifest 是由已提交 attempt 发布的不可变数据。每 batch 禁止同步数据库操作，同时本地核验 scope/epoch、租约有效期、撤销与 byte credit；已有在途读取保有精确保护时间。测试每 batch/每 chunk 的 SQL 计数和撤销后新数据是否可见。durable revocation 收敛尚未实现，见 A11。
 
 ## 校准后的设计决策
 
@@ -59,7 +112,7 @@ unlisted: true
 
 **控制面先改等待方式。** 用现有 HTTP 提供基于状态版本的异步有界等待，每个客户端同一查询最多一个 waiter。状态版本与 waiter 登记必须原子衔接，再检查版本，防止状态恰在登记期间变化而丢唤醒。立即结果走同一响应，取消/超时注销等待，按 principal 和 tenant 限制并发与时长。首版由 owner 提供状态，peer 通过已有 owner 信息定向请求。跨节点流转只更新轻量视图，未证明有必要之前无需全局事件总线或常驻流连接。Ready、Terminal 和 Drained 可独立出现，快速任务和无结果集也有完整响应。Trino 的 `nextUri` 与服务端有限 `waitForResults` 支持这种请求形态。Pangrova 继续用 Flight 传数据。 [Trino 客户端协议](https://trino.io/docs/current/develop/client-protocol.html) · [Trino 实现](https://github.com/trinodb/trino/blob/master/core/trino-main/src/main/java/io/trino/server/protocol/ExecutingStatementResource.java)
 
-**跨 owner 幂等先做合同。** 当前 `IdempotencyKeyRegistry` 是进程内 map，key 由 principal 与请求幂等键组成。owner 路由可以降低重复访问，但响应已丢、owner 已退出时，路由不能证明该 SQL 从未受理。若支持跨节点重复提交，必须在一次受理提交中保留可恢复的授权作用域、键、请求摘要与 queryId。优先与已有 durable 受理事实一起持久化，由权威唯一约束选出原请求。正常只走受理写入，冲突/未知结果再读取验证。取到已受理回执也不触发第二次 DML。没有配置跨节点持久受理时，在该部署合同内提供受理 owner 范围的幂等。验收分别注入响应丢失、崩溃与接管。
+**跨 owner 幂等使用同一受理权威。** 初始 `QUEUED` journal 行保存 principal、幂等键 digest、canonical request fingerprint、lineage 和确定性受理回执，并以 `(principal, key_digest)` 与初始 `query_id` 的部分唯一约束选出原请求。正常请求只做一次受理 INSERT；冲突、响应丢失和恢复路径才读取并逐字段比较。重放不会再次执行 SQL，也不会依赖进程内 map。验收保留真实 PostgreSQL 双 Coordinator、响应丢失、崩溃与接管用例；当前本地集成测试已覆盖单写、冲突、未知提交、principal 隔离和 TTL 边界。
 
 **控制协议和调度分开验收。** 保留现有 HTTP 服务设施，以一个 canonical 二进制消息替换 task/report 的 JSON+Base64 镜像，可独立测 body bytes、解析次数和 CPU/attempt。避免把新 gRPC 服务、共享计划缓存、重新编排 ACK 同时设成依赖。销毁任务与取消不能靠 HTTP 是否返回判断。Worker 快速接纳和真正端点 Ready 若需分开，以精确 attempt 和当前 generation 表达。对于不产生端点的任务无需额外 Ready RPC。DAG callback 只做小型状态发布，用查询顺序和 admission 约束交接给有界工作池，阶段准备与 durable commit 各有容量。用阻塞目录、慢对象存储、终态报告压力和关闭观察无关查询 P95、队列和 resource drain。
 
@@ -67,9 +120,9 @@ unlisted: true
 
 ### PostgreSQL 热路径与撤权边界
 
-**journal 保持冲突可判定。** 用 PostgreSQL 16 隔离容器和两个连接复现了新行 `RETURNING` 可验证 JSONB 内容、并发冲突的单条 CTE 返回零行、后续语句能看到已提交赢家。由此选择 `INSERT ... ON CONFLICT DO NOTHING RETURNING` 或可证明等价的写入结果。新行一次往返，零独立 SELECT。冲突分支按当前事务隔离和提交证据精确读取并比较。同键异 payload 判定冲突。拒绝用同快照 CTE 的空结果证明事件不存在，也避免靠无语义 UPDATE 换取 RETURNING。涉及 lineage 的写入、事务提交和 ACK 次序独立保留。用真实 schema 验证 JSON/NULL/时间/序列化同值、同键竞争、回滚及已提交未 ACK。 [PostgreSQL 16 INSERT](https://www.postgresql.org/docs/16/sql-insert.html) · [隔离级别](https://www.postgresql.org/docs/16/transaction-iso.html)
+**journal 保持冲突可判定。** 当前生产实现使用 `executeUpdate()` 和 `INSERT ... ON CONFLICT DO NOTHING`；正常路径一次 INSERT、零读回，event ID 或 idempotency 冲突时才 SELECT 核对。A1 的真实 PostgreSQL 测试覆盖正常单写、跨 journal 实例重放、同键异 fingerprint、未知 commit response 和 retention。早期 `RETURNING` 实验仍只作为历史设计验证，不写成当前实现。 [PostgreSQL 16 INSERT](https://www.postgresql.org/docs/16/sql-insert.html) · [隔离级别](https://www.postgresql.org/docs/16/transaction-iso.html)
 
-**Remote Shuffle 消费端去掉逐 batch 锁定查询。** 源码执行 `requirePinnedRead` 的事务包含 anchor、scope `FOR UPDATE` 和 pin 查询。双连接试验中同 scope 的 `FOR UPDATE` 等待，另一 scope 可继续。试验确认行锁机制和隔离范围。整条 Shuffle lock-wait 的占比须由实际并发读测得。记录每分区的建流、pin、metadata page、GET、续租、关闭和 SQL 等待，分别汇报操作次数和锁持有时间。 [PostgreSQL 16 行锁](https://www.postgresql.org/docs/16/explicit-locking.html#LOCKING-ROWS)
+**Remote Shuffle 消费端去掉逐 batch 锁定查询（历史基线）。** 早期的 `requirePinnedRead` 事务包含 anchor、scope `FOR UPDATE` 和 pin 查询，双连接试验确认了同 scope 的 `FOR UPDATE` 等待和不同 scope 的隔离范围。该调用形态已被后续 read lease/write window 批次取代，不再作为当前逐 batch 成本。当前验收要求数据面逐 batch/chunk 零授权 SQL，并在建流、续租、关闭、恢复和撤销边界单独计数；durable revocation 仍见 A11。 [PostgreSQL 16 行锁](https://www.postgresql.org/docs/16/explicit-locking.html#LOCKING-ROWS)
 
 **读取许可和对象保护设计成两个时钟。** 建流由权威事务取得绑定 producer winner、owner epoch、消费 attempt、分区、序号区间和 manifest digest 的读许可。许可截止取请求、capability、execution authority 与自己的有效窗口的最小边界，明确时钟误差与对象 API deadline。发布 EOF/ACK 前完成长度、序号、摘要和所有权验证。同一读者的状态机负责禁止发起新 GET/发帧、等待现有所有者退出和结束 pin。GC 继续使用持久保护记录，保护时间覆盖已经发出的 I/O，重启后根据持久记录安全恢复。取消/接管必须先阻止新许可，向仍有许可的服务完成带版本的撤销屏障。确认旧 epoch 无权再发新字节之后才宣告切换或执行删除。旧进程不可达时，等待证明其许可耗尽并留足 I/O 保护窗口，期间向调用方报告仍在收敛。若现有合同要求更早的完成通知，原型先证明可达。单靠进程内 TTL 或异步通知无法通过验收。
 
@@ -107,6 +160,8 @@ unlisted: true
 
 ## 验证记录与覆盖边界
 
+以下均为 **at commit / historical evidence**：数字、SQL 次数和覆盖范围只对应各批次当时提交的角色包与配置。当前未完成项以本文 2026-11-25 的 A/B/C 审计为准；单输入 AQE、局部聚合和写恢复等“机制已实现”不等于生产验收已完成。被后续批次取代的描述在原文附近标注 superseded。
+
 普通 SQL 在语句分派、视图展开、快照绑定、Calcite 转换和调度重排分析之间共享解析结果。精确文本的有界缓存只保存语法结构和源位置。视图展开按关系名的源位置替换，生成新 SQL 时才解析。Dynamic Table 发布替换直接更新 AST 并保留逻辑别名。具名和数值版本在加载查询所用 schema 前按表绑定。Coordinator 同一次历史查询只构建一个已选定版本的会话规划器。
 
 同机 JDK 17 对照在 8,000 次预热后取 7 个窗口的中位数，每窗口 2,000 次。基线执行普通 AST 获取、时间旅行语法扫描及规划 AST 获取，候选执行共享解析入口。不同 SQL 文本的点查从 20.2 µs 和 20,008 B 降到 15.9 µs 和 11,630 B，CTE JOIN 从 47.7 µs 和 71,296 B 降到 36.2 µs 和 43,074 B。相同 SQL 文本的点查从 18.5 µs 和 9,232 B 降到 0.16 µs 和 16 B，CTE JOIN 从 20.2 µs 和 29,635 B 降到 0.32 µs 和 16 B。统计口径为调用线程的解析 CPU 和分配量。
@@ -114,7 +169,6 @@ unlisted: true
 视图端到端用例发现 Calcite 在构建字符字面量时用 ISO-8859-1 做可编码性检查。上一版本直接执行含中文和补充平面字符的 SELECT 可重现相同错误。规划器类型工厂为字符列和字面量统一提供 UTF-8 字符集及对应排序规则，保留 Substrait 和 Arrow Flight 的字符串编码。 更新了 37 个 TPC 黄金计划的字符类型标注。忽略 UTF-8 标注后，逐份对比与原计划完全一致。
 
 最终生产代码通过 15 项解析、1,525 项 Planner 和 38 项 Coordinator 测试，另有 1 项显式生成黄金计划的用例按默认设置跳过。macOS 的 739 文件角色产物通过 81 项端到端回归和 1 项 PostgreSQL 读取计数探针。覆盖具名及数值快照、嵌套视图的 UTF-8 比较和结果返回、递归 CTE、动态表发布和物理双 Worker Shuffle。角色清单为 `0435901e115309f1bd1287acd194ae514936595ecc9276ffc40d190038ca5362`。
-
 
 基于主分支 `833a8d8c6` 重新打包 Coordinator、Worker 和 CLI，并依据相同的 Native 运行时源码、构建配置和 Protobuf 输入复用已验证的 Native 库。macOS arm64 和 Linux arm64 的角色包分别校验 739 个文件，清单 SHA-256 分别为 `df98c71f8a09101faf6845cc73b8da1f976c50aea3b03e706bcf8773bd81dbf9` 和 `e0e7c9c7f6acf29c6d9a58a35852aa7df0c32efce64a865c389c7bf8e9feeae9`。
 
@@ -202,7 +256,7 @@ Iceberg 空 INSERT 的发布证明复用第一次文件收集得出的空写入�
 
 过载尾部补测在点查和分组各八笔中观察到提交队列等待中位数 72.1 和 103.3 ms，编译 82.6 和 84.2 ms。另一轮的编译拆分中，关系绑定中位数 44.8 和 51.8 ms，策略阶段 17.0 和 24.0 ms。同轮视图与快照处理、优化器和 lineage 的中位数均低于关系绑定。继续核对绑定内部的验证、目录与转换成本。
 
-Iceberg 提交尝试用同一次目录观测匹配 journal 指纹及核验完整祖先链，移除第二套提交 token 和随之触发的目录刷新。PostgreSQL 16 实测普通写入的目录指针 SELECT 从 7 条降到 6 条，要求发布回执的写入从 8 条降到 7 条。JVM 套接字事件将原来的额外查询定位到旧 token 检查。保留原子提交、通知和发布证明的权威观测。83 项定向测试覆盖 25 个后续快照后的精确重放、冲突、超时、过期、回滚、错误租户和重复指纹。打包产物通过 37 项连接器测试和 28 项写入、COPY、双 Worker CDC、Native 归还端到端测试。同一产物以规定顺序校验清单后，通过 7 项独立 CDC 与 6 项关系写入恢复测试。
+Iceberg 提交尝试用同一次目录观测匹配 journal 指纹及核验完整祖先链，移除第二套提交 token 和随之触发的目录刷新。PostgreSQL 16 实测普通写入的目录指针 SELECT 从 7 条降到 6 条，要求发布回执的写入从 8 条降到 7 条。JVM 套接字事件将原来的额外查询定位到旧 token 检查。保留原子提交、通知和发布证明的权威观测。83 项定向测试覆盖 25 个后续快照后的精确重放、冲突、超时、过期、回滚、错误租户和重复指纹。打包产物通过 37 项连接器测试和 28 项写入、COPY、双 Worker CDC、Native 归还端到端测试。同一产物以规定顺序校验清单后，通过 7 项独立 CDC 与 6 项关系写入恢复测试。**机制状态：**Iceberg fenced commit、journal fingerprint 和恢复路径已实现。**当前验收状态：**本地连接器与独立进程恢复已验证；跨连接器高并发/故障矩阵、普通 distributed write 的长期 receipt retention 和 Paimon durable abort 尚未完成。**后续 WP：**A12/A13/B8，WP8。
 
 macOS arm64 并行运行 Native 测试时，三个检索测试进程曾因共用临时路径而失败。夹具改为原子分配独占目录。8 项检索测试按并行度 4 各重复 10 次通过，之后按并行度 3 运行 4,365 项 Native 测试，零失败、零跳过。修复只涉及测试夹具。
 
@@ -328,7 +382,7 @@ PostgreSQL 在同一语句中读取策略表和当前目录部署证据。普通
 
 实施批次 123 在 Stage 没有检索和 AI 绑定提示时直接交接已绑定的不可变计划。仍先绑定生成值读取，OUTPUT 继续验证声明的结果逻辑类型。Corretto 17 通过实际 SQL 编译得到 97 B 和 271,836 B 的 Substrait，测量 Stage 绑定至调度方读取字节，预热两组，五组各 128 次。每次线程分配分别从 1,904 B 降到 640 B、从 2,447,528 B 降到 815,848 B，两份计划的 SHA-256 逐组相同。此处计量计划交接，完整查询延迟使用单独基准。31 项生成值读取、结果类型、向量检索、双 Worker Shuffle 及 Native Flight 回归通过，Checkstyle 通过。
 
-实施批次 122 将低基数局部归约扩到多个直接分组列。每列沿用同一选定快照的列统计，规划器按各列基数估算组合数并计入 NULL，同时校验预计交换行数和字节都下降。真实双 Worker 的 `COUNT/MIN/MAX` 查询读取 192 行，原来 192 行进入 Shuffle，候选启用后 16 行进入 Shuffle。未发布列统计时仍交换 192 行。四个结果组逐组核对，涵盖 NULL、区间边界和物理释放。54 项 Planner、真实 PostgreSQL 读绑定、JNI 命令及双 Worker Java 用例和 Checkstyle 通过。
+实施批次 122 将低基数局部归约扩到多个直接分组列。每列沿用同一选定快照的列统计，规划器按各列基数估算组合数并计入 NULL，同时校验预计交换行数和字节都下降。真实双 Worker 的 `COUNT/MIN/MAX` 查询读取 192 行，原来 192 行进入 Shuffle，候选启用后 16 行进入 Shuffle。未发布列统计时仍交换 192 行。四个结果组逐组核对，涵盖 NULL、区间边界和物理释放。54 项 Planner、真实 PostgreSQL 读绑定、JNI 命令及双 Worker Java 用例和 Checkstyle 通过。**机制状态：**多列低基数局部归约已实现。**当前验收状态：**本地双 Worker 机制与结果已验证，真实 CPU/首批/完成时延和更广聚合形态仍属 B4。**后续 WP：**WP2 归因，性能复测见 Q3。
 
 实施批次 121 将已解析的初始 `RuntimeFilterBinding` 和运行时 JNI 命令的类型化过滤器直接送入同一 Velox 转换入口。以实际生成的 Protobuf 类型测量，262,160 字节 Bloom 的内部消息为 262,194 字节。旧路径的晚到命令序列化与解析每次约 8.86–9.20 µs，初始绑定还复制一次过滤器，每次约 14.81–15.10 µs。两条路径均移除内部往返。测量仅覆盖本机协议交接。48 项定向及 4,350 项完整 Native CTest 通过，14 项真实 SQL Java 端到端和 Checkstyle 通过。
 
@@ -340,11 +394,11 @@ PostgreSQL 在同一语句中读取策略表和当前目录部署证据。普通
 
 实施批次 117 用 8,192 行 Iceberg 数据验证 Native Flight 窄结果和显式 `VARCHAR` 变长结果。两次读取均逐行核对。窄结果的有效文本为 31,658 字节，首行、EOF、物理释放分别为 170、186、189 ms。宽结果有效文本为 75,497,472 字节，客户端在首行后暂停 250 ms，三个观测值为 127、502、514 ms。另一次在首行后发出取消并提前关闭，实际收到 `CANCEL_ACCEPTED` 和 `CANCELLED`，Native 回执与 Coordinator cleanup 完成。数值是本地应用层样本。
 
-同一持久客户端完成 150 次串行和 80 次每秒 8 次到达的混合读。混合首行 P95 依次为常量 23.62 ms、点查 98.18 ms、选择性扫描 58.84 ms、计数 58.19 ms、分组 69.20 ms，各 16 个样本。230 次都核对完整结果与物理释放，每次最多使用两次状态请求。正式 macOS ARM64 角色目录的 739 项清单摘要为 `caea25d7c508332d1ad6afb0b92b575f3b85983b85c37ba6d358559659be9140`。同包通过独立进程 Native 双 Worker 重启、mTLS REMOTE Shuffle、Flight 与对象和槽位实际释放。6 项真实端到端回归与 Checkstyle 通过。跨主机出口、无取消指令的断连和长时间驻留仍需验证。
+同一持久客户端完成 150 次串行和 80 次每秒 8 次到达的混合读。混合首行 P95 依次为常量 23.62 ms、点查 98.18 ms、选择性扫描 58.84 ms、计数 58.19 ms、分组 69.20 ms，各 16 个样本。230 次都核对完整结果与物理释放，每次最多使用两次状态请求。正式 macOS ARM64 角色目录的 739 项清单摘要为 `caea25d7c508332d1ad6afb0b92b575f3b85983b85c37ba6d358559659be9140`。同包通过独立进程 Native 双 Worker 重启、mTLS REMOTE Shuffle、Flight 与对象和槽位实际释放。6 项真实端到端回归与 Checkstyle 通过。**状态更新：**本地的无取消指令 abrupt Flight disconnect 已由后续批次 120 覆盖；跨主机出口和长时间驻留仍属 B6，不能据此结项。
 
 实施批次 116 在 Profile 中记录被当前 Stage 代次接纳的物理尝试及对应逻辑任务。记录点在实际终态槽位接纳之后。已取代的任务和未被接纳的报告不产生记录。重试夹具验证了逻辑任务与获胜副本 ID 不同的情形。真实双 Worker SQL 将实际接纳记录与 Native task attempt 坐标对应。115 项 Java 和 Checkstyle 通过，涵盖投机、重试、持久赢家、写提交竞争、HTTP 和释放。后续继续区分 Exchange 阻塞、队列与物理释放时间。
 
-实施批次 115 让状态读取、状态等待和取消共用本机查询的原始提交主体。用户显式读取历史状态时，单条 journal SQL 返回最新状态与原始受理证明。恢复时从已有 journal 批次恢复主体。74 项 Java 和 Checkstyle 通过。真实双 Coordinator PostgreSQL 对照核验本机状态等待及非 owner 的定向等待均为零读取，显式历史请求每次只借用一次连接。真实 HTTP、Native Flight 和 PostgreSQL 验证其他主体的状态与取消请求直接拒绝，未执行 journal SELECT，原提交者仍可完整消费并确认物理释放。
+实施批次 115 让状态读取、状态等待和取消共用本机查询的原始提交主体。用户显式读取历史状态时，单条 journal SQL 返回最新状态与原始受理证明。恢复时从已有 journal 批次恢复主体。74 项 Java 和 Checkstyle 通过。真实双 Coordinator PostgreSQL 对照核验本机状态等待及非 owner 的定向等待均为零读取，显式历史请求每次只借用一次连接。真实 HTTP、Native Flight 和 PostgreSQL 验证其他主体的状态与取消请求直接拒绝，未执行 journal SELECT，原提交者仍可完整消费并确认物理释放。**当前状态修正：**该非 owner directed-wait 结论属于历史声明；当前 `QueryResource` 没有 owner directory/forward，非 owner live wait 返回 `QUERY_OWNER_UNAVAILABLE`。A2 完成前不得把本批次作为跨 Coordinator 零读取验收证据。
 
 实施批次 114 将 REST 和 Web UI 查询 Profile 读取绑定到原始提交主体。已知的本机查询先核对主体，历史 Profile 在单条 SQL 内按查询 ID 与主体检索。真实 HTTP、PostgreSQL 和 Native Flight 用例核验读完、释放和 Profile 内容，确认提交者读一次审计库，其他主体访问本机已知查询的两条 Profile 路由均为零 SELECT。57 项 Java、Checkstyle 和模块边界检查通过，覆盖实际双 Worker SQL。
 
@@ -374,7 +428,7 @@ PostgreSQL 在同一语句中读取策略表和当前目录部署证据。普通
 
 实施批次 101 复用 Iceberg JDBC SDK 新建表对象时读取的权威元数据。现有非空发布快照复用同一次元数据确认，要求发布回执的空 INSERT 仍提交并查验精确标记。真实 PostgreSQL `pg_stat_statements` 对照中，已绑定写入的精确 Iceberg 目录指针 SELECT 由 8 次减为 7 次，要求发布回执时由 11 次减为 8 次。50 项定向 Java 和 Checkstyle 通过，包含普通 SQL、COPY、空快照、精确重复提交、Dynamic Table 和 Materialized View。
 
-实施批次 100 用实际打包的 Coordinator、两个 Worker、CLI 和 C++ Release JNI 验证了单输入 AQE。公开 SQL 从四个分开提交的 Iceberg 文件读出 20 行，四个哈希分区经 mTLS 远端 Shuffle 合并为一个消费任务。Native Flight 返回有序的四组计数 4、8、4、4。两个 Worker 回报精确 attempt 的 Native 释放，已归还租户槽位与 PostgreSQL Shuffle allocation，MinIO 桶内的实际对象已清空。现有 NATIVE 进程回归还验证了双 Worker 查询和优雅重启。34 项定向 Java 和 Checkstyle、9 项打包工具测试通过。
+实施批次 100 用实际打包的 Coordinator、两个 Worker、CLI 和 C++ Release JNI 验证了单输入 AQE。公开 SQL 从四个分开提交的 Iceberg 文件读出 20 行，四个哈希分区经 mTLS 远端 Shuffle 合并为一个消费任务。Native Flight 返回有序的四组计数 4、8、4、4。两个 Worker 回报精确 attempt 的 Native 释放，已归还租户槽位与 PostgreSQL Shuffle allocation，MinIO 桶内的实际对象已清空。现有 NATIVE 进程回归还验证了双 Worker 查询和优雅重启。34 项定向 Java 和 Checkstyle、9 项打包工具测试通过。**机制状态：**live 单输入范围合并和真实 4→1 读取映射已实现。**当前验收状态：**本地打包双 Worker 正确性与资源回收已验证；生产阈值、混合负载尾时延、多输入、durable replay 和 skew 尚未完成。**后续 WP：**B5/A10，WP5。
 
 实施批次 99 让普通 INSERT 直接进入现有 fenced commit。真实 HTTP、Iceberg 和 PostgreSQL 对照中，物化任务查询从 1 次降到 0 次，执行所有权 SELECT 从 4 次降到 3 次。客户端携带内部物化属性的用例仍走普通授权，写入文件在实际 drain 后可读且只有一行。COPY 持久化回执后的检查与物化发布的权威查验继续生效。连接器提供的发布回执以 journal 写入确认作为持久化证据。59 项 Java 和 Checkstyle 回归通过，含真实 PostgreSQL、COPY SQL、Dynamic Table 的真实空快照及 Materialized View 的提交与刷新。
 
@@ -588,7 +642,7 @@ SpotBugs 对两处共享不可变 Protobuf 消息的字段产生内部可变表�
 
 172 项定向测试和 4 项隔离 Native 集成测试通过，覆盖真实双 Worker Shuffle、JDBC 读完与取消、状态回执补发、PostgreSQL 锁下并发注册，以及清理池拒绝和退出竞态。真实并发注册用例从 `pg_stat_activity` 确认终态记录确实在等待 anchor，验证等待期间新出现的匹配 scope 被接受，错误 owner 被拒绝。
 
-Worker 的 `ConsumedResultSweep` 仍以 100 ms 间隔逐段扫描，每轮最多检查 64 个注册项。用实际 Java 调度器及注册表模拟同批已消费结果，512 个注册项从消费信号到释放回调的 P50 为 524 ms、最长 840 ms，2,048 个注册项的 P50 为 1.76 s、最长 3.32 s。这项单次测量以可控谓词模拟 Native 完成信号，覆盖轮询调度开销。生产 Native 还需保留 producer 已停、授权已撤、队列为空和 reader、导出 batch 已释放的联合证据。当前 `resultDrainEvidence()` 查询还负责根据 Velox 状态更新 producer 停止证据，事件路径须将该更新移到真实完成回调。Coordinator 的取消测试也观察到仍在等待实际 Worker drain receipt，须单独验收收齐回执后的释放延迟。
+**批次 18 前的 superseded 基线：**Worker 的 `ConsumedResultSweep` 曾以 100 ms 间隔逐段扫描，每轮最多检查 64 个注册项。用实际 Java 调度器及注册表模拟同批已消费结果，512 个注册项从消费信号到释放回调的 P50 为 524 ms、最长 840 ms，2,048 个注册项的 P50 为 1.76 s、最长 3.32 s。这项单次测量以可控谓词模拟 Native 完成信号，覆盖轮询调度开销。该常规轮询已由批次 18 删除并改为事件驱动；当前 drain 仍必须保留 producer 已停、授权已撤、队列为空和 reader、导出 batch 已释放的联合证据，跨主机收齐真实 Worker receipt 的尾延迟归 B6。
 
 实施批次 16 将 Remote Shuffle 的逐批预留与发布事务替换为有界写窗口。每窗口最多 128 个不同批次，写授权最长一秒，服务端提前 50 ms 停止发起 PUT。单个窗口仍为两笔事务，共执行 8 条 SQL。窗口发布检查当前 owner、终态围栏和确切 attempt，一次从 PostgreSQL 校验已有的批次、每分区的序号边界，并原子发布新的批次。Worker 复用每端点的写流，Service 在最后一个窗口持久化后，通过既有 gRPC 回执返回。`V10__write_window_reservations.sql` 删除闲置的预留状态列和相应部分索引。 [PostgreSQL 16 数据修改 CTE](https://www.postgresql.org/docs/16/queries-with.html#QUERIES-WITH-MODIFYING) · [Amazon S3 条件写入](https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-writes.html)
 

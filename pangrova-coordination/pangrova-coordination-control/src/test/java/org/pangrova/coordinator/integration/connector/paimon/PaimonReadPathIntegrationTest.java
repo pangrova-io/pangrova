@@ -170,11 +170,11 @@ class PaimonReadPathIntegrationTest {
         assertThat(current.tableLocation()).isEqualTo(
                 ((org.apache.paimon.table.FileStoreTable) catalog.getTable(id)).location().toString());
         assertThat(metadata.getTableMetadata(SESSION, current).columns()).containsExactly("id", "new_column");
-        var pinned = current.withTimeTravelSnapshot(1);
+        var pinned = current.withTimeTravelSnapshot("1");
         assertThat(metadata.getTableMetadata(SESSION, pinned).columns()).containsExactly("id");
         assertThat(metadata.getColumnHandles(SESSION, pinned)).containsOnlyKeys("id");
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> metadata.getTableMetadata(
-                SESSION, current.withTimeTravelSnapshot(9999))).isInstanceOfSatisfying(ConnectorException.class,
+                SESSION, current.withTimeTravelSnapshot("9999"))).isInstanceOfSatisfying(ConnectorException.class,
                         error -> assertThat(error.getErrorCode()).isEqualTo(PangrovaErrorCode.CONNECTOR_SNAPSHOT_NOT_FOUND))
                 .hasMessageContaining("Snapshot not found: snapshot-id=9999");
     }
@@ -197,7 +197,7 @@ class PaimonReadPathIntegrationTest {
         var oldSchema = original.schemaManager().toSchemaPath(original.snapshotManager().snapshot(1).schemaId());
         original.fileIO().delete(oldSchema, false);
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> metadata.getTableMetadata(
-                SESSION, current.withTimeTravelSnapshot(1))).isInstanceOfSatisfying(ConnectorException.class,
+                SESSION, current.withTimeTravelSnapshot("1"))).isInstanceOfSatisfying(ConnectorException.class,
                         error -> assertThat(error.getErrorCode()).isEqualTo(PangrovaErrorCode.CONNECTOR_SNAPSHOT_NOT_FOUND))
                 .hasMessageContaining("Snapshot not found: snapshot-id=1").hasMessageContaining("schema-id=0 is absent");
     }

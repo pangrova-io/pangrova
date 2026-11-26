@@ -3,6 +3,8 @@ package org.pangrova.persistence.query.memory.state;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.pangrova.query.api.journal.JournalEventContext;
+import org.pangrova.query.api.journal.QueryAcceptance;
+import org.pangrova.query.api.journal.QueryAcceptanceRequest;
 import org.pangrova.persistence.query.api.exception.JournalWriteException;
 import org.pangrova.query.api.journal.QueryStateEvent;
 import org.pangrova.query.api.journal.TaskStateEvent;
@@ -117,6 +119,34 @@ class InMemoryQueryStateJournalTest {
         journal.appendQueryEventSync(owned);
         journal.appendQueryEventSync(query("q-2", "RUNNING", 2));
         assertEquals(List.of(owned), journal.replayActiveQueriesForOwner("coord-1"));
+    }
+
+    @Test void expiredTerminalAcceptanceAllowsNewFingerprintBeforeSweep() {
+        var original = accepted("q-old", "b", 1);
+        assertTrue(journal.acceptQuerySync(original).newExecution());
+        assertThrows(JournalWriteException.class,
+                () -> journal.acceptQuerySync(accepted("q-active-conflict", "c", 2)));
+        journal.appendQueryEventSync(query("q-old", "FINISHED", 3));
+        // Exact ownership reconciliation is not a new candidate replacement.
+        assertEquals(original.acceptance(), journal.acceptQuerySync(original).acceptance());
+        assertThrows(JournalWriteException.class,
+                () -> journal.acceptQuerySync(accepted("q-old", "c", System.currentTimeMillis())));
+        var replacement = accepted("q-new", "c", System.currentTimeMillis());
+        var admitted = journal.acceptQuerySync(replacement);
+        assertTrue(admitted.newExecution());
+        assertEquals(replacement.acceptance(), admitted.acceptance());
+        assertTrue(journal.latestQueryEvent("q-old").isEmpty());
+        assertEquals(replacement.acceptance(), journal.findAcceptance("alice", "a".repeat(64)).orElseThrow());
+        var replay = journal.acceptQuerySync(accepted("q-replay", "c", System.currentTimeMillis()));
+        assertFalse(replay.newExecution());
+        assertEquals(replacement.acceptance(), replay.acceptance());
+    }
+
+    private static QueryStateEvent accepted(String id, String fingerprint, long time) {
+        var request = new QueryAcceptanceRequest("alice", "a".repeat(64), fingerprint.repeat(64));
+        var acceptance = QueryAcceptance.pending(request, id, 60_000);
+        return new QueryStateEvent(JournalEventContext.create(time, null), id, "SELECT 1", "{}", "QUEUED",
+                null, acceptance);
     }
 
     private static QueryStateEvent query(String id, String state, long time) {

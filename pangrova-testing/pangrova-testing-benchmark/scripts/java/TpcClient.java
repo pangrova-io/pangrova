@@ -8,6 +8,7 @@ import org.pangrova.client.http.QueryExecution;
 import org.pangrova.common.client.session.RetryPolicy;
 import org.pangrova.common.client.exception.PangrovaConnectionException;
 import org.pangrova.common.client.query.QueryStatusResponse;
+import org.pangrova.common.enums.ResultDisposition;
 import org.pangrova.common.enums.QueryWaitTarget;
 import org.pangrova.transport.client.ResultCursor;
 import org.pangrova.transport.client.security.ResultTransportSecurity;
@@ -75,7 +76,7 @@ public final class TpcClient {
             protocol.println(JSON.writeValueAsString(JSON.createObjectNode()
                     .put("event", "submitted").put("queryId", queryId)));
             ObjectNode result = null;
-            if (submitted.resultEndpoint() != null && readable(submitted.state())) {
+            if (submitted.resultDisposition() == ResultDisposition.STREAM && readable(submitted.state())) {
                 try (var cursor = client.openResult(submitted.resultEndpoint(), epochDeadline)) {
                     result = result(cursor);
                 }
@@ -87,14 +88,22 @@ public final class TpcClient {
                 if ("FAILED".equals(state) || "CANCELLED".equals(state)) {
                     return failure(query, "server-" + state.toLowerCase());
                 }
-                if (result == null && status.resultEndpoint() != null && readable(state)) {
+                if (result == null && status.resultDisposition() == ResultDisposition.STREAM && readable(state)) {
                     try (var cursor = client.openResult(status.resultEndpoint(), epochDeadline)) {
                         result = result(cursor);
                     }
                 }
                 if ("FINISHED".equals(state)) {
-                    if (result == null || System.nanoTime() >= deadline) {
-                        return failure(query, result == null ? "missing-result-endpoint" : "query-timeout");
+                    if (System.nanoTime() >= deadline) {
+                        return failure(query, "query-timeout");
+                    }
+                    if (result == null && status.resultDisposition() == ResultDisposition.NONE) {
+                        double elapsedMs = (System.nanoTime() - started) / 1_000_000.0;
+                        return JSON.createObjectNode().put("queryId", queryId)
+                                .put("state", "FINISHED").put("resultConsumed", false).put("elapsedMs", elapsedMs);
+                    }
+                    if (result == null) {
+                        return failure(query, "missing-result-endpoint");
                     }
                     double elapsedMs = (System.nanoTime() - started) / 1_000_000.0;
                     ObjectNode response = JSON.createObjectNode().put("queryId", queryId)

@@ -14,6 +14,7 @@ import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.scheduler.api.enums.HealthState;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
+import org.pangrova.common.enums.ResultDisposition;
 import org.pangrova.common.client.result.ResultEndpoint;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.protocol.v2.RuntimeInitConfig;
@@ -228,8 +229,8 @@ public final class SourceFreeNativeWorkerFixture implements AutoCloseable {
         var future = dispatchExecutor.submit(() -> dispatcher.execute(state, sql, session));
         try {
             org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(30))
-                    .until(() -> state.getResultEndpoint().isPresent() || future.isDone());
-            if (state.getResultEndpoint().isPresent()) {
+                    .until(() -> state.status().disposition() == ResultDisposition.STREAM || future.isDone());
+            if (state.status().disposition() == ResultDisposition.STREAM) {
                 consume(state.getResultEndpoint().orElseThrow());
             }
             DispatchResult result = future.get(30, TimeUnit.SECONDS);

@@ -178,6 +178,22 @@ class IcebergMetadataTest {
     }
 
     @Test
+    void dropTableReportsUnestablishedOutcomeInsteadOfSuccessfulMutation() {
+        createNamespace("db");
+        var id = TableIdentifier.of("db", "orders");
+        var name = new SchemaTableName("db", "orders");
+        catalog.createTable(id, TEST_SCHEMA);
+        var handle = metadata.getTableHandle(SESSION, name);
+
+        metadata.dropTable(SESSION, handle);
+        assertThat(metadata.getTableHandle(SESSION, name)).isNull();
+        assertThatThrownBy(() -> metadata.dropTable(SESSION, handle))
+                .isInstanceOfSatisfying(org.pangrova.connector.api.exception.ConnectorException.class,
+                        failure -> assertThat(failure.getErrorCode()).isEqualTo(
+                                org.pangrova.common.enums.PangrovaErrorCode.CONNECTOR_DDL_FAILED));
+    }
+
+    @Test
     void getTableHandle_observesExternalDropAndRecreateImmediately() {
         createNamespace("db");
         TableIdentifier id = TableIdentifier.of("db", "orders");

@@ -112,10 +112,12 @@ class PersistentQueryLatencyTest extends SqlE2ETestBase {
             status = execution.awaitStatus(QueryWaitTarget.RESULT_OR_TERMINAL, deadline);
             statusCalls++;
             requireSuccessOrActive(status);
-            endpoint = status.resultEndpoint();
-            if ("FINISHED".equals(status.state()) && endpoint == null) {
-                throw new AssertionError("Finished query did not publish a result endpoint");
+            if (status.resultDisposition() == org.pangrova.common.enums.ResultDisposition.PENDING) {
+                continue;
             }
+            assertThat(status.resultDisposition())
+                    .isEqualTo(org.pangrova.common.enums.ResultDisposition.STREAM);
+            endpoint = status.resultEndpoint();
         }
         long ready = System.nanoTime();
         long firstRow;

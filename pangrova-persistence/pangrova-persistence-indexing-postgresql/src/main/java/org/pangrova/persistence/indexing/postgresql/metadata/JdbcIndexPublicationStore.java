@@ -11,6 +11,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.Instant;
 import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
@@ -25,6 +26,7 @@ import org.pangrova.persistence.indexing.api.metadata.IndexGenerationManifest;
 import org.pangrova.persistence.indexing.api.metadata.IndexPublicationRequest;
 import org.pangrova.indexing.api.enums.IndexPublicationMode;
 import org.pangrova.indexing.api.enums.IndexState;
+import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate;
 
 import static org.pangrova.persistence.jdbc.support.JdbcSupport.canonicalInstant;
@@ -46,6 +48,11 @@ final class JdbcIndexPublicationStore extends JdbcStoreSupport {
             connection.setAutoCommit(false);
             try {
                 AuthorizationTransactionGate.lockPublication(connection);
+                try (PreparedStatement schemaLock = connection.prepareStatement(
+                        "SELECT pangrova_assert_index_schema_descriptor_available(?)")) {
+                    schemaLock.setString(1, request.indexId());
+                    schemaLock.executeQuery().close();
+                }
                 DescriptorFence descriptor = lockDescriptor(connection, request.indexId());
                 descriptors.requireCurrentScalarPublicationAuthority(
                         connection, request.indexId());
@@ -60,7 +67,7 @@ final class JdbcIndexPublicationStore extends JdbcStoreSupport {
                         connection, descriptor, request);
                 IndexGenerationManifest manifest = buildManifest(
                         request, mappings, nextPublicationEpoch(connection, request.indexId()));
-                retireActiveGeneration(connection, request.indexId());
+                retireActiveGeneration(connection, request.indexId(), request.publishedAt());
                 insertManifest(connection, manifest);
                 activateDescriptor(connection, descriptor, request, mode);
                 if (mode == IndexPublicationMode.ONLINE_REPLACEMENT) {
@@ -74,6 +81,95 @@ final class JdbcIndexPublicationStore extends JdbcStoreSupport {
             }
         } catch (SQLException failure) {
             throw new MetastoreException("Failed to publish index generation", failure);
+        }
+    }
+
+    boolean retireNativeGenerationForSourceDrift(
+            IndexDescriptor expected, IndexGenerationManifest active,
+            String currentSnapshot, Instant timestamp) {
+        if (!expected.indexType().requiresNativeArtifact()
+                || expected.state() != IndexState.READY
+                || !expected.indexId().equals(active.indexId())
+                || expected.generation() != active.generation()
+                || !active.sourceSnapshot().equals(expected.buildSnapshotId())
+                || active.sourceSnapshot().isBlank()
+                || currentSnapshot == null || currentSnapshot.isBlank()
+                || active.sourceSnapshot().equals(currentSnapshot)) {
+            return false;
+        }
+        try (Connection connection = dataSource().getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                AuthorizationTransactionGate.lockPublication(connection);
+                try (PreparedStatement schemaLock = connection.prepareStatement(
+                        "SELECT pangrova_assert_index_schema_descriptor_available(?)")) {
+                    schemaLock.setString(1, expected.indexId());
+                    schemaLock.executeQuery().close();
+                }
+                boolean retired = retireDriftedManifest(connection, expected, active, timestamp);
+                if (retired) {
+                    connection.commit();
+                } else {
+                    connection.rollback();
+                }
+                return retired;
+            } catch (SQLException | RuntimeException failure) {
+                rollbackAfterFailure(connection, failure);
+                throw failure;
+            }
+        } catch (SQLException failure) {
+            throw new MetastoreException("Failed to retire drifted native generation", failure);
+        }
+    }
+
+    private static boolean retireDriftedManifest(
+            Connection connection, IndexDescriptor expected,
+            IndexGenerationManifest active, Instant timestamp) throws SQLException {
+        // Take the same descriptor lock as publication and build reservation before
+        // examining staging state; a concurrent reservation must not be invalidated.
+        String lock = "SELECT 1 FROM index_descriptors WHERE index_id=? AND tenant_id=? "
+                + "AND index_type=? AND state='READY' AND generation=? AND updated_at=? "
+                + "AND build_snapshot_id=? FOR UPDATE";
+        try (PreparedStatement statement = connection.prepareStatement(lock)) {
+            statement.setString(1, expected.indexId());
+            statement.setString(2, expected.tenantId());
+            statement.setString(3, expected.indexType().name());
+            statement.setInt(4, expected.generation());
+            setInstant(statement, 5, expected.updatedAt());
+            statement.setString(6, active.sourceSnapshot());
+            try (ResultSet result = statement.executeQuery()) {
+                if (!result.next()) {
+                    return false;
+                }
+            }
+        }
+        String updateDescriptor = "UPDATE index_descriptors SET state='STALE', "
+                + "stale_reason='native_source_snapshot_changed', updated_at=? WHERE index_id=? "
+                + "AND NOT EXISTS (SELECT 1 FROM index_generation_builds "
+                + "WHERE index_id=? AND state='BUILDING')";
+        try (PreparedStatement statement = connection.prepareStatement(updateDescriptor)) {
+            setInstant(statement, 1, timestamp);
+            statement.setString(2, expected.indexId());
+            statement.setString(3, expected.indexId());
+            if (statement.executeUpdate() != 1) {
+                return false;
+            }
+        }
+        String retire = "UPDATE index_generation_manifests SET state='RETIRED', "
+                + "retired_at=GREATEST(published_at, ?), retirement_reason='source_snapshot_drift' "
+                + "WHERE index_id=? AND generation=? AND source_snapshot=? "
+                + "AND source_id=? AND artifact_type=? "
+                + "AND publication_epoch=? AND manifest_sha256=? AND state='ACTIVE'";
+        try (PreparedStatement statement = connection.prepareStatement(retire)) {
+            setInstant(statement, 1, timestamp);
+            statement.setString(2, active.indexId());
+            statement.setInt(3, active.generation());
+            statement.setString(4, active.sourceSnapshot());
+            statement.setString(5, active.sourceId());
+            statement.setString(6, active.artifactType());
+            statement.setLong(7, active.publicationEpoch());
+            statement.setString(8, active.manifestSha256());
+            return statement.executeUpdate() == 1;
         }
     }
 
@@ -231,11 +327,13 @@ final class JdbcIndexPublicationStore extends JdbcStoreSupport {
     }
 
     private static void retireActiveGeneration(
-            Connection connection, String indexId) throws SQLException {
+            Connection connection, String indexId, Instant timestamp) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
-                "UPDATE index_generation_manifests SET state='RETIRED' "
+                "UPDATE index_generation_manifests SET state='RETIRED', "
+                        + "retired_at=GREATEST(published_at, ?), retirement_reason='superseded' "
                         + "WHERE index_id=? AND state='ACTIVE'")) {
-            statement.setString(1, indexId);
+            setInstant(statement, 1, timestamp);
+            statement.setString(2, indexId);
             statement.executeUpdate();
         }
     }

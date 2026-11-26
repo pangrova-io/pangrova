@@ -73,19 +73,6 @@ public final class JdbcIndexBuildClaimRepository implements IndexBuildClaimRepos
         }
     }
 
-    @Override
-    public int expireBefore(Instant cutoff) {
-        Objects.requireNonNull(cutoff, "cutoff");
-        String sql = "DELETE FROM index_build_claims WHERE heartbeat_at < ?";
-        try (Connection connection = dataSource.getConnection();
-                PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setTimestamp(1, Timestamp.from(cutoff));
-            return statement.executeUpdate();
-        } catch (SQLException failure) {
-            throw new MetastoreException("Failed to expire index build claims", failure);
-        }
-    }
-
     private static void validate(String indexId, int generation, String ownerId) {
         if (indexId == null || indexId.isBlank() || indexId.length() > ID_MAX_LENGTH
                 || ownerId == null || ownerId.isBlank() || ownerId.length() > ID_MAX_LENGTH || generation < 0) {

@@ -1,5 +1,7 @@
 package org.pangrova.testing.integration.e2e;
 
+import org.pangrova.generation.api.constants.GenerationOutputTypeIds;
+import org.pangrova.generation.api.job.GenerationJob;
 import org.pangrova.planner.metadata.catalog.MetadataSchemaBuilder;
 
 import org.pangrova.common.enums.ClusterNodeType;
@@ -52,6 +54,7 @@ import org.pangrova.common.client.query.SubmitQueryRequest;
 import org.pangrova.common.client.query.SubmitQueryResponse;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.common.enums.MemoryPressure;
+import org.pangrova.common.enums.ResultDisposition;
 import org.pangrova.worker.resource.ResourceManager;
 import org.pangrova.worker.resource.memory.MemoryArbitrator;
 import org.pangrova.worker.resource.memory.NodeMemoryPool;
@@ -1176,6 +1179,11 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
 
     protected static String e2eTenantId() { return E2E_TENANT_ID; }
 
+    protected static org.pangrova.server.coordinator.bootstrap.IndexingBootstrap e2eIndexingBootstrap() {
+        return java.util.Objects.requireNonNull(sharedIndexingBootstrap,
+                "E2E indexing bootstrap must be initialized before index maintenance");
+    }
+
     protected static org.pangrova.protocol.v2.CapabilityInventory e2eNativeCapabilityInventory() {
         return java.util.Objects.requireNonNull(e2eCapabilityAdvertisement,
                 "E2E Native advertisement must be initialized before Worker registration").inventory();
@@ -1217,7 +1225,14 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     protected static List<TypedRow> consumeSubmittedQuery(SubmitQueryResponse submitResponse)
             throws Exception {
         String queryId = submitResponse.queryId();
-        ResultEndpoint endpoint = awaitResultEndpoint(queryId, submitResponse.resultEndpoint());
+        if (submitResponse.resultDisposition() == ResultDisposition.NONE) {
+            return requireResultlessCompletion(queryId, pollUntilTerminal(queryId));
+        }
+        ResultResolution resolution = awaitResultOrTerminal(queryId, submitResponse);
+        if (resolution.terminalBody() != null) {
+            return requireResultlessCompletion(queryId, resolution.terminalBody());
+        }
+        ResultEndpoint endpoint = resolution.endpoint();
         String canonicalTaskId = hasControlPlaneResult(queryId) ? null
                 : requireNativeResultTaskId(endpoint, queryId, taskTracker);
         String workerTaskId = resolveWorkerTaskId(canonicalTaskId);
@@ -1322,14 +1337,40 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     }
 
     protected static ResultEndpoint awaitResultEndpoint(
-            String queryId, ResultEndpoint submittedEndpoint) throws Exception {
-        if (submittedEndpoint != null) {
-            return submittedEndpoint;
+            String queryId, SubmitQueryResponse submitted) throws Exception {
+        ResultResolution resolution = awaitResultOrTerminal(queryId, submitted);
+        if (resolution.terminalBody() != null) {
+            var terminal = MAPPER.readTree(resolution.terminalBody());
+            if ("FINISHED".equals(terminal.path("state").asText())
+                    && "NONE".equals(terminal.path("result_disposition").asText())) {
+                throw new IllegalStateException("Resultless query cannot be consumed as rows: " + queryId);
+            }
+            throw new IllegalStateException("Query terminated before result endpoint: " + queryId
+                    + " state=" + terminal.path("state").asText()
+                    + " error=" + extractErrorDetail(terminal));
+        }
+        return resolution.endpoint();
+    }
+
+    private record ResultResolution(ResultEndpoint endpoint, String terminalBody) { }
+
+    private static ResultResolution awaitResultOrTerminal(
+            String queryId, SubmitQueryResponse submitted) throws Exception {
+        if (submitted.resultDisposition() == ResultDisposition.STREAM) {
+            if (submitted.resultEndpoint() == null) {
+                throw new IllegalStateException("Streaming query omitted its result endpoint: " + queryId);
+            }
+            return new ResultResolution(submitted.resultEndpoint(), null);
+        }
+        if (submitted.resultDisposition() != ResultDisposition.PENDING) {
+            throw new IllegalStateException("Query cannot be consumed as rows: " + queryId
+                    + " disposition=" + submitted.resultDisposition());
         }
         String url = "http://localhost:" + coordinatorHttpServer.getPort()
                 + "/v1/query/" + queryId + "/state";
         ResultEndpoint[] endpoint = new ResultEndpoint[1];
-        org.awaitility.Awaitility.await("query-result-endpoint: " + queryId)
+        String[] terminalBody = new String[1];
+        org.awaitility.Awaitility.await("query-result-or-terminal: " + queryId)
                 .atMost(java.time.Duration.ofMillis(POLL_TIMEOUT_MS))
                 .pollInterval(java.time.Duration.ofMillis(POLL_INTERVAL_MS))
                 .pollDelay(java.time.Duration.ZERO)
@@ -1340,24 +1381,47 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                             request, HttpResponse.BodyHandlers.ofString());
                     var status = MAPPER.readTree(response.body());
                     String state = status.path("state").asText();
-                    if ("FAILED".equals(state) || "CANCELLED".equals(state)) {
-                        throw new IllegalStateException(
-                                "Query terminated before result endpoint: " + queryId
-                                        + " state=" + state
-                                        + " error=" + extractErrorDetail(status));
+                    String disposition = status.path("result_disposition").asText();
+                    if ("FAILED".equals(state) || "CANCELLED".equals(state)
+                            || "FINISHED".equals(state) && "NONE".equals(disposition)) {
+                        terminalBody[0] = response.body();
+                        return true;
                     }
-                    if (status.hasNonNull("result_endpoint")) {
+                    if ("STREAM".equals(disposition)) {
+                        if (!status.hasNonNull("result_endpoint")) {
+                            throw new IllegalStateException(
+                                    "Streaming query has no result endpoint: " + queryId);
+                        }
                         endpoint[0] = MAPPER.treeToValue(
                                 status.get("result_endpoint"), ResultEndpoint.class);
                         return true;
                     }
+                    if (!"PENDING".equals(disposition)) {
+                        throw new IllegalStateException(
+                                "Live query status omitted result disposition: " + queryId);
+                    }
                     if ("FINISHED".equals(state)) {
                         throw new IllegalStateException(
-                                "Finished query has no result endpoint: " + queryId);
+                                "Finished query retained PENDING disposition: " + queryId);
                     }
                     return false;
                 });
-        return endpoint[0];
+        return new ResultResolution(endpoint[0], terminalBody[0]);
+    }
+
+    private static List<TypedRow> requireResultlessCompletion(String queryId, String terminalBody)
+            throws Exception {
+        var terminal = MAPPER.readTree(terminalBody);
+        String state = terminal.path("state").asText();
+        if (!"FINISHED".equals(state)) {
+            throw new IllegalStateException("Resultless query failed: " + queryId + " state="
+                    + state + " — " + extractErrorDetail(terminal));
+        }
+        if (!"NONE".equals(terminal.path("result_disposition").asText())
+                || terminal.hasNonNull("result_endpoint")) {
+            throw new IllegalStateException("Resultless query changed its result disposition: " + queryId);
+        }
+        return List.of();
     }
 
     protected static String pollUntilTerminal(String queryId) throws Exception {
@@ -2368,6 +2432,17 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         sharedArtifactPublisher = null;
     }
 
+    private static void validateArtifactSnapshot(GenerationJob job) {
+        if (sharedIndexingBootstrap != null) {
+            sharedIndexingBootstrap.validateSnapshotPin(job);
+            return;
+        }
+        if (GenerationOutputTypeIds.VECTOR_INDEX.equals(job.artifactType())
+                || GenerationOutputTypeIds.TEXT_INDEX.equals(job.artifactType())) {
+            throw new IllegalStateException("E2E Native index artifact has no snapshot lifecycle owner");
+        }
+    }
+
     private static void startArtifactControlLoops() {
         if (sharedArtifactBuildDispatcher == null) {
             artifactTaskDispatcher = createE2ETaskDispatcher();
@@ -2385,7 +2460,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                                             stateStoreDataSource),
                                     ModelAuthorityFixtures.artifacts().exchanges(stateStoreDataSource),
                                     java.util.Objects.requireNonNull(sharedQueryDispatcher,
-                                            "shared QueryDispatcher must be initialized").dagEngine()),
+                                            "shared QueryDispatcher must be initialized").dagEngine(),
+                                    SqlE2ETestBase::validateArtifactSnapshot),
                             new org.pangrova.coordinator.generation.DurableGenerationDispatcher.Settings(
                                     Duration.ofMinutes(2), Duration.ofSeconds(5), 32),
                             new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory());
@@ -2394,7 +2470,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
             sharedArtifactPublisher = new org.pangrova.coordinator.generation.DurableGenerationPublisher(
                     sharedArtifactBuildStore, E2eGenerationPublications.router(stateStoreDataSource),
                     new org.pangrova.coordinator.generation.GenerationExecutionOwnership(
-                            requireE2ECoordination(), E2E_COORDINATOR_ID));
+                            requireE2ECoordination(), E2E_COORDINATOR_ID),
+                    SqlE2ETestBase::validateArtifactSnapshot);
             sharedArtifactPublisher.start();
         }
         if (artifactDispatchExecutor == null) {
@@ -2453,8 +2530,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                     new org.pangrova.coordinator.query.execution.dispatch.task.AlterIndexTask(indexExecutor));
             statementDispatcher.registerFactory(metadataFactory);
 
-            var schemaEvolutionHandler = new org.pangrova.indexing.evolution.IndexSchemaEvolutionHandler(indexMetadataStore);
-            if (sharedDdlExecutor != null) {
+            var schemaEvolutionHandler = sharedIndexingBootstrap.getSchemaEvolutionHandler();
+            if (sharedDdlExecutor != null && schemaEvolutionHandler != null) {
                 sharedDdlExecutor.setSchemaEvolutionHandler(schemaEvolutionHandler);
             }
 

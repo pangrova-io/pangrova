@@ -44,8 +44,11 @@ services:
       - PANGROVA_INTERNAL_AUTH_SECRET=${PANGROVA_INTERNAL_AUTH_SECRET:?Set PANGROVA_INTERNAL_AUTH_SECRET in .env}
       - PANGROVA_DB_USERNAME=pangrova
       - PANGROVA_DB_PASSWORD=${PANGROVA_DB_PASSWORD:?Set PANGROVA_DB_PASSWORD in .env}
+      - PANGROVA_INDEX_BASE_PATH=/opt/pangrova/indexes
     volumes:
       - coordinator-logs:/opt/pangrova/logs
+      - coordinator-data:/opt/pangrova/data
+      - index-data:/opt/pangrova/indexes
       - ./config/coordinator.yml:/opt/pangrova/config/coordinator.yml:ro
     networks:
       - pangrova-net
@@ -78,6 +81,7 @@ services:
     volumes:
       - worker-logs:/opt/pangrova/logs
       - worker-data:/opt/pangrova/data
+      - index-data:/opt/pangrova/indexes
       - ./config/worker.yml:/opt/pangrova/config/worker.yml:ro
     networks:
       - pangrova-net
@@ -94,9 +98,11 @@ services:
 
 volumes:
   metadata-data:
+  coordinator-data:
   coordinator-logs:
   worker-logs:
   worker-data:
+  index-data:
 
 networks:
   pangrova-net:

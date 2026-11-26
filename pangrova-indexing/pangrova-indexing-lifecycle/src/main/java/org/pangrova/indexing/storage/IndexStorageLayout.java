@@ -19,6 +19,7 @@ public final class IndexStorageLayout {
 
     private static final int HASH_PREFIX_LENGTH = 32;
     private static final String INDEX_FILE_EXTENSION = ".idx";
+    private static final int RETIRED_PATH_COMPONENT_COUNT = 3;
 
     /** Storage layout version. Embedded in the path to allow future path scheme migration. */
     static final int LAYOUT_VERSION = 3;
@@ -43,13 +44,37 @@ public final class IndexStorageLayout {
      */
     public String indexFilePath(IndexDescriptor descriptor, UUID attemptId, String dataFilePath) {
         String hash = sha256Prefix(dataFilePath);
+        return indexScopePrefix(descriptor) + "g" + descriptor.generation() + "/"
+                + Objects.requireNonNull(attemptId, "attemptId") + "/" + hash + INDEX_FILE_EXTENSION;
+    }
+
+    /**
+     * Verifies the original physical generation of a retired mapping, including paths copied forward
+     * into newer generations. Unsupported legacy layouts or changed storage roots fail closed.
+     */
+    public boolean isRetiredIndexFilePath(IndexDescriptor descriptor, String dataFilePath,
+                                          int lastRetiredGeneration, String artifactPath) {
+        String prefix = indexScopePrefix(descriptor);
+        if (!artifactPath.startsWith(prefix)) return false;
+        String[] parts = artifactPath.substring(prefix.length()).split("/", -1);
+        if (parts.length != RETIRED_PATH_COMPONENT_COUNT || !parts[0].startsWith("g")) return false;
+        try {
+            int physicalGeneration = Integer.parseInt(parts[0].substring(1));
+            UUID attempt = UUID.fromString(parts[1]);
+            return physicalGeneration >= 0 && physicalGeneration <= lastRetiredGeneration
+                    && indexFilePath(descriptor.withGeneration(physicalGeneration, descriptor.updatedAt()),
+                            attempt, dataFilePath).equals(artifactPath);
+        } catch (IllegalArgumentException invalidPath) {
+            return false;
+        }
+    }
+
+    private String indexScopePrefix(IndexDescriptor descriptor) {
         return baseIndexPath + "/v" + LAYOUT_VERSION + "/"
                 + sanitizePathComponent(descriptor.catalogName()) + "/"
                 + sanitizePathComponent(descriptor.schemaName()) + "/"
                 + sanitizePathComponent(descriptor.tableName()) + "/"
-                + sanitizePathComponent(descriptor.indexId()) + "/"
-                + "g" + descriptor.generation() + "/"
-                + Objects.requireNonNull(attemptId, "attemptId") + "/" + hash + INDEX_FILE_EXTENSION;
+                + sanitizePathComponent(descriptor.indexId()) + "/";
     }
 
     static String sanitizePathComponent(String component) {

@@ -396,12 +396,52 @@ class PublishedGenerationBindingResolverTest {
         @Override public boolean markPublished(
                 String tenantId, String jobId, String owner, long epoch,
                 long token, Instant now) { throw unsupported(); }
+        @Override public boolean cancelPublicationClaim(
+                GenerationJob claim, String owner, long epoch, String reason, Instant now) { throw unsupported(); }
         @Override public int cancelArtifactBuilds(
                 String tenantId, String artifactId, Instant now) { throw unsupported(); }
         @Override public boolean cancelJob(
                 String tenantId, String jobId, String reason, Instant now) { throw unsupported(); }
         @Override public GenerationDispatchSpec loadAuthorizedDispatchSpec(
                 String tenantId, String jobId) { throw unsupported(); }
+        @Override public void retainSnapshotPinForExecution(
+                String tenantId, String jobId, String pinOwner, String executionId, String sourceSnapshot) {
+            throw unsupported();
+        }
+        @Override public org.pangrova.persistence.generation.api.job.SnapshotPinIntent reserveSnapshotPin(
+                org.pangrova.persistence.generation.api.job.SnapshotPinReservation reservation) { throw unsupported(); }
+        @Override public boolean markSnapshotPinPinned(String tenantId, String pinOwner, Instant now) {
+            throw unsupported();
+        }
+        @Override public boolean beginSnapshotPinRelease(String tenantId, String pinOwner, Instant now) {
+            throw unsupported();
+        }
+        @Override public Optional<org.pangrova.persistence.generation.api.job.SnapshotPinIntent>
+                claimSnapshotPinCleanup(String tenantId, String pinOwner, Instant orphanCutoff,
+                                        Instant droppedCutoff, Instant now) { throw unsupported(); }
+        @Override public boolean markSnapshotPinReleased(String tenantId, String pinOwner, Instant now) {
+            throw unsupported();
+        }
+        @Override public Optional<org.pangrova.persistence.generation.api.job.SnapshotPinIntent> findSnapshotPin(
+                String tenantId, String pinOwner) { throw unsupported(); }
+        @Override public Optional<org.pangrova.persistence.generation.api.job.SnapshotPinIntent> findSnapshotPinForJob(
+                String tenantId, String jobId) { throw unsupported(); }
+        @Override public void createSnapshotPinnedJob(GenerationJob job, GenerationDispatchSpec spec,
+                List<GenerationPage> pages, String pinOwner) { throw unsupported(); }
+        @Override public List<org.pangrova.persistence.generation.api.job.SnapshotPinIntent>
+                listSnapshotPinCleanupCandidates(int limit, Instant orphanCutoff, Instant droppedCutoff) {
+            throw unsupported();
+        }
+        @Override public List<org.pangrova.persistence.generation.api.job.SnapshotPinIntent>
+                listUnboundSnapshotPinsForRecovery(int limit, Instant retryCutoff) { throw unsupported(); }
+        @Override public Optional<org.pangrova.persistence.generation.api.job.SnapshotPinIntent>
+                claimSnapshotPinRecovery(String tenantId, String pinOwner, Instant retryCutoff, Instant now) {
+            throw unsupported();
+        }
+        @Override public List<org.pangrova.persistence.generation.api.job.SnapshotPinIntent>
+                listSnapshotPinsForAdoption(int limit) {
+            throw unsupported();
+        }
 
         private static UnsupportedOperationException unsupported() {
             return new UnsupportedOperationException("not used by test");

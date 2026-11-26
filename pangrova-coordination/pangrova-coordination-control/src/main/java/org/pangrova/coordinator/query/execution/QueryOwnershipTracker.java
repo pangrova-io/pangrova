@@ -105,6 +105,14 @@ public final class QueryOwnershipTracker {
         }
     }
 
+    /** Releases a candidate grant without claiming or cleaning a local issued query. */
+    public void releaseQueryOwnership(String queryId) {
+        OwnershipSnapshot snapshot = ownershipSnapshot.get();
+        if (snapshot != null) {
+            snapshot.service().releaseQueryOwnership(queryId, snapshot.coordinatorId());
+        }
+    }
+
     /** Cleans up split assignment state, releases ownership, and notifies connectors. */
     public boolean tryCleanupQuery(String queryId) {
         if (!tryCleanupLocalQuery(queryId)) return false;

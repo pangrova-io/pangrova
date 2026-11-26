@@ -14,6 +14,8 @@ import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
 import org.pangrova.connector.api.index.SnapshotPinProvider;
+import org.pangrova.connector.api.index.SnapshotPinOwner;
+import org.pangrova.connector.api.index.SnapshotPinReference;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.indexing.api.enums.IndexType;
 import org.pangrova.indexing.api.enums.IndexState;
@@ -113,7 +115,6 @@ class BuildResourceClosurePropertyTest {
         @Override public boolean heartbeat(String index, int generation, String attempt, Instant now) {
             return owner.equals(attempt);
         }
-        @Override public int expireBefore(Instant cutoff) { throw new AssertionError("Unexpected recovery"); }
     }
 
     private static final class Pins implements SnapshotPinProvider {
@@ -121,13 +122,23 @@ class BuildResourceClosurePropertyTest {
         private final AtomicInteger unpins = new AtomicInteger();
         private final boolean fail;
         private Pins(boolean fail) { this.fail = fail; }
-        @Override public void pinSnapshot(String catalog, String schema, String table, long snapshot, String index) {
+        @Override public void pinSnapshot(String catalog, String schema, String table, String snapshot,
+                                          SnapshotPinOwner owner) {
             pins.incrementAndGet();
             if (fail) throw new IllegalStateException("pin failed");
         }
-        @Override public void unpinSnapshot(String catalog, String schema, String table, long snapshot, String index) {
+        @Override public void unpinSnapshot(String catalog, String schema, String table, String snapshot,
+                                            SnapshotPinOwner owner) {
             unpins.incrementAndGet();
         }
-        @Override public List<Long> getPinnedSnapshots(String catalog, String schema, String table) { return List.of(); }
+        @Override public void validateSnapshotPin(String catalog, String schema, String table, String snapshot,
+                                                  SnapshotPinOwner owner) {}
+        @Override public List<String> getPinnedSnapshots(String catalog, String schema, String table) {
+            return List.of();
+        }
+        @Override public List<SnapshotPinReference> getSnapshotPinsForIndex(
+                String catalog, String schema, String table, String index) {
+            return List.of();
+        }
     }
 }

@@ -42,8 +42,16 @@ public record LanceTableHandle(String catalog, String tenantId, SchemaTableName 
     @Override public byte[] schemaFence() { return schemaFence.clone(); }
 
     /** Selects an exact version; metadata and split access resolve its persisted publication evidence. */
-    @Override public ConnectorTableHandle withTimeTravelSnapshot(long snapshotId) {
-        if (snapshotId <= 0) throw new IllegalArgumentException("Lance snapshot must be positive");
+    @Override public ConnectorTableHandle withTimeTravelSnapshot(String snapshotToken) {
+        long snapshotId;
+        try {
+            snapshotId = Long.parseLong(snapshotToken);
+            if (snapshotId <= 0 || !Long.toString(snapshotId).equals(snapshotToken)) {
+                throw new NumberFormatException("non-canonical Lance snapshot");
+            }
+        } catch (NumberFormatException invalid) {
+            throw new IllegalArgumentException("Lance snapshot must be a positive canonical token", invalid);
+        }
         return new LanceTableHandle(catalog, tenantId, table, tableId, datasetUri, columns, properties,
                 schemaFence, snapshotId, revision, rowCount);
     }

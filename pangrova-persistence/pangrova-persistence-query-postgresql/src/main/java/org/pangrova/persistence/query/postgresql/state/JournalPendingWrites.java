@@ -17,6 +17,7 @@ import java.util.concurrent.TimeUnit;
 import org.pangrova.common.concurrent.GuardedBy;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.query.api.journal.JournalEventContext;
+import org.pangrova.query.api.journal.QueryAcceptanceAdmission;
 import org.pangrova.persistence.query.api.exception.JournalWriteException;
 import org.pangrova.query.api.journal.QueryStateEvent;
 import org.pangrova.query.api.journal.TaskStateEvent;
@@ -45,7 +46,7 @@ final class JournalPendingWrites {
 
     JournalPendingWrites(int capacity) { this.capacity = capacity; }
 
-    CompletableFuture<Void> admit(Write candidate, boolean sync) {
+    Write admit(Write candidate, boolean sync) {
         synchronized (this) {
             if (candidate.owner != this) throw rejected("Journal event belongs to a different pending owner", null);
             requireOpen();
@@ -56,7 +57,7 @@ final class JournalPendingWrites {
             register(candidate);
             flushRequested |= sync;
             notifyAll();
-            return candidate.attempt;
+            return candidate;
         }
     }
 
@@ -81,12 +82,12 @@ final class JournalPendingWrites {
         }
     }
 
-    private CompletableFuture<Void> joinExisting(Write owner, Write candidate, boolean sync) {
+    private Write joinExisting(Write owner, Write candidate, boolean sync) {
         if (!owner.sameEvent(candidate)) throw rejected("Journal event ID has a different pending payload", null);
         if (owner.attempt.isCompletedExceptionally()) owner.attempt = new CompletableFuture<>();
         flushRequested |= sync;
         notifyAll();
-        return owner.attempt;
+        return owner;
     }
 
     synchronized Batch awaitBatch(int size, long intervalMs) throws InterruptedException {
@@ -135,19 +136,26 @@ final class JournalPendingWrites {
         batch.attempts().forEach(attempt -> attempt.complete(null));
     }
 
-    void failed(Batch batch, Throwable error, JournalEventKey confirmedRejected) {
+    void failed(Batch batch, Throwable error, JournalEventKey confirmedRejected, boolean sticky) {
         JournalWriteException failure = failure("Journal commit not established", error);
         synchronized (this) {
             for (Write owner : batch.writes()) {
                 owner.lastFailure = error;
                 if (owner.key().equals(confirmedRejected)) {
                     removeOwned(owner);
-                    if (semanticFailure == null) semanticFailure = error;
+                    if (sticky && semanticFailure == null) semanticFailure = error;
                 }
             }
             notifyAll();
         }
-        batch.attempts().forEach(attempt -> attempt.completeExceptionally(failure));
+        for (int index = 0; index < batch.writes().size(); index++) {
+            boolean rejected = batch.writes().get(index).key().equals(confirmedRejected);
+            JournalWriteException outcome = rejected
+                    ? new JournalWriteException("Journal event was rejected", error,
+                            JournalAdmissionOutcome.REJECTED_BEFORE_TRANSFER)
+                    : failure;
+            batch.attempts().get(index).completeExceptionally(outcome);
+        }
     }
 
     private void removeOwned(Write owner) {
@@ -249,6 +257,7 @@ final class JournalPendingWrites {
         private CompletableFuture<Void> attempt = new CompletableFuture<>();
         @GuardedBy("owner")
         private Throwable lastFailure;
+        private volatile QueryAcceptanceAdmission acceptanceResult;
 
         Write(JournalPendingWrites owner, QueryStateEvent event) {
             this.owner = Objects.requireNonNull(owner, "owner");
@@ -263,6 +272,9 @@ final class JournalPendingWrites {
             key = new JournalEventKey(false, event.context().eventId());
         }
         JournalEventContext context() { return query != null ? query.context() : task.context(); }
+        CompletableFuture<Void> attempt() { return attempt; }
+        QueryAcceptanceAdmission acceptanceResult() { return acceptanceResult; }
+        void acceptanceResult(QueryAcceptanceAdmission result) { acceptanceResult = result; }
         JournalEventKey key() { return key; }
         String queryId() { return query != null ? query.queryId() : task.queryId(); }
         boolean sameEvent(Write other) {

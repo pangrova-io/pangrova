@@ -13,8 +13,9 @@ import org.pangrova.common.api.annotation.Experimental;
  * Callers must stop the attempt after a rejected or failed heartbeat.</p>
  *
  * <p>This claim guards build work, not generation publication or object deletion.
- * Expiration requires an external recovery protocol that fences mappings, publication,
- * and files before admitting replacement work. It is not an automatic lease timeout.
+ * Abandoned claims are expired only by the atomic generation/mapping/publication
+ * fencing operation in {@link org.pangrova.persistence.indexing.api.metadata.IndexBuildGenerations};
+ * this port deliberately exposes no standalone expiry operation.
  * Implementations borrow backend resources; this port does not close them.</p>
  */
 @Experimental
@@ -27,7 +28,4 @@ public interface IndexBuildClaimRepository {
 
     /** Renews only the exact attempt, without moving its heartbeat backwards. */
     boolean heartbeat(String indexId, int generation, String ownerId, Instant heartbeatAt);
-
-    /** Removes claims strictly older than the cutoff; the caller must fence abandoned work. */
-    int expireBefore(Instant cutoff);
 }

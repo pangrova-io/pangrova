@@ -160,6 +160,13 @@ worker:
       # Match to the number of NVMe drives or queue depth.
       ssd-shards: 16
 
+      # Immutable search/model artifact cache. This is a per-Worker content-
+      # addressed cache, not the durable index store; never share the directory
+      # between Worker processes. Size it independently from the data-page cache.
+      artifact-path: "/mnt/nvme0/pangrova-artifacts"
+      artifact-bytes: 107374182400       # 100 GB
+      artifact-index-memory-bytes: 2147483648  # 2 GB parsed-index RAM quota
+
   # ── Registration Retry ──────────────────────────────────────
   #
   # Workers retry registration if the Coordinator is temporarily

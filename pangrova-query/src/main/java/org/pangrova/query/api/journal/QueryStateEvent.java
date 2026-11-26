@@ -23,17 +23,27 @@ public record QueryStateEvent(
         String sql,
         String sessionJson,
         String state,
-        QueryLineageFact lineage
+        QueryLineageFact lineage,
+        QueryAcceptance acceptance
 ) {
     /** Existing producers without enabled governance have no fabricated lineage payload. */
     public QueryStateEvent(JournalEventContext context, String queryId, String sql, String sessionJson, String state) {
-        this(context, queryId, sql, sessionJson, state, null);
+        this(context, queryId, sql, sessionJson, state, null, null);
+    }
+
+    public QueryStateEvent(JournalEventContext context, String queryId, String sql, String sessionJson, String state,
+            QueryLineageFact lineage) {
+        this(context, queryId, sql, sessionJson, state, lineage, null);
     }
 
     public QueryStateEvent {
         Objects.requireNonNull(context, "context must not be null");
         Objects.requireNonNull(queryId, "queryId must not be null");
         Objects.requireNonNull(state, "state must not be null");
+        if (acceptance != null
+                && (!"QUEUED".equals(state) || !queryId.equals(acceptance.receipt().queryId()))) {
+            throw new IllegalArgumentException("Acceptance must belong to the initial QUEUED event");
+        }
         if (lineage != null) {
             LineageEventType expected = switch (state) {
                 case "QUEUED" -> LineageEventType.START;

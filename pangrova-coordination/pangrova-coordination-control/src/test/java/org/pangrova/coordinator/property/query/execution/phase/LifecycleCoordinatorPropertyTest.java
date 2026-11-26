@@ -30,7 +30,7 @@ class LifecycleCoordinatorPropertyTest {
 
     private static final DispatchResult TERMINAL_RESULT = new DispatchResult(
             "localhost", "task-1",
-            new ResultEndpoint("localhost", 8080, "ticket-1", "http"));
+            new ResultEndpoint("localhost", 8080, "ticket-1", "grpc"));
 
     /**
      * Property 13: onQueryStart/onQueryEnd always paired on success.

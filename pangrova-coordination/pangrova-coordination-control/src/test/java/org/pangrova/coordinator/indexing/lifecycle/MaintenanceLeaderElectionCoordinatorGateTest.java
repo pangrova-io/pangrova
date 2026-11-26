@@ -106,6 +106,22 @@ class MaintenanceLeaderElectionCoordinatorGateTest {
     }
 
     @Test
+    void verifiedEpochDoesNotAcquireLeadership() {
+        InMemoryDistributedLease lease = new InMemoryDistributedLease();
+        var first = new MaintenanceLeaderElection(lease, "first");
+        var second = new MaintenanceLeaderElection(lease, "second");
+
+        assertThat(first.verifiedHeldEpoch()).isEmpty();
+        assertThat(lease.currentHolder("maintenance-control")).isEmpty();
+        long epoch = first.acquireOrRenewEpoch().orElseThrow();
+        assertThat(first.verifiedHeldEpoch()).hasValue(epoch);
+        assertThat(second.verifiedHeldEpoch()).isEmpty();
+        assertThat(first.release()).isTrue();
+        assertThat(second.acquireOrRenewEpoch()).hasValue(epoch + 1);
+        assertThat(first.verifiedHeldEpoch()).isEmpty();
+    }
+
+    @Test
     @DisplayName("Election returns the backend-issued fencing epoch")
     void returnsBackendIssuedEpoch() {
         InMemoryDistributedLease lease = new InMemoryDistributedLease();
