@@ -1515,7 +1515,9 @@ ALTER TABLE orders DROP BRANCH dev
 
 An authorized Iceberg JDBC query with an exact table name resolves its branch or
 tag on the same metadata observation that supplies the historical read binding.
-Repeated occurrences of the same qualified reference reuse the resolution within
+JDBC discovery and binding reuse the encoded current schema and partition spec.
+A historical selection encodes its own schema when it differs from the current
+schema. Repeated occurrences of the same qualified reference reuse the resolution within
 the statement. The planner checks the catalog deployment and table ownership.
 Split enumeration checks the live table and the selected snapshot before
 dispatch. Case-insensitive resolution still checks for ambiguous names.

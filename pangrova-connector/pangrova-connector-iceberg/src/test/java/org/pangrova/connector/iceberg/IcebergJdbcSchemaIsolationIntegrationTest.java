@@ -198,6 +198,15 @@ class IcebergJdbcSchemaIsolationIntegrationTest extends ContainerTestBase {
             source.close();
         }
         assertThat(schema.catalogPointerLookups() - beforeSplits).isOne();
+
+        table.updateSchema().addColumn("added_after_snapshot", Types.StringType.get()).commit();
+        long beforeEvolution = schema.catalogPointerLookups();
+        var evolved = java.util.Objects.requireNonNull(metadata.discoverRead(READER, new SchemaTableName("data", "events")));
+        var historical = evolved.binder().bind(READER, evolved.handle().withTimeTravelSnapshot(original), null);
+        assertThat(((IcebergTableHandle) evolved.handle()).schemaJson()).contains("added_after_snapshot");
+        assertThat(((IcebergTableHandle) historical.handle()).schemaJson()).doesNotContain("added_after_snapshot");
+        assertThat(historical.snapshotId()).hasValue(original);
+        assertThat(schema.catalogPointerLookups() - beforeEvolution).isOne();
     }
 
     @Test
@@ -359,9 +368,13 @@ class IcebergJdbcSchemaIsolationIntegrationTest extends ContainerTestBase {
             long before = schema.catalogPointerLookups();
 
             var discovered = java.util.Objects.requireNonNull(metadata.discoverRead(READER, name));
-            var binding = discovered.binder().bind(READER, discovered.handle(),
+            var discoveredHandle = (IcebergTableHandle) discovered.handle();
+            var binding = discovered.binder().bind(READER, discoveredHandle,
                     observed -> assertThat(observed).isEqualTo(expected));
+            var boundHandle = (IcebergTableHandle) binding.handle();
 
+            assertThat(boundHandle.schemaJson()).isSameAs(discoveredHandle.schemaJson());
+            assertThat(boundHandle.partitionSpecJson()).isSameAs(discoveredHandle.partitionSpecJson());
             assertThat(schema.catalogPointerLookups() - before).isOne();
             assertThat(binding.schemaIdentity()).hasValueSatisfying(identity ->
                     assertThat(identity.tableIdentity()).isEqualTo(expected.orElseThrow()));

@@ -83,10 +83,21 @@ final class IcebergReadBindings {
 
     static ConnectorReadBinding bindData(Table table, IcebergTableHandle handle,
             Consumer<Optional<TableIdentity>> beforeSnapshotBinding) {
+        return bindData(table, handle, beforeSnapshotBinding, null);
+    }
+
+    /** Reuses the encodings produced from the same query-owned JDBC table during discovery. */
+    static ConnectorReadBinding bindDiscoveredData(Table table, IcebergTableHandle discovered,
+            IcebergTableHandle selected, Consumer<Optional<TableIdentity>> beforeSnapshotBinding) {
+        return bindData(table, selected, beforeSnapshotBinding, discovered);
+    }
+
+    private static ConnectorReadBinding bindData(Table table, IcebergTableHandle handle,
+            Consumer<Optional<TableIdentity>> beforeSnapshotBinding, IcebergTableHandle discovered) {
         var capturedMetadata = metadata(table);
-        String currentSchemaJson = null;
+        String currentSchemaJson = discovered == null ? null : discovered.schemaJson();
         if (beforeSnapshotBinding != null) {
-            currentSchemaJson = SchemaParser.toJson(capturedMetadata.schema());
+            if (currentSchemaJson == null) currentSchemaJson = SchemaParser.toJson(capturedMetadata.schema());
             beforeSnapshotBinding.accept(Optional.of(IcebergReadSchema.identity(capturedMetadata, currentSchemaJson)));
         }
         Snapshot snapshot = selectedSnapshot(table, handle);
@@ -102,9 +113,11 @@ final class IcebergReadBindings {
                         org.pangrova.connector.api.enums.FieldIdStability
                                 .NON_REUSABLE_NAMESPACE))
                 : Optional.<org.pangrova.connector.api.metadata.table.ConnectorReadSchemaIdentity>empty();
+        String partitionSpecJson = discovered == null
+                ? PartitionSpecParser.toJson(capturedMetadata.spec()) : discovered.partitionSpecJson();
         var bound = new IcebergTableHandle(handle.schemaName(), handle.tableName(), table.location(),
                 snapshot == null ? Optional.empty() : Optional.of(snapshot.snapshotId()),
-                readSchema.schemaJson(), PartitionSpecParser.toJson(table.spec()),
+                readSchema.schemaJson(), partitionSpecJson,
                 capturedMetadata.formatVersion(), properties, handle.readMode(), handle.fromSnapshotId(),
                 handle.toSnapshotId(), handle.pushedLimit());
         TableStatistics statistics = snapshot == null ? new TableStatistics(0, 0, 0, Map.of())
