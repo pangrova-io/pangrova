@@ -220,6 +220,38 @@ class JdbcQueryStateJournalIntegrationTest {
     }
 
     @Test
+    void issuanceStatementShapesPersistOnlyActualRowsAtEveryCohortSize() throws Exception {
+        var anchors = new JdbcExecutionAnchorStore(dataSource);
+        var duration = Duration.ofMinutes(1);
+        executeSql("CREATE EXTENSION IF NOT EXISTS pg_stat_statements");
+        executeSql("SELECT pg_stat_statements_reset()");
+        for (int size = 1; size <= 16; size++) {
+            String id = "issuance-size-" + size;
+            var owner = anchors.tryAcquire(id, "owner", "boot", duration).orElseThrow();
+            journal.appendQueryEventSync(new QueryStateEvent(JournalEventContext.create(100, "owner"),
+                    id, "SELECT 1", "{}", "RUNNING"));
+            var issuance = new TaskIssuance("worker-host", 8081, "boot", owner.fencingToken(),
+                    new byte[] {1, 2, 3});
+            var tasks = java.util.stream.IntStream.range(0, size).mapToObj(partition ->
+                    new TaskStateEvent(JournalEventContext.create(105, "owner"), id, id + "-task-" + partition,
+                            "worker-id", "SCHEDULED", 1, 0, issuance)).toList();
+            journal.appendTaskIssuancesSync(tasks);
+            assertEquals(size, countQueryRows("task_state_journal", id));
+            assertThat(journal.replayClaimedQueries(Set.of(id)).tasks()).containsExactlyInAnyOrderElementsOf(tasks);
+        }
+        try (var connection = dataSource.getConnection(); var statement = connection.createStatement();
+                var rows = statement.executeQuery("""
+                        SELECT COUNT(*), SUM(calls) FROM pg_stat_statements
+                        WHERE query LIKE 'WITH locked AS MATERIALIZED (%INSERT INTO task_state_journal%'
+                        """)) {
+            assertTrue(rows.next());
+            assertEquals(16, rows.getLong(1));
+            assertEquals(16, rows.getLong(2));
+        }
+        assertEquals(0L, eventReadbacks());
+    }
+
+    @Test
     void terminalQueryExcludedFromReplay() {
         journal.appendQueryEventSync(
                 new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(1000L, null), "q-1", "SELECT 1", "{}", "QUEUED"));
