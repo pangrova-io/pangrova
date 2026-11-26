@@ -17,7 +17,17 @@ runs:
 
     - name: Build the Lance Java fixture
       shell: bash
-      run: python3 pangrova-worker-native/bin/run-native-tests.py --prepare-java "$RUNNER_TEMP/native-java-fixture"
+      run: |
+        # Several parallel Native jobs can miss the same cache. Bound Maven's
+        # concurrent downloads and use its HTTP transport's Retry-After-aware
+        # backoff for rate limits; do not retry the build or any tests.
+        export MAVEN_OPTS="${MAVEN_OPTS:-} \
+          -Daether.connector.basic.threads=2 \
+          -Daether.connector.http.retryHandler.count=3 \
+          -Daether.connector.http.retryHandler.interval=30000 \
+          -Daether.connector.http.retryHandler.intervalMax=120000"
+        mvn -version
+        python3 pangrova-worker-native/bin/run-native-tests.py --prepare-java "$RUNNER_TEMP/native-java-fixture"
 
     - name: Save Maven dependencies for the Native fixture
       if: steps.maven.outputs.cache-hit != 'true'

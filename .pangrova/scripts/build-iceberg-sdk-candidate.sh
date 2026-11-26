@@ -64,9 +64,18 @@ printf 'source_commit=%s\nsource_sha256=%s\npatch_sha256=%s\nfixed_patch_sha256=
   > "$source_root/iceberg-build.properties"
 
 cd "$source_root"
-"$gradle_bin" --no-daemon --max-workers=2 \
+# These are the pinned Gradle 8.14.4 dependency repository resolver's
+# internal retry settings (revalidate on Gradle upgrades). Keep three
+# attempts, but allow transient rate limits time to recover. Backoff is
+# per repository operation, not an overall build timeout or Retry-After
+# guarantee. Persistent failures still fail the original Gradle command.
+gradle_repository_args=(
+  -Dorg.gradle.internal.repository.max.tentatives=3
+  -Dorg.gradle.internal.repository.initial.backoff=30000
+)
+"$gradle_bin" "${gradle_repository_args[@]}" --no-daemon --max-workers=2 \
   :iceberg-core:test --tests org.apache.iceberg.avro.TestFixedByteBufferWriter
-"$gradle_bin" --no-daemon \
+"$gradle_bin" "${gradle_repository_args[@]}" --no-daemon \
   :iceberg-api:publishToMavenLocal \
   :iceberg-bundled-guava:publishToMavenLocal \
   :iceberg-common:publishToMavenLocal \
