@@ -358,6 +358,7 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
         var http = HttpClient.newHttpClient();
         String base = "http://localhost:" + coordinatorHttpPort();
         for (String route : java.util.List.of("/v1/query/profile/" + queryId + "/json",
+                "/v1/query/profile/" + queryId + "/json?history=true",
                 "/api/queries/" + queryId + "/profile")) {
             var request = java.net.http.HttpRequest.newBuilder(URI.create(base + route))
                     .header("Authorization", "Bearer " + E2E_SECOND_USER_BEARER_TOKEN).GET().build();
@@ -396,7 +397,7 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
             long before = calls(sql);
             var response = http.send(authenticatedHttpRequest(uri).GET().build(), HttpResponse.BodyHandlers.ofString());
             assertThat(response.statusCode()).isEqualTo(200);
-            assertThat(calls(sql) - before).as("owner's scoped profile SELECTs").isOne();
+            assertThat(calls(sql) - before).as("owner's scoped profile SELECTs").isZero();
             var body = JsonMapperFactory.shared().readTree(response.body());
             assertThat(body.path("queryId").asText()).isEqualTo(queryId);
             assertThat(body.path("telemetryAvailable").asBoolean()).isTrue();

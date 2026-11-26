@@ -514,6 +514,11 @@ projection.
 The Coordinator currently configures `UnavailableProfiler` for SVG flame
 graphs. The SVG endpoint responds with HTTP 501 and `UNSUPPORTED_CAPABILITY`.
 
+The query state machine retains the terminal audit record used by the audit sink.
+Both JSON profile routes combine that record with locally retained attempt statistics.
+The record expires with the query projection. An explicit history request reads
+the durable audit row scoped to the authenticated submitting principal.
+
 ### 4.5 Query Resource Audit
 
 ![Query Resource Audit](../../website/static/img/diagrams/generated/observability-14-c3b9f08902.svg)

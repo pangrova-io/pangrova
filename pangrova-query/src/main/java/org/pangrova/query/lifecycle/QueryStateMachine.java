@@ -2,6 +2,7 @@ package org.pangrova.query.lifecycle;
 
 import org.pangrova.common.enums.QueryWaitTarget;
 import org.pangrova.governance.api.enums.LineageEventType;
+import org.pangrova.query.api.audit.QueryAuditRecord;
 import org.pangrova.query.api.enums.QueryState;
 import org.pangrova.query.api.enums.StageState;
 
@@ -65,6 +66,7 @@ public class QueryStateMachine {
     private volatile String tenantId;
     private final String auditPrincipal;
     private volatile String sql;
+    private volatile QueryAuditRecord terminalAudit;
     private volatile org.pangrova.query.api.session.BranchSelection branchSelection;
 
     public void selectBranch(org.pangrova.query.api.session.BranchSelection selection) {
@@ -256,6 +258,25 @@ public class QueryStateMachine {
     /** Submitted SQL text, or null when the query was rejected before parsing. */
     public String getSql() {
         return sql;
+    }
+
+    /** Freezes the same audit record for local observation and durable persistence. */
+    public synchronized QueryAuditRecord freezeTerminalAudit(String queryId) {
+        if (!isTerminal()) {
+            throw new IllegalStateException("Query audit requires a terminal state");
+        }
+        if (terminalAudit == null) {
+            Instant completedAt = Instant.now();
+            terminalAudit = QueryAuditRecord.wallTimeOnly(queryId, auditPrincipal, sql, tenantId,
+                    java.time.Duration.between(createdAt, completedAt).toMillis(), completedAt,
+                    status.state() == QueryState.FINISHED);
+        }
+        return terminalAudit;
+    }
+
+    /** The retained terminal audit record, if its query has published it. */
+    public Optional<QueryAuditRecord> terminalAudit() {
+        return Optional.ofNullable(terminalAudit);
     }
 
     /** Stage state aggregation: stageId → current StageState. */

@@ -41,6 +41,11 @@ require `result_disposition`.
 
 Query profiles are scoped to the authenticated submitting principal. The Web UI lists
 that principal’s active queries. An available SVG profile requires a live local query.
+The JSON profile uses the owning Coordinator's retained terminal audit record.
+It returns HTTP 404 until that record is available or after it leaves local retention.
+Use `?history=true` on either JSON profile endpoint to read durable audit history.
+The history lookup still requires the submitting principal.
+
 The JSON profile returns query audit timing and memory totals. Each element of `attempts`
 identifies an issued stage, partition, plan epoch, task attempt, and Worker. `reportState`
 and `reportSequence` identify the measured snapshot. The attempt includes measured output
@@ -293,8 +298,9 @@ Use `afterVersion=0` when starting a targeted wait without a prior status read.
 Timeout returns the current snapshot. The Coordinator
 allows one pending wait per observer, principal and query, with additional
 principal, tenant and process limits. A request on a different Coordinator
-receives `QUERY_OWNER_UNAVAILABLE`. Use the plain `GET /v1/query/{queryId}/state`
-for diagnostic reads. State, wait, and cancellation requests are scoped to the
+receives `QUERY_OWNER_UNAVAILABLE`. Use `GET /v1/query/{queryId}/state?history=true`
+for a journal lookup. Ordinary state reads use the local query projection.
+State, wait, and cancellation requests are scoped to the
 submitting principal. Historical diagnostics verify the original journal admission
 and return only `query_id` and the recorded `state`. The journal does not retain
 result disposition or endpoint authority, so historical responses omit

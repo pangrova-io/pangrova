@@ -2,6 +2,7 @@ package org.pangrova.query.profiling;
 
 import org.pangrova.query.api.audit.QueryAuditRecord;
 import org.pangrova.query.audit.QueryAuditService;
+import org.pangrova.query.lifecycle.QueryStateMachine;
 
 import java.util.List;
 import java.util.Optional;
@@ -22,10 +23,22 @@ public final class QueryProfileService {
         this.operatorStats = operatorStats;
     }
 
-    /** Retrieves the structured profile for the exact submitting principal. */
+    /** Retrieves a durable profile for the exact submitting principal. */
     public Optional<QueryProfile> getProfile(String queryId, String principal) {
         if (principal == null || principal.isBlank()) return Optional.empty();
         return auditService.findByQueryId(queryId, principal).map(this::buildProfile);
+    }
+
+    /** Observes the local query, or reads durable audit history when explicitly requested. */
+    public Optional<QueryProfile> getVisibleProfile(String queryId, String principal, QueryStateMachine owner,
+            boolean history) {
+        if (owner != null && !owner.isOwnedBy(principal)) {
+            return Optional.empty();
+        }
+        if (history) {
+            return getProfile(queryId, principal);
+        }
+        return owner == null ? Optional.empty() : owner.terminalAudit().map(this::buildProfile);
     }
 
     private QueryProfile buildProfile(QueryAuditRecord record) {

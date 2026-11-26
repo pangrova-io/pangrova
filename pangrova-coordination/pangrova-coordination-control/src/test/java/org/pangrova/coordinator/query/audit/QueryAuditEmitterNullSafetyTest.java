@@ -1,6 +1,8 @@
 package org.pangrova.coordinator.query.audit;
 
 import org.pangrova.query.audit.QueryAuditEmitter;
+import org.pangrova.query.api.audit.QueryAuditRecord;
+import org.pangrova.query.api.enums.QueryState;
 
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -8,6 +10,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import org.pangrova.query.api.session.QuerySession;
 import org.junit.jupiter.api.Test;
 
+import java.time.Instant;
 import java.util.Map;
 
 /**
@@ -22,9 +25,11 @@ class QueryAuditEmitterNullSafetyTest {
 
         assertThatCode(() -> emitter.emitQuerySubmitted("q-1", "SELECT 1", session))
                 .doesNotThrowAnyException();
-        assertThatCode(() -> emitter.emitQueryCompleted("q-1", 100L, new QueryAuditEmitter.AuditSubject("anonymous", null)))
+        assertThatCode(() -> emitter.emitQueryTerminal(QueryState.FINISHED,
+                QueryAuditRecord.wallTimeOnly("q-1", "anonymous", null, null, 100, Instant.now(), true), null))
                 .doesNotThrowAnyException();
-        assertThatCode(() -> emitter.emitQueryFailed("q-1", "error", 50L, new QueryAuditEmitter.AuditSubject("anonymous", null)))
+        assertThatCode(() -> emitter.emitQueryTerminal(QueryState.FAILED,
+                QueryAuditRecord.wallTimeOnly("q-1", "anonymous", null, null, 50, Instant.now(), false), "error"))
                 .doesNotThrowAnyException();
         assertThatCode(() -> emitter.emitTableAccessed("q-1", "cat", "sch", "tbl", session))
                 .doesNotThrowAnyException();
@@ -36,7 +41,8 @@ class QueryAuditEmitterNullSafetyTest {
 
         assertThatCode(() -> emitter.emitQuerySubmitted("q-2", "SELECT 2", null))
                 .doesNotThrowAnyException();
-        assertThatCode(() -> emitter.emitQueryCompleted("q-2", 200L, new QueryAuditEmitter.AuditSubject("anonymous", null)))
+        assertThatCode(() -> emitter.emitQueryTerminal(QueryState.FINISHED,
+                QueryAuditRecord.wallTimeOnly("q-2", "anonymous", null, null, 200, Instant.now(), true), null))
                 .doesNotThrowAnyException();
     }
 

@@ -3,9 +3,11 @@ package org.pangrova.server.coordinator.http.endpoint;
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
 import jakarta.ws.rs.GET;
+import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.container.ContainerRequestContext;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
@@ -63,18 +65,15 @@ public final class WebUiResource {
     @GET
     @Path("/queries/{queryId}/profile")
     public Response getQueryProfile(@PathParam("queryId") String queryId,
+            @QueryParam("history") @DefaultValue("false") boolean history,
             @Context ContainerRequestContext requestContext) {
         if (queryProfileService == null) {
             return Response.status(Response.Status.SERVICE_UNAVAILABLE)
                     .entity(Map.of("error", "Profile service not available"))
                     .build();
         }
-        var owner = queryManager.getStateMachine(queryId);
-        String principal = AuthenticationFilter.queryPrincipal(requestContext);
-        if (owner != null && !owner.isOwnedBy(principal)) {
-            return profileNotFound(queryId);
-        }
-        return queryProfileService.getProfile(queryId, principal)
+        return queryProfileService.getVisibleProfile(queryId, AuthenticationFilter.queryPrincipal(requestContext),
+                        queryManager.getStateMachine(queryId), history)
                 .map(profile -> Response.ok(profile).build()).orElseGet(() -> profileNotFound(queryId));
     }
 

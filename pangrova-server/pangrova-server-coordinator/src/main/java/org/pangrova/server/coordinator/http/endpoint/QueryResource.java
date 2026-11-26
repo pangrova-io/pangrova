@@ -129,22 +129,28 @@ public final class QueryResource {
                               @QueryParam("afterVersion") @DefaultValue("-1") long afterVersion,
                               @QueryParam("waitMs") @DefaultValue("0") long waitMillis,
                               @QueryParam("until") @DefaultValue("NEXT_VERSION") QueryWaitTarget target,
+                              @QueryParam("history") @DefaultValue("false") boolean history,
                               @HeaderParam("X-Pangrova-Query-Observer") String observer,
                               @Context ContainerRequestContext requestContext,
                               @Suspended AsyncResponse response) {
         if (afterVersion < -1 || waitMillis < 0 || waitMillis > QueryStatusResponse.MAX_WAIT_MILLIS
                 || (waitMillis > 0 && (afterVersion < 0 || observer == null
-                        || observer.length() != OBSERVER_UUID_LENGTH))) {
+                        || observer.length() != OBSERVER_UUID_LENGTH))
+                || (history && (afterVersion != -1 || waitMillis != 0 || target != QueryWaitTarget.NEXT_VERSION))) {
             throw new IllegalArgumentException("Invalid query status wait parameters");
         }
         String principal = AuthenticationFilter.queryPrincipal(requestContext);
         QueryStateMachine owner = queryManager.getStateMachine(queryId);
-        if (owner == null) {
-            resumeWithoutOwner(queryId, principal, afterVersion, response);
+        if (owner != null && !owner.isOwnedBy(principal)) {
+            response.resume(queryNotFound(queryId));
             return;
         }
-        if (!owner.isOwnedBy(principal)) {
-            response.resume(queryNotFound(queryId));
+        if (history) {
+            response.resume(historicalStatus(queryId, principal));
+            return;
+        }
+        if (owner == null) {
+            response.resume(afterVersion >= 0 ? ownerUnavailable() : queryNotFound(queryId));
             return;
         }
         var current = owner.status();
@@ -156,21 +162,17 @@ public final class QueryResource {
                 owner, target, afterVersion, waitMillis, response, status -> statusResponse(queryId, status));
     }
 
-    private void resumeWithoutOwner(String queryId, String principal, long afterVersion, AsyncResponse response) {
-        if (afterVersion >= 0) {
-            response.resume(Response.status(Response.Status.NOT_FOUND)
-                    .entity(new ErrorDetail("QUERY_OWNER_UNAVAILABLE", null,
-                            "Live query owner is unavailable on this coordinator"))
-                    .build());
-            return;
-        }
-        Optional<QueryState> state = queryManager.getHistoricalQueryState(queryId, principal);
-        if (state.isPresent()) {
-            response.resume(Response.ok(QueryStatusResponse.historical(
-                    queryId, state.get().name())).build());
-        } else {
-            response.resume(queryNotFound(queryId));
-        }
+    private Response historicalStatus(String queryId, String principal) {
+        return queryManager.getHistoricalQueryState(queryId, principal)
+                .map(state -> Response.ok(QueryStatusResponse.historical(queryId, state.name())).build())
+                .orElseGet(() -> queryNotFound(queryId));
+    }
+
+    private static Response ownerUnavailable() {
+        return Response.status(Response.Status.NOT_FOUND)
+                .entity(new ErrorDetail("QUERY_OWNER_UNAVAILABLE", null,
+                        "Live query owner is unavailable on this coordinator"))
+                .build();
     }
 
     private static Response queryNotFound(String queryId) {
@@ -247,6 +249,7 @@ public final class QueryResource {
     @Path("/profile/{queryId}/json")
     @Produces(MediaType.APPLICATION_JSON)
     public Response getProfileJson(@PathParam("queryId") String queryId,
+            @QueryParam("history") @DefaultValue("false") boolean history,
             @Context ContainerRequestContext requestContext) {
         if (queryProfileService == null) {
             return Response.status(Response.Status.NOT_FOUND)
@@ -254,12 +257,8 @@ public final class QueryResource {
                             "Query profile service not available"))
                     .build();
         }
-        var owner = queryManager.getStateMachine(queryId);
-        String principal = AuthenticationFilter.queryPrincipal(requestContext);
-        if (owner != null && !owner.isOwnedBy(principal)) {
-            return profileNotFound(queryId);
-        }
-        return queryProfileService.getProfile(queryId, principal)
+        return queryProfileService.getVisibleProfile(queryId, AuthenticationFilter.queryPrincipal(requestContext),
+                        queryManager.getStateMachine(queryId), history)
                 .map(profile -> Response.ok(profile).build()).orElseGet(() -> profileNotFound(queryId));
     }
 

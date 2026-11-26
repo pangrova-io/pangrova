@@ -78,7 +78,10 @@ class CoordinatorQueryStatusWaitHttpTest {
             var ownerMiss = peer.waitFor("q-peer", 0, 40, observer).get(4, TimeUnit.SECONDS);
             assertThat(ownerMiss.statusCode()).isEqualTo(404);
             assertThat(ownerMiss.body()).contains("QUERY_OWNER_UNAVAILABLE");
-            HttpResponse<String> historicalResponse = peer.get("/v1/query/q-peer/state");
+            assertThat(peer.get("/v1/query/q-peer/state").statusCode()).isEqualTo(404);
+            assertThat(peer.get("/v1/query/q-peer/state?history=true&afterVersion=0").statusCode())
+                    .isEqualTo(400);
+            HttpResponse<String> historicalResponse = peer.get("/v1/query/q-peer/state?history=true");
             assertThat(historicalResponse.statusCode()).isEqualTo(200);
             QueryStatusResponse history = JsonMapperFactory.shared().readValue(
                     historicalResponse.body(), QueryStatusResponse.class);

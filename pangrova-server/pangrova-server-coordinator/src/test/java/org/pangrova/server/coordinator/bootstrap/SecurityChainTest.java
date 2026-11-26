@@ -180,7 +180,8 @@ class SecurityChainTest extends ContainerTestBase {
                 assertThat(bootstrap.getQueryManager().getActiveQueryIds()).doesNotContain(queryId));
 
         // The real terminal-event sink and HTTP profile endpoint must share this bootstrap's store.
-        var profile = sendGet(bootstrap.getHttpPort(), "/v1/query/profile/" + queryId + "/json");
+        String history = "/v1/query/profile/" + queryId + "/json?history=true";
+        var profile = sendGet(bootstrap.getHttpPort(), history);
         assertThat(profile.statusCode()).as(profile.body()).isEqualTo(200);
         var json = MAPPER.readTree(profile.body());
         assertThat(json.path("queryId").asText()).isEqualTo(queryId);
@@ -188,7 +189,7 @@ class SecurityChainTest extends ContainerTestBase {
 
         // A subsequent Coordinator in the same JVM owns fresh state, even for the same query id.
         startSecurityBootstrap("coord-audit-replacement");
-        assertThat(sendGet(bootstrap.getHttpPort(), "/v1/query/profile/" + queryId + "/json").statusCode())
+        assertThat(sendGet(bootstrap.getHttpPort(), history).statusCode())
                 .isEqualTo(404);
     }
 

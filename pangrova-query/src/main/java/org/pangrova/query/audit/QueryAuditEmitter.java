@@ -3,6 +3,7 @@ package org.pangrova.query.audit;
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.query.api.audit.QueryAuditRecord;
 import org.pangrova.query.api.audit.QueryAuditSink;
+import org.pangrova.query.api.enums.QueryState;
 import org.pangrova.security.api.audit.AccessedObject;
 import org.pangrova.security.api.audit.AuditEvent;
 import org.pangrova.security.api.audit.AuditEventWriter;
@@ -23,8 +24,8 @@ import org.slf4j.LoggerFactory;
 public final class QueryAuditEmitter {
 
     /** Bounded attribution metadata, never a retained authentication token or session-property map. */
-    public record AuditSubject(String principal, String tenantId) {
-        public AuditSubject {
+    private record AuditSubject(String principal, String tenantId) {
+        private AuditSubject {
             java.util.Objects.requireNonNull(principal, "principal");
         }
     }
@@ -61,40 +62,26 @@ public final class QueryAuditEmitter {
                 true, null, 0));
     }
 
-    /** Emits completion with the query-owned submitting identity and resolved tenant. */
-    public void emitQueryCompleted(String queryId, long durationMs, AuditSubject subject) {
-        emitQueryCompleted(queryId, durationMs, subject, null);
-    }
-
-    /** Emits completion and persists the submitted SQL with the durable record. */
-    public void emitQueryCompleted(String queryId, long durationMs, AuditSubject subject, String sql) {
-        emitTerminal(AuditEventType.QUERY_COMPLETED, queryId, durationMs, subject, sql, null);
-    }
-
-    /** Emits failure with the same attribution as the query, including anonymous rejection. */
-    public void emitQueryFailed(String queryId, String errorMessage, long durationMs, AuditSubject subject) {
-        emitQueryFailed(queryId, errorMessage, durationMs, subject, null);
-    }
-
-    /** Emits failure and persists the submitted SQL with the durable record. */
-    public void emitQueryFailed(String queryId, String errorMessage, long durationMs,
-                                AuditSubject subject, String sql) {
-        emitTerminal(AuditEventType.QUERY_FAILED, queryId, durationMs, subject, sql, errorMessage);
-    }
-
-    /** Records the cancellation decision while physical task cleanup may still be in flight. */
-    public void emitQueryCancelled(String queryId, long durationMs, AuditSubject subject, String sql) {
-        emitTerminal(AuditEventType.QUERY_CANCELLED, queryId, durationMs, subject, sql, null);
-    }
-
-    private void emitTerminal(AuditEventType type, String queryId, long durationMs,
-                              AuditSubject subject, String sql, String errorMessage) {
-        java.util.Objects.requireNonNull(subject, "subject");
-        boolean success = type == AuditEventType.QUERY_COMPLETED;
-        if (events != null) {
-            events.write(buildEvent(type, queryId, null, subject, success, errorMessage, durationMs));
+    /** Publishes the query owner's frozen terminal audit record. */
+    public void emitQueryTerminal(QueryState state, QueryAuditRecord record, String errorMessage) {
+        AuditEventType type = switch (state) {
+            case FINISHED -> AuditEventType.QUERY_COMPLETED;
+            case FAILED -> AuditEventType.QUERY_FAILED;
+            case CANCELLED -> AuditEventType.QUERY_CANCELLED;
+            default -> throw new IllegalArgumentException("Query audit requires a terminal state");
+        };
+        java.util.Objects.requireNonNull(record, "record");
+        if (record.success() != (state == QueryState.FINISHED)) {
+            throw new IllegalArgumentException("Audit record outcome does not match the query state");
         }
-        persistAuditRecord(queryId, durationMs, success, subject, sql);
+        if (events != null) {
+            var subject = new AuditSubject(record.userId(), record.tenantId());
+            events.write(buildEvent(type, record.queryId(), null, subject, record.success(), errorMessage,
+                    record.wallTimeMs()));
+        }
+        if (auditService != null) {
+            auditService.persist(record);
+        }
     }
 
     /** Emits table access after the caller has resolved the catalog, schema and identity. */
@@ -110,18 +97,6 @@ public final class QueryAuditEmitter {
                 List.of(new AccessedObject("TABLE", catalog, schema, table, List.of(), "SELECT")),
                 true, null, 0, 0, 0, Map.of());
         events.write(event);
-    }
-
-    private void persistAuditRecord(String queryId, long durationMs, boolean success,
-                                    AuditSubject subject, String sql) {
-        if (auditService == null) {
-            return;
-        }
-        QueryAuditRecord record = new QueryAuditRecord(
-                queryId, subject.principal(), sql, subject.tenantId(), 0, 0,
-                0, durationMs, 0, 0, 0, 0, 0, 0, 0, 0,
-                Instant.now(), success);
-        auditService.persist(record);
     }
 
     private static AuditEvent buildEvent(AuditEventType type, String queryId,

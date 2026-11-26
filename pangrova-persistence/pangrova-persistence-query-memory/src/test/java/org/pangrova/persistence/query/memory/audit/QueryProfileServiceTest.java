@@ -3,7 +3,9 @@ package org.pangrova.persistence.query.memory.audit;
 import org.pangrova.query.profiling.OperatorStatsSource;
 import org.pangrova.query.profiling.QueryProfileService;
 import org.pangrova.query.api.audit.QueryAuditRecord;
+import org.pangrova.query.api.enums.QueryState;
 import org.pangrova.query.audit.QueryAuditService;
+import org.pangrova.query.lifecycle.QueryStateMachine;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -19,6 +21,28 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * and verifies structured JSON output with measured attempts, timing, and memory.
  */
 class QueryProfileServiceTest {
+
+    @Test
+    void observesOneFrozenOwnerRecordAndOnlyReadsHistoryExplicitly() {
+        var audit = new QueryAuditService(new InMemoryQueryAuditStore());
+        var service = new QueryProfileService(audit);
+        var owner = new QueryStateMachine(false, "alice");
+        owner.bindSql("SELECT 1");
+        assertThat(owner.tryTransition(QueryState.CANCELLED)).isTrue();
+        var record = owner.freezeTerminalAudit("q");
+        assertThat(owner.freezeTerminalAudit("q")).isSameAs(record);
+        var profile = service.getVisibleProfile("q", "alice", owner, false).orElseThrow();
+        assertThat(profile.sql()).isEqualTo("SELECT 1");
+        assertThat(profile.success()).isFalse();
+        assertThat(profile.timing().totalWallMs()).isEqualTo(record.wallTimeMs());
+        assertThat(service.getVisibleProfile("q", "bob", owner, false)).isEmpty();
+        assertThat(service.getVisibleProfile("q", "alice", owner, true)).isEmpty();
+
+        audit.persist(record);
+        assertThat(service.getVisibleProfile("q", "alice", null, false)).isEmpty();
+        assertThat(service.getVisibleProfile("q", "alice", null, true)).contains(profile);
+        assertThat(service.getVisibleProfile("q", "bob", null, true)).isEmpty();
+    }
 
     @Test
     void profileCopiesInputCollectionsAndExposesOnlyImmutableLists() {

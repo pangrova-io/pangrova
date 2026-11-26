@@ -70,7 +70,7 @@ final class QueryAuditDispatcher implements org.pangrova.query.lifecycle.QueryAu
     public void emitAuditCompleted(String queryId, QueryStateMachine state) {
         emitTerminal(queryId, state, QueryState.FINISHED, Optional.empty());
         if (auditEmitter != null) {
-            auditEmitter.emitQueryCompleted(queryId, state.getDurationMs(), subject(state), state.getSql());
+            auditEmitter.emitQueryTerminal(QueryState.FINISHED, state.freezeTerminalAudit(queryId), null);
         }
     }
 
@@ -79,7 +79,7 @@ final class QueryAuditDispatcher implements org.pangrova.query.lifecycle.QueryAu
         String message = error == null ? "unknown" : error.message();
         emitTerminal(queryId, state, QueryState.FAILED, Optional.of(message));
         if (auditEmitter != null) {
-            auditEmitter.emitQueryFailed(queryId, message, state.getDurationMs(), subject(state), state.getSql());
+            auditEmitter.emitQueryTerminal(QueryState.FAILED, state.freezeTerminalAudit(queryId), message);
         }
     }
 
@@ -87,7 +87,7 @@ final class QueryAuditDispatcher implements org.pangrova.query.lifecycle.QueryAu
     public void emitAuditCancelled(String queryId, QueryStateMachine state) {
         emitTerminal(queryId, state, QueryState.CANCELLED, Optional.empty());
         if (auditEmitter != null) {
-            auditEmitter.emitQueryCancelled(queryId, state.getDurationMs(), subject(state), state.getSql());
+            auditEmitter.emitQueryTerminal(QueryState.CANCELLED, state.freezeTerminalAudit(queryId), null);
         }
     }
 
@@ -160,10 +160,6 @@ final class QueryAuditDispatcher implements org.pangrova.query.lifecycle.QueryAu
         events.fireQueryCompleted(new QueryCompletedEvent(queryId, null, state.getAuditPrincipal(), finalState,
                 state.getCreatedAt().toEpochMilli(), fact == null ? System.currentTimeMillis() : fact.timestampMs(),
                 QueryStatistics.wallTimeOnly(state.getDurationMs()), error, state.lineageMetadata()));
-    }
-
-    private static QueryAuditEmitter.AuditSubject subject(QueryStateMachine state) {
-        return new QueryAuditEmitter.AuditSubject(state.getAuditPrincipal(), state.getTenantId());
     }
 
     public static QueryAuditEmitter createAuditEmitter(AuditEventEmitter emitter,
