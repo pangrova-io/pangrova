@@ -138,7 +138,8 @@ public class SecurityPolicyApplier {
     public PlannedQuery compileAndApplyPolicies(String sql, QuerySession session,
                                                 SqlCompiler compilerSnapshot) {
         SqlCompiler compiler = compilerSnapshot.forSession(
-                org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(session));
+                org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(session),
+                session.publicationRevision());
         PlannedQuery query = compiler.compileForPolicyApplication(sql).toPlannedQuery();
         return compiler.optimizeProtectedQuery(applyPoliciesObserved(query, session).plan());
     }
@@ -159,7 +160,8 @@ public class SecurityPolicyApplier {
     public ExplainCompilation compileForExplain(String sql, QuerySession session,
             boolean timeTravel) {
         SqlCompiler compiler = compilerHolder.compiler().forSession(
-                org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(session));
+                org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(session),
+                session.publicationRevision());
         PlannedQuery query = compiler.compileForPolicyApplication(sql).toPlannedQuery();
         ObservedPlan observed = applyPoliciesObserved(query, session);
         boolean allowRewrite = !timeTravel && observed.policies().isEmpty();

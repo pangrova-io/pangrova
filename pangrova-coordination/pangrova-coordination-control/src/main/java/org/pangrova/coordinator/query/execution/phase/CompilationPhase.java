@@ -103,7 +103,7 @@ public final class CompilationPhase implements QueryExecutionPhase {
         Map<String, Long> overrides = timeTravel == null ? Map.of() : timeTravel.snapshotOverrides();
         SqlCompiler currentCompiler = snapshot.forSession(overrides.isEmpty() ? session
                 : org.pangrova.planner.metadata.catalog.PlanningSnapshotSelectors.bind(
-                        session, overrides, timeTravel.discoveries()));
+                        session, overrides, timeTravel.discoveries()), context.session().publicationRevision());
 
         // Schema, name caches and statistics belong to this authenticated query.
         // Authorize and transform expressions before optimization; policy results must never be cached.

@@ -47,7 +47,7 @@ public final class JdbcMaterializationCatalog implements MaterializationCatalog 
 
     private static final String PUBLISHED_SELECT =
             "SELECT o.tenant_id, o.object_name, o.object_kind, o.published_generation_id, "
-                    + "o.definition_revision, g.physical_catalog, g.physical_schema, "
+                    + "g.definition_revision, g.physical_catalog, g.physical_schema, "
                     + "g.physical_table, g.refresh_kind, g.source_vector, g.published_at, "
                     + "d.definition_sql, d.output_schema, d.sources, d.resolved "
                     + "FROM materialization.objects o "
