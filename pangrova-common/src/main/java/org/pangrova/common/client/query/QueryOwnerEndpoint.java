@@ -1,5 +1,6 @@
 package org.pangrova.common.client.query;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.net.URI;
@@ -10,8 +11,15 @@ public record QueryOwnerEndpoint(
         @JsonProperty("coordinator_id") String coordinatorId,
         @JsonProperty("incarnation") String incarnation,
         @JsonProperty("host") String host,
-        @JsonProperty("port") int port) {
+        @JsonProperty("port") int port,
+        @JsonInclude(JsonInclude.Include.NON_NULL) @JsonProperty("route_ticket") String routeTicket) {
+    /** Header carrying the original owner's routing ticket through a shared HTTP ingress. */
+    public static final String ROUTE_HEADER = "X-Pangrova-Query-Route";
     private static final int MAX_PORT = 65_535;
+
+    public QueryOwnerEndpoint(String coordinatorId, String incarnation, String host, int port) {
+        this(coordinatorId, incarnation, host, port, null);
+    }
 
     public QueryOwnerEndpoint {
         if (coordinatorId == null || coordinatorId.isBlank() || incarnation == null || incarnation.isBlank()) {

@@ -66,8 +66,14 @@ public final class SignedOidcIssuer implements AutoCloseable {
 
     /** Creates a signed token, or an explicitly unsigned negative-test input. */
     public String token(String audience, boolean signed) throws Exception {
+        return token(audience, signed, "alice");
+    }
+
+    /** Creates a token for an explicit submitting principal. */
+    public String token(String audience, boolean signed, String subject) throws Exception {
         String header = signed ? "{\"alg\":\"RS256\",\"kid\":\"bootstrap-key\"}" : "{\"alg\":\"none\"}";
-        String payload = "{\"iss\":\"" + uri() + "\",\"sub\":\"alice\",\"aud\":\"" + audience
+        String payload = "{\"iss\":\"" + uri() + "\",\"sub\":"
+                + org.pangrova.common.json.JsonMapperFactory.writer().writeValueAsString(subject) + ",\"aud\":\"" + audience
                 + "\",\"groups\":[\"directory-analysts\"],\"exp\":" + Instant.now().plusSeconds(3600).getEpochSecond() + "}";
         String input = encode(header.getBytes(StandardCharsets.UTF_8)) + "."
                 + encode(payload.getBytes(StandardCharsets.UTF_8));

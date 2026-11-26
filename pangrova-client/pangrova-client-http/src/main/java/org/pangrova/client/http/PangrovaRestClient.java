@@ -146,10 +146,11 @@ public final class PangrovaRestClient implements QueryClient, AutoCloseable {
      * Cancels a running query.
      */
     public CancelOutcome cancelQuery(String queryId) {
-        return cancelQuery(queryId, routing.current(), false);
+        return cancelQuery(queryId, routing.current(), false, null);
     }
 
-    private CancelOutcome cancelQuery(String queryId, EndpointRouting.Selection selection, boolean ownerBound) {
+    private CancelOutcome cancelQuery(String queryId, EndpointRouting.Selection selection, boolean ownerBound,
+            String routeTicket) {
         if (queryId == null || queryId.isBlank()) {
             throw new IllegalArgumentException("Query cancellation requires its query identity");
         }
@@ -160,9 +161,16 @@ public final class PangrovaRestClient implements QueryClient, AutoCloseable {
                 .header("Content-Type", "application/json")
                 .header("Accept", "application/json");
         addRequestHeaders(builder);
+        addRouteTicket(builder, routeTicket);
         var request = routing.bind(selection, builder.build());
         HttpResponse<String> response = ownerBound ? executor.execute(request) : executor.executeWithRetry(request);
         return parseCancelOutcome(response, queryId);
+    }
+
+    private static void addRouteTicket(HttpRequest.Builder builder, String routeTicket) {
+        if (routeTicket != null) {
+            builder.header(org.pangrova.common.client.query.QueryOwnerEndpoint.ROUTE_HEADER, routeTicket);
+        }
     }
 
     private CancelOutcome parseCancelOutcome(HttpResponse<String> response, String queryId) {
@@ -280,12 +288,14 @@ public final class PangrovaRestClient implements QueryClient, AutoCloseable {
     private final class OwnerQuery implements QueryExecution {
         private final SubmitQueryResponse receipt;
         private final EndpointRouting.Selection selection;
+        private final String routeTicket;
         private final String observer = java.util.UUID.randomUUID().toString();
         private Long version;
 
         OwnerQuery(SubmitQueryResponse receipt, EndpointRouting.Selection selection) {
             this.receipt = receipt;
             this.selection = selection;
+            this.routeTicket = routing.routeTicket(selection, receipt.ownerEndpoint());
         }
 
         @Override
@@ -312,6 +322,7 @@ public final class PangrovaRestClient implements QueryClient, AutoCloseable {
                     .header("Accept", "application/json")
                     .header("X-Pangrova-Query-Observer", observer);
             addRequestHeaders(builder);
+            addRouteTicket(builder, routeTicket);
             HttpResponse<String> response;
             try {
                 response = executor.execute(routing.bind(selection, builder.build()));
@@ -347,7 +358,7 @@ public final class PangrovaRestClient implements QueryClient, AutoCloseable {
 
         @Override
         public CancelOutcome cancel() {
-            return cancelQuery(receipt.queryId(), selection, true);
+            return cancelQuery(receipt.queryId(), selection, true, routeTicket);
         }
     }
 

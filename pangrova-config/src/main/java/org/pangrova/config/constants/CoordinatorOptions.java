@@ -76,6 +76,12 @@ public final class CoordinatorOptions {
                             + "production requires at least 32 UTF-8 bytes")
                     .build();
 
+    public static final ConfigOption<String> QUERY_PEER_KEY =
+            ConfigOptions.key("coordinator.query-peer-key")
+                    .stringType()
+                    .withDescription("Coordinator-only signing key for query owner forwarding")
+                    .build();
+
     public static final ConfigOption<Boolean> TRANSPORT_TLS_ENABLED =
             ConfigOptions.key("coordinator.transport.tls.enabled")
                     .booleanType()

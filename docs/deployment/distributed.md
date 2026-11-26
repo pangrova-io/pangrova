@@ -368,6 +368,14 @@ observability:
 > `metadata.jdbc-password` from `PANGROVA_DB_USERNAME` / `PANGROVA_DB_PASSWORD`;
 > configure both (or an equivalent credential provider) before startup.
 
+For SDK clients sharing a single HTTP ingress, enable query peer routing with
+`coordinator.query-peer-key: "${PANGROVA_QUERY_PEER_KEY}"` on every query-serving
+Coordinator. Use the same random key of at least 32 UTF-8 bytes on those
+Coordinators, a different key from the Worker service credential, and a client
+authenticator. Make the advertised Coordinator host and actual HTTP port
+reachable from peer Coordinators on the private network and synchronize their
+clocks. The peer protocol authenticates requests and responses over that network.
+
 
 ### 4.3 JVM Configuration
 

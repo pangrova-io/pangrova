@@ -9,6 +9,8 @@ import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.container.ContainerRequestContext;
+import jakarta.ws.rs.container.AsyncResponse;
+import jakarta.ws.rs.container.Suspended;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
@@ -40,12 +42,15 @@ public final class WebUiResource {
     private final QueryManager queryManager;
     private final WorkerManager workerManager;
     private final QueryProfileService queryProfileService;
+    private final QueryResource queries;
 
+    /** Exposes local dashboard data and the query peer route for profile requests. */
     public WebUiResource(QueryManager queryManager, WorkerManager workerManager,
-                         QueryProfileService queryProfileService) {
+                         QueryProfileService queryProfileService, QueryResource queries) {
         this.queryManager = checkNotNull(queryManager, "queryManager must not be null");
         this.workerManager = workerManager;
         this.queryProfileService = queryProfileService;
+        this.queries = queries;
     }
 
     /** Lists active queries submitted by the caller. */
@@ -64,17 +69,23 @@ public final class WebUiResource {
     /** Returns the stored profile for a query, or an error when unavailable. */
     @GET
     @Path("/queries/{queryId}/profile")
-    public Response getQueryProfile(@PathParam("queryId") String queryId,
+    public void getQueryProfile(@PathParam("queryId") String queryId,
             @QueryParam("history") @DefaultValue("false") boolean history,
-            @Context ContainerRequestContext requestContext) {
+            @Context ContainerRequestContext requestContext, @Suspended AsyncResponse response) {
         if (queryProfileService == null) {
-            return Response.status(Response.Status.SERVICE_UNAVAILABLE)
+            response.resume(Response.status(Response.Status.SERVICE_UNAVAILABLE)
                     .entity(Map.of("error", "Profile service not available"))
-                    .build();
+                    .build());
+            return;
         }
-        return queryProfileService.getVisibleProfile(queryId, AuthenticationFilter.queryPrincipal(requestContext),
-                        queryManager.getStateMachine(queryId), history)
-                .map(profile -> Response.ok(profile).build()).orElseGet(() -> profileNotFound(queryId));
+        String principal = AuthenticationFilter.queryPrincipal(requestContext);
+        var owner = queryManager.getStateMachine(queryId);
+        if (!history && owner == null && queries != null && queries.relay(queryId, principal,
+                QueryPeerRouting.Operation.PROFILE, null, requestContext, response)) {
+            return;
+        }
+        response.resume(queryProfileService.getVisibleProfile(queryId, principal, owner, history)
+                .map(profile -> Response.ok(profile).build()).orElseGet(() -> profileNotFound(queryId)));
     }
 
     private static Response profileNotFound(String queryId) {

@@ -37,6 +37,8 @@ import org.pangrova.common.client.query.SubmitQueryRequest;
 import org.pangrova.common.client.query.SubmitQueryResponse;
 import org.pangrova.security.api.exception.AuthenticationRequiredException;
 import org.pangrova.security.api.identity.UserIdentity;
+import org.pangrova.server.coordinator.http.endpoint.QueryPeerRouting.Observation;
+import org.pangrova.server.coordinator.http.endpoint.QueryPeerRouting.Operation;
 
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
@@ -64,18 +66,20 @@ public final class QueryResource {
     private final QueryProfileService queryProfileService;
     private final QueryStatusWaits statusWaits;
     private final Supplier<QueryOwnerEndpoint> ownerEndpoint;
+    private final QueryPeerRouting queryPeers;
 
     /** Creates a resource wiring query lifecycle, profiling, and idempotency components. */
     public QueryResource(QueryManager queryManager, ProfilerEndpoint profilerEndpoint,
                          QueryProfileService queryProfileService,
                          ExecutionTraceContextFactory traceContexts, QueryStatusWaits statusWaits,
-                         Supplier<QueryOwnerEndpoint> ownerEndpoint) {
+                         Supplier<QueryOwnerEndpoint> ownerEndpoint, QueryPeerRouting queryPeers) {
         this.traceContexts = java.util.Objects.requireNonNull(traceContexts, "traceContexts");
         this.queryManager = checkNotNull(queryManager, "queryManager must not be null");
         this.profilerEndpoint = profilerEndpoint;
         this.queryProfileService = queryProfileService;
         this.statusWaits = java.util.Objects.requireNonNull(statusWaits, "statusWaits");
         this.ownerEndpoint = java.util.Objects.requireNonNull(ownerEndpoint, "ownerEndpoint");
+        this.queryPeers = queryPeers;
     }
 
     /** Submits a new query, deduplicating retries when an Idempotency-Key is supplied. */
@@ -87,6 +91,10 @@ public final class QueryResource {
         UserIdentity identity = extractUserIdentity(requestContext);
         String key = requestContext == null ? null : requestContext.getHeaderString("Idempotency-Key");
         QueryOwnerEndpoint localOwner = ownerEndpoint.get();
+        String queryId = UUID.randomUUID().toString();
+        if (queryPeers != null && identity != null) {
+            localOwner = queryPeers.issue(localOwner, queryId, identity.principal());
+        }
         CompletionStage<SubmitQueryResponse> receipt;
         if (key != null && !key.isBlank()) {
             if (identity == null || identity.principal() == null || identity.principal().isBlank()) {
@@ -94,9 +102,9 @@ public final class QueryResource {
             }
             var acceptance = new QueryAcceptanceRequest(identity.principal(),
                     QueryRequestFingerprint.keyDigest(key), QueryRequestFingerprint.request(request), localOwner);
-            receipt = doSubmit(UUID.randomUUID().toString(), request, identity, acceptance, localOwner);
+            receipt = doSubmit(queryId, request, identity, acceptance, localOwner);
         } else {
-            receipt = doSubmit(UUID.randomUUID().toString(), request, identity, null, localOwner);
+            receipt = doSubmit(queryId, request, identity, null, localOwner);
         }
         receipt.whenComplete((result, failure) -> {
             if (failure == null) {
@@ -140,33 +148,66 @@ public final class QueryResource {
                               @HeaderParam("X-Pangrova-Query-Observer") String observer,
                               @Context ContainerRequestContext requestContext,
                               @Suspended AsyncResponse response) {
-        if (afterVersion < -1 || waitMillis < 0 || waitMillis > QueryStatusResponse.MAX_WAIT_MILLIS
-                || (waitMillis > 0 && (afterVersion < 0 || observer == null
-                        || observer.length() != OBSERVER_UUID_LENGTH))
-                || (history && (afterVersion != -1 || waitMillis != 0 || target != QueryWaitTarget.NEXT_VERSION))) {
-            throw new IllegalArgumentException("Invalid query status wait parameters");
-        }
+        var observation = new Observation(afterVersion, waitMillis, target, observer);
+        validateObservation(observation, history);
         String principal = AuthenticationFilter.queryPrincipal(requestContext);
         QueryStateMachine owner = queryManager.getStateMachine(queryId);
-        if (owner != null && !owner.isOwnedBy(principal)) {
+        if (history) {
+            response.resume(owner != null && !owner.isOwnedBy(principal)
+                    ? queryNotFound(queryId) : historicalStatus(queryId, principal));
+            return;
+        }
+        if (owner == null && relay(queryId, principal, Operation.STATE, observation, requestContext, response)) {
+            return;
+        }
+        observe(queryId, principal, observation, owner, response);
+    }
+
+    private static void validateObservation(Observation observation, boolean history) {
+        long afterVersion = observation.afterVersion();
+        long waitMillis = observation.waitMillis();
+        String observer = observation.observer();
+        if (afterVersion < -1 || waitMillis < 0 || waitMillis > QueryStatusResponse.MAX_WAIT_MILLIS
+                || observation.target() == null
+                || (waitMillis > 0 && (afterVersion < 0 || observer == null
+                        || observer.length() != OBSERVER_UUID_LENGTH))
+                || (history && (afterVersion != -1 || waitMillis != 0
+                        || observation.target() != QueryWaitTarget.NEXT_VERSION))) {
+            throw new IllegalArgumentException("Invalid query status wait parameters");
+        }
+    }
+
+    void observeLocal(String queryId, String principal, Observation observation, AsyncResponse response) {
+        validateObservation(observation, false);
+        observe(queryId, principal, observation, queryManager.getStateMachine(queryId), response);
+    }
+
+    private void observe(String queryId, String principal, Observation observation, QueryStateMachine owner,
+            AsyncResponse response) {
+        if (owner == null) {
+            response.resume(observation.afterVersion() >= 0 ? ownerUnavailable() : queryNotFound(queryId));
+            return;
+        }
+        if (!owner.isOwnedBy(principal)) {
             response.resume(queryNotFound(queryId));
             return;
         }
-        if (history) {
-            response.resume(historicalStatus(queryId, principal));
-            return;
-        }
-        if (owner == null) {
-            response.resume(afterVersion >= 0 ? ownerUnavailable() : queryNotFound(queryId));
-            return;
-        }
         var current = owner.status();
-        if (waitMillis == 0 || current.reaches(target, afterVersion)) {
+        if (observation.waitMillis() == 0 || current.reaches(observation.target(), observation.afterVersion())) {
             response.resume(statusResponse(queryId, current));
             return;
         }
-        statusWaits.suspend(queryId, principal, observer,
-                owner, target, afterVersion, waitMillis, response, status -> statusResponse(queryId, status));
+        statusWaits.suspend(queryId, principal, observation.observer(), owner, observation.target(),
+                observation.afterVersion(), observation.waitMillis(), response,
+                status -> statusResponse(queryId, status));
+    }
+
+    boolean relay(String queryId, String principal, Operation operation, Observation observation,
+            ContainerRequestContext requestContext, AsyncResponse response) {
+        if (queryPeers == null || extractUserIdentity(requestContext) == null) return false;
+        String ticket = requestContext.getHeaderString(QueryOwnerEndpoint.ROUTE_HEADER);
+        return ticket != null && queryPeers.forward(ticket, queryId, principal, ownerEndpoint.get(),
+                operation, observation, response);
     }
 
     private Response historicalStatus(String queryId, String principal) {
@@ -196,10 +237,20 @@ public final class QueryResource {
     /** Requests cancellation of a running query. */
     @POST
     @Path("/{queryId}/cancel")
-    public Response cancelQuery(@PathParam("queryId") String queryId,
-            @Context ContainerRequestContext requestContext) {
+    public void cancelQuery(@PathParam("queryId") String queryId,
+            @Context ContainerRequestContext requestContext, @Suspended AsyncResponse response) {
+        String principal = AuthenticationFilter.queryPrincipal(requestContext);
         var owner = queryManager.getStateMachine(queryId);
-        if (owner == null || !owner.isOwnedBy(AuthenticationFilter.queryPrincipal(requestContext))) {
+        if (owner == null && relay(queryId, principal, Operation.CANCEL, null, requestContext, response)) return;
+        response.resume(cancelLocal(queryId, principal, owner));
+    }
+
+    Response cancelLocal(String queryId, String principal) {
+        return cancelLocal(queryId, principal, queryManager.getStateMachine(queryId));
+    }
+
+    private Response cancelLocal(String queryId, String principal, QueryStateMachine owner) {
+        if (owner == null || !owner.isOwnedBy(principal)) {
             return Response.status(Response.Status.NOT_FOUND)
                     .entity(new CancelResponse(queryId, false, "NOT_FOUND"))
                     .build();
@@ -222,16 +273,28 @@ public final class QueryResource {
     @GET
     @Path("/profile/{queryId}")
     @Produces("image/svg+xml")
-    public Response getProfile(@PathParam("queryId") String queryId,
-            @Context ContainerRequestContext requestContext) {
+    public void getProfile(@PathParam("queryId") String queryId,
+            @Context ContainerRequestContext requestContext, @Suspended AsyncResponse response) {
+        String principal = AuthenticationFilter.queryPrincipal(requestContext);
+        var owner = queryManager.getStateMachine(queryId);
+        if (owner == null
+                && relay(queryId, principal, Operation.FLAME_GRAPH, null, requestContext, response)) {
+            return;
+        }
+        response.resume(flameGraph(queryId, principal, owner));
+    }
+
+    Response flameGraphLocal(String queryId, String principal) {
+        return flameGraph(queryId, principal, queryManager.getStateMachine(queryId));
+    }
+
+    private Response flameGraph(String queryId, String principal, QueryStateMachine owner) {
         if (profilerEndpoint == null) {
             return Response.status(Response.Status.NOT_FOUND)
                     .type(MediaType.APPLICATION_JSON)
                     .entity(new ErrorDetail("NOT_FOUND", "NOT_FOUND", "Profiler not available"))
                     .build();
         }
-        var owner = queryManager.getStateMachine(queryId);
-        String principal = AuthenticationFilter.queryPrincipal(requestContext);
         if (owner != null && !owner.isOwnedBy(principal)) {
             return profileNotFound(queryId);
         }
@@ -255,17 +318,30 @@ public final class QueryResource {
     @GET
     @Path("/profile/{queryId}/json")
     @Produces(MediaType.APPLICATION_JSON)
-    public Response getProfileJson(@PathParam("queryId") String queryId,
+    public void getProfileJson(@PathParam("queryId") String queryId,
             @QueryParam("history") @DefaultValue("false") boolean history,
-            @Context ContainerRequestContext requestContext) {
+            @Context ContainerRequestContext requestContext, @Suspended AsyncResponse response) {
+        String principal = AuthenticationFilter.queryPrincipal(requestContext);
+        var owner = queryManager.getStateMachine(queryId);
+        if (!history && owner == null
+                && relay(queryId, principal, Operation.PROFILE, null, requestContext, response)) {
+            return;
+        }
+        response.resume(jsonProfile(queryId, principal, history, owner));
+    }
+
+    Response jsonProfileLocal(String queryId, String principal) {
+        return jsonProfile(queryId, principal, false, queryManager.getStateMachine(queryId));
+    }
+
+    private Response jsonProfile(String queryId, String principal, boolean history, QueryStateMachine owner) {
         if (queryProfileService == null) {
             return Response.status(Response.Status.NOT_FOUND)
                     .entity(new ErrorDetail("NOT_FOUND", "NOT_FOUND",
                             "Query profile service not available"))
                     .build();
         }
-        return queryProfileService.getVisibleProfile(queryId, AuthenticationFilter.queryPrincipal(requestContext),
-                        queryManager.getStateMachine(queryId), history)
+        return queryProfileService.getVisibleProfile(queryId, principal, owner, history)
                 .map(profile -> Response.ok(profile).build()).orElseGet(() -> profileNotFound(queryId));
     }
 

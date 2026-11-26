@@ -4,6 +4,8 @@ import org.pangrova.common.enums.ClusterNodeType;
 import org.pangrova.server.coordinator.http.CoordinatorHttpServer;
 import org.pangrova.common.exception.BootstrapFailedException;
 import org.pangrova.server.coordinator.http.CoordinatorHttpServerContext;
+import org.pangrova.server.coordinator.http.endpoint.QueryPeerRouting;
+import org.pangrova.common.lifecycle.ResourceCloser;
 import org.pangrova.query.runtime.QueryManager;
 import org.pangrova.coordinator.query.task.TaskStatusReceiver;
 import org.pangrova.coordinator.worker.WorkerManager;
@@ -38,6 +40,7 @@ final class HttpBootstrap {
     private final MetadataService metadataService;
 
     private CoordinatorHttpServer httpServer;
+    private QueryPeerRouting queryPeers;
 
     HttpBootstrap(CoordinatorBootstrapConfig config,
                   TracingProvider tracingProvider,
@@ -73,9 +76,13 @@ final class HttpBootstrap {
                     coordinatorBootstrap::currentCoordinatorEpoch,
                     coordinatorBootstrap.copySourceReadResource(),
                     coordinatorBootstrap.fileSpaceFilesResource());
+            String peerKey = config.securityConfig() == null ? null : config.securityConfig().queryPeerKey();
+            if (peerKey != null) {
+                queryPeers = new QueryPeerRouting(peerKey);
+            }
             httpServer = new CoordinatorHttpServer(
                     new java.net.InetSocketAddress(config.httpHost(), config.httpPort()), httpDeps,
-                    coordinatorBootstrap::queryOwnerEndpoint);
+                    coordinatorBootstrap::queryOwnerEndpoint, queryPeers);
             httpServer.start();
             LOG.info("Phase: HTTP — listening on port {}", httpServer.getPort());
         } catch (Exception e) {
@@ -84,7 +91,8 @@ final class HttpBootstrap {
     }
 
     void shutdown() {
-        CoordinatorShutdownSequence.stopHttp(httpServer);
+        ResourceCloser.closeAll(null, () -> CoordinatorShutdownSequence.stopHttp(httpServer),
+                ResourceCloser.present(queryPeers, QueryPeerRouting::close));
     }
 
     private TracingHttpFilter buildTracingFilter() {

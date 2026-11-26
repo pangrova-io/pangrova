@@ -286,8 +286,12 @@ handle. The submit receipt contains `owner_endpoint` with `coordinator_id`,
 `incarnation`, `host`, and the bound HTTP `port`. An idempotent replay returns
 the original receipt and owner. The SDK sends status and cancellation to that
 origin when it matches an endpoint configured for the client. It uses the
-configured HTTP scheme for the match. With a shared ingress as its only
-configured origin, the SDK continues to address the ingress.
+configured HTTP scheme for the match. When the Coordinator cluster enables
+query peer routing, the receipt also contains `owner_endpoint.route_ticket`.
+For a shared ingress, pass it as `X-Pangrova-Query-Route` on status, cancellation,
+and profile requests. The Java SDK carries the ticket on waits and cancellation
+when it addresses the ingress. Use the submitting principal's credentials on
+each request.
 To reconnect from a fresh Java REST client, pass the saved receipt to
 `resumeQuery(receipt)` using the original submitting principal's credentials.
 `awaitStatus(target, deadlineEpochMs)` takes a
@@ -304,8 +308,10 @@ terminal state, the logical terminal state, or physical release, respectively.
 Use `afterVersion=0` when starting a targeted wait without a prior status read.
 Timeout returns the current snapshot. The Coordinator
 allows one pending wait per observer, principal and query, with additional
-principal, tenant and process limits. A request on a different Coordinator
-receives `QUERY_OWNER_UNAVAILABLE`. Use `GET /v1/query/{queryId}/state?history=true`
+principal, tenant and process limits. A configured ingress routes a ticketed
+live request to the Coordinator incarnation that issued the receipt.
+Live waits return `QUERY_OWNER_UNAVAILABLE` when the owner cannot serve the
+request. Use `GET /v1/query/{queryId}/state?history=true`
 for a journal lookup. Ordinary state reads use the local query projection.
 State, wait, and cancellation requests are scoped to the
 submitting principal. Historical diagnostics verify the original journal admission

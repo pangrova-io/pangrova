@@ -38,6 +38,13 @@ final class EndpointRouting {
         return selected < 0 || selected == ingress.index ? ingress : new Selection(selected);
     }
 
+    String routeTicket(Selection selection, QueryOwnerEndpoint ownerEndpoint) {
+        requireOwned(selection);
+        if (ownerEndpoint == null || ownerEndpoint.routeTicket() == null
+                || endpoints.get(selection.index).equals(ownerEndpoint.origin(scheme))) return null;
+        return ownerEndpoint.routeTicket();
+    }
+
     SelectedRequest bind(Selection selection, HttpRequest request) {
         requireOwned(selection);
         URI endpoint = endpoints.get(selection.index);

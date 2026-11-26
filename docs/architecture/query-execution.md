@@ -61,6 +61,15 @@ completion. Pending candidates reserve drain capacity before blocking admission 
 cancellation requests are recorded until acceptance and registration complete, and a
 replay releases its candidate admission and throttle reservations. Cancelling an observer does not cancel the admitted query.
 
+Shared ingress can authenticate a user and relay a live query control to the
+incarnation in its signed receipt. It uses one bounded async HTTP call. The
+owner validates the delegated principal, destination incarnation, command and
+deadline, then serves its existing local state or profile or applies the
+cancellation. The ingress verifies the owner's status code and response bytes
+before relaying them. Route resolution uses the receipt, so waiting and profile
+operations avoid coordinator-registry, journal, and audit lookups. Explicit
+history reads use the ingress's existing durable lookup.
+
 The bounded asynchronous submission executor runs SQL planning and starts the
 distributed DAG. The DAG publishes its OUTPUT endpoint after Worker acknowledgement
 and settles the execution through its completion stage. A running query does not

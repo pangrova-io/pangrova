@@ -21,7 +21,7 @@ unlisted: true
 | ID | 当前事实与缺口 | 实施工作包 |
 |---|---|---|
 | A1 | WP1.1 已将 principal/key digest、canonical fingerprint、lineage 和确定性 `QUEUED`/`PENDING` 回执原子写入初始 journal；正常新受理一次 INSERT，冲突/未知提交读取权威行，active query 不因 TTL 过期，terminal 后由有界 sweep 清理 | WP1.1，本地 PostgreSQL/查询链验证后提交；双 Coordinator 进程 E2E 待续 |
-| A2 | 状态机已有原子版本、waiter 和 drain；缺少可信 query-owner directory/forward，非 owner 请求直接失败 | WP1.2 |
+| A2 | 状态机已有原子版本、waiter 和 drain；已支持配置了密钥的共享入口按签名票据转发；所有者接管、回执重新绑定和跨主机验收仍待完成 | WP1.2 |
 | A3 | WP1.3 已引入显式 `PENDING` / `STREAM` / `NONE`，并贯通 dispatch、状态机、REST、JDBC、CLI 和 benchmark；代码合同已闭合，跨主机 resultless/延迟发布 E2E 仍待验收 | WP1.3，本地验证后提交；生产验收待续 |
 | A4 | 已有阶段观测和固定到达率样本；尚未接入完整 production phase/queue/rejection/timeout/drain KPI 与容量矩阵 | WP2 |
 | A5 | Paimon 仍 eager 调用 `plan().splits()`；外层 deadline/count 无法约束 SDK 内部规划 | WP3.2 |
@@ -58,7 +58,7 @@ unlisted: true
 | C3 | 逐 batch 两事务/八 SQL 是历史基线 | 当前为有界 publication window；验收逐 batch/chunk 零授权 SQL |
 | C4 | 常规 100 ms `ConsumedResultSweep` 已由批次 18 删除 | 旧轮询段落标为 superseded，当前按事件驱动 drain |
 | C5 | `BackpressureE2ETest.verifyAbruptFlightDisconnect` 已覆盖本地 abrupt disconnect | 本地已覆盖；跨主机和长驻留仍归 B6 |
-| C6 | 当前 `QueryResource` 对非 owner 不转发，batch 115 的 directed-wait 零读取当前不可复现 | 标为历史声明；A2 完成前不得作为验收证据 |
+| C6 | batch 115 的 directed-wait 记录属于历史实现；当前以签名票据单跳转发及对应读库计数为证 | 接管和跨主机覆盖归 A2 继续验收 |
 | C7 | public JSON profile 已公开实际 DAG、stage observation、accepted attempt 和 Native operator counters | 区分实际字段、audit totals 与仍 unavailable 的 result phase/物理 I/O 字段 |
 | C8 | migration 编号会随并行工作变化 | 文档不固定编号；实施时扫描下一个未用编号 |
 | C9 | 单输入 AQE、local aggregate、write recovery 的代码机制存在 | 历史记录增加“机制状态 / 验收状态 / 后续 WP”，不写成整体完成 |
@@ -102,13 +102,15 @@ unlisted: true
 
 ## 固定三条稳态零读库门槛（目标状态）
 
-1. **状态订阅和诊断读取。** 活跃 query 由 owner 的认证状态投影提供。正常状态读取与客户端重连在投影窗口内产生零 journal SELECT。只在接管、冷启动重放、明确的历史查询读取数据库。以两个 Coordinator 和大量同 query 的客户端断言次数，覆盖 Ready endpoint 和错误细节。当前非 owner 定向路由尚未实现，见 A2。
+1. **状态订阅和诊断读取。** 活跃 query 由 owner 的认证状态投影提供。正常状态读取与客户端重连在投影窗口内产生零 journal SELECT。只在接管、冷启动重放、明确的历史查询读取数据库。以两个 Coordinator 和大量同 query 的客户端断言次数，覆盖 Ready endpoint 和错误细节。已验证本机直连和签名票据定向转发，接管仍见 A2。
 2. **持久 journal。** 正常新受理和新事件各一次 INSERT，独立 SELECT 为零。A1 的初始 `QUEUED` 行同时承载 principal、key digest、request fingerprint、lineage 和确定性 `QUEUED`/`PENDING` 回执；`INSERT ... ON CONFLICT DO NOTHING` 的正常路径不读回，只有 event/idempotency 冲突或未知提交结果才 SELECT 核对。事务、lineage 原子性和最终 ACK 所代表的 durability 保持一致。对已提交写的状态判断只读取一次，未知提交仍从权威证据核对。
 3. **Shuffle steady state。** 只在建流、续租、最终关闭与恢复触及读租约数据库。manifest 是由已提交 attempt 发布的不可变数据。每 batch 禁止同步数据库操作，同时本地核验 scope/epoch、租约有效期、撤销与 byte credit；已有在途读取保有精确保护时间。测试每 batch/每 chunk 的 SQL 计数和撤销后新数据是否可见。durable revocation 收敛尚未实现，见 A11。
 
-已验证本地状态和 JSON profile 的历史读取分离。两个 profile 路由共用查询留存的终态审计记录和本机任务统计。真实 QUERY Coordinator 上，HTTP 提交并经 Flight 消费结果后，两条 profile 路由共 32 个并发请求，返回一致且审计表 SELECT 增量为零。主动清除本地投影后，普通状态和 profile 请求均返回 404，journal 和审计表 SELECT 增量为零。显式 `history=true` 的 profile 返回相同审计数据，只有一次按查询和提交主体限定的 SELECT。跨 Coordinator 定向转发、owner 接管和当前 Native 产物仍按 A2 及发布验收验证。
+已验证本地状态和 JSON profile 的历史读取分离。两个 profile 路由共用查询留存的终态审计记录和本机任务统计。真实 QUERY Coordinator 上，HTTP 提交并经 Flight 消费结果后，两条 profile 路由共 32 个并发请求，返回一致且审计表 SELECT 增量为零。主动清除本地投影后，普通状态和 profile 请求均返回 404，journal 和审计表 SELECT 增量为零。显式 `history=true` 的 profile 返回相同审计数据，只有一次按查询和提交主体限定的 SELECT。
 
-受理回执携带原始 Coordinator 的 ID、进程实例和实际 HTTP 地址。该地址与幂等受理事实写入同一 journal 行。两个真实 QUERY Coordinator 共用 PostgreSQL 时，第二台重放同一请求返回原回执和端口，未创建本机查询。按该地址等待状态取得原查询的结果端点，Flight 完整读至 EOF。SDK 可在提交或使用保存的回执重连时，从客户端已配置的端点中确定所有者，后续状态和取消沿同一选择发送。未配置的地址在 SDK HTTP 测试中收到零请求。共享入口的服务器侧转发和执行所有权接管仍按 A2 验证。
+受理回执携带原始 Coordinator 的 ID、进程实例和实际 HTTP 地址。该地址与幂等受理事实写入同一 journal 行。两个真实 QUERY Coordinator 共用 PostgreSQL 时，第二台重放同一请求返回原回执和端口，未创建本机查询。按该地址等待状态取得原查询的结果端点，控制面 Flight 完整读至 EOF。SDK 可在提交或使用保存的回执重连时，从客户端已配置的端点中确定所有者，后续状态和取消沿同一选择发送。未配置的地址在 SDK HTTP 测试中收到零请求。
+
+共享入口在认证用户后以签名票据确定原所有者，以一个有界 HTTP 请求转发。目标按进程实例和提交主体重新核对权限，入口验签后转交响应字节。两个实装 QUERY Coordinator 共用 PostgreSQL，使用真实 OIDC 和独立 HTTP 端点验证同一观察者的重复等待被拒绝，原等待取得控制面 Flight 端点，路由到另一节点的取消在原所有者排空。状态、REST profile 和 Web UI profile 共 32 个并发请求，journal、审计表和 Coordinator 注册表 SELECT 增量均为零。篡改票据、其他主体和 Worker 通用凭证均无法启用转发。所有者接管与当前 Native 跨主机验收仍按 A2 验证。
 
 ## 校准后的设计决策
 
@@ -419,7 +421,7 @@ PostgreSQL 在同一语句中读取策略表和当前目录部署证据。普通
 
 实施批次 116 在 Profile 中记录被当前 Stage 代次接纳的物理尝试及对应逻辑任务。记录点在实际终态槽位接纳之后。已取代的任务和未被接纳的报告不产生记录。重试夹具验证了逻辑任务与获胜副本 ID 不同的情形。真实双 Worker SQL 将实际接纳记录与 Native task attempt 坐标对应。115 项 Java 和 Checkstyle 通过，涵盖投机、重试、持久赢家、写提交竞争、HTTP 和释放。后续继续区分 Exchange 阻塞、队列与物理释放时间。
 
-实施批次 115 让状态读取、状态等待和取消共用本机查询的原始提交主体。用户显式读取历史状态时，单条 journal SQL 返回最新状态与原始受理证明。恢复时从已有 journal 批次恢复主体。74 项 Java 和 Checkstyle 通过。真实双 Coordinator PostgreSQL 对照核验本机状态等待及非 owner 的定向等待均为零读取，显式历史请求每次只借用一次连接。真实 HTTP、Native Flight 和 PostgreSQL 验证其他主体的状态与取消请求直接拒绝，未执行 journal SELECT，原提交者仍可完整消费并确认物理释放。**当前状态修正：**该非 owner directed-wait 结论属于历史声明；当前 `QueryResource` 没有 owner directory/forward，非 owner live wait 返回 `QUERY_OWNER_UNAVAILABLE`。A2 完成前不得把本批次作为跨 Coordinator 零读取验收证据。
+实施批次 115 让状态读取、状态等待和取消共用本机查询的原始提交主体。用户显式读取历史状态时，单条 journal SQL 返回最新状态与原始受理证明。恢复时从已有 journal 批次恢复主体。74 项 Java 和 Checkstyle 通过。真实双 Coordinator PostgreSQL 对照核验本机状态等待及非 owner 的定向等待均为零读取，显式历史请求每次只借用一次连接。真实 HTTP、Native Flight 和 PostgreSQL 验证其他主体的状态与取消请求直接拒绝，未执行 journal SELECT，原提交者仍可完整消费并确认物理释放。该非 owner 等待结论属于历史实现，当前以 A2 的签名票据共享入口用例及对应 SQL 计数为验收证据。
 
 实施批次 114 将 REST 和 Web UI 查询 Profile 读取绑定到原始提交主体。已知的本机查询先核对主体，历史 Profile 在单条 SQL 内按查询 ID 与主体检索。真实 HTTP、PostgreSQL 和 Native Flight 用例核验读完、释放和 Profile 内容，确认提交者读一次审计库，其他主体访问本机已知查询的两条 Profile 路由均为零 SELECT。57 项 Java、Checkstyle 和模块边界检查通过，覆盖实际双 Worker SQL。
 

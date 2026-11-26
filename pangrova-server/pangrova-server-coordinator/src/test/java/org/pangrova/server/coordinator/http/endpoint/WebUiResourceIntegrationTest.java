@@ -57,7 +57,7 @@ class WebUiResourceIntegrationTest {
                 workerManager, new org.pangrova.coordinator.task.CoordinatorTaskTracker());
 
         ResourceConfig config = new ResourceConfig();
-        config.register(new WebUiResource(queryManager, workerManager, null));
+        config.register(new WebUiResource(queryManager, workerManager, null, null));
         config.register(new WebUiStaticResource());
         config.register(JacksonFeature.class);
 

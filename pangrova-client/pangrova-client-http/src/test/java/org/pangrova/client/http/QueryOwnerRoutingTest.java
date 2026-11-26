@@ -34,9 +34,12 @@ class QueryOwnerRoutingTest {
         var inaccessibleCalls = new AtomicInteger();
         var ingressCalls = new CopyOnWriteArrayList<String>();
         var ownerCalls = new CopyOnWriteArrayList<String>();
+        var ingressTickets = new CopyOnWriteArrayList<String>();
+        var ownerTickets = new CopyOnWriteArrayList<String>();
         int port = (configured ? owner : unconfigured).getAddress().getPort();
         var submissions = new AtomicInteger();
-        var endpoint = new QueryOwnerEndpoint("coord-original", "incarnation-original", "127.0.0.1", port);
+        var endpoint = new QueryOwnerEndpoint("coord-original", "incarnation-original", "127.0.0.1", port,
+                "fixture-route-ticket");
         var receipt = new SubmitQueryResponse("q", "QUEUED", ResultDisposition.PENDING,
                 null, List.of(), null, endpoint);
         String body = JsonMapperFactory.writer().writeValueAsString(receipt);
@@ -44,8 +47,8 @@ class QueryOwnerRoutingTest {
             submissions.incrementAndGet();
             reply(exchange, 200, body);
         });
-        registerControlRoutes(ingress, ingressCalls);
-        registerControlRoutes(owner, ownerCalls);
+        registerControlRoutes(ingress, ingressCalls, ingressTickets);
+        registerControlRoutes(owner, ownerCalls, ownerTickets);
         unconfigured.createContext("/", exchange -> {
             inaccessibleCalls.incrementAndGet();
             reply(exchange, 404, "{}");
@@ -72,6 +75,11 @@ class QueryOwnerRoutingTest {
             assertThat(submissions.get()).isOne();
             assertThat(configured ? ingressCalls : ownerCalls).isEmpty();
             assertThat(configured ? ownerCalls : ingressCalls).containsExactly("state", "state", "cancel");
+            if (configured) {
+                assertThat(ownerTickets).containsExactly(null, null, null);
+            } else {
+                assertThat(ingressTickets).containsOnly(endpoint.routeTicket()).hasSize(3);
+            }
             assertThat(inaccessibleCalls.get()).isZero();
         } finally {
             unconfigured.stop(0);
@@ -80,15 +88,17 @@ class QueryOwnerRoutingTest {
         }
     }
 
-    private static void registerControlRoutes(HttpServer server, List<String> calls) {
+    private static void registerControlRoutes(HttpServer server, List<String> calls, List<String> tickets) {
         server.createContext("/v1/query/q/state", exchange -> {
             calls.add("state");
+            tickets.add(exchange.getRequestHeaders().getFirst(QueryOwnerEndpoint.ROUTE_HEADER));
             reply(exchange, 200, """
                     {"query_id":"q","state":"RUNNING","result_disposition":"PENDING","version":3,"drained":false}
                     """);
         });
         server.createContext("/v1/query/q/cancel", exchange -> {
             calls.add("cancel");
+            tickets.add(exchange.getRequestHeaders().getFirst(QueryOwnerEndpoint.ROUTE_HEADER));
             reply(exchange, 202, """
                     {"query_id":"q","cancelled":true,"outcome":"CANCEL_ACCEPTED"}
                     """);

@@ -23,6 +23,7 @@ in the `pangrova-config` module. The bundled defaults ship in
 | `coordinator.port` | int | `8080` | Listen port for the coordinator HTTP server |
 | `coordinator.role` | string | `"COMBINED"` | Deployment role: `QUERY` (serve reads and writes without background maintenance), `MAINTENANCE` (background tasks only), or `COMBINED` (both). An unrecognized deployment role rejects startup. Writes to generated-column tables still require an active durable materialization owner. |
 | `coordinator.internal-auth-secret` | string | — | Shared internal control-plane secret, identical to `worker.internal-auth-secret`. The production process rejects absent, blank or fewer than 32 UTF-8 bytes, independently of client authentication. Inject through the YAML `${PANGROVA_INTERNAL_AUTH_SECRET}` placeholder. |
+| `coordinator.query-peer-key` | string | — | Enables live query forwarding through shared HTTP ingress. Use a separate signing key of at least 32 UTF-8 bytes shared by query-serving Coordinators with client authentication enabled. |
 
 ## coordinator.transport
 
