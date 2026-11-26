@@ -1,8 +1,11 @@
 package org.pangrova.server.coordinator.bootstrap;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
@@ -15,6 +18,7 @@ import org.pangrova.coordinator.scheduler.SchedulerCancelResult;
 import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.persistence.query.api.state.RecoveredTaskDrainJournal;
 import org.pangrova.persistence.query.api.state.RecoveredTaskDrainJournal.DrainReceipt;
+import org.pangrova.persistence.query.api.state.RecoveredTaskDrainJournal.IssuedAttempt;
 import org.pangrova.query.api.journal.TaskStateEvent;
 import org.pangrova.server.coordinator.bootstrap.lifecycle.CoordinatorCallbackLifetime;
 import org.slf4j.Logger;
@@ -24,6 +28,8 @@ import org.slf4j.LoggerFactory;
 final class RecoveredTaskDrainPoll implements AutoCloseable {
     private static final Logger LOG = LoggerFactory.getLogger(RecoveredTaskDrainPoll.class);
     private static final long CALLBACK_DRAIN_TIMEOUT_MS = 5_000;
+    // Bound network fan-out independently of the shared cleanup executor.
+    static final int MAX_IN_FLIGHT_PAGES = 4;
 
     private final RecoveredTaskDrainJournal journal;
     private final Function<TaskStateEvent, CompletableFuture<SchedulerCancelResult>> seal;
@@ -31,11 +37,11 @@ final class RecoveredTaskDrainPoll implements AutoCloseable {
     private final long retryNanos;
     private final CoordinatorCallbackLifetime callbacks = new CoordinatorCallbackLifetime();
     private final LinkedHashMap<String, Scan> candidates = new LinkedHashMap<>();
+    private final Map<String, Scan> inFlight = new HashMap<>();
     private ScheduledExecutorService scheduler;
     private ScheduledFuture<?> scheduled;
     private long scheduledAt;
     private long generation;
-    private boolean running;
     private boolean closed;
 
     RecoveredTaskDrainPoll(RecoveredTaskDrainJournal journal,
@@ -56,18 +62,26 @@ final class RecoveredTaskDrainPoll implements AutoCloseable {
     synchronized void track(List<ExecutionAnchor> claims) {
         if (closed) return;
         for (var claim : claims) {
-            candidates.compute(claim.executionId(), (id, current) ->
-                    current == null || claim.fencingToken() > current.claim().fencingToken()
-                            ? new Scan(claim, 0, false, System.nanoTime()) : current);
+            String executionId = claim.executionId();
+            if (!supersedes(claim, inFlight.get(executionId))) continue;
+            candidates.compute(executionId, (id, current) -> supersedes(claim, current)
+                    ? new Scan(claim, 0, false, System.nanoTime()) : current);
         }
         scheduleNext();
     }
 
+    private static boolean supersedes(ExecutionAnchor claim, Scan previous) {
+        return previous == null || claim.fencingToken() > previous.claim().fencingToken();
+    }
+
     private void scheduleNext() {
-        if (closed || running || scheduler == null || candidates.isEmpty()) return;
+        if (closed || scheduler == null || inFlight.size() >= MAX_IN_FLIGHT_PAGES) return;
         long now = System.nanoTime();
         long delay = candidates.values().stream()
-                .mapToLong(candidate -> Math.max(0, candidate.readyAtNanos() - now)).min().orElseThrow();
+                .filter(candidate -> !inFlight.containsKey(candidate.claim().executionId()))
+                .mapToLong(candidate -> Math.max(0, candidate.readyAtNanos() - now))
+                .min().orElse(-1);
+        if (delay < 0) return;
         if (scheduled != null) {
             if (scheduledAt - now <= delay) return;
             scheduled.cancel(false);
@@ -96,39 +110,83 @@ final class RecoveredTaskDrainPoll implements AutoCloseable {
                     return;
                 }
                 scan = ready.next();
-            } while (now - scan.readyAtNanos() < 0);
+            } while (inFlight.containsKey(scan.claim().executionId()) || now - scan.readyAtNanos() < 0);
             operation = callbacks.enter();
             ready.remove();
-            running = true;
+            inFlight.put(scan.claim().executionId(), scan);
+            scheduleNext();
         }
         Scan next = scan;
         try {
-            executor.execute(() -> operation.run(() -> scanPage(next)));
+            executor.execute(() -> operation.run(() -> startPage(next)));
         } catch (RejectedExecutionException rejected) {
             operation.close();
-            complete(next.delayed(retryNanos));
+            complete(next, next.delayed(retryNanos));
         }
     }
 
-    private void scanPage(Scan current) {
+    private void startPage(Scan current) {
+        boolean submitted = false;
+        CoordinatorCallbackLifetime.Operation continuation = null;
+        try {
+            var page = journal.pendingTaskDrains(current.claim(), current.afterRowId());
+            if (page.isEmpty()) {
+                submitted = true;
+                finishPage(current, page, List.of());
+                return;
+            }
+            synchronized (this) {
+                if (closed) return;
+                continuation = callbacks.enter();
+            }
+            var replies = page.stream().map(attempt -> requestDrain(attempt.event())).toList();
+            var responseOwner = continuation;
+            CompletableFuture.allOf(replies.toArray(CompletableFuture<?>[]::new))
+                    .whenComplete((ignored, failure) -> resumePage(current, page, replies, responseOwner));
+            submitted = true;
+        } catch (RuntimeException failure) {
+            logScanFailure(current, failure);
+        } finally {
+            if (!submitted) {
+                if (continuation != null) continuation.close();
+                complete(current, current.delayed(retryNanos));
+            }
+        }
+    }
+
+    private void resumePage(Scan current, List<IssuedAttempt> page,
+            List<CompletableFuture<SchedulerCancelResult>> replies, CoordinatorCallbackLifetime.Operation operation) {
+        try {
+            executor.execute(() -> operation.run(() -> finishPage(current, page, replies)));
+        } catch (RejectedExecutionException rejected) {
+            operation.close();
+            complete(current, current.delayed(retryNanos));
+        }
+    }
+
+    private void finishPage(Scan current, List<IssuedAttempt> page,
+            List<CompletableFuture<SchedulerCancelResult>> replies) {
         Scan next = current.delayed(retryNanos);
         try {
-            next = reconcile(current);
+            next = reconcile(current, page, replies);
         } catch (RuntimeException failure) {
-            LOG.warn("event=recovered_task_drain_scan_failed queryId={} error={}",
-                    current.claim().executionId(), failure.getMessage(), failure);
+            logScanFailure(current, failure);
         } finally {
-            complete(next);
+            complete(current, next);
         }
     }
 
-    private Scan reconcile(Scan current) {
-        var page = journal.pendingTaskDrains(current.claim(), current.afterRowId());
-        var replies = page.stream().map(attempt -> requestDrain(attempt.event())).toList();
-        CompletableFuture.allOf(replies.toArray(CompletableFuture<?>[]::new)).join();
+    private static void logScanFailure(Scan current, RuntimeException failure) {
+        LOG.warn("event=recovered_task_drain_scan_failed queryId={} error={}",
+                current.claim().executionId(), failure.getMessage(), failure);
+    }
+
+    private Scan reconcile(Scan current, List<IssuedAttempt> page,
+            List<CompletableFuture<SchedulerCancelResult>> replies) {
         List<DrainReceipt> receipts = new ArrayList<>(replies.size());
         for (int index = 0; index < replies.size(); index++) {
-            var result = replies.get(index).join();
+            var result = Objects.requireNonNull(replies.get(index).getNow(null),
+                    "Completed task drain request has no outcome");
             var attempt = page.get(index);
             if (result.isSuccess()) {
                 receipts.add(new DrainReceipt(attempt.rowId(), result.executionDrainReceipt().toByteArray()));
@@ -159,9 +217,10 @@ final class RecoveredTaskDrainPoll implements AutoCloseable {
         }
     }
 
-    private synchronized void complete(Scan next) {
-        if (!closed && next != null) candidates.putIfAbsent(next.claim().executionId(), next);
-        running = false;
+    private synchronized void complete(Scan current, Scan next) {
+        String executionId = current.claim().executionId();
+        if (!inFlight.remove(executionId, current)) return;
+        if (!closed && next != null) candidates.putIfAbsent(executionId, next);
         scheduleNext();
     }
 

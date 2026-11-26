@@ -116,6 +116,11 @@ The journal writes a page of verified receipts in one statement under the
 current claim. A later attempt or takeover skips the proofs already recorded.
 HTTP 202, an unavailable Worker, and mismatched evidence leave the attempt
 pending. Pending attempts yield to later pages before they are checked again.
+Recovery admits one page per execution and up to four across executions.
+The cleanup pool reads and records journal pages. Worker HTTP responses settle
+asynchronously, so a slow Worker does not occupy a cleanup thread. A successor
+claim waits for any in-flight page for the same execution, and the journal
+fence rejects receipts from a superseded claim.
 The original live Worker can prove exit for an expired exact attempt absent
 from its admission registry. It checks for an owner and advances the admission
 deadline cutoff under the same lock. A late delivery of that request remains

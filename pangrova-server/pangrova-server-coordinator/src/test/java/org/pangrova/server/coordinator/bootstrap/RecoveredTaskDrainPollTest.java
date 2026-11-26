@@ -79,6 +79,101 @@ class RecoveredTaskDrainPollTest {
         }
     }
 
+    @Test
+    void awaitingWorkerIoLeavesOneCleanupThreadFreeForOtherQueriesAndLimitsFanout() {
+        int limit = RecoveredTaskDrainPoll.MAX_IN_FLIGHT_PAGES;
+        var claims = java.util.stream.IntStream.rangeClosed(0, limit)
+                .mapToObj(index -> claim("query-" + index, 2)).toList();
+        var scheduler = Executors.newSingleThreadScheduledExecutor();
+        var executor = Executors.newSingleThreadExecutor();
+        var journal = new SingleAttemptJournal();
+        var slowReplies = new ConcurrentHashMap<String, CompletableFuture<SchedulerCancelResult>>();
+        var receipt = SchedulerCancelResult.drained(TaskReport.newBuilder()
+                .setExecutionDrainState(ExecutionDrainState.EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED).build());
+        var poll = new RecoveredTaskDrainPoll(journal, event -> {
+            if (event.queryId().equals("query-" + limit)) return CompletableFuture.completedFuture(receipt);
+            return slowReplies.computeIfAbsent(event.queryId(), ignored -> new CompletableFuture<>());
+        }, executor, 25);
+        try {
+            poll.start(scheduler);
+            poll.track(claims);
+            await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> assertThat(slowReplies).hasSize(limit));
+            assertThat(journal.read).hasSize(limit).doesNotContain(claims.get(limit));
+            int freeSlot = limit - 1;
+            slowReplies.get("query-" + freeSlot).complete(receipt);
+            await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
+                    assertThat(journal.retained).contains(claims.get(freeSlot), claims.get(limit)));
+            assertThat(slowReplies.get("query-0")).isNotDone();
+            assertThat(journal.retained).doesNotContain(claims.get(0));
+        } finally {
+            slowReplies.values().forEach(reply -> reply.complete(receipt));
+            poll.close();
+            executor.shutdownNow();
+            scheduler.shutdownNow();
+        }
+    }
+
+    @Test
+    void newerClaimQueuesBehindOnlyItsOwnInFlightPage() {
+        var older = claim("same-query", 2);
+        var newer = claim("same-query", 3);
+        var journal = new SingleAttemptJournal();
+        var requested = new CompletableFuture<Void>();
+        var blockedReply = new CompletableFuture<SchedulerCancelResult>();
+        var receipt = SchedulerCancelResult.drained(TaskReport.newBuilder()
+                .setExecutionDrainState(ExecutionDrainState.EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED).build());
+        var scheduler = Executors.newSingleThreadScheduledExecutor();
+        var executor = Executors.newSingleThreadExecutor();
+        var poll = new RecoveredTaskDrainPoll(journal, event -> {
+            if (event.taskId().equals("2")) {
+                requested.complete(null);
+                return blockedReply;
+            }
+            return CompletableFuture.completedFuture(receipt);
+        }, executor, 25);
+        try {
+            poll.start(scheduler);
+            poll.track(List.of(older));
+            await().atMost(Duration.ofSeconds(5)).until(requested::isDone);
+            poll.track(List.of(older, newer, claim("independent", 4)));
+            await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
+                    assertThat(journal.retained).containsExactly(claim("independent", 4)));
+            assertThat(journal.read).doesNotContain(newer);
+            blockedReply.complete(SchedulerCancelResult.pending());
+            await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
+                    assertThat(journal.retained).contains(newer));
+            assertThat(journal.read).filteredOn(older::equals).hasSize(1);
+        } finally {
+            blockedReply.complete(receipt);
+            poll.close();
+            executor.shutdownNow();
+            scheduler.shutdownNow();
+        }
+    }
+
+    private static ExecutionAnchor claim(String executionId, long token) {
+        return new ExecutionAnchor(executionId, "successor", "incarnation", token, Instant.EPOCH,
+                Instant.EPOCH.plusSeconds(60));
+    }
+
+    private static final class SingleAttemptJournal implements RecoveredTaskDrainJournal {
+        private final ConcurrentLinkedQueue<ExecutionAnchor> read = new ConcurrentLinkedQueue<>();
+        private final ConcurrentLinkedQueue<ExecutionAnchor> retained = new ConcurrentLinkedQueue<>();
+
+        @Override
+        public List<IssuedAttempt> pendingTaskDrains(ExecutionAnchor claim, long afterRowId) {
+            read.add(claim);
+            return List.of(new IssuedAttempt(1, new TaskStateEvent(JournalEventContext.create(1, "owner"),
+                    claim.executionId(), Long.toString(claim.fencingToken()), "worker", "SCHEDULED", 0, 0)));
+        }
+
+        @Override
+        public boolean retainTaskDrains(ExecutionAnchor claim, List<DrainReceipt> receipts) {
+            retained.add(claim);
+            return true;
+        }
+    }
+
     private static final class RecordingJournal implements RecoveredTaskDrainJournal {
         private final Set<Long> retained = ConcurrentHashMap.newKeySet();
         private final ConcurrentLinkedQueue<Long> cursors = new ConcurrentLinkedQueue<>();

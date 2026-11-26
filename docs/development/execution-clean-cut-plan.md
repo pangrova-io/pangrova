@@ -21,7 +21,7 @@ unlisted: true
 | ID | 当前事实与缺口 | 实施工作包 |
 |---|---|---|
 | A1 | WP1.1 已将 principal/key digest、canonical fingerprint、lineage 和确定性 `QUEUED`/`PENDING` 回执原子写入初始 journal；正常新受理一次 INSERT，冲突/未知提交读取权威行，active query 不因 TTL 过期，terminal 后由有界 sweep 清理 | WP1.1，本地 PostgreSQL/查询链验证后提交；双 Coordinator 进程 E2E 待续 |
-| A2 | 已有原子状态版本、签名回执转发和精确 Worker 派发凭证。普通 DAG、投机副本、失败重派和 Worker CDC 在发送前提交已绑定的派发凭证。接管方分批核验并按当前租约持久化匹配的退出回执。仍存活的原 Worker 为已过期且没有存续执行者的精确尝试出具退出回执，并禁止迟到重放和时钟回拨重新准入。剩余工作包括客户端回执重新绑定、验证所有生产派发入口与 COPY 私有准备接口的实际用途、收齐证据后释放租约及跨主机验收 | WP1.2 |
+| A2 | 已有原子状态版本、签名回执转发和精确 Worker 派发凭证。普通 DAG、投机副本、失败重派和 Worker CDC 在发送前提交已绑定的派发凭证。接管方分批核验并按当前租约持久化匹配的退出回执。单查询最多核验一页，全局最多四页并行，等待 HTTP 不占清理线程。仍存活的原 Worker 为已过期且没有存续执行者的精确尝试出具退出回执，并禁止迟到重放和时钟回拨重新准入。剩余工作包括客户端回执重新绑定、验证所有生产派发入口与 COPY 私有准备接口的实际用途、合并持久租户槽位与执行租约的准入边界、收齐退出证据并归还资源后再释放租约，以及跨主机验收 | WP1.2 |
 | A3 | WP1.3 已引入显式 `PENDING` / `STREAM` / `NONE`，并贯通 dispatch、状态机、REST、JDBC、CLI 和 benchmark；代码合同已闭合，跨主机 resultless/延迟发布 E2E 仍待验收 | WP1.3，本地验证后提交；生产验收待续 |
 | A4 | 已有阶段观测和固定到达率样本；尚未接入完整 production phase/queue/rejection/timeout/drain KPI 与容量矩阵 | WP2 |
 | A5 | Paimon 仍 eager 调用 `plan().splits()`；外层 deadline/count 无法约束 SDK 内部规划 | WP3.2 |
@@ -34,6 +34,8 @@ unlisted: true
 | A12 | 普通 distributed write 完成后会 purge commit journal；跨重试/外部可见写入的 receipt matrix 与 retention 未统一 | WP8 |
 | A13 | Paimon abort 仍是 best-effort unlink；ambiguous commit 没有 durable abort barrier | WP8 |
 | A14 | nightly TPC 已存在；release 不校验同源 Linux/TPC 不可变证据，SF100 零值基线仍不合格 | WP9，需先批准 CI/基础设施变更 |
+
+本地恢复对照在同一个清理线程上阻塞一个 Worker 响应。原实现的独立查询在 5 秒验证窗口内无法持久化回执。候选在该响应仍未返回时持久化独立查询回执。测试同时验证全局四页上限、同查询新旧租约不重叠，以及已保留回执不再读回。跨主机吞吐和恢复尾延迟仍在 B3/B7 验收范围。
 
 ### B：机制已实现但必须补生产验收
 
