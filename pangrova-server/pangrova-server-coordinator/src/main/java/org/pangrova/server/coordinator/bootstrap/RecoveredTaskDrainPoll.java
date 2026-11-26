@@ -5,7 +5,6 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
@@ -185,8 +184,8 @@ final class RecoveredTaskDrainPoll implements AutoCloseable {
             List<CompletableFuture<SchedulerCancelResult>> replies) {
         List<DrainReceipt> receipts = new ArrayList<>(replies.size());
         for (int index = 0; index < replies.size(); index++) {
-            var result = Objects.requireNonNull(replies.get(index).getNow(null),
-                    "Completed task drain request has no outcome");
+            // The aggregate continuation starts only after every reply has settled.
+            var result = replies.get(index).join();
             var attempt = page.get(index);
             if (result.isSuccess()) {
                 receipts.add(new DrainReceipt(attempt.rowId(), result.executionDrainReceipt().toByteArray()));
