@@ -1,6 +1,8 @@
 package org.pangrova.connector.iceberg.write;
 
 import org.pangrova.connector.iceberg.HadoopTestGuard;
+import org.pangrova.connector.iceberg.IcebergMetadata;
+import org.pangrova.connector.api.index.SnapshotPinOwner;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileScanTask;
@@ -236,6 +238,73 @@ class IcebergCompactionExecutorTest {
     }
 
     @Test
+    void physicalCompactionAndExpirationPreserveEachExactIndexHold() throws IOException {
+        String name = "pinned_physical_compaction";
+        Table table = createV3Table(name);
+        for (int file = 0; file < 5; file++) writeDataFile(table, 2);
+        table.refresh();
+        long oldSnapshot = table.currentSnapshot().snapshotId();
+        String oldToken = Long.toString(oldSnapshot);
+        List<String> oldFiles = findAllDataFilePaths(table);
+        assertThat(oldFiles).hasSize(5);
+        var first = new SnapshotPinOwner("index-one", 0, "attempt-one");
+        var second = new SnapshotPinOwner("index-two", 0, "attempt-two");
+        var replacement = new SnapshotPinOwner("index-one", 1, "attempt-three");
+        var metadata = new IcebergMetadata(catalog, CATALOG_NAME);
+        var pins = metadata.getIndexSupport().orElseThrow().getSnapshotPinProvider().orElseThrow();
+        pins.pinSnapshot(CATALOG_NAME, NAMESPACE, name, oldToken, first);
+        pins.pinSnapshot(CATALOG_NAME, NAMESPACE, name, oldToken, second);
+
+        writeDataFile(table, 3);
+        var compacted = IcebergCompactionExecutor.compact(table);
+        assertThat(compacted.filesCompacted()).isEqualTo(6);
+        assertThat(compacted.filesProduced()).isEqualTo(1);
+        table.refresh();
+        long currentSnapshot = table.currentSnapshot().snapshotId();
+        String currentToken = Long.toString(currentSnapshot);
+        assertThat(currentSnapshot).isNotEqualTo(oldSnapshot);
+        assertThat(findAllDataFilePaths(table)).hasSize(1).doesNotContainAnyElementsOf(oldFiles);
+        pins.pinSnapshot(CATALOG_NAME, NAMESPACE, name, currentToken, replacement);
+
+        table.expireSnapshots().expireOlderThan(System.currentTimeMillis() + 1_000)
+                .retainLast(1).cleanExpiredFiles(true).commit();
+        table.refresh();
+        var reopenedCatalog = buildHadoopCatalog();
+        try {
+            var reopened = new IcebergMetadata(reopenedCatalog, CATALOG_NAME);
+            var reopenedPins = reopened.getIndexSupport().orElseThrow().getSnapshotPinProvider().orElseThrow();
+            reopenedPins.validateSnapshotPin(CATALOG_NAME, NAMESPACE, name, oldToken, first);
+            reopenedPins.validateSnapshotPin(CATALOG_NAME, NAMESPACE, name, oldToken, second);
+            assertThat(readRowsAtSnapshot(table, oldSnapshot)).extracting(row -> row.getField("id"))
+                    .containsExactlyInAnyOrder(0L, 1L, 0L, 1L, 0L, 1L, 0L, 1L, 0L, 1L);
+            assertThat(readRowsAtSnapshot(table, currentSnapshot)).hasSize(13);
+            assertThat(oldFiles).allMatch(path -> table.io().newInputFile(path).exists());
+
+            reopenedPins.unpinSnapshot(CATALOG_NAME, NAMESPACE, name, oldToken, first);
+            table.expireSnapshots().expireOlderThan(System.currentTimeMillis() + 1_000)
+                    .retainLast(1).cleanExpiredFiles(true).commit();
+            table.refresh();
+            reopenedPins.validateSnapshotPin(CATALOG_NAME, NAMESPACE, name, oldToken, second);
+            assertThat(readRowsAtSnapshot(table, oldSnapshot)).hasSize(10);
+            reopenedPins.unpinSnapshot(CATALOG_NAME, NAMESPACE, name, oldToken, second);
+            table.expireSnapshots().expireSnapshotId(oldSnapshot).cleanExpiredFiles(true).commit();
+            table.refresh();
+            assertThat(table.snapshot(oldSnapshot)).isNull();
+            assertThat(oldFiles).noneMatch(path -> table.io().newInputFile(path).exists());
+            reopenedPins.validateSnapshotPin(CATALOG_NAME, NAMESPACE, name, currentToken, replacement);
+            assertThat(readRowsAtSnapshot(table, currentSnapshot)).hasSize(13);
+        } finally {
+            if (reopenedCatalog instanceof AutoCloseable closeable) {
+                try {
+                    closeable.close();
+                } catch (Exception e) {
+                    throw new IOException(e);
+                }
+            }
+        }
+    }
+
+    @Test
     void compact_tableWithNoDeletes_skipsCompaction() {
         Table table = createV3Table("no_deletes_test");
         writeDataFile(table, 5);
@@ -463,10 +532,14 @@ class IcebergCompactionExecutorTest {
 
     private List<Record> readAllRows(Table table) {
         table.refresh();
+        return readRowsAtSnapshot(table, table.currentSnapshot().snapshotId());
+    }
+
+    private List<Record> readRowsAtSnapshot(Table table, long snapshot) {
         List<Record> allRows = new ArrayList<>();
         Schema schema = table.schema();
 
-        try (CloseableIterable<FileScanTask> tasks = table.newScan().planFiles()) {
+        try (CloseableIterable<FileScanTask> tasks = table.newScan().useSnapshot(snapshot).planFiles()) {
             for (FileScanTask task : tasks) {
                 try (CloseableIterable<Record> reader = Parquet
                         .read(table.io().newInputFile(task.file().path().toString()))

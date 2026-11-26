@@ -68,8 +68,8 @@ public final class IndexAwareSplitFetcher implements org.pangrova.coordinator.qu
     }
 
     /**
-     * Looks up index descriptors for a given table and column.
-     * Used by vector search rewriting to check if a VECTOR index exists.
+     * Looks up index descriptors for metadata inspection.
+     * Query dispatch must use {@link #lookupIndexesForQuery(String, String, String, List)}.
      *
      * @param tableName  fully qualified table name (catalog.schema.table)
      * @param columnName column name to look up indexes for
@@ -86,8 +86,40 @@ public final class IndexAwareSplitFetcher implements org.pangrova.coordinator.qu
         }
         return metadataStore.findIndexesByTable(
                 tenantId, parts[0], parts[1], parts[2]).stream()
-                .filter(d -> d.columnNames().stream()
-                        .anyMatch(c -> c.equalsIgnoreCase(columnName)))
+                .filter(d -> d.columnNames().contains(columnName))
+                .toList();
+    }
+
+    /** Returns READY indexes only when their exact indexed-column schema matches the planned scan. */
+    public List<org.pangrova.indexing.api.descriptor.IndexDescriptor> lookupIndexesForQuery(
+            String tenantId, String tableName, String columnName, List<SplitSourceDescriptor> sources) {
+        if (metadataStore == null) {
+            return List.of();
+        }
+        String[] parts = tableName.split("\\.", 3);
+        if (parts.length < 3) {
+            return List.of();
+        }
+        var table = new org.pangrova.connector.api.metadata.table.QualifiedTableName(
+                parts[0], parts[1], parts[2]);
+        var source = sourceForTable(sources, table);
+        if (source.isEmpty()) {
+            return List.of();
+        }
+        String resolvedColumn;
+        try {
+            var fields = source.orElseThrow().readBinding()
+                    .flatMap(org.pangrova.connector.api.metadata.table.ConnectorReadBinding::schemaIdentity)
+                    .orElseThrow().fields();
+            resolvedColumn = org.pangrova.indexing.api.descriptor.IndexSchemaFingerprint
+                    .resolveColumn(columnName, fields).name();
+        } catch (IllegalArgumentException unresolved) {
+            return List.of();
+        }
+        return metadataStore.findIndexesByTable(tenantId, parts[0], parts[1], parts[2]).stream()
+                .filter(index -> index.state() == org.pangrova.indexing.api.enums.IndexState.READY)
+                .filter(index -> index.columnNames().contains(resolvedColumn))
+                .filter(index -> matchesSourceSchema(index, source.orElseThrow()))
                 .toList();
     }
 
@@ -140,13 +172,13 @@ public final class IndexAwareSplitFetcher implements org.pangrova.coordinator.qu
             return List.of();
         }
         List<ConnectorSplit> filtered = applyIndexFiltering(
-                selection, rawSplits, snapshotOverrides, queryId, session);
+                selection, sources, rawSplits, snapshotOverrides, queryId, session);
         return SplitFetcher.toSplitWithPaths(filtered);
     }
 
     private List<ConnectorSplit> applyIndexFiltering(
-            Supplier<Optional<ScanPredicates>> selection, List<ConnectorSplit> splits,
-            Map<String, Long> snapshotOverrides, String queryId,
+            Supplier<Optional<ScanPredicates>> selection, List<SplitSourceDescriptor> sources,
+            List<ConnectorSplit> splits, Map<String, Long> snapshotOverrides, String queryId,
             QuerySession session) {
         try {
             var scope = selection.get();
@@ -159,7 +191,13 @@ public final class IndexAwareSplitFetcher implements org.pangrova.coordinator.qu
             var indexes = metadataStore.findReadyIndexesForColumns(
                     session.tenantId(), table.catalog(), table.schema(), table.table(), columns, false);
             if (indexes.isEmpty()) return splits;
-            var hints = predicateAnalyzer.analyze(predicates, indexes);
+            var source = sourceForTable(sources, table);
+            if (source.isEmpty()) return splits;
+            var schemaMatched = indexes.stream()
+                    .filter(index -> matchesSourceSchema(index, source.orElseThrow()))
+                    .toList();
+            if (schemaMatched.isEmpty()) return splits;
+            var hints = predicateAnalyzer.analyze(predicates, schemaMatched);
             if (hints.isEmpty()) return splits;
             Map<String, List<IndexHint>> tableHints = Map.of(table.toString(), hints);
             return filterSplitsByTable(
@@ -211,6 +249,67 @@ public final class IndexAwareSplitFetcher implements org.pangrova.coordinator.qu
                 splits, hints, catalogName, queryAccessors, snapshotToken,
                 fileStats, 0);
         return result;
+    }
+
+    private static Optional<SplitSourceDescriptor> sourceForTable(
+            List<SplitSourceDescriptor> sources,
+            org.pangrova.connector.api.metadata.table.QualifiedTableName table) {
+        var matching = sources.stream()
+                .filter(source -> source.catalogName().equals(table.catalog())
+                        && source.schemaName().equals(table.schema())
+                        && source.tableName().equals(table.table()))
+                .toList();
+        if (matching.isEmpty()) {
+            return Optional.empty();
+        }
+        var schema = matching.get(0).readBinding()
+                .flatMap(org.pangrova.connector.api.metadata.table.ConnectorReadBinding::schemaIdentity);
+        if (schema.isEmpty()) {
+            return Optional.empty();
+        }
+        var fields = schema.orElseThrow().fields();
+        if (matching.stream().anyMatch(source -> source.readBinding()
+                .flatMap(org.pangrova.connector.api.metadata.table.ConnectorReadBinding::schemaIdentity)
+                .map(identity -> !identity.fields().equals(fields)).orElse(true))) {
+            return Optional.empty();
+        }
+        return Optional.of(matching.get(0));
+    }
+
+    private boolean matchesSourceSchema(
+            org.pangrova.indexing.api.descriptor.IndexDescriptor index,
+            SplitSourceDescriptor source) {
+        if (!org.pangrova.indexing.api.descriptor.IndexSchemaFingerprint.isCurrent(index.sourceSchemaFingerprint())) {
+            return false;
+        }
+        var schema = source.readBinding()
+                .flatMap(org.pangrova.connector.api.metadata.table.ConnectorReadBinding::schemaIdentity);
+        if (schema.isEmpty()) {
+            return false;
+        }
+        String fingerprint;
+        try {
+            fingerprint = org.pangrova.indexing.api.descriptor.IndexSchemaFingerprint.of(
+                    index.columnNames(), schema.orElseThrow().fields());
+        } catch (IllegalArgumentException missing) {
+            logSelectedSchemaMismatch(index, source, "indexed_column_missing");
+            return false;
+        }
+        if (fingerprint.equals(index.sourceSchemaFingerprint())) {
+            return true;
+        }
+        logSelectedSchemaMismatch(index, source, "source_schema_mismatch");
+        return false;
+    }
+
+    private static void logSelectedSchemaMismatch(
+            org.pangrova.indexing.api.descriptor.IndexDescriptor index,
+            SplitSourceDescriptor source, String reason) {
+        // The selected read may be historical, or its captured current declaration
+        // may have been superseded since planning. Only live reconciliation can
+        // establish a durable descriptor mismatch. This read must simply skip.
+        LOG.debug("event=index_selected_schema_mismatch indexId={} table={} reason={} action=skip_index",
+                index.indexId(), source.qualifiedName(), reason);
     }
 
     private static void logFilteringResult(String queryId, int before, int after) {

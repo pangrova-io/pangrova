@@ -15,6 +15,9 @@ import org.pangrova.types.value.TypedRow;
  */
 public final class ShowStreamsTask implements MetadataTask<ShowStreamsStatement> {
 
+    private static final List<String> COLUMNS = List.of(
+            "stream_name", "tenant_id", "state", "target_table", "source_format", "created_at");
+
     private final StreamDdlExecutor executor;
 
     public ShowStreamsTask(StreamDdlExecutor executor) {
@@ -35,7 +38,7 @@ public final class ShowStreamsTask implements MetadataTask<ShowStreamsStatement>
                                 state.createdAt() != null ? state.createdAt().toString() : "")
                         .build())
                 .toList();
-        return StatementResult.fromRows(rows, null, StatementCategory.STREAM);
+        return new StatementResult(rows, COLUMNS, null, StatementCategory.STREAM);
     }
 
     private static String resolveTenantId(StatementExecutionContext ctx) {

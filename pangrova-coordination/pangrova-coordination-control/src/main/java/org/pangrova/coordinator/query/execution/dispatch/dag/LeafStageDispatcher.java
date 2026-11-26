@@ -122,6 +122,13 @@ final class LeafStageDispatcher {
         PreparedDispatch prepared = prepareDispatch(input);
         List<DAGDispatchEngine.PartitionDispatch> dispatches = new ArrayList<>();
         var templates = input.boundPlan().operatorBindings();
+        if (prepared.hasArtifacts()) {
+            if (artifactBindingResolver == null) {
+                throw new IllegalStateException("artifact retrieval plan has no durable metadata resolver");
+            }
+            artifactBindingResolver.retainSnapshotPinsForExecution(
+                    input.session().tenantId(), input.execution().executionId(), templates);
+        }
         int window = prepared.hasArtifacts() ? ARTIFACT_DISPATCH_WINDOW : Math.max(1, prepared.taskCount());
         for (int first = 0; first < prepared.taskCount();) {
             int last = first + Math.min(window, prepared.taskCount() - first);

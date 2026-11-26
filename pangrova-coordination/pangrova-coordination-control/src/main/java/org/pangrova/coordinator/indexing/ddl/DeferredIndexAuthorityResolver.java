@@ -1,12 +1,13 @@
 package org.pangrova.coordinator.indexing.ddl;
 
-import org.pangrova.common.util.DigestUtils;
-
 import org.pangrova.persistence.generation.api.job.GenerationJobStore;
+import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
+import org.pangrova.generation.api.job.GenerationSubmissionAuthority;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
+import org.pangrova.indexing.storage.NativeIndexArtifactLayout;
 import org.pangrova.security.api.exception.AccessDeniedException;
 
 import java.util.Map;
@@ -17,13 +18,14 @@ import java.util.Set;
 final class DeferredIndexAuthorityResolver {
     private DeferredIndexAuthorityResolver() {}
 
-    static Resolved resolve(GenerationJobStore store, IndexDescriptor previous, IndexDescriptor replacement) {
+    static Resolved resolve(GenerationJobStore store, IndexMetadataStore indexes,
+                            IndexDescriptor previous, IndexDescriptor replacement) {
         if (!previous.indexId().equals(replacement.indexId())
                 || !previous.tenantId().equals(replacement.tenantId())
                 || replacement.generation() != Math.addExact(previous.generation(), 1)) {
             throw new AccessDeniedException("Replacement index scope differs from its predecessor");
         }
-        var resolved = resolveExisting(store, previous);
+        var resolved = resolveExisting(store, indexes, previous);
         var table = new QualifiedTableName(
                 replacement.catalogName(), replacement.schemaName(), replacement.tableName());
         var expected = DeferredAuthorizationScope.raw(table, Set.copyOf(replacement.columnNames()), table);
@@ -35,15 +37,33 @@ final class DeferredIndexAuthorityResolver {
         return resolved;
     }
 
-    static Resolved resolveExisting(GenerationJobStore store, IndexDescriptor descriptor) {
+    static Resolved resolveExisting(GenerationJobStore store, IndexMetadataStore indexes, IndexDescriptor descriptor) {
         String tenant = descriptor.tenantId();
-        var authority = store.loadAuthorizedDispatchSpec(tenant, DurableIndexBuildService.jobId(tenant, descriptor));
+        // Prefer the exact immutable published attempt, never an arbitrary failed generation sibling.
+        String jobId = store.findPublishedGeneration(tenant, descriptor.indexId(),
+                Integer.toString(descriptor.generation()), descriptor.buildSnapshotId())
+                .map(manifest -> manifest.jobId())
+                .orElseGet(() -> indexes.findIndexGenerationSubmissionAttempt(
+                                descriptor.indexId(), descriptor.generation(), descriptor.buildSnapshotId())
+                        .map(attempt -> NativeIndexArtifactLayout.attempt(tenant, descriptor, attempt).jobId())
+                        .orElseThrow(() -> new AccessDeniedException("Exact Native submission authority is absent")));
+        var authority = store.loadAuthorizedDispatchSpec(tenant, jobId);
         var table = new QualifiedTableName(descriptor.catalogName(), descriptor.schemaName(), descriptor.tableName());
         var expected = DeferredAuthorizationScope.raw(table, Set.copyOf(descriptor.columnNames()), table);
         if (!authority.authorizationScope().equals(expected)) {
             throw new AccessDeniedException("Index metadata differs from its persisted exact authorization scope");
         }
         return new Resolved(tenant, table, new DeferredIndexSession(authority.principal(), tenant, table));
+    }
+
+    static Resolved resolveSubmission(GenerationSubmissionAuthority authority) {
+        var table = authority.authorizationScope().permissions().stream()
+                .filter(permission -> permission.privilege() == org.pangrova.security.api.enums.Privilege.SELECT)
+                .map(permission -> permission.table())
+                .findFirst().orElseThrow(() -> new AccessDeniedException(
+                        "Snapshot maintenance has no exact persisted source scope"));
+        return new Resolved(authority.tenantId(), table,
+                new DeferredIndexSession(authority.principal(), authority.tenantId(), table));
     }
 
     static Resolved resolveScalar(IndexDescriptor descriptor, String principal) {
@@ -54,10 +74,6 @@ final class DeferredIndexAuthorityResolver {
     }
 
     record Resolved(String tenantId, QualifiedTableName table, ConnectorSession session) {}
-
-    static String tenantScope(String tenantId) {
-        return DigestUtils.sha256Hex(tenantId).substring(0, 32);
-    }
 
     private record DeferredIndexSession(String principal, String tenantId, QualifiedTableName table)
             implements ConnectorSession {

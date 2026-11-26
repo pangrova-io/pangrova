@@ -17,6 +17,9 @@ import org.pangrova.generation.api.page.GenerationPageCompletion;
 import org.pangrova.generation.api.page.GenerationPage;
 import org.pangrova.generation.api.job.GenerationDispatchSpec;
 import org.pangrova.persistence.generation.api.job.GenerationJobStore;
+import org.pangrova.persistence.generation.api.job.SnapshotPinIntent;
+import org.pangrova.persistence.generation.api.job.SnapshotPinPressure;
+import org.pangrova.persistence.generation.api.job.SnapshotPinReservation;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -67,6 +70,151 @@ public final class PostgresGenerationJobStore extends PostgresGenerationJobStore
                 PostgresGenerationAdmission.validateNewJob(job, dispatchSpec, pages);
         inTransaction("create artifact build job", connection -> {
             createJob(transactionAuthority, connection, job, dispatchSpec, immutablePages);
+            return null;
+        });
+    }
+
+    @Override
+    public SnapshotPinIntent reserveSnapshotPin(SnapshotPinReservation reservation) {
+        return inTransaction("reserve source snapshot pin", connection ->
+                PostgresSnapshotPinLedger.reserve(connection, transactionAuthority, reservation));
+    }
+
+    @Override
+    public boolean markSnapshotPinPinned(String tenantId, String pinOwner, Instant now) {
+        requireText(tenantId, "tenantId");
+        requireText(pinOwner, "pinOwner");
+        Objects.requireNonNull(now, "now");
+        return inTransaction("mark source snapshot pinned", connection ->
+                PostgresSnapshotPinLedger.markPinned(connection, tenantId, pinOwner, now));
+    }
+
+    @Override
+    public boolean beginSnapshotPinRelease(String tenantId, String pinOwner, Instant now) {
+        requireText(tenantId, "tenantId");
+        requireText(pinOwner, "pinOwner");
+        Objects.requireNonNull(now, "now");
+        return inTransaction("begin source snapshot release", connection ->
+                PostgresSnapshotPinLedger.beginRelease(connection, tenantId, pinOwner, now));
+    }
+
+    @Override
+    public Optional<SnapshotPinIntent> claimSnapshotPinCleanup(
+            String tenantId, String pinOwner, Instant orphanGraceCutoff, Instant droppedGraceCutoff, Instant now) {
+        requireText(tenantId, "tenantId");
+        requireText(pinOwner, "pinOwner");
+        Objects.requireNonNull(orphanGraceCutoff, "orphanGraceCutoff");
+        Objects.requireNonNull(droppedGraceCutoff, "droppedGraceCutoff");
+        Objects.requireNonNull(now, "now");
+        return inTransaction("claim source snapshot pin cleanup", connection ->
+                PostgresSnapshotPinLedger.claimCleanup(
+                        connection, tenantId, pinOwner, orphanGraceCutoff, droppedGraceCutoff, now));
+    }
+
+    @Override
+    public boolean markSnapshotPinReleased(String tenantId, String pinOwner, Instant now) {
+        requireText(tenantId, "tenantId");
+        requireText(pinOwner, "pinOwner");
+        Objects.requireNonNull(now, "now");
+        return inTransaction("mark source snapshot released", connection ->
+                PostgresSnapshotPinLedger.markReleased(connection, tenantId, pinOwner, now));
+    }
+
+    @Override
+    public Optional<SnapshotPinIntent> findSnapshotPin(String tenantId, String pinOwner) {
+        requireText(tenantId, "tenantId");
+        requireText(pinOwner, "pinOwner");
+        return inTransaction("find source snapshot pin", connection ->
+                PostgresSnapshotPinLedger.find(connection, tenantId, pinOwner, false));
+    }
+
+    @Override
+    public Optional<SnapshotPinIntent> findSnapshotPinForJob(String tenantId, String jobId) {
+        requireText(tenantId, "tenantId");
+        requireText(jobId, "jobId");
+        return inTransaction("find job source snapshot pin", connection ->
+                PostgresSnapshotPinLedger.findForJob(connection, tenantId, jobId));
+    }
+
+    @Override
+    public void createSnapshotPinnedJob(
+            GenerationJob job, GenerationDispatchSpec dispatchSpec,
+            List<GenerationPage> pages, String pinOwner) {
+        requireText(pinOwner, "pinOwner");
+        List<GenerationPage> immutablePages =
+                PostgresGenerationAdmission.validateNewJob(job, dispatchSpec, pages);
+        inTransaction("create snapshot-pinned artifact build job", connection -> {
+            createJob(transactionAuthority, connection, job, dispatchSpec, immutablePages);
+            PostgresSnapshotPinLedger.bindJob(connection, job, dispatchSpec, pinOwner);
+            return null;
+        });
+    }
+
+    @Override
+    public List<SnapshotPinIntent> listSnapshotPinCleanupCandidates(
+            int limit, Instant orphanGraceCutoff, Instant droppedGraceCutoff) {
+        if (limit <= 0) {
+            throw new IllegalArgumentException("limit must be positive");
+        }
+        Objects.requireNonNull(orphanGraceCutoff, "orphanGraceCutoff");
+        Objects.requireNonNull(droppedGraceCutoff, "droppedGraceCutoff");
+        return inTransaction("list source snapshot pin cleanup", connection ->
+                PostgresSnapshotPinLedger.cleanupCandidates(
+                        connection, limit, orphanGraceCutoff, droppedGraceCutoff));
+    }
+
+    @Override
+    public Optional<SnapshotPinPressure> observeSnapshotPinPressure(int maxPerState, Instant observedAt) {
+        if (maxPerState <= 0 || maxPerState > SnapshotPinPressure.MAX_PER_STATE) {
+            throw new IllegalArgumentException("Native pin pressure observation limit must be between 1 and 1000");
+        }
+        Objects.requireNonNull(observedAt, "observedAt");
+        return inTransaction("observe bounded Native snapshot pin pressure", connection ->
+                Optional.of(PostgresSnapshotPinLedger.observePressure(connection, maxPerState, observedAt)));
+    }
+
+    @Override
+    public List<SnapshotPinIntent> listUnboundSnapshotPinsForRecovery(int limit, Instant retryCutoff) {
+        if (limit <= 0) {
+            throw new IllegalArgumentException("limit must be positive");
+        }
+        Objects.requireNonNull(retryCutoff, "retryCutoff");
+        return inTransaction("list unbound source snapshot recovery", connection ->
+                PostgresSnapshotPinLedger.listForRecovery(connection, limit, retryCutoff));
+    }
+
+    @Override
+    public Optional<SnapshotPinIntent> claimSnapshotPinRecovery(
+            String tenantId, String pinOwner, Instant retryCutoff, Instant now) {
+        requireText(tenantId, "tenantId");
+        requireText(pinOwner, "pinOwner");
+        Objects.requireNonNull(retryCutoff, "retryCutoff");
+        Objects.requireNonNull(now, "now");
+        return inTransaction("claim unbound source snapshot recovery", connection ->
+                PostgresSnapshotPinLedger.claimRecovery(connection, tenantId, pinOwner, retryCutoff, now));
+    }
+
+    @Override
+    public List<SnapshotPinIntent> listSnapshotPinsForAdoption(int limit) {
+        if (limit <= 0) {
+            throw new IllegalArgumentException("limit must be positive");
+        }
+        return inTransaction("list legacy snapshot pin adoption", connection ->
+                PostgresSnapshotPinLedger.listForAdoption(connection, limit));
+    }
+
+    @Override
+    public void retainSnapshotPinForExecution(
+            String tenantId, String artifactId, String generation,
+            String sourceSnapshot, String executionId) {
+        requireText(tenantId, "tenantId");
+        requireText(artifactId, "artifactId");
+        requireText(generation, "generation");
+        requireText(sourceSnapshot, "sourceSnapshot");
+        requireText(executionId, "executionId");
+        inTransaction("retain artifact source snapshot for execution", connection -> {
+            PostgresSnapshotPinLedger.retainForExecution(
+                    connection, tenantId, artifactId, generation, sourceSnapshot, executionId);
             return null;
         });
     }
@@ -466,6 +614,20 @@ public final class PostgresGenerationJobStore extends PostgresGenerationJobStore
         Objects.requireNonNull(now, "now");
         return inTransaction("cancel revoked artifact work", connection ->
                 PostgresGenerationRevocation.cancel(connection, tenantId, jobId, normalizeFailure(reason), now));
+    }
+
+    @Override
+    public boolean cancelPublicationClaim(
+            GenerationJob claim, String owner, long ownerEpoch, String reason, Instant now) {
+        Objects.requireNonNull(claim, "claim");
+        requireText(owner, "owner");
+        Objects.requireNonNull(now, "now");
+        if (ownerEpoch <= 0 || claim.publicationFencingToken() <= 0) {
+            throw new IllegalArgumentException("publication epoch and fence must be positive");
+        }
+        return inTransaction("cancel exact artifact publication claim", connection ->
+                PostgresGenerationRevocation.cancelPublication(
+                        connection, claim, owner, ownerEpoch, normalizeFailure(reason), now));
     }
 
     @Override

@@ -10,6 +10,7 @@ import org.pangrova.common.client.session.RetryPolicy;
 import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.SQLFeatureNotSupportedException;
 import java.sql.Types;
 import java.util.ArrayList;
 import java.util.List;
@@ -113,6 +114,16 @@ class JdbcMetadataProtocolTest {
                 try (var tables = connection.getMetaData().getTables("lakehouse", null, null, null)) { assertThat(tables.next()).isFalse(); }
                 try (var columns = connection.getMetaData().getColumns("lakehouse", null, null, null)) { assertThat(columns.next()).isFalse(); }
             }
+        }
+    }
+
+    @Test
+    void indexInfoIsExplicitlyUnsupportedInsteadOfReturningMisleadingEmptyMetadata() throws Exception {
+        try (var peer = new MetadataProtocolPeer(); var connection = connect(peer)) {
+            assertThatThrownBy(() -> connection.getMetaData()
+                    .getIndexInfo("lakehouse", "public", "orders", false, false))
+                    .isInstanceOf(SQLFeatureNotSupportedException.class)
+                    .hasMessageContaining("SHOW INDEXES");
         }
     }
 

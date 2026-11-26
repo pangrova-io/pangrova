@@ -169,6 +169,7 @@ class PaimonNativeSystemTableBindingIntegrationTest {
             var bound = (PaimonSystemTableHandle) binding.handle();
             assertThat(bound.objects()).extracting(PaimonSystemTableHandle.MetadataObject::schemaId)
                     .containsExactly(0L, 1L, 2L);
+            assertThat(metadata.bindRead(SESSION, selector).sourceIdentity()).isEqualTo(binding.sourceIdentity());
             metadata.validateReadBinding(SESSION, binding);
             for (var object : bound.objects()) {
                 assertThat(Files.readString(Path.of(object.uri())))
@@ -465,7 +466,7 @@ class PaimonNativeSystemTableBindingIntegrationTest {
             assertThat(((PaimonFilesTableHandle) first.handle()).snapshotId()).isEqualTo(1);
             assertThat(((PaimonFilesTableHandle) second.handle()).snapshotId()).isEqualTo(2);
             assertThat(second.sourceIdentity()).isNotEqualTo(first.sourceIdentity());
-            var historical = metadata.bindRead(SESSION, selector.withTimeTravelSnapshot(1));
+            var historical = metadata.bindRead(SESSION, selector.withTimeTravelSnapshot("1"));
             assertThat(historical.snapshotId()).hasValue(1);
             assertThat(historical.state()).isEqualTo(
                     org.pangrova.connector.api.enums.ReadSnapshotState.SNAPSHOT);

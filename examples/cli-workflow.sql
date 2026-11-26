@@ -1,7 +1,7 @@
 -- Pangrova CLI end-to-end workflow.
--- Run against an isolated Standalone instance with catalog/table privileges,
+-- Run against an isolated Standalone instance with catalog/table/index privileges,
 -- indexing enabled, and local governed FILE storage configured.
--- Use interactive mode so each statement is executed separately:
+-- Interactive replay sends each statement separately:
 --   bin/pangrova-cli.sh --host localhost --port 8080 < examples/cli-workflow.sql
 
 -- Core SQL: catalog, schema, table, insert, and queries

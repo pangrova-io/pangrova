@@ -56,7 +56,8 @@ class TransportTest(unittest.TestCase):
                     request = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
                     query_id = str(uuid.uuid4())
                     cls.queries[query_id] = request['query']
-                    self.send(200, {'query_id': query_id, 'state': 'RUNNING', 'column_names': []})
+                    self.send(200, {'query_id': query_id, 'state': 'RUNNING',
+                                    'result_disposition': 'PENDING', 'column_names': []})
                 elif self.path.endswith('/cancel'):
                     query_id = self.path.split('/')[3]
                     cls.cancellations.append(query_id)
@@ -70,8 +71,11 @@ class TransportTest(unittest.TestCase):
                     query_id = self.path.split('/')[3]
                     sql = cls.queries[query_id]
                     state = 'RUNNING' if sql == 'TIMEOUT' else 'FAILED' if sql == 'FAIL' else 'FINISHED'
-                    body = {'query_id': query_id, 'state': state}
-                    if state == 'FINISHED':
+                    disposition = ('NONE' if sql == 'NO_RESULT' or state == 'FAILED'
+                                   else 'STREAM' if state == 'FINISHED' else 'PENDING')
+                    body = {'query_id': query_id, 'state': state, 'version': 1, 'drained': False,
+                            'result_disposition': disposition}
+                    if disposition == 'STREAM':
                         body['result_endpoint'] = {'host': '127.0.0.1', 'port': cls.flight.port,
                                                    'ticket': query_id, 'protocol': 'grpc'}
                     self.send(200, body)
@@ -117,6 +121,13 @@ class TransportTest(unittest.TestCase):
         outcome = self.client().execute('EMPTY', 10)
         self.assertEqual(outcome['result']['rows'], [])
         self.assertEqual(len(outcome['result']['columns']), 5)
+
+    def test_resultless_completion_does_not_open_a_flight_stream(self):
+        outcome = self.client().execute('NO_RESULT', 10)
+        self.assertEqual(outcome['state'], 'FINISHED')
+        self.assertFalse(outcome['resultConsumed'])
+        self.assertNotIn('result', outcome)
+        self.assertNotIn(outcome['queryId'], self.flight_reads)
 
     def test_timeout_and_server_failure_retain_query_identity_and_request_cancel(self):
         client = self.client()

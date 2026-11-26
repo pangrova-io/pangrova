@@ -88,7 +88,8 @@ class EndpointFailoverThreadSafetyTest {
         AtomicInteger serverBHits = new AtomicInteger();
         serverB.createContext("/v1/query/q-1/state", exchange -> {
             serverBHits.incrementAndGet();
-            byte[] body = "{\"query_id\":\"q-1\",\"state\":\"RUNNING\"}".getBytes(StandardCharsets.UTF_8);
+            byte[] body = ("{\"query_id\":\"q-1\",\"state\":\"RUNNING\","
+                    + "\"result_disposition\":\"PENDING\"}").getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("Content-Type", "application/json");
             exchange.sendResponseHeaders(200, body.length);
             exchange.getResponseBody().write(body);
@@ -99,7 +100,8 @@ class EndpointFailoverThreadSafetyTest {
         AtomicInteger serverCHits = new AtomicInteger();
         serverC.createContext("/v1/query/q-1/state", exchange -> {
             serverCHits.incrementAndGet();
-            byte[] body = "{\"query_id\":\"q-1\",\"state\":\"RUNNING\"}".getBytes(StandardCharsets.UTF_8);
+            byte[] body = ("{\"query_id\":\"q-1\",\"state\":\"RUNNING\","
+                    + "\"result_disposition\":\"PENDING\"}").getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("Content-Type", "application/json");
             exchange.sendResponseHeaders(200, body.length);
             exchange.getResponseBody().write(body);
@@ -266,7 +268,8 @@ class EndpointFailoverThreadSafetyTest {
 
         // Server B succeeds
         serverB.createContext("/v1/query/q-1/state", exchange -> {
-            byte[] body = "{\"query_id\":\"q-1\",\"state\":\"COMPLETED\"}".getBytes(StandardCharsets.UTF_8);
+            byte[] body = ("{\"query_id\":\"q-1\",\"state\":\"FINISHED\","
+                    + "\"result_disposition\":\"NONE\"}").getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("Content-Type", "application/json");
             exchange.sendResponseHeaders(200, body.length);
             exchange.getResponseBody().write(body);

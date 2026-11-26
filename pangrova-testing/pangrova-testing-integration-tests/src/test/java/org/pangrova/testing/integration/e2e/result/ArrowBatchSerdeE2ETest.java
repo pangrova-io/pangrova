@@ -81,7 +81,7 @@ class ArrowBatchSerdeE2ETest extends SqlE2ETestBase {
             SubmitQueryResponse submitResponse = MAPPER.readValue(
                     resp.body(), SubmitQueryResponse.class);
             String queryId = submitResponse.queryId();
-            var endpoint = awaitResultEndpoint(queryId, submitResponse.resultEndpoint());
+            var endpoint = awaitResultEndpoint(queryId, submitResponse);
             String canonicalTaskId = requireNativeResultTaskId(endpoint, queryId, taskTracker);
             String workerTaskId = null;
             List<TypedRow> rows;

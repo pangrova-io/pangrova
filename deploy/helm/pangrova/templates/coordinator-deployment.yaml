@@ -16,6 +16,37 @@
 {{- fail "config.coordinator security.auth.type must be OAUTH2 or LDAP, or explicit developmentMode=true with NOOP" -}}
 {{- end -}}
 {{- $coordinator := get $config "coordinator" | default dict -}}
+{{- if or (hasKey $config "indexing.enabled") (hasKey $config "indexing.base-path") -}}
+{{- fail "use nested indexing.enabled and indexing.base-path without dotted overrides" -}}
+{{- end -}}
+{{- $indexing := get $config "indexing" | default dict -}}
+{{- $indexingFlag := get $indexing "enabled" | toString | lower -}}
+{{- if and (hasKey $indexing "enabled") (not (has $indexingFlag (list "true" "false"))) -}}
+{{- fail "indexing.enabled must be a literal true or false" -}}
+{{- end -}}
+{{- $indexingEnabled := eq $indexingFlag "true" -}}
+{{- $indexBasePath := get $indexing "base-path" | default "" -}}
+{{- if $indexingEnabled -}}
+{{- if or (not (kindIs "string" $indexBasePath)) (eq $indexBasePath "") -}}
+{{- fail "enabled indexing requires a literal indexing.base-path" -}}
+{{- end -}}
+{{- if contains "${" $indexBasePath -}}
+{{- fail "enabled indexing requires a literal indexing.base-path; Helm cannot validate environment substitutions" -}}
+{{- end -}}
+{{- $localIndexRoot := or (hasPrefix "/" $indexBasePath) (hasPrefix "file:" $indexBasePath) (not (contains "://" $indexBasePath)) -}}
+{{- if $localIndexRoot -}}
+{{- if not .Values.indexing.persistence.enabled -}}
+{{- fail "enabling indexing with a local base path requires indexing.persistence.enabled=true and a shared ReadWriteMany PVC" -}}
+{{- end -}}
+{{- $localPath := trimSuffix "/" (trimPrefix "file://" $indexBasePath) -}}
+{{- if or (ne (clean $localPath) $localPath) (not (or (eq $localPath "/opt/pangrova/indexes") (hasPrefix "/opt/pangrova/indexes/" $localPath))) (contains "%" $localPath) -}}
+{{- fail "local indexing.base-path must be /opt/pangrova/indexes or a canonical subdirectory of the shared PVC mount" -}}
+{{- end -}}
+{{- if and .Values.multiTenancy.enabled (gt (len .Values.multiTenancy.tenants) 0) -}}
+{{- fail "local index storage is not shared across tenant namespaces; configure a shared object-store indexing.base-path" -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
 {{- $ha := get $coordinator "ha" | default dict -}}
 {{- $multiple := gt (int .Values.coordinator.replicas) 1 -}}
 {{- $identityMode := .Values.coordinator.identityMode -}}
@@ -122,9 +153,37 @@ spec:
               subPath: coordinator.yml
             - name: logs
               mountPath: /opt/pangrova/logs
+            {{- if .Values.indexing.persistence.enabled }}
+            - name: index-data
+              mountPath: /opt/pangrova/indexes
+            {{- end }}
       volumes:
         - name: config
           configMap:
             name: pangrova-config
         - name: logs
           emptyDir: {}
+        {{- if .Values.indexing.persistence.enabled }}
+        - name: index-data
+          persistentVolumeClaim:
+            claimName: {{ default "pangrova-coordinator-index-data" .Values.indexing.persistence.existingClaim | quote }}
+        {{- end }}
+{{- if and .Values.indexing.persistence.enabled (not .Values.indexing.persistence.existingClaim) }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pangrova-coordinator-index-data
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: pangrova
+    component: coordinator
+spec:
+  accessModes: ["ReadWriteMany"]
+  {{- if .Values.indexing.persistence.storageClass }}
+  storageClassName: {{ .Values.indexing.persistence.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.indexing.persistence.size }}
+{{- end }}

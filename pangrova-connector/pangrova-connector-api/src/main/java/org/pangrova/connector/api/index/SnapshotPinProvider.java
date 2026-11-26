@@ -1,7 +1,5 @@
 package org.pangrova.connector.api.index;
 
-import org.pangrova.connector.api.exception.SnapshotExpiredException;
-
 import org.pangrova.common.api.annotation.Experimental;
 
 import java.util.List;
@@ -10,66 +8,40 @@ import java.util.List;
  * SPI for managing snapshot pins that prevent compaction from deleting
  * snapshots still referenced by active indexes.
  *
- * <p>When an index is built against a table snapshot, the snapshot must be
- * pinned to ensure compaction does not remove the underlying data files.
- * Connectors implement this interface using their native pinning mechanism
- * (e.g., Iceberg branch refs, Paimon tags).</p>
- *
- * <p>Lifecycle: {@link #pinSnapshot} must succeed before the builder reads source
- * files or publishes an index as ready; {@link #unpinSnapshot} is called when its retained snapshot is
- * garbage-collected. Operations should be idempotent for crash retries.</p>
+ * <p>Snapshot tokens are opaque connector values. Implementations may interpret
+ * their own tokens but must round-trip them without numeric coercion. Lifecycle
+ * operations are idempotent for the exact {@link SnapshotPinOwner}.</p>
  */
 @Experimental
 public interface SnapshotPinProvider {
 
-    /**
-     * Pins a snapshot so that compaction cannot expire it while the index
-     * references it.
-     *
-     * @param catalogName    catalog containing the table
-     * @param schemaName     schema containing the table
-     * @param tableName      table whose snapshot should be pinned
-     * @param snapshotId     snapshot identifier to pin
-     * @param pinnedByIndexId the index that requires this snapshot
-     * @throws SnapshotExpiredException if the snapshot has already expired
-     */
+    /** Pins one immutable snapshot before any source inventory or row read. */
     void pinSnapshot(String catalogName,
                      String schemaName,
                      String tableName,
-                     long snapshotId,
-                     String pinnedByIndexId);
+                     String snapshotToken,
+                     SnapshotPinOwner owner);
 
-    /**
-     * Unpins a snapshot previously pinned by the given index, allowing
-     * compaction to reclaim it if no other pins remain.
-     *
-     * @param catalogName    catalog containing the table
-     * @param schemaName     schema containing the table
-     * @param tableName      table whose snapshot should be unpinned
-     * @param snapshotId     snapshot identifier to unpin
-     * @param pinnedByIndexId the index releasing this snapshot
-     */
+    /** Releases exactly one owner's pin; a missing matching pin is a successful no-op. */
     void unpinSnapshot(String catalogName,
                        String schemaName,
                        String tableName,
-                       long snapshotId,
-                       String pinnedByIndexId);
+                       String snapshotToken,
+                       SnapshotPinOwner owner);
 
-    /**
-     * Returns all snapshot identifiers currently pinned for the given table.
-     *
-     * @param catalogName catalog containing the table
-     * @param schemaName  schema containing the table
-     * @param tableName   table to query
-     * @return list of pinned snapshot identifiers; empty if none are pinned
-     */
-    List<Long> getPinnedSnapshots(String catalogName,
-                                  String schemaName,
-                                  String tableName);
+    /** Fails closed unless the exact owner's pin still resolves to the requested snapshot. */
+    void validateSnapshotPin(String catalogName,
+                             String schemaName,
+                             String tableName,
+                             String snapshotToken,
+                             SnapshotPinOwner owner);
 
-    /** Enumerates every durable snapshot ref for one exact index, including retired generations. */
-    default List<Long> getPinnedSnapshotsForIndex(String catalogName, String schemaName,
-                                                  String tableName, String indexId) {
-        throw new UnsupportedOperationException("Per-index snapshot pin enumeration is unavailable");
-    }
+    /** Returns every distinct opaque snapshot token currently pinned for the table. */
+    List<String> getPinnedSnapshots(String catalogName,
+                                    String schemaName,
+                                    String tableName);
+
+    /** Enumerates exact durable pins for one index, including retired generations. */
+    List<SnapshotPinReference> getSnapshotPinsForIndex(String catalogName, String schemaName,
+                                                       String tableName, String indexId);
 }

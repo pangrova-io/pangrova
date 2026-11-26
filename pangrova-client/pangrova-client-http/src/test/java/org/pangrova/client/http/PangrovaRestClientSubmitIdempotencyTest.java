@@ -76,7 +76,8 @@ class PangrovaRestClientSubmitIdempotencyTest {
                 default -> null;
             };
             var body = mapper.writeValueAsBytes(new org.pangrova.common.client.query.SubmitQueryResponse(
-                    "query", "FINISHED", null, java.util.List.of(), selection));
+                    "query", "FINISHED", org.pangrova.common.enums.ResultDisposition.NONE,
+                    null, java.util.List.of(), selection));
             exchange.getResponseHeaders().add("Content-Type", "application/json");
             exchange.sendResponseHeaders(200, body.length);
             try (var stream = exchange.getResponseBody()) { stream.write(body); }
@@ -106,7 +107,7 @@ class PangrovaRestClientSubmitIdempotencyTest {
                 Thread.currentThread().interrupt();
             }
             try {
-                byte[] body = "{\"query_id\":\"q-1\",\"state\":\"QUEUED\"}"
+                byte[] body = "{\"query_id\":\"q-1\",\"state\":\"QUEUED\",\"result_disposition\":\"PENDING\"}"
                         .getBytes(StandardCharsets.UTF_8);
                 exchange.sendResponseHeaders(200, body.length);
                 exchange.getResponseBody().write(body);
@@ -137,7 +138,7 @@ class PangrovaRestClientSubmitIdempotencyTest {
             idempotencyKey.set(exchange.getRequestHeaders().getFirst("Idempotency-Key"));
             requestId.set(exchange.getRequestHeaders().getFirst("X-Pangrova-Request-Id"));
             exchange.getRequestBody().readAllBytes();
-            byte[] body = "{\"query_id\":\"q-1\",\"state\":\"QUEUED\"}"
+            byte[] body = "{\"query_id\":\"q-1\",\"state\":\"QUEUED\",\"result_disposition\":\"PENDING\"}"
                     .getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("Content-Type", "application/json");
             exchange.sendResponseHeaders(200, body.length);

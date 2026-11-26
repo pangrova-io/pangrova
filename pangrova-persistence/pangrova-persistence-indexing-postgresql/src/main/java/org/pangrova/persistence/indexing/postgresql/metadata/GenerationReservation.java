@@ -12,4 +12,6 @@ record GenerationReservation(
         Instant timestamp,
         Instant expectedUpdatedAt,
         IndexState expectedState,
-        int expectedGeneration) {}
+        int expectedGeneration,
+        String sourceSchemaFingerprint,
+        String nativeSubmissionAttemptId) {}

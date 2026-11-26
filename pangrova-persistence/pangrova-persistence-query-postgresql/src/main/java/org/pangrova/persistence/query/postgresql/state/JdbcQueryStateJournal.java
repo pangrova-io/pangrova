@@ -12,7 +12,10 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import javax.sql.DataSource;
 import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.query.api.journal.QueryAcceptance;
+import org.pangrova.query.api.journal.QueryAcceptanceAdmission;
 import org.pangrova.query.api.journal.QueryStateEvent;
+import org.pangrova.persistence.query.api.exception.JournalWriteException;
 import org.pangrova.persistence.query.api.state.QueryStateJournal;
 import org.pangrova.persistence.query.api.state.StateJournalConfig;
 import org.pangrova.query.api.journal.TaskStateEvent;
@@ -22,6 +25,7 @@ import org.pangrova.query.api.session.JournalSessionPayload;
 @ThreadSafe
 public final class JdbcQueryStateJournal implements QueryStateJournal {
     private static final long DRAIN_MS = 5000;
+    private static final int MAX_EXPIRED_ACCEPTANCES_PER_SWEEP = 1000;
     private static final String ACTIVE = "query_id NOT IN (SELECT query_id FROM query_state_journal "
             + "WHERE state IN ('FINISHED','FAILED','CANCELLED'))";
     private final DataSource dataSource;
@@ -43,10 +47,24 @@ public final class JdbcQueryStateJournal implements QueryStateJournal {
         pending.admit(new JournalPendingWrites.Write(pending, event), false);
     }
     @Override public void appendQueryEventSync(QueryStateEvent event) {
-        await(pending.admit(new JournalPendingWrites.Write(pending, event), true));
+        var owner = pending.admit(new JournalPendingWrites.Write(pending, event), true);
+        await(owner.attempt());
+    }
+    @Override public QueryAcceptanceAdmission acceptQuerySync(QueryStateEvent event) {
+        if (event.acceptance() == null) {
+            throw new IllegalArgumentException("Durable acceptance requires an acceptance fact");
+        }
+        var owner = pending.admit(new JournalPendingWrites.Write(pending, event), true);
+        await(owner.attempt());
+        var admission = owner.acceptanceResult();
+        if (admission == null) {
+            throw JournalPendingWrites.failure("Durable acceptance committed without an admission result", null);
+        }
+        return admission;
     }
     @Override public void appendTaskEventSync(TaskStateEvent event) {
-        await(pending.admit(new JournalPendingWrites.Write(pending, event), true));
+        var owner = pending.admit(new JournalPendingWrites.Write(pending, event), true);
+        await(owner.attempt());
     }
 
     private void await(CompletableFuture<Void> attempt) {
@@ -56,6 +74,9 @@ public final class JdbcQueryStateJournal implements QueryStateJournal {
             Thread.currentThread().interrupt();
             throw JournalPendingWrites.failure("Interrupted awaiting journal commit; event remains owned", interrupted);
         } catch (ExecutionException failure) {
+            if (failure.getCause() instanceof JournalWriteException rejected) {
+                throw rejected;
+            }
             throw JournalPendingWrites.failure("Journal commit was not established", failure.getCause());
         }
     }
@@ -138,6 +159,67 @@ public final class JdbcQueryStateJournal implements QueryStateJournal {
         }
     }
 
+    @Override public Optional<QueryAcceptance> findAcceptance(String principal, String idempotencyKeyDigest) {
+        Objects.requireNonNull(principal, "principal");
+        Objects.requireNonNull(idempotencyKeyDigest, "idempotencyKeyDigest");
+        try {
+            return pending.enterSql().perform(dataSource, connection -> {
+                try (PreparedStatement statement = connection.prepareStatement("SELECT " + JournalEventSql.QUERY_COLUMNS
+                        + " FROM query_state_journal WHERE principal = ? AND idempotency_key_digest = ? "
+                        + "AND state = 'QUEUED' ORDER BY id LIMIT 1")) {
+                    statement.setString(1, principal);
+                    statement.setString(2, idempotencyKeyDigest);
+                    try (ResultSet rows = statement.executeQuery()) {
+                        return rows.next()
+                                ? Optional.of(JournalEventSql.readQuery(rows).acceptance())
+                                : Optional.empty();
+                    }
+                }
+            });
+        } catch (SQLException failure) {
+            throw JournalPendingWrites.failure("Failed to reconcile durable query acceptance", failure);
+        }
+    }
+
+    @Override public void purgeExpiredAcceptances() {
+        try {
+            pending.enterSql().perform(dataSource, connection -> {
+                connection.setAutoCommit(false);
+                try (PreparedStatement statement = connection.prepareStatement("""
+                        WITH expired AS (
+                          SELECT a.query_id FROM query_state_journal a
+                          WHERE a.idempotency_key_digest IS NOT NULL
+                            AND EXISTS (
+                              SELECT 1 FROM query_state_journal t
+                              WHERE t.query_id = a.query_id
+                                AND t.state IN ('FINISHED', 'FAILED', 'CANCELLED')
+                            )
+                            AND a.retention_ms <= ? - GREATEST(a.timestamp_ms, (
+                              SELECT MAX(t.timestamp_ms) FROM query_state_journal t
+                              WHERE t.query_id = a.query_id
+                                AND t.state IN ('FINISHED', 'FAILED', 'CANCELLED')
+                            ))
+                          ORDER BY a.timestamp_ms LIMIT ?
+                        ),
+                        removed_tasks AS (
+                          DELETE FROM task_state_journal t USING expired e
+                          WHERE t.query_id = e.query_id
+                        )
+                        DELETE FROM query_state_journal q USING expired e
+                        WHERE q.query_id = e.query_id
+                        """)) {
+                    statement.setLong(1, System.currentTimeMillis());
+                    statement.setInt(2, MAX_EXPIRED_ACCEPTANCES_PER_SWEEP);
+                    statement.executeUpdate();
+                }
+                connection.commit();
+                return null;
+            });
+        } catch (SQLException failure) {
+            throw JournalPendingWrites.failure("Failed to sweep expired query acceptances", failure);
+        }
+    }
+
     @Override public void purgeQuery(String queryId) {
         Objects.requireNonNull(queryId, "queryId");
         JournalSqlOperation operation = pending.enterPurge(queryId);
@@ -164,8 +246,8 @@ public final class JdbcQueryStateJournal implements QueryStateJournal {
     private void purgeCommitted(Connection connection, String queryId) throws SQLException {
         connection.setAutoCommit(false);
         try {
-            deleteQueryState(connection, queryId);
-            deleteTaskState(connection, queryId);
+            JournalEventSql.deleteTaskState(connection, queryId);
+            deleteExpiredQueryFacts(connection, queryId, System.currentTimeMillis());
             connection.commit();
         } catch (SQLException failure) {
             try {
@@ -177,18 +259,30 @@ public final class JdbcQueryStateJournal implements QueryStateJournal {
         }
     }
 
-    private static void deleteQueryState(Connection connection, String queryId) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement(
-                "DELETE FROM query_state_journal WHERE query_id = ?")) {
+    private static void deleteExpiredQueryFacts(Connection connection, String queryId, long now)
+            throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                DELETE FROM query_state_journal q
+                WHERE q.query_id = ?
+                  AND NOT EXISTS (
+                    SELECT 1 FROM query_state_journal a
+                    WHERE a.query_id = q.query_id AND a.idempotency_key_digest IS NOT NULL
+                      AND (
+                        NOT EXISTS (
+                          SELECT 1 FROM query_state_journal t
+                          WHERE t.query_id = a.query_id
+                            AND t.state IN ('FINISHED', 'FAILED', 'CANCELLED')
+                        )
+                        OR a.retention_ms > ? - GREATEST(a.timestamp_ms, (
+                          SELECT MAX(t.timestamp_ms) FROM query_state_journal t
+                          WHERE t.query_id = a.query_id
+                            AND t.state IN ('FINISHED', 'FAILED', 'CANCELLED')
+                        ))
+                      )
+                  )
+                """)) {
             statement.setString(1, queryId);
-            statement.executeUpdate();
-        }
-    }
-
-    private static void deleteTaskState(Connection connection, String queryId) throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement(
-                "DELETE FROM task_state_journal WHERE query_id = ?")) {
-            statement.setString(1, queryId);
+            statement.setLong(2, now);
             statement.executeUpdate();
         }
     }

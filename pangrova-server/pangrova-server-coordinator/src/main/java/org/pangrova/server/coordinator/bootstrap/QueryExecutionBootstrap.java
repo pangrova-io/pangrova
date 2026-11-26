@@ -249,6 +249,9 @@ final class QueryExecutionBootstrap {
                 catalog, null,
                 org.pangrova.planner.metadata.catalog.MetadataSchemaBuilder::invalidateTableCaches);
         ddlExecutor.setMetadataService(metadataBootstrap.metadataService());
+        if (indexing != null && indexing.getSchemaEvolutionHandler() != null) {
+            ddlExecutor.setSchemaEvolutionHandler(indexing.getSchemaEvolutionHandler());
+        }
         if (metadataDataSource != null
                 && (config.securityEnabled() || config.governanceEnabled())) {
             ddlExecutor.setColumnMaskStore(

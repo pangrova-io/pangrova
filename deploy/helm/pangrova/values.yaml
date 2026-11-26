@@ -140,6 +140,15 @@ worker:
 # ---- Configuration (embedded YAML content) ----
 # These are mounted as ConfigMap and injected into containers.
 # Override with --set-file or in a custom values file.
+indexing:
+  # A ReadWriteMany PVC shared at the same path by every Coordinator and Worker.
+  # Object-store deployments can set indexing.persistence.enabled=false and use
+  # a shared indexing.base-path URI instead.
+  persistence:
+    enabled: false
+    existingClaim: ""
+    size: 100Gi
+    storageClass: ""
 config:
   coordinator: |
     coordinator:
@@ -168,6 +177,11 @@ config:
       enabled: true
       auth:
         type: NOOP
+    indexing:
+      # Automatic maintenance stays off until the lifecycle gates pass. Set a
+      # shared durable root before enabling; PostgreSQL stores metadata only.
+      enabled: false
+      base-path: "/opt/pangrova/indexes"
   worker: |
     worker:
       host: "0.0.0.0"
@@ -195,7 +209,16 @@ config:
         max-backoff: "30s"
       native:
         cache:
-          enabled: false
+          enabled: true
+          memory-bytes: 8589934592
+          ssd-path: /opt/pangrova/data/velox-cache
+          ssd-bytes: 107374182400
+          ssd-shards: 8
+          checkpoint-interval-bytes: 1073741824
+          # Each StatefulSet Pod owns this directory on its own data volume.
+          artifact-path: /opt/pangrova/data/pangrova-artifacts
+          artifact-bytes: 107374182400
+          artifact-index-memory-bytes: 2147483648
     observability:
       enabled: true
     security:

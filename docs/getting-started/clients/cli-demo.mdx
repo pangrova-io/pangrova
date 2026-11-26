@@ -8,11 +8,15 @@ import useBaseUrl from '@docusaurus/useBaseUrl';
 # CLI Workflow Demo
 
 Watch a complete Pangrova CLI walkthrough executed against a local Standalone
-instance built from the current source tree. The recording keeps only the CLI
-surface and removes logger noise and query IDs.
+instance built from commit `050f8a313` with validated local changes in the
+query-execution performance worktree. The recording keeps only the CLI surface
+and removes logger noise and query IDs. It illustrates the workflow, but is not
+a reproducibility or end-to-end validation result for the current `main` branch
+or a released build.
 
 <video
   controls
+  aria-label="Pangrova CLI workflow demonstration"
   preload="metadata"
   poster={useBaseUrl('/media/pangrova-cli-demo-poster.png')}
   src={useBaseUrl('/media/pangrova-cli-demo.mp4')}
@@ -21,7 +25,7 @@ surface and removes logger noise and query IDs.
   Your browser does not support embedded video.
 </video>
 
-<a href={useBaseUrl('/media/pangrova-cli-demo.mp4')}>Download the MP4</a> · 3 min 47 sec · 1080p · English narration
+<a href={useBaseUrl('/media/pangrova-cli-demo.mp4')} download="pangrova-cli-demo.mp4">Download the MP4</a> · 3 min 47 sec · 1080p · English narration
 
 ## Demo coverage
 
@@ -41,15 +45,69 @@ surface and removes logger noise and query IDs.
    rank rows with a window function, aggregate through a CTE, compact and vacuum
    the table, and verify the final row count.
 
-The matching SQL is available in
+## Replay the example
+
+The matching multi-statement SQL workflow is available in
 [`examples/cli-workflow.sql`](https://github.com/pangrova-io/pangrova/blob/main/examples/cli-workflow.sql).
-Run it only against an isolated development instance with permission to create
-catalogs, schemas, tables, and indexes. Multimodal FILE examples also require a
-configured local blob store and capability secret.
+It uses a generic local warehouse path instead of the path shown in the
+recording. Follow the [Standalone quickstart](../quickstart.md) to prepare and
+start the local Coordinator and Worker. Before replaying:
+
+- Use a fresh, isolated **local** development instance, not a port forwarded to
+  a shared or production service. Confirm that the Worker has registered and
+  that its advertised result endpoint is reachable from the CLI.
+- Confirm that the catalog `pangrova_final_demo2` is not registered and that
+  `/tmp/pangrova-cli-warehouse` is unused on the Standalone host.
+- Ensure the executing principal can create catalogs, schemas, tables, and
+  indexes, insert rows, and query data. Native index builds also require enough
+  Worker memory for the configured index jobs.
+- Configure indexing plus local governed FILE storage and its capability secret
+  for the multimodal section. Apply the authentication and TLS options from the
+  [CLI reference](./cli.md#command-line-options) when required by your
+  development configuration; do not disable them to run a demo.
+
+From the repository root, open the CLI and execute the statements one at a time,
+stopping immediately if any statement fails:
+
+```bash
+bin/pangrova-cli.sh --host localhost --port 8080
+```
+
+For the same fresh development instance, you can also replay the file through
+the interactive shell:
 
 ```bash
 bin/pangrova-cli.sh --host localhost --port 8080 < examples/cli-workflow.sql
 ```
 
-Piped input runs the interactive shell and continues after statement errors.
-Use `--file` when an automation must stop on the first failed statement.
+Piped input continues after statement errors. Verify that every statement
+succeeds: the detail query returns six rows, region counts are `east=2`,
+`north=1`, `south=1`, `west=2`, event-type counts are `click=3`, `purchase=2`,
+`search=1`, all created indexes reach `READY`, and the final order count is five.
+A zero exit code from the interactive shell alone does not establish successful
+execution.
+
+For fail-fast automation, split the example into ordered single-statement UTF-8
+files and invoke `--file` for each one, stopping on the first nonzero exit. The
+multi-statement example must not be passed directly to `--file`. See the
+[CLI script-mode reference](./cli.md#script-mode) for output and execution
+receipts.
+
+## Optional cleanup
+
+The SQL file ends with optional cleanup statements for every object created by
+this demo. Run them only against the isolated instance and objects created by
+this workflow, never against shared or production data.
+
+```sql
+DROP TABLE pangrova_final_demo2.analytics.orders;
+DROP TABLE pangrova_final_demo2.analytics.customers;
+DROP TABLE pangrova_final_demo2.analytics.vector_lab_v4;
+DROP TABLE pangrova_final_demo2.analytics.spatial_lab_v4;
+DROP TABLE pangrova_final_demo2.analytics.gin_lab_v4;
+DROP TABLE pangrova_final_demo2.analytics.index_lab_v4;
+DROP TABLE pangrova_final_demo2.analytics.documents;
+DROP TABLE pangrova_final_demo2.analytics.events;
+DROP SCHEMA pangrova_final_demo2.analytics;
+DROP CATALOG pangrova_final_demo2;
+```

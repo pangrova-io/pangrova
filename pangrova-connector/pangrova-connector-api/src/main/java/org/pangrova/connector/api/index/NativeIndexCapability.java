@@ -37,6 +37,6 @@ public record NativeIndexCapability(
      * @return true if this capability covers the column
      */
     public boolean coversColumn(String column) {
-        return columnNames.contains(column);
+        return columnNames.contains("*") || columnNames.contains(column);
     }
 }

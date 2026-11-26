@@ -17,8 +17,8 @@ import org.pangrova.protocol.rest.version.ServerInfo;
  * <pre>{@code
  * {
  *   "server_version": "0.1.0-SNAPSHOT",
- *   "api_version": 1,
- *   "min_api_version": 1,
+ *   "api_version": 2,
+ *   "min_api_version": 2,
  *   "server_name": "Pangrova"
  * }
  * }</pre>

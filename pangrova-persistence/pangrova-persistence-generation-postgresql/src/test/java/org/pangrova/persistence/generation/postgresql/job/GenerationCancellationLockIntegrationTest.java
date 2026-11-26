@@ -2,6 +2,7 @@ package org.pangrova.persistence.generation.postgresql.job;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.pangrova.generation.api.dependency.GenerationDependencySet;
 import org.pangrova.generation.api.job.GenerationDispatchSpec;
 import org.pangrova.generation.api.identity.GenerationJobKey;
 import org.pangrova.persistence.jdbc.api.generation.GenerationPublicationCandidates;
@@ -81,6 +82,35 @@ class GenerationCancellationLockIntegrationTest extends ContainerTestBase {
     }
 
     @Test
+    void stalePublicationClaimCannotCancelANewerClaim() throws Exception {
+        try (var connection = dataSource.getConnection()) {
+            execute(connection, "UPDATE artifact_build_jobs SET state='READY_TO_PUBLISH', "
+                    + "publication_owner='owner-a', publication_owner_epoch=1, publication_fencing_token=1, "
+                    + "publication_execution_owner_id='execution-owner-a', "
+                    + "publication_execution_owner_incarnation='incarnation-a', "
+                    + "publication_execution_owner_token=1, "
+                    + "publication_lease_expires_at=CURRENT_TIMESTAMP + INTERVAL '1 hour', "
+                    + "updated_at=CURRENT_TIMESTAMP WHERE tenant_id='tenant-a' AND job_id='job-a'");
+        }
+        var store = cancellationStore();
+        var stale = store.findJob("tenant-a", "job-a").orElseThrow();
+        try (var connection = dataSource.getConnection()) {
+            execute(connection, "UPDATE artifact_build_jobs SET publication_owner='owner-b', "
+                    + "publication_owner_epoch=2, publication_fencing_token=2, updated_at=CURRENT_TIMESTAMP "
+                    + "WHERE tenant_id='tenant-a' AND job_id='job-a'");
+        }
+
+        assertThat(store.cancelPublicationClaim(stale, "owner-a", 1, "late expiry", NOW.plusSeconds(1)))
+                .isFalse();
+        assertStates("tenant-a", "job-a", "READY_TO_PUBLISH", "PENDING");
+
+        var current = store.findJob("tenant-a", "job-a").orElseThrow();
+        assertThat(store.cancelPublicationClaim(current, "owner-b", 2, "expired", NOW.plusSeconds(2)))
+                .isTrue();
+        assertStates("tenant-a", "job-a", "CANCELLED", "CANCELLED");
+    }
+
+    @Test
     void sameSelectedJobSetIsUsedAfterWaitingForPagesAndConcurrentGenerationInsertion() throws Exception {
         var executor = Executors.newSingleThreadExecutor();
         try (var pageOwner = dataSource.getConnection()) {
@@ -127,6 +157,12 @@ class GenerationCancellationLockIntegrationTest extends ContainerTestBase {
             @Override
             public AuthorizedDispatch authorize(Connection connection, String tenant, String job) {
                 throw unexpectedDependency("persisted authority");
+            }
+
+            @Override
+            public void requireCurrent(Connection connection, String tenant, String principal,
+                    org.pangrova.security.api.authorization.DeferredAuthorizationScope scope) {
+                throw unexpectedDependency("submission authority");
             }
 
             @Override
@@ -214,9 +250,18 @@ class GenerationCancellationLockIntegrationTest extends ContainerTestBase {
             for (int index = 6; index <= 8; index++) {
                 statement.setObject(index, NOW.atOffset(java.time.ZoneOffset.UTC));
             }
-            statement.setString(9, "b".repeat(64));
+            statement.setString(9, GenerationDependencySet.sourceSnapshot(
+                    "lake.raw.items", "snapshot-a").sha256());
             statement.executeUpdate();
             insertPage(connection, tenant, job);
+            try (var dependency = connection.prepareStatement(
+                    "INSERT INTO artifact_build_dependencies (tenant_id,job_id,dependency_ordinal,"
+                            + "dependency_kind,dependency_id,dependency_version) VALUES (?,?,0,'SOURCE_SNAPSHOT',"
+                            + "'lake.raw.items','snapshot-a')")) {
+                dependency.setString(1, tenant);
+                dependency.setString(2, job);
+                dependency.executeUpdate();
+            }
         }
     }
 

@@ -142,7 +142,7 @@ public final class LanceMaterializationSourceProvider implements SourceProvider 
             throw unavailable(source, version);
         }
         try {
-            return store.loadSnapshot((LanceTableHandle) current.withTimeTravelSnapshot(version));
+            return store.loadSnapshot((LanceTableHandle) current.withTimeTravelSnapshot(Long.toString(version)));
         } catch (IllegalStateException failure) {
             throw new MaterializationSourceException(
                     MaterializationSourceFailureReason.SNAPSHOT_UNAVAILABLE,

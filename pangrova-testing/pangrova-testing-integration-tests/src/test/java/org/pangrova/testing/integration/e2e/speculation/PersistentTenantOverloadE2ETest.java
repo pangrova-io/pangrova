@@ -212,8 +212,9 @@ class PersistentTenantOverloadE2ETest extends ContainerTestBase {
             var status = query.awaitStatus(QueryWaitTarget.RESULT_OR_TERMINAL, deadline);
             assertThat(status.state()).as("Query %s error %s", status.queryId(), status.error())
                     .isNotIn("FAILED", "CANCELLED");
+            assertThat(status.resultDisposition())
+                    .isEqualTo(org.pangrova.common.enums.ResultDisposition.STREAM);
             endpoint = status.resultEndpoint();
-            if ("FINISHED".equals(status.state())) assertThat(endpoint).isNotNull();
         }
         assertThat(endpoint.protocol()).isEqualTo(ResultProtocol.GRPC_TLS.value());
         return endpoint;

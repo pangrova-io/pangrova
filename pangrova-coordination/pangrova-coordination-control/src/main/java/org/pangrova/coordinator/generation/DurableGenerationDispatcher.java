@@ -22,6 +22,7 @@ import java.util.Map;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 
 import static org.pangrova.common.util.Preconditions.requirePositiveDuration;
@@ -40,6 +41,7 @@ public final class DurableGenerationDispatcher implements AutoCloseable {
     private final GenerationPollLifecycle pollLifecycle = new GenerationPollLifecycle();
 
     private final GenerationJobStore store;
+    private final Consumer<org.pangrova.generation.api.job.GenerationJob> snapshotValidator;
     private final TaskScheduler scheduler;
     private final WorkerManager workerManager;
     private final TaskDispatcher taskDispatcher;
@@ -71,7 +73,8 @@ public final class DurableGenerationDispatcher implements AutoCloseable {
             GenerationExecutionOwnership executionOwnership,
             org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore stages,
             org.pangrova.persistence.generation.api.exchange.GenerationStageExchangeStore exchanges,
-            org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchEngine dagEngine) {}
+            org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchEngine dagEngine,
+            Consumer<org.pangrova.generation.api.job.GenerationJob> snapshotValidator) {}
 
     /** Bounded lease and concurrency settings for durable artifact dispatch. */
     public record Settings(
@@ -93,6 +96,8 @@ public final class DurableGenerationDispatcher implements AutoCloseable {
         Objects.requireNonNull(settings, "settings must not be null");
         this.store = Objects.requireNonNull(
                 dependencies.store(), "store must not be null");
+        this.snapshotValidator = Objects.requireNonNull(
+                dependencies.snapshotValidator(), "snapshotValidator must not be null");
         this.scheduler = Objects.requireNonNull(
                 dependencies.scheduler(), "scheduler must not be null");
         this.workerManager = Objects.requireNonNull(
@@ -197,6 +202,7 @@ public final class DurableGenerationDispatcher implements AutoCloseable {
     private java.util.Optional<GenerationLease> claimAuthorizedPage(
             org.pangrova.generation.api.identity.GenerationJobKey job, long epoch, Instant now) {
         try {
+            store.findJob(job.tenantId(), job.jobId()).ifPresent(snapshotValidator);
             var anchor = executionOwnership.acquire(job);
             if (anchor.isEmpty()) {
                 return java.util.Optional.empty();
@@ -206,6 +212,11 @@ public final class DurableGenerationDispatcher implements AutoCloseable {
                 return java.util.Optional.empty();
             }
             return store.claimNextPage(job.tenantId(), job.jobId(), anchor.orElseThrow(), epoch, leaseDuration, now);
+        } catch (org.pangrova.connector.api.exception.SnapshotExpiredException expired) {
+            store.cancelJob(job.tenantId(), job.jobId(), expired.getMessage(), now);
+            LOG.warn("event=artifact_claim_snapshot_expired jobId={} tenantId={} reason={}",
+                    job.jobId(), job.tenantId(), expired.getMessage());
+            return java.util.Optional.empty();
         } catch (org.pangrova.security.api.exception.AuthorizationDeniedException revoked) {
             store.cancelJob(job.tenantId(), job.jobId(), revoked.getMessage(), now);
             LOG.warn("event=artifact_claim_revoked jobId={} tenantId={} reason={}",

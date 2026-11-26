@@ -2,6 +2,7 @@ package org.pangrova.persistence.jdbc.api.generation;
 
 import org.pangrova.common.api.annotation.Internal;
 import org.pangrova.generation.api.job.GenerationDispatchSpec;
+import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
 
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -34,4 +35,8 @@ public interface GenerationTransactionAuthority {
 
     /** Validates an explicit compiler-observed specification under current domain authority. */
     void requireCurrent(Connection connection, GenerationDispatchSpec spec) throws SQLException;
+
+    /** Authorizes a persisted submission subject before its durable job and stage graph exist. */
+    void requireCurrent(Connection connection, String tenantId, String principal,
+                        DeferredAuthorizationScope authorizationScope) throws SQLException;
 }

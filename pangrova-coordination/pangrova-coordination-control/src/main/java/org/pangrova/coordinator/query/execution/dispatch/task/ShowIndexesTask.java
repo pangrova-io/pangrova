@@ -25,6 +25,6 @@ public final class ShowIndexesTask implements MetadataTask<ShowIndexesStatement>
     public StatementResult execute(ShowIndexesStatement statement, StatementExecutionContext context) {
         List<TypedRow> rows = executor.executeShowIndexes(
                 statement, context.session());
-        return StatementResult.fromRows(rows, null, StatementCategory.INDEX);
+        return new StatementResult(rows, IndexDdlExecutor.SHOW_INDEX_COLUMNS, null, StatementCategory.INDEX);
     }
 }
