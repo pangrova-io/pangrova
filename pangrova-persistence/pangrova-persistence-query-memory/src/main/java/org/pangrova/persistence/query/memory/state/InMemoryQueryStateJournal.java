@@ -61,14 +61,14 @@ public final class InMemoryQueryStateJournal implements QueryStateJournal {
         QueryStateEvent existing = findAcceptanceEvent(event.acceptance().principal(),
                 event.acceptance().idempotencyKeyDigest());
         if (existing != null) {
-            if (!digestEquals(existing.acceptance().requestFingerprint(), event.acceptance().requestFingerprint())) {
-                throw uniqueConflict();
-            }
-            if (!existing.queryId().equals(event.queryId()) && isExpired(existing)) {
+            boolean sameQuery = existing.queryId().equals(event.queryId());
+            if (!sameQuery && isExpired(existing)) {
                 purgeQuery(existing.queryId());
             } else {
-                return new QueryAcceptanceAdmission(existing.queryId().equals(event.queryId()),
-                        existing.acceptance());
+                if (!digestEquals(existing.acceptance().requestFingerprint(), event.acceptance().requestFingerprint())) {
+                    throw uniqueConflict();
+                }
+                return new QueryAcceptanceAdmission(sameQuery, existing.acceptance());
             }
         }
         appendQueryEvent(event);

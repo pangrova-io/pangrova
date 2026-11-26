@@ -370,6 +370,30 @@ class JdbcQueryStateJournalIntegrationTest {
     }
 
     @Test
+    void expiredTerminalAcceptanceAllowsNewFingerprintBeforeSweep() throws Exception {
+        var original = acceptanceEvent("q-old", "alice", "a", "b", 60_000);
+        assertThat(journal.acceptQuerySync(original).newExecution()).isTrue();
+        assertThrows(org.pangrova.persistence.query.api.exception.JournalWriteException.class,
+                () -> journal.acceptQuerySync(acceptanceEvent("q-active-conflict", "alice", "a", "c", 60_000)));
+        journal.appendQueryEventSync(new QueryStateEvent(
+                org.pangrova.query.api.journal.JournalEventContext.create(System.currentTimeMillis(), "issuer"),
+                "q-old", null, null, "FINISHED"));
+        assertThat(journal.acceptQuerySync(original).acceptance()).isEqualTo(original.acceptance());
+        executeSql("UPDATE query_state_journal SET timestamp_ms = timestamp_ms - 120000 WHERE query_id = 'q-old'");
+        assertThrows(org.pangrova.persistence.query.api.exception.JournalWriteException.class,
+                () -> journal.acceptQuerySync(acceptanceEvent("q-old", "alice", "a", "c", 60_000)));
+        var replacement = acceptanceEvent("q-new", "alice", "a", "c", 60_000);
+        var admitted = journal.acceptQuerySync(replacement);
+        assertThat(admitted.newExecution()).isTrue();
+        assertThat(admitted.acceptance()).isEqualTo(replacement.acceptance());
+        assertThat(countQueryRows("query_state_journal", "q-old")).isZero();
+        assertThat(journal.findAcceptance("alice", "a".repeat(64))).contains(replacement.acceptance());
+        var replay = journal.acceptQuerySync(acceptanceEvent("q-replay", "alice", "a", "c", 60_000));
+        assertThat(replay.newExecution()).isFalse();
+        assertThat(replay.acceptance()).isEqualTo(replacement.acceptance());
+    }
+
+    @Test
     void expiredAcceptanceSweepRemovesTerminalFacts() throws Exception {
         journal.acceptQuerySync(acceptanceEvent("q-sweep", "alice", "a", "b", 1));
         journal.appendQueryEventSync(new QueryStateEvent(

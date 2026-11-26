@@ -145,13 +145,14 @@ to an empty map. When an authenticated principal submits an `Idempotency-Key`, t
 Coordinator atomically records the principal, key digest, canonical request
 fingerprint, lineage, and a deterministic `QUEUED`/`PENDING` acceptance receipt in
 the initial journal row. A normal new acceptance performs one journal INSERT and no
-readback. A matching retry returns the same query ID and acceptance receipt without
-executing the SQL again; changing the SQL or session properties returns HTTP 409.
-Each principal has an independent key space.
+readback. During the acceptance window, a matching retry returns the same query ID
+and acceptance receipt without executing the SQL again; changing SQL or session
+properties returns HTTP 409. Each principal has an independent key space.
 
 Acceptance facts remain until ten minutes after the later of acceptance or terminal
-completion. A bounded periodic sweep removes expired terminal acceptances; active
-queries never expire. Conflict and uncertain-commit paths read the authoritative row and
+completion. Once that window elapses, a new candidate may reuse the key with either
+an identical or a different request, even before the periodic sweep removes its old
+terminal acceptance. Active queries never expire. Conflict and uncertain-commit paths read the authoritative row and
 compare its fingerprint; restart and failover do not discard idempotency state.
 Poll the state endpoint for later transitions. A rejection before durable acceptance
 releases the key, while a failure after acceptance remains attached to the accepted

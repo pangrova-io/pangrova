@@ -151,20 +151,21 @@ final class JournalEventSql {
                 if (rows.next()) throw new JournalPayloadConflictException(event.key());
                 var accepted = existing.acceptance();
                 if (!event.query.acceptance().principal().equals(accepted.principal())
-                        || !event.query.acceptance().idempotencyKeyDigest().equals(accepted.idempotencyKeyDigest())
-                        || !event.query.acceptance().requestFingerprint().equals(accepted.requestFingerprint())) {
+                        || !event.query.acceptance().idempotencyKeyDigest().equals(accepted.idempotencyKeyDigest())) {
                     throw new JournalAcceptanceConflictException(event.key(),
                             "Idempotency key was already used for a different request");
                 }
-                if (existing.queryId().equals(event.query.queryId())) {
-                    return new QueryReconciliation(new QueryAcceptanceAdmission(true, accepted), false, false);
-                }
-                if (isExpired(connection, existing)) {
+                boolean sameQuery = existing.queryId().equals(event.query.queryId());
+                if (!sameQuery && isExpired(connection, existing)) {
                     deleteQueryState(connection, existing.queryId());
                     deleteTaskState(connection, existing.queryId());
                     return new QueryReconciliation(null, true, false);
                 }
-                return new QueryReconciliation(new QueryAcceptanceAdmission(false, accepted), false, false);
+                if (!event.query.acceptance().requestFingerprint().equals(accepted.requestFingerprint())) {
+                    throw new JournalAcceptanceConflictException(event.key(),
+                            "Idempotency key was already used for a different request");
+                }
+                return new QueryReconciliation(new QueryAcceptanceAdmission(sameQuery, accepted), false, false);
             }
         }
     }
