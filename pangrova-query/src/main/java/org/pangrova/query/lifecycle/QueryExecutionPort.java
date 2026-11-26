@@ -50,6 +50,11 @@ public interface QueryExecutionPort extends QueryExecutionCleanup {
     /** Releases the execution grant after its local or recovered dependencies have drained. */
     void releaseQueryOwnership(String queryId);
 
+    /** Releases only the immutable grant originally acquired by this SQL execution. */
+    default void releaseIssuedQueryOwnership(ExecutionAnchor anchor) {
+        throw new UnsupportedOperationException("Exact query ownership release is unavailable");
+    }
+
     /** Binds the exact connector authority for the query lifetime. */
     ConnectorMetadataScope bindConnectorAuthority(QueryStateMachine state, String queryId);
 

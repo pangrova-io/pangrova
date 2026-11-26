@@ -330,6 +330,7 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
             enriched = session.withTenantId(tenantId);
             admission.checkThrottle(queryId, enriched);
             var ownership = admitExecution(queryId, tenantId, tenant, sm);
+            sm.bindJournalGrant(ownership.anchor());
             queryDispatcher.bindConnectorAuthority(sm, queryId);
             sm.resolveOwnership(true);
             applyPendingCancellation(queryId, sm);
@@ -524,7 +525,7 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
         if (state.hasConnectorAuthority() && !queryDispatcher.tryCleanupUnadmittedQuery(queryId)) {
             throw new IllegalStateException("Candidate issuance cleanup is not complete: " + queryId);
         }
-        queryDispatcher.releaseQueryOwnership(queryId);
+        releaseQueryOwnership(queryId, state);
         if (state.hasConnectorAuthority()) queryDispatcher.retireQueryIssuance(queryId);
     }
 
@@ -751,9 +752,15 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
         journalLifecycle.purge(context.queryId(), context.state());
         context.state().releaseAdmission();
         admission.releaseThrottle(context.queryId());
-        queryDispatcher.releaseQueryOwnership(context.queryId());
+        releaseQueryOwnership(context.queryId(), context.state());
         queryDispatcher.retireQueryIssuance(context.queryId());
         queries.complete(context.queryId(), context.state());
+    }
+
+    private void releaseQueryOwnership(String queryId, QueryStateMachine state) {
+        var grant = state.journalGrant();
+        if (grant == null) queryDispatcher.releaseQueryOwnership(queryId);
+        else queryDispatcher.releaseIssuedQueryOwnership(grant);
     }
 
     /** Advances exact-attempt seals even when their query is still running. */

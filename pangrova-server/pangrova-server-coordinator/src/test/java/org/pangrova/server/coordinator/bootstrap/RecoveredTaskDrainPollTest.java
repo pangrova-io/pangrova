@@ -161,6 +161,9 @@ class RecoveredTaskDrainPollTest {
         private final ConcurrentLinkedQueue<ExecutionAnchor> retained = new ConcurrentLinkedQueue<>();
 
         @Override
+        public Set<String> observedRecoveryExecutions(Set<String> executions) { return executions; }
+
+        @Override
         public List<IssuedAttempt> pendingTaskDrains(ExecutionAnchor claim, long afterRowId) {
             read.add(claim);
             return List.of(new IssuedAttempt(1, new TaskStateEvent(JournalEventContext.create(1, "owner"),
@@ -181,6 +184,9 @@ class RecoveredTaskDrainPollTest {
         private final Set<Long> retained = ConcurrentHashMap.newKeySet();
         private final ConcurrentLinkedQueue<Long> cursors = new ConcurrentLinkedQueue<>();
         private final ConcurrentLinkedQueue<Integer> batchSizes = new ConcurrentLinkedQueue<>();
+
+        @Override
+        public Set<String> observedRecoveryExecutions(Set<String> executions) { return executions; }
 
         @Override
         public List<IssuedAttempt> pendingTaskDrains(ExecutionAnchor claim, long afterRowId) {

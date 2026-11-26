@@ -38,26 +38,40 @@ final class JournalEventSql {
     private static final int TASK_OWNER_FENCING_TOKEN_PARAMETER = 13;
     private static final String QUERY_INSERT = "INSERT INTO query_state_journal (" + QUERY_COLUMNS
             + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING";
-    private static final String FENCED_QUERY_INSERT = """
+    private static final String LOCK_ACTIVE_GRANT = """
             WITH locked AS MATERIALIZED (
-                SELECT expires_at FROM execution_anchor
+                SELECT expires_at, recovery_drain_state FROM execution_anchor
                 WHERE execution_id = ? AND owner_id = ? AND owner_incarnation = ? AND fencing_token = ?
                 FOR SHARE
             ), authorized AS MATERIALIZED (
-                SELECT 1 FROM locked WHERE expires_at > clock_timestamp()
-            ), inserted AS (
+                SELECT 1 FROM locked WHERE expires_at > clock_timestamp() AND recovery_drain_state <> 2
+            )
+            """;
+    private static final String FENCED_INSERT_OUTCOME = """
+            SELECT CASE WHEN EXISTS (SELECT 1 FROM inserted) THEN 1
+                        WHEN EXISTS (SELECT 1 FROM authorized) THEN 0 ELSE -1 END
+            """;
+    private static final String FENCED_QUERY_INSERT = LOCK_ACTIVE_GRANT + """
+            , inserted AS (
                 INSERT INTO query_state_journal (
             """ + QUERY_COLUMNS + """
                 )
                 SELECT ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ? FROM authorized
                 ON CONFLICT DO NOTHING RETURNING 1
             )
-            SELECT CASE WHEN EXISTS (SELECT 1 FROM inserted) THEN 1
-                        WHEN EXISTS (SELECT 1 FROM authorized) THEN 0 ELSE -1 END
-            """;
+            """ + FENCED_INSERT_OUTCOME;
     private static final int FENCE_PARAMETERS = 4;
     private static final String TASK_INSERT = "INSERT INTO task_state_journal (" + TASK_COLUMNS
             + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (event_id) DO NOTHING";
+    private static final String FENCED_TASK_REPORT_INSERT = LOCK_ACTIVE_GRANT + """
+            , inserted AS (
+                INSERT INTO task_state_journal (
+            """ + TASK_COLUMNS + """
+                )
+                SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? FROM authorized
+                ON CONFLICT (event_id) DO NOTHING RETURNING 1
+            )
+            """ + FENCED_INSERT_OUTCOME;
     private static final String SELECT_QUERY_EVENT = "SELECT " + QUERY_COLUMNS
             + " FROM query_state_journal WHERE event_id = ?";
     private static final String SELECT_ACCEPTANCE = "SELECT " + QUERY_COLUMNS
@@ -114,7 +128,8 @@ final class JournalEventSql {
             for (int attempt = 0; attempt < 2; attempt++) {
                 int inserted = insertQuery(connection, event);
                 if (inserted < 0) {
-                    return staleAdmission(connection, event);
+                    return "QUEUED".equals(event.query.state()) ? staleAdmission(connection, event)
+                            : WriteOutcome.WRITTEN;
                 }
                 if (inserted > 0) {
                     appendLineage(connection, event.query);
@@ -129,15 +144,55 @@ final class JournalEventSql {
             }
             throw new JournalPayloadConflictException(event.key());
         }
-        int inserted;
-        try (PreparedStatement statement = connection.prepareStatement(TASK_INSERT)) {
-            bindTask(statement, event.task, 0);
-            inserted = statement.executeUpdate();
+        int inserted = insertTask(connection, event.task);
+        if (inserted < 0) {
+            return WriteOutcome.FENCED;
         }
         if (inserted == 0) {
             reconcileTask(connection, event.task);
         }
         return WriteOutcome.WRITTEN;
+    }
+
+    private static int insertTask(Connection connection, TaskStateEvent event) throws SQLException {
+        var authority = event.reportAuthority();
+        if (authority == null) {
+            try (var statement = connection.prepareStatement(TASK_INSERT)) {
+                bindTask(statement, event, 0);
+                return statement.executeUpdate();
+            }
+        }
+        try (var statement = connection.prepareStatement(FENCED_TASK_REPORT_INSERT)) {
+            bindGrant(statement, event.queryId(), event.context().coordinatorId(),
+                    authority.ownerIncarnation(), authority.fencingToken());
+            bindTask(statement, event, FENCE_PARAMETERS);
+            return fencedOutcome(statement);
+        }
+    }
+
+    private static void bindGrant(PreparedStatement statement, String queryId, String ownerId,
+            String incarnation, long token) throws SQLException {
+        statement.setString(1, queryId);
+        statement.setString(2, ownerId);
+        statement.setString(3, incarnation);
+        statement.setLong(FENCE_PARAMETERS, token);
+    }
+
+    static boolean lockActiveGrant(Connection connection, org.pangrova.execution.api.ownership.ExecutionAnchor grant)
+            throws SQLException {
+        try (var statement = connection.prepareStatement(LOCK_ACTIVE_GRANT + "SELECT 1 FROM authorized")) {
+            bindGrant(statement, grant.executionId(), grant.ownerId(), grant.ownerIncarnation(), grant.fencingToken());
+            try (var result = statement.executeQuery()) {
+                return result.next();
+            }
+        }
+    }
+
+    private static int fencedOutcome(PreparedStatement statement) throws SQLException {
+        try (var result = statement.executeQuery()) {
+            if (!result.next()) throw new SQLException("Fenced journal insert missing outcome");
+            return result.getInt(1);
+        }
     }
 
     private static int insertQuery(Connection connection, JournalPendingWrites.Write event) throws SQLException {
@@ -149,15 +204,9 @@ final class JournalEventSql {
             }
         }
         try (var statement = connection.prepareStatement(FENCED_QUERY_INSERT)) {
-            statement.setString(1, grant.executionId());
-            statement.setString(2, grant.ownerId());
-            statement.setString(3, grant.ownerIncarnation());
-            statement.setLong(FENCE_PARAMETERS, grant.fencingToken());
+            bindGrant(statement, grant.executionId(), grant.ownerId(), grant.ownerIncarnation(), grant.fencingToken());
             bindQuery(statement, event.query, FENCE_PARAMETERS);
-            try (var result = statement.executeQuery()) {
-                if (!result.next()) throw new SQLException("Fenced query admission missing outcome");
-                return result.getInt(1);
-            }
+            return fencedOutcome(statement);
         }
     }
 
@@ -306,10 +355,18 @@ final class JournalEventSql {
         statement.setString(offset + 10, issuance == null ? null : issuance.workerHost());
         statement.setObject(offset + WORKER_HTTP_PORT_PARAMETER,
                 issuance == null ? null : issuance.workerHttpPort(), java.sql.Types.INTEGER);
-        statement.setString(offset + TASK_OWNER_INCARNATION_PARAMETER,
-                issuance == null ? null : issuance.ownerIncarnation());
-        statement.setObject(offset + TASK_OWNER_FENCING_TOKEN_PARAMETER,
-                issuance == null ? null : issuance.fencingToken(), java.sql.Types.BIGINT);
+        var report = event.reportAuthority();
+        String incarnation = null;
+        Long token = null;
+        if (issuance != null) {
+            incarnation = issuance.ownerIncarnation();
+            token = issuance.fencingToken();
+        } else if (report != null) {
+            incarnation = report.ownerIncarnation();
+            token = report.fencingToken();
+        }
+        statement.setString(offset + TASK_OWNER_INCARNATION_PARAMETER, incarnation);
+        statement.setObject(offset + TASK_OWNER_FENCING_TOKEN_PARAMETER, token, java.sql.Types.BIGINT);
         statement.setBytes(offset + TASK_PARAMETERS, issuance == null ? null : issuance.admissionSeal());
     }
 
@@ -341,9 +398,12 @@ final class JournalEventSql {
         TaskIssuance issuance = seal == null ? null
                 : new TaskIssuance(rows.getString("worker_host"), rows.getInt("worker_http_port"),
                         rows.getString("owner_incarnation"), rows.getLong("owner_fencing_token"), seal);
+        String incarnation = rows.getString("owner_incarnation");
+        var report = seal == null && incarnation != null
+                ? new TaskStateEvent.ReportAuthority(incarnation, rows.getLong("owner_fencing_token")) : null;
         return new TaskStateEvent(context(rows), rows.getString("query_id"), rows.getString("task_id"),
                 rows.getString("worker_id"), rows.getString("state"), rows.getInt("stage_id"),
-                rows.getLong("report_sequence"), issuance);
+                rows.getLong("report_sequence"), issuance, report);
     }
 
     private static JournalEventContext context(ResultSet rows) throws SQLException {

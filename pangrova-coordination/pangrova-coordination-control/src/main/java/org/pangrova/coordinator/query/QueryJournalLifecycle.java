@@ -38,7 +38,10 @@ final class QueryJournalLifecycle
     QueryStateJournal journal() { return journal; }
     @Override public void setOwner(String owner) { coordinatorId = owner; }
     @Override public void purge(String queryId, QueryStateMachine state) {
-        if (state.hasJournalOwnership()) journal.purgeQuery(queryId);
+        if (!state.hasJournalOwnership()) return;
+        var grant = state.journalGrant();
+        if (grant == null) journal.purgeQuery(queryId);
+        else journal.purgeOwnedQuery(grant);
     }
 
     @Override public void appendQueryEvent(QueryStateEvent event) { journal.appendQueryEvent(event); }
@@ -162,11 +165,12 @@ final class QueryJournalLifecycle
             if (audit != null) audit.persistTerminalLineage(context.queryId(), context.state());
             return;
         }
-        journal.appendQueryEventSync(context.state().journalEvent(context.state().getState(),
+        append(context.state(), context.state().journalEvent(context.state().getState(),
                 () -> new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(
-                        System.currentTimeMillis(), coordinatorId), context.queryId(), null, null,
-                        context.state().getState().name(), audit == null ? null
-                                : audit.terminalFact(context.queryId(), context.state(), context.state().getState()))));
+                        System.currentTimeMillis(), journalOwner(context.state())),
+                        context.queryId(), null, null, context.state().getState().name(), audit == null ? null
+                                : audit.terminalFact(context.queryId(), context.state(), context.state().getState()))),
+                true);
     }
 
     @Override
@@ -176,13 +180,29 @@ final class QueryJournalLifecycle
             if (current == QueryState.PLANNING || current == QueryState.SCHEDULING
                     || current == QueryState.RUNNING || current == QueryState.FINISHING
                     || current == QueryState.CANCELLED) {
-                journal.appendQueryEvent(state.journalEvent(current,
+                append(state, state.journalEvent(current,
                         () -> new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(
-                                System.currentTimeMillis(), coordinatorId), queryId, null, null, current.name(),
+                                System.currentTimeMillis(), journalOwner(state)), queryId, null, null, current.name(),
                                 current == QueryState.CANCELLED && audit != null
-                                        ? audit.terminalFact(queryId, state, current) : null)));
+                                        ? audit.terminalFact(queryId, state, current) : null)), false);
             }
         });
+    }
+
+    private String journalOwner(QueryStateMachine state) {
+        var grant = state.journalGrant();
+        return grant == null ? coordinatorId : grant.ownerId();
+    }
+
+    private void append(QueryStateMachine state, QueryStateEvent event, boolean synchronous) {
+        var grant = state.journalGrant();
+        if (grant != null) {
+            journal.appendOwnedQueryEvent(event, grant, synchronous);
+        } else if (synchronous) {
+            journal.appendQueryEventSync(event);
+        } else {
+            journal.appendQueryEvent(event);
+        }
     }
 
     private static void record(QueryStateMachine state, Runnable append) {

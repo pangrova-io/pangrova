@@ -123,6 +123,11 @@ public final class QueryOwnershipTracker {
         }
     }
 
+    void releaseIssuedQueryOwnership(org.pangrova.execution.api.ownership.ExecutionAnchor anchor) {
+        OwnershipSnapshot snapshot = ownershipSnapshot.get();
+        if (snapshot != null) snapshot.service().releaseRecoveryClaim(anchor);
+    }
+
     /** Drains split, connector and Shuffle owners while retaining the execution grant. */
     public boolean tryCleanupQuery(String queryId) {
         if (!tryCleanupLocalQuery(queryId)) return false;

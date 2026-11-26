@@ -3,6 +3,7 @@ package org.pangrova.query.lifecycle;
 import org.pangrova.common.enums.QueryWaitTarget;
 import org.pangrova.governance.api.enums.LineageEventType;
 import org.pangrova.query.api.audit.QueryAuditRecord;
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.query.api.enums.QueryState;
 import org.pangrova.query.api.enums.StageState;
 
@@ -164,6 +165,13 @@ public class QueryStateMachine {
     public void retainJournalOwnership() { journalOwnership.set(true); }
     /** Whether this query retains responsibility for a potentially accepted journal admission. */
     public boolean hasJournalOwnership() { return journalOwnership.get(); }
+    private volatile ExecutionAnchor journalGrant;
+
+    /** Retains the immutable original grant for subsequent lifecycle recording and journal retirement. */
+    public void bindJournalGrant(ExecutionAnchor grant) { journalGrant = grant; }
+
+    public ExecutionAnchor journalGrant() { return journalGrant; }
+
     private final List<QueryStateChangeListener> listeners = new CopyOnWriteArrayList<>();
     private volatile Runnable beforeTerminalTransition = () -> { };
     private volatile java.util.function.BiConsumer<QueryState, QueryState> transitionRecorder;

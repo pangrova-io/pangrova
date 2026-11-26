@@ -424,10 +424,13 @@ public final class TaskStatusReceiver {
     }
 
     private void journalTaskEvent(TaskStatusReport report, SubmitTaskRequest issued) {
+        var attempt = issued.taskRequest().getAttempt();
+        var owner = attempt.getExecutionOwner();
         TaskStateEvent event = new TaskStateEvent(org.pangrova.coordinator.task.TaskJournalEventContext.create(
-                issued.taskRequest().getAttempt(), report.reportSequence(), report.timestampMs()),
+                attempt, report.reportSequence(), report.timestampMs()),
                 report.queryId(), report.taskId(), report.workerId(), report.state(),
-                report.stageId(), report.reportSequence());
+                report.stageId(), report.reportSequence(), null,
+                new TaskStateEvent.ReportAuthority(owner.getOwnerIncarnation(), owner.getFencingToken()));
         if (isTerminalTaskState(report.state())) {
             stateJournal.appendTaskEventSync(event);
         } else {

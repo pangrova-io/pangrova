@@ -248,6 +248,11 @@ public class QueryDispatcher implements org.pangrova.query.lifecycle.QueryExecut
         ownershipTracker.releaseQueryOwnership(queryId);
     }
 
+    @Override
+    public void releaseIssuedQueryOwnership(org.pangrova.execution.api.ownership.ExecutionAnchor anchor) {
+        ownershipTracker.releaseIssuedQueryOwnership(anchor);
+    }
+
     public org.pangrova.connector.api.query.ConnectorQueryAuthority openQueryIssuance(String queryId) {
         return taskTracker.openQueryIssuance(queryId);
     }

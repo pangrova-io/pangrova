@@ -35,6 +35,8 @@ import org.pangrova.transport.client.FlightResultFetcher;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.coordinator.testinfra.SignedOidcIssuer;
 
 import java.net.InetSocketAddress;
@@ -113,8 +115,9 @@ class RoleBasedDeploymentTest {
         }
     }
 
-    @Test
-    void recoveredTerminalRetainsItsSlotUntilTheExactWorkerExitReceipt() throws Exception {
+    @ParameterizedTest
+    @ValueSource(strings = {"FAILED", "RUNNING"})
+    void recoveredPredecessorRetainsItsSlotUntilTheExactWorkerExitReceipt(String priorState) throws Exception {
         var configuration = withAuthority(queryRole("task-drain-successor"));
         var jdbc = configuration.metadataJdbcConfig();
         var source = new PGSimpleDataSource();
@@ -153,7 +156,7 @@ class RoleBasedDeploymentTest {
                     prior.fencingToken(), seal.toByteArray());
             var journalConfig = new StateJournalConfig("JDBC", jdbc.jdbcUrl(), 20, 20, 24, 1024);
             try (var journal = new JdbcQueryStateJournal(source, journalConfig)) {
-                journal.appendQueryEventSync(new QueryStateEvent(context, prior.executionId(), null, null, "FAILED"));
+                journal.appendQueryEventSync(new QueryStateEvent(context, prior.executionId(), null, null, priorState));
                 journal.appendTaskIssuancesSync(java.util.List.of(new TaskStateEvent(
                         JournalEventContext.create(context.timestampMs(), prior.ownerId()), prior.executionId(),
                         "recovery-attempt", "prior-worker", "SCHEDULED", 0, 0, issuance)));

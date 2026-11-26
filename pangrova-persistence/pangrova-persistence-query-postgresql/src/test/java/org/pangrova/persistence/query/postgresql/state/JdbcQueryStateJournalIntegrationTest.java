@@ -310,7 +310,7 @@ class JdbcQueryStateJournalIntegrationTest {
     }
 
     @Test
-    void provesOnlyCoveredTerminalAttemptsAndClosesSameClaimIssuance() {
+    void terminatesOnlyCoveredPredecessorsAndClosesSameClaimIssuance() throws Exception {
         var store = new JdbcExecutionAnchorStore(dataSource);
         var lease = Duration.ofMinutes(1);
         var original = store.tryAcquire("proof-terminal", "prior", "prior-boot", lease).orElseThrow();
@@ -328,6 +328,11 @@ class JdbcQueryStateJournalIntegrationTest {
         var activeClaim = store.tryAcquire(active.executionId(), "successor", "next-boot", lease).orElseThrow();
         assertEquals(DrainOutcome.LOST_CLAIM, journal.confirmRecoveredTaskDrains(original));
         assertEquals(DrainOutcome.PENDING_RECEIPTS, journal.confirmRecoveredTaskDrains(claim));
+        assertEquals(DrainOutcome.PENDING_RECEIPTS, journal.confirmRecoveredTaskDrains(activeClaim));
+        assertEquals("RUNNING", journal.latestQueryEvent(active.executionId()).orElseThrow().state());
+        assertEquals(Set.of(original.executionId(), missing.executionId(), active.executionId()),
+                journal.observedRecoveryExecutions(Set.of(
+                        original.executionId(), missing.executionId(), active.executionId(), "no-evidence")));
         for (var recovered : List.of(claim, missingClaim, activeClaim)) {
             var attempt = journal.pendingTaskDrains(recovered, 0).get(0);
             assertTrue(journal.retainTaskDrains(recovered, List.of(new DrainReceipt(attempt.rowId(), new byte[] {1}))));
@@ -338,13 +343,58 @@ class JdbcQueryStateJournalIntegrationTest {
                 missing.executionId(), "unbound-report", "worker-id", "FINISHED", 1, 1));
         assertEquals(DrainOutcome.CONFIRMED, journal.confirmRecoveredTaskDrains(claim));
         assertEquals(DrainOutcome.MISSING_ISSUANCE, journal.confirmRecoveredTaskDrains(missingClaim));
-        assertEquals(DrainOutcome.AWAITING_TERMINAL, journal.confirmRecoveredTaskDrains(activeClaim));
+        assertEquals(DrainOutcome.CONFIRMED, journal.confirmRecoveredTaskDrains(activeClaim));
+        var recoveredTerminal = journal.latestQueryEvent(active.executionId()).orElseThrow();
+        assertEquals("FAILED", recoveredTerminal.state());
+        assertEquals("successor", recoveredTerminal.context().coordinatorId());
+        assertEquals(DrainOutcome.CONFIRMED, journal.confirmRecoveredTaskDrains(activeClaim));
+        assertEquals(recoveredTerminal, journal.latestQueryEvent(active.executionId()).orElseThrow());
+        assertTrue(store.releaseDrainedQuery(activeClaim, false));
         org.assertj.core.api.Assertions.assertThatThrownBy(() ->
                 journal.appendTaskIssuancesSync(recoveryIssuances(claim, 1, 1)))
                 .isInstanceOf(org.pangrova.persistence.query.api.exception.JournalWriteException.class);
         assertFalse(store.releaseDrainedQuery(missingClaim, false));
         assertTrue(store.releaseDrainedQuery(claim, false));
         assertEquals(DrainOutcome.LOST_CLAIM, journal.confirmRecoveredTaskDrains(claim));
+    }
+
+    @Test
+    void workerAndQueryFactsStayFencedThroughTakeoverAndPhysicalRetirement() throws Exception {
+        var store = new JdbcExecutionAnchorStore(dataSource);
+        var lease = Duration.ofMinutes(1);
+        var prior = store.tryAcquire("late-reports", "coordinator", "original-boot", lease).orElseThrow();
+        var pending = acceptanceEvent(prior.executionId(), "alice", "a", "b", QueryAcceptance.DEFAULT_RETENTION_MS);
+        journal.acceptFencedQuerySync(pending, prior);
+        journal.appendTaskIssuancesSync(recoveryIssuances(prior, 0, 1));
+        var authority = new TaskStateEvent.ReportAuthority(prior.ownerIncarnation(), prior.fencingToken());
+        var current = new TaskStateEvent(JournalEventContext.create(111, prior.ownerId()), prior.executionId(),
+                "task-0", "worker-id", "RUNNING", 1, 1, null, authority);
+        journal.appendTaskEventSync(current);
+        journal.appendTaskEventSync(current);
+        assertEquals(current, storedTaskEvent(current.context().eventId()));
+
+        assertTrue(store.yield(prior));
+        var successor = store.tryAcquire(prior.executionId(), prior.ownerId(), "new-boot", lease).orElseThrow();
+        journal.purgeOwnedQuery(prior);
+        assertEquals(current, storedTaskEvent(current.context().eventId()));
+        var attempt = journal.pendingTaskDrains(successor, 0).get(0);
+        assertTrue(journal.retainTaskDrains(successor, List.of(new DrainReceipt(attempt.rowId(), new byte[] {1}))));
+        assertEquals(DrainOutcome.CONFIRMED, journal.confirmRecoveredTaskDrains(successor));
+        assertTrue(store.releaseDrainedQuery(successor, false));
+
+        journal.appendTaskEvent(new TaskStateEvent(JournalEventContext.create(112, prior.ownerId()),
+                prior.executionId(), "task-0", "worker-id", "RUNNING", 1, 2, null, authority));
+        var rejected = assertThrows(JournalWriteException.class, () -> journal.appendTaskEventSync(
+                new TaskStateEvent(JournalEventContext.create(113, prior.ownerId()), prior.executionId(),
+                        "task-0", "worker-id", "FINISHED", 1, 3, null, authority)));
+        assertThat(rejected).hasMessageContaining("Task report execution grant is no longer current");
+        journal.appendOwnedQueryEvent(new QueryStateEvent(JournalEventContext.create(Long.MAX_VALUE, prior.ownerId()),
+                prior.executionId(), null, null, "FINISHED"), prior, true);
+        assertEquals("FAILED", journal.latestQueryEvent(prior.executionId()).orElseThrow().state());
+        assertEquals(prior.executionId(), journal.findAcceptance("alice", "a".repeat(64))
+                .orElseThrow().receipt().queryId());
+        assertEquals(0, countQueryRows("task_state_journal", prior.executionId()));
+        assertEquals(Set.of(prior.executionId()), journal.observedRecoveryExecutions(Set.of(prior.executionId())));
     }
 
     private List<TaskStateEvent> recoveryIssuances(

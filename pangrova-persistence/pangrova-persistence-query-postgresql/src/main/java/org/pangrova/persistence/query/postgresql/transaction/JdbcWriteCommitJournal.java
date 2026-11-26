@@ -111,11 +111,22 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
                     + "cdc_offset_ranges::text "
                     + "FROM write_commit_journal WHERE state = 'PENDING' AND query_id IN (";
 
+    /** Predicate shared by journal and execution retirement for the write row aliased as w. */
+    public static final String ACKNOWLEDGED_WRITE = """
+            w.state = 'COMMITTED' AND w.deferred_work_acknowledged
+            AND NOT EXISTS (SELECT 1 FROM index_commit_log e
+                            WHERE e.commit_fingerprint = w.commit_fingerprint AND NOT e.processed)
+            """;
+    public static final String RETIRABLE_WRITE = ACKNOWLEDGED_WRITE + """
+              AND NOT EXISTS (
+                  SELECT 1 FROM execution_anchor a WHERE a.execution_id = w.query_id
+                  AND EXISTS (SELECT 1 FROM query_state_journal q WHERE q.query_id = w.query_id)
+                  AND NOT EXISTS (SELECT 1 FROM query_state_journal q WHERE q.query_id = w.query_id
+                                  AND q.state IN ('FINISHED', 'FAILED', 'CANCELLED'))
+              )
+            """;
     private static final String DELETE_ENTRY =
-            "DELETE FROM write_commit_journal WHERE query_id = ? "
-                    + "AND state='COMMITTED' AND deferred_work_acknowledged "
-                    + "AND NOT EXISTS (SELECT 1 FROM index_commit_log e "
-                    + "WHERE e.commit_fingerprint=write_commit_journal.commit_fingerprint AND NOT e.processed)";
+            "DELETE FROM write_commit_journal w WHERE w.query_id = ? AND " + RETIRABLE_WRITE;
 
     private static final String INSERT_COPY_PUBLICATION =
             "INSERT INTO copy_file_publications (claim_key, load_generation, claim_digest, "
@@ -613,10 +624,9 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
     @Override
     public void purge(String queryId) {
         Objects.requireNonNull(queryId, "queryId must not be null");
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement(DELETE_ENTRY)) {
-            ps.setString(1, queryId);
-            ps.executeUpdate();
+        try (Connection conn = dataSource.getConnection(); var statement = conn.prepareStatement(DELETE_ENTRY)) {
+            statement.setString(1, queryId);
+            statement.executeUpdate();
         } catch (SQLException e) {
             LOG.error("event=write_commit_purge_failed queryId={} error={}",
                     queryId, e.getMessage(), e);

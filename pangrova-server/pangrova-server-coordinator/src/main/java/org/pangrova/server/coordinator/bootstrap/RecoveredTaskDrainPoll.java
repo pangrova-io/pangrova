@@ -209,7 +209,7 @@ final class RecoveredTaskDrainPoll implements AutoCloseable {
                 LOG.warn("event=recovered_task_drain_incomplete_issuance queryId={}", current.claim().executionId());
                 yield null;
             }
-            case LOST_CLAIM, NO_SQL_EVIDENCE, AWAITING_TERMINAL -> null;
+            case LOST_CLAIM, NO_SQL_EVIDENCE, PENDING_WRITE -> null;
         };
     }
 

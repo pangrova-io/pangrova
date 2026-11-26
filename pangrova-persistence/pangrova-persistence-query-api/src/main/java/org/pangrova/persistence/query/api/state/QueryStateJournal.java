@@ -25,6 +25,9 @@ public interface QueryStateJournal extends QueryStateJournalReader, AutoCloseabl
     void appendQueryEvent(QueryStateEvent event);
     /** Commits the exact frozen query event or reports an unestablished outcome for retry. */
     void appendQueryEventSync(QueryStateEvent event);
+    /** Publishes a lifecycle fact only while the exact original execution grant is current. */
+    void appendOwnedQueryEvent(QueryStateEvent event, ExecutionAnchor anchor, boolean synchronous);
+
     /** Atomically accepts or replays the initial QUEUED event carrying idempotency authority. */
     QueryAcceptanceAdmission acceptQuerySync(QueryStateEvent event);
 
@@ -72,6 +75,8 @@ public interface QueryStateJournal extends QueryStateJournalReader, AutoCloseabl
 
     /** Excludes concurrent query admission, drains admitted writes and atomically deletes its facts. */
     void purgeQuery(String queryId);
+    /** Purges under the original execution grant, leaving successor evidence intact. */
+    void purgeOwnedQuery(ExecutionAnchor anchor);
     /** Seals admission and waits for actual owned operations to exit; failure is retryable. */
     @Override void close();
     /**

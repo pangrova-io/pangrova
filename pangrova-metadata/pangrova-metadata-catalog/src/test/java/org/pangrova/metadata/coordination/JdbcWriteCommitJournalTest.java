@@ -15,6 +15,17 @@ import javax.sql.DataSource;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.Duration;
+
+import org.pangrova.persistence.query.api.state.StateJournalConfig;
+import org.pangrova.persistence.query.api.state.RecoveredTaskDrainJournal.DrainOutcome;
+import org.pangrova.persistence.query.api.state.RecoveredTaskDrainJournal.DrainReceipt;
+import org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore;
+import org.pangrova.persistence.query.postgresql.state.JdbcQueryStateJournal;
+import org.pangrova.query.api.journal.JournalEventContext;
+import org.pangrova.query.api.journal.QueryStateEvent;
+import org.pangrova.query.api.journal.TaskIssuance;
+import org.pangrova.query.api.journal.TaskStateEvent;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -247,6 +258,40 @@ class JdbcWriteCommitJournalTest extends ContainerTestBase {
 
         assertThat(journal.getEntry("q-1")).isEmpty();
         assertThat(journal.isCommitted("q-1")).isFalse();
+    }
+
+    @Test
+    void recoveredWriteRemainsPendingUntilPublicationAndRetiresAsFinished() {
+        var intent = entry("recover-committed-write", "catalog-a", "schema.table", WriteCommitState.PENDING, 1L);
+        var anchors = new JdbcExecutionAnchorStore(dataSource);
+        var lease = Duration.ofMinutes(1);
+        var prior = anchors.tryAcquire(intent.queryId(), "original", "original-boot", lease).orElseThrow();
+        var settings = new StateJournalConfig("JDBC", "jdbc:postgresql:journal-test", 20, 20, 24, 1024);
+        try (var facts = new JdbcQueryStateJournal(dataSource, settings)) {
+            facts.appendQueryEventSync(new QueryStateEvent(JournalEventContext.create(101L, prior.ownerId()),
+                    intent.queryId(), "INSERT INTO table VALUES (1)", "{}", "RUNNING"));
+            facts.appendTaskIssuancesSync(List.of(new TaskStateEvent(
+                    JournalEventContext.create(102L, prior.ownerId()), intent.queryId(), "writer", "worker",
+                    "SCHEDULED", 0, 0, new TaskIssuance("worker-host", 8081, prior.ownerIncarnation(),
+                            prior.fencingToken(), new byte[] {1}))));
+            journal.recordIntent(intent);
+            assertThat(anchors.yield(prior)).isTrue();
+            var successor = anchors.tryAcquire(intent.queryId(), "successor", "successor-boot", lease).orElseThrow();
+            var issued = facts.pendingTaskDrains(successor, 0).get(0);
+            assertThat(facts.retainTaskDrains(successor, List.of(new DrainReceipt(issued.rowId(), new byte[] {2}))))
+                    .isTrue();
+            assertThat(facts.confirmRecoveredTaskDrains(successor)).isEqualTo(DrainOutcome.PENDING_WRITE);
+            assertThat(facts.latestQueryEvent(intent.queryId()).orElseThrow().state()).isEqualTo("RUNNING");
+
+            journal.markCommitted(intent.queryId());
+            journal.acknowledgeNoDeferredWork(intent.commitFingerprint());
+            journal.purge(intent.queryId());
+            assertThat(journal.getEntry(intent.queryId())).isPresent();
+            assertThat(facts.confirmRecoveredTaskDrains(successor)).isEqualTo(DrainOutcome.CONFIRMED);
+            assertThat(facts.latestQueryEvent(intent.queryId()).orElseThrow().state()).isEqualTo("FINISHED");
+            assertThat(anchors.releaseDrainedQuery(successor, false)).isTrue();
+            assertThat(journal.getEntry(intent.queryId())).isEmpty();
+        }
     }
 
     @Test

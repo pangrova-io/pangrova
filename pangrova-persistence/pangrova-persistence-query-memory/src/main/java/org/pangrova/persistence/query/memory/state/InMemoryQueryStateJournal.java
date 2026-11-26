@@ -78,6 +78,14 @@ public final class InMemoryQueryStateJournal implements QueryStateJournal {
         return new QueryAcceptanceAdmission(true, event.acceptance());
     }
 
+    @Override public void appendOwnedQueryEvent(QueryStateEvent event, ExecutionAnchor anchor, boolean synchronous) {
+        appendQueryEvent(event);
+    }
+
+    @Override public void purgeOwnedQuery(ExecutionAnchor anchor) {
+        purgeQuery(anchor.executionId());
+    }
+
     @Override public void appendFencedAdmissionSync(QueryStateEvent event, ExecutionAnchor anchor) {
         appendQueryEventSync(event);
     }

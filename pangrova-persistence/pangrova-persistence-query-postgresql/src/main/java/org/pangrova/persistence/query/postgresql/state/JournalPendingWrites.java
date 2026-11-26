@@ -139,7 +139,10 @@ final class JournalPendingWrites {
         for (int index = 0; index < batch.writes().size(); index++) {
             var attempt = batch.attempts().get(index);
             if (batch.writes().get(index).outcome.rejected()) {
-                attempt.completeExceptionally(rejected("Initial query execution grant is no longer current", null));
+                String message = batch.writes().get(index).task == null
+                        ? "Initial query execution grant is no longer current"
+                        : "Task report execution grant is no longer current";
+                attempt.completeExceptionally(rejected(message, null));
             } else {
                 attempt.complete(null);
             }

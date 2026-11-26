@@ -83,19 +83,12 @@ listener before membership registration, so the registry records the actual
 port and the same process incarnation used in the receipt. The listener serves
 requests once Coordinator initialization completes.
 
-Recovery reads the query and task journals for the exact execution IDs claimed
-from the durable owner store. PostgreSQL returns both event streams from one
-statement snapshot in their respective insertion order. The replay retains
-the original admission and later events across owner incarnations. The restored
-projection keeps the journal ownership established by the replay batch. When
-remote Shuffle is enabled, a successor waits for durable predecessor exit
-proof before it can redeem cleanup control. Write recovery can defer an
-execution before replay, and cleanup still checks its execution authority
-when applied.
-Claim settlement uses the exact fencing token. A claim with neither query nor
-task journal evidence and no local projection can be released. A terminal
-journal fact or a task whose query projection is absent keeps the grant with
-the recovery owner until the physical cleanup protocol establishes exit.
+Recovery checks journal presence for only the claimed execution IDs. The
+bounded statement probes the query and task indexes and returns IDs that have
+evidence. It does not load historical plans, sessions, or report payloads to
+construct an in-memory execution. Write reconciliation can defer an execution
+before it is admitted for Worker drain. An exact claim with no query or task
+evidence and no local projection can be released immediately.
 
 The bounded asynchronous submission executor runs SQL planning and starts the
 distributed DAG. The DAG publishes its OUTPUT endpoint after Worker acknowledgement
@@ -129,15 +122,26 @@ ineligible after a wall-clock rollback. An expired attempt with a registered
 owner still requires actual drain evidence.
 
 After the last receipt page, PostgreSQL locks the exact successor grant and
-checks for complete terminal SQL issuance in a fresh snapshot. The proof
-blocks new dispatch under that grant. A missing issuance, a nonterminal
-projection, or a non-SQL execution does not produce this proof. For a proven
-terminal predecessor without a live local projection, remote Shuffle must
-remove its scope and cleanup intent first. The fenced retirement then removes
-the predecessor's reader pins, issued task journal, anchor and tenant slot in
-one transaction. Keyed receipts retain their journal retention. Query pin
-admission checks the live, fresh execution anchor in the existing generation
-lock statement so a stale Coordinator cannot recreate a released pin.
+checks that the SQL execution has a matching issuance and exit receipt for
+each observed attempt. In the same transaction it closes issuance and records
+a predecessor terminal event if none was durable. A durably committed catalog
+write ends as `FINISHED`. A drained read or unpublished write ends as `FAILED`.
+Unresolved write intents, missing issuances, and executions without a
+distributed SQL journal stay outside this retirement path. A committed write
+row remains available while the SQL execution is active, even after deferred
+work acknowledges it.
+
+Worker report and query lifecycle inserts use the original execution grant in
+the same statement that records the event. Journal retirement also checks that
+grant. A former Coordinator cannot add a late Worker fact, rewrite the
+successor's terminal outcome, or purge the successor's evidence. For a proven
+predecessor without a live local projection, remote Shuffle must remove its
+scope and cleanup intent first. The fenced retirement then removes the
+predecessor's reader pins, task journal, acknowledged write record when
+eligible, anchor and tenant slot in one transaction. Keyed query receipts
+retain their journal retention. Query pin admission checks the live, fresh
+execution anchor in the existing generation lock statement.
+
 The collector has no idle database polls. Releasing the query's resources still
 requires complete attempt coverage and the result and Shuffle drain gates.
 

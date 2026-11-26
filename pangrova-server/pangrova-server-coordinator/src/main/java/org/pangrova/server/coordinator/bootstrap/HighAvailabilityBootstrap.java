@@ -7,7 +7,6 @@ import org.pangrova.server.coordinator.lifecycle.PangrovaCoordinator;
 import org.pangrova.coordinator.coordination.CoordinatorExecutionAuthority;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
 import org.pangrova.query.runtime.QueryManager;
-import org.pangrova.query.recovery.JournalRecoveryService;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerHealthScheduler;
 import org.pangrova.coordinator.worker.WorkerManager;
@@ -49,9 +48,6 @@ final class HighAvailabilityBootstrap {
 
     private static final Logger LOG = LoggerFactory.getLogger(HighAvailabilityBootstrap.class);
 
-    /** Default grace window for worker re-registration after failover (SI-6). */
-    static final long DEFAULT_WORKER_LIVENESS_GRACE_MS = 60_000;
-
     private final CoordinatorBootstrapConfig config;
     private final HighAvailabilityCoordinationService haService;
     private final CoordinatorRegistry coordinatorRegistry;
@@ -69,7 +65,6 @@ final class HighAvailabilityBootstrap {
     private volatile boolean querySchedulingStopped;
     private volatile java.util.concurrent.ScheduledFuture<?> recoveryFuture;
     private volatile java.util.concurrent.ScheduledFuture<?> taskTimeoutFuture;
-    private long workerLivenessGraceMs = DEFAULT_WORKER_LIVENESS_GRACE_MS;
 
     HighAvailabilityBootstrap(CoordinatorBootstrapConfig config,
             DistributedLease lease, CoordinatorRegistry coordinatorRegistry, DataSource dataSource,
@@ -190,9 +185,8 @@ final class HighAvailabilityBootstrap {
     }
 
     /**
-     * Claims explicit durable orphans and replays only their original owners.
-     * Active peers' journal rows are never included. Recovery is bounded by the
-     * reclaimer batch size and keeps the worker-liveness grace window.
+     * Claims durable orphans and resolves their issued resources without constructing a new runnable DAG.
+     * Active peers are never included. Recovery is bounded by the reclaimer batch size.
      */
     private void recoverExpiredJournalState() {
         if (querySchedulingStopped || !durableExecutionAnchors
@@ -201,8 +195,6 @@ final class HighAvailabilityBootstrap {
         }
         java.util.List<ExecutionAnchor> claimed = java.util.List.of();
         try {
-            org.pangrova.query.lifecycle.QueryStateJournalPort journal =
-                    queryManager.getStateJournal();
             claimed = haService.claimExpiredExecutions(256);
             if (claimed.isEmpty()) {
                 return;
@@ -213,25 +205,15 @@ final class HighAvailabilityBootstrap {
                     .map(ExecutionAnchor::executionId)
                     .filter(id -> !deferredWrites.contains(id))
                     .collect(java.util.stream.Collectors.toUnmodifiableSet());
-            var recovered = new JournalRecoveryService(
-                    journal, queryManager, taskTracker, workerManager,
-                    null, workerLivenessGraceMs).recoverClaimed(queryIds);
-            settleRecoveryClaims(claimed, recovered.withoutJournalEvidence());
+            var observed = query.observedRecoveryExecutions(queryIds);
+            settleRecoveryClaims(claimed, queryIds, observed);
             query.trackRecoveredTaskDrains(ordinaryClaims.stream()
-                    .filter(anchor -> !deferredWrites.contains(anchor.executionId())
-                            && !recovered.withoutJournalEvidence().contains(anchor.executionId()))
+                    .filter(anchor -> observed.contains(anchor.executionId()))
                     .toList());
-            LOG.info("event=execution_anchor_recovery_completed "
-                            + "queriesClaimed={} queriesRecovered={} graceMs={}",
-                    claimed.size(), recovered.recoveredQueries(), workerLivenessGraceMs);
+            LOG.info("event=execution_anchor_recovery_completed queriesClaimed={} withJournalEvidence={}",
+                    claimed.size(), observed.size());
         } catch (Exception e) {
-            // NEW-COORD-05: per-entry poison rows are already isolated inside JournalRecoveryService
-            // (each query/task replay is try/caught + skipped with a warning). A failure reaching
-            // here means the whole replay could not run (e.g. metadata DB transiently unavailable).
-            // Hard-failing would crash a newly-promoted leader and leave the cluster with NO leader
-            // — a worse outage than degrading. Raise a CRITICAL alarm and continue starting DEGRADED:
-            // un-recovered predecessor queries are fail-safe (detected + failed by worker-liveness /
-            // task-timeout checks) rather than blocking the entire cluster's recovery.
+            // Yield the exact grants and keep the durable evidence for the next recovery pass.
             for (ExecutionAnchor anchor : claimed) {
                 haService.yieldExecution(anchor);
             }
@@ -243,7 +225,8 @@ final class HighAvailabilityBootstrap {
         }
     }
 
-    private void settleRecoveryClaims(java.util.List<ExecutionAnchor> claimed, Set<String> withoutJournalEvidence) {
+    private void settleRecoveryClaims(java.util.List<ExecutionAnchor> claimed, Set<String> eligible,
+            Set<String> observed) {
         for (ExecutionAnchor anchor : claimed) {
             var artifact = artifactJob(anchor);
             if (artifact.isPresent()) {
@@ -259,7 +242,7 @@ final class HighAvailabilityBootstrap {
             }
             // Admission is committed before dispatch. A local projection or a logical terminal
             // event does not prove that every originally issued attempt has actually exited.
-            if (withoutJournalEvidence.contains(anchor.executionId())
+            if (eligible.contains(anchor.executionId()) && !observed.contains(anchor.executionId())
                     && queryManager.getStateMachine(anchor.executionId()) == null) {
                 haService.releaseRecoveryClaim(anchor);
             }

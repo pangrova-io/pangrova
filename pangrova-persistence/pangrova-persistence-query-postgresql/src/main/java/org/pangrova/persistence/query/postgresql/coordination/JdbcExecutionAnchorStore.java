@@ -1,5 +1,7 @@
 package org.pangrova.persistence.query.postgresql.coordination;
 
+import org.pangrova.persistence.query.postgresql.transaction.JdbcWriteCommitJournal;
+
 import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.persistence.query.api.coordination.ExecutionAnchorStore;
 import org.slf4j.Logger;
@@ -127,6 +129,9 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
                 WHERE p.reader_kind = 'QUERY' AND p.reader_id = t.query_id
             ), tasks AS (
                 DELETE FROM task_state_journal j USING target t WHERE j.query_id = t.query_id
+            ), writes AS (
+                DELETE FROM write_commit_journal w USING target t WHERE w.query_id = t.query_id AND
+            """ + JdbcWriteCommitJournal.ACKNOWLEDGED_WRITE + """
             )
             DELETE FROM query_state_journal q USING target t
             WHERE q.query_id = t.query_id AND NOT EXISTS (

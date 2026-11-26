@@ -22,6 +22,7 @@ import org.pangrova.persistence.query.api.exception.JournalWriteException;
 import org.pangrova.persistence.query.api.state.QueryStateJournal;
 import org.pangrova.persistence.query.api.state.RecoveredTaskDrainJournal;
 import org.pangrova.persistence.query.api.state.StateJournalConfig;
+import org.pangrova.persistence.query.postgresql.transaction.JdbcWriteCommitJournal;
 import org.pangrova.query.api.journal.TaskStateEvent;
 import org.pangrova.query.api.session.JournalSessionPayload;
 
@@ -80,6 +81,16 @@ public final class JdbcQueryStateJournal implements QueryStateJournal, Recovered
     @Override public void appendQueryEvent(QueryStateEvent event) {
         pending.admit(new JournalPendingWrites.Write(pending, event), false);
     }
+    @Override public void appendOwnedQueryEvent(QueryStateEvent event, ExecutionAnchor anchor, boolean synchronous) {
+        Objects.requireNonNull(anchor, "anchor");
+        if (!event.queryId().equals(anchor.executionId()) || !anchor.ownerId().equals(event.context().coordinatorId())
+                || "QUEUED".equals(event.state()) || event.acceptance() != null) {
+            throw new IllegalArgumentException("Execution grant must match a post-admission query event");
+        }
+        var owner = pending.admit(new JournalPendingWrites.Write(pending, event, anchor), synchronous);
+        if (synchronous) await(owner.attempt());
+    }
+
     @Override public void appendTaskEvent(TaskStateEvent event) {
         pending.admit(new JournalPendingWrites.Write(pending, event), false);
     }
@@ -215,6 +226,17 @@ public final class JdbcQueryStateJournal implements QueryStateJournal, Recovered
             ids.free();
         }
         return new RecoveryBatch(queries, tasks, observed);
+    }
+
+    @Override public Set<String> observedRecoveryExecutions(Set<String> claims) {
+        var requested = Set.copyOf(claims);
+        if (requested.isEmpty()) return Set.of();
+        try {
+            return pending.enterSql().perform(dataSource,
+                    connection -> JournalTaskDrainSql.observed(connection, requested));
+        } catch (SQLException failure) {
+            throw JournalPendingWrites.failure("Failed to classify claimed executions", failure);
+        }
     }
 
     @Override public List<IssuedAttempt> pendingTaskDrains(ExecutionAnchor claim, long afterRowId) {
@@ -360,6 +382,14 @@ public final class JdbcQueryStateJournal implements QueryStateJournal, Recovered
     }
 
     @Override public void purgeQuery(String queryId) {
+        purgeQuery(queryId, null);
+    }
+
+    @Override public void purgeOwnedQuery(ExecutionAnchor anchor) {
+        purgeQuery(anchor.executionId(), anchor);
+    }
+
+    private void purgeQuery(String queryId, ExecutionAnchor anchor) {
         Objects.requireNonNull(queryId, "queryId");
         JournalSqlOperation operation = pending.enterPurge(queryId);
         try {
@@ -374,7 +404,7 @@ public final class JdbcQueryStateJournal implements QueryStateJournal, Recovered
         }
         try {
             operation.perform(dataSource, connection -> {
-                purgeCommitted(connection, queryId);
+                purgeCommitted(connection, queryId, anchor);
                 return null;
             });
         } catch (SQLException failure) {
@@ -382,11 +412,14 @@ public final class JdbcQueryStateJournal implements QueryStateJournal, Recovered
         }
     }
 
-    private void purgeCommitted(Connection connection, String queryId) throws SQLException {
+    private void purgeCommitted(Connection connection, String queryId, ExecutionAnchor anchor) throws SQLException {
         connection.setAutoCommit(false);
         try {
-            JournalEventSql.deleteTaskState(connection, queryId);
-            deleteExpiredQueryFacts(connection, queryId, System.currentTimeMillis());
+            if (anchor != null && !JournalEventSql.lockActiveGrant(connection, anchor)) {
+                connection.rollback();
+                return;
+            }
+            retireQueryFacts(connection, queryId, System.currentTimeMillis(), anchor != null);
             connection.commit();
         } catch (SQLException failure) {
             try {
@@ -398,28 +431,44 @@ public final class JdbcQueryStateJournal implements QueryStateJournal, Recovered
         }
     }
 
-    private static void deleteExpiredQueryFacts(Connection connection, String queryId, long now)
-            throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement("""
-                DELETE FROM query_state_journal q
-                WHERE q.query_id = ?
-                  AND NOT EXISTS (
-                    SELECT 1 FROM query_state_journal a
-                    WHERE a.query_id = q.query_id AND a.idempotency_key_digest IS NOT NULL
-                      AND (
-                        NOT EXISTS (
-                          SELECT 1 FROM query_state_journal t
-                          WHERE t.query_id = a.query_id
-                            AND t.state IN ('FINISHED', 'FAILED', 'CANCELLED')
-                        )
-                        OR a.retention_ms > ? - GREATEST(a.timestamp_ms, (
-                          SELECT MAX(t.timestamp_ms) FROM query_state_journal t
-                          WHERE t.query_id = a.query_id
-                            AND t.state IN ('FINISHED', 'FAILED', 'CANCELLED')
-                        ))
-                      )
+    private static final String RETIRE_QUERY_PREFIX = """
+            WITH target(query_id) AS (VALUES (CAST(? AS text))),
+            tasks AS (
+                DELETE FROM task_state_journal j USING target t WHERE j.query_id = t.query_id
+            )
+            """;
+    private static final String RETIRE_QUERY_FACTS = """
+            DELETE FROM query_state_journal q USING target target_query
+            WHERE q.query_id = target_query.query_id
+              AND NOT EXISTS (
+                SELECT 1 FROM query_state_journal a
+                WHERE a.query_id = q.query_id AND a.idempotency_key_digest IS NOT NULL
+                  AND (
+                    NOT EXISTS (
+                      SELECT 1 FROM query_state_journal t
+                      WHERE t.query_id = a.query_id
+                        AND t.state IN ('FINISHED', 'FAILED', 'CANCELLED')
+                    )
+                    OR a.retention_ms > ? - GREATEST(a.timestamp_ms, (
+                      SELECT MAX(t.timestamp_ms) FROM query_state_journal t
+                      WHERE t.query_id = a.query_id
+                        AND t.state IN ('FINISHED', 'FAILED', 'CANCELLED')
+                    ))
                   )
-                """)) {
+              )
+            """;
+    private static final String RETIRE_LOCAL_QUERY = RETIRE_QUERY_PREFIX + RETIRE_QUERY_FACTS;
+    private static final String RETIRE_OWNED_QUERY = RETIRE_QUERY_PREFIX + """
+            , writes AS (
+                DELETE FROM write_commit_journal w USING target t WHERE w.query_id = t.query_id AND
+            """ + JdbcWriteCommitJournal.RETIRABLE_WRITE + """
+            )
+            """ + RETIRE_QUERY_FACTS;
+
+    private static void retireQueryFacts(Connection connection, String queryId, long now, boolean owned)
+            throws SQLException {
+        try (var statement = owned ? connection.prepareStatement(RETIRE_OWNED_QUERY)
+                : connection.prepareStatement(RETIRE_LOCAL_QUERY)) {
             statement.setString(1, queryId);
             statement.setLong(2, now);
             statement.executeUpdate();

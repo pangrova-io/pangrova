@@ -4,7 +4,9 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.persistence.query.api.state.RecoveredTaskDrainJournal;
@@ -13,8 +15,19 @@ import static org.pangrova.persistence.query.api.state.RecoveredTaskDrainJournal
 
 final class JournalTaskDrainSql {
     private static final int FENCE_PARAMETERS = 4;
+    private static final String OBSERVED = """
+            SELECT claims.id FROM unnest(?::varchar[]) AS claims(id)
+            LEFT JOIN LATERAL (
+                SELECT 1 AS hit FROM query_state_journal q WHERE q.query_id = claims.id LIMIT 1
+            ) query_fact ON true
+            LEFT JOIN LATERAL (
+                SELECT 1 AS hit FROM task_state_journal t
+                WHERE query_fact.hit IS NULL AND t.query_id = claims.id LIMIT 1
+            ) task_fact ON true
+            WHERE query_fact.hit IS NOT NULL OR task_fact.hit IS NOT NULL
+            """;
     private static final String CLAIM = """
-            SELECT execution_id, fencing_token, expires_at FROM execution_anchor
+            SELECT execution_id, owner_id, fencing_token, expires_at FROM execution_anchor
             WHERE execution_id = ? AND owner_id = ? AND owner_incarnation = ? AND fencing_token = ?
             """;
     private static final String PENDING = """
@@ -42,9 +55,6 @@ final class JournalTaskDrainSql {
                                  WHERE a.recovery_drain_state = 2) THEN 'CONFIRMED'
                     WHEN NOT EXISTS (SELECT 1 FROM query_state_journal q JOIN claim c ON q.query_id = c.execution_id)
                         THEN 'NO_SQL_EVIDENCE'
-                    WHEN NOT EXISTS (SELECT 1 FROM query_state_journal q JOIN claim c ON q.query_id = c.execution_id
-                                     WHERE q.state IN ('FINISHED', 'FAILED', 'CANCELLED'))
-                        THEN 'AWAITING_TERMINAL'
                     WHEN NOT EXISTS (SELECT 1 FROM task_state_journal t JOIN claim c ON t.query_id = c.execution_id
                                      WHERE t.admission_seal IS NOT NULL)
                          OR EXISTS (
@@ -56,18 +66,41 @@ final class JournalTaskDrainSql {
                                       AND issued.worker_id = t.worker_id AND issued.stage_id = t.stage_id
                                       AND issued.coordinator_id = t.coordinator_id
                                       AND issued.admission_seal IS NOT NULL
+                                      AND (t.owner_incarnation IS NULL OR (
+                                          issued.owner_incarnation = t.owner_incarnation
+                                          AND issued.owner_fencing_token = t.owner_fencing_token))
                                 ))
                          ) THEN 'MISSING_ISSUANCE'
                     WHEN EXISTS (
                         SELECT 1 FROM task_state_journal t JOIN claim c ON t.query_id = c.execution_id
                         WHERE t.admission_seal IS NOT NULL AND t.recovery_drain_receipt IS NULL
                     ) THEN 'PENDING_RECEIPTS'
+                    WHEN EXISTS (
+                        SELECT 1 FROM write_commit_journal w JOIN claim c ON w.query_id = c.execution_id
+                        WHERE w.state = 'PENDING' AND NOT EXISTS (
+                            SELECT 1 FROM write_commit_quarantine q
+                            WHERE q.query_id = w.query_id AND q.commit_fingerprint = w.commit_fingerprint
+                        )
+                    ) THEN 'PENDING_WRITE'
                     ELSE 'CONFIRMED'
                 END AS state
             ), sealed AS (
                 UPDATE execution_anchor a SET recovery_drain_state = 2
                 FROM claim c, outcome o
                 WHERE a.execution_id = c.execution_id AND o.state = 'CONFIRMED' AND a.recovery_drain_state = 1
+                RETURNING a.execution_id, a.owner_id
+            ), terminal AS (
+                INSERT INTO query_state_journal (event_id, query_id, state, timestamp_ms, coordinator_id)
+                SELECT gen_random_uuid(), s.execution_id,
+                       CASE WHEN EXISTS (SELECT 1 FROM write_commit_journal w
+                                         WHERE w.query_id = s.execution_id AND w.state = 'COMMITTED')
+                            THEN 'FINISHED' ELSE 'FAILED' END,
+                       (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::bigint, s.owner_id
+                FROM sealed s
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM query_state_journal q WHERE q.query_id = s.execution_id
+                    AND q.state IN ('FINISHED', 'FAILED', 'CANCELLED')
+                )
             )
             SELECT state FROM outcome
             """;
@@ -91,6 +124,18 @@ final class JournalTaskDrainSql {
             """;
 
     private JournalTaskDrainSql() { }
+
+    static Set<String> observed(Connection connection, Set<String> claims) throws SQLException {
+        var observed = new HashSet<String>();
+        try (var statement = connection.prepareStatement(OBSERVED);
+                var arrays = new JournalSqlArrays(connection)) {
+            arrays.bind(statement, 1, "varchar", claims.toArray(String[]::new));
+            try (var rows = statement.executeQuery()) {
+                while (rows.next()) observed.add(rows.getString(1));
+            }
+        }
+        return Set.copyOf(observed);
+    }
 
     static List<RecoveredTaskDrainJournal.IssuedAttempt> pending(
             Connection connection, ExecutionAnchor claim, long afterRowId) throws SQLException {

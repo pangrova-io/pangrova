@@ -566,9 +566,17 @@ final class QueryBootstrap {
     }
 
     private boolean releaseDrainedRecovery(org.pangrova.execution.api.ownership.ExecutionAnchor claim) {
-        // A replayed live projection still has process-local lifecycle owners.
-        if (queryManager.getStateMachine(claim.executionId()) != null) return true;
+        // The same process can claim its own expired grant while local resources still exist.
+        var original = queryManager.getStateMachine(claim.executionId());
+        if (original != null && !original.physicalCleanupApplied()) return false;
         return durableRecovery.releaseRecoveredQuery(claim);
+    }
+
+    java.util.Set<String> observedRecoveryExecutions(java.util.Set<String> executions) {
+        if (!(stateJournal instanceof org.pangrova.persistence.query.api.state.RecoveredTaskDrainJournal journal)) {
+            throw new IllegalStateException("Durable recovery requires the shared task journal");
+        }
+        return journal.observedRecoveryExecutions(executions);
     }
 
     void trackRecoveredTaskDrains(java.util.List<org.pangrova.execution.api.ownership.ExecutionAnchor> claims) {
