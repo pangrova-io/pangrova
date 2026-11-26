@@ -27,6 +27,8 @@ jobs:
       - name: Start the CI Docker endpoint
         run: bash .pangrova/scripts/setup-macos-native-test-docker.sh
       - name: Run PostgreSQL and verify the published port
+        env:
+          DOCKER_API_VERSION: '1.44'
         run: |
           command -v docker >/dev/null || HOMEBREW_NO_AUTO_UPDATE=1 brew install docker
           docker info

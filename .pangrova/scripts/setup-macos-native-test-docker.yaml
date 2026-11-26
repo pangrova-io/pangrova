@@ -1,0 +1,9 @@
+minimumLimaVersion: 2.3.0
+base:
+  - template:_images/ubuntu-26.04
+containerd:
+  system: false
+  user: false
+portForwards:
+  - guestSocket: /var/run/docker.sock
+    hostSocket: "{{.Dir}}/sock/docker.sock"
