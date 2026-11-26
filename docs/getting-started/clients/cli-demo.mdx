@@ -41,16 +41,35 @@ The equivalent SQL workflow is available in
 [`examples/cli-workflow.sql`](https://github.com/pangrova-io/pangrova/blob/2d8efa28545e033e6bac68c5904048d3ae513a24/examples/cli-workflow.sql)
 with a different local warehouse path than the recording. Follow the
 [Standalone quickstart](../quickstart.md) to prepare and start the local
-Coordinator and Worker. Run the following from the repository root only against
-a fresh, isolated development instance with permission to create catalogs,
-schemas, and tables. Ensure that `demo_iceberg.analytics.events` and
-`/tmp/pangrova-cli-warehouse` are unused before starting.
+Coordinator and Worker. Before replaying:
+
+- Use a fresh, isolated **local** development instance, not a port forwarded
+  to a shared or production service. Confirm the Worker has registered and its
+  advertised result endpoint is reachable from the CLI.
+- Confirm that the catalog `demo_iceberg` is not registered and that
+  `/tmp/pangrova-cli-warehouse` is unused on the standalone host. An unused
+  table name alone does not establish an unused catalog or warehouse.
+- Ensure the executing principal has the permissions to create catalogs,
+  schemas, and tables, insert rows, and query data. Apply the authentication
+  and TLS options from the [CLI reference](./cli.md#command-line-options) when
+  required by your development configuration; do not disable them to run a demo.
+
+From the repository root, open the CLI and execute the eight SQL statements
+one at a time, stopping immediately if any statement fails:
+
+```bash
+bin/pangrova-cli.sh --host localhost --port 8080
+```
+
+For the same verified fresh development instance, you can also replay the file
+through the interactive shell:
 
 ```bash
 bin/pangrova-cli.sh --host localhost --port 8080 < examples/cli-workflow.sql
 ```
 
-Piped input runs the interactive shell and continues after statement errors.
+Piped input continues after statement errors, so prefer the step-by-step method
+or fail-fast automation below if a failed creation must stop later statements.
 Verify that all eight SQL statements succeed, that the detail query returns six
 rows, that region counts are `east=2`, `north=1`, `south=1`, `west=2`, and that
 event-type counts are `click=3`, `purchase=2`, `search=1`. A zero exit code from
