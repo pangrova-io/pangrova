@@ -245,12 +245,6 @@ kubectl exec -n pangrova deploy/pangrova-coordinator -- curl -s http://localhost
 kubectl describe hpa pangrova-worker -n pangrova
 ```
 
-When `indexing.persistence.enabled=true`, the chart mounts the shared index PVC at
-`/opt/pangrova/indexes` on every Coordinator and Worker. An enabled local
-`indexing.base-path` must therefore be `/opt/pangrova/indexes` or
-`file:/opt/pangrova/indexes`; the chart rejects other local roots. Object-store
-URI roots do not use this PVC mount and can keep `indexing.persistence.enabled=false`.
-
 ### Helm Values Reference
 
 | Key | Type | Default | Description |
@@ -275,10 +269,18 @@ URI roots do not use this PVC mount and can keep `indexing.persistence.enabled=f
 | `persistence.enabled` | bool | `false` | Enable Worker persistent volumes |
 | `persistence.size` | string | `100Gi` | PVC size per Worker |
 | `persistence.storageClass` | string | `""` | Storage class (empty = default) |
-| `indexing.persistence.enabled` | bool | `false` | Mount one shared index PVC at `/opt/pangrova/indexes` on every Coordinator and Worker; required for a local index root |
+| `indexing.persistence.enabled` | bool | `false` | Mount one shared index PVC at `/opt/pangrova/indexes` on every Coordinator and Worker in the release namespace; required for a local index root |
 | `indexing.persistence.existingClaim` | string | `""` | Existing ReadWriteMany PVC; when empty the chart creates one |
 | `indexing.persistence.size` | string | `100Gi` | Shared index PVC size |
 | `indexing.persistence.storageClass` | string | `""` | Shared index PVC storage class; must support ReadWriteMany |
+
+When indexing is enabled, specify a literal nested `indexing.base-path` in
+`config.coordinator`. For a local root, enable `indexing.persistence.enabled`
+and choose `/opt/pangrova/indexes` or a canonical subdirectory of that mount.
+The chart cannot validate an environment-substituted root at render time.
+For Worker pools in separate tenant namespaces, use a shared object-store URI
+with connector access and tenant isolation configured; the release namespace's
+PVC is not available to Pods in other namespaces.
 | `autoscaling.enabled` | bool | `true` | Enable Worker HPA |
 | `autoscaling.minReplicas` | int | `3` | HPA minimum replicas |
 | `autoscaling.maxReplicas` | int | `10` | HPA maximum replicas |
