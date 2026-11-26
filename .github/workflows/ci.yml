@@ -194,7 +194,7 @@ jobs:
           bundle=$(bash .pangrova/scripts/stage-production-regression-native.sh \
             "$PANGROVA_E2E_IMAGE_ID" "$stage" "$GITHUB_SHA")
           mvn -B install:install-file -Dfile="$bundle" -DpomFile=pangrova-native-bundle/pom.xml \
-            -Dclassifier=linux-x86_64
+            -Dclassifier=linux-x86_64 -Dpackaging=jar
 
       # Standalone-process tests need the complete reactor installed before tests start.
       - name: Install the complete Java reactor for process tests

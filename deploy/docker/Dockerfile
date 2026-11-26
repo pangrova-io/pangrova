@@ -58,7 +58,7 @@ RUN --mount=type=cache,target=/root/.m2 bash -euo pipefail -c '\
     test "${#bundles[@]}" -eq 1; bundle="${bundles[0]}"; test -f "$bundle"; \
     jar tf "$bundle" | grep -Fx "META-INF/native/linux/$resource_arch/libpangrova_native.so"; \
     mvn -B -q install:install-file -Dfile="$bundle" -DpomFile=pangrova-native-bundle/pom.xml \
-        -Dclassifier="$classifier"; \
+        -Dclassifier="$classifier" -Dpackaging=jar; \
     mvn -B -q -Pnative-runtime -DskipTests \
         -pl pangrova-standalone,pangrova-client/pangrova-client-cli,pangrova-connector/pangrova-connector-iceberg,pangrova-connector/pangrova-connector-paimon,pangrova-connector/pangrova-connector-lance,\!pangrova-native-bundle \
         -am install; \

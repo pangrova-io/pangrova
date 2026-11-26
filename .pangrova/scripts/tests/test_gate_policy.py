@@ -371,6 +371,16 @@ class StructuralPolicyTest(unittest.TestCase):
         self.assertIn('-Dpangrova.e2e.file.backend="$file_backend"', owners)
         self.assertIn('-Dpangrova.e2e.excludedGroups=none -Dtest="$suite"', owners)
 
+    def test_production_consumers_install_native_classifier_as_jar(self):
+        for path in ('.github/workflows/ci.yml', 'deploy/docker/Dockerfile'):
+            with self.subTest(path=path):
+                source = (ROOT / path).read_text().replace('\\\n', ' ')
+                install = next(line for line in source.splitlines()
+                               if 'install:install-file' in line and
+                               '-DpomFile=pangrova-native-bundle/pom.xml' in line)
+                self.assertIn('-Dclassifier=', install)
+                self.assertIn('-Dpackaging=jar', install)
+
 
 class RuntimeScopeTest(unittest.TestCase):
     def test_macos_native_fixture_bootstrap_selects_native_checks(self):
