@@ -13,6 +13,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  MAVEN_ARGS: -C --global-settings ${{ github.workspace }}/.mvn/ci-settings.xml
   NATIVE_LIB_DIR: ${{ github.workspace }}/pangrova-worker-native/build
 
 jobs:
@@ -182,6 +183,7 @@ jobs:
           IMAGE="$PANGROVA_E2E_IMAGE" SOURCE_COMMIT="$GITHUB_SHA" \
             docker buildx bake --load -f deploy/docker/docker-bake.hcl \
               --allow "fs.read=$RUNNER_TEMP/pangrova-iceberg-sdk" \
+              --set 'pangrova.args.MAVEN_ARGS=-C --global-settings /build/.mvn/ci-settings.xml' \
               --set "pangrova.contexts.iceberg-sdk=$RUNNER_TEMP/pangrova-iceberg-sdk" pangrova
           image_id=$(docker image inspect --format '{{.Id}}' "$PANGROVA_E2E_IMAGE")
           [[ "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]]

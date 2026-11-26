@@ -5,6 +5,9 @@ on:
     tags:
       - 'v*'
 
+env:
+  MAVEN_ARGS: -C --global-settings ${{ github.workspace }}/.mvn/ci-settings.xml
+
 jobs:
   validation:
     name: Validate release revision

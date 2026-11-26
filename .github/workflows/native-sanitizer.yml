@@ -10,6 +10,9 @@ on:
         type: string
         required: true
 
+env:
+  MAVEN_ARGS: -C --global-settings ${{ github.workspace }}/.mvn/ci-settings.xml
+
 jobs:
   asan-dependencies:
     name: Build ASan dependencies

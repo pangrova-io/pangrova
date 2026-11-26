@@ -73,6 +73,11 @@ Gradle 8.14.4 before resolving the Pangrova Java reactor. CI passes the tested
 same-run SDK as a named context and grants Bake read access to that directory.
 Both paths work on a fresh builder without a host Maven repository.
 
+Hosted CI passes Maven's strict checksum option and the repository's CI Maven
+settings to the Java image build. Those settings use Google Cloud's public
+Maven Central mirror for Central artifacts. Standalone Bake invocations use the
+Maven image's normal repository settings.
+
 CI passes the Git revision as `SOURCE_COMMIT` and checks the resulting runtime
 image’s `org.opencontainers.image.revision` label before staging its libraries.
 

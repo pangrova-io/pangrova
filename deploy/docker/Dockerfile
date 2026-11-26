@@ -41,6 +41,7 @@ COPY --from=iceberg-sdk /org/apache/iceberg/ /pinned-iceberg/iceberg/
 # The complete reactor defines dependencies; there is no stale manual POM cache inventory.
 COPY . .
 COPY --from=native-release /workspace/pangrova-worker-native/build/libpangrova_native.so /native/libpangrova_native.so
+ARG MAVEN_ARGS
 # Hadoop's Jersey 1 server contains shaded ASM classes also present in Jersey 4.
 # Keep its client/core dependencies, but omit the unused legacy server stack.
 RUN --mount=type=cache,target=/root/.m2 bash -euo pipefail -c '\

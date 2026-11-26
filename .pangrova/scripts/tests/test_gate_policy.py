@@ -402,9 +402,10 @@ class StructuralPolicyTest(unittest.TestCase):
 
 
 class RuntimeScopeTest(unittest.TestCase):
-    def test_macos_native_fixture_bootstrap_selects_native_checks(self):
+    def test_native_fixture_bootstrap_selects_native_checks(self):
         for path in ('.pangrova/scripts/setup-macos-native-test-docker.sh',
-                     '.pangrova/scripts/setup-macos-native-test-docker.yaml'):
+                     '.pangrova/scripts/setup-macos-native-test-docker.yaml',
+                     '.pangrova/scripts/linux-asan-stage.sh'):
             with self.subTest(path=path):
                 self.assertTrue(scope.needs_runtime([path]))
                 self.assertTrue(scope.needs_native_checks([path]))
@@ -415,6 +416,7 @@ class RuntimeScopeTest(unittest.TestCase):
                      'pangrova-worker/src/main/java/example/NativeRuntime.java',
                      'pangrova-protocol/src/main/proto/task.proto',
                      'pangrova-native-bundle/pom.xml', 'pom.xml',
+                     '.mvn/ci-settings.xml',
                      '.github/workflows/ci.yml', 'unknown-build-input.lock']:
             with self.subTest(path=path):
                 self.assertTrue(scope.needs_native_checks([path]))
@@ -483,6 +485,24 @@ class RuntimeScopeTest(unittest.TestCase):
                       jobs['production-regression'])
         self.assertNotIn('BUILDX_BAKE_ENTITLEMENTS_FS', jobs['production-regression'])
         self.assertIn("needs.iceberg-sdk.result == 'success'", jobs['production-regression'])
+
+    def test_hosted_maven_builds_use_one_checksum_enforced_central_mirror(self):
+        settings = ET.parse(ROOT / '.mvn/ci-settings.xml').getroot()
+        mirrors = settings.findall('{*}mirrors/{*}mirror')
+        self.assertEqual(len(mirrors), 1)
+        self.assertEqual(mirrors[0].findtext('{*}mirrorOf'), 'central')
+        self.assertEqual(mirrors[0].findtext('{*}url'),
+                         'https://maven-central.storage-download.googleapis.com/maven2/')
+        for workflow in ('ci', 'native-platform', 'native-sanitizer', 'release'):
+            contents = (WORKFLOWS / f'{workflow}.yml').read_text()
+            self.assertIn('MAVEN_ARGS: -C --global-settings ${{ github.workspace }}/.mvn/ci-settings.xml',
+                          contents, workflow)
+        ci = (WORKFLOWS / 'ci.yml').read_text()
+        self.assertIn('pangrova.args.MAVEN_ARGS=-C --global-settings /build/.mvn/ci-settings.xml', ci)
+        dockerfile = (ROOT / 'deploy/docker/Dockerfile').read_text()
+        builder, runtime = dockerfile.split('FROM java-build-base AS builder', 1)[1].rsplit('\nFROM ', 1)
+        self.assertLess(builder.index('ARG MAVEN_ARGS'), builder.index('RUN --mount=type=cache,target=/root/.m2'))
+        self.assertNotIn('MAVEN_ARGS', runtime)
 
     def test_pinned_iceberg_sdk_uses_bounded_gradle_repository_backoff(self):
         script = (ROOT / '.pangrova/scripts/build-iceberg-sdk-candidate.sh').read_text()
