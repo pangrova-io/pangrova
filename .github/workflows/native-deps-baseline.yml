@@ -6,7 +6,7 @@ on:
       probe:
         description: Isolated CI stage to verify
         type: choice
-        options: [macos-docker, production]
+        options: [macos-docker, production, worker-files]
         default: macos-docker
 
 permissions:
@@ -194,3 +194,30 @@ jobs:
             ${{ runner.temp }}/pangrova-local-runtime.*/runtime.sha256
             ${{ runner.temp }}/pangrova-local-runtime.*/image-provenance.properties
             /tmp/pangrova-local-process-*/*.log
+
+  worker-files:
+    name: Verify 5 GiB HTTP transfer and authorization on Temurin 17
+    if: inputs.probe == 'worker-files'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-java@v6
+        with:
+          java-version: '17'
+          distribution: temurin
+          cache: maven
+      - uses: ./.github/actions/setup-iceberg-sdk
+      - name: Run file transfer and authorization tests
+        run: >-
+          mvn -B -Pfull-regression -pl :pangrova-worker -am
+          -Dtest=FileSpaceLargeObjectIntegrationTest,FileTransferDeadlineTest,FileSpaceFileResourceTest
+          -Dsurefire.failIfNoSpecifiedTests=false test
+      - name: Upload file test reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: worker-file-surefire-reports
+          path: pangrova-worker/target/surefire-reports/
