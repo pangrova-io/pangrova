@@ -39,8 +39,15 @@ final class JournalSqlOperation implements AutoCloseable {
     }
 
     @Override public void close() {
+        if (returned) return;
+        if (!cleaning.compareAndSet(false, true)) {
+            if (returned) return;
+            throw JournalPendingWrites.failure("Entered journal SQL close remains in flight", failure);
+        }
+        // Publish body exit only after the caller owns the first close. The
+        // journal sweeper can retry a failed close but cannot take that first close.
         exited = true;
-        if (!retryClose()) throw JournalPendingWrites.failure("Entered journal SQL close remains in flight", failure);
+        closeOwnedConnection();
     }
 
     void closeAfterFailure(Throwable original) {
@@ -54,6 +61,10 @@ final class JournalSqlOperation implements AutoCloseable {
     boolean retryClose() {
         if (returned) return true;
         if (!exited || !cleaning.compareAndSet(false, true)) return false;
+        return closeOwnedConnection();
+    }
+
+    private boolean closeOwnedConnection() {
         try {
             // Another closer can return the owner between our first read and
             // acquiring cleaning. Recheck under exclusive cleanup ownership.
