@@ -14,6 +14,8 @@ import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[3]
 SCRIPTS = ROOT / '.pangrova/scripts'
+WORKFLOWS = ROOT / '.github/workflows'
+SANITIZER_WORKFLOW = WORKFLOWS / 'native-sanitizer.yml'
 spec = importlib.util.spec_from_file_location('scope', SCRIPTS / 'ci_change_scope.py')
 scope = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(scope)
@@ -256,16 +258,16 @@ class StructuralPolicyTest(unittest.TestCase):
         self.assertIn('PANGROVA_CMAKE_BIN', asan)
         self.assertIn('--check-tools', asan)
         self.assertIn('setup-native-asan-env.sh --check-tools',
-                      (ROOT / '.github/workflows/ci.yml').read_text())
+                      SANITIZER_WORKFLOW.read_text())
         self.assertIn('20 GB', action)
-        for workflow_name in ('ci.yml', 'native-platform.yml', 'release.yml'):
+        for workflow_name in ('native-sanitizer.yml', 'native-platform.yml', 'release.yml'):
             workflow = (ROOT / '.github/workflows' / workflow_name).read_text()
             # A whole Velox tree exceeds the 10 GB repository cache limit and a
             # cold build exceeds the runner disk; cache only the install prefixes.
             self.assertIn('~/.pangrova/velox/deps-install', workflow, workflow_name)
             self.assertIn('~/.cache/ccache', workflow, workflow_name)
             self.assertNotRegex(workflow, r'\n\s+~/\.pangrova/velox\n', workflow_name)
-        for workflow_name in ('ci.yml', 'native-platform.yml', 'release.yml'):
+        for workflow_name in ('native-sanitizer.yml', 'native-platform.yml', 'release.yml'):
             workflow = (ROOT / '.github/workflows' / workflow_name).read_text()
             matches = list(re.finditer(r'\n  [a-z][a-z0-9-]*:\n', workflow))
             jobs = [workflow[m.end():(matches[index + 1].start() if index + 1 < len(matches)
@@ -280,32 +282,49 @@ class StructuralPolicyTest(unittest.TestCase):
         workflow = ((ROOT / '.github/workflows/ci.yml').read_text() +
                     (ROOT / '.github/workflows/native-platform.yml').read_text())
         self.assertNotIn("awk 'length {print \"::error::\"", workflow)
-        self.assertEqual(workflow.count('report_failure() {'), 6)
-        self.assertEqual(workflow.count('awk \'length {printf "%s%%0A", $0}\''), 6)
-        self.assertEqual(workflow.count("'--- error diagnostics ---'"), 6)
-        self.assertEqual(workflow.count('bash -x'), 5)
-        for marker in ('setup-native-build-env.sh 2>&1', 'setup-native-asan-env.sh 2>&1'):
-            self.assertIn(marker, workflow)
+        self.assertEqual(workflow.count('report_failure() {'), 3)
+        self.assertEqual(workflow.count('awk \'length {printf "%s%%0A", $0}\''), 3)
+        self.assertEqual(workflow.count("'--- error diagnostics ---'"), 3)
+        self.assertIn('setup-native-build-env.sh 2>&1', workflow)
 
     def test_asan_prepares_dependencies_without_building_release_velox(self):
-        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
-        native = (ROOT / '.github/workflows/native-platform.yml').read_text().split('  native-build:\n', 1)[1]
-        sanitizer = workflow.split('  native-sanitizers:\n', 1)[1].split('\n  jmh-benchmarks:', 1)[0]
+        native = (WORKFLOWS / 'native-platform.yml').read_text().split('  native-build:\n', 1)[1]
+        producer, consumer = SANITIZER_WORKFLOW.read_text().split('  native-tests:\n', 1)
         self.assertNotIn('PANGROVA_NATIVE_BUILD_PHASE:', native)
-        self.assertIn("PANGROVA_NATIVE_BUILD_PHASE: ${{ matrix.sanitizer.name == 'asan' "
-                      "&& 'dependencies' || 'all' }}", sanitizer)
-        self.assertIn('setup-native-asan-env.sh --check-tools', sanitizer)
-        self.assertIn('setup-native-asan-env.sh 2>&1', sanitizer)
-        self.assertIn('run-native-tests.py --build-dir build-${{ matrix.sanitizer.name }}', sanitizer)
+        self.assertIn('command: PANGROVA_NATIVE_BUILD_PHASE=dependencies bash -x', producer)
+        self.assertIn('setup-native-asan-env.sh --check-tools', producer)
+        self.assertIn('command: PANGROVA_ASAN_CI_PRUNE_RELEASE=1 bash -x', producer)
+        self.assertIn('run-native-tests.py --build-dir build-${{ inputs.name }}', consumer)
         bootstrap = (ROOT / 'pangrova-worker-native/bin/setup-native-build-env.sh').read_text()
         self.assertIn('dependencies|velox) build_velox ;;', bootstrap)
 
+    def test_asan_stages_require_verified_same_run_dependencies(self):
+        caller = (WORKFLOWS / 'ci.yml').read_text().split('  native-sanitizers:\n', 1)[1]
+        caller = caller.split('  jmh-benchmarks:\n', 1)[0]
+        self.assertIn('uses: ./.github/workflows/native-sanitizer.yml', caller)
+        producer, consumer = SANITIZER_WORKFLOW.read_text().split('  native-tests:\n', 1)
+        self.assertIn("if: inputs.name == 'asan'", producer)
+        self.assertIn('linux-asan-stage.sh pack', producer)
+        self.assertIn('if-no-files-found: error', producer)
+        self.assertNotIn('prepare-native-java-fixture', producer)
+        self.assertIn('needs: asan-dependencies', consumer)
+        self.assertIn("inputs.name == 'asan' && needs.asan-dependencies.result == 'success'", consumer)
+        self.assertIn("inputs.name == 'ubsan' && needs.asan-dependencies.result == 'skipped'", consumer)
+        self.assertIn('digest-mismatch: error', consumer)
+        self.assertLess(consumer.index('linux-asan-stage.sh restore'), consumer.index('CMake configure'))
+        self.assertIn('name: linux-asan-dependencies', producer)
+        self.assertIn('name: linux-asan-dependencies', consumer)
+
     def test_native_configure_build_and_tests_publish_filtered_diagnostics(self):
-        workflow = ((ROOT / '.github/workflows/ci.yml').read_text() +
-                    (ROOT / '.github/workflows/native-platform.yml').read_text())
+        platform = (WORKFLOWS / 'native-platform.yml').read_text()
+        sanitizer = SANITIZER_WORKFLOW.read_text()
         action_path = ROOT / '.github/actions/run-native-step/action.yml'
         action = action_path.read_text()
-        self.assertEqual(workflow.count('uses: ./.github/actions/run-native-step'), 8)
+        self.assertEqual(platform.count('uses: ./.github/actions/run-native-step'), 5)
+        for log in ('native-setup', 'native-asan-setup', 'native-asan-restore',
+                    'native-lance', 'native-sanitizer-configure', 'native-sanitizer-build',
+                    'native-sanitizer-tests'):
+            self.assertRegex(sanitizer, rf'uses: ./\.github/actions/run-native-step\s+with:\s+log: {log}\b')
         self.assertIn('bash -e -o pipefail -c "$STEP_COMMAND"', action)
         self.assertIn("'--- error diagnostics ---'", action)
         self.assertIn('working-directory: ${{ inputs.working-directory }}', action)
@@ -424,23 +443,17 @@ class RuntimeScopeTest(unittest.TestCase):
         runner = platforms['linux-x86_64']
         self.assertRegex(runner, r'^ubuntu-\d+\.\d+$')
         self.assertEqual(platforms['linux-aarch_64'], f'{runner}-arm')
-        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
-        sanitizer = workflow.split('  native-sanitizers:\n', 1)[1].split(
-            '\n  jmh-benchmarks:', 1)[0]
-        self.assertIn(f'    runs-on: {runner}\n', sanitizer)
+        self.assertEqual(SANITIZER_WORKFLOW.read_text().count(f'    runs-on: {runner}\n'), 2)
 
     def test_native_fixture_jobs_prepare_java_before_building(self):
-        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
         action = (ROOT / '.github/actions/prepare-native-java-fixture/action.yml').read_text()
         steps = ('actions/cache/restore@', 'uses: ./.github/actions/restore-iceberg-sdk',
                  '--prepare-java ', 'actions/cache/save@')
         positions = [action.index(step) for step in steps]
         self.assertEqual(positions, sorted(positions))
-        for start, end in (('native-build', 'java-build'), ('native-sanitizers', 'jmh-benchmarks')):
-            if start == 'native-build':
-                job = (ROOT / '.github/workflows/native-platform.yml').read_text().split('  native-build:\n', 1)[1]
-            else:
-                job = workflow.split(f'  {start}:\n', 1)[1].split(f'\n  {end}:', 1)[0]
+        native = (WORKFLOWS / 'native-platform.yml').read_text().split('  native-build:\n', 1)[1]
+        sanitizer = SANITIZER_WORKFLOW.read_text().split('  native-tests:\n', 1)[1]
+        for start, job in (('native-build', native), ('native-sanitizers', sanitizer)):
             with self.subTest(job=start):
                 self.assertEqual(job.count('actions/setup-java@'), 1)
                 self.assertLess(job.index('uses: ./.github/actions/prepare-native-java-fixture'),
@@ -496,10 +509,8 @@ class RuntimeScopeTest(unittest.TestCase):
                 if 'actions/cache' in step}
 
     def test_native_dependency_cache_is_layered_and_scoped(self):
-        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
-        native = (ROOT / '.github/workflows/native-platform.yml').read_text().split('  native-build:\n', 1)[1]
-        sanitizer = workflow.split('  native-sanitizers:\n', 1)[1].split(
-            '\n  jmh-benchmarks:', 1)[0]
+        native = (WORKFLOWS / 'native-platform.yml').read_text().split('  native-build:\n', 1)[1]
+        asan_deps, sanitizer = SANITIZER_WORKFLOW.read_text().split('  native-tests:\n', 1)
         runner = next(item['runner'] for item in scope.NATIVE_PLATFORMS
                       if item['name'] == 'linux-x86_64')
         native_caches = self._cache_steps(native)
@@ -526,8 +537,8 @@ class RuntimeScopeTest(unittest.TestCase):
         self.assertIn('${{ github.sha }}', ccache)
         self.assertIn('restore-keys:', ccache)
         self.assertNotIn('patches/*', ccache)
-        self.assertIn('matrix.sanitizer.name',
-                      sanitizer_caches['Cache compiler results'])
+        self.assertIn('inputs.name', sanitizer_caches['Cache compiler results'])
+        self.assertIn('-asan-deps-', self._cache_steps(asan_deps)['Cache compiler results'])
 
     def test_native_platform_stage_names_do_not_depend_on_skipped_input_evaluation(self):
         workflow = (ROOT / '.github/workflows/ci.yml').read_text()

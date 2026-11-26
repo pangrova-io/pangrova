@@ -1,0 +1,220 @@
+name: Native sanitizer
+
+on:
+  workflow_call:
+    inputs:
+      name:
+        type: string
+        required: true
+      preset:
+        type: string
+        required: true
+
+jobs:
+  asan-dependencies:
+    name: Build ASan dependencies
+    if: inputs.name == 'asan'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up function-contract Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Cache dependency archives
+        uses: actions/cache@v6
+        with:
+          path: ~/.pangrova/velox/archive-cache
+          key: pangrova-v1-archives-ubuntu-24.04-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt') }}
+
+      - name: Cache native dependency prefixes
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.pangrova/native-deps
+            ~/.pangrova/velox/deps-install
+          key: pangrova-v1-deps-ubuntu-24.04-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt', '.github/actions/setup-native-build/action.yml', 'pangrova-worker-native/patches/*') }}
+
+      - name: Cache compiler results
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ccache
+          key: pangrova-ccache-${{ runner.os }}-${{ runner.arch }}-asan-deps-${{ github.sha }}
+          restore-keys: |
+            pangrova-ccache-${{ runner.os }}-${{ runner.arch }}-asan-deps-
+
+      - name: Install and verify the native toolchain
+        uses: ./.github/actions/setup-native-build
+
+      - name: Record the start of the Velox installation
+        run: touch "$RUNNER_TEMP/asan-before-dependencies"
+
+      - name: Set up native build dependencies
+        uses: ./.github/actions/run-native-step
+        with:
+          log: native-setup
+          title: Native dependency setup failed
+          command: PANGROVA_NATIVE_BUILD_PHASE=dependencies bash -x pangrova-worker-native/bin/setup-native-build-env.sh
+
+      - name: Verify the sanitizer dependency contract
+        run: ./pangrova-worker-native/bin/setup-native-asan-env.sh --check-tools
+
+      - name: Build instrumented Velox, Folly, Protobuf, Abseil, RE2, gRPC and Flight
+        uses: ./.github/actions/run-native-step
+        with:
+          log: native-asan-setup
+          title: Sanitizer dependency setup failed
+          command: PANGROVA_ASAN_CI_PRUNE_RELEASE=1 bash -x pangrova-worker-native/bin/setup-native-asan-env.sh
+
+      - name: Package same-run ASan dependency outputs
+        run: bash .pangrova/scripts/linux-asan-stage.sh pack "$RUNNER_TEMP/asan-stage"
+
+      - name: Upload ASan dependency outputs
+        uses: actions/upload-artifact@v7
+        with:
+          name: linux-asan-dependencies
+          path: ${{ runner.temp }}/asan-stage/
+          overwrite: true
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+  native-tests:
+    name: Build and test
+    runs-on: ubuntu-24.04
+    needs: asan-dependencies
+    if: >-
+      !cancelled() &&
+      ((inputs.name == 'asan' && needs.asan-dependencies.result == 'success') ||
+       (inputs.name == 'ubsan' && needs.asan-dependencies.result == 'skipped'))
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Native fixture JDK
+        uses: actions/setup-java@v6
+        with:
+          java-version: '17'
+          distribution: temurin
+
+      - name: Set up function-contract Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Prepare the Lance Java fixture
+        uses: ./.github/actions/prepare-native-java-fixture
+
+      - name: Cache dependency archives
+        if: inputs.name == 'ubsan'
+        uses: actions/cache@v6
+        with:
+          path: ~/.pangrova/velox/archive-cache
+          key: pangrova-v1-archives-ubuntu-24.04-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt') }}
+
+      - name: Cache native dependency prefixes
+        if: inputs.name == 'ubsan'
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.pangrova/native-deps
+            ~/.pangrova/velox/deps-install
+          key: pangrova-v1-deps-ubuntu-24.04-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt', '.github/actions/setup-native-build/action.yml', 'pangrova-worker-native/patches/*') }}
+
+      - name: Cache compiler results
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ccache
+          key: pangrova-ccache-${{ runner.os }}-${{ runner.arch }}-${{ inputs.name }}-${{ github.sha }}
+          restore-keys: |
+            pangrova-ccache-${{ runner.os }}-${{ runner.arch }}-${{ inputs.name }}-
+
+      - name: Install and verify the native toolchain
+        uses: ./.github/actions/setup-native-build
+
+      - name: Setup native build environment
+        if: inputs.name == 'ubsan'
+        uses: ./.github/actions/run-native-step
+        with:
+          log: native-setup
+          title: Native setup failed
+          command: bash -x pangrova-worker-native/bin/setup-native-build-env.sh
+
+      - name: Download same-run ASan dependency outputs
+        if: inputs.name == 'asan'
+        uses: actions/download-artifact@v8
+        with:
+          name: linux-asan-dependencies
+          path: ${{ runner.temp }}/asan-stage
+          digest-mismatch: error
+
+      - name: Verify and restore ASan dependency outputs
+        if: inputs.name == 'asan'
+        uses: ./.github/actions/run-native-step
+        with:
+          log: native-asan-restore
+          title: ASan dependency restoration failed
+          command: bash .pangrova/scripts/linux-asan-stage.sh restore "$RUNNER_TEMP/asan-stage"
+
+      - name: Build required Lance C FFI
+        uses: ./.github/actions/run-native-step
+        with:
+          log: native-lance
+          title: Lance FFI build failed
+          command: bash -x pangrova-worker-native/bin/build-lance-ffi.sh
+
+      - name: CMake configure (${{ inputs.preset }})
+        uses: ./.github/actions/run-native-step
+        with:
+          log: native-sanitizer-configure
+          title: CMake sanitizer configure failed
+          working-directory: pangrova-worker-native
+          command: |
+            source ~/.pangrova/env.sh
+            if [[ "${{ inputs.name }}" == "asan" ]]; then
+              source ~/.pangrova/asan-env.sh
+              cmake --preset ${{ inputs.preset }} \
+                -DPANGROVA_DEPS_PREFIX="$PANGROVA_DEPS_PREFIX" \
+                -DCMAKE_PREFIX_PATH="$PANGROVA_DEPS_PREFIX" \
+                -DVELOX_BUILD_DIR="$VELOX_BUILD_DIR" \
+                -DArrow_DIR="$Arrow_DIR" \
+                -DARROW_FLIGHT_HOME="$ARROW_FLIGHT_HOME" -UARROW_FLIGHT_LIB \
+                -Dre2_DIR="$re2_DIR" -DgRPC_DIR="$gRPC_DIR" \
+                -DProtobuf_DIR="$Protobuf_DIR" \
+                -DPANGROVA_ASAN_PROTOBUF_LIB="$PANGROVA_ASAN_PROTOBUF_LIB" \
+                -DPANGROVA_ASAN_FOLLY_PREFIX="$PANGROVA_ASAN_FOLLY_PREFIX" \
+                -Dabsl_DIR="$absl_DIR"
+            else
+              cmake --preset ${{ inputs.preset }}
+            fi
+
+      - name: CMake build
+        uses: ./.github/actions/run-native-step
+        with:
+          log: native-sanitizer-build
+          title: Sanitizer CMake build failed
+          working-directory: pangrova-worker-native
+          command: |
+            cmake --build build-${{ inputs.name }}
+
+      - name: Run tests with ${{ inputs.name }}
+        uses: ./.github/actions/run-native-step
+        with:
+          log: native-sanitizer-tests
+          title: Sanitizer tests failed
+          working-directory: pangrova-worker-native
+          command: |
+            python3 bin/run-native-tests.py --build-dir build-${{ inputs.name }} \
+              --prepared-java "$RUNNER_TEMP/native-java-fixture" \
+              -- --preset ${{ inputs.preset }} --timeout 300
+
+      - name: Upload sanitizer fixture diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-fixture-${{ inputs.name }}
+          path: |
+            pangrova-worker-native/build-${{ inputs.name }}/Testing/LanceFixture/*/*.log
+            ${{ runner.temp }}/native-java-fixture/java-build.log
+          retention-days: 7

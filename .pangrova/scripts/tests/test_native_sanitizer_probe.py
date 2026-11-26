@@ -271,7 +271,7 @@ file(WRITE "${{CMAKE_CURRENT_BINARY_DIR}}/gflags-path.txt" "${{libraries}}")
                         setup.index("arrow_source="))
         self.assertIn("-Dfolly_SOURCE=SYSTEM", setup)
         self.assertIn('export PANGROVA_ASAN_FOLLY_PREFIX="$PANGROVA_ASAN_FOLLY_PREFIX"', setup)
-        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        workflow = (ROOT / ".github/workflows/native-sanitizer.yml").read_text()
         self.assertIn('-DPANGROVA_ASAN_FOLLY_PREFIX="$PANGROVA_ASAN_FOLLY_PREFIX"', workflow)
 
 

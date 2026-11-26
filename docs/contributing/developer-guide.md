@@ -96,6 +96,12 @@ Release RE2/gRPC/Flight with ASan Abseil can change inline hash-table layouts ev
 when the headers and dependency versions match. A successful link is insufficient;
 the native configure executes the canonical RE2 template/regex admission check.
 
+Linux CI builds the instrumented dependencies in one job and compiles and tests
+Pangrova in a second job. Each job has its own GitHub-hosted runner time budget.
+The second job reinstalls Velox's system packages and verifies the same-run
+artifact checksum, revision, compiler, and runtime libraries before restoring
+the ASan dependency cohort. UBSan builds and tests in a single job.
+
 After the regular bootstrap has fetched the pinned sources, build the separate
 sanitizer dependencies and explicitly select them. Run from the repository root:
 
