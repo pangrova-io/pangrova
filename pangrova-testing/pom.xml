@@ -15,10 +15,6 @@
     <name>Pangrova Testing</name>
     <description>Testing parent for Pangrova: testkit fixtures, integration suites, fuzzer and benchmark leaves</description>
 
-    <properties>
-        <commons-io.version>2.20.0</commons-io.version>
-    </properties>
-
     <modules>
         <module>pangrova-testing-kit</module>
         <module>pangrova-testing-integration-tests</module>

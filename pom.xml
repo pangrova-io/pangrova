@@ -103,6 +103,7 @@
         <paimon.version>1.4.1</paimon.version>
         <hadoop.version>3.5.0</hadoop.version>
         <yetus.audience.version>0.12.0</yetus.audience.version>
+        <commons-io.version>2.20.0</commons-io.version>
 
         <!-- JWT -->
         <jjwt.version>0.12.3</jjwt.version>
@@ -1031,6 +1032,13 @@
                 <groupId>org.apache.commons</groupId>
                 <artifactId>commons-lang3</artifactId>
                 <version>${commons-lang3.version}</version>
+            </dependency>
+
+            <!-- Keep Commons IO compatible with Commons Compress used by Avro and Testcontainers. -->
+            <dependency>
+                <groupId>commons-io</groupId>
+                <artifactId>commons-io</artifactId>
+                <version>${commons-io.version}</version>
             </dependency>
 
             <!-- Database: PostgreSQL JDBC -->
