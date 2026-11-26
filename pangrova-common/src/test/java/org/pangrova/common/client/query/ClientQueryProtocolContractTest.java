@@ -76,7 +76,7 @@ class ClientQueryProtocolContractTest {
     @Test
     void queryResponseDtosShareCommonFieldConcepts() {
         Set<String> sharedFields = Set.of("queryId", "state", "resultDisposition", "resultEndpoint");
-        Set<String> submitOnlyFields = Set.of("columnNames", "branchSelection");
+        Set<String> submitOnlyFields = Set.of("columnNames", "branchSelection", "ownerEndpoint");
         Set<String> statusOnlyFields = Set.of("error", "stats", "version", "drained");
 
         Set<String> submitFields = fieldNamesOf(SubmitQueryResponse.class);
@@ -112,7 +112,7 @@ class ClientQueryProtocolContractTest {
 
     @Test
     void queryDtoFieldCountsMatchExpected() {
-        assertFieldCount(SubmitQueryResponse.class, 6,
+        assertFieldCount(SubmitQueryResponse.class, 7,
                 "SubmitQueryResponse field count changed — verify QueryStatusResponse symmetry");
         assertFieldCount(QueryStatusResponse.class, 8,
                 "QueryStatusResponse field count changed — verify SubmitQueryResponse symmetry");

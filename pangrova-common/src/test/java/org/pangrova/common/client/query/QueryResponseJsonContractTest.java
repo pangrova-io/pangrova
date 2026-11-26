@@ -144,6 +144,26 @@ class QueryResponseJsonContractTest {
     }
 
     @Test
+    void ownerEndpointIsAnOptionalSubmitReceiptField() throws Exception {
+        var owner = new QueryOwnerEndpoint("coordinator-1", "incarnation-1", "localhost", 8080);
+        var receipt = new SubmitQueryResponse(
+                "q", "QUEUED", ResultDisposition.PENDING, null, null, null, owner);
+        JsonNode json = MAPPER.valueToTree(receipt);
+        assertThat(json.at("/owner_endpoint/coordinator_id").asText()).isEqualTo("coordinator-1");
+        assertThat(json.at("/owner_endpoint/incarnation").asText()).isEqualTo("incarnation-1");
+        assertThat(json.at("/owner_endpoint/host").asText()).isEqualTo("localhost");
+        assertThat(json.at("/owner_endpoint/port").asInt()).isEqualTo(8080);
+        assertThat(MAPPER.treeToValue(json, SubmitQueryResponse.class)).isEqualTo(receipt);
+
+        var legacyReceipt = new SubmitQueryResponse("q", "QUEUED", ResultDisposition.PENDING, null, null);
+        JsonNode legacyJson = MAPPER.valueToTree(legacyReceipt);
+        assertThat(legacyJson.has("owner_endpoint")).isFalse();
+        assertThat(MAPPER.treeToValue(legacyJson, SubmitQueryResponse.class).ownerEndpoint()).isNull();
+        assertThat(MAPPER.valueToTree(QueryStatusResponse.of(
+                "q", "QUEUED", null, ResultDisposition.PENDING, null)).has("owner_endpoint")).isFalse();
+    }
+
+    @Test
     void liveResultDispositionIsRequiredAndMustAgreeWithEndpoint() {
         var endpoint = new ResultEndpoint("worker", 8080, "ticket", "grpc");
 
