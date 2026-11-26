@@ -40,9 +40,28 @@ jobs:
         id: full
         run: python3 .pangrova/scripts/ci_change_scope.py --full >> "$GITHUB_OUTPUT"
 
+  iceberg-sdk:
+    name: Build and test pinned Iceberg SDK
+    runs-on: ubuntu-24.04
+    needs: change-scope
+    if: needs.change-scope.outputs.runtime == 'true'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-iceberg-sdk
+        env:
+          PANGROVA_ICEBERG_MAVEN_REPOSITORY: ${{ runner.temp }}/pangrova-iceberg-sdk
+      - name: Upload same-run Iceberg SDK
+        uses: actions/upload-artifact@v7
+        with:
+          name: pinned-iceberg-sdk
+          path: ${{ runner.temp }}/pangrova-iceberg-sdk/
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 30
+
   native-build:
     name: Native Build (${{ matrix.platform.name }})
-    needs: change-scope
+    needs: [change-scope, iceberg-sdk]
     if: needs.change-scope.outputs.runtime == 'true'
     strategy:
       fail-fast: false
@@ -55,7 +74,7 @@ jobs:
   java-build:
     name: Java Build (JDK ${{ matrix.java }})
     runs-on: ubuntu-24.04
-    needs: native-build
+    needs: [native-build, iceberg-sdk]
     strategy:
       fail-fast: false
       matrix:
@@ -97,8 +116,8 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      - name: Build pinned Iceberg SDK dependency
-        uses: ./.github/actions/setup-iceberg-sdk
+      - name: Install same-run Iceberg SDK
+        uses: ./.github/actions/restore-iceberg-sdk
 
       - name: Install classifier JAR to local Maven repo
         run: |
@@ -130,10 +149,10 @@ jobs:
   production-regression:
     name: Production image and full regression (JDK 17)
     runs-on: ubuntu-24.04
-    needs: [change-scope, native-build, native-sanitizers]
+    needs: [change-scope, iceberg-sdk, native-build, native-sanitizers]
     if: >-
       always() && !cancelled() && needs.change-scope.outputs.runtime == 'true' &&
-      needs.native-build.result == 'success' &&
+      needs.iceberg-sdk.result == 'success' && needs.native-build.result == 'success' &&
       (needs.native-sanitizers.result == 'success' ||
        (needs.change-scope.outputs.native == 'false' && needs.native-sanitizers.result == 'skipped'))
     env:
@@ -154,14 +173,15 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      - name: Build pinned Iceberg SDK dependency
-        uses: ./.github/actions/setup-iceberg-sdk
+      - name: Install same-run Iceberg SDK
+        uses: ./.github/actions/restore-iceberg-sdk
 
       - name: Build the canonical same-source Linux production image
         run: |
           docker buildx version
           IMAGE="$PANGROVA_E2E_IMAGE" SOURCE_COMMIT="$GITHUB_SHA" \
-            docker buildx bake --load -f deploy/docker/docker-bake.hcl pangrova
+            docker buildx bake --load -f deploy/docker/docker-bake.hcl \
+              --set "pangrova.contexts.iceberg-sdk=$RUNNER_TEMP/pangrova-iceberg-sdk" pangrova
           image_id=$(docker image inspect --format '{{.Id}}' "$PANGROVA_E2E_IMAGE")
           [[ "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]]
           [[ "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image_id")" == "$GITHUB_SHA" ]]
@@ -282,7 +302,7 @@ jobs:
   native-sanitizers:
     name: Native Sanitizer (${{ matrix.sanitizer.name }})
     runs-on: ubuntu-24.04
-    needs: change-scope
+    needs: [change-scope, iceberg-sdk]
     if: needs.change-scope.outputs.native == 'true'
     strategy:
       fail-fast: false
@@ -501,7 +521,7 @@ jobs:
   jmh-benchmarks:
     name: JMH Micro-Benchmarks
     runs-on: ubuntu-latest
-    needs: [java-build, change-scope]
+    needs: [java-build, change-scope, iceberg-sdk]
     if: github.event_name == 'pull_request' && needs.change-scope.outputs.performance == 'true'
     steps:
       - uses: actions/checkout@v7
@@ -518,8 +538,8 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      - name: Build pinned Iceberg SDK dependency
-        uses: ./.github/actions/setup-iceberg-sdk
+      - name: Install same-run Iceberg SDK
+        uses: ./.github/actions/restore-iceberg-sdk
 
       - name: Build benchmark JAR
         run: |
@@ -681,7 +701,7 @@ jobs:
   static-analysis:
     name: Java static analysis
     runs-on: ubuntu-latest
-    needs: change-scope
+    needs: [change-scope, iceberg-sdk]
     if: needs.change-scope.outputs.runtime == 'true'
     steps:
       - uses: actions/checkout@v7
@@ -697,8 +717,8 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      - name: Build pinned Iceberg SDK dependency
-        uses: ./.github/actions/setup-iceberg-sdk
+      - name: Install same-run Iceberg SDK
+        uses: ./.github/actions/restore-iceberg-sdk
 
       - name: Test Checkstyle boundary enforcement
         run: python3 .pangrova/scripts/tests/checkstyle-boundaries-test.py
@@ -709,7 +729,7 @@ jobs:
   validation:
     name: Validation result
     runs-on: ubuntu-latest
-    needs: [change-scope, lint, doc-consistency, dead-stub-detection, static-analysis,
+    needs: [change-scope, lint, doc-consistency, dead-stub-detection, iceberg-sdk, static-analysis,
             native-build, java-build, native-sanitizers, production-regression,
             tpch-performance, jmh-benchmarks]
     if: always()
@@ -740,7 +760,7 @@ jobs:
           if performance == 'true' and runtime != 'true':
               raise SystemExit('Performance checks require the runtime prerequisites')
           if runtime == 'true':
-              required.update({'dead-stub-detection', 'static-analysis', 'native-build',
+              required.update({'dead-stub-detection', 'iceberg-sdk', 'static-analysis', 'native-build',
                                'java-build', 'production-regression'})
           if native == 'true':
               required.add('native-sanitizers')

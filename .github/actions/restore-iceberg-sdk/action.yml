@@ -1,0 +1,16 @@
+name: Install the same-run Iceberg SDK
+description: Install the tested Iceberg candidate from this workflow run into Maven Local
+runs:
+  using: composite
+  steps:
+    - uses: actions/download-artifact@v8
+      with:
+        name: pinned-iceberg-sdk
+        path: ${{ runner.temp }}/pangrova-iceberg-sdk
+        digest-mismatch: error
+
+    - name: Install the candidate into Maven Local
+      shell: bash
+      run: |
+        mkdir -p "$HOME/.m2/repository/org/apache/iceberg"
+        cp -R "$RUNNER_TEMP/pangrova-iceberg-sdk/org/apache/iceberg/." "$HOME/.m2/repository/org/apache/iceberg/"

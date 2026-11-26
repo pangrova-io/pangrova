@@ -42,9 +42,6 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Build pinned Iceberg SDK dependency
-        uses: ./.github/actions/setup-iceberg-sdk
-
       - name: Cache dependency archives
         uses: actions/cache@v6
         with:

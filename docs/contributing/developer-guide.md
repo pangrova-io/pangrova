@@ -57,6 +57,10 @@ patches; it is not a Maven Central release. Set `GRADLE_BIN` when Gradle 8.14.4 
 not the default executable. For the full release validation chain, use the
 repository's build-pipeline rule and the production CI workflow.
 
+Runtime CI builds and tests the pinned candidate once per workflow run. Native
+fixtures, Maven jobs, and the production image consume that run's SDK artifact.
+A Docker build from a local checkout builds the pinned candidate from source.
+
 The Lance Rust archive is tied to its Rust sources, Cargo lock/configuration,
 owned SDK patch, canonical protocols and C header by
 `liblance_c_ffi.a.provenance.json`. CMake verifies that receipt both when
