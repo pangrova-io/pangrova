@@ -122,7 +122,8 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
         this.admission = java.util.Objects.requireNonNull(deps.admission(), "admission");
         this.journalLifecycle = deps.journal();
         this.cleanupScheduler = new QueryRetentionScheduler(queries,
-                terminalCleanup::isPending, this::retryPendingTerminalCompletions);
+                terminalCleanup::isPending, this::retryPendingTerminalCompletions,
+                journalLifecycle::purgeExpiredAcceptances);
         this.asyncSubmitConfig = deps.asyncSubmitConfig();
         this.asyncExecutor = deps.asyncExecutor();
         this.submitDeadlines = deps.submitDeadlines();
@@ -759,7 +760,6 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
     }
 
     private void retryPendingCleanup() {
-        journalLifecycle.purgeExpiredAcceptances();
         retryPendingCandidateCleanups();
         terminalCleanup.retryPending();
     }

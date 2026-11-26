@@ -38,7 +38,6 @@ class QueryManagerJournalTest {
             var owner = new QueryJournalLifecycle(store.journal());
             owner.setOwner("session-issuer");
             var state = new QueryStateMachine();
-            store.allowExecutionGrantLock();
             var anchors = new org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore(
                     store.administrator());
             var anchor = anchors.tryAcquire(queryId, "session-issuer", "test-incarnation", Duration.ofMinutes(1))

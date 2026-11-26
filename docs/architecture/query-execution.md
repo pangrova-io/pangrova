@@ -65,7 +65,9 @@ Unknown commit outcomes reconcile the same authoritative row. Acceptance survive
 restart and remains for at least ten minutes after the later of acceptance or
 terminal completion. The expiry sweep and idempotency-key reuse retain the
 receipt and task facts while the execution anchor exists, including during
-takeover of an expired lease. Pending candidates reserve drain capacity before blocking admission work;
+takeover of an expired lease. Expired acceptance sweeping runs on the retention cadence,
+independently of physical completion retries and drain. A failed sweep is logged and
+retried on a subsequent retention pass. Pending candidates reserve drain capacity before blocking admission work;
 cancellation requests are recorded until acceptance and registration complete, and a
 replay releases its candidate admission and throttle reservations. Cancelling an observer does not cancel the admitted query.
 
