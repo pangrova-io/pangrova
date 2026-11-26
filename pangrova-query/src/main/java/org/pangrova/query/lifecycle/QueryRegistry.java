@@ -13,6 +13,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.BiConsumer;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
+import org.pangrova.query.exception.QueryRegistrationPendingException;
 
 /** Owns local query membership, including retained terminal states and outstanding physical cleanup. */
 public final class QueryRegistry {
