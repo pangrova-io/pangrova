@@ -21,6 +21,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -218,6 +219,127 @@ class BiToolConnectionIntegrationTest {
             assertThat(result.getMetaData().getColumnCount()).isEqualTo(1);
             assertThat(result.next()).isFalse();
         }
+    }
+
+    @Test
+    void genericExecuteFollowsServerStreamForCommentedDdlBeforeTerminal() throws Exception {
+        startOrdersResultServer();
+        var consumed = new AtomicBoolean();
+        var statusReads = new AtomicInteger();
+        var cancels = new AtomicInteger();
+        var statusTarget = new AtomicReference<String>();
+        httpServer.createContext("/v1/query/submit", exchange -> sendJsonResponse(exchange, 200, """
+                {"query_id":"q-ddl-stream","state":"QUEUED","result_disposition":"PENDING"}
+                """));
+        httpServer.createContext("/v1/query/q-ddl-stream/state", exchange -> {
+            statusReads.incrementAndGet();
+            statusTarget.set(exchange.getRequestURI().getQuery());
+            sendJsonResponse(exchange, 200, """
+                    {"query_id":"q-ddl-stream","state":"%s","version":%d,"drained":false,
+                     "result_disposition":"STREAM","result_endpoint":{"host":"127.0.0.1",
+                     "port":%d,"ticket":"%s","protocol":"grpc"}}
+                    """.formatted(consumed.get() ? "FINISHED" : "RUNNING", consumed.get() ? 2 : 1,
+                    resultServer.endpoint().port(), resultServer.endpoint().ticket()));
+        });
+        httpServer.createContext("/v1/query/q-ddl-stream/cancel", exchange -> {
+            cancels.incrementAndGet();
+            sendJsonResponse(exchange, 202,
+                    "{\"query_id\":\"q-ddl-stream\",\"outcome\":\"CANCEL_ACCEPTED\",\"cancelled\":true}");
+        });
+        httpServer.start();
+
+        try (var conn = DriverManager.getConnection("jdbc:pangrova://127.0.0.1:" + httpPort);
+             var statement = conn.createStatement()) {
+            statement.setQueryTimeout(3);
+            assertThat(statement.execute("/* index statement */ CREATE INDEX idx ON t (id)")).isTrue();
+            assertThat(statement.getUpdateCount()).isEqualTo(-1);
+            assertThat(statusReads).hasValue(1);
+            assertThat(statusTarget.get()).contains("until=RESULT_OR_TERMINAL");
+            try (var result = statement.getResultSet()) {
+                assertThat(result).isNotNull();
+                assertThat(result.getStatement()).isSameAs(statement);
+                assertThat(result.next()).isTrue();
+                assertThat(result.getInt(1)).isEqualTo(1);
+                assertThat(result.next()).isTrue();
+                assertThat(result.getInt(1)).isEqualTo(2);
+                consumed.set(true);
+                assertThat(result.next()).isFalse();
+                assertThat(statusReads).hasValue(2);
+                assertThat(statusTarget.get()).contains("until=TERMINAL");
+            }
+        }
+        assertThat(cancels).hasValue(0);
+    }
+
+    @Test
+    void executeQueryClearsPreviousUpdateCountWhenReturningRows() throws Exception {
+        startOrdersResultServer();
+        var submissions = new AtomicInteger();
+        httpServer.createContext("/v1/query/submit", exchange -> {
+            if (submissions.getAndIncrement() == 0) {
+                sendJsonResponse(exchange, 200, """
+                        {"query_id":"q-update","state":"FINISHED","result_disposition":"NONE"}
+                        """);
+            } else {
+                sendJsonResponse(exchange, 200, """
+                        {"query_id":"q-rows","state":"FINISHED","result_disposition":"STREAM",
+                         "result_endpoint":{"host":"127.0.0.1","port":%d,"ticket":"%s","protocol":"grpc"}}
+                        """.formatted(resultServer.endpoint().port(), resultServer.endpoint().ticket()));
+            }
+        });
+        httpServer.createContext("/v1/query/q-update/state", exchange -> sendJsonResponse(exchange, 200, """
+                {"query_id":"q-update","state":"FINISHED","result_disposition":"NONE",
+                 "version":2,"drained":true,"stats":{"rows_returned":4}}
+                """));
+        httpServer.start();
+
+        try (var conn = DriverManager.getConnection("jdbc:pangrova://127.0.0.1:" + httpPort);
+             var statement = conn.createStatement()) {
+            assertThat(statement.executeUpdate("UPDATE t SET n = 1")).isEqualTo(4);
+            assertThat(statement.getUpdateCount()).isEqualTo(4);
+            try (var result = statement.executeQuery("SELECT * FROM t")) {
+                assertThat(statement.getUpdateCount()).isEqualTo(-1);
+                assertThat(result.next()).isTrue();
+                assertThat(result.getInt(1)).isEqualTo(1);
+            }
+        }
+    }
+
+    @Test
+    void executeUpdateRejectsStreamBeforeWaitingForTerminal() throws Exception {
+        startOrdersResultServer();
+        registerSubmitEndpoint(new AtomicReference<>(), "RUNNING");
+        var statusReads = new AtomicInteger();
+        var cancels = new AtomicInteger();
+        httpServer.createContext("/v1/query/", exchange -> {
+            String[] path = exchange.getRequestURI().getPath().split("/");
+            if (path[4].equals("state")) {
+                statusReads.incrementAndGet();
+                sendJsonResponse(exchange, 200, """
+                        {"query_id":"%s","state":"RUNNING","version":1,"drained":false,
+                         "result_disposition":"STREAM","result_endpoint":{"host":"127.0.0.1",
+                         "port":%d,"ticket":"%s","protocol":"grpc"}}
+                        """.formatted(path[3], resultServer.endpoint().port(), resultServer.endpoint().ticket()));
+            } else {
+                cancels.incrementAndGet();
+                sendJsonResponse(exchange, 202, """
+                        {"query_id":"%s","outcome":"CANCEL_ACCEPTED","cancelled":true}
+                        """.formatted(path[3]));
+            }
+        });
+        httpServer.start();
+
+        try (var conn = DriverManager.getConnection("jdbc:pangrova://127.0.0.1:" + httpPort);
+             var statement = conn.createStatement()) {
+            statement.setQueryTimeout(3);
+            assertThatThrownBy(() -> statement.executeUpdate("CREATE INDEX idx ON t (id)"))
+                    .isInstanceOf(SQLException.class)
+                    .hasMessageContaining("returns a result set");
+            assertThat(statement.getResultSet()).isNull();
+            assertThat(statement.getUpdateCount()).isEqualTo(-1);
+        }
+        assertThat(statusReads).hasValue(0);
+        assertThat(cancels).hasValue(1);
     }
 
     @Test

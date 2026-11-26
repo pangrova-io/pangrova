@@ -372,7 +372,6 @@ artifacts:
     path: pangrova-client/pangrova-client-jdbc
     mainPackages:
       - org.pangrova.client.jdbc
-      - org.pangrova.client.jdbc.enums
       - org.pangrova.client.jdbc.value
     pomDependencies:
       pangrova-client-http: compile

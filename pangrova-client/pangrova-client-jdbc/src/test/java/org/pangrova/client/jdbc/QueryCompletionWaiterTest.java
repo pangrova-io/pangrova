@@ -51,7 +51,7 @@ class QueryCompletionWaiterTest {
         try (PangrovaRestClient client = client()) {
             long deadline = QueryCompletionWaiter.deadlineFor(5);
             var query = client.beginQuery("SELECT 1", Map.of());
-            var ready = QueryCompletionWaiter.awaitReadableEndpoint(query, deadline, 5);
+            var ready = QueryCompletionWaiter.awaitResult(query, deadline, 5);
             assertThat(ready.terminal()).isFalse();
             assertThat(ready.disposition()).isEqualTo(ResultDisposition.STREAM);
             assertThat(ready.endpoint().ticket()).isEqualTo("q-stream");
@@ -78,7 +78,7 @@ class QueryCompletionWaiterTest {
 
         try (PangrovaRestClient client = client()) {
             var query = client.beginQuery("SELECT 1", Map.of());
-            assertThatThrownBy(() -> QueryCompletionWaiter.awaitReadableEndpoint(
+            assertThatThrownBy(() -> QueryCompletionWaiter.awaitResult(
                     query, QueryCompletionWaiter.deadlineFor(5), 5))
                     .isInstanceOf(SQLException.class)
                     .hasMessageContaining("Query failed");
@@ -96,7 +96,7 @@ class QueryCompletionWaiterTest {
         server.start();
         try (PangrovaRestClient client = client()) {
             var query = client.beginQuery("SELECT 1", Map.of());
-            var ready = QueryCompletionWaiter.awaitReadableEndpoint(query, QueryCompletionWaiter.deadlineFor(5), 5);
+            var ready = QueryCompletionWaiter.awaitResult(query, QueryCompletionWaiter.deadlineFor(5), 5);
             assertThat(ready.endpoint()).isEqualTo(query.submission().resultEndpoint());
             assertThat(ready.terminal()).isFalse();
         }
@@ -112,7 +112,7 @@ class QueryCompletionWaiterTest {
 
         try (PangrovaRestClient client = client()) {
             var query = client.beginQuery("CREATE TABLE t (id INT)", Map.of());
-            var ready = QueryCompletionWaiter.awaitReadableEndpoint(query, QueryCompletionWaiter.deadlineFor(5), 5);
+            var ready = QueryCompletionWaiter.awaitResult(query, QueryCompletionWaiter.deadlineFor(5), 5);
             assertThat(ready.disposition()).isEqualTo(ResultDisposition.NONE);
             assertThat(ready.endpoint()).isNull();
             assertThat(ready.terminal()).isTrue();
@@ -142,7 +142,7 @@ class QueryCompletionWaiterTest {
 
         try (PangrovaRestClient client = client()) {
             var query = client.beginQuery("SELECT 1", Map.of());
-            var ready = QueryCompletionWaiter.awaitReadableEndpoint(query, QueryCompletionWaiter.deadlineFor(5), 5);
+            var ready = QueryCompletionWaiter.awaitResult(query, QueryCompletionWaiter.deadlineFor(5), 5);
             assertThat(ready.disposition()).isEqualTo(ResultDisposition.STREAM);
             assertThat(ready.endpoint().ticket()).isEqualTo("delayed");
             assertThat(ready.terminal()).isFalse();
@@ -162,7 +162,7 @@ class QueryCompletionWaiterTest {
 
         try (PangrovaRestClient client = client()) {
             var query = client.beginQuery("SELECT 1", Map.of());
-            assertThatThrownBy(() -> QueryCompletionWaiter.awaitReadableEndpoint(
+            assertThatThrownBy(() -> QueryCompletionWaiter.awaitResult(
                     query, QueryCompletionWaiter.deadlineFor(5), 5))
                     .isInstanceOf(SQLException.class)
                     .hasMessageContaining("cancelled");
@@ -181,7 +181,7 @@ class QueryCompletionWaiterTest {
         server.start();
         try (PangrovaRestClient client = client()) {
             var query = client.beginQuery("SELECT 1", Map.of());
-            assertThatThrownBy(() -> QueryCompletionWaiter.awaitReadableEndpoint(
+            assertThatThrownBy(() -> QueryCompletionWaiter.awaitResult(
                     query, QueryCompletionWaiter.deadlineFor(5), 5))
                     .isInstanceOf(PangrovaProtocolException.class);
         }

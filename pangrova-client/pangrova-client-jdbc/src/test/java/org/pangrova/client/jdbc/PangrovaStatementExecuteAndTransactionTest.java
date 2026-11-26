@@ -53,8 +53,8 @@ class PangrovaStatementExecuteAndTransactionTest {
     class ExecuteTests {
 
         @Test
-        @DisplayName("execute() rejects an explicit NONE disposition for a SELECT")
-        void executeSelectRequiresFlightEndpoint() throws Exception {
+        @DisplayName("execute() honors a resultless response regardless of SQL keyword")
+        void executeUsesExplicitNoneDisposition() throws Exception {
             AtomicReference<String> capturedSql = new AtomicReference<>();
             registerFinishedQueryEndpoint(capturedSql, "q-exec-select");
             registerStatusWithoutStats("q-exec-select");
@@ -63,13 +63,64 @@ class PangrovaStatementExecuteAndTransactionTest {
 
             try (PangrovaConnection conn = createConnection();
                  Statement stmt = conn.createStatement()) {
-                assertThatThrownBy(() -> stmt.execute("SELECT 1"))
+                assertThat(stmt.execute("SELECT 1")).isFalse();
+                assertThat(stmt.getResultSet()).isNull();
+                assertThat(stmt.getUpdateCount()).isZero();
+                assertThat(capturedSql.get()).contains("SELECT 1");
+            }
+            assertThat(cancellations.get()).isZero();
+        }
+
+        @Test
+        void executeUsesTerminalStatusWithoutReclassifyingCommentedCte() throws Exception {
+            String queryId = "q-exec-cte";
+            String sql = "-- comment\nWITH cte AS (SELECT 1) SELECT * FROM cte";
+            AtomicReference<String> capturedSql = new AtomicReference<>();
+            AtomicInteger statusReads = new AtomicInteger();
+            AtomicReference<String> waitTarget = new AtomicReference<>();
+            server.createContext("/v1/query/submit", exchange -> {
+                capturedSql.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+                sendJson(exchange, 200, """
+                        {"query_id":"q-exec-cte","state":"QUEUED","result_disposition":"PENDING"}
+                        """);
+            });
+            server.createContext("/v1/query/" + queryId + "/state", exchange -> {
+                statusReads.incrementAndGet();
+                waitTarget.set(exchange.getRequestURI().getQuery());
+                sendJson(exchange, 200, """
+                        {"query_id":"q-exec-cte","state":"FINISHED","result_disposition":"NONE",
+                         "version":2,"drained":true,"stats":{"rows_returned":4}}
+                        """);
+            });
+            AtomicInteger cancellations = registerCancelEndpoint(queryId, false);
+            server.start();
+
+            try (PangrovaConnection conn = createConnection();
+                 Statement stmt = conn.createStatement()) {
+                assertThat(stmt.execute(sql)).isFalse();
+                assertThat(stmt.getResultSet()).isNull();
+                assertThat(stmt.getUpdateCount()).isEqualTo(4);
+                assertThat(capturedSql.get()).contains("WITH cte AS");
+            }
+            assertThat(statusReads).hasValue(1);
+            assertThat(waitTarget.get()).contains("until=RESULT_OR_TERMINAL");
+            assertThat(cancellations).hasValue(0);
+        }
+
+        @Test
+        void executeQueryRejectsResultlessDisposition() throws Exception {
+            registerFinishedQueryEndpoint(new AtomicReference<>(), "q-query-none");
+            AtomicInteger cancellations = registerCancelEndpoint("q-query-none", false);
+            server.start();
+            try (PangrovaConnection conn = createConnection();
+                 Statement stmt = conn.createStatement()) {
+                assertThatThrownBy(() -> stmt.executeQuery("SELECT 1"))
                         .isInstanceOf(SQLException.class)
                         .hasMessageContaining("does not return a result set");
                 assertThat(stmt.getResultSet()).isNull();
-                assertThat(capturedSql.get()).contains("SELECT 1");
+                assertThat(stmt.getUpdateCount()).isEqualTo(-1);
             }
-            assertThat(cancellations.get()).isEqualTo(1);
+            assertThat(cancellations).hasValue(1);
         }
 
         @Test
@@ -197,9 +248,44 @@ class PangrovaStatementExecuteAndTransactionTest {
         }
 
         @Test
+        void executeUpdatePreservesImmediateFailureDetails() throws Exception {
+            String queryId = "q-upd-failed";
+            AtomicInteger statusReads = new AtomicInteger();
+            AtomicReference<String> waitTarget = new AtomicReference<>();
+            server.createContext("/v1/query/submit", exchange -> sendJson(exchange, 200, """
+                    {"query_id":"q-upd-failed","state":"FAILED","result_disposition":"NONE"}
+                    """));
+            server.createContext("/v1/query/" + queryId + "/state", exchange -> {
+                statusReads.incrementAndGet();
+                waitTarget.set(exchange.getRequestURI().getQuery());
+                sendJson(exchange, 200, """
+                        {"query_id":"q-upd-failed","state":"FAILED","result_disposition":"NONE",
+                         "version":2,"drained":true,
+                         "error":{"error_code":"TABLE_NOT_FOUND","message":"Missing table"}}
+                        """);
+            });
+            AtomicInteger cancellations = registerCancelEndpoint(queryId, false);
+            server.start();
+
+            try (PangrovaConnection conn = createConnection();
+                 Statement stmt = conn.createStatement()) {
+                assertThatThrownBy(() -> stmt.executeUpdate("UPDATE missing SET n = 1"))
+                        .isInstanceOf(SQLException.class)
+                        .hasMessageContaining("TABLE_NOT_FOUND")
+                        .hasMessageContaining("Missing table");
+                assertThat(stmt.getUpdateCount()).isEqualTo(-1);
+            }
+            assertThat(statusReads).hasValue(1);
+            assertThat(waitTarget.get()).contains("until=TERMINAL");
+            assertThat(cancellations).hasValue(1);
+        }
+
+        @Test
         @DisplayName("executeUpdate() preserves the JDBC timeout exception")
         void executeUpdatePreservesTimeout() throws Exception {
-            registerFinishedQueryEndpoint(new AtomicReference<>(), "q-upd-timeout");
+            server.createContext("/v1/query/submit", exchange -> sendJson(exchange, 200, """
+                    {"query_id":"q-upd-timeout","state":"QUEUED","result_disposition":"PENDING"}
+                    """));
             AtomicInteger cancellations = registerCancelEndpoint("q-upd-timeout", true);
             server.createContext("/v1/query/q-upd-timeout/state", exchange ->
                     sendJson(exchange, 200,
@@ -349,77 +435,6 @@ class PangrovaStatementExecuteAndTransactionTest {
                 conn.setReadOnly(false);
                 assertThat(conn.isReadOnly()).isFalse();
             }
-        }
-    }
-
-    @Nested
-    @DisplayName("isUpdateStatement() heuristic")
-    class IsUpdateStatementTests {
-
-        @Test
-        @DisplayName("recognizes all DML keywords")
-        void dmlKeywords() {
-            assertThat(PangrovaStatement.isUpdateStatement("INSERT INTO t VALUES (1)")).isTrue();
-            assertThat(PangrovaStatement.isUpdateStatement("UPDATE t SET x = 1")).isTrue();
-            assertThat(PangrovaStatement.isUpdateStatement("DELETE FROM t")).isTrue();
-            assertThat(PangrovaStatement.isUpdateStatement("MERGE INTO t USING s ON ...")).isTrue();
-        }
-
-        @Test
-        @DisplayName("recognizes all DDL keywords")
-        void ddlKeywords() {
-            assertThat(PangrovaStatement.isUpdateStatement("CREATE TABLE t (id INT)")).isTrue();
-            assertThat(PangrovaStatement.isUpdateStatement("DROP TABLE t")).isTrue();
-            assertThat(PangrovaStatement.isUpdateStatement("ALTER TABLE t ADD COLUMN x INT")).isTrue();
-            assertThat(PangrovaStatement.isUpdateStatement("TRUNCATE TABLE t")).isTrue();
-        }
-
-        @Test
-        @DisplayName("recognizes Pangrova-specific update keywords")
-        void pangrovaSpecificKeywords() {
-            assertThat(PangrovaStatement.isUpdateStatement("COMPACT TABLE t")).isTrue();
-            assertThat(PangrovaStatement.isUpdateStatement("VACUUM TABLE t")).isTrue();
-            assertThat(PangrovaStatement.isUpdateStatement("GRANT SELECT ON t TO user1")).isTrue();
-            assertThat(PangrovaStatement.isUpdateStatement("REVOKE ALL ON t FROM user1")).isTrue();
-        }
-
-        @Test
-        @DisplayName("classifies SELECT/SHOW/EXPLAIN as queries")
-        void queryKeywords() {
-            assertThat(PangrovaStatement.isUpdateStatement("SELECT * FROM t")).isFalse();
-            assertThat(PangrovaStatement.isUpdateStatement("SHOW TABLES")).isFalse();
-            assertThat(PangrovaStatement.isUpdateStatement("EXPLAIN SELECT 1")).isFalse();
-            assertThat(PangrovaStatement.isUpdateStatement("DESCRIBE t")).isFalse();
-            assertThat(PangrovaStatement.isUpdateStatement("WITH cte AS (SELECT 1) SELECT * FROM cte")).isFalse();
-        }
-
-        @Test
-        @DisplayName("handles leading whitespace")
-        void leadingWhitespace() {
-            assertThat(PangrovaStatement.isUpdateStatement("  INSERT INTO t VALUES (1)")).isTrue();
-            assertThat(PangrovaStatement.isUpdateStatement("\n\tSELECT 1")).isFalse();
-        }
-
-        @Test
-        @DisplayName("handles leading line comments")
-        void lineComments() {
-            assertThat(PangrovaStatement.isUpdateStatement("-- comment\nINSERT INTO t VALUES (1)")).isTrue();
-            assertThat(PangrovaStatement.isUpdateStatement("-- comment\nSELECT 1")).isFalse();
-        }
-
-        @Test
-        @DisplayName("handles leading block comments")
-        void blockComments() {
-            assertThat(PangrovaStatement.isUpdateStatement("/* block */INSERT INTO t VALUES (1)")).isTrue();
-            assertThat(PangrovaStatement.isUpdateStatement("/* comment */ SELECT 1")).isFalse();
-        }
-
-        @Test
-        @DisplayName("is case-insensitive")
-        void caseInsensitive() {
-            assertThat(PangrovaStatement.isUpdateStatement("insert into t values (1)")).isTrue();
-            assertThat(PangrovaStatement.isUpdateStatement("Insert Into t Values (1)")).isTrue();
-            assertThat(PangrovaStatement.isUpdateStatement("select 1")).isFalse();
         }
     }
 

@@ -1,6 +1,7 @@
 package org.pangrova.testing.integration.e2e.read;
 
 import org.pangrova.types.value.TypedRow;
+import org.pangrova.query.api.enums.QueryState;
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 import org.junit.jupiter.api.BeforeAll;
@@ -85,10 +86,12 @@ class ConstantQueryE2ETest extends SqlE2ETestBase {
         String workerTaskId = null;
         boolean finished = false;
         try {
-            assertThat(submitted.state()).isEqualTo("RUNNING");
             assertThat(endpoint).isNotNull();
             workerTaskId = awaitWorkerTaskId(canonicalTaskId);
             assertThat(workerTaskId).isNotBlank();
+            assertThat(queryManager.getQueryState(queryId))
+                    .hasValueSatisfying(state -> assertThat(state)
+                            .isIn(QueryState.RUNNING, QueryState.FINISHING));
 
             List<TypedRow> rows = fetchResultsViaTransport(
                     endpoint, queryId);
