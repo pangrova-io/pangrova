@@ -2,12 +2,20 @@ name: Native dependency baseline
 
 on:
   workflow_dispatch:
+    inputs:
+      probe:
+        description: Isolated CI stage to verify
+        type: choice
+        options: [macos-docker, production]
+        default: macos-docker
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   macos-docker:
+    if: inputs.probe == 'macos-docker'
     name: Verify native macOS ARM64 Docker
     runs-on: macos-15
     timeout-minutes: 35
@@ -34,3 +42,154 @@ jobs:
             sleep 2
           done
           exit 1
+
+  production-regression:
+    name: Production image and full regression (JDK 17)
+    runs-on: ubuntu-24.04
+    if: inputs.probe == 'production'
+    env:
+      PANGROVA_E2E_IMAGE: pangrova/pangrova:ci-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Verify the tested Linux fixture inputs
+        run: |
+          git diff --exit-code f1013323db8c3e0c7f36bb6bbcb5a8c7aceb80fa HEAD -- \
+            pangrova-protocol pangrova-worker-native \
+            ':!pangrova-worker-native/bin/setup-native-build-env.sh' \
+            ':!pangrova-worker-native/bin/setup-native-asan-env.sh'
+
+      - name: Download tested Linux x86-64 fixture
+        uses: actions/download-artifact@v8
+        with:
+          name: java-native-test-runtime-linux-x86_64
+          path: ${{ runner.temp }}/java-native-test-download
+          github-token: ${{ github.token }}
+          run-id: '45848942264'
+          digest-mismatch: error
+
+      - name: Restore executable test runtime
+        run: |
+          runtime_dir=$(mktemp -d "$RUNNER_TEMP/java-native-test-runtime.XXXXXXXX")
+          tar -xzf "$RUNNER_TEMP/java-native-test-download/java-native-test-runtime.tar.gz" -C "$runtime_dir"
+          test -x "$runtime_dir/pangrova_lance_fixture_tool"
+          test -x "$runtime_dir/libexec/pangrova_lance_fixture_tool"
+          echo "PANGROVA_JAVA_NATIVE_TEST_RUNTIME=$runtime_dir" >> "$GITHUB_ENV"
+
+      - name: Set up function-contract Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - uses: actions/setup-java@v6
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build and test pinned Iceberg SDK
+        uses: ./.github/actions/setup-iceberg-sdk
+        env:
+          PANGROVA_ICEBERG_MAVEN_REPOSITORY: ${{ runner.temp }}/pangrova-iceberg-sdk
+
+      - name: Install the same-run Iceberg SDK into Maven Local
+        run: |
+          mkdir -p "$HOME/.m2/repository/org/apache/iceberg"
+          cp -R "$RUNNER_TEMP/pangrova-iceberg-sdk/org/apache/iceberg/." "$HOME/.m2/repository/org/apache/iceberg/"
+
+      - name: Build the canonical same-source Linux production image
+        run: |
+          docker buildx version
+          IMAGE="$PANGROVA_E2E_IMAGE" SOURCE_COMMIT="$GITHUB_SHA" \
+            docker buildx bake --load -f deploy/docker/docker-bake.hcl \
+              --set "pangrova.contexts.iceberg-sdk=$RUNNER_TEMP/pangrova-iceberg-sdk" pangrova
+          image_id=$(docker image inspect --format '{{.Id}}' "$PANGROVA_E2E_IMAGE")
+          [[ "$image_id" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image_id")" == "$GITHUB_SHA" ]]
+          echo "PANGROVA_E2E_IMAGE_ID=$image_id" >> "$GITHUB_ENV"
+
+      - name: Stage the production classifier and matching host JNI
+        run: |
+          stage=$(mktemp -d "$RUNNER_TEMP/pangrova-local-runtime.XXXXXXXX")
+          echo "PANGROVA_LOCAL_STAGE=$stage" >> "$GITHUB_ENV"
+          bundle=$(bash .pangrova/scripts/stage-production-regression-native.sh \
+            "$PANGROVA_E2E_IMAGE_ID" "$stage" "$GITHUB_SHA")
+          mvn -B install:install-file -Dfile="$bundle" -DpomFile=pangrova-native-bundle/pom.xml \
+            -Dclassifier=linux-x86_64 -Dpackaging=jar
+
+      # Standalone-process tests need the complete reactor installed before tests start.
+      - name: Install the complete Java reactor for process tests
+        run: mvn -B -Pnative-runtime -DskipTests install -pl '!pangrova-native-bundle'
+
+      - name: Prepare immutable real AI models before regression
+        run: |
+          docker pull ollama/ollama:0.6.2
+          receipt="$RUNNER_TEMP/pangrova-ai-fixture.json"
+          python3 .pangrova/scripts/prepare-e2e-ai-image.py --receipt "$receipt"
+          image_id=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["imageId"])' "$receipt")
+          echo "PANGROVA_E2E_AI_IMAGE_ID=$image_id" >> "$GITHUB_ENV"
+
+      - name: Configure real FILE SQL acceptance
+        run: |
+          capability_key=$(openssl rand -base64 32)
+          echo "::add-mask::$capability_key"
+          echo "PANGROVA_E2E_FILE_CAPABILITY_KEY=$capability_key" >> "$GITHUB_ENV"
+
+      - name: Run full regression
+        run: |
+          mvn -B -Pnative-runtime,full-regression verify -pl '!pangrova-native-bundle' \
+            -Dpangrova.lance.fixture.tool="$PANGROVA_JAVA_NATIVE_TEST_RUNTIME/pangrova_lance_fixture_tool" \
+            -Dpangrova.e2e.ai.image-id="$PANGROVA_E2E_AI_IMAGE_ID" \
+            -Dpangrova.e2e.image="$PANGROVA_E2E_IMAGE" -Dpangrova.e2e.image-id="$PANGROVA_E2E_IMAGE_ID" \
+            -Dpangrova.e2e.local.lib-dir="$PANGROVA_LOCAL_STAGE/lib" \
+            -Dpangrova.e2e.local.native-lib="$PANGROVA_LOCAL_STAGE/extracted/META-INF/native/linux/x86_64/libpangrova_native.so" \
+            -Dpangrova.e2e.local.jar-manifest="$PANGROVA_LOCAL_STAGE/runtime.sha256" \
+            -Dpangrova.e2e.local.image-provenance="$PANGROVA_LOCAL_STAGE/image-provenance.properties" \
+            -Dpangrova.e2e.local.source-commit="$GITHUB_SHA"
+
+      - name: Run isolated Native runtime owner E2E
+        run: |
+          for suite in WorkerBootstrapE2ETest NativeExchangeTransportExternalIntegrationTest \
+                       WorkerShuffleChannelAdmissionIntegrationTest \
+                       NativeShuffleEgressContractIntegrationTest \
+                       NativeAiFailureProjectionRegistrationTest \
+                       WorkerMembershipAdmissionE2ETest \
+                       'CopySourceReadHttpE2ETest#privateTicketStagesExactVersionAndRestartsFromManagedBytes' \
+                       LocalGovernedFileSqlE2ETest; do
+            file_backend=s3
+            if [[ "$suite" == LocalGovernedFileSqlE2ETest ]]; then file_backend=local; fi
+            mvn -B -Pnative-runtime,full-regression \
+              -pl pangrova-testing/pangrova-testing-integration-tests \
+              -Dpangrova.e2e.excludedGroups=none -Dtest="$suite" test \
+              -Dpangrova.lance.fixture.tool="$PANGROVA_JAVA_NATIVE_TEST_RUNTIME/pangrova_lance_fixture_tool" \
+              -Dpangrova.e2e.file.backend="$file_backend" \
+              -Dpangrova.e2e.ai.image-id="$PANGROVA_E2E_AI_IMAGE_ID" \
+              -Dpangrova.e2e.local.lib-dir="$PANGROVA_LOCAL_STAGE/lib" \
+              -Dpangrova.e2e.local.native-lib="$PANGROVA_LOCAL_STAGE/extracted/META-INF/native/linux/x86_64/libpangrova_native.so" \
+              -Dpangrova.e2e.local.jar-manifest="$PANGROVA_LOCAL_STAGE/runtime.sha256" \
+              -Dpangrova.e2e.local.image-provenance="$PANGROVA_LOCAL_STAGE/image-provenance.properties" \
+              -Dpangrova.e2e.local.source-commit="$GITHUB_SHA" \
+            -Dpangrova.e2e.image="$PANGROVA_E2E_IMAGE" -Dpangrova.e2e.image-id="$PANGROVA_E2E_IMAGE_ID"
+          done
+
+      - name: Upload full regression reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: production-regression-reports
+          path: |
+            **/target/surefire-reports/
+
+      - name: Upload production runtime provenance and process diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: production-runtime-provenance
+          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/pangrova-ai-fixture.json
+            ${{ runner.temp }}/pangrova-local-runtime.*/runtime.sha256
+            ${{ runner.temp }}/pangrova-local-runtime.*/image-provenance.properties
+            /tmp/pangrova-local-process-*/*.log
