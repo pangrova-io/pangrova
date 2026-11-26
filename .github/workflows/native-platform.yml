@@ -22,7 +22,7 @@ jobs:
     if: fromJSON(inputs.platform).os == 'osx'
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - uses: ./.github/actions/setup-native-build
@@ -71,7 +71,7 @@ jobs:
     if: fromJSON(inputs.platform).os == 'osx'
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       - uses: ./.github/actions/setup-native-build
@@ -137,7 +137,7 @@ jobs:
           distribution: temurin
 
       - name: Set up function-contract Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 
