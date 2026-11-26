@@ -161,9 +161,9 @@ rebuilding a duplicate split list.
 The SDK-to-wire normalizer walks only Protobuf fields whose descriptors can
 contain Fetch, hash join or merge join relations, including subqueries. It
 reuses unchanged messages and rebuilds the ancestors of each corrected relation.
-Native task admission retains typed Bloom index hints and Paimon deletion-vector
-references for the in-process scanner. The Lance read unit stays encoded for its
-Rust FFI call.
+Native task admission retains typed Bloom and single-column B-tree index hints
+and Paimon deletion-vector references for the in-process scanner. The Lance read
+unit stays encoded for its Rust FFI call.
 
 A direct projection of distinct table columns uses the standard Substrait
 ReadRel output mapping. The Native scan assigns the selected columns and
