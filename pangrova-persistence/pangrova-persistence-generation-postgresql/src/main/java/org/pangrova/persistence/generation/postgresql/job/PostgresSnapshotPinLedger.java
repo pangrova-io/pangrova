@@ -14,6 +14,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -38,37 +39,50 @@ final class PostgresSnapshotPinLedger {
     private static final String FIND_PIN_FOR_UPDATE_SQL = FIND_PIN_SQL + " FOR UPDATE";
     private static final String FIND_PIN_FOR_JOB_SQL = "SELECT " + COLUMNS
             + " FROM artifact_snapshot_pins WHERE tenant_id=? AND job_id=?";
-    private static final String CLEANUP_ELIGIBILITY_SQL = " FROM artifact_snapshot_pins p "
-            + "LEFT JOIN artifact_build_jobs j ON j.tenant_id=p.tenant_id AND j.job_id=p.job_id "
-            + "WHERE p.state IN ('INTENDED','PINNED','RELEASING') "
-            + "AND NOT EXISTS (SELECT 1 FROM artifact_snapshot_pin_references r "
-            + "WHERE r.tenant_id=p.tenant_id AND r.pin_owner=p.pin_owner) AND ("
-            + "p.state='RELEASING' OR "
-            + "(p.job_id IS NULL AND p.created_at<=? AND NOT EXISTS ("
-            + "SELECT 1 FROM index_descriptors d WHERE d.index_id=p.index_id AND d.tenant_id=p.tenant_id "
-            + "AND d.state<>'DROPPED' AND ((d.state='BUILDING' AND d.generation=p.generation "
-            + "AND d.build_snapshot_id=p.source_snapshot AND d.native_submission_attempt_id=p.attempt_id) "
-            + "OR EXISTS (SELECT 1 FROM index_generation_builds b WHERE b.index_id=d.index_id "
-            + "AND b.generation=p.generation AND b.state='BUILDING' AND b.source_snapshot=p.source_snapshot "
-            + "AND b.native_submission_attempt_id=p.attempt_id)))) OR "
-            + "(j.state IN ('FAILED','CANCELLED') AND j.updated_at<=?) OR "
-            + "(j.state='PUBLISHED' AND ("
-            + "NOT EXISTS (SELECT 1 FROM index_descriptors d "
-            + "WHERE d.index_id=p.index_id AND d.tenant_id=p.tenant_id) OR "
-            + "EXISTS (SELECT 1 FROM index_descriptors d WHERE d.index_id=p.index_id AND d.tenant_id=p.tenant_id "
-            + "AND ((d.state='DROPPED' AND d.updated_at<=?) OR "
-            + "(d.state<>'DROPPED' AND (d.generation<>p.generation "
-            + "OR d.build_snapshot_id<>p.source_snapshot OR "
-            + "(d.state='STALE' AND d.index_type IN ('VECTOR','INVERTED') "
-            + "AND d.stale_reason='native_source_snapshot_changed' "
-            + "AND EXISTS (SELECT 1 FROM index_generation_manifests retired "
-            + "WHERE retired.index_id=d.index_id AND retired.generation=p.generation "
-            + "AND retired.source_snapshot=p.source_snapshot AND retired.state='RETIRED'))) "
-            + "AND d.updated_at<=? "
-            + "AND NOT EXISTS (SELECT 1 FROM index_generation_manifests m WHERE m.index_id=d.index_id "
-            + "AND m.generation=p.generation AND m.state='ACTIVE')))))))";
+    private static final Duration CLEANUP_RETRY_DELAY = Duration.ofMinutes(15);
+    private static final String CLEANUP_ELIGIBILITY_SQL = """
+             FROM artifact_snapshot_pins p
+            LEFT JOIN artifact_build_jobs j ON j.tenant_id=p.tenant_id AND j.job_id=p.job_id
+            WHERE p.state IN ('INTENDED','PINNED','RELEASING')
+              AND (p.cleanup_retry_at IS NULL OR p.cleanup_retry_at<=?)
+              AND NOT EXISTS (SELECT 1 FROM artifact_snapshot_pin_references r
+                  WHERE r.tenant_id=p.tenant_id AND r.pin_owner=p.pin_owner)
+              AND (
+                p.state='RELEASING'
+                OR (p.job_id IS NULL AND p.created_at<=? AND NOT EXISTS (
+                    SELECT 1 FROM index_descriptors d
+                    WHERE d.index_id=p.index_id AND d.tenant_id=p.tenant_id AND d.state<>'DROPPED'
+                      AND ((d.state='BUILDING' AND d.generation=p.generation
+                        AND d.build_snapshot_id=p.source_snapshot AND d.native_submission_attempt_id=p.attempt_id)
+                        OR EXISTS (SELECT 1 FROM index_generation_builds b WHERE b.index_id=d.index_id
+                          AND b.generation=p.generation AND b.state='BUILDING' AND b.source_snapshot=p.source_snapshot
+                          AND b.native_submission_attempt_id=p.attempt_id))))
+                OR (j.state IN ('FAILED','CANCELLED') AND j.updated_at<=?)
+                OR (j.state='PUBLISHED' AND (
+                    EXISTS (SELECT 1 FROM index_generation_manifests retired
+                        JOIN index_descriptors d ON d.index_id=retired.index_id AND d.tenant_id=p.tenant_id
+                        WHERE retired.index_id=p.index_id AND retired.generation=p.generation
+                          AND retired.source_id=p.source_id AND retired.source_snapshot=p.source_snapshot
+                          AND retired.artifact_type=j.artifact_type AND retired.state='RETIRED'
+                          AND retired.retired_at<=?)
+                    OR (NOT EXISTS (SELECT 1 FROM index_generation_manifests retired
+                            WHERE retired.index_id=p.index_id AND retired.generation=p.generation
+                              AND retired.state='RETIRED')
+                        AND (NOT EXISTS (SELECT 1 FROM index_descriptors d
+                                WHERE d.index_id=p.index_id AND d.tenant_id=p.tenant_id)
+                            OR EXISTS (SELECT 1 FROM index_descriptors d
+                                WHERE d.index_id=p.index_id AND d.tenant_id=p.tenant_id
+                                  AND ((d.state='DROPPED' AND d.updated_at<=?)
+                                    OR (d.state<>'DROPPED' AND (d.generation<>p.generation
+                                          OR d.build_snapshot_id<>p.source_snapshot) AND d.updated_at<=?
+                                        AND NOT EXISTS (SELECT 1 FROM index_generation_manifests m
+                                            WHERE m.index_id=d.index_id AND m.generation=p.generation
+                                              AND m.state='ACTIVE')))))))
+                ))
+            """;
     private static final String CLEANUP_PINS_SQL = "SELECT " + QUALIFIED_COLUMNS
-            + CLEANUP_ELIGIBILITY_SQL + " ORDER BY p.created_at,p.tenant_id,p.pin_owner LIMIT ?";
+            + CLEANUP_ELIGIBILITY_SQL + " ORDER BY COALESCE(p.cleanup_retry_at,p.created_at),"
+            + "p.created_at,p.tenant_id,p.pin_owner LIMIT ?";
     private static final String CLAIM_CLEANUP_SQL = "SELECT 1" + CLEANUP_ELIGIBILITY_SQL
             + " AND p.tenant_id=? AND p.pin_owner=?";
     private static final String UNBOUND_RECOVERY_ELIGIBILITY_SQL = " FROM artifact_snapshot_pins p "
@@ -187,9 +201,9 @@ final class PostgresSnapshotPinLedger {
             return Optional.empty();
         }
         try (PreparedStatement statement = connection.prepareStatement(CLAIM_CLEANUP_SQL)) {
-            bindCleanupCutoffs(statement, orphanCutoff, droppedCutoff);
-            statement.setString(5, tenantId);
-            statement.setString(6, pinOwner);
+            bindCleanupCutoffs(statement, orphanCutoff, droppedCutoff, now);
+            statement.setString(7, tenantId);
+            statement.setString(8, pinOwner);
             try (ResultSet row = statement.executeQuery()) {
                 if (!row.next()) {
                     return Optional.empty();
@@ -198,6 +212,13 @@ final class PostgresSnapshotPinLedger {
         }
         if (!beginRelease(connection, tenantId, pinOwner, now)) {
             return Optional.empty();
+        }
+        try (PreparedStatement statement = connection.prepareStatement(
+                "UPDATE artifact_snapshot_pins SET cleanup_retry_at=? WHERE tenant_id=? AND pin_owner=?")) {
+            setInstant(statement, 1, now.plus(CLEANUP_RETRY_DELAY));
+            statement.setString(2, tenantId);
+            statement.setString(3, pinOwner);
+            statement.executeUpdate();
         }
         return find(connection, tenantId, pinOwner, false);
     }
@@ -273,9 +294,15 @@ final class PostgresSnapshotPinLedger {
     static List<SnapshotPinIntent> cleanupCandidates(
             Connection connection, int limit, Instant orphanCutoff, Instant droppedCutoff)
             throws SQLException {
+        return cleanupCandidates(connection, limit, orphanCutoff, droppedCutoff, Instant.now());
+    }
+
+    static List<SnapshotPinIntent> cleanupCandidates(
+            Connection connection, int limit, Instant orphanCutoff, Instant droppedCutoff, Instant now)
+            throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(CLEANUP_PINS_SQL)) {
-            bindCleanupCutoffs(statement, orphanCutoff, droppedCutoff);
-            statement.setInt(5, limit);
+            bindCleanupCutoffs(statement, orphanCutoff, droppedCutoff, now);
+            statement.setInt(7, limit);
             try (ResultSet result = statement.executeQuery()) {
                 List<SnapshotPinIntent> rows = new ArrayList<>();
                 while (result.next()) {
@@ -287,11 +314,14 @@ final class PostgresSnapshotPinLedger {
     }
 
     private static void bindCleanupCutoffs(
-            PreparedStatement statement, Instant orphanCutoff, Instant droppedCutoff) throws SQLException {
-        setInstant(statement, 1, orphanCutoff);
+            PreparedStatement statement, Instant orphanCutoff, Instant droppedCutoff, Instant now)
+            throws SQLException {
+        setInstant(statement, 1, now);
         setInstant(statement, 2, orphanCutoff);
-        setInstant(statement, 3, droppedCutoff);
+        setInstant(statement, 3, orphanCutoff);
         setInstant(statement, 4, droppedCutoff);
+        setInstant(statement, 5, droppedCutoff);
+        setInstant(statement, 6, droppedCutoff);
     }
 
     static List<SnapshotPinIntent> listForRecovery(

@@ -106,12 +106,16 @@ class SnapshotPinReleaseFenceIntegrationTest extends ContainerTestBase {
                     .hasValueSatisfying(intent -> assertThat(intent.state().name()).isEqualTo("RELEASING"));
             connection.commit();
         }
-        // Connector outcome may be uncertain, so RELEASING must be recoverable.
+        // Connector outcome may be uncertain, so RELEASING must be recoverable,
+        // but repeated claims wait for the bounded durable retry interval.
         try (var connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             assertThat(PostgresSnapshotPinLedger.claimCleanup(
-                    connection, TENANT, OWNER, cutoff, cutoff, cutoff)).isPresent();
-            assertThat(PostgresSnapshotPinLedger.markReleased(connection, TENANT, OWNER, cutoff)).isTrue();
+                    connection, TENANT, OWNER, cutoff, cutoff, cutoff)).isEmpty();
+            Instant retryAt = cutoff.plus(Duration.ofMinutes(15));
+            assertThat(PostgresSnapshotPinLedger.claimCleanup(
+                    connection, TENANT, OWNER, cutoff, cutoff, retryAt)).isPresent();
+            assertThat(PostgresSnapshotPinLedger.markReleased(connection, TENANT, OWNER, retryAt)).isTrue();
             assertThat(PostgresSnapshotPinLedger.cleanupCandidates(connection, 10, cutoff, cutoff)).isEmpty();
             connection.commit();
         }
@@ -132,7 +136,12 @@ class SnapshotPinReleaseFenceIntegrationTest extends ContainerTestBase {
                     retiredAt, INDEX);
             assertThat(PostgresSnapshotPinLedger.cleanupCandidates(connection, 10, retiredAt, retiredAt))
                     .isEmpty();
-            execute(connection, "UPDATE index_generation_manifests SET state='RETIRED' WHERE index_id=?", INDEX);
+            execute(connection, "UPDATE index_generation_manifests SET state='RETIRED',retired_at=?,"
+                    + "retirement_reason='source_snapshot_drift' WHERE index_id=?", retiredAt, INDEX);
+            // A later descriptor edit both replaces the stale reason and advances updated_at.
+            // It must not restart the already durable publication's retirement grace.
+            execute(connection, "UPDATE index_descriptors SET stale_reason='schema_changed',updated_at=? "
+                    + "WHERE index_id=?", retiredAt.plus(Duration.ofDays(2)), INDEX);
             assertThat(PostgresSnapshotPinLedger.cleanupCandidates(connection, 10, NOW, NOW)).isEmpty();
             connection.setAutoCommit(false);
             PostgresSnapshotPinLedger.retainForExecution(
@@ -154,12 +163,52 @@ class SnapshotPinReleaseFenceIntegrationTest extends ContainerTestBase {
     }
 
     @Test
+    void failedOldestCleanupClaimCannotStarveLaterEligiblePin() throws Exception {
+        String second = "artifact-b:generation:0:attempt:orphan";
+        Instant cutoff = NOW.plusSeconds(10);
+        try (var connection = dataSource.getConnection()) {
+            execute(connection, "UPDATE index_descriptors SET state='DROPPED' WHERE index_id=?", INDEX);
+            execute(connection, "INSERT INTO artifact_snapshot_pins (tenant_id,pin_owner,index_id,generation,"
+                    + "attempt_id,source_id,source_snapshot,principal,authorization_scope_bytes,state,"
+                    + "created_at,updated_at,pinned_at) SELECT tenant_id,?,'artifact-b',0,'orphan',source_id,"
+                    + "source_snapshot,principal,authorization_scope_bytes,'PINNED',?,?,? "
+                    + "FROM artifact_snapshot_pins WHERE tenant_id=? AND pin_owner=?",
+                    second, NOW.plusSeconds(1), NOW.plusSeconds(1), NOW.plusSeconds(1), TENANT, OWNER);
+            connection.setAutoCommit(false);
+            assertThat(PostgresSnapshotPinLedger.cleanupCandidates(connection, 1, cutoff, cutoff, cutoff))
+                    .extracting(org.pangrova.persistence.generation.api.job.SnapshotPinIntent::pinOwner)
+                    .containsExactly(OWNER);
+            assertThat(PostgresSnapshotPinLedger.claimCleanup(
+                    connection, TENANT, OWNER, cutoff, cutoff, cutoff)).isPresent();
+            connection.commit();
+            assertThat(PostgresSnapshotPinLedger.cleanupCandidates(connection, 1, cutoff, cutoff, cutoff))
+                    .extracting(org.pangrova.persistence.generation.api.job.SnapshotPinIntent::pinOwner)
+                    .containsExactly(second);
+            assertThat(PostgresSnapshotPinLedger.claimCleanup(
+                    connection, TENANT, OWNER, cutoff, cutoff, cutoff.plusSeconds(1))).isEmpty();
+            assertThat(PostgresSnapshotPinLedger.claimCleanup(
+                    connection, TENANT, second, cutoff, cutoff, cutoff.plusSeconds(1))).isPresent();
+            assertThat(PostgresSnapshotPinLedger.markReleased(
+                    connection, TENANT, second, cutoff.plusSeconds(1))).isTrue();
+            connection.commit();
+            Instant retryAt = cutoff.plus(Duration.ofMinutes(15));
+            assertThat(PostgresSnapshotPinLedger.cleanupCandidates(connection, 1, cutoff, cutoff, retryAt))
+                    .extracting(org.pangrova.persistence.generation.api.job.SnapshotPinIntent::pinOwner)
+                    .containsExactly(OWNER);
+            assertThat(PostgresSnapshotPinLedger.claimCleanup(
+                    connection, TENANT, OWNER, cutoff, cutoff, retryAt)).isPresent();
+            connection.commit();
+        }
+    }
+
+    @Test
     void maintenanceRetainsReservedPinForAnUnfinishedGeneration() throws Exception {
         Instant cutoff = NOW.plusSeconds(1);
         try (var connection = dataSource.getConnection()) {
             execute(connection, "UPDATE artifact_snapshot_pins SET job_id=NULL WHERE tenant_id=? AND pin_owner=?",
                     TENANT, OWNER);
-            execute(connection, "UPDATE index_descriptors SET state='BUILDING' WHERE index_id=?", INDEX);
+            execute(connection, "UPDATE index_descriptors SET state='BUILDING',"
+                    + "native_submission_attempt_id='submission' WHERE index_id=?", INDEX);
         }
         try (var connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
@@ -183,6 +232,42 @@ class SnapshotPinReleaseFenceIntegrationTest extends ContainerTestBase {
             }
         }).isInstanceOf(java.sql.SQLException.class)
                 .hasMessageContaining("uq_snapshot_pin_job");
+    }
+
+    @Test
+    void legacyRetirementBackfillsAtUpgradeAndCannotBeRewritten() throws Exception {
+        verifyRetirementUpgrade(SharedPostgres.isolatedDataSource());
+    }
+
+    private void verifyRetirementUpgrade(DataSource source) throws Exception {
+        Flyway.configure().dataSource(source).locations("classpath:db/migration").target("128").load().migrate();
+        try (var connection = source.getConnection()) {
+            execute(connection, "INSERT INTO index_descriptors (tenant_id,index_id,index_name,catalog_name,"
+                    + "schema_name,table_name,column_names,index_type,properties,state,generation,"
+                    + "build_snapshot_id,created_at,updated_at) VALUES (?,?,?,'lake','raw','items',"
+                    + "'[\"body\"]'::jsonb,'INVERTED','{}'::jsonb,'STALE',0,'snapshot-a',?,?)",
+                    TENANT, INDEX, INDEX, NOW, NOW);
+            execute(connection, "INSERT INTO index_generation_manifests (index_id,generation,source_id,"
+                    + "source_snapshot,artifact_type,format_id,format_major,format_minor,schema_sha256,"
+                    + "writer_build_id,object_count,row_count,total_bytes,manifest_sha256,publication_epoch,"
+                    + "state,published_at) VALUES (?,0,'lake.raw.items','snapshot-a','TEXT_INDEX',"
+                    + "'format',1,0,?,'writer',1,1,1,?,1,'RETIRED',?)",
+                    INDEX, "a".repeat(64), "b".repeat(64), NOW);
+        }
+        Instant beforeUpgrade = Instant.now().minusSeconds(1);
+        Flyway.configure().dataSource(source).locations("classpath:db/migration").load().migrate();
+        try (var connection = source.getConnection(); var statement = connection.prepareStatement(
+                "SELECT retired_at,retirement_reason FROM index_generation_manifests WHERE index_id=?")) {
+            statement.setString(1, INDEX);
+            try (var row = statement.executeQuery()) {
+                assertThat(row.next()).isTrue();
+                assertThat(row.getTimestamp("retired_at").toInstant()).isAfterOrEqualTo(beforeUpgrade);
+                assertThat(row.getString("retirement_reason")).isEqualTo("legacy_retired");
+            }
+            assertThatThrownBy(() -> execute(connection,
+                    "UPDATE index_generation_manifests SET retired_at=? WHERE index_id=?", NOW, INDEX))
+                    .hasMessageContaining("retirement evidence is immutable");
+        }
     }
 
     @Test

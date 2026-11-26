@@ -192,6 +192,16 @@ class NativeIndexCoverageLifecycleIntegrationTest extends ContainerTestBase {
             assertThat(stale.staleReason()).isEqualTo("native_source_snapshot_changed");
             assertThat(stale.generation()).isZero();
             assertThat(indexes.findActiveIndexGeneration(INDEX)).isEmpty();
+            try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement(
+                    "SELECT retired_at,retirement_reason FROM index_generation_manifests "
+                            + "WHERE index_id=? AND generation=0")) {
+                statement.setString(1, INDEX);
+                try (var row = statement.executeQuery()) {
+                    assertThat(row.next()).isTrue();
+                    assertThat(row.getTimestamp("retired_at").toInstant()).isEqualTo(stale.updatedAt());
+                    assertThat(row.getString("retirement_reason")).isEqualTo("source_snapshot_drift");
+                }
+            }
             assertThat(builds.findPublishedGeneration(TENANT, INDEX, "0", SNAPSHOT)).isPresent();
             assertThat(indexes.retireNativeGenerationForSourceDrift(
                     ready, active, "snapshot-1", Instant.now())).isFalse();

@@ -46,7 +46,7 @@ class JdbcIndexGenerationPublicationTest {
     }
 
     @Test
-    void publicationIsAtomicAndGenerationFenced() {
+    void publicationIsAtomicAndGenerationFenced() throws Exception {
         IndexDescriptor descriptor = descriptor();
         store.registerIndex(descriptor);
 
@@ -87,6 +87,16 @@ class JdbcIndexGenerationPublicationTest {
                 .orElseThrow().generation()).isEqualTo(1);
         assertThat(store.publishIndexGeneration(request(reservedGeneration, 1)))
                 .isEqualTo(second);
+        try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement(
+                "SELECT retired_at,retirement_reason FROM index_generation_manifests "
+                        + "WHERE index_id=? AND generation=0")) {
+            statement.setString(1, ready.indexId());
+            try (var row = statement.executeQuery()) {
+                assertThat(row.next()).isTrue();
+                assertThat(row.getTimestamp("retired_at").toInstant()).isEqualTo(second.publishedAt());
+                assertThat(row.getString("retirement_reason")).isEqualTo("superseded");
+            }
+        }
     }
 
     @Test

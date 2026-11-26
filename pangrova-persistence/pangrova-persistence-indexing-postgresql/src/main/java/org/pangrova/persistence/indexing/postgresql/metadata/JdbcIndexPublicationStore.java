@@ -67,7 +67,7 @@ final class JdbcIndexPublicationStore extends JdbcStoreSupport {
                         connection, descriptor, request);
                 IndexGenerationManifest manifest = buildManifest(
                         request, mappings, nextPublicationEpoch(connection, request.indexId()));
-                retireActiveGeneration(connection, request.indexId());
+                retireActiveGeneration(connection, request.indexId(), request.publishedAt());
                 insertManifest(connection, manifest);
                 activateDescriptor(connection, descriptor, request, mode);
                 if (mode == IndexPublicationMode.ONLINE_REPLACEMENT) {
@@ -155,18 +155,20 @@ final class JdbcIndexPublicationStore extends JdbcStoreSupport {
                 return false;
             }
         }
-        String retire = "UPDATE index_generation_manifests SET state='RETIRED' "
+        String retire = "UPDATE index_generation_manifests SET state='RETIRED', "
+                + "retired_at=GREATEST(published_at, ?), retirement_reason='source_snapshot_drift' "
                 + "WHERE index_id=? AND generation=? AND source_snapshot=? "
                 + "AND source_id=? AND artifact_type=? "
                 + "AND publication_epoch=? AND manifest_sha256=? AND state='ACTIVE'";
         try (PreparedStatement statement = connection.prepareStatement(retire)) {
-            statement.setString(1, active.indexId());
-            statement.setInt(2, active.generation());
-            statement.setString(3, active.sourceSnapshot());
-            statement.setString(4, active.sourceId());
-            statement.setString(5, active.artifactType());
-            statement.setLong(6, active.publicationEpoch());
-            statement.setString(7, active.manifestSha256());
+            setInstant(statement, 1, timestamp);
+            statement.setString(2, active.indexId());
+            statement.setInt(3, active.generation());
+            statement.setString(4, active.sourceSnapshot());
+            statement.setString(5, active.sourceId());
+            statement.setString(6, active.artifactType());
+            statement.setLong(7, active.publicationEpoch());
+            statement.setString(8, active.manifestSha256());
             return statement.executeUpdate() == 1;
         }
     }
@@ -325,11 +327,13 @@ final class JdbcIndexPublicationStore extends JdbcStoreSupport {
     }
 
     private static void retireActiveGeneration(
-            Connection connection, String indexId) throws SQLException {
+            Connection connection, String indexId, Instant timestamp) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
-                "UPDATE index_generation_manifests SET state='RETIRED' "
+                "UPDATE index_generation_manifests SET state='RETIRED', "
+                        + "retired_at=GREATEST(published_at, ?), retirement_reason='superseded' "
                         + "WHERE index_id=? AND state='ACTIVE'")) {
-            statement.setString(1, indexId);
+            setInstant(statement, 1, timestamp);
+            statement.setString(2, indexId);
             statement.executeUpdate();
         }
     }

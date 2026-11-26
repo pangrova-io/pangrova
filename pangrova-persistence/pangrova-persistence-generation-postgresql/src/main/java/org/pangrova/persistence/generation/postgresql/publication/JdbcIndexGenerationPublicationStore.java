@@ -94,7 +94,7 @@ public final class JdbcIndexGenerationPublicationStore
                 long publicationEpoch = nextPublicationEpoch(connection, job.artifactId());
                 GenerationManifest manifest = manifest(job, aggregate, now);
 
-                retireActiveGeneration(connection, job.artifactId());
+                retireActiveGeneration(connection, job.artifactId(), now);
                 insertIndexGeneration(connection, manifest, publicationEpoch);
                 activateDescriptor(connection, descriptor, job, mode, now);
                 if (mode == IndexPublicationMode.ONLINE_REPLACEMENT) {
@@ -310,11 +310,13 @@ public final class JdbcIndexGenerationPublicationStore
     }
 
     private static void retireActiveGeneration(
-            Connection connection, String indexId) throws SQLException {
+            Connection connection, String indexId, Instant timestamp) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
-                "UPDATE index_generation_manifests SET state='RETIRED' "
+                "UPDATE index_generation_manifests SET state='RETIRED', "
+                        + "retired_at=GREATEST(published_at, ?), retirement_reason='superseded' "
                         + "WHERE index_id=? AND state='ACTIVE'")) {
-            statement.setString(1, indexId);
+            setInstant(statement, 1, timestamp);
+            statement.setString(2, indexId);
             statement.executeUpdate();
         }
     }

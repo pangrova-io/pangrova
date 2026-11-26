@@ -209,6 +209,16 @@ pin maintenance can release it after the normal grace interval and only after
 all durable execution references have drained. An explicit rebuild can reserve
 a replacement from the STALE descriptor; this scan does not submit an automatic build.
 Unknown source state and failed validation never trigger retirement.
+V130 records the retirement instant and reason on the immutable generation
+manifest itself, in the same transaction as the pointer change. Later descriptor
+edits do not reset its grace interval. The upgrade conservatively starts grace
+at migration time for previously retired manifests whose exact time is unknown.
+A maintenance release claim stores a 15-minute retry due time before connector
+I/O, and due candidates are ordered by their effective due time, not permanently
+by creation time. A failed oldest connector operation therefore cannot
+monopolize the bounded batch. Neither grace nor retry expiry overrides live
+execution references or releases an ACTIVE generation of a live index.
+
 Scalar index snapshots are construction holds, separate from query-owned snapshot
 references. V126 persists an exact attempt-owned pin intent before the connector
 operation. A successful synchronous scalar build must exhaust each source cursor
