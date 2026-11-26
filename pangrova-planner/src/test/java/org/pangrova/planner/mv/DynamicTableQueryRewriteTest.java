@@ -1,6 +1,8 @@
 package org.pangrova.planner.mv;
 
 import org.pangrova.planner.parse.PangrovaParserFactory;
+import org.pangrova.parser.api.ast.Query;
+import org.pangrova.parser.parse.TimeTravelSqlClauses;
 import org.pangrova.planner.rewrite.DynamicTableSqlRewriter;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.security.api.exception.AccessDeniedException;
@@ -49,6 +51,41 @@ class DynamicTableQueryRewriteTest {
     }
 
     @Test
+    void parsedSelfJoinPinsOnePublishedGenerationAndKeepsItsAliases() {
+        var logical = new QualifiedTableName("lake", "analytics", "rollup");
+        var physical = new QualifiedTableName("lake", "analytics", "__pg_mat_first");
+        var reads = new AtomicInteger();
+        var resolver = new DynamicTableRewriter.PublishedTargetResolver() {
+            @Override
+            public Optional<QualifiedTableName> canonicalLogical(List<String> nameParts) {
+                return Optional.of(logical);
+            }
+
+            @Override
+            public Optional<DynamicTableRewriter.PublishedTarget> resolve(List<String> nameParts) {
+                reads.incrementAndGet();
+                return Optional.of(new DynamicTableRewriter.PublishedTarget(logical, physical));
+            }
+        };
+        var rewriter = new DynamicTableSqlRewriter(new PangrovaParserFactory(), new DynamicTableRewriter(resolver));
+        var input = TimeTravelSqlClauses.extract("SELECT a.id FROM lake.analytics.\"rollup\" a "
+                + "JOIN lake.analytics.rollup b ON a.id = b.id");
+        var result = rewriter.rewriteWithAuthority(input);
+
+        assertThat(reads).hasValue(1);
+        var query = (Query) result.statement();
+        assertThat(query.from()).singleElement().satisfies(ref -> {
+            assertThat(ref.name().parts()).containsExactly("lake", "analytics", "__pg_mat_first");
+            assertThat(ref.alias()).contains("a");
+        });
+        assertThat(query.joins()).singleElement().satisfies(join -> {
+            assertThat(join.right().name().parts()).containsExactly("lake", "analytics", "__pg_mat_first");
+            assertThat(join.right().alias()).contains("b");
+        });
+        assertThat(result.physicalToLogical()).containsEntry(physical, logical);
+    }
+
+    @Test
     void unpublishedNamePassesThrough() {
         var sqlRewriter = new DynamicTableSqlRewriter(new PangrovaParserFactory(),
                 new DynamicTableRewriter(parts -> Optional.empty()));
@@ -74,6 +111,9 @@ class DynamicTableQueryRewriteTest {
                 "WITH c AS (SELECT id FROM lake.analytics.__pg_mat_first) "
                         + "SELECT id FROM lake.analytics.rollup")) {
             assertThatThrownBy(() -> sqlRewriter.rewriteWithAuthority(sql))
+                    .isInstanceOf(AccessDeniedException.class)
+                    .hasMessageContaining("Direct access");
+            assertThatThrownBy(() -> sqlRewriter.rewriteWithAuthority(TimeTravelSqlClauses.extract(sql)))
                     .isInstanceOf(AccessDeniedException.class)
                     .hasMessageContaining("Direct access");
         }

@@ -65,6 +65,16 @@ import java.util.List;
 public final class AstToSqlNodeConverter {
 
     private static final SqlParserPos POS = SqlParserPos.ZERO;
+    private final boolean snapshotSelectorsBound;
+
+    public AstToSqlNodeConverter() {
+        this(false);
+    }
+
+    AstToSqlNodeConverter(boolean snapshotSelectorsBound) {
+        this.snapshotSelectorsBound = snapshotSelectorsBound;
+    }
+
     private final ExpressionToSqlNodeConverter exprConverter = new ExpressionToSqlNodeConverter(this);
     private final ExtensionStatementSqlNodeConverter extensionConverter =
             new ExtensionStatementSqlNodeConverter(this);
@@ -322,7 +332,7 @@ public final class AstToSqlNodeConverter {
     }
 
     private SqlNode applyTimeTravel(SqlNode table, TableRef ref) {
-        if (ref.timeTravelSpec().isEmpty()) {
+        if (snapshotSelectorsBound || ref.timeTravelSpec().isEmpty()) {
             return table;
         }
         TimeTravelSpec spec = ref.timeTravelSpec().get();

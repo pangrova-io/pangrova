@@ -24,6 +24,7 @@ import org.antlr.v4.runtime.misc.ParseCancellationException;
 import org.antlr.v4.runtime.tree.ParseTree;
 
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.BiFunction;
 
 /**
  * Entry point for parsing SQL text into an AST {@link Statement}.
@@ -370,7 +371,17 @@ public class AntlrSqlParser implements org.pangrova.parser.api.parse.SqlParser {
         }
     }
 
+    TimeTravelSqlClauses.Analysis analyzeSources(String sql) {
+        validateInput(sql);
+        return parseInternal(sql, (tokens, tree) -> TimeTravelSqlClauses.collect(sql, tokens, tree, dialect));
+    }
+
     private Statement parseInternal(String sql) {
+        return parseInternal(sql, (tokens, tree) -> new AstBuilder(tokens, dialect).visitSingleStatement(tree));
+    }
+
+    private <T> T parseInternal(String sql,
+            BiFunction<CommonTokenStream, PangrovaSqlParser.SingleStatementContext, T> build) {
         PangrovaSqlLexer lexer = new PangrovaSqlLexer(CharStreams.fromString(sql));
         lexer.removeErrorListeners();
         lexer.addErrorListener(ThrowingErrorListener.INSTANCE);
@@ -388,7 +399,7 @@ public class AntlrSqlParser implements org.pangrova.parser.api.parse.SqlParser {
         try {
             PangrovaSqlParser.SingleStatementContext tree = parseWithSllFallback(tokens);
             enforceDepthLimit(tree);
-            return new AstBuilder(tokens, dialect).visitSingleStatement(tree);
+            return build.apply(tokens, tree);
         } catch (StackOverflowError e) {
             throw new ParseException(
                     PangrovaErrorCode.PARSER_INPUT_TOO_LARGE,

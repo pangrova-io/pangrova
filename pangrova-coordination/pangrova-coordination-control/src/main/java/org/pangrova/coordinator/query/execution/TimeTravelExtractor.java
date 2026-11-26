@@ -39,11 +39,15 @@ final class TimeTravelExtractor {
 
     static CompilationPhase.TimeTravelResult extract(String sql, QuerySession context,
                                                       RefSnapshotResolver resolver) {
-        var parsed = TimeTravelSqlClauses.extract(sql);
+        return extract(TimeTravelSqlClauses.extract(sql), context, resolver);
+    }
+
+    static CompilationPhase.TimeTravelResult extract(TimeTravelSqlClauses.Analysis parsed, QuerySession context,
+                                                      RefSnapshotResolver resolver) {
         var routes = org.pangrova.query.session.BranchRoutingContext.fromSessionProperties(context.sessionProperties());
         if (!routes.hasRouting()
-                && parsed.references().stream().noneMatch(ref -> ref.table().timeTravelSpec().isPresent())) {
-            return CompilationPhase.TimeTravelResult.passthrough(sql);
+                && parsed.sql().equals(parsed.strippedSql())) {
+            return new CompilationPhase.TimeTravelResult(parsed, Map.of(), Map.of());
         }
         ConnectorSession session = SessionContextConverter.toConnectorSession(context);
         Map<String, OptionalLong> selections = new HashMap<>();
@@ -68,7 +72,7 @@ final class TimeTravelExtractor {
             }
             if (selected.isPresent()) overrides.put(key, selected.getAsLong());
         }
-        return new CompilationPhase.TimeTravelResult(parsed.strippedSql(), overrides, discoveries);
+        return new CompilationPhase.TimeTravelResult(parsed, overrides, discoveries);
     }
 
     private static List<String> qualify(TableRef ref, ConnectorSession session) {

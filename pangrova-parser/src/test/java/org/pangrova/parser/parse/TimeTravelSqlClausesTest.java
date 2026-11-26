@@ -91,6 +91,25 @@ class TimeTravelSqlClausesTest {
     }
 
     @Test
+    void rewritesOnlyRelationTokensWithUnicodeQuotedNamesAndAliases() {
+        String sql = "SELECT '😀 catalog.db.v', x.id FROM catalog.db.v AS x "
+                + "JOIN catalog.db.\"a.b\" y ON x.id = y.id";
+        var parsed = TimeTravelSqlClauses.extract(sql);
+        assertThat(TimeTravelSqlClauses.extract(sql)).isSameAs(parsed);
+        assertThat(parsed.rewriteNames(ref -> null)).isSameAs(parsed);
+        var rewritten = parsed.rewriteNames(ref -> ref.table().alias().orElseThrow().equals("y")
+                ? "(SELECT 1 AS id)" : null);
+        assertThat(rewritten.sql()).isEqualTo(
+                "SELECT '😀 catalog.db.v', x.id FROM catalog.db.v AS x JOIN (SELECT 1 AS id) y ON x.id = y.id");
+        assertThat(rewritten.references()).singleElement().satisfies(ref ->
+                assertThat(ref.table().alias()).contains("x"));
+
+        var shifted = TimeTravelSqlClauses.extract("  " + sql);
+        assertThat(shifted.references().get(0).nameStart())
+                .isEqualTo(parsed.references().get(0).nameStart() + 2);
+    }
+
+    @Test
     void invalidClauseFailsStrictlyRatherThanReturningCurrentSql() {
         assertThatThrownBy(() -> TimeTravelSqlClauses.extract("SELECT id FROM rows FOR VERSION AS OF"))
                 .isInstanceOf(ParseException.class);

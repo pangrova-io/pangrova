@@ -1,97 +1,104 @@
 package org.pangrova.parser.parse;
 
-import org.pangrova.parser.api.exception.ParseException;
-import org.pangrova.parser.build.antlr.PangrovaSqlLexer;
-import org.pangrova.parser.build.antlr.PangrovaSqlParser;
-import org.pangrova.parser.build.AstBuilder;
-import org.pangrova.parser.diagnostic.ThrowingErrorListener;
-
-import org.antlr.v4.runtime.BailErrorStrategy;
-import org.antlr.v4.runtime.CharStreams;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import org.antlr.v4.runtime.CommonTokenStream;
-import org.antlr.v4.runtime.misc.ParseCancellationException;
 import org.antlr.v4.runtime.tree.ParseTree;
 import org.pangrova.common.enums.PangrovaErrorCode;
+import org.pangrova.parser.api.ast.Statement;
 import org.pangrova.parser.api.ast.TableRef;
+import org.pangrova.parser.api.enums.SqlDialect;
+import org.pangrova.parser.api.exception.ParseException;
+import org.pangrova.parser.build.AstBuilder;
+import org.pangrova.parser.build.antlr.PangrovaSqlParser;
 
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.function.Function;
 
-/** Locates source clauses and named references using the existing SQL grammar. */
+/** Source references and SQL spans captured while constructing the statement AST. */
 public final class TimeTravelSqlClauses {
+    private static final int MIN_ENTRY_WEIGHT = 4096;
+    private static final long SOURCE_CACHE_MAX_WEIGHT = 4L * 1024 * 1024;
+    private static final AntlrSqlParser PARSER = new AntlrSqlParser();
+
+    // Source offsets depend on the full SQL spelling, including whitespace and comments.
+    private static final Cache<String, Analysis> SOURCES = Caffeine.newBuilder()
+                    .maximumWeight(SOURCE_CACHE_MAX_WEIGHT)
+                    .weigher((String sql, Analysis ignored) -> Math.max(MIN_ENTRY_WEIGHT, sql.length()))
+                    .build();
+
     private TimeTravelSqlClauses() {}
 
-    /** A named reference and whether its name resolves to a visible logical CTE. */
-    public record Reference(TableRef table, boolean cte) {}
+    /** One named relation and the source span of its qualified name, in code points. */
+    public record Reference(TableRef table, boolean cte, int nameStart, int nameEnd) {}
 
-    /** Exact original SQL outside time-travel spans and its named references. */
-    public record Analysis(String strippedSql, List<Reference> references) {
+    /** One statement and its exact source information. */
+    public record Analysis(String sql, Statement statement, String strippedSql, List<Reference> references) {
         public Analysis {
             references = List.copyOf(references);
         }
+
+        /** Replaces named relation tokens and parses the new input only when changed. */
+        public Analysis rewriteNames(Function<Reference, String> replacement) {
+            StringBuilder rewritten = null;
+            int cursor = 0;
+            int cursorCodePoints = 0;
+            for (Reference reference : references) {
+                String name = replacement.apply(reference);
+                if (name == null) {
+                    continue;
+                }
+                if (rewritten == null) {
+                    rewritten = new StringBuilder(sql.length());
+                }
+                int start = sql.offsetByCodePoints(cursor, reference.nameStart() - cursorCodePoints);
+                int end = sql.offsetByCodePoints(start, reference.nameEnd() - reference.nameStart());
+                rewritten.append(sql, cursor, start).append(name);
+                cursor = end;
+                cursorCodePoints = reference.nameEnd();
+            }
+            return rewritten == null ? this : extract(rewritten.append(sql, cursor, sql.length()).toString());
+        }
     }
 
-    /** Strictly parses the same grammar; malformed SQL is never returned as current SQL. */
+    /** Strictly parses the built-in grammar once, retaining the original AST and source spans. */
     public static Analysis extract(String sql) {
-        if (sql == null || sql.length() > AntlrSqlParser.DEFAULT_MAX_SQL_LENGTH) {
-            throw invalid("SQL text exceeds the parser input limit");
+        if (sql == null || sql.length() >= AntlrSqlParser.DEFAULT_MAX_SQL_LENGTH) {
+            return PARSER.analyzeSources(sql);
         }
-        var lexer = new PangrovaSqlLexer(CharStreams.fromString(sql));
-        lexer.removeErrorListeners();
-        lexer.addErrorListener(ThrowingErrorListener.INSTANCE);
-        var tokens = new CommonTokenStream(lexer);
-        var parser = new PangrovaSqlParser(tokens);
-        parser.removeErrorListeners();
-        parser.addErrorListener(ThrowingErrorListener.INSTANCE);
-        parser.setErrorHandler(new BailErrorStrategy());
-        try {
-            var tree = parser.singleStatement();
-            if (AntlrSqlParser.measureDepth(tree) > AntlrSqlParser.DEFAULT_MAX_TREE_DEPTH) {
-                throw invalid("SQL parse tree exceeds the parser depth limit");
-            }
-            return collect(sql, tree, new AstBuilder(tokens));
-        } catch (ParseCancellationException failure) {
-            if (failure.getCause() instanceof ParseException original) {
-                throw original;
-            }
-            if (failure.getCause() instanceof org.antlr.v4.runtime.RecognitionException syntax) {
-                var token = syntax.getOffendingToken();
-                int line = token == null ? 0 : token.getLine();
-                int column = token == null ? 0 : token.getCharPositionInLine();
-                String detail = token == null ? "syntax error"
-                        : "mismatched input '" + token.getText() + "'";
-                throw new ParseException(PangrovaErrorCode.PARSER_SYNTAX_ERROR,
-                        "line " + line + ":" + column + " " + detail, line, column);
-            }
-            throw new ParseException(PangrovaErrorCode.PARSER_SYNTAX_ERROR,
-                    "Cannot locate time-travel clauses in invalid SQL", null, failure);
-        } catch (StackOverflowError failure) {
-            throw new ParseException(PangrovaErrorCode.PARSER_SYNTAX_ERROR,
-                    "Cannot locate time-travel clauses in invalid SQL", null, failure);
-        }
+        return SOURCES.get(sql, PARSER::analyzeSources);
     }
 
-    private static Analysis collect(String sql, ParseTree tree, AstBuilder builder) {
-        var pending = new ArrayDeque<ParseTree>();
-        var references = new ArrayList<Reference>();
-        var spans = new ArrayList<Span>();
-        pending.push(tree);
-        while (!pending.isEmpty()) {
-            var node = pending.pop();
-            if (node instanceof PangrovaSqlParser.NamedTableRefContext named) {
-                var table = builder.visitNamedTableRef(named);
-                references.add(new Reference(table, isCteReference(named, table, builder)));
-            }
-            if (node instanceof PangrovaSqlParser.TimeTravelSpecContext clause) {
+    static Analysis collect(String sql, CommonTokenStream tokens,
+            PangrovaSqlParser.SingleStatementContext tree, SqlDialect dialect) {
+        var builder = new SourceBuilder(tokens, dialect);
+        var statement = builder.visitSingleStatement(tree);
+        builder.references.sort(Comparator.comparingInt(Reference::nameStart));
+        return new Analysis(sql, statement, strip(sql, builder.spans), builder.references);
+    }
+
+    private static final class SourceBuilder extends AstBuilder {
+        private final List<Reference> references = new ArrayList<>();
+        private final List<Span> spans = new ArrayList<>();
+
+        private SourceBuilder(CommonTokenStream tokens, SqlDialect dialect) {
+            super(tokens, dialect);
+        }
+
+        @Override
+        public TableRef visitNamedTableRef(PangrovaSqlParser.NamedTableRefContext named) {
+            var table = super.visitNamedTableRef(named);
+            var name = named.qualifiedName();
+            references.add(new Reference(table, isCteReference(named, table, this),
+                    name.getStart().getStartIndex(), name.getStop().getStopIndex() + 1));
+            var clause = named.timeTravelSpec();
+            if (clause != null) {
                 spans.add(new Span(clause.getStart().getStartIndex(), clause.getStop().getStopIndex() + 1));
             }
-            for (int i = node.getChildCount() - 1; i >= 0; --i) {
-                pending.push(node.getChild(i));
-            }
+            return table;
         }
-        return new Analysis(strip(sql, spans), references);
     }
 
     private static boolean isCteReference(PangrovaSqlParser.NamedTableRefContext named,

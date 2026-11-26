@@ -13,6 +13,7 @@
  */
 package org.pangrova.coordinator.query.execution;
 
+import org.pangrova.parser.api.ast.Statement;
 import org.pangrova.coordinator.metadata.ConnectorWriteBindingFactory;
 import org.pangrova.execution.write.WriteAuthorityAdmission;
 import org.pangrova.query.api.write.WriteAuthorityResolver;
@@ -110,7 +111,7 @@ final class QuerySchedulingEngine {
     // ── Main dispatch entry point ──
 
     CompletionStage<DispatchResult> startQuery(QueryStateMachine sm, QuerySession session,
-            PlannedQuery plannedQuery, DispatchQueryContext ctx) {
+            PlannedQuery plannedQuery, DispatchQueryContext ctx, Statement statement) {
         LOG.info("event=dispatch_query queryId={} user={} sql_preview={}",
                 session.queryId(),
                 session.userIdentity() != null
@@ -121,7 +122,7 @@ final class QuerySchedulingEngine {
         DispatchQueryContext effectiveCtx = enricher.enrichWithVectorSearch(
                 plannedQuery, ctx, session.queryId(), session.tenantId());
         effectiveCtx = enricher.enrichWithReranker(
-                effectiveCtx, session.queryId(), session.tenantId());
+                effectiveCtx, statement, session.queryId(), session.tenantId());
         return dispatchToWorker(
                 sm, withPolicyContext(session, plannedQuery), plannedQuery, effectiveCtx);
     }

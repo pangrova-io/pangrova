@@ -69,6 +69,14 @@ public final class RecursiveCteExpander {
         return expand(cte);
     }
 
+    /** Reuses a parsed statement and parses only the generated recursive levels. */
+    public Statement expand(Statement statement) {
+        if (statement instanceof CteQuery cte && cte.recursive()) {
+            return parserFactory.parseToAst(expand(cte));
+        }
+        return statement;
+    }
+
     private static boolean containsRecursiveKeyword(String sql) {
         return sql.toUpperCase(Locale.ROOT).contains("RECURSIVE");
     }

@@ -4,6 +4,7 @@ import org.pangrova.connector.api.query.ConnectorQueryAuthority;
 import org.pangrova.connector.api.metadata.ConnectorReadDiscovery;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.connector.api.session.ConnectorSession;
+import org.pangrova.parser.api.ast.TableRef;
 
 import java.util.LinkedHashMap;
 import java.util.Locale;
@@ -61,6 +62,21 @@ public final class PlanningSnapshotSelectors {
         long snapshot = Long.parseLong(value);
         if (snapshot <= 0) throw new IllegalArgumentException("Resolved source snapshot must be positive");
         return OptionalLong.of(snapshot);
+    }
+
+    /** Checks that a parsed source can use an explicitly selected snapshot in this bound session. */
+    public static boolean hasSelection(ConnectorSession session, TableRef table) {
+        var parts = table.name().parts();
+        if (parts.isEmpty() || parts.size() > 3) {
+            return false;
+        }
+        String catalog = parts.size() == 3 ? parts.get(0) : session.getCatalog().orElse(null);
+        String schema = parts.size() == 1 ? session.getSchema().orElse(null) : parts.get(parts.size() - 2);
+        String name = parts.get(parts.size() - 1);
+        if (table.systemTableRef().isPresent()) {
+            name += "$" + table.systemTableRef().orElseThrow().systemTableName();
+        }
+        return catalog != null && schema != null && snapshot(session, catalog, schema, name).isPresent();
     }
 
     /** Encodes resolved identifier components without confusing literal dots with qualification. */
