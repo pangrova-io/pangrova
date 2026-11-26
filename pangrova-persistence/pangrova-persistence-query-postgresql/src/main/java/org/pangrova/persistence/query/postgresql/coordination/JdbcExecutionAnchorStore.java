@@ -42,8 +42,6 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
                 (execution_id, owner_id, owner_incarnation, fencing_token, acquired_at, expires_at, version)
             SELECT ?, ?, ?, nextval('execution_anchor_token_seq'), sampled_at, sampled_at + CAST(? AS interval), 1
             FROM lease_clock
-            WHERE NOT EXISTS (SELECT 1 FROM execution_read_window w
-                WHERE w.execution_id=? AND w.protected_until>clock_timestamp())
             ON CONFLICT DO NOTHING
             RETURNING fencing_token
             """;
@@ -103,6 +101,8 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
             SET acquired_at=sampled_at, expires_at=sampled_at + CAST(? AS interval)
             FROM lease_clock
             WHERE execution_id=? AND fencing_token=? AND version=1
+                AND NOT EXISTS (SELECT 1 FROM execution_read_window w
+                    WHERE w.execution_id=execution_anchor.execution_id AND w.protected_until>sampled_at)
             RETURNING owner_id, owner_incarnation, fencing_token, acquired_at, expires_at, version
             """;
     private static final String PUBLICATION_REVISION =
@@ -156,7 +156,11 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
             connection.setAutoCommit(false);
             lockAcquisition(connection, executionId);
             var result = acquireLocked(connection, executionId, ownerId, ownerIncarnation, leaseDuration, tenantId);
-            connection.commit();
+            if (result.isPresent()) {
+                connection.commit();
+            } else {
+                connection.rollback();
+            }
             return result;
         } catch (SQLException failure) {
             throw storeFailure("acquire", executionId, failure);
@@ -181,17 +185,14 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
             String ownerId,
             String ownerIncarnation,
             Duration leaseDuration, String tenantId) throws SQLException {
-        AnchorRow row = selectForUpdate(connection, executionId);
-        if (row == null) {
-            String interval = leaseDuration.toMillis() + " milliseconds";
-            OptionalLong token = insert(connection, executionId, ownerId, ownerIncarnation, interval);
-            if (token.isPresent()) {
-                // INSERT may wait for an invisible competing INSERT that rolls back.
-                // Our row is now exclusively owned; grant from time after that wait.
-                return Optional.of(refreshInserted(connection, executionId, token.getAsLong(), interval, tenantId));
-            }
-            row = selectForUpdate(connection, executionId);
+        String interval = leaseDuration.toMillis() + " milliseconds";
+        OptionalLong inserted = insert(connection, executionId, ownerId, ownerIncarnation, interval);
+        if (inserted.isPresent()) {
+            // An uncommitted competing row can delay INSERT. Check the durable read
+            // window and start the lease in a fresh statement after that wait.
+            return refreshInserted(connection, executionId, inserted.getAsLong(), interval, tenantId);
         }
+        AnchorRow row = selectForUpdate(connection, executionId);
         Instant now = dbNow(connection);
         if (row == null || row.expiresAt.isAfter(now)) {
             return Optional.empty();
@@ -390,7 +391,7 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
         }
     }
 
-    private static QueryAcquisition refreshInserted(Connection connection, String executionId, long token,
+    private static Optional<QueryAcquisition> refreshInserted(Connection connection, String executionId, long token,
             String interval, String tenantId) throws SQLException {
         String sql = tenantId == null ? REFRESH_INSERTED : REFRESH_INSERTED_QUERY;
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
@@ -402,11 +403,11 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
             }
             try (ResultSet result = statement.executeQuery()) {
                 if (!result.next()) {
-                    throw new SQLException("Inserted execution anchor lost its transaction ownership");
+                    return Optional.empty();
                 }
                 OptionalLong revision = tenantId == null ? OptionalLong.empty()
                         : OptionalLong.of(result.getLong("publication_revision"));
-                return new QueryAcquisition(anchor(executionId, mapRow(result)), revision);
+                return Optional.of(new QueryAcquisition(anchor(executionId, mapRow(result)), revision));
             }
         }
     }
@@ -435,7 +436,6 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
             statement.setString(2, ownerId);
             statement.setString(3, ownerIncarnation);
             statement.setString(4, interval);
-            statement.setString(5, executionId);
             try (ResultSet result = statement.executeQuery()) {
                 return result.next() ? OptionalLong.of(result.getLong("fencing_token")) : OptionalLong.empty();
             }
