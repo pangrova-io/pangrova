@@ -30,6 +30,13 @@ final class JdbcScalarArtifactIntentStore extends JdbcStoreSupport {
             + "md5(m.index_file_path)=md5(i.artifact_path) AND m.index_file_path=i.artifact_path)";
     private static final String RECLAIM_ORDER =
             " ORDER BY i.reclaim_poll_order NULLS FIRST,i.drained_at,i.artifact_digest LIMIT ?";
+    private static final String LIST_RECLAIMABLE =
+            SELECT_IDENTITY + " FROM " + TABLE + " i WHERE " + RECLAIMABLE + RECLAIM_ORDER;
+    private static final String POLL_RECLAIMABLE = "WITH candidates AS (SELECT i.artifact_digest FROM "
+            + TABLE + " i WHERE " + RECLAIMABLE + RECLAIM_ORDER + " FOR UPDATE OF i SKIP LOCKED) "
+            + "UPDATE " + TABLE + " i SET reclaim_poll_order=nextval('scalar_artifact_reclaim_poll_seq') "
+            + "FROM candidates c WHERE i.artifact_digest=c.artifact_digest "
+            + "RETURNING i.index_id,i.generation,i.attempt_owner,i.data_file_path,i.artifact_path";
 
     JdbcScalarArtifactIntentStore(DataSource source) {
         super(source);
@@ -81,8 +88,8 @@ final class JdbcScalarArtifactIntentStore extends JdbcStoreSupport {
 
     List<ScalarArtifactIntent> listReclaimable(Instant cutoff, int limit) {
         if (limit <= 0) throw new IllegalArgumentException("A positive scalar orphan batch limit is required");
-        String sql = SELECT_IDENTITY + " FROM " + TABLE + " i WHERE " + RECLAIMABLE + RECLAIM_ORDER;
-        return queryCandidates(sql, cutoff, limit);
+        return executeQuery(LIST_RECLAIMABLE, bindCandidateSelection(cutoff, limit),
+                JdbcScalarArtifactIntentStore::readCandidates);
     }
 
     List<ScalarArtifactIntent> pollReclaimable(Instant cutoff, int limit) {
@@ -90,23 +97,21 @@ final class JdbcScalarArtifactIntentStore extends JdbcStoreSupport {
         // Advancing priority is not a deletion claim, and never substitutes for the exact ownership recheck.
         // A crash after polling still leaves every selected row eligible; an inaccessible oldest batch cannot
         // repeatedly starve later work, even across collector handoff/restart.
-        String sql = "WITH candidates AS (SELECT i.artifact_digest FROM " + TABLE + " i WHERE "
-                + RECLAIMABLE + RECLAIM_ORDER + " FOR UPDATE OF i SKIP LOCKED) "
-                + "UPDATE " + TABLE + " i SET reclaim_poll_order=nextval('scalar_artifact_reclaim_poll_seq') "
-                + "FROM candidates c WHERE i.artifact_digest=c.artifact_digest "
-                + "RETURNING i.index_id,i.generation,i.attempt_owner,i.data_file_path,i.artifact_path";
-        return queryCandidates(sql, cutoff, limit);
+        return executeQuery(POLL_RECLAIMABLE, bindCandidateSelection(cutoff, limit),
+                JdbcScalarArtifactIntentStore::readCandidates);
     }
 
-    private List<ScalarArtifactIntent> queryCandidates(String sql, Instant cutoff, int limit) {
-        return executeQuery(sql, statement -> {
+    private static SqlConsumer bindCandidateSelection(Instant cutoff, int limit) {
+        return statement -> {
             statement.setTimestamp(1, Timestamp.from(cutoff));
             statement.setInt(2, limit);
-        }, rows -> {
-            List<ScalarArtifactIntent> intents = new ArrayList<>();
-            while (rows.next()) intents.add(readIntent(rows));
-            return List.copyOf(intents);
-        });
+        };
+    }
+
+    private static List<ScalarArtifactIntent> readCandidates(ResultSet rows) throws SQLException {
+        List<ScalarArtifactIntent> intents = new ArrayList<>();
+        while (rows.next()) intents.add(readIntent(rows));
+        return List.copyOf(intents);
     }
 
     boolean beginReclaim(ScalarArtifactIntent intent) {

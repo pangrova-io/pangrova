@@ -11,6 +11,13 @@ import java.util.List;
 
 /** Durable keyset progress; descriptor mutations remain owned by lifecycle fences. */
 final class JdbcIndexMaintenanceScanStore extends JdbcStoreSupport {
+    private static final String PAGE_PREFIX = "SELECT * FROM index_descriptors WHERE state=? AND index_id<=? ";
+    private static final String PAGE_SUFFIX = "ORDER BY index_id LIMIT ?";
+    private static final String FIRST_PAGE = PAGE_PREFIX + PAGE_SUFFIX;
+    private static final String NEXT_PAGE = PAGE_PREFIX + "AND index_id>? " + PAGE_SUFFIX;
+    private static final String FIRST_PAGE_BEFORE_CUTOFF = PAGE_PREFIX + "AND updated_at<? " + PAGE_SUFFIX;
+    private static final String NEXT_PAGE_BEFORE_CUTOFF =
+            PAGE_PREFIX + "AND index_id>? AND updated_at<? " + PAGE_SUFFIX;
 
     JdbcIndexMaintenanceScanStore(DataSource dataSource) {
         super(dataSource);
@@ -31,20 +38,29 @@ final class JdbcIndexMaintenanceScanStore extends JdbcStoreSupport {
                     rows -> rows.next() ? rows.getString(1) : null);
         }
         if (upper == null) return new MaintenancePage(state, cursor.revision(), null, List.of(), true);
-        String bound = upper;
-        String sql = "SELECT * FROM index_descriptors WHERE state=? AND index_id<=? "
-                + (cursor.lastIndexId() == null ? "" : "AND index_id>? ")
-                + (cutoff == null ? "" : "AND updated_at<? ")
-                + "ORDER BY index_id LIMIT ?";
-        List<IndexDescriptor> candidates = executeQuery(sql, ps -> {
+        List<IndexDescriptor> candidates = loadCandidates(state, cursor.lastIndexId(), upper, cutoff, limit);
+        return new MaintenancePage(state, cursor.revision(), upper, candidates, candidates.size() < limit);
+    }
+
+    private List<IndexDescriptor> loadCandidates(
+            IndexState state, String lastIndexId, String upperIndexId, Instant cutoff, int limit) {
+        // Four complete constant statements keep every input bound and preserve the keyset range predicates.
+        SqlConsumer binder = ps -> {
             ps.setString(1, state.name());
-            ps.setString(2, bound);
+            ps.setString(2, upperIndexId);
             int parameter = 3;
-            if (cursor.lastIndexId() != null) ps.setString(parameter++, cursor.lastIndexId());
+            if (lastIndexId != null) ps.setString(parameter++, lastIndexId);
             if (cutoff != null) JdbcSupport.setInstant(ps, parameter++, exclusiveCutoff(cutoff));
             ps.setInt(parameter, limit);
-        }, IndexMetadataMapper::mapDescriptorList);
-        return new MaintenancePage(state, cursor.revision(), upper, candidates, candidates.size() < limit);
+        };
+        if (lastIndexId == null) {
+            return cutoff == null
+                    ? executeQuery(FIRST_PAGE, binder, IndexMetadataMapper::mapDescriptorList)
+                    : executeQuery(FIRST_PAGE_BEFORE_CUTOFF, binder, IndexMetadataMapper::mapDescriptorList);
+        }
+        return cutoff == null
+                ? executeQuery(NEXT_PAGE, binder, IndexMetadataMapper::mapDescriptorList)
+                : executeQuery(NEXT_PAGE_BEFORE_CUTOFF, binder, IndexMetadataMapper::mapDescriptorList);
     }
 
     boolean completeMaintenancePage(MaintenancePage page) {
