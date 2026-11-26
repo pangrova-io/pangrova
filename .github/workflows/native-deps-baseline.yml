@@ -1,169 +1,36 @@
 name: Native dependency baseline
 
-# Warms the layered native caches that CI restores, so ordinary runs start from
-# a reviewed dependency prefix and Velox build layer instead of a cold rebuild.
-# On Linux the same prefixes can be published as an OCI image (opt-in).
-
 on:
-  schedule:
-    - cron: '0 3 * * 0'
   workflow_dispatch:
-  push:
-    paths:
-      - 'pangrova-worker-native/dependency-versions.txt'
 
 permissions:
   contents: read
-  actions: read
-  packages: write
-
-concurrency:
-  group: native-deps-baseline-${{ github.ref }}
-  cancel-in-progress: false
 
 jobs:
-  warm:
-    name: Warm baseline (${{ matrix.platform.name }})
-    runs-on: ${{ matrix.platform.runner }}
-    timeout-minutes: 360
-    strategy:
-      fail-fast: false
-      matrix:
-        platform:
-          - { name: linux-x86_64, runner: ubuntu-24.04, os: linux }
-          - { name: linux-aarch_64, runner: ubuntu-24.04-arm, os: linux }
-          - { name: osx-x86_64, runner: macos-15-intel, os: osx }
-          - { name: osx-aarch_64, runner: macos-15, os: osx }
+  macos-docker:
+    name: Verify native macOS ARM64 Docker
+    runs-on: macos-15
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v7
-
-      - name: Set up function-contract Python
-        uses: actions/setup-python@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
-
-      - name: Cache dependency archives
-        uses: actions/cache@v6
-        with:
-          path: ~/.pangrova/velox/archive-cache
-          key: pangrova-v1-archives-${{ matrix.platform.runner }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt') }}
-
-      - name: Cache native dependency prefixes
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.pangrova/native-deps
-            ~/.pangrova/velox/deps-install
-          key: pangrova-v1-deps-${{ matrix.platform.runner }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt', '.github/actions/setup-native-build/action.yml', 'pangrova-worker-native/patches/*') }}
-
-      - name: Cache Velox build layer
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.pangrova/velox/_build/release/_deps
-            ~/.pangrova/velox/_build/release/lib
-            ~/.pangrova/velox/_build/release/CMakeCache.txt
-          key: pangrova-v1-velox-${{ matrix.platform.runner }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt', 'pangrova-worker-native/patches/velox-*.patch', 'pangrova-protocol/src/main/resources/function-contracts/execution-selection.json') }}
-
-      - name: Cache compiler results
-        uses: actions/cache@v6
-        with:
-          path: ~/.cache/ccache
-          key: pangrova-ccache-${{ runner.os }}-${{ runner.arch }}-baseline-${{ github.sha }}
-          restore-keys: |
-            pangrova-ccache-${{ runner.os }}-${{ runner.arch }}-
-
-      - name: Install and verify the native toolchain
-        uses: ./.github/actions/setup-native-build
-
-      - name: Build dependency prefix and Velox build layer
-        run: bash ./pangrova-worker-native/bin/setup-native-build-env.sh
-
-      - name: Package dependency baseline (macOS)
-        if: matrix.platform.os == 'osx'
-        shell: bash
+      - name: Start the CI Docker endpoint
+        run: bash .pangrova/scripts/setup-macos-native-test-docker.sh
+      - name: Run PostgreSQL and verify the published port
         run: |
-          set -euo pipefail
-          archive="$RUNNER_TEMP/native-deps-${{ matrix.platform.name }}.tar.zst"
-          pack() {
-            tar --zstd -cf "$archive" \
-              -C "$HOME/.pangrova" \
-              native-deps \
-              velox/deps-install \
-              velox/archive-cache \
-              velox/_build/release/_deps
-          }
-          if ! command -v zstd >/dev/null 2>&1; then
-            HOMEBREW_NO_AUTO_UPDATE=1 brew install zstd
-          fi
-          rm -f "$archive"
-          pack
-          du -h "$archive"
-
-      - name: Upload dependency baseline artifact (macOS)
-        if: matrix.platform.os == 'osx'
-        uses: actions/upload-artifact@v7
-        with:
-          name: native-deps-${{ matrix.platform.name }}
-          path: ${{ runner.temp }}/native-deps-${{ matrix.platform.name }}.tar.zst
-          if-no-files-found: error
-          retention-days: 14
-
-  publish-image:
-    name: Publish dependency image (${{ matrix.platform.name }})
-    # Opt-in: requires the repository variable and GHCR package permissions.
-    if: vars.PANGROVA_NATIVE_DEPS_IMAGE == 'ghcr'
-    needs: warm
-    runs-on: ${{ matrix.platform.runner }}
-    timeout-minutes: 90
-    strategy:
-      fail-fast: false
-      matrix:
-        platform:
-          - { name: linux-x86_64, runner: ubuntu-24.04 }
-          - { name: linux-aarch_64, runner: ubuntu-24.04-arm }
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Restore dependency baseline
-        id: baseline
-        uses: actions/cache/restore@v6
-        with:
-          path: |
-            ~/.pangrova/native-deps
-            ~/.pangrova/velox/deps-install
-            ~/.pangrova/velox/archive-cache
-          key: pangrova-v1-deps-${{ matrix.platform.runner }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt', '.github/actions/setup-native-build/action.yml', 'pangrova-worker-native/patches/*') }}
-          lookup-only: true
-
-      - name: Publish OCI image
-        if: steps.baseline.outputs.cache-hit == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          root="$RUNNER_TEMP/context"
-          mkdir -p "$root/opt/pangrova/velox"
-          cp -a "$HOME/.pangrova/native-deps" "$root/opt/pangrova/native-deps"
-          cp -a "$HOME/.pangrova/velox/deps-install" "$root/opt/pangrova/velox/deps-install"
-          cp -a "$HOME/.pangrova/velox/archive-cache" "$root/opt/pangrova/velox/archive-cache"
-          owner="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
-          revision="$(tr -d '\n' < pangrova-worker-native/dependency-versions.txt | sha256sum | cut -c1-16)"
-          tag="deps-${{ matrix.platform.name }}-$revision"
-          {
-            printf 'FROM scratch\n'
-            printf 'COPY opt/pangrova /opt/pangrova\n'
-            printf 'LABEL org.opencontainers.image.source="https://github.com/%s"\n' "$GITHUB_REPOSITORY"
-            printf 'LABEL org.opencontainers.image.revision="%s"\n' "$GITHUB_SHA"
-          } > "$root/Dockerfile"
-          echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-          image="ghcr.io/$owner/pangrova-native-deps:$tag"
-          docker build -t "$image" "$root"
-          docker push "$image"
-          echo "### Published \`$image\`" >> "$GITHUB_STEP_SUMMARY"
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-
-      - name: Report missing baseline
-        if: steps.baseline.outputs.cache-hit != 'true'
-        run: |
-          echo "::warning::Dependency baseline cache is missing; warm job did not produce it"
+          command -v docker >/dev/null || HOMEBREW_NO_AUTO_UPDATE=1 brew install docker
+          docker info
+          docker run --rm -d --name pangrova-ci-probe -e POSTGRES_PASSWORD=probe \
+            -p 127.0.0.1::5432 postgres:16-alpine
+          trap 'docker logs pangrova-ci-probe; docker stop pangrova-ci-probe || true' EXIT
+          port=$(docker port pangrova-ci-probe 5432/tcp | cut -d: -f2)
+          for attempt in $(seq 1 60); do
+            if docker exec pangrova-ci-probe pg_isready -h 127.0.0.1 &&
+                nc -z -G 2 127.0.0.1 "$port"; then
+              exit 0
+            fi
+            sleep 2
+          done
+          exit 1
