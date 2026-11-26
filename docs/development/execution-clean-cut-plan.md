@@ -119,6 +119,8 @@ unlisted: true
 
 96 项定向 Java 测试和 63 项 macOS 角色端到端测试通过，含 17 项物理双 Worker Shuffle、3 项激活冒烟、普通读取数据库计数及 Dynamic Table、物化视图、Iceberg 历史引用与查询生命周期。两个独立 PostgreSQL 客户端验证未提交版本不可见，提交后新受理的查询观察到新版本。两个目录实例验证发布与暂停后的变更，已固定的旧目录仍保持同一代次。角色清单为 `08bea98839fb3f45c3eca7195bd1996d7f20ec01f4ee6872c44ed536f1157e58`。
 
+首次取得执行所有权先在事务级 advisory lock 内尝试插入。只有插入冲突才锁行读取现有所有者。插入后的新语句以同一次数据库时间观察检查读取保护窗口并设定租约。相同 PostgreSQL 用例的独立所有权行读取从 1 次降到 0 次。两个连接在旧 anchor 删除的同时提交读取保护窗口，确认等待中的后继既未取得所有权，也未留下临时 anchor。15 项 PostgreSQL 测试和 43 项 macOS 角色端到端测试通过，含物理双 Worker Shuffle、查询生命周期、读库计数、Dynamic Table 和激活冒烟。两项时序相关用例独立复跑通过。角色清单为 `d46d6c6c8ee0fcc26f18ff49b3aeec2c402679f79cc2a75820c8a38169a9bcaa`。
+
 
 基于主分支 `833a8d8c6` 重新打包 Coordinator、Worker 和 CLI，并依据相同的 Native 运行时源码、构建配置和 Protobuf 输入复用已验证的 Native 库。macOS arm64 和 Linux arm64 的角色包分别校验 739 个文件，清单 SHA-256 分别为 `df98c71f8a09101faf6845cc73b8da1f976c50aea3b03e706bcf8773bd81dbf9` 和 `e0e7c9c7f6acf29c6d9a58a35852aa7df0c32efce64a865c389c7bf8e9feeae9`。
 
