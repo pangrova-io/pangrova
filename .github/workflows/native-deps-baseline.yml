@@ -6,7 +6,7 @@ on:
       probe:
         description: Isolated CI stage to verify
         type: choice
-        options: [macos-docker, production, worker-files]
+        options: [macos-docker, macos-intel-docker, production, worker-files]
         default: macos-docker
 
 permissions:
@@ -15,9 +15,9 @@ permissions:
 
 jobs:
   macos-docker:
-    if: inputs.probe == 'macos-docker'
-    name: Verify native macOS ARM64 Docker
-    runs-on: macos-15
+    if: inputs.probe == 'macos-docker' || inputs.probe == 'macos-intel-docker'
+    name: Verify native macOS Docker
+    runs-on: ${{ inputs.probe == 'macos-intel-docker' && 'macos-15-intel' || 'macos-15' }}
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v7
