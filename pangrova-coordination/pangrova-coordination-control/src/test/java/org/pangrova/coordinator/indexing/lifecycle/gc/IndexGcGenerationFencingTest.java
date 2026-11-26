@@ -8,6 +8,7 @@ import org.pangrova.coordinator.indexing.connector.ConnectorAccessorResolver;
 import org.pangrova.indexing.config.IndexingConfig;
 import org.pangrova.indexing.storage.LocalFileSystemAccessor;
 import org.pangrova.indexing.storage.IndexStorageManager;
+import org.pangrova.indexing.storage.IndexStorageLayout;
 import org.pangrova.metadata.api.catalog.CatalogDescriptor;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
@@ -160,9 +161,16 @@ class IndexGcGenerationFencingTest {
     @Test
     void oldGenerationDeletionPreservesCurrentFileForSameSource() throws Exception {
         var store = new GenerationTrackingStore();
-        store.addDescriptor(buildDescriptor("idx-1", 3, IndexState.READY));
-        Path old = Files.writeString(files.resolve("g1.idx"), "old");
-        Path current = Files.writeString(files.resolve("g3.idx"), "current");
+        var descriptor = buildDescriptor("idx-1", 3, IndexState.READY);
+        store.addDescriptor(descriptor);
+        var layout = new IndexStorageLayout(files.toString());
+        Path old = Path.of(layout.indexFilePath(descriptor.withGeneration(1, descriptor.updatedAt()),
+                UUID.randomUUID(), "/data/same.parquet"));
+        Path current = Path.of(layout.indexFilePath(descriptor, UUID.randomUUID(), "/data/same.parquet"));
+        Files.createDirectories(old.getParent());
+        Files.createDirectories(current.getParent());
+        Files.writeString(old, "old");
+        Files.writeString(current, "current");
         store.addStaleMapping(buildMapping("idx-1", "/data/same.parquet", old.toString(), 1));
         store.addStaleMapping(buildMapping("idx-1", "/data/same.parquet", current.toString(), 3));
         gc = buildGc(store);
@@ -192,14 +200,23 @@ class IndexGcGenerationFencingTest {
     @Test
     void removesAnIndexCohortWithoutReloadingAllItsMappingsPerOrphan() throws Exception {
         var store = new GenerationTrackingStore();
-        store.addDescriptor(buildDescriptor("idx-1", 4, IndexState.READY));
-        Path current = Files.writeString(files.resolve("current.idx"), "serving");
+        var descriptor = buildDescriptor("idx-1", 4, IndexState.READY);
+        store.addDescriptor(descriptor);
+        var layout = new IndexStorageLayout(files.toString());
+        Path current = Path.of(layout.indexFilePath(descriptor, UUID.randomUUID(), "/data/current.parquet"));
+        Files.createDirectories(current.getParent());
+        Files.writeString(current, "serving");
         store.addStaleMapping(buildMapping("idx-1", "/data/current.parquet", current.toString(), 4));
         var obsolete = new ArrayList<Path>();
+        UUID attempt = UUID.randomUUID();
         for (int index = 0; index < 100; index++) {
-            Path file = Files.writeString(files.resolve("orphan-" + index + ".idx"), "obsolete");
+            String source = "/data/orphan-" + index + ".parquet";
+            Path file = Path.of(layout.indexFilePath(descriptor.withGeneration(2, descriptor.updatedAt()),
+                    attempt, source));
+            Files.createDirectories(file.getParent());
+            Files.writeString(file, "obsolete");
             obsolete.add(file);
-            store.addStaleMapping(buildMapping("idx-1", "/data/orphan-" + index + ".parquet", file.toString(), 2));
+            store.addStaleMapping(buildMapping("idx-1", source, file.toString(), 2));
         }
         gc = buildGc(store);
 
@@ -282,7 +299,7 @@ class IndexGcGenerationFencingTest {
     }
 
     private IndexGarbageCollector buildGc(GenerationTrackingStore store, SnapshotPinProvider pin) {
-        var config = new IndexingConfig("/tmp/test-gc-gen", false, null, null);
+        var config = new IndexingConfig(files.toString(), false, null, null);
         var deps = new IndexGcContext(store, new IndexStorageManager(),
                 descriptor -> new LocalFileSystemAccessor(), config, pin);
         return new IndexGarbageCollector(deps, null);
@@ -358,6 +375,7 @@ class IndexGcGenerationFencingTest {
         int mappingReadCalls;
         private final Map<String, IndexDescriptor> descriptors = new HashMap<>();
         private final List<IndexFileMapping> staleMappings = new ArrayList<>();
+        private final Map<UUID, MappedArtifactRetirement> pendingRetirements = new LinkedHashMap<>();
         final CopyOnWriteArrayList<String> removedMappings = new CopyOnWriteArrayList<>();
         boolean rejectMappingRemoval;
         final CopyOnWriteArrayList<String> purgedIndexes = new CopyOnWriteArrayList<>();
@@ -409,17 +427,34 @@ class IndexGcGenerationFencingTest {
                 return new OrphanRemoval(0, java.util.Set.of());
             }
             int removed = 0;
-            var paths = new java.util.HashSet<String>();
+            var removedRows = new LinkedHashMap<String, IndexFileMapping>();
             for (var mapping : mappings) {
                 if (staleMappings.remove(mapping)) {
                     removedMappings.add(mapping.indexId() + ":" + mapping.dataFilePath());
-                    paths.add(mapping.indexFilePath());
+                    removedRows.put(mapping.indexFilePath(), mapping);
                     removed++;
                 }
             }
-            staleMappings.stream().filter(mapping -> indexId.equals(mapping.indexId()))
-                    .map(IndexFileMapping::indexFilePath).forEach(paths::remove);
-            return new OrphanRemoval(removed, paths);
+            staleMappings.stream().map(IndexFileMapping::indexFilePath).forEach(removedRows::remove);
+            for (var mapping : removedRows.values()) {
+                UUID id = UUID.randomUUID();
+                pendingRetirements.put(id, new MappedArtifactRetirement(id, indexId, desc.tenantId(),
+                        desc.catalogName(), desc.schemaName(), desc.tableName(), mapping.dataFilePath(),
+                        mapping.indexFilePath(), mapping.generation()));
+            }
+            return new OrphanRemoval(removed, removedRows.keySet());
+        }
+        @Override public List<MappedArtifactRetirement> pollMappedArtifactRetirements(int limit) {
+            return pendingRetirements.values().stream().limit(limit).toList();
+        }
+        @Override public boolean beginMappedArtifactReclaim(MappedArtifactRetirement retirement) {
+            return retirement.equals(pendingRetirements.get(retirement.retirementId()));
+        }
+        @Override public void completeMappedArtifactReclaim(MappedArtifactRetirement retirement) {
+            pendingRetirements.remove(retirement.retirementId());
+        }
+        @Override public boolean hasPendingMappedArtifactRetirements(String indexId) {
+            return pendingRetirements.values().stream().anyMatch(item -> item.indexId().equals(indexId));
         }
         @Override public List<String> filterUnindexedFiles(String id, List<String> paths) { return List.of(); }
         @Override public void markOrphanedByDataFiles(String id, List<String> paths) {}

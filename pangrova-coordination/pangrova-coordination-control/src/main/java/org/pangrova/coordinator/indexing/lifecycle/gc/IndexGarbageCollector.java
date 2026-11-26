@@ -4,6 +4,7 @@ import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.coordinator.indexing.lifecycle.IndexLifecycleMetrics;
 import org.pangrova.coordinator.indexing.lifecycle.MaintenanceLeaderElection;
 import org.pangrova.persistence.indexing.api.metadata.IndexFileMapping;
+import org.pangrova.persistence.indexing.api.metadata.IndexCleanup.MappedArtifactRetirement;
 import org.pangrova.persistence.indexing.api.build.ScalarArtifactIntent;
 import org.pangrova.indexing.storage.IndexStorageLayout;
 import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
@@ -37,6 +38,7 @@ public final class IndexGarbageCollector implements AutoCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(IndexGarbageCollector.class);
     private static final int SCALAR_ORPHAN_BATCH_SIZE = 256;
+    private static final int MAPPED_RETIREMENT_BATCH_SIZE = 256;
 
     private final IndexGcContext deps;
     private final IndexLifecycleMetrics lifecycleMetrics;
@@ -119,6 +121,7 @@ public final class IndexGarbageCollector implements AutoCloseable {
             return new GcResult(0, 0);
         }
         int orphanedCount = cleanScalarArtifacts() + cleanOrphans();
+        cleanMappedArtifacts();
         int purgedCount = purgeDropped();
         return new GcResult(orphanedCount, purgedCount);
     }
@@ -198,14 +201,34 @@ public final class IndexGarbageCollector implements AutoCloseable {
             var descriptor = descriptorMap.get(entry.getKey());
             var result = store.removeOrphanMappings(descriptor.indexId(), descriptor.state(),
                     descriptor.generation(), entry.getValue());
-            for (String path : result.pathsToDelete()) {
-                if (!deleteIndexFile(path, descriptor)) {
-                    LOG.warn("action=gc_orphan_file_retained indexId={} file={}", descriptor.indexId(), path);
-                }
-            }
+            // The transaction durably schedules unreferenced paths; never delete its ephemeral return value.
             removed += result.mappingsRemoved();
         }
         return removed;
+    }
+
+    private void cleanMappedArtifacts() {
+        IndexMetadataStore store = deps.metadataStore();
+        for (var retirement : store.pollMappedArtifactRetirements(MAPPED_RETIREMENT_BATCH_SIZE)) {
+            try {
+                store.withIndexLifecycleLock(retirement.indexId(), () -> reclaimMappedArtifact(store, retirement));
+            } catch (RuntimeException failure) {
+                LOG.warn("action=mapped_artifact_reclaim_deferred retirementId={}", retirement.retirementId(), failure);
+            }
+        }
+    }
+
+    private void reclaimMappedArtifact(IndexMetadataStore store, MappedArtifactRetirement retirement) {
+        IndexDescriptor descriptor = store.findIndex(retirement.indexId()).orElse(null);
+        if (descriptor == null || !new IndexStorageLayout(deps.config().baseIndexPath()).isRetiredIndexFilePath(
+                descriptor, retirement.dataFilePath(), retirement.retiredGeneration(), retirement.artifactPath())) {
+            LOG.warn("action=mapped_artifact_path_unproven retirementId={}", retirement.retirementId());
+            return;
+        }
+        if (store.beginMappedArtifactReclaim(retirement)
+                && deleteIndexFile(retirement.artifactPath(), descriptor)) {
+            store.completeMappedArtifactReclaim(retirement);
+        }
     }
 
     private boolean shouldSkipMapping(IndexFileMapping mapping, IndexDescriptor descriptor) {
@@ -270,6 +293,10 @@ public final class IndexGarbageCollector implements AutoCloseable {
         IndexMetadataStore store = deps.metadataStore();
         if (store.hasScalarArtifactIntents(descriptor.indexId())) {
             throw new IllegalStateException("Scalar artifact intents remain; retaining dropped index "
+                    + descriptor.indexId());
+        }
+        if (store.hasPendingMappedArtifactRetirements(descriptor.indexId())) {
+            throw new IllegalStateException("Mapped artifact retirements remain; retaining dropped index "
                     + descriptor.indexId());
         }
         List<IndexFileMapping> mappings = store.getIndexFileMappings(descriptor.indexId());

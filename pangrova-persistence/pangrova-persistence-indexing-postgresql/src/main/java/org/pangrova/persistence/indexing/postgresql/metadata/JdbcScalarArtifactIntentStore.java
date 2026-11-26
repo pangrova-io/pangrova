@@ -40,6 +40,7 @@ final class JdbcScalarArtifactIntentStore extends JdbcStoreSupport {
                 + "(artifact_digest,index_id,generation,attempt_owner,data_file_path,artifact_path,state) "
                 + "VALUES (?,?,?,?,?,?,'WRITING')";
         try (Connection connection = dataSource().getConnection()) {
+            connection.setTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED);
             connection.setAutoCommit(false);
             try {
                 JdbcIndexMappingWriteFence.requireBuildable(connection, intent.indexId(), intent.generation());

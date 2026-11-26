@@ -234,9 +234,12 @@ class JdbcIndexGenerationPublicationTest {
 
         assertThat(removed.mappingsRemoved()).isEqualTo(1001);
         assertThat(removed.pathsToDelete()).hasSize(999).contains(shared).doesNotContain(current.indexFilePath());
-        assertThat(preparedSql).hasSize(2);
+        assertThat(preparedSql).hasSize(5);
         assertThat(preparedSql.get(0)).startsWith("SELECT index_id FROM index_descriptors");
-        assertThat(preparedSql.get(1)).startsWith("WITH candidates").contains("FROM unnest(");
+        assertThat(preparedSql.get(1)).startsWith("SELECT pg_advisory_xact_lock");
+        assertThat(preparedSql.get(2)).startsWith("WITH candidates").contains("FROM unnest(");
+        assertThat(preparedSql.subList(3, 5)).allMatch(sql -> sql.startsWith(
+                "INSERT INTO mapped_index_artifact_retirements"));
         assertThat(executions).hasValue(2);
         assertThat(store.getIndexFileMappings(descriptor.indexId()))
                 .extracting(IndexFileMapping::indexFilePath).containsExactly(current.indexFilePath());

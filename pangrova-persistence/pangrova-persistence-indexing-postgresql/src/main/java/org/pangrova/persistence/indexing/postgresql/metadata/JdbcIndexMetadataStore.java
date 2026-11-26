@@ -51,6 +51,7 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
     private final JdbcIndexDescriptorReadStore descriptorReadStore;
     private final JdbcIndexFileMappingStore fileMappingStore;
     private final JdbcScalarArtifactIntentStore scalarArtifactStore;
+    private final JdbcMappedArtifactRetirementStore mappedArtifactStore;
     private final JdbcIndexStatisticsStore statisticsStore;
     private final JdbcIndexGcStore gcStore;
     private final JdbcIndexCommitQueue commitQueue;
@@ -66,6 +67,7 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
         this.descriptorReadStore = new JdbcIndexDescriptorReadStore(dataSource);
         this.fileMappingStore = new JdbcIndexFileMappingStore(dataSource);
         this.scalarArtifactStore = new JdbcScalarArtifactIntentStore(dataSource);
+        this.mappedArtifactStore = new JdbcMappedArtifactRetirementStore(dataSource);
         this.statisticsStore = new JdbcIndexStatisticsStore(dataSource);
         this.gcStore = new JdbcIndexGcStore(dataSource);
         this.commitQueue = new JdbcIndexCommitQueue(dataSource);
@@ -396,6 +398,9 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
             if (scalarSnapshotPinStore.hasUnreleased(indexId)) {
                 throw new IllegalStateException("Scalar snapshot pin cleanup is incomplete for " + indexId);
             }
+            if (mappedArtifactStore.hasPending(indexId)) {
+                throw new IllegalStateException("Mapped artifact retirement is incomplete for " + indexId);
+            }
             descriptorStore.purgeIndex(indexId);
         });
     }
@@ -531,6 +536,26 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
     }
 
     // --- GC queries (delegate to gcStore) ---
+
+    @Override
+    public List<MappedArtifactRetirement> pollMappedArtifactRetirements(int limit) {
+        return mappedArtifactStore.poll(limit);
+    }
+
+    @Override
+    public boolean beginMappedArtifactReclaim(MappedArtifactRetirement retirement) {
+        return mappedArtifactStore.begin(retirement);
+    }
+
+    @Override
+    public void completeMappedArtifactReclaim(MappedArtifactRetirement retirement) {
+        mappedArtifactStore.complete(retirement);
+    }
+
+    @Override
+    public boolean hasPendingMappedArtifactRetirements(String indexId) {
+        return mappedArtifactStore.hasPending(indexId);
+    }
 
     @Override
     public void markOrphanedByDataFiles(String indexId, List<String> dataFilePaths) {

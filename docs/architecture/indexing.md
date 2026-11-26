@@ -397,6 +397,24 @@ prove the writer stopped. Reconciliation requires independently confirmed
 writer quiescence; this implementation does not automatically reclaim those
 files or infer ownership for untracked pre-migration artifacts.
 
+Obsolete mapped scalar artifacts use a separate durable retirement handoff. The
+generation-fenced mapping transaction records the exact last unreferenced path,
+source file and original descriptor scope before committing. A path-scoped
+transaction fence prevents new mappings or scalar pre-write intents from
+referencing a pending or deleted retirement. The collector rotates a bounded
+durable queue, rechecks references and descriptor authority, and confirms
+idempotent physical deletion before recording a permanent completed receipt.
+No mapping-removal response alone authorizes deletion. Completed receipts are
+retained until a separately proven namespace/nonreuse contract permits removal;
+unknown delete outcomes remain retryable. A dropped descriptor cannot be
+purged while a pending retirement still requires its authority.
+
+Only the verified v3 attempt-scoped layout is reclaimed automatically, including
+a path copied into a later generation. Unknown legacy layouts, changed roots or
+scope mismatches retain their durable receipt for explicit reconciliation.
+Quiesce old scalar writers before applying V129; path-fenced writes require
+READ COMMITTED isolation so absence is checked against fresh metadata.
+
 ### Scalar failure and recovery
 
 Initial and online scalar build failures use one reason-preserving generation

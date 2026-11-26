@@ -47,6 +47,7 @@ final class JdbcIndexFileMappingStore extends JdbcStoreSupport {
                     "targetGeneration must advance exactly one generation");
         }
         try (Connection connection = dataSource().getConnection()) {
+            connection.setTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED);
             connection.setAutoCommit(false);
             try {
                 JdbcIndexMappingWriteFence.requireBuildable(connection, indexId, targetGeneration);
@@ -133,6 +134,7 @@ final class JdbcIndexFileMappingStore extends JdbcStoreSupport {
                 + "checksum, generation, snapshot_token, sequence_num, last_verified_at, created_at) "
                 + "VALUES (?,?,?,?,?,?,?,?,?,?,?)";
         try (Connection connection = dataSource().getConnection()) {
+            connection.setTransactionIsolation(Connection.TRANSACTION_READ_COMMITTED);
             connection.setAutoCommit(false);
             try {
                 IndexFileMapping first = mappings.get(0);
