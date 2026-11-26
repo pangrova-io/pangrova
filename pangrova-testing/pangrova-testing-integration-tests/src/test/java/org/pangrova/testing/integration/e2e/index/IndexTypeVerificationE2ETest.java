@@ -105,7 +105,8 @@ class IndexTypeVerificationE2ETest extends SqlE2ETestBase {
         @Test
         @DisplayName("data skipping: range predicate returns only matching rows")
         void dataSkipping() {
-            sqlRunner.executeDdl("CREATE INDEX idx_bt ON " + fqn + "(amount) USING BTREE");
+            sqlRunner.executeDdl("CREATE INDEX idx_bt ON " + fqn + "(amount) USING BTREE FORCE");
+            IndexReadiness.awaitReady(sqlRunner, fqn, "idx_bt");
             List<TypedRow> rows = sqlRunner.execute(
                     "SELECT * FROM " + fqn + " WHERE amount BETWEEN 100.0 AND 200.0");
             assertThat(rows).isNotEmpty();
@@ -118,9 +119,46 @@ class IndexTypeVerificationE2ETest extends SqlE2ETestBase {
         @Test
         @DisplayName("correctness invariant: withIndex containsAll baseline")
         void correctnessInvariant() {
-            IndexTestFixture.assertCorrectnessInvariant(sqlRunner, fqn,
-                    "amount BETWEEN 100.0 AND 200.0",
-                    "CREATE INDEX idx_bt_corr ON " + fqn + "(amount) USING BTREE");
+            List<TypedRow> baseline = sqlRunner.execute(
+                    "SELECT * FROM " + fqn + " WHERE amount BETWEEN 100.0 AND 200.0");
+            sqlRunner.executeDdl("CREATE INDEX idx_bt_corr ON " + fqn + "(amount) USING BTREE FORCE");
+            IndexReadiness.awaitReady(sqlRunner, fqn, "idx_bt_corr");
+            List<TypedRow> withIndex = sqlRunner.execute(
+                    "SELECT * FROM " + fqn + " WHERE amount BETWEEN 100.0 AND 200.0");
+            assertThat(withIndex).containsAll(baseline);
+        }
+
+        @Test
+        @DisplayName("Native B-tree skips files that connector ranges cannot exclude")
+        void nativeSplitPruningUsesBTreeWithOverlappingConnectorRanges(TestInfo info) {
+            String table = "t_bt_native_" + info.getTestMethod().map(m -> m.getName()).orElse("unknown")
+                    + "_" + System.nanoTime();
+            String nativeFqn = CATALOG + "." + SCHEMA + "." + table;
+            sqlRunner.executeDdl("CREATE TABLE " + nativeFqn + " (user_id BIGINT)");
+            for (int batch = 0; batch < 4; batch++) {
+                int low = batch == 0 ? 1 : 0;
+                int high = (batch + 1) * 100;
+                sqlRunner.execute("INSERT INTO " + nativeFqn + " VALUES (" + low + "), (" + high + ")");
+            }
+            List<TypedRow> baseline = sqlRunner.execute(
+                    "SELECT * FROM " + nativeFqn + " WHERE user_id = 1");
+            assertThat(baseline).hasSize(1);
+
+            String indexName = "idx_bt_native";
+            sqlRunner.executeDdl("CREATE INDEX " + indexName + " ON " + nativeFqn
+                    + "(user_id) USING BTREE FORCE");
+            IndexReadiness.awaitReady(sqlRunner, nativeFqn, indexName);
+
+            var before = nativeIndexSplitTotals();
+            List<TypedRow> withIndex = sqlRunner.execute(
+                    "SELECT * FROM " + nativeFqn + " WHERE user_id = 1");
+            var after = nativeIndexSplitTotals();
+
+            assertThat(withIndex).containsExactlyElementsOf(baseline);
+            assertThat(after.evaluated() - before.evaluated())
+                    .as("Native pre-scan B-tree evaluations").isGreaterThanOrEqualTo(4);
+            assertThat(after.skipped() - before.skipped())
+                    .as("Native B-tree skips with overlapping connector ranges").isGreaterThanOrEqualTo(3);
         }
     }
 
@@ -310,7 +348,7 @@ class IndexTypeVerificationE2ETest extends SqlE2ETestBase {
         @Test
         @DisplayName("data skipping: range on sorted column returns only matching rows")
         void dataSkipping() {
-            sqlRunner.executeDdl("CREATE INDEX idx_sparse ON " + fqn + "(user_id) USING SPARSE");
+            sqlRunner.executeDdl("CREATE INDEX idx_sparse ON " + fqn + "(user_id) USING SPARSE FORCE");
             List<TypedRow> rows = sqlRunner.execute(
                     "SELECT * FROM " + fqn + " WHERE user_id BETWEEN 1 AND 20");
             assertThat(rows).isNotEmpty();
@@ -325,7 +363,7 @@ class IndexTypeVerificationE2ETest extends SqlE2ETestBase {
         void correctnessInvariant() {
             IndexTestFixture.assertCorrectnessInvariant(sqlRunner, fqn,
                     "user_id BETWEEN 1 AND 20",
-                    "CREATE INDEX idx_sparse_corr ON " + fqn + "(user_id) USING SPARSE");
+                    "CREATE INDEX idx_sparse_corr ON " + fqn + "(user_id) USING SPARSE FORCE");
         }
     }
 

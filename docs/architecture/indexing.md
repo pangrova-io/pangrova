@@ -301,9 +301,10 @@ common index envelope are unchanged; no historical data migration is introduced.
 The builder skips rows with a null key component. Its payload does not prove
 null-row coverage or the arity of an empty index. Consequently an empty key set
 cannot justify `SKIP`, and a scalar predicate is not a complete tuple predicate.
-Java tuple membership is verified separately from SQL execution: the current
-Native hint consumer only prunes supported Bloom artifacts, so successful BTree
-publication and correct SQL results do not prove BTree split pruning.
+Native split pruning currently handles single-column B-tree equality, `IN`, and
+range predicates for exact String, Integer, Long, Float and Double wire values.
+Composite tuple membership remains a JVM evaluation contract; composite B-tree
+hints are not sent to the Native consumer.
 
 ## JVM indexing SPI
 
@@ -325,19 +326,23 @@ surviving canonical v2 file splits. It does not load scalar index artifacts.
 The Native Worker validates the hint's data-file identity, reads the mapped
 artifact through its configured filesystem, and verifies its exact byte length and
 SHA-256 against the published mapping. It checks the envelope version and CRC
-on those same bytes and tests Bloom membership before enqueuing the split for scan.
-Only a proven negative result skips a split; missing, corrupt, incompatible or
-unsupported indexes retain it. Equality and `IN` on canonical string,
-integer and boolean keys currently participate in this Native Bloom path.
+on those same bytes, then evaluates Bloom membership or the sorted B-tree pages
+before enqueuing the split for scan. Only a proven negative result skips a split;
+missing, corrupt, incompatible or unsupported indexes retain it. Equality and
+`IN` on canonical string, integer and boolean keys participate in the Native
+Bloom path. Single-column B-tree equality, `IN`, and range predicates support
+exact String, Integer, Long, Float and Double values with Java-compatible
+ordering, including modified UTF-8 strings, NaN and signed zero.
 Bitmap has a JVM strategy and a typed key-to-Roaring payload. Worker scalar
-file pruning recognizes Bloom. BSI has no registered scalar strategy. Paimon
-deletion vectors use their connector-owned row-deletion path.
+file pruning recognizes Bloom and single-column B-tree artifacts. BSI has no
+registered scalar strategy. Paimon deletion vectors use their connector-owned
+row-deletion path.
 Calcite's [string literal wrapper](https://calcite.apache.org/javadocAggregate/org/apache/calcite/util/NlsString.html)
 literals are unwrapped with `getValue()` before creating a hint: its
 `toString()` returns quoted SQL with charset notation, not the stored value. Native
 membership is checked against a Java-generated positive/negative byte fixture.
-DATE, TIMESTAMP, DECIMAL, floating-point keys and other index types retain the
-split until their cross-language value and artifact contracts are verified.
+DATE, TIMESTAMP, DECIMAL, floating-point Bloom keys and other index types retain
+the split until their cross-language value and artifact contracts are verified.
 Multi-scan plans do not receive scalar hints until predicate provenance is
 bound to a specific scan, because matching columns by name across joined
 tables is insufficient to justify pruning either table.

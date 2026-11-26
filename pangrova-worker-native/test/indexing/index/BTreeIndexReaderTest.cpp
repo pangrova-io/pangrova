@@ -1,0 +1,335 @@
+#include <gtest/gtest.h>
+
+#include <bit>
+#include <algorithm>
+#include <cstdint>
+#include <limits>
+#include <optional>
+#include <random>
+#include <string>
+#include <string_view>
+#include <vector>
+
+#include "indexing/index/BTreeIndexReader.h"
+#include "pangrova/protocol/v2/connector.pb.h"
+
+namespace pangrova::index {
+namespace {
+
+namespace proto = pangrova::protocol::v2;
+
+void appendU16(std::string& bytes, uint16_t value) {
+  bytes.push_back(static_cast<char>(value >> 8));
+  bytes.push_back(static_cast<char>(value));
+}
+
+void appendU32(std::string& bytes, uint32_t value) {
+  for (int shift = 24; shift >= 0; shift -= 8) {
+    bytes.push_back(static_cast<char>(value >> shift));
+  }
+}
+
+void appendI64(std::string& bytes, int64_t value) {
+  appendU32(bytes, static_cast<uint32_t>(static_cast<uint64_t>(value) >> 32));
+  appendU32(bytes, static_cast<uint32_t>(value));
+}
+
+void appendDouble(std::string& bytes, double value) {
+  appendI64(bytes, std::bit_cast<int64_t>(value));
+}
+
+void appendModifiedUtf8(std::string& bytes, const std::u16string& value) {
+  std::string encoded;
+  for (char16_t character : value) {
+    if (character == 0) {
+      encoded.push_back(static_cast<char>(0xc0));
+      encoded.push_back(static_cast<char>(0x80));
+    } else if (character <= 0x7f) {
+      encoded.push_back(static_cast<char>(character));
+    } else if (character <= 0x7ff) {
+      encoded.push_back(static_cast<char>(0xc0 | (character >> 6)));
+      encoded.push_back(static_cast<char>(0x80 | (character & 0x3f)));
+    } else {
+      encoded.push_back(static_cast<char>(0xe0 | (character >> 12)));
+      encoded.push_back(static_cast<char>(0x80 | ((character >> 6) & 0x3f)));
+      encoded.push_back(static_cast<char>(0x80 | (character & 0x3f)));
+    }
+  }
+  appendU16(bytes, static_cast<uint16_t>(encoded.size()));
+  bytes += encoded;
+}
+
+void appendKey(std::string& bytes, int64_t value) {
+  bytes.push_back(3);
+  appendI64(bytes, value);
+}
+
+void appendKey(std::string& bytes, int32_t value) {
+  bytes.push_back(2);
+  appendU32(bytes, static_cast<uint32_t>(value));
+}
+
+void appendKey(std::string& bytes, double value) {
+  bytes.push_back(4);
+  appendDouble(bytes, value);
+}
+
+void appendKey(std::string& bytes, const std::u16string& value) {
+  bytes.push_back(1);
+  appendModifiedUtf8(bytes, value);
+}
+
+template <typename T>
+std::string page(const std::vector<T>& keys, bool storePositions = false) {
+  std::string bytes;
+  appendU32(bytes, static_cast<uint32_t>(keys.size()));
+  for (const auto& key : keys) appendKey(bytes, key);
+  if (!keys.empty()) {
+    appendKey(bytes, keys.front());
+    appendKey(bytes, keys.back());
+  }
+  if (storePositions) {
+    for (size_t index = 0; index < keys.size(); ++index) {
+      appendU32(bytes, 1);
+      appendU32(bytes, static_cast<uint32_t>(index));
+    }
+  }
+  return bytes;
+}
+
+std::string payload(const std::vector<std::string>& pages, bool storePositions = false) {
+  std::string bytes;
+  bytes.push_back(storePositions ? 1 : 0);
+  appendU32(bytes, static_cast<uint32_t>(pages.size()));
+  for (const auto& pageBytes : pages) bytes += pageBytes;
+  return bytes;
+}
+
+proto::IndexPredicate equalInt64(int64_t value) {
+  proto::IndexPredicate predicate;
+  predicate.set_column("value");
+  predicate.mutable_equal_to()->mutable_value()->set_int64_value(value);
+  return predicate;
+}
+
+proto::IndexPredicate equalInt32(int32_t value) {
+  proto::IndexPredicate predicate;
+  predicate.set_column("value");
+  predicate.mutable_equal_to()->mutable_value()->set_int32_value(value);
+  return predicate;
+}
+
+proto::IndexPredicate equalString(const std::string& value) {
+  proto::IndexPredicate predicate;
+  predicate.set_column("value");
+  predicate.mutable_equal_to()->mutable_value()->set_string_value(value);
+  return predicate;
+}
+
+proto::IndexPredicate rangeInt64(std::optional<int64_t> lower, std::optional<int64_t> upper,
+                                 bool lowerInclusive, bool upperInclusive) {
+  proto::IndexPredicate predicate;
+  predicate.set_column("value");
+  auto* range = predicate.mutable_range_query();
+  range->set_lower_inclusive(lowerInclusive);
+  range->set_upper_inclusive(upperInclusive);
+  if (lower) range->mutable_lower()->set_int64_value(*lower);
+  if (upper) range->mutable_upper()->set_int64_value(*upper);
+  return predicate;
+}
+
+proto::IndexPredicate inListInt64(const std::vector<int64_t>& values) {
+  proto::IndexPredicate predicate;
+  predicate.set_column("value");
+  auto* list = predicate.mutable_in_list();
+  for (auto value : values) list->add_values()->set_int64_value(value);
+  return predicate;
+}
+
+std::string fromHex(const std::string& hex) {
+  std::string bytes;
+  for (size_t index = 0; index < hex.size(); index += 2) {
+    bytes.push_back(static_cast<char>(std::stoi(hex.substr(index, 2), nullptr, 16)));
+  }
+  return bytes;
+}
+
+TEST(BTreeIndexReaderTest, JavaGoldenFixtureSupportsEqualityRangeAndInList) {
+  // Generated by BTreeStrategyProvider with page_size=2 and IndexSerializer.
+  const auto artifact = fromHex(
+      "4145544800010001000000000000004c000000000200000002030000000000000001"
+      "0300000000000000030300000000000000010300000000000000030000000103000000"
+      "0000000005030000000000000005030000000000000005efdee022");
+  const auto bytes = payload({page<int64_t>({1, 3}), page<int64_t>({5})});
+  EXPECT_EQ(artifact.substr(16, artifact.size() - 20), bytes);
+
+  EXPECT_EQ(BTreeIndexReader::Result::kMayMatch,
+            BTreeIndexReader::evaluate(bytes, equalInt64(3)));
+  EXPECT_EQ(BTreeIndexReader::Result::kProvenAbsent,
+            BTreeIndexReader::evaluate(bytes, equalInt64(4)));
+  EXPECT_EQ(BTreeIndexReader::Result::kMayMatch,
+            BTreeIndexReader::evaluate(bytes, rangeInt64(2, 4, true, true)));
+  EXPECT_EQ(BTreeIndexReader::Result::kProvenAbsent,
+            BTreeIndexReader::evaluate(bytes, rangeInt64(6, std::nullopt, true, false)));
+  EXPECT_EQ(BTreeIndexReader::Result::kMayMatch,
+            BTreeIndexReader::evaluate(bytes, inListInt64({4, 5})));
+  EXPECT_EQ(BTreeIndexReader::Result::kProvenAbsent,
+            BTreeIndexReader::evaluate(bytes, inListInt64({2, 4})));
+  EXPECT_EQ(artifact.size(), bytes.size() + 20);
+}
+
+TEST(BTreeIndexReaderTest, RangeBoundsAreIndependentAndRespectInclusivity) {
+  const auto bytes = payload({page<int64_t>({1, 3, 5, 7, 9})});
+
+  EXPECT_EQ(BTreeIndexReader::Result::kMayMatch,
+            BTreeIndexReader::evaluate(bytes, rangeInt64(std::nullopt, 3, false, false)));
+  EXPECT_EQ(BTreeIndexReader::Result::kProvenAbsent,
+            BTreeIndexReader::evaluate(bytes, rangeInt64(std::nullopt, 1, false, false)));
+  EXPECT_EQ(BTreeIndexReader::Result::kMayMatch,
+            BTreeIndexReader::evaluate(bytes, rangeInt64(9, std::nullopt, true, false)));
+  EXPECT_EQ(BTreeIndexReader::Result::kProvenAbsent,
+            BTreeIndexReader::evaluate(bytes, rangeInt64(9, std::nullopt, false, false)));
+  EXPECT_EQ(BTreeIndexReader::Result::kProvenAbsent,
+            BTreeIndexReader::evaluate(bytes, rangeInt64(5, 5, true, false)));
+}
+
+TEST(BTreeIndexReaderTest, TypeMismatchEmptyAndUnsupportedKeysAreUnknown) {
+  const auto int64Bytes = payload({page<int64_t>({1, 2})});
+  EXPECT_EQ(BTreeIndexReader::Result::kUnknown,
+            BTreeIndexReader::evaluate(int64Bytes, equalInt32(1)));
+  EXPECT_EQ(BTreeIndexReader::Result::kUnknown,
+            BTreeIndexReader::evaluate(payload({}), equalInt64(1)));
+
+  std::string unsupported;
+  appendU32(unsupported, 1);
+  unsupported.push_back(6);
+  unsupported.push_back(0);
+  unsupported.push_back(1);
+  unsupported.push_back(6);
+  unsupported.push_back(0);
+  unsupported.push_back(1);
+  EXPECT_EQ(BTreeIndexReader::Result::kUnknown,
+            BTreeIndexReader::evaluate(payload({unsupported}), equalInt64(1)));
+}
+
+TEST(BTreeIndexReaderTest, MalformedOrderingBoundsAndTrailingBytesAreUnknown) {
+  const auto valid = payload({page<int64_t>({1, 3}), page<int64_t>({5})});
+  auto trailing = valid;
+  trailing.push_back(0);
+  EXPECT_EQ(BTreeIndexReader::Result::kUnknown,
+            BTreeIndexReader::evaluate(trailing, equalInt64(1)));
+  EXPECT_EQ(BTreeIndexReader::Result::kUnknown,
+            BTreeIndexReader::evaluate(valid.substr(0, valid.size() - 1), equalInt64(1)));
+  EXPECT_EQ(BTreeIndexReader::Result::kUnknown,
+            BTreeIndexReader::evaluate(payload({page<int64_t>({3, 1})}), equalInt64(1)));
+  EXPECT_EQ(BTreeIndexReader::Result::kUnknown,
+            BTreeIndexReader::evaluate(payload({page<int64_t>({5}), page<int64_t>({1})}),
+                                       equalInt64(1)));
+
+  std::string wrongMinimum;
+  appendU32(wrongMinimum, 1);
+  appendKey(wrongMinimum, int64_t{1});
+  appendKey(wrongMinimum, int64_t{0});
+  appendKey(wrongMinimum, int64_t{1});
+  EXPECT_EQ(BTreeIndexReader::Result::kUnknown,
+            BTreeIndexReader::evaluate(payload({wrongMinimum}), equalInt64(1)));
+}
+
+TEST(BTreeIndexReaderTest, RowPositionsAreConsumedAndCorruptCountsFailOpen) {
+  const auto stored = payload({page<int64_t>({1, 2}, true)}, true);
+  EXPECT_EQ(BTreeIndexReader::Result::kMayMatch,
+            BTreeIndexReader::evaluate(stored, equalInt64(2)));
+
+  std::string corrupt;
+  corrupt.push_back(1);
+  appendU32(corrupt, 1);
+  appendU32(corrupt, 1);
+  appendKey(corrupt, int64_t{1});
+  appendKey(corrupt, int64_t{1});
+  appendKey(corrupt, int64_t{1});
+  appendU32(corrupt, std::numeric_limits<uint32_t>::max());
+  EXPECT_EQ(BTreeIndexReader::Result::kUnknown,
+            BTreeIndexReader::evaluate(corrupt, equalInt64(1)));
+}
+
+TEST(BTreeIndexReaderTest, StringOrderingMatchesJavaUtf16IncludingSurrogatesAndNul) {
+  const std::u16string supplementary = u"\U00010000";
+  const auto bytes = payload({page<std::u16string>(
+      {std::u16string(1, u'\0'), u"A", supplementary, u"\uE000"})});
+
+  EXPECT_EQ(BTreeIndexReader::Result::kMayMatch,
+            BTreeIndexReader::evaluate(bytes, equalString(std::string("\0", 1))));
+  EXPECT_EQ(BTreeIndexReader::Result::kMayMatch,
+            BTreeIndexReader::evaluate(bytes, equalString("\xF0\x90\x80\x80")));
+  EXPECT_EQ(BTreeIndexReader::Result::kMayMatch,
+            BTreeIndexReader::evaluate(bytes, equalString("\xEE\x80\x80")));
+
+  const auto supplementaryOnly = payload({page<std::u16string>({supplementary})});
+  proto::IndexPredicate belowBmpPrivateUse;
+  belowBmpPrivateUse.set_column("value");
+  auto* range = belowBmpPrivateUse.mutable_range_query();
+  range->mutable_upper()->set_string_value("\xEE\x80\x80");
+  range->set_upper_inclusive(false);
+  EXPECT_EQ(BTreeIndexReader::Result::kMayMatch,
+            BTreeIndexReader::evaluate(supplementaryOnly, belowBmpPrivateUse));
+}
+
+TEST(BTreeIndexReaderTest, FloatingOrderingMatchesJavaNanAndSignedZero) {
+  const auto positiveZero = payload({page<double>({0.0})});
+  proto::IndexPredicate negativeZero;
+  negativeZero.set_column("value");
+  negativeZero.mutable_equal_to()->mutable_value()->set_double_value(-0.0);
+  EXPECT_EQ(BTreeIndexReader::Result::kProvenAbsent,
+            BTreeIndexReader::evaluate(positiveZero, negativeZero));
+
+  const auto bytes = payload({page<double>({-0.0, 0.0,
+      std::numeric_limits<double>::quiet_NaN()})});
+  proto::IndexPredicate nan;
+  nan.set_column("value");
+  nan.mutable_equal_to()->mutable_value()->set_double_value(
+      std::numeric_limits<double>::quiet_NaN());
+  EXPECT_EQ(BTreeIndexReader::Result::kMayMatch,
+            BTreeIndexReader::evaluate(bytes, nan));
+}
+
+TEST(BTreeIndexReaderTest, Int32KeysUseTheirExactWireType) {
+  EXPECT_EQ(BTreeIndexReader::Result::kProvenAbsent,
+            BTreeIndexReader::evaluate(payload({page<int32_t>({-1, 1})}), equalInt32(2)));
+}
+
+TEST(BTreeIndexReaderTest, SortedIntegerPagesMatchBruteForceWithoutFalseNegatives) {
+  std::mt19937_64 random(20261126);
+  for (int count = 1; count <= 40; ++count) {
+    std::vector<int64_t> keys(count);
+    for (auto& key : keys) key = static_cast<int64_t>(random() % 2001) - 1000;
+    std::sort(keys.begin(), keys.end());
+    for (int pageSize : {1, 2, 3, 7, 16}) {
+      std::vector<std::string> pages;
+      for (int start = 0; start < count; start += pageSize) {
+        const auto end = std::min(count, start + pageSize);
+        pages.push_back(page<int64_t>(std::vector<int64_t>(keys.begin() + start, keys.begin() + end)));
+      }
+      const auto bytes = payload(pages);
+      for (int trial = 0; trial < 20; ++trial) {
+        const auto target = static_cast<int64_t>(random() % 2003) - 1001;
+        const auto expected = std::binary_search(keys.begin(), keys.end(), target);
+        EXPECT_EQ(expected ? BTreeIndexReader::Result::kMayMatch
+                           : BTreeIndexReader::Result::kProvenAbsent,
+                  BTreeIndexReader::evaluate(bytes, equalInt64(target)));
+
+        auto lower = static_cast<int64_t>(random() % 2001) - 1000;
+        auto upper = static_cast<int64_t>(random() % 2001) - 1000;
+        if (lower > upper) std::swap(lower, upper);
+        const bool rangeExpected = std::any_of(keys.begin(), keys.end(), [&](int64_t key) {
+          return key >= lower && key <= upper;
+        });
+        EXPECT_EQ(rangeExpected ? BTreeIndexReader::Result::kMayMatch
+                                : BTreeIndexReader::Result::kProvenAbsent,
+                  BTreeIndexReader::evaluate(bytes, rangeInt64(lower, upper, true, true)));
+      }
+    }
+  }
+}
+
+}  // namespace
+}  // namespace pangrova::index
