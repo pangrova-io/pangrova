@@ -42,6 +42,17 @@ final class JdbcIndexSchemaEvolutionStore {
             + "new_schema_name,state,created_at,updated_at,source_identity_format,source_identity_uuid,"
             + "source_identity_location,source_identity_schema,target_identity_format,target_identity_uuid,"
             + "target_identity_location,target_identity_schema";
+    private static final String LIST_COMMITTED_SQL = "SELECT " + RECORD_COLUMNS
+            + " FROM index_schema_evolution_outbox WHERE state='COMMITTED' ORDER BY updated_at,operation_id LIMIT ?";
+    private static final String LIST_UNRESOLVED_SQL = "SELECT " + RECORD_COLUMNS
+            + " FROM index_schema_evolution_outbox WHERE state IN ('INTENDED','UNKNOWN')"
+            + " ORDER BY created_at,operation_id LIMIT ?";
+    private static final String UPDATE_SOURCE_IDENTITY_SQL = "UPDATE index_schema_evolution_outbox SET "
+            + "source_identity_format=?,source_identity_uuid=?,source_identity_location=?,source_identity_schema=?"
+            + " WHERE operation_id=?";
+    private static final String UPDATE_TARGET_IDENTITY_SQL = "UPDATE index_schema_evolution_outbox SET "
+            + "target_identity_format=?,target_identity_uuid=?,target_identity_location=?,target_identity_schema=?"
+            + " WHERE operation_id=?";
     private final DataSource dataSource;
 
     JdbcIndexSchemaEvolutionStore(DataSource dataSource) {
@@ -161,12 +172,9 @@ final class JdbcIndexSchemaEvolutionStore {
             throw new IllegalArgumentException("limit must be positive");
         }
         try (Connection connection = dataSource.getConnection();
-                PreparedStatement statement = connection.prepareStatement(
-                        "SELECT " + RECORD_COLUMNS
-                                + " FROM index_schema_evolution_outbox WHERE "
-                                + (runnable ? "state='COMMITTED' ORDER BY updated_at,operation_id"
-                                        : "state IN ('INTENDED','UNKNOWN') ORDER BY created_at,operation_id")
-                                + " LIMIT ?")) {
+                PreparedStatement statement = runnable
+                        ? connection.prepareStatement(LIST_COMMITTED_SQL)
+                        : connection.prepareStatement(LIST_UNRESOLVED_SQL)) {
             statement.setInt(1, limit);
             try (ResultSet rows = statement.executeQuery()) {
                 List<IndexSchemaEvolutionRecord> result = new ArrayList<>();
@@ -447,10 +455,9 @@ final class JdbcIndexSchemaEvolutionStore {
         if (identity.isEmpty()) {
             return;
         }
-        String prefix = source ? "source_identity_" : "target_identity_";
-        try (PreparedStatement statement = connection.prepareStatement(
-                "UPDATE index_schema_evolution_outbox SET " + prefix + "format=?," + prefix + "uuid=?,"
-                        + prefix + "location=?," + prefix + "schema=? WHERE operation_id=?")) {
+        try (PreparedStatement statement = source
+                ? connection.prepareStatement(UPDATE_SOURCE_IDENTITY_SQL)
+                : connection.prepareStatement(UPDATE_TARGET_IDENTITY_SQL)) {
             TableIdentity value = identity.orElseThrow();
             statement.setString(1, value.format());
             statement.setString(2, value.formatTableUuid());

@@ -2,6 +2,7 @@ package org.pangrova.persistence.indexing.postgresql.metadata;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.pangrova.connector.api.metadata.table.TableIdentity;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.indexing.api.enums.IndexState;
 import org.pangrova.indexing.api.enums.IndexType;
@@ -52,6 +53,33 @@ class JdbcIndexSchemaEvolutionStoreTest extends ContainerTestBase {
         store.markSchemaEvolutionCommitted(operationId, NOW.plusSeconds(1));
         assertThat(store.listPendingSchemaEvolution(10)).singleElement()
                 .satisfies(record -> assertThat(record.state()).isEqualTo(IndexSchemaEvolutionState.COMMITTED));
+    }
+
+    @Test
+    void committedAndUnresolvedQueuesPreserveTheirIdentityAndOrdering() {
+        var source = new TableIdentity("ICEBERG", "table-uuid", "warehouse/items", "schema-before");
+        var target = new TableIdentity("ICEBERG", "table-uuid", "warehouse/moved", "schema-after");
+        var rename = SchemaChangeEvent.renameTable("tenant", "lake", "raw", "items", "curated", "moved");
+        UUID committed = store.prepareSchemaEvolution(rename, Optional.of(source), NOW);
+        UUID intended = store.prepareSchemaEvolution(SchemaChangeEvent.dropTable(
+                "tenant", "lake", "raw", "independent"), NOW.plusSeconds(1));
+        UUID unknown = store.prepareSchemaEvolution(SchemaChangeEvent.dropTable(
+                "tenant", "lake", "raw", "another"), NOW.plusSeconds(2));
+        store.markSchemaEvolutionUnknown(unknown, NOW.plusSeconds(3));
+        store.markSchemaEvolutionCommitted(committed, Optional.of(target), NOW.plusSeconds(4));
+
+        assertThat(store.listPendingSchemaEvolution(1)).singleElement().satisfies(record -> {
+            assertThat(record.operationId()).isEqualTo(committed);
+            assertThat(record.sourceIdentity()).contains(source);
+            assertThat(record.targetIdentity()).contains(target);
+        });
+        assertThat(store.listUnresolvedSchemaEvolution(1)).singleElement().satisfies(record -> {
+            assertThat(record.operationId()).isEqualTo(intended);
+            assertThat(record.sourceIdentity()).isEmpty();
+            assertThat(record.targetIdentity()).isEmpty();
+        });
+        assertThat(store.listUnresolvedSchemaEvolution(2)).extracting(record -> record.operationId())
+                .containsExactly(intended, unknown);
     }
 
     @Test
