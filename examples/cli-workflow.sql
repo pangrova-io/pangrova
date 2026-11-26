@@ -1,5 +1,5 @@
 -- Run against an isolated Pangrova Standalone instance with catalog and table privileges.
--- Use interactive mode so each statement is executed separately:
+-- Interactive replay sends each statement separately:
 --   bin/pangrova-cli.sh --host localhost --port 8080 < examples/cli-workflow.sql
 
 CREATE CATALOG demo_iceberg
@@ -42,7 +42,3 @@ SELECT event_type, COUNT(*) AS event_count
 FROM demo_iceberg.analytics.events
 GROUP BY event_type
 ORDER BY event_count DESC, event_type;
-
--- Optional cleanup:
--- DROP TABLE demo_iceberg.analytics.events;
--- DROP CATALOG demo_iceberg;
