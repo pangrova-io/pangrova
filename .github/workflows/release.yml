@@ -53,7 +53,7 @@ jobs:
       # --- Docker reproducible build (Linux) ---
       - name: Set up QEMU (cross-arch Docker builds)
         if: matrix.platform.docker-build
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker Buildx
         if: matrix.platform.docker-build
