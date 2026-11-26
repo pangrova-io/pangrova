@@ -69,23 +69,24 @@ SHOW INDEXES ON prod.analytics.events;
 ```
 
 The result is ordered by `index_name`, then `index_id`, and excludes `DROPPED`
-descriptors. Every row has the same columns:
+descriptors. Every row has the same columns in the order shown below. New
+descriptor fields follow the existing positional result columns:
 
 | Column | Meaning |
 |---|---|
-| `index_id` | Stable Pangrova descriptor identity |
 | `index_name` | SQL index name |
 | `index_type` | Canonical index type |
 | `columns` | Comma-separated indexed columns in key order |
 | `state` | `BUILDING`, `READY`, or `STALE` |
 | `stale_reason` | Fenced stale reason, or null |
+| `created_at` | Descriptor creation timestamp |
+| `algorithm` | Vector algorithm or full-text analyzer, otherwise empty |
+| `metric` | Vector metric, otherwise empty |
+| `index_id` | Stable Pangrova descriptor identity |
 | `generation` | Integer current descriptor generation |
 | `build_snapshot_id` | Snapshot reserved by the current build, or empty |
 | `last_indexed_snapshot_id` | Last published source snapshot, or empty |
-| `created_at` | Descriptor creation timestamp |
 | `updated_at` | Last descriptor transition timestamp |
-| `algorithm` | Vector algorithm or full-text analyzer, otherwise empty |
-| `metric` | Vector metric, otherwise empty |
 
 ## Result and error contracts
 

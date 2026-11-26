@@ -140,10 +140,10 @@ class IndexDdlReadAuthorizationTest {
 
         assertThat(rows).hasSize(1);
         var row = rows.get(0);
-        assertThat(row.columnNames()).containsExactlyInAnyOrder(
-                "index_id", "index_name", "index_type", "columns", "state", "stale_reason",
-                "generation", "build_snapshot_id", "last_indexed_snapshot_id", "created_at", "updated_at",
-                "algorithm", "metric");
+        assertThat(row.columnNames()).containsExactly(
+                "index_name", "index_type", "columns", "state", "stale_reason", "created_at",
+                "algorithm", "metric", "index_id", "generation", "build_snapshot_id",
+                "last_indexed_snapshot_id", "updated_at");
         assertThat(row.getString("index_id")).isEqualTo("index-1");
         assertThat(row.getInt("generation")).isZero();
         assertThat(row.getString("build_snapshot_id")).isEqualTo("snap-1");

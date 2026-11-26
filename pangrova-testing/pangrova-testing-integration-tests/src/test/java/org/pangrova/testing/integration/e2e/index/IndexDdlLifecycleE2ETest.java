@@ -198,10 +198,10 @@ class IndexDdlLifecycleE2ETest extends SqlE2ETestBase {
             assertThat(indexes).isNotEmpty();
 
             TypedRow first = indexes.get(0);
-            assertThat(first.columnNames()).containsExactlyInAnyOrder(
-                    "index_id", "index_name", "index_type", "columns", "state", "stale_reason",
-                    "generation", "build_snapshot_id", "last_indexed_snapshot_id", "created_at", "updated_at",
-                    "algorithm", "metric");
+            assertThat(first.columnNames()).containsExactly(
+                    "index_name", "index_type", "columns", "state", "stale_reason", "created_at",
+                    "algorithm", "metric", "index_id", "generation", "build_snapshot_id",
+                    "last_indexed_snapshot_id", "updated_at");
         }
     }
 
