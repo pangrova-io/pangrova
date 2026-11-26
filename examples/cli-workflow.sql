@@ -132,7 +132,7 @@ CREATE INDEX idx_v4_ngram ON pangrova_final_demo2.analytics.index_lab_v4 (name) 
 -- Create inverted text
 CREATE INDEX idx_v4_inverted ON pangrova_final_demo2.analytics.index_lab_v4 (description) USING INVERTED;
 
--- Show indexes
+-- Inspect index descriptors. Repeat until all are READY before running the predicates.
 SHOW INDEXES FROM pangrova_final_demo2.analytics.index_lab_v4;
 
 -- Range query
@@ -163,7 +163,10 @@ INSERT INTO pangrova_final_demo2.analytics.gin_lab_v4 VALUES
 -- Create GIN
 CREATE INDEX idx_v4_gin ON pangrova_final_demo2.analytics.gin_lab_v4 (tags) USING GIN;
 
--- Containment query
+-- Inspect GIN descriptor; wait until READY before running the query.
+SHOW INDEXES FROM pangrova_final_demo2.analytics.gin_lab_v4;
+
+-- Text predicate (not evidence that GIN accelerated the query)
 SELECT id, tags FROM pangrova_final_demo2.analytics.gin_lab_v4 WHERE tags LIKE '%alpha%' ORDER BY id;
 
 -- Create spatial lab
@@ -176,6 +179,9 @@ INSERT INTO pangrova_final_demo2.analytics.spatial_lab_v4 VALUES
 
 -- Create R-Tree
 CREATE INDEX idx_v4_rtree ON pangrova_final_demo2.analytics.spatial_lab_v4 (x, y) USING R_TREE;
+
+-- Inspect R-Tree descriptor; wait until READY before running the query.
+SHOW INDEXES FROM pangrova_final_demo2.analytics.spatial_lab_v4;
 
 -- Spatial query
 SELECT id, label FROM pangrova_final_demo2.analytics.spatial_lab_v4
@@ -202,7 +208,7 @@ USING VECTOR WITH ('algorithm'='HNSW', 'metric'='L2');
 CREATE INDEX idx_v4_ivfpq ON pangrova_final_demo2.analytics.vector_lab_v4 (embedding)
 USING VECTOR WITH ('algorithm'='IVFPQ', 'metric'='L2', 'ivfpq.nlist'='2', 'ivfpq.m'='2', 'ivfpq.nbits'='8');
 
--- Show vector indexes
+-- Inspect vector descriptors. Repeat until both are READY before the query.
 SHOW INDEXES FROM pangrova_final_demo2.analytics.vector_lab_v4;
 
 -- Nearest neighbors
