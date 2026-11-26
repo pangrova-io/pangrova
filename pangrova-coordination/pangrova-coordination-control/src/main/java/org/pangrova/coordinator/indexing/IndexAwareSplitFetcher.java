@@ -24,7 +24,6 @@ import org.pangrova.planner.analysis.ScanPredicates;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -282,21 +281,23 @@ public final class IndexAwareSplitFetcher implements org.pangrova.coordinator.qu
             fingerprint = org.pangrova.indexing.api.descriptor.IndexSchemaFingerprint.of(
                     index.columnNames(), schema.orElseThrow().fields());
         } catch (IllegalArgumentException missing) {
-            fenceSchemaMismatch(index, source, "indexed_column_missing");
+            logSelectedSchemaMismatch(index, source, "indexed_column_missing");
             return false;
         }
         if (fingerprint.equals(index.sourceSchemaFingerprint())) {
             return true;
         }
-        fenceSchemaMismatch(index, source, "source_schema_mismatch");
+        logSelectedSchemaMismatch(index, source, "source_schema_mismatch");
         return false;
     }
 
-    private void fenceSchemaMismatch(
+    private static void logSelectedSchemaMismatch(
             org.pangrova.indexing.api.descriptor.IndexDescriptor index,
             SplitSourceDescriptor source, String reason) {
-        metadataStore.fenceIndexSchemaMismatch(index, reason, Instant.now());
-        LOG.warn("event=index_schema_mismatch indexId={} table={} reason={} action=skip_index",
+        // The selected read may be historical, or its captured current declaration
+        // may have been superseded since planning. Only live reconciliation can
+        // establish a durable descriptor mismatch. This read must simply skip.
+        LOG.debug("event=index_selected_schema_mismatch indexId={} table={} reason={} action=skip_index",
                 index.indexId(), source.qualifiedName(), reason);
     }
 

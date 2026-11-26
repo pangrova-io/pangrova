@@ -261,8 +261,10 @@ indexed columns and mismatched types. See the V123 ownership details below.
 Query dispatch independently verifies the descriptor fingerprint against the
 exact `ConnectorReadSchemaIdentity` captured by the planned scan. Scalar pruning,
 vector search and Native BM25 all use this guard. Missing schema evidence, a
-missing indexed column or a fingerprint mismatch excludes the index; a proven
-mismatch also persists a fenced `SCHEMA_MISMATCH` journal entry. Multiple scans
+missing indexed column or a fingerprint mismatch excludes the index for that
+read. Selected read declarations may be historical or superseded since
+planning; only independent current-source reconciliation may persist a fenced
+`SCHEMA_MISMATCH` journal entry. Multiple scans
 of the same table are eligible only when their selected schemas agree, so a
 self-join across different snapshots or declarations never borrows the first
 scan's index binding.

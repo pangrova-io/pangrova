@@ -13,6 +13,7 @@ import org.pangrova.connector.api.metadata.table.ConnectorTableReadMetadata;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.pangrova.connector.api.metadata.table.TableIdentity;
 import org.pangrova.connector.api.metadata.table.TableStatistics;
+import org.pangrova.connector.api.metadata.table.TableVersionToken;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.indexing.api.descriptor.IndexSchemaFingerprint;
 import org.pangrova.indexing.api.enums.IndexState;
@@ -45,14 +46,25 @@ class IndexSchemaGuardTest {
     }
 
     @Test
-    void mismatchedSchemaSkipsTheIndexAndDurablyFencesIt() {
+    void selectedHistoricalSchemaMismatchSkipsWithoutChangingTheActiveDescriptor() {
         var fenced = new AtomicReference<IndexDescriptor>();
         var fetcher = fetcher(descriptor(), fenced);
 
         assertThat(fetcher.lookupIndexesForQuery(
                 "tenant", "lake.raw.items", "value", List.of(source(PangrovaType.VARCHAR, true))))
                 .isEmpty();
-        assertThat(fenced).hasValue(descriptor());
+        assertThat(fenced).hasValue(null);
+    }
+
+    @Test
+    void capturedCurrentDeclarationCanBeSupersededBeforeDispatch() {
+        var fenced = new AtomicReference<IndexDescriptor>();
+        var fetcher = fetcher(descriptor(), fenced);
+        var captured = Optional.of(TableVersionToken.of("TEST", "table-uuid", "1", "schema-1"));
+
+        assertThat(fetcher.lookupIndexesForQuery("tenant", "lake.raw.items", "value",
+                List.of(source(PangrovaType.VARCHAR, true, captured)))).isEmpty();
+        assertThat(fenced).hasValue(null);
     }
 
     @Test
@@ -79,7 +91,7 @@ class IndexSchemaGuardTest {
     }
 
     @Test
-    void missingIndexedColumnFencesTheDescriptor() {
+    void missingIndexedColumnInSelectedSchemaSkipsWithoutDurableMutation() {
         var fenced = new AtomicReference<IndexDescriptor>();
         var fetcher = fetcher(descriptor(), fenced);
         var otherColumn = new ConnectorTableMetadata.Column(
@@ -98,7 +110,7 @@ class IndexSchemaGuardTest {
 
         assertThat(fetcher.lookupIndexesForQuery(
                 "tenant", "lake.raw.items", "value", List.of(missingColumnSource))).isEmpty();
-        assertThat(fenced).hasValue(descriptor());
+        assertThat(fenced).hasValue(null);
     }
 
     private static IndexAwareSplitFetcher fetcher(
@@ -121,6 +133,11 @@ class IndexSchemaGuardTest {
     }
 
     private static SplitSourceDescriptor source(PangrovaType type, boolean withSchemaIdentity) {
+        return source(type, withSchemaIdentity, Optional.empty());
+    }
+
+    private static SplitSourceDescriptor source(PangrovaType type, boolean withSchemaIdentity,
+                                                Optional<TableVersionToken> capturedVersion) {
         var column = new ConnectorTableMetadata.Column("value", type, OptionalInt.of(1), null);
         var metadata = new ConnectorTableMetadata(
                 new SchemaTableName("raw", "items"), List.of("value"), List.of(column), Map.of());
@@ -130,9 +147,10 @@ class IndexSchemaGuardTest {
                         "test-field-namespace", List.of(column), FieldIdStability.SELECTED_SOURCE))
                 : Optional.empty();
         var declaration = new ConnectorTableReadMetadata(metadata, TableDeclarationEvidence.EXACT);
+        // Exact selected snapshot declaration, not a live observation.
         var binding = new ConnectorReadBinding(
                 new ConnectorTableHandle() {}, declaration, TableStatistics.UNKNOWN,
-                ReadSnapshotState.SNAPSHOT, OptionalLong.of(1), "source-1", identity, Optional.empty());
+                ReadSnapshotState.SNAPSHOT, OptionalLong.of(1), "source-1", identity, capturedVersion);
         return new SplitSourceDescriptor(
                 "lake", "raw", "items", Constraint.EMPTY, List.of("value"), Optional.of(binding));
     }

@@ -145,6 +145,33 @@ class IndexSchemaEvolutionHandlerTest {
     }
 
     @Test
+    void currentSourceMismatchStillDurablyFencesTheDescriptor() {
+        var descriptor = descriptor("index-1", IndexType.BLOOM_FILTER, "value", PangrovaType.BIGINT,
+                IndexState.READY);
+        var reason = new AtomicReference<String>();
+        IndexMetadataStore store = (IndexMetadataStore) Proxy.newProxyInstance(
+                IndexSchemaEvolutionHandlerTest.class.getClassLoader(),
+                new Class<?>[] {IndexMetadataStore.class}, (proxy, method, arguments) -> switch (method.getName()) {
+                    case "findIndexesByState" -> {
+                        assertThat(arguments[0]).isEqualTo(IndexState.READY);
+                        yield List.of(descriptor);
+                    }
+                    case "fenceIndexSchemaMismatch" -> {
+                        assertThat(arguments[0]).isEqualTo(descriptor);
+                        reason.set((String) arguments[1]);
+                        yield Optional.of(UUID.randomUUID());
+                    }
+                    default -> throw new AssertionError("Unexpected call " + method.getName());
+                });
+        var handler = new IndexSchemaEvolutionHandler(store, (index, event) ->
+                new IndexSchemaEvolutionHandler.SchemaObservation(
+                        Optional.of(metadata("value", PangrovaType.VARCHAR)), Optional.of(IDENTITY)));
+
+        assertThat(handler.reconcile()).isOne();
+        assertThat(reason).hasValue("source_schema_mismatch");
+    }
+
+    @Test
     void demotionDuringReconciliationDoesNotFenceOrObserveAnotherDescriptor() {
         var first = descriptor("first", IndexType.BLOOM_FILTER, "value", PangrovaType.BIGINT);
         var second = descriptor("second", IndexType.BLOOM_FILTER, "value", PangrovaType.BIGINT);
@@ -235,13 +262,18 @@ class IndexSchemaEvolutionHandlerTest {
 
     private static IndexDescriptor descriptor(
             String indexId, IndexType type, String column, PangrovaType sourceType) {
+        return descriptor(indexId, type, column, sourceType, IndexState.STALE);
+    }
+
+    private static IndexDescriptor descriptor(String indexId, IndexType type, String column,
+                                              PangrovaType sourceType, IndexState state) {
         var sourceColumn = new ConnectorTableMetadata.Column(
                 column, sourceType, OptionalInt.of(1), null);
         return new IndexDescriptor(
                 indexId, indexId + "_name", "lake", "raw", "items", List.of(column), type,
                 Map.of(IndexDescriptor.SOURCE_SCHEMA_FINGERPRINT_PROPERTY,
                         IndexSchemaFingerprint.of(List.of(column), List.of(sourceColumn))),
-                IndexState.STALE, "schema_change_pending", 0, "snapshot-1", "snapshot-1",
+                state, state == IndexState.STALE ? "schema_change_pending" : null, 0, "snapshot-1", "snapshot-1",
                 NOW, NOW, "tenant");
     }
 
