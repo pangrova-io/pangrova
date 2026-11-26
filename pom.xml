@@ -92,15 +92,8 @@
         <!-- Testing dependencies -->
         <junit.version>6.1.3</junit.version>
         <assertj.version>3.24.2</assertj.version>
-        <!--
-          The reactor still uses the Testcontainers 1.x module coordinates
-          (for example org.testcontainers:mysql and org.testcontainers:kafka).
-          Testcontainers 2.x moved these modules to technology-specific group
-          IDs, so importing its BOM while keeping the 1.x coordinates makes a
-          clean build impossible. Keep the compatible release line until the
-          module-coordinate migration is performed atomically across the repo.
-        -->
-        <testcontainers.version>1.21.3</testcontainers.version>
+        <!-- Testcontainers 2.x manages technology modules as testcontainers-* artifacts. -->
+        <testcontainers.version>2.0.5</testcontainers.version>
         <jqwik.version>1.8.2</jqwik.version>
         <awaitility.version>4.2.2</awaitility.version>
 
