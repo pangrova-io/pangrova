@@ -51,6 +51,10 @@ final class QueryTerminalJournalFixture implements AutoCloseable {
     JdbcQueryStateJournal journal() { return journal; }
     DataSource administrator() { return administrator; }
 
+    void allowExecutionGrantLock() throws SQLException {
+        execute("GRANT UPDATE (expires_at) ON execution_anchor TO " + role);
+    }
+
     java.util.List<org.pangrova.query.api.journal.QueryStateEvent> committedEvents(String queryId) throws SQLException {
         try (var connection = administrator.getConnection(); var statement = connection.prepareStatement(
                 "SELECT event_id, timestamp_ms, coordinator_id, query_id, sql_text, session_json, state "

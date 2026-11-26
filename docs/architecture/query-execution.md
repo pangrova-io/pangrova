@@ -51,8 +51,14 @@ The HTTP submission exchange suspends while a non-idempotent query waits for
 readiness. With an authenticated `Idempotency-Key`, the candidate query first
 passes admission and execution-owner acquisition, then atomically commits its initial
 `QUEUED` journal fact with principal, key digest, request fingerprint, lineage, and a
-`QUEUED`/`PENDING` acceptance receipt. Only that durable acceptance publishes the
-query into the executable registry. The receipt includes the issuing Coordinator
+`QUEUED`/`PENDING` acceptance receipt. PostgreSQL locks the exact execution grant
+and checks its expiry against the database clock after acquiring the lock, in
+the same statement as the journal insert. The grant's owner, incarnation, and
+fencing token must all match. Any resulting lineage commits in the journal
+transaction. Only that durable acceptance publishes the query into the
+executable registry. If the predecessor's accepted insert committed before
+takeover, replay of that exact event can return the original receipt.
+The receipt includes the issuing Coordinator
 incarnation and HTTP origin. Matching retries return the original route and query ID
 without a second execution; different fingerprints fail with HTTP 409.
 Unknown commit outcomes reconcile the same authoritative row. Acceptance survives

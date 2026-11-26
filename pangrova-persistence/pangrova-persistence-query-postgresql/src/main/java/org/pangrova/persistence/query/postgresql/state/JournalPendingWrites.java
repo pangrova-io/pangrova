@@ -2,6 +2,7 @@ package org.pangrova.persistence.query.postgresql.state;
 
 import org.pangrova.persistence.query.postgresql.journal.JournalEventKey;
 
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.persistence.query.api.enums.JournalAdmissionOutcome;
 
 import java.util.ArrayList;
@@ -133,7 +134,14 @@ final class JournalPendingWrites {
             for (Write owner : batch.writes()) removeOwned(owner);
             notifyAll();
         }
-        batch.attempts().forEach(attempt -> attempt.complete(null));
+        for (int index = 0; index < batch.writes().size(); index++) {
+            var attempt = batch.attempts().get(index);
+            if (batch.writes().get(index).outcome.rejected()) {
+                attempt.completeExceptionally(rejected("Initial query execution grant is no longer current", null));
+            } else {
+                attempt.complete(null);
+            }
+        }
     }
 
     void failed(Batch batch, Throwable error, JournalEventKey confirmedRejected, boolean sticky) {
@@ -252,33 +260,41 @@ final class JournalPendingWrites {
         private final JournalPendingWrites owner;
         final QueryStateEvent query;
         final TaskStateEvent task;
+        final ExecutionAnchor admissionGrant;
         private final JournalEventKey key;
         @GuardedBy("owner")
         private CompletableFuture<Void> attempt = new CompletableFuture<>();
         @GuardedBy("owner")
         private Throwable lastFailure;
-        private volatile QueryAcceptanceAdmission acceptanceResult;
+        private volatile JournalEventSql.WriteOutcome outcome;
 
         Write(JournalPendingWrites owner, QueryStateEvent event) {
+            this(owner, event, null);
+        }
+
+        Write(JournalPendingWrites owner, QueryStateEvent event, ExecutionAnchor admissionGrant) {
             this.owner = Objects.requireNonNull(owner, "owner");
             query = Objects.requireNonNull(event);
             task = null;
+            this.admissionGrant = admissionGrant;
             key = new JournalEventKey(true, event.context().eventId());
         }
         Write(JournalPendingWrites owner, TaskStateEvent event) {
             this.owner = Objects.requireNonNull(owner, "owner");
             query = null;
             task = Objects.requireNonNull(event);
+            admissionGrant = null;
             key = new JournalEventKey(false, event.context().eventId());
         }
         JournalEventContext context() { return query != null ? query.context() : task.context(); }
         CompletableFuture<Void> attempt() { return attempt; }
-        QueryAcceptanceAdmission acceptanceResult() { return acceptanceResult; }
-        void acceptanceResult(QueryAcceptanceAdmission result) { acceptanceResult = result; }
+        QueryAcceptanceAdmission acceptanceResult() { return outcome.admission(); }
+        void outcome(JournalEventSql.WriteOutcome result) { outcome = result; }
         JournalEventKey key() { return key; }
         String queryId() { return query != null ? query.queryId() : task.queryId(); }
         boolean sameEvent(Write other) {
-            return Objects.equals(query, other.query) && Objects.equals(task, other.task);
+            return Objects.equals(query, other.query) && Objects.equals(task, other.task)
+                    && Objects.equals(admissionGrant, other.admissionGrant);
         }
     }
 

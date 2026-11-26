@@ -63,9 +63,11 @@ class QueryPeerRoutingIntegrationTest extends ContainerTestBase {
     private static void exerciseWaitsAndProfiles(HttpClient http, CoordinatorBootstrap owner, int ingressPort,
             String alice, String bob) throws Exception {
         enableCounters(owner);
+        long fencedWrites = fencedAcceptanceWrites(owner);
         SubmitQueryResponse receipt;
         try (var barrier = lockPublication(owner)) {
             receipt = submit(http, owner.getHttpPort(), "peer-observe", alice);
+            assertThat(fencedAcceptanceWrites(owner) - fencedWrites).isEqualTo(1);
             String observer = UUID.randomUUID().toString();
             String path = status(receipt) + "?afterVersion=0&waitMs=5000&until=RESULT_OR_TERMINAL";
             var wait = control(ingressPort, path, alice, receipt.ownerEndpoint().routeTicket())
@@ -196,6 +198,19 @@ class QueryPeerRoutingIntegrationTest extends ContainerTestBase {
         try (var connection = owner.metadataDataSource().getConnection();
              var statement = connection.createStatement()) {
             statement.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements SCHEMA public");
+        }
+    }
+
+    private static long fencedAcceptanceWrites(CoordinatorBootstrap owner) throws Exception {
+        try (var connection = owner.metadataDataSource().getConnection();
+             var statement = connection.createStatement();
+             var rows = statement.executeQuery("""
+                     SELECT COALESCE(SUM(calls), 0) FROM public.pg_stat_statements
+                     WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+                       AND query LIKE 'WITH locked AS MATERIALIZED (%INSERT INTO query_state_journal%'
+                     """)) {
+            assertThat(rows.next()).isTrue();
+            return rows.getLong(1);
         }
     }
 

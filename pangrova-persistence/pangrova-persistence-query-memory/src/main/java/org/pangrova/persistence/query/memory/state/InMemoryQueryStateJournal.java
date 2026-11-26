@@ -1,5 +1,6 @@
 package org.pangrova.persistence.query.memory.state;
 
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.persistence.query.api.enums.JournalAdmissionOutcome;
 
 import java.util.HashSet;
@@ -75,6 +76,14 @@ public final class InMemoryQueryStateJournal implements QueryStateJournal {
         }
         appendQueryEvent(event);
         return new QueryAcceptanceAdmission(true, event.acceptance());
+    }
+
+    @Override public void appendFencedAdmissionSync(QueryStateEvent event, ExecutionAnchor anchor) {
+        appendQueryEventSync(event);
+    }
+
+    @Override public QueryAcceptanceAdmission acceptFencedQuerySync(QueryStateEvent event, ExecutionAnchor anchor) {
+        return acceptQuerySync(event);
     }
 
     @Override public synchronized Optional<QueryAcceptance> findAcceptance(String principal,

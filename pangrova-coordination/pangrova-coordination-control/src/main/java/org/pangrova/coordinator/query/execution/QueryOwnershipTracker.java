@@ -97,7 +97,8 @@ public final class QueryOwnershipTracker {
                         queryId, snapshot.coordinatorId());
                 return new Ownership(false, OptionalLong.empty());
             }
-            return new Ownership(true, acquired.orElseThrow().publicationRevision());
+            var grant = acquired.orElseThrow();
+            return new Ownership(true, grant.publicationRevision(), grant.anchor());
         } catch (RuntimeException failure) {
             LOG.warn("event=query_ownership_acquire_failed queryId={} coordinatorId={} error={}",
                     queryId, snapshot.coordinatorId(), failure.getMessage());

@@ -1,5 +1,6 @@
 package org.pangrova.persistence.query.api.state;
 
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.query.api.journal.QueryAcceptance;
 import org.pangrova.query.api.journal.QueryAcceptanceAdmission;
 import org.pangrova.query.api.journal.QueryStateEvent;
@@ -24,6 +25,12 @@ public interface QueryStateJournal extends QueryStateJournalReader, AutoCloseabl
     void appendQueryEventSync(QueryStateEvent event);
     /** Atomically accepts or replays the initial QUEUED event carrying idempotency authority. */
     QueryAcceptanceAdmission acceptQuerySync(QueryStateEvent event);
+
+    /** Commits an initial unkeyed admission under the exact execution grant. */
+    void appendFencedAdmissionSync(QueryStateEvent event, ExecutionAnchor anchor);
+
+    /** Commits or replays an initial keyed admission under the exact execution grant. */
+    QueryAcceptanceAdmission acceptFencedQuerySync(QueryStateEvent event, ExecutionAnchor anchor);
     /** Reads one principal-scoped acceptance only for conflict or uncertain-outcome reconciliation. */
     Optional<QueryAcceptance> findAcceptance(String principal, String idempotencyKeyDigest);
     /** Bounded sweep of terminal acceptances whose retention has elapsed. */

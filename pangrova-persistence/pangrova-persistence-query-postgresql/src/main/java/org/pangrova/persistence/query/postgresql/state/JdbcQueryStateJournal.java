@@ -14,6 +14,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import javax.sql.DataSource;
 import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.query.api.journal.QueryAcceptance;
 import org.pangrova.query.api.journal.QueryAcceptanceAdmission;
 import org.pangrova.query.api.journal.QueryStateEvent;
@@ -83,11 +84,32 @@ public final class JdbcQueryStateJournal implements QueryStateJournal {
         var owner = pending.admit(new JournalPendingWrites.Write(pending, event), true);
         await(owner.attempt());
     }
+    @Override public void appendFencedAdmissionSync(QueryStateEvent event, ExecutionAnchor anchor) {
+        var write = new JournalPendingWrites.Write(pending, event, requireGrant(event, anchor));
+        await(pending.admit(write, true).attempt());
+    }
+
+    @Override public QueryAcceptanceAdmission acceptFencedQuerySync(QueryStateEvent event, ExecutionAnchor anchor) {
+        return acceptQuerySync(event, requireGrant(event, anchor));
+    }
+
+    private static ExecutionAnchor requireGrant(QueryStateEvent event, ExecutionAnchor anchor) {
+        Objects.requireNonNull(anchor, "anchor");
+        if (!event.queryId().equals(anchor.executionId()) || !"QUEUED".equals(event.state())) {
+            throw new IllegalArgumentException("Execution grant must match the initial query event");
+        }
+        return anchor;
+    }
+
     @Override public QueryAcceptanceAdmission acceptQuerySync(QueryStateEvent event) {
+        return acceptQuerySync(event, null);
+    }
+
+    private QueryAcceptanceAdmission acceptQuerySync(QueryStateEvent event, ExecutionAnchor anchor) {
         if (event.acceptance() == null) {
             throw new IllegalArgumentException("Durable acceptance requires an acceptance fact");
         }
-        var owner = pending.admit(new JournalPendingWrites.Write(pending, event), true);
+        var owner = pending.admit(new JournalPendingWrites.Write(pending, event, anchor), true);
         await(owner.attempt());
         var admission = owner.acceptanceResult();
         if (admission == null) {

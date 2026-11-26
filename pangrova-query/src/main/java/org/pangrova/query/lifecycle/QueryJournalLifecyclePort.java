@@ -1,5 +1,6 @@
 package org.pangrova.query.lifecycle;
 
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.query.api.enums.QueryState;
 import org.pangrova.query.api.journal.QueryAcceptance;
 import org.pangrova.query.api.journal.QueryAcceptanceAdmission;
@@ -11,10 +12,10 @@ import java.util.Optional;
 /** Query lifecycle facts recorded into the sole configured state journal. */
 public interface QueryJournalLifecyclePort extends QueryStateJournalPort {
 
-    void queued(String queryId, String sql, QuerySession session, QueryStateMachine state);
+    void queued(String queryId, String sql, QuerySession session, QueryStateMachine state, ExecutionAnchor anchor);
 
     QueryAcceptanceAdmission accept(String queryId, String sql, QuerySession session,
-            QueryStateMachine state, QueryAcceptanceRequest request, long retentionMs);
+            QueryStateMachine state, QueryAcceptanceRequest request, long retentionMs, ExecutionAnchor anchor);
 
     Optional<QueryAcceptance> findAcceptance(String principal, String idempotencyKeyDigest);
 

@@ -239,6 +239,18 @@ class QueryManagerDurableAcceptanceTest {
         }
 
         @Override
+        public void appendFencedAdmissionSync(QueryStateEvent event,
+                org.pangrova.execution.api.ownership.ExecutionAnchor anchor) {
+            delegate.appendFencedAdmissionSync(event, anchor);
+        }
+
+        @Override
+        public QueryAcceptanceAdmission acceptFencedQuerySync(QueryStateEvent event,
+                org.pangrova.execution.api.ownership.ExecutionAnchor anchor) {
+            return delegate.acceptFencedQuerySync(event, anchor);
+        }
+
+        @Override
         public Optional<org.pangrova.query.api.journal.QueryAcceptance> findAcceptance(String principal,
                 String idempotencyKeyDigest) {
             return delegate.findAcceptance(principal, idempotencyKeyDigest);

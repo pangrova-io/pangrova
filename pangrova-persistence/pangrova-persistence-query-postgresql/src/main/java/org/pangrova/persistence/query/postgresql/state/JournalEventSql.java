@@ -32,6 +32,24 @@ final class JournalEventSql {
             "event_id, query_id, task_id, worker_id, state, stage_id, report_sequence, timestamp_ms, coordinator_id";
     private static final String QUERY_INSERT = "INSERT INTO query_state_journal (" + QUERY_COLUMNS
             + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING";
+    private static final String FENCED_QUERY_INSERT = """
+            WITH locked AS MATERIALIZED (
+                SELECT expires_at FROM execution_anchor
+                WHERE execution_id = ? AND owner_id = ? AND owner_incarnation = ? AND fencing_token = ?
+                FOR SHARE
+            ), authorized AS MATERIALIZED (
+                SELECT 1 FROM locked WHERE expires_at > clock_timestamp()
+            ), inserted AS (
+                INSERT INTO query_state_journal (
+            """ + QUERY_COLUMNS + """
+                )
+                SELECT ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ? FROM authorized
+                ON CONFLICT DO NOTHING RETURNING 1
+            )
+            SELECT CASE WHEN EXISTS (SELECT 1 FROM inserted) THEN 1
+                        WHEN EXISTS (SELECT 1 FROM authorized) THEN 0 ELSE -1 END
+            """;
+    private static final int FENCE_PARAMETERS = 4;
     private static final String TASK_INSERT = "INSERT INTO task_state_journal (" + TASK_COLUMNS
             + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (event_id) DO NOTHING";
     private static final String SELECT_QUERY_EVENT = "SELECT " + QUERY_COLUMNS
@@ -55,13 +73,13 @@ final class JournalEventSql {
     static void commit(Connection connection, List<JournalPendingWrites.Write> batch) throws SQLException {
         connection.setAutoCommit(false);
         try {
-            List<QueryAcceptanceAdmission> admissions = new ArrayList<>(batch.size());
+            List<WriteOutcome> outcomes = new ArrayList<>(batch.size());
             for (JournalPendingWrites.Write event : batch) {
-                admissions.add(write(connection, event));
+                outcomes.add(write(connection, event));
             }
             connection.commit();
             for (int index = 0; index < batch.size(); index++) {
-                batch.get(index).acceptanceResult(admissions.get(index));
+                batch.get(index).outcome(outcomes.get(index));
             }
         } catch (SQLException failure) {
             try {
@@ -75,24 +93,32 @@ final class JournalEventSql {
         }
     }
 
-    private static QueryAcceptanceAdmission write(Connection connection, JournalPendingWrites.Write event)
+    record WriteOutcome(QueryAcceptanceAdmission admission, boolean rejected) {
+        private static final WriteOutcome WRITTEN = new WriteOutcome(null, false);
+        private static final WriteOutcome FENCED = new WriteOutcome(null, true);
+
+        static WriteOutcome accepted(QueryAcceptanceAdmission admission) {
+            return admission == null ? WRITTEN : new WriteOutcome(admission, false);
+        }
+    }
+
+    private static WriteOutcome write(Connection connection, JournalPendingWrites.Write event)
             throws SQLException {
         if (event.query != null) {
             for (int attempt = 0; attempt < 2; attempt++) {
-                int inserted;
-                try (PreparedStatement statement = connection.prepareStatement(QUERY_INSERT)) {
-                    bindQuery(statement, event.query);
-                    inserted = statement.executeUpdate();
+                int inserted = insertQuery(connection, event);
+                if (inserted < 0) {
+                    return staleAdmission(connection, event);
                 }
                 if (inserted > 0) {
                     appendLineage(connection, event.query);
-                    return event.query.acceptance() == null ? null
-                            : new QueryAcceptanceAdmission(true, event.query.acceptance());
+                    return WriteOutcome.accepted(event.query.acceptance() == null ? null
+                            : new QueryAcceptanceAdmission(true, event.query.acceptance()));
                 }
                 var reconciliation = reconcileQuery(connection, event);
                 if (!reconciliation.retryInsert()) {
                     if (reconciliation.publishLineage()) appendLineage(connection, event.query);
-                    return reconciliation.admission();
+                    return WriteOutcome.accepted(reconciliation.admission());
                 }
             }
             throw new JournalPayloadConflictException(event.key());
@@ -105,7 +131,38 @@ final class JournalEventSql {
         if (inserted == 0) {
             reconcileTask(connection, event);
         }
-        return null;
+        return WriteOutcome.WRITTEN;
+    }
+
+    private static int insertQuery(Connection connection, JournalPendingWrites.Write event) throws SQLException {
+        var grant = event.admissionGrant;
+        if (grant == null) {
+            try (var statement = connection.prepareStatement(QUERY_INSERT)) {
+                bindQuery(statement, event.query, 0);
+                return statement.executeUpdate();
+            }
+        }
+        try (var statement = connection.prepareStatement(FENCED_QUERY_INSERT)) {
+            statement.setString(1, grant.executionId());
+            statement.setString(2, grant.ownerId());
+            statement.setString(3, grant.ownerIncarnation());
+            statement.setLong(FENCE_PARAMETERS, grant.fencingToken());
+            bindQuery(statement, event.query, FENCE_PARAMETERS);
+            try (var result = statement.executeQuery()) {
+                if (!result.next()) throw new SQLException("Fenced query admission missing outcome");
+                return result.getInt(1);
+            }
+        }
+    }
+
+    private static WriteOutcome staleAdmission(Connection connection, JournalPendingWrites.Write event)
+            throws SQLException {
+        // A commit may have succeeded before ownership was lost. Replaying that
+        // exact receipt must not let the predecessor start dispatch.
+        if (event.query.acceptance() != null && exactQueryEventExists(connection, event)) {
+            return WriteOutcome.accepted(new QueryAcceptanceAdmission(false, event.query.acceptance()));
+        }
+        return WriteOutcome.FENCED;
     }
 
     private static void appendLineage(Connection connection, QueryStateEvent event) throws SQLException {
@@ -125,22 +182,11 @@ final class JournalEventSql {
 
     private static QueryReconciliation reconcileQuery(Connection connection,
             JournalPendingWrites.Write event) throws SQLException {
-        try (PreparedStatement select = connection.prepareStatement(SELECT_QUERY_EVENT)) {
-            select.setObject(1, event.context().eventId());
-            try (ResultSet rows = select.executeQuery()) {
-                if (rows.next()) {
-                    var stored = readQuery(rows);
-                    boolean exact = event.query.equals(stored);
-                    if (!exact || rows.next()) {
-                        throw new JournalPayloadConflictException(event.key(),
-                                "Journal event mismatch expected=" + event.query + " actual=" + stored);
-                    }
-                    return event.query.acceptance() == null
-                            ? new QueryReconciliation(null, false, true)
-                            : new QueryReconciliation(
-                                    new QueryAcceptanceAdmission(true, event.query.acceptance()), false, true);
-                }
-            }
+        if (exactQueryEventExists(connection, event)) {
+            return event.query.acceptance() == null
+                    ? new QueryReconciliation(null, false, true)
+                    : new QueryReconciliation(new QueryAcceptanceAdmission(true, event.query.acceptance()),
+                            false, true);
         }
         if (event.query.acceptance() == null) throw new JournalPayloadConflictException(event.key());
         try (PreparedStatement select = connection.prepareStatement(SELECT_ACCEPTANCE)) {
@@ -173,6 +219,22 @@ final class JournalEventSql {
         }
     }
 
+    private static boolean exactQueryEventExists(Connection connection, JournalPendingWrites.Write event)
+            throws SQLException {
+        try (PreparedStatement select = connection.prepareStatement(SELECT_QUERY_EVENT)) {
+            select.setObject(1, event.context().eventId());
+            try (ResultSet rows = select.executeQuery()) {
+                if (!rows.next()) return false;
+                var stored = readQuery(rows);
+                if (!event.query.equals(stored) || rows.next()) {
+                    throw new JournalPayloadConflictException(event.key(),
+                            "Journal event mismatch expected=" + event.query + " actual=" + stored);
+                }
+                return true;
+            }
+        }
+    }
+
     private static boolean isExpired(Connection connection, QueryStateEvent acceptance) throws SQLException {
         Long terminal;
         try (PreparedStatement select = connection.prepareStatement(SELECT_RETIRED_TERMINAL_TIMESTAMP)) {
@@ -199,26 +261,26 @@ final class JournalEventSql {
         }
     }
 
-    private static void bindQuery(PreparedStatement statement, QueryStateEvent event) throws SQLException {
-        statement.setObject(1, event.context().eventId());
-        statement.setString(2, event.queryId());
-        statement.setString(3, event.sql());
-        statement.setString(4, event.sessionJson());
-        statement.setString(5, event.state());
-        statement.setLong(6, event.context().timestampMs());
-        statement.setString(7, event.context().coordinatorId());
-        statement.setString(8, event.lineage() == null ? null : QueryLineageFactSql.encode(event.lineage()));
+    private static void bindQuery(PreparedStatement statement, QueryStateEvent event, int offset) throws SQLException {
+        statement.setObject(offset + 1, event.context().eventId());
+        statement.setString(offset + 2, event.queryId());
+        statement.setString(offset + 3, event.sql());
+        statement.setString(offset + 4, event.sessionJson());
+        statement.setString(offset + 5, event.state());
+        statement.setLong(offset + 6, event.context().timestampMs());
+        statement.setString(offset + 7, event.context().coordinatorId());
+        statement.setString(offset + 8, event.lineage() == null ? null : QueryLineageFactSql.encode(event.lineage()));
         var acceptance = event.acceptance();
-        statement.setString(9, acceptance == null ? null : acceptance.principal());
-        statement.setString(10, acceptance == null ? null : acceptance.idempotencyKeyDigest());
-        statement.setString(REQUEST_FINGERPRINT_PARAMETER,
+        statement.setString(offset + 9, acceptance == null ? null : acceptance.principal());
+        statement.setString(offset + 10, acceptance == null ? null : acceptance.idempotencyKeyDigest());
+        statement.setString(offset + REQUEST_FINGERPRINT_PARAMETER,
                 acceptance == null ? null : acceptance.requestFingerprint());
-        statement.setString(ACCEPTANCE_RECEIPT_PARAMETER, acceptance == null ? null
+        statement.setString(offset + ACCEPTANCE_RECEIPT_PARAMETER, acceptance == null ? null
                 : CanonicalJsonMapper.writeValueAsStringUnchecked(acceptance.receipt()));
         if (acceptance == null) {
-            statement.setNull(RETENTION_PARAMETER, java.sql.Types.BIGINT);
+            statement.setNull(offset + RETENTION_PARAMETER, java.sql.Types.BIGINT);
         } else {
-            statement.setLong(RETENTION_PARAMETER, acceptance.retentionMs());
+            statement.setLong(offset + RETENTION_PARAMETER, acceptance.retentionMs());
         }
     }
 

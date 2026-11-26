@@ -1,6 +1,7 @@
 package org.pangrova.query.lifecycle;
 
 import org.pangrova.common.api.annotation.Experimental;
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.connector.api.metadata.ConnectorMetadataScope;
 import org.pangrova.connector.api.query.ConnectorQueryAuthority;
 import org.pangrova.query.api.lifecycle.QueryExecutionCleanup;
@@ -34,8 +35,12 @@ public interface QueryExecutionPort extends QueryExecutionCleanup {
     /** Acquires durable execution ownership and samples the authenticated tenant's publication revision. */
     Ownership acquireQueryOwnership(String queryId, String tenantId);
 
-    /** Result of admission, including the revision when supplied by the ownership backend. */
-    record Ownership(boolean acquired, OptionalLong publicationRevision) { }
+    /** Exact grant and publication revision for the submitted query, or a process-local grant. */
+    record Ownership(boolean acquired, OptionalLong publicationRevision, ExecutionAnchor anchor) {
+        public Ownership(boolean acquired, OptionalLong publicationRevision) {
+            this(acquired, publicationRevision, null);
+        }
+    }
 
     /** Releases only the candidate execution grant without implying local issuance cleanup. */
     void releaseQueryOwnership(String queryId);

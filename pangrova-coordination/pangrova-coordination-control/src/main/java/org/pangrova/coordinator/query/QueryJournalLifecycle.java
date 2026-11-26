@@ -17,6 +17,7 @@ import java.util.Optional;
 import org.pangrova.query.api.journal.QueryStateEvent;
 import org.pangrova.query.api.journal.TaskStateEvent;
 import org.pangrova.persistence.query.api.state.QueryStateJournal;
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.persistence.query.api.exception.JournalWriteException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -67,18 +68,22 @@ final class QueryJournalLifecycle
     }
 
     @Override
-    public void queued(String queryId, String sql, QuerySession session, QueryStateMachine state) {
+    public void queued(String queryId, String sql, QuerySession session, QueryStateMachine state,
+            ExecutionAnchor anchor) {
         QueryStateEvent fact = state.journalEvent(QueryState.QUEUED,
                 () -> new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(
                         System.currentTimeMillis(), coordinatorId), queryId, sql,
                         org.pangrova.query.api.session.JournalSessionPayload.encode(session),
                         QueryState.QUEUED.name(), state.lineageStart()));
-        record(state, () -> journal.appendQueryEventSync(fact));
+        record(state, () -> {
+            if (anchor == null) journal.appendQueryEventSync(fact);
+            else journal.appendFencedAdmissionSync(fact, anchor);
+        });
     }
 
     @Override
     public QueryAcceptanceAdmission accept(String queryId, String sql, QuerySession session,
-            QueryStateMachine state, QueryAcceptanceRequest request, long retentionMs) {
+            QueryStateMachine state, QueryAcceptanceRequest request, long retentionMs, ExecutionAnchor anchor) {
         var acceptance = QueryAcceptance.pending(request, queryId, retentionMs);
         QueryStateEvent fact = state.journalEvent(QueryState.QUEUED,
                 () -> new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(
@@ -86,11 +91,13 @@ final class QueryJournalLifecycle
                         org.pangrova.query.api.session.JournalSessionPayload.encode(session),
                         QueryState.QUEUED.name(), state.lineageStart(), acceptance));
         try {
-            var admission = journal.acceptQuerySync(fact);
+            var admission = anchor == null
+                    ? journal.acceptQuerySync(fact) : journal.acceptFencedQuerySync(fact, anchor);
             if (admission.newExecution()) state.retainJournalOwnership();
             return admission;
         } catch (JournalWriteException failure) {
             if (failure.admissionOutcome() == JournalAdmissionOutcome.ACCEPTED_UNESTABLISHED) {
+                if (anchor != null) return reconcileFencedAdmission(fact, anchor, state, failure);
                 Optional<QueryAcceptance> existing;
                 try {
                     existing = journal.findAcceptance(request.principal(), request.idempotencyKeyDigest());
@@ -111,6 +118,22 @@ final class QueryJournalLifecycle
             }
             if (isUniqueConflict(failure)) throw new IdempotencyConflictException();
             throw failure;
+        }
+    }
+
+    private QueryAcceptanceAdmission reconcileFencedAdmission(QueryStateEvent fact, ExecutionAnchor anchor,
+            QueryStateMachine state, JournalWriteException original) {
+        try {
+            var admission = journal.acceptFencedQuerySync(fact, anchor);
+            if (admission.newExecution()) state.retainJournalOwnership();
+            return admission;
+        } catch (JournalWriteException reconciled) {
+            if (reconciled != original) reconciled.addSuppressed(original);
+            if (isUniqueConflict(reconciled)) throw new IdempotencyConflictException();
+            if (reconciled.admissionOutcome() == JournalAdmissionOutcome.ACCEPTED_UNESTABLISHED) {
+                state.retainJournalOwnership();
+            }
+            throw reconciled;
         }
     }
 

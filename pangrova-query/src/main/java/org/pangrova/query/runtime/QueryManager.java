@@ -2,6 +2,7 @@ package org.pangrova.query.runtime;
 
 import org.pangrova.query.retention.QueryRetentionScheduler;
 
+import org.pangrova.query.lifecycle.QueryExecutionPort;
 import org.pangrova.query.lifecycle.QueryTerminalCleanup;
 
 import org.pangrova.query.lifecycle.QueryStateMachine;
@@ -73,7 +74,7 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
     private final QueryTerminalCleanup terminalCleanup;
     private final org.pangrova.query.lifecycle.QueryAdmissionPort admission;
     private final ReentrantReadWriteLock queryLifecycleLock = new ReentrantReadWriteLock();
-    private final org.pangrova.query.lifecycle.QueryExecutionPort queryDispatcher;
+    private final QueryExecutionPort queryDispatcher;
     private final TracingProvider tracingProvider;
     private final ExecutionTraceContextFactory traceContexts;
     private final org.pangrova.query.lifecycle.TenantAdmissionPort tenantAdmission;
@@ -327,16 +328,16 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
             enriched = session.withTenantId(tenantId);
             admission.checkThrottle(queryId, enriched);
             admission.checkCluster(queryId, tenant, sm);
-            var publicationRevision = acquireOwnershipOrReject(queryId, tenantId);
+            var ownership = acquireOwnershipOrReject(queryId, tenantId);
             queryDispatcher.bindConnectorAuthority(sm, queryId);
             sm.resolveOwnership(true);
             applyPendingCancellation(queryId, sm);
 
             if (acceptanceRequest == null) {
-                journalLifecycle.queued(queryId, sm.getSql(), enriched, sm);
+                journalLifecycle.queued(queryId, sm.getSql(), enriched, sm, ownership.anchor());
             } else {
                 acceptanceAdmission = journalLifecycle.accept(queryId, sm.getSql(), enriched, sm,
-                        acceptanceRequest, QueryAcceptance.DEFAULT_RETENTION_MS);
+                        acceptanceRequest, QueryAcceptance.DEFAULT_RETENTION_MS, ownership.anchor());
                 if (!acceptanceAdmission.newExecution()) {
                     pendingCancellations.remove(queryId);
                     sm.resolveOwnership(false);
@@ -352,7 +353,7 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
             registered = true;
             if (!sm.isTerminal()) {
                 enriched = enriched.withQueryAuthority(sm.connectorAuthority())
-                        .withPublicationRevision(publicationRevision);
+                        .withPublicationRevision(ownership.publicationRevision());
             }
             registerJournalListener(queryId, sm);
             applyPendingCancellation(queryId, sm);
@@ -428,13 +429,13 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
                 this::failQuery, this::applyDispatchResult).start(queryId, sql, session, state);
     }
 
-    private java.util.OptionalLong acquireOwnershipOrReject(String queryId, String tenantId) {
+    private QueryExecutionPort.Ownership acquireOwnershipOrReject(String queryId, String tenantId) {
         var ownership = queryDispatcher.acquireQueryOwnership(queryId, tenantId);
         if (!ownership.acquired()) {
             throw new QueryRejectedException(
                     "Failed to acquire query ownership for queryId=" + queryId);
         }
-        return ownership.publicationRevision();
+        return ownership;
     }
 
     private QueryStateMachine newCandidateStateMachine(String queryId, QuerySession session, String sql) {

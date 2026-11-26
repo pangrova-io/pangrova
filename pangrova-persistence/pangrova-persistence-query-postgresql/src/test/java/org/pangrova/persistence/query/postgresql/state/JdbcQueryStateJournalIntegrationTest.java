@@ -2,6 +2,7 @@ package org.pangrova.persistence.query.postgresql.state;
 
 import java.sql.Connection;
 import java.sql.Statement;
+import java.time.Duration;
 import java.util.List;
 import java.util.Set;
 
@@ -16,7 +17,10 @@ import org.pangrova.query.api.lineage.QueryLineageFact;
 import org.pangrova.query.api.lineage.QueryLineageMetadata;
 import org.pangrova.governance.api.enums.LineageEventType;
 import org.pangrova.testing.testkit.PostgresCommitWireFault;
+import org.pangrova.persistence.query.api.enums.JournalAdmissionOutcome;
+import org.pangrova.persistence.query.api.exception.JournalWriteException;
 import org.pangrova.persistence.query.api.state.StateJournalConfig;
+import org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore;
 import org.pangrova.query.api.journal.TaskStateEvent;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -372,6 +376,104 @@ class JdbcQueryStateJournalIntegrationTest {
         journal.appendQueryEventSync(query);
         journal.appendTaskEventSync(task);
         assertEquals(2L, eventReadbacks());
+    }
+
+    @Test
+    void fencedAdmissionTakesOneStatementAndReplaysCommittedReceiptAfterTakeover() throws Exception {
+        String queryId = "fenced-committed";
+        var event = acceptanceEvent(queryId, "alice", "a", "b", 60_000);
+        var anchors = new JdbcExecutionAnchorStore(dataSource);
+        var lease = Duration.ofMinutes(1);
+        var old = anchors.tryAcquire(queryId, "old", "old-boot", lease).orElseThrow();
+        executeSql("CREATE EXTENSION IF NOT EXISTS pg_stat_statements");
+        executeSql("SELECT pg_stat_statements_reset()");
+
+        assertTrue(journal.acceptFencedQuerySync(event, old).newExecution());
+        assertEquals(1L, fencedAdmissionStatements());
+        assertEquals(0L, acceptanceReadbacks());
+        assertEquals(0L, eventReadbacks());
+
+        assertTrue(anchors.yield(old));
+        var successor = anchors.tryAcquire(queryId, "new", "new-boot", lease).orElseThrow();
+        var replay = journal.acceptFencedQuerySync(event, old);
+        assertFalse(replay.newExecution());
+        assertEquals(event.acceptance(), replay.acceptance());
+        assertThat(anchors.current(queryId)).contains(successor);
+        assertEquals(1, countQueryRows("query_state_journal", queryId));
+    }
+
+    @Test
+    void oldOwnerCannotWriteAfterEmptyTakeoverClaimIsReleased() throws Exception {
+        String queryId = "late-predecessor";
+        var event = acceptanceEvent(queryId, "alice", "a", "b", 60_000);
+        var anchors = new JdbcExecutionAnchorStore(dataSource);
+        var lease = Duration.ofMinutes(1);
+        var old = anchors.tryAcquire(queryId, "old", "old-boot", lease).orElseThrow();
+        assertTrue(anchors.yield(old));
+        var successor = anchors.tryAcquire(queryId, "new", "new-boot", lease).orElseThrow();
+        assertTrue(anchors.release(successor));
+
+        var keyed = assertThrows(JournalWriteException.class, () -> journal.acceptFencedQuerySync(event, old));
+        assertEquals(JournalAdmissionOutcome.REJECTED_BEFORE_TRANSFER, keyed.admissionOutcome());
+        var initial = new QueryStateEvent(JournalEventContext.create(100, "old"),
+                queryId, "SELECT 1", "{}", "QUEUED");
+        var unkeyed = assertThrows(JournalWriteException.class, () -> journal.appendFencedAdmissionSync(initial, old));
+        assertEquals(JournalAdmissionOutcome.REJECTED_BEFORE_TRANSFER, unkeyed.admissionOutcome());
+        assertEquals(0, countQueryRows("query_state_journal", queryId));
+        assertTrue(journal.acceptQuerySync(acceptanceEvent("unrelated", "alice", "a", "b", 60_000)).newExecution());
+    }
+
+    @Test
+    void fencedAdmissionSamplesExpiryAfterWaitingForTheAnchorLock() throws Exception {
+        String id = "fenced-while-waiting";
+        var event = acceptanceEvent(id, "alice", "a", "b", 60_000);
+        var anchors = new JdbcExecutionAnchorStore(dataSource);
+        var grant = anchors.tryAcquire(id, "old", "old-boot", Duration.ofSeconds(4)).orElseThrow();
+        var executor = java.util.concurrent.Executors.newSingleThreadExecutor();
+        try (var held = dataSource.getConnection()) {
+            held.setAutoCommit(false);
+            try (var lock = held.prepareStatement("SELECT 1 FROM execution_anchor WHERE execution_id = ? FOR UPDATE")) {
+                lock.setString(1, id);
+                try (var rows = lock.executeQuery()) {
+                    assertTrue(rows.next());
+                }
+            }
+            var write = executor.submit(() -> journal.acceptFencedQuerySync(event, grant));
+            await().atMost(10, SECONDS).until(this::fencedInsertWaitingOnLock);
+            await().atMost(10, SECONDS).until(() -> anchors.current(id).isEmpty());
+            held.commit();
+
+            var failure = assertThrows(java.util.concurrent.ExecutionException.class, () -> write.get(5, SECONDS));
+            var rejected = assertInstanceOf(JournalWriteException.class, failure.getCause());
+            assertEquals(JournalAdmissionOutcome.REJECTED_BEFORE_TRANSFER, rejected.admissionOutcome());
+            assertEquals(0, countQueryRows("query_state_journal", id));
+        } finally {
+            executor.shutdownNow();
+            assertTrue(executor.awaitTermination(5, SECONDS));
+        }
+    }
+
+    private boolean fencedInsertWaitingOnLock() throws Exception {
+        try (var connection = dataSource.getConnection(); var statement = connection.createStatement();
+                var rows = statement.executeQuery("""
+                        SELECT EXISTS (
+                            SELECT 1 FROM pg_stat_activity
+                            WHERE wait_event_type = 'Lock' AND query LIKE 'WITH locked AS MATERIALIZED (%'
+                        )
+                        """)) {
+            return rows.next() && rows.getBoolean(1);
+        }
+    }
+
+    private long fencedAdmissionStatements() throws Exception {
+        try (var connection = dataSource.getConnection(); var statement = connection.createStatement();
+                var rows = statement.executeQuery("""
+                        SELECT COALESCE(SUM(calls), 0) FROM pg_stat_statements
+                        WHERE query LIKE 'WITH locked AS MATERIALIZED (%INSERT INTO query_state_journal%'
+                        """)) {
+            rows.next();
+            return rows.getLong(1);
+        }
     }
 
     @Test
