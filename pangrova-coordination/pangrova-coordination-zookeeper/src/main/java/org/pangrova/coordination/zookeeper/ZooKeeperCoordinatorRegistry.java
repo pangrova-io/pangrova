@@ -283,7 +283,8 @@ public final class ZooKeeperCoordinatorRegistry implements CoordinatorRegistry {
     }
 
     // Wire format (newline-delimited): coordinatorId, host, httpPort, role, epoch,
-    // lastHeartbeatMs, registeredAtMs, lastProcessedInvalidationId, incarnation
+    // lastHeartbeatMs, registeredAtMs, lastProcessedInvalidationId, optional incarnation.
+    // Readers accept the original eight-field format during an upgrade or rollback.
     private static byte[] serialize(CoordinatorSnapshot s) {
         String data = String.join("\n",
                 s.coordinatorId(), s.host(), Integer.toString(s.httpPort()), s.role(),
@@ -295,11 +296,11 @@ public final class ZooKeeperCoordinatorRegistry implements CoordinatorRegistry {
 
     private static CoordinatorSnapshot parse(byte[] data) {
         String[] p = new String(data, StandardCharsets.UTF_8).split("\n", -1);
-        if (p.length != 9) {
+        if (p.length != 8 && p.length != 9) {
             throw new IllegalStateException("Corrupt coordinator registry payload");
         }
         return new CoordinatorSnapshot(p[0], p[1], Integer.parseInt(p[2]), p[3],
                 Long.parseLong(p[4]), Long.parseLong(p[5]), Long.parseLong(p[6]), Long.parseLong(p[7]),
-                p[8].isEmpty() ? null : p[8]);
+                p.length == 8 || p[8].isEmpty() ? null : p[8]);
     }
 }
