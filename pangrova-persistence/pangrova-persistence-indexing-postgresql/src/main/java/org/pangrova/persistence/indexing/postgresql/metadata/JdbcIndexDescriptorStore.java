@@ -12,7 +12,6 @@ import org.pangrova.indexing.api.exception.IndexAlreadyExistsException;
 import org.pangrova.persistence.catalog.api.exception.MetastoreException;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.indexing.api.enums.IndexState;
-import org.pangrova.indexing.api.enums.IndexType;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
 import org.pangrova.security.codec.authorization.DeferredAuthorizationScopeCodec;
 import org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate;
@@ -229,7 +228,7 @@ final class JdbcIndexDescriptorStore extends JdbcStoreSupport {
                 descriptor = mapDescriptor(row);
             }
         }
-        if (descriptor.indexType() == IndexType.VECTOR || descriptor.indexType() == IndexType.INVERTED) {
+        if (descriptor.indexType().requiresNativeArtifact()) {
             return;
         }
         readAndAuthorizeBuildPrincipal(connection, descriptor, true);

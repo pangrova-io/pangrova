@@ -48,7 +48,7 @@ final class JdbcIndexGenerationCoverageStore extends JdbcStoreSupport implements
             IndexDescriptor descriptor, IndexGenerationManifest active) {
         Objects.requireNonNull(descriptor, "descriptor");
         Objects.requireNonNull(active, "active");
-        if (descriptor.indexType() != IndexType.VECTOR && descriptor.indexType() != IndexType.INVERTED) {
+        if (!descriptor.indexType().requiresNativeArtifact()) {
             throw new IllegalArgumentException("Native coverage requires a Native index descriptor");
         }
         if (!descriptor.indexId().equals(active.indexId()) || active.sourceSnapshot().isBlank()) {

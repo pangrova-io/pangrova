@@ -57,7 +57,7 @@ public final class DeferredSnapshotPinProvider implements ScalarSnapshotPinLifec
                               SnapshotPinOwner owner) {
         var descriptor = requireDescriptor(owner.indexId());
         var provider = requireProvider(catalog, schema, table, descriptor);
-        if (builds != null && IndexDdlExecutor.requiresNativeArtifact(descriptor.indexType())) {
+        if (builds != null && descriptor.indexType().requiresNativeArtifact()) {
             var intent = builds.findSnapshotPin(descriptor.tenantId(), owner.id());
             if (intent.isPresent()) {
                 if (!intent.get().sourceSnapshot().equals(snapshot)) {
@@ -167,14 +167,14 @@ public final class DeferredSnapshotPinProvider implements ScalarSnapshotPinLifec
     private SnapshotPinProvider requireProvider(
             String catalog, String schema, String table,
             org.pangrova.indexing.api.descriptor.IndexDescriptor descriptor) {
-        if (builds == null && IndexDdlExecutor.requiresNativeArtifact(descriptor.indexType())) {
+        if (builds == null && descriptor.indexType().requiresNativeArtifact()) {
             throw new AccessDeniedException("Snapshot maintenance requires a persisted current authorization scope");
         }
         if (!descriptor.catalogName().equals(catalog) || !descriptor.schemaName().equals(schema)
                 || !descriptor.tableName().equals(table)) {
             throw new AccessDeniedException("Snapshot maintenance differs from its exact index scope");
         }
-        var authority = IndexDdlExecutor.requiresNativeArtifact(descriptor.indexType())
+        var authority = descriptor.indexType().requiresNativeArtifact()
                 ? DeferredIndexAuthorityResolver.resolveExisting(builds, indexes, descriptor)
                 : DeferredIndexAuthorityResolver.resolveScalar(
                         descriptor, descriptor.state() == IndexState.DROPPED

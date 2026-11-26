@@ -215,6 +215,32 @@ class IndexDdlReadAuthorizationTest {
     }
 
     @Test
+    void createUsesStoragePrecisionForTheImmutableBuildFence() {
+        var admission = new AtomicReference<IndexDescriptor>();
+        IndexMetadataStore store = (IndexMetadataStore) Proxy.newProxyInstance(
+                IndexMetadataStore.class.getClassLoader(), new Class<?>[] {IndexMetadataStore.class},
+                (proxy, method, arguments) -> {
+                    if (method.getName().equals("registerIndexWithBuildAuthority")) {
+                        admission.set((IndexDescriptor) arguments[0]);
+                        throw new org.pangrova.indexing.api.exception.IndexAlreadyExistsException(
+                                "idx", "cat.sch.tbl");
+                    }
+                    if (method.getName().equals("findIndexesByTable")) {
+                        return List.of(index());
+                    }
+                    throw new AssertionError("Unexpected metadata access: " + method.getName());
+                });
+        executor = executor(accessControl(new AtomicReference<>(), false, false, false), store);
+
+        executor.executeCreateIndex(new CreateIndexStatement(
+                "idx", TABLE, List.of("col1"), "BLOOM_FILTER", true, Map.of()), SESSION);
+
+        assertThat(admission.get()).isNotNull();
+        assertThat(admission.get().updatedAt().getNano() % 1000).isZero();
+        assertThat(admission.get().createdAt()).isEqualTo(admission.get().updatedAt());
+    }
+
+    @Test
     void showIndexesReturnsTheStablePublicDescriptorContract() {
         executor = executor(accessControl(new AtomicReference<>(), false, false, false), metadataStore(index()));
 

@@ -26,7 +26,6 @@ import org.pangrova.persistence.indexing.api.metadata.IndexGenerationManifest;
 import org.pangrova.persistence.indexing.api.metadata.IndexPublicationRequest;
 import org.pangrova.indexing.api.enums.IndexPublicationMode;
 import org.pangrova.indexing.api.enums.IndexState;
-import org.pangrova.indexing.api.enums.IndexType;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.persistence.security.postgresql.transaction.AuthorizationTransactionGate;
 
@@ -88,7 +87,7 @@ final class JdbcIndexPublicationStore extends JdbcStoreSupport {
     boolean retireNativeGenerationForSourceDrift(
             IndexDescriptor expected, IndexGenerationManifest active,
             String currentSnapshot, Instant timestamp) {
-        if ((expected.indexType() != IndexType.VECTOR && expected.indexType() != IndexType.INVERTED)
+        if (!expected.indexType().requiresNativeArtifact()
                 || expected.state() != IndexState.READY
                 || !expected.indexId().equals(active.indexId())
                 || expected.generation() != active.generation()

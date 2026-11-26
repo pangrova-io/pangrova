@@ -13,7 +13,6 @@ import org.pangrova.connector.api.index.SnapshotFileDelta;
 import org.pangrova.connector.api.enums.SnapshotRelation;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.indexing.api.enums.IndexState;
-import org.pangrova.indexing.api.enums.IndexType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -217,7 +216,7 @@ public final class IndexConsistencyChecker implements AutoCloseable {
         // A drift-retired STALE Native generation has no reusable active base.
         // Its recovery is a full replacement, not an assertion of exact coverage.
         boolean retiredForDrift = active == null && descriptor.state() == IndexState.STALE
-                && (descriptor.indexType() == IndexType.VECTOR || descriptor.indexType() == IndexType.INVERTED)
+                && descriptor.indexType().requiresNativeArtifact()
                 && "native_source_snapshot_changed".equals(descriptor.staleReason());
         Set<String> indexedFiles = retiredForDrift ? Set.of() : coverageReader.read(descriptor, active);
         Set<String> currentFiles = snapshotFiles.stream()
@@ -251,8 +250,7 @@ public final class IndexConsistencyChecker implements AutoCloseable {
             SnapshotCoverage coverage) {
         if (!config.autoRebuildEnabled()) {
             if (active != null && !active.sourceSnapshot().equals(currentSnapshot)
-                    && (descriptor.indexType() == IndexType.VECTOR
-                    || descriptor.indexType() == IndexType.INVERTED)
+                    && descriptor.indexType().requiresNativeArtifact()
                     && deps.metadataStore().retireNativeGenerationForSourceDrift(
                             descriptor, active, currentSnapshot, Instant.now())) {
                 LOG.info("action=consistency_native_generation_retired indexId={} generation={}",
@@ -334,15 +332,14 @@ public final class IndexConsistencyChecker implements AutoCloseable {
         IndexGenerationManifest active = store.findActiveIndexGeneration(
                 descriptor.indexId()).orElse(null);
         if (active == null && descriptor.state() == IndexState.READY
-                && (descriptor.indexType() == IndexType.VECTOR
-                || descriptor.indexType() == IndexType.INVERTED)) {
+                && descriptor.indexType().requiresNativeArtifact()) {
             markReadyIndexStale(descriptor, "missing_active_generation_manifest");
             return;
         }
         // A drift-retired STALE Native generation has no reusable active base.
         // Its recovery is a full replacement, not an assertion of exact coverage.
         boolean retiredForDrift = active == null && descriptor.state() == IndexState.STALE
-                && (descriptor.indexType() == IndexType.VECTOR || descriptor.indexType() == IndexType.INVERTED)
+                && descriptor.indexType().requiresNativeArtifact()
                 && "native_source_snapshot_changed".equals(descriptor.staleReason());
         Set<String> indexedFiles = retiredForDrift ? Set.of() : coverageReader.read(descriptor, active);
         List<String> currentDataFiles = resolveDataFiles(

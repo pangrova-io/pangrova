@@ -17,9 +17,9 @@ final class IndexGenerationCoverageReader {
     }
 
     Set<String> read(IndexDescriptor descriptor, IndexGenerationManifest active) {
-        return switch (descriptor.indexType()) {
-            case VECTOR, INVERTED -> readNative(descriptor, active);
-            default -> readScalar(descriptor, active);
+        return switch (descriptor.indexType().physicalProfile()) {
+            case NATIVE_RETRIEVAL -> readNative(descriptor, active);
+            case SCALAR_FILE_PRUNING -> readScalar(descriptor, active);
         };
     }
 

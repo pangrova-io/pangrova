@@ -29,6 +29,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Locale;
 import java.util.List;
 import java.util.Map;
@@ -332,7 +333,8 @@ public final class IndexDdlExecutor implements AutoCloseable {
         IndexDescriptor current = target;
         String tenantId = target.tenantId();
         for (int attempt = 0; attempt < 3; attempt++) {
-            Instant now = Instant.now();
+            // Capture the exact PostgreSQL timestamp fence before handing the build to another thread.
+            Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
             int newGeneration = current.generation() + 1;
             IndexDescriptor rebuilt = IndexDescriptorTransitions.transition(current
                     .withSourceSchemaFingerprint(sourceSchemaFingerprint)
@@ -538,7 +540,8 @@ public final class IndexDdlExecutor implements AutoCloseable {
             List<String> columns, IndexType indexType,
             Map<String, String> properties, String sourceSnapshot,
             String tenantId, String schemaFingerprint) {
-        Instant now = Instant.now();
+        // PostgreSQL persists timestamps at microsecond precision; retain the admission fence.
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
         var boundProperties = new java.util.LinkedHashMap<>(properties);
         boundProperties.put(IndexDescriptor.SOURCE_SCHEMA_FINGERPRINT_PROPERTY, schemaFingerprint);
         return new IndexDescriptor(
@@ -557,7 +560,7 @@ public final class IndexDdlExecutor implements AutoCloseable {
     }
 
     static boolean requiresNativeArtifact(IndexType indexType) {
-        return indexType == IndexType.VECTOR || indexType == IndexType.INVERTED;
+        return indexType.requiresNativeArtifact();
     }
 
     private void requireNativeBuildSupport(IndexDescriptor descriptor) {

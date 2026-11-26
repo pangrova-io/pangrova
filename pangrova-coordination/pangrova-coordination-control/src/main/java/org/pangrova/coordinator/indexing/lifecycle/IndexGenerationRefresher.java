@@ -17,6 +17,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.LinkedHashSet;
 import java.util.List;
 
@@ -49,7 +50,8 @@ final class IndexGenerationRefresher {
             return false;
         }
         int nextGeneration = Math.addExact(descriptor.generation(), 1);
-        Instant startedAt = Instant.now();
+        // Keep the reservation timestamp identical to the persisted publication fence.
+        Instant startedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);
         String nativeAttempt = nativeArtifact ? java.util.UUID.randomUUID().toString() : null;
         boolean started = nativeAttempt == null ? store.beginIndexGeneration(
                 descriptor.indexId(), nextGeneration, sourceSnapshot,

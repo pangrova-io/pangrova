@@ -6,7 +6,6 @@ import org.pangrova.connector.api.index.SnapshotAwareMetadata;
 import org.pangrova.connector.api.index.SnapshotDataFile;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.indexing.api.enums.IndexState;
-import org.pangrova.indexing.api.enums.IndexType;
 import org.pangrova.indexing.build.DataFileInfo;
 import org.pangrova.persistence.indexing.api.metadata.IndexBuildGenerations.IndexBuildAbandonment;
 import org.pangrova.persistence.indexing.api.metadata.IndexBuildGenerations.IndexBuildCandidate;
@@ -170,7 +169,7 @@ public final class StuckBuildRecovery {
     }
 
     private static boolean isScalar(IndexDescriptor descriptor) {
-        return descriptor.indexType() != IndexType.VECTOR && descriptor.indexType() != IndexType.INVERTED;
+        return !descriptor.indexType().requiresNativeArtifact();
     }
 
     private void rebuild(String indexId) {

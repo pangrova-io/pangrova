@@ -94,6 +94,13 @@ Pangrova has two deliberately separate index families:
   artifacts. Their build and query data plane runs only in the C++ Native
   worker.
 
+`IndexType` owns the immutable `IndexPhysicalProfile` that selects the scalar or
+Native family for DDL, lifecycle, coverage, cleanup, and persistence guards.
+This classification does not advertise algorithm support: installed strategy
+providers and the Native capability catalog remain responsible for their own
+capabilities. Existing index type names, stable IDs, persisted paths, artifact
+formats, and publication authority are unchanged.
+
 The Coordinator is a control plane. It resolves metadata, chooses a canonical
 Native capability, pins a source snapshot, creates durable work pages and
 dispatches ordinary canonical v2 tasks. It never builds, loads or searches an
