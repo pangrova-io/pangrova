@@ -18,6 +18,7 @@ import org.pangrova.security.api.exception.AuthorizationDeniedException;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
+import org.pangrova.indexing.storage.NativeIndexArtifactLayout;
 import org.pangrova.indexing.api.enums.IndexState;
 import org.pangrova.indexing.api.enums.IndexType;
 import org.pangrova.security.api.exception.AccessDeniedException;
@@ -44,7 +45,11 @@ class DeferredIndexAuthorityResolverTest extends ContainerTestBase {
 
     @BeforeEach
     void setUp() throws Exception {
-        dataSource = SharedPostgresContainer.migratedDataSource("deferred_index_authority");
+        initialize(SharedPostgresContainer.migratedDataSource("deferred_index_authority"));
+    }
+
+    private void initialize(DataSource migratedDataSource) throws Exception {
+        dataSource = migratedDataSource;
         GenerationAuthorityFixtures.provision(dataSource, TENANT, "alice",
                 DeferredAuthorizationScope.raw(TABLE, Set.of("embedding"), TABLE));
         builds = ModelAuthorityFixtures.artifacts().builds(dataSource);
@@ -59,10 +64,15 @@ class DeferredIndexAuthorityResolverTest extends ContainerTestBase {
         var plan = VectorGenerationPlanBuilder.build(List.of("lake", "raw", "items"), "embedding",
                 BuiltInCapabilityCatalog.hnswArtifactBuildPlanRef(), BuiltInCapabilityCatalog.hnswArtifactFormat());
         var submission = DurableIndexBuildSubmission.create(new DurableIndexBuildSubmission.Definition(
-                TENANT, "alice", DurableIndexBuildService.jobId(TENANT, previous), previous, TABLE,
+                TENANT, "alice", legacyJobId(), previous, TABLE,
                 plan, GenerationOutputTypeIds.VECTOR_INDEX, List.of(), List.of(), "0", "s3://warehouse/staging/index-1/0",
                 "index-1-generation-0", new GenerationDispatchSpec.ResourceGrant(4096, 1, 4096, 60_000), NOW));
         builds.createJob(submission.job(), submission.dispatch(), List.of());
+    }
+
+    private String legacyJobId() {
+        return NativeIndexArtifactLayout.attempt(
+                TENANT, previous, NativeIndexArtifactLayout.LEGACY_ATTEMPT_ID).jobId();
     }
 
     @Test
@@ -80,7 +90,7 @@ class DeferredIndexAuthorityResolverTest extends ContainerTestBase {
 
     @Test
     void publishedAttemptSupersedesTerminalSiblingAuthority() throws Exception {
-        String legacy = DurableIndexBuildService.jobId(TENANT, previous);
+        String legacy = legacyJobId();
         try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement(
                 "UPDATE artifact_build_jobs SET state='FAILED' WHERE tenant_id=? AND job_id=?")) {
             statement.setString(1, TENANT);
@@ -92,7 +102,7 @@ class DeferredIndexAuthorityResolverTest extends ContainerTestBase {
         new org.pangrova.persistence.security.postgresql.tenant.JdbcTenantStore(dataSource)
                 .addUserToTenant(TENANT, "bob", org.pangrova.security.api.enums.TenantRole.MEMBER);
         String attempt = java.util.UUID.randomUUID().toString();
-        String jobId = DurableIndexBuildService.jobId(TENANT, previous, attempt);
+        String jobId = NativeIndexArtifactLayout.attempt(TENANT, previous, attempt).jobId();
         var plan = VectorGenerationPlanBuilder.build(List.of("lake", "raw", "items"), "embedding",
                 BuiltInCapabilityCatalog.hnswArtifactBuildPlanRef(), BuiltInCapabilityCatalog.hnswArtifactFormat());
         var submission = DurableIndexBuildSubmission.create(new DurableIndexBuildSubmission.Definition(
@@ -120,7 +130,7 @@ class DeferredIndexAuthorityResolverTest extends ContainerTestBase {
         try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
             statement.executeUpdate("DELETE FROM pangrova_user_roles WHERE user_id='alice'");
         }
-        assertThat(builds.findDispatchSpec(TENANT, DurableIndexBuildService.jobId(TENANT, previous))).isPresent();
+        assertThat(builds.findDispatchSpec(TENANT, legacyJobId())).isPresent();
         assertThatThrownBy(() -> DeferredIndexAuthorityResolver.resolve(builds, indexes, previous,
                 previous.withGeneration(1, NOW.plusSeconds(1))))
                 .isInstanceOf(AuthorizationDeniedException.class);

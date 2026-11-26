@@ -20,8 +20,13 @@ payload bytes.
   The Coordinator JVM builds them; the Native Worker reads the exact mapped path
   and validates size, SHA-256, envelope and CRC.
 - HNSW, IVF-PQ, DiskANN and BM25 segments are written by Native Workers to the
-  generation's staging URI under `indexing.base-path`. Objects are named
-  `{role}-{sha256}.bin`; only their immutable metadata returns to the Coordinator.
+  generation's staging URI under `indexing.base-path`. `NativeIndexArtifactLayout`
+  derives the persisted attempt path, job ID and idempotency key from one immutable
+  identity; current paths are
+  `v2/tenants/{tenantHash}/artifacts/{indexId}/attempt-{attemptId}/generation-{generation}`.
+  Legacy submission paths omit the attempt component and remain unchanged.
+  Objects are named `{role}-{sha256}.bin`; only their immutable metadata returns
+  to the Coordinator.
 - `worker.native.cache.artifact-path` is a per-Worker, content-addressed local
   cache at `{sha256-prefix}/{sha256}.bin`. It is quota-bounded and disposable;
   warm entries are revalidated against the published binding before use.

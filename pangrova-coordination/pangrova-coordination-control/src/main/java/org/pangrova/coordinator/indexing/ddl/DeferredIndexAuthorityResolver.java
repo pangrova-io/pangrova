@@ -1,7 +1,5 @@
 package org.pangrova.coordinator.indexing.ddl;
 
-import org.pangrova.common.util.DigestUtils;
-
 import org.pangrova.persistence.generation.api.job.GenerationJobStore;
 import org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore;
 import org.pangrova.generation.api.job.GenerationSubmissionAuthority;
@@ -9,6 +7,7 @@ import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
+import org.pangrova.indexing.storage.NativeIndexArtifactLayout;
 import org.pangrova.security.api.exception.AccessDeniedException;
 
 import java.util.Map;
@@ -46,7 +45,7 @@ final class DeferredIndexAuthorityResolver {
                 .map(manifest -> manifest.jobId())
                 .orElseGet(() -> indexes.findIndexGenerationSubmissionAttempt(
                                 descriptor.indexId(), descriptor.generation(), descriptor.buildSnapshotId())
-                        .map(attempt -> DurableIndexBuildService.jobId(tenant, descriptor, attempt))
+                        .map(attempt -> NativeIndexArtifactLayout.attempt(tenant, descriptor, attempt).jobId())
                         .orElseThrow(() -> new AccessDeniedException("Exact Native submission authority is absent")));
         var authority = store.loadAuthorizedDispatchSpec(tenant, jobId);
         var table = new QualifiedTableName(descriptor.catalogName(), descriptor.schemaName(), descriptor.tableName());
@@ -75,10 +74,6 @@ final class DeferredIndexAuthorityResolver {
     }
 
     record Resolved(String tenantId, QualifiedTableName table, ConnectorSession session) {}
-
-    static String tenantScope(String tenantId) {
-        return DigestUtils.sha256Hex(tenantId).substring(0, 32);
-    }
 
     private record DeferredIndexSession(String principal, String tenantId, QualifiedTableName table)
             implements ConnectorSession {

@@ -41,6 +41,7 @@ import org.pangrova.connector.api.index.SnapshotPinOwner;
 import org.pangrova.connector.api.index.SnapshotPinProvider;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.indexing.api.enums.IndexType;
+import org.pangrova.indexing.storage.NativeIndexArtifactLayout;
 import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -62,7 +63,6 @@ import java.util.function.BooleanSupplier;
 public final class DurableIndexBuildService {
 
     private static final Logger LOG = LoggerFactory.getLogger(DurableIndexBuildService.class);
-    private static final String LEGACY_SUBMISSION_ATTEMPT = "submission";
     private static final int MAX_REDUCTION_FAN_IN = 64;
     // Leave headroom for the Worker system pool and concurrent service leases.
     // The grant is a task limit, not the Worker's total process memory budget.
@@ -83,7 +83,7 @@ public final class DurableIndexBuildService {
     private final IndexMetadataStore indexMetadataStore;
     private final CatalogRegistry catalogRegistry;
     private final SnapshotGenerationSplitPlanner splitPlanner;
-    private final String baseArtifactUri;
+    private final NativeIndexArtifactLayout artifactLayout;
     private final Function<ConnectorSession, SnapshotPinProvider> pinProviders;
     private final ArtifactSnapshotPinValidator snapshotValidator;
 
@@ -97,10 +97,7 @@ public final class DurableIndexBuildService {
         this.catalogRegistry = Objects.requireNonNull(
                 catalogRegistry, "catalogRegistry must not be null");
         this.splitPlanner = new SnapshotGenerationSplitPlanner(catalogRegistry);
-        if (baseArtifactUri == null || baseArtifactUri.isBlank()) {
-            throw new IllegalArgumentException("baseArtifactUri must not be blank");
-        }
-        this.baseArtifactUri = stripTrailingSlash(baseArtifactUri);
+        this.artifactLayout = new NativeIndexArtifactLayout(baseArtifactUri);
         this.pinProviders = Objects.requireNonNull(pinProviders, "pinProviders");
         this.snapshotValidator = new ArtifactSnapshotPinValidator(store, pinProviders);
     }
@@ -181,7 +178,8 @@ public final class DurableIndexBuildService {
         if (!expectedAttemptId.equals(attempt)) {
             throw new IllegalStateException("Native index submission attempt is no longer current");
         }
-        String jobId = jobId(tenantId, descriptor, attempt);
+        var identity = NativeIndexArtifactLayout.attempt(tenantId, descriptor, attempt);
+        String jobId = identity.jobId();
         NativeBuildSpec build = prepareBuild(descriptor, table, session);
         String sourceId = String.join(".", table.catalog(), table.schema(), table.table());
         var authority = new GenerationSubmissionAuthority(tenantId, session.getUser(),
@@ -227,10 +225,8 @@ public final class DurableIndexBuildService {
                 table, intent.sourceSnapshot(), session);
         GenerationPlan plan = build.plan();
         String generation = Integer.toString(descriptor.generation());
-        String stagingUri = stagingUri(tenantId, descriptor, attempt);
-        String idempotencyKey = jobId + ":snapshot:" + (LEGACY_SUBMISSION_ATTEMPT.equals(attempt)
-                ? descriptor.buildSnapshotId() : org.pangrova.common.util.DigestUtils.sha256Hex(
-                        descriptor.buildSnapshotId()));
+        String stagingUri = artifactLayout.stagingUri(identity);
+        String idempotencyKey = identity.idempotencyKey(descriptor.buildSnapshotId());
         Map<String, String> properties = descriptor.properties();
         int maxAttempts = boundedInt(properties, "max_attempts", 5, 1, 100);
         List<GenerationPage> pages = buildPages(
@@ -745,45 +741,6 @@ public final class DurableIndexBuildService {
             throw validation("Native index artifacts require exactly one source column");
         }
         return descriptor.columnNames().get(0);
-    }
-
-    private String stagingUri(String tenantId, IndexDescriptor descriptor, String attempt) {
-        String base = baseArtifactUri + "/v2/tenants/" + DeferredIndexAuthorityResolver.tenantScope(tenantId)
-                + "/artifacts/" + safeComponent(descriptor.indexId());
-        String generation = "/generation-" + descriptor.generation();
-        // Keep new attempts outside the legacy generation prefix, including recursive object cleanup.
-        return LEGACY_SUBMISSION_ATTEMPT.equals(attempt) ? base + generation
-                : base + "/attempt-" + safeComponent(attempt) + generation;
-    }
-
-    /** Historical deterministic job key, retained only for legacy reconciliation. */
-    static String jobId(String tenantId, IndexDescriptor descriptor) {
-        return jobId(tenantId, descriptor, LEGACY_SUBMISSION_ATTEMPT);
-    }
-
-    static String jobId(String tenantId, IndexDescriptor descriptor, String attempt) {
-        String base = "index-build:tenant-" + DeferredIndexAuthorityResolver.tenantScope(tenantId) + ":"
-                + safeComponent(descriptor.indexId()) + ":generation:" + descriptor.generation();
-        return LEGACY_SUBMISSION_ATTEMPT.equals(attempt) ? base : base + ":attempt:" + safeComponent(attempt);
-    }
-
-    private static String safeComponent(String value) {
-        if (value == null || value.isBlank() || value.contains("..")
-                || value.contains("/") || value.contains("\\") || value.indexOf('\0') >= 0) {
-            throw validation("Artifact path identity contains unsafe characters");
-        }
-        return value;
-    }
-
-    private static String stripTrailingSlash(String value) {
-        String result = value;
-        while (result.endsWith("/")) {
-            result = result.substring(0, result.length() - 1);
-        }
-        if (result.isBlank()) {
-            throw new IllegalArgumentException("baseArtifactUri must not be a filesystem root");
-        }
-        return result;
     }
 
     private static String requireTenantId(String tenantId) {

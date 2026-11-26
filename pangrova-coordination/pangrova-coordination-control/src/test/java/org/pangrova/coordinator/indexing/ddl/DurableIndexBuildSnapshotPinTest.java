@@ -28,6 +28,7 @@ import org.pangrova.generation.api.enums.GenerationPageKind;
 import org.pangrova.generation.submission.GenerationDispatchSpecFactory;
 import org.pangrova.generation.submission.GenerationStageGraphFactory;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
+import org.pangrova.indexing.storage.NativeIndexArtifactLayout;
 import org.pangrova.indexing.api.enums.IndexState;
 import org.pangrova.indexing.api.enums.IndexType;
 import org.pangrova.metadata.testinfra.GenerationAuthorityFixtures;
@@ -76,7 +77,11 @@ class DurableIndexBuildSnapshotPinTest extends ContainerTestBase {
 
     @BeforeEach
     void setUp() throws Exception {
-        dataSource = SharedPostgresContainer.migratedDataSource("native_snapshot_pin");
+        initialize(SharedPostgresContainer.migratedDataSource("native_snapshot_pin"));
+    }
+
+    private void initialize(DataSource migratedDataSource) throws Exception {
+        dataSource = migratedDataSource;
         store = ModelAuthorityFixtures.artifacts().builds(dataSource);
         indexes = new JdbcIndexMetadataStore(dataSource, TableWriteAuthorityFixture.create()::requireCurrent);
         initialAttempt = java.util.UUID.randomUUID().toString();
@@ -99,6 +104,8 @@ class DurableIndexBuildSnapshotPinTest extends ContainerTestBase {
     void snapshotIsPinnedBeforeEnumerationAndBoundToDurableJob() {
         String jobId = service.submit(descriptor(), TABLE, session(), initialAttempt);
 
+        assertThat(jobId).isEqualTo("index-build:tenant-e4548529bf3c179e0915782b2b7701a3"
+                + ":index-1:generation:0:attempt:" + initialAttempt);
         assertThat(pins.events).containsExactly("pin", "validate", "enumerate");
         assertThat(pins.tokens).containsExactly(SNAPSHOT);
         assertThat(pins.owner).isEqualTo(new SnapshotPinOwner("index-1", 0, attempt(descriptor())));
@@ -106,6 +113,11 @@ class DurableIndexBuildSnapshotPinTest extends ContainerTestBase {
             assertThat(job.sourceSnapshot()).isEqualTo(SNAPSHOT);
             assertThat(job.state()).isEqualTo(GenerationJobState.QUEUED);
             assertThat(job.expectedPages()).isEqualTo(3);
+            assertThat(job.stagingUri()).isEqualTo("s3://warehouse/indexes/v2/tenants/"
+                    + "e4548529bf3c179e0915782b2b7701a3/artifacts/index-1/attempt-"
+                    + initialAttempt + "/generation-0");
+            assertThat(job.idempotencyKey()).isEqualTo(jobId
+                    + ":snapshot:3d914f9348c9cc0ff8a79716700b9fcd4d2f3e711608004eb8f138bcba7f14d9");
         });
         assertThat(store.findSnapshotPinForJob(TENANT, jobId)).hasValueSatisfying(intent -> {
             assertThat(intent.state()).isEqualTo(SnapshotPinState.PINNED);
@@ -483,7 +495,7 @@ class DurableIndexBuildSnapshotPinTest extends ContainerTestBase {
     }
 
     private String jobId(IndexDescriptor descriptor) {
-        return DurableIndexBuildService.jobId(TENANT, descriptor, attempt(descriptor));
+        return NativeIndexArtifactLayout.attempt(TENANT, descriptor, attempt(descriptor)).jobId();
     }
 
     private String attempt(IndexDescriptor descriptor) {
