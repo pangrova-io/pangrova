@@ -18,6 +18,7 @@
 #   SKIP_VELOX=1 ./pangrova-worker-native/bin/setup-native-build-env.sh
 #   SKIP_DEPS=1 ./pangrova-worker-native/bin/setup-native-build-env.sh
 #   PANGROVA_NATIVE_BUILD_PHASE=dependencies|velox|arrow-flight to split build phases
+#   SKIP_DEPS=1 PANGROVA_NATIVE_BUILD_PHASE=prepared-velox for verified macOS CI stages
 #
 # Output layout:
 #   ~/.pangrova/native-deps/     — abseil + protobuf + RE2 + gRPC (hermetic)
@@ -373,8 +374,8 @@ darwin_folly_has_alignment_patch() {
   [[ -f "$prefix/lib/libfolly.a" && -f "$stamp" && "$(< "$stamp")" == "$digest" ]]
 }
 
-build_velox() {
-  log "Building Velox $VELOX_REF"
+prepare_velox_dependencies() {
+  log "Preparing Velox $VELOX_REF dependencies"
   local GRPC_VERSION="$GRPC_VERSION"
   local PROTOBUF_VERSION="$PROTOBUF_VERSION"
   local ABSEIL_VERSION="$ABSEIL_VERSION"
@@ -672,6 +673,53 @@ build_velox() {
   fi
 
   ensure_folly_compiler_abi "$libevent_prefix"
+}
+
+verify_prepared_velox_dependencies() {
+  # Used only after a same-run stage receipt and archive have been verified.
+  [[ "$OS" == Darwin && "$SKIP_DEPS" == 1 ]] \
+    || die "prepared-velox requires a verified macOS dependency prefix (SKIP_DEPS=1)"
+  [[ -d "$VELOX_DIR/.git" ]] || die "Prepared Velox source checkout is missing"
+  cd "$VELOX_DIR"
+  bash "$PANGROVA_BOOTSTRAP_SCRIPT_DIR/apply-velox-patches.sh" verify "$VELOX_DIR"
+  # The alignment patch modifies the common patch's hunk, so validate the
+  # final alignment patch rather than reverse-checking the intermediate patch.
+  local patch_name
+  for patch_name in velox-folly-alignment-build.patch velox-darwin-atomic-link.patch; do
+    git apply --reverse --check "$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/$patch_name" \
+      || die "Prepared Velox source is missing $patch_name"
+  done
+  # Recreate the same upstream macOS CMake environment the producer used.
+  # Sourcing defines the toolchain variables and functions, not install tasks.
+  local GRPC_VERSION="$GRPC_VERSION" PROTOBUF_VERSION="$PROTOBUF_VERSION" ABSEIL_VERSION="$ABSEIL_VERSION"
+  export PROMPT_ALWAYS_RESPOND="${PROMPT_ALWAYS_RESPOND:-n}"
+  export CURL_OPTIONS="${CURL_OPTIONS:---retry 20 --retry-all-errors --connect-timeout 30}"
+  source ./scripts/setup-macos.sh
+  [[ "$INSTALL_PREFIX" == "$VELOX_DIR/deps-install" ]] || die "Prepared Velox prefix differs"
+  local folly_alignment_digest
+  folly_alignment_digest="$(shasum -a 256 "$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/folly-2026.01.05-spookyhash-alignment.patch" | awk '{print $1}')"
+  darwin_folly_has_alignment_patch "$INSTALL_PREFIX" "$folly_alignment_digest" \
+    || die "Prepared Folly archive lacks the required alignment patch identity"
+  [[ -f "$INSTALL_PREFIX/.pangrova-fbthrift-ready" && \
+      "$(< "$INSTALL_PREFIX/.pangrova-fbthrift-ready")" == openssl@3 && \
+      -f "$INSTALL_PREFIX/lib/cmake/Snappy/SnappyConfig.cmake" && \
+      -f "$INSTALL_PREFIX/lib/libsnappy.a" && \
+      -f "$INSTALL_PREFIX/lib/cmake/AWSSDK/AWSSDKConfig.cmake" ]] \
+    || die "Prepared Velox dependency installation is incomplete"
+  source "$PANGROVA_BOOTSTRAP_SCRIPT_DIR/resolve-darwin-libevent.sh"
+  local libevent_prefix
+  libevent_prefix="$(resolve_darwin_libevent "$PANGROVA_BREW" check)"
+  ensure_folly_compiler_abi "$libevent_prefix"
+  step "Verified prepared macOS Velox prerequisites"
+}
+
+build_velox() {
+  log "Building Velox $VELOX_REF"
+  if [[ "$PANGROVA_NATIVE_BUILD_PHASE" == "prepared-velox" ]]; then
+    verify_prepared_velox_dependencies
+  else
+    prepare_velox_dependencies
+  fi
   export PATH="$(dirname "$PANGROVA_CMAKE_BIN"):$PATH"
   if [[ "$PANGROVA_NATIVE_BUILD_PHASE" == "dependencies" ]]; then
     step "Velox dependency sources and installation are ready"
@@ -966,13 +1014,13 @@ main() {
 
   if [[ "$SKIP_VELOX" != "1" ]]; then
     case "$PANGROVA_NATIVE_BUILD_PHASE" in
-      all)
+      all|prepared-velox)
         build_velox
         build_arrow_flight
         ;;
       dependencies|velox) build_velox ;;
       arrow-flight) build_arrow_flight ;;
-      *) die "PANGROVA_NATIVE_BUILD_PHASE must be all, dependencies, velox, or arrow-flight" ;;
+      *) die "PANGROVA_NATIVE_BUILD_PHASE must be all, dependencies, velox, arrow-flight, or prepared-velox" ;;
     esac
   else
     step "Skipping Velox build (SKIP_VELOX=1)"

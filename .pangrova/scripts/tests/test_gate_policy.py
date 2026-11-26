@@ -216,14 +216,14 @@ class StructuralPolicyTest(unittest.TestCase):
         self.assertIn('setup-native-asan-env.sh --check-tools',
                       (ROOT / '.github/workflows/ci.yml').read_text())
         self.assertIn('20 GB', action)
-        for workflow_name in ('ci.yml', 'release.yml'):
+        for workflow_name in ('ci.yml', 'native-platform.yml', 'release.yml'):
             workflow = (ROOT / '.github/workflows' / workflow_name).read_text()
             # A whole Velox tree exceeds the 10 GB repository cache limit and a
             # cold build exceeds the runner disk; cache only the install prefixes.
             self.assertIn('~/.pangrova/velox/deps-install', workflow, workflow_name)
             self.assertIn('~/.cache/ccache', workflow, workflow_name)
             self.assertNotRegex(workflow, r'\n\s+~/\.pangrova/velox\n', workflow_name)
-        for workflow_name in ('ci.yml', 'release.yml'):
+        for workflow_name in ('ci.yml', 'native-platform.yml', 'release.yml'):
             workflow = (ROOT / '.github/workflows' / workflow_name).read_text()
             matches = list(re.finditer(r'\n  [a-z][a-z0-9-]*:\n', workflow))
             jobs = [workflow[m.end():(matches[index + 1].start() if index + 1 < len(matches)
@@ -235,7 +235,8 @@ class StructuralPolicyTest(unittest.TestCase):
                 self.assertNotRegex(job, r'apt-get install|brew install cmake', workflow_name)
 
     def test_native_failures_publish_the_complete_log_tail(self):
-        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
+        workflow = ((ROOT / '.github/workflows/ci.yml').read_text() +
+                    (ROOT / '.github/workflows/native-platform.yml').read_text())
         self.assertNotIn("awk 'length {print \"::error::\"", workflow)
         self.assertEqual(workflow.count('report_failure() {'), 6)
         self.assertEqual(workflow.count('awk \'length {printf "%s%%0A", $0}\''), 6)
@@ -246,7 +247,7 @@ class StructuralPolicyTest(unittest.TestCase):
 
     def test_asan_prepares_dependencies_without_building_release_velox(self):
         workflow = (ROOT / '.github/workflows/ci.yml').read_text()
-        native = workflow.split('  native-build:\n', 1)[1].split('\n  java-build:', 1)[0]
+        native = (ROOT / '.github/workflows/native-platform.yml').read_text().split('  native-build:\n', 1)[1]
         sanitizer = workflow.split('  native-sanitizers:\n', 1)[1].split('\n  jmh-benchmarks:', 1)[0]
         self.assertNotIn('PANGROVA_NATIVE_BUILD_PHASE:', native)
         self.assertIn("PANGROVA_NATIVE_BUILD_PHASE: ${{ matrix.sanitizer.name == 'asan' "
@@ -258,10 +259,11 @@ class StructuralPolicyTest(unittest.TestCase):
         self.assertIn('dependencies|velox) build_velox ;;', bootstrap)
 
     def test_native_configure_build_and_tests_publish_filtered_diagnostics(self):
-        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
+        workflow = ((ROOT / '.github/workflows/ci.yml').read_text() +
+                    (ROOT / '.github/workflows/native-platform.yml').read_text())
         action_path = ROOT / '.github/actions/run-native-step/action.yml'
         action = action_path.read_text()
-        self.assertEqual(workflow.count('uses: ./.github/actions/run-native-step'), 6)
+        self.assertEqual(workflow.count('uses: ./.github/actions/run-native-step'), 8)
         self.assertIn('bash -e -o pipefail -c "$STEP_COMMAND"', action)
         self.assertIn("'--- error diagnostics ---'", action)
         self.assertIn('working-directory: ${{ inputs.working-directory }}', action)
@@ -383,7 +385,10 @@ class RuntimeScopeTest(unittest.TestCase):
         positions = [action.index(step) for step in steps]
         self.assertEqual(positions, sorted(positions))
         for start, end in (('native-build', 'java-build'), ('native-sanitizers', 'jmh-benchmarks')):
-            job = workflow.split(f'  {start}:\n', 1)[1].split(f'\n  {end}:', 1)[0]
+            if start == 'native-build':
+                job = (ROOT / '.github/workflows/native-platform.yml').read_text().split('  native-build:\n', 1)[1]
+            else:
+                job = workflow.split(f'  {start}:\n', 1)[1].split(f'\n  {end}:', 1)[0]
             with self.subTest(job=start):
                 self.assertEqual(job.count('actions/setup-java@'), 1)
                 self.assertLess(job.index('uses: ./.github/actions/prepare-native-java-fixture'),
@@ -407,7 +412,7 @@ class RuntimeScopeTest(unittest.TestCase):
 
     def test_native_dependency_cache_is_layered_and_scoped(self):
         workflow = (ROOT / '.github/workflows/ci.yml').read_text()
-        native = workflow.split('  native-build:\n', 1)[1].split('\n  java-build:', 1)[0]
+        native = (ROOT / '.github/workflows/native-platform.yml').read_text().split('  native-build:\n', 1)[1]
         sanitizer = workflow.split('  native-sanitizers:\n', 1)[1].split(
             '\n  jmh-benchmarks:', 1)[0]
         runner = next(item['runner'] for item in scope.NATIVE_PLATFORMS
@@ -417,7 +422,7 @@ class RuntimeScopeTest(unittest.TestCase):
         deps = native_caches['Cache native dependency prefixes']
         deps_key = re.search(r'^\s+key: (.+)$', deps, re.MULTILINE).group(1)
         self.assertEqual(
-            deps_key.replace('${{ matrix.platform.runner }}', runner),
+            deps_key.replace('${{ fromJSON(inputs.platform).runner }}', runner),
             re.search(r'^\s+key: (.+)$', sanitizer_caches[
                 'Cache native dependency prefixes'], re.MULTILINE).group(1))
         self.assertIn("hashFiles('pangrova-worker-native/dependency-versions.txt', "
@@ -438,6 +443,45 @@ class RuntimeScopeTest(unittest.TestCase):
         self.assertNotIn('patches/*', ccache)
         self.assertIn('matrix.sanitizer.name',
                       sanitizer_caches['Cache compiler results'])
+
+    def test_macos_cold_build_stages_preserve_native_test_and_report_gates(self):
+        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
+        platform_workflow = (ROOT / '.github/workflows/native-platform.yml').read_text()
+        core = platform_workflow.split('  macos-native-core:\n', 1)[1].split('  macos-native-sdk:', 1)[0]
+        sdk = platform_workflow.split('  macos-native-sdk:\n', 1)[1].split('  native-build:', 1)[0]
+        native = (ROOT / '.github/workflows/native-platform.yml').read_text().split('  native-build:\n', 1)[1]
+        self.assertIn('uses: ./.github/workflows/native-platform.yml', workflow)
+        self.assertIn('platform: ${{ toJSON(matrix.platform) }}', workflow)
+        self.assertIn('fail-fast: false', workflow)
+        for stage in (core, sdk):
+            self.assertIn("fromJSON(inputs.platform).os == 'osx'", stage)
+            self.assertIn('runs-on: ${{ fromJSON(inputs.platform).runner }}', stage)
+            self.assertIn('if-no-files-found: error', stage)
+            self.assertIn('./.github/actions/setup-native-build', stage)
+            self.assertIn('./.github/actions/setup-macos-native-cache', stage)
+        self.assertIn('PANGROVA_NATIVE_BUILD_PHASE=dependencies bash pangrova-worker-native/bin/setup-native-build-env.sh', core)
+        self.assertIn('macos-native-stage.sh pack core', core)
+        self.assertLess(core.index('Build canonical prerequisite packages'),
+                        core.index('actions/cache/save@v4'))
+        self.assertLess(sdk.index('Build Velox and Arrow Flight from verified prerequisites'),
+                        sdk.index('actions/cache/save@v4'))
+        self.assertLess(native.index('Save completed macOS Native compiler results'),
+                        native.index('Run native tests (GTest via CTest)'))
+        self.assertIn('needs: macos-native-core', sdk)
+        self.assertLess(sdk.index('restore core'), sdk.index('SKIP_DEPS=1 PANGROVA_NATIVE_BUILD_PHASE=prepared-velox'))
+        self.assertIn('macos-native-stage.sh pack sdk', sdk)
+        self.assertIn('needs: macos-native-sdk', native)
+        self.assertIn("fromJSON(inputs.platform).os == 'linux'", native)
+        self.assertIn("needs.macos-native-sdk.result == 'success'", native)
+        self.assertLess(native.index('restore sdk'), native.index('export SKIP_DEPS=1 SKIP_VELOX=1'))
+        self.assertLess(native.index('Prepare Docker for macOS Native tests'),
+                        native.index('Run native tests (GTest via CTest)'))
+        self.assertIn('id: native-tests', native)
+        self.assertIn("steps.native-tests.outcome == 'success'", native)
+        self.assertIn('test -s pangrova-worker-native/build/test-results.xml', native)
+        self.assertIn("!cancelled() && hashFiles('pangrova-worker-native/build/test-results.xml') != ''", native)
+        self.assertIn('fail-on-error: true', native)
+        self.assertNotIn('continue-on-error', native)
 
     def test_dependency_lock_matches_the_bootstrap(self):
         lock = {}
@@ -462,9 +506,13 @@ class RuntimeScopeTest(unittest.TestCase):
 
     def test_dependency_baseline_consumers_are_opt_in(self):
         workflow = (ROOT / '.github/workflows/ci.yml').read_text()
-        native = workflow.split('  native-build:\n', 1)[1].split('\n  java-build:', 1)[0]
-        self.assertIn("vars.PANGROVA_NATIVE_DEPS_ARTIFACT == 'true'", native)
+        native = (ROOT / '.github/workflows/native-platform.yml').read_text().split('  native-build:\n', 1)[1]
+        # macOS now requires this run's SDK handoff, never an optional
+        # last-successful artifact. Linux keeps the existing opt-in image.
+        self.assertNotIn("vars.PANGROVA_NATIVE_DEPS_ARTIFACT == 'true'", native)
         self.assertIn("vars.PANGROVA_NATIVE_DEPS_IMAGE == 'ghcr'", native)
+        self.assertIn('name: macos-sdk-${{ fromJSON(inputs.platform).name }}', native)
+        self.assertIn('macos-native-stage.sh restore sdk', native)
         revision = ("tr -d '\\n' < pangrova-worker-native/dependency-versions.txt "
                     "| sha256sum | cut -c1-16")
         self.assertIn(revision, native)
@@ -490,6 +538,7 @@ class RuntimeScopeTest(unittest.TestCase):
                  'pangrova-client/pangrova-client-cli/pom.xml',
                  '.pangrova/scripts/proto-descriptors/canonical-v2.descriptor',
                  '.pangrova/scripts/stage-production-regression-native.sh',
+                 '.pangrova/scripts/macos-native-stage.sh',
                  '.pangrova/scripts/build-iceberg-sdk-candidate.sh',
                  '.pangrova/scripts/ci_change_scope.py', '.pangrova/modules.yaml',
                  '.github/workflows/ci.yml', '.github/workflows/release.yml',
