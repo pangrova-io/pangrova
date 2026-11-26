@@ -184,6 +184,8 @@ Iceberg JDBC 的发现与绑定共享当前 schema 和分区规范已有的 JSON
 
 96 项定向 Java 测试和 63 项 macOS 角色端到端测试通过，含 17 项物理双 Worker Shuffle、3 项激活冒烟、普通读取数据库计数及 Dynamic Table、物化视图、Iceberg 历史引用与查询生命周期。两个独立 PostgreSQL 客户端验证未提交版本不可见，提交后新受理的查询观察到新版本。两个目录实例验证发布与暂停后的变更，已固定的旧目录仍保持同一代次。角色清单为 `08bea98839fb3f45c3eca7195bd1996d7f20ec01f4ee6872c44ed536f1157e58`。
 
+真实 QUERY 角色复现 Dynamic Table 创建语句缺少处理器。Coordinator 在组装 SQL 分发器前绑定执行权威，启动选举后再开启维护任务；停止时在查询排空后取消控制面结果的过期计时器，之后等待调度线程退出。上一版相同 Native 和协议的独立进程产物仅重编三个 Coordinator 启动类，清单为 `7a46929b26d18f7b5dba938911ecc4f15f544b622fda0acf3108e4299a256031`。双 Coordinator 和双 Native Worker 共用 PostgreSQL，验证目录发布、缓存命中零独立目录读取、暂停、删除与同名重建。暂停前已受理的查询在暂停后读完旧代次，读租约在排空后释放，同名新表返回新代次的数据。最新主分支的 Native 运行时和协议有后续改动，整合提交的完整回归仍走发布门禁。
+
 首次取得执行所有权先在事务级 advisory lock 内尝试插入。只有插入冲突才锁行读取现有所有者。插入后的新语句以同一次数据库时间观察检查读取保护窗口并设定租约。相同 PostgreSQL 用例的独立所有权行读取从 1 次降到 0 次。两个连接在旧 anchor 删除的同时提交读取保护窗口，确认等待中的后继既未取得所有权，也未留下临时 anchor。15 项 PostgreSQL 测试和 43 项 macOS 角色端到端测试通过，含物理双 Worker Shuffle、查询生命周期、读库计数、Dynamic Table 和激活冒烟。两项时序相关用例独立复跑通过。角色清单为 `d46d6c6c8ee0fcc26f18ff49b3aeec2c402679f79cc2a75820c8a38169a9bcaa`。
 基于主分支 `833a8d8c6` 重新打包 Coordinator、Worker 和 CLI，并依据相同的 Native 运行时源码、构建配置和 Protobuf 输入复用已验证的 Native 库。macOS arm64 和 Linux arm64 的角色包分别校验 739 个文件，清单 SHA-256 分别为 `df98c71f8a09101faf6845cc73b8da1f976c50aea3b03e706bcf8773bd81dbf9` 和 `e0e7c9c7f6acf29c6d9a58a35852aa7df0c32efce64a865c389c7bf8e9feeae9`。
 

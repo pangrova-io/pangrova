@@ -142,18 +142,17 @@ public final class CoordinatorBootstrap {
     }
 
     private void startQueryAndHttp() {
+        ha = new HighAvailabilityBootstrap(config, ensureDistributedLease(), coordinatorRegistry,
+                metadataDataSource, executionAuthority, modelAuthority,
+                metadataBootstrap == null ? null : metadataBootstrap.catalogRegistry());
         query = buildQueryBootstrap();
         query.start();
-        ha = buildHighAvailabilityBootstrap();
-        ha.setClaimedExecutionRecovery(claimed ->
-                query.recoverWriteCommitIntents(claimed, ha.haService()));
-        ha.start();
+        ha.start(query);
         var invalidationPoller = moduleWiring.catalogMaintenance().getInvalidationPoller();
         if (invalidationPoller != null) {
             invalidationPoller.start();
         }
-        query.wireHighAvailability(ha.haService());
-        wireQueryOwnershipTracking();
+        query.startCoordinationLoops();
         startCdcWorkerRuntime();
         http = buildHttpBootstrap();
         http.start();
@@ -197,7 +196,7 @@ public final class CoordinatorBootstrap {
                 observability.tracingProvider(), observability.metricsProvider(),
                 security.accessControl(),
                 metadataBootstrap, moduleWiring, metadataDataSource, streamingBootstrap,
-                ha != null ? ha.haService() : null,
+                ha.haService(),
                 secretResolver, aiInfrastructureStores, modelAuthority);
     }
 
@@ -252,26 +251,9 @@ public final class CoordinatorBootstrap {
                 new org.pangrova.server.coordinator.http.endpoint.file.StageFileUrlService(access));
     }
 
-    private HighAvailabilityBootstrap buildHighAvailabilityBootstrap() {
-        org.pangrova.persistence.coordination.api.lease.DistributedLease lease = ensureDistributedLease();
-        var haBootstrap = new HighAvailabilityBootstrap(config, query.queryManager(), query.workerManager(),
-                query.taskTracker(), query.schedulerExecutor(), lease, coordinatorRegistry, modelAuthority,
-                query::retryTaskOnDeadWorker);
-        if (metadataDataSource != null) {
-            haBootstrap.setDataSource(metadataDataSource);
-            haBootstrap.setExecutionAuthority(executionAuthority);
-        }
-        // Task 38 / G-META-02: Wire catalog registry for peer divergence
-        // detection/repair at leader election time.
-        if (metadataBootstrap != null) {
-            haBootstrap.setCatalogRegistry(metadataBootstrap.catalogRegistry());
-        }
-        return haBootstrap;
-    }
-
     /** Current HA epoch published through Worker registration and heartbeat acknowledgements. */
     long currentCoordinatorEpoch() {
-        if (ha == null || ha.haService() == null) {
+        if (ha == null) {
             throw new IllegalStateException("Coordinator HA service is not initialized");
         }
         long epoch = ha.haService().getCurrentEpoch();
@@ -515,18 +497,6 @@ public final class CoordinatorBootstrap {
             LOG.info("event=phase_started phase=streaming_bootstrap");
         } catch (Exception e) {
             LOG.warn("event=phase_failed phase=streaming_bootstrap error={}", e.getMessage(), e);
-        }
-    }
-
-    /**
-     * Wires the HA service into QueryDispatcher for query ownership
-     * acquire/release. Must be called after both QueryBootstrap and
-     * HighAvailabilityBootstrap have started, since QueryDispatcher is
-     * constructed before the HA service is available.
-     */
-    private void wireQueryOwnershipTracking() {
-        if (ha != null && ha.haService() != null && query != null && query.queryDispatcher() != null) {
-            query.queryDispatcher().setOwnershipTracking(ha.haService(), config.coordinatorId());
         }
     }
 

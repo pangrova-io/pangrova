@@ -326,6 +326,9 @@ final class QueryBootstrap {
                 () -> { if (materializationMaintenance != null) materializationMaintenance.close(); },
                 () -> { if (speculationScheduler != null) speculationScheduler.close(); },
                 () -> CoordinatorShutdownSequence.stopTimeoutScheduler(queryTimeoutScheduler));
+        if (controlPlaneResultBuffer != null) {
+            controlPlaneResultBuffer.stopExpirationScheduling();
+        }
         ResourceCloser.closeAll(null,
                 () -> {
                     if (readerPinRenewalExecutor != null) {
@@ -366,31 +369,13 @@ final class QueryBootstrap {
                 CoordinatorShutdownSequence.closeTransportAllocator(controlPlaneResultAllocator));
     }
 
-    /** Completes post-start HA wiring once the elected epoch service exists. */
-    void wireHighAvailability(HighAvailabilityCoordinationService service) {
-        if (service == null) {
-            throw new IllegalArgumentException("HA coordination service must not be null");
-        }
+    /** Starts coordination-dependent background work after the shared authority has started. */
+    void startCoordinationLoops() {
+        var service = java.util.Objects.requireNonNull(coordinationService, "Query coordination authority");
         durableRecovery.wireHighAvailability(service, this::schedulerExecutor,
                 shuffleCleanupExecutor,
                 config.workerHealthCheckIntervalMs());
-        // Query and durable artifact scheduling are active-active. The elected
-        // coordinator owns only singleton control loops; it is never a gateway
-        // for task data or a prerequisite for another coordinator to dispatch.
-        // Every coordinator stamps work with the current cluster control term,
-        // and Workers fence stale terms at admission.
         java.util.function.LongSupplier activeControlTerm = service::getCurrentEpoch;
-        remoteTaskDispatcher.setControlEpochSupplier(activeControlTerm);
-        remoteTaskDispatcher.setExecutionOwnerResolver(executionId -> {
-            var anchor = service.requireExecutionAnchor(executionId);
-            return new org.pangrova.protocol.rest.task.ExecutionOwnerIdentity(
-                    anchor.ownerId(), anchor.ownerIncarnation(),
-                    anchor.fencingToken());
-        });
-        var fencer = WriteCommitComponentFactory.createFencer(service);
-        if (fencer != null) {
-            taskStatusReceiver.setWriteCommitFencer(fencer);
-        }
         startMaterializationMaintenance(service);
         if (artifactBuildStore == null || artifactBuildDispatcher != null) {
             return;

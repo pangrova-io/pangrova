@@ -1,11 +1,21 @@
 package org.pangrova.server.coordinator.bootstrap;
-import org.pangrova.query.runtime.QueryManager;
 
+import org.pangrova.common.client.query.SubmitQueryResponse;
+import org.pangrova.common.enums.ResultDisposition;
+import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.server.coordinator.enums.CoordinatorDeploymentRole;
+import org.pangrova.transport.client.ColumnDescriptor;
+import org.pangrova.transport.client.FlightResultFetcher;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.pangrova.server.coordinator.testinfra.SecuredCoordinatorFixtures.withAuthority;
@@ -28,7 +38,7 @@ class RoleBasedDeploymentTest {
 
     @Test
     @DisplayName("QUERY-only coordinator starts HTTP and QueryManager")
-    void queryOnlyCoordinatorStartsQueryPath() {
+    void queryOnlyCoordinatorStartsQueryPath() throws Exception {
         CoordinatorBootstrapConfig config = new CoordinatorBootstrapConfig(
                 new CoordinatorBootstrapConfig.CoreConfig(
                         "query-coord-1", 0,
@@ -46,6 +56,23 @@ class RoleBasedDeploymentTest {
         assertThat(bootstrap.isStarted()).isTrue();
         assertThat(bootstrap.getHttpPort()).isGreaterThan(0);
         assertThat(bootstrap.getQueryManager()).isNotNull();
+
+        var request = HttpRequest.newBuilder(URI.create(
+                        "http://127.0.0.1:" + bootstrap.getHttpPort() + "/v1/query/submit"))
+                .timeout(Duration.ofSeconds(10))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString("{\"query\":\"SHOW DYNAMIC TABLES\"}"))
+                .build();
+        var response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).as("%s", response.body()).isEqualTo(200);
+        var receipt = JsonMapperFactory.create().readValue(response.body(), SubmitQueryResponse.class);
+        assertThat(receipt.resultDisposition()).isEqualTo(ResultDisposition.STREAM);
+        assertThat(receipt.resultEndpoint()).isNotNull();
+        try (var fetcher = new FlightResultFetcher();
+             var cursor = fetcher.open(receipt.resultEndpoint(), System.currentTimeMillis() + 5_000)) {
+            assertThat(cursor.columns()).extracting(ColumnDescriptor::name).contains("dt_name", "schedule_state");
+            assertThat(cursor.next()).isFalse();
+        }
     }
 
     @Test
