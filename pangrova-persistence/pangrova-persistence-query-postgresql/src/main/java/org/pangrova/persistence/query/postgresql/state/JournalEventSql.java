@@ -9,6 +9,7 @@ import org.pangrova.query.api.journal.JournalEventContext;
 import org.pangrova.query.api.journal.QueryAcceptance;
 import org.pangrova.query.api.journal.QueryAcceptanceAdmission;
 import org.pangrova.query.api.journal.QueryStateEvent;
+import org.pangrova.query.api.journal.TaskIssuance;
 import org.pangrova.query.api.journal.TaskStateEvent;
 import org.pangrova.query.api.submission.QuerySubmissionResult;
 import org.pangrova.persistence.query.postgresql.lineage.QueryLineageFactSql;
@@ -29,7 +30,12 @@ final class JournalEventSql {
             "event_id, query_id, sql_text, session_json, state, timestamp_ms, coordinator_id, lineage_payload, "
                     + "principal, idempotency_key_digest, request_fingerprint, acceptance_receipt_json, retention_ms";
     static final String TASK_COLUMNS =
-            "event_id, query_id, task_id, worker_id, state, stage_id, report_sequence, timestamp_ms, coordinator_id";
+            "event_id, query_id, task_id, worker_id, state, stage_id, report_sequence, timestamp_ms, coordinator_id, "
+                    + "worker_host, worker_http_port, owner_incarnation, owner_fencing_token, admission_seal";
+    static final int TASK_PARAMETERS = 14;
+    private static final int WORKER_HTTP_PORT_PARAMETER = 11;
+    private static final int TASK_OWNER_INCARNATION_PARAMETER = 12;
+    private static final int TASK_OWNER_FENCING_TOKEN_PARAMETER = 13;
     private static final String QUERY_INSERT = "INSERT INTO query_state_journal (" + QUERY_COLUMNS
             + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING";
     private static final String FENCED_QUERY_INSERT = """
@@ -51,7 +57,7 @@ final class JournalEventSql {
             """;
     private static final int FENCE_PARAMETERS = 4;
     private static final String TASK_INSERT = "INSERT INTO task_state_journal (" + TASK_COLUMNS
-            + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (event_id) DO NOTHING";
+            + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (event_id) DO NOTHING";
     private static final String SELECT_QUERY_EVENT = "SELECT " + QUERY_COLUMNS
             + " FROM query_state_journal WHERE event_id = ?";
     private static final String SELECT_ACCEPTANCE = "SELECT " + QUERY_COLUMNS
@@ -125,11 +131,11 @@ final class JournalEventSql {
         }
         int inserted;
         try (PreparedStatement statement = connection.prepareStatement(TASK_INSERT)) {
-            bindTask(statement, event.task);
+            bindTask(statement, event.task, 0);
             inserted = statement.executeUpdate();
         }
         if (inserted == 0) {
-            reconcileTask(connection, event);
+            reconcileTask(connection, event.task);
         }
         return WriteOutcome.WRITTEN;
     }
@@ -250,13 +256,15 @@ final class JournalEventSql {
         return now >= retainedFrom && acceptance.acceptance().retentionMs() <= now - retainedFrom;
     }
 
-    private static void reconcileTask(Connection connection, JournalPendingWrites.Write event)
+    static void reconcileTask(Connection connection, TaskStateEvent event)
             throws SQLException {
         try (PreparedStatement select = connection.prepareStatement(SELECT_TASK_EVENT)) {
             select.setObject(1, event.context().eventId());
             try (ResultSet rows = select.executeQuery()) {
-                boolean exact = rows.next() && event.task.equals(readTask(rows));
-                if (!exact || rows.next()) throw new JournalPayloadConflictException(event.key());
+                boolean exact = rows.next() && event.equals(readTask(rows));
+                if (!exact || rows.next()) {
+                    throw new JournalPayloadConflictException(new JournalEventKey(false, event.context().eventId()));
+                }
             }
         }
     }
@@ -284,16 +292,25 @@ final class JournalEventSql {
         }
     }
 
-    private static void bindTask(PreparedStatement statement, TaskStateEvent event) throws SQLException {
-        statement.setObject(1, event.context().eventId());
-        statement.setString(2, event.queryId());
-        statement.setString(3, event.taskId());
-        statement.setString(4, event.workerId());
-        statement.setString(5, event.state());
-        statement.setInt(6, event.stageId());
-        statement.setLong(7, event.reportSequence());
-        statement.setLong(8, event.context().timestampMs());
-        statement.setString(9, event.context().coordinatorId());
+    static void bindTask(PreparedStatement statement, TaskStateEvent event, int offset) throws SQLException {
+        statement.setObject(offset + 1, event.context().eventId());
+        statement.setString(offset + 2, event.queryId());
+        statement.setString(offset + 3, event.taskId());
+        statement.setString(offset + 4, event.workerId());
+        statement.setString(offset + 5, event.state());
+        statement.setInt(offset + 6, event.stageId());
+        statement.setLong(offset + 7, event.reportSequence());
+        statement.setLong(offset + 8, event.context().timestampMs());
+        statement.setString(offset + 9, event.context().coordinatorId());
+        var issuance = event.issuance();
+        statement.setString(offset + 10, issuance == null ? null : issuance.workerHost());
+        statement.setObject(offset + WORKER_HTTP_PORT_PARAMETER,
+                issuance == null ? null : issuance.workerHttpPort(), java.sql.Types.INTEGER);
+        statement.setString(offset + TASK_OWNER_INCARNATION_PARAMETER,
+                issuance == null ? null : issuance.ownerIncarnation());
+        statement.setObject(offset + TASK_OWNER_FENCING_TOKEN_PARAMETER,
+                issuance == null ? null : issuance.fencingToken(), java.sql.Types.BIGINT);
+        statement.setBytes(offset + TASK_PARAMETERS, issuance == null ? null : issuance.admissionSeal());
     }
 
     static QueryStateEvent readQuery(ResultSet rows) throws SQLException {
@@ -320,9 +337,13 @@ final class JournalEventSql {
     }
 
     static TaskStateEvent readTask(ResultSet rows) throws SQLException {
+        byte[] seal = rows.getBytes("admission_seal");
+        TaskIssuance issuance = seal == null ? null
+                : new TaskIssuance(rows.getString("worker_host"), rows.getInt("worker_http_port"),
+                        rows.getString("owner_incarnation"), rows.getLong("owner_fencing_token"), seal);
         return new TaskStateEvent(context(rows), rows.getString("query_id"), rows.getString("task_id"),
                 rows.getString("worker_id"), rows.getString("state"), rows.getInt("stage_id"),
-                rows.getLong("report_sequence"));
+                rows.getLong("report_sequence"), issuance);
     }
 
     private static JournalEventContext context(ResultSet rows) throws SQLException {

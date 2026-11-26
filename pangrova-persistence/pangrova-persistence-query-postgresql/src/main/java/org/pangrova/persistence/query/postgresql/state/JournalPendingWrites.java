@@ -37,6 +37,8 @@ final class JournalPendingWrites {
     @GuardedBy("this")
     private final Set<JournalSqlOperation> sqlOwners = new HashSet<>();
     @GuardedBy("this")
+    private final Map<JournalSqlOperation, String> issuanceOwners = new LinkedHashMap<>();
+    @GuardedBy("this")
     private boolean sealed;
     @GuardedBy("this")
     private boolean flushRequested;
@@ -184,6 +186,19 @@ final class JournalPendingWrites {
         return operation;
     }
 
+    synchronized JournalSqlOperation enterIssuance(String queryId) {
+        requireOpen();
+        if (purging.contains(queryId)) throw rejected("Query journal is being purged", null);
+        JournalSqlOperation operation = enterSql();
+        try {
+            issuanceOwners.put(operation, queryId);
+            return operation;
+        } catch (RuntimeException | Error failure) {
+            operation.closeAfterFailure(failure);
+            throw failure;
+        }
+    }
+
     synchronized JournalSqlOperation enterPurge(String queryId) {
         requireUnsealed();
         JournalSqlOperation operation = new JournalSqlOperation(this, queryId);
@@ -204,8 +219,8 @@ final class JournalPendingWrites {
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs);
         while (true) {
             var order = queryOrder.get(queryId);
-            if (order == null) return;
-            Throwable failure = order.stream().map(writes::get).map(w -> w.lastFailure)
+            if (order == null && !issuanceOwners.containsValue(queryId)) return;
+            Throwable failure = order == null ? null : order.stream().map(writes::get).map(w -> w.lastFailure)
                     .filter(Objects::nonNull).findFirst().orElse(null);
             if (failure != null) throw failure("Query still owns uncommitted journal events", failure);
             long remaining = deadline - System.nanoTime();
@@ -232,6 +247,7 @@ final class JournalPendingWrites {
 
     synchronized void leaveSql(JournalSqlOperation operation, String purgeQuery) {
         if (!sqlOwners.remove(operation)) throw new IllegalStateException("Journal SQL owner departed twice");
+        issuanceOwners.remove(operation);
         enteredSql--;
         if (purgeQuery != null) purging.remove(purgeQuery);
         notifyAll();

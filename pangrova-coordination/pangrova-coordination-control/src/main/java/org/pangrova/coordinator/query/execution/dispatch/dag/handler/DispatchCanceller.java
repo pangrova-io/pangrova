@@ -2,8 +2,6 @@ package org.pangrova.coordinator.query.execution.dispatch.dag.handler;
 
 import org.pangrova.execution.task.StageDispatchRecord;
 
-import org.pangrova.persistence.query.api.state.QueryStateJournal;
-
 import java.util.List;
 
 import org.pangrova.common.enums.PangrovaErrorCode;
@@ -104,9 +102,18 @@ public final class DispatchCanceller {
         taskTracker.enterTaskDispatch(request);
     }
 
-    /** Journals the same frozen fact retained by the sole issued-attempt authority. */
-    public void journalScheduledTask(QueryStateJournal journal, String taskId) {
-        journal.appendTaskEvent(taskTracker.scheduledJournalEvent(taskId));
+    /** Captures the original prepared event and the exact Worker address and binary seal. */
+    public org.pangrova.query.api.journal.TaskStateEvent issuanceFact(
+            org.pangrova.protocol.rest.task.SubmitTaskRequest request,
+            org.pangrova.coordinator.worker.WorkerInfo worker) {
+        var seal = org.pangrova.protocol.task.CanonicalTaskAdmissionSeals.create(request.taskRequest());
+        var owner = seal.getAttempt().getExecutionOwner();
+        var fact = taskTracker.scheduledJournalEvent(seal.getAttempt().getTaskId());
+        var issuance = new org.pangrova.query.api.journal.TaskIssuance(
+                worker.host(), worker.httpPort(), owner.getOwnerIncarnation(), owner.getFencingToken(),
+                seal.toByteArray());
+        return new org.pangrova.query.api.journal.TaskStateEvent(fact.context(), fact.queryId(), fact.taskId(),
+                fact.workerId(), fact.state(), fact.stageId(), fact.reportSequence(), issuance);
     }
 
     /** Rolls back a prepared task only when dispatch did not start. */

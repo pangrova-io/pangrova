@@ -98,8 +98,12 @@ the recovery owner until the physical cleanup protocol establishes exit.
 
 The bounded asynchronous submission executor runs SQL planning and starts the
 distributed DAG. The DAG publishes its OUTPUT endpoint after Worker acknowledgement
-and settles the execution through its completion stage. A running query does not
-hold a submission thread while its Workers produce or finish results. The
+and settles the execution through its completion stage. Each DAG dispatch cohort commits the exact binary Worker admission seals and
+their control addresses before sending its HTTP requests. PostgreSQL records up
+to 16 attempts in one execution-fenced task-journal statement. The sender uses
+the frozen requests for HTTP admission, and the recovery reader can retrieve
+the original seals. A running query does not hold a submission thread while its
+Workers produce or finish results. The
 execution operation remains admitted through terminal callbacks, while task and
 result owners account for their own physical drain.
 

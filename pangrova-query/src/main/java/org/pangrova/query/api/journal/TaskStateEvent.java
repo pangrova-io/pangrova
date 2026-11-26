@@ -15,6 +15,7 @@ import java.util.Objects;
  * @param stageId        the stage this task belongs to
  * @param reportSequence monotonically increasing sequence for deduplication
  * @param context        immutable identity, original time and issuing owner
+ * @param issuance       committed pre-dispatch authority for an initial scheduled fact
  */
 @Experimental
 public record TaskStateEvent(
@@ -24,12 +25,22 @@ public record TaskStateEvent(
         String workerId,
         String state,
         int stageId,
-        long reportSequence
+        long reportSequence,
+        TaskIssuance issuance
 ) {
+    public TaskStateEvent(JournalEventContext context, String queryId, String taskId, String workerId,
+            String state, int stageId, long reportSequence) {
+        this(context, queryId, taskId, workerId, state, stageId, reportSequence, null);
+    }
+
     public TaskStateEvent {
         Objects.requireNonNull(context, "context must not be null");
         Objects.requireNonNull(queryId, "queryId must not be null");
         Objects.requireNonNull(taskId, "taskId must not be null");
         Objects.requireNonNull(state, "state must not be null");
+        if (issuance != null && (!"SCHEDULED".equals(state) || reportSequence != 0 || workerId == null
+                || context.coordinatorId() == null)) {
+            throw new IllegalArgumentException("Only an exact scheduled event may carry task issuance");
+        }
     }
 }

@@ -262,6 +262,11 @@ class QueryManagerDurableAcceptanceTest {
         }
 
         @Override
+        public void appendTaskIssuancesSync(List<TaskStateEvent> events) {
+            delegate.appendTaskIssuancesSync(events);
+        }
+
+        @Override
         public void appendTaskEventSync(TaskStateEvent event) {
             delegate.appendTaskEventSync(event);
         }

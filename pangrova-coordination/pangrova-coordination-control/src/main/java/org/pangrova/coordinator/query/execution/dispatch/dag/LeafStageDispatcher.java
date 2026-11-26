@@ -47,7 +47,6 @@ final class LeafStageDispatcher {
     private static final long MAX_DML_MEMORY_BYTES = 256L * 1024 * 1024;
 
     private final org.pangrova.coordinator.scheduler.TaskDispatcher dispatcher;
-    private final QueryStateJournal stateJournal;
     private final long taskTimeoutSeconds;
     private final TaskStageRegistrar taskStageRegistrar;
     private final PublishedGenerationBindingResolver artifactBindingResolver;
@@ -55,7 +54,6 @@ final class LeafStageDispatcher {
     private final boolean remoteShuffle;
     private final boolean localShuffle;
     private final StagePartitionDispatcher partitions;
-    private final DispatchCanceller canceller;
 
     LeafStageDispatcher(org.pangrova.coordinator.scheduler.TaskDispatcher dispatcher,
                         QueryStateJournal stateJournal,
@@ -64,15 +62,13 @@ final class LeafStageDispatcher {
                         TaskStageRegistrar taskStageRegistrar,
                         LeafDispatchOptions options) {
         this.dispatcher = dispatcher;
-        this.stateJournal = stateJournal;
         this.taskTimeoutSeconds = taskTimeoutSeconds;
         this.taskStageRegistrar = taskStageRegistrar;
         this.artifactBindingResolver = options.artifactBindingResolver();
         this.descriptorEncoder = options.descriptorEncoder();
         this.remoteShuffle = options.remoteShuffle();
         this.localShuffle = options.localShuffle();
-        this.partitions = new StagePartitionDispatcher(dispatcher, canceller, options.taskAccessBinder());
-        this.canceller = canceller;
+        this.partitions = new StagePartitionDispatcher(dispatcher, canceller, options.taskAccessBinder(), stateJournal);
     }
 
     record LeafDispatchOptions(
@@ -129,16 +125,14 @@ final class LeafStageDispatcher {
             artifactBindingResolver.retainSnapshotPinsForExecution(
                     input.session().tenantId(), input.execution().executionId(), templates);
         }
-        int window = prepared.hasArtifacts() ? ARTIFACT_DISPATCH_WINDOW : Math.max(1, prepared.taskCount());
+        int window = prepared.hasArtifacts() ? ARTIFACT_DISPATCH_WINDOW : QueryStateJournal.MAX_TASK_ISSUANCE_BATCH;
         for (int first = 0; first < prepared.taskCount();) {
             int last = first + Math.min(window, prepared.taskCount() - first);
             var taskBindings = prepared.hasArtifacts()
                     ? materializeArtifactBindings(input.session().tenantId(), templates,
                             prepared.partitionedSplits().subList(first, last))
                     : java.util.Collections.nCopies(last - first, templates);
-            for (int partition = first; partition < last; partition++) {
-                dispatches.add(dispatchPartition(input, prepared, partition, taskBindings.get(partition - first)));
-            }
+            dispatchPreparedWindow(input, prepared, dispatches, first, last, taskBindings);
             first = last;
         }
         LOG.info("event=push_mode_dispatch queryId={} stageId={} splits={}"
@@ -148,6 +142,25 @@ final class LeafStageDispatcher {
                 prepared.shuffleConfig() == null
                         ? 0 : prepared.shuffleConfig().numPartitions());
         return dispatches;
+    }
+
+    private void dispatchPreparedWindow(LeafDispatch input, PreparedDispatch prepared,
+            List<DAGDispatchEngine.PartitionDispatch> dispatches, int first, int last,
+            List<List<OperatorBinding>> taskBindings) {
+        for (int start = first; start < last;) {
+            int end = start + Math.min(QueryStateJournal.MAX_TASK_ISSUANCE_BATCH, last - start);
+            List<StagePartitionDispatcher.Candidate> candidates = new ArrayList<>(end - start);
+            for (int partition = start; partition < end; partition++) {
+                var worker = selectWorker(input, prepared, partition);
+                var request = buildTaskRequest(input, prepared, partition, worker, taskBindings.get(partition - first));
+                candidates.add(new StagePartitionDispatcher.Candidate(request, worker));
+            }
+            var issued = partitions.dispatchCohort(candidates);
+            for (int index = 0; index < issued.size(); index++) {
+                dispatches.add(dispatchRecord(issued.get(index), candidates.get(index).worker()));
+            }
+            start = end;
+        }
     }
 
     private PreparedDispatch prepareDispatch(LeafDispatch input) {
@@ -235,11 +248,8 @@ final class LeafStageDispatcher {
                 Math.max(input.splitsWithPaths().size(), 1));
     }
 
-    private DAGDispatchEngine.PartitionDispatch dispatchPartition(
-            LeafDispatch input, PreparedDispatch prepared, int partition, List<OperatorBinding> taskBindings) {
-        var worker = selectWorker(input, prepared, partition);
-        var request = buildTaskRequest(input, prepared, partition, worker, taskBindings);
-        var issued = partitions.dispatch(request, worker);
+    private static DAGDispatchEngine.PartitionDispatch dispatchRecord(StagePartitionDispatcher.Issued issued,
+            WorkerInfo worker) {
         return new DAGDispatchEngine.PartitionDispatch(issued.acknowledgement(), worker.httpPort(),
                 worker.transportPort(), worker.workerId(), issued.request(), null);
     }
@@ -251,16 +261,19 @@ final class LeafStageDispatcher {
         DurableStageRuntime.StageTasks stageTasks = null;
         int stage = input.plan().stageId();
         int total = input.plan().parallelism();
-        int window = GenerationStageExecutionStore.PARTITION_INSPECTION_WINDOW;
+        int window = Math.min(GenerationStageExecutionStore.PARTITION_INSPECTION_WINDOW,
+                QueryStateJournal.MAX_TASK_ISSUANCE_BATCH);
         for (int first = 0; first < total; first += Math.min(window, total - first)) {
             var progressWindow = input.durable().inspect(stage, first, Math.min(window, total - first));
+            var records = new DAGDispatchEngine.PartitionDispatch[progressWindow.size()];
+            var preparedTasks = new ArrayList<DurableStageRuntime.PreparedTask>();
             for (int offset = 0; offset < progressWindow.size(); offset++) {
                 int partition = first + offset;
                 var progress = progressWindow.get(offset);
                 if (progress.winner().isPresent()) {
                     var winner = input.durable().winner(stage, partition, progress);
-                    result.add(new DAGDispatchEngine.PartitionDispatch(
-                            java.util.concurrent.CompletableFuture.completedFuture(null), 0, 0, null, null, winner));
+                    records[offset] = new DAGDispatchEngine.PartitionDispatch(
+                            java.util.concurrent.CompletableFuture.completedFuture(null), 0, 0, null, null, winner);
                     continue;
                 }
                 if (exchangeInputs == null) {
@@ -274,12 +287,18 @@ final class LeafStageDispatcher {
                 var prepared = stageTasks.prepare(partition, progress, access, java.time.Instant.now())
                         .orElseThrow(() -> new IllegalStateException(
                                 "Exact durable partition is not claimable by the current execution owner"));
-                var issued = partitions.dispatch(prepared.request(), prepared.worker());
-                input.durable().dispatched(prepared, issued.acknowledgement());
-                result.add(new DAGDispatchEngine.PartitionDispatch(issued.acknowledgement(),
-                        prepared.worker().httpPort(),
-                        prepared.worker().transportPort(), prepared.worker().workerId(), issued.request(), null));
+                preparedTasks.add(prepared);
             }
+            var issued = partitions.dispatchCohort(preparedTasks.stream()
+                    .map(task -> new StagePartitionDispatcher.Candidate(task.request(), task.worker())).toList());
+            for (int offset = 0, pending = 0; offset < records.length; offset++) {
+                if (records[offset] != null) continue;
+                var task = preparedTasks.get(pending);
+                var dispatch = issued.get(pending++);
+                input.durable().dispatched(task, dispatch.acknowledgement());
+                records[offset] = dispatchRecord(dispatch, task.worker());
+            }
+            result.addAll(List.of(records));
         }
         return List.copyOf(result);
     }
@@ -391,9 +410,7 @@ final class LeafStageDispatcher {
             }
             DispatchResult r = pd.future().join();
             taskStageRegistrar.register(execution.executionId(), r.taskId(), stage);
-            if (stateJournal != null) {
-                canceller.journalScheduledTask(stateJournal, r.taskId());
-            }
+
         }
     }
 

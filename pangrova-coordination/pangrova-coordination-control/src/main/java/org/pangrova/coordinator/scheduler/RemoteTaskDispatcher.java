@@ -405,16 +405,25 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
      */
     @Override
     public CompletableFuture<DispatchResult> dispatchAsync(SubmitTaskRequest request, WorkerInfo worker) {
+        return sendTaskAsync(request, worker, false);
+    }
+
+    @Override
+    public CompletableFuture<DispatchResult> dispatchBoundAsync(SubmitTaskRequest request, WorkerInfo worker) {
+        return sendTaskAsync(request, worker, true);
+    }
+
+    private CompletableFuture<DispatchResult> sendTaskAsync(SubmitTaskRequest request, WorkerInfo worker,
+            boolean alreadyBound) {
         checkNotNull(request, "request must not be null");
         checkNotNull(worker, "worker must not be null");
-
         String breakerKey = breakerKey(worker.host());
         if (!circuitBreakerPolicy.allowRequest(breakerKey)) {
             return CompletableFuture.failedFuture(new CircuitBreakerOpenException(worker.host()));
         }
 
-        // F-COORD-HA-04: Stamp epoch before async dispatch (same as sync path).
-        SubmitTaskRequest stamped = bindSourceInput(bindControlIdentity(bindWorkerIdentity(request, worker)));
+        var stamped = alreadyBound ? request
+                : bindSourceInput(bindControlIdentity(bindWorkerIdentity(request, worker)));
         requireEncryptedCopyTaskTransport(stamped, worker);
         byte[] body = stamped.encode();
         long deadline = System.nanoTime() + EPOCH_CATCHUP_TIMEOUT_NANOS;

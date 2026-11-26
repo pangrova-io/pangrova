@@ -21,6 +21,7 @@ import org.pangrova.persistence.query.api.enums.JournalAdmissionOutcome;
 import org.pangrova.persistence.query.api.exception.JournalWriteException;
 import org.pangrova.persistence.query.api.state.StateJournalConfig;
 import org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore;
+import org.pangrova.query.api.journal.TaskIssuance;
 import org.pangrova.query.api.journal.TaskStateEvent;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -170,6 +171,52 @@ class JdbcQueryStateJournalIntegrationTest {
             assertEquals(5L, rows.getLong("rows"));
             assertFalse(rows.next());
         }
+    }
+
+    @Test
+    void exactIssuanceUsesOneStatementAndSurvivesTakeover() throws Exception {
+        String id = "issuance-cohort";
+        var store = new JdbcExecutionAnchorStore(dataSource);
+        var duration = Duration.ofMinutes(1);
+        var old = store.tryAcquire(id, "owner", "boot", duration).orElseThrow();
+        journal.appendQueryEventSync(new QueryStateEvent(JournalEventContext.create(100, "owner"),
+                id, "SELECT 1", "{}", "RUNNING"));
+        var issuance = new TaskIssuance("worker-host", 8081, "boot", old.fencingToken(), new byte[] {1, 2, 3});
+        var tasks = java.util.stream.IntStream.range(0, 16).mapToObj(partition ->
+                new TaskStateEvent(JournalEventContext.create(105, "owner"), id, "task-" + partition,
+                        "worker-id", "SCHEDULED", 1, 0, issuance)).toList();
+        executeSql("CREATE EXTENSION IF NOT EXISTS pg_stat_statements");
+        executeSql("SELECT pg_stat_statements_reset()");
+
+        journal.appendTaskIssuancesSync(tasks);
+        try (var connection = dataSource.getConnection(); var statement = connection.createStatement();
+                var rows = statement.executeQuery("""
+                        SELECT calls FROM pg_stat_statements
+                        WHERE query LIKE 'WITH locked AS MATERIALIZED (%INSERT INTO task_state_journal%'
+                        """)) {
+            assertTrue(rows.next());
+            assertEquals(1, rows.getLong(1));
+            assertFalse(rows.next());
+        }
+        assertEquals(0L, eventReadbacks());
+        journal.appendTaskIssuancesSync(tasks);
+        assertThat(journal.replayClaimedQueries(Set.of(id)).tasks()).containsExactlyInAnyOrderElementsOf(tasks);
+
+        var event = tasks.get(0);
+        var changed = new TaskStateEvent(event.context(), id, event.taskId(), event.workerId(), event.state(),
+                event.stageId(), event.reportSequence(),
+                new TaskIssuance("different-worker", 8081, "boot", old.fencingToken(), issuance.admissionSeal()));
+        var candidate = new TaskStateEvent(JournalEventContext.create(106, "owner"), id, "task-extra",
+                "worker-id", "SCHEDULED", 1, 0, issuance);
+        assertThrows(JournalWriteException.class, () -> journal.appendTaskIssuancesSync(List.of(candidate, changed)));
+        assertEquals(16, countQueryRows("task_state_journal", id));
+
+        assertTrue(store.yield(old));
+        store.tryAcquire(id, "successor", "new-boot", duration).orElseThrow();
+        var rejected = assertThrows(JournalWriteException.class,
+                () -> journal.appendTaskIssuancesSync(List.of(candidate)));
+        assertEquals(JournalAdmissionOutcome.REJECTED_BEFORE_TRANSFER, rejected.admissionOutcome());
+        assertThat(journal.replayClaimedQueries(Set.of(id)).tasks()).containsExactlyInAnyOrderElementsOf(tasks);
     }
 
     @Test

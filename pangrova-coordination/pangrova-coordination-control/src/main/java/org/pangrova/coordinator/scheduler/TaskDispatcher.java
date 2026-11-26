@@ -52,6 +52,11 @@ public interface TaskDispatcher {
         return CompletableFuture.supplyAsync(() -> dispatch(request, worker));
     }
 
+    /** Sends an already bound request without replacing its persisted attempt. */
+    default CompletableFuture<DispatchResult> dispatchBoundAsync(SubmitTaskRequest request, WorkerInfo worker) {
+        return dispatchAsync(request, worker);
+    }
+
     /**
      * Injects a dynamic filter into a running task on the specified worker.
      * Default implementation is a no-op for dispatchers that do not support dynamic filters.

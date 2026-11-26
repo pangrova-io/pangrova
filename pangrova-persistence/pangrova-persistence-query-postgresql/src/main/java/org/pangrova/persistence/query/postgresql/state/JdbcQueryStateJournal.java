@@ -44,17 +44,19 @@ public final class JdbcQueryStateJournal implements QueryStateJournal {
                    q.sql_text, q.session_json, q.lineage_payload, q.principal, q.idempotency_key_digest,
                    q.request_fingerprint, q.acceptance_receipt_json, q.retention_ms,
                    NULL::varchar AS task_id, NULL::varchar AS worker_id, NULL::integer AS stage_id,
-                   NULL::bigint AS report_sequence
+                   NULL::bigint AS report_sequence, NULL::text AS worker_host, NULL::integer AS worker_http_port,
+                   NULL::text AS owner_incarnation, NULL::bigint AS owner_fencing_token, NULL::bytea AS admission_seal
             FROM query_facts JOIN claimed_events q USING (query_id) WHERE NOT terminal
             UNION ALL
             SELECT 1, t.id, t.event_id, t.query_id, t.state, t.timestamp_ms, t.coordinator_id,
                    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-                   t.task_id, t.worker_id, t.stage_id, t.report_sequence
+                   t.task_id, t.worker_id, t.stage_id, t.report_sequence,
+                   t.worker_host, t.worker_http_port, t.owner_incarnation, t.owner_fencing_token, t.admission_seal
             FROM query_facts JOIN task_state_journal t USING (query_id) WHERE NOT terminal
             UNION ALL
             SELECT 2, NULL, NULL, claimed.query_id, NULL, NULL, NULL,
                    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-                   NULL, NULL, NULL, NULL
+                   NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
             FROM claimed LEFT JOIN query_facts USING (query_id)
             WHERE CASE WHEN query_facts.query_id IS NOT NULL THEN query_facts.terminal
                   ELSE (SELECT true FROM task_state_journal t WHERE t.query_id = claimed.query_id LIMIT 1) IS TRUE
@@ -120,6 +122,18 @@ public final class JdbcQueryStateJournal implements QueryStateJournal {
     @Override public void appendTaskEventSync(TaskStateEvent event) {
         var owner = pending.admit(new JournalPendingWrites.Write(pending, event), true);
         await(owner.attempt());
+    }
+
+    @Override public void appendTaskIssuancesSync(List<TaskStateEvent> events) {
+        var cohort = QueryStateJournal.requireTaskIssuanceCohort(events);
+        try {
+            pending.enterIssuance(cohort.get(0).queryId()).perform(dataSource, connection -> {
+                JournalTaskIssuanceSql.commit(connection, cohort);
+                return null;
+            });
+        } catch (SQLException failure) {
+            throw JournalPendingWrites.failure("Failed to commit exact task issuance cohort", failure);
+        }
     }
 
     private void await(CompletableFuture<Void> attempt) {

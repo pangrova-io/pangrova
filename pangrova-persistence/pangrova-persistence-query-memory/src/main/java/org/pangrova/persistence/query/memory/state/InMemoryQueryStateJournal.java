@@ -86,6 +86,22 @@ public final class InMemoryQueryStateJournal implements QueryStateJournal {
         return acceptQuerySync(event);
     }
 
+    @Override public synchronized void appendTaskIssuancesSync(List<TaskStateEvent> events) {
+        var cohort = QueryStateJournal.requireTaskIssuanceCohort(events);
+        requireOpen();
+        int newEvents = 0;
+        for (var event : cohort) {
+            var prior = tasks.get(event.context().eventId());
+            if (prior == null) newEvents++;
+            else requireExact(prior.equals(event));
+        }
+        if (newEvents > capacity - queries.size() - tasks.size()) {
+            throw new JournalWriteException("Journal resident-event capacity exceeded", null,
+                    JournalAdmissionOutcome.REJECTED_BEFORE_TRANSFER);
+        }
+        for (var event : cohort) tasks.putIfAbsent(event.context().eventId(), event);
+    }
+
     @Override public synchronized Optional<QueryAcceptance> findAcceptance(String principal,
             String idempotencyKeyDigest) {
         requireOpen();
