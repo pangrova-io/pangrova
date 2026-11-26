@@ -418,6 +418,19 @@ class JdbcQueryStateJournalIntegrationTest {
     }
 
     @Test
+    void acceptanceShapeRequiresAllFieldsOnTheInitialQueuedRow() throws Exception {
+        journal.acceptQuerySync(acceptanceEvent("q-shape", "alice", "a", "b", 60_000));
+        for (String assignment : List.of("principal = NULL", "idempotency_key_digest = NULL",
+                "request_fingerprint = NULL", "acceptance_receipt_json = NULL", "retention_ms = NULL",
+                "retention_ms = 0", "state = 'RUNNING'")) {
+            var failure = assertThrows(java.sql.SQLException.class, () -> executeSql(
+                    "UPDATE query_state_journal SET " + assignment + " WHERE query_id = 'q-shape'"));
+            assertThat(failure.getSQLState()).isEqualTo("23514");
+        }
+        assertThat(journal.findAcceptance("alice", "a".repeat(64))).isPresent();
+    }
+
+    @Test
     void freshAcceptanceUsesOneInsertAndNoReadback() throws Exception {
         try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
             statement.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements");

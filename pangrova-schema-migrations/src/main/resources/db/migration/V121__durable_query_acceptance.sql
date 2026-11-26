@@ -9,11 +9,11 @@ ALTER TABLE query_state_journal ADD CONSTRAINT query_state_journal_acceptance_sh
     (principal IS NULL AND idempotency_key_digest IS NULL AND request_fingerprint IS NULL
         AND acceptance_receipt_json IS NULL AND retention_ms IS NULL)
     OR
-    (principal IS NOT NULL AND principal <> ''
-        AND idempotency_key_digest ~ '^[0-9a-f]{64}$'
-        AND request_fingerprint ~ '^[0-9a-f]{64}$'
+    (state = 'QUEUED' AND principal IS NOT NULL AND principal <> ''
+        AND idempotency_key_digest IS NOT NULL AND idempotency_key_digest ~ '^[0-9a-f]{64}$'
+        AND request_fingerprint IS NOT NULL AND request_fingerprint ~ '^[0-9a-f]{64}$'
         AND acceptance_receipt_json IS NOT NULL
-        AND retention_ms > 0)
+        AND retention_ms IS NOT NULL AND retention_ms > 0)
 );
 
 CREATE UNIQUE INDEX query_state_journal_single_queued
