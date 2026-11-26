@@ -222,6 +222,24 @@ class DdlExecutorOwnershipTest {
     }
 
     @Test
+    void uncertainDropResultDoesNotRetireTheCapturedTableControlRecord() {
+        registerManaged("users");
+        var original = registry.tableControl().find("test_cat", "default", "users").orElseThrow();
+        metadata.beforeDrop = () -> {
+            // The table disappeared independently before this connector call could drop it.
+            metadata.tables.remove("default.users");
+            metadata.uuids.remove("default.users");
+            throw new org.pangrova.connector.api.exception.ConnectorException(
+                    org.pangrova.common.enums.PangrovaErrorCode.CONNECTOR_DDL_FAILED, "unestablished drop");
+        };
+        var stmt = (DropTableStatement) parser.parse("DROP TABLE IF EXISTS test_cat.default.users");
+
+        assertThatThrownBy(() -> ddlExecutor.executeDropTable(stmt, context()))
+                .isInstanceOf(org.pangrova.connector.api.exception.ConnectorException.class);
+        assertThat(registry.tableControl().find("test_cat", "default", "users")).contains(original);
+    }
+
+    @Test
     void dropOfManagedTableSucceedsAndRetiresOwnership() {
         registerManaged("users");
         DropTableStatement stmt = (DropTableStatement) parser.parse(
@@ -647,6 +665,7 @@ class DdlExecutorOwnershipTest {
         private boolean identityFailure;
         private Runnable afterCreate = () -> {};
         private Runnable afterDrop = () -> {};
+        private Runnable beforeDrop = () -> {};
         private Runnable beforeRename = () -> {};
 
         void create(SchemaTableName name, String uuid) {
@@ -668,6 +687,7 @@ class DdlExecutorOwnershipTest {
 
         @Override
         public void dropTable(ConnectorSession session, ConnectorTableHandle handle) {
+            beforeDrop.run();
             String key = ((Handle) handle).key;
             tables.remove(key);
             uuids.remove(key);

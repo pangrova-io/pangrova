@@ -151,7 +151,10 @@ descriptor fields follow the existing positional result columns:
   only to the original captured descriptor fence. A connector result of unknown
   outcome leaves the table operation claimed; a new build cannot proceed until
   authoritative outcome evidence resolves the claim. Only a proved pre-call
-  failure may abort and release it. External schema changes are detected by
-  periodic reconciliation.
+  failure may abort and release that exact operation. `DROP TABLE IF EXISTS`
+  treats an initially absent table as a no-op, not an uncertain mutation result.
+  Iceberg false drop results and generic errors remain unknown. Operators can
+  follow unresolved operation IDs in coordinator diagnostics;
+  external schema changes are detected by periodic reconciliation.
 - For the design behind index build and evaluation, see
   [Indexing Architecture](../architecture/indexing.md).

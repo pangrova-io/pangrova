@@ -132,9 +132,11 @@ class IndexingBootstrapStartOrderingTest {
                     new CatalogRegistry(memoryTableStores(), new EmptyCatalogDeployments()), null, null);
             assertThat(bootstrap.getSchemaEvolutionHandler()).isNotNull();
             assertThat(store.schemaRecoveryStarted.getCount()).isOne();
+            assertThat(store.schemaDiagnosticsStarted.getCount()).isOne();
             assertThat(leader.tryAcquireOrRenew()).isTrue();
             bootstrap.onLeaderElected();
             assertThat(store.schemaRecoveryStarted.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            assertThat(store.schemaDiagnosticsStarted.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
             bootstrap.onLeadershipLost();
         } finally {
             bootstrap.close();
@@ -187,6 +189,25 @@ class IndexingBootstrapStartOrderingTest {
         @Override public Optional<LeaseEntry> currentHolder(String k) { return Optional.empty(); }
     }
 
+    @Test
+    void schemaDiagnosticReadFailureDoesNotBlockConfirmedRecovery() throws Exception {
+        var store = new NoOpIndexMetadataStore();
+        store.failSchemaDiagnostics = true;
+        var leader = new MaintenanceLeaderElection(new InMemoryDistributedLease(), "schema-diagnostics");
+        IndexingBootstrap bootstrap = new IndexingBootstrap(indexDir.toString(), new NoOpLease(), null, null, leader);
+        try {
+            bootstrap.start(store, new UnusedBuildClaims(),
+                    new CatalogRegistry(memoryTableStores(), new EmptyCatalogDeployments()), null, null);
+            assertThat(leader.tryAcquireOrRenew()).isTrue();
+            bootstrap.onLeaderElected();
+            assertThat(store.schemaDiagnosticsStarted.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+            assertThat(store.schemaRecoveryStarted.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        } finally {
+            bootstrap.close();
+            leader.release();
+        }
+    }
+
     /** CatalogDeploymentRepository with no catalogs — CatalogRegistry has nothing to load. */
     static final class EmptyCatalogDeployments implements CatalogDeploymentRepository {
         @Override
@@ -208,8 +229,22 @@ class IndexingBootstrapStartOrderingTest {
     static final class NoOpIndexMetadataStore implements IndexMetadataStore {
         private int recoveryLookups;
         private boolean failRecovery;
+        private boolean failSchemaDiagnostics;
         private final java.util.concurrent.CountDownLatch schemaRecoveryStarted =
                 new java.util.concurrent.CountDownLatch(1);
+
+        private final java.util.concurrent.CountDownLatch schemaDiagnosticsStarted =
+                new java.util.concurrent.CountDownLatch(1);
+
+        @Override
+        public List<org.pangrova.persistence.indexing.api.metadata.IndexSchemaEvolutionStore.IndexSchemaEvolutionRecord>
+                listUnresolvedSchemaEvolution(int limit) {
+            schemaDiagnosticsStarted.countDown();
+            if (failSchemaDiagnostics) {
+                throw new IllegalStateException("Injected diagnostic read failure");
+            }
+            return List.of();
+        }
 
         @Override
         public List<org.pangrova.persistence.indexing.api.metadata.IndexSchemaEvolutionStore.IndexSchemaEvolutionRecord>

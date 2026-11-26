@@ -46,6 +46,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import org.pangrova.generation.api.constants.GenerationOutputTypeIds;
@@ -389,9 +390,16 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
     }
 
     private void recoverSchemaEvolutionSafe(ScheduledExecutorService scheduler, long epoch) {
+        java.util.function.BooleanSupplier stillLeader =
+                () -> !scheduler.isShutdown() && leaderElection.holdsEpoch(epoch);
+        // Diagnostics must not delay confirmed operation recovery beyond their
+        // own bounded metadata query, or prevent recovery when observation fails.
         try {
-            java.util.function.BooleanSupplier stillLeader =
-                    () -> !scheduler.isShutdown() && leaderElection.holdsEpoch(epoch);
+            schemaEvolutionHandler.reportUnresolved(stillLeader, Instant.now());
+        } catch (RuntimeException failure) {
+            LOG.warn("event=index_schema_diagnostics_failed error={}", failure.getMessage(), failure);
+        }
+        try {
             if (!stillLeader.getAsBoolean()) {
                 return;
             }

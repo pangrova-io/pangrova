@@ -614,6 +614,43 @@ elapsed time alone are not sufficient. Until generation records carry their
 physical owner, completed schema changes leave previously active indexes STALE
 and explicitly rebuildable rather than automatically restoring READY.
 
+The SQL coordinator emits `index_schema_operation_outcome_uncertain` with the
+operation ID when the caller cannot establish the result. Inspect the durable
+record rather than inferring its state from the log (a commit response may have
+been lost after persistence). Under elected
+maintenance, `index_schema_operations_unresolved` reports a read-only oldest-
+first sample of up to 25 operation IDs, operation kinds, states and ages; an
+additional row detects a truncated sample. UNKNOWN records are reportable
+immediately; INTENDED records are reported after five minutes to avoid alerting
+on ordinary in-flight DDL. Repeated reports are limited to every fifteen
+minutes. These timings are observability only, never evidence of completion or
+permission to release a claim. The diagnostic path does not call the connector,
+change journal state, or prevent confirmed recovery on a diagnostic read error.
+
+Iceberg's schema update commit and catalog rename return normally or throw;
+its SDK's unknown-commit-state exception expressly leaves the outcome uncertain. Its
+catalog drop boolean is not a durable no-mutation receipt across supported
+implementations: the Hadoop catalog can purge data before returning a failed
+filesystem deletion, and the JDBC client pool retries connection failures
+including unknown transaction resolution. A false result therefore fails
+closed rather than being logged as a successful drop. SQL `DROP TABLE IF EXISTS`
+still returns a no-op for an initially absent table, before any mutation is
+attempted; it does not conceal an uncertain result after the mutation call.
+Paimon catalog alter, rename and drop provide no persisted operation receipt.
+Neither connector's schema/metadata history by itself identifies this journal
+UUID. The existing distributed data-write commit context is not a DDL receipt.
+
+An eventual receipt-capable adapter must bind a caller-generated journal UUID
+and canonical mutation digest to the exact format table incarnation, catalog
+version, expected source identity and requested target scope. It must durably
+and atomically record the mutation's result (committed or definitively no
+mutation) with the connector operation, and support lookup of that exact
+receipt following process loss. A missing receipt without a provider guarantee
+of definitive non-execution remains unknown. Table-local metadata markers alone
+cannot cover catalog rename/drop or survive deletion of the table; those need
+catalog-level outcome authority. Do not implement a generic manual release or
+infer success from schema equality, timestamps, or a subsequent absent table.
+
 An authorized metadata operator may inspect unresolved records using the
 read-only query:
 
@@ -622,8 +659,22 @@ SELECT operation_id, tenant_id, catalog_name, schema_name, table_name,
        event_type, state, created_at, updated_at
 FROM index_schema_evolution_outbox
 WHERE state IN ('INTENDED', 'UNKNOWN')
-ORDER BY created_at, operation_id;
+ORDER BY created_at, operation_id
+LIMIT 100;
+```
+
+For the operation ID from a diagnostic or the result above, inspect its exact
+claimed source and target names using a bound operation ID parameter:
+
+```sql
+SELECT catalog_name, schema_name, table_name
+FROM index_schema_operation_claims
+WHERE operation_id = :operation_id
+ORDER BY catalog_name, schema_name, table_name;
 ```
 
 Do not clear these records or their claims merely because the table appears
-unchanged: the original connector operation could still be unresolved.
+unchanged: the original connector operation could still be unresolved. This
+journal is wired into the SQL coordinator's DDL path; other catalog mutation
+entry points and third-party writers require their own integration with the
+same ownership protocol rather than relying on schema observation as a receipt.

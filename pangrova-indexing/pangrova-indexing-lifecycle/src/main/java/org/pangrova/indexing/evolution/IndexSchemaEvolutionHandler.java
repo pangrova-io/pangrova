@@ -31,12 +31,14 @@ public final class IndexSchemaEvolutionHandler {
             IndexType.INVERTED, IndexType.GIN);
 
     private final IndexMetadataStore metadataStore;
+    private final IndexSchemaEvolutionDiagnostics diagnostics;
     private final BiFunction<IndexDescriptor, SchemaChangeEvent, SchemaObservation> sourceObserver;
 
     public IndexSchemaEvolutionHandler(
             IndexMetadataStore metadataStore,
             BiFunction<IndexDescriptor, SchemaChangeEvent, SchemaObservation> sourceObserver) {
         this.metadataStore = java.util.Objects.requireNonNull(metadataStore, "metadataStore");
+        this.diagnostics = new IndexSchemaEvolutionDiagnostics(metadataStore);
         this.sourceObserver = java.util.Objects.requireNonNull(sourceObserver, "sourceObserver");
     }
 
@@ -77,9 +79,20 @@ public final class IndexSchemaEvolutionHandler {
         metadataStore.markSchemaEvolutionUnknown(operationId, Instant.now());
     }
 
-    /** Only callers proving mutation did not start may use this transition. */
+    /** Only callers proving no mutation by this operation may use this transition. */
     public void aborted(UUID operationId) {
         metadataStore.markSchemaEvolutionAborted(operationId, Instant.now());
+    }
+
+    /** Reports unresolved operation IDs for operators without observing or changing connector state. */
+    public void reportUnresolved(BooleanSupplier stillLeader, Instant now) {
+        diagnostics.poll(stillLeader, now).ifPresent(report -> {
+            if (stillLeader.getAsBoolean()) {
+                LOG.warn("event=index_schema_operations_unresolved sampled={} truncated={} operations={} "
+                                + "action=inspect_authoritative_connector_history",
+                        report.sample().size(), report.truncated(), report.sample());
+            }
+        });
     }
 
     /** Reconciles external schema drift that never passed through Pangrova's DDL journal. */

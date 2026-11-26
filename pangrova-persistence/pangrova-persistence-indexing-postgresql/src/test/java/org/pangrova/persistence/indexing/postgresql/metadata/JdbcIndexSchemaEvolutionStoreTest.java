@@ -273,6 +273,28 @@ class JdbcIndexSchemaEvolutionStoreTest extends ContainerTestBase {
     }
 
     @Test
+    void confirmedPreMutationAbortRetainsStaleDescriptorAndUnresolvedInspectionIsReadOnly() {
+        store.registerIndex(descriptor());
+        var event = SchemaChangeEvent.dropTable("tenant", "lake", "raw", "items");
+        UUID noMutation = store.prepareSchemaEvolution(event, NOW);
+        store.markSchemaEvolutionAborted(noMutation, NOW.plusSeconds(1));
+        assertThat(store.findSchemaEvolution(noMutation)).hasValueSatisfying(record ->
+                assertThat(record.state()).isEqualTo(IndexSchemaEvolutionState.ABORTED));
+        IndexDescriptor stale = store.findIndex("index-1").orElseThrow();
+        assertThat(stale.state()).isEqualTo(IndexState.STALE);
+
+        UUID unresolved = store.prepareSchemaEvolution(event, NOW.plusSeconds(2));
+        store.markSchemaEvolutionUnknown(unresolved, NOW.plusSeconds(3));
+        assertThat(store.listUnresolvedSchemaEvolution(26)).singleElement()
+                .satisfies(record -> assertThat(record.operationId()).isEqualTo(unresolved));
+        assertThat(store.listUnresolvedSchemaEvolution(26)).singleElement()
+                .satisfies(record -> assertThat(record.state()).isEqualTo(IndexSchemaEvolutionState.UNKNOWN));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> store.prepareSchemaEvolution(event, NOW.plusSeconds(4)))
+                .hasMessageContaining(unresolved.toString());
+        assertThat(store.findIndex("index-1").orElseThrow().state()).isEqualTo(IndexState.STALE);
+    }
+
+    @Test
     void confirmedPreConnectorAbortReleasesScopeButUnknownCannotBeAborted() {
         var event = SchemaChangeEvent.dropTable("tenant", "lake", "raw", "items");
         UUID beforeCall = store.prepareSchemaEvolution(event, NOW);

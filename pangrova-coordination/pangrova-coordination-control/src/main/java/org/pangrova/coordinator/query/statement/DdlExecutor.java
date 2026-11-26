@@ -548,8 +548,14 @@ public final class DdlExecutor {
         if (operationId != null) {
             try {
                 schemaEvolutionHandler.unknown(operationId);
+                LOG.warn("event=index_schema_operation_outcome_uncertain operationId={} failureType={} "
+                                + "action=inspect_authoritative_connector_history",
+                        operationId, failure.getClass().getSimpleName());
             } catch (RuntimeException unknownFailure) {
                 failure.addSuppressed(unknownFailure);
+                LOG.warn("event=index_schema_operation_outcome_record_failed operationId={} failureType={} "
+                                + "action=inspect_durable_operation",
+                        operationId, unknownFailure.getClass().getSimpleName());
             }
         }
     }
