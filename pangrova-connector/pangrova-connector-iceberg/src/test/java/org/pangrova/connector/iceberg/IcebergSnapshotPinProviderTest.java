@@ -10,6 +10,7 @@ import org.apache.iceberg.hadoop.HadoopCatalog;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.pangrova.common.connector.SnapshotPinTags;
 import org.pangrova.connector.api.exception.SnapshotExpiredException;
 import org.pangrova.connector.api.index.SnapshotPinOwner;
 import org.pangrova.connector.api.index.SnapshotPinReference;
@@ -56,6 +57,34 @@ class IcebergSnapshotPinProviderTest {
             pins.unpinSnapshot("cat", "db", "items", token, owner);
             pins.unpinSnapshot("cat", "db", "items", token, owner);
             assertThat(pins.getPinnedSnapshots("cat", "db", "items")).isEmpty();
+        }
+    }
+
+    @Test
+    void exactOwnerNeitherValidatesNorRemovesLegacyPin() throws IOException {
+        HadoopTestGuard.assumeHadoopCompatible();
+        try (var catalog = new HadoopCatalog(new Configuration(), warehouse.toString())) {
+            catalog.createNamespace(Namespace.of("db"));
+            var table = catalog.createTable(TableIdentifier.of("db", "items"), new Schema(
+                    Types.NestedField.required(1, "id", Types.LongType.get())));
+            var file = DataFiles.builder(table.spec())
+                    .withPath(table.location() + "/data/items.parquet")
+                    .withFormat(FileFormat.PARQUET).withRecordCount(1).withFileSizeInBytes(32).build();
+            table.newFastAppend().appendFile(file).commit();
+            long snapshot = table.currentSnapshot().snapshotId();
+            String token = Long.toString(snapshot);
+            String legacyTag = SnapshotPinTags.indexPrefix("index-1");
+            table.manageSnapshots().createTag(legacyTag, snapshot).commit();
+            var pins = new IcebergSnapshotPinProvider(catalog);
+            var owner = new SnapshotPinOwner("index-1", 0, "attempt-1");
+
+            assertThatThrownBy(() -> pins.validateSnapshotPin("cat", "db", "items", token, owner))
+                    .isInstanceOf(SnapshotExpiredException.class);
+            pins.pinSnapshot("cat", "db", "items", token, owner);
+            pins.unpinSnapshot("cat", "db", "items", token, owner);
+
+            table.refresh();
+            assertThat(table.refs().containsKey(legacyTag)).isTrue();
         }
     }
 

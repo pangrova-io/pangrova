@@ -149,13 +149,20 @@ public final class DurableGenerationPublisher implements AutoCloseable {
             LOG.warn("event=artifact_publication_snapshot_expired jobId={} tenantId={} cancelled={} reason={}",
                     jobId, tenantId, cancelled, expired.getMessage());
         } catch (org.pangrova.security.api.exception.AuthorizationDeniedException revoked) {
-            boolean cancelled = claim != null && buildStore.cancelPublicationClaim(
-                    claim, owner, ownerEpoch, revoked.getMessage(), clock.instant());
+            boolean cancelled = claim != null
+                    ? buildStore.cancelPublicationClaim(claim, owner, ownerEpoch, revoked.getMessage(), clock.instant())
+                    : buildStore.cancelJob(tenantId, jobId, revoked.getMessage(), clock.instant());
             executionOwnership.release(key);
             LOG.warn("event=artifact_publication_revoked jobId={} tenantId={} cancelled={} reason={}",
                     jobId, tenantId, cancelled, revoked.getMessage());
         } catch (org.pangrova.generation.api.exception.GenerationExecutionOwnerLostException staleOwner) {
             LOG.warn("event=artifact_publication_owner_lost jobId={} tenantId={}", jobId, tenantId);
+        } catch (org.pangrova.generation.api.exception.GenerationPublicationFenceException fenced) {
+            boolean cancelled = claim != null && buildStore.cancelPublicationClaim(
+                    claim, owner, ownerEpoch, fenced.getMessage(), clock.instant());
+            executionOwnership.release(key);
+            LOG.warn("event=artifact_publication_fenced jobId={} tenantId={} cancelled={} reason={}",
+                    jobId, tenantId, cancelled, fenced.getMessage());
         } catch (RuntimeException failure) {
             if (claim == null) throw failure;
             Instant failedAt = clock.instant();

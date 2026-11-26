@@ -14,6 +14,7 @@ import org.pangrova.generation.codec.format.BuiltInGenerationOutputFormats;
 import org.pangrova.generation.api.publication.GenerationManifest;
 import org.pangrova.persistence.generation.api.publication.GenerationPublicationStore;
 import org.pangrova.generation.api.constants.GenerationOutputTypeIds;
+import org.pangrova.generation.api.exception.GenerationPublicationFenceException;
 import org.pangrova.persistence.catalog.api.exception.MetastoreException;
 import org.pangrova.indexing.api.enums.IndexPublicationMode;
 import org.pangrova.indexing.api.enums.IndexState;
@@ -228,7 +229,7 @@ public final class JdbcIndexGenerationPublicationStore
             statement.setString(1, indexId);
             try (ResultSet result = statement.executeQuery()) {
                 if (!result.next()) {
-                    throw new IllegalStateException("Index disappeared before artifact publication");
+                    throw new GenerationPublicationFenceException("Index disappeared before artifact publication");
                 }
                 return new DescriptorFence(
                         IndexType.valueOf(result.getString(1)),
@@ -242,7 +243,7 @@ public final class JdbcIndexGenerationPublicationStore
             Connection connection, DescriptorFence descriptor,
             JobRow job) throws SQLException {
         if (descriptor.type() != requiredIndexType(job.artifactType())) {
-            throw new IllegalStateException(
+            throw new GenerationPublicationFenceException(
                     "Index type differs from the artifact generation type");
         }
         int generation = parseGeneration(job.generation());
@@ -254,7 +255,7 @@ public final class JdbcIndexGenerationPublicationStore
                 && hasBuildingGeneration(connection, job, descriptor.generation())) {
             return IndexPublicationMode.ONLINE_REPLACEMENT;
         }
-        throw new IllegalStateException("Index generation CAS fence differs from artifact job");
+        throw new GenerationPublicationFenceException("Index generation CAS fence differs from artifact job");
     }
 
     private static IndexType requiredIndexType(String artifactType) {

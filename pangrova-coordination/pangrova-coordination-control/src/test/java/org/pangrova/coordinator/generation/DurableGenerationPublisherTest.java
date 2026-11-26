@@ -47,12 +47,13 @@ class DurableGenerationPublisherTest {
     private static final String TYPE = GenerationOutputTypeIds.VECTOR_INDEX;
     private static final String TENANT = "tenant-1";
 
+    private javax.sql.DataSource dataSource;
     private PostgresGenerationJobStore store;
     private MutableClock clock;
 
     @BeforeEach
     void setUp() throws Exception {
-        var dataSource = SharedPostgresContainer.migratedDataSource(
+        dataSource = SharedPostgresContainer.migratedDataSource(
                 "durable_artifact_publisher");
         store = ModelAuthorityFixtures.artifacts().builds(dataSource);
         executions = new org.pangrova.coordinator.testinfra.CoordinatorGenerationExecutionFixtures(dataSource);
@@ -162,6 +163,42 @@ class DurableGenerationPublisherTest {
         assertThat(calls).hasValue(1);
         assertThat(store.findJob(TENANT, "job-1").orElseThrow().state())
                 .isEqualTo(GenerationJobState.PUBLISHED);
+    }
+
+    @Test
+    void revocationBeforeClaimCancelsTheReadyJob() throws Exception {
+        createReadyJob();
+        try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
+            statement.executeUpdate("DELETE FROM security_grants WHERE privilege='SELECT'");
+        }
+        GenerationPublicationStore adapter = (claim, owner, epoch, now) -> {
+            throw new AssertionError("revoked job must not publish");
+        };
+
+        try (DurableGenerationPublisher publisher = publisher("maintenance-a", adapter)) {
+            publisher.publishAvailable();
+        }
+
+        assertThat(store.findJob(TENANT, "job-1").orElseThrow().state())
+                .isEqualTo(GenerationJobState.CANCELLED);
+        assertThat(store.listReadyForPublication(10, START.plusSeconds(60))).isEmpty();
+    }
+
+    @Test
+    void permanentPublicationFenceCancelsTheClaim() {
+        createReadyJob();
+        GenerationPublicationStore adapter = (claim, owner, epoch, now) -> {
+            throw new org.pangrova.generation.api.exception.GenerationPublicationFenceException(
+                    "Index generation CAS fence differs from artifact job");
+        };
+
+        try (DurableGenerationPublisher publisher = publisher("maintenance-a", adapter)) {
+            publisher.publishAvailable();
+        }
+
+        assertThat(store.findJob(TENANT, "job-1").orElseThrow().state())
+                .isEqualTo(GenerationJobState.CANCELLED);
+        assertThat(store.listReadyForPublication(10, START.plusSeconds(60))).isEmpty();
     }
 
     private DurableGenerationPublisher publisher(
