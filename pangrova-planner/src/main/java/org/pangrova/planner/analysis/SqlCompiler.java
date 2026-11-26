@@ -112,8 +112,9 @@ public class SqlCompiler {
         }
         CompilerSessionScope scope = CompilerSessionScope.of(session, publicationRevision);
         var planningSession = PlanningSnapshotSelectors.preserveDiscoveries(session, scope);
-        return new SqlCompiler(Objects.requireNonNull(sessionPlanner.apply(planningSession, scope.publicationRevision()),
-                "query planner"), converter, serializer, validator, null, scope);
+        var queryPlanner = Objects.requireNonNull(sessionPlanner.apply(planningSession, publicationRevision),
+                "query planner");
+        return new SqlCompiler(queryPlanner, converter, serializer, validator, null, scope);
     }
 
     /** AQE uses the same query planner that produced and serialized its fragments. */
