@@ -18,6 +18,17 @@
         <module.name>org.pangrova.testing.integration</module.name>
     </properties>
 
+    <dependencyManagement>
+        <dependencies>
+            <!-- Commons Compress 1.28.0 needs Commons IO 2.20.0 for Testcontainers file copies. -->
+            <dependency>
+                <groupId>commons-io</groupId>
+                <artifactId>commons-io</artifactId>
+                <version>${commons-io.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
     <dependencies>
         <dependency>
             <groupId>org.pangrova</groupId>
