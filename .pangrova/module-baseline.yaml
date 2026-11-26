@@ -1839,6 +1839,7 @@ artifacts:
     exportedPackages:
       - org.pangrova.indexing.strategies.bloom.data
       - org.pangrova.indexing.strategies.bloom.provider
+      - org.pangrova.indexing.strategies.bloom.serializer
       - org.pangrova.indexing.strategies.hash.provider
       - org.pangrova.indexing.strategies.hash.serializer
     providers:

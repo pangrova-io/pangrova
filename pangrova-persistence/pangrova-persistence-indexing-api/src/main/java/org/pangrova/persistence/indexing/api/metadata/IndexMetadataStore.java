@@ -6,4 +6,4 @@ import org.pangrova.common.api.annotation.Experimental;
 @Experimental
 public interface IndexMetadataStore extends IndexDescriptors, IndexBuildGenerations, IndexPublications,
         IndexFileMappings, IndexGenerationCoverage, IndexCleanup, IndexCommitLog, IndexCacheEvents,
-        IndexBreakerStates, IndexFileStatistics, IndexSchemaEvolutionStore {}
+        IndexBreakerStates, IndexFileStatistics, IndexSchemaEvolutionStore, ScalarSnapshotPins {}

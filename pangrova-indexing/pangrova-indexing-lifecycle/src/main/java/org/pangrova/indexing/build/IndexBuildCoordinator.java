@@ -323,6 +323,8 @@ public final class IndexBuildCoordinator implements AutoCloseable {
             return IndexBuildResult.claimFailed();
         }
         SnapshotPinOwner pinOwner = null;
+        boolean pinned = false;
+        boolean sourceReadsStarted = false;
         IndexBuildResult result = null;
         Throwable failure = null;
         try {
@@ -337,15 +339,18 @@ public final class IndexBuildCoordinator implements AutoCloseable {
                 recordError(System.currentTimeMillis() - startedAt, IndexBuildError.STALE_GENERATION);
                 return IndexBuildResult.staleGeneration();
             }
-            pinOwner = pinBuildSnapshot(attempt);
+            pinOwner = snapshotPinOwner(attempt);
+            if (pinOwner != null) {
+                pinBuildSnapshot(attempt, pinOwner);
+                pinned = true;
+            }
+            sourceReadsStarted = true;
             result = buildFiles(attempt);
         } catch (RuntimeException | Error buildFailure) {
             failure = buildFailure;
         } finally {
             try {
-                if (pinOwner != null && (failure != null || !result.isFullySuccessful())) {
-                    releaseBuildSnapshot(attempt, pinOwner);
-                }
+                finishSnapshotPinAttempt(attempt, pinOwner, pinned, sourceReadsStarted, result, failure);
             } catch (RuntimeException releaseFailure) {
                 if (failure == null) {
                     failure = releaseFailure;
@@ -370,6 +375,23 @@ public final class IndexBuildCoordinator implements AutoCloseable {
             throw error;
         }
         return result;
+    }
+
+    private void finishSnapshotPinAttempt(BuildAttempt attempt, SnapshotPinOwner owner,
+            boolean pinned, boolean sourceReadsStarted, IndexBuildResult result, Throwable failure) {
+        if (owner == null) {
+            return;
+        }
+        boolean successful = failure == null && result != null && result.isFullySuccessful();
+        if (context.snapshotPinProvider() instanceof ScalarSnapshotPinLifecycle lifecycle) {
+            // A failed/partial read may leave connector iterators open. Never infer
+            // drain from claim expiry or an exceptional reading stack.
+            if (!sourceReadsStarted || successful) {
+                lifecycle.markBuildDrained(owner, attempt.request.descriptor().buildSnapshotId());
+            }
+        } else if (pinned && !successful) {
+            releaseBuildSnapshot(attempt, owner);
+        }
     }
 
     private void recordBuildCompletion(BuildAttempt attempt, IndexBuildResult result, long startedAt) {
@@ -491,14 +513,15 @@ public final class IndexBuildCoordinator implements AutoCloseable {
         return checker == null || checker.isCurrentGeneration(descriptor.indexId(), descriptor.generation());
     }
 
-    private SnapshotPinOwner pinBuildSnapshot(BuildAttempt attempt) {
+    private SnapshotPinOwner snapshotPinOwner(BuildAttempt attempt) {
         IndexDescriptor descriptor = attempt.request.descriptor();
-        if (context.snapshotPinProvider() == null || descriptor.buildSnapshotId() == null
-                || descriptor.buildSnapshotId().isEmpty()) {
-            return null;
-        }
-        var owner = new SnapshotPinOwner(
+        return context.snapshotPinProvider() == null || descriptor.buildSnapshotId() == null
+                || descriptor.buildSnapshotId().isEmpty() ? null : new SnapshotPinOwner(
                 descriptor.indexId(), descriptor.generation(), attempt.attemptId.toString());
+    }
+
+    private void pinBuildSnapshot(BuildAttempt attempt, SnapshotPinOwner owner) {
+        IndexDescriptor descriptor = attempt.request.descriptor();
         try {
             context.snapshotPinProvider().pinSnapshot(
                     descriptor.catalogName(),
@@ -506,7 +529,6 @@ public final class IndexBuildCoordinator implements AutoCloseable {
                     descriptor.tableName(),
                     descriptor.buildSnapshotId(),
                     owner);
-            return owner;
         } catch (RuntimeException runtimeException) {
             LOG.error(
                     "event=index_build_pin_failed indexId={} snapshotId={} error={}",

@@ -202,6 +202,22 @@ pin maintenance can release it after the normal grace interval and only after
 all durable execution references have drained. An explicit rebuild can reserve
 a replacement from the STALE descriptor; this scan does not submit an automatic build.
 Unknown source state and failed validation never trigger retirement.
+Scalar index snapshots are construction holds, separate from query-owned snapshot
+references. V126 persists an exact attempt-owned pin intent before the connector
+operation. A successful synchronous scalar build must exhaust each source cursor
+and seal the engine's wrapper against further row reads, then records durable drain evidence
+before releasing its build claim; an acquisition failure before reading can
+also record drain. The leader releases a drained hold only after the exact
+generation is durably published or terminal and the attempt no longer owns a
+claim. Release attempts are fenced and retried with a durable retry timestamp.
+An expired claim is not proof the reader has stopped; exceptional or legacy
+attempts without positive drain evidence are not newly released by this
+scheduler and require explicit reconciliation; the existing legacy DROP path
+is unchanged. A revoked or changed source scope may defer cleanup.
+This evidence covers the engine's synchronous source-reading stack; it is not a
+general-purpose proof of connector-internal asynchronous resource closure.
+Query-owned and unrelated table snapshot references are never released by this
+scalar construction cleanup.
 A persisted unbound submission is recoverable only if its exact generation,
 source snapshot and durable authorization still match a live build reservation.
 Online replacement resolves the staging reservation rather than the active

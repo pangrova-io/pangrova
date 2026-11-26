@@ -10,13 +10,21 @@ import org.pangrova.connector.api.index.SnapshotPinProvider;
 import org.pangrova.connector.api.index.SnapshotPinOwner;
 import org.pangrova.connector.api.index.SnapshotPinReference;
 import org.pangrova.indexing.api.enums.IndexState;
+import org.pangrova.indexing.build.ScalarSnapshotPinLifecycle;
+import org.pangrova.persistence.indexing.api.metadata.ScalarSnapshotPins.ScalarPin;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.time.Instant;
+import java.util.function.BooleanSupplier;
 import org.pangrova.security.api.exception.AccessDeniedException;
 
 import java.util.List;
 import java.util.Objects;
 
 /** Process lifecycle adapter with current-grant build access and persisted-scope DROPPED cleanup. */
-public final class DeferredSnapshotPinProvider implements SnapshotPinProvider {
+public final class DeferredSnapshotPinProvider implements ScalarSnapshotPinLifecycle {
+    private static final Logger LOG = LoggerFactory.getLogger(DeferredSnapshotPinProvider.class);
     private final IndexMetadataStore indexes;
     private final GenerationJobStore builds;
     private final ConnectorAccessorResolver accessors;
@@ -34,7 +42,12 @@ public final class DeferredSnapshotPinProvider implements SnapshotPinProvider {
                             SnapshotPinOwner owner) {
         String indexId = owner.indexId();
         indexes.withIndexLifecycleLock(indexId, () -> {
-            var provider = requireProvider(catalog, schema, table, indexId);
+            var descriptor = requireDescriptor(indexId);
+            var provider = requireProvider(catalog, schema, table, descriptor);
+            if (!IndexDdlExecutor.requiresNativeArtifact(descriptor.indexType())
+                    && !indexes.reserveScalarSnapshotPin(descriptor, snapshot, owner, Instant.now())) {
+                throw new IllegalStateException("Scalar snapshot pin attempt is no longer reserved: " + owner.id());
+            }
             provider.pinSnapshot(catalog, schema, table, snapshot, owner);
         });
     }
@@ -54,7 +67,77 @@ public final class DeferredSnapshotPinProvider implements SnapshotPinProvider {
                 return;
             }
         }
+        if (!IndexDdlExecutor.requiresNativeArtifact(descriptor.indexType())) {
+            var scalar = indexes.findScalarSnapshotPin(owner);
+            if (scalar.isPresent()) {
+                ScalarPin pin = scalar.orElseThrow();
+                requireExactScalarScope(pin, descriptor, snapshot);
+                if ("RELEASED".equals(pin.state())) {
+                    return;
+                }
+                ScalarPin claimed = indexes.claimScalarSnapshotPinCleanup(owner, Instant.now()).orElseThrow(
+                        () -> new IllegalStateException("Scalar snapshot pin lacks durable drain/terminal proof"));
+                releaseClaimedScalarPin(claimed, provider);
+                return;
+            }
+        }
         provider.unpinSnapshot(catalog, schema, table, snapshot, owner);
+    }
+
+    @Override
+    public void markBuildDrained(SnapshotPinOwner owner, String snapshot) {
+        indexes.markScalarSnapshotPinDrained(owner, snapshot, Instant.now());
+    }
+
+    /** Releases only exact, positively drained scalar attempts after a durable terminal generation. */
+    public int cleanupDrainedScalarPins(BooleanSupplier stillLeader) {
+        int released = 0;
+        for (ScalarPin candidate : indexes.listScalarSnapshotPinCleanupCandidates(Instant.now(), 100)) {
+            if (!stillLeader.getAsBoolean()) {
+                break;
+            }
+            try {
+                boolean[] completed = {false};
+                indexes.withIndexLifecycleLock(candidate.owner().indexId(), () -> {
+                    if (!stillLeader.getAsBoolean()) {
+                        return;
+                    }
+                    var pin = indexes.claimScalarSnapshotPinCleanup(candidate.owner(), Instant.now());
+                    if (pin.isPresent()) {
+                        ScalarPin claimed = pin.orElseThrow();
+                        var descriptor = requireDescriptor(claimed.owner().indexId());
+                        requireExactScalarScope(claimed, descriptor, claimed.snapshot());
+                        var provider = requireProvider(
+                                claimed.catalog(), claimed.schema(), claimed.table(), descriptor);
+                        releaseClaimedScalarPin(claimed, provider);
+                        completed[0] = true;
+                    }
+                });
+                if (completed[0]) {
+                    released++;
+                }
+            } catch (RuntimeException failure) {
+                LOG.warn("event=scalar_snapshot_pin_cleanup_retry owner={} error={}",
+                        candidate.owner().id(), failure.getMessage(), failure);
+            }
+        }
+        return released;
+    }
+
+    private void releaseClaimedScalarPin(ScalarPin pin, SnapshotPinProvider provider) {
+        provider.unpinSnapshot(pin.catalog(), pin.schema(), pin.table(), pin.snapshot(), pin.owner());
+        indexes.markScalarSnapshotPinReleased(pin.owner(), pin.snapshot(), Instant.now());
+        LOG.info("event=scalar_snapshot_pin_released owner={} snapshot={}", pin.owner().id(), pin.snapshot());
+    }
+
+    private static void requireExactScalarScope(ScalarPin pin,
+            org.pangrova.indexing.api.descriptor.IndexDescriptor descriptor, String snapshot) {
+        if (!pin.tenantId().equals(descriptor.tenantId()) || !pin.catalog().equals(descriptor.catalogName())
+                || !pin.schema().equals(descriptor.schemaName()) || !pin.table().equals(descriptor.tableName())
+                || !pin.snapshot().equals(snapshot)
+                || IndexDdlExecutor.requiresNativeArtifact(descriptor.indexType())) {
+            throw new AccessDeniedException("Scalar snapshot cleanup differs from the exact original source");
+        }
     }
 
     @Override

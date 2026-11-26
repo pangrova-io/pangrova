@@ -39,7 +39,17 @@ final class IndexFileBuilder {
         CountingRows rows = new CountingRows(
                 reader.readColumns(file.filePath(), descriptor.columnNames()), cancelled);
         requireActive(cancelled);
-        IndexData data = provider.build(rows, descriptor.properties());
+        IndexData data;
+        try {
+            data = provider.build(rows, descriptor.properties());
+            if (context.snapshotPinProvider() instanceof ScalarSnapshotPinLifecycle) {
+                rows.requireExhausted();
+            }
+        } finally {
+            // A strategy must never keep reading this source after returning.
+            // Synchronization waits for any concurrent iterator access to finish.
+            rows.seal();
+        }
         requireActive(cancelled);
         byte[] bytes = context.serializer().serialize(data);
         requireActive(cancelled);
@@ -70,6 +80,8 @@ final class IndexFileBuilder {
         private final Iterator<List<Comparable<?>>> delegate;
         private final BooleanSupplier cancelled;
         private long count;
+        private boolean exhausted;
+        private boolean sealed;
 
         private CountingRows(Iterator<List<Comparable<?>>> delegate, BooleanSupplier cancelled) {
             this.delegate = delegate;
@@ -77,22 +89,41 @@ final class IndexFileBuilder {
         }
 
         @Override
-        public boolean hasNext() {
+        public synchronized boolean hasNext() {
+            requireUnsealed();
             requireActive(cancelled);
-            return delegate.hasNext();
+            if (!exhausted) {
+                exhausted = !delegate.hasNext();
+            }
+            return !exhausted;
         }
 
         @Override
-        public List<Comparable<?>> next() {
-            requireActive(cancelled);
-            if (!delegate.hasNext()) {
+        public synchronized List<Comparable<?>> next() {
+            if (!hasNext()) {
                 throw new NoSuchElementException("No more rows in data file");
             }
             count++;
             return delegate.next();
         }
 
-        private long count() {
+        private synchronized void requireExhausted() {
+            if (hasNext()) {
+                throw new IllegalStateException("Scalar index strategy did not consume its complete source");
+            }
+        }
+
+        private synchronized void seal() {
+            sealed = true;
+        }
+
+        private void requireUnsealed() {
+            if (sealed) {
+                throw new IllegalStateException("Scalar source cursor has been sealed");
+            }
+        }
+
+        private synchronized long count() {
             return count;
         }
     }

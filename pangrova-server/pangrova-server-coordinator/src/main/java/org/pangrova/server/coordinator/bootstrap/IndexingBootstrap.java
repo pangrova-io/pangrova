@@ -97,6 +97,7 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
     private StuckBuildRecovery stuckBuildRecovery;
     private ScheduledExecutorService stuckBuildRecoveryScheduler;
     private SnapshotPinRecoveryScheduler snapshotPinRecoveryScheduler;
+    private org.pangrova.coordinator.indexing.ddl.DeferredSnapshotPinProvider scalarSnapshotPins;
     private org.pangrova.coordinator.indexing.ddl.DurableIndexBuildService nativeIndexBuildService;
 
     // Cache invalidation polling
@@ -287,12 +288,11 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
             IndexBuildClaimRepository buildClaims) {
         accessorResolver = new ConnectorAccessorResolver(catalogRegistry);
         var generationChecker = new MetadataBackedGenerationChecker(metadataStore);
-        org.pangrova.connector.api.index.SnapshotPinProvider snapshotPinProvider =
-                new org.pangrova.coordinator.indexing.ddl.DeferredSnapshotPinProvider(
-                        metadataStore, artifactBuildStore, accessorResolver);
+        scalarSnapshotPins = new org.pangrova.coordinator.indexing.ddl.DeferredSnapshotPinProvider(
+                metadataStore, artifactBuildStore, accessorResolver);
         IndexBuildContext buildDeps = new IndexBuildContext(
                 config, engineRegistry, storageManager, serializer,
-                buildClaims, generationChecker, snapshotPinProvider, null);
+                buildClaims, generationChecker, scalarSnapshotPins, null);
         buildCoordinator = new IndexBuildCoordinator(buildDeps, buildMetrics);
 
         // F-IDX-BREAKER: back the breaker with the shared metadata store so a
@@ -431,7 +431,8 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
     }
 
     private void startSnapshotPinRecovery() {
-        if (nativeIndexBuildService == null || snapshotPinRecoveryScheduler != null) {
+        if ((nativeIndexBuildService == null && scalarSnapshotPins == null)
+                || snapshotPinRecoveryScheduler != null) {
             return;
         }
         long epoch = leaderElection.verifiedHeldEpoch().orElseThrow(
@@ -439,15 +440,24 @@ public final class IndexingBootstrap implements MaintenanceLeaderAware, AutoClos
         var scheduler = new SnapshotPinRecoveryScheduler(
                 () -> leaderElection.holdsEpoch(epoch),
                 stillLeader -> {
-                    nativeIndexBuildService.adoptLegacySnapshotPins(stillLeader);
-                    if (stillLeader.getAsBoolean()) {
-                        nativeIndexBuildService.recoverUnboundSnapshotPins(stillLeader);
+                    if (scalarSnapshotPins != null && stillLeader.getAsBoolean()) {
+                        try {
+                            scalarSnapshotPins.cleanupDrainedScalarPins(stillLeader);
+                        } catch (RuntimeException failure) {
+                            LOG.error("event=scalar_snapshot_pin_maintenance_failed", failure);
+                        }
                     }
-                    if (stillLeader.getAsBoolean()) {
-                        nativeIndexBuildService.fenceAbandonedNativeReservations(stillLeader);
-                    }
-                    if (stillLeader.getAsBoolean()) {
-                        nativeIndexBuildService.cleanupSnapshotPins(stillLeader);
+                    if (nativeIndexBuildService != null && stillLeader.getAsBoolean()) {
+                        nativeIndexBuildService.adoptLegacySnapshotPins(stillLeader);
+                        if (stillLeader.getAsBoolean()) {
+                            nativeIndexBuildService.recoverUnboundSnapshotPins(stillLeader);
+                        }
+                        if (stillLeader.getAsBoolean()) {
+                            nativeIndexBuildService.fenceAbandonedNativeReservations(stillLeader);
+                        }
+                        if (stillLeader.getAsBoolean()) {
+                            nativeIndexBuildService.cleanupSnapshotPins(stillLeader);
+                        }
                     }
                 });
         snapshotPinRecoveryScheduler = scheduler;

@@ -17,6 +17,7 @@ import org.pangrova.persistence.indexing.api.metadata.IndexSchemaEvolutionStore;
 import org.pangrova.indexing.api.evolution.SchemaChangeEvent;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.indexing.api.enums.IndexState;
+import org.pangrova.connector.api.index.SnapshotPinOwner;
 import org.pangrova.connector.api.index.statistics.DataFileStatistics;
 import org.pangrova.connector.api.index.statistics.FileColumnStatistics;
 
@@ -54,6 +55,7 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
     private final JdbcIndexPublicationStore publicationStore;
     private final JdbcIndexGenerationCoverageStore coverageStore;
     private final JdbcIndexSchemaEvolutionStore schemaEvolutionStore;
+    private final JdbcScalarSnapshotPinStore scalarSnapshotPinStore;
     private final ThreadLocal<Set<String>> heldLifecycleLocks = ThreadLocal.withInitial(HashSet::new);
 
     /** Creates the facade over the focused JDBC sub-stores backed by the given data source. */
@@ -67,6 +69,38 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
         this.publicationStore = new JdbcIndexPublicationStore(dataSource, descriptorStore);
         this.coverageStore = new JdbcIndexGenerationCoverageStore(dataSource);
         this.schemaEvolutionStore = new JdbcIndexSchemaEvolutionStore(dataSource);
+        this.scalarSnapshotPinStore = new JdbcScalarSnapshotPinStore(dataSource);
+    }
+
+    @Override
+    public boolean reserveScalarSnapshotPin(IndexDescriptor descriptor, String snapshot,
+                                              SnapshotPinOwner owner, Instant now) {
+        return scalarSnapshotPinStore.reserve(descriptor, snapshot, owner, now);
+    }
+
+    @Override
+    public void markScalarSnapshotPinDrained(SnapshotPinOwner owner, String snapshot, Instant now) {
+        scalarSnapshotPinStore.markDrained(owner, snapshot, now);
+    }
+
+    @Override
+    public Optional<ScalarPin> findScalarSnapshotPin(SnapshotPinOwner owner) {
+        return scalarSnapshotPinStore.find(owner);
+    }
+
+    @Override
+    public List<ScalarPin> listScalarSnapshotPinCleanupCandidates(Instant now, int limit) {
+        return scalarSnapshotPinStore.list(now, limit);
+    }
+
+    @Override
+    public Optional<ScalarPin> claimScalarSnapshotPinCleanup(SnapshotPinOwner owner, Instant now) {
+        return scalarSnapshotPinStore.claim(owner, now);
+    }
+
+    @Override
+    public void markScalarSnapshotPinReleased(SnapshotPinOwner owner, String snapshot, Instant now) {
+        scalarSnapshotPinStore.markReleased(owner, snapshot, now);
     }
 
     // --- IndexDescriptor CRUD (delegate to descriptorStore) ---
@@ -320,7 +354,12 @@ public final class JdbcIndexMetadataStore implements IndexMetadataStore {
 
     @Override
     public void purgeIndex(String indexId) {
-        withIndexLifecycleLock(indexId, () -> descriptorStore.purgeIndex(indexId));
+        withIndexLifecycleLock(indexId, () -> {
+            if (scalarSnapshotPinStore.hasUnreleased(indexId)) {
+                throw new IllegalStateException("Scalar snapshot pin cleanup is incomplete for " + indexId);
+            }
+            descriptorStore.purgeIndex(indexId);
+        });
     }
 
     @Override
