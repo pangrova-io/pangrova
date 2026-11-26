@@ -15,12 +15,13 @@ public record SubmitQueryResponse(
     @JsonProperty("result_disposition") ResultDisposition resultDisposition,
     @JsonProperty("result_endpoint") ResultEndpoint resultEndpoint,
     @JsonProperty("column_names") List<String> columnNames,
-    @JsonInclude(JsonInclude.Include.NON_NULL) @JsonProperty("branch_selection") BranchSelection branchSelection
+    @JsonInclude(JsonInclude.Include.NON_NULL) @JsonProperty("branch_selection") BranchSelection branchSelection,
+    @JsonInclude(JsonInclude.Include.NON_NULL) @JsonProperty("owner_endpoint") QueryOwnerEndpoint ownerEndpoint
 ) {
 
     public SubmitQueryResponse(String queryId, String state, ResultDisposition resultDisposition,
             ResultEndpoint resultEndpoint, List<String> columnNames) {
-        this(queryId, state, resultDisposition, resultEndpoint, columnNames, null);
+        this(queryId, state, resultDisposition, resultEndpoint, columnNames, null, null);
     }
 
     public SubmitQueryResponse {

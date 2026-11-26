@@ -1,6 +1,7 @@
 package org.pangrova.client.http;
 
 import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.client.query.QueryOwnerEndpoint;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -13,12 +14,12 @@ import java.util.concurrent.atomic.AtomicReference;
 @ThreadSafe
 final class EndpointRouting {
     private static final Logger LOG = LoggerFactory.getLogger(EndpointRouting.class);
-    private final List<String> endpoints;
+    private final List<URI> endpoints;
     private final String scheme;
     private final AtomicReference<Selection> preferred;
 
     EndpointRouting(List<String> endpoints, String scheme) {
-        this.endpoints = List.copyOf(endpoints);
+        this.endpoints = endpoints.stream().map(endpoint -> URI.create(scheme + "://" + endpoint)).toList();
         if (this.endpoints.isEmpty()) {
             throw new IllegalArgumentException("Endpoint routing requires at least one endpoint");
         }
@@ -30,9 +31,16 @@ final class EndpointRouting {
         return preferred.get();
     }
 
+    Selection owner(Selection ingress, QueryOwnerEndpoint ownerEndpoint) {
+        requireOwned(ingress);
+        if (ownerEndpoint == null || endpoints.size() == 1) return ingress;
+        int selected = endpoints.indexOf(ownerEndpoint.origin(scheme));
+        return selected < 0 || selected == ingress.index ? ingress : new Selection(selected);
+    }
+
     SelectedRequest bind(Selection selection, HttpRequest request) {
         requireOwned(selection);
-        URI endpoint = URI.create(selection.baseUrl());
+        URI endpoint = endpoints.get(selection.index);
         if (!endpoint.getScheme().equals(request.uri().getScheme())
                 || !endpoint.getRawAuthority().equals(request.uri().getRawAuthority())) {
             throw new IllegalArgumentException("HTTP request does not address its captured endpoint selection");
@@ -76,7 +84,7 @@ final class EndpointRouting {
         }
 
         String baseUrl() {
-            return scheme + "://" + endpoints.get(index);
+            return endpoints.get(index).toString();
         }
 
         private EndpointRouting owner() {

@@ -31,6 +31,7 @@ import org.pangrova.observability.profiling.ProfilerEndpoint;
 import org.pangrova.query.profiling.QueryProfileService;
 import org.pangrova.common.client.error.ErrorDetail;
 import org.pangrova.common.client.query.QueryStatusResponse;
+import org.pangrova.common.client.query.QueryOwnerEndpoint;
 import org.pangrova.common.enums.QueryWaitTarget;
 import org.pangrova.common.client.query.SubmitQueryRequest;
 import org.pangrova.common.client.query.SubmitQueryResponse;
@@ -39,6 +40,7 @@ import org.pangrova.security.api.identity.UserIdentity;
 
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
+import java.util.function.Supplier;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -61,16 +63,19 @@ public final class QueryResource {
     private final ProfilerEndpoint profilerEndpoint;
     private final QueryProfileService queryProfileService;
     private final QueryStatusWaits statusWaits;
+    private final Supplier<QueryOwnerEndpoint> ownerEndpoint;
 
     /** Creates a resource wiring query lifecycle, profiling, and idempotency components. */
     public QueryResource(QueryManager queryManager, ProfilerEndpoint profilerEndpoint,
                          QueryProfileService queryProfileService,
-                         ExecutionTraceContextFactory traceContexts, QueryStatusWaits statusWaits) {
+                         ExecutionTraceContextFactory traceContexts, QueryStatusWaits statusWaits,
+                         Supplier<QueryOwnerEndpoint> ownerEndpoint) {
         this.traceContexts = java.util.Objects.requireNonNull(traceContexts, "traceContexts");
         this.queryManager = checkNotNull(queryManager, "queryManager must not be null");
         this.profilerEndpoint = profilerEndpoint;
         this.queryProfileService = queryProfileService;
         this.statusWaits = java.util.Objects.requireNonNull(statusWaits, "statusWaits");
+        this.ownerEndpoint = java.util.Objects.requireNonNull(ownerEndpoint, "ownerEndpoint");
     }
 
     /** Submits a new query, deduplicating retries when an Idempotency-Key is supplied. */
@@ -81,16 +86,17 @@ public final class QueryResource {
         validateSubmitRequest(request);
         UserIdentity identity = extractUserIdentity(requestContext);
         String key = requestContext == null ? null : requestContext.getHeaderString("Idempotency-Key");
+        QueryOwnerEndpoint localOwner = ownerEndpoint.get();
         CompletionStage<SubmitQueryResponse> receipt;
         if (key != null && !key.isBlank()) {
             if (identity == null || identity.principal() == null || identity.principal().isBlank()) {
                 throw new AuthenticationRequiredException("Idempotent query submission requires a principal");
             }
             var acceptance = new QueryAcceptanceRequest(identity.principal(),
-                    QueryRequestFingerprint.keyDigest(key), QueryRequestFingerprint.request(request));
-            receipt = doSubmit(UUID.randomUUID().toString(), request, identity, acceptance);
+                    QueryRequestFingerprint.keyDigest(key), QueryRequestFingerprint.request(request), localOwner);
+            receipt = doSubmit(UUID.randomUUID().toString(), request, identity, acceptance, localOwner);
         } else {
-            receipt = doSubmit(UUID.randomUUID().toString(), request, identity, null);
+            receipt = doSubmit(UUID.randomUUID().toString(), request, identity, null, localOwner);
         }
         receipt.whenComplete((result, failure) -> {
             if (failure == null) {
@@ -103,11 +109,12 @@ public final class QueryResource {
 
     private CompletionStage<SubmitQueryResponse> doSubmit(
             String queryId, SubmitQueryRequest request, UserIdentity identity,
-            QueryAcceptanceRequest acceptance) {
+            QueryAcceptanceRequest acceptance, QueryOwnerEndpoint localOwner) {
         QuerySession session = new QuerySession(
                 queryId, request.sessionProperties(), identity, null, Optional.empty(), traceContexts.capture());
         return queryManager.submitQueryAsync(queryId, request.query(), session, acceptance)
-                .thenApply(QueryResponseMapper::submission);
+                .thenApply(result -> QueryResponseMapper.submission(result,
+                        acceptance == null ? localOwner : result.ownerEndpoint()));
     }
 
     private static Throwable unwrap(Throwable failure) {

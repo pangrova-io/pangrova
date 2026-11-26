@@ -108,6 +108,8 @@ unlisted: true
 
 已验证本地状态和 JSON profile 的历史读取分离。两个 profile 路由共用查询留存的终态审计记录和本机任务统计。真实 QUERY Coordinator 上，HTTP 提交并经 Flight 消费结果后，两条 profile 路由共 32 个并发请求，返回一致且审计表 SELECT 增量为零。主动清除本地投影后，普通状态和 profile 请求均返回 404，journal 和审计表 SELECT 增量为零。显式 `history=true` 的 profile 返回相同审计数据，只有一次按查询和提交主体限定的 SELECT。跨 Coordinator 定向转发、owner 接管和当前 Native 产物仍按 A2 及发布验收验证。
 
+受理回执携带原始 Coordinator 的 ID、进程实例和实际 HTTP 地址。该地址与幂等受理事实写入同一 journal 行。两个真实 QUERY Coordinator 共用 PostgreSQL 时，第二台重放同一请求返回原回执和端口，未创建本机查询。按该地址等待状态取得原查询的结果端点，Flight 完整读至 EOF。SDK 可在提交或使用保存的回执重连时，从客户端已配置的端点中确定所有者，后续状态和取消沿同一选择发送。未配置的地址在 SDK HTTP 测试中收到零请求。共享入口的服务器侧转发和执行所有权接管仍按 A2 验证。
+
 ## 校准后的设计决策
 
 ### 短查询和大查询采用各自的最短生产路径

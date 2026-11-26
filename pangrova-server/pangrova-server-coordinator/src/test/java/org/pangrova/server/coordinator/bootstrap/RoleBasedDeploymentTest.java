@@ -1,6 +1,7 @@
 package org.pangrova.server.coordinator.bootstrap;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import org.pangrova.common.client.query.QueryStatusResponse;
 import org.pangrova.common.client.query.SubmitQueryResponse;
 import org.pangrova.common.enums.ResultDisposition;
 import org.pangrova.common.json.JsonMapperFactory;
@@ -44,33 +45,15 @@ class RoleBasedDeploymentTest {
     @Test
     @DisplayName("QUERY-only coordinator starts HTTP and QueryManager")
     void queryOnlyCoordinatorStartsQueryPath() throws Exception {
-        CoordinatorBootstrapConfig config = new CoordinatorBootstrapConfig(
-                new CoordinatorBootstrapConfig.CoreConfig(
-                        "query-coord-1", 0,
-                        CoordinatorBootstrapConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS,
-                        CoordinatorDeploymentRole.QUERY, "0.0.0.0"),
-                CoordinatorBootstrapConfig.FeatureFlags.allDisabled(),
-                CoordinatorBootstrapConfig.QueryConfig.defaults(),
-                CoordinatorBootstrapConfig.TransportConfig.defaults(),
-                CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
-                null, null, null);
-
-        bootstrap = new CoordinatorBootstrap(withAuthority(config));
+        bootstrap = new CoordinatorBootstrap(withAuthority(queryRole("query-coord-1")));
         bootstrap.start();
 
         assertThat(bootstrap.isStarted()).isTrue();
         assertThat(bootstrap.getHttpPort()).isGreaterThan(0);
         assertThat(bootstrap.getQueryManager()).isNotNull();
 
-        var request = HttpRequest.newBuilder(URI.create(
-                        "http://127.0.0.1:" + bootstrap.getHttpPort() + "/v1/query/submit"))
-                .timeout(Duration.ofSeconds(10))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString("{\"query\":\"SHOW DYNAMIC TABLES\"}"))
-                .build();
-        var response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
-        assertThat(response.statusCode()).as("%s", response.body()).isEqualTo(200);
-        var receipt = JsonMapperFactory.create().readValue(response.body(), SubmitQueryResponse.class);
+        var receipt = submitShow(HttpClient.newHttpClient(), bootstrap.getHttpPort(), null);
+        assertThat(receipt.ownerEndpoint().port()).isEqualTo(bootstrap.getHttpPort());
         assertThat(receipt.resultDisposition()).isEqualTo(ResultDisposition.STREAM);
         assertThat(receipt.resultEndpoint()).isNotNull();
         try (var fetcher = new FlightResultFetcher();
@@ -79,6 +62,67 @@ class RoleBasedDeploymentTest {
             assertThat(cursor.next()).isFalse();
         }
         assertProfileReadBudget(receipt.queryId());
+    }
+
+    @Test
+    void durableReplayUsesTheOriginalCoordinatorIncarnationAndBoundPort() throws Exception {
+        var config = withAuthority(queryRole("route-owner"));
+        bootstrap = new CoordinatorBootstrap(config);
+        bootstrap.start();
+        var peer = new CoordinatorBootstrap(new CoordinatorBootstrapConfig(
+                queryRole("route-peer").core(), config.featureFlags(), config.query(), config.transport(),
+                config.workerHealth(), config.metadataJdbcConfig(), config.securityConfig(),
+                config.observabilityBootstrapConfig()));
+        peer.start();
+        try {
+            var client = HttpClient.newHttpClient();
+            var issued = submitShow(client, bootstrap.getHttpPort(), "shared-request");
+            var replay = submitShow(client, peer.getHttpPort(), "shared-request");
+            assertThat(replay).isEqualTo(issued);
+            var owner = replay.ownerEndpoint();
+            assertThat(owner.coordinatorId()).isEqualTo("route-owner");
+            assertThat(owner.incarnation()).isNotBlank();
+            assertThat(owner.port()).isEqualTo(bootstrap.getHttpPort()).isNotEqualTo(peer.getHttpPort());
+            var uri = owner.origin("http").resolve(
+                    "/v1/query/" + replay.queryId() + "/state?afterVersion=0&until=RESULT_OR_TERMINAL&waitMs=5000");
+            var request = HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(10))
+                    .header("X-Pangrova-Query-Observer", java.util.UUID.randomUUID().toString()).GET().build();
+            var response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            assertThat(response.statusCode()).as("%s", response.body()).isEqualTo(200);
+            var status = JsonMapperFactory.create().readValue(response.body(), QueryStatusResponse.class);
+            assertThat(status.queryId()).isEqualTo(issued.queryId());
+            assertThat(status.resultDisposition()).isEqualTo(ResultDisposition.STREAM);
+            try (var fetcher = new FlightResultFetcher();
+                 var cursor = fetcher.open(status.resultEndpoint(), System.currentTimeMillis() + 5_000)) {
+                assertThat(cursor.next()).isFalse();
+            }
+            assertThat(peer.getQueryManager().getStateMachine(issued.queryId())).isNull();
+        } finally {
+            peer.shutdown();
+        }
+    }
+
+    private static CoordinatorBootstrapConfig queryRole(String coordinatorId) {
+        return new CoordinatorBootstrapConfig(
+                new CoordinatorBootstrapConfig.CoreConfig(coordinatorId, 0,
+                        CoordinatorBootstrapConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, CoordinatorDeploymentRole.QUERY,
+                        "0.0.0.0"),
+                CoordinatorBootstrapConfig.FeatureFlags.allDisabled(), CoordinatorBootstrapConfig.QueryConfig.defaults(),
+                CoordinatorBootstrapConfig.TransportConfig.defaults(), CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
+                null, null, null);
+    }
+
+    private static SubmitQueryResponse submitShow(HttpClient client, int port, String idempotencyKey) throws Exception {
+        var request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/v1/query/submit"))
+                .timeout(Duration.ofSeconds(10))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString("{\"query\":\"SHOW DYNAMIC TABLES\"}"));
+        if (idempotencyKey != null) {
+            request.header("Idempotency-Key", idempotencyKey);
+        }
+        var response = client.send(request.build(), HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).as("%s", response.body()).isEqualTo(200);
+        return JsonMapperFactory.create().readValue(response.body(), SubmitQueryResponse.class);
     }
 
     private void assertProfileReadBudget(String queryId) throws Exception {

@@ -111,7 +111,14 @@ public final class PangrovaRestClient implements QueryClient, AutoCloseable {
     @Override
     public QueryExecution beginQuery(String sql, Map<String, String> sessionProperties) {
         var selection = routing.current();
-        return new OwnerQuery(submitQuery(sql, sessionProperties, selection), selection);
+        var receipt = submitQuery(sql, sessionProperties, selection);
+        return new OwnerQuery(receipt, routing.owner(selection, receipt.ownerEndpoint()));
+    }
+
+    /** Reconnects to an existing query from its submit receipt without issuing SQL again. */
+    public QueryExecution resumeQuery(SubmitQueryResponse receipt) {
+        java.util.Objects.requireNonNull(receipt, "receipt");
+        return new OwnerQuery(receipt, routing.owner(routing.current(), receipt.ownerEndpoint()));
     }
 
     private SubmitQueryResponse submitQuery(String sql, Map<String, String> sessionProperties,

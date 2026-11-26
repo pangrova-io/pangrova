@@ -112,7 +112,7 @@ final class QueryAsyncSubmission {
         var state = context.state();
         var status = state.status();
         return new QuerySubmissionResult(context.queryId(), status.state(), status.disposition(),
-                status.endpoint(), dispatcher.removeColumnNames(context.queryId()), state.branchSelection());
+                status.endpoint(), dispatcher.removeColumnNames(context.queryId()), state.branchSelection(), null);
     }
 
     private Future<?> submit(Context context) {

@@ -263,6 +263,11 @@ public final class CoordinatorBootstrap {
         return epoch;
     }
 
+    org.pangrova.common.client.query.QueryOwnerEndpoint queryOwnerEndpoint(int httpPort) {
+        return new org.pangrova.common.client.query.QueryOwnerEndpoint(config.coordinatorId(),
+                ha.haService().getLocalIncarnation(), config.coordinatorTransportAdvertisedHost(), httpPort);
+    }
+
     /** Stops admission and releases every owned subsystem in dependency order. */
     public void shutdown() {
         lifecycle.close(() -> closeResources(null));

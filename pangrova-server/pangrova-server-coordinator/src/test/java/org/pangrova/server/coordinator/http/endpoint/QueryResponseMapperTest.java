@@ -22,7 +22,7 @@ class QueryResponseMapperTest {
         for (QueryState state : QueryState.values()) {
             var domain = new QuerySubmissionResult(
                     "q", state, ResultDisposition.STREAM, endpoint, List.of("结果"));
-            var encoded = json.writeValueAsString(QueryResponseMapper.submission(domain));
+            var encoded = json.writeValueAsString(QueryResponseMapper.submission(domain, null));
             assertThat(json.readTree(encoded)).isEqualTo(json.readTree(json.writeValueAsString(
                     new SubmitQueryResponse("q", state.name(), ResultDisposition.STREAM,
                             endpoint, List.of("结果")))));
@@ -37,14 +37,14 @@ class QueryResponseMapperTest {
     void preservesExplicitPendingAndNoneWithEmptyColumns() throws Exception {
         var pending = json.readTree(json.writeValueAsString(QueryResponseMapper.submission(
                 new QuerySubmissionResult("q", QueryState.RUNNING,
-                        ResultDisposition.PENDING, null, null))));
+                        ResultDisposition.PENDING, null, null), null)));
         assertThat(pending.get("result_disposition").asText()).isEqualTo("PENDING");
         assertThat(pending.get("result_endpoint").isNull()).isTrue();
         assertThat(pending.get("column_names").isEmpty()).isTrue();
 
         var none = json.readTree(json.writeValueAsString(QueryResponseMapper.submission(
                 new QuerySubmissionResult("q", QueryState.FINISHED,
-                        ResultDisposition.NONE, null, null))));
+                        ResultDisposition.NONE, null, null), null)));
         assertThat(none.get("result_disposition").asText()).isEqualTo("NONE");
         assertThat(none.get("result_endpoint").isNull()).isTrue();
         assertThat(none.get("column_names").isEmpty()).isTrue();

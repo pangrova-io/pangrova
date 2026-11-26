@@ -77,7 +77,7 @@ class PangrovaRestClientSubmitIdempotencyTest {
             };
             var body = mapper.writeValueAsBytes(new org.pangrova.common.client.query.SubmitQueryResponse(
                     "query", "FINISHED", org.pangrova.common.enums.ResultDisposition.NONE,
-                    null, java.util.List.of(), selection));
+                    null, java.util.List.of(), selection, null));
             exchange.getResponseHeaders().add("Content-Type", "application/json");
             exchange.sendResponseHeaders(200, body.length);
             try (var stream = exchange.getResponseBody()) { stream.write(body); }

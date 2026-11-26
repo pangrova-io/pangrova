@@ -33,6 +33,7 @@ import org.pangrova.query.runtime.QueryManager;
 import org.pangrova.coordinator.query.task.TaskStatusReceiver;
 import org.pangrova.observability.sdk.tracing.http.TracingHttpFilter;
 import org.pangrova.common.lifecycle.HealthCheckEndpoint;
+import org.pangrova.common.client.query.QueryOwnerEndpoint;
 import org.pangrova.security.authentication.AuthenticationManager;
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.servlet.ServletContextHandler;
@@ -42,11 +43,15 @@ import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.server.ServerProperties;
 import org.glassfish.jersey.servlet.ServletContainer;
 
+import java.util.function.IntFunction;
+import java.util.function.Supplier;
+
 /**
  * Coordinator-side Jetty HTTP server lifecycle wrapper.
  * Uses Jersey ResourceConfig + ServletContainer for JAX-RS resource registration.
  */
 public final class CoordinatorHttpServer {
+    private volatile QueryOwnerEndpoint queryOwnerEndpoint;
 
     /** Max concurrent request threads for Coordinator (Requirement 50.4). */
     static final int COORDINATOR_MAX_THREADS = 256;
@@ -68,6 +73,12 @@ public final class CoordinatorHttpServer {
 
     /** Binds the HTTP service to the exact address used by its advertised endpoint. */
     public CoordinatorHttpServer(InetSocketAddress address, CoordinatorHttpServerContext deps) {
+        this(address, deps, null);
+    }
+
+    /** Issues query owner locations using the actual bound HTTP port. */
+    public CoordinatorHttpServer(InetSocketAddress address, CoordinatorHttpServerContext deps,
+            IntFunction<QueryOwnerEndpoint> ownerEndpointFactory) {
         checkNotNull(deps, "deps must not be null");
         this.copySourceReadEnabled = deps.copySourceReadResource() != null;
 
@@ -76,7 +87,8 @@ public final class CoordinatorHttpServer {
         this.server = EmbeddedHttpServerFactory.create(address, handler, COORDINATOR_MAX_THREADS);
 
         var statusWaits = new QueryStatusWaits(server.getThreadPool());
-        ResourceConfig config = buildResourceConfig(deps, statusWaits);
+        ResourceConfig config = buildResourceConfig(deps, statusWaits,
+                () -> getQueryOwnerEndpoint(ownerEndpointFactory));
         handler.addServlet(new ServletHolder(new ServletContainer(config)), "/*");
     }
 
@@ -142,10 +154,21 @@ public final class CoordinatorHttpServer {
         return EmbeddedHttpServerFactory.getPort(server);
     }
 
-    private static ResourceConfig buildResourceConfig(CoordinatorHttpServerContext deps, QueryStatusWaits statusWaits) {
+    private QueryOwnerEndpoint getQueryOwnerEndpoint(IntFunction<QueryOwnerEndpoint> ownerEndpointFactory) {
+        if (ownerEndpointFactory == null) return null;
+        var endpoint = queryOwnerEndpoint;
+        if (endpoint == null) {
+            endpoint = ownerEndpointFactory.apply(getPort());
+            queryOwnerEndpoint = endpoint;
+        }
+        return endpoint;
+    }
+
+    private static ResourceConfig buildResourceConfig(CoordinatorHttpServerContext deps, QueryStatusWaits statusWaits,
+            Supplier<QueryOwnerEndpoint> ownerEndpoint) {
         ResourceConfig config = new ResourceConfig();
 
-        registerResources(config, deps, statusWaits);
+        registerResources(config, deps, statusWaits, ownerEndpoint);
         registerFilters(config, deps);
         registerInfrastructure(config);
 
@@ -153,13 +176,13 @@ public final class CoordinatorHttpServer {
     }
 
     private static void registerResources(ResourceConfig config, CoordinatorHttpServerContext deps,
-                                          QueryStatusWaits statusWaits) {
+                                          QueryStatusWaits statusWaits, Supplier<QueryOwnerEndpoint> ownerEndpoint) {
         config.register(new org.pangrova.server.coordinator.http.endpoint.ServerInfoResource(
                 CoordinatorHttpServer.class.getPackage().getImplementationVersion()));
         config.register(new CoordinatorTaskResource(deps.receiver()));
         registerIfPresent(config, deps.queryManager(),
                 qm -> new QueryResource(qm, deps.profilerEndpoint(), deps.queryProfileService(),
-                        new OtelExecutionTraceContextFactory(), statusWaits));
+                        new OtelExecutionTraceContextFactory(), statusWaits, ownerEndpoint));
         registerIfPresent(config, deps.healthCheckEndpoint(), CoordinatorHealthResource::new);
         registerIfPresent(config, deps.workerManager(),
                 manager -> new WorkerResource(manager, deps.coordinatorEpochSupplier()));

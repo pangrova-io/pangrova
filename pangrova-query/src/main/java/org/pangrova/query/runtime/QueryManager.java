@@ -815,6 +815,6 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
             String queryId, QueryStateMachine sm, List<String> columnNames) {
         var status = sm.status();
         return new QuerySubmissionResult(queryId, status.state(), status.disposition(),
-                status.endpoint(), columnNames, sm.branchSelection());
+                status.endpoint(), columnNames, sm.branchSelection(), null);
     }
 }

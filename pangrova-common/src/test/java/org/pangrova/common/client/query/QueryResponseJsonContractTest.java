@@ -133,7 +133,7 @@ class QueryResponseJsonContractTest {
         for (BranchSelection change : java.util.List.of(
                 new BranchSelection("catalog.db.orders", "dev"), new BranchSelection("catalog.db.orders", null))) {
             SubmitQueryResponse response = new SubmitQueryResponse(
-                    "q", "FINISHED", ResultDisposition.NONE, null, null, change);
+                    "q", "FINISHED", ResultDisposition.NONE, null, null, change, null);
             JsonNode json = MAPPER.valueToTree(response);
             assertThat(json.at("/branch_selection/table").asText()).isEqualTo(change.table());
             assertThat(MAPPER.treeToValue(json, SubmitQueryResponse.class).branchSelection()).isEqualTo(change);

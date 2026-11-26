@@ -282,8 +282,15 @@ For queries returning large result sets, the REST API returns a `result_endpoint
 ```
 
 The Java SDK uses `beginQuery(sql, sessionProperties)` for a query execution
-handle. Its status and cancellation requests stay on the endpoint that accepted
-the submission. `awaitStatus(target, deadlineEpochMs)` takes a
+handle. The submit receipt contains `owner_endpoint` with `coordinator_id`,
+`incarnation`, `host`, and the bound HTTP `port`. An idempotent replay returns
+the original receipt and owner. The SDK sends status and cancellation to that
+origin when it matches an endpoint configured for the client. It uses the
+configured HTTP scheme for the match. With a shared ingress as its only
+configured origin, the SDK continues to address the ingress.
+To reconnect from a fresh Java REST client, pass the saved receipt to
+`resumeQuery(receipt)` using the original submitting principal's credentials.
+`awaitStatus(target, deadlineEpochMs)` takes a
 `org.pangrova.common.enums.QueryWaitTarget` and requests that owner event. Live
 status responses include `version` and `drained`. The `drained` flag becomes
 true after the Coordinator records physical resource release.

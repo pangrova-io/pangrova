@@ -3,11 +3,17 @@ package org.pangrova.query.api.journal;
 import java.util.Objects;
 import java.util.regex.Pattern;
 import org.pangrova.common.api.annotation.Experimental;
+import org.pangrova.common.client.query.QueryOwnerEndpoint;
 
 /** Principal-scoped idempotency material supplied before a candidate query is published. */
 @Experimental
-public record QueryAcceptanceRequest(String principal, String idempotencyKeyDigest, String requestFingerprint) {
+public record QueryAcceptanceRequest(String principal, String idempotencyKeyDigest, String requestFingerprint,
+        QueryOwnerEndpoint ownerEndpoint) {
     private static final Pattern SHA256 = Pattern.compile("[0-9a-f]{64}");
+
+    public QueryAcceptanceRequest(String principal, String idempotencyKeyDigest, String requestFingerprint) {
+        this(principal, idempotencyKeyDigest, requestFingerprint, null);
+    }
 
     public QueryAcceptanceRequest {
         if (principal == null || principal.isBlank()) {

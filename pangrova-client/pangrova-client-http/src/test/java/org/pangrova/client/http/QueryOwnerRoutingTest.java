@@ -5,8 +5,14 @@ import org.pangrova.common.enums.QueryWaitTarget;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.common.client.enums.CancelOutcome;
+import org.pangrova.common.client.query.QueryOwnerEndpoint;
+import org.pangrova.common.client.query.SubmitQueryResponse;
 import org.pangrova.common.client.session.ConnectionPoolConfig;
+import org.pangrova.common.enums.ResultDisposition;
+import org.pangrova.common.json.JsonMapperFactory;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -14,10 +20,81 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class QueryOwnerRoutingTest {
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void ownerReceiptCanDirectControlOnlyToAConfiguredEndpoint(boolean configured) throws Exception {
+        var ingress = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        var owner = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        var unconfigured = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        var inaccessibleCalls = new AtomicInteger();
+        var ingressCalls = new CopyOnWriteArrayList<String>();
+        var ownerCalls = new CopyOnWriteArrayList<String>();
+        int port = (configured ? owner : unconfigured).getAddress().getPort();
+        var submissions = new AtomicInteger();
+        var endpoint = new QueryOwnerEndpoint("coord-original", "incarnation-original", "127.0.0.1", port);
+        var receipt = new SubmitQueryResponse("q", "QUEUED", ResultDisposition.PENDING,
+                null, List.of(), null, endpoint);
+        String body = JsonMapperFactory.writer().writeValueAsString(receipt);
+        ingress.createContext("/v1/query/submit", exchange -> {
+            submissions.incrementAndGet();
+            reply(exchange, 200, body);
+        });
+        registerControlRoutes(ingress, ingressCalls);
+        registerControlRoutes(owner, ownerCalls);
+        unconfigured.createContext("/", exchange -> {
+            inaccessibleCalls.incrementAndGet();
+            reply(exchange, 404, "{}");
+        });
+        ingress.start();
+        owner.start();
+        unconfigured.start();
+        var pool = ConnectionPoolConfig.withFailover(List.of(authority(ingress), authority(owner)));
+        try {
+            SubmitQueryResponse submitted;
+            try (var client = PangrovaRestClient.builder().bearerToken("route-test-credential")
+                    .connectionPoolConfig(pool).build()) {
+                var query = client.beginQuery("SELECT 42", Map.of());
+                submitted = query.submission();
+                assertThat(submitted).isEqualTo(receipt);
+                assertThat(query.awaitStatus(QueryWaitTarget.NEXT_VERSION, Long.MAX_VALUE).version()).isEqualTo(3L);
+            }
+            try (var client = PangrovaRestClient.builder().bearerToken("route-test-credential")
+                    .connectionPoolConfig(pool).build()) {
+                var query = client.resumeQuery(submitted);
+                assertThat(query.awaitStatus(QueryWaitTarget.NEXT_VERSION, Long.MAX_VALUE).version()).isEqualTo(3L);
+                assertThat(query.cancel()).isEqualTo(CancelOutcome.CANCEL_ACCEPTED);
+            }
+            assertThat(submissions.get()).isOne();
+            assertThat(configured ? ingressCalls : ownerCalls).isEmpty();
+            assertThat(configured ? ownerCalls : ingressCalls).containsExactly("state", "state", "cancel");
+            assertThat(inaccessibleCalls.get()).isZero();
+        } finally {
+            unconfigured.stop(0);
+            owner.stop(0);
+            ingress.stop(0);
+        }
+    }
+
+    private static void registerControlRoutes(HttpServer server, List<String> calls) {
+        server.createContext("/v1/query/q/state", exchange -> {
+            calls.add("state");
+            reply(exchange, 200, """
+                    {"query_id":"q","state":"RUNNING","result_disposition":"PENDING","version":3,"drained":false}
+                    """);
+        });
+        server.createContext("/v1/query/q/cancel", exchange -> {
+            calls.add("cancel");
+            reply(exchange, 202, """
+                    {"query_id":"q","cancelled":true,"outcome":"CANCEL_ACCEPTED"}
+                    """);
+        });
+    }
+
     @Test
     void unrelatedFailoverCannotMoveVersionedWaitOrCancellationToAnotherCoordinator() throws Exception {
         var owner = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);

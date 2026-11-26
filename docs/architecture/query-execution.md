@@ -52,8 +52,9 @@ readiness. With an authenticated `Idempotency-Key`, the candidate query first
 passes admission and execution-owner acquisition, then atomically commits its initial
 `QUEUED` journal fact with principal, key digest, request fingerprint, lineage, and a
 `QUEUED`/`PENDING` acceptance receipt. Only that durable acceptance publishes the
-query into the executable registry. Matching retries return the stored receipt and
-query ID without a second execution; different fingerprints fail with HTTP 409.
+query into the executable registry. The receipt includes the issuing Coordinator
+incarnation and HTTP origin. Matching retries return the original route and query ID
+without a second execution; different fingerprints fail with HTTP 409.
 Unknown commit outcomes reconcile the same authoritative row. Acceptance survives
 restart and remains for ten minutes after the later of acceptance or terminal
 completion. Pending candidates reserve drain capacity before blocking admission work;
