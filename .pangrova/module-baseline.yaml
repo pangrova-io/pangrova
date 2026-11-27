@@ -4333,7 +4333,6 @@ artifacts:
         - pangrova-transport-http
         - pangrova-types
       test:
-        - pangrova-batch
         - pangrova-cache-api
         - pangrova-common
         - pangrova-config
@@ -4375,8 +4374,6 @@ artifacts:
         - pangrova-persistence-security-api
         - pangrova-persistence-security-memory
         - pangrova-persistence-security-postgresql
-        - pangrova-persistence-streaming-memory
-        - pangrova-persistence-streaming-postgresql
         - pangrova-persistence-table-api
         - pangrova-persistence-table-postgresql
         - pangrova-persistence-workflow-postgresql
@@ -4755,7 +4752,6 @@ artifacts:
       - org.pangrova.streaming.enums
       - org.pangrova.streaming.exception
       - org.pangrova.streaming.maintenance
-      - org.pangrova.streaming.pipeline
       - org.pangrova.streaming.watermark
     providers:
       {}

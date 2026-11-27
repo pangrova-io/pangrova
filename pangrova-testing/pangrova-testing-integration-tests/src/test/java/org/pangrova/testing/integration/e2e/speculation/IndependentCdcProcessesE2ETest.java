@@ -469,10 +469,7 @@ class IndependentCdcProcessesE2ETest extends ContainerTestBase {
             processes.startSecondWorker();
             assertThat(processes.pid("local-worker-1")).isNotEqualTo(processes.pid("local-worker-2"));
         }
-        processes.query("CREATE STREAM orders_stream FROM KAFKA ("
-                + "'bootstrap.servers'='" + broker + "', 'topic'='" + topic + "',"
-                + "'group.id'='independent-cdc-orders') FORMAT 'debezium-json' INTO spec_catalog.default.orders"
-                + " WITH ('cdc.write.privileges'='INSERT,UPDATE,DELETE')", ResultProtocol.GRPC_TLS);
+        createRunningStream(processes, broker, topic);
 
         if (streamingOnly) {
             processes.switchToMaintenanceOnly();
@@ -508,9 +505,14 @@ class IndependentCdcProcessesE2ETest extends ContainerTestBase {
             if (streamingOnly) {
                 rejectJournalCompletion(processes);
             }
-            producer.send(new ProducerRecord<>(topic, null, "{\"op\":\"u\","
+            var update = new ProducerRecord<String, String>(topic, null, "{\"op\":\"u\","
                     + "\"before\":{\"id\":42,\"payload\":\"cdc-visible\"},"
-                    + "\"after\":{\"id\":42,\"payload\":\"cdc-updated\"}}")).get(30, TimeUnit.SECONDS);
+                    + "\"after\":{\"id\":42,\"payload\":\"cdc-updated\"}}");
+            if (scenario == Scenario.COMBINED) {
+                queueChangeWhileSuspended(processes, producer, update);
+            } else {
+                producer.send(update).get(30, TimeUnit.SECONDS);
+            }
             if (streamingOnly) {
                 verifyMaintenanceRecovery(processes);
             } else {
@@ -545,6 +547,34 @@ class IndependentCdcProcessesE2ETest extends ContainerTestBase {
                 .as("CDC discovery never loads sink fragments or write bindings")
                 .isEqualTo(checkpointRedoReads);
         assertThat(processes.coordinatorLog()).doesNotContain("event=stream_resume_all");
+    }
+
+    private static void createRunningStream(IndependentLocalProcesses processes, String broker, String topic)
+            throws Exception {
+        String insert = "INSERT INTO ingestion_stream_state%";
+        String update = "UPDATE ingestion_stream_state%";
+        long inserts = processes.metadataStatementCalls(insert);
+        long updates = processes.metadataStatementCalls(update);
+        processes.query("CREATE STREAM orders_stream FROM KAFKA ("
+                + "'bootstrap.servers'='" + broker + "', 'topic'='" + topic + "',"
+                + "'group.id'='independent-cdc-orders') FORMAT 'debezium-json' INTO spec_catalog.default.orders"
+                + " WITH ('cdc.write.privileges'='INSERT,UPDATE,DELETE')", ResultProtocol.GRPC_TLS);
+        assertThat(List.of(processes.metadataStatementCalls(insert) - inserts,
+                processes.metadataStatementCalls(update) - updates))
+                .as("CREATE STREAM puts the complete definition directly in RUNNING")
+                .containsExactly(1L, 0L);
+    }
+
+    private static void queueChangeWhileSuspended(IndependentLocalProcesses processes,
+            KafkaProducer<String, String> producer, ProducerRecord<String, String> update) throws Exception {
+        processes.query("ALTER STREAM orders_stream SUSPEND", ResultProtocol.GRPC_TLS);
+        producer.send(update).get(30, TimeUnit.SECONDS);
+        long scans = processes.metadataStatementCalls(RUNNING_STREAMS_LOOKUP);
+        await("the elected runtime observes suspension").atMost(Duration.ofSeconds(30))
+                .until(() -> processes.metadataStatementCalls(RUNNING_STREAMS_LOOKUP) >= scans + 2);
+        assertThat(journalFingerprint(processes, "COMMITTED", 1)).isNotBlank();
+        assertThat(payload(processes)).contains("cdc-visible").doesNotContain("cdc-updated");
+        processes.query("ALTER STREAM orders_stream RESUME", ResultProtocol.GRPC_TLS);
     }
 
     private static void verifyLocalStagingPointReads(IndependentLocalProcesses processes,

@@ -141,9 +141,6 @@ public final class CoordinatorBootstrap {
         startModules();
         if (config.role().isMaintenance()) {
             startStreamingBootstrap();
-            if (streamingBootstrap != null) {
-                streamingBootstrap.enableJournaledExecution();
-            }
             startBranchCleanup();
             moduleWiring.setStreamingBootstrap(streamingBootstrap);
             moduleWiring.setBranchTtlCleanupTask(branchTtlCleanupTask);
@@ -198,7 +195,8 @@ public final class CoordinatorBootstrap {
                         AuthorizationTransactionGate::lockPublication,
                         CoordinatorTableWriteAuthority.create());
         cdcRuntime = new JournaledCdcRuntime(streamingBootstrap, catalogs, journal, resolver,
-                executionAuthority, null, new LocalCdcBatchExecutor(journal, executionAuthority, recovery, quarantine),
+                executionAuthority, null, new LocalCdcBatchExecutor(journal, executionAuthority, recovery, quarantine,
+                        streamingBootstrap.converterRegistry()),
                 maintenanceLeadership);
         streamingBootstrap.attachJournaledRuntime(cdcRuntime);
         LOG.info("event=cdc_local_journaled_runtime_started");
@@ -304,7 +302,7 @@ public final class CoordinatorBootstrap {
 
     private void closeOwnedResources() {
         CoordinatorShutdownSequence.closeOwnedResources(lifecycle, new CoordinatorShutdownSequence.ShutdownOwners(
-                query, ha, maintenanceLeadership, branchTtlCleanupTask, streamingBootstrap, cdcRuntime,
+                query, ha, maintenanceLeadership, branchTtlCleanupTask, cdcRuntime,
                 http, moduleWiring,
                 nativeDatasetControl, metadataBootstrap, connectorHandleFactory, executionAuthority,
                 metadataDataSource, security, observability, coordinationProvider));
@@ -510,16 +508,7 @@ public final class CoordinatorBootstrap {
             return;
         }
         try {
-            org.pangrova.streaming.pipeline.StreamingContext streamingContext = moduleWiring.getStreamingContext();
-            if (streamingContext == null) {
-                LOG.info("event=phase_skipped phase=streaming_bootstrap reason=streaming_wiring_unavailable");
-                return;
-            }
-            streamingBootstrap = StreamingBootstrap.build(
-                    metadataDataSource,
-                    streamingContext.watermarkTracker(),
-                    streamingContext.scheduler(),
-                    metadataBootstrap.catalogRegistry(), config.coordinatorId(), observability.metricsProvider());
+            streamingBootstrap = new StreamingBootstrap(metadataDataSource);
             LOG.info("event=phase_started phase=streaming_bootstrap");
         } catch (Exception e) {
             LOG.warn("event=phase_failed phase=streaming_bootstrap error={}", e.getMessage(), e);

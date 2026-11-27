@@ -193,11 +193,14 @@ Iceberg cases remain open. See
 [distributed writes](distributed-writes.md#worker-cdc-publication-and-recovery).
 
 The elected Coordinator reconciles running stream definitions every five seconds.
-Source work runs on a separate executor from lease renewal. DDL changes advance the
-durable stream epoch, and a batch from a superseded epoch fails its next authoritative
-boundary check. A renewal error clears the local maintenance epoch, which cancels local
-staging at its next poll or batch boundary. A new backend term is activated only after
-local demotion. Atomic publication and recovery still use the connector authority.
+CREATE writes a complete running definition in one insert. ALTER and DROP advance
+the durable stream epoch. A batch from a superseded epoch fails its next authoritative
+boundary check. DDL opens no source reader or connector sink.
+
+The journal runtime executes source work separately from lease renewal. A renewal error
+clears the local maintenance epoch, which cancels local staging at its next poll or batch
+boundary. A new backend term is activated after local demotion. The Coordinator drains
+the journal runtime before closing metadata resources.
 
 ### 2.5 CDC Write Semantics
 
@@ -722,23 +725,8 @@ This section defines the metrics and tracing integration points for the streamin
 
 ### 8.1 Metrics
 
-The Coordinator passes its configured metrics provider to each scheduled CDC loop. Instruments use a `stream` dimension. Both direct writes and checkpointed two-phase publication emit the following series.
-
-| Metric | Source component | Measurement |
-|--------|------------------|-------------|
-| `pangrova.streaming.cdc.records.consumed` | Source poll | Records returned in a fresh poll. Retrying the retained batch does not increment the counter. |
-| `pangrova.streaming.cdc.bytes.consumed` | Source poll | Sum of raw key and value lengths, in bytes. |
-| `pangrova.streaming.cdc.batches.processed` | Source acknowledgement | Batches whose next offsets were acknowledged successfully, including checkpointed replays. |
-| `pangrova.streaming.cdc.source.poll.duration` | Source reader | Duration of each poll attempt in seconds, including empty polls. |
-| `pangrova.streaming.cdc.write.duration` | Sink | Duration of the direct write or two-phase stage attempt in seconds. |
-| `pangrova.streaming.cdc.commit.duration` | Source reader | Duration of each offset acknowledgement attempt in seconds. |
-| `pangrova.streaming.cdc.failures` | Pipeline | Recovery and cycle failures observed while running. |
-| `pangrova.streaming.cdc.consumer.lag` | Kafka reader | Last sampled sum of assigned partition offset distances. Collection omits the point until all assigned distances are available. |
-| `pangrova.streaming.cdc.pipeline.uptime` | Pipeline executor | Elapsed seconds since this loop started. The loop unregisters both gauges on exit. |
-
-If a watermark update fails after the source acknowledges a batch, the running loop retries the watermark update before its next poll. The source acknowledgement and the watermark store have independent commits. A process loss between them can leave the persisted watermark behind the acknowledged offsets.
-
-Maintenance design measures are listed separately.
+The journal runtime logs stream failures and restored checkpoints with stream identity.
+Maintenance publishes its own task metrics.
 
 | Metric | Source component | Measurement |
 |--------|------------------|-------------|
@@ -748,9 +736,6 @@ Maintenance design measures are listed separately.
 
 ### 8.2 Tracing Spans
 
-- `cdc.consume` — CDC batch consumption (SERVER span)
-  - `cdc.write` — connector sink staging (INTERNAL)
-  - `cdc.commit` — Transaction commit (INTERNAL)
 - `maintenance.compact` — Compaction task (SERVER span)
 - `maintenance.expire_snapshots` — Snapshot expiration (SERVER span)
 

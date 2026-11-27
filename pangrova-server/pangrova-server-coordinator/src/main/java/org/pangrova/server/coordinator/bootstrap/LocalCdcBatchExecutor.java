@@ -42,12 +42,13 @@ final class LocalCdcBatchExecutor {
     private final CdcRecordConverterRegistry converters;
 
     LocalCdcBatchExecutor(WriteCommitJournal journal, CoordinatorExecutionAuthority authority,
-            WriteCommitRecoveryService recovery, WriteCommitQuarantineStore quarantine) {
+            WriteCommitRecoveryService recovery, WriteCommitQuarantineStore quarantine,
+            CdcRecordConverterRegistry converters) {
         this.journal = journal;
         this.authority = authority;
         this.recovery = recovery;
         this.quarantine = quarantine;
-        converters = CdcRecordConverterRegistry.discover(LocalCdcBatchExecutor.class.getClassLoader());
+        this.converters = converters;
     }
 
     void execute(StreamState stream, CatalogHandle catalog, ConnectorSession session,

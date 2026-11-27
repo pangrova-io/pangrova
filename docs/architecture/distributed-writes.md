@@ -520,9 +520,9 @@ name and the earliest schema, so location and schema fingerprint are part of the
 than optional corroboration. A mismatch fails the write; it never re-targets the current table.
 
 The Paimon SDK owns snapshot conflict retries. If the SDK returns an ambiguous error, journal
-recovery checks retained snapshot history for the original fingerprint. The old CDC scheduler
-holds the three-argument `abortDistributedWrite()` path, which checks the base snapshot before
-deleting files named by its staged fragments. That check and deletion are separate operations.
+recovery checks retained snapshot history for the original fingerprint. The legacy page writer is
+exercised in isolated tests. Its three-argument `abortDistributedWrite()` path checks the base
+snapshot before deleting files named by its staged fragments. Those are separate operations.
 Production journal recovery uses the four-argument abort contract and quarantines Paimon intents
 when it cannot obtain a durable abort receipt. The Native physical-file adapter validates
 allocations and builds commit metadata. Physical cleanup of a journaled intent requires an
