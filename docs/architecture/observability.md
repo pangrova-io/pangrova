@@ -526,8 +526,10 @@ reservation can issue several reads. Operations publish their counts as the
 owner exits its drain fence and retain successful prior ranges when a later
 SDK call fails. File-adapter work can be observed before a Velox operator
 snapshot exists, and the Worker carries validated counters into reconciled
-failure reports for the exact issued attempt. Query Profile reads the
-Coordinator's retained attempt sample.
+failure reports for the exact issued attempt. Velox can consume cached data
+without issuing file-adapter payload reads, so an attempt can have operator
+input bytes and metadata calls with zero payload calls and returned bytes.
+Query Profile reads the Coordinator's retained attempt sample.
 
 The Coordinator currently configures `UnavailableProfiler` for SVG flame
 graphs. The SVG endpoint responds with HTTP 501 and `UNSUPPORTED_CAPABILITY`.

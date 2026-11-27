@@ -794,12 +794,16 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
                             workerManager.getWorker(SECOND_WORKER_ID).workerExecutionIdentity().toProto());
             var profileReads = ranged.attempts().stream().filter(attempt -> attempt.nativeObjectReads() != null)
                     .collect(java.util.stream.Collectors.toMap(Attempt::taskId, Attempt::nativeObjectReads));
+            assertThat(scanReports).anySatisfy(report -> {
+                assertThat(report.getNativeObjectReads().getReturnedBytes()).isPositive();
+                assertThat(report.getNativeObjectReads().getPayloadCalls()).isPositive();
+            });
             assertThat(scanReports).allSatisfy(report -> {
                 assertThat(report.hasNativeObjectReads()).isTrue();
                 var read = report.getNativeObjectReads();
                 assertThat(read.getRequestedBytes()).isEqualTo(report.getUsage().getObjectStoreReadBytes());
-                assertThat(read.getReturnedBytes()).isPositive().isLessThanOrEqualTo(read.getRequestedBytes());
-                assertThat(read.getPayloadCalls()).isPositive();
+                assertThat(read.getReturnedBytes()).isBetween(0L, read.getRequestedBytes());
+                assertThat(read.getPayloadCalls() > 0).isEqualTo(read.getReturnedBytes() > 0);
                 assertThat(read.getMetadataCalls()).isPositive();
                 assertThat(read.getFailedCalls()).isZero();
                 assertThat(profileReads).containsEntry(report.getAttempt().getTaskId(),
