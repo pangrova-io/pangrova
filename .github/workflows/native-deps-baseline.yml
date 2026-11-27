@@ -6,7 +6,7 @@ on:
       probe:
         description: Isolated CI stage to verify
         type: choice
-        options: [macos-docker, macos-intel-docker, production, worker-files, java-daily, libunwind]
+        options: [macos-docker, macos-intel-docker, production, worker-files, java-daily, libunwind, ai-fixture]
         default: macos-docker
 
 permissions:
@@ -14,6 +14,34 @@ permissions:
   actions: read
 
 jobs:
+  ai-fixture:
+    if: inputs.probe == 'ai-fixture'
+    name: Prepare and validate the real offline AI fixture
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: 4aa0e5c87377b0a502dd4d12159cef8f70a879da
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Prepare immutable real AI models before regression
+        run: |
+          docker pull ollama/ollama:0.6.2
+          receipt="$RUNNER_TEMP/pangrova-ai-fixture.json"
+          python3 .pangrova/scripts/prepare-e2e-ai-image.py --receipt "$receipt"
+          cat "$receipt"
+          image_id=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["imageId"])' "$receipt")
+          docker run --rm -d --network none --name pangrova-ai-probe "$image_id" serve
+          trap 'docker logs pangrova-ai-probe; docker stop pangrova-ai-probe' EXIT
+          for attempt in $(seq 1 30); do
+            if docker exec pangrova-ai-probe ollama list; then break; fi
+            sleep 1
+          done
+          docker exec -e OLLAMA_NOHISTORY=1 pangrova-ai-probe ollama run tinyllama:latest "Say hello in one sentence."
+          docker exec pangrova-ai-probe ollama list | grep -F all-minilm:latest
+
   macos-docker:
     if: inputs.probe == 'macos-docker' || inputs.probe == 'macos-intel-docker'
     name: Verify native macOS Docker
