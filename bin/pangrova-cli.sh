@@ -48,7 +48,7 @@ Environment Variables:
   PANGROVA_COORDINATOR_URL   Coordinator URL (e.g. https://coordinator:8080); --host/--port
                            are extracted from it when not explicitly provided on the command line
   NO_COLOR                   Disable ANSI color in interactive output
-  COLUMNS                    Terminal width; below 80 uses the compact wordmark
+  COLUMNS                    Optional terminal width override; below 80 uses the compact wordmark
 
 Examples:
   $(basename "$0")
@@ -132,5 +132,20 @@ if [[ -n "${PANGROVA_COORDINATOR_URL:-}" ]]; then
     fi
 fi
 
+# The launcher can inspect the real file descriptors regardless of JDK console implementation.
+CLI_TERMINAL=false
+CLI_WIDTH="${COLUMNS:-}"
+if [[ -t 0 && -t 1 ]]; then
+    CLI_TERMINAL=true
+    if [[ ! "$CLI_WIDTH" =~ ^[1-9][0-9]*$ ]]; then
+        # stty size is supported by both Linux and macOS; do not consume query input.
+        TERMINAL_SIZE="$(stty size 2>/dev/null || true)"
+        CLI_WIDTH="${TERMINAL_SIZE##* }"
+    fi
+fi
+if [[ ! "$CLI_WIDTH" =~ ^[1-9][0-9]*$ ]]; then
+    CLI_WIDTH=60
+fi
+
 # --- Start CLI (foreground, transparent passthrough) ---
-exec "$JAVA" $JAVA_OPTS -jar "${CLI_JARS[0]}" "${URL_ARGS[@]+"${URL_ARGS[@]}"}" "$@"
+exec "$JAVA" $JAVA_OPTS "-Dpangrova.cli.terminal=$CLI_TERMINAL" "-Dpangrova.cli.columns=$CLI_WIDTH" -jar "${CLI_JARS[0]}" "${URL_ARGS[@]+"${URL_ARGS[@]}"}" "$@"

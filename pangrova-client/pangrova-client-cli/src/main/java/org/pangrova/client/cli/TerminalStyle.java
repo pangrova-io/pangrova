@@ -34,9 +34,25 @@ final class TerminalStyle {
     static TerminalStyle detect() {
         String noColor = System.getenv("NO_COLOR");
         String term = System.getenv("TERM");
-        boolean attached = System.console() != null;
+        String launcherTerminal = System.getProperty("pangrova.cli.terminal");
+        boolean attached = launcherTerminal == null ? attachedConsole() : Boolean.parseBoolean(launcherTerminal);
         boolean enabled = attached && noColor == null && !"dumb".equalsIgnoreCase(term);
-        return new TerminalStyle(enabled, parseWidth(System.getenv("COLUMNS")));
+        String width = System.getProperty("pangrova.cli.columns", System.getenv("COLUMNS"));
+        return new TerminalStyle(enabled, parseWidth(width));
+    }
+
+    private static boolean attachedConsole() {
+        var console = System.console();
+        if (console == null) return false;
+        // JDK 22 introduced Console.isTerminal; JLine consoles may exist on redirected streams.
+        // Reflection keeps the CLI compatible with its Java 17 baseline.
+        try {
+            return Boolean.TRUE.equals(java.io.Console.class.getMethod("isTerminal").invoke(console));
+        } catch (NoSuchMethodException oldJdk) {
+            return true;
+        } catch (ReflectiveOperationException | SecurityException unavailable) {
+            return false;
+        }
     }
 
     int width() {

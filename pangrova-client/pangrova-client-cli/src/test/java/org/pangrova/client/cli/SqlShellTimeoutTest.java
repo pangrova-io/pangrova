@@ -95,7 +95,15 @@ class SqlShellTimeoutTest {
 
         shell.run();
 
-        assertThat(output.toString(StandardCharsets.UTF_8)).contains(
+        String rendered = output.toString(StandardCharsets.UTF_8);
+        var banner = rendered.lines().limit(6).toList();
+        // A P has an open lower-right side; the former D closed at the bottom.
+        assertThat(banner).hasSize(6);
+        assertThat(banner.get(2)).startsWith("██████╔╝");
+        assertThat(banner.get(4)).startsWith("██║      ").endsWith("██║  ██║");
+        assertThat(banner.get(5)).startsWith("╚═╝      ").endsWith("╚═╝  ╚═╝");
+        assertThat(banner).allSatisfy(line -> assertThat(line.length()).isLessThan(80));
+        assertThat(rendered).contains(
                 "██████╗",
                 "Distributed SQL for open lakehouses",
                 "Open-source lakehouse analytics and AI retrieval.",
