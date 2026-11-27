@@ -54,6 +54,15 @@ backpressure and per-operator counters in nanoseconds, bytes, and rows. Attempts
 retry and its predecessor appear separately. If the Coordinator retains no attempt
 counters, `attempts` is empty and `telemetryAvailable` is false.
 
+An attempt with a Native read owner reports `nativeObjectReads`. This includes
+`requestedBytes` reserved for Native file reads and `returnedBytes` reported by
+the file adapter, together with `payloadCalls`, `metadataCalls` and
+`failedCalls`. Reported lengths can include logical gaps in vector reads.
+Metadata calls include adapter opens and size lookups. Call counts and
+returned lengths are recorded when the scoped operation exits. A failed multi-range read
+can retain bytes from earlier successful ranges. Provider transport retries
+and wire bytes require request-level instrumentation.
+
 Each operator reports `blockedNanos` and the selected reasons
 `waitForProducerNanos`, `waitForConsumerNanos`, `waitForSplitNanos`, and
 `waitForConnectorNanos`. Velox accumulates these intervals across that

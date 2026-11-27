@@ -163,13 +163,21 @@ std::optional<protocol::v2::NativeTaskStats> PlanExecutionDriver::collectTaskSta
   return active_runner_ ? active_runner_->collectTaskStats(&metrics_) : std::nullopt;
 }
 
-uint64_t PlanExecutionDriver::requestedObjectReadBytes() const {
+std::optional<protocol::v2::NativeObjectReadStats> PlanExecutionDriver::objectReadStats() const {
   std::shared_ptr<resource::TaskObjectReadBudget> owner;
   {
     std::lock_guard<std::mutex> lock(runner_mutex_);
     owner = task_read_budget_;
   }
-  return owner ? owner->requestedBytes() : 0;
+  if (!owner) return std::nullopt;
+  const auto sample = owner->snapshot();
+  protocol::v2::NativeObjectReadStats stats;
+  stats.set_requested_bytes(sample.requested_bytes);
+  stats.set_returned_bytes(sample.returned_bytes);
+  stats.set_payload_calls(sample.payload_calls);
+  stats.set_metadata_calls(sample.metadata_calls);
+  stats.set_failed_calls(sample.failed_calls);
+  return stats;
 }
 
 bool PlanExecutionDriver::hasFinalTaskStats() const {

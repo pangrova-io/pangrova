@@ -14,6 +14,7 @@ import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.protocol.v2.ExactFallbackReport;
 import org.pangrova.protocol.v2.FallbackPolicy;
 import org.pangrova.protocol.v2.OperatorBinding;
+import org.pangrova.protocol.v2.ExecutionDrainState;
 import org.pangrova.protocol.v2.ResourceUsage;
 import org.pangrova.protocol.v2.SourceSnapshotReport;
 import org.pangrova.protocol.v2.StageResourceGrant;
@@ -65,6 +66,7 @@ public final class CanonicalTaskReportValidator {
         validateOrigin(status);
         validateCoverage(status, expectedRequest);
         validateTaskUsage(status, expectedRequest);
+        validateNativeObjectReads(status);
         validateBuildKeys(status, expectedRequest);
         GenerationTaskReportValidator.validate(status, report, expectedRequest);
         PhysicalWriteTaskReportValidator.validate(status, report, expectedRequest);
@@ -263,6 +265,18 @@ public final class CanonicalTaskReportValidator {
         if (status.getState() == TaskState.TASK_STATE_FINISHED
                 && usage.getObservedProviderResponseBytes() != usage.getProviderResponseBytes()) {
             throw invalid("Finished TaskReport contains rejected provider response bytes");
+        }
+    }
+
+    private static void validateNativeObjectReads(TaskReport status) {
+        if (!status.hasNativeObjectReads()) return;
+        if (status.getReportOrigin() == TaskReportOrigin.TASK_REPORT_ORIGIN_WORKER_EXECUTED
+                || status.getExecutionDrainState() == ExecutionDrainState
+                        .EXECUTION_DRAIN_STATE_ADMISSION_CLOSED_WITHOUT_NATIVE_OWNER
+                || status.getExecutionDrainState() == ExecutionDrainState
+                        .EXECUTION_DRAIN_STATE_WORKER_INCARNATION_RETIRED
+                || !CanonicalTaskRequests.nativeObjectReadsWithinUsage(status)) {
+            throw invalid("Native object read counters contradict the reported attempt usage");
         }
     }
 

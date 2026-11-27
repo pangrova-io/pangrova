@@ -9,6 +9,7 @@
 #include <openssl/evp.h>
 
 #include "folly/executors/InlineExecutor.h"
+#include "velox/common/file/FileSystems.h"
 
 namespace pangrova::resource {
 namespace {
@@ -21,9 +22,10 @@ uint64_t fileSize(const std::shared_ptr<facebook::velox::ReadFile>& input,
     const std::shared_ptr<TaskObjectReadBudget>& budget, const folly::CancellationToken& cancellation) {
   if (!input || !budget) throw std::invalid_argument("Task backend requires its admitted read owner");
   checkpoint(cancellation);
-  auto attempt = budget->begin(0);
+  auto attempt = budget->begin(0, TaskObjectReadBudget::Operation::METADATA);
+  attempt.startCall();
   const auto size = input->size();
-  attempt->complete(0);
+  attempt.completeCall(0);
   checkpoint(cancellation);
   return size;
 }
@@ -39,6 +41,17 @@ uint64_t requested(const std::vector<folly::Range<char*>>& buffers) {
   return bytes;  // Includes gaps that the provider may coalesce over.
 }
 }  // namespace
+
+std::shared_ptr<TaskBudgetReadFile> TaskBudgetReadFile::open(
+    facebook::velox::filesystems::FileSystem& filesystem, std::string_view path,
+    const std::shared_ptr<TaskObjectReadBudget>& budget, const folly::CancellationToken& cancellation) {
+  checkpoint(cancellation);
+  auto opening = budget->begin(0, TaskObjectReadBudget::Operation::METADATA);
+  opening.startCall();
+  auto file = filesystem.openFileForRead(path);
+  opening.completeCall(0);
+  return std::make_shared<TaskBudgetReadFile>(std::move(file), budget, cancellation);
+}
 
 TaskBudgetReadFile::TaskBudgetReadFile(
     std::shared_ptr<facebook::velox::ReadFile> input,
@@ -78,8 +91,9 @@ std::string_view TaskBudgetReadFile::pread(uint64_t offset, uint64_t length,
   checkpoint(cancellation_);
   addLength(offset, length);
   auto attempt = budget_->begin(length);
+  attempt.startCall();
   auto output = input_->pread(offset, length, buffer, context);
-  attempt->complete(output.size());
+  attempt.completeCall(output.size());
   checkpoint(cancellation_);
   return output;
 }
@@ -91,8 +105,9 @@ uint64_t TaskBudgetReadFile::preadv(uint64_t offset,
   const auto bytes = requested(buffers);
   addLength(offset, bytes);
   auto attempt = budget_->begin(bytes);
+  attempt.startCall();
   const auto output = input_->preadv(offset, buffers, context);
-  attempt->complete(output);
+  attempt.completeCall(output);
   checkpoint(cancellation_);
   return output;
 }
@@ -119,14 +134,15 @@ uint64_t TaskBudgetReadFile::preadv(
     checkpoint(cancellation_);
     const auto& region = regions[index];
     buffers[index] = folly::IOBuf(folly::IOBuf::CREATE, region.length);
+    attempt.startCall();
     const auto read = input_->pread(region.offset, region.length, buffers[index].writableData(), context);
+    attempt.completeCall(read.size());
     if (read.size() != region.length) {
       throw std::runtime_error("Task backend returned a truncated admitted region");
     }
     buffers[index].append(read.size());
     output = addLength(output, read.size());
   }
-  attempt->complete(output);
   checkpoint(cancellation_);
   return output;
 }
@@ -144,13 +160,14 @@ folly::SemiFuture<uint64_t> TaskBudgetReadFile::preadvAsync(uint64_t offset,
     auto attempt = budget_->begin(bytes);
     // SDK hasPreadvAsync=false guarantees this branch is synchronous. Never
     // delegate a native async read whose caller-owned buffers may be released.
+    attempt.startCall();
     return input_->preadvAsync(offset, buffers, context)
         .via(&folly::InlineExecutor::instance())
         .thenTry([attempt = std::move(attempt), input = input_, token = cancellation_]
-            (folly::Try<uint64_t>&& outcome) {
+            (folly::Try<uint64_t>&& outcome) mutable {
           (void)input;
           const auto bytes = outcome.value();
-          attempt->complete(bytes);
+          attempt.completeCall(bytes);
           checkpoint(token);
           return bytes;
         }).semi();

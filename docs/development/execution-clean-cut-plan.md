@@ -27,7 +27,7 @@ unlisted: true
 | A5 | Paimon 已接到阶段剩余额度及绝对截止时间。直接追加 SQL 对每个快照单遍校验并枚举，逐个读取 manifest，阶段容量耗尽后停止开启对象。剩余工作包括限制普通和内部增量 SDK 扫描的 manifest I/O 准入、按编码字节计量并限制元数据、验证已发出的存储调用实际退出，以及跨主机混合负载下的并发度校准 | WP3.2 |
 | A6 | 实时叶子阶段已按绑定时计算的工作量分配，包括数据和删除字节、文件开启、已知行数、Paimon 合并与 Lance 未知字节的最低权重。剩余工作包括把实时 Worker 在途负载纳入放置、评估持久任务初次分配，以及按存储、格式、冷热和并发校准权重 | WP3.3 |
 | A7 | Native Parquet 将 `DataSplit` 字节区间应用到行组读取，并在文件边界核验区间。位置删除使用绝对行号。Lance 使用物理行区间或固定 manifest 分区，Paimon merge 要求整个主文件。实时 Iceberg SQL 并行扫描按 manifest `split_offsets` 分片，沿用已有快照字节统计进行阶段估算，并按原始对象共享标量索引判断。剩余验收包括跨主机对象存储 I/O、含大删除文件的成本校准、受保护产物的全链路整对象身份与真实 Apache ORC reader | WP3.4 |
-| A8 | 对象读取只导出 requested bytes；attempt/retry/returned/wire bytes 尚未贯通 task report/profile | WP3.1 |
+| A8 | Native 文件适配层的保留字节、返回字节、数据调用、元数据调用和失败调用已贯通 TaskReport 与 Profile。剩余工作是在真实 SDK 请求层按任务计量传输尝试、重试和 wire bytes，补跨主机、缓存和故障注入验证 | WP3.1 |
 | A9 | 动态过滤已有 Native 类型、稀疏区间和等待门；planner 仍限定单 filter/单 BIGINT/Iceberg，running probe 无 production late injection | WP4 |
 | A10 | live 单输入 AQE 已存在；durable replay 关闭 AQE，多输入对齐和可执行 skew split 缺失 | WP5 |
 | A11 | Shuffle 已有 lease/window/fence；缺少 durable revocation generation、participant ACK 和 convergence receipt | WP6 |
@@ -191,6 +191,10 @@ PostgreSQL 接管分类用例预置 4,096 条其他查询日志和 4,096 条其�
 ## 验证记录与覆盖边界
 
 以下均为 **at commit / historical evidence**：数字、SQL 次数和覆盖范围只对应各批次当时提交的角色包与配置。当前未完成项以本文 2026-11-25 的 A/B/C 审计为准；单输入 AQE、局部聚合和写恢复等“机制已实现”不等于生产验收已完成。被后续批次取代的描述在原文附近标注 superseded。
+
+本地读取配额微测复用实际 Native 配额实现，对照每轮 200 万笔 8 字节授权与归还，逐轮核对请求和返回总量。移除每次调用的 Attempt 堆分配，将返回量和调用结果合并到原有 drain 锁内发布。macOS arm64 单线程六轮 CPU 样本中位数由 135.9 ns 降到 43.6 ns。样本只测配额与计数开销，存储延迟单独验收。 10 项文件适配器定向测试通过。用实际本地文件让第二个范围到达 EOF，确认仍报告第一个范围已返回的 4 字节，并记录两次调用和一次失败。73 项协议、任务报告和 Profile 定向测试通过。
+
+S3 传输归因需利用 SDK 请求上的接收回调和请求结果重试计数。HTTP 实体字节、请求或响应头字节、TLS 与套接字层字节各有自己的观测边界。跨主机故障测试用后端日志对齐请求，用客户端计数校验收到的实体。 [AWS 请求回调](https://docs.aws.amazon.com/sdk-for-cpp/latest/api/aws-cpp-sdk-core/html/class_aws_1_1_amazon_web_service_request.html) · [libcurl 下载字节口径](https://curl.se/libcurl/c/CURLINFO_SIZE_DOWNLOAD_T.html)
 
 真实 HTTP SQL 测试用 Iceberg SDK 写入一个多行组 Parquet 文件，并提交含两条位置删除的快照。保持 SQL 和快照一致，只调节表的读取分片目标。整文件路径发出一个扫描分片和一个扫描任务；区间路径发出 10 个分片，由两个独立 Worker JVM 上的 8 个扫描任务读取。两次都经 Native Flight 返回同样的 4,094 行并完成物理排空。两次枚举都只规划了一个原始数据文件和一个位置删除文件。定向回归还覆盖阶段预算耗尽、无可用偏移、来源快照绑定、索引按原始对象应用判断、窄列投影、Join、Top-K 和写后读。该测试使用本地文件和 48 KiB 的小分片目标。跨主机与默认分片目标的吞吐、尾延迟和远程对象 I/O 仍按 A7/A8 验收。
 

@@ -24,6 +24,8 @@ import org.pangrova.protocol.v2.OperatorStats;
 import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.v2.WorkerExecutionIdentity;
 import org.pangrova.query.profiling.enums.RuntimeFilterOutcome;
+import org.pangrova.query.profiling.OperatorStatsSource.Attempt;
+import org.pangrova.query.profiling.OperatorStatsSource.ObjectReads;
 import org.pangrova.query.profiling.OperatorStatsSource.RuntimeFilterWait;
 import org.pangrova.scheduler.api.enums.HealthState;
 import org.pangrova.types.value.TypedRow;
@@ -786,11 +788,24 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
             table.updateProperties().set(TableProperties.SPLIT_SIZE, "49152").commit();
             var ranged = executeWithDrainedReports(sql);
             assertThat(ranged.sourceSplits(source)).isGreaterThan(1);
-            assertThat(ranged.reports().stream().filter(report -> report.getCoverage().getSourceSnapshotsList()
-                    .stream().anyMatch(coverage -> coverage.getSourceId().equals(source))))
-                    .extracting(report -> report.getAttempt().getWorkerExecutionIdentity())
+            var scanReports = ranged.sourceReports(source);
+            assertThat(scanReports).extracting(report -> report.getAttempt().getWorkerExecutionIdentity())
                     .contains(workerManager.getWorker(WORKER_ID).workerExecutionIdentity().toProto(),
                             workerManager.getWorker(SECOND_WORKER_ID).workerExecutionIdentity().toProto());
+            var profileReads = ranged.attempts().stream().filter(attempt -> attempt.nativeObjectReads() != null)
+                    .collect(java.util.stream.Collectors.toMap(Attempt::taskId, Attempt::nativeObjectReads));
+            assertThat(scanReports).allSatisfy(report -> {
+                assertThat(report.hasNativeObjectReads()).isTrue();
+                var read = report.getNativeObjectReads();
+                assertThat(read.getRequestedBytes()).isEqualTo(report.getUsage().getObjectStoreReadBytes());
+                assertThat(read.getReturnedBytes()).isPositive().isLessThanOrEqualTo(read.getRequestedBytes());
+                assertThat(read.getPayloadCalls()).isPositive();
+                assertThat(read.getMetadataCalls()).isPositive();
+                assertThat(read.getFailedCalls()).isZero();
+                assertThat(profileReads).containsEntry(report.getAttempt().getTaskId(),
+                        new ObjectReads(read.getRequestedBytes(), read.getReturnedBytes(), read.getPayloadCalls(),
+                                read.getMetadataCalls(), read.getFailedCalls()));
+            });
             var expected = LongStream.range(0, rowCount).filter(id -> id != 5 && id != 3000).boxed().toList();
             assertThat(whole.rows()).extracting(row -> row.getLong("id")).containsExactlyElementsOf(expected);
             assertThat(ranged.rows()).extracting(row -> row.getLong("id")).containsExactlyElementsOf(expected);
@@ -828,18 +843,17 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
                         assertThat(queryManager.getStateMachines().get(queryId).physicalCleanupApplied()).isTrue();
                         assertThat(queryProfileService().getProfile(queryId, E2E_USER_PRINCIPAL)).isPresent();
                     });
-            var graph = queryProfileService().getProfile(queryId, E2E_USER_PRINCIPAL).orElseThrow()
-                    .executionGraph();
+            var profile = queryProfileService().getProfile(queryId, E2E_USER_PRINCIPAL).orElseThrow();
             return new DrainedQuery(rows, capture.get().values().stream()
                     .filter(report -> report.getAttempt().getQueryOrJobId().equals(queryId)).toList(),
-                    graph.runtimeFilterWait());
+                    profile.executionGraph().runtimeFilterWait(), profile.attempts());
         } finally {
             capture.set(null);
         }
     }
 
     private record DrainedQuery(List<TypedRow> rows, List<TaskReport> reports,
-            RuntimeFilterWait runtimeFilterWait) {
+            RuntimeFilterWait runtimeFilterWait, List<Attempt> attempts) {
         List<BuildKeySummary> buildSummaries() {
             return reports.stream().map(TaskReport::getNativeTaskStats)
                     .flatMap(stats -> stats.getBuildKeySummariesList().stream()).toList();
@@ -857,10 +871,13 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
                     .mapToLong(OperatorStats::getOutputBytes).sum();
         }
 
-        long sourceReadBytes(String source) {
+        List<TaskReport> sourceReports(String source) {
             return reports.stream().filter(report -> report.getCoverage().getSourceSnapshotsList().stream()
-                            .anyMatch(coverage -> coverage.getSourceId().equals(source)))
-                    .mapToLong(report -> report.getUsage().getObjectStoreReadBytes()).sum();
+                    .anyMatch(coverage -> coverage.getSourceId().equals(source))).toList();
+        }
+
+        long sourceReadBytes(String source) {
+            return sourceReports(source).stream().mapToLong(report -> report.getUsage().getObjectStoreReadBytes()).sum();
         }
     }
 

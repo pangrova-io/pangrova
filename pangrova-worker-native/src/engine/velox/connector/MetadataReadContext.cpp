@@ -22,17 +22,12 @@ void MetadataReadContext::checkpoint() const {
 
 std::shared_ptr<facebook::velox::ReadFile> MetadataReadContext::open(const std::string& uri) const {
   checkpoint();
-  // Opening can itself contact a backend. Hold the real owner while it runs,
-  // even though metadata/stat requests consume no payload-range bytes.
-  auto opening = budget_ ? budget_->begin(0) : nullptr;
   const auto path = split::metadataObjectPath(uri);
   auto filesystem = facebook::velox::filesystems::getFileSystem(path, nullptr);
   if (!filesystem) throw std::runtime_error("No Native filesystem for metadata URI");
-  std::shared_ptr<facebook::velox::ReadFile> input = filesystem->openFileForRead(path);
-  if (opening) opening->complete(0);
+  if (budget_) return resource::TaskBudgetReadFile::open(*filesystem, path, budget_, cancellation_);
+  auto input = filesystem->openFileForRead(path);
   checkpoint();
-  if (budget_) return std::make_shared<resource::TaskBudgetReadFile>(
-      std::move(input), budget_, cancellation_);
   return input;
 }
 

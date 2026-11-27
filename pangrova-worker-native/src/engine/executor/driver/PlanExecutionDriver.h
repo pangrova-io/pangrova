@@ -91,7 +91,7 @@ class PlanExecutionDriver {
   // Final actual producer statistics survive Task deletion until receipt handoff.
   std::optional<protocol::v2::NativeTaskStats> collectTaskStats() const;
   bool hasFinalTaskStats() const;
-  uint64_t requestedObjectReadBytes() const;
+  std::optional<protocol::v2::NativeObjectReadStats> objectReadStats() const;
 
   // Cancel execution (best-effort, thread-safe).
   // Propagates cancel to VeloxTaskRunner if active, closes output

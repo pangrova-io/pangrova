@@ -511,6 +511,16 @@ directly. Build-key evidence belongs to the authoritative Native terminal
 report. The Coordinator exposes the accepted counters through one Profile
 projection.
 
+Native file I/O publishes a coherent snapshot of the existing task read grant.
+Reservation bytes enforce admission. The same owner records file-adapter
+payload calls, metadata calls, failed calls and returned bytes. A multi-range
+reservation can issue several reads. Operations publish their counts as the
+owner exits its drain fence and retain successful prior ranges when a later
+SDK call fails. File-adapter work can be observed before a Velox operator
+snapshot exists, and the Worker carries validated counters into reconciled
+failure reports for the exact issued attempt. Query Profile reads the
+Coordinator's retained attempt sample.
+
 The Coordinator currently configures `UnavailableProfiler` for SVG flame
 graphs. The SVG endpoint responds with HTTP 501 and `UNSUPPORTED_CAPABILITY`.
 

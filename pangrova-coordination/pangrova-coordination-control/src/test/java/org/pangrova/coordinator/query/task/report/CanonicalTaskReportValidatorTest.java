@@ -75,6 +75,29 @@ class CanonicalTaskReportValidatorTest {
     }
 
     @Test
+    void nativeAdapterCountersMustDescribeBytesAndCallsWithinTheExactReportedUsage() {
+        var ordinary = request("COMPUTE", List.of());
+        var issued = SubmitTaskRequest.from(ordinary.taskRequest().toBuilder()
+                .setResourceGrant(ordinary.taskRequest().getResourceGrant().toBuilder().setObjectStoreReadBytes(12))
+                .build());
+        var reads = org.pangrova.protocol.v2.NativeObjectReadStats.newBuilder()
+                .setRequestedBytes(8).setReturnedBytes(4).setPayloadCalls(2).setMetadataCalls(1).setFailedCalls(1);
+        var status = TaskReport.newBuilder().setAttempt(nativeAttempt())
+                .setState(TaskState.TASK_STATE_FINISHED).setCoverage(completeCoverage())
+                .setReportOrigin(org.pangrova.protocol.v2.TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE)
+                .setUsage(ResourceUsage.newBuilder().setObjectStoreReadBytes(12))
+                .setNativeObjectReads(reads).build();
+
+        assertThat(validator.validate(report(issued, status), issued)).contains(status);
+        for (var malformed : List.of(reads.clone().setReturnedBytes(9), reads.clone().setFailedCalls(4),
+                reads.clone().setRequestedBytes(-1L), reads.clone().setRequestedBytes(13))) {
+            var invalid = status.toBuilder().setNativeObjectReads(malformed).build();
+            assertThatThrownBy(() -> validator.validate(report(issued, invalid), issued))
+                    .hasMessageContaining("object read counters");
+        }
+    }
+
+    @Test
     void shufflePayloadObservationDoesNotConsumeAnExecutionGrant() {
         var issued = request("COMPUTE", List.of());
         assertThat(issued.taskRequest().getResourceGrant().getShuffleSendBytes()).isZero();
@@ -287,6 +310,8 @@ class CanonicalTaskReportValidatorTest {
                 .setAttempt(request.taskRequest().getAttempt())
                 .setState(TaskState.TASK_STATE_FAILED)
                 .setUsage(observedUsage)
+                .setNativeObjectReads(org.pangrova.protocol.v2.NativeObjectReadStats.newBuilder()
+                        .setMetadataCalls(1).setFailedCalls(1))
                 .setError(ExecutionError.newBuilder()
                         .setErrorClass(ErrorClass.ERROR_CLASS_PROVIDER)
                         .setCode("PROVIDER_FAILED")
@@ -299,6 +324,7 @@ class CanonicalTaskReportValidatorTest {
                         "provider rejected request"), nativeFailure);
 
         assertThat(status.getUsage()).isEqualTo(observedUsage);
+        assertThat(status.getNativeObjectReads()).isEqualTo(nativeFailure.getNativeObjectReads());
         assertThat(status.getError().getCode()).isEqualTo("PROVIDER_FAILED");
         assertThat(status.getError().getFailedComponent()).isEqualTo("provider");
         assertThat(status.getReportOrigin())

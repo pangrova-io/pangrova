@@ -67,11 +67,16 @@ public interface OperatorStatsSource {
             long elapsedTimeMs,
             long cpuTimeMs,
             long backpressureWaitMs,
-            List<Metric> operators) {
+            List<Metric> operators,
+            ObjectReads nativeObjectReads) {
         public Attempt {
             operators = List.copyOf(operators);
         }
     }
+
+    /** Native adapter work, measured on the exact attempt. */
+    record ObjectReads(long requestedBytes, long returnedBytes, long payloadCalls,
+            long metadataCalls, long failedCalls) {}
 
     /** One operator in the named attempt. Wait counters accumulate across its Velox drivers. */
     record Metric(

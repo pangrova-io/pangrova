@@ -111,6 +111,24 @@ TEST_F(TaskObjectReadBudgetTest, ActualDiscontiguousRegionsReadOnlyTheirAdmitted
   EXPECT_EQ(std::string(reinterpret_cast<const char*>(output[1].data()), output[1].length()), "opqr");
   EXPECT_EQ(owner->requestedBytes(), 8);
   EXPECT_EQ(owner->completedReturnedBytes(), 8);
+  EXPECT_EQ(owner->snapshot().payload_calls, 2);
+  EXPECT_EQ(owner->snapshot().metadata_calls, 1);
+  EXPECT_EQ(owner->snapshot().failed_calls, 0);
+  EXPECT_EQ(owner->activeReads(), 0);
+}
+
+TEST_F(TaskObjectReadBudgetTest, LaterRegionFailurePreservesTheFirstBackendReturn) {
+  auto owner = std::make_shared<TaskObjectReadBudget>(8);
+  TaskBudgetReadFile input(open(), owner, {});
+  const std::array<facebook::velox::common::Region, 2> regions{{{0, 4}, {100, 4}}};
+  std::array<folly::IOBuf, 2> output;
+  EXPECT_THROW(input.preadv(folly::Range(regions.data(), regions.size()),
+      folly::Range(output.data(), output.size())), std::exception);
+  const auto sample = owner->snapshot();
+  EXPECT_EQ(sample.requested_bytes, 8);
+  EXPECT_EQ(sample.returned_bytes, 4);
+  EXPECT_EQ(sample.payload_calls, 2);
+  EXPECT_EQ(sample.failed_calls, 1);
   EXPECT_EQ(owner->activeReads(), 0);
 }
 
@@ -158,8 +176,9 @@ TEST_F(TaskObjectReadBudgetTest, DrainWaitsForTheActualReadAttemptOwnerRatherTha
   auto reading = std::async(std::launch::async, [&] {
     auto attempt = owner->begin(8);
     std::array<char, 8> buffer{};
+    attempt.startCall();
     auto bytes = file->pread(0, 8, buffer.data());
-    attempt->complete(bytes.size());
+    attempt.completeCall(bytes.size());
     read_completed.set_value();
     released.wait();  // The genuine operation owner still retains its buffers.
   });

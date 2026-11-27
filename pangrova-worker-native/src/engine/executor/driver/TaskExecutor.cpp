@@ -417,8 +417,8 @@ observability::NativeMetricsCollector& TaskExecutor::metricsCollector() {
   return metrics_collector_;
 }
 
-uint64_t TaskExecutor::requestedObjectReadBytes() const {
-  return execution_driver_ ? execution_driver_->requestedObjectReadBytes() : 0;
+std::optional<protocol::v2::NativeObjectReadStats> TaskExecutor::objectReadStats() const {
+  return execution_driver_ ? execution_driver_->objectReadStats() : std::nullopt;
 }
 
 std::optional<protocol::v2::NativeTaskStats> TaskExecutor::collectTaskStats() const {

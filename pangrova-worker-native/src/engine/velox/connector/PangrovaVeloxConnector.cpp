@@ -477,17 +477,18 @@ void PangrovaVeloxDataSource::createReaderPair(
     throw std::runtime_error(
         "No registered Velox filesystem for data object: " + cleanPath);
   }
-  std::shared_ptr<facebook::velox::ReadFile> readFile(
-      fileSystem->openFileForRead(cleanPath));
+  std::shared_ptr<facebook::velox::ReadFile> readFile;
   if (read_budget_) {
-    auto admitted = std::make_shared<resource::TaskBudgetReadFile>(
-        std::move(readFile), read_budget_, cancellation_token_);
+    auto admitted = resource::TaskBudgetReadFile::open(*fileSystem, cleanPath, read_budget_, cancellation_token_);
     if (!splitConfig.expected_file_sha256.empty()) {
       admitted->verifySha256(splitConfig.expected_file_sha256, splitConfig.length);
     }
     readFile = std::move(admitted);
-  } else if (!splitConfig.expected_file_sha256.empty()) {
-    throw std::runtime_error("Qualified task input requires its admitted read owner");
+  } else {
+    if (!splitConfig.expected_file_sha256.empty()) {
+      throw std::runtime_error("Qualified task input requires its admitted read owner");
+    }
+    readFile = fileSystem->openFileForRead(cleanPath);
   }
   const auto fileSize = readFile->size();
   const auto start = static_cast<uint64_t>(splitConfig.start_offset);

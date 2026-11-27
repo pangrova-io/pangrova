@@ -312,6 +312,18 @@ enum ExecutionDrainState {
   EXECUTION_DRAIN_STATE_WORKER_TASK_COMPLETED = 4;
 }
 
+// Cumulative Native calls through the admitted file adapter. Counts are
+// published after the scoped operation exits, including failures and partial
+// progress in a multi-range call. Provider HTTP requests and transport bytes
+// cannot be inferred from these counters.
+message NativeObjectReadStats {
+  uint64 requested_bytes = 1;
+  uint64 returned_bytes = 2;
+  uint64 payload_calls = 3;
+  uint64 metadata_calls = 4;
+  uint64 failed_calls = 5;
+}
+
 message TaskReport {
   TaskAttemptId attempt = 1;
   TaskState state = 2;
@@ -327,6 +339,9 @@ message TaskReport {
   // Absent when admission/cancellation prevented execution from creating a Task.
   NativeTaskStats native_task_stats = 11;
   ExecutionDrainState execution_drain_state = 12;
+  // Present when the attempt established the Native read owner, even if no
+  // Velox task started. Requested bytes cover Native reservations only.
+  NativeObjectReadStats native_object_reads = 13;
 }
 
 message ExecutionEnvelope {

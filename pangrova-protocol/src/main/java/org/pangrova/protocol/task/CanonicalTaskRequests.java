@@ -29,6 +29,22 @@ public final class CanonicalTaskRequests {
 
     private CanonicalTaskRequests() {}
 
+    /** Validates Native adapter observations in the signed accounting domain. */
+    public static boolean nativeObjectReadsWithinUsage(org.pangrova.protocol.v2.TaskReport status) {
+        if (!status.hasNativeObjectReads()) return true;
+        var reads = status.getNativeObjectReads();
+        if (!status.hasUsage() || !reads.getUnknownFields().asMap().isEmpty()
+                || reads.getRequestedBytes() < 0 || reads.getReturnedBytes() < 0
+                || reads.getPayloadCalls() < 0 || reads.getMetadataCalls() < 0 || reads.getFailedCalls() < 0) {
+            return false;
+        }
+        long metadataFailures = Math.max(0L, reads.getFailedCalls() - reads.getPayloadCalls());
+        return reads.getRequestedBytes() <= status.getUsage().getObjectStoreReadBytes()
+                && reads.getReturnedBytes() <= reads.getRequestedBytes()
+                && (reads.getReturnedBytes() == 0 || reads.getPayloadCalls() > 0)
+                && metadataFailures <= reads.getMetadataCalls();
+    }
+
     /** Validates canonical usage against its exact grant in Java's representable accounting domain. */
     public static boolean usageWithinGrant(ResourceUsage usage, StageResourceGrant grant) {
         return usage.getCpuNanos() >= 0 && memoryWithinGrant(usage, grant) && exchangeWithinGrant(usage, grant)

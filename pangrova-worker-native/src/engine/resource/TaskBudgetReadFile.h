@@ -1,16 +1,24 @@
 #pragma once
 
 #include <memory>
+#include <string_view>
 
 #include "folly/CancellationToken.h"
 #include "engine/resource/TaskObjectReadBudget.h"
 #include "velox/common/file/File.h"
+
+namespace facebook::velox::filesystems {
+class FileSystem;
+}
 
 namespace pangrova::resource {
 
 /** Wraps the actual backend; cache hits above this file perform no backend request. */
 class TaskBudgetReadFile final : public facebook::velox::ReadFile {
  public:
+  static std::shared_ptr<TaskBudgetReadFile> open(facebook::velox::filesystems::FileSystem& filesystem,
+      std::string_view path, const std::shared_ptr<TaskObjectReadBudget>& budget,
+      const folly::CancellationToken& cancellation);
   TaskBudgetReadFile(std::shared_ptr<facebook::velox::ReadFile> input,
       std::shared_ptr<TaskObjectReadBudget> budget, folly::CancellationToken cancellation);
   using facebook::velox::ReadFile::pread;

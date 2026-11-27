@@ -297,7 +297,7 @@ class TaskExecutor {
   // Collect task stats from Velox TaskStats via VeloxTaskRunner.
   std::optional<protocol::v2::NativeTaskStats> collectTaskStats() const;
   bool hasFinalTaskStats() const;
-  uint64_t requestedObjectReadBytes() const;
+  std::optional<protocol::v2::NativeObjectReadStats> objectReadStats() const;
 
   // Access the active VeloxTaskRunner (may be null if not yet started).
   // Used by StatusSerializer to collect Velox TaskStats.
