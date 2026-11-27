@@ -6,7 +6,7 @@ on:
       probe:
         description: Isolated CI stage to verify
         type: choice
-        options: [macos-docker, macos-intel-docker, production, worker-files]
+        options: [macos-docker, macos-intel-docker, production, worker-files, java-daily]
         default: macos-docker
 
 permissions:
@@ -235,3 +235,96 @@ jobs:
         with:
           name: worker-file-surefire-reports
           path: pangrova-worker/target/surefire-reports/
+
+  java-daily:
+    name: Java Build (JDK ${{ matrix.java }})
+    runs-on: ubuntu-24.04
+    if: inputs.probe == 'java-daily'
+    env:
+      MAVEN_ARGS: -C --global-settings ${{ github.workspace }}/.mvn/ci-settings.xml
+      NATIVE_LIB_DIR: ${{ github.workspace }}/pangrova-worker-native/build
+    strategy:
+      fail-fast: false
+      matrix:
+        # JDK 17 is the primary build target. JDK 21 runs in CI to catch
+        # incompatibilities (e.g., new strong-encapsulation defaults, removed
+        # APIs) before we promote 21 to the primary target.
+        java: ['17', '21']
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: 80cbe6b744e19f8a77a8d7bdcb88e6430189c7c0
+      - name: Check the validated source revision
+        run: test "$(git rev-parse HEAD)" = 80cbe6b744e19f8a77a8d7bdcb88e6430189c7c0
+
+      - name: Set up function-contract Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Download native library (for java.library.path fallback)
+        uses: actions/download-artifact@v8
+        with:
+          name: native-library-linux-x86_64
+          path: ${{ env.NATIVE_LIB_DIR }}
+          github-token: ${{ github.token }}
+          run-id: '45906002470'
+          digest-mismatch: error
+
+      - name: Download classifier JAR
+        uses: actions/download-artifact@v8
+        with:
+          name: native-bundle-linux-x86_64
+          path: native-bundle-jar
+
+      - uses: ./.github/actions/restore-java-native-test-runtime
+
+      - name: Verify artifacts
+        run: |
+          ls -la ${{ env.NATIVE_LIB_DIR }}/libpangrova_native.*
+          ls -la native-bundle-jar/
+
+      - name: Set up JDK ${{ matrix.java }}
+        uses: actions/setup-java@v6
+        with:
+          java-version: ${{ matrix.java }}
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Download the tested Iceberg SDK
+        uses: actions/download-artifact@v8
+        with:
+          name: pinned-iceberg-sdk
+          path: ${{ runner.temp }}/pangrova-iceberg-sdk
+          github-token: ${{ github.token }}
+          run-id: '45906002470'
+          digest-mismatch: error
+      - name: Install the tested Iceberg SDK
+        run: |
+          mkdir -p "$HOME/.m2/repository/org/apache/iceberg"
+          cp -R "$RUNNER_TEMP/pangrova-iceberg-sdk/org/apache/iceberg/." "$HOME/.m2/repository/org/apache/iceberg/"
+
+      - name: Install classifier JAR to local Maven repo
+        run: |
+          JAR_FILE=$(ls native-bundle-jar/pangrova-native-bundle-*-linux-x86_64.jar | head -1)
+          mvn install:install-file \
+            -Dfile="${JAR_FILE}" \
+            -DgroupId=org.pangrova \
+            -DartifactId=pangrova-native-bundle \
+            -Dversion=0.1.0-SNAPSHOT \
+            -Dclassifier=linux-x86_64 \
+            -Dpackaging=jar
+
+      - name: Compile and run daily filtered tests
+        run: |
+          export LD_LIBRARY_PATH="$NATIVE_LIB_DIR:$PANGROVA_JAVA_NATIVE_TEST_RUNTIME/lib"
+          mvn -B verify -Pnative-runtime -pl '!pangrova-native-bundle' \
+            -Djava.library.path="$NATIVE_LIB_DIR" \
+            -Dpangrova.lance.fixture.tool="$PANGROVA_JAVA_NATIVE_TEST_RUNTIME/pangrova_lance_fixture_tool"
+
+      - name: Upload Java regression reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: java-daily-jdk-${{ matrix.java }}
+          path: '**/target/surefire-reports/'
