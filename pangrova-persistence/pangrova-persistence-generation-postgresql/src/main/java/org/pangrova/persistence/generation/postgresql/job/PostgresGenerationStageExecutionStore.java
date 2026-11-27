@@ -13,8 +13,10 @@ import org.pangrova.generation.api.output.GenerationOutput;
 import org.pangrova.generation.api.page.GenerationPageCompletion;
 import org.pangrova.generation.api.enums.GenerationJobState;
 import org.pangrova.generation.api.enums.GenerationPageKind;
+import org.pangrova.generation.api.graph.template.GenerationStageTemplate.PublicationRead;
 import org.pangrova.persistence.generation.postgresql.execution.PostgresCurrentGenerationAuthority;
 import org.pangrova.persistence.generation.postgresql.exchange.PostgresGenerationStageExchangeStore;
+import org.pangrova.persistence.generation.postgresql.query.PostgresGenerationQueries.PageInputs;
 import org.pangrova.common.api.annotation.Internal;
 import org.pangrova.execution.api.ownership.ExecutionAnchor;
 
@@ -23,6 +25,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Objects;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Function;
 
 /** Same-authority transaction boundary for preparing exact partitions in the shared stage engine. */
@@ -163,11 +166,16 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
             if (job.state() == GenerationJobState.QUEUED) {
                 markJobRunning(connection, key.tenantId(), key.jobId(), first.now());
             }
+            var inputs = INPUTS.loadPageInputs(connection, key.tenantId(), key.jobId(),
+                    pages.stream().map(PageRow::pageId).toList());
+            var publications = PostgresGenerationPublishedInputs.load(connection, key.tenantId(),
+                    authority.executionAnchor().executionId(), stage.template().publicationReads(),
+                    inputs.stream().map(PageInputs::splits).toList());
             var result = new ArrayList<T>(pages.size());
-            for (var page : pages) {
-                var lease = PostgresGenerationPageClaim.issue(connection, page, first.anchor(), first.controlTerm(),
-                        first.leaseDuration(), first.now());
-                var evidence = prepareEvidence(connection, authority, job, lease, exchanges);
+            for (int i = 0; i < pages.size(); i++) {
+                var lease = PostgresGenerationPageClaim.issue(connection, pages.get(i), inputs.get(i),
+                        first.anchor(), first.controlTerm(), first.leaseDuration(), first.now());
+                var evidence = prepareEvidence(connection, authority, job, lease, exchanges, publications.get(i));
                 result.add(Objects.requireNonNull(prepare.apply(evidence),
                         "partition preparation must return immutable metadata"));
             }
@@ -218,7 +226,10 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
                 throw new IllegalStateException("Issued durable partition inputs differ from immutable PG allocations");
             }
             requireConsumerEvidence(authority, lease.stageId(), exchanges);
-            var evidence = prepareEvidence(connection, authority, job, lease, exchanges);
+            var template = authority.dispatchSpec().stageGraph().requireStage(lease.stageId()).template();
+            var publications = PostgresGenerationPublishedInputs.load(connection, lease.tenantId(),
+                    authority.executionAnchor().executionId(), template.publicationReads(), List.of(actualSplits));
+            var evidence = prepareEvidence(connection, authority, job, lease, exchanges, publications.get(0));
             return Objects.requireNonNull(
                     prepare.apply(evidence), "partition preparation must return immutable metadata");
         });
@@ -255,11 +266,8 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
 
     private static PreparedPartition prepareEvidence(java.sql.Connection connection,
             PostgresCurrentGenerationAuthority authority, GenerationJob job, GenerationLease lease,
-            List<ExchangeEvidence> exchanges)
+            List<ExchangeEvidence> exchanges, Map<PublicationRead, PublishedInput> publications)
             throws java.sql.SQLException {
-        var template = authority.dispatchSpec().stageGraph().requireStage(lease.stageId()).template();
-        var publications = PostgresGenerationPublishedInputs.load(connection, lease.tenantId(),
-                authority.executionAnchor().executionId(), template.publicationReads(), lease.splits());
         var dependencies = lease.kind() == GenerationPageKind.DEPENDENCY_REDUCE
                 || lease.kind() == GenerationPageKind.GENERATION_FINALIZE
                 ? PostgresGenerationOutputQueries.loadDependencies(connection, lease.tenantId(), lease.jobId(),

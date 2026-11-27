@@ -270,24 +270,32 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
         var owner = createWideJob(key, window * 2);
         installStatementCounters();
 
-        var selectionSql = "WITH requested(partition_id, page_ordinal) AS (VALUES%artifact_build_pages%";
+        var selectionSql = "WITH requested(partition_id, page_ordinal) AS (%artifact_build_pages%";
         var startedSql = "UPDATE artifact_build_jobs SET state=$% WHERE tenant_id=%AND state=$%";
+        var splitSql = "SELECT page_id,source_object_id,split_bytes,split_sha256%FROM artifact_build_page_sources%";
+        var dependenciesSql = "SELECT page_id,dependency_page_id%FROM artifact_build_page_dependencies%";
         var former = partitionClaims(key, owner, 0, window);
         long exchangeBefore = exchangeReads().combined();
         long authorityBefore = executionRouteReads();
         long selectionBefore = statementReads(selectionSql);
         long startedBefore = statementReads(startedSql);
+        long splitBefore = statementReads(splitSql);
+        long dependenciesBefore = statementReads(dependenciesSql);
         for (var claim : former) stages.preparePartition(claim, prepared -> prepared.lease()).orElseThrow();
         assertThat(exchangeReads().combined() - exchangeBefore).isEqualTo(window);
         assertThat(executionRouteReads() - authorityBefore).isEqualTo(window);
         assertThat(statementReads(selectionSql) - selectionBefore).isEqualTo(window);
         assertThat(statementReads(startedSql) - startedBefore).as("initial job transition").isOne();
+        assertThat(statementReads(splitSql) - splitBefore).isEqualTo(window);
+        assertThat(statementReads(dependenciesSql) - dependenciesBefore).isEqualTo(window);
 
         var claims = partitionClaims(key, owner, window, window);
         exchangeBefore = exchangeReads().combined();
         authorityBefore = executionRouteReads();
         selectionBefore = statementReads(selectionSql);
         startedBefore = statementReads(startedSql);
+        splitBefore = statementReads(splitSql);
+        dependenciesBefore = statementReads(dependenciesSql);
         var leased = stages.preparePartitions(claims, prepared -> prepared.lease());
         assertThat(leased).extracting(GenerationLease::partitionId)
                 .containsExactlyElementsOf(claims.stream().map(GenerationStageExecutionStore.PartitionClaim::partitionId).toList());
@@ -299,6 +307,16 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
         assertThat(executionRouteReads() - authorityBefore).as("execution authority reads").isOne();
         assertThat(statementReads(selectionSql) - selectionBefore).as("exact page cohort reads").isOne();
         assertThat(statementReads(startedSql) - startedBefore).as("updates for an already running job").isZero();
+        assertThat(statementReads(splitSql) - splitBefore).as("page source reads").isOne();
+        assertThat(statementReads(dependenciesSql) - dependenciesBefore).as("page dependency reads").isOne();
+
+        try (var connection = dataSource.getConnection()) {
+            var inputs = new org.pangrova.persistence.generation.postgresql.query.PostgresGenerationQueries()
+                    .loadPageInputs(connection, key.tenantId(), key.jobId(), List.of("terminal-0", "producer-0"));
+            assertThat(inputs.get(0).dependencies()).containsExactlyElementsOf(
+                    java.util.stream.IntStream.range(0, window * 2).mapToObj(i -> "producer-" + i).toList());
+            assertThat(inputs.get(1).dependencies()).isEmpty();
+        }
     }
 
     @Test

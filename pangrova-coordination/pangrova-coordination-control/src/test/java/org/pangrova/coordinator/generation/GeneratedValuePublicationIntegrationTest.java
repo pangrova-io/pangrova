@@ -166,10 +166,7 @@ class GeneratedValuePublicationIntegrationTest {
 
     private static void assertWindowMaterialization(javax.sql.DataSource dataSource, PostgresGenerationJobStore store,
             JdbcGeneratedValuePublicationStore publicationStore, DataSplit split) throws Exception {
-        var second = split.toBuilder()
-                .setSplitId(org.pangrova.protocol.source.DataSplitProtoCodec.stableSplitId(
-                        "iceberg", SOURCE_ID, SNAPSHOT, "object-b", "s3://warehouse/object-b.parquet", 0, 0))
-                .setDataObjectId("object-b").setOpaqueLocation("s3://warehouse/object-b.parquet").build();
+        var second = secondSplit(split);
         var resolution = new GeneratedValueGenerationBindingResolver(publicationStore, store)
                 .resolveTemplate(TENANT, SOURCE_ID, "embedding", SNAPSHOT, List.of(split, second)).orElseThrow();
         var bindings = List.of(resolution.bind("scan-a"), resolution.bind("scan-b"));
@@ -198,6 +195,13 @@ class GeneratedValuePublicationIntegrationTest {
         }
     }
 
+    private static DataSplit secondSplit(DataSplit split) {
+        return split.toBuilder()
+                .setSplitId(org.pangrova.protocol.source.DataSplitProtoCodec.stableSplitId(
+                        "iceberg", SOURCE_ID, SNAPSHOT, "object-b", "s3://warehouse/object-b.parquet", 0, 0))
+                .setDataObjectId("object-b").setOpaqueLocation("s3://warehouse/object-b.parquet").build();
+    }
+
     private static long materializationReads(javax.sql.DataSource dataSource) throws Exception {
         try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement("""
                 SELECT COALESCE(SUM(calls), 0)
@@ -216,8 +220,9 @@ class GeneratedValuePublicationIntegrationTest {
 
     private void assertClaimConnectionEvidence(javax.sql.DataSource dataSource, PostgresGenerationJobStore store,
             JdbcGeneratedValuePublicationStore publicationStore, DataSplit split) throws Exception {
+        var partitions = List.of(split, secondSplit(split));
         var read = new GeneratedValueGenerationBindingResolver(publicationStore, store).resolveTemplate(
-                TENANT, SOURCE_ID, "embedding", SNAPSHOT, List.of(split)).orElseThrow().bind("scan-claim");
+                TENANT, SOURCE_ID, "embedding", SNAPSHOT, partitions).orElseThrow().bind("scan-claim");
         var original = dispatch();
         var sink = OperatorBindingSet.parseFrom(original.stageGraph().requireStage(0).bindingSetBytes())
                 .getBindings(0);
@@ -226,38 +231,59 @@ class GeneratedValuePublicationIntegrationTest {
         byte[] plan = original.stageGraph().requireStage(0).planBytes();
         var template = FrozenStageBindings.freeze(new BoundExecutionPlan(plan,
                 List.of(read, sink.toBuilder().setOutputArtifact(output).build())), List.of());
-        var stage = GenerationStageGraph.StagePlan.of(0, 1, GenerationPageKind.SOURCE_MAP,
+        var stage = GenerationStageGraph.StagePlan.of(0, partitions.size(), GenerationPageKind.SOURCE_MAP,
                 plan, template, List.of(SOURCE_ID), List.of("embedding"), true);
         var graph = new GenerationStageGraph(2, GenerationGraphPurpose.ARTIFACT_GENERATION,
                 List.of(stage), List.of(), List.of());
         String consumerJob = "same-connection-consumer";
         var spec = GenerationDispatchSpecFactory.create(consumerJob, graph, TENANT, "alice", original.authorizationScope(),
                 new GenerationDispatchSpec.ResourceGrant(4096, 1, 4096, 60_000));
-        store.createJob(consumerJob(consumerJob), spec, List.of(new GenerationPage(consumerJob, "consumer-page",
-                0, 0, 0, GenerationPageKind.SOURCE_MAP,
-                List.of(GenerationSplit.of(split.getDataObjectId(), split.toByteArray())), List.of(), 3)));
+        var inputSplits = partitions.stream()
+                .map(value -> GenerationSplit.of(value.getDataObjectId(), value.toByteArray())).toList();
+        store.createJob(consumerJob(consumerJob), spec, java.util.stream.IntStream.range(0, partitions.size())
+                .mapToObj(i -> new GenerationPage(consumerJob, "consumer-page-" + i,
+                        0, i, i, GenerationPageKind.SOURCE_MAP, List.of(inputSplits.get(i)), List.of(), 3)).toList());
         var owner = executions.takeOwnership(TENANT, consumerJob, "consumer-owner", 10);
         try (var pool = new com.zaxxer.hikari.HikariDataSource()) {
             pool.setDataSource(dataSource);
             pool.setMaximumPoolSize(1);
             pool.setMinimumIdle(0);
             pool.setConnectionTimeout(500);
+            var key = new org.pangrova.generation.api.identity.GenerationJobKey(TENANT, consumerJob);
+            var claims = java.util.stream.IntStream.range(0, partitions.size())
+                    .mapToObj(i -> new GenerationStageExecutionStore.PartitionClaim(key, owner,
+                            0, i, i, 10, Duration.ofSeconds(30), START)).toList();
+            var stages = ModelAuthorityFixtures.artifacts().stages(pool);
+            replaceConsumerSplit(dataSource, consumerJob, GenerationSplit.of("object-b", new byte[]{1}));
+            assertThatThrownBy(() -> stages.preparePartitions(claims, prepared -> {
+                throw new AssertionError("Corrupt publication inputs must block the whole cohort");
+            })).isInstanceOf(IllegalStateException.class).hasMessageContaining("source allocation differs");
+            replaceConsumerSplit(dataSource, consumerJob, inputSplits.get(1));
+
             long guardBefore = publicationSelects(dataSource, "SELECT state FROM artifact_build_jobs%FOR SHARE");
             String manifestSql = "SELECT * FROM artifact_build_jobs%staging_generation=%FOR SHARE";
+            String sourceOutputSql = "SELECT object_id%FROM artifact_build_outputs%source_object_id IN (%";
+            String generationOutputSql = "SELECT object_id%FROM artifact_build_outputs%ORDER BY object_ordinal,object_id";
+            String checksumSql = "SELECT source_object_id,split_sha256 FROM artifact_build_page_sources%";
             long manifestBefore = publicationSelects(dataSource, manifestSql);
-            var claim = new GenerationStageExecutionStore.PartitionClaim(
-                    new org.pangrova.generation.api.identity.GenerationJobKey(TENANT, consumerJob), owner,
-                    0, 0, 0, 10, Duration.ofSeconds(30), START);
-            var stages = ModelAuthorityFixtures.artifacts().stages(pool);
+            long sourceOutputBefore = publicationSelects(dataSource, sourceOutputSql);
+            long generationOutputBefore = publicationSelects(dataSource, generationOutputSql);
+            long checksumBefore = publicationSelects(dataSource, checksumSql);
             var executor = Executors.newSingleThreadExecutor();
             try (var holder = dataSource.getConnection()) {
                 holder.setAutoCommit(false);
                 int writer = lockPublishedJob(holder, true);
-                var readClaim = executor.submit(() -> stages.preparePartition(claim, prepared -> {
+                var readClaim = executor.submit(() -> stages.preparePartitions(claims, prepared -> {
                     assertThat(pool.getHikariPoolMXBean().getActiveConnections()).isEqualTo(1);
-                    var result = PublishedGenerationBindingResolver.materializePrepared(List.of(read), List.of(split),
-                            prepared.publications());
-                    PublishedGenerationBindingChecksum.verify(result.get(0).getArtifacts(0));
+                    int partition = prepared.lease().partitionId();
+                    var taskSplit = partitions.get(partition);
+                    assertThat(prepared.lease().splits()).containsExactly(inputSplits.get(partition));
+                    var result = PublishedGenerationBindingResolver.materializePrepared(
+                            List.of(read), List.of(taskSplit), prepared.publications());
+                    var artifact = result.get(0).getArtifacts(0);
+                    PublishedGenerationBindingChecksum.verify(artifact);
+                    assertThat(artifact.getSplitObjectsList()).hasSize(2)
+                            .extracting(object -> object.getSourceObjectId()).containsOnly(taskSplit.getDataObjectId());
                     assertThat(prepared.publications()).hasSize(1);
                     assertThat(prepared.dependencyOutputs()).isEmpty();
                     return prepared.lease();
@@ -267,7 +293,8 @@ class GeneratedValuePublicationIntegrationTest {
                 } finally {
                     holder.rollback();
                 }
-                assertThat(readClaim.get(5, TimeUnit.SECONDS)).isPresent();
+                assertThat(readClaim.get(5, TimeUnit.SECONDS)).hasSize(partitions.size())
+                        .allSatisfy(lease -> assertThat(lease.attemptId()).isZero());
             } finally {
                 executor.shutdownNow();
             }
@@ -275,7 +302,23 @@ class GeneratedValuePublicationIntegrationTest {
                     .as("separate publication guard queries in the claim transaction").isZero();
             assertThat(publicationSelects(dataSource, manifestSql) - manifestBefore)
                     .as("locked published manifest queries in the claim transaction").isOne();
+            assertThat(publicationSelects(dataSource, sourceOutputSql) - sourceOutputBefore).isOne();
+            assertThat(publicationSelects(dataSource, generationOutputSql) - generationOutputBefore).isOne();
+            assertThat(publicationSelects(dataSource, checksumSql) - checksumBefore).isOne();
             assertThat(pool.getHikariPoolMXBean().getActiveConnections()).isZero();
+        }
+    }
+
+    private static void replaceConsumerSplit(DataSource source, String jobId, GenerationSplit split) throws Exception {
+        try (var connection = source.getConnection(); var update = connection.prepareStatement("""
+                UPDATE artifact_build_page_sources SET split_bytes=?, split_sha256=?
+                WHERE tenant_id=? AND job_id=? AND page_id='consumer-page-1' AND source_object_id='object-b'
+                """)) {
+            update.setBytes(1, split.canonicalSplitBytes());
+            update.setString(2, split.splitSha256());
+            update.setString(3, TENANT);
+            update.setString(4, jobId);
+            assertThat(update.executeUpdate()).isOne();
         }
     }
 
@@ -299,7 +342,7 @@ class GeneratedValuePublicationIntegrationTest {
         return new GenerationJob(TENANT, id, "consumer-artifact", original.artifactType(), "consumer-generation",
                 SOURCE_ID, SNAPSHOT, original.executionKind(), original.dependencySet(), original.emptyPartitionPolicy(),
                 "s3://warehouse/consumer-generation", original.formatId(), original.formatMajor(), original.formatMinor(),
-                original.schemaSha256(), original.writerBuildId(), "", id, 1, 0, GenerationJobState.QUEUED,
+                original.schemaSha256(), original.writerBuildId(), "", id, 2, 0, GenerationJobState.QUEUED,
                 0, START, START, START);
     }
 
@@ -308,12 +351,7 @@ class GeneratedValuePublicationIntegrationTest {
             throws Exception {
         GenerationSplit buildSplit = GenerationSplit.of(
                 split.getDataObjectId(), split.toByteArray());
-        DataSplit second = split.toBuilder().setSplitId(
-                        org.pangrova.protocol.source.DataSplitProtoCodec.stableSplitId(
-                                "iceberg", SOURCE_ID, SNAPSHOT, "object-b",
-                                "s3://warehouse/object-b.parquet", 0, 0))
-                .setDataObjectId("object-b")
-                .setOpaqueLocation("s3://warehouse/object-b.parquet").build();
+        DataSplit second = secondSplit(split);
         GenerationJob job = job();
         buildStore.createJob(job, dispatch(), List.of(new GenerationPage(
                 JOB_ID, "page-a", 0, 0, 0, GenerationPageKind.SOURCE_MAP,

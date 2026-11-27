@@ -14,7 +14,9 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /** Reads immutable scoped build inputs using the caller's connection; never opens or commits a transaction. */
@@ -123,15 +125,7 @@ public final class PostgresGenerationQueries implements GenerationTransactionInp
             statement.setString(3, pageId);
             try (ResultSet result = statement.executeQuery()) {
                 while (result.next()) {
-                    byte[] bytes = result.getBytes(2);
-                    String checksum = result.getString(3);
-                    if (bytes == null || bytes.length == 0 || checksum == null) {
-                        throw new IllegalStateException(
-                                "artifact page predates replayable canonical split storage");
-                    }
-                    splits.add(new GenerationSplit(
-                            result.getString(1), Base64.getEncoder().encodeToString(bytes),
-                            checksum));
+                    splits.add(readSplit(result));
                 }
             }
         }
@@ -157,6 +151,75 @@ public final class PostgresGenerationQueries implements GenerationTransactionInp
             }
         }
         return List.copyOf(dependencies);
+    }
+
+    /** Immutable inputs in the exact source and dependency ordinals of one page. */
+    public record PageInputs(List<GenerationSplit> splits, List<String> dependencies) {
+        public PageInputs {
+            splits = List.copyOf(splits);
+            dependencies = List.copyOf(dependencies);
+        }
+    }
+
+    /** Loads the supplied locked page IDs with two bounded-cursor reads on the caller's connection. */
+    public List<PageInputs> loadPageInputs(
+            Connection connection, String tenantId, String jobId, List<String> pageIds) throws SQLException {
+        if (pageIds.isEmpty()) return List.of();
+        var ids = connection.createArrayOf("varchar", pageIds.toArray(String[]::new));
+        Map<String, List<GenerationSplit>> splits = new HashMap<>();
+        Map<String, List<String>> dependencies = new HashMap<>();
+        try {
+            try (var statement = connection.prepareStatement("""
+                    SELECT page_id,source_object_id,split_bytes,split_sha256
+                    FROM artifact_build_page_sources
+                    WHERE tenant_id=? AND job_id=? AND page_id=ANY(?)
+                    ORDER BY page_id,source_ordinal
+                    """)) {
+                bindPageInputs(statement, tenantId, jobId, ids);
+                try (var rows = statement.executeQuery()) {
+                    while (rows.next()) {
+                        splits.computeIfAbsent(rows.getString("page_id"), key -> new ArrayList<>())
+                                .add(readSplit(rows));
+                    }
+                }
+            }
+            try (var statement = connection.prepareStatement("""
+                    SELECT page_id,dependency_page_id
+                    FROM artifact_build_page_dependencies
+                    WHERE tenant_id=? AND job_id=? AND page_id=ANY(?)
+                    ORDER BY page_id,dependency_ordinal
+                    """)) {
+                bindPageInputs(statement, tenantId, jobId, ids);
+                try (var rows = statement.executeQuery()) {
+                    while (rows.next()) {
+                        dependencies.computeIfAbsent(rows.getString("page_id"), key -> new ArrayList<>())
+                                .add(rows.getString("dependency_page_id"));
+                    }
+                }
+            }
+        } finally {
+            ids.free();
+        }
+        return pageIds.stream().map(id -> new PageInputs(
+                splits.getOrDefault(id, List.of()), dependencies.getOrDefault(id, List.of()))).toList();
+    }
+
+    private static void bindPageInputs(PreparedStatement statement, String tenantId, String jobId, java.sql.Array ids)
+            throws SQLException {
+        statement.setFetchSize(16);
+        statement.setString(1, tenantId);
+        statement.setString(2, jobId);
+        statement.setArray(3, ids);
+    }
+
+    private static GenerationSplit readSplit(ResultSet row) throws SQLException {
+        byte[] bytes = row.getBytes("split_bytes");
+        String checksum = row.getString("split_sha256");
+        if (bytes == null || bytes.length == 0 || checksum == null) {
+            throw new IllegalStateException("artifact page predates replayable canonical split storage");
+        }
+        return new GenerationSplit(row.getString("source_object_id"), Base64.getEncoder().encodeToString(bytes),
+                checksum);
     }
 
 }

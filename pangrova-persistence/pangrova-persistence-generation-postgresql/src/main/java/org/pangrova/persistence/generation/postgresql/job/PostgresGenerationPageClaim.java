@@ -1,6 +1,7 @@
 package org.pangrova.persistence.generation.postgresql.job;
 
 import org.pangrova.persistence.generation.postgresql.query.PostgresGenerationQueries;
+import org.pangrova.persistence.generation.postgresql.query.PostgresGenerationQueries.PageInputs;
 
 import org.pangrova.generation.api.page.GenerationLease;
 import org.pangrova.execution.api.ownership.ExecutionAnchor;
@@ -28,7 +29,9 @@ final class PostgresGenerationPageClaim {
             failExhaustedPage(connection, page, now);
             return Optional.empty();
         }
-        var lease = issue(connection, page, anchor, ownerEpoch, duration, now);
+        var inputs = new PageInputs(INPUTS.loadSplits(connection, page.tenantId(), page.jobId(), page.pageId()),
+                INPUTS.loadDependencies(connection, page.tenantId(), page.jobId(), page.pageId()));
+        var lease = issue(connection, page, inputs, anchor, ownerEpoch, duration, now);
         markJobRunning(connection, page.tenantId(), page.jobId(), now);
         return Optional.of(lease);
     }
@@ -39,15 +42,15 @@ final class PostgresGenerationPageClaim {
 
     /** Issues one locked page whose attempt budget was validated before the first cohort mutation. */
     static GenerationLease issue(Connection connection, PostgresGenerationJobStoreMappings.PageRow page,
-            ExecutionAnchor anchor, long ownerEpoch, Duration duration, Instant now) throws SQLException {
+            PageInputs inputs, ExecutionAnchor anchor, long ownerEpoch, Duration duration, Instant now)
+            throws SQLException {
         int attemptId = Math.incrementExact(page.attemptId());
         long token = fencingToken(ownerEpoch, attemptId);
         Instant expiresAt = now.plus(duration);
         persist(connection, page, anchor, new IssuedLease(attemptId, token, ownerEpoch, expiresAt), now);
         return new GenerationLease(page.tenantId(), page.jobId(), page.pageId(),
                 page.stageId(), page.partitionId(), page.pageOrdinal(), page.kind(),
-                INPUTS.loadSplits(connection, page.tenantId(), page.jobId(), page.pageId()),
-                INPUTS.loadDependencies(connection, page.tenantId(), page.jobId(), page.pageId()),
+                inputs.splits(), inputs.dependencies(),
                 attemptId, token, anchor.ownerId(), ownerEpoch, expiresAt, anchor);
     }
 

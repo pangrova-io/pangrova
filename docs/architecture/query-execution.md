@@ -1218,6 +1218,13 @@ reuses the same locked exchange evidence to prepare each request. A failed
 preparation rolls back the window's new attempts. The Coordinator sends tasks
 only after the claim transaction commits.
 
+Two ordered PostgreSQL reads load the canonical splits and dependency page IDs
+for the exact claim window. The same transaction locks each referenced
+publication once and reuses its coverage pin across the window. Object and
+checksum reads use the union of the window's source IDs. Each request verifies
+its split checksums and receives only its source objects and generation-wide
+objects.
+
 Producer completion revalidates authorization and execution ownership using
 the current transaction. It uses the job and page already locked by the
 producer report and skips split loading when the page publishes only Shuffle

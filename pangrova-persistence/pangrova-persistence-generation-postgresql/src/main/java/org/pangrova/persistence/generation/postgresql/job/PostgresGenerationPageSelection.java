@@ -12,7 +12,6 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -41,7 +40,9 @@ final class PostgresGenerationPageSelection {
 
     private static final String CLAIMABLE_ANY = CLAIMABLE_PAGE + "ORDER BY page_ordinal LIMIT 1 FOR UPDATE SKIP LOCKED";
     private static final String CLAIMABLE_COHORT = """
-            WITH requested(partition_id, page_ordinal) AS (VALUES %s),
+            WITH requested(partition_id, page_ordinal) AS (
+                SELECT * FROM unnest(?::integer[], ?::integer[])
+            ),
             exact AS MATERIALIZED (
                 SELECT p.partition_id, p.page_id FROM artifact_build_pages p
                 JOIN requested r USING (partition_id, page_ordinal)
@@ -74,21 +75,17 @@ final class PostgresGenerationPageSelection {
     /** Locks pages in partition order and distinguishes a missing identity from an unavailable page. */
     static List<PageRow> selectClaimableCohort(Connection connection, List<PartitionClaim> cohort)
             throws SQLException {
-        String values = String.join(",", Collections.nCopies(cohort.size(), "(?::integer,?::integer)"));
         var first = cohort.get(0);
-        try (var statement = connection.prepareStatement(CLAIMABLE_COHORT.formatted(values))) {
-            int parameter = 1;
-            for (var request : cohort) {
-                statement.setInt(parameter++, request.partitionId());
-                statement.setInt(parameter++, request.pageOrdinal());
-            }
-            statement.setString(parameter++, first.job().tenantId());
-            statement.setString(parameter++, first.job().jobId());
-            statement.setInt(parameter++, first.stageId());
-            statement.setString(parameter++, first.job().tenantId());
-            statement.setString(parameter++, first.job().jobId());
-            setInstant(statement, parameter++, first.now());
-            setInstant(statement, parameter, first.now());
+        try (var statement = connection.prepareStatement(CLAIMABLE_COHORT)) {
+            statement.setObject(1, cohort.stream().mapToInt(PartitionClaim::partitionId).toArray());
+            statement.setObject(2, cohort.stream().mapToInt(PartitionClaim::pageOrdinal).toArray());
+            statement.setString(3, first.job().tenantId());
+            statement.setString(4, first.job().jobId());
+            statement.setInt(5, first.stageId());
+            statement.setString(6, first.job().tenantId());
+            statement.setString(7, first.job().jobId());
+            setInstant(statement, 8, first.now());
+            setInstant(statement, 9, first.now());
 
             var selected = new ArrayList<PageRow>(cohort.size());
             try (var rows = statement.executeQuery()) {
