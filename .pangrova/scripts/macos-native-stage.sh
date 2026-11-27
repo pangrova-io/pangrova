@@ -22,13 +22,15 @@ printf 'macOS Native stage %s %s on runner image %s\n' \
 
 fingerprint() {
     # Hosted runners can serve different image builds during a rollout.
-    printf '%s\n' 'pangrova-macos-native-stage-v2' "stage=$stage" \
+    printf '%s\n' 'pangrova-macos-native-stage-v3' "stage=$stage" \
         "run=$GITHUB_RUN_ID" "revision=$GITHUB_SHA" "workspace=$GITHUB_WORKSPACE" \
         "prefix=$root" "architecture=$(uname -m)" \
-        "sdk=$SDKROOT" "compiler=$PANGROVA_LLVM_PREFIX"
+        "sdk=$SDKROOT" "compiler=$PANGROVA_LLVM_PREFIX" \
+        "deployment=${MACOSX_DEPLOYMENT_TARGET:-default}"
     sw_vers -buildVersion
     xcodebuild -version
     "$PANGROVA_LLVM_PREFIX/bin/clang++" --version
+    LC_ALL=C shasum -a 256 "$PANGROVA_LLVM_PREFIX/bin/clang++"
     xcrun --sdk macosx --show-sdk-version
     brew list --versions openssl@3 libevent
 }

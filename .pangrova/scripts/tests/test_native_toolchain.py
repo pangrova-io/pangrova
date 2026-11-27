@@ -240,7 +240,7 @@ fi
         sdk = self.root / "macos sdk"
         (sdk / "usr/include").mkdir(parents=True, exist_ok=True)
         default = self.root / ".pangrova/llvm/bin/clang++"
-        self.executable(default, "echo default-clang")
+        self.executable(default, '[[ "$1" != -dumpversion ]] && echo default-clang || echo 17.0.6')
         env = dict(self.env, PANGROVA_HOME=str(self.root / ".pangrova"),
                    PANGROVA_NATIVE_BUILD_DIR=str(self.root / "build"),
                    PANGROVA_BREW=str(self.bin / "brew"), TEST_OPENSSL_PREFIX=str(openssl),
@@ -633,7 +633,7 @@ esac
 
     def test_macos_bootstrap_prefers_explicit_llvm_prefix(self):
         prefix = self.root / "selected toolchain"
-        self.executable(prefix / "bin/clang++", "echo selected-clang")
+        self.executable(prefix / "bin/clang++", '[[ "$1" != -dumpversion ]] && echo selected-clang || echo 17.0.6')
         result = self.bootstrap(prefix)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("Using selected-clang", result.stdout)
@@ -666,6 +666,39 @@ esac
         result = self.bootstrap(sdkroot=self.root / "missing sdk")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("macOS SDK headers not found", result.stderr)
+
+    def test_macos_bootstrap_uses_sdk_libcxx_with_llvm_18(self):
+        prefix = self.root / "selected toolchain"
+        sdk_headers = self.root / "macos sdk/usr/include/c++/v1"
+        sdk_headers.mkdir(parents=True)
+        (sdk_headers / "__config").touch()
+        compiler = prefix / "bin/clang++"
+        self.executable(compiler, """
+case "$1" in
+  -dumpversion) echo 18.1.8; exit ;;
+  --version) echo 'clang version 18.1.8'; exit ;;
+esac
+printf '%s\\n' "$@" > "${0%/*}/arguments"
+while [[ "$1" != -o ]]; do shift; done
+printf '#!/usr/bin/env bash\\nexit 0\\n' > "$2"
+chmod +x "$2"
+""")
+        result = self.bootstrap(prefix, full=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(f"Using macOS SDK libc++ headers at {sdk_headers}", result.stdout)
+        self.assertEqual((compiler.parent / "arguments").read_text().splitlines()[:3],
+                         ["-nostdinc++", "-isystem", str(sdk_headers)])
+        drivers = list((self.root / ".pangrova/toolchain").glob("*/clang++"))
+        self.assertEqual(len(drivers), 1)
+        env_file = self.root / ".pangrova/env.sh"
+        self.assertIn(f'export CXX="{drivers[0]}"', env_file.read_text())
+
+    def test_macos_bootstrap_requires_sdk_libcxx_with_llvm_18(self):
+        prefix = self.root / "selected toolchain"
+        self.executable(prefix / "bin/clang++", "echo 18.1.8")
+        result = self.bootstrap(prefix)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("macOS SDK does not contain libc++ headers", result.stderr)
 
     def test_macos_bootstrap_records_the_sdk_for_later_builds(self):
         result = self.bootstrap(full=True)

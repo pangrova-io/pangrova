@@ -48,7 +48,8 @@ echo "libevent ${TEST_LIBEVENT_VERSION:-2.1.12}"
                         PATH=f"{self.bin}{os.pathsep}{os.defpath}",
                         PANGROVA_LLVM_PREFIX=str(self.llvm),
                         PANGROVA_HOME=str(self.root),
-                        SDKROOT="/test/MacOSX.sdk", GITHUB_RUN_ID="12",
+                        SDKROOT="/test/MacOSX.sdk", MACOSX_DEPLOYMENT_TARGET="13.0",
+                        GITHUB_RUN_ID="12",
                         GITHUB_SHA="a" * 40, GITHUB_WORKSPACE=str(ROOT),
                         ImageVersion="test-image")
 
@@ -195,12 +196,25 @@ echo "libevent ${TEST_LIBEVENT_VERSION:-2.1.12}"
         for overrides in ({"GITHUB_SHA": "b" * 40}, {"GITHUB_RUN_ID": "13"},
                           {"TEST_ARCH": "x86_64"}, {"TEST_OS_BUILD": "24D71"},
                           {"SDKROOT": "/different/sdk"}, {"TEST_CLANG_VERSION": "19.1.1"},
-                          {"TEST_OPENSSL_VERSION": "3.5.2"}, {"TEST_LIBEVENT_VERSION": "2.1.13"}):
+                          {"TEST_OPENSSL_VERSION": "3.5.2"}, {"TEST_LIBEVENT_VERSION": "2.1.13"},
+                          {"MACOSX_DEPLOYMENT_TARGET": "14.0"}):
             with self.subTest(overrides=overrides):
                 result = self.run_stage("restore", "core", **overrides)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("does not match", result.stderr)
                 self.assertFalse(self.root.exists())
+
+    def test_changed_compiler_binary_with_same_version_is_rejected(self):
+        self.prepare()
+        self.assert_ok(self.run_stage("pack", "core"))
+        self.fresh()
+        compiler = self.llvm / "bin/clang++"
+        with compiler.open("a") as stream:
+            stream.write("# changed compiler contents\n")
+        result = self.run_stage("restore", "core")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("does not match", result.stderr)
+        self.assertFalse(self.root.exists())
 
     def test_runner_image_rollout_preserves_compatible_stage_restore(self):
         self.prepare(sdk=True)

@@ -203,7 +203,56 @@ configure_compiler() {
   export CXX="$llvm_prefix/bin/clang++"
   step "Using $("$CXX" --version | head -1)"
   step "Using macOS SDK $SDKROOT"
+  configure_darwin_cxx_runtime
 }
+
+configure_darwin_cxx_runtime() {
+  local version
+  version=$("$CXX" -dumpversion)
+  [[ "$version" =~ ^[0-9]+(\.[0-9]+)*$ ]] || die "Cannot identify the selected Clang version: $version"
+  [[ "${version%%.*}" -ge 18 ]] || return 0
+
+  # Standalone libc++ 18+ headers can emit exception symbols unavailable in
+  # the macOS system runtime. Pair the runtime with its own SDK headers.
+  local headers="$SDKROOT/usr/include/c++/v1"
+  [[ -f "$headers/__config" ]] || die "The macOS SDK does not contain libc++ headers: $headers"
+  local checksum identity driver temporary
+  checksum=$(LC_ALL=C shasum -a 256 < "$CXX")
+  checksum="${checksum%% *}"
+  identity=$(printf 'sdk-libcxx-v1\n%s\n%s\n%s\n' "$CXX" "$checksum" "$headers" | LC_ALL=C shasum -a 256)
+  identity="${identity%% *}"
+  driver="$PANGROVA_HOME/toolchain/$identity/clang++"
+  mkdir -p "$(dirname "$driver")"
+  temporary=$(mktemp "$driver.XXXXXXXX")
+  {
+    # Keep ccache's compiler content identity sensitive to the actual Clang.
+    printf '#!/usr/bin/env bash\n# Clang SHA-256: %s\n' "$checksum"
+    printf 'exec %q -nostdinc++ -isystem %q "$@"\n' "$CXX" "$headers"
+  } > "$temporary"
+  chmod +x "$temporary"
+  mv -f "$temporary" "$driver"
+  export CXX="$driver"
+  step "Using macOS SDK libc++ headers at $headers"
+  verify_darwin_exception_abi
+}
+
+verify_darwin_exception_abi() (
+  local directory
+  directory=$(mktemp -d "${TMPDIR:-/tmp}/pangrova-libcxx-check.XXXXXXXX")
+  trap 'rm -r "$directory"' EXIT
+  "$CXX" -isysroot "$SDKROOT" -std=c++20 -x c++ - -o "$directory/exception-check" <<'CPP'
+#include <exception>
+#include <stdexcept>
+int main() {
+  try {
+    std::rethrow_exception(std::make_exception_ptr(std::runtime_error("expected")));
+  } catch (const std::runtime_error&) {
+    return 0;
+  }
+}
+CPP
+  "$directory/exception-check"
+)
 
 ensure_folly_compiler_abi() {
   [[ "$OS" == "Darwin" ]] || return 0
@@ -940,7 +989,7 @@ ENVEOF
     "$PANGROVA_HOME/env.sh"
   if [[ "$OS" == "Darwin" ]]; then
     local llvm_env
-    llvm_env="export CC=\"$CC\"\nexport CXX=\"$CXX\"\nexport SDKROOT=\"$SDKROOT\"\nexport OPENSSL_ROOT_DIR=\"$OPENSSL_PREFIX\"\nexport PATH=\"$(dirname "$CXX"):\$PATH\""
+    llvm_env="export CC=\"$CC\"\nexport CXX=\"$CXX\"\nexport SDKROOT=\"$SDKROOT\"\nexport OPENSSL_ROOT_DIR=\"$OPENSSL_PREFIX\"\nexport PATH=\"$(dirname "$CC"):\$PATH\""
     sed -i.tmp -e "s|LLVM_ENV|$llvm_env|" "$PANGROVA_HOME/env.sh"
   else
     sed -i.tmp -e '/LLVM_ENV/d' "$PANGROVA_HOME/env.sh"
