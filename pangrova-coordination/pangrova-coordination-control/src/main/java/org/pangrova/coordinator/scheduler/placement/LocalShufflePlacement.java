@@ -1,9 +1,11 @@
 package org.pangrova.coordinator.scheduler.placement;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 import org.pangrova.coordinator.worker.WorkerInfo;
+import org.pangrova.protocol.execution.identity.WorkerExecutionIdentity;
 import org.pangrova.protocol.v2.OperatorBinding;
 import org.pangrova.protocol.v2.StageResourceGrant;
 import org.pangrova.scheduler.api.exception.NoAvailableWorkerException;
@@ -38,9 +40,16 @@ public final class LocalShufflePlacement implements WorkerSelector {
     @Override
     public WorkerInfo selectForBindings(String tenant, List<String> paths,
             List<OperatorBinding> bindings) {
+        return selectScanWorker(tenant, paths, bindings, 0L, Map.of());
+    }
+
+    @Override
+    public WorkerInfo selectScanWorker(String tenant, List<String> paths, List<OperatorBinding> bindings,
+            long scanWork, Map<WorkerExecutionIdentity, Double> windowWork) {
         synchronized (owner) {
             if (owner.original != null) return cluster.requireLocalWorker(tenant, owner.original, bindings);
-            var selected = cluster.selectForBindings(tenant, paths, bindings);
+            var selected = scanWork > 0 ? cluster.selectScanWorker(tenant, paths, bindings, scanWork, windowWork)
+                    : cluster.selectForBindings(tenant, paths, bindings);
             if (selected.workerExecutionIdentity() == null || selected.shuffleDeployment() == null
                     || !"LOCAL".equals(selected.shuffleDeployment().mode())) {
                 throw new NoAvailableWorkerException("Local shuffle requires a Worker incarnation with Local storage");

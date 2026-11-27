@@ -390,7 +390,7 @@ public class QueryDispatcher implements org.pangrova.query.lifecycle.QueryExecut
                 deps.workerManager(), deps.taskScheduler(), deps.cacheAffinityAssigner(),
                 deps.spillBudget() != null
                         ? deps.spillBudget() : new SpillBudget(0),
-                deps.embeddingModelRegistry());
+                deps.embeddingModelRegistry(), deps.taskTracker()::placementLoad);
     }
 
     private static DAGDispatchEngine createDagEngine(

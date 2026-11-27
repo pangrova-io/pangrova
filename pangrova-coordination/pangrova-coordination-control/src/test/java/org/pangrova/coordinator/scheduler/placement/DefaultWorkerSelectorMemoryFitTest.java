@@ -16,6 +16,9 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -141,6 +144,51 @@ class DefaultWorkerSelectorMemoryFitTest {
                 null, List.of(path));
 
         assertThat(selected.workerId()).isEqualTo("fit");
+        assertThat(selector.selectScanWorker(null, List.of(path), List.of(), 100L, Map.of()).workerId())
+                .isEqualTo("fit");
+    }
+
+    @Test
+    void scanWorkerUsesCacheOnlyWhenProjectedWorkIsTied() {
+        var manager = buildWorkerManager();
+        String path = "/data/cached.parquet";
+        var cached = worker("cached", MIN_TASK_MEMORY_BYTES,
+                new CacheCatalogSummary(List.of(path), 1, 1, 1, 0));
+        manager.registerWorker(cached);
+        manager.registerWorker(worker("idle", MIN_TASK_MEMORY_BYTES));
+        var localActive = new AtomicInteger(1);
+        var placementResolutions = new AtomicInteger();
+        var selector = new DefaultWorkerSelector(manager,
+                new TaskScheduler(new LoadBalancedStrategy(), tenant -> {
+                    placementResolutions.incrementAndGet();
+                    return Optional.of("default");
+                }),
+                null, new SpillBudget(0L), null,
+                worker -> worker.workerId().equals("cached") ? localActive.get() : 0)
+                .bindStagePlacement("tenant");
+        var paths = List.of(path);
+
+        assertThat(selector.selectScanWorker("tenant", paths, List.of(), 100L, Map.of()).workerId())
+                .isEqualTo("idle");
+        localActive.decrementAndGet();
+        assertThat(selector.selectScanWorker("tenant", paths, List.of(), 100L, Map.of()).workerId())
+                .isEqualTo("cached");
+        assertThat(selector.selectScanWorker("tenant", paths, List.of(), 100L,
+                Map.of(cached.workerExecutionIdentity(), 300.0)).workerId()).isEqualTo("idle");
+        assertThat(placementResolutions.get()).isOne();
+    }
+
+    @Test
+    void scanWorkerDoesNotDoubleCountLocalTasksSeenInTheHeartbeat() {
+        var manager = buildWorkerManager();
+        manager.registerWorker(worker("two", MIN_TASK_MEMORY_BYTES, null, false, 2));
+        manager.registerWorker(worker("three", MIN_TASK_MEMORY_BYTES, null, false, 3));
+        var selector = new DefaultWorkerSelector(manager,
+                new TaskScheduler(new LoadBalancedStrategy(), tenant -> Optional.of("default")),
+                null, new SpillBudget(0L), null, worker -> worker.workerId().equals("two") ? 2 : 0);
+
+        assertThat(selector.selectScanWorker("tenant", List.of(), List.of(), 100L, Map.of()).workerId())
+                .isEqualTo("two");
     }
 
     @Test
@@ -232,9 +280,14 @@ class DefaultWorkerSelectorMemoryFitTest {
 
     private static WorkerInfo worker(String id, long availableMemoryBytes,
                                      CacheCatalogSummary cacheSummary, boolean cdcIngestSupported) {
+        return worker(id, availableMemoryBytes, cacheSummary, cdcIngestSupported, 0);
+    }
+
+    private static WorkerInfo worker(String id, long availableMemoryBytes, CacheCatalogSummary cacheSummary,
+                                     boolean cdcIngestSupported, int runningTasks) {
         return new WorkerInfo(
                 id, "host-" + id, 8080, 9090, 9091,
-                HealthState.ACTIVE, MemoryPressure.NONE, 0.1, 0,
+                HealthState.ACTIVE, MemoryPressure.NONE, 0.1, runningTasks,
                 availableMemoryBytes, Instant.now(), 1.0,
                 "default", 2, null, List.of(), cacheSummary,
                 org.pangrova.coordinator.worker.TestWorkerInfoBuilder.canonicalInventory(), 0,

@@ -1229,31 +1229,30 @@ and task grants against the immutable task binding. [Spark file-open cost](https
 
 ![Stage DAG example (SELECT ... JOIN ... ORDER BY ... LIMIT):](../../website/static/img/diagrams/generated/query-execution-33-90eae7ac69.svg)
 
-**Output Worker selection algorithm**
+**Scan Worker placement**
 
-The production path is executed by `DefaultWorkerSelector`; it no longer maintains a separate warm pool or a Worker-side slot reservation API.
+For a live scan the Coordinator first checks tenant placement, active health,
+memory fit and exact capability bindings. Among eligible Workers it ranks
+the work already assigned in the current issuance window plus the current
+partition's estimated work multiplied by the larger of two task counts.
+Those counts come from the Worker's heartbeat and the Coordinator's exact
+assignments to that Worker incarnation. Taking the larger count accounts for
+assignments the heartbeat has yet to include without summing overlapping samples.
 
-```java
-public WorkerInfo selectWithCacheAffinity(String tenantId, List<String> splitFilePaths) {
-    if (cacheAffinityAssigner == null || splitFilePaths.isEmpty()) {
-        return select(tenantId);
-    }
-    WorkerInfo cacheHit = selectByCachedFiles(activeWorkers, splitFilePaths);
-    if (cacheHit != null) {
-        return cacheHit;
-    }
-    return firstConsistentHashPreferredWorkerOrLoadBasedFallback(tenantId, splitFilePaths);
-}
-```
+The Coordinator counts a bound task before transport. A pre-transport
+rollback or the first exact physical drain receipt releases that count.
+Logical task completion alone leaves it counted. The window adds work for
+partitions selected before their assignments are bound. Later windows see
+the bound attempts through the existing task tracker. Placement uses local
+memory and the current topology snapshot.
 
-Output Worker selection strategy:
-
-| Priority | Condition | Note |
-|--------|------|------|
-| 1 | An ACTIVE Worker's heartbeat cache summary hits the split file | Reuse the real cache-hit signal, prioritize data locality |
-| 2 | `CacheAffinityAssigner`'s consistent-hash preferred Worker for the split file | Keep stable placement when the cache is cold or has not been reported |
-| 3 | `TaskScheduler.selectWorker`'s load-based selection | The general path when there is no file path or no cache affinity available |
-| 4 | No ACTIVE Worker meets the resource threshold | Query queues or throws `NoAvailableWorkerException` |
+For tied scan work, the selector prefers reported cache hits, then eligible
+consistent-hash targets for scans without explicit operator bindings. The
+configured scheduling strategy ranks the remaining candidates. Stages without
+scan work use the existing resource and capability selection. Local Shuffle
+pins the first selected Worker incarnation for the query. Durable partition
+claims retain their own fenced selection path.
+[Trino node scheduling](https://trino.io/docs/current/admin/properties-node-scheduler.html)
 
 #### 3.3.9 Multi-Stage Exchange Scenarios
 

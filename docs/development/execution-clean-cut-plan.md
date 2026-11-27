@@ -23,15 +23,15 @@ unlisted: true
 | A1 | WP1.1 已将 principal/key digest、canonical fingerprint、lineage 和确定性 `QUEUED`/`PENDING` 回执原子写入初始 journal；正常新受理一次 INSERT，冲突/未知提交读取权威行，active query 不因 TTL 过期，terminal 后由有界 sweep 清理 | WP1.1，本地 PostgreSQL/查询链验证后提交；双 Coordinator 进程 E2E 待续 |
 | A2 | 已有原子状态版本、签名回执转发和精确 Worker 派发凭证。普通 DAG、投机副本、失败重派和 Worker CDC 在发送前提交已绑定的派发凭证。接管方分批核验并按当前租约持久化匹配的退出回执。单查询最多核验一页，全局最多四页并行，等待 HTTP 不占清理线程。仍存活的原 Worker 为已过期且没有存续执行者的精确尝试出具退出回执，并禁止迟到重放和时钟回拨重新准入。PostgreSQL 将持久租户槽位与执行租约同事务准入，并在本地实际清理后同事务退还。已经取得租约但尚未写入准入 journal 的执行也可在接管后归还槽位。接管批次只读取有 journal 证据的执行 ID。已派发的运行中 SQL 在完整退出证明后原子落下终态，已发布写入保留成功语义。查询阶段与 Worker 非终态进度使用实时投影，已移除这两类 journal 写入。终态、派发凭证和接管退出回执仍持久化，终态写入与 journal 删除按原执行租约验证归属，远端 Shuffle 清理后同事务归还快照 pin、租约和槽位。普通 SQL 的 Shuffle 删除由实际排空后的终态清理触发，暖路径复用现有能力票据，无 scope 时通过 PostgreSQL 直接消除意图，已去掉空闲扫描。客户端用原签名回执在冷路径恢复已物理排空的终态，正常状态查询仍走内存投影。接管方可释放已受理但尚未取得 Worker 或 Coordinator 本地执行权的查询。本地语句在执行前按租约登记，Coordinator 本地 Flight 直接发送 Arrow 批次，缓冲和读取者纳入进程内排空。同一持久目录的替代进程取得独占锁后可证明原进程退出，并启用既有的物理回收。未取得证明的执行不进入到期认领批次。仍在运行的前任可在本地 Flight 和执行资源实际排空后凭原始令牌写入退出证明，即使续租已移除本地缓存。收尾事务开始前租约到期时，接管方凭租约行上的退出证明继续回收。本地排空与对外 DRAINED 分开发布。接管事务提交后才发布 DRAINED，仍持有投影的前任可在认证状态请求中核对租约和槽位归还。正常收尾在同一事务中清理日志、释放租约并归还槽位。到期或待提交的执行保留接管日志。已删除重建查询状态和任务跟踪的旧重放链路。剩余工作包括独立进程故障和跨主机验收 | WP1.2 |
 | A3 | WP1.3 已引入显式 `PENDING` / `STREAM` / `NONE`，并贯通 dispatch、状态机、REST、JDBC、CLI 和 benchmark；代码合同已闭合，跨主机 resultless/延迟发布 E2E 仍待验收 | WP1.3，本地验证后提交；生产验收待续 |
-| A4 | 已有阶段观测和固定到达率样本；尚未接入完整 production phase/queue/rejection/timeout/drain KPI 与容量矩阵 | WP2 |
+| A4 | 生产已记录派发阶段、准备排队与运行时长、准备结果、胜出超时和本地释放时间。剩余工作包括入口过载归因、全局物理排空指标和多节点混合容量矩阵 | WP2 |
 | A5 | Paimon 已接到阶段剩余额度及绝对截止时间。直接追加 SQL 对每个快照单遍校验并枚举，逐个读取 manifest，阶段容量耗尽后停止开启对象。剩余工作包括限制普通和内部增量 SDK 扫描的 manifest I/O 准入、按编码字节计量并限制元数据、验证已发出的存储调用实际退出，以及跨主机混合负载下的并发度校准 | WP3.2 |
-| A6 | 实时叶子阶段已按绑定时计算的工作量分配，包括数据和删除字节、文件开启、已知行数、Paimon 合并与 Lance 未知字节的最低权重。剩余工作包括把实时 Worker 在途负载纳入放置、评估持久任务初次分配，以及按存储、格式、冷热和并发校准权重 | WP3.3 |
+| A6 | 实时扫描已按绑定元数据估算任务工作量。Worker 放置考虑当前签发窗口、心跳和本 Coordinator 的精确在途任务，报告物理释放或派发前回滚后扣除。剩余工作包括评估持久任务初次分配，校准多 Coordinator 的在途估计，以及按存储、格式、冷热和并发验证尾时延 | WP3.3 |
 | A7 | Native Parquet 将 `DataSplit` 字节区间应用到行组读取，并在文件边界核验区间。位置删除使用绝对行号。Lance 使用物理行区间或固定 manifest 分区，Paimon merge 要求整个主文件。实时 Iceberg SQL 并行扫描按 manifest `split_offsets` 分片，沿用已有快照字节统计进行阶段估算，并按原始对象共享标量索引判断。剩余验收包括跨主机对象存储 I/O、含大删除文件的成本校准、受保护产物的全链路整对象身份与真实 Apache ORC reader | WP3.4 |
 | A8 | Native 文件适配层的保留字节、返回字节、数据调用、元数据调用和失败调用已贯通 TaskReport 与 Profile。剩余工作是在真实 SDK 请求层按任务计量传输尝试、重试和 wire bytes，补跨主机、缓存和故障注入验证 | WP3.1 |
 | A9 | 动态过滤已有 Native 类型、稀疏区间和等待门；planner 仍限定单 filter/单 BIGINT/Iceberg，running probe 无 production late injection | WP4 |
 | A10 | live 单输入 AQE 已存在；durable replay 关闭 AQE，多输入对齐和可执行 skew split 缺失 | WP5 |
 | A11 | Shuffle 已有 lease/window/fence；缺少 durable revocation generation、participant ACK 和 convergence receipt | WP6 |
-| A12 | 普通 distributed write 完成后会 purge commit journal；跨重试/外部可见写入的 receipt matrix 与 retention 未统一 | WP8 |
+| A12 | 普通分布式写入删除 redo 后保留带 fingerprint 的终态回执，COPY、CDC 和外部 publication 使用现有写入声明与版本字段。剩余工作是验证各来源重放窗口并制定可证明的回执回收条件，以及跨主机故障与高并发验收 | WP8 |
 | A13 | Paimon abort 仍是 best-effort unlink；ambiguous commit 没有 durable abort barrier | WP8 |
 | A14 | nightly TPC 已存在；release 不校验同源 Linux/TPC 不可变证据，SF100 零值基线仍不合格 | WP9，需先批准 CI/基础设施变更 |
 
@@ -193,6 +193,10 @@ PostgreSQL 接管分类用例预置 4,096 条其他查询日志和 4,096 条其�
 以下均为 **at commit / historical evidence**：数字、SQL 次数和覆盖范围只对应各批次当时提交的角色包与配置。当前未完成项以本文 2026-11-25 的 A/B/C 审计为准；单输入 AQE、局部聚合和写恢复等“机制已实现”不等于生产验收已完成。被后续批次取代的描述在原文附近标注 superseded。
 
 本地读取配额微测复用实际 Native 配额实现，对照每轮 200 万笔 8 字节授权与归还，逐轮核对请求和返回总量。移除每次调用的 Attempt 堆分配，将返回量和调用结果合并到原有 drain 锁内发布。macOS arm64 单线程六轮 CPU 样本中位数由 135.9 ns 降到 43.6 ns。样本只测配额与计数开销，存储延迟单独验收。 10 项文件适配器定向测试通过。用实际本地文件让第二个范围到达 EOF，确认仍报告第一个范围已返回的 4 字节，并记录两次调用和一次失败。73 项协议、任务报告和 Profile 定向测试通过。 完整 Release 重建后的 86 项 Native 定向测试通过。已释放的任务在解析对象地址前被拒绝，后端调用数保持原值。
+
+实时扫描的 Worker 放置复用任务签发与物理释放。两个同等资源的 Worker 中，给缓存节点设置一个心跳尚未覆盖的本地在途任务，再按顺序放置四个同一文件的分区。使用实际选择器的本地探针中，旧缓存优先路径的估算工作量为 1,026/0 MiB，候选为 513/513 MiB。放置探针只计量估算工作分布。定向回归覆盖租户和内存筛选、负载相当时优先使用缓存、心跳与本地计数重叠、Worker 重启身份、派发前回滚和精确物理释放。真实双 Worker Iceberg SQL 通过相同快照的整文件和区间路径读出同样的 4,094 行。Worker 物理释放回执与 Profile 的适配层计数一致。文件缓存命中的分区可只产生元数据调用。相同 Native 构建通过能力握手和 4,383 项本地 Native 全量回归。旧 split work-stealing 原型只维护虚拟计数，已无生产调用、路由和注册，本轮删除原型及仅引用它的测试。跨 Coordinator 与带存储压力的尾时延属于 A6。 [Trino 调度器](https://trino.io/docs/current/admin/properties-node-scheduler.html)
+
+阶段归因通过派发观察、阶段计量、查询指标、attempt 计数和本地清理的 26 项定向回归。终态回执保留通过 37 项 JDBC/PostgreSQL 测试，并验证 redo 删除后重放使用同一个终态证据、跨重试时 catalog commit 不重复执行。回执回收仍按 A12 的来源重放窗口验收。
 
 S3 传输归因需利用 SDK 请求上的接收回调和请求结果重试计数。HTTP 实体字节、请求或响应头字节、TLS 与套接字层字节各有自己的观测边界。跨主机故障测试用后端日志对齐请求，用客户端计数校验收到的实体。 [AWS 请求回调](https://docs.aws.amazon.com/sdk-for-cpp/latest/api/aws-cpp-sdk-core/html/class_aws_1_1_amazon_web_service_request.html) · [libcurl 下载字节口径](https://curl.se/libcurl/c/CURLINFO_SIZE_DOWNLOAD_T.html)
 

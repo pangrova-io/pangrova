@@ -6,7 +6,7 @@ unlisted: true
 
 # Pangrova 查询性能对齐与执行引擎修正计划
 
-分片放置已采用物理扫描字节。Remote Shuffle 消费窗口内无 PostgreSQL 同步读取，生产端按窗口预留并发布批次。Exchange 前的局部归约已覆盖全局聚合以及满足成本门槛的低基数组合分组。后续优先减少跨 Stage 动态过滤遗漏的扫描量。控制面、对象存储 I/O 和结果返回继续按各自的成本归因验收。
+实时扫描放置已计入数据、打开文件和解码工作量，并结合 Worker 心跳和精确在途任务。Remote Shuffle 消费窗口内无 PostgreSQL 同步读取，生产端按窗口预留并发布批次。Exchange 前的局部归约已覆盖全局聚合以及满足成本门槛的低基数组合分组。后续优先减少跨 Stage 动态过滤遗漏的扫描量。控制面、对象存储 I/O 和结果返回继续按各自的成本归因验收。
 
 执行合同的未完成项只维护在 [执行链路计划](./execution-clean-cut-plan.md#2026-11-25-代码审计与剩余工作)：动态过滤对应 A9/WP4，单输入 AQE 校准对应 B5/WP5，多输入/durable/skew 对应 A10/WP5，production 归因对应 A4/WP2，物理 I/O 对应 A8/WP3.1，Shuffle 撤销对应 A11/WP6，结果 phase/soak 对应 B6/WP7，跨引擎证据对应 A14/B9/WP9。本页保留性能对标、实验解释和 Q0–Q4 验收方法，不再维护第二套 A/B/C 状态清单；历史批次见 [验证记录](./execution-clean-cut-plan.md#验证记录与覆盖边界)。
 
@@ -28,11 +28,11 @@ unlisted: true
 | CBO 统计质量 | 已移除由 min/max/NDV 推导的均匀直方图，并保留缺失 NDV。Join 和过滤器按直接列来源读取统计。三表 Join 的两个等价写法在本地规划探针中均使用实际来源的列统计 | 范围过滤仍需实测分布。倾斜和相关性可能影响 Join 顺序、build 侧、broadcast 和并行度。用每 plan node 的估计偏差与实际物理计划验证 |
 | Join 并行化 | `PlanFragmenter.resolveStageParallelism` 对缺少兼容 Exchange 或仍混有直接表扫描的 Join 回到单任务，保护分布式覆盖 | 记录哪些多表 SQL 触发此保护、部署中实际 Worker/driver 数与单任务耗时，再为高成本形态补齐双输入分布 |
 | 跨 Stage 动态过滤（A9） | 实时 INNER BIGINT 等值 Join 按完整获胜回执约束同一 Iceberg 快照。真实双 Worker 查询的连续键场景从 40 个分片、32,449 字节降到 2 个分片、1,398 字节。分散构建区间场景从 35 个分片、24,460 字节降到 4 个分片、2,795 字节 | 单构建任务保留有界稀疏区间，冷探测从 35 个分片、27,885 字节降到 4 个分片、2,795 字节。稳定 filter ID/generation、多 filter/多 key 和 running probe late injection 仍按 A9/WP4 实施；等待成本、其他键及连接器按真实分布验收 |
-| 扫描发现与分片大小 | Iceberg 已按批枚举并关闭 SDK 文件计划。`SplitFetcher` 仍收齐分片用于全局放置，`IndexAwareSplitFetcher` 先全量 fetch 再过滤。放置使用 split 实际文件范围和物理字节估计 | 按字节分配将两个 512 MiB 和两个 512 KiB 的输入从 1 GiB 与 1 MiB 调整为两组 512.5 MiB。10,000 文件的单 split 探针 P50 从 11.340 ms 降到 2.647 ms，生产 SQL 仍须单独测量放置等待、I/O 和尾 task |
+| 扫描发现与分片大小 | Iceberg 已按批枚举并关闭 SDK 文件计划。`SplitFetcher` 仍收齐分片用于全局放置，`IndexAwareSplitFetcher` 先全量 fetch 再过滤。放置使用实际文件范围、打开文件与解码的估计，以及签发窗口和在途任务负载 | 按字节分配将两个 512 MiB 和两个 512 KiB 的输入从 1 GiB 与 1 MiB 调整为两组 512.5 MiB。10,000 文件的单 split 探针 P50 从 11.340 ms 降到 2.647 ms，生产 SQL 仍须单独测量放置等待、I/O 和尾 task |
 | 聚合与 Exchange | 全局 `COUNT`、整数 `MIN/MAX` 以及满足成本门槛的 DECIMAL `SUM/AVG` 可在并行扫描任务局部聚合。双 Worker 验证了精确 DECIMAL 类型、过滤空值、38 位溢出状态归并，以及两列整数分组从 192 行降至 16 行。扫描端状态行数和 IPC 有效载荷均从实际任务报告读取 | 验证 DECIMAL 组合分组、混合函数和更多中间状态。高基数、DISTINCT 和 GROUPING SETS 独立衡量 CPU、内存及交换量 |
 | AQE 读取布局（A10/B5） | 符合条件的单哈希输入按已提交回执合并连续分区，保留生产坐标和各分区证明。真实 Native 与两端点对照覆盖了 4 → 1 个任务和 35 行逐项一致 | 先用真实负载校准单输入阈值和尾时延；Join 多输入合并、偏斜拆分和 durable mapping replay 按 A10/WP5 实施并验证完整覆盖 |
 | 短查询、交换与结果 | JNI 完成轮询已读取标量状态；常规 `ConsumedResultSweep` 已由事件驱动 drain 取代。定时 HTTP、远端逐 batch SQL 与 Flight IPC 回转是历史调用证据。现有局部 Top-K 和最终归并应作为基础 | 按查询类别量化固定开销、读放大、实际出口和客户端背压。本地 abrupt disconnect 已覆盖，跨主机吞吐、soak 和完整 phase 归因按 B6/WP7 验收 |
-| 归因能力（A4/A8） | JSON Profile 保留实际派发的 Stage、Exchange、阶段转换、各 Native attempt、被 Stage 接纳的物理成功尝试和 Native operator counters | 实时读准备队列已有排队、运行和拒绝记录。继续接入 production phase/queue/drain KPI、独立对象 GET attempt/retry/requested/returned/wire bytes、Exchange 阻塞原因和精确物理释放时间；缺失字段标为 unavailable |
+| 归因能力（A4/A8） | JSON Profile 保留实际派发的 Stage、Exchange、阶段转换、各 Native attempt、被 Stage 接纳的物理成功尝试和 Native operator counters | 已记录生产派发阶段、准备队列、胜出超时和本地释放时间，文件适配层计量也已进入 attempt Profile。继续接入入口过载、全局排空、独立对象 GET attempt/retry/requested/returned/wire bytes 和 Exchange 阻塞原因；缺失字段标为 unavailable |
 
 ## 修正工作包
 

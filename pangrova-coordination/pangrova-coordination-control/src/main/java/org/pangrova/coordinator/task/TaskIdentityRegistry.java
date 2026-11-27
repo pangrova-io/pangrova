@@ -3,6 +3,7 @@ package org.pangrova.coordinator.task;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.TaskAttemptDescriptor;
 import org.pangrova.coordinator.task.TaskReportPublication.Fact;
+import org.pangrova.protocol.execution.identity.WorkerExecutionIdentity;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.HashMap;
@@ -15,6 +16,8 @@ import org.pangrova.coordinator.worker.WorkerInfo;
 @org.pangrova.common.concurrent.ThreadSafe
 final class TaskIdentityRegistry {
     private final ConcurrentHashMap<String, Identity> identities = new ConcurrentHashMap<>();
+    // Published under the issuance lock and read by placement without locking or scanning attempts.
+    private final ConcurrentHashMap<WorkerExecutionIdentity, Integer> workerLoads = new ConcurrentHashMap<>();
     // This is the admission state of the SAME issued identities, not a second
     // completion registry. All mutations below are local; no RPC runs here.
     @javax.annotation.concurrent.GuardedBy("this")
@@ -247,11 +250,30 @@ final class TaskIdentityRegistry {
         if (existing.drainReceipt() != null) {
             throw new IllegalStateException("Drained task cannot acquire another dispatch target");
         }
-        if (existing.worker() != null && !existing.worker().equals(worker)) {
-            throw new IllegalStateException("Issued task target changed: " + taskId);
+        if (existing.worker() != null) {
+            if (!existing.worker().equals(worker)) {
+                throw new IllegalStateException("Issued task target changed: " + taskId);
+            }
+            return;
         }
         identities.put(taskId, new Identity(existing.attempt(), existing.request(), existing.drainReceipt(),
                 java.util.Objects.requireNonNull(worker, "worker"), existing.entered()));
+        workerLoads.merge(worker.workerExecutionIdentity(), 1, Integer::sum);
+    }
+
+    int workerLoad(WorkerExecutionIdentity worker) {
+        return workerLoads.getOrDefault(worker, 0);
+    }
+
+    private void releaseWorkerLoad(Identity identity) {
+        if (identity.worker() == null) return;
+        var target = identity.worker().workerExecutionIdentity();
+        workerLoads.compute(target, (key, count) -> {
+            if (count == null) {
+                throw new IllegalStateException("Issued Worker has no placement load: " + key);
+            }
+            return count == 1 ? null : count - 1;
+        });
     }
 
     synchronized void enterDispatch(SubmitTaskRequest request) {
@@ -452,6 +474,7 @@ final class TaskIdentityRegistry {
                 if (publication != null && !publication.notificationsCompleted) {
                     throw new IllegalStateException("Task still owns required report publication");
                 }
+                if (existing.drainReceipt() == null) releaseWorkerLoad(existing);
                 scope.tasks.remove(taskId);
                 scope.scheduled.remove(taskId);
                 removed[0] = true;
@@ -519,6 +542,7 @@ final class TaskIdentityRegistry {
         if (existing.request() != null) {
             scopes.get(existing.request().taskRequest().getAttempt().getQueryOrJobId()).tasks.remove(taskId);
         }
+        releaseWorkerLoad(existing);
         identities.remove(taskId, existing);
     }
 
@@ -543,8 +567,11 @@ final class TaskIdentityRegistry {
             }
             long ackDeadline = clock.getAsLong()
                     + org.pangrova.protocol.constants.TerminalReportDeliveryPolicy.ACK_RETENTION.toNanos();
-            return new Identity(existing.attempt(), existing.request(), report, existing.worker(), existing.entered(),
-                    existing.workerId(), existing.deadline(), ackDeadline, existing.directReadResult());
+            Identity drained = new Identity(existing.attempt(), existing.request(), report, existing.worker(),
+                    existing.entered(), existing.workerId(), existing.deadline(), ackDeadline,
+                    existing.directReadResult());
+            releaseWorkerLoad(existing);
+            return drained;
         });
     }
 

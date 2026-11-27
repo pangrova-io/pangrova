@@ -480,6 +480,11 @@ public class CoordinatorTaskTracker {
                 fact.state(), fact.stageId(), fact.reportSequence(), issuance);
     }
 
+    /** Counts assigned attempts through their exact physical release or pre-transport rollback. */
+    public int placementLoad(WorkerInfo worker) {
+        return taskIdentityStore.workerLoad(worker.workerExecutionIdentity());
+    }
+
     /** Captures the actual target before transport admission, never a later WorkerId lookup. */
     public void bindDispatchTarget(SubmitTaskRequest request, org.pangrova.coordinator.worker.WorkerInfo worker) {
         taskIdentityStore.bindTarget(request, worker);

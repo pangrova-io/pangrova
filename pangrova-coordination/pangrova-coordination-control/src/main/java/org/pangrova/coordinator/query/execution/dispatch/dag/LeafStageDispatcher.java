@@ -10,7 +10,9 @@ import org.pangrova.execution.api.enums.TaskPurpose;
 import org.pangrova.coordinator.query.execution.split.QuerySplit;
 import org.pangrova.execution.task.StageDispatchRecord;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.UnaryOperator;
 import org.pangrova.coordinator.query.execution.dispatch.dag.control.DurableStageRuntime;
@@ -30,6 +32,7 @@ import org.pangrova.coordinator.query.stage.StageNode;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.execution.BoundExecutionPlan;
+import org.pangrova.protocol.execution.identity.WorkerExecutionIdentity;
 import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.protocol.v2.OperatorBinding;
 import org.pangrova.persistence.query.api.state.QueryStateJournal;
@@ -103,7 +106,7 @@ final class LeafStageDispatcher {
             org.pangrova.protocol.rest.config.ShuffleConfig shuffleConfig,
             List<List<DataSplit>> partitionedSplits,
             List<List<String>> partitionFilePaths,
-            boolean leafStage,
+            List<Long> partitionWork,
             boolean hasArtifacts,
             int taskCount) {}
 
@@ -147,10 +150,15 @@ final class LeafStageDispatcher {
             List<DAGDispatchEngine.PartitionDispatch> dispatches, int first, int last,
             List<List<OperatorBinding>> taskBindings) {
         List<StagePartitionDispatcher.Candidate> candidates = new ArrayList<>(last - first);
+        Map<WorkerExecutionIdentity, Double> windowWork = new HashMap<>();
         for (int partition = first; partition < last; partition++) {
-            var worker = selectWorker(input, prepared, partition);
+            long work = prepared.partitionWork().get(partition);
+            var worker = selectWorker(input, prepared, partition, work, windowWork);
             var request = buildTaskRequest(input, prepared, partition, worker, taskBindings.get(partition - first));
             candidates.add(new StagePartitionDispatcher.Candidate(request, worker));
+            if (work > 0) {
+                windowWork.merge(worker.workerExecutionIdentity(), (double) work, Double::sum);
+            }
         }
         var issued = partitions.dispatchCohort(candidates);
         for (int index = 0; index < issued.size(); index++) {
@@ -179,7 +187,8 @@ final class LeafStageDispatcher {
         return new PreparedDispatch(new TaskRequestFactory.FrozenStagePlan(input.boundPlan().planBytes()),
                 ExchangeSourceBuilder.prepare(plan, input.dag(), input.dispatched()),
                 input.workerSelector().bindStagePlacement(input.session().tenantId()),
-                shuffleConfig, partitionedSplits, partitionFilePaths, leafStage, hasArtifactBindings, taskCount);
+                shuffleConfig, partitionedSplits, partitionFilePaths,
+                assigned.stream().map(LeafStageDispatcher::placementWork).toList(), hasArtifactBindings, taskCount);
     }
 
     private int taskCount(
@@ -298,19 +307,15 @@ final class LeafStageDispatcher {
         return List.copyOf(result);
     }
 
-    private WorkerInfo selectWorker(
-            LeafDispatch input, PreparedDispatch prepared, int partition) {
-        List<String> paths = prepared.partitionFilePaths().get(partition);
-        if (!input.boundPlan().operatorBindings().isEmpty()) {
-            return prepared.placement().selectForBindings(
-                    input.session().tenantId(), paths,
-                    input.boundPlan().operatorBindings());
+    private WorkerInfo selectWorker(LeafDispatch input, PreparedDispatch prepared, int partition, long work,
+            Map<WorkerExecutionIdentity, Double> windowWork) {
+        String tenantId = input.session().tenantId();
+        var bindings = input.boundPlan().operatorBindings();
+        if (work > 0) {
+            return prepared.placement().selectScanWorker(
+                    tenantId, prepared.partitionFilePaths().get(partition), bindings, work, windowWork);
         }
-        if (prepared.leafStage() && !paths.isEmpty()) {
-            return prepared.placement().selectWithCacheAffinity(
-                    input.session().tenantId(), paths);
-        }
-        return prepared.placement().select(input.session().tenantId());
+        return prepared.placement().selectForBindings(tenantId, List.of(), bindings);
     }
 
     private SubmitTaskRequest buildTaskRequest(
@@ -424,10 +429,16 @@ final class LeafStageDispatcher {
             grouped.computeIfAbsent(split.data().getDataObjectId(), ignored -> new ArrayList<>()).add(split);
         }
         return grouped.values().stream()
-                .map(group -> new SourceObjectSplits(group, group.stream()
-                        .mapToLong(QuerySplit::estimatedPlacementWeight)
-                        .reduce(0L, (left, right) -> left + Math.min(Long.MAX_VALUE - left, right))))
+                .map(group -> new SourceObjectSplits(group, placementWork(group)))
                 .toList();
+    }
+
+    private static long placementWork(List<QuerySplit> splits) {
+        long total = 0L;
+        for (var split : splits) {
+            total += Math.min(Long.MAX_VALUE - total, split.estimatedPlacementWeight());
+        }
+        return total;
     }
 
     /** Keeps every split of one immutable source object on one Native task. */

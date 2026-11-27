@@ -1,7 +1,12 @@
 package org.pangrova.coordinator.scheduler.placement;
 
 import org.pangrova.scheduler.api.resource.SpillBudget;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import org.pangrova.protocol.execution.identity.WorkerExecutionIdentity;
+import java.util.function.ToIntFunction;
+import org.pangrova.protocol.v2.OperatorBinding;
 import org.pangrova.scheduler.api.exception.NoAvailableWorkerException;
 import org.pangrova.scheduler.placement.ExactModelResolver;
 import org.pangrova.ai.control.model.EmbeddingModelExecutionAdmission;
@@ -27,6 +32,7 @@ public final class DefaultWorkerSelector implements WorkerSelector {
     private final CacheAffinityAssigner cacheAffinityAssigner;
     private final SpillBudget spillBudget;
     private final EmbeddingModelRegistry embeddingModelRegistry;
+    private final ToIntFunction<WorkerInfo> localPlacementLoad;
 
     /** Creates a selector without an embedding catalog; embedding execution is denied. */
     public DefaultWorkerSelector(WorkerManager workerManager,
@@ -43,11 +49,23 @@ public final class DefaultWorkerSelector implements WorkerSelector {
             CacheAffinityAssigner cacheAffinityAssigner,
             SpillBudget spillBudget,
             EmbeddingModelRegistry embeddingModelRegistry) {
+        this(workerManager, taskScheduler, cacheAffinityAssigner, spillBudget, embeddingModelRegistry, worker -> 0);
+    }
+
+    /** Uses local task ownership to cover the gap between Worker heartbeats. */
+    public DefaultWorkerSelector(
+            WorkerManager workerManager,
+            TaskScheduler taskScheduler,
+            CacheAffinityAssigner cacheAffinityAssigner,
+            SpillBudget spillBudget,
+            EmbeddingModelRegistry embeddingModelRegistry,
+            ToIntFunction<WorkerInfo> localPlacementLoad) {
         this.workerManager = workerManager;
         this.taskScheduler = taskScheduler;
         this.cacheAffinityAssigner = cacheAffinityAssigner;
         this.spillBudget = spillBudget;
         this.embeddingModelRegistry = embeddingModelRegistry;
+        this.localPlacementLoad = java.util.Objects.requireNonNull(localPlacementLoad, "localPlacementLoad");
     }
 
     @Override
@@ -60,7 +78,7 @@ public final class DefaultWorkerSelector implements WorkerSelector {
     @Override
     public WorkerSelector bindStagePlacement(String tenantId) {
         return new DefaultWorkerSelector(workerManager, taskScheduler.bindTenant(tenantId),
-                cacheAffinityAssigner, spillBudget, embeddingModelRegistry);
+                cacheAffinityAssigner, spillBudget, embeddingModelRegistry, localPlacementLoad);
     }
 
     @Override
@@ -212,6 +230,41 @@ public final class DefaultWorkerSelector implements WorkerSelector {
         return taskScheduler.selectWorker(MIN_TASK_MEMORY_BYTES, capable)
                 .orElseThrow(() -> new NoAvailableWorkerException(
                         "Exact-capability workers have insufficient available resources"));
+    }
+
+    @Override
+    public WorkerInfo selectScanWorker(String tenantId, List<String> paths, List<OperatorBinding> bindings,
+            long scanWork,
+            Map<WorkerExecutionIdentity, Double> windowWork) {
+        var candidates = taskScheduler.eligibleWorkersForTenant(
+                MIN_TASK_MEMORY_BYTES, workerManager.getActiveWorkers(), tenantId);
+        var leastLoaded = new ArrayList<WorkerInfo>();
+        double minimum = Double.POSITIVE_INFINITY;
+        for (var worker : candidates) {
+            if (!bindings.isEmpty() && !WorkerCapabilityMatcher.supports(worker.capabilityInventory(), bindings)) {
+                continue;
+            }
+            int activeTasks = Math.max(worker.runningTaskCount(), localPlacementLoad.applyAsInt(worker));
+            double assignedHere = windowWork.getOrDefault(worker.workerExecutionIdentity(), 0.0);
+            double work = activeTasks * (double) scanWork + assignedHere;
+            if (work < minimum) {
+                leastLoaded.clear();
+                minimum = work;
+            }
+            if (work == minimum) leastLoaded.add(worker);
+        }
+        if (leastLoaded.isEmpty()) throw new NoAvailableWorkerException();
+
+        if (!paths.isEmpty()) {
+            WorkerInfo cacheHit = selectByCachedFiles(leastLoaded, paths);
+            if (cacheHit != null) return cacheHit;
+            if (bindings.isEmpty() && cacheAffinityAssigner != null && cacheAffinityAssigner.hasWorkers()) {
+                WorkerInfo preferred = findPreferred(leastLoaded, cacheAffinityAssigner.preferredWorkers(paths, 3));
+                if (preferred != null) return preferred;
+            }
+        }
+        return taskScheduler.selectWorker(MIN_TASK_MEMORY_BYTES, leastLoaded)
+                .orElseThrow(NoAvailableWorkerException::new);
     }
 
     @Override
