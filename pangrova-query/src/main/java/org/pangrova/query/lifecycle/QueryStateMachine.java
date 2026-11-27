@@ -27,7 +27,6 @@ import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.query.api.lifecycle.QueryOperation;
 import org.pangrova.query.api.error.QueryFailure;
-import org.pangrova.query.api.exception.QueryRejectedException;
 import org.pangrova.common.enums.ResultDisposition;
 import org.pangrova.common.client.result.ResultEndpoint;
 import org.pangrova.query.api.journal.QueryStateEvent;
@@ -724,11 +723,9 @@ public class QueryStateMachine {
         return readOnlyTaskExecution;
     }
 
-    /** Acquires a health probe before dispatch can outlive this local admission. */
+    /** Acquires a health probe while this submission is still eligible for dispatch. */
     public synchronized void acquireAdmissionHealthProbe(java.util.function.BooleanSupplier acquire) {
-        if (isTerminal()) {
-            throw new QueryRejectedException("Query ended before admission");
-        }
+        if (isTerminal()) return;
         if (admissionHealthProbe) {
             throw new IllegalStateException("Query already owns an admission health probe");
         }

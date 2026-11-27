@@ -380,9 +380,7 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
                         .withPublicationRevision(ownership.publicationRevision());
             }
             applyPendingCancellation(queryId, sm);
-            if (!sm.isTerminal()) {
-                acquireAdmissionHealthProbe(sm);
-            }
+            acquireAdmissionHealthProbe(sm);
             incrementCounter(querySubmitCounter);
             LOG.info("event=query_submitted queryId={}", queryId);
             auditBridge.emitAuditSubmitted(queryId, sm.getSql(), enriched, sm);

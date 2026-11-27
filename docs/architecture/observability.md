@@ -169,7 +169,8 @@ public class OpenTelemetryConfig {
 
 Admission rejection reasons are `ADMISSION_CLOSED`, `TENANT_LIMIT`, `THROTTLED`,
 `HEALTH_PROBE`, `EXECUTION_OWNERSHIP_UNAVAILABLE`, `QUEUE_FULL`, and
-`EXECUTOR_STOPPING`. Dispatch rejection uses the executor shutdown state observed
+`EXECUTOR_STOPPING`. A query that reaches terminal state before acquiring its
+health probe contributes no health rejection. Dispatch rejection uses the executor shutdown state observed
 when handling the rejection. The dispatch histogram samples callbacks that start,
 including a cancelled query whose queued callback later starts. Rejected
 enqueue attempts contribute only to the counter.
