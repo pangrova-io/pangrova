@@ -65,6 +65,12 @@ LLVM. The bootstrap resolves `SDKROOT` with `xcrun` when needed and records it
 in `env.sh`: CMake then treats the SDK headers as implicit system headers
 instead of placing them ahead of libc++ while building gRPC. CI compiles a small
 zlib consumer to verify that header ordering before building the dependencies.
+The bootstrap uses the macOS 13.0 deployment target by default, matching the
+packaged Lance C FFI. With LLVM 18 or newer it pairs the selected Clang driver
+with the Xcode SDK's libc++ headers and links against the macOS system runtime.
+It verifies exception creation and rethrow before building dependencies.
+The generated driver is shared by Velox, its dependencies and the JNI build.
+Same-run macOS receipts include the compiler checksum and deployment target.
 The same check requires the Homebrew Bison executable to satisfy Velox's
 minimum version of 3.0.4. Xcode provides Bison 2.3, so CI installs the Homebrew
 keg when its executable is missing. CI also provisions the Flex keg and compiles
@@ -91,17 +97,23 @@ miss:
 
 - gRPC's configure needs OpenSSL and zlib headers that `setup-ubuntu.sh` would
   have installed afterwards, so CI installs them up front.
+- The gRPC library builds use the generated protocol sources in the pinned
+  checkout. Both the standard and ASan builds disable gRPC's optional
+  configure-time archive downloads.
 - The package-managed CMake can shadow the system one without a Modules
   directory, so both bootstraps validate the CMake found at startup and put its
   directory back in front of `PATH` before configuring Velox.
 
-The bootstrap enforces four dependency contracts.
+The bootstrap enforces these dependency contracts.
 
 - Ubuntu's packaged static gflags archive is not position-independent. Linux
   development and sanitizer builds link the shared library, including Folly's
   configuration-specific CMake imports and absolute archive paths in imported
   interfaces. The production image builds Velox's pinned gflags version as
   PIC and links its static archive from the production dependency prefix.
+- The Linux production build passes PIC flags to the pinned Boost B2 build.
+  The bootstrap verifies the Filesystem and Atomic archives with a shared-library
+  link before compiling Velox.
 - fbthrift's CMake requires an Xxhash package that Velox's dependency set does
   not install on macOS; the bootstrap builds and installs it before fbthrift.
 - Fizz and Folly developer examples are disabled during their dependency
@@ -262,21 +274,24 @@ runner ships about 14 GB free and the repository cache limit is 10 GB, so:
   install options change. Keys never fall back to another image, compiler
   configuration or pre-patch dependency tree.
 - `.github/workflows/native-deps-baseline.yml` warms the layered keys weekly
-  and when the dependency lock changes. Linux can additionally publish an
-  OCI image to GHCR when the repository variable
+  and when the dependency lock changes. Each Linux warm job can publish
+  its installed `~/.pangrova/native-deps` prefix as an OCI image to GHCR
+  when the repository variable
   `PANGROVA_NATIVE_DEPS_IMAGE=ghcr` is set and package write permission is
-  granted. Linux CI consumes that image only when the variable is set. The
-  baseline workflow still publishes the macOS dependency archive for
-  diagnostics and separate qualification.
+  granted. Linux CI extracts that prefix when the variable is set.
+  The Velox system dependency setup still runs on the consumer. The
+  baseline workflow uses the same two macOS SDK build stages as CI and
+  publishes the macOS dependency archive for diagnostics and separate
+  qualification.
 - Hosted macOS CI separates canonical and Velox prerequisite packages,
   Velox/Arrow Flight SDK construction and the Native build/test into three
   jobs per selected architecture using a per-platform reusable workflow.
   Linux platform builds have no macOS-stage dependency. The six-hour
   **per-job** limit must not put cold dependency builds and Native tests in
   the same time budget. Each consumer
-  checks the same-run, source revision, architecture, runner image, compiler
-  and SDK identity and verifies the archive checksum and required outputs
-  before using it. The SDK artifact retains the source provenance checkout,
+  checks the workflow run, source revision, architecture, macOS build,
+  compiler, SDK and linked Homebrew versions. It records the runner image
+  and verifies the archive checksum and required outputs before using it. The SDK artifact retains the source provenance checkout,
   headers, generated configuration and libraries, but excludes object files
   and download archives. Artifacts are short-lived, not cross-run dependency
   caches; partitioning adds transfer overhead. macOS no longer restores an

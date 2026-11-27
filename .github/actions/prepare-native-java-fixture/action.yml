@@ -12,8 +12,8 @@ runs:
         key: pangrova-native-fixture-maven-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/pom.xml', '.mvn/**', 'pangrova-worker-native/bin/run-native-tests.py') }}
         restore-keys: pangrova-native-fixture-maven-v1-${{ runner.os }}-${{ runner.arch }}-
 
-    - name: Build pinned Iceberg SDK dependency
-      uses: ./.github/actions/setup-iceberg-sdk
+    - name: Install same-run Iceberg SDK
+      uses: ./.github/actions/restore-iceberg-sdk
 
     - name: Build the Lance Java fixture
       shell: bash

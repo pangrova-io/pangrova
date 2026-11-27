@@ -26,7 +26,7 @@ class MacOSNativeStageTest(unittest.TestCase):
             path.mkdir(parents=True)
         self.executable(self.bin / "uname",
                         'case "$1" in -s) echo Darwin;; -m) echo "${TEST_ARCH:-arm64}";; esac')
-        self.executable(self.bin / "sw_vers", "echo 24D70")
+        self.executable(self.bin / "sw_vers", 'echo "${TEST_OS_BUILD:-24D70}"')
         self.executable(self.bin / "xcodebuild", "echo 'Xcode 16.4'")
         self.executable(self.bin / "xcrun", """
 if [ "$1" = lipo ]; then
@@ -39,13 +39,17 @@ else
     echo 15.5
 fi
 """)
-        self.executable(self.bin / "brew", "echo 'openssl@3 3.5.1'; echo 'libevent 2.1.12'")
-        self.executable(self.llvm / "bin/clang++", "echo 'clang version 18.1.8'")
+        self.executable(self.bin / "brew", """
+echo "openssl@3 ${TEST_OPENSSL_VERSION:-3.5.1}"
+echo "libevent ${TEST_LIBEVENT_VERSION:-2.1.12}"
+""")
+        self.executable(self.llvm / "bin/clang++", 'echo "clang version ${TEST_CLANG_VERSION:-18.1.8}"')
         self.env = dict(os.environ, HOME=str(self.home),
                         PATH=f"{self.bin}{os.pathsep}{os.defpath}",
                         PANGROVA_LLVM_PREFIX=str(self.llvm),
                         PANGROVA_HOME=str(self.root),
-                        SDKROOT="/test/MacOSX.sdk", GITHUB_RUN_ID="12",
+                        SDKROOT="/test/MacOSX.sdk", MACOSX_DEPLOYMENT_TARGET="13.0",
+                        GITHUB_RUN_ID="12",
                         GITHUB_SHA="a" * 40, GITHUB_WORKSPACE=str(ROOT),
                         ImageVersion="test-image")
 
@@ -105,6 +109,14 @@ fi
             self.assertTrue((self.root / "native-deps/bin" / tool).stat().st_mode & 0o100)
         self.assertTrue((self.root / "velox/deps-install/lib/libfolly.a").is_file())
         self.assertFalse((self.root / "velox/_build/release/lib/libvelox.a").exists())
+
+    def test_baseline_core_bundle_carries_its_archive_cache(self):
+        self.prepare()
+        self.create("velox/archive-cache/source.tar.gz")
+        self.assert_ok(self.run_stage("pack", "core", PANGROVA_MACOS_STAGE_ARCHIVES="1"))
+        self.fresh()
+        self.assert_ok(self.run_stage("restore", "core"))
+        self.assertEqual((self.root / "velox/archive-cache/source.tar.gz").read_text(), "fixture\n")
 
     def test_intel_core_round_trip_uses_x86_64_architecture(self):
         self.prepare()
@@ -182,13 +194,36 @@ fi
         self.assert_ok(self.run_stage("pack", "core"))
         self.fresh()
         for overrides in ({"GITHUB_SHA": "b" * 40}, {"GITHUB_RUN_ID": "13"},
-                          {"TEST_ARCH": "x86_64"}, {"ImageVersion": "other-image"},
-                          {"SDKROOT": "/different/sdk"}):
+                          {"TEST_ARCH": "x86_64"}, {"TEST_OS_BUILD": "24D71"},
+                          {"SDKROOT": "/different/sdk"}, {"TEST_CLANG_VERSION": "19.1.1"},
+                          {"TEST_OPENSSL_VERSION": "3.5.2"}, {"TEST_LIBEVENT_VERSION": "2.1.13"},
+                          {"MACOSX_DEPLOYMENT_TARGET": "14.0"}):
             with self.subTest(overrides=overrides):
                 result = self.run_stage("restore", "core", **overrides)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("does not match", result.stderr)
                 self.assertFalse(self.root.exists())
+
+    def test_changed_compiler_binary_with_same_version_is_rejected(self):
+        self.prepare()
+        self.assert_ok(self.run_stage("pack", "core"))
+        self.fresh()
+        compiler = self.llvm / "bin/clang++"
+        with compiler.open("a") as stream:
+            stream.write("# changed compiler contents\n")
+        result = self.run_stage("restore", "core")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("does not match", result.stderr)
+        self.assertFalse(self.root.exists())
+
+    def test_runner_image_rollout_preserves_compatible_stage_restore(self):
+        self.prepare(sdk=True)
+        self.assert_ok(self.run_stage("pack", "sdk", ImageVersion="new-image"))
+        self.fresh()
+        restored = self.run_stage("restore", "sdk", ImageVersion="previous-image")
+        self.assert_ok(restored)
+        self.assertIn("previous-image", restored.stdout)
+        self.assertTrue((self.root / "velox/_build/release/lib/libvelox.a").is_file())
 
     def test_wrong_binary_architecture_refuses_to_package(self):
         self.prepare(sdk=True)

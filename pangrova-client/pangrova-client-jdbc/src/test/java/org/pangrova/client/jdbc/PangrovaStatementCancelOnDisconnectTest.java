@@ -30,10 +30,27 @@ class PangrovaStatementCancelOnDisconnectTest {
             var query = peer.query("q-cancel-test-002", null);
             query.statusFailure.set(new StatementCancellationPeer.Reply(500,
                     "{\"error_code\":\"INTERNAL_ERROR\",\"message\":\"coordinator crashed\"}"));
-            assertThatThrownBy(() -> peer.statement().executeQuery("SELECT 1")).isInstanceOf(SQLException.class);
+            assertThatThrownBy(() -> peer.statement().executeQuery("SELECT 1"))
+                    .isInstanceOf(SQLException.class).hasMessageContaining("coordinator crashed");
             assertThat(peer.submissions()).isEqualTo(1);
             assertThat(query.cancelRequests.get()).as("Cancel sent after actual HTTP polling error").isEqualTo(1);
             assertThat(query.lastCancelled.get()).isEqualTo(query.id);
+        }
+    }
+
+    @Test
+    void terminalCancellationAtEndOfStreamRetiresTheQuery() throws Exception {
+        try (var result = new TestResultEndpoint(42); var peer = new StatementCancellationPeer()) {
+            var query = peer.query("cancelled-during-stream", result.endpoint());
+            query.state.set("RUNNING");
+            try (var rows = peer.statement().executeQuery("SELECT 42")) {
+                assertThat(rows.next()).isTrue();
+                assertThat(rows.getInt(1)).isEqualTo(42);
+                query.state.set("CANCELLED");
+                assertThatThrownBy(rows::next).isInstanceOf(SQLException.class).hasMessageContaining("cancelled");
+            }
+            peer.statement().cancel();
+            assertThat(query.cancelRequests).hasValue(0);
         }
     }
 

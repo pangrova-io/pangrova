@@ -6,6 +6,7 @@ import org.pangrova.scheduler.api.enums.ErrorCategory;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
@@ -81,6 +82,20 @@ class RemoteTaskDispatcherEpochCatchupTest {
         } finally {
             server.stop(0);
         }
+    }
+
+    @Test
+    void catchupRetryRequiresTimeForAnHttpExchange() {
+        var worker = worker(1);
+        Duration interval = Duration.ofMillis(250);
+        assertThatThrownBy(() -> RemoteTaskDispatcher.dispatchRequestTimeout(interval.toNanos(), true, worker))
+                .isInstanceOfSatisfying(TaskDispatchException.class, failure ->
+                        assertThat(failure.getCategory()).isEqualTo(ErrorCategory.CONTROL_FENCED));
+        assertThat(RemoteTaskDispatcher.dispatchRequestTimeout(interval.toNanos(), false, worker))
+                .isEqualTo(interval);
+        Duration remaining = interval.plusNanos(1);
+        assertThat(RemoteTaskDispatcher.dispatchRequestTimeout(remaining.toNanos(), true, worker))
+                .isEqualTo(remaining);
     }
 
     @Test

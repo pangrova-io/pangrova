@@ -224,12 +224,9 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
         requireEncryptedCopyTaskTransport(stamped, worker);
         byte[] body = stamped.encode();
         long deadline = System.nanoTime() + EPOCH_CATCHUP_TIMEOUT_NANOS;
-        while (true) {
-            if (System.nanoTime() >= deadline) {
-                throw epochCatchupExpired(worker);
-            }
+        for (boolean epochRetry = false; ; epochRetry = true) {
             verifyControlIdentityStillCurrent(stamped, worker);
-            HttpResponse<byte[]> response = sendPost(stamped, worker, body, deadline);
+            HttpResponse<byte[]> response = sendPost(stamped, worker, body, deadline, epochRetry);
             if (response.statusCode() != HTTP_EPOCH_AHEAD) {
                 return handleResponse(worker, response, stamped);
             }
@@ -269,17 +266,18 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
         }
     }
 
-    private TaskDispatchException epochCatchupExpired(WorkerInfo worker) {
+    private static TaskDispatchException epochCatchupExpired(WorkerInfo worker) {
         return new TaskDispatchException(ErrorCategory.CONTROL_FENCED, worker.host(),
                 "Worker did not observe the coordinator epoch before dispatch deadline");
     }
 
-    private Duration remainingDispatchTime(long deadline, WorkerInfo worker) {
-        long remaining = deadline - System.nanoTime();
-        if (remaining <= 0) {
+    static Duration dispatchRequestTimeout(long remainingNanos, boolean epochRetry, WorkerInfo worker) {
+        // Keep one retry interval for the HTTP exchange after an explicit pre-admission rejection.
+        long minimum = epochRetry ? TimeUnit.MILLISECONDS.toNanos(EPOCH_CATCHUP_RETRY_MS) : 0L;
+        if (remainingNanos <= minimum) {
             throw epochCatchupExpired(worker);
         }
-        return Duration.ofNanos(remaining);
+        return Duration.ofNanos(remainingNanos);
     }
 
     /**
@@ -297,9 +295,9 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
     }
 
     private HttpResponse<byte[]> sendPost(SubmitTaskRequest request, WorkerInfo worker,
-                                          byte[] body, long deadline) {
+                                          byte[] body, long deadline, boolean epochRetry) {
         try {
-            return taskClient(request).send(buildSubmitRequest(request, worker, body, deadline),
+            return taskClient(request).send(buildSubmitRequest(request, worker, body, deadline, epochRetry),
                     HttpResponse.BodyHandlers.ofByteArray());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -442,7 +440,7 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
         byte[] body = stamped.encode();
         long deadline = System.nanoTime() + EPOCH_CATCHUP_TIMEOUT_NANOS;
 
-        return sendAsyncWithEpochCatchup(stamped, worker, body, deadline)
+        return sendAsyncWithEpochCatchup(stamped, worker, body, deadline, false)
                 .thenApply(result -> {
                     circuitBreakerPolicy.recordSuccess(breakerKey);
                     return result;
@@ -475,17 +473,15 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
     }
 
     private CompletableFuture<DispatchResult> sendAsyncWithEpochCatchup(
-            SubmitTaskRequest stamped, WorkerInfo worker, byte[] body, long deadline) {
-        if (System.nanoTime() >= deadline) {
-            return CompletableFuture.failedFuture(epochCatchupExpired(worker));
-        }
+            SubmitTaskRequest stamped, WorkerInfo worker, byte[] body, long deadline, boolean epochRetry) {
+        HttpRequest submitRequest;
         try {
             verifyControlIdentityStillCurrent(stamped, worker);
+            submitRequest = buildSubmitRequest(stamped, worker, body, deadline, epochRetry);
         } catch (RuntimeException e) {
             return CompletableFuture.failedFuture(e);
         }
-        return taskClient(stamped).sendAsync(buildSubmitRequest(stamped, worker, body, deadline),
-                        HttpResponse.BodyHandlers.ofByteArray())
+        return taskClient(stamped).sendAsync(submitRequest, HttpResponse.BodyHandlers.ofByteArray())
                 .thenCompose(response -> {
                     if (response.statusCode() != HTTP_EPOCH_AHEAD) {
                         try {
@@ -503,12 +499,12 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
                                     CompletableFuture.delayedExecutor(
                                             EPOCH_CATCHUP_RETRY_MS, TimeUnit.MILLISECONDS))
                             .thenCompose(ignored -> sendAsyncWithEpochCatchup(
-                                    stamped, worker, body, deadline));
+                                    stamped, worker, body, deadline, true));
                 });
     }
 
     private HttpRequest buildSubmitRequest(SubmitTaskRequest request, WorkerInfo worker,
-                                          byte[] body, long deadline) {
+                                          byte[] body, long deadline, boolean epochRetry) {
         String url = taskUrl(request, worker);
         LOG.debug("event=task_dispatch url={}", url);
 
@@ -516,7 +512,7 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
                 .uri(URI.create(url))
                 .header("Content-Type", SubmitTaskRequest.MEDIA_TYPE)
                 .header("Accept", SubmitTaskRequest.MEDIA_TYPE)
-                .timeout(remainingDispatchTime(deadline, worker))
+                .timeout(dispatchRequestTimeout(deadline - System.nanoTime(), epochRetry, worker))
                 .POST(HttpRequest.BodyPublishers.ofByteArray(body));
 
         injectTraceContext(builder);

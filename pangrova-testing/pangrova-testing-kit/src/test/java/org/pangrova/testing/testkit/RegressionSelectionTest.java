@@ -133,11 +133,14 @@ class RegressionSelectionTest {
 
     @Test
     void sanitizerCiUsesTheSamePresetEnvironmentAsLocalValidation() throws Exception {
-        var workflow = Files.readString(ROOT.resolve(".github/workflows/ci.yml"));
+        var caller = Files.readString(ROOT.resolve(".github/workflows/ci.yml"));
+        assertThat(caller).contains("uses: ./.github/workflows/native-sanitizer.yml",
+                "preset: dev-asan", "preset: dev-ubsan", "preset: ${{ matrix.sanitizer.preset }}");
+        var workflow = Files.readString(ROOT.resolve(".github/workflows/native-sanitizer.yml"));
         assertThat(normalizeCommands(workflow)).contains(
-                "python3 bin/run-native-tests.py --build-dir build-${{ matrix.sanitizer.name }} "
+                "python3 bin/run-native-tests.py --build-dir build-${{ inputs.name }} "
                         + "--prepared-java \"$RUNNER_TEMP/native-java-fixture\" "
-                        + "-- --preset ${{ matrix.sanitizer.preset }} --timeout 300")
+                        + "-- --preset ${{ inputs.preset }} --timeout 300")
                 .doesNotContain("detect_leaks=1:halt_on_error=1:suppressions=sanitizer-suppressions/asan.supp");
     }
 
@@ -149,8 +152,8 @@ class RegressionSelectionTest {
         assertThat(start).isGreaterThanOrEqualTo(0);
         assertThat(end).isGreaterThan(start);
         var production = normalizeCommands(workflow.substring(start, end));
-        assertThat(production).contains("needs: [change-scope, native-build, native-sanitizers]")
-                .contains("docker buildx bake --load -f deploy/docker/docker-bake.hcl pangrova")
+        assertThat(production).contains("needs: [change-scope, iceberg-sdk, native-build, native-sanitizers]")
+                .contains("needs.iceberg-sdk.result == 'success'")
                 .contains("IMAGE=\"$PANGROVA_E2E_IMAGE\" SOURCE_COMMIT=\"$GITHUB_SHA\" docker buildx bake")
                 .contains("image_id=$(docker image inspect --format '{{.Id}}' \"$PANGROVA_E2E_IMAGE\")")
                 .contains("\"PANGROVA_E2E_IMAGE_ID=$image_id\" >> \"$GITHUB_ENV\"")
@@ -160,7 +163,16 @@ class RegressionSelectionTest {
                 .doesNotContain("-Dtest=ActivationSmokeE2ETest test")
                 .doesNotContain("diff-coverage-check.sh")
                 .doesNotContain("pangrova/pangrova:latest");
-        assertThat(production.indexOf("docker buildx bake")).isLessThan(production.indexOf("full-regression verify"));
+        int bakeStart = production.indexOf("docker buildx bake --load");
+        int inspectStart = production.indexOf("image_id=$(docker image inspect", bakeStart);
+        assertThat(bakeStart).isGreaterThanOrEqualTo(0);
+        assertThat(inspectStart).isGreaterThan(bakeStart);
+        assertThat(production.substring(bakeStart, inspectStart).trim())
+                .startsWith("docker buildx bake --load -f deploy/docker/docker-bake.hcl ")
+                .contains("--allow \"fs.read=$RUNNER_TEMP/pangrova-iceberg-sdk\"",
+                        "--set \"pangrova.contexts.iceberg-sdk=$RUNNER_TEMP/pangrova-iceberg-sdk\"")
+                .endsWith(" pangrova");
+        assertThat(bakeStart).isLessThan(production.indexOf("full-regression verify"));
         assertThat(production.indexOf("docker image inspect")).isLessThan(production.indexOf("stage-production-regression-native"));
         assertThat(production.indexOf("stage-production-regression-native")).isLessThan(production.indexOf("full-regression verify"));
         for (var property : List.of("-Dpangrova.e2e.image=\"$PANGROVA_E2E_IMAGE\"",

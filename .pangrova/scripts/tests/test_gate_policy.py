@@ -14,6 +14,8 @@ import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[3]
 SCRIPTS = ROOT / '.pangrova/scripts'
+WORKFLOWS = ROOT / '.github/workflows'
+SANITIZER_WORKFLOW = WORKFLOWS / 'native-sanitizer.yml'
 spec = importlib.util.spec_from_file_location('scope', SCRIPTS / 'ci_change_scope.py')
 scope = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(scope)
@@ -256,16 +258,16 @@ class StructuralPolicyTest(unittest.TestCase):
         self.assertIn('PANGROVA_CMAKE_BIN', asan)
         self.assertIn('--check-tools', asan)
         self.assertIn('setup-native-asan-env.sh --check-tools',
-                      (ROOT / '.github/workflows/ci.yml').read_text())
+                      SANITIZER_WORKFLOW.read_text())
         self.assertIn('20 GB', action)
-        for workflow_name in ('ci.yml', 'native-platform.yml', 'release.yml'):
+        for workflow_name in ('native-sanitizer.yml', 'native-platform.yml', 'release.yml'):
             workflow = (ROOT / '.github/workflows' / workflow_name).read_text()
             # A whole Velox tree exceeds the 10 GB repository cache limit and a
             # cold build exceeds the runner disk; cache only the install prefixes.
             self.assertIn('~/.pangrova/velox/deps-install', workflow, workflow_name)
             self.assertIn('~/.cache/ccache', workflow, workflow_name)
             self.assertNotRegex(workflow, r'\n\s+~/\.pangrova/velox\n', workflow_name)
-        for workflow_name in ('ci.yml', 'native-platform.yml', 'release.yml'):
+        for workflow_name in ('native-sanitizer.yml', 'native-platform.yml', 'release.yml'):
             workflow = (ROOT / '.github/workflows' / workflow_name).read_text()
             matches = list(re.finditer(r'\n  [a-z][a-z0-9-]*:\n', workflow))
             jobs = [workflow[m.end():(matches[index + 1].start() if index + 1 < len(matches)
@@ -280,32 +282,49 @@ class StructuralPolicyTest(unittest.TestCase):
         workflow = ((ROOT / '.github/workflows/ci.yml').read_text() +
                     (ROOT / '.github/workflows/native-platform.yml').read_text())
         self.assertNotIn("awk 'length {print \"::error::\"", workflow)
-        self.assertEqual(workflow.count('report_failure() {'), 6)
-        self.assertEqual(workflow.count('awk \'length {printf "%s%%0A", $0}\''), 6)
-        self.assertEqual(workflow.count("'--- error diagnostics ---'"), 6)
-        self.assertEqual(workflow.count('bash -x'), 5)
-        for marker in ('setup-native-build-env.sh 2>&1', 'setup-native-asan-env.sh 2>&1'):
-            self.assertIn(marker, workflow)
+        self.assertEqual(workflow.count('report_failure() {'), 3)
+        self.assertEqual(workflow.count('awk \'length {printf "%s%%0A", $0}\''), 3)
+        self.assertEqual(workflow.count("'--- error diagnostics ---'"), 3)
+        self.assertIn('setup-native-build-env.sh 2>&1', workflow)
 
     def test_asan_prepares_dependencies_without_building_release_velox(self):
-        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
-        native = (ROOT / '.github/workflows/native-platform.yml').read_text().split('  native-build:\n', 1)[1]
-        sanitizer = workflow.split('  native-sanitizers:\n', 1)[1].split('\n  jmh-benchmarks:', 1)[0]
+        native = (WORKFLOWS / 'native-platform.yml').read_text().split('  native-build:\n', 1)[1]
+        producer, consumer = SANITIZER_WORKFLOW.read_text().split('  native-tests:\n', 1)
         self.assertNotIn('PANGROVA_NATIVE_BUILD_PHASE:', native)
-        self.assertIn("PANGROVA_NATIVE_BUILD_PHASE: ${{ matrix.sanitizer.name == 'asan' "
-                      "&& 'dependencies' || 'all' }}", sanitizer)
-        self.assertIn('setup-native-asan-env.sh --check-tools', sanitizer)
-        self.assertIn('setup-native-asan-env.sh 2>&1', sanitizer)
-        self.assertIn('run-native-tests.py --build-dir build-${{ matrix.sanitizer.name }}', sanitizer)
+        self.assertIn('command: PANGROVA_NATIVE_BUILD_PHASE=dependencies bash -x', producer)
+        self.assertIn('setup-native-asan-env.sh --check-tools', producer)
+        self.assertIn('command: PANGROVA_ASAN_CI_PRUNE_RELEASE=1 bash -x', producer)
+        self.assertIn('run-native-tests.py --build-dir build-${{ inputs.name }}', consumer)
         bootstrap = (ROOT / 'pangrova-worker-native/bin/setup-native-build-env.sh').read_text()
         self.assertIn('dependencies|velox) build_velox ;;', bootstrap)
 
+    def test_asan_stages_require_verified_same_run_dependencies(self):
+        caller = (WORKFLOWS / 'ci.yml').read_text().split('  native-sanitizers:\n', 1)[1]
+        caller = caller.split('  jmh-benchmarks:\n', 1)[0]
+        self.assertIn('uses: ./.github/workflows/native-sanitizer.yml', caller)
+        producer, consumer = SANITIZER_WORKFLOW.read_text().split('  native-tests:\n', 1)
+        self.assertIn("if: inputs.name == 'asan'", producer)
+        self.assertIn('linux-asan-stage.sh pack', producer)
+        self.assertIn('if-no-files-found: error', producer)
+        self.assertNotIn('prepare-native-java-fixture', producer)
+        self.assertIn('needs: asan-dependencies', consumer)
+        self.assertIn("inputs.name == 'asan' && needs.asan-dependencies.result == 'success'", consumer)
+        self.assertIn("inputs.name == 'ubsan' && needs.asan-dependencies.result == 'skipped'", consumer)
+        self.assertIn('digest-mismatch: error', consumer)
+        self.assertLess(consumer.index('linux-asan-stage.sh restore'), consumer.index('CMake configure'))
+        self.assertIn('name: linux-asan-dependencies', producer)
+        self.assertIn('name: linux-asan-dependencies', consumer)
+
     def test_native_configure_build_and_tests_publish_filtered_diagnostics(self):
-        workflow = ((ROOT / '.github/workflows/ci.yml').read_text() +
-                    (ROOT / '.github/workflows/native-platform.yml').read_text())
+        platform = (WORKFLOWS / 'native-platform.yml').read_text()
+        sanitizer = SANITIZER_WORKFLOW.read_text()
         action_path = ROOT / '.github/actions/run-native-step/action.yml'
         action = action_path.read_text()
-        self.assertEqual(workflow.count('uses: ./.github/actions/run-native-step'), 8)
+        self.assertEqual(platform.count('uses: ./.github/actions/run-native-step'), 5)
+        for log in ('native-setup', 'native-asan-setup', 'native-asan-restore',
+                    'native-lance', 'native-sanitizer-configure', 'native-sanitizer-build',
+                    'native-sanitizer-tests'):
+            self.assertRegex(sanitizer, rf'uses: ./\.github/actions/run-native-step\s+with:\s+log: {log}\b')
         self.assertIn('bash -e -o pipefail -c "$STEP_COMMAND"', action)
         self.assertIn("'--- error diagnostics ---'", action)
         self.assertIn('working-directory: ${{ inputs.working-directory }}', action)
@@ -347,6 +366,7 @@ class StructuralPolicyTest(unittest.TestCase):
         normalized = re.sub(r'\s+', ' ', production.replace('\\\n', ' '))
         self.assertIn('IMAGE="$PANGROVA_E2E_IMAGE" SOURCE_COMMIT="$GITHUB_SHA"', normalized)
         self.assertIn('docker buildx bake --load', normalized)
+        self.assertIn('--set native-build.args.NATIVE_BUILD_JOBS=2', normalized)
         self.assertIn('docker image inspect --format', production)
         runtime_stage = (ROOT / 'deploy/docker/Dockerfile').read_text().rsplit('\nFROM ', 1)[1]
         self.assertIn('ARG SOURCE_COMMIT\n', runtime_stage)
@@ -371,11 +391,22 @@ class StructuralPolicyTest(unittest.TestCase):
         self.assertIn('-Dpangrova.e2e.file.backend="$file_backend"', owners)
         self.assertIn('-Dpangrova.e2e.excludedGroups=none -Dtest="$suite"', owners)
 
+    def test_production_consumers_install_native_classifier_as_jar(self):
+        for path in ('.github/workflows/ci.yml', 'deploy/docker/Dockerfile'):
+            with self.subTest(path=path):
+                source = (ROOT / path).read_text().replace('\\\n', ' ')
+                install = next(line for line in source.splitlines()
+                               if 'install:install-file' in line and
+                               '-DpomFile=pangrova-native-bundle/pom.xml' in line)
+                self.assertIn('-Dclassifier=', install)
+                self.assertIn('-Dpackaging=jar', install)
+
 
 class RuntimeScopeTest(unittest.TestCase):
-    def test_macos_native_fixture_bootstrap_selects_native_checks(self):
+    def test_native_fixture_bootstrap_selects_native_checks(self):
         for path in ('.pangrova/scripts/setup-macos-native-test-docker.sh',
-                     '.pangrova/scripts/setup-macos-native-test-docker.yaml'):
+                     '.pangrova/scripts/setup-macos-native-test-docker.yaml',
+                     '.pangrova/scripts/linux-asan-stage.sh'):
             with self.subTest(path=path):
                 self.assertTrue(scope.needs_runtime([path]))
                 self.assertTrue(scope.needs_native_checks([path]))
@@ -386,6 +417,7 @@ class RuntimeScopeTest(unittest.TestCase):
                      'pangrova-worker/src/main/java/example/NativeRuntime.java',
                      'pangrova-protocol/src/main/proto/task.proto',
                      'pangrova-native-bundle/pom.xml', 'pom.xml',
+                     '.mvn/ci-settings.xml',
                      '.github/workflows/ci.yml', 'unknown-build-input.lock']:
             with self.subTest(path=path):
                 self.assertTrue(scope.needs_native_checks([path]))
@@ -414,28 +446,64 @@ class RuntimeScopeTest(unittest.TestCase):
         runner = platforms['linux-x86_64']
         self.assertRegex(runner, r'^ubuntu-\d+\.\d+$')
         self.assertEqual(platforms['linux-aarch_64'], f'{runner}-arm')
-        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
-        sanitizer = workflow.split('  native-sanitizers:\n', 1)[1].split(
-            '\n  jmh-benchmarks:', 1)[0]
-        self.assertIn(f'    runs-on: {runner}\n', sanitizer)
+        self.assertEqual(SANITIZER_WORKFLOW.read_text().count(f'    runs-on: {runner}\n'), 2)
 
     def test_native_fixture_jobs_prepare_java_before_building(self):
-        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
         action = (ROOT / '.github/actions/prepare-native-java-fixture/action.yml').read_text()
-        steps = ('actions/cache/restore@', 'uses: ./.github/actions/setup-iceberg-sdk',
+        steps = ('actions/cache/restore@', 'uses: ./.github/actions/restore-iceberg-sdk',
                  '--prepare-java ', 'actions/cache/save@')
         positions = [action.index(step) for step in steps]
         self.assertEqual(positions, sorted(positions))
-        for start, end in (('native-build', 'java-build'), ('native-sanitizers', 'jmh-benchmarks')):
-            if start == 'native-build':
-                job = (ROOT / '.github/workflows/native-platform.yml').read_text().split('  native-build:\n', 1)[1]
-            else:
-                job = workflow.split(f'  {start}:\n', 1)[1].split(f'\n  {end}:', 1)[0]
+        native = (WORKFLOWS / 'native-platform.yml').read_text().split('  native-build:\n', 1)[1]
+        sanitizer = SANITIZER_WORKFLOW.read_text().split('  native-tests:\n', 1)[1]
+        for start, job in (('native-build', native), ('native-sanitizers', sanitizer)):
             with self.subTest(job=start):
                 self.assertEqual(job.count('actions/setup-java@'), 1)
                 self.assertLess(job.index('uses: ./.github/actions/prepare-native-java-fixture'),
                                 job.index('Setup native build environment'))
                 self.assertIn('--prepared-java "$RUNNER_TEMP/native-java-fixture"', job)
+
+    def test_runtime_validation_shares_the_tested_iceberg_sdk(self):
+        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
+        jobs = dict(re.findall(r'^  ([\w-]+):\n(.*?)(?=^  [\w-]+:\n|\Z)',
+                               workflow.split('\njobs:\n', 1)[1], re.MULTILINE | re.DOTALL))
+        producer = jobs['iceberg-sdk']
+        self.assertIn("if: needs.change-scope.outputs.runtime == 'true'", producer)
+        self.assertLess(producer.index('/setup-iceberg-sdk'), producer.index('actions/upload-artifact@'))
+        self.assertEqual(workflow.count('uses: ./.github/actions/setup-iceberg-sdk'), 1)
+        self.assertIn('name: pinned-iceberg-sdk', producer)
+        self.assertIn('if-no-files-found: error', producer)
+        for name in ('native-build', 'native-sanitizers', 'java-build', 'static-analysis',
+                     'production-regression', 'jmh-benchmarks', 'validation'):
+            with self.subTest(name=name):
+                self.assertIn('iceberg-sdk', re.search(r'^    needs: .*', jobs[name], re.MULTILINE)[0])
+        restore = (ROOT / '.github/actions/restore-iceberg-sdk/action.yml').read_text()
+        self.assertIn('name: pinned-iceberg-sdk', restore)
+        self.assertIn('digest-mismatch: error', restore)
+        self.assertIn('pangrova.contexts.iceberg-sdk=$RUNNER_TEMP/pangrova-iceberg-sdk',
+                      jobs['production-regression'])
+        self.assertIn('--allow "fs.read=$RUNNER_TEMP/pangrova-iceberg-sdk"',
+                      jobs['production-regression'])
+        self.assertNotIn('BUILDX_BAKE_ENTITLEMENTS_FS', jobs['production-regression'])
+        self.assertIn("needs.iceberg-sdk.result == 'success'", jobs['production-regression'])
+
+    def test_hosted_maven_builds_use_one_checksum_enforced_central_mirror(self):
+        settings = ET.parse(ROOT / '.mvn/ci-settings.xml').getroot()
+        mirrors = settings.findall('{*}mirrors/{*}mirror')
+        self.assertEqual(len(mirrors), 1)
+        self.assertEqual(mirrors[0].findtext('{*}mirrorOf'), 'central')
+        self.assertEqual(mirrors[0].findtext('{*}url'),
+                         'https://maven-central.storage-download.googleapis.com/maven2/')
+        for workflow in ('ci', 'native-platform', 'native-sanitizer', 'release'):
+            contents = (WORKFLOWS / f'{workflow}.yml').read_text()
+            self.assertIn('MAVEN_ARGS: -C --global-settings ${{ github.workspace }}/.mvn/ci-settings.xml',
+                          contents, workflow)
+        ci = (WORKFLOWS / 'ci.yml').read_text()
+        self.assertIn('pangrova.args.MAVEN_ARGS=-C --global-settings /build/.mvn/ci-settings.xml', ci)
+        dockerfile = (ROOT / 'deploy/docker/Dockerfile').read_text()
+        builder, runtime = dockerfile.split('FROM java-build-base AS builder', 1)[1].rsplit('\nFROM ', 1)
+        self.assertLess(builder.index('ARG MAVEN_ARGS'), builder.index('RUN --mount=type=cache,target=/root/.m2'))
+        self.assertNotIn('MAVEN_ARGS', runtime)
 
     def test_pinned_iceberg_sdk_uses_bounded_gradle_repository_backoff(self):
         script = (ROOT / '.pangrova/scripts/build-iceberg-sdk-candidate.sh').read_text()
@@ -465,10 +533,8 @@ class RuntimeScopeTest(unittest.TestCase):
                 if 'actions/cache' in step}
 
     def test_native_dependency_cache_is_layered_and_scoped(self):
-        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
-        native = (ROOT / '.github/workflows/native-platform.yml').read_text().split('  native-build:\n', 1)[1]
-        sanitizer = workflow.split('  native-sanitizers:\n', 1)[1].split(
-            '\n  jmh-benchmarks:', 1)[0]
+        native = (WORKFLOWS / 'native-platform.yml').read_text().split('  native-build:\n', 1)[1]
+        asan_deps, sanitizer = SANITIZER_WORKFLOW.read_text().split('  native-tests:\n', 1)
         runner = next(item['runner'] for item in scope.NATIVE_PLATFORMS
                       if item['name'] == 'linux-x86_64')
         native_caches = self._cache_steps(native)
@@ -495,8 +561,8 @@ class RuntimeScopeTest(unittest.TestCase):
         self.assertIn('${{ github.sha }}', ccache)
         self.assertIn('restore-keys:', ccache)
         self.assertNotIn('patches/*', ccache)
-        self.assertIn('matrix.sanitizer.name',
-                      sanitizer_caches['Cache compiler results'])
+        self.assertIn('inputs.name', sanitizer_caches['Cache compiler results'])
+        self.assertIn('-asan-deps-', self._cache_steps(asan_deps)['Cache compiler results'])
 
     def test_native_platform_stage_names_do_not_depend_on_skipped_input_evaluation(self):
         workflow = (ROOT / '.github/workflows/ci.yml').read_text()
@@ -549,6 +615,19 @@ class RuntimeScopeTest(unittest.TestCase):
         self.assertIn('fail-on-error: true', native)
         self.assertNotIn('continue-on-error', native)
 
+    def test_macos_docker_boots_before_installing_the_verified_engine(self):
+        script = (SCRIPTS / 'setup-macos-native-test-docker.sh').read_text()
+        config = (SCRIPTS / 'setup-macos-native-test-docker.yaml').read_text()
+        self.assertEqual(len(re.findall(r'^ +docker_digest=[0-9a-f]{64}$', script, re.MULTILINE)), 2)
+        self.assertLess(script.index('"$docker_digest" "$docker_archive" | shasum'),
+                        script.index('"$lima" start'))
+        self.assertLess(script.index('"$lima" start'), script.index('sudo -n tar -xzf -'))
+        self.assertLess(script.index('systemd-run --unit=pangrova-docker'), script.index('localhost/_ping'))
+        self.assertIn('guestSocket: /var/run/docker.sock', config)
+        self.assertIn('system: false', config)
+        self.assertIn('user: false', config)
+        self.assertNotIn('get.docker.com', script + config)
+
     def test_dependency_lock_matches_the_bootstrap(self):
         lock = {}
         for line in (ROOT / 'pangrova-worker-native/dependency-versions.txt').read_text().splitlines():
@@ -568,7 +647,15 @@ class RuntimeScopeTest(unittest.TestCase):
         self.assertIn('schedule:', baseline)
         self.assertIn('pangrova-v1-deps-${{ matrix.platform.runner }}-${{ runner.arch }}-', baseline)
         self.assertIn('pangrova-v1-velox-${{ matrix.platform.runner }}-${{ runner.arch }}-', baseline)
-        self.assertIn('native-deps-${{ matrix.platform.name }}.tar.zst', baseline)
+        linux, macos = baseline.split('  warm-macos:\n', 1)
+        self.assertNotIn('macos-15', linux)
+        self.assertIn('uses: ./.github/workflows/native-platform.yml', macos)
+        self.assertIn('sdk-only: true', macos)
+        platform = (WORKFLOWS / 'native-platform.yml').read_text()
+        sdk, native = platform.split('  native-build:\n', 1)
+        self.assertIn('native-deps-${{ fromJSON(inputs.platform).name }}.tar.zst', sdk)
+        self.assertIn('if: inputs.sdk-only', sdk)
+        self.assertIn('!cancelled() && !inputs.sdk-only', native)
 
     def test_dependency_baseline_consumers_are_opt_in(self):
         workflow = (ROOT / '.github/workflows/ci.yml').read_text()
@@ -584,6 +671,33 @@ class RuntimeScopeTest(unittest.TestCase):
         self.assertIn(revision, native)
         baseline = (ROOT / '.github/workflows/native-deps-baseline.yml').read_text()
         self.assertIn(revision, baseline)
+
+    def test_linux_dependency_image_uses_the_built_prefix(self):
+        baseline = (WORKFLOWS / 'native-deps-baseline.yml').read_text()
+        linux = baseline.split('  warm:\n', 1)[1].split('  warm-macos:', 1)[0]
+        self.assertIn('setup-native-build-env.sh\n\n      - name: Publish Linux dependency prefix', linux)
+        publish = linux.split('      - name: Publish Linux dependency prefix', 1)[1]
+        self.assertIn("vars.PANGROVA_NATIVE_DEPS_IMAGE == 'ghcr'", publish)
+        self.assertIn('docker build -t "$image" -f - "$HOME/.pangrova/native-deps"', publish)
+        self.assertIn('COPY . /opt/pangrova/native-deps/', publish)
+        platform = (WORKFLOWS / 'native-platform.yml').read_text()
+        restore = platform.split('      - name: Restore Linux dependency baseline image', 1)[1]
+        restore = restore.split('      - name:', 1)[0]
+        self.assertIn('docker create "$image" /bin/false', restore)
+        self.assertIn('docker cp "$container:/opt/pangrova/native-deps" "$HOME/.pangrova/"', restore)
+        self.assertNotIn('/opt/pangrova/velox', restore)
+
+    def test_jmh_compares_real_base_and_candidate_measurements(self):
+        workflow = (WORKFLOWS / 'ci.yml').read_text()
+        job = workflow.split('  jmh-benchmarks:\n', 1)[1].split('\n  dead-stub-detection:', 1)[0]
+        self.assertIn('ref: ${{ github.event.pull_request.base.sha }}', job)
+        self.assertIn('[[ "$(git -C jmh-base rev-parse HEAD)" == "$BASE_SHA" ]]', job)
+        self.assertIn('(cd jmh-base && mvn "${benchmark_args[@]}")', job)
+        self.assertIn('measure "jmh-base/$jar" base', job)
+        self.assertIn('measure "$jar" candidate', job)
+        self.assertIn('-foe true', job)
+        self.assertIn('target/jmh/candidate.json target/jmh/base.json 0.10', job)
+        self.assertIn('path: target/jmh/', job)
 
     def test_docs_policy_website_and_gate_tools_use_lightweight_checks(self):
         paths = ['AGENTS.md', '.pangrova/rules/testing.md', '.pangrova/setup.sh',
@@ -609,6 +723,7 @@ class RuntimeScopeTest(unittest.TestCase):
                  '.pangrova/scripts/ci_change_scope.py', '.pangrova/modules.yaml',
                  '.github/workflows/ci.yml', '.github/workflows/release.yml',
                  '.github/actions/setup-iceberg-sdk/action.yml',
+                 '.github/actions/restore-iceberg-sdk/action.yml',
                  '.github/actions/new-runtime-action/action.yml',
                  '.github/workflows/new-runtime-build.yml',
                  'config/checkstyle/checkstyle.xml', 'new-build-input.lock']
@@ -670,7 +785,7 @@ class WorkflowPolicyTest(unittest.TestCase):
         program = textwrap.dedent(final_job.split("python3 - <<'PY'\n", 1)[1].rsplit('          PY', 1)[0])
         jobs = {name: {'result': 'success'} for name in
                 ['change-scope', 'lint', 'doc-consistency', 'dead-stub-detection',
-                 'static-analysis', 'native-build', 'java-build', 'native-sanitizers',
+                 'iceberg-sdk', 'static-analysis', 'native-build', 'java-build', 'native-sanitizers',
                  'production-regression', 'tpch-performance', 'jmh-benchmarks']}
         jobs['change-scope']['outputs'] = {'runtime': runtime, 'performance': performance,
                                          'native': runtime if native is None else native}
@@ -681,13 +796,13 @@ class WorkflowPolicyTest(unittest.TestCase):
                                               'PR_EVENT': str(pr).lower()})
 
     def test_docs_can_skip_only_unselected_checks(self):
-        result = self.result(overrides={'native-build': 'skipped', 'java-build': 'skipped',
-                                       'production-regression': 'skipped'})
+        result = self.result(overrides={'iceberg-sdk': 'skipped', 'native-build': 'skipped',
+                                       'java-build': 'skipped', 'production-regression': 'skipped'})
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotEqual(self.result(overrides={'lint': 'skipped'}).returncode, 0)
 
     def test_selected_checks_cannot_fail_cancel_or_disappear(self):
-        for name in ['native-build', 'java-build', 'native-sanitizers', 'production-regression']:
+        for name in ['iceberg-sdk', 'native-build', 'java-build', 'native-sanitizers', 'production-regression']:
             for outcome in ['failure', 'cancelled', 'skipped']:
                 with self.subTest(name=name, outcome=outcome):
                     self.assertNotEqual(self.result(runtime='true', overrides={name: outcome}).returncode, 0)

@@ -29,6 +29,7 @@ class NativeToolchainTest(unittest.TestCase):
         self.bin = self.root / "bin"
         self.bin.mkdir()
         self.env = dict(os.environ, HOME=str(self.root), PATH=f"{self.bin}{os.pathsep}{os.defpath}")
+        self.env.pop("MACOSX_DEPLOYMENT_TARGET", None)
 
     @staticmethod
     def executable(path, body):
@@ -161,7 +162,8 @@ fi
         self.assertNotIn("install llvm@17", trace)
         self.assertNotIn("ccache", trace)
         self.assertNotIn("update --quiet", trace)
-        self.assertEqual(environment, f"PANGROVA_LLVM_PREFIX={prefix}\nSDKROOT={sdk_root}\n")
+        self.assertEqual(environment, f"PANGROVA_LLVM_PREFIX={prefix}\nSDKROOT={sdk_root}\n"
+                                      "MACOSX_DEPLOYMENT_TARGET=13.0\n")
         self.assertIn(f"{prefix / 'bin'}\n", path)
         self.assertIn(f"{self.root / 'bison/bin'}\n", path)
         self.assertNotIn("install bison\n", trace)
@@ -213,7 +215,8 @@ fi
         _, prefix = self.macos_tooling(llvm_formula="llvm@18")
         environment, path, _ = self.run_action("Install build tools (macOS)")
         self.assertEqual(environment, f"PANGROVA_LLVM_PREFIX={prefix}\n"
-                                      f"SDKROOT={self.root / 'macos sdk'}\n")
+                                      f"SDKROOT={self.root / 'macos sdk'}\n"
+                                      "MACOSX_DEPLOYMENT_TARGET=13.0\n")
         self.assertIn(f"{prefix / 'bin'}\n", path)
 
     def bootstrap(self, prefix=None, sdkroot=None, full=False, build_deps=False, arch="arm64"):
@@ -240,7 +243,7 @@ fi
         sdk = self.root / "macos sdk"
         (sdk / "usr/include").mkdir(parents=True, exist_ok=True)
         default = self.root / ".pangrova/llvm/bin/clang++"
-        self.executable(default, "echo default-clang")
+        self.executable(default, 'if [ "$1" = -dumpversion ]; then echo 17.0.6; else echo default-clang; fi')
         env = dict(self.env, PANGROVA_HOME=str(self.root / ".pangrova"),
                    PANGROVA_NATIVE_BUILD_DIR=str(self.root / "build"),
                    PANGROVA_BREW=str(self.bin / "brew"), TEST_OPENSSL_PREFIX=str(openssl),
@@ -283,6 +286,7 @@ printf '%s\\n' "$@" >> "$TRACE"
         trace = (self.root / "cmake-trace").read_text()
         self.assertIn(str(self.root / "build/abseil-cpp"), trace)
         self.assertIn(str(self.root / "build/grpc"), trace)
+        self.assertIn("-DgRPC_DOWNLOAD_ARCHIVES=OFF", trace.splitlines())
         self.assertNotIn("-DCMAKE_OSX_ARCHITECTURES=arm64", trace)
 
     def test_macos_arm_bootstrap_keeps_the_architecture_argument(self):
@@ -633,7 +637,8 @@ esac
 
     def test_macos_bootstrap_prefers_explicit_llvm_prefix(self):
         prefix = self.root / "selected toolchain"
-        self.executable(prefix / "bin/clang++", "echo selected-clang")
+        self.executable(prefix / "bin/clang++",
+                        'if [ "$1" = -dumpversion ]; then echo 17.0.6; else echo selected-clang; fi')
         result = self.bootstrap(prefix)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("Using selected-clang", result.stdout)
@@ -667,15 +672,52 @@ esac
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("macOS SDK headers not found", result.stderr)
 
-    def test_macos_bootstrap_records_the_sdk_for_later_builds(self):
+    def test_macos_bootstrap_uses_sdk_libcxx_with_llvm_18(self):
+        prefix = self.root / "selected toolchain"
+        sdk_headers = self.root / "macos sdk/usr/include/c++/v1"
+        sdk_headers.mkdir(parents=True)
+        (sdk_headers / "__config").touch()
+        compiler = prefix / "bin/clang++"
+        self.executable(compiler, """
+case "$1" in
+  -dumpversion) echo 18.1.8; exit ;;
+  --version) echo 'clang version 18.1.8'; exit ;;
+esac
+[ "$MACOSX_DEPLOYMENT_TARGET" = 13.0 ] || exit 1
+printf '%s\\n' "$@" > "${0%/*}/arguments"
+while [ "$1" != -o ]; do shift; done
+printf '#!/usr/bin/env bash\\nexit 0\\n' > "$2"
+chmod +x "$2"
+""")
+        result = self.bootstrap(prefix, full=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(f"Using macOS SDK libc++ headers at {sdk_headers}", result.stdout)
+        self.assertEqual((compiler.parent / "arguments").read_text().splitlines()[:3],
+                         ["-nostdinc++", "-isystem", str(sdk_headers)])
+        drivers = list((self.root / ".pangrova/toolchain").glob("*/clang++"))
+        self.assertEqual(len(drivers), 1)
+        env_file = self.root / ".pangrova/env.sh"
+        self.assertIn(f'export CXX="{drivers[0]}"', env_file.read_text())
+
+    def test_macos_bootstrap_requires_sdk_libcxx_with_llvm_18(self):
+        prefix = self.root / "selected toolchain"
+        self.executable(prefix / "bin/clang++", "echo 18.1.8")
+        result = self.bootstrap(prefix)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("macOS SDK does not contain libc++ headers", result.stderr)
+
+    def test_macos_bootstrap_records_the_sdk_and_deployment_target_for_later_builds(self):
+        self.env["MACOSX_DEPLOYMENT_TARGET"] = "13.3"
         result = self.bootstrap(full=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         env_file = self.root / ".pangrova/env.sh"
-        result = subprocess.run(["bash", "-c", 'source "$1"; printf "%s" "$SDKROOT"',
+        del self.env["MACOSX_DEPLOYMENT_TARGET"]
+        result = subprocess.run(["bash", "-c",
+                                 'source "$1"; printf "%s\\n" "$SDKROOT" "$MACOSX_DEPLOYMENT_TARGET"',
                                  "test", str(env_file)], env=self.env,
                                 text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout, str(self.root / "macos sdk"))
+        self.assertEqual(result.stdout.splitlines(), [str(self.root / "macos sdk"), "13.3"])
 
 
 if __name__ == "__main__":

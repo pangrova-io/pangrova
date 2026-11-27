@@ -16,15 +16,22 @@ case "$stage" in core|sdk) ;; *) die "Unknown stage: $stage";; esac
 : "${GITHUB_WORKSPACE:?missing workspace path}"
 : "${PANGROVA_LLVM_PREFIX:?missing selected compiler}"
 : "${SDKROOT:?missing selected macOS SDK}"
+: "${MACOSX_DEPLOYMENT_TARGET:?missing macOS deployment target}"
+
+printf 'macOS Native stage %s %s on runner image %s\n' \
+    "$stage" "$operation" "${ImageVersion:-unknown}"
 
 fingerprint() {
-    printf '%s\n' 'pangrova-macos-native-stage-v1' "stage=$stage" \
+    # Hosted runners can serve different image builds during a rollout.
+    printf '%s\n' 'pangrova-macos-native-stage-v3' "stage=$stage" \
         "run=$GITHUB_RUN_ID" "revision=$GITHUB_SHA" "workspace=$GITHUB_WORKSPACE" \
-        "prefix=$root" "architecture=$(uname -m)" "image=${ImageVersion:-unknown}" \
-        "sdk=$SDKROOT" "compiler=$PANGROVA_LLVM_PREFIX"
+        "prefix=$root" "architecture=$(uname -m)" \
+        "sdk=$SDKROOT" "compiler=$PANGROVA_LLVM_PREFIX" \
+        "deployment=$MACOSX_DEPLOYMENT_TARGET"
     sw_vers -buildVersion
     xcodebuild -version
     "$PANGROVA_LLVM_PREFIX/bin/clang++" --version
+    LC_ALL=C shasum -a 256 "$PANGROVA_LLVM_PREFIX/bin/clang++"
     xcrun --sdk macosx --show-sdk-version
     brew list --versions openssl@3 libevent
 }
@@ -75,18 +82,22 @@ if [[ "$operation" == pack ]]; then
     verify_outputs
     mkdir -p "$bundle"
     fingerprint > "$bundle/identity.txt"
-    directories=(native-deps velox)
-    # Keep headers, source identity, static/shared libraries and generated
-    # configuration. Compilation intermediates and download archives are not
-    # inputs to the downstream Pangrova consumer; don't ship those large trees.
-    tar -czf "$bundle/prefix.tar.gz" --exclude='*.o' --exclude='*.obj' \
-        --exclude='velox/archive-cache' -C "$root" "${directories[@]}"
+    exclusions=(--exclude='*.o' --exclude='*.obj')
+    # The scheduled baseline publishes its source archive cache for diagnostics.
+    # Ordinary SDK and test consumers require only installed and generated files.
+    if [[ "$stage" == core && "${PANGROVA_MACOS_STAGE_ARCHIVES:-0}" == 1 ]]; then
+        [[ -d "$root/velox/archive-cache" ]] || die "Required Velox source archives are absent"
+    else
+        exclusions+=(--exclude='velox/archive-cache')
+    fi
+    tar -czf "$bundle/prefix.tar.gz" "${exclusions[@]}" -C "$root" native-deps velox
     (cd "$bundle" && shasum -a 256 prefix.tar.gz > prefix.sha256)
     du -h "$bundle/prefix.tar.gz"
 else
-    expected="$(fingerprint)"
-    [[ -f "$bundle/identity.txt" && "$(cat "$bundle/identity.txt")" == "$expected" ]] \
-        || die "Stage $stage revision, run, architecture or toolchain does not match"
+    [[ -f "$bundle/identity.txt" ]] || die "Stage $stage lacks its identity receipt"
+    if ! fingerprint | diff -u "$bundle/identity.txt" - >&2; then
+        die "Stage $stage revision, run, architecture or toolchain does not match"
+    fi
     (cd "$bundle" && shasum -a 256 -c prefix.sha256)
     # Never merge a stage into another restored/partially built SDK tree.
     [[ ! -e "$root/native-deps" && ! -e "$root/velox" ]] \

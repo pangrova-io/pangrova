@@ -57,6 +57,10 @@ patches; it is not a Maven Central release. Set `GRADLE_BIN` when Gradle 8.14.4 
 not the default executable. For the full release validation chain, use the
 repository's build-pipeline rule and the production CI workflow.
 
+Runtime CI builds and tests the pinned candidate once per workflow run. Native
+fixtures, Maven jobs, and the production image consume that run's SDK artifact.
+A Docker build from a local checkout builds the pinned candidate from source.
+
 The Lance Rust archive is tied to its Rust sources, Cargo lock/configuration,
 owned SDK patch, canonical protocols and C header by
 `liblance_c_ffi.a.provenance.json`. CMake verifies that receipt both when
@@ -74,9 +78,17 @@ Locally, build the `pangrova_lance_fixture_tool` Native target before running
 the Lance SDK tests. Maven looks for it in `pangrova-worker-native/build` by
 default. Set `-Dpangrova.lance.fixture.tool` when using another build directory.
 
+The macOS CI jobs transfer Native prerequisites and SDK outputs within one
+workflow run. Restoration checks the archive checksum, revision, architecture,
+macOS build, compiler, SDK, and linked Homebrew versions. The job records the
+runner image build and prints the exact identity differences on a mismatch.
+
 On GitHub-hosted macOS, the Native test job runs the PostgreSQL TestContainer
 through a temporary Lima Docker VM with loopback port forwarding. The Native
-test binary and its Java fixture broker run on the macOS host.
+test binary and its Java fixture broker run on the macOS host. The host verifies
+the pinned Docker Engine archive before starting the guest and installs it after
+the guest boots. If startup fails, the job prints Lima and guest boot logs and
+the Engine journal when SSH is available.
 
 ### 1.3 Matching AddressSanitizer Dependencies
 
@@ -84,6 +96,12 @@ ASan must use one compiler and a matching instrumented dependency cohort. Using
 Release RE2/gRPC/Flight with ASan Abseil can change inline hash-table layouts even
 when the headers and dependency versions match. A successful link is insufficient;
 the native configure executes the canonical RE2 template/regex admission check.
+
+Linux CI builds the instrumented dependencies in one job and compiles and tests
+Pangrova in a second job. Each job has its own GitHub-hosted runner time budget.
+The second job reinstalls Velox's system packages and verifies the same-run
+artifact checksum, revision, compiler, and runtime libraries before restoring
+the ASan dependency cohort. UBSan builds and tests in a single job.
 
 After the regular bootstrap has fetched the pinned sources, build the separate
 sanitizer dependencies and explicitly select them. Run from the repository root:

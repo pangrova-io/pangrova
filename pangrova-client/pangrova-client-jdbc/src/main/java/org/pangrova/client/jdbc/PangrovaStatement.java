@@ -7,6 +7,7 @@ import org.pangrova.common.client.exception.PangrovaConnectionException;
 import org.pangrova.common.client.exception.PangrovaProtocolException;
 import org.pangrova.client.http.PangrovaRestClient;
 import org.pangrova.client.http.QueryExecution;
+import org.pangrova.client.jdbc.exception.QueryCancelledException;
 import org.pangrova.common.client.exception.PangrovaServerException;
 import org.pangrova.common.client.query.QueryStatusResponse;
 import org.pangrova.common.enums.ResultDisposition;
@@ -95,6 +96,9 @@ public final class PangrovaStatement implements java.sql.Statement {
             T result = operation.execute(client, query, deadlineMs, ready);
             if (currentResultSet == null) currentQuery.compareAndSet(query, null);
             return result;
+        } catch (QueryCancelledException cancelled) {
+            currentQuery.compareAndSet(query, null);
+            throw cancelled;
         } catch (Exception failure) {
             cancelOnFailure(query, failure);
             throw failure;
@@ -148,6 +152,9 @@ public final class PangrovaStatement implements java.sql.Statement {
                     if (!ready.terminal()) {
                         try {
                             QueryCompletionWaiter.awaitTerminalSuccess(query, deadlineMs, timeoutSeconds);
+                        } catch (QueryCancelledException cancelled) {
+                            currentQuery.compareAndSet(query, null);
+                            throw cancelled;
                         } catch (PangrovaClientException failure) {
                             throw toSqlException(failure);
                         }

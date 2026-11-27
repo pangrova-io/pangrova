@@ -39,6 +39,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /** Real compiler/policy/control owners and PostgreSQL metadata; no task or Native completion is simulated. */
 final class QueryManagerJournalFixture implements AutoCloseable {
+    private static final long RETRY_STEP_NANOS = TimeUnit.SECONDS.toNanos(31);
+
     final QueryTerminalJournalFixture store = new QueryTerminalJournalFixture();
     final CoordinatorTaskTracker tracker = new CoordinatorTaskTracker();
     final AtomicLong clock = new AtomicLong();
@@ -86,7 +88,7 @@ final class QueryManagerJournalFixture implements AutoCloseable {
         return AdmissionRequest.of("fixture-tenant", "default", queryId, tenantLimits);
     }
 
-    void retry() { clock.addAndGet(TimeUnit.SECONDS.toNanos(31)); manager.retryPendingTerminalCompletions(); }
+    void retry() { clock.addAndGet(RETRY_STEP_NANOS); manager.retryPendingTerminalCompletions(); }
 
     QueryStateMachine running(String queryId) {
         store.journal().appendQueryEventSync(new org.pangrova.query.api.journal.QueryStateEvent(
@@ -101,14 +103,12 @@ final class QueryManagerJournalFixture implements AutoCloseable {
     }
 
     @Override public void close() throws java.sql.SQLException {
-        store.allowQueryInsert();
-        store.allowQueryDelete();
-        manager.getActiveQueryIds().forEach(manager::cancelQuery);
-        retry();
-        assertThat(manager.awaitAllQueries(5000)).isTrue();
-        transport.close();
-        authority.close();
-        foreignAuthority.close();
-        store.close();
+        try (store; foreignAuthority; authority; transport) {
+            store.allowQueryInsert();
+            store.allowQueryDelete();
+            manager.getActiveQueryIds().forEach(manager::cancelQuery);
+            clock.addAndGet(RETRY_STEP_NANOS);
+            assertThat(manager.awaitAllQueries(5000)).isTrue();
+        }
     }
 }

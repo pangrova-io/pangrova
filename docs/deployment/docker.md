@@ -71,7 +71,15 @@ The Native build consumes both Protocol schema trees, the function-contract
 resources and their Python generators. Java-only Protocol changes reuse the
 same Native layers and rebuild the Java runtime.
 
-The builder compiles the locked, patched Iceberg SDK with Gradle 8.14.4 and its SDK regression test before resolving the Pangrova Java reactor. Newly created builders use the same SDK without a host Maven repository.
+A standalone build compiles and tests the locked, patched Iceberg SDK with
+Gradle 8.14.4 before resolving the Pangrova Java reactor. CI passes the tested
+same-run SDK as a named context and grants Bake read access to that directory.
+Both paths work on a fresh builder without a host Maven repository.
+
+Hosted CI passes Maven's strict checksum option and the repository's CI Maven
+settings to the Java image build. Those settings use Google Cloud's public
+Maven Central mirror for Central artifacts. Standalone Bake invocations use the
+Maven image's normal repository settings.
 
 CI passes the Git revision as `SOURCE_COMMIT` and checks the resulting runtime
 image’s `org.opencontainers.image.revision` label before staging its libraries.
@@ -96,6 +104,7 @@ The setup script rejects non-positive or malformed limits. For a non-container
 build, set `CMAKE_BUILD_PARALLEL_LEVEL`; `BUILD_THREADS` is consulted only when
 that variable is absent. Increasing parallelism requires measuring peak builder
 memory, including resident services; it does not change runtime query admission.
+GitHub's production regression uses two build jobs on its 16 GiB Linux runner.
 
 Linux production enables `PANGROVA_PRODUCTION_BUILD=ON`: Arrow, Parquet, Flight
 and other third-party dependencies must be static and position-independent. The
@@ -103,9 +112,15 @@ packaging check verifies the Lance FFI symbol, ELF architecture, absence of
 build-tree RPATH/RUNPATH and a strict system-ABI-only `DT_NEEDED` list. It rejects
 missing archives or third-party shared-library dependencies rather than copying
 them into the image. The runtime uses the same Ubuntu 22.04 ABI baseline.
-The production Native link takes its pinned static curl and PIC libunwind archives
-from the build dependency prefix; linking the system shared curl would fail this
-packaging check even if the JNI library itself linked successfully.
+The production Native link takes pinned static curl and libunwind from the
+build dependency prefix. Velox's Boost build and Pangrova's curl build enable
+PIC explicitly. Both builders verify the archives with shared-library links
+that reject text relocations. The libunwind preflight links both archives in
+a group so the linker can resolve their cross-archive references.
+The builder also rebuilds bzip2, Zstandard, libevent, ICU and libxml2 with
+PIC. It obtains the exact installed packages' source versions from Ubuntu's
+signed repositories and retains their distribution patches. A shared-library
+link checks those archives with the JNI export map before Velox is compiled.
 The Linux ARM64 build requires CPUs with ARM CRC32 instructions: the pinned
 Velox and Folly archives use F14's SIMD+CRC mode, and Pangrova compiles their
 header consumers for the same mode. Deploy `linux/arm64` images only to nodes
