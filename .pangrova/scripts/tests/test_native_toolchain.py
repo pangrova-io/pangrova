@@ -240,7 +240,7 @@ fi
         sdk = self.root / "macos sdk"
         (sdk / "usr/include").mkdir(parents=True, exist_ok=True)
         default = self.root / ".pangrova/llvm/bin/clang++"
-        self.executable(default, '[[ "$1" != -dumpversion ]] && echo default-clang || echo 17.0.6')
+        self.executable(default, 'if [ "$1" = -dumpversion ]; then echo 17.0.6; else echo default-clang; fi')
         env = dict(self.env, PANGROVA_HOME=str(self.root / ".pangrova"),
                    PANGROVA_NATIVE_BUILD_DIR=str(self.root / "build"),
                    PANGROVA_BREW=str(self.bin / "brew"), TEST_OPENSSL_PREFIX=str(openssl),
@@ -633,7 +633,8 @@ esac
 
     def test_macos_bootstrap_prefers_explicit_llvm_prefix(self):
         prefix = self.root / "selected toolchain"
-        self.executable(prefix / "bin/clang++", '[[ "$1" != -dumpversion ]] && echo selected-clang || echo 17.0.6')
+        self.executable(prefix / "bin/clang++",
+                        'if [ "$1" = -dumpversion ]; then echo 17.0.6; else echo selected-clang; fi')
         result = self.bootstrap(prefix)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("Using selected-clang", result.stdout)
@@ -679,7 +680,7 @@ case "$1" in
   --version) echo 'clang version 18.1.8'; exit ;;
 esac
 printf '%s\\n' "$@" > "${0%/*}/arguments"
-while [[ "$1" != -o ]]; do shift; done
+while [ "$1" != -o ]; do shift; done
 printf '#!/usr/bin/env bash\\nexit 0\\n' > "$2"
 chmod +x "$2"
 """)
