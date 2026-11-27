@@ -1395,6 +1395,12 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                                 status.get("result_endpoint"), ResultEndpoint.class);
                         return true;
                     }
+                    if ("NONE".equals(disposition)) {
+                        if (status.hasNonNull("result_endpoint")) {
+                            throw new IllegalStateException("Resultless query published an endpoint: " + queryId);
+                        }
+                        return false;
+                    }
                     if (!"PENDING".equals(disposition)) {
                         throw new IllegalStateException(
                                 "Live query status omitted result disposition: " + queryId);

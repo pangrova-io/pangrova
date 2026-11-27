@@ -154,6 +154,10 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
                 secondWorker.waitFor();
             }
         }
+        if (secondWorker != null && workerManager != null) {
+            WorkerInfo worker = workerManager.getWorker(SECOND_WORKER_ID);
+            if (worker != null) workerManager.removeWorker(worker.registrationIdentity());
+        }
         if (workerConfig != null) {
             Files.deleteIfExists(workerConfig);
         }
