@@ -100,13 +100,16 @@ miss:
   directory, so both bootstraps validate the CMake found at startup and put its
   directory back in front of `PATH` before configuring Velox.
 
-The bootstrap enforces four dependency contracts.
+The bootstrap enforces these dependency contracts.
 
 - Ubuntu's packaged static gflags archive is not position-independent. Linux
   development and sanitizer builds link the shared library, including Folly's
   configuration-specific CMake imports and absolute archive paths in imported
   interfaces. The production image builds Velox's pinned gflags version as
   PIC and links its static archive from the production dependency prefix.
+- The Linux production build passes PIC flags to the pinned Boost B2 build.
+  The bootstrap verifies the Filesystem and Atomic archives with a shared-library
+  link before compiling Velox.
 - fbthrift's CMake requires an Xxhash package that Velox's dependency set does
   not install on macOS; the bootstrap builds and installs it before fbthrift.
 - Fizz and Folly developer examples are disabled during their dependency

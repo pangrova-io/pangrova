@@ -366,6 +366,7 @@ class StructuralPolicyTest(unittest.TestCase):
         normalized = re.sub(r'\s+', ' ', production.replace('\\\n', ' '))
         self.assertIn('IMAGE="$PANGROVA_E2E_IMAGE" SOURCE_COMMIT="$GITHUB_SHA"', normalized)
         self.assertIn('docker buildx bake --load', normalized)
+        self.assertIn('--set native-build.args.NATIVE_BUILD_JOBS=2', normalized)
         self.assertIn('docker image inspect --format', production)
         runtime_stage = (ROOT / 'deploy/docker/Dockerfile').read_text().rsplit('\nFROM ', 1)[1]
         self.assertIn('ARG SOURCE_COMMIT\n', runtime_stage)

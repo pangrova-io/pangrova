@@ -56,6 +56,22 @@ class DockerNativeBootstrapTest(unittest.TestCase):
         self.assertLess(compiler_link.index('libunwind-${arch}.a'),
                         compiler_link.index('-Wl,--end-group'))
 
+    def test_production_builds_and_link_checks_pic_boost_and_curl(self):
+        boost_patch = "pangrova-worker-native/patches/velox-linux-production-pic-boost.patch"
+        velox_bootstrap = next(i for i, line in enumerate(self.instructions)
+                               if line.startswith("RUN ") and "PANGROVA_NATIVE_BUILD_PHASE=velox" in line)
+        self.assertIn(f"COPY {boost_patch} /workspace/{boost_patch}",
+                      self.instructions[:velox_bootstrap])
+        self.assertEqual((ROOT / boost_patch).read_text().count("cflags=-fPIC cxxflags=-fPIC"), 2)
+        bootstrap = (ROOT / "pangrova-worker-native/bin/setup-native-build-env.sh").read_text()
+        self.assertIn('git apply "$boost_patch"', bootstrap)
+        curl = (ROOT / "deploy/docker/build-static-curl.sh").read_text()
+        self.assertIn("-DCMAKE_POSITION_INDEPENDENT_CODE=ON", curl)
+        for source, archive in ((bootstrap, "libboost_filesystem.a"), (curl, "libcurl.a")):
+            with self.subTest(archive=archive):
+                probe = source.split("-shared -Wl,-z,defs,-z,text -Wl,--whole-archive", 1)[1]
+                self.assertIn(archive, probe.split("-Wl,--no-whole-archive", 1)[0])
+
     def test_folly_source_and_bootstrap_patches_are_staged_before_velox(self):
         velox_bootstrap = next(i for i, line in enumerate(self.instructions)
                                if line.startswith("RUN ") and "PANGROVA_NATIVE_BUILD_PHASE=velox" in line)

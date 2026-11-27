@@ -713,7 +713,23 @@ prepare_velox_dependencies() {
       git apply --check "$archive_patch"
       git apply "$archive_patch"
     fi
+    if [[ "$PANGROVA_PRODUCTION_BUILD" == "ON" ]]; then
+      local boost_patch="$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/velox-linux-production-pic-boost.patch"
+      if ! git apply --reverse --check "$boost_patch" >/dev/null 2>&1; then
+        git apply --check "$boost_patch"
+        git apply "$boost_patch"
+      fi
+    fi
     ./scripts/setup-ubuntu.sh
+    if [[ "$PANGROVA_PRODUCTION_BUILD" == "ON" ]]; then
+      # Force-load every object of the selected archives into a shared
+      # library before spending the Velox build on unusable dependencies.
+      local boost_lib="${INSTALL_PREFIX:-/usr/local}/lib"
+      "$CXX" -shared -Wl,-z,defs,-z,text -Wl,--whole-archive \
+        "$boost_lib/libboost_filesystem.a" "$boost_lib/libboost_atomic.a" \
+        -Wl,--no-whole-archive -pthread -o "$WORK_DIR/boost-pic-check.so"
+      rm "$WORK_DIR/boost-pic-check.so"
+    fi
     # setup-ubuntu.sh installs core Velox dependencies but leaves cloud adapters
     # to an explicit command. The S3-enabled Velox configure requires AWSSDK.
     if [[ ! -f "${INSTALL_PREFIX:-/usr/local}/lib/cmake/AWSSDK/AWSSDKConfig.cmake" ]]; then

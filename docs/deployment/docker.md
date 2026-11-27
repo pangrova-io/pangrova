@@ -101,6 +101,7 @@ The setup script rejects non-positive or malformed limits. For a non-container
 build, set `CMAKE_BUILD_PARALLEL_LEVEL`; `BUILD_THREADS` is consulted only when
 that variable is absent. Increasing parallelism requires measuring peak builder
 memory, including resident services; it does not change runtime query admission.
+GitHub's production regression uses two build jobs on its 16 GiB Linux runner.
 
 Linux production enables `PANGROVA_PRODUCTION_BUILD=ON`: Arrow, Parquet, Flight
 and other third-party dependencies must be static and position-independent. The
@@ -108,9 +109,11 @@ packaging check verifies the Lance FFI symbol, ELF architecture, absence of
 build-tree RPATH/RUNPATH and a strict system-ABI-only `DT_NEEDED` list. It rejects
 missing archives or third-party shared-library dependencies rather than copying
 them into the image. The runtime uses the same Ubuntu 22.04 ABI baseline.
-The production Native link takes its pinned static curl and PIC libunwind
-archives from the build dependency prefix. The libunwind preflight links both
-archives in a group so the linker can resolve their cross-archive references.
+The production Native link takes pinned static curl and libunwind from the
+build dependency prefix. Velox's Boost build and Pangrova's curl build enable
+PIC explicitly. Both builders verify the archives with shared-library links
+that reject text relocations. The libunwind preflight links both archives in
+a group so the linker can resolve their cross-archive references.
 The Linux ARM64 build requires CPUs with ARM CRC32 instructions: the pinned
 Velox and Folly archives use F14's SIMD+CRC mode, and Pangrova compiles their
 header consumers for the same mode. Deploy `linux/arm64` images only to nodes
