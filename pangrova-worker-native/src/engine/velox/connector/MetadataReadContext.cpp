@@ -1,5 +1,6 @@
 #include "engine/velox/connector/MetadataReadContext.h"
 
+#include <optional>
 #include <stdexcept>
 
 #include "engine/resource/TaskBudgetReadFile.h"
@@ -22,12 +23,19 @@ void MetadataReadContext::checkpoint() const {
 
 std::shared_ptr<facebook::velox::ReadFile> MetadataReadContext::open(const std::string& uri) const {
   checkpoint();
+  // The task must still own its read fence before path resolution initializes
+  // a filesystem. Count the adapter call only when it reaches the backend.
+  auto opening = budget_ ? std::make_optional(budget_->begin(0, resource::TaskObjectReadBudget::Operation::METADATA))
+                         : std::nullopt;
   const auto path = split::metadataObjectPath(uri);
   auto filesystem = facebook::velox::filesystems::getFileSystem(path, nullptr);
   if (!filesystem) throw std::runtime_error("No Native filesystem for metadata URI");
-  if (budget_) return resource::TaskBudgetReadFile::open(*filesystem, path, budget_, cancellation_);
-  auto input = filesystem->openFileForRead(path);
+  if (opening) opening->startCall();
+  std::shared_ptr<facebook::velox::ReadFile> input = filesystem->openFileForRead(path);
+  if (opening) opening->completeCall(0);
   checkpoint();
+  if (budget_) return std::make_shared<resource::TaskBudgetReadFile>(
+      std::move(input), budget_, cancellation_);
   return input;
 }
 

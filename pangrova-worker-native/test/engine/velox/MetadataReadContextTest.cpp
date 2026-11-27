@@ -146,6 +146,7 @@ TEST_F(MetadataReadContextTest, ReleasedTaskOwnerRejectsOpenBeforeResolvingAnInv
     EXPECT_NE(std::string(failure.what()).find("cancelled or released"), std::string::npos);
   }
   EXPECT_EQ(budget->activeReads(), 0);
+  EXPECT_EQ(budget->snapshot().metadata_calls, 2);
 }
 
 }  // namespace
