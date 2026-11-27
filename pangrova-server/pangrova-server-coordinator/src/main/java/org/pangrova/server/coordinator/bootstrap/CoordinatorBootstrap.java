@@ -182,7 +182,7 @@ public final class CoordinatorBootstrap {
         cdcRuntime = new JournaledCdcRuntime(streamingBootstrap, metadataBootstrap.catalogRegistry(),
                 query.writeCommitJournal(),
                 query.queryDispatcher().writeAuthorityResolver(),
-                executionAuthority, workers, null, maintenanceLeadership::verifiedActiveEpoch);
+                executionAuthority, workers, null, maintenanceLeadership);
         streamingBootstrap.attachJournaledRuntime(cdcRuntime);
         LOG.info("event=cdc_worker_runtime_started");
     }
@@ -199,7 +199,7 @@ public final class CoordinatorBootstrap {
                         CoordinatorTableWriteAuthority.create());
         cdcRuntime = new JournaledCdcRuntime(streamingBootstrap, catalogs, journal, resolver,
                 executionAuthority, null, new LocalCdcBatchExecutor(journal, executionAuthority, recovery, quarantine),
-                maintenanceLeadership::verifiedActiveEpoch);
+                maintenanceLeadership);
         streamingBootstrap.attachJournaledRuntime(cdcRuntime);
         LOG.info("event=cdc_local_journaled_runtime_started");
     }

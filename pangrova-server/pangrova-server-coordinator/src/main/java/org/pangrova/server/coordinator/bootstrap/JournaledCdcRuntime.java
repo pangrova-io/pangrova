@@ -75,7 +75,7 @@ final class JournaledCdcRuntime implements AutoCloseable {
     private final LocalCdcBatchExecutor local;
     private final org.pangrova.coordinator.coordination.CoordinatorExecutionAuthority executionAuthority;
     private final String coordinatorId;
-    private final java.util.function.LongSupplier maintenanceEpoch;
+    private final MaintenanceLeadershipBootstrap maintenanceLeadership;
     private final ScheduledExecutorService reconciler;
     private final ExecutorService streams;
     private final Set<String> activeStreams = ConcurrentHashMap.newKeySet();
@@ -89,7 +89,7 @@ final class JournaledCdcRuntime implements AutoCloseable {
             org.pangrova.query.api.write.WriteAuthorityResolver authorityResolver,
             org.pangrova.coordinator.coordination.CoordinatorExecutionAuthority executionAuthority,
             WorkerDispatch workers, LocalCdcBatchExecutor local,
-            java.util.function.LongSupplier maintenanceEpoch) {
+            MaintenanceLeadershipBootstrap maintenanceLeadership) {
         this.stateStore = java.util.Objects.requireNonNull(streaming.stateStore(), "stateStore");
         this.offsetStore = java.util.Objects.requireNonNull(streaming.offsetStore(), "offsetStore");
         this.sources = java.util.Objects.requireNonNull(streaming.sourceRegistry(), "sources");
@@ -103,7 +103,7 @@ final class JournaledCdcRuntime implements AutoCloseable {
         }
         this.workers = workers;
         this.local = local;
-        this.maintenanceEpoch = java.util.Objects.requireNonNull(maintenanceEpoch, "maintenanceEpoch");
+        this.maintenanceLeadership = java.util.Objects.requireNonNull(maintenanceLeadership, "maintenanceLeadership");
         this.reconciler = Executors.newSingleThreadScheduledExecutor(
                 runnable -> new Thread(runnable, "cdc-worker-reconciler"));
         this.streams = Executors.newFixedThreadPool(4,
@@ -173,7 +173,7 @@ final class JournaledCdcRuntime implements AutoCloseable {
     }
 
     private void executeStream(StreamState state) {
-        long maintenanceTerm = maintenanceEpoch.getAsLong();
+        long maintenanceTerm = maintenanceLeadership.verifiedActiveEpoch();
         if (!leaderActive.get() || maintenanceTerm <= 0) return;
         Map<TopicPartitionOffset, Long> starts = new HashMap<>(offsetStore.loadOffsets(state.streamName()));
         recoverCommittedCheckpoint(state, starts, maintenanceTerm);
@@ -295,6 +295,7 @@ final class JournaledCdcRuntime implements AutoCloseable {
         };
         if (local != null) {
             local.execute(state, catalog, session, reader, writePlan, plan, source, anchor,
+                    () -> !leaderActive.get() || maintenanceLeadership.activeEpoch() != owner.maintenanceEpoch(),
                     () -> requireCurrentOwner(state, owner), publisher, acknowledger);
             return;
         }
@@ -370,7 +371,7 @@ final class JournaledCdcRuntime implements AutoCloseable {
     private record BatchOwner(ExecutionAnchor anchor, long controlEpoch, long maintenanceEpoch) {}
 
     private void requireCurrentStream(StreamState state, long maintenanceTerm) {
-        if (!leaderActive.get() || maintenanceEpoch.getAsLong() != maintenanceTerm
+        if (!leaderActive.get() || maintenanceLeadership.verifiedActiveEpoch() != maintenanceTerm
                 || stateStore.loadState(state.streamName())
                 .filter(current -> current.tenantId().equals(state.tenantId())
                         && current.checkpointId().equals(state.checkpointId())

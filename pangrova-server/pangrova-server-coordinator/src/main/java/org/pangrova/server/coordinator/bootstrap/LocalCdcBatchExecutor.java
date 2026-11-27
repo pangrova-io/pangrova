@@ -27,6 +27,7 @@ import org.pangrova.streaming.cdc.CdcTaskRange;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Map;
+import java.util.function.BooleanSupplier;
 
 /** Stages exact CDC ranges in a maintenance-only process and publishes through the durable write journal. */
 final class LocalCdcBatchExecutor {
@@ -51,20 +52,19 @@ final class LocalCdcBatchExecutor {
 
     void execute(StreamState stream, CatalogHandle catalog, ConnectorSession session,
             CdcSourceReader reader, CdcWriteAuthority.CdcWritePlan writePlan, CdcTaskPlan plan,
-            CdcSourceIdentity source, ExecutionAnchor anchor, Runnable fence,
+            CdcSourceIdentity source, ExecutionAnchor anchor, BooleanSupplier stagingCancelled, Runnable fence,
             CdcWriteCommitCoordinator.Publisher publisher, CdcStreamExecution.OffsetCommitter acknowledge) {
         var converter = converters.get(stream.sourceFormat());
         var writer = new BoundCdcPageSinkWriter(catalog.getPageSinkProvider(), session, writePlan.outputHandle());
         var allowed = CdcWriteAuthority.privileges(stream);
         var fragments = new ArrayList<byte[]>();
         for (var task : plan.tasks()) {
-            fence.run();
             var ranges = task.getCdcIngest().getRangesList().stream().map(range -> new CdcTaskRange(
                     range.getTopic(), range.getPartition(), range.getStartOffset(), range.getEndOffset())).toList();
             var spec = new CdcRangeIngestSpec(stream.streamName(), stream.checkpointId(), ranges,
                     MAX_RECORDS_PER_POLL, POLL_TIMEOUT, IDLE_TIMEOUT);
+            // Only private files are staged here. Check durable ownership again before recording the intent.
             fragments.addAll(new CdcRangeIngestor(spec, reader, converter, envelopes -> {
-                fence.run();
                 envelopes.forEach(envelope -> {
                     Privilege operation = Privilege.valueOf(envelope.operation().name());
                     if (!allowed.contains(operation)) {
@@ -72,7 +72,8 @@ final class LocalCdcBatchExecutor {
                     }
                 });
                 return writer.writeBatch(envelopes);
-            }, () -> Thread.currentThread().isInterrupted() || System.currentTimeMillis() >= task.getDeadlineEpochMs())
+            }, () -> Thread.currentThread().isInterrupted() || stagingCancelled.getAsBoolean()
+                    || System.currentTimeMillis() >= task.getDeadlineEpochMs())
                     .ingest(writer.requiresSingleRange()).commitFragments());
         }
         fence.run();

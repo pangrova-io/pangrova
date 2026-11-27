@@ -49,6 +49,11 @@ import static org.awaitility.Awaitility.await;
 class IndependentCdcProcessesE2ETest extends ContainerTestBase {
 
     private static final int ICEBERG_CATALOG_BARRIER = 716_241;
+    private static final String EXECUTION_OWNER_LOOKUP =
+            "SELECT owner_id, owner_incarnation, fencing_token,%FROM execution_anchor WHERE execution_id = %"
+                    + "AND expires_at > clock_timestamp()";
+    private static final String STREAM_REVISION_LOOKUP =
+            "SELECT * FROM ingestion_stream_state WHERE stream_name = %";
 
     private enum Scenario { COMBINED, MAINTENANCE, WORKER_EXIT, ICEBERG_WORKER_EXIT }
 
@@ -477,8 +482,7 @@ class IndependentCdcProcessesE2ETest extends ContainerTestBase {
             } else if (scenario == Scenario.COMBINED) {
                 verifyPaimonCommitInterruption(processes, producer, insert);
             } else {
-                producer.send(insert).get(30, TimeUnit.SECONDS);
-                awaitPublication(processes, 1);
+                verifyLocalStagingPointReads(processes, producer, insert);
             }
             if (streamingOnly) {
                 assertThat(paimonPayloads(processes)).containsExactly("cdc-visible");
@@ -520,6 +524,19 @@ class IndependentCdcProcessesE2ETest extends ContainerTestBase {
                 .as("The journaled CDC path reads only its own checkpoint authority")
                 .isEqualTo(legacyReads);
         assertThat(processes.coordinatorLog()).doesNotContain("event=stream_resume_all");
+    }
+
+    private static void verifyLocalStagingPointReads(IndependentLocalProcesses processes,
+            KafkaProducer<String, String> producer, ProducerRecord<String, String> insert) throws Exception {
+        long ownerReads = processes.metadataStatementCalls(EXECUTION_OWNER_LOOKUP);
+        long revisionReads = processes.metadataStatementCalls(STREAM_REVISION_LOOKUP);
+        producer.send(insert).get(30, TimeUnit.SECONDS);
+        awaitPublication(processes, 1);
+        assertThat(List.of(
+                processes.metadataStatementCalls(EXECUTION_OWNER_LOOKUP) - ownerReads,
+                processes.metadataStatementCalls(STREAM_REVISION_LOOKUP) - revisionReads))
+                .as("point reads for execution ownership and stream revision through one complete local batch")
+                .containsExactly(5L, 4L);
     }
 
     private static void verifyPaimonCommitInterruption(IndependentLocalProcesses processes,
