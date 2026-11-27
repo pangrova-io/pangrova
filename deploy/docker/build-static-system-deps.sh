@@ -45,13 +45,8 @@ install -m 644 "$bzip2/libbz2.a" "$prefix/lib/"
 install -m 644 "$bzip2/bzlib.h" "$prefix/include/"
 
 zstd=$(download_source libzstd-dev)
-cmake -S "$zstd/build/cmake" -B "$work/zstd" -GNinja \
-  -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-  -DCMAKE_INSTALL_PREFIX="$prefix" -DCMAKE_INSTALL_LIBDIR=lib \
-  -DZSTD_BUILD_STATIC=ON -DZSTD_BUILD_SHARED=OFF \
-  -DZSTD_BUILD_PROGRAMS=OFF -DZSTD_BUILD_TESTS=OFF
-cmake --build "$work/zstd" --parallel "$jobs"
-cmake --install "$work/zstd"
+make -C "$zstd/lib" -j "$jobs" CC="${CC:-cc}" MOREFLAGS=-fPIC libzstd.a-mt
+make -C "$zstd/lib" PREFIX="$prefix" install-static install-includes install-pc
 
 libevent=$(download_source libevent-dev)
 cmake -S "$libevent" -B "$work/libevent" -GNinja \
