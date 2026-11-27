@@ -50,11 +50,6 @@ final class TaskIdentityRegistry {
         }
     }
 
-    synchronized void markRecoveryUnresolved(String queryId) {
-        openQuery(queryId);
-        scopes.get(queryId).recoveryUnresolved = true;
-    }
-
     synchronized void registerLogicalTask(String queryId, Runnable publication) {
         openQuery(queryId);
         publication.run(); // Local identity publication only: never JNI, RPC or connector I/O.
@@ -292,14 +287,12 @@ final class TaskIdentityRegistry {
         if (scope == null) throw new IllegalStateException("Query has no issuance authority: " + queryId);
         scope.sealed = true;
         if (scope.operations != 0) return false;
-        requireResolvedIssuance(queryId, scope);
         if (hasPendingReport(scope) || taskWithoutDrain(scope) != null) return false;
         scope.cleanupClaimed = true;
         return true;
     }
 
     private void claimDrainedScope(String queryId, Scope scope) {
-        requireResolvedIssuance(queryId, scope);
         if (hasPendingReport(scope)) {
             throw new IllegalStateException("Query still owns required report journal/publication work: " + queryId);
         }
@@ -308,12 +301,6 @@ final class TaskIdentityRegistry {
             throw new IllegalStateException("Issued task still lacks its exact execution drain receipt: " + missing);
         }
         scope.cleanupClaimed = true;
-    }
-
-    private static void requireResolvedIssuance(String queryId, Scope scope) {
-        if (scope.recoveryUnresolved) {
-            throw new IllegalStateException("Recovered query lacks durable issued authority: " + queryId);
-        }
     }
 
     private static boolean hasPendingReport(Scope scope) {
@@ -630,7 +617,6 @@ final class TaskIdentityRegistry {
         private final HashMap<String, org.pangrova.query.api.journal.TaskStateEvent> scheduled = new HashMap<>();
         private boolean sealed;
         private boolean retired;
-        private boolean recoveryUnresolved;
         private long deadline;
         private int operations;
         private boolean cleanupClaimed;

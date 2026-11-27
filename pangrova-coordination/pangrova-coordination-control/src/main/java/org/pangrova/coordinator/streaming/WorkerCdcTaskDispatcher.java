@@ -4,12 +4,12 @@ import org.pangrova.coordinator.scheduler.TaskDispatcher;
 import org.pangrova.coordinator.scheduler.placement.WorkerSelector;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
-import org.pangrova.persistence.query.api.state.QueryStateJournal;
 import org.pangrova.query.api.journal.TaskStateEvent;
 import org.pangrova.protocol.v2.TaskRequest;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Consumer;
 
 /** Real Coordinator transport adapter for one planned CDC task. */
 public final class WorkerCdcTaskDispatcher implements CdcTaskDispatchPort {
@@ -17,18 +17,18 @@ public final class WorkerCdcTaskDispatcher implements CdcTaskDispatchPort {
     private final TaskDispatcher dispatcher;
     private final WorkerSelector selector;
     private final CoordinatorTaskTracker tracker;
-    private final java.util.function.Consumer<List<TaskStateEvent>> recordIssuances;
+    private final Consumer<List<TaskStateEvent>> recordIssuances;
 
     /** Uses the shared execution journal to fence CDC issuance before the Worker can start. */
     public WorkerCdcTaskDispatcher(
             TaskDispatcher dispatcher,
             WorkerSelector selector,
             CoordinatorTaskTracker tracker,
-            QueryStateJournal journal) {
+            Consumer<List<TaskStateEvent>> recordIssuances) {
         this.dispatcher = Objects.requireNonNull(dispatcher, "dispatcher");
         this.selector = Objects.requireNonNull(selector, "selector");
         this.tracker = Objects.requireNonNull(tracker, "tracker");
-        recordIssuances = Objects.requireNonNull(journal, "journal")::appendTaskIssuancesSync;
+        this.recordIssuances = Objects.requireNonNull(recordIssuances, "recordIssuances");
     }
 
     @Override

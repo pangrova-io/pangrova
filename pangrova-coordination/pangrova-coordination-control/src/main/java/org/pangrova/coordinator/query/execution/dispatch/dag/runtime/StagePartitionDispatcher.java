@@ -12,6 +12,7 @@ import org.pangrova.common.api.annotation.Internal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Consumer;
 import java.util.function.UnaryOperator;
 
 /** The single registration/control-binding/HTTP dispatch boundary for ordinary and durable leaf partitions. */
@@ -20,7 +21,7 @@ public final class StagePartitionDispatcher {
     private final TaskDispatcher dispatcher;
     private final DispatchCanceller canceller;
     private final UnaryOperator<SubmitTaskRequest> accessBinder;
-    private final java.util.function.Consumer<List<TaskStateEvent>> recordIssuances;
+    private final Consumer<List<TaskStateEvent>> recordIssuances;
 
     public StagePartitionDispatcher(TaskDispatcher dispatcher, DispatchCanceller canceller,
             UnaryOperator<SubmitTaskRequest> accessBinder) {
@@ -29,11 +30,11 @@ public final class StagePartitionDispatcher {
 
     /** Shares the task journal with the DAG owner and its Worker reports. */
     public StagePartitionDispatcher(TaskDispatcher dispatcher, DispatchCanceller canceller,
-            UnaryOperator<SubmitTaskRequest> accessBinder, QueryStateJournal journal) {
+            UnaryOperator<SubmitTaskRequest> accessBinder, Consumer<List<TaskStateEvent>> recordIssuances) {
         this.dispatcher = java.util.Objects.requireNonNull(dispatcher, "dispatcher");
         this.canceller = java.util.Objects.requireNonNull(canceller, "canceller");
         this.accessBinder = java.util.Objects.requireNonNull(accessBinder, "accessBinder");
-        recordIssuances = journal == null ? null : journal::appendTaskIssuancesSync;
+        this.recordIssuances = recordIssuances;
     }
 
     /** Returns the actual bound request and HTTP acknowledgement; no result or owner is synthesized. */

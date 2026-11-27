@@ -197,7 +197,8 @@ final class QueryBootstrap {
         cacheAffinityAssigner = new CacheAffinityAssigner();
         workerManager.addTopologyListener(cacheAffinityAssigner);
         stateJournal = runtimeFactory.createStateJournal(processIdentity);
-        speculativeTaskRegistry = new CoordinatorSpeculativeTaskRegistry(taskTracker, stateJournal);
+        speculativeTaskRegistry = new CoordinatorSpeculativeTaskRegistry(
+                taskTracker, stateJournal::appendTaskIssuancesSync);
         initSpeculation();
         CatalogRegistry catalog = metadataBootstrap != null
                 ? metadataBootstrap.catalogRegistry() : null;

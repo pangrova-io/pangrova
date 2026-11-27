@@ -62,8 +62,7 @@ import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.observability.logging.LogContext;
 
 @ThreadSafe
-public final class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeoutHandler,
-        org.pangrova.query.recovery.QueryRecoveryTarget {
+public final class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeoutHandler {
 
     private static final Logger LOG = LoggerFactory.getLogger(QueryManager.class);
     private static final String DRAIN_REJECTION_MESSAGE =
@@ -635,13 +634,6 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
 
     public QueryStateMachine getStateMachine(String queryId) {
         return queries.get(queryId);
-    }
-
-    @Override
-    public void registerRecoveredStateMachine(String queryId, QueryStateMachine sm) {
-        queryDispatcher.markRecoveredIssuanceUnresolved(queryId);
-        sm.retainJournalOwnership();
-        registerStateMachine(queryId, sm);
     }
 
     /** Registers a query state under the current lifecycle gate. */

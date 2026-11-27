@@ -40,6 +40,7 @@ import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
+import org.pangrova.query.api.journal.TaskStateEvent;
 import java.time.Instant;
 import java.util.List;
 import org.pangrova.scheduler.api.retry.TaskRetryAdmission;
@@ -518,6 +519,7 @@ class SpeculativeExecutionWiringTest {
                     org.pangrova.query.api.journal.JournalEventContext.create(1, "issuer"),
                     QID, null, null, "RUNNING"));
             var sends = new java.util.concurrent.atomic.AtomicInteger();
+            var committed = new AtomicReference<List<TaskStateEvent>>();
             launcher.setDispatchDependencies(new CoordinatorSpeculativeAttemptDispatcher(new Rec() {
                 @Override
                 public DispatchResult dispatch(SubmitTaskRequest request, WorkerInfo worker) {
@@ -527,7 +529,7 @@ class SpeculativeExecutionWiringTest {
                 @Override
                 public DispatchResult dispatchBound(SubmitTaskRequest request, WorkerInfo worker) {
                     var attempt = request.taskRequest().getAttempt();
-                    var event = journal.replayActiveTasks().stream()
+                    var event = committed.get().stream()
                             .filter(fact -> fact.taskId().equals(attempt.getTaskId())).findFirst().orElseThrow();
                     assertThat(event.issuance().workerHost()).isEqualTo(worker.host());
                     assertThat(event.issuance().admissionSeal()).isEqualTo(
@@ -537,7 +539,10 @@ class SpeculativeExecutionWiringTest {
                     return super.dispatch(request, worker);
                 }
             }), new CoordinatorSpeculativeWorkerInventory(wm),
-                    new CoordinatorSpeculativeTaskRegistry(tracker, journal));
+                    new CoordinatorSpeculativeTaskRegistry(tracker, facts -> {
+                        journal.appendTaskIssuancesSync(facts);
+                        committed.set(facts);
+                    }));
 
             run("original-copy");
             tracker.assignWorker("original-copy", WA);

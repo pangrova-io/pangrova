@@ -12,9 +12,11 @@ import org.pangrova.protocol.v2.TaskKind;
 import org.pangrova.protocol.task.CanonicalTaskAdmissionSeals;
 import org.pangrova.query.api.journal.JournalEventContext;
 import org.pangrova.query.api.journal.QueryStateEvent;
+import org.pangrova.query.api.journal.TaskStateEvent;
 import org.pangrova.persistence.query.memory.state.InMemoryQueryStateJournal;
 import org.pangrova.persistence.query.api.exception.JournalWriteException;
 
+import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -26,6 +28,7 @@ class WorkerCdcTaskDispatcherTest {
     void registersAndDispatchesTheExactCdcTask() {
         var tracker = new CoordinatorTaskTracker();
         var dispatched = new AtomicReference<SubmitTaskRequest>();
+        var committed = new AtomicReference<List<TaskStateEvent>>();
         var journal = new InMemoryQueryStateJournal();
         journal.appendQueryEventSync(new QueryStateEvent(JournalEventContext.create(1, "issuer"),
                 "query-1", null, null, "RUNNING"));
@@ -43,7 +46,7 @@ class WorkerCdcTaskDispatcherTest {
 
             @Override
             public org.pangrova.execution.task.DispatchResult dispatchBound(SubmitTaskRequest request, WorkerInfo worker) {
-                assertThat(journal.replayActiveTasks()).singleElement().satisfies(event -> {
+                assertThat(committed.get()).singleElement().satisfies(event -> {
                     assertThat(event.taskId()).isEqualTo(request.taskRequest().getAttempt().getTaskId());
                     assertThat(event.issuance().workerHost()).isEqualTo(worker.host());
                     assertThat(event.issuance().workerHttpPort()).isEqualTo(worker.httpPort());
@@ -69,7 +72,10 @@ class WorkerCdcTaskDispatcherTest {
                         .setNativeMemoryBytes(1_048_576).build();
             }
         };
-        var adapter = new WorkerCdcTaskDispatcher(transport, selector, tracker, journal);
+        var adapter = new WorkerCdcTaskDispatcher(transport, selector, tracker, facts -> {
+            journal.appendTaskIssuancesSync(facts);
+            committed.set(facts);
+        });
         var builder = CanonicalTaskRequestTestFixture.builder(
                 "task-1", "query-1", 0, 0, TaskKind.TASK_KIND_CDC_INGEST,
                 new byte[0])

@@ -33,7 +33,7 @@ import org.slf4j.LoggerFactory;
  * use ConcurrentHashMap.compute for atomicity.</p>
  */
 @ThreadSafe
-public final class WorkerManager implements org.pangrova.query.recovery.RecoveredWorkerHealth {
+public final class WorkerManager {
 
     private static final Logger LOG = LoggerFactory.getLogger(WorkerManager.class);
 
@@ -439,32 +439,6 @@ public final class WorkerManager implements org.pangrova.query.recovery.Recovere
         }
         fireTopologyChanged();
         LOG.info("event=registry_loaded workerCount={}", workers.size());
-    }
-
-    /**
-     * Attempts to recover a single worker from the persistent registry into
-     * the in-memory cache. Used when a heartbeat arrives for a worker that
-     * exists in the DB (written by the previous leader) but not in memory
-     * (post-failover scenario).
-     *
-     * @param workerId the worker to recover
-     * @return true if the worker was found in the registry and loaded
-     */
-    public boolean tryRecoverFromRegistry(String workerId) {
-        checkNotNull(workerId, "workerId must not be null");
-        if (workers.containsKey(workerId)) {
-            return true;
-        }
-        return registry.getWorker(workerId)
-                .filter(snapshot -> supportsShuffle(snapshot.shuffleDeployment()))
-                .map(snapshot -> {
-                    WorkerInfo info = inventoryPool.share(fromSnapshot(snapshot));
-                    workers.putIfAbsent(info.workerId(), info);
-                    fireTopologyChanged();
-                    LOG.info("event=worker_recovered_from_registry workerId={}", workerId);
-                    return true;
-                })
-                .orElse(false);
     }
 
     /**

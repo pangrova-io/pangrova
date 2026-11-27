@@ -77,7 +77,7 @@ class WorkerMembershipFencingTest {
         assertThat(first.removeObservedWorker(observed)).isTrue();
         assertThat(registry.getWorker(old.workerId()).orElseThrow().incarnationId())
                 .isEqualTo(replacement.workerExecutionIdentity().incarnationId());
-        assertThat(first.tryRecoverFromRegistry(old.workerId())).isTrue();
+        first.loadFromRegistry();
         assertThat(first.getWorker(old.workerId()).workerExecutionIdentity())
                 .isEqualTo(replacement.workerExecutionIdentity());
     }

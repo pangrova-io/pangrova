@@ -120,7 +120,8 @@ final class JournaledCdcRuntime implements AutoCloseable {
         WorkerDispatch(HighAvailabilityCoordinationService coordination, TaskDispatcher dispatcher,
                 WorkerSelector selector, CoordinatorTaskTracker tracker, TaskStatusReceiver receiver,
                 QueryStateJournal taskJournal) {
-            this(coordination, new WorkerCdcTaskDispatcher(dispatcher, selector, tracker, taskJournal),
+            this(coordination, new WorkerCdcTaskDispatcher(
+                    dispatcher, selector, tracker, taskJournal::appendTaskIssuancesSync),
                     new CdcTaskCompletionRegistry(tracker), taskJournal::purgeQuery);
             receiver.setCdcCompletions(completions);
         }

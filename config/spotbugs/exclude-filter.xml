@@ -2842,11 +2842,6 @@
         <Bug pattern="EI_EXPOSE_REP" />
     </Match>
     <Match>
-        <Class name="org.pangrova.query.recovery.JournalRecoveryService" />
-        <Field name="workerManager" type="org.pangrova.coordinator.worker.WorkerManager" />
-        <Bug pattern="EI_EXPOSE_REP2" />
-    </Match>
-    <Match>
         <Class name="org.pangrova.coordinator.query.statement.DdlExecutor" />
         <Field name="catalogRegistry" type="org.pangrova.metadata.catalog.registry.CatalogRegistry" />
         <Bug pattern="EI_EXPOSE_REP2" />

@@ -5,6 +5,7 @@ import org.pangrova.coordinator.enums.ScheduledTaskState;
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.CanonicalTaskRequestTestFixture;
 import org.pangrova.execution.task.DispatchResult;
+import org.pangrova.query.api.journal.TaskStateEvent;
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.DispatchCanceller;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
@@ -14,7 +15,9 @@ import org.pangrova.common.client.result.ResultEndpoint;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.v2.TaskKind;
 
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -37,6 +40,7 @@ class StagePartitionAcknowledgementTest {
             var context = org.pangrova.query.api.journal.JournalEventContext.create(100, "owner");
             journal.appendQueryEventSync(new org.pangrova.query.api.journal.QueryStateEvent(
                     context, QUERY, "SELECT 1", "{}", "RUNNING"));
+            var committed = new AtomicReference<List<TaskStateEvent>>();
             TaskDispatcher transport = new TaskDispatcher() {
                 @Override public DispatchResult dispatch(SubmitTaskRequest request, WorkerInfo target) {
                     throw new AssertionError("Expected asynchronous dispatch");
@@ -44,7 +48,7 @@ class StagePartitionAcknowledgementTest {
 
                 @Override public CompletableFuture<DispatchResult> dispatchAsync(
                         SubmitTaskRequest request, WorkerInfo target) {
-                    var facts = journal.replayClaimedQueries(java.util.Set.of(QUERY)).tasks();
+                    var facts = committed.get();
                     assertThat(facts).hasSize(1);
                     var issuance = facts.get(0).issuance();
                     assertThat(issuance.workerHost()).isEqualTo(target.host());
@@ -55,7 +59,10 @@ class StagePartitionAcknowledgementTest {
                 }
             };
             var dispatcher = new StagePartitionDispatcher(transport, new DispatchCanceller(transport, tracker),
-                    java.util.function.UnaryOperator.identity(), journal);
+                    java.util.function.UnaryOperator.identity(), facts -> {
+                        journal.appendTaskIssuancesSync(facts);
+                        committed.set(facts);
+                    });
             assertThat(dispatcher.dispatch(request(5_000), worker).acknowledgement().join().taskId()).isEqualTo(TASK);
         }
     }
@@ -65,7 +72,7 @@ class StagePartitionAcknowledgementTest {
         var journal = new org.pangrova.persistence.query.memory.state.InMemoryQueryStateJournal();
         journal.close();
         var dispatcher = new StagePartitionDispatcher(transport, new DispatchCanceller(transport, tracker),
-                java.util.function.UnaryOperator.identity(), journal);
+                java.util.function.UnaryOperator.identity(), journal::appendTaskIssuancesSync);
 
         assertThatThrownBy(() -> dispatcher.dispatch(request(5_000), worker))
                 .isInstanceOf(org.pangrova.persistence.query.api.exception.JournalWriteException.class);

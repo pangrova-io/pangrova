@@ -5,8 +5,6 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -33,41 +31,6 @@ import org.pangrova.query.api.session.JournalSessionPayload;
 public final class JdbcQueryStateJournal implements QueryStateJournal, RecoveredTaskDrainJournal {
     private static final long DRAIN_MS = 5000;
     private static final int MAX_EXPIRED_ACCEPTANCES_PER_SWEEP = 1000;
-    private static final String ACTIVE = "query_id NOT IN (SELECT query_id FROM query_state_journal "
-            + "WHERE state IN ('FINISHED','FAILED','CANCELLED'))";
-    private static final String REPLAY_CLAIMED = """
-            WITH claimed AS MATERIALIZED (
-                SELECT query_id FROM unnest(?::varchar[]) AS ids(query_id)
-            ), claimed_events AS MATERIALIZED (
-                SELECT q.* FROM claimed JOIN query_state_journal q USING (query_id)
-            ), query_facts AS MATERIALIZED (
-                SELECT query_id, bool_or(state IN ('FINISHED','FAILED','CANCELLED')) AS terminal
-                FROM claimed_events GROUP BY query_id
-            )
-            SELECT 0 AS event_kind, q.id, q.event_id, q.query_id, q.state, q.timestamp_ms, q.coordinator_id,
-                   q.sql_text, q.session_json, q.lineage_payload, q.principal, q.idempotency_key_digest,
-                   q.request_fingerprint, q.acceptance_receipt_json, q.retention_ms, q.terminal_outcome,
-                   NULL::varchar AS task_id, NULL::varchar AS worker_id, NULL::integer AS stage_id,
-                   NULL::bigint AS report_sequence, NULL::text AS worker_host, NULL::integer AS worker_http_port,
-                   NULL::text AS owner_incarnation, NULL::bigint AS owner_fencing_token, NULL::bytea AS admission_seal
-            FROM query_facts JOIN claimed_events q USING (query_id) WHERE NOT terminal
-            UNION ALL
-            SELECT 1, t.id, t.event_id, t.query_id, t.state, t.timestamp_ms, t.coordinator_id,
-                   NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-                   t.task_id, t.worker_id, t.stage_id, t.report_sequence,
-                   t.worker_host, t.worker_http_port, t.owner_incarnation, t.owner_fencing_token, t.admission_seal
-            FROM query_facts JOIN task_state_journal t USING (query_id) WHERE NOT terminal
-            UNION ALL
-            SELECT 2, NULL, NULL, claimed.query_id, NULL, NULL, NULL,
-                   NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-                   NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
-            FROM claimed LEFT JOIN query_facts USING (query_id)
-            WHERE CASE WHEN query_facts.query_id IS NOT NULL THEN query_facts.terminal
-                  ELSE (SELECT true FROM task_state_journal t WHERE t.query_id = claimed.query_id LIMIT 1) IS TRUE
-                  END
-            ORDER BY event_kind, id
-            """;
-
     private final DataSource dataSource;
     private final Identity processIdentity;
     private final JournalPendingWrites pending;
@@ -179,72 +142,6 @@ public final class JdbcQueryStateJournal implements QueryStateJournal, Recovered
             }
             throw JournalPendingWrites.failure("Journal commit was not established", failure.getCause());
         }
-    }
-
-    @Override public List<QueryStateEvent> replayActiveQueries() {
-        try {
-            return pending.enterSql().perform(dataSource, connection -> {
-                List<QueryStateEvent> events = new ArrayList<>();
-                try (PreparedStatement statement = connection.prepareStatement("SELECT " + JournalEventSql.QUERY_COLUMNS
-                        + " FROM query_state_journal WHERE " + ACTIVE + " ORDER BY id ASC");
-                        ResultSet rows = statement.executeQuery()) {
-                    while (rows.next()) events.add(JournalEventSql.readQuery(rows));
-                }
-                return List.copyOf(events);
-            });
-        } catch (SQLException failure) {
-            throw JournalPendingWrites.failure("Failed to replay active queries", failure);
-        }
-    }
-
-    @Override public List<TaskStateEvent> replayActiveTasks() {
-        try {
-            return pending.enterSql().perform(dataSource, connection -> {
-                List<TaskStateEvent> events = new ArrayList<>();
-                try (PreparedStatement statement = connection.prepareStatement("SELECT " + JournalEventSql.TASK_COLUMNS
-                        + " FROM task_state_journal WHERE query_id IN (SELECT query_id FROM query_state_journal WHERE "
-                        + ACTIVE + ") ORDER BY id ASC"); ResultSet rows = statement.executeQuery()) {
-                    while (rows.next()) events.add(JournalEventSql.readTask(rows));
-                }
-                return List.copyOf(events);
-            });
-        } catch (SQLException failure) {
-            throw JournalPendingWrites.failure("Failed to replay active tasks", failure);
-        }
-    }
-
-    @Override public RecoveryBatch replayClaimedQueries(Set<String> queryIds) {
-        Set<String> claimed = Set.copyOf(queryIds);
-        if (claimed.isEmpty()) return new RecoveryBatch(List.of(), List.of(), Set.of());
-        try {
-            return pending.enterSql().perform(dataSource, connection -> readClaimed(connection, claimed));
-        } catch (SQLException failure) {
-            throw JournalPendingWrites.failure("Failed to replay claimed queries", failure);
-        }
-    }
-
-    private static RecoveryBatch readClaimed(Connection connection, Set<String> claimed) throws SQLException {
-        List<QueryStateEvent> queries = new ArrayList<>();
-        List<TaskStateEvent> tasks = new ArrayList<>();
-        Set<String> observed = new HashSet<>();
-        var ids = connection.createArrayOf("varchar", claimed.toArray(String[]::new));
-        try (var statement = connection.prepareStatement(REPLAY_CLAIMED)) {
-            statement.setArray(1, ids);
-            try (var rows = statement.executeQuery()) {
-                while (rows.next()) {
-                    switch (rows.getInt("event_kind")) {
-                        case 0 -> queries.add(JournalEventSql.readQuery(rows));
-                        case 1 -> tasks.add(JournalEventSql.readTask(rows));
-                        case 2 -> { }
-                        default -> throw new SQLException("Unknown recovery row kind");
-                    }
-                    observed.add(rows.getString("query_id"));
-                }
-            }
-        } finally {
-            ids.free();
-        }
-        return new RecoveryBatch(queries, tasks, observed);
     }
 
     @Override public Set<String> observedRecoveryExecutions(Set<String> claims) {

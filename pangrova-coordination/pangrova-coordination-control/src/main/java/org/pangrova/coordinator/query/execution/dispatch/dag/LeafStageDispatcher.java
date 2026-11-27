@@ -67,7 +67,8 @@ final class LeafStageDispatcher {
         this.descriptorEncoder = options.descriptorEncoder();
         this.remoteShuffle = options.remoteShuffle();
         this.localShuffle = options.localShuffle();
-        this.partitions = new StagePartitionDispatcher(dispatcher, canceller, options.taskAccessBinder(), stateJournal);
+        this.partitions = new StagePartitionDispatcher(dispatcher, canceller, options.taskAccessBinder(),
+                stateJournal == null ? null : stateJournal::appendTaskIssuancesSync);
     }
 
     record LeafDispatchOptions(

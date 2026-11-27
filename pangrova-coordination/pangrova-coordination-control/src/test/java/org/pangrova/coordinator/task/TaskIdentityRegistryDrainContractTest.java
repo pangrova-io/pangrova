@@ -35,17 +35,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /** Protocol/issuance boundary oracles; generated receipts are not Native execution proof. */
 class TaskIdentityRegistryDrainContractTest {
     @Test
-    void logicalJournalRecoveryDoesNotProveAnEmptyPhysicalOwnerSet() {
-        var registry = new TaskIdentityRegistry();
-        registry.markRecoveryUnresolved("recovered");
-        registry.sealQuery("recovered");
-        assertThatThrownBy(() -> registry.requireQueryDrained("recovered"))
-                .hasMessageContaining("lacks durable issued authority");
-        assertThatThrownBy(() -> registry.retireQuery("recovered"))
-                .hasMessageContaining("lacks durable issued authority");
-    }
-
-    @Test
     void enteredIdentityCannotBeRemovedOrRetiredOnLogicalCompletion() {
         var registry = new TaskIdentityRegistry();
         var request = request();

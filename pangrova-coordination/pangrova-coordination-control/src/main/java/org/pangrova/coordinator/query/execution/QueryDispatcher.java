@@ -274,10 +274,6 @@ public class QueryDispatcher implements org.pangrova.query.lifecycle.QueryExecut
         return taskTracker.enterQueryMetadataOperation(queryId);
     }
 
-    public void markRecoveredIssuanceUnresolved(String queryId) {
-        taskTracker.markRecoveredIssuanceUnresolved(queryId);
-    }
-
     public void retireQueryIssuance(String queryId) { taskTracker.retireQueryIssuance(queryId); }
 
     public void addQueryDrainProgressListener(java.util.function.Consumer<String> listener) {

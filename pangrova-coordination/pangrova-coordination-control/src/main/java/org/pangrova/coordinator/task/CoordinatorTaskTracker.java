@@ -26,7 +26,7 @@ import org.pangrova.scheduler.api.speculation.TaskDuration;
  * Local publication is serialized with issuance sealing; transport operations run outside that gate.
  */
 @ThreadSafe
-public class CoordinatorTaskTracker implements org.pangrova.query.recovery.RecoveredTaskRegistry {
+public class CoordinatorTaskTracker {
 
     private final ConcurrentHashMap<String, ConcurrentHashMap<String, TaskStateMachine>> queryTasks =
             new ConcurrentHashMap<>();
@@ -393,8 +393,6 @@ public class CoordinatorTaskTracker implements org.pangrova.query.recovery.Recov
     public org.pangrova.connector.api.query.ConnectorQueryAuthority openQueryIssuance(String queryId) {
         return taskIdentityStore.openQuery(queryId);
     }
-
-    public void markRecoveredIssuanceUnresolved(String queryId) { taskIdentityStore.markRecoveryUnresolved(queryId); }
 
     /** Enters a query issuance operation and notifies listeners when it exits. */
     public QueryOperation enterQueryOperation(String queryId) {

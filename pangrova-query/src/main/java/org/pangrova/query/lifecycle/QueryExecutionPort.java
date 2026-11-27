@@ -69,9 +69,6 @@ public interface QueryExecutionPort extends QueryExecutionCleanup {
     /** Opens the exact connector query issuance for a recovered query. */
     ConnectorQueryAuthority openQueryIssuance(String queryId);
 
-    /** Marks a recovered issuance unresolved; it must not be treated as complete. */
-    void markRecoveredIssuanceUnresolved(String queryId);
-
     /** Retires the exact query issuance after its terminal publication. */
     void retireQueryIssuance(String queryId);
 

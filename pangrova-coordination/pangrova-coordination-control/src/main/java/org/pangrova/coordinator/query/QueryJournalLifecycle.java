@@ -56,15 +56,6 @@ final class QueryJournalLifecycle
     @Override public void purgeQuery(String queryId) { journal.purgeQuery(queryId); }
     @Override public void close() { journal.close(); }
     @Override public boolean isDrained() { return journal.isDrained(); }
-    @Override public java.util.List<QueryStateEvent> replayActiveQueries() {
-        return journal.replayActiveQueries();
-    }
-    @Override public java.util.List<TaskStateEvent> replayActiveTasks() {
-        return journal.replayActiveTasks();
-    }
-    @Override public RecoveryBatch replayClaimedQueries(java.util.Set<String> queryIds) {
-        return journal.replayClaimedQueries(queryIds);
-    }
     @Override public Optional<QueryStateEvent> latestQueryEvent(String queryId) {
         return journal.latestQueryEvent(queryId);
     }

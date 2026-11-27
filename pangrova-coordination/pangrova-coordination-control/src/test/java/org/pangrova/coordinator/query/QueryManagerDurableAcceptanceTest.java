@@ -278,21 +278,6 @@ class QueryManagerDurableAcceptanceTest {
         }
 
         @Override
-        public List<QueryStateEvent> replayActiveQueries() {
-            return delegate.replayActiveQueries();
-        }
-
-        @Override
-        public List<TaskStateEvent> replayActiveTasks() {
-            return delegate.replayActiveTasks();
-        }
-
-        @Override
-        public RecoveryBatch replayClaimedQueries(java.util.Set<String> queryIds) {
-            return delegate.replayClaimedQueries(queryIds);
-        }
-
-        @Override
         public Optional<QueryStateEvent> latestQueryEvent(String queryId) {
             return delegate.latestQueryEvent(queryId);
         }

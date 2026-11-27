@@ -112,6 +112,7 @@ against the locally held grant for ordinary SQL progress. It transfers no
 intermediate report to the journal. Durable records still include the exact
 pre-HTTP task issuance, synchronous terminal reports and recovered exit receipts.
 
+The query journal supports point lookups for retained query facts and signed receipts.
 Recovery checks journal presence for only the claimed execution IDs. The
 bounded statement probes the query and task indexes and returns IDs that have
 evidence. It does not load historical plans, sessions, or report payloads to

@@ -45,7 +45,7 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 
 /**
  * Integration test for {@link JdbcQueryStateJournal} using TestContainers PostgreSQL.
- * Validates the full write → replay → purge cycle.
+ * Validates the full write → lookup → purge cycle.
  */
 @Testcontainers
 class JdbcQueryStateJournalIntegrationTest {
@@ -91,16 +91,14 @@ class JdbcQueryStateJournalIntegrationTest {
     }
 
     @Test
-    void syncWriteAndReplayQueryEvents() {
-        journal.appendQueryEventSync(
-                new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(1000L, null), "q-1", "SELECT 1", "{}", "QUEUED"));
-        journal.appendQueryEventSync(
-                new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(2000L, null), "q-1", null, null, "RUNNING"));
-
-        List<QueryStateEvent> events = journal.replayActiveQueries();
-        assertEquals(2, events.size());
-        assertEquals("QUEUED", events.get(0).state());
-        assertEquals("RUNNING", events.get(1).state());
+    void syncWritePreservesQueryFacts() throws Exception {
+        var queued = new QueryStateEvent(JournalEventContext.create(2000L, null), "q-1", "SELECT 1", "{}", "QUEUED");
+        var running = new QueryStateEvent(JournalEventContext.create(1000L, null), "q-1", null, null, "RUNNING");
+        journal.appendQueryEventSync(queued);
+        assertEquals(queued, journal.latestQueryEvent("q-1").orElseThrow());
+        journal.appendQueryEventSync(running);
+        assertEquals(running, journal.latestQueryEvent("q-1").orElseThrow());
+        assertEquals(2, countQueryRows("query_state_journal", "q-1"));
     }
 
     @Test
@@ -115,8 +113,7 @@ class JdbcQueryStateJournalIntegrationTest {
     }
 
     @Test
-    void syncWriteAndReplayTaskEvents() {
-        // Need a non-terminal query for tasks to be replayed
+    void syncWritePersistsTaskEventsInOrder() throws Exception {
         journal.appendQueryEventSync(
                 new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(1000L, null), "q-1", "SELECT 1", "{}", "QUEUED"));
         journal.appendTaskEventSync(
@@ -124,14 +121,14 @@ class JdbcQueryStateJournalIntegrationTest {
         journal.appendTaskEventSync(
                 new TaskStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(1100L, null), "q-1", "t-2", "w-2", "RUNNING", 1, 1L));
 
-        List<TaskStateEvent> events = journal.replayActiveTasks();
+        List<TaskStateEvent> events = storedTasks("q-1");
         assertEquals(2, events.size());
         assertEquals("t-1", events.get(0).taskId());
         assertEquals("t-2", events.get(1).taskId());
     }
 
     @Test
-    void claimedRecoveryReadsOnlyItsActiveBatchInOneStatement() throws Exception {
+    void claimedRecoveryReturnsOnlyMatchingIdsInOneStatement() throws Exception {
         executeSql("""
                 INSERT INTO query_state_journal (event_id, query_id, state, timestamp_ms)
                 SELECT gen_random_uuid(), 'peer-' || i, 'RUNNING', 100
@@ -159,14 +156,9 @@ class JdbcQueryStateJournalIntegrationTest {
         executeSql("CREATE EXTENSION IF NOT EXISTS pg_stat_statements");
         executeSql("SELECT pg_stat_statements_reset()");
 
-        var empty = journal.replayClaimedQueries(Set.of());
-        assertThat(empty.queries()).isEmpty();
-        assertThat(empty.tasks()).isEmpty();
-        assertThat(empty.observedExecutionIds()).isEmpty();
-        var batch = journal.replayClaimedQueries(Set.of("q-claimed", "q-terminal", "q-orphan", "q-absent"));
-        assertThat(batch.queries()).containsExactly(admission, running);
-        assertThat(batch.tasks()).containsExactly(task);
-        assertThat(batch.observedExecutionIds()).containsExactlyInAnyOrder("q-claimed", "q-terminal", "q-orphan");
+        assertThat(journal.observedRecoveryExecutions(Set.of())).isEmpty();
+        var observed = journal.observedRecoveryExecutions(Set.of("q-claimed", "q-terminal", "q-orphan", "q-absent"));
+        assertThat(observed).containsExactlyInAnyOrder("q-claimed", "q-terminal", "q-orphan");
         try (var connection = dataSource.getConnection(); var statement = connection.createStatement();
                 var rows = statement.executeQuery("""
                         SELECT calls, rows FROM pg_stat_statements
@@ -176,7 +168,7 @@ class JdbcQueryStateJournalIntegrationTest {
                         """)) {
             assertTrue(rows.next());
             assertEquals(1L, rows.getLong("calls"));
-            assertEquals(5L, rows.getLong("rows"));
+            assertEquals(3L, rows.getLong("rows"));
             assertFalse(rows.next());
         }
     }
@@ -208,7 +200,7 @@ class JdbcQueryStateJournalIntegrationTest {
         }
         assertEquals(0L, eventReadbacks());
         journal.appendTaskIssuancesSync(tasks);
-        assertThat(journal.replayClaimedQueries(Set.of(id)).tasks()).containsExactlyInAnyOrderElementsOf(tasks);
+        assertThat(storedTasks(id)).containsExactlyInAnyOrderElementsOf(tasks);
 
         var event = tasks.get(0);
         var changed = new TaskStateEvent(event.context(), id, event.taskId(), event.workerId(), event.state(),
@@ -224,7 +216,7 @@ class JdbcQueryStateJournalIntegrationTest {
         var rejected = assertThrows(JournalWriteException.class,
                 () -> journal.appendTaskIssuancesSync(List.of(candidate)));
         assertEquals(JournalAdmissionOutcome.REJECTED_BEFORE_TRANSFER, rejected.admissionOutcome());
-        assertThat(journal.replayClaimedQueries(Set.of(id)).tasks()).containsExactlyInAnyOrderElementsOf(tasks);
+        assertThat(storedTasks(id)).containsExactlyInAnyOrderElementsOf(tasks);
     }
 
     @Test
@@ -245,7 +237,7 @@ class JdbcQueryStateJournalIntegrationTest {
                             "worker-id", "SCHEDULED", 1, 0, issuance)).toList();
             journal.appendTaskIssuancesSync(tasks);
             assertEquals(size, countQueryRows("task_state_journal", id));
-            assertThat(journal.replayClaimedQueries(Set.of(id)).tasks()).containsExactlyInAnyOrderElementsOf(tasks);
+            assertThat(storedTasks(id)).containsExactlyInAnyOrderElementsOf(tasks);
         }
         try (var connection = dataSource.getConnection(); var statement = connection.createStatement();
                 var rows = statement.executeQuery("""
@@ -280,8 +272,8 @@ class JdbcQueryStateJournalIntegrationTest {
                 .orElseThrow();
         var recoveredOrphan = store.tryAcquire(orphan.executionId(), "successor", "next-boot", lease).orElseThrow();
         journal.appendTaskIssuancesSync(recoveryIssuances(recoveredTerminal, 30, 1));
-        assertThat(journal.replayClaimedQueries(Set.of(terminal.executionId(), orphan.executionId())).tasks())
-                .isEmpty();
+        assertThat(journal.observedRecoveryExecutions(Set.of(terminal.executionId(), orphan.executionId())))
+                .containsExactlyInAnyOrder(terminal.executionId(), orphan.executionId());
         assertThat(journal.pendingTaskDrains(terminal, 0)).isEmpty();
         var first = journal.pendingTaskDrains(recoveredTerminal, 0);
         assertThat(first).hasSize(pageSize);
@@ -647,18 +639,17 @@ class JdbcQueryStateJournalIntegrationTest {
     }
 
     @Test
-    void terminalQueryExcludedFromReplay() {
+    void latestPointLookupReturnsTheTerminalFact() {
         journal.appendQueryEventSync(
                 new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(1000L, null), "q-1", "SELECT 1", "{}", "QUEUED"));
         journal.appendQueryEventSync(
                 new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(2000L, null), "q-1", null, null, "FINISHED"));
 
-        List<QueryStateEvent> events = journal.replayActiveQueries();
-        assertTrue(events.isEmpty(), "Finished query should not be replayed");
+        assertEquals("FINISHED", journal.latestQueryEvent("q-1").orElseThrow().state());
     }
 
     @Test
-    void purgeRemovesAllEventsForQuery() {
+    void purgeRemovesAllEventsForQuery() throws Exception {
         journal.appendQueryEventSync(
                 new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(1000L, null), "q-1", "SELECT 1", "{}", "QUEUED"));
         journal.appendTaskEventSync(
@@ -666,8 +657,8 @@ class JdbcQueryStateJournalIntegrationTest {
 
         journal.purgeQuery("q-1");
 
-        assertTrue(journal.replayActiveQueries().isEmpty());
-        assertTrue(journal.replayActiveTasks().isEmpty());
+        assertTrue(journal.latestQueryEvent("q-1").isEmpty());
+        assertTrue(storedTasks("q-1").isEmpty());
     }
 
     @Test
@@ -679,9 +670,8 @@ class JdbcQueryStateJournalIntegrationTest {
 
         journal.purgeQuery("q-1");
 
-        List<QueryStateEvent> events = journal.replayActiveQueries();
-        assertEquals(1, events.size());
-        assertEquals("q-2", events.get(0).queryId());
+        assertTrue(journal.latestQueryEvent("q-1").isEmpty());
+        assertEquals("q-2", journal.latestQueryEvent("q-2").orElseThrow().queryId());
     }
 
     @Test
@@ -751,8 +741,7 @@ class JdbcQueryStateJournalIntegrationTest {
     }
 
     @Test
-    void asyncFlushBatchingBehavior() throws InterruptedException {
-        // Need a non-terminal query for tasks to be replayed
+    void asyncFlushBatchingBehavior() throws Exception {
         journal.appendQueryEventSync(
                 new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(1000L, null), "q-async", "SELECT 1", "{}", "QUEUED"));
 
@@ -763,14 +752,14 @@ class JdbcQueryStateJournalIntegrationTest {
         }
 
         // Wait for flush (config interval is 50ms, give it 2s)
-        await().atMost(2, SECONDS).until(() -> journal.replayActiveTasks().size() == 5);
+        await().atMost(2, SECONDS).until(() -> countQueryRows("task_state_journal", "q-async") == 5);
 
-        List<TaskStateEvent> events = journal.replayActiveTasks();
+        List<TaskStateEvent> events = storedTasks("q-async");
         assertEquals(5, events.size(), "All async events should be flushed");
     }
 
     @Test
-    void closeFlushesRemainingEvents() throws InterruptedException {
+    void closeFlushesRemainingEvents() throws Exception {
         journal.appendQueryEventSync(
                 new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(1000L, null), "q-close", "SELECT 1", "{}", "QUEUED"));
 
@@ -783,12 +772,7 @@ class JdbcQueryStateJournalIntegrationTest {
         // Close immediately (should flush remaining)
         journal.close();
 
-        // Create a new journal to verify data was persisted
-        var config2 = new StateJournalConfig("JDBC", POSTGRES.getJdbcUrl(), 50, 20, 24, 50_000);
-        try (var journal2 = new JdbcQueryStateJournal(dataSource, config2)) {
-            List<TaskStateEvent> events = journal2.replayActiveTasks();
-            assertEquals(3, events.size(), "Close should flush remaining async events");
-        }
+        assertEquals(3, storedTasks("q-close").size(), "Close should flush remaining async events");
     }
 
     @Test
@@ -809,13 +793,21 @@ class JdbcQueryStateJournalIntegrationTest {
         journal.appendQueryEventSync(
                 new QueryStateEvent(org.pangrova.query.api.journal.JournalEventContext.create(1200L, null), "q-3", "SELECT 3", "{}", "QUEUED"));
 
-        List<QueryStateEvent> events = journal.replayActiveQueries();
-        // Only q-1 and q-3 events should be replayed
-        long distinctQueries = events.stream()
-                .map(QueryStateEvent::queryId).distinct().count();
-        assertEquals(2, distinctQueries, "Only active queries should be replayed");
-        assertTrue(events.stream().noneMatch(e -> "q-2".equals(e.queryId())),
-                "Terminal query q-2 should not be replayed");
+        assertEquals("RUNNING", journal.latestQueryEvent("q-1").orElseThrow().state());
+        assertEquals("FAILED", journal.latestQueryEvent("q-2").orElseThrow().state());
+        assertEquals("QUEUED", journal.latestQueryEvent("q-3").orElseThrow().state());
+    }
+
+    private List<TaskStateEvent> storedTasks(String queryId) throws SQLException {
+        var events = new java.util.ArrayList<TaskStateEvent>();
+        try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement(
+                "SELECT " + JournalEventSql.TASK_COLUMNS + " FROM task_state_journal WHERE query_id = ? ORDER BY id")) {
+            statement.setString(1, queryId);
+            try (var rows = statement.executeQuery()) {
+                while (rows.next()) events.add(JournalEventSql.readTask(rows));
+            }
+        }
+        return List.copyOf(events);
     }
 
     @Test

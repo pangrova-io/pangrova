@@ -3,7 +3,6 @@ package org.pangrova.persistence.query.memory.state;
 import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.persistence.query.api.enums.JournalAdmissionOutcome;
 
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Objects;
@@ -130,32 +129,6 @@ public final class InMemoryQueryStateJournal implements QueryStateJournal {
     }
     @Override public void appendTaskEventSync(TaskStateEvent event) { appendTaskEvent(event); }
 
-    @Override public synchronized List<QueryStateEvent> replayActiveQueries() {
-        requireOpen();
-        Set<String> terminal = terminalQueries();
-        return queries.values().stream().filter(event -> !terminal.contains(event.queryId())).toList();
-    }
-    @Override public synchronized List<TaskStateEvent> replayActiveTasks() {
-        requireOpen();
-        Set<String> active = replayActiveQueries().stream().map(QueryStateEvent::queryId)
-                .collect(java.util.stream.Collectors.toSet());
-        return tasks.values().stream().filter(event -> active.contains(event.queryId())).toList();
-    }
-    @Override public synchronized RecoveryBatch replayClaimedQueries(Set<String> queryIds) {
-        requireOpen();
-        Set<String> claimed = Set.copyOf(queryIds);
-        var claimedQueries = queries.values().stream().filter(event -> claimed.contains(event.queryId())).toList();
-        var claimedTasks = tasks.values().stream().filter(event -> claimed.contains(event.queryId())).toList();
-        Set<String> terminal = terminalQueries();
-        var queryEvents = claimedQueries.stream().filter(event -> !terminal.contains(event.queryId())).toList();
-        Set<String> active = queryEvents.stream().map(QueryStateEvent::queryId)
-                .collect(java.util.stream.Collectors.toSet());
-        var taskEvents = claimedTasks.stream().filter(event -> active.contains(event.queryId())).toList();
-        Set<String> observed = new HashSet<>();
-        claimedQueries.forEach(event -> observed.add(event.queryId()));
-        claimedTasks.forEach(event -> observed.add(event.queryId()));
-        return new RecoveryBatch(queryEvents, taskEvents, observed);
-    }
     @Override public synchronized Optional<QueryStateEvent> latestQueryEvent(String queryId) {
         requireOpen();
         Objects.requireNonNull(queryId, "queryId");
@@ -240,10 +213,6 @@ public final class InMemoryQueryStateJournal implements QueryStateJournal {
                 conflict, JournalAdmissionOutcome.REJECTED_BEFORE_TRANSFER);
     }
 
-    private Set<String> terminalQueries() {
-        return queries.values().stream().filter(event -> TERMINAL.contains(event.state()))
-                .map(QueryStateEvent::queryId).collect(java.util.stream.Collectors.toSet());
-    }
     private void requireOpen() {
         if (closed) throw failure("Process-local journal is closed");
     }
