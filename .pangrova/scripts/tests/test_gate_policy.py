@@ -163,6 +163,13 @@ class StructuralPolicyTest(unittest.TestCase):
         self.assertIn('--base-ref "$BASE_SHA" --head-ref "$HEAD_SHA"', workflow)
         self.assertIn('--full >> "$GITHUB_OUTPUT"', workflow)
 
+    def test_only_pull_request_ci_cancels_an_in_progress_run(self):
+        workflow = (ROOT / '.github/workflows/ci.yml').read_text()
+        concurrency = workflow.split('\nconcurrency:\n', 1)[1].split('\n\n', 1)[0]
+        self.assertIn('group: ${{ github.workflow }}-${{ github.ref }}', concurrency)
+        self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}",
+                      concurrency)
+
     def test_lightweight_module_checks_always_have_jdk_before_source_parsing(self):
         workflow = (ROOT / '.github/workflows/ci.yml').read_text()
         lint = workflow.split('  lint:\n', 1)[1].split('\n  static-analysis:', 1)[0]

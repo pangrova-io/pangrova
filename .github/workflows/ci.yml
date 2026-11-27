@@ -10,7 +10,8 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Let a started branch or release validation finish even when a newer run queues.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   MAVEN_ARGS: -C --global-settings ${{ github.workspace }}/.mvn/ci-settings.xml

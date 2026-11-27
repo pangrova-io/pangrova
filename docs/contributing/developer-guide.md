@@ -788,6 +788,10 @@ logging:
 
 ### 7.3 CI Failure Summaries
 
+Branch pushes and release calls let an active full validation finish. If
+another run for the same ref is waiting, GitHub keeps the latest pending run.
+A new commit on a pull request cancels its superseded validation.
+
 When CI fails on a push to `main`, open the **Main CI failure diagnostics**
 workflow for the corresponding run and attempt. Its summary lists the first
 failing step in each job, incomplete jobs, report publishing failures, and the
