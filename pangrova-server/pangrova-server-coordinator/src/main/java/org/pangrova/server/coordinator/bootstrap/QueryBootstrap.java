@@ -101,7 +101,6 @@ final class QueryBootstrap {
     private org.pangrova.scheduler.speculation.SpeculativeExecutionScheduler speculationScheduler;
     private RemoteTaskDispatcher remoteTaskDispatcher;
     private TaskScheduler taskScheduler;
-    private QuerySchedulingRuntime queryScheduling;
     private org.pangrova.persistence.generation.api.job.GenerationJobStore artifactBuildStore;
     private org.pangrova.coordinator.ai.embedding.GeneratedValueMaterializationCoordinator
             generatedValueMaterialization;
@@ -208,9 +207,8 @@ final class QueryBootstrap {
                 createReaderPinLeases();
         SqlCompiler compiler = new SqlCompilerFactory(config, metadataBootstrap, readerPinLeases, accessControl)
                 .buildSqlCompiler();
-        queryScheduling = new QuerySchedulingRuntime(
+        taskScheduler = QueryPlacementFactory.create(
                 moduleWiring != null ? moduleWiring.getTenantStore() : null, config.query().placementProvider());
-        taskScheduler = queryScheduling.scheduler();
         if (metadataDataSource != null) {
             artifactBuildStore = artifactStores.builds(
                     metadataDataSource);
@@ -368,8 +366,7 @@ final class QueryBootstrap {
                 },
                 () -> CoordinatorShutdownSequence.shutdownSchedulerExecutor(submitDeadlines),
                 () -> CoordinatorShutdownSequence.shutdownSchedulerExecutor(schedulerExecutor),
-                () -> { if (queryDispatcher != null) queryDispatcher.dagEngine().close(); },
-                () -> { if (queryScheduling != null) queryScheduling.close(); });
+                () -> { if (queryDispatcher != null) queryDispatcher.dagEngine().close(); });
     }
 
     private void closeQueryResources(

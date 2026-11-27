@@ -29,7 +29,7 @@ class QuerySchedulingTenantPlacementTest {
     void configuredAuthorityDistinguishesSharedPoolUnknownAndInactiveTenants() {
         var store = new InMemoryTenantStore();
         store.createTenant(tenant(TenantStatus.ACTIVE, null));
-        var resolver = QuerySchedulingRuntime.tenantPlacement(store);
+        var resolver = QueryPlacementFactory.tenantPlacement(store);
         assertThat(resolver.resourcePool("tenant-a")).isEmpty();
         store.updateTenant(tenant(TenantStatus.ACTIVE, "pool-b"));
         assertThat(resolver.resourcePool("tenant-a")).contains("pool-b");
@@ -43,7 +43,7 @@ class QuerySchedulingTenantPlacementTest {
 
     @Test
     void deploymentWithoutTenantAuthorityExplicitlyUsesSharedWorkers() {
-        assertThat(QuerySchedulingRuntime.tenantPlacement(null).resourcePool("identity-not-pool")).isEmpty();
+        assertThat(QueryPlacementFactory.tenantPlacement(null).resourcePool("identity-not-pool")).isEmpty();
     }
 
     @Test
@@ -67,7 +67,7 @@ class QuerySchedulingTenantPlacementTest {
             counted.setCurrentSchema(connection.getSchema());
         }
         var scheduler = new TaskScheduler(new LoadBalancedStrategy(),
-                QuerySchedulingRuntime.tenantPlacement(new JdbcTenantStore(counted)));
+                QueryPlacementFactory.tenantPlacement(new JdbcTenantStore(counted)));
         var original = worker("pool-a");
         var next = worker("pool-b");
         var candidates = List.of(original, next);
