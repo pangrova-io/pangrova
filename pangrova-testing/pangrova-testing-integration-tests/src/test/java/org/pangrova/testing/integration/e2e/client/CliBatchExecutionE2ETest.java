@@ -190,7 +190,7 @@ class CliBatchExecutionE2ETest extends PangrovaE2ETestBase {
         assertThat(runCatalogProbe(directory, log, CATALOG, invalidToken)).isNotZero();
 
         String output = Files.readString(log);
-        assertThat(output).contains("HTTP 401").doesNotContain("connection test passed");
+        assertThat(output).contains("invalid E2E bearer credential").doesNotContain("connection test passed");
         assertThat(output.contains(invalidToken)).isFalse();
     }
 
