@@ -103,10 +103,15 @@ minus start. Parallel work can overlap these intervals.
 `stageDispatchWork` contains measured intervals for each live stage and
 generation. The phases are `SERIALIZE_PLAN`, `ENUMERATE_SPLITS`,
 `VALIDATE_AND_BIND_PLAN`, `SUBMIT_TASKS`, and `OBSERVE_COHORT_ACK`.
-The item count identifies enumerated splits or submitted task partitions as
-applicable. The ACK interval starts after submission and measures how long the
-Coordinator still waits for the cohort; it uses the same clock as the stage
-transitions. The interval reports whether the cohort acknowledged successfully.
+Every started synchronous phase records its completed interval, including
+failures such as connector enumeration timeout or Worker admission rejection.
+The `successful` field is false for failed operations; no interval is invented
+for later phases that never started. The item count identifies completed split
+enumeration or task partition submission as applicable and is absent for a
+failed synchronous phase whose complete count is not known. The ACK interval
+starts after submission and measures how long the Coordinator still waits for
+the cohort; it uses the same clock as the stage transitions and reports whether
+the cohort acknowledged successfully.
 
 ### Submit a Query
 

@@ -3,6 +3,7 @@ package org.pangrova.persistence.query.memory.transaction;
 import org.pangrova.persistence.query.api.enums.WriteCommitState;
 import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
 import org.pangrova.persistence.query.api.commit.WriteCommitJournal;
+import org.pangrova.persistence.query.api.commit.WriteCommitReceipt;
 import org.pangrova.common.file.CopyFilePublication;
 import org.pangrova.connector.api.commit.NativeWriteFinalization;
 
@@ -20,6 +21,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class InMemoryWriteCommitJournal implements WriteCommitJournal {
 
     private final ConcurrentHashMap<String, WriteCommitEntry> entries = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, WriteCommitReceipt> receipts = new ConcurrentHashMap<>();
     private final java.util.Set<String> acknowledged = ConcurrentHashMap.newKeySet();
 
     @Override
@@ -39,6 +41,9 @@ public final class InMemoryWriteCommitJournal implements WriteCommitJournal {
         }
         entries.compute(entry.queryId(), (ignored, existing) -> {
             if (existing == null) {
+                if (receipts.containsKey(entry.queryId())) {
+                    throw new IllegalStateException("Cannot re-admit a retired write intent: " + entry.queryId());
+                }
                 return entry;
             }
             if (!existing.commitFingerprint().equals(entry.commitFingerprint())
@@ -54,10 +59,16 @@ public final class InMemoryWriteCommitJournal implements WriteCommitJournal {
     public void markCommitted(String queryId) {
         entries.compute(queryId, (key, existing) -> {
             if (existing == null) {
+                if (isCommitted(queryId)) return null;
                 throw new IllegalStateException("Cannot commit a missing write intent: " + queryId);
             }
-            return existing.state() == WriteCommitState.COMMITTED ? existing
+            if (existing.state() == WriteCommitState.ABORTED) {
+                throw new IllegalStateException("Cannot commit an aborted write intent: " + queryId);
+            }
+            var committed = existing.state() == WriteCommitState.COMMITTED ? existing
                     : existing.withState(WriteCommitState.COMMITTED, System.currentTimeMillis());
+            retainReceipt(committed);
+            return committed;
         });
     }
 
@@ -86,8 +97,19 @@ public final class InMemoryWriteCommitJournal implements WriteCommitJournal {
 
     @Override
     public boolean isCommitted(String queryId) {
-        WriteCommitEntry entry = entries.get(queryId);
-        return entry != null && entry.state() == WriteCommitState.COMMITTED;
+        return getReceipt(queryId).filter(receipt -> receipt.state() == WriteCommitState.COMMITTED).isPresent();
+    }
+
+    @Override
+    public Optional<WriteCommitReceipt> getReceipt(String queryId) {
+        return Optional.ofNullable(receipts.get(queryId));
+    }
+
+    private void retainReceipt(WriteCommitEntry entry) {
+        receipts.putIfAbsent(entry.queryId(), new WriteCommitReceipt(entry.queryId(), entry.tenantId(),
+                entry.catalogName(), entry.tableName(), entry.writeMode(), entry.baseSnapshotId(),
+                entry.commitFingerprint(), entry.state(), entry.timestampMs(), entry.copyFile() != null,
+                entry.cdcSource() != null, entry.publication()));
     }
 
     @Override
@@ -154,8 +176,10 @@ public final class InMemoryWriteCommitJournal implements WriteCommitJournal {
                     || !entry.commitFingerprint().equals(fingerprint) || entry.publication() != null) {
                 throw new IllegalStateException("Abort does not match an exact unpublished pending or aborted intent");
             }
-            return entry.state() == WriteCommitState.ABORTED ? entry
+            var aborted = entry.state() == WriteCommitState.ABORTED ? entry
                     : entry.withState(WriteCommitState.ABORTED, System.currentTimeMillis());
+            retainReceipt(aborted);
+            return aborted;
         });
     }
 

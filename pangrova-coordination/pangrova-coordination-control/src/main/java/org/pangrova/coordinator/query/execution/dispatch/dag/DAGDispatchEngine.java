@@ -17,6 +17,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
@@ -399,11 +400,10 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
             fireHandlerEvent(stage, state, StageLifecycleHandler::onScheduling);
             int generation = stage.currentGeneration();
             PreparedStage prepared = prepareStage(stage, state, generation, observations);
-            long submissionStarted = dispatchTimestamp(observations);
-            List<PartitionDispatch> partitions =
-                    leafStageDispatcher.dispatchLeafStage(prepared.dispatch(), prepared.durablePlan());
-            recordDispatchWork(observations, stage.stageId(), generation, DispatchPhase.SUBMIT_TASKS,
-                    submissionStarted, partitions.size(), true);
+            List<PartitionDispatch> partitions = measureDispatchWork(
+                    observations, stage.stageId(), generation, DispatchPhase.SUBMIT_TASKS,
+                    () -> leafStageDispatcher.dispatchLeafStage(prepared.dispatch(), prepared.durablePlan()),
+                    List::size);
             awaitStageDispatch(stage, prepared.plan(), partitions, state, observations);
         } catch (LinkageError failure) {
             failStageDispatch(stage, failure, state);
@@ -453,10 +453,8 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
         lifecycle.emitStageLineage(state.queryId(), plan, true);
         boolean outputStage = state.dag().findDownstreamEdge(plan.stageId()) == null;
         List<String> visibleColumns = queryContext == null ? List.of() : queryContext.preOptColumnNames();
-        long serializationStarted = dispatchTimestamp(observations);
-        var compiled = state.compilePlan(plan, visibleColumns);
-        recordDispatchWork(observations, plan.stageId(), generation, DispatchPhase.SERIALIZE_PLAN,
-                serializationStarted, null, true);
+        var compiled = measureDispatchWork(observations, plan.stageId(), generation, DispatchPhase.SERIALIZE_PLAN,
+                () -> state.compilePlan(plan, visibleColumns), null);
         if (queryContext != null && !queryContext.retrievalArtifacts().isEmpty()) {
             LOG.info("event=retrieval_stage_hints queryId={} stageId={} hints={}",
                     state.queryId(), plan.stageId(), compiled.retrievalTopKHints().stream()
@@ -464,23 +462,23 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
         }
         boolean allowsRanges = !outputStage && plan.parallelism() > 1 && isLiveRelationalRead(queryContext)
                 && compiled.retrievalTopKHints().isEmpty();
-        long enumerationStarted = dispatchTimestamp(observations);
-        var fetched = stageSplitFetcher.fetch(
-                plan, queryContext == null ? null : queryContext.requireLiveSession(),
-                queryContext == null ? Map.of() : queryContext.snapshotOverrides(),
-                queryContext == null || queryContext.writeConfig() == null
-                        ? null : queryContext.writeConfig().writeMode(), state.buildFilter(),
-                allowsRanges ? FileGranularity.BYTE_RANGES : FileGranularity.WHOLE_OBJECT);
+        var fetched = measureDispatchWork(observations, plan.stageId(), generation, DispatchPhase.ENUMERATE_SPLITS,
+                () -> stageSplitFetcher.fetch(
+                        plan, queryContext == null ? null : queryContext.requireLiveSession(),
+                        queryContext == null ? Map.of() : queryContext.snapshotOverrides(),
+                        queryContext == null || queryContext.writeConfig() == null
+                                ? null : queryContext.writeConfig().writeMode(), state.buildFilter(),
+                        allowsRanges ? FileGranularity.BYTE_RANGES : FileGranularity.WHOLE_OBJECT),
+                result -> result.splits().size());
         List<QuerySplit> splits = fetched.splits();
-        recordDispatchWork(observations, plan.stageId(), generation, DispatchPhase.ENUMERATE_SPLITS,
-                enumerationStarted, splits.size(), true);
-        long bindingStarted = dispatchTimestamp(observations);
-        org.pangrova.execution.split.CanonicalSplitValidator.validateAll(
-                () -> splits.stream().map(QuerySplit::data).iterator(), state.queryId(), plan.stageId());
-        BoundExecutionPlan boundPlan = stagePlanBinder.bind(new DAGStagePlanBinder.Input(
-                compiled, plan, fetched, queryContext, state.session(), state.workerSelector(), outputStage));
-        recordDispatchWork(observations, plan.stageId(), generation, DispatchPhase.VALIDATE_AND_BIND_PLAN,
-                bindingStarted, null, true);
+        BoundExecutionPlan boundPlan = measureDispatchWork(
+                observations, plan.stageId(), generation, DispatchPhase.VALIDATE_AND_BIND_PLAN, () -> {
+                    org.pangrova.execution.split.CanonicalSplitValidator.validateAll(
+                            () -> splits.stream().map(QuerySplit::data).iterator(), state.queryId(), plan.stageId());
+                    return stagePlanBinder.bind(new DAGStagePlanBinder.Input(
+                            compiled, plan, fetched, queryContext, state.session(),
+                            state.workerSelector(), outputStage));
+                }, null);
         // Only the terminal stage owns the table write. Upstream stages must
         // produce their ExchangeRel shuffle output with a shuffle task binding.
         var writeConfig = queryContext == null
@@ -524,6 +522,24 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
                     }
                     return null;
                 });
+    }
+
+    /** Records a completed synchronous phase even when its original operation throws. */
+    private static <T> T measureDispatchWork(QueryStageObservations observations, int stageId, int generation,
+            DispatchPhase phase, Supplier<T> operation, Function<T, Integer> itemCount) {
+        if (observations == null) return operation.get();
+        long started = observations.elapsedNanos();
+        T result;
+        try {
+            result = operation.get();
+        } catch (RuntimeException | Error failure) {
+            // Partial work may exist, but no complete result supplies a reliable item count.
+            observations.recordDispatchWork(stageId, generation, phase, started, null, false);
+            throw failure;
+        }
+        observations.recordDispatchWork(stageId, generation, phase, started,
+                itemCount == null ? null : itemCount.apply(result), true);
+        return result;
     }
 
     private static long dispatchTimestamp(QueryStageObservations observations) {

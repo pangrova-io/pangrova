@@ -83,6 +83,7 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
     private final org.pangrova.query.lifecycle.QueryAuditPort auditBridge;
     private final LongCounter querySubmitCounter;
     private final QueryTerminalEvents terminalEvents;
+    private final QueryLifecycleMetrics lifecycleMetrics;
     private volatile boolean draining;
     private final org.pangrova.query.lifecycle.QueryJournalLifecyclePort journalLifecycle;
     private final Optional<Predicate<ExecutionAnchor>> durableRetirement;
@@ -117,9 +118,10 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
         this.tracingProvider = deps.tracingProvider();
         this.traceContexts = deps.traceContexts();
         this.tenantAdmission = deps.tenantAdmission();
+        this.lifecycleMetrics = new QueryLifecycleMetrics(deps.metricsProvider());
         this.terminalCleanup = new QueryTerminalCleanup(queryDispatcher, this::appendTerminalJournal,
                 this::emitTerminalEvents,
-                this::releasePhysicalQuery, nanoClock);
+                this::releasePhysicalQuery, nanoClock, lifecycleMetrics::recordLocalRelease);
         this.queryDispatcher.addQueryDrainProgressListener(terminalCleanup::onDrainProgress);
         this.auditBridge = java.util.Objects.requireNonNull(deps.audit(), "audit");
         this.admission = java.util.Objects.requireNonNull(deps.admission(), "admission");
@@ -810,6 +812,7 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
             // Retain this observed lifetime. A concurrent winner owns its terminal
             // path; never look up a later registration by query ID to apply timeout.
             if (state.tryTransitionToFailed(error)) {
+                lifecycleMetrics.recordTimeout();
                 completeTerminalQuery(queryId, state, "query_timeout");
                 LOG.warn("event=query_timeout queryId={} timeout={} delegated=true", queryId, timeout);
             }

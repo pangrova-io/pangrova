@@ -8,6 +8,7 @@ import org.pangrova.persistence.query.api.exception.JournalWriteException;
 import org.pangrova.persistence.query.api.commit.CdcSourceIdentity;
 import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
 import org.pangrova.persistence.query.api.commit.WriteCommitJournal;
+import org.pangrova.persistence.query.api.commit.WriteCommitReceipt;
 import org.pangrova.common.file.CopyFileCommitBinding;
 import org.pangrova.common.file.CopyFilePublication;
 import org.pangrova.connector.api.commit.NativeWriteFinalization;
@@ -441,7 +442,7 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
         try (var statement = connection.prepareStatement(
                 "UPDATE write_commit_journal SET state='COMMITTED',published_version=?,manifest_sha256=? "
                         + "WHERE query_id=? AND commit_fingerprint=? AND state IN ('PENDING','COMMITTED') "
-                        + "AND ((published_version IS NULL AND manifest_sha256 IS NULL) "
+                        + "AND ((state = 'PENDING' AND published_version IS NULL AND manifest_sha256 IS NULL) "
                         + "OR (published_version=? AND manifest_sha256=?))")) {
             statement.setLong(1, publication.publishedVersion());
             statement.setBytes(2, publication.manifestSha256());
@@ -472,9 +473,29 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
 
     @Override
     public boolean isCommitted(String queryId) {
-        return getEntry(queryId)
+        return getReceipt(queryId)
                 .map(e -> e.state() == WriteCommitState.COMMITTED)
                 .orElse(false);
+    }
+
+    @Override
+    public Optional<WriteCommitReceipt> getReceipt(String queryId) {
+        Objects.requireNonNull(queryId, "queryId");
+        try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement(
+                "SELECT * FROM write_commit_receipts WHERE query_id=? AND state IN ('COMMITTED','ABORTED')")) {
+            statement.setString(1, queryId);
+            try (var row = statement.executeQuery()) {
+                if (!row.next()) return Optional.empty();
+                return Optional.of(new WriteCommitReceipt(queryId, row.getString("tenant_id"),
+                        row.getString("catalog_name"), row.getString("table_name"), row.getString("write_mode"),
+                        row.getLong("base_snapshot_id"), row.getString("commit_fingerprint"),
+                        WriteCommitState.valueOf(row.getString("state")), row.getLong("finalized_at_ms"),
+                        row.getBoolean("copy_write"), row.getBoolean("cdc_write"), readPublication(row)));
+            }
+        } catch (SQLException failure) {
+            throw new JournalWriteException("Cannot resolve terminal write receipt", failure,
+                    JournalAdmissionOutcome.ACCEPTED_UNESTABLISHED);
+        }
     }
 
     @Override
@@ -742,7 +763,7 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
     }
 
     private static void requireCommittedEntry(Connection connection, String queryId) throws SQLException {
-        try (var statement = connection.prepareStatement("SELECT state FROM write_commit_journal WHERE query_id=?")) {
+        try (var statement = connection.prepareStatement("SELECT state FROM write_commit_receipts WHERE query_id=?")) {
             statement.setString(1, queryId);
             try (var row = statement.executeQuery()) {
                 if (!row.next() || !WriteCommitState.COMMITTED.name().equals(row.getString(1))) {

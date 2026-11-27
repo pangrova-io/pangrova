@@ -4,6 +4,7 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.coordinator.query.stage.StageDAG;
+import org.pangrova.observability.api.metrics.MetricsProvider;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.protocol.v2.NativeObjectReadStats;
 import org.pangrova.protocol.v2.NativeTaskStats;
@@ -25,6 +26,17 @@ public final class QueryOperatorStatsRegistry implements OperatorStatsSource {
     private static final Comparator<Attempt> ATTEMPT_ORDER = Comparator.comparingInt(Attempt::stageId)
             .thenComparingInt(Attempt::partitionId).thenComparingLong(Attempt::planEpoch)
             .thenComparingInt(Attempt::attemptId).thenComparing(Attempt::taskId);
+
+    private final QueryStageMetrics stageMetrics;
+
+    public QueryOperatorStatsRegistry() {
+        this(null);
+    }
+
+    /** Registers process-wide metrics once, when a provider is supplied. */
+    public QueryOperatorStatsRegistry(MetricsProvider metricsProvider) {
+        stageMetrics = metricsProvider == null ? null : new QueryStageMetrics(metricsProvider);
+    }
 
     private final Cache<String, QueryTelemetry> byQuery = Caffeine.newBuilder()
             .maximumSize(MAX_QUERIES)
@@ -57,7 +69,7 @@ public final class QueryOperatorStatsRegistry implements OperatorStatsSource {
 
     /** Copies only the public execution coordinates before the first stage can dispatch. */
     public QueryStageObservations beginExecution(String queryId, StageDAG dag) {
-        var observation = new QueryStageObservations(dag);
+        var observation = new QueryStageObservations(dag, stageMetrics);
         byQuery.get(queryId, ignored -> new QueryTelemetry()).observations = observation;
         return observation;
     }

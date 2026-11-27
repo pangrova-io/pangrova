@@ -257,7 +257,7 @@ class JdbcWriteCommitJournalTest extends ContainerTestBase {
         journal.purge("q-1");
 
         assertThat(journal.getEntry("q-1")).isEmpty();
-        assertThat(journal.isCommitted("q-1")).isFalse();
+        assertThat(journal.isCommitted("q-1")).isTrue();
     }
 
     @Test

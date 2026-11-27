@@ -44,7 +44,13 @@ public final class CdcWriteCommitCoordinator {
         Objects.requireNonNull(intent, "intent");
         CdcSourceIdentity source = Objects.requireNonNull(
                 intent.cdcSource(), "CDC commit requires its exact source identity");
-        if (journal.isCommitted(intent.queryId())) {
+        var receipt = journal.getReceipt(intent.queryId()).orElse(null);
+        if (receipt != null) {
+            if (!receipt.cdcWrite()
+                    || !receipt.commitFingerprint().equals(intent.commitFingerprint())
+                    || receipt.state() != org.pangrova.persistence.query.api.enums.WriteCommitState.COMMITTED) {
+                throw new IllegalStateException("CDC retry differs from its terminal write receipt");
+            }
             offsetAcker.acknowledge(source, intent.commitFingerprint());
             return;
         }

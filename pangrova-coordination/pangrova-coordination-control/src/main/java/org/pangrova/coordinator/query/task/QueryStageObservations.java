@@ -21,6 +21,7 @@ import org.pangrova.query.profiling.OperatorStatsSource.StageTransition;
 /** Records actual stage transitions and scheduling work on the owning Coordinator's monotonic clock. */
 public final class QueryStageObservations {
     private final long startedAt = System.nanoTime();
+    private final QueryStageMetrics metrics;
     private final List<Stage> stages;
     private final List<Exchange> exchanges;
     private final ConcurrentLinkedQueue<StageTransition> transitions = new ConcurrentLinkedQueue<>();
@@ -29,7 +30,8 @@ public final class QueryStageObservations {
     private final ConcurrentLinkedQueue<StageDispatchWork> stageDispatchWork = new ConcurrentLinkedQueue<>();
     private volatile RuntimeFilterWait runtimeFilterWait;
 
-    QueryStageObservations(StageDAG dag) {
+    QueryStageObservations(StageDAG dag, QueryStageMetrics metrics) {
+        this.metrics = metrics;
         stages = dag.stages().stream().map(stage -> new Stage(stage.stageId(), stage.taskType(), stage.parallelism()))
                 .toList();
         exchanges = dag.stageEdges().stream().map(edge -> new Exchange(edge.exchangeId(), edge.upstreamStageId(),
@@ -62,8 +64,10 @@ public final class QueryStageObservations {
     /** Records a measured interval for one actual Stage generation. */
     public void recordDispatchWork(int stageId, int generation, DispatchPhase phase, long start,
             Integer itemCount, boolean successful) {
-        stageDispatchWork.add(new StageDispatchWork(stageId, generation, phase, start,
-                elapsedNanos(), itemCount, successful));
+        var work = new StageDispatchWork(stageId, generation, phase, start,
+                elapsedNanos(), itemCount, successful);
+        stageDispatchWork.add(work);
+        if (metrics != null) metrics.recordDispatch(work);
     }
 
     /** Records the actual decision before the held probe enumerates files. */
@@ -88,6 +92,7 @@ public final class QueryStageObservations {
 
         public void finish(PreparationOutcome outcome) {
             latest = new DownstreamPreparation(latest.submittedNanos(), latest.startedNanos(), elapsedNanos(), outcome);
+            if (metrics != null) metrics.recordPreparation(latest);
         }
     }
 

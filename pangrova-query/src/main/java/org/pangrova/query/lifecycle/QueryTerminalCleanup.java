@@ -10,6 +10,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
+import java.util.function.LongConsumer;
 import java.util.function.LongSupplier;
 import org.pangrova.common.concurrent.GuardedBy;
 import org.pangrova.common.concurrent.ThreadSafe;
@@ -32,6 +33,7 @@ public final class QueryTerminalCleanup {
     private final Consumer<Context> observability;
     private final Consumer<Context> physicalRelease;
     private final LongSupplier clock;
+    private final LongConsumer recordLocalRelease;
     private volatile RetryDispatch dispatch;
 
     /**
@@ -40,11 +42,19 @@ public final class QueryTerminalCleanup {
      */
     public QueryTerminalCleanup(QueryExecutionCleanup executionCleanup, Consumer<Context> journal,
                          Consumer<Context> observability, Consumer<Context> physicalRelease, LongSupplier clock) {
+        this(executionCleanup, journal, observability, physicalRelease, clock, ignored -> { });
+    }
+
+    /** Borrows a callback observing completed local release, not global durable retirement. */
+    public QueryTerminalCleanup(QueryExecutionCleanup executionCleanup, Consumer<Context> journal,
+            Consumer<Context> observability, Consumer<Context> physicalRelease, LongSupplier clock,
+            LongConsumer recordLocalRelease) {
         this.executionCleanup = java.util.Objects.requireNonNull(executionCleanup, "executionCleanup");
         this.journal = journal;
         this.observability = observability;
         this.physicalRelease = physicalRelease;
         this.clock = clock;
+        this.recordLocalRelease = java.util.Objects.requireNonNull(recordLocalRelease, "recordLocalRelease");
     }
 
     public boolean isPending(String queryId) { return pending.containsKey(queryId); }
@@ -63,7 +73,7 @@ public final class QueryTerminalCleanup {
     public void complete(String queryId, QueryStateMachine state, String reason) {
         if (!state.isTerminal() || state.physicalCleanupApplied()) return;
         Completion owner = pending.computeIfAbsent(queryId,
-                ignored -> new Completion(new Context(queryId, state, reason)));
+                ignored -> new Completion(new Context(queryId, state, reason), clock.getAsLong()));
         synchronized (owner) {
             if (owner.context.state() != state || !start(owner)) return;
             cancelTicket(owner, false);
@@ -90,12 +100,23 @@ public final class QueryTerminalCleanup {
             publishLogicalTerminal(context);
             awaitingDrain = !tryCleanup(context);
             succeeded = !awaitingDrain;
+            if (succeeded && context.state().physicalCleanupApplied()) {
+                observeLocalRelease(owner);
+            }
         } catch (RuntimeException | Error failure) {
             LOG.warn("event=query_terminal_cleanup_pending queryId={} state={}",
                     context.queryId(), context.state().getState(), failure);
             if (!context.state().terminalEffectsApplied() || failure instanceof Error) throw failure;
         } finally {
             finish(owner, succeeded, awaitingDrain);
+        }
+    }
+
+    private void observeLocalRelease(Completion owner) {
+        try {
+            recordLocalRelease.accept(clock.getAsLong() - owner.startedAt);
+        } catch (RuntimeException failure) {
+            LOG.warn("event=query_local_release_observation_failed", failure);
         }
     }
 
@@ -231,6 +252,7 @@ public final class QueryTerminalCleanup {
 
     private static final class Completion {
         private final Context context;
+        private final long startedAt;
         @GuardedBy("this")
         private boolean inProgress;
         @GuardedBy("this")
@@ -244,6 +266,9 @@ public final class QueryTerminalCleanup {
         @GuardedBy("this")
         private int failures;
 
-        private Completion(Context context) { this.context = context; }
+        private Completion(Context context, long startedAt) {
+            this.context = context;
+            this.startedAt = startedAt;
+        }
     }
 }

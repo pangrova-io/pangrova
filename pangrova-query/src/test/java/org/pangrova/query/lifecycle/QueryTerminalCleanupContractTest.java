@@ -130,6 +130,41 @@ class QueryTerminalCleanupContractTest {
         }
     }
 
+    @Test
+    void localReleaseObservationIncludesRetryAndDoesNotInventGlobalRetirement() {
+        var fixture = new Fixture();
+        fixture.retired = false;
+        fixture.execution.awaitingExit = true;
+        var state = terminal(QueryState.FINISHED);
+        fixture.clock.set(TimeUnit.MILLISECONDS.toNanos(10));
+        fixture.cleanup.complete("retiring", state, "test");
+        assertThat(fixture.localReleaseNanos).isEmpty();
+        fixture.clock.set(TimeUnit.MILLISECONDS.toNanos(50));
+        fixture.execution.awaitingExit = false;
+        fixture.cleanup.onDrainProgress("retiring");
+        fixture.cleanup.retryPending();
+        fixture.cleanup.retryPending();
+        fixture.cleanup.complete("retiring", state, "test");
+        assertThat(fixture.localReleaseNanos).containsExactly(TimeUnit.MILLISECONDS.toNanos(40));
+        assertThat(state.physicalCleanupApplied()).isTrue();
+        assertThat(state.status().drained()).isFalse();
+        state.confirmPhysicalRetirement();
+        assertThat(state.status().drained()).isTrue();
+        assertThat(fixture.localReleaseNanos).hasSize(1);
+    }
+
+    @Test
+    void localReleaseObserverFailureDoesNotKeepCompletionPending() {
+        var fixture = new Fixture();
+        fixture.failObservation = true;
+        var state = terminal(QueryState.FINISHED);
+        fixture.cleanup.complete("observer-error", state, "test");
+        fixture.cleanup.complete("observer-error", state, "test");
+        assertThat(state.physicalCleanupApplied()).isTrue();
+        assertThat(fixture.cleanup.isPending("observer-error")).isFalse();
+        assertThat(fixture.localReleaseNanos).hasSize(1);
+    }
+
     private static QueryStateMachine terminal(QueryState target) {
         var state = new QueryStateMachine();
         if (target == QueryState.FINISHED) state.toFinisher().run();
@@ -140,13 +175,19 @@ class QueryTerminalCleanupContractTest {
     private static final class Fixture {
         private final List<String> events = new ArrayList<>();
         private final AtomicLong clock = new AtomicLong();
+        private final List<Long> localReleaseNanos = new ArrayList<>();
+        private boolean retired = true;
+        private boolean failObservation;
         private final Execution execution = new Execution(events);
         private final QueryTerminalCleanup cleanup = new QueryTerminalCleanup(
                 execution, ignored -> events.add("journal"), ignored -> events.add("observability"),
                 context -> {
-                    assertThat(context.state().claimPhysicalCleanup(true)).isTrue();
+                    assertThat(context.state().claimPhysicalCleanup(retired)).isTrue();
                     events.add("release");
-                }, clock::get);
+                }, clock::get, nanos -> {
+                    localReleaseNanos.add(nanos);
+                    if (failObservation) throw new IllegalStateException("Observer failure");
+                });
     }
 
     /** Test-only execution peer; actual tracker/Native ownership is tested separately. */

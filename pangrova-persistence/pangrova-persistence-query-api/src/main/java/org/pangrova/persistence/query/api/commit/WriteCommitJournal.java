@@ -64,9 +64,10 @@ public interface WriteCommitJournal extends WriteCommitOutbox {
     /**
      * Checks whether a write for the given query has already been committed.
      * Used during recovery to skip already-committed writes (idempotency guard).
+     * The compact terminal receipt remains available after redo retirement.
      *
      * @param queryId the query identifier to check
-     * @return true if a COMMITTED entry exists for this queryId
+     * @return true if a COMMITTED terminal receipt exists for this queryId
      */
     boolean isCommitted(String queryId);
 
@@ -77,6 +78,9 @@ public interface WriteCommitJournal extends WriteCommitOutbox {
      * @return the entry, or empty if no entry exists
      */
     Optional<WriteCommitEntry> getEntry(String queryId);
+
+    /** Retained terminal identity, independent of whether the replayable redo still exists. */
+    Optional<WriteCommitReceipt> getReceipt(String queryId);
 
     /**
      * Finds a batch awaiting publication or the most recently confirmed checkpoint for

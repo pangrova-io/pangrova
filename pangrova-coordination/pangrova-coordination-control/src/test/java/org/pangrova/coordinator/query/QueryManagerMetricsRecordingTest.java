@@ -97,6 +97,36 @@ class QueryManagerMetricsRecordingTest {
                 .hasValue(QueryState.FINISHED);
     }
 
+    @Test
+    void onlyWinningTimeoutRecordsOnceAndLogicalCompletionStillReleasesLocalOwnership() {
+        var provider = new RecordingMetricsProvider();
+        var manager = newQueryManager(provider);
+        String finished = registerRunningQuery(manager);
+        manager.onAllTasksFinished(finished);
+        String timedOut = registerRunningQuery(manager);
+        manager.timeoutQueriesCreatedBy(java.time.Instant.MAX, java.time.Duration.ofSeconds(30));
+        manager.timeoutQueriesCreatedBy(java.time.Instant.MAX, java.time.Duration.ofSeconds(30));
+        manager.retryPendingTerminalCompletions();
+
+        assertThat(manager.getQueryState(finished)).hasValue(QueryState.FINISHED);
+        assertThat(manager.getQueryState(timedOut)).hasValue(QueryState.FAILED);
+        assertThat(provider.counter("pangrova.coordinator.queries.timed_out")).isOne();
+        assertThat(provider.histogramCount("pangrova.coordinator.queries.terminal_cleanup.local_release_ms"))
+                .isEqualTo(2);
+    }
+
+    @Test
+    void metricBackendFailureCannotPreventTimeoutOrLocalRelease() {
+        var provider = new RecordingMetricsProvider();
+        provider.failLifecycleRecording = true;
+        var manager = newQueryManager(provider);
+        String timedOut = registerRunningQuery(manager);
+        manager.timeoutQueriesCreatedBy(java.time.Instant.MAX, java.time.Duration.ofSeconds(30));
+        assertThat(manager.getQueryState(timedOut)).hasValue(QueryState.FAILED);
+        assertThat(provider.counter("pangrova.coordinator.queries.failed")).isOne();
+        assertThat(provider.counter("pangrova.coordinator.queries.timed_out")).isZero();
+    }
+
     private static QueryManager newQueryManager(MetricsProvider metricsProvider) {
         QueryManagerContext ctx = new QueryManagerContext(
                 buildDispatcher(), TestObservability.TRACING,
@@ -136,6 +166,7 @@ class QueryManagerMetricsRecordingTest {
 
     /** In-memory MetricsProvider that records instrument values for assertions. */
     private static final class RecordingMetricsProvider implements MetricsProvider {
+        private boolean failLifecycleRecording;
         private final ConcurrentHashMap<String, AtomicLong> counters = new ConcurrentHashMap<>();
         private final ConcurrentHashMap<String, AtomicLong> upDownCounters = new ConcurrentHashMap<>();
         private final ConcurrentHashMap<String, AtomicLong> histogramCounts = new ConcurrentHashMap<>();
@@ -158,7 +189,12 @@ class QueryManagerMetricsRecordingTest {
         @Override
         public LongCounter createCounter(String name, String description, String unit) {
             AtomicLong v = counters.computeIfAbsent(name, k -> new AtomicLong());
-            return v::addAndGet;
+            return value -> {
+                if (failLifecycleRecording && name.endsWith(".timed_out")) {
+                    throw new IllegalStateException("Metrics unavailable");
+                }
+                v.addAndGet(value);
+            };
         }
 
         @Override
@@ -171,7 +207,12 @@ class QueryManagerMetricsRecordingTest {
         public DoubleHistogram createHistogram(String name, String description,
                                                String unit, List<Double> boundaries) {
             AtomicLong c = histogramCounts.computeIfAbsent(name, k -> new AtomicLong());
-            return value -> c.incrementAndGet();
+            return value -> {
+                if (failLifecycleRecording && name.endsWith(".local_release_ms")) {
+                    throw new IllegalStateException("Metrics unavailable");
+                }
+                c.incrementAndGet();
+            };
         }
 
         @Override

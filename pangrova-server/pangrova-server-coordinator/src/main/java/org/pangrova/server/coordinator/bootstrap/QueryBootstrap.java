@@ -161,7 +161,7 @@ final class QueryBootstrap {
         // metadata database fall back to it.
         this.queryAuditServices = new QueryAuditServices(metadataDataSource != null
                 ? new org.pangrova.persistence.query.postgresql.audit.JdbcQueryAuditStore(metadataDataSource)
-                : new org.pangrova.persistence.query.memory.audit.InMemoryQueryAuditStore());
+                : new org.pangrova.persistence.query.memory.audit.InMemoryQueryAuditStore(), metricsProvider);
         this.streamingBootstrap = streamingBootstrap;
         this.coordinationService = coordinationService;
         durableRecovery = new QueryDurableRecovery(

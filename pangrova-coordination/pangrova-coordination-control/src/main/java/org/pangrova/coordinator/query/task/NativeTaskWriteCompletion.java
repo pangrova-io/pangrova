@@ -111,11 +111,30 @@ final class NativeTaskWriteCompletion {
             return true;
         }
 
-        // The same durable entry proves COMMITTED and carries its acknowledgement identity.
-        WriteCommitEntry committed = writeCommitJournal.getEntry(queryId)
-                .filter(entry -> entry.state() == WriteCommitState.COMMITTED)
-                .orElse(null);
-        if (committed != null) {
+        // The compact receipt survives retirement of the full redo and binds exact replays.
+        var receipt = writeCommitJournal.getReceipt(queryId).orElse(null);
+        if (receipt != null) {
+            if (receipt.state() != WriteCommitState.COMMITTED) {
+                throw new IllegalStateException("Cannot complete an aborted write: " + queryId);
+            }
+            var currentWrite = writeCommitTracker.peekWriteState(queryId);
+            if (currentWrite != null && !receipt.commitFingerprint().equals(
+                    createWriteCommitIntent(queryId, currentWrite, currentWrite.fragments(), anchor)
+                            .commitFingerprint())) {
+                throw new IllegalStateException("Write replay differs from its terminal receipt: " + queryId);
+            }
+            WriteCommitEntry committed = writeCommitJournal.getEntry(queryId).orElse(null);
+            if (committed == null) {
+                if (currentWrite != null && (receipt.copyWrite() || receipt.cdcWrite())) {
+                    throw new IllegalStateException("Specialized write replay requires its source-specific proof");
+                }
+                writeCommitTracker.removeWriteState(queryId);
+                return true;
+            }
+            if (committed.state() != WriteCommitState.COMMITTED
+                    || !receipt.commitFingerprint().equals(committed.commitFingerprint())) {
+                throw new IllegalStateException("Write terminal receipt differs from retained redo: " + queryId);
+            }
             if (committed.copyFile() != null) {
                 DefaultWriteCommitReconciler reconciler = new DefaultWriteCommitReconciler(
                         writeCommitJournal, name -> {

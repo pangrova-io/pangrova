@@ -153,10 +153,18 @@ public class OpenTelemetryConfig {
 | `pangrova.coordinator.queries.completed` | Counter | Total queries completed successfully |
 | `pangrova.coordinator.queries.failed` | Counter | Total queries failed |
 | `pangrova.coordinator.queries.running` | UpDownCounter | Currently running queries |
+| `pangrova.coordinator.stage.dispatch.latency_ms` | Histogram | Actual dispatch phase duration, by phase and success or failure |
+| `pangrova.coordinator.stage.preparation.queue_ms` | Histogram | Downstream preparation submission to start, by final outcome |
+| `pangrova.coordinator.stage.preparation.run_ms` | Histogram | Downstream preparation start to finish, by final outcome |
+| `pangrova.coordinator.stage.preparation.outcomes` | Counter | Completed, skipped, failed or rejected preparations |
 | `pangrova.coordinator.query.latency` | Histogram | Query execution latency |
 | `pangrova.coordinator.tasks.scheduled` | Counter | Total tasks scheduled |
 | `pangrova.coordinator.scheduling.latency` | Histogram | Task scheduling latency |
 | `pangrova.coordinator.workers.active` | UpDownCounter | Active Worker count |
+| `pangrova.coordinator.queries.timed_out` | Counter | Queries for which timeout won the terminal transition |
+| `pangrova.coordinator.queries.terminal_cleanup.local_release_ms` | Histogram | Terminal cleanup entry to local ownership release, including retry and wait time |
+
+Local ownership release does not establish global drain: a durable retirement may still require recovery confirmation.
 
 ### 3.2 Worker Metrics
 

@@ -113,14 +113,14 @@ public final class WriteCommitRecoveryService {
             LOG.error("event=write_recovery_alarm severity=CRITICAL "
                     + "message=\"reconciler failed; quarantining intent\" queryId={} table={} error={}",
                     entry.queryId(), entry.tableName(), e.getMessage(), e);
-            quarantine(entry, "reconciler failed: " + e, counters);
+            quarantine(entry, "reconciler failed: " + e, claimedToken, durableFence, counters);
             return;
         }
         switch (outcome) {
             case COMMITTED -> markRecoveredCommitted(entry, claimedToken, durableFence, counters);
             case ABORTED -> markRecoveredAborted(entry, claimedToken, durableFence, counters);
             case DEFERRED -> counters.deferred.add(entry.queryId());
-            case QUARANTINED -> quarantine(entry, QUARANTINE_REASON_AMBIGUOUS, counters);
+            case QUARANTINED -> quarantine(entry, QUARANTINE_REASON_AMBIGUOUS, claimedToken, durableFence, counters);
             default -> throw new IllegalStateException("Unhandled recovery outcome: " + outcome);
         }
     }
@@ -149,8 +149,9 @@ public final class WriteCommitRecoveryService {
     }
 
     private void quarantine(
-            WriteCommitEntry entry, String reason, RecoveryCounters counters) {
-        counters.quarantined++;
+            WriteCommitEntry entry, String reason, long token,
+            BiPredicate<String, Long> durableFence, RecoveryCounters counters) {
+        requireCurrentFence(entry.queryId(), token, durableFence);
         try {
             quarantine.record(new QuarantinedWriteCommit(
                     entry.queryId(), entry.commitFingerprint(), entry.catalogName(),
@@ -160,7 +161,10 @@ public final class WriteCommitRecoveryService {
                     + "message=\"quarantine decision is not durable; the next recovery pass "
                     + "will re-attempt this intent\" queryId={} table={} error={}",
                     entry.queryId(), entry.tableName(), e.getMessage(), e);
+            counters.deferred.add(entry.queryId());
+            return;
         }
+        counters.quarantined++;
         LOG.error("event=write_recovery_alarm severity=CRITICAL "
                 + "message=\"write-commit intent quarantined for manual reconciliation\" "
                 + "queryId={} catalog={} table={} fragments={} reason={}",

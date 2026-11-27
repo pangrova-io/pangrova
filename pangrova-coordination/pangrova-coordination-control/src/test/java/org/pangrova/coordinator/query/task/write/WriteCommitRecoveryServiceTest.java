@@ -73,6 +73,21 @@ class WriteCommitRecoveryServiceTest {
     }
 
     @Test
+    void retiredRedoRetainsExactTerminalIdentityInMemory() {
+        var journal = new InMemoryWriteCommitJournal();
+        var intent = pending("retired");
+        journal.recordIntent(intent);
+        journal.markCommitted(intent.queryId());
+        var receipt = journal.getReceipt(intent.queryId()).orElseThrow();
+        journal.acknowledgeNoDeferredWork(intent.commitFingerprint());
+        journal.purge(intent.queryId());
+        assertThat(journal.getEntry(intent.queryId())).isEmpty();
+        assertThat(journal.getReceipt(intent.queryId())).contains(receipt);
+        assertThat(journal.isCommitted(intent.queryId())).isTrue();
+        assertThatThrownBy(() -> journal.recordIntent(intent)).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
     void abortedOutcomeRetainsTerminalBarrier() {
         var journal = new InMemoryWriteCommitJournal();
         journal.recordIntent(pending("q1"));
@@ -85,6 +100,7 @@ class WriteCommitRecoveryServiceTest {
                 .extracting(WriteCommitEntry::state).isEqualTo(WriteCommitState.ABORTED);
         assertThatThrownBy(() -> journal.recordIntent(pending("q1")))
                 .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> journal.markCommitted("q1")).isInstanceOf(IllegalStateException.class);
     }
 
     @Test
@@ -208,7 +224,8 @@ class WriteCommitRecoveryServiceTest {
         var report = recover(new WriteCommitRecoveryService(journal,
                 e -> WriteRecoveryOutcome.QUARANTINED, quarantine), "q1");
 
-        assertThat(report.quarantined()).isEqualTo(1);
+        assertThat(report.quarantined()).isZero();
+        assertThat(report.deferredExecutionIds()).containsExactly("q1");
         assertThat(journal.getEntry("q1")).isPresent();
     }
 
@@ -303,6 +320,30 @@ class WriteCommitRecoveryServiceTest {
         assertThat(journal.getEntry("q1")).get()
                 .extracting(WriteCommitEntry::state)
                 .isEqualTo(WriteCommitState.PENDING);
+    }
+
+    @Test
+    void losingDurableFenceBeforeQuarantineLeavesIntentPending() {
+        for (boolean throwsDuringReconciliation : List.of(false, true)) {
+            var journal = new InMemoryWriteCommitJournal();
+            journal.recordIntent(pending("q1"));
+            var quarantine = new InMemoryWriteCommitQuarantineStore();
+            var fenceChecks = new AtomicInteger();
+            var service = new WriteCommitRecoveryService(journal, entry -> {
+                if (throwsDuringReconciliation) {
+                    throw new IllegalStateException("catalog unavailable");
+                }
+                return WriteRecoveryOutcome.QUARANTINED;
+            }, quarantine);
+
+            assertThatThrownBy(() -> service.recover(Map.of("q1", 2L),
+                    (ignored, token) -> fenceChecks.incrementAndGet() == 1))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("Lost execution anchor");
+            assertThat(quarantine.find("q1")).isEmpty();
+            assertThat(journal.getEntry("q1")).get()
+                    .extracting(WriteCommitEntry::state).isEqualTo(WriteCommitState.PENDING);
+        }
     }
 
     private static WriteCommitRecoveryService service(
