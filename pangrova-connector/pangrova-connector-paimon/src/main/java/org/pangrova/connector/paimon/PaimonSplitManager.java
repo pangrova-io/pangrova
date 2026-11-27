@@ -33,11 +33,16 @@ import org.pangrova.connector.api.metadata.SplitPlanningBudget;
 import org.pangrova.connector.runtime.scan.FixedSplitSource;
 import org.pangrova.connector.api.metadata.table.ConnectorReadBinding;
 import org.pangrova.connector.api.metadata.table.SnapshotRange;
+import org.apache.paimon.CoreOptions;
 import org.apache.paimon.Snapshot;
+import org.apache.paimon.options.Options;
+import org.apache.paimon.schema.SchemaValidation;
+import org.apache.paimon.shade.caffeine2.com.github.benmanes.caffeine.cache.Caffeine;
 import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.predicate.Predicate;
+import org.apache.paimon.table.AbstractFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.io.DataFileMeta;
@@ -150,13 +155,17 @@ public class PaimonSplitManager implements ConnectorSplitManager {
             return getActiveIncrementalSplits(session, table, handle, snapshot, range,
                     constraint, sdkReaderAuthority, planning);
         }
-        return getActiveSplits(table, handle, constraint, sdkReaderAuthority, planning);
+        return getActiveSplits(table, handle, snapshot, constraint, sdkReaderAuthority, planning);
     }
 
     private ConnectorSplitSource getActiveSplits(FileStoreTable selectedTable, PaimonTableHandle paimonTable,
-            Constraint constraint, ConnectorQueryAuthority sdkReaderAuthority, PaimonScanBudget planning) {
+            Snapshot snapshot, Constraint constraint, ConnectorQueryAuthority sdkReaderAuthority,
+            PaimonScanBudget planning) {
         FileStoreTable scanTable;
-        if (paimonTable.snapshotId().isPresent()) {
+        if (snapshot != null && paimonTable.snapshotId().isPresent()
+                && selectedTable instanceof AbstractFileStoreTable physicalTable) {
+            scanTable = pinnedScanTable(physicalTable, paimonTable, snapshot);
+        } else if (paimonTable.snapshotId().isPresent()) {
             scanTable = "true".equals(paimonTable.properties().get(PaimonTableHandle.CURRENT_SCHEMA_PROPERTY))
                     ? selectedTable.copyWithoutTimeTravel(Map.of("scan.snapshot-id",
                             Long.toString(paimonTable.snapshotId().orElseThrow())))
@@ -174,6 +183,31 @@ public class PaimonSplitManager implements ConnectorSplitManager {
                 changelogProducer, !scanTable.partitionKeys().isEmpty(),
                 paimonTable.snapshotId().orElse(-1L));
         return new FixedSplitSource(splits);
+    }
+
+    /** Builds one query-local SDK view from the already validated snapshot. */
+    private static FileStoreTable pinnedScanTable(
+            AbstractFileStoreTable table, PaimonTableHandle handle, Snapshot snapshot) {
+        var schema = table.schema();
+        var options = Options.fromMap(schema.options());
+        options.set(CoreOptions.PATH, table.location().toString());
+        options.set(CoreOptions.SCAN_SNAPSHOT_ID, snapshot.id());
+        CoreOptions.setDefaultValues(options);
+        boolean currentSchema = "true".equals(handle.properties().get(PaimonTableHandle.CURRENT_SCHEMA_PROPERTY));
+        if (!currentSchema && schema.id() != snapshot.schemaId()) {
+            schema = table.schemaManager().schema(snapshot.schemaId());
+        }
+        var scanSchema = schema.copy(options.toMap());
+        SchemaValidation.validateTableSchema(scanSchema);
+
+        // Seed only the detached scan's SDK cache. The source-identity checks
+        // before and after planning read the actual snapshot object directly.
+        FileStoreTable scan = table.copy(scanSchema);
+        var snapshots = Caffeine.newBuilder().executor(Runnable::run).maximumSize(1)
+                .<org.apache.paimon.fs.Path, Snapshot>build();
+        snapshots.put(scan.snapshotManager().snapshotPath(snapshot.id()), snapshot);
+        scan.setSnapshotCache(snapshots);
+        return scan;
     }
 
     private ConnectorSplitSource getActiveIncrementalSplits(ConnectorSession session, FileStoreTable selectedTable,

@@ -91,6 +91,10 @@ cardinality and physical-row domain. Native validates the SDK bitmap container,
 CRC and row bounds. Deduplicate merge reads persisted sequence/kind fields before
 projecting user columns, so a delete winner cannot resurrect an older row.
 Historical metadata resolves the schema ID from the pinned Paimon snapshot.
+Ordinary bound split planning passes the verified snapshot to a query-local
+SDK scan view. Historical scans take their schema ID from that object.
+The Coordinator reads the source snapshot object again before publishing
+the plan, so expiry or replacement during planning rejects the scan.
 
 Each physical file carries its own immutable field-ID mapping and source types.
 Renamed fields remain bound to their original IDs; a new field reusing an old
