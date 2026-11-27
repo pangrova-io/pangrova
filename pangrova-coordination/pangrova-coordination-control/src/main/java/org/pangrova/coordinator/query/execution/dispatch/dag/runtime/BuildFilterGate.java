@@ -50,8 +50,8 @@ public final class BuildFilterGate {
 
     private BuildFilterGate(StageRuntimeFilter plan) {
         this.plan = plan;
-        buildOrdinals = plan.keys().stream()
-                .map(StageRuntimeFilter.ProbeKey::buildOrdinal).distinct().sorted().toList();
+        buildOrdinals = List.copyOf(plan.keys().stream()
+                .map(StageRuntimeFilter.ProbeKey::buildOrdinal).distinct().sorted().toList());
     }
 
     /** Selects bounded, independent pairs in decreasing order of estimated probe I/O. */
@@ -93,7 +93,7 @@ public final class BuildFilterGate {
 
     public boolean blocksProbe() { return releasedProbe == null; }
 
-    public List<Integer> buildOrdinals() { return buildOrdinals; }
+    public List<Integer> buildOrdinals() { return List.copyOf(buildOrdinals); }
 
     /** Called after the winning cohort has finished and any external publication is fenced. */
     public void onFinished(Stage stage) {

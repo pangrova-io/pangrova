@@ -32,6 +32,15 @@ public record DAGExecutionState(StageExecutionContext execution, StageDAG dag, S
         AtomicBoolean cancelled, AtomicInteger runningStageCount, AtomicInteger downstreamWakeups,
         ConcurrentHashMap<Integer, Throwable> dispatchFailures, Consumer<DispatchResult> resultReadySink,
         List<BuildFilterGate> buildFilters) {
+    public DAGExecutionState {
+        buildFilters = List.copyOf(buildFilters);
+    }
+
+    @Override
+    public List<BuildFilterGate> buildFilters() {
+        return List.copyOf(buildFilters);
+    }
+
     /** Allocates only volatile bookkeeping, never a second planning or execution path. */
     public static DAGExecutionState create(StageExecutionContext execution, StageDAG dag, SqlCompiler compiler,
             WorkerSelector selector, DurableStageRuntime durable, Consumer<DispatchResult> sink) {
@@ -45,7 +54,7 @@ public record DAGExecutionState(StageExecutionContext execution, StageDAG dag, S
         return new DAGExecutionState(execution, dag, compiler, selector, durable, new CopyOnWriteArrayList<>(),
                 new ConcurrentHashMap<>(), new CompletableFuture<>(), new AtomicBoolean(), new AtomicInteger(),
                 new AtomicInteger(),
-                new ConcurrentHashMap<>(), sink, List.copyOf(buildFilters));
+                new ConcurrentHashMap<>(), sink, buildFilters);
     }
     public String queryId() { return execution.executionId(); }
     public QuerySession session() { return execution.requireLiveSession(); }
