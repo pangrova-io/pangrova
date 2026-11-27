@@ -276,8 +276,26 @@ jobs:
         with:
           name: native-bundle-linux-x86_64
           path: native-bundle-jar
+          github-token: ${{ github.token }}
+          run-id: '45906002470'
+          digest-mismatch: error
 
-      - uses: ./.github/actions/restore-java-native-test-runtime
+      - name: Download the tested Java Native fixture
+        uses: actions/download-artifact@v8
+        with:
+          name: java-native-test-runtime-linux-x86_64
+          path: ${{ runner.temp }}/java-native-test-download
+          github-token: ${{ github.token }}
+          run-id: '45906002470'
+          digest-mismatch: error
+
+      - name: Restore executable test runtime
+        run: |
+          runtime_dir=$(mktemp -d "$RUNNER_TEMP/java-native-test-runtime.XXXXXXXX")
+          tar -xzf "$RUNNER_TEMP/java-native-test-download/java-native-test-runtime.tar.gz" -C "$runtime_dir"
+          test -x "$runtime_dir/pangrova_lance_fixture_tool"
+          test -x "$runtime_dir/libexec/pangrova_lance_fixture_tool"
+          echo "PANGROVA_JAVA_NATIVE_TEST_RUNTIME=$runtime_dir" >> "$GITHUB_ENV"
 
       - name: Verify artifacts
         run: |
