@@ -49,9 +49,14 @@ vi etc/catalog/prod-iceberg.yml
 # List configured catalogs
 bin/pangrova-catalog.sh list
 
-# Test catalog connectivity (requires running Coordinator)
-bin/pangrova-catalog.sh test my-iceberg
+# List the schemas in a running Coordinator's registered catalog.
+bin/pangrova-catalog.sh test my-iceberg \
+  --coordinator-url https://coordinator.example.com:8080 --token-env PANGROVA_TOKEN
 ```
+
+The probe uses the packaged SQL CLI to run `SHOW SCHEMAS` with the supplied
+credentials. It exits nonzero if the catalog is unknown, the caller lacks
+access, or the query fails.
 
 ---
 
