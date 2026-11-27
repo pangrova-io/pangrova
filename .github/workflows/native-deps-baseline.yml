@@ -6,7 +6,7 @@ on:
       probe:
         description: Isolated CI stage to verify
         type: choice
-        options: [macos-docker, macos-intel-docker, production, worker-files, java-daily, libunwind, ai-fixture, jmh-relative, tpc-transport, macos-libcxx, production-pic]
+        options: [macos-docker, macos-intel-docker, production, worker-files, java-daily, libunwind, ai-fixture, jmh-relative, tpc-transport, macos-libcxx, production-pic, system-pic]
         default: macos-docker
       production_source:
         description: Exact production source revision
@@ -17,6 +17,57 @@ permissions:
   actions: read
 
 jobs:
+  system-pic:
+    name: Link production system archives with the JNI export map
+    if: inputs.probe == 'system-pic'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Audit source packages with production symbol visibility
+        run: |
+          docker run --rm -i -v "$GITHUB_WORKSPACE:/source:ro" \
+            ubuntu:22.04@sha256:0a9887931b0e38af2e3487ed39e29436b0535c4f3f52e57745baaf79d1898956 \
+            bash -euo pipefail -s <<'BASH'
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -qq
+          apt-get install -y --no-install-recommends g++-11 lld binutils \
+            libbz2-dev liblzma-dev zlib1g-dev libevent-dev libsnappy-dev libdouble-conversion-dev \
+            libsodium-dev libxml2-dev liblz4-dev libzstd-dev libxxhash-dev libicu-dev libssl-dev
+          dpkg-query -W -f='${Package} ${source:Package} ${source:Version}\n' \
+            libbz2-dev liblzma-dev zlib1g-dev libevent-dev libsnappy-dev libdouble-conversion-dev \
+            libsodium-dev libxml2-dev liblz4-dev libzstd-dev libxxhash-dev libicu-dev libssl-dev
+          multiarch=$(g++-11 -dumpmachine)
+          linker=()
+          if [[ "$multiarch" == aarch64-* ]]; then linker=(-fuse-ld=lld); fi
+          version_map=/source/pangrova-worker-native/jni_exported_symbols.map
+          link_archives() {
+            archives=()
+            for name in "$@"; do archives+=("/usr/lib/$multiarch/lib$name.a"); done
+            g++-11 "${linker[@]}" -shared -Wl,-z,defs,-z,text -Wl,--version-script="$version_map" \
+              -Wl,--whole-archive "${archives[@]}" -Wl,--no-whole-archive -pthread -lm -ldl -lrt \
+              -o /tmp/system-pic-check.so 2>&1 | tee /tmp/system-pic-errors
+          }
+          failure=0
+          for group in 'bz2' 'z' 'lzma' 'lz4' 'zstd' 'xxhash' 'snappy' 'double-conversion' 'sodium' \
+            'ssl crypto z' 'event_core event_extra event_openssl event_pthreads ssl crypto z' \
+            'icui18n icuuc icudata' 'xml2 icui18n icuuc icudata z lzma'; do
+            read -r -a components <<< "$group"
+            if link_archives "${components[@]}" >/dev/null; then
+              echo "PASS $group"
+            else
+              echo "FAIL $group"
+              head -12 /tmp/system-pic-errors
+              failure=1
+            fi
+          done
+          exit "$failure"
+          BASH
+
   production-pic:
     name: Audit production PIC archives
     if: inputs.probe == 'production-pic'
