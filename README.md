@@ -26,6 +26,14 @@ shared query and governance framework.
 > [current capability status](docs/getting-started/capability-status.md) for
 > implementation and production qualification.
 
+## The Name
+
+Pangrova evokes the pangolin and the mangrove. The pangolin symbolizes
+resilience, protection, and adaptability; the mangrove symbolizes deep roots,
+interconnection, and a thriving ecosystem. Together, they express our vision
+for data systems: resilient by design, adaptable by nature, and rooted in
+openness.
+
 ## CLI Demo
 
 https://github.com/user-attachments/assets/ac907ae0-1a61-4912-a43e-805277bd1cc2
