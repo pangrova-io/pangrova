@@ -58,6 +58,9 @@ fencing token must all match. Any resulting lineage commits in the journal
 transaction. Only that durable acceptance publishes the query into the
 executable registry. If the predecessor's accepted insert committed before
 takeover, replay of that exact event can return the original receipt.
+An accepted query continues under the query and task deadlines after its
+receipt is returned. The initial readiness wait applies to submissions that
+are still awaiting their HTTP response.
 The receipt includes the issuing Coordinator
 incarnation and HTTP origin. Matching retries return the original route and query ID
 without a second execution; different fingerprints fail with HTTP 409.

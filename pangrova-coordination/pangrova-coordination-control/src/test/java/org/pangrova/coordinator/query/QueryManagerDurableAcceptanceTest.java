@@ -1,10 +1,12 @@
 package org.pangrova.coordinator.query;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -20,6 +22,7 @@ import org.pangrova.persistence.query.api.enums.JournalAdmissionOutcome;
 import org.pangrova.persistence.query.api.exception.JournalWriteException;
 import org.pangrova.persistence.query.api.state.QueryStateJournal;
 import org.pangrova.persistence.query.memory.state.InMemoryQueryStateJournal;
+import org.pangrova.query.api.enums.QueryState;
 import org.pangrova.query.api.exception.IdempotencyConflictException;
 import org.pangrova.query.api.journal.QueryAcceptanceAdmission;
 import org.pangrova.query.api.journal.QueryAcceptanceRequest;
@@ -51,6 +54,40 @@ class QueryManagerDurableAcceptanceTest {
         releaseSecond.countDown();
         executor.shutdownNow();
         assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+    }
+
+    @Test
+    void acceptedWorkOutlivesTheReadinessDeadlineAndStillObeysTheQueryDeadline() throws Exception {
+        var entered = new CountDownLatch(1);
+        var work = new CompletableFuture<DispatchResult>();
+        var dispatcher = new QueryManagerAsyncSubmitTest.SlowQueryDispatcher(entered, releaseFirst) {
+            @Override
+            public CompletionStage<DispatchResult> executeAsync(QueryStateMachine state, String sql,
+                    QuerySession session) {
+                state.tryTransition(QueryState.PLANNING);
+                entered.countDown();
+                return work;
+            }
+        };
+        var manager = new QueryManager(QueryManagerTestContexts.minimalAsync(dispatcher, TestObservability.TRACING,
+                new AsyncSubmitConfig(true, 250), executor, new InMemoryQueryStateJournal()));
+        try {
+            var receipt = manager.submitQueryAsync("q-accepted", "SELECT 1", session("q-accepted", "alice"),
+                    acceptance("alice", FINGERPRINT)).toCompletableFuture().get(5, TimeUnit.SECONDS);
+            assertThat(receipt.state()).isEqualTo(QueryState.QUEUED);
+            assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+
+            // The second deadline is armed after the durable receipt on the same scheduler.
+            var pending = manager.submitQueryAsync("q-unkeyed", "SELECT 1", session("q-unkeyed", "alice"));
+            assertThatThrownBy(() -> pending.toCompletableFuture().get(5, TimeUnit.SECONDS))
+                    .hasRootCauseMessage("Result endpoint or write dispatch was not ready before submit timeout: q-unkeyed");
+            assertThat(manager.getQueryState("q-accepted")).contains(QueryState.PLANNING);
+
+            manager.timeoutQueriesCreatedBy(Instant.now(), Duration.ofMinutes(1));
+            assertThat(manager.getQueryState("q-accepted")).contains(QueryState.FAILED);
+        } finally {
+            work.completeExceptionally(new IllegalStateException("test execution exited"));
+        }
     }
 
     @Test

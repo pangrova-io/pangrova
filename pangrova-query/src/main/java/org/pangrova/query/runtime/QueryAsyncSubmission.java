@@ -50,7 +50,8 @@ final class QueryAsyncSubmission {
         this.resultHandler = resultHandler;
     }
 
-    Pending start(String queryId, String sql, QuerySession session, QueryStateMachine state) {
+    Pending start(String queryId, String sql, QuerySession session, QueryStateMachine state,
+            boolean durablyAccepted) {
         Context context = new Context(queryId, sql, session, state, new CompletableFuture<>(), new AtomicReference<>());
         Future<?> dispatch = submit(context);
         var endpoint = state.resultEndpointReady();
@@ -72,7 +73,7 @@ final class QueryAsyncSubmission {
             terminal.cancel(false);
         });
         try {
-            var timeout = context.ready().isDone() ? null : deadlines.schedule(
+            var timeout = durablyAccepted || context.ready().isDone() ? null : deadlines.schedule(
                     () -> { context.ready().complete(SubmissionReadiness.TIMED_OUT); },
                     config.submitTimeoutMs(), TimeUnit.MILLISECONDS);
             var receipt = context.ready().thenApply(readiness -> {

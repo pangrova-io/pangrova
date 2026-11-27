@@ -171,6 +171,9 @@ the initial journal row. A normal new acceptance performs one journal INSERT and
 readback. During the acceptance window, a matching retry returns the same query ID
 and acceptance receipt without executing the SQL again; changing SQL or session
 properties returns HTTP 409. Each principal has an independent key space.
+Once the acceptance receipt is returned, the query continues under its
+execution deadline. Poll its status for the transition to a readable result or
+terminal outcome.
 
 Acceptance facts remain until ten minutes after the later of acceptance or terminal
 completion. Once that window elapses, a new candidate may reuse the key with either

@@ -410,7 +410,7 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
             }
             QueryAsyncSubmission.Pending pending = asyncSubmitConfig != null
                     && asyncSubmitConfig.enabled() && asyncExecutor != null
-                    ? executeQueryAsync(queryId, sql, enriched, sm)
+                    ? executeQueryAsync(queryId, sql, enriched, sm, acceptanceAdmission != null)
                     : executeQuerySync(queryId, sql, enriched, sm);
             return new StartedSubmission(pending, operation,
                     acceptanceAdmission == null ? null : acceptanceAdmission.acceptance().receipt());
@@ -436,9 +436,9 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
     }
 
     private QueryAsyncSubmission.Pending executeQueryAsync(String queryId, String sql,
-            QuerySession session, QueryStateMachine state) {
+            QuerySession session, QueryStateMachine state, boolean durablyAccepted) {
         return new QueryAsyncSubmission(queryDispatcher, asyncSubmitConfig, asyncExecutor, submitDeadlines,
-                this::failQuery, this::applyDispatchResult).start(queryId, sql, session, state);
+                this::failQuery, this::applyDispatchResult).start(queryId, sql, session, state, durablyAccepted);
     }
 
     private QueryExecutionPort.Ownership admitExecution(String queryId, String tenantId,
