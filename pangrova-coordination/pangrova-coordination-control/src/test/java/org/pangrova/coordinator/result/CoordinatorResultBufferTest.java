@@ -13,6 +13,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.pangrova.coordinator.result.CoordinatorResultTestAccess.streamedRoot;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 
@@ -42,7 +43,7 @@ class CoordinatorResultBufferTest {
             });
             assertThat(buffer.bufferedBytes()).isEqualTo(bytes);
             try (var claim = buffer.claim("query")) {
-                assertThat(claim.root().getVector("id").getObject(0)).isEqualTo(42);
+                assertThat(streamedRoot(claim::streamTo).getVector("id").getObject(0)).isEqualTo(42);
                 assertThat(buffer.claim("query")).isNull();
                 buffer.discardUnopened("query");
                 assertThat(buffer.bufferedBytes()).isEqualTo(bytes);
@@ -71,7 +72,7 @@ class CoordinatorResultBufferTest {
                 blocker.countDown();
                 await().atMost(Duration.ofSeconds(3)).until(() -> expired.get() == 1);
                 assertThat(buffer.claim("unopened")).isNull();
-                assertThat(claim.root().getVector("id").getObject(0)).isEqualTo(2);
+                assertThat(streamedRoot(claim::streamTo).getVector("id").getObject(0)).isEqualTo(2);
                 assertThat(reader.get()).isZero();
             }
             assertThat(reader.get()).isOne();
@@ -91,7 +92,7 @@ class CoordinatorResultBufferTest {
             assertThat(exits.get()).isOne();
             assertThat(buffer.claim("unopened")).isNull();
             assertThatThrownBy(buffer::close).isInstanceOf(IllegalStateException.class);
-            assertThat(claim.root().getVector("id").getObject(0)).isEqualTo(2);
+            assertThat(streamedRoot(claim::streamTo).getVector("id").getObject(0)).isEqualTo(2);
             assertThatThrownBy(() -> buffer.publish("late", batch(3), exits::incrementAndGet))
                     .hasMessageContaining("closed");
         }
@@ -115,7 +116,7 @@ class CoordinatorResultBufferTest {
             assertThat(exits.get()).isEqualTo(3);
             assertThat(buffer.bufferedBytes()).isEqualTo(original.bytes());
             try (var claim = buffer.claim("query")) {
-                assertThat(claim.root().getVector("id").getObject(0)).isEqualTo(1);
+                assertThat(streamedRoot(claim::streamTo).getVector("id").getObject(0)).isEqualTo(1);
             }
             assertThat(exits.get()).isEqualTo(4);
         }

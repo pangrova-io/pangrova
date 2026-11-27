@@ -21,6 +21,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.pangrova.coordinator.result.CoordinatorResultTestAccess.streamedRoot;
 
 /** Exercises lookup, payload and retirement across generated result identities. */
 class CoordinatorDataProducerNotFoundPropertyTest {
@@ -56,7 +57,7 @@ class CoordinatorDataProducerNotFoundPropertyTest {
             @ForAll("uniqueQueryIds") String queryId, @ForAll("payloads") byte[] payload) {
         publish(queryId, payload);
         try (var lease = buffer.claim(queryId)) {
-            assertThat((byte[]) lease.root().getVector("value").getObject(0)).isEqualTo(payload);
+            assertThat((byte[]) streamedRoot(lease::streamTo).getVector("value").getObject(0)).isEqualTo(payload);
             assertThat(buffer.claim(queryId)).isNull();
         }
         assertThat(buffer.claim(queryId)).isNull();

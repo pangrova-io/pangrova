@@ -48,6 +48,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.pangrova.coordinator.result.CoordinatorResultTestAccess.streamedRoot;
 import static org.pangrova.metadata.testinfra.TableStoreFixtures.memoryTableStores;
 
 /** Actual metadata tasks and the production Arrow IPC result service preserve empty tabular schemas. */
@@ -119,7 +120,7 @@ class MetadataShowResultSchemaTest {
             assertThat(state.status().endpoint()).isEqualTo(result.resultEndpoint());
             try (var reader = buffer.claim(id)) {
                 assertThat(reader).isNotNull();
-                var root = reader.root();
+                var root = streamedRoot(reader::streamTo);
                 assertThat(root.getSchema().getFields()).extracting(field -> field.getName()).containsExactlyElementsOf(columns);
                 assertThat(root.getSchema().getFields()).allMatch(field -> field.getType().equals(ArrowType.Utf8.INSTANCE));
                 List<List<String>> values = new ArrayList<>();

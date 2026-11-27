@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.pangrova.coordinator.result.CoordinatorResultTestAccess.streamedRoot;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
@@ -41,7 +42,7 @@ class CoordinatorResultWriterTest {
         ((byte[]) row.getRaw("payload"))[1] = 7;
 
         try (var batch = writer.buildBatch(List.of(row), List.of("payload"))) {
-            assertThat((byte[]) batch.root().getVector("payload").getObject(0))
+            assertThat((byte[]) streamedRoot(batch::streamTo).getVector("payload").getObject(0))
                     .containsExactly((byte) 0xff, (byte) 0, (byte) 0x80);
         }
     }
@@ -54,7 +55,7 @@ class CoordinatorResultWriterTest {
         List<String> columns = List.of("id", "name");
 
         try (var batch = writer.buildBatch(rows, columns)) {
-            VectorSchemaRoot root = batch.root();
+            VectorSchemaRoot root = streamedRoot(batch::streamTo);
             assertThat(root.getRowCount()).isEqualTo(2);
             assertThat(root.getSchema().getFields()).hasSize(2);
             assertThat(root.getSchema().getFields().get(0).getName()).isEqualTo("id");
@@ -76,7 +77,7 @@ class CoordinatorResultWriterTest {
         List<String> columns = List.of("count", "active");
 
         try (var batch = writer.buildBatch(rows, columns)) {
-            VectorSchemaRoot root = batch.root();
+            VectorSchemaRoot root = streamedRoot(batch::streamTo);
             assertThat(root.getRowCount()).isEqualTo(1);
             assertThat(root.getVector("count").getObject(0)).isEqualTo(999_999_999_999L);
             assertThat(root.getVector("active").getObject(0)).isEqualTo(true);
@@ -93,7 +94,7 @@ class CoordinatorResultWriterTest {
         List<String> columns = List.of("name", "age");
 
         try (var batch = writer.buildBatch(rows, columns)) {
-            VectorSchemaRoot root = batch.root();
+            VectorSchemaRoot root = streamedRoot(batch::streamTo);
             assertThat(root.getRowCount()).isEqualTo(1);
             assertThat(root.getVector("name").getObject(0).toString()).isEqualTo("alice");
             assertThat(root.getVector("age").isNull(0)).isTrue();
@@ -106,8 +107,8 @@ class CoordinatorResultWriterTest {
         List<String> columns = List.of("col1");
 
         try (var batch = writer.buildBatch(rows, columns)) {
-            assertThat(batch.root().getRowCount()).isEqualTo(0);
-            assertThat(batch.root().getSchema().getFields()).extracting(field -> field.getName())
+            assertThat(streamedRoot(batch::streamTo).getRowCount()).isEqualTo(0);
+            assertThat(streamedRoot(batch::streamTo).getSchema().getFields()).extracting(field -> field.getName())
                     .containsExactly("col1");
         }
     }

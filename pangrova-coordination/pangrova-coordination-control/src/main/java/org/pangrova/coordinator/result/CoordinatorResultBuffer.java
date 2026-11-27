@@ -1,6 +1,6 @@
 package org.pangrova.coordinator.result;
 
-import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.arrow.flight.FlightProducer.ServerStreamListener;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.common.lifecycle.ResourceCloser;
 import org.pangrova.query.api.lifecycle.QueryOperation;
@@ -150,7 +150,7 @@ public final class CoordinatorResultBuffer implements AutoCloseable {
             this.entry = entry;
         }
 
-        public VectorSchemaRoot root() { return entry.batch.root(); }
+        public void streamTo(ServerStreamListener listener) { entry.batch.streamTo(listener); }
 
         @Override
         public void close() { retire(queryId, entry, true); }

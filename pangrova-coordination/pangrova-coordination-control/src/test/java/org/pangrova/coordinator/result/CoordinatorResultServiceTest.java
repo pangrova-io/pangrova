@@ -31,6 +31,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.pangrova.coordinator.result.CoordinatorResultTestAccess.streamedRoot;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
@@ -117,7 +118,7 @@ class CoordinatorResultServiceTest {
         assertThat(result.workerHost()).isEqualTo("coordinator-control");
         assertThat(buffer.contains(QUERY_ID)).isTrue();
         try (var resultLease = buffer.claim(QUERY_ID)) {
-            assertThat(resultLease.root().getVector("result").getObject(0)).isEqualTo(42);
+            assertThat(streamedRoot(resultLease::streamTo).getVector("result").getObject(0)).isEqualTo(42);
         }
         assertThat(sm.getState()).isEqualTo(QueryState.FINISHED);
     }
@@ -146,7 +147,7 @@ class CoordinatorResultServiceTest {
 
         assertThat(result).isNotNull();
         try (var lease = buffer.claim(QUERY_ID)) {
-            assertThat(lease.root().getRowCount()).isZero();
+            assertThat(streamedRoot(lease::streamTo).getRowCount()).isZero();
         }
         assertThat(sm.getState()).isEqualTo(QueryState.FINISHED);
     }

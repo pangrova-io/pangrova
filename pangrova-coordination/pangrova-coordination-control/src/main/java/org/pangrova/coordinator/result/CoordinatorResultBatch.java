@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.result;
 
+import org.apache.arrow.flight.FlightProducer.ServerStreamListener;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.vector.VectorSchemaRoot;
 
@@ -17,7 +18,12 @@ public final class CoordinatorResultBatch implements AutoCloseable {
         this.bytes = allocator.getAllocatedMemory();
     }
 
-    public VectorSchemaRoot root() { return root; }
+    /** Stages the owned batch without transferring its mutable vectors to the caller. */
+    void streamTo(ServerStreamListener listener) {
+        listener.setUseZeroCopy(false);
+        listener.start(root);
+        listener.putNext();
+    }
 
     public long bytes() { return bytes; }
 

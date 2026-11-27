@@ -27,17 +27,16 @@ public final class CoordinatorDataProducer extends NoOpFlightProducer {
     @Override
     public void getStream(CallContext context, Ticket ticket, ServerStreamListener listener) {
         String queryId = new String(ticket.getBytes(), StandardCharsets.UTF_8);
-        try (var result = buffer.claim(queryId)) {
-            if (result == null) {
-                listener.error(CallStatus.NOT_FOUND.withDescription("Control result is unavailable")
-                        .toRuntimeException());
-                return;
-            }
+        var result = buffer.claim(queryId);
+        if (result == null) {
+            listener.error(CallStatus.NOT_FOUND.withDescription("Control result is unavailable")
+                    .toRuntimeException());
+            return;
+        }
+        try (result) {
             if (listener.isCancelled()) return;
             // Flight stages the outgoing data before releasing the query's allocator.
-            listener.setUseZeroCopy(false);
-            listener.start(result.root());
-            listener.putNext();
+            result.streamTo(listener);
         } catch (RuntimeException failure) {
             LOG.warn("event=control_result_stream_failed queryId={}", queryId, failure);
             listener.error(failure);
