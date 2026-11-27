@@ -625,8 +625,22 @@ void PangrovaVeloxDataSource::createReaderPair(
       }
     }
     if (col_name.empty()) continue;
-    reader_names.push_back(
-        it == target_to_source.end() ? col_name : it->second);
+    auto physical_name = it == target_to_source.end() ? col_name : it->second;
+    if (!requestedType && splitConfig.iceberg && col_name != kPhysicalRowPositionColumnName &&
+        !outReader->rowType()->containsChild(physical_name)) {
+      if (outReader->rowType()->containsChild(col_name)) {
+        physical_name = col_name;
+      } else {
+        // Older Iceberg files can predate this column. Keep it out of DWIO's
+        // projection and reconstruct it through partition or schema evolution.
+        if (it == target_to_source.end()) {
+          current_column_mappings_.push_back(
+              {.source_name = col_name, .target_name = col_name});
+        }
+        continue;
+      }
+    }
+    reader_names.push_back(std::move(physical_name));
     reader_types.push_back(physical_type);
   }
   if (!requestedType) {
