@@ -153,6 +153,8 @@ public class OpenTelemetryConfig {
 | `pangrova.coordinator.queries.completed` | Counter | Total queries completed successfully |
 | `pangrova.coordinator.queries.failed` | Counter | Total queries failed |
 | `pangrova.coordinator.queries.running` | UpDownCounter | Currently running queries |
+| `pangrova.coordinator.queries.admission.rejections` | Counter | Rejections by admission or by the dispatch executor, grouped by `reason` |
+| `pangrova.coordinator.queries.dispatch.queue_ms` | Histogram | Time from dispatch enqueue attempt until its executor callback starts |
 | `pangrova.coordinator.stage.dispatch.latency_ms` | Histogram | Actual dispatch phase duration, by phase and success or failure |
 | `pangrova.coordinator.stage.preparation.queue_ms` | Histogram | Downstream preparation submission to start, by final outcome |
 | `pangrova.coordinator.stage.preparation.run_ms` | Histogram | Downstream preparation start to finish, by final outcome |
@@ -164,7 +166,14 @@ public class OpenTelemetryConfig {
 | `pangrova.coordinator.queries.timed_out` | Counter | Queries for which timeout won the terminal transition |
 | `pangrova.coordinator.queries.terminal_cleanup.local_release_ms` | Histogram | Terminal cleanup entry to local ownership release, including retry and wait time |
 
-Local ownership release does not establish global drain: a durable retirement may still require recovery confirmation.
+Admission rejection reasons are `ADMISSION_CLOSED`, `TENANT_LIMIT`, `THROTTLED`,
+`HEALTH_PROBE`, `EXECUTION_OWNERSHIP_UNAVAILABLE`, `QUEUE_FULL`, and
+`EXECUTOR_STOPPING`. Dispatch rejection uses the executor shutdown state observed
+when handling the rejection. The dispatch histogram samples callbacks that start,
+including a cancelled query whose queued callback later starts. Rejected
+enqueue attempts contribute only to the counter.
+
+Local ownership release can precede recovery confirmation of global drain.
 
 ### 3.2 Worker Metrics
 

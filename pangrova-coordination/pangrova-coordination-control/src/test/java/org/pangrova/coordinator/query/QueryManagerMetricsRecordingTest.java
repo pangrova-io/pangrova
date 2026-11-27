@@ -8,10 +8,24 @@ import org.pangrova.query.api.enums.QueryState;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 
@@ -29,9 +43,19 @@ import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerReg
 import org.pangrova.observability.api.metrics.DoubleHistogram;
 import org.pangrova.observability.api.metrics.LongCounter;
 import org.pangrova.observability.api.metrics.LongUpDownCounter;
+import org.pangrova.observability.api.metrics.MetricAttributes;
 import org.pangrova.observability.api.metrics.MetricsProvider;
 import org.pangrova.observability.api.metrics.ObservableDoubleGauge;
 import org.pangrova.testing.testkit.constants.TestObservability;
+import org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory;
+import org.pangrova.query.api.exception.QueryRejectedException;
+import org.pangrova.query.api.journal.QueryAcceptanceRequest;
+import org.pangrova.query.api.session.QuerySession;
+import org.pangrova.query.api.submission.AsyncSubmitConfig;
+import org.pangrova.query.api.submission.QuerySubmissionResult;
+import org.pangrova.query.lifecycle.TenantAdmissionPort;
+import org.pangrova.security.api.identity.UserIdentity;
+import org.pangrova.security.exception.TenantQuotaExceededException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -44,6 +68,8 @@ import org.junit.jupiter.api.Test;
  * KPI values move off zero, and that a null metrics provider degrades to a no-op.</p>
  */
 class QueryManagerMetricsRecordingTest {
+    private static final String REJECTIONS = "pangrova.coordinator.queries.admission.rejections";
+    private static final String DISPATCH_QUEUE = "pangrova.coordinator.queries.dispatch.queue_ms";
 
     @Test
     @DisplayName("completing a query records completed counter")
@@ -104,8 +130,8 @@ class QueryManagerMetricsRecordingTest {
         String finished = registerRunningQuery(manager);
         manager.onAllTasksFinished(finished);
         String timedOut = registerRunningQuery(manager);
-        manager.timeoutQueriesCreatedBy(java.time.Instant.MAX, java.time.Duration.ofSeconds(30));
-        manager.timeoutQueriesCreatedBy(java.time.Instant.MAX, java.time.Duration.ofSeconds(30));
+        manager.timeoutQueriesCreatedBy(Instant.MAX, Duration.ofSeconds(30));
+        manager.timeoutQueriesCreatedBy(Instant.MAX, Duration.ofSeconds(30));
         manager.retryPendingTerminalCompletions();
 
         assertThat(manager.getQueryState(finished)).hasValue(QueryState.FINISHED);
@@ -116,29 +142,100 @@ class QueryManagerMetricsRecordingTest {
     }
 
     @Test
+    void queueWaitAndAdmissionRejectionsUseDistinctBoundaries() throws Exception {
+        var provider = new RecordingMetricsProvider();
+        var clock = new AtomicLong();
+        var executor = new ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>(1));
+        var timer = Executors.newSingleThreadScheduledExecutor();
+        var occupied = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        try {
+            executor.submit(() -> {
+                occupied.countDown();
+                return release.await(5, TimeUnit.SECONDS);
+            });
+            assertThat(occupied.await(5, TimeUnit.SECONDS)).isTrue();
+            var manager = new QueryManager(context(provider, null, executor, timer), clock::get);
+            var queued = submit(manager, "queued", "a");
+            var rejected = submit(manager, "saturated", "b");
+
+            assertThat(manager.getQueryError(rejected.queryId()).orElseThrow().errorType())
+                    .isEqualTo("ASYNC_SUBMIT_QUEUE_FULL");
+            assertThat(provider.rejections("QUEUE_FULL")).isOne();
+            assertThat(provider.dispatchWaits).isEmpty();
+
+            assertThat(manager.cancelQuery(queued.queryId())).isTrue();
+            clock.set(TimeUnit.MILLISECONDS.toNanos(17));
+            executor.shutdown();
+            var stopping = submit(manager, "stopping", "c");
+            assertThat(manager.getQueryError(stopping.queryId()).orElseThrow().errorType())
+                    .isEqualTo("ASYNC_SUBMIT_STOPPING");
+            assertThat(provider.rejections("EXECUTOR_STOPPING")).isOne();
+
+            manager.setAcceptingQueries(false);
+            assertThatThrownBy(() -> submit(manager, "closed", "d")).isInstanceOf(QueryRejectedException.class);
+            assertThat(provider.rejections("ADMISSION_CLOSED")).isOne();
+            assertThat(provider.rejections("TENANT_LIMIT")).isZero();
+
+            release.countDown();
+            assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(provider.dispatchWaits).containsExactly(17.0);
+        } finally {
+            release.countDown();
+            executor.shutdownNow();
+            timer.shutdownNow();
+        }
+    }
+
+    @Test
+    void tenantLimitDoesNotCountAsDispatchSaturation() {
+        var provider = new RecordingMetricsProvider();
+        TenantAdmissionPort limited = (user, active) -> {
+            throw new TenantQuotaExceededException("fixture tenant limit");
+        };
+        var manager = new QueryManager(context(provider, limited, null, null));
+
+        assertThatThrownBy(() -> submit(manager, "limited", "a")).isInstanceOf(TenantQuotaExceededException.class);
+        assertThat(provider.rejections("TENANT_LIMIT")).isOne();
+        assertThat(provider.rejections("QUEUE_FULL")).isZero();
+        assertThat(provider.dispatchWaits).isEmpty();
+    }
+
+    private static QuerySubmissionResult submit(QueryManager manager, String id, String key) {
+        var identity = new UserIdentity("alice", Set.of(), Map.of(), Instant.EPOCH);
+        var session = new QuerySession(id, Map.of(), identity, null, Optional.empty(),
+                new OtelExecutionTraceContextFactory().capture());
+        var acceptance = new QueryAcceptanceRequest("alice", key.repeat(64), "f".repeat(64));
+        return manager.submitQueryAsync(id, "SELECT 1", session, acceptance).toCompletableFuture().join();
+    }
+
+    @Test
     void metricBackendFailureCannotPreventTimeoutOrLocalRelease() {
         var provider = new RecordingMetricsProvider();
         provider.failLifecycleRecording = true;
         var manager = newQueryManager(provider);
         String timedOut = registerRunningQuery(manager);
-        manager.timeoutQueriesCreatedBy(java.time.Instant.MAX, java.time.Duration.ofSeconds(30));
+        manager.timeoutQueriesCreatedBy(Instant.MAX, Duration.ofSeconds(30));
         assertThat(manager.getQueryState(timedOut)).hasValue(QueryState.FAILED);
         assertThat(provider.counter("pangrova.coordinator.queries.failed")).isOne();
         assertThat(provider.counter("pangrova.coordinator.queries.timed_out")).isZero();
     }
 
     private static QueryManager newQueryManager(MetricsProvider metricsProvider) {
-        QueryManagerContext ctx = new QueryManagerContext(
-                buildDispatcher(), TestObservability.TRACING,
-                metricsProvider, null,
+        return new QueryManager(context(metricsProvider, null, null, null));
+    }
+
+    private static QueryManagerContext context(MetricsProvider metrics, TenantAdmissionPort tenant,
+            ExecutorService executor, ScheduledExecutorService timer) {
+        var dispatcher = buildDispatcher();
+        return new QueryManagerContext(dispatcher, TestObservability.TRACING, metrics, tenant,
                 org.pangrova.coordinator.query.QueryManagerCollaborators.admission(null, null),
                 org.pangrova.coordinator.query.QueryManagerCollaborators.audit(
-                        null, null, null, buildDispatcher(), null),
+                        null, null, null, dispatcher, null),
                 org.pangrova.coordinator.query.QueryManagerCollaborators.journal(
                         new org.pangrova.persistence.query.memory.state.InMemoryQueryStateJournal(), null),
-                null,
-                new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory());
-        return new QueryManager(ctx);
+                null, executor == null ? null : AsyncSubmitConfig.defaultEnabled(), executor, timer,
+                new OtelExecutionTraceContextFactory());
     }
 
     private static String registerRunningQuery(QueryManager queryManager) {
@@ -170,6 +267,13 @@ class QueryManagerMetricsRecordingTest {
         private final ConcurrentHashMap<String, AtomicLong> counters = new ConcurrentHashMap<>();
         private final ConcurrentHashMap<String, AtomicLong> upDownCounters = new ConcurrentHashMap<>();
         private final ConcurrentHashMap<String, AtomicLong> histogramCounts = new ConcurrentHashMap<>();
+        private final ConcurrentHashMap<MetricAttributes, AtomicLong> rejectionCounts = new ConcurrentHashMap<>();
+        private final ConcurrentLinkedQueue<Double> dispatchWaits = new ConcurrentLinkedQueue<>();
+
+        long rejections(String reason) {
+            var value = rejectionCounts.get(MetricAttributes.of("reason", reason));
+            return value == null ? 0 : value.get();
+        }
 
         long counter(String name) {
             AtomicLong v = counters.get(name);
@@ -188,6 +292,19 @@ class QueryManagerMetricsRecordingTest {
 
         @Override
         public LongCounter createCounter(String name, String description, String unit) {
+            if (REJECTIONS.equals(name)) {
+                return new LongCounter() {
+                    @Override
+                    public void add(long value) {
+                        throw new AssertionError("Admission rejection requires a reason");
+                    }
+
+                    @Override
+                    public void add(long value, MetricAttributes attributes) {
+                        rejectionCounts.computeIfAbsent(attributes, ignored -> new AtomicLong()).addAndGet(value);
+                    }
+                };
+            }
             AtomicLong v = counters.computeIfAbsent(name, k -> new AtomicLong());
             return value -> {
                 if (failLifecycleRecording && name.endsWith(".timed_out")) {
@@ -211,6 +328,7 @@ class QueryManagerMetricsRecordingTest {
                 if (failLifecycleRecording && name.endsWith(".local_release_ms")) {
                     throw new IllegalStateException("Metrics unavailable");
                 }
+                if (name.equals(DISPATCH_QUEUE)) dispatchWaits.add(value);
                 c.incrementAndGet();
             };
         }

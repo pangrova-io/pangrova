@@ -41,6 +41,7 @@ import org.pangrova.query.retention.ReaderPinRenewal;
 import org.pangrova.query.lifecycle.QueryDispatchOutcome;
 import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.common.exception.PangrovaException;
+import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.lifecycle.ResourceCloser;
 import org.pangrova.query.api.lifecycle.QueryOperation;
 import org.pangrova.query.api.error.QueryFailure;
@@ -57,6 +58,7 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
 
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.observability.logging.LogContext;
+import org.pangrova.query.runtime.QueryLifecycleMetrics.AdmissionRejection;
 
 @ThreadSafe
 public final class QueryManager implements org.pangrova.query.api.lifecycle.QueryTimeoutHandler {
@@ -113,7 +115,7 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
         this.tracingProvider = deps.tracingProvider();
         this.traceContexts = deps.traceContexts();
         this.tenantAdmission = deps.tenantAdmission();
-        this.lifecycleMetrics = new QueryLifecycleMetrics(deps.metricsProvider());
+        this.lifecycleMetrics = new QueryLifecycleMetrics(deps.metricsProvider(), nanoClock);
         this.terminalCleanup = new QueryTerminalCleanup(queryDispatcher, this::appendTerminalJournal,
                 this::emitTerminalEvents,
                 this::releasePhysicalQuery, nanoClock, lifecycleMetrics::recordLocalRelease);
@@ -128,7 +130,7 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
         var asyncConfig = deps.asyncSubmitConfig();
         this.asyncSubmission = asyncConfig != null && asyncConfig.enabled() && deps.asyncExecutor() != null
                 ? new QueryAsyncSubmission(queryDispatcher, asyncConfig, deps.asyncExecutor(), deps.submitDeadlines(),
-                        this::failQuery, this::applyDispatchResult)
+                        lifecycleMetrics, this::failQuery, this::applyDispatchResult)
                 : null;
         this.querySubmitCounter = createCounter(deps.metricsProvider(),
                 "pangrova.coordinator.queries.submitted", "Total queries submitted", "queries");
@@ -208,23 +210,11 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
                 || !acceptance.principal().equals(session.userIdentity().principal()))) {
             throw new IllegalArgumentException("Acceptance principal does not match the query session");
         }
-        QuerySession submittedSession;
-        QueryStateMachine stateMachine;
-        queryLifecycleLock.readLock().lock();
-        try {
-            if (draining) {
-                throw new QueryRejectedException(DRAIN_REJECTION_MESSAGE);
-            }
-            submittedSession = session.withQueryId(queryId);
-            if (queries.get(queryId) != null) {
-                throw new QueryRejectedException("Query already registered: queryId=" + queryId);
-            }
-            stateMachine = newCandidateStateMachine(queryId, submittedSession, sql);
-            if (!queries.reserveSubmission(queryId, stateMachine)) {
-                throw new QueryRejectedException("Query submission already pending: queryId=" + queryId);
-            }
-        } finally {
-            queryLifecycleLock.readLock().unlock();
+        QuerySession submittedSession = session.withQueryId(queryId);
+        QueryStateMachine stateMachine = reserveCandidate(queryId, sql, submittedSession);
+        if (stateMachine == null) {
+            lifecycleMetrics.recordRejection(AdmissionRejection.ADMISSION_CLOSED);
+            throw new QueryRejectedException(DRAIN_REJECTION_MESSAGE);
         }
         Span span = null;
         StartedSubmission started;
@@ -295,6 +285,23 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
         return new QueryAsyncSubmission.Pending(receipt, pending.interrupt());
     }
 
+    private QueryStateMachine reserveCandidate(String queryId, String sql, QuerySession session) {
+        queryLifecycleLock.readLock().lock();
+        try {
+            if (draining) return null;
+            if (queries.get(queryId) != null) {
+                throw new QueryRejectedException("Query already registered: queryId=" + queryId);
+            }
+            var state = newCandidateStateMachine(queryId, session, sql);
+            if (!queries.reserveSubmission(queryId, state)) {
+                throw new QueryRejectedException("Query submission already pending: queryId=" + queryId);
+            }
+            return state;
+        } finally {
+            queryLifecycleLock.readLock().unlock();
+        }
+    }
+
     private record StartedSubmission(QueryAsyncSubmission.Pending pending, QueryOperation operation,
             QuerySubmissionResult acceptanceReceipt) { }
 
@@ -333,7 +340,12 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
             String tenantId = tenant == null ? unscopedTenantId(session) : tenant.tenantId();
             sm.setTenantId(tenantId);
             enriched = session.withTenantId(tenantId);
-            admission.checkThrottle(queryId, enriched);
+            try {
+                admission.checkThrottle(queryId, enriched);
+            } catch (QueryRejectedException throttled) {
+                lifecycleMetrics.recordRejection(AdmissionRejection.THROTTLED);
+                throw throttled;
+            }
             var ownership = admitExecution(queryId, tenantId, tenant, sm);
             sm.bindJournalGrant(ownership.anchor());
             queryDispatcher.bindConnectorAuthority(sm, queryId);
@@ -364,12 +376,16 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
             }
             applyPendingCancellation(queryId, sm);
             if (!sm.isTerminal()) {
-                sm.acquireAdmissionHealthProbe(admission::acquireHealthProbe);
+                acquireAdmissionHealthProbe(sm);
             }
             incrementCounter(querySubmitCounter);
             LOG.info("event=query_submitted queryId={}", queryId);
             auditBridge.emitAuditSubmitted(queryId, sm.getSql(), enriched, sm);
         } catch (RuntimeException | Error failure) {
+            if (!registered && failure instanceof PangrovaException domain
+                    && domain.getErrorCode() == PangrovaErrorCode.TENANT_QUOTA_EXCEEDED) {
+                lifecycleMetrics.recordRejection(AdmissionRejection.TENANT_LIMIT);
+            }
             sm.resolveOwnership(false);
             if (!registered && sm.hasJournalOwnership()) {
                 registerCandidateStateMachine(queryId, sm);
@@ -422,6 +438,15 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
         }
     }
 
+    private void acquireAdmissionHealthProbe(QueryStateMachine state) {
+        try {
+            state.acquireAdmissionHealthProbe(admission::acquireHealthProbe);
+        } catch (QueryRejectedException unhealthy) {
+            lifecycleMetrics.recordRejection(AdmissionRejection.HEALTH_PROBE);
+            throw unhealthy;
+        }
+    }
+
     private QueryAsyncSubmission.Pending executeQuerySync(String queryId, String sql,
             QuerySession session, QueryStateMachine state) {
         QueryDispatchOutcome result = queryDispatcher.dispatch(state, sql, session);
@@ -457,6 +482,7 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
             ownership = queryDispatcher.acquireQueryOwnership(queryId, tenantId);
         }
         if (!ownership.acquired()) {
+            lifecycleMetrics.recordRejection(AdmissionRejection.EXECUTION_OWNERSHIP_UNAVAILABLE);
             throw new QueryRejectedException(
                     "Failed to acquire query ownership for queryId=" + queryId);
         }

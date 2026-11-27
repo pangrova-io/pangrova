@@ -30,6 +30,7 @@ import org.pangrova.query.lifecycle.QueryExecutionPort;
 import org.pangrova.query.lifecycle.QueryDispatchOutcome;
 import org.pangrova.query.api.error.QueryFailure;
 import org.pangrova.query.api.submission.QuerySubmissionResult;
+import org.pangrova.query.runtime.QueryLifecycleMetrics.AdmissionRejection;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -40,15 +41,18 @@ final class QueryAsyncSubmission {
     private final AsyncSubmitConfig config;
     private final ExecutorService executor;
     private final ScheduledExecutorService deadlines;
+    private final QueryLifecycleMetrics metrics;
     private final FailureHandler failureHandler;
     private final ResultHandler resultHandler;
 
     QueryAsyncSubmission(QueryExecutionPort dispatcher, AsyncSubmitConfig config, ExecutorService executor,
-            ScheduledExecutorService deadlines, FailureHandler failureHandler, ResultHandler resultHandler) {
+            ScheduledExecutorService deadlines, QueryLifecycleMetrics metrics,
+            FailureHandler failureHandler, ResultHandler resultHandler) {
         this.dispatcher = dispatcher;
         this.config = config;
         this.executor = executor;
         this.deadlines = deadlines;
+        this.metrics = metrics;
         this.failureHandler = failureHandler;
         this.resultHandler = resultHandler;
     }
@@ -56,12 +60,15 @@ final class QueryAsyncSubmission {
     Pending start(String queryId, String sql, QuerySession session, QueryStateMachine state) {
         var context = new Context(queryId, sql, session, state);
         var observation = new Readiness(new CompletableFuture<>(), new AtomicReference<>());
+        long queuedAt = metrics.dispatchEnqueuedAt();
         Future<?> dispatch;
         try {
-            dispatch = executor.submit(() -> dispatch(context,
-                    (result, failure) -> finish(context, observation, result, failure)));
+            dispatch = executor.submit(() -> {
+                metrics.recordDispatchStarted(queuedAt);
+                dispatch(context, (result, failure) -> finish(context, observation, result, failure));
+            });
         } catch (RejectedExecutionException overloaded) {
-            throw rejectOverload(context);
+            throw rejectDispatch(context);
         }
         var endpoint = state.resultEndpointReady();
         var write = state.writeDispatchReady();
@@ -130,14 +137,26 @@ final class QueryAsyncSubmission {
     void startAccepted(String queryId, String sql, QuerySession session, QueryStateMachine state,
             BiConsumer<QueryOperation, Throwable> exited) {
         var context = new Context(queryId, sql, session, state);
+        long queuedAt = metrics.dispatchEnqueuedAt();
         try {
-            executor.execute(() -> dispatchAccepted(context, exited));
+            executor.execute(() -> {
+                metrics.recordDispatchStarted(queuedAt);
+                dispatchAccepted(context, exited);
+            });
         } catch (RejectedExecutionException overloaded) {
-            throw rejectOverload(context);
+            throw rejectDispatch(context);
         }
     }
 
-    private QueryRejectedException rejectOverload(Context context) {
+    private QueryRejectedException rejectDispatch(Context context) {
+        if (executor.isShutdown()) {
+            metrics.recordRejection(AdmissionRejection.EXECUTOR_STOPPING);
+            String message = "Coordinator query dispatch is stopping";
+            fail(context, PangrovaErrorCode.COORDINATOR_QUERY_REJECTED.getCode(), "ASYNC_SUBMIT_STOPPING",
+                    message, "async_submit_stopping");
+            return new QueryRejectedException(message);
+        }
+        metrics.recordRejection(AdmissionRejection.QUEUE_FULL);
         fail(context, "RESOURCE_EXHAUSTED", "ASYNC_SUBMIT_QUEUE_FULL",
                 "Coordinator query dispatch queue is full", "async_submit_overloaded");
         return new QueryRejectedException("Coordinator query dispatch queue is full");

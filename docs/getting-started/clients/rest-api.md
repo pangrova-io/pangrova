@@ -175,7 +175,10 @@ and acceptance receipt without executing the SQL again; changing SQL or session
 properties returns HTTP 409. Each principal has an independent key space.
 Once the acceptance receipt is returned, the query continues under its
 execution deadline. Poll its status for the transition to a readable result or
-terminal outcome.
+terminal outcome. If dispatch rejects already accepted work, status reports a
+terminal failure. Its error type is `ASYNC_SUBMIT_QUEUE_FULL` for dispatch
+saturation or `ASYNC_SUBMIT_STOPPING` when the executor is observed shutting
+down.
 
 Successful `USE BRANCH` includes `branch_selection` in terminal status and receipt
 recovery. Use its table and branch to set the corresponding
