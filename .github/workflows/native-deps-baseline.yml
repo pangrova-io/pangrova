@@ -8,6 +8,9 @@ on:
         type: choice
         options: [macos-docker, macos-intel-docker, production, worker-files, java-daily, libunwind, ai-fixture, jmh-relative, tpc-transport, macos-libcxx, production-pic]
         default: macos-docker
+      production_source:
+        description: Exact production source revision
+        type: string
 
 permissions:
   contents: read
@@ -299,17 +302,27 @@ jobs:
     if: inputs.probe == 'production'
     env:
       MAVEN_ARGS: -C --global-settings ${{ github.workspace }}/.mvn/ci-settings.xml
-      PANGROVA_PROBE_SOURCE_SHA: 4aa0e5c87377b0a502dd4d12159cef8f70a879da
-      PANGROVA_E2E_IMAGE: pangrova/pangrova:ci-4aa0e5c87377b0a502dd4d12159cef8f70a879da-${{ github.run_id }}-${{ github.run_attempt }}
+      PANGROVA_PROBE_SOURCE_SHA: ${{ inputs.production_source }}
+      PANGROVA_E2E_IMAGE: pangrova/pangrova:ci-${{ inputs.production_source }}-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: 4aa0e5c87377b0a502dd4d12159cef8f70a879da
-          fetch-depth: 3
+          ref: ${{ inputs.production_source }}
       - name: Verify the source and the tested Native fixture inputs
         run: |
+          [[ "$PANGROVA_PROBE_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
           test "$(git rev-parse HEAD)" = "$PANGROVA_PROBE_SOURCE_SHA"
-          git diff --exit-code 80cbe6b744e19f8a77a8d7bdcb88e6430189c7c0 HEAD -- pangrova-worker-native pangrova-protocol
+          tested_ref=80cbe6b744e19f8a77a8d7bdcb88e6430189c7c0
+          git fetch --depth=1 origin "$tested_ref"
+          git diff --exit-code "$tested_ref" HEAD -- pangrova-protocol \
+            pangrova-worker-native/CMakeLists.txt pangrova-worker-native/cmake \
+            pangrova-worker-native/src pangrova-worker-native/include \
+            pangrova-worker-native/lance-ffi pangrova-worker-native/tools \
+            pangrova-connector/pangrova-connector-iceberg/patches \
+            .pangrova/scripts/build-iceberg-sdk-candidate.sh
+          lock=pangrova-worker-native/dependency-versions.txt
+          diff -u <(git show "$tested_ref:$lock" | grep -v '^PANGROVA_DEPENDENCY_BUILD=') \
+            <(grep -v '^PANGROVA_DEPENDENCY_BUILD=' "$lock")
           free -h
           df -h /
 
