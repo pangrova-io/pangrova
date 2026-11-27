@@ -356,7 +356,7 @@ public class PaimonSplitManager implements ConnectorSplitManager {
         for (Split split : paimonSplits) {
             planning.check(result.size());
             if (merge) result.add(buildSplit(tableName, split, ctx, table, evolution, readMode, sdkReaderAuthority));
-            else appendPhysicalSplit(result, tableName, split, ctx, table, evolution, readMode,
+            else expandPhysicalSplit(result, tableName, split, ctx, table, evolution, readMode,
                     sdkReaderAuthority, planning);
         }
         planning.check(result.size());
@@ -393,7 +393,7 @@ public class PaimonSplitManager implements ConnectorSplitManager {
                 planning.plan(readBuilder), sdkReaderAuthority, planning, false);
     }
 
-    private void appendPhysicalSplit(List<ConnectorSplit> splits, String tableName, Split paimonSplit,
+    private void expandPhysicalSplit(List<ConnectorSplit> splits, String tableName, Split paimonSplit,
             TableSplitContext ctx, Table table, SchemaEvolution evolution, String readMode,
             ConnectorQueryAuthority sdkReaderAuthority, PaimonScanBudget planning) {
         if (!(paimonSplit instanceof DataSplit dataSplit)) {

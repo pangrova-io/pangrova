@@ -34,6 +34,7 @@ unlisted: true
 | A12 | 普通 distributed write 完成后会 purge commit journal；跨重试/外部可见写入的 receipt matrix 与 retention 未统一 | WP8 |
 | A13 | Paimon abort 仍是 best-effort unlink；ambiguous commit 没有 durable abort barrier | WP8 |
 | A14 | nightly TPC 已存在；release 不校验同源 Linux/TPC 不可变证据，SF100 零值基线仍不合格 | WP9，需先批准 CI/基础设施变更 |
+| A15 | `CHANGES BETWEEN SNAPSHOT` 仍由 Coordinator 的元数据任务串行读取 SDK 分页并累积行；该任务没有执行 SQL 投影和过滤。没有增量实现的连接器会进入全量 split 枚举。需将 SQL 范围绑定到标准分布式查询，在 Worker 执行关系算子并用 Native Flight 输出，删除元数据任务和全量回退。验收覆盖区间端点、历史 schema、空区间、显式投影和过滤、无增量能力拒绝，以及客户端取消后实际归还资源 | WP3.2、WP7 |
 
 本地恢复对照在同一个清理线程上阻塞一个 Worker 响应。原实现的独立查询在 5 秒验证窗口内无法持久化回执。候选在该响应仍未返回时持久化独立查询回执。测试同时验证全局四页上限、同查询新旧租约不重叠，以及已保留回执不再读回。跨主机吞吐和恢复尾延迟仍在 B3/B7 验收范围。
 
@@ -191,6 +192,8 @@ PostgreSQL 接管分类用例预置 4,096 条其他查询日志和 4,096 条其�
 ## 验证记录与覆盖边界
 
 以下均为 **at commit / historical evidence**：数字、SQL 次数和覆盖范围只对应各批次当时提交的角色包与配置。当前未完成项以本文 2026-11-25 的 A/B/C 审计为准；单输入 AQE、局部聚合和写恢复等“机制已实现”不等于生产验收已完成。被后续批次取代的描述在原文附近标注 superseded。
+
+Paimon 历史绑定让 schema 和统计共享首次读取的快照。真实本地文件系统样本中，同一个快照的存在探测从 3 次降到 0 次，文件开启从 4 次降到 2 次。两次开启分别用于选择快照和发布绑定前复验。计数覆盖该快照文件的 SDK 调用，远程 GET 和查询延迟仍需按存储环境测量。
 
 Iceberg 的提交通知与发布收据共享提交后的目录观测。真实 PostgreSQL 的同一份非空追加，生成发布收据时的指针 SELECT 从 7 次降至 6 次，普通追加仍为 6 次。候选的必需发布空追加也为 6 次。发布收据锁定实际提交版本并哈希清单；后续追加推进当前快照后，重放仍返回原版本和原摘要。超时经底层目录核验成功的路径单独打开目录，避免接触可能仍由提交线程使用的 SDK 表。
 

@@ -18,12 +18,10 @@ final class PaimonTableStatisticsReader {
     /** Builds table statistics for the given Paimon table. */
     static TableStatistics build(FileStoreTable table, Snapshot snapshot, org.apache.paimon.types.RowType schema) {
         if (snapshot == null) return new TableStatistics(0, 0, 0, Map.of());
-        FileStoreTable selected = table.copyWithoutTimeTravel(
-                Map.of("scan.snapshot-id", Long.toString(snapshot.id())));
         var columnStats = new LinkedHashMap<String, TableStatistics.ColumnStatistics>();
-        var statistics = selected.statistics();
+        var statistics = table.store().newStatsFileHandler().readStats(snapshot).orElse(null);
         for (var field : schema.getFields()) {
-            var statistic = statistics.map(value -> value.colStats().get(field.name())).orElse(null);
+            var statistic = statistics == null ? null : statistics.colStats().get(field.name());
             if (statistic == null) {
                 columnStats.put(field.name(), TableStatistics.ColumnStatistics.UNKNOWN);
             } else {

@@ -22,6 +22,7 @@ import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.pangrova.connector.api.metadata.table.TableStatistics;
 import org.pangrova.connector.api.metadata.table.TableVersionToken;
 
+import java.io.FileNotFoundException;
 import java.util.LinkedHashMap;
 import java.util.Optional;
 import java.util.OptionalLong;
@@ -34,7 +35,7 @@ final class PaimonReadBindings {
         FileStoreTable table = load(catalog, selector);
         Snapshot snapshot = selectedSnapshot(table, selector);
         String identity = identity(table, snapshot);
-        var schema = PaimonReadSchema.resolve(selector, table);
+        var schema = PaimonReadSchema.resolve(selector, table, snapshot);
         var columns = PaimonTypeMapper.toPangrovaColumns(schema.rowType(), schema.options());
         var declaration = new ConnectorTableReadMetadata(new ConnectorTableMetadata(
                 new SchemaTableName(selector.schemaName(), selector.tableName()),
@@ -129,11 +130,12 @@ final class PaimonReadBindings {
         }
         if (handle.snapshotId().isEmpty()) return table.snapshotManager().latestSnapshot();
         long version = handle.snapshotId().orElseThrow();
-        if (!table.snapshotManager().snapshotExists(version)) {
+        try {
+            return PaimonReadSchema.readSnapshot(table, version);
+        } catch (FileNotFoundException missing) {
             throw new ConnectorException(PangrovaErrorCode.CONNECTOR_SNAPSHOT_NOT_FOUND,
-                    "Selected snapshot is unavailable: " + version);
+                    "Selected snapshot is unavailable: " + version, missing);
         }
-        return table.snapshotManager().snapshot(version);
     }
 
     private static FileStoreTable load(Catalog catalog, PaimonTableHandle handle) {

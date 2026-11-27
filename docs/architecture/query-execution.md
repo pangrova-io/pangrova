@@ -267,6 +267,13 @@ single 30-second elapsed-time budget and a 100,000-split cap across the stage's
 sources. A batch that arrives after the deadline or would exceed the cap fails the
 stage and closes the source. An empty binding is still validated against its
 admitted table identity before returning zero splits.
+
+Paimon historical read binding uses the selected snapshot object to resolve the
+exact schema and locate its statistics. It reads the snapshot object directly
+for initial selection and for the final identity check before publishing the
+binding. The final check observes the file again so that snapshot expiration or
+replacement during binding invalidates the selection.
+
 The Coordinator passes the remaining split capacity and the same monotonic
 deadline to the selected connector. Paimon checks the physical file count for
 append and incremental scans, and the SDK split count for merge reads, before
