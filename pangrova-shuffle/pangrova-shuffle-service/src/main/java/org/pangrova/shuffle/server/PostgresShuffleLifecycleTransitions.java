@@ -136,7 +136,7 @@ final class PostgresShuffleLifecycleTransitions {
                 PostgresShuffleRecords.sealCleanupAdmission(connection, queryId);
                 return new CleanupAdmission(null, "shuffle writes are still in progress");
             }
-            claimCleanup(connection, queryId, scope.state(), scope.cleanupLeaseExpiresAtMs(), lease, false);
+            claimCleanup(connection, queryId, scope.state(), scope.cleanupLeaseExpiresAtMs(), lease);
             return new CleanupAdmission(PostgresShuffleRecords.cleanupPlan(connection, queryId, lease.owner()), null);
         });
         // Preserve the committed admission seal even when existing I/O delays deletion.
@@ -153,7 +153,7 @@ final class PostgresShuffleLifecycleTransitions {
             String queryId = scope.queryId();
             if (hasActiveReads(connection, queryId)) return Optional.empty();
             if (protectOutstandingWrites(connection, queryId)) return Optional.empty();
-            claimCleanup(connection, queryId, "CLEANING", scope.leaseExpiresAtMs(), lease, true);
+            claimCleanup(connection, queryId, "CLEANING", scope.leaseExpiresAtMs(), lease);
             return Optional.of(PostgresShuffleRecords.cleanupPlan(connection, queryId, lease.owner()));
         });
     }

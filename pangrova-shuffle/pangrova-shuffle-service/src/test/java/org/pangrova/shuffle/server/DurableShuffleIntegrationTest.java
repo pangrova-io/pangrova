@@ -51,6 +51,7 @@ import org.pangrova.protocol.shuffle.codec.ShufflePartitionManifestChecksum;
 import org.pangrova.protocol.shuffle.codec.ShuffleProducerSetChecksum;
 import org.pangrova.shuffle.config.ShuffleServiceConfig;
 import org.pangrova.shuffle.security.ShuffleCapabilityAuthority;
+import org.pangrova.shuffle.server.enums.ShuffleAllocationState;
 import org.pangrova.shuffle.transport.CompleteWriteBatch;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.testcontainers.containers.GenericContainer;
@@ -484,9 +485,15 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
                     .isInstanceOf(SecurityException.class).hasMessageContaining("not active");
             assertThat(successor.beginExpiredCleanup(lease)).isEmpty();
 
+            assertThat(successor.findAllocation(shuffle).orElseThrow().state())
+                    .isEqualTo(ShuffleAllocationState.CLEANING);
             age.setLong(1, 2);
             assertThat(age.executeUpdate()).isEqualTo(1);
+            var beforeClaim = shuffleStatements();
             var plan = successor.beginCleanup(command, lease).orElseThrow();
+            assertThat(shuffleStatementDelta(beforeClaim).keySet())
+                    .as("claim after reader drain retains the existing seal")
+                    .noneMatch(sql -> sql.startsWith("UPDATE shuffle_allocation SET state = "));
             assertThatThrownBy(() -> successor.openRead(query, owner(), shuffle, 0, 0, until, 30_000))
                     .isInstanceOf(SecurityException.class).hasMessageContaining("not active");
             successor.completeCleanup(plan);
@@ -855,17 +862,23 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
                     new CleanupLease("first-cleaner", 100, 200)).orElseThrow();
             assertThat(firstPlan.bytes()).isEqualTo(2_505);
             assertThat(firstPlan.partitionCount()).isEqualTo(4);
+            assertThat(store.findAllocation(shuffleId).orElseThrow().state())
+                    .isEqualTo(ShuffleAllocationState.CLEANING);
             assertThat(store.beginExpiredCleanup(
                     new CleanupLease("early-cleaner", 199, 300))).isEmpty();
 
             var beforeRecovery = shuffleStatements();
             var recovered = store.beginExpiredCleanup(
                     new CleanupLease("recovery-cleaner", 201, 1_000)).orElseThrow();
-            assertThat(shuffleStatementDelta(beforeRecovery).keySet())
+            var recoveryStatements = shuffleStatementDelta(beforeRecovery).keySet();
+            assertThat(recoveryStatements)
                     .as("recovery already holds the selected shuffle scope row lock")
                     .noneMatch(sql -> sql.startsWith("SELECT owner_id, owner_incarnation, owner_fencing_token,")
                             && sql.contains("FROM shuffle_query_scope WHERE query_id = ")
                             && sql.endsWith(" FOR UPDATE"));
+            assertThat(recoveryStatements)
+                    .as("takeover of a sealed scope does not rewrite its shuffle allocations")
+                    .noneMatch(sql -> sql.startsWith("UPDATE shuffle_allocation SET state = "));
             var cursor = (ShuffleServiceModel.CleanupCursor) null;
             List<Integer> pageSizes = new ArrayList<>();
             int objectCount = 0;

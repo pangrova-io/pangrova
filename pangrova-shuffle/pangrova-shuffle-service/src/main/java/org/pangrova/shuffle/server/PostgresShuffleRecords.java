@@ -285,9 +285,8 @@ final class PostgresShuffleRecords {
             String queryId,
             String state,
             Long currentLeaseExpiry,
-            CleanupLease lease,
-            boolean expiredRecovery) throws SQLException {
-        boolean active = "ACTIVE".equals(state) && !expiredRecovery;
+            CleanupLease lease) throws SQLException {
+        boolean active = "ACTIVE".equals(state);
         boolean expired = "CLEANING".equals(state)
                 && (currentLeaseExpiry == null || currentLeaseExpiry <= lease.nowMs());
         if (!active && !expired) {
@@ -302,7 +301,10 @@ final class PostgresShuffleRecords {
             query.setString(3, queryId);
             query.executeUpdate();
         }
-        markCleaningAllocations(connection, queryId);
+        if (active) {
+            // The first seal updates allocations atomically and blocks subsequent registration.
+            markCleaningAllocations(connection, queryId);
+        }
     }
 
     private static void markCleaningAllocations(Connection connection, String queryId) throws SQLException {

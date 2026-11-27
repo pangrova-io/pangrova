@@ -1451,7 +1451,10 @@ requires service acknowledgement of object and intent deletion.
 
 The Shuffle service selects an expired cleanup scope under a row lock and carries
 its previous lease deadline into the recovery claim. The claim still checks active
-read pins and outstanding write reservations under that lock.
+read pins and outstanding write reservations under that lock. The initial seal
+closes admission for the scope and all allocations in one transaction. A later
+claim of the sealed scope updates only the cleanup lease and leaves the
+allocation rows untouched.
 
 The terminal cleanup queue and the proven predecessor drain path drive these
 operations. The Coordinator does not scan Shuffle intents during idle health
