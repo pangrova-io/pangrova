@@ -400,6 +400,11 @@ columns before downstream operators. Split pruning uses the original Calcite
 filter. The SQL authorization check
 still covers the logical relation. [Trino projection pushdown](https://trino.io/docs/current/optimizer/pushdown.html#projection-pushdown) · [Velox table scan assignments](https://facebookincubator.github.io/velox/develop/operators.html#tablescannode)
 
+For a set expression, the planner applies trailing sorting and pagination to
+the combined relation. An offset without a limit produces a Substrait Fetch
+with a canonical offset expression and an unset count. The Worker applies
+the offset once in the final pipeline.
+
 For a Parquet scan that requests at most half of the canonical top-level
 columns, the Native reader uses a 64 KiB speculative footer read. It can
 load the footer and selected column chunks separately above that size.

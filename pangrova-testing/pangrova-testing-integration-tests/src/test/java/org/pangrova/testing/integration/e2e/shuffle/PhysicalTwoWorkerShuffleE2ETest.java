@@ -683,14 +683,14 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
                 SELECT 1 AS branch_id, COUNT(*) AS matches FROM %s p JOIN %s b ON %s = b.id WHERE b.cohort = 1
                 UNION ALL
                 SELECT 2 AS branch_id, COUNT(*) AS matches FROM %s p JOIN %s b ON %s = b.id WHERE b.cohort = 2
+                ORDER BY branch_id
                 """;
         var pruned = executeWithDrainedReports(query.formatted(probe, build, "p.id", probe, build, "p.id"));
         var unpruned = executeWithDrainedReports(query.formatted(probe, build, "ABS(p.id)", probe, build, "ABS(p.id)"));
         assertThat(pruned.rows()).extracting(row -> row.getLong("branch_id"), row -> row.getLong("matches"))
-                .containsExactlyInAnyOrder(org.assertj.core.groups.Tuple.tuple(1L, 3L),
+                .containsExactly(org.assertj.core.groups.Tuple.tuple(1L, 3L),
                         org.assertj.core.groups.Tuple.tuple(2L, 2L));
-        assertThat(unpruned.rows()).usingRecursiveFieldByFieldElementComparator()
-                .containsExactlyInAnyOrderElementsOf(pruned.rows());
+        assertThat(unpruned.rows()).usingRecursiveComparison().isEqualTo(pruned.rows());
 
         long fullSplits = unpruned.sourceSplits(probe);
         long filteredSplits = pruned.sourceSplits(probe);
@@ -708,6 +708,17 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
             assertThat(wait.rangeCount()).isOne();
         });
         assertThat(pruned.runtimeFilterWaits()).extracting(RuntimeFilterWait::probeStageId).doesNotHaveDuplicates();
+    }
+
+    @Test
+    void topLevelUnionPaginationUsesTheGlobalOrder() {
+        String union = "SELECT id FROM " + orders + " WHERE id IN (1, 4) "
+                + "UNION ALL SELECT id FROM " + orders + " WHERE id IN (2, 3)";
+        var page = executeWithDrainedReports(union + " ORDER BY id DESC LIMIT 2 OFFSET 1");
+        var tail = executeWithDrainedReports(union + " ORDER BY id OFFSET 2");
+
+        assertThat(page.rows()).extracting(row -> row.getLong("id")).containsExactly(3L, 2L);
+        assertThat(tail.rows()).extracting(row -> row.getLong("id")).containsExactly(3L, 4L);
     }
 
     @Test

@@ -7,6 +7,7 @@ import org.pangrova.parser.api.ast.*;
 import org.pangrova.parser.api.ast.statement.*;
 import org.pangrova.parser.api.ast.statement.dml.*;
 import org.pangrova.parser.api.ast.statement.maintenance.*;
+import org.pangrova.parser.format.AstPrinter;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 
@@ -447,6 +448,32 @@ class DdlDmlParserTest {
 
     @Nested
     class SetOperationTests {
+        @Test
+        void trailingResultClausesBelongToTheSetAndRoundTrip() {
+            String sql = "SELECT 3 AS id UNION ALL SELECT 1 ORDER BY id DESC LIMIT 2 OFFSET 1";
+            var set = (SetQuery) parser.parse(sql);
+
+            assertThat(set.orderBy()).hasSize(1);
+            assertThat(set.limit()).isPresent();
+            assertThat(set.offset()).isPresent();
+            assertThat(set.queries()).allSatisfy(operand -> {
+                assertThat(operand.orderBy()).isEmpty();
+                assertThat(operand.limit()).isEmpty();
+                assertThat(operand.offset()).isEmpty();
+            });
+            assertThat(parser.parse(new AstPrinter().print(set))).isEqualTo(set);
+        }
+
+        @Test
+        void ordinarySelectPaginationStillRoundTrips() {
+            var query = (Query) parser.parse("SELECT id FROM values_table ORDER BY id LIMIT 2 OFFSET 1");
+
+            assertThat(query.orderBy()).hasSize(1);
+            assertThat(query.limit()).isPresent();
+            assertThat(query.offset()).isPresent();
+            assertThat(parser.parse(new AstPrinter().print(query))).isEqualTo(query);
+        }
+
         @Test
         void unionAll() {
             Statement stmt = parser.parse(

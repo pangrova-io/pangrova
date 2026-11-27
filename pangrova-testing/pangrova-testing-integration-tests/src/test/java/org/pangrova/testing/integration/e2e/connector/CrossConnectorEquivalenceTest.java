@@ -345,9 +345,9 @@ class CrossConnectorEquivalenceTest extends SqlE2ETestBase {
             List<TypedRow> paiResult = sqlRunner.execute(
                     String.format(sql, paimonFqn(paimonTable), paimonFqn(paiTable2)));
 
-            // UNION ALL row order may differ across connectors even with ORDER BY,
-            // because Velox execution order is non-deterministic across branches.
-            assertThat(iceResult).containsExactlyInAnyOrderElementsOf(paiResult);
+            assertThat(iceResult).extracting(row -> row.getLong("id"))
+                    .containsExactly(1L, 2L, 3L, 4L, 5L, 6L, 7L, 8L, 9L, 10L);
+            assertThat(paiResult).containsExactlyElementsOf(iceResult);
         }
     }
 

@@ -51,6 +51,9 @@ public final class CteReferenceCounter {
             for (Query q : setQuery.queries()) {
                 countInQuery(q, counts);
             }
+            setQuery.orderBy().forEach(item -> countInExpression(item.expression(), counts));
+            setQuery.limit().ifPresent(expr -> countInExpression(expr, counts));
+            setQuery.offset().ifPresent(expr -> countInExpression(expr, counts));
         } else if (stmt instanceof CteQuery nested) {
             for (CteQuery.CteDefinition def : nested.ctes()) {
                 countInStatement(def.query(), counts);

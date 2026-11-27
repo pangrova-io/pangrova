@@ -674,13 +674,15 @@ public class AstBuilder extends PangrovaSqlBaseVisitor<Object> {
 
     @Override
     public Statement visitSetQuery(PangrovaSqlParser.SetQueryContext ctx) {
-        List<Query> queries = ctx.query().stream().map(this::visitQuery).toList();
-        if (queries.size() == 1 && ctx.setOperator().isEmpty()) {
-            return queries.get(0);
+        if (ctx.queryTail() != null) {
+            return buildQuery(ctx.querySpecification(0), ctx.queryTail());
         }
+        List<Query> queries = ctx.querySpecification().stream().map(term -> buildQuery(term, null)).toList();
         List<SetOperatorType> operators = ctx.setOperator().stream()
                 .map(this::visitSetOperatorType).toList();
-        return withLocation(new SetQuery(queries, operators), ctx);
+        var pagination = ctx.pagination();
+        return withLocation(new SetQuery(queries, operators, buildSortItems(ctx.orderByList()),
+                visitOptionalExpr(pagination.limit), visitOptionalExpr(pagination.offset)), ctx);
     }
     private SetOperatorType visitSetOperatorType(PangrovaSqlParser.SetOperatorContext ctx) {
         if (ctx instanceof PangrovaSqlParser.UnionAllContext) return SetOperatorType.UNION_ALL;
@@ -691,6 +693,11 @@ public class AstBuilder extends PangrovaSqlBaseVisitor<Object> {
     }
     @Override
     public Query visitQuery(PangrovaSqlParser.QueryContext ctx) {
+        return buildQuery(ctx.querySpecification(), ctx.queryTail());
+    }
+
+    private Query buildQuery(PangrovaSqlParser.QuerySpecificationContext ctx,
+            PangrovaSqlParser.QueryTailContext tail) {
         boolean distinct = ctx.distinct != null;
         List<SelectItem> selectItems = ctx.selectItems().selectItem().stream()
                 .map(si -> (SelectItem) visit(si)).toList();
@@ -703,26 +710,26 @@ public class AstBuilder extends PangrovaSqlBaseVisitor<Object> {
                 ? ctx.windowDefinitionList().windowDefinition().stream()
                         .map(this::buildNamedWindow).toList()
                 : List.of();
-        List<SortItem> orderBy = ctx.orderByList() != null
-                ? ctx.orderByList().sortItem().stream().map(si -> (SortItem) visit(si)).toList()
-                : List.of();
-        Optional<RerankClause> rerankBy = ctx.rerankClause() != null
-                ? Optional.of(buildRerankClause(ctx.rerankClause()))
+        List<SortItem> orderBy = tail == null ? List.of() : buildSortItems(tail.orderByList());
+        Optional<RerankClause> rerankBy = tail != null && tail.rerankClause() != null
+                ? Optional.of(buildRerankClause(tail.rerankClause()))
                 : Optional.empty();
-        Optional<Expression> limit = visitOptionalExpr(ctx.limit);
-        Optional<Expression> offset = visitOptionalExpr(ctx.offset);
+        Optional<Expression> limit = tail == null ? Optional.empty() : visitOptionalExpr(tail.pagination().limit);
+        Optional<Expression> offset = tail == null ? Optional.empty() : visitOptionalExpr(tail.pagination().offset);
         Query query = new Query(distinct, selectItems, fromResult.tables(), fromResult.joins(),
                 where, groupBy, having, qualify, windowDefs, orderBy, rerankBy, limit, offset);
         return withLocation(query, ctx);
+    }
+
+    private List<SortItem> buildSortItems(PangrovaSqlParser.OrderByListContext order) {
+        return order == null ? List.of() : order.sortItem().stream().map(item -> (SortItem) visit(item)).toList();
     }
 
     private NamedWindow buildNamedWindow(PangrovaSqlParser.WindowDefinitionContext ctx) {
         String name = extractIdentifierText(ctx.name);
         List<Expression> partitionBy = ctx.expressionList() != null
                 ? toExpressionList(ctx.expressionList()) : List.of();
-        List<SortItem> orderBy = ctx.orderByList() != null
-                ? ctx.orderByList().sortItem().stream().map(si -> (SortItem) visit(si)).toList()
-                : List.of();
+        List<SortItem> orderBy = buildSortItems(ctx.orderByList());
         Optional<WindowSpec.WindowFrame> frame = ctx.windowFrame() != null
                 ? Optional.of(expr.visitWindowFrameNode(ctx.windowFrame()))
                 : Optional.empty();

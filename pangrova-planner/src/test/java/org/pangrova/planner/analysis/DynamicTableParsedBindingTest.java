@@ -9,10 +9,12 @@ import org.apache.calcite.sql.type.SqlTypeName;
 import org.junit.jupiter.api.Test;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.parser.api.ast.Query;
+import org.pangrova.parser.api.ast.SetQuery;
 import org.pangrova.parser.parse.TimeTravelSqlClauses;
 import org.pangrova.planner.mv.DynamicTableRewriter;
 import org.pangrova.planner.parse.PangrovaParserFactory;
 import org.pangrova.planner.rewrite.DynamicTableSqlRewriter;
+import org.pangrova.planner.rewrite.DynamicTableAstRewriter;
 
 import java.util.List;
 import java.util.Optional;
@@ -21,6 +23,26 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /** Ordinary SQL aliases must survive logical-to-physical Dynamic Table resolution. */
 class DynamicTableParsedBindingTest {
+    @Test
+    void publicationRewritePreservesSetResultClauses() {
+        var logical = new QualifiedTableName("lake", "analytics", "rollup");
+        var physical = new QualifiedTableName("lake", "analytics", "__pg_mat_first");
+        var resolver = new DynamicTableRewriter(parts -> parts.get(parts.size() - 1).equals(logical.table())
+                ? Optional.of(new DynamicTableRewriter.PublishedTarget(logical, physical)) : Optional.empty());
+        var before = (SetQuery) TimeTravelSqlClauses.extract(
+                "SELECT id FROM lake.analytics.rollup UNION ALL SELECT 1 AS id ORDER BY id LIMIT 2 OFFSET 1")
+                .statement();
+        var rewrite = new DynamicTableAstRewriter(resolver).rewrite(before);
+        var after = (SetQuery) rewrite.statement();
+
+        assertThat(after.queries().get(0).from().get(0).name().parts())
+                .containsExactly("lake", "analytics", "__pg_mat_first");
+        assertThat(rewrite.physicalToLogical()).containsEntry(physical, logical);
+        assertThat(after.orderBy()).isEqualTo(before.orderBy()).hasSize(1);
+        assertThat(after.limit()).isEqualTo(before.limit()).isPresent();
+        assertThat(after.offset()).isEqualTo(before.offset()).isPresent();
+    }
+
     @Test
     void preservesSampleAndExactPhysicalIdentifierComponents() {
         var logical = new QualifiedTableName("lake", "analytics", "rollup");

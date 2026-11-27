@@ -126,6 +126,10 @@ public final class RecursiveCteExpander {
             throw unsupported("recursive CTE '" + definition.name()
                     + "' requires UNION ALL; UNION DISTINCT recursion changes the working table");
         }
+        if (!setQuery.orderBy().isEmpty() || setQuery.limit().isPresent() || setQuery.offset().isPresent()) {
+            throw unsupported("apply ORDER BY, LIMIT or OFFSET in the query consuming recursive CTE '"
+                    + definition.name() + "'");
+        }
     }
 
     private List<String> buildLevels(CteQuery.CteDefinition definition,
