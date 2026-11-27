@@ -5,6 +5,8 @@ import org.apache.calcite.rel.type.RelDataType;
 import org.apache.calcite.sql.type.SqlTypeName;
 import org.apache.calcite.sql.type.SqlTypeMappingRule;
 
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import org.pangrova.protocol.type.VectorLogicalType;
 import org.pangrova.protocol.v2.LogicalType;
@@ -14,6 +16,11 @@ public final class PlannerTypeFactory extends JavaTypeFactoryImpl {
 
     public PlannerTypeFactory() {
         super(PlannerTypeSystem.INSTANCE);
+    }
+
+    @Override
+    public Charset getDefaultCharset() {
+        return StandardCharsets.UTF_8;
     }
 
     /** Projects the sole canonical VECTOR declaration into a distinct SQL collection type. */

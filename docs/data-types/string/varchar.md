@@ -24,6 +24,8 @@ a correctness requirement, and validate the behavior of the selected connector.
 
 ## Literals and operators
 
+SQL string literals use UTF-8 and preserve supplementary Unicode characters.
+
 ```sql
 SELECT 'hello' || ' ' || 'lakehouse' AS greeting;
 SELECT CONCAT('a', 'b') AS joined;
