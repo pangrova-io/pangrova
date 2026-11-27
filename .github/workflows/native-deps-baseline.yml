@@ -6,7 +6,7 @@ on:
       probe:
         description: Isolated CI stage to verify
         type: choice
-        options: [macos-docker, macos-intel-docker, production, worker-files, java-daily]
+        options: [macos-docker, macos-intel-docker, production, worker-files, java-daily, libunwind]
         default: macos-docker
 
 permissions:
@@ -355,3 +355,45 @@ jobs:
         with:
           name: java-daily-jdk-${{ matrix.java }}
           path: '**/target/surefire-reports/'
+
+  libunwind:
+    name: Production libunwind PIC link (${{ matrix.platform.arch }})
+    if: inputs.probe == 'libunwind'
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - {arch: amd64, runner: ubuntu-24.04}
+          - {arch: arm64, runner: ubuntu-24.04-arm}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: 4aa0e5c87377b0a502dd4d12159cef8f70a879da
+          fetch-depth: 3
+      - name: Compile and link the pinned archives
+        run: |
+          git show 80cbe6b744e19f8a77a8d7bdcb88e6430189c7c0:deploy/docker/build-static-libunwind.sh >"$RUNNER_TEMP/original-libunwind.sh"
+          docker run --rm -i --platform linux/${{ matrix.platform.arch }} \
+            -v "$RUNNER_TEMP/original-libunwind.sh:/original.sh:ro" \
+            -v "$GITHUB_WORKSPACE/deploy/docker/build-static-libunwind.sh:/fixed.sh:ro" \
+            ubuntu:22.04@sha256:0a9887931b0e38af2e3487ed39e29436b0535c4f3f52e57745baaf79d1898956 \
+            bash -euo pipefail <<'BASH'
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends gcc-11 make libc6-dev binutils zlib1g-dev liblzma-dev curl ca-certificates >/tmp/apt.log
+          export CC=gcc-11 CMAKE_BUILD_PARALLEL_LEVEL=2
+          uname -m
+          if [[ "$(uname -m)" == x86_64 ]]; then
+            if PANGROVA_DEPS_PREFIX=/tmp/original bash /original.sh >/tmp/original.log 2>&1; then
+              echo 'Expected the original link to fail' >&2
+              exit 1
+            fi
+            grep 'undefined reference.*_Ux86_64_setcontext' /tmp/original.log
+          fi
+          PANGROVA_DEPS_PREFIX=/tmp/fixed bash /fixed.sh >/tmp/fixed.log 2>&1 || {
+            tail -n 35 /tmp/fixed.log
+            exit 1
+          }
+          echo 'Production PIC link passed'
+          BASH
