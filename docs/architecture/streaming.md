@@ -170,9 +170,11 @@ acknowledgement check the active control and maintenance terms against the
 same stream revision. Pending publication records block another batch for
 that checkpoint generation. Once publication is durably confirmed, restart
 can restore missing offsets from the exact ranges in the journal.
-PostgreSQL checks the running stream revision in the same transaction that
-advances these offsets. Replayed acknowledgements preserve the greatest
-committed offset for each partition. The journaled runtime discovers running streams
+One PostgreSQL statement locks the exact running stream revision and advances
+the acknowledged offsets as a group. The same path restores offsets during
+recovery. Replayed acknowledgements preserve the greatest committed offset for
+each partition. The Coordinator verifies maintenance leadership and checks the
+normal batch execution owner before acknowledging offsets. The journaled runtime discovers running streams
 and resolves their checkpoints through the write journal and offset store. Discovery reads the
 exact checkpoint generation, source ranges, and journal identity. Fenced replay loads the write
 binding and sink fragments when it claims a pending intent. A new checkpoint generation starts

@@ -56,6 +56,11 @@ class IndependentCdcProcessesE2ETest extends ContainerTestBase {
             "SELECT * FROM ingestion_stream_state WHERE stream_name = %";
     private static final String RUNNING_STREAMS_LOOKUP =
             "SELECT * FROM ingestion_stream_state WHERE lifecycle_state = %";
+    private static final String ACKNOWLEDGE_OFFSETS =
+            "WITH current_revision AS MATERIALIZED (%INSERT INTO ingestion_stream_offsets%";
+    private static final String STANDALONE_OFFSET_LOCK =
+            "SELECT % FROM ingestion_stream_state WHERE stream_name = % AND tenant_id = %"
+                    + " AND checkpoint_id = % AND epoch = % AND lifecycle_state = % FOR UPDATE";
     private static final String STREAM_OFFSET_LOOKUP =
             "SELECT topic, partition_id, committed_offset FROM ingestion_stream_offsets WHERE stream_name = %";
     private static final String CDC_CHECKPOINT_PREDICATE =
@@ -581,13 +586,21 @@ class IndependentCdcProcessesE2ETest extends ContainerTestBase {
             KafkaProducer<String, String> producer, ProducerRecord<String, String> insert) throws Exception {
         long ownerReads = processes.metadataStatementCalls(EXECUTION_OWNER_LOOKUP);
         long revisionReads = processes.metadataStatementCalls(STREAM_REVISION_LOOKUP);
+        long acknowledgements = processes.metadataStatementCalls(ACKNOWLEDGE_OFFSETS);
+        long separateLocks = processes.metadataStatementCalls(STANDALONE_OFFSET_LOCK);
         producer.send(insert).get(30, TimeUnit.SECONDS);
         awaitPublication(processes, 1);
         assertThat(List.of(
                 processes.metadataStatementCalls(EXECUTION_OWNER_LOOKUP) - ownerReads,
                 processes.metadataStatementCalls(STREAM_REVISION_LOOKUP) - revisionReads))
                 .as("point reads for execution ownership and stream revision through one complete local batch")
-                .containsExactly(4L, 4L);
+                .containsExactly(4L, 3L);
+        assertThat(processes.metadataStatementCalls(ACKNOWLEDGE_OFFSETS) - acknowledgements)
+                .as("offset acknowledgements include the exact revision lock")
+                .isOne();
+        assertThat(processes.metadataStatementCalls(STANDALONE_OFFSET_LOCK) - separateLocks)
+                .as("separate transaction statements to lock the stream revision")
+                .isZero();
     }
 
     private static void verifyIdleCheckpointReads(IndependentLocalProcesses processes) throws Exception {

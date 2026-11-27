@@ -339,7 +339,8 @@ final class JournaledCdcRuntime implements AutoCloseable {
                     intent.fragments(), intent.commitContext());
         };
         var acknowledger = (CdcStreamExecution.OffsetCommitter) (actualSource, endOffsets, fingerprint) -> {
-            requireCurrentOwner(state, owner);
+            requireMaintenanceTerm(state, owner.maintenanceEpoch());
+            requireExecutionOwner(owner);
             offsetStore.acknowledge(state, endOffsets);
         };
         if (local != null) {
@@ -388,7 +389,7 @@ final class JournaledCdcRuntime implements AutoCloseable {
             if (saved < range.endOffset()) recovered.put(partition, range.endOffset());
         }
         if (!recovered.isEmpty()) {
-            requireCurrentStream(state, maintenanceTerm);
+            requireMaintenanceTerm(state, maintenanceTerm);
             offsetStore.acknowledge(state, recovered);
             offsets.putAll(recovered);
             LOG.info("event=cdc_worker_checkpoint_restored stream={} queryId={}",
@@ -398,6 +399,10 @@ final class JournaledCdcRuntime implements AutoCloseable {
 
     private void requireCurrentOwner(StreamState state, BatchOwner owner) {
         requireCurrentStream(state, owner.maintenanceEpoch());
+        requireExecutionOwner(owner);
+    }
+
+    private void requireExecutionOwner(BatchOwner owner) {
         ExecutionAnchor anchor = owner.anchor();
         boolean current = workers == null
                 ? executionAuthority.backend().current(anchor.executionId())
@@ -419,13 +424,19 @@ final class JournaledCdcRuntime implements AutoCloseable {
     private record BatchOwner(ExecutionAnchor anchor, long controlEpoch, long maintenanceEpoch) {}
 
     private void requireCurrentStream(StreamState state, long maintenanceTerm) {
-        if (!holdsMaintenanceTerm(maintenanceTerm)
-                || stateStore.loadState(state.streamName())
+        requireMaintenanceTerm(state, maintenanceTerm);
+        if (stateStore.loadState(state.streamName())
                 .filter(current -> current.tenantId().equals(state.tenantId())
                         && current.checkpointId().equals(state.checkpointId())
                         && current.epoch() == state.epoch()
                         && current.lifecycleState() == state.lifecycleState()).isEmpty()) {
             throw new IllegalStateException("CDC stream changed or lost maintenance leadership: " + state.streamName());
+        }
+    }
+
+    private void requireMaintenanceTerm(StreamState state, long term) {
+        if (!holdsMaintenanceTerm(term)) {
+            throw new IllegalStateException("CDC stream lost maintenance leadership: " + state.streamName());
         }
     }
 

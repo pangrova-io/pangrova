@@ -42,8 +42,25 @@ public final class JdbcStreamOffsetStore implements StreamOffsetStore {
             VALUES (?,?,?,?,?) ON CONFLICT (stream_name, topic, partition_id) DO UPDATE SET
             committed_offset=EXCLUDED.committed_offset, updated_at=EXCLUDED.updated_at
             """;
-    private static final String ACKNOWLEDGE_OFFSETS = UPSERT_OFFSETS
-            + "WHERE ingestion_stream_offsets.committed_offset < EXCLUDED.committed_offset";
+    private static final String ACKNOWLEDGE_OFFSETS = """
+            WITH current_revision AS MATERIALIZED (
+                SELECT stream_name FROM ingestion_stream_state
+                WHERE stream_name = ? AND tenant_id = ? AND checkpoint_id = ? AND epoch = ?
+                  AND lifecycle_state = 'RUNNING'
+                FOR UPDATE
+            ), advanced AS (
+                INSERT INTO ingestion_stream_offsets (stream_name, topic, partition_id, committed_offset, updated_at)
+                SELECT revision.stream_name, requested.topic, requested.partition_id, requested.committed_offset,
+                       statement_timestamp()
+                FROM current_revision revision
+                CROSS JOIN unnest(?::varchar[], ?::integer[], ?::bigint[])
+                    AS requested(topic, partition_id, committed_offset)
+                ON CONFLICT (stream_name, topic, partition_id) DO UPDATE
+                   SET committed_offset = EXCLUDED.committed_offset, updated_at = EXCLUDED.updated_at
+                 WHERE ingestion_stream_offsets.committed_offset < EXCLUDED.committed_offset
+            )
+            SELECT EXISTS (SELECT 1 FROM current_revision)
+            """;
 
     private final DataSource dataSource;
 
@@ -58,7 +75,7 @@ public final class JdbcStreamOffsetStore implements StreamOffsetStore {
         if (offsets.isEmpty()) {
             return;
         }
-        executeBatchSave(streamName, offsets, null);
+        executeBatchSave(streamName, offsets);
         LOG.info("action=stream_offsets_save streamName={} partitions={}",
                 streamName, offsets.size());
     }
@@ -67,20 +84,46 @@ public final class JdbcStreamOffsetStore implements StreamOffsetStore {
     public void acknowledge(StreamState expected, Map<TopicPartitionOffset, Long> offsets) {
         Objects.requireNonNull(expected, "expected must not be null");
         Objects.requireNonNull(offsets, "offsets must not be null");
-        if (!offsets.isEmpty()) {
-            executeBatchSave(expected.streamName(), offsets, expected);
+        if (offsets.isEmpty()) {
+            return;
+        }
+        try (Connection conn = dataSource.getConnection();
+                PreparedStatement statement = conn.prepareStatement(ACKNOWLEDGE_OFFSETS)) {
+            statement.setString(1, expected.streamName());
+            statement.setString(2, expected.tenantId());
+            statement.setString(3, expected.checkpointId());
+            statement.setLong(4, expected.epoch());
+            bindAcknowledgedOffsets(conn, statement, offsets);
+            try (ResultSet result = statement.executeQuery()) {
+                if (!result.next() || !result.getBoolean(1)) {
+                    throw new StaleEpochException(expected.streamName(), expected.epoch());
+                }
+            }
+        } catch (SQLException e) {
+            throw new StreamingStoreException("Failed to acknowledge offsets for stream=" + expected.streamName(), e);
         }
     }
 
-    private void executeBatchSave(String streamName, Map<TopicPartitionOffset, Long> offsets, StreamState expected) {
+    private static void bindAcknowledgedOffsets(Connection conn, PreparedStatement statement,
+            Map<TopicPartitionOffset, Long> offsets) throws SQLException {
+        String[] topics = new String[offsets.size()];
+        Integer[] partitions = new Integer[offsets.size()];
+        Long[] committed = new Long[offsets.size()];
+        int index = 0;
+        for (var entry : offsets.entrySet()) {
+            topics[index] = entry.getKey().topic();
+            partitions[index] = entry.getKey().partition();
+            committed[index++] = Objects.requireNonNull(entry.getValue(), "committedOffset");
+        }
+        statement.setArray(5, conn.createArrayOf("varchar", topics));
+        statement.setArray(6, conn.createArrayOf("integer", partitions));
+        statement.setArray(7, conn.createArrayOf("bigint", committed));
+    }
+
+    private void executeBatchSave(String streamName, Map<TopicPartitionOffset, Long> offsets) {
         try (Connection conn = dataSource.getConnection()) {
             conn.setAutoCommit(false);
-            try (PreparedStatement ps = expected == null
-                    ? conn.prepareStatement(UPSERT_OFFSETS)
-                    : conn.prepareStatement(ACKNOWLEDGE_OFFSETS)) {
-                if (expected != null) {
-                    lockCurrentRevision(conn, expected);
-                }
+            try (PreparedStatement ps = conn.prepareStatement(UPSERT_OFFSETS)) {
                 bindOffsetBatch(ps, streamName, offsets);
                 ps.executeBatch();
                 conn.commit();
@@ -91,23 +134,6 @@ public final class JdbcStreamOffsetStore implements StreamOffsetStore {
         } catch (SQLException e) {
             throw new StreamingStoreException(
                     "Failed to save offsets for stream=" + streamName, e);
-        }
-    }
-
-    private static void lockCurrentRevision(Connection conn, StreamState expected) throws SQLException {
-        // Keep lifecycle transitions and DROP/re-CREATE serialized with offset persistence.
-        try (PreparedStatement lock = conn.prepareStatement(
-                "SELECT 1 FROM ingestion_stream_state WHERE stream_name = ? AND tenant_id = ?"
-                        + " AND checkpoint_id = ? AND epoch = ? AND lifecycle_state = 'RUNNING' FOR UPDATE")) {
-            lock.setString(1, expected.streamName());
-            lock.setString(2, expected.tenantId());
-            lock.setString(3, expected.checkpointId());
-            lock.setLong(4, expected.epoch());
-            try (ResultSet current = lock.executeQuery()) {
-                if (!current.next()) {
-                    throw new StaleEpochException(expected.streamName(), expected.epoch());
-                }
-            }
         }
     }
 
