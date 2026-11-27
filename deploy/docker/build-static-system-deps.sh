@@ -70,6 +70,7 @@ icu=$(download_source libicu-dev)
 libxml2=$(download_source libxml2-dev)
 (
   cd "$libxml2"
+  autoreconf -fi
   # xmllint and xmlcatalog use a C linker. ICU's static archives need the C++ runtime.
   CFLAGS="-O2 -fPIC" LIBS="-lstdc++" ./configure --prefix="$prefix" --libdir="$prefix/lib" \
     --disable-shared --enable-static --with-pic --with-icu --without-python
