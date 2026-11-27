@@ -1449,6 +1449,10 @@ never reached, PostgreSQL removes the intent after verifying the absence of a
 scope under the same grant, with no Shuffle RPC. An untracked durable scope still
 requires service acknowledgement of object and intent deletion.
 
+The Shuffle service selects an expired cleanup scope under a row lock and carries
+its previous lease deadline into the recovery claim. The claim still checks active
+read pins and outstanding write reservations under that lock.
+
 The terminal cleanup queue and the proven predecessor drain path drive these
 operations. The Coordinator does not scan Shuffle intents during idle health
 ticks. A stale original grant cannot consume a successor's intent.

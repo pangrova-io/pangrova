@@ -249,8 +249,10 @@ final class PostgresShuffleRecords {
         }
     }
 
-    static String findExpiredCleanup(Connection connection, long nowMs) throws SQLException {
-        String sql = "SELECT query_id FROM shuffle_query_scope "
+    record ExpiredCleanupScope(String queryId, Long leaseExpiresAtMs) {}
+
+    static ExpiredCleanupScope lockExpiredCleanupScope(Connection connection, long nowMs) throws SQLException {
+        String sql = "SELECT query_id, cleanup_lease_expires_at_ms FROM shuffle_query_scope "
                 + "WHERE state = 'CLEANING' "
                 + "AND (cleanup_lease_expires_at_ms IS NULL "
                 + "OR cleanup_lease_expires_at_ms <= ?) "
@@ -265,7 +267,7 @@ final class PostgresShuffleRecords {
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setLong(1, nowMs);
             try (ResultSet rows = statement.executeQuery()) {
-                return rows.next() ? rows.getString(1) : null;
+                return rows.next() ? new ExpiredCleanupScope(rows.getString(1), rows.getObject(2, Long.class)) : null;
             }
         }
     }

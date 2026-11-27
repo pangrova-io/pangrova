@@ -858,8 +858,14 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
             assertThat(store.beginExpiredCleanup(
                     new CleanupLease("early-cleaner", 199, 300))).isEmpty();
 
+            var beforeRecovery = shuffleStatements();
             var recovered = store.beginExpiredCleanup(
                     new CleanupLease("recovery-cleaner", 201, 1_000)).orElseThrow();
+            assertThat(shuffleStatementDelta(beforeRecovery).keySet())
+                    .as("recovery already holds the selected shuffle scope row lock")
+                    .noneMatch(sql -> sql.startsWith("SELECT owner_id, owner_incarnation, owner_fencing_token,")
+                            && sql.contains("FROM shuffle_query_scope WHERE query_id = ")
+                            && sql.endsWith(" FOR UPDATE"));
             var cursor = (ShuffleServiceModel.CleanupCursor) null;
             List<Integer> pageSizes = new ArrayList<>();
             int objectCount = 0;

@@ -30,7 +30,7 @@ unlisted: true
 | A8 | Native 文件适配层的保留字节、返回字节、数据调用、元数据调用和失败调用已贯通 TaskReport 与 Profile。剩余工作是在真实 SDK 请求层按任务计量传输尝试、重试和 wire bytes，补跨主机、缓存和故障注入验证 | WP3.1 |
 | A9 | Iceberg 实时扫描可由同一个构建侧最多四个 BIGINT 键分别生成范围过滤。每个查询可激活最多四组互不共享 Stage 的构建与探测组合，共用 200 ms 等待期限，各自发布范围和 Profile 决策。剩余工作包括其他键类型、连接器、共享 Stage 的组合、向运行中的探测端应用晚到过滤，以及跨主机负载校准 | WP4 |
 | A10 | 实时单输入范围合并已存在。普通等值 Join 按已绑定扫描的统计建立两侧哈希分区。符合键顺序、类型和分区数约束的实时双输入 HASH Join 复用同一范围映射，两侧各自保留提交证明，并按合计字节分组。本地独立双 Worker 的 FULL OUTER JOIN 已核验 4 → 1 个消费任务、全部 8 行及物理排空。待补持久重放映射、可执行 skew split、更复杂输入形态和跨主机负载验收 | WP5 |
-| A11 | Shuffle 已有 lease/window/fence；缺少 durable revocation generation、participant ACK 和 convergence receipt | WP6 |
+| A11 | Shuffle 已有 lease/window/fence。过期清理接管从同一锁定行取得原租约期限，移除选中后对同一 scope 的重复点查。待补 durable revocation generation、participant ACK 和 convergence receipt | WP6 |
 | A12 | 普通分布式写入删除 redo 后保留带 fingerprint 的终态回执，COPY、CDC 和外部 publication 使用现有写入声明与版本字段。生产 CDC 由 journaled runtime 负责发现和恢复，Coordinator 启动和 DDL 已移除旧调度链。CREATE STREAM 单次持久化完整 RUNNING 定义。MAINTENANCE 暂存使用本地领导任期与任务期限，权威点查保留在受理、journal、目录发布和 offset 确认边界。CDC 发现只读 checkpoint 所需的精确来源与写入身份，实际重放才读取写入绑定和片段。同一领导任期和流版本中，末端偏移未变的空闲轮次跳过 checkpoint 与已提交 offset 读取。每轮 Kafka 观测由判空与任务规划共享。新 MAINTENANCE 批次直接申请执行租约，恢复沿用精确存续租约。表格导出发布复用同一事务已授权的阶段图，以一次查询校验分片完成状态、分配和输出覆盖。剩余工作包括收敛全局 RUNNING 流发现的周期读、验证各来源重放窗口和回执回收条件，以及跨主机故障与高并发验收 | WP8 |
 | A13 | 写入 journal 已将确认未发布的精确 fingerprint 固化为 `ABORTED`，保留不确定提交的挂起记录和隔离证据。已删除零调用方的 Paimon Native 文件删除接口。生产 Coordinator 已解除旧 CDC 调度、两阶段提交存储和页写入工厂接线。旧调度类及其专用配置已删除。Paimon 三参数暂存删除仍由隔离测试中的旧页写入器使用。正常 journaled 恢复通过四参数接口取得目录级终止证明，Paimon 尚无该证明。待移除仅存于隔离测试的旧实现和删除合同，在首次 SDK 发布前原子记录精确的发布权与终止权，或由目录提交端提供不可逆的未发布证明。持久化终止证明后仍需独立的对象清理认领和完成回执，并验收跨进程接管与部分删除故障 | WP8 |
 | A14 | nightly TPC 已存在；release 不校验同源 Linux/TPC 不可变证据，SF100 零值基线仍不合格 | WP9，需先批准 CI/基础设施变更 |
@@ -203,6 +203,8 @@ PostgreSQL 接管分类用例预置 4,096 条其他查询日志和 4,096 条其�
 连续三个 Kafka 空闲轮次中，MAINTENANCE 基线查询 checkpoint 与已提交 offset 各三次。候选在 COMBINED 和 MAINTENANCE 的独立进程回归中，两类点查均为零。后续新数据触发权威 checkpoint 恢复并发布预期行，进程重启时恢复未确认的写入与 offset。全局 RUNNING 流发现仍按周期运行。任务规划共享一次 Kafka 分区与末端偏移观测，单元测试核对各调用一次并拒绝不完整观测和回退的末端偏移。
 
 新 MAINTENANCE 批次使用执行租约申请事务的回执，移除申请前的存在性点查。独立进程与真实 PostgreSQL 核对单批执行租约点查由五次降至四次，流版本点查为四次。真实租约测试验证新申请遇到当前存续租约时不签发第二份租约，恢复可复用原令牌，接管则取得更高令牌。Kafka 范围执行在注入失败后仍以原范围重放并确认精确 offset。
+
+Shuffle 服务的 PostgreSQL 对照在过期清理接管时记录到一次重复的 scope 锁定点查。候选复用选中行的锁和原租约期限，重复点查为零。接管仍按 1,000、1,000、505 条分页处理同一范围。真实 PostgreSQL 同时验证存续读 pin、终态后的新读写围栏，以及仍受保护的上传对清理的约束。
 
 旧 Coordinator 部署包会启动并停用 CDC 调度线程，同时构建旧两阶段提交存储和页写入工厂。候选部署包的启动字节码已移除这些依赖。真实 PostgreSQL 的 CREATE STREAM 对照从一条 INSERT 加一条 UPDATE 降为一条 RUNNING INSERT。COMBINED 的独立进程验证暂停期间 Kafka 数据不发布、恢复后按原 checkpoint 发布。MAINTENANCE 在 catalog 已发布而 journal 或 offset 确认失败时仍可重启恢复。PostgreSQL 用例另验证过期 revision 和删除后重建的 checkpoint 拒绝旧 offset 确认。
 

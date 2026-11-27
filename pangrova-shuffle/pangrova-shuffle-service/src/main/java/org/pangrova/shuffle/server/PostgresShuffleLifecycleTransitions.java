@@ -18,7 +18,7 @@ import javax.sql.DataSource;
 import org.pangrova.shuffle.server.authority.ExecutionAnchorFence;
 
 import static org.pangrova.shuffle.server.PostgresShuffleRecords.claimCleanup;
-import static org.pangrova.shuffle.server.PostgresShuffleRecords.findExpiredCleanup;
+import static org.pangrova.shuffle.server.PostgresShuffleRecords.lockExpiredCleanupScope;
 import static org.pangrova.shuffle.server.PostgresShuffleRecords.requireCleanupPageLimit;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.Allocation;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupCommand;
@@ -148,12 +148,12 @@ final class PostgresShuffleLifecycleTransitions {
 
     Optional<CleanupPlan> beginExpiredCleanup(CleanupLease lease) {
         return transaction(dataSource, connection -> {
-            String queryId = findExpiredCleanup(connection, lease.nowMs());
-            if (queryId == null) return Optional.empty();
-            PostgresShuffleStore.QueryScope scope = PostgresShuffleStore.lockExistingQueryScope(connection, queryId);
+            var scope = lockExpiredCleanupScope(connection, lease.nowMs());
+            if (scope == null) return Optional.empty();
+            String queryId = scope.queryId();
             if (hasActiveReads(connection, queryId)) return Optional.empty();
             if (protectOutstandingWrites(connection, queryId)) return Optional.empty();
-            claimCleanup(connection, queryId, scope.state(), scope.cleanupLeaseExpiresAtMs(), lease, true);
+            claimCleanup(connection, queryId, "CLEANING", scope.leaseExpiresAtMs(), lease, true);
             return Optional.of(PostgresShuffleRecords.cleanupPlan(connection, queryId, lease.owner()));
         });
     }
