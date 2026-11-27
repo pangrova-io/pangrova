@@ -266,6 +266,11 @@ final class QueryExecutionBootstrap {
                         catalog, maintenancePolicyService,
                         moduleWiring != null ? moduleWiring.getDistributedLease() : null,
                         config.coordinatorId(), new OtelExecutionTraceContextFactory());
+        if (config.internalAuthSecret() != null && !config.internalAuthSecret().isBlank()) {
+            controlledMaintenance.setReclusterDispatcher(
+                    new org.pangrova.coordinator.clustering.WorkerReclusterDispatcher(
+                            requireWorkerManager()::getActiveWorkers, config.internalAuthSecret()));
+        }
         var maintenanceExecutor = new org.pangrova.coordinator.query.statement.MaintenanceExecutor(
                 controlledMaintenance);
         ddlExecutor.setMaintenancePolicyService(maintenancePolicyService);
