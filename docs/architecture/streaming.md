@@ -166,9 +166,9 @@ that checkpoint generation. Once publication is durably confirmed, restart
 can restore missing offsets from the exact ranges in the journal.
 PostgreSQL checks the running stream revision in the same transaction that
 advances these offsets. Replayed acknowledgements preserve the greatest
-committed offset for each partition. When a stream first switches from the previous
-two-phase writer, the runtime imports confirmed checkpoints for that stream generation.
-An unresolved legacy transaction blocks admission until its catalog outcome is reconciled.
+committed offset for each partition. The journaled runtime discovers running streams
+and resolves their checkpoints through the write journal and offset store. A new
+checkpoint generation starts from its own offsets.
 
 Both paths use the same write journal and connector publication context.
 Independent process tests exercise Paimon recovery when a Worker exits after

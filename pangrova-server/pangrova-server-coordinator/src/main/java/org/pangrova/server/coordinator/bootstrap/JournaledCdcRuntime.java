@@ -24,13 +24,11 @@ import org.pangrova.protocol.v2.SecurityContext;
 import org.pangrova.protocol.v2.StageResourceGrant;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.coordinator.scheduler.placement.WorkerSelector;
-import org.pangrova.persistence.streaming.postgresql.JdbcCdcCommitStateStore;
 import org.pangrova.persistence.streaming.postgresql.JdbcStreamOffsetStore;
 import org.pangrova.streaming.api.checkpoint.StreamState;
 import org.pangrova.streaming.api.checkpoint.StreamStateStore;
 import org.pangrova.streaming.api.checkpoint.TopicPartitionOffset;
 import org.pangrova.streaming.api.source.CdcSourceReader;
-import org.pangrova.streaming.api.commit.SourceId;
 import org.pangrova.streaming.coordinator.CdcSourceRegistry;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
 import org.slf4j.Logger;
@@ -69,7 +67,6 @@ final class JournaledCdcRuntime implements AutoCloseable {
 
     private final StreamStateStore stateStore;
     private final JdbcStreamOffsetStore offsetStore;
-    private final JdbcCdcCommitStateStore legacyCommits;
     private final CdcSourceRegistry sources;
     private final CatalogRegistry catalogRegistry;
     private final WriteCommitJournal journal;
@@ -95,7 +92,6 @@ final class JournaledCdcRuntime implements AutoCloseable {
             java.util.function.LongSupplier maintenanceEpoch) {
         this.stateStore = java.util.Objects.requireNonNull(streaming.stateStore(), "stateStore");
         this.offsetStore = java.util.Objects.requireNonNull(streaming.offsetStore(), "offsetStore");
-        this.legacyCommits = java.util.Objects.requireNonNull(streaming.legacyCommitStore(), "legacyCommitStore");
         this.sources = java.util.Objects.requireNonNull(streaming.sourceRegistry(), "sources");
         this.catalogRegistry = java.util.Objects.requireNonNull(catalogRegistry, "catalogRegistry");
         this.journal = java.util.Objects.requireNonNull(journal, "journal");
@@ -321,7 +317,6 @@ final class JournaledCdcRuntime implements AutoCloseable {
             StreamState state, Map<TopicPartitionOffset, Long> offsets, long maintenanceTerm) {
         var previous = journal.findCdcCheckpoint(state.tenantId(), state.streamName(), state.checkpointId());
         if (previous.isEmpty()) {
-            recoverLegacyCheckpoint(state, offsets, maintenanceTerm);
             return;
         }
         var entry = previous.orElseThrow();
@@ -349,23 +344,6 @@ final class JournaledCdcRuntime implements AutoCloseable {
             offsetStore.acknowledge(state, recovered);
             offsets.putAll(recovered);
             LOG.info("event=cdc_worker_checkpoint_restored stream={} queryId={}", state.streamName(), entry.queryId());
-        }
-    }
-
-    private void recoverLegacyCheckpoint(
-            StreamState state, Map<TopicPartitionOffset, Long> offsets, long maintenanceTerm) {
-        var source = new SourceId(state.checkpointId());
-        var unresolved = legacyCommits.findInFlight(source);
-        if (!unresolved.isEmpty()) {
-            throw new IllegalStateException("Resolve the previous CDC commit state before resuming stream "
-                    + state.streamName() + ": " + unresolved.get(0).id());
-        }
-        var recovered = new HashMap<>(legacyCommits.findLastCommittedOffsets(source));
-        recovered.entrySet().removeIf(offset -> offset.getValue() <= offsets.getOrDefault(offset.getKey(), 0L));
-        if (!recovered.isEmpty()) {
-            requireCurrentStream(state, maintenanceTerm);
-            offsetStore.acknowledge(state, recovered);
-            offsets.putAll(recovered);
         }
     }
 

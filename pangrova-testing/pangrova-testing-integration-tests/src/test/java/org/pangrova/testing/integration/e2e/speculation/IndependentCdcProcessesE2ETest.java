@@ -428,6 +428,8 @@ class IndependentCdcProcessesE2ETest extends ContainerTestBase {
             admin.createTopics(List.of(new NewTopic(topic, 1, (short) 1))).all().get(30, TimeUnit.SECONDS);
         }
         processes.startCoordinatorAndFirstWorker();
+        processes.enableMetadataStatementCounters();
+        long legacyReads = processes.metadataStatementCalls("%FROM cdc_commit_state%");
         if (iceberg) {
             processes.createSourceCatalog();
         } else {
@@ -514,6 +516,10 @@ class IndependentCdcProcessesE2ETest extends ContainerTestBase {
         boolean workerCompletedCdc = processes.reports().deliveries().stream().anyMatch(delivery ->
                 "CDC_INGEST".equals(delivery.report().taskType()) && "FINISHED".equals(delivery.report().state()));
         assertThat(workerCompletedCdc).isEqualTo(!streamingOnly);
+        assertThat(processes.metadataStatementCalls("%FROM cdc_commit_state%"))
+                .as("The journaled CDC path reads only its own checkpoint authority")
+                .isEqualTo(legacyReads);
+        assertThat(processes.coordinatorLog()).doesNotContain("event=stream_resume_all");
     }
 
     private static void verifyPaimonCommitInterruption(IndependentLocalProcesses processes,

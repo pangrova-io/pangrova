@@ -31,7 +31,7 @@ unlisted: true
 | A9 | Iceberg 实时扫描可由同一个构建侧最多四个 BIGINT 键分别生成范围过滤。每个查询可激活最多四组互不共享 Stage 的构建与探测组合，共用 200 ms 等待期限，各自发布范围和 Profile 决策。剩余工作包括其他键类型、连接器、共享 Stage 的组合、向运行中的探测端应用晚到过滤，以及跨主机负载校准 | WP4 |
 | A10 | 实时单输入范围合并已存在。普通等值 Join 按已绑定扫描的统计建立两侧哈希分区。符合键顺序、类型和分区数约束的实时双输入 HASH Join 复用同一范围映射，两侧各自保留提交证明，并按合计字节分组。本地独立双 Worker 的 FULL OUTER JOIN 已核验 4 → 1 个消费任务、全部 8 行及物理排空。待补持久重放映射、可执行 skew split、更复杂输入形态和跨主机负载验收 | WP5 |
 | A11 | Shuffle 已有 lease/window/fence；缺少 durable revocation generation、participant ACK 和 convergence receipt | WP6 |
-| A12 | 普通分布式写入删除 redo 后保留带 fingerprint 的终态回执，COPY、CDC 和外部 publication 使用现有写入声明与版本字段。表格导出发布复用同一事务已授权的阶段图，以一次查询校验分片完成状态、分配和输出覆盖，不再逐分片读取 split 或生产者依赖。剩余工作包括验证各来源重放窗口和回执回收条件，以及跨主机故障与高并发验收。MAINTENANCE 角色目前在每个输入批次暂存前读取运行中流的版本与执行租约。需用本地有界许可消除重复读，并在目录发布和 offset 确认保留事务级围栏 | WP8 |
+| A12 | 普通分布式写入删除 redo 后保留带 fingerprint 的终态回执，COPY、CDC 和外部 publication 使用现有写入声明与版本字段。生产 CDC 由 journaled runtime 负责发现和恢复，旧调度器周期读及旧提交表读已移除。真实 COMBINED 和 MAINTENANCE 进程在 Kafka/Paimon 发布、重启和 offset 恢复期间，对旧提交表的 SELECT 增量为零。表格导出发布复用同一事务已授权的阶段图，以一次查询校验分片完成状态、分配和输出覆盖，不再逐分片读取 split 或生产者依赖。剩余工作包括验证各来源重放窗口和回执回收条件，以及跨主机故障与高并发验收。MAINTENANCE 角色目前在每个输入批次暂存前读取运行中流的版本与执行租约。需用本地有界许可消除重复读，并在目录发布和 offset 确认保留事务级围栏 | WP8 |
 | A13 | 写入 journal 已将确认未发布的精确 fingerprint 固化为 `ABORTED`，保留不确定提交的挂起记录和隔离证据。Paimon 暂存清理仍先比较表快照再尝试删除，各操作之间缺少覆盖目录提交与对象删除的持久屏障。待修复这一竞态并验收跨进程接管和部分删除故障 | WP8 |
 | A14 | nightly TPC 已存在；release 不校验同源 Linux/TPC 不可变证据，SF100 零值基线仍不合格 | WP9，需先批准 CI/基础设施变更 |
 

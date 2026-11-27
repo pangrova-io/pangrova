@@ -57,7 +57,6 @@ final class StreamingBootstrap implements AutoCloseable {
     private final StreamDdlExecutor ddlExecutor;
     private final StreamScheduler scheduler;
     private final StreamStateStore stateStore;
-    private final JdbcCdcCommitStateStore legacyCommitStore;
     private final JdbcStreamOffsetStore offsetStore;
     private final CdcSourceRegistry sources;
     private final String coordinatorId;
@@ -67,11 +66,10 @@ final class StreamingBootstrap implements AutoCloseable {
 
     StreamingBootstrap(StreamDdlExecutor ddlExecutor, StreamScheduler scheduler,
                        StreamStateStore stateStore, JdbcStreamOffsetStore offsetStore,
-                       CdcSourceRegistry sources, String coordinatorId, JdbcCdcCommitStateStore legacyCommitStore) {
+                       CdcSourceRegistry sources, String coordinatorId) {
         this.ddlExecutor = ddlExecutor;
         this.scheduler = scheduler;
         this.stateStore = stateStore;
-        this.legacyCommitStore = legacyCommitStore;
         this.offsetStore = offsetStore;
         this.sources = sources;
         this.coordinatorId = coordinatorId;
@@ -121,7 +119,7 @@ final class StreamingBootstrap implements AutoCloseable {
 
         LOG.info("event=streaming_bootstrap_built");
         return new StreamingBootstrap(
-                ddlExecutor, scheduler, stateStore, offsetStore, sources, coordinatorId, legacyCommits);
+                ddlExecutor, scheduler, stateStore, offsetStore, sources, coordinatorId);
     }
 
     /**
@@ -130,9 +128,11 @@ final class StreamingBootstrap implements AutoCloseable {
      */
     synchronized void onLeaderElected() {
         leaderActive = true;
-        scheduler.resume();
         if (journaledRuntime != null) journaledRuntime.setActive(true);
-        reconciliationExecutor.execute(this::reconcileSafely);
+        if (!reconciliationExecutor.isShutdown()) {
+            scheduler.resume();
+            reconciliationExecutor.execute(this::reconcileSafely);
+        }
         LOG.info("event=streaming_leader_elected");
     }
 
@@ -168,12 +168,14 @@ final class StreamingBootstrap implements AutoCloseable {
 
     StreamStateStore stateStore() { return stateStore; }
     JdbcStreamOffsetStore offsetStore() { return offsetStore; }
-    JdbcCdcCommitStateStore legacyCommitStore() { return legacyCommitStore; }
     CdcSourceRegistry sourceRegistry() { return sources; }
     String coordinatorId() { return coordinatorId; }
 
-    /** Prevents the legacy pipeline scheduler from competing with journaled execution. */
-    void enableJournaledExecution() { scheduler.enableWorkerDispatch(); }
+    /** Journaled execution owns discovery and scheduling once configured by the server. */
+    synchronized void enableJournaledExecution() {
+        scheduler.enableWorkerDispatch();
+        reconciliationExecutor.shutdownNow();
+    }
 
     /** Attaches supervised journaled execution and activates it when this process is leader. */
     synchronized void attachJournaledRuntime(JournaledCdcRuntime runtime) {
