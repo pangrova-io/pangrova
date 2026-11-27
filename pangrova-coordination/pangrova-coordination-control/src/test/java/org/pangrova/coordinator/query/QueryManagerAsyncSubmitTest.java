@@ -610,7 +610,7 @@ class QueryManagerAsyncSubmitTest {
             // no-op in test
         }
 
-        private static QueryDispatcherContext buildMinimalContext() {
+        static QueryDispatcherContext buildMinimalContext() {
             return buildMinimalContext(new SqlCompiler());
         }
 

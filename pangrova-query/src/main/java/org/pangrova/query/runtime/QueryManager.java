@@ -16,7 +16,6 @@ import org.pangrova.query.api.exception.QueryRejectedException;
 import org.pangrova.query.api.journal.QueryAcceptance;
 import org.pangrova.query.api.journal.QueryAcceptanceAdmission;
 import org.pangrova.query.api.journal.QueryAcceptanceRequest;
-import org.pangrova.query.api.submission.AsyncSubmitConfig;
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.security.api.tenant.ResolvedTenantContext;
 
@@ -26,13 +25,11 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import org.pangrova.query.lifecycle.QueryRegistry;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
-import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.LongSupplier;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -87,9 +84,7 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
     private volatile boolean draining;
     private final org.pangrova.query.lifecycle.QueryJournalLifecyclePort journalLifecycle;
     private final Optional<Predicate<ExecutionAnchor>> durableRetirement;
-    private final AsyncSubmitConfig asyncSubmitConfig;
-    private final ExecutorService asyncExecutor;
-    private final ScheduledExecutorService submitDeadlines;
+    private final QueryAsyncSubmission asyncSubmission;
     private volatile java.util.function.Consumer<ExecutionAnchor> shuffleCleanupPending = ignored -> { };
     private volatile boolean durableTenantCapacity;
     private final Optional<ReaderPinLifecycle> readerPinLifecycle;
@@ -130,9 +125,11 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
         this.cleanupScheduler = new QueryRetentionScheduler(queries,
                 terminalCleanup::isPending, this::retryPendingTerminalCompletions,
                 journalLifecycle::purgeExpiredAcceptances);
-        this.asyncSubmitConfig = deps.asyncSubmitConfig();
-        this.asyncExecutor = deps.asyncExecutor();
-        this.submitDeadlines = deps.submitDeadlines();
+        var asyncConfig = deps.asyncSubmitConfig();
+        this.asyncSubmission = asyncConfig != null && asyncConfig.enabled() && deps.asyncExecutor() != null
+                ? new QueryAsyncSubmission(queryDispatcher, asyncConfig, deps.asyncExecutor(), deps.submitDeadlines(),
+                        this::failQuery, this::applyDispatchResult)
+                : null;
         this.querySubmitCounter = createCounter(deps.metricsProvider(),
                 "pangrova.coordinator.queries.submitted", "Total queries submitted", "queries");
         this.terminalEvents = new QueryTerminalEvents(auditBridge, admission,
@@ -279,8 +276,7 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
         }
         var pending = started.pending();
         var receiptSession = submittedSession;
-        var acceptanceReceipt = started.acceptanceReceipt();
-        var readinessSpan = acceptanceReceipt == null ? span : null;
+        var readinessSpan = span;
         var receipt = pending.receipt().whenComplete((result, failure) -> {
             Throwable cause = failure instanceof CompletionException && failure.getCause() != null
                     ? failure.getCause() : failure;
@@ -292,15 +288,10 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
             } finally {
                 ResourceCloser.closeAll(cause,
                         () -> finishSubmission(started.operation(), queryId, stateMachine, cause),
-                        ResourceCloser.present(readinessSpan, Span::end),
+                        readinessSpan::end,
                         () -> LogContext.restore(previousLogContext));
             }
         });
-        if (acceptanceReceipt != null) {
-            span.end();
-            return new QueryAsyncSubmission.Pending(
-                    CompletableFuture.completedFuture(acceptanceReceipt), pending.interrupt());
-        }
         return new QueryAsyncSubmission.Pending(receipt, pending.interrupt());
     }
 
@@ -405,17 +396,19 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
             throw failure;
         }
         try {
+            if (acceptanceAdmission != null) {
+                enqueueAcceptedQuery(queryId, sql, enriched, sm, operation);
+                return new StartedSubmission(null, null, acceptanceAdmission.acceptance().receipt());
+            }
             if (sm.isTerminal()) {
                 return new StartedSubmission(QueryAsyncSubmission.Pending.completed(
                         buildResponse(queryId, sm, queryDispatcher.removeColumnNames(queryId))), operation,
-                        acceptanceAdmission == null ? null : acceptanceAdmission.acceptance().receipt());
+                        null);
             }
-            QueryAsyncSubmission.Pending pending = asyncSubmitConfig != null
-                    && asyncSubmitConfig.enabled() && asyncExecutor != null
-                    ? executeQueryAsync(queryId, sql, enriched, sm, acceptanceAdmission != null)
+            QueryAsyncSubmission.Pending pending = asyncSubmission != null
+                    ? asyncSubmission.start(queryId, sql, enriched, sm)
                     : executeQuerySync(queryId, sql, enriched, sm);
-            return new StartedSubmission(pending, operation,
-                    acceptanceAdmission == null ? null : acceptanceAdmission.acceptance().receipt());
+            return new StartedSubmission(pending, operation, null);
         } catch (RuntimeException | Error failure) {
             ResourceCloser.closeAll(failure, operation::close,
                     () -> failQuery(queryId, submissionError("INTERNAL_ERROR", failure), "dispatch_failed"));
@@ -437,10 +430,19 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
                 buildResponse(queryId, state, queryDispatcher.removeColumnNames(queryId)));
     }
 
-    private QueryAsyncSubmission.Pending executeQueryAsync(String queryId, String sql,
-            QuerySession session, QueryStateMachine state, boolean durablyAccepted) {
-        return new QueryAsyncSubmission(queryDispatcher, asyncSubmitConfig, asyncExecutor, submitDeadlines,
-                this::failQuery, this::applyDispatchResult).start(queryId, sql, session, state, durablyAccepted);
+    private void enqueueAcceptedQuery(String queryId, String sql, QuerySession session,
+            QueryStateMachine state, QueryOperation admissionOperation) {
+        if (!state.isTerminal()) {
+            if (asyncSubmission != null) {
+                asyncSubmission.startAccepted(queryId, sql, session, state,
+                        (operation, failure) -> finishSubmission(operation, queryId, state, failure));
+            } else {
+                applyDispatchResult(queryId, state, queryDispatcher.dispatch(state, sql, session), false);
+                queryDispatcher.removeColumnNames(queryId);
+            }
+        }
+        // Queued work only acquires execution ownership once its callback starts.
+        finishSubmission(admissionOperation, queryId, state, null);
     }
 
     private QueryExecutionPort.Ownership admitExecution(String queryId, String tenantId,

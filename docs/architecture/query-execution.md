@@ -61,6 +61,11 @@ An accepted query continues under the query and task deadlines after its
 receipt is returned. A request without an idempotency key receives a fresh
 journal identity derived from its query ID. A supplied key addresses retries
 in the principal's client-key namespace.
+The durable path enqueues one dispatch callback. Status and Flight publish
+result readiness. A query cancelled in the queue can release its slot before
+the callback is reached, and the callback then skips dispatch. A callback
+that has started owns a dispatch operation until its execution and outcome
+publication exit.
 The receipt includes the issuing Coordinator
 incarnation and HTTP origin. Matching retries return the original route and query ID
 without a second execution; different fingerprints fail with HTTP 409.
