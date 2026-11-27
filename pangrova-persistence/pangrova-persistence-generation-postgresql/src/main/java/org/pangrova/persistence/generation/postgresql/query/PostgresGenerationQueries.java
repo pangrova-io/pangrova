@@ -8,6 +8,7 @@ import org.pangrova.generation.api.page.GenerationPage;
 import org.pangrova.generation.api.page.GenerationSplit;
 import org.pangrova.generation.codec.execution.GenerationStageGraphCodec;
 
+import java.sql.Array;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -22,6 +23,18 @@ import java.util.Optional;
 /** Reads immutable scoped build inputs using the caller's connection; never opens or commits a transaction. */
 @org.pangrova.common.api.annotation.Internal
 public final class PostgresGenerationQueries implements GenerationTransactionInputs {
+    private static final String SPLIT_ROWS = """
+            SELECT page_id,source_object_id,split_bytes,split_sha256
+            FROM artifact_build_page_sources
+            WHERE tenant_id=? AND job_id=?""";
+    private static final String DEPENDENCY_ROWS = """
+            SELECT page_id,dependency_page_id
+            FROM artifact_build_page_dependencies
+            WHERE tenant_id=? AND job_id=?""";
+    private static final String SPLIT_ORDER = " ORDER BY page_id,source_ordinal";
+    private static final String DEPENDENCY_ORDER = " ORDER BY page_id,dependency_ordinal";
+    private static final String PAGE_WINDOW = " AND page_id=ANY(?)";
+
     public PostgresGenerationQueries() {}
 
     /** Reads the immutable scoped dispatch contract without synthesizing missing state. */
@@ -78,37 +91,35 @@ public final class PostgresGenerationQueries implements GenerationTransactionInp
     public List<GenerationPage> loadPages(
             Connection connection, String tenantId, String jobId)
             throws SQLException {
-        List<GenerationPage> pages = new ArrayList<>();
-        try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT job_id,page_id,stage_id,partition_id,page_ordinal,page_kind,max_attempts "
-                        + "FROM artifact_build_pages WHERE tenant_id=? AND job_id=? "
-                        + "ORDER BY page_ordinal")) {
+        List<PageIdentity> pages = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement("""
+                SELECT page_id,stage_id,partition_id,page_ordinal,page_kind,max_attempts
+                FROM artifact_build_pages WHERE tenant_id=? AND job_id=?
+                ORDER BY page_ordinal
+                """)) {
             statement.setString(1, tenantId);
             statement.setString(2, jobId);
-            try (ResultSet result = statement.executeQuery()) {
-                while (result.next()) {
-                    pages.add(mapPage(connection, tenantId, jobId, result));
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    pages.add(new PageIdentity(rows.getString("page_id"), rows.getInt("stage_id"),
+                            rows.getInt("partition_id"), rows.getInt("page_ordinal"),
+                            GenerationPageKind.valueOf(rows.getString("page_kind")), rows.getInt("max_attempts")));
                 }
             }
         }
-        return List.copyOf(pages);
+        if (pages.isEmpty()) {
+            return List.of();
+        }
+        PageInputRows rows = readPageInputs(connection, tenantId, jobId, null);
+        return pages.stream().map(page -> {
+            PageInputs inputs = rows.forPage(page.id());
+            return new GenerationPage(jobId, page.id(), page.stage(), page.partition(), page.ordinal(),
+                    page.kind(), inputs.splits(), inputs.dependencies(), page.maxAttempts());
+        }).toList();
     }
 
-    private GenerationPage mapPage(
-            Connection connection, String tenantId, String jobId, ResultSet result)
-            throws SQLException {
-        String pageId = result.getString("page_id");
-        return new GenerationPage(
-                result.getString("job_id"), pageId,
-                result.getInt("stage_id"), result.getInt("partition_id"),
-                result.getInt("page_ordinal"),
-                GenerationPageKind.valueOf(result.getString("page_kind")),
-                loadSplits(
-                        connection, tenantId, jobId, pageId),
-                loadDependencies(
-                        connection, tenantId, jobId, pageId),
-                result.getInt("max_attempts"));
-    }
+    private record PageIdentity(
+            String id, int stage, int partition, int ordinal, GenerationPageKind kind, int maxAttempts) {}
 
     /** Loads replayable canonical splits in their persisted source order, rejecting legacy missing bytes. */
     public List<GenerationSplit> loadSplits(
@@ -164,52 +175,61 @@ public final class PostgresGenerationQueries implements GenerationTransactionInp
     /** Loads the supplied locked page IDs with two bounded-cursor reads on the caller's connection. */
     public List<PageInputs> loadPageInputs(
             Connection connection, String tenantId, String jobId, List<String> pageIds) throws SQLException {
-        if (pageIds.isEmpty()) return List.of();
-        var ids = connection.createArrayOf("varchar", pageIds.toArray(String[]::new));
-        Map<String, List<GenerationSplit>> splits = new HashMap<>();
-        Map<String, List<String>> dependencies = new HashMap<>();
+        if (pageIds.isEmpty()) {
+            return List.of();
+        }
+        Array ids = connection.createArrayOf("varchar", pageIds.toArray(String[]::new));
         try {
-            try (var statement = connection.prepareStatement("""
-                    SELECT page_id,source_object_id,split_bytes,split_sha256
-                    FROM artifact_build_page_sources
-                    WHERE tenant_id=? AND job_id=? AND page_id=ANY(?)
-                    ORDER BY page_id,source_ordinal
-                    """)) {
-                bindPageInputs(statement, tenantId, jobId, ids);
-                try (var rows = statement.executeQuery()) {
-                    while (rows.next()) {
-                        splits.computeIfAbsent(rows.getString("page_id"), key -> new ArrayList<>())
-                                .add(readSplit(rows));
-                    }
-                }
-            }
-            try (var statement = connection.prepareStatement("""
-                    SELECT page_id,dependency_page_id
-                    FROM artifact_build_page_dependencies
-                    WHERE tenant_id=? AND job_id=? AND page_id=ANY(?)
-                    ORDER BY page_id,dependency_ordinal
-                    """)) {
-                bindPageInputs(statement, tenantId, jobId, ids);
-                try (var rows = statement.executeQuery()) {
-                    while (rows.next()) {
-                        dependencies.computeIfAbsent(rows.getString("page_id"), key -> new ArrayList<>())
-                                .add(rows.getString("dependency_page_id"));
-                    }
-                }
-            }
+            PageInputRows rows = readPageInputs(connection, tenantId, jobId, ids);
+            return pageIds.stream().map(rows::forPage).toList();
         } finally {
             ids.free();
         }
-        return pageIds.stream().map(id -> new PageInputs(
-                splits.getOrDefault(id, List.of()), dependencies.getOrDefault(id, List.of()))).toList();
     }
 
-    private static void bindPageInputs(PreparedStatement statement, String tenantId, String jobId, java.sql.Array ids)
+    private static PageInputRows readPageInputs(
+            Connection connection, String tenantId, String jobId, Array ids) throws SQLException {
+        Map<String, List<GenerationSplit>> splits = new HashMap<>();
+        Map<String, List<String>> dependencies = new HashMap<>();
+        try (var statement = connection.prepareStatement(ids == null
+                ? SPLIT_ROWS + SPLIT_ORDER
+                : SPLIT_ROWS + PAGE_WINDOW + SPLIT_ORDER)) {
+            bindPageInputs(statement, tenantId, jobId, ids);
+            try (var rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    splits.computeIfAbsent(rows.getString("page_id"), key -> new ArrayList<>()).add(readSplit(rows));
+                }
+            }
+        }
+        try (var statement = connection.prepareStatement(ids == null
+                ? DEPENDENCY_ROWS + DEPENDENCY_ORDER
+                : DEPENDENCY_ROWS + PAGE_WINDOW + DEPENDENCY_ORDER)) {
+            bindPageInputs(statement, tenantId, jobId, ids);
+            try (var rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    dependencies.computeIfAbsent(rows.getString("page_id"), key -> new ArrayList<>())
+                            .add(rows.getString("dependency_page_id"));
+                }
+            }
+        }
+        return new PageInputRows(splits, dependencies);
+    }
+
+    private static void bindPageInputs(PreparedStatement statement, String tenantId, String jobId, Array ids)
             throws SQLException {
         statement.setFetchSize(16);
         statement.setString(1, tenantId);
         statement.setString(2, jobId);
-        statement.setArray(3, ids);
+        if (ids != null) {
+            statement.setArray(3, ids);
+        }
+    }
+
+    private record PageInputRows(
+            Map<String, List<GenerationSplit>> splits, Map<String, List<String>> dependencies) {
+        PageInputs forPage(String id) {
+            return new PageInputs(splits.getOrDefault(id, List.of()), dependencies.getOrDefault(id, List.of()));
+        }
     }
 
     private static GenerationSplit readSplit(ResultSet row) throws SQLException {

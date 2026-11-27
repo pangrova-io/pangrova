@@ -119,7 +119,7 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
                     completion.completedAt(), completion.executionOwner());
             requireCompletion(report);
             return PostgresGenerationCompletion.completeLockedProducer(
-                    transactionAuthority, executionFence, connection, report, job, page);
+                    executionFence, connection, report, job, page);
         });
     }
 

@@ -220,6 +220,8 @@ class PostgresGenerationJobStoreTest {
             }
             assertThatThrownBy(() -> inputs.loadPages(connection, TENANT, "job-1"))
                     .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("SHA-256 differs");
+            assertThatThrownBy(() -> store.createJob(job(2), spec, expectedPages))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("SHA-256 differs");
             try (var statement = connection.prepareStatement(
                     "UPDATE artifact_build_page_sources SET split_bytes=NULL "
                             + "WHERE tenant_id=? AND job_id=? AND page_id=?")) {

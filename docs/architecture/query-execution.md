@@ -1225,10 +1225,16 @@ checksum reads use the union of the window's source IDs. Each request verifies
 its split checksums and receives only its source objects and generation-wide
 objects.
 
-Producer completion revalidates authorization and execution ownership using
-the current transaction. It uses the job and page already locked by the
-producer report and skips split loading when the page publishes only Shuffle
-data.
+An idempotent artifact submission compares the persisted page allocation,
+canonical checksummed splits, and producer dependencies in their stored order.
+PostgreSQL reads each of these tables once for the job while the submission
+holds the job row lock.
+
+Producer completion verifies current authorization once under the transaction's
+publication lock. It checks the execution deadline again after acquiring the
+exchange, job and page locks. The completion barrier advances from the job
+counters already read under the row lock. Shuffle-only reports skip split
+loading.
 
 Relational replay decodes the immutable stage bindings and calculates the plan
 checksum before opening the claim transaction. Each request keeps its exact

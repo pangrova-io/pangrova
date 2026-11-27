@@ -144,9 +144,8 @@ abstract class PostgresGenerationJobStoreSupport extends PostgresGenerationJobSt
     }
 
     protected static void advanceCompletionBarrier(
-            Connection connection, String tenantId, String jobId, Instant now)
+            Connection connection, GenerationJob job, Instant now)
             throws SQLException {
-        GenerationJob job = findJob(connection, tenantId, jobId, true).orElseThrow();
         if (job.state() != GenerationJobState.RUNNING
                 && job.state() != GenerationJobState.QUEUED) {
             throw new IllegalStateException("artifact job cannot accept completed pages");
@@ -161,8 +160,8 @@ abstract class PostgresGenerationJobStoreSupport extends PostgresGenerationJobSt
             statement.setInt(1, completed);
             statement.setString(2, next.name());
             setInstant(statement, 3, now);
-            statement.setString(4, tenantId);
-            statement.setString(5, jobId);
+            statement.setString(4, job.tenantId());
+            statement.setString(5, job.jobId());
             statement.setInt(6, job.completedPages());
             if (statement.executeUpdate() != 1) {
                 throw new IllegalStateException("artifact all-pages barrier fence was lost");

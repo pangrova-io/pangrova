@@ -56,6 +56,8 @@ import org.pangrova.generation.api.enums.GenerationEmptyPartitionPolicy;
 import org.pangrova.generation.api.enums.GenerationExecutionKind;
 import org.pangrova.generation.api.constants.GenerationOutputTypeIds;
 import org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStore;
+import org.pangrova.persistence.generation.postgresql.query.PostgresGenerationQueries;
+import org.pangrova.generation.api.page.GenerationSplit;
 import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore;
 import org.pangrova.observability.noop.NoOpTracingProvider;
 import org.pangrova.planner.analysis.AuthorizedStageGraph;
@@ -172,6 +174,12 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
         installStatementCounters();
         long before = executionRouteReads();
         var exchangeBefore = exchangeReads();
+        String jobLock = "SELECT * FROM artifact_build_jobs WHERE tenant_id=%FOR UPDATE";
+        String specs = "SELECT * FROM artifact_build_dispatch_specs%";
+        String roles = "SELECT assignment.role_name FROM pangrova_user_roles assignment%";
+        long lockedJobsBefore = statementReads(jobLock);
+        long specsBefore = statementReads(specs);
+        long rolesBefore = statementReads(roles);
         var delivery = org.pangrova.protocol.http.TaskStatusDelivery.newBuilder()
                 .setRole(org.pangrova.protocol.http.TaskRole.TASK_ROLE_COMPUTE)
                 .setWorkerId("worker-1").setSequence(1).setTimestampMs(System.currentTimeMillis())
@@ -182,6 +190,9 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
         assertThat(executionRouteReads() - before).as("durable execution route SELECTs").isEqualTo(3);
         assertThat(exchangeReads().since(exchangeBefore)).as("durable exchange evidence SELECTs")
                 .isEqualTo(new ExchangeReads(0, 0, 0, 0, 1));
+        assertThat(statementReads(jobLock) - lockedJobsBefore).as("locked job reads").isOne();
+        assertThat(statementReads(specs) - specsBefore).as("dispatch contract reads").isOne();
+        assertThat(statementReads(roles) - rolesBefore).as("current direct role reads").isOne();
         assertThat(committedAtStageFinish).isTrue();
         assertThat(tracker.getTaskState(KEY.executionId(), TASK))
                 .isEqualTo(org.pangrova.coordinator.enums.ScheduledTaskState.FINISHED);
@@ -317,6 +328,52 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
                     java.util.stream.IntStream.range(0, window * 2).mapToObj(i -> "producer-" + i).toList());
             assertThat(inputs.get(1).dependencies()).isEmpty();
         }
+    }
+
+    @Test
+    void idempotentAdmissionReadsEachPageInputTableOnceAndKeepsExactOrdinals() throws Exception {
+        var key = new GenerationJobKey(KEY.tenantId(), "admission-replay");
+        int partitions = 8;
+        var dispatch = specification(key, partitions);
+        var pages = new java.util.ArrayList<GenerationPage>();
+        var dependencyOrder = new java.util.ArrayList<String>();
+        for (int partition = 0; partition < partitions; partition++) {
+            String pageId = "producer-" + (partitions - partition);
+            dependencyOrder.add(0, pageId);
+            pages.add(new GenerationPage(key.jobId(), pageId, 1, partition, partition,
+                    GenerationPageKind.RELATIONAL_COMPUTE,
+                    List.of(GenerationSplit.of("source-" + partition, new byte[]{(byte) partition, 1})),
+                    List.of(), 3));
+        }
+        var terminal = new GenerationPage(key.jobId(), "terminal-0", 0, 0, partitions,
+                GenerationPageKind.RELATIONAL_PARTITION, List.of(), dependencyOrder, 3);
+        pages.add(terminal);
+        var job = job(key, pages.size());
+        builds.createJob(job, dispatch, pages);
+        installStatementCounters();
+
+        String pageSql = "SELECT%FROM artifact_build_pages WHERE tenant_id=%ORDER BY page_ordinal%";
+        String splitSql = "SELECT%FROM artifact_build_page_sources%";
+        String dependencySql = "SELECT%FROM artifact_build_page_dependencies%";
+        long pageBefore = statementReads(pageSql);
+        long splitBefore = statementReads(splitSql);
+        long dependencyBefore = statementReads(dependencySql);
+
+        builds.createJob(job, dispatch, pages);
+
+        assertThat(statementReads(pageSql) - pageBefore).isOne();
+        assertThat(statementReads(splitSql) - splitBefore).isOne();
+        assertThat(statementReads(dependencySql) - dependencyBefore).isOne();
+        try (var connection = dataSource.getConnection()) {
+            assertThat(new PostgresGenerationQueries().loadPages(connection, key.tenantId(), key.jobId()))
+                    .containsExactlyElementsOf(pages);
+        }
+
+        java.util.Collections.reverse(dependencyOrder);
+        pages.set(partitions, new GenerationPage(key.jobId(), terminal.pageId(), 0, 0, partitions,
+                terminal.kind(), List.of(), dependencyOrder, terminal.maxAttempts()));
+        assertThatThrownBy(() -> builds.createJob(job, dispatch, pages))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("different work pages");
     }
 
     @Test
