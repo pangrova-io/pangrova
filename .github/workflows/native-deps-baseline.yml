@@ -6,7 +6,7 @@ on:
       probe:
         description: Isolated CI stage to verify
         type: choice
-        options: [macos-docker, macos-intel-docker, production, worker-files, java-daily, libunwind, ai-fixture, jmh-relative, tpc-transport, macos-libcxx, production-pic, system-pic]
+        options: [macos-docker, macos-intel-docker, production, worker-files, java-daily, libunwind, ai-fixture, jmh-relative, tpc-transport, macos-libcxx, production-pic, system-pic, system-rebuild]
         default: macos-docker
       production_source:
         description: Exact production source revision
@@ -17,6 +17,74 @@ permissions:
   actions: read
 
 jobs:
+  system-rebuild:
+    name: Rebuild and select exact Ubuntu PIC source packages
+    if: inputs.probe == 'system-rebuild'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build the same archives and verify production CMake selects them
+        run: |
+          docker run --rm -i -v "$GITHUB_WORKSPACE:/source:ro" \
+            ubuntu:22.04@sha256:0a9887931b0e38af2e3487ed39e29436b0535c4f3f52e57745baaf79d1898956 \
+            bash -euo pipefail -s <<'BASH'
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -qq
+          apt-get install -y --no-install-recommends build-essential gcc-11 g++-11 lld \
+            ninja-build python3-pip curl ca-certificates pkg-config xz-utils \
+            libbz2-dev liblzma-dev zlib1g-dev libevent-dev libsnappy-dev libdouble-conversion-dev \
+            libsodium-dev libxml2-dev liblz4-dev libzstd-dev libxxhash-dev libicu-dev libssl-dev
+          python3 -m pip install --no-cache-dir --only-binary=:all: cmake==3.28.3
+          export CC=gcc-11 CXX=g++-11 CMAKE_BUILD_PARALLEL_LEVEL=2
+          export PANGROVA_DEPS_PREFIX=/opt/pangrova-production/native-deps
+          version_map=/source/pangrova-worker-native/jni_exported_symbols.map
+          bash /source/deploy/docker/build-static-system-deps.sh "$version_map"
+          bash /source/deploy/docker/build-static-curl.sh
+          export PKG_CONFIG_PATH="$PANGROVA_DEPS_PREFIX/lib/pkgconfig"
+
+          mkdir /tmp/cmake-probe
+          cd /tmp/cmake-probe
+          cat > CMakeLists.txt <<'CMAKE'
+          cmake_minimum_required(VERSION 3.20)
+          project(SystemPIC LANGUAGES CXX)
+          set(PANGROVA_PRODUCTION_BUILD ON)
+          set(CMAKE_FIND_LIBRARY_SUFFIXES .a)
+          add_library(velox_imported INTERFACE)
+          include(/source/pangrova-worker-native/cmake/PangrovaSystemDeps.cmake)
+          add_library(system_check SHARED check.cpp)
+          target_link_libraries(system_check PRIVATE "-Wl,--start-group" velox_imported "-Wl,--end-group")
+          target_link_options(system_check PRIVATE -Wl,-z,defs,-z,text
+            -Wl,--version-script=/source/pangrova-worker-native/jni_exported_symbols.map)
+          CMAKE
+          cat > check.cpp <<'CPP'
+          #include <bzlib.h>
+          #include <zstd.h>
+          #include <event2/event.h>
+          #include <libxml/parser.h>
+          #include <unicode/uclean.h>
+          extern "C" int JNI_OnLoad(void*, void*) {
+              auto* base = event_base_new();
+              xmlInitParser();
+              UErrorCode status = U_ZERO_ERROR;
+              u_init(&status);
+              const bool usable = base && BZ2_bzlibVersion() && ZSTD_versionNumber() && U_SUCCESS(status);
+              event_base_free(base);
+              return usable ? 0x00010008 : 0;
+          }
+          CPP
+          cmake -S . -B build -DCMAKE_PREFIX_PATH="$PANGROVA_DEPS_PREFIX"
+          cmake --build build --verbose
+          for archive in bz2 zstd event_core icuuc xml2; do
+            grep -F "$PANGROVA_DEPS_PREFIX/lib/lib$archive.a" build/CMakeFiles/system_check.dir/link.txt
+          done
+          readelf -d build/libsystem_check.so
+          BASH
+
   system-pic:
     name: Link production system archives with the JNI export map
     if: inputs.probe == 'system-pic'
