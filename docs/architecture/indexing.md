@@ -193,6 +193,12 @@ names are rejected before dispatch.
    publishes the complete generation. Failed or superseded attempts cannot
    publish.
 
+Native reports staged outputs for successful attempts. A cancelled attempt
+can still acknowledge its physical execution drain when staging had already
+finished. During shutdown, the dispatcher stops issuing work and keeps its
+task identities until it receives exact drain receipts. A drain timeout
+leaves those identities in place and fails shutdown.
+
 Retries reuse stable work-unit identities while attempt IDs and fencing tokens
 advance. No in-memory build state is authoritative. Publication revalidates the
 exact durable and connector pin; cancellation of an expired or revoked job is

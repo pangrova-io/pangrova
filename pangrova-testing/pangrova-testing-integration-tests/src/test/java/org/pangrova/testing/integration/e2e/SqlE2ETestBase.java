@@ -599,8 +599,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     }
 
     private static void shutdownSharedInfrastructure() {
-        if (framework != null) framework.teardown();
         stopArtifactControlLoops();
+        if (framework != null) framework.teardown();
         if (controlEpochObserver != null) {
             controlEpochObserver.shutdownNow();
             controlEpochObserver = null;
@@ -2064,9 +2064,9 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     }
 
     private static void closeE2ECoordination() {
+        stopArtifactControlLoops();
         closeQuietly(sharedIndexingBootstrap, "indexing_lifecycle");
         sharedIndexingBootstrap = null;
-        stopArtifactControlLoops();
         var coordination = e2eCoordinationService;
         e2eCoordinationService = null;
         if (coordination != null) {
@@ -2414,11 +2414,13 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
 
     private static void stopArtifactControlLoops() {
         if (artifactDispatchExecutor != null) {
-            artifactDispatchExecutor.shutdownNow();
+            org.pangrova.common.concurrent.ExecutorDrain.shutdownAndAwait(artifactDispatchExecutor, 10_000);
             artifactDispatchExecutor = null;
         }
-        closeQuietly(sharedArtifactBuildDispatcher, "artifact_build_dispatcher");
-        sharedArtifactBuildDispatcher = null;
+        if (sharedArtifactBuildDispatcher != null) {
+            sharedArtifactBuildDispatcher.close();
+            sharedArtifactBuildDispatcher = null;
+        }
         closeQuietly(artifactTaskDispatcher, "artifact_task_dispatcher");
         artifactTaskDispatcher = null;
         closeQuietly(sharedArtifactPublisher, "artifact_publisher");
@@ -2966,8 +2968,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     }
 
     private static void shutdownMetadata() {
+        stopArtifactControlLoops();
         try (var ownedPool = metadataDataSourcePool) {
-            stopArtifactControlLoops();
             if (metadataBootstrap != null) metadataBootstrap.shutdown();
         } finally {
             metadataBootstrap = null;

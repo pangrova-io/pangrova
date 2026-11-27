@@ -22,6 +22,7 @@ import java.util.Map;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 
@@ -38,6 +39,8 @@ public final class DurableGenerationDispatcher implements AutoCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(
             DurableGenerationDispatcher.class);
+    private static final Duration SHUTDOWN_DRAIN_TIMEOUT = Duration.ofSeconds(5);
+    private static final long DRAIN_CHECK_INTERVAL_MILLIS = 10;
     private final GenerationPollLifecycle pollLifecycle = new GenerationPollLifecycle();
 
     private final GenerationJobStore store;
@@ -487,13 +490,14 @@ public final class DurableGenerationDispatcher implements AutoCloseable {
             try {
                 attempt.cancelling = true;
                 cancelActiveTask(entry.getKey(), attempt);
-                var receipt = taskTracker.executionDrainReceipt(entry.getKey());
-                if (receipt.isPresent()) {
-                    retireDrainedAttempt(entry.getKey(), attempt, receipt.orElseThrow(), clock.instant());
-                }
             } catch (RuntimeException | Error cleanup) {
                 failure = appendFailure(failure, cleanup);
             }
+        }
+        try {
+            awaitShutdownDrains();
+        } catch (RuntimeException | Error cleanup) {
+            failure = appendFailure(failure, cleanup);
         }
         if (!active.isEmpty()) {
             failure = appendFailure(failure, new IllegalStateException(
@@ -510,6 +514,30 @@ public final class DurableGenerationDispatcher implements AutoCloseable {
             }
         }
         rethrowCleanupFailure(failure);
+    }
+
+    private void awaitShutdownDrains() {
+        long deadline = System.nanoTime() + SHUTDOWN_DRAIN_TIMEOUT.toNanos();
+        while (!active.isEmpty()) {
+            Throwable failure = null;
+            for (var entry : active.entrySet()) {
+                try {
+                    String taskId = entry.getKey();
+                    taskTracker.executionDrainReceipt(taskId).ifPresent(
+                            receipt -> retireDrainedAttempt(taskId, entry.getValue(), receipt, clock.instant()));
+                } catch (RuntimeException | Error cleanup) {
+                    failure = appendFailure(failure, cleanup);
+                }
+            }
+            rethrowCleanupFailure(failure);
+            if (active.isEmpty() || System.nanoTime() - deadline >= 0) return;
+            try {
+                TimeUnit.MILLISECONDS.sleep(DRAIN_CHECK_INTERVAL_MILLIS);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Interrupted awaiting artifact execution drain receipts", interrupted);
+            }
+        }
     }
 
     private static Throwable appendFailure(Throwable existing, Throwable added) {
