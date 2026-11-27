@@ -262,10 +262,12 @@ runner ships about 14 GB free and the repository cache limit is 10 GB, so:
   install options change. Keys never fall back to another image, compiler
   configuration or pre-patch dependency tree.
 - `.github/workflows/native-deps-baseline.yml` warms the layered keys weekly
-  and when the dependency lock changes. Linux can additionally publish an
-  OCI image to GHCR when the repository variable
+  and when the dependency lock changes. Each Linux warm job can publish
+  its installed `~/.pangrova/native-deps` prefix as an OCI image to GHCR
+  when the repository variable
   `PANGROVA_NATIVE_DEPS_IMAGE=ghcr` is set and package write permission is
-  granted. Linux CI consumes that image only when the variable is set. The
+  granted. Linux CI extracts that prefix when the variable is set.
+  The Velox system dependency setup still runs on the consumer. The
   baseline workflow uses the same two macOS SDK build stages as CI and
   publishes the macOS dependency archive for diagnostics and separate
   qualification.

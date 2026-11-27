@@ -15,7 +15,6 @@ on:
 permissions:
   contents: read
   actions: read
-  packages: write
 
 concurrency:
   group: native-deps-baseline-${{ github.ref }}
@@ -26,6 +25,9 @@ jobs:
     name: Warm baseline (${{ matrix.platform.name }})
     runs-on: ${{ matrix.platform.runner }}
     timeout-minutes: 360
+    permissions:
+      contents: read
+      packages: write
     strategy:
       fail-fast: false
       matrix:
@@ -77,6 +79,26 @@ jobs:
       - name: Build dependency prefix and Velox build layer
         run: bash ./pangrova-worker-native/bin/setup-native-build-env.sh
 
+      - name: Publish Linux dependency prefix to GHCR
+        if: vars.PANGROVA_NATIVE_DEPS_IMAGE == 'ghcr'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          owner="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+          revision="$(tr -d '\n' < pangrova-worker-native/dependency-versions.txt | sha256sum | cut -c1-16)"
+          image="ghcr.io/$owner/pangrova-native-deps:deps-${{ matrix.platform.name }}-$revision"
+          {
+            printf 'FROM scratch\n'
+            printf 'COPY . /opt/pangrova/native-deps/\n'
+            printf 'LABEL org.opencontainers.image.source="https://github.com/%s"\n' "$GITHUB_REPOSITORY"
+            printf 'LABEL org.opencontainers.image.revision="%s"\n' "$GITHUB_SHA"
+          } | docker build -t "$image" -f - "$HOME/.pangrova/native-deps"
+          echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker push "$image"
+          printf '### Published `%s`\n' "$image" >> "$GITHUB_STEP_SUMMARY"
+
   warm-macos:
     name: Warm baseline (${{ matrix.platform.name }})
     strategy:
@@ -89,62 +111,3 @@ jobs:
     with:
       platform: ${{ toJSON(matrix.platform) }}
       sdk-only: true
-
-  publish-image:
-    name: Publish dependency image (${{ matrix.platform.name }})
-    # Opt-in: requires the repository variable and GHCR package permissions.
-    if: vars.PANGROVA_NATIVE_DEPS_IMAGE == 'ghcr'
-    needs: warm
-    runs-on: ${{ matrix.platform.runner }}
-    timeout-minutes: 90
-    strategy:
-      fail-fast: false
-      matrix:
-        platform:
-          - { name: linux-x86_64, runner: ubuntu-24.04 }
-          - { name: linux-aarch_64, runner: ubuntu-24.04-arm }
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Restore dependency baseline
-        id: baseline
-        uses: actions/cache/restore@v6
-        with:
-          path: |
-            ~/.pangrova/native-deps
-            ~/.pangrova/velox/deps-install
-            ~/.pangrova/velox/archive-cache
-          key: pangrova-v1-deps-${{ matrix.platform.runner }}-${{ runner.arch }}-${{ hashFiles('pangrova-worker-native/dependency-versions.txt', '.github/actions/setup-native-build/action.yml', 'pangrova-worker-native/patches/*') }}
-          lookup-only: true
-
-      - name: Publish OCI image
-        if: steps.baseline.outputs.cache-hit == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          root="$RUNNER_TEMP/context"
-          mkdir -p "$root/opt/pangrova/velox"
-          cp -a "$HOME/.pangrova/native-deps" "$root/opt/pangrova/native-deps"
-          cp -a "$HOME/.pangrova/velox/deps-install" "$root/opt/pangrova/velox/deps-install"
-          cp -a "$HOME/.pangrova/velox/archive-cache" "$root/opt/pangrova/velox/archive-cache"
-          owner="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
-          revision="$(tr -d '\n' < pangrova-worker-native/dependency-versions.txt | sha256sum | cut -c1-16)"
-          tag="deps-${{ matrix.platform.name }}-$revision"
-          {
-            printf 'FROM scratch\n'
-            printf 'COPY opt/pangrova /opt/pangrova\n'
-            printf 'LABEL org.opencontainers.image.source="https://github.com/%s"\n' "$GITHUB_REPOSITORY"
-            printf 'LABEL org.opencontainers.image.revision="%s"\n' "$GITHUB_SHA"
-          } > "$root/Dockerfile"
-          echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-          image="ghcr.io/$owner/pangrova-native-deps:$tag"
-          docker build -t "$image" "$root"
-          docker push "$image"
-          echo "### Published \`$image\`" >> "$GITHUB_STEP_SUMMARY"
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-
-      - name: Report missing baseline
-        if: steps.baseline.outputs.cache-hit != 'true'
-        run: |
-          echo "::warning::Dependency baseline cache is missing; warm job did not produce it"

@@ -671,6 +671,21 @@ class RuntimeScopeTest(unittest.TestCase):
         baseline = (ROOT / '.github/workflows/native-deps-baseline.yml').read_text()
         self.assertIn(revision, baseline)
 
+    def test_linux_dependency_image_uses_the_built_prefix(self):
+        baseline = (WORKFLOWS / 'native-deps-baseline.yml').read_text()
+        linux = baseline.split('  warm:\n', 1)[1].split('  warm-macos:', 1)[0]
+        self.assertIn('setup-native-build-env.sh\n\n      - name: Publish Linux dependency prefix', linux)
+        publish = linux.split('      - name: Publish Linux dependency prefix', 1)[1]
+        self.assertIn("vars.PANGROVA_NATIVE_DEPS_IMAGE == 'ghcr'", publish)
+        self.assertIn('docker build -t "$image" -f - "$HOME/.pangrova/native-deps"', publish)
+        self.assertIn('COPY . /opt/pangrova/native-deps/', publish)
+        platform = (WORKFLOWS / 'native-platform.yml').read_text()
+        restore = platform.split('      - name: Restore Linux dependency baseline image', 1)[1]
+        restore = restore.split('      - name:', 1)[0]
+        self.assertIn('docker create "$image" /bin/false', restore)
+        self.assertIn('docker cp "$container:/opt/pangrova/native-deps" "$HOME/.pangrova/"', restore)
+        self.assertNotIn('/opt/pangrova/velox', restore)
+
     def test_docs_policy_website_and_gate_tools_use_lightweight_checks(self):
         paths = ['AGENTS.md', '.pangrova/rules/testing.md', '.pangrova/setup.sh',
                  'docs/architecture/overview.md', 'pangrova-worker-native/README.md',

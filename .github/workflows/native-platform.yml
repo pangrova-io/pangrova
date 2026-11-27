@@ -241,12 +241,11 @@ jobs:
             echo "::warning::$image is not published; using caches only"
             exit 0
           fi
-          container=$(docker create "$image")
+          # The image contains a filesystem payload and is never started.
+          container=$(docker create "$image" /bin/false)
+          trap 'docker rm "$container" >/dev/null' EXIT
           mkdir -p "$HOME/.pangrova"
           docker cp "$container:/opt/pangrova/native-deps" "$HOME/.pangrova/"
-          docker cp "$container:/opt/pangrova/velox/deps-install" "$HOME/.pangrova/velox/"
-          docker cp "$container:/opt/pangrova/velox/archive-cache" "$HOME/.pangrova/velox/"
-          docker rm "$container"
 
       - name: Install and verify the native toolchain
         uses: ./.github/actions/setup-native-build
