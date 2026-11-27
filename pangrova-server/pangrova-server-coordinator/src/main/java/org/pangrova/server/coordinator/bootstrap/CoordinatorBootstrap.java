@@ -158,7 +158,8 @@ public final class CoordinatorBootstrap {
     private void startQueryAndHttp() {
         ha = new HighAvailabilityBootstrap(config, ensureDistributedLease(), coordinatorRegistry,
                 metadataDataSource, executionAuthority, modelAuthority,
-                metadataBootstrap == null ? null : metadataBootstrap.catalogRegistry());
+                metadataBootstrap == null ? null : metadataBootstrap.catalogRegistry(),
+                observability.metricsProvider());
         query = buildQueryBootstrap();
         query.start(processStore == null ? null : processStore.identity());
         http = buildHttpBootstrap();

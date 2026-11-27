@@ -8,7 +8,7 @@ unlisted: true
 
 实时扫描放置已计入数据、打开文件和解码工作量，并结合 Worker 心跳和精确在途任务。Remote Shuffle 消费窗口内无 PostgreSQL 同步读取，生产端按窗口预留并发布批次。Exchange 前的局部归约已覆盖全局聚合以及满足成本门槛的低基数组合分组。后续优先减少跨 Stage 动态过滤遗漏的扫描量。控制面、对象存储 I/O 和结果返回继续按各自的成本归因验收。
 
-执行合同的未完成项只维护在 [执行链路计划](./execution-clean-cut-plan.md#2026-11-25-代码审计与剩余工作)：动态过滤对应 A9/WP4，单输入 AQE 校准对应 B5/WP5，多输入/durable/skew 对应 A10/WP5，production 归因对应 A4/WP2，物理 I/O 对应 A8/WP3.1，Shuffle 撤销对应 A11/WP6，结果 phase/soak 对应 B6/WP7，跨引擎证据对应 A14/B9/WP9。本页保留性能对标、实验解释和 Q0–Q4 验收方法，不再维护第二套 A/B/C 状态清单；历史批次见 [验证记录](./execution-clean-cut-plan.md#验证记录与覆盖边界)。
+执行合同的未完成项只维护在 [执行链路计划](./execution-clean-cut-plan.md#remaining-work)：动态过滤对应 A9/WP4，单输入 AQE 校准对应 B5/WP5，多输入/durable/skew 对应 A10/WP5，production 归因对应 A4/WP2，物理 I/O 对应 A8/WP3.1，Shuffle 撤销对应 A11/WP6，结果 phase/soak 对应 B6/WP7，跨引擎证据对应 A14/B9/WP9。本页保留性能对标、实验解释和 Q0–Q4 验收方法，不再维护第二套 A/B/C 状态清单；历史批次见 [验证记录](./execution-clean-cut-plan.md#验证记录与覆盖边界)。
 
 ## 同类对标及适用边界
 

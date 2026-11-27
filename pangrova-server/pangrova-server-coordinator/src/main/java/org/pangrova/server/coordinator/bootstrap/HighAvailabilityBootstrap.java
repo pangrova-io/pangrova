@@ -11,6 +11,7 @@ import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerHealthScheduler;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
+import org.pangrova.observability.api.metrics.MetricsProvider;
 import org.pangrova.persistence.coordination.api.lease.DistributedLease;
 import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.persistence.coordination.api.membership.CoordinatorRegistry;
@@ -69,7 +70,7 @@ final class HighAvailabilityBootstrap {
     HighAvailabilityBootstrap(CoordinatorBootstrapConfig config,
             DistributedLease lease, CoordinatorRegistry coordinatorRegistry, DataSource dataSource,
             CoordinatorExecutionAuthority executionAuthority, CurrentModelAuthority modelAuthority,
-            CatalogRegistry catalogRegistry) {
+            CatalogRegistry catalogRegistry, MetricsProvider metrics) {
         this.config = config;
         this.coordinatorRegistry = coordinatorRegistry;
         this.catalogRegistry = catalogRegistry;
@@ -83,7 +84,9 @@ final class HighAvailabilityBootstrap {
                 ? new PostgresGenerationStores(modelAuthority, CoordinatorTableWriteAuthority.create())
                         .builds(dataSource)
                 : null;
-        haService = new HighAvailabilityCoordinationService(lease, anchors);
+        haService = new HighAvailabilityCoordinationService(lease,
+                HighAvailabilityCoordinationService.CoordinationConfig.defaults(),
+                anchors, durableExecutionAnchors ? metrics : null);
         if (durableExecutionAnchors) {
             haService.bindExecutionAuthority(executionAuthority);
         }

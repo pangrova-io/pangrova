@@ -165,6 +165,7 @@ public class OpenTelemetryConfig {
 | `pangrova.coordinator.workers.active` | UpDownCounter | Active Worker count |
 | `pangrova.coordinator.queries.timed_out` | Counter | Queries for which timeout won the terminal transition |
 | `pangrova.coordinator.queries.terminal_cleanup.local_release_ms` | Histogram | Terminal cleanup entry to local ownership release, including retry and wait time |
+| `pangrova.coordinator.queries.terminal_cleanup.durable_retirements` | Counter | Acknowledged durable query retirements by `path` (`local` or `recovery`) |
 
 Admission rejection reasons are `ADMISSION_CLOSED`, `TENANT_LIMIT`, `THROTTLED`,
 `HEALTH_PROBE`, `EXECUTION_OWNERSHIP_UNAVAILABLE`, `QUEUE_FULL`, and
@@ -174,6 +175,11 @@ including a cancelled query whose queued callback later starts. Rejected
 enqueue attempts contribute only to the counter.
 
 Local ownership release can precede recovery confirmation of global drain.
+The durable retirement counter increments after the store acknowledges removal of
+the exact execution grant and release of any bound tenant reservation. A
+pending recovery, stale grant, or later observation generates no sample. The
+counter adds no database calls. A lost commit acknowledgement or a process exit
+before recording can leave a committed retirement uncounted.
 
 ### 3.2 Worker Metrics
 
