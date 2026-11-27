@@ -48,6 +48,14 @@ class DockerNativeBootstrapTest(unittest.TestCase):
                 self.assertIn('export ARROW_SNAPPY_URL="${ARROW_SNAPPY_URL:-' + url + '}"',
                               script.read_text())
 
+    def test_libunwind_pic_check_rescans_the_same_archives_as_the_production_link(self):
+        script = (ROOT / "deploy/docker/build-static-libunwind.sh").read_text()
+        compiler_link = script.split('-fPIC -shared -Wl,-z,defs', 1)[1].split(' -o ', 1)[0]
+        self.assertRegex(compiler_link, r'--start-group "\$prefix/lib/libunwind\.a" '
+                                         r'"\$prefix/lib/libunwind-\$\{arch\}\.a"')
+        self.assertLess(compiler_link.index('libunwind-${arch}.a'),
+                        compiler_link.index('-Wl,--end-group'))
+
     def test_folly_source_and_bootstrap_patches_are_staged_before_velox(self):
         velox_bootstrap = next(i for i, line in enumerate(self.instructions)
                                if line.startswith("RUN ") and "PANGROVA_NATIVE_BUILD_PHASE=velox" in line)

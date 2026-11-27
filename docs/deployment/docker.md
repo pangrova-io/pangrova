@@ -108,9 +108,9 @@ packaging check verifies the Lance FFI symbol, ELF architecture, absence of
 build-tree RPATH/RUNPATH and a strict system-ABI-only `DT_NEEDED` list. It rejects
 missing archives or third-party shared-library dependencies rather than copying
 them into the image. The runtime uses the same Ubuntu 22.04 ABI baseline.
-The production Native link takes its pinned static curl and PIC libunwind archives
-from the build dependency prefix; linking the system shared curl would fail this
-packaging check even if the JNI library itself linked successfully.
+The production Native link takes its pinned static curl and PIC libunwind
+archives from the build dependency prefix. The libunwind preflight links both
+archives in a group so the linker can resolve their cross-archive references.
 The Linux ARM64 build requires CPUs with ARM CRC32 instructions: the pinned
 Velox and Folly archives use F14's SIMD+CRC mode, and Pangrova compiles their
 header consumers for the same mode. Deploy `linux/arm64` images only to nodes
