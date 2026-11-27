@@ -1,7 +1,6 @@
 package org.pangrova.coordinator.metadata;
 
 import org.apache.arrow.memory.RootAllocator;
-import org.apache.arrow.vector.ipc.ArrowStreamReader;
 import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -37,7 +36,6 @@ import org.pangrova.security.api.identity.UserIdentity;
 import org.pangrova.security.secret.resolution.SecretResolverRegistry;
 import org.pangrova.types.enums.PangrovaType;
 
-import java.io.ByteArrayInputStream;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -106,7 +104,8 @@ class MetadataShowResultSchemaTest {
         private final java.util.concurrent.ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
         private final CoordinatorResultBuffer buffer = new CoordinatorResultBuffer(scheduler, 60_000L);
         private final CoordinatorResultService service = new CoordinatorResultService(buffer,
-                new CoordinatorResultWriter(allocator), new ResultEndpoint("localhost", 9091, "unused", "grpc"));
+                new CoordinatorResultWriter(allocator), new ResultEndpoint("localhost", 9091, "unused", "grpc"),
+                ignored -> () -> { });
 
         List<List<String>> execute(Statement statement, MetadataTask<?> task, List<String> columns) throws Exception {
             String id = UUID.randomUUID().toString();
@@ -118,22 +117,19 @@ class MetadataShowResultSchemaTest {
             assertThat(state.status().state()).isEqualTo(QueryState.FINISHED);
             assertThat(state.status().disposition()).isEqualTo(ResultDisposition.STREAM);
             assertThat(state.status().endpoint()).isEqualTo(result.resultEndpoint());
-            assertThat(buffer.get(id)).isNotEmpty();
-
-            try (var reader = new ArrowStreamReader(new ByteArrayInputStream(buffer.get(id)), allocator)) {
-                var root = reader.getVectorSchemaRoot();
+            try (var reader = buffer.claim(id)) {
+                assertThat(reader).isNotNull();
+                var root = reader.root();
                 assertThat(root.getSchema().getFields()).extracting(field -> field.getName()).containsExactlyElementsOf(columns);
                 assertThat(root.getSchema().getFields()).allMatch(field -> field.getType().equals(ArrowType.Utf8.INSTANCE));
                 List<List<String>> values = new ArrayList<>();
-                while (reader.loadNextBatch()) {
-                    for (int row = 0; row < root.getRowCount(); row++) {
-                        List<String> cells = new ArrayList<>();
-                        for (var vector : root.getFieldVectors()) {
-                            Object value = vector.getObject(row);
-                            cells.add(value == null ? null : value.toString());
-                        }
-                        values.add(cells);
+                for (int row = 0; row < root.getRowCount(); row++) {
+                    List<String> cells = new ArrayList<>();
+                    for (var vector : root.getFieldVectors()) {
+                        Object value = vector.getObject(row);
+                        cells.add(value == null ? null : value.toString());
                     }
+                    values.add(cells);
                 }
                 return values;
             }

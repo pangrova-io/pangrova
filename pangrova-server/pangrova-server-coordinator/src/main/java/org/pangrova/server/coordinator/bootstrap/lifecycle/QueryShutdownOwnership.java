@@ -6,7 +6,7 @@ import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.query.runtime.QueryManager;
 import org.pangrova.persistence.query.api.state.QueryStateJournal;
 
-/** Query-side dependency barriers. Successful result streams drain naturally; shutdown does not DELETE them. */
+/** Query-side dependency barriers. Accepted Flight readers retain their resources through actual exit. */
 @ThreadSafe
 public final class QueryShutdownOwnership {
     private static final long QUERY_DRAIN_TIMEOUT_MILLIS = 30_000;

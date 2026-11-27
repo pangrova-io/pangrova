@@ -190,18 +190,33 @@ public final class StatementDispatcher {
             return null;
         }
         if (resultService != null && (!result.rows().isEmpty() || !result.columnNames().isEmpty())) {
+            if (sm.isTerminal()) {
+                throw new PangrovaException(PangrovaErrorCode.RUNTIME_TASK_FAILED,
+                        "Cannot publish a control result for a terminal query: " + sm.getState());
+            }
             var control = resultService.dispatchControlPlaneRows(
-                    queryId, result.rows(), result.columnNames(), () -> { });
-            // The response bytes and endpoint must be visible before FINISHED:
+                    queryId, result.rows(), result.columnNames());
+            // The result batch and endpoint must be visible before FINISHED:
             // Native CTAS may already have completed, while an outer DDL still
             // needs to publish its metadata head and acknowledge the statement.
-            sm.setResultEndpoint(control.resultEndpoint());
-            sm.toFinisher().run();
-            return control;
+            try {
+                sm.setResultEndpoint(control.resultEndpoint());
+                sm.toFinisher().run();
+                return control;
+            } catch (RuntimeException | Error failure) {
+                org.pangrova.common.lifecycle.ResourceCloser.closeAll(failure,
+                        () -> resultService.discardUnopened(queryId));
+                throw failure;
+            }
         }
         sm.markNoResult();
         sm.toFinisher().run();
         return null;
+    }
+
+    /** Discards control-plane output when its query terminates unsuccessfully. */
+    public void discardControlResult(String queryId) {
+        if (resultService != null) resultService.discardUnopened(queryId);
     }
 
     @SuppressWarnings("unchecked")

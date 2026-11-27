@@ -312,6 +312,7 @@ public class QueryDispatcher implements org.pangrova.query.lifecycle.QueryExecut
     public void cancelDispatchedTasks(String queryId) {
         org.pangrova.common.lifecycle.ResourceCloser.closeAll(null,
                 () -> ownershipTracker.cancelDispatchedTasks(queryId),
+                () -> pipelineExecutor.discardControlResult(queryId),
                 () -> schedulingEngine.dagEngine().cancelLiveDispatch(queryId));
     }
 

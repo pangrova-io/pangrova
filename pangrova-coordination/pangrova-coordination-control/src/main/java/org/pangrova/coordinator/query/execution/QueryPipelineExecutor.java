@@ -85,6 +85,10 @@ final class QueryPipelineExecutor {
         this.pipelinePhases = buildPipeline();
     }
 
+    void discardControlResult(String queryId) {
+        if (statementDispatcher != null) statementDispatcher.discardControlResult(queryId);
+    }
+
     // ── Pipeline execution ──
 
     void setPatternRecorder(org.pangrova.planner.advisor.QueryPatternRecorder recorder) {

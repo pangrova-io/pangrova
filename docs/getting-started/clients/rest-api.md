@@ -143,7 +143,10 @@ The initial receipt can have no column names while planning is pending. Poll the
 state endpoint until the disposition is `STREAM` or the query reaches a terminal
 state. The endpoint identifies the host serving Arrow Flight results (`ticket`
 is opaque and `protocol` identifies the transport); this can be a Worker or the
-Coordinator for bounded control-plane rows. The protocol is canonical and must be
+Coordinator for bounded control-plane rows. A control-plane ticket admits one
+Flight read. An unopened result expires after five minutes. Reading, expiry, or
+revocation retires the ticket, and a later read returns Flight `NOT_FOUND`.
+The protocol is canonical and must be
 `grpc` or `grpc+tls`. Consume a readable `RUNNING`
 or `FINISHING` stream before waiting for `FINISHED`; bounded output can require an
 active reader to finish. The `session_properties` field is optional and defaults

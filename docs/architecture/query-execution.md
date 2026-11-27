@@ -1215,7 +1215,14 @@ reintroduced behind a Worker-owned protocol.
 
 `SHOW`, `DESCRIBE`, session control, DDL status, and DML acknowledgement rows are
 bounded control-plane responses. `StatementDispatcher` alone may publish these
-through the isolated control-plane transport. Relational `SELECT` code cannot
+through the isolated control-plane transport. It fills one bounded Arrow batch
+and hands the same vectors to Flight on the request thread. This removes the
+intermediate IPC buffer and the batch-fill thread. A ticket admits one reader. The query
+retains its operation and tenant slot until the serving read exits and the
+batch allocation is released. An unopened batch releases its operation on
+expiration, query failure, cancellation, or Coordinator shutdown. Active readers
+retain their allocation until exit. The query and transport track these transitions
+in memory. Relational `SELECT` code cannot
 access that service or its buffer. Connector system-table `SELECT` statements
 therefore compile and dispatch like any other query, and fail closed if the
 connector/Native scan contract is unavailable.

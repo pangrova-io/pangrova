@@ -5442,7 +5442,6 @@ artifacts:
       - org.pangrova.worker.task
       - org.pangrova.worker.task.memory
       - org.pangrova.worker.task.report
-      - org.pangrova.worker.transport
       - org.pangrova.worker.write
     providers:
       {}

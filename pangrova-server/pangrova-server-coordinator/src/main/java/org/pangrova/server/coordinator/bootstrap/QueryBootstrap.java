@@ -331,6 +331,7 @@ final class QueryBootstrap {
                     asyncSubmitExecutor, EXECUTOR_DRAIN_TIMEOUT_MILLIS);
         }
         if (artifactBuildDispatcher != null) artifactBuildDispatcher.close();
+        if (controlPlaneResultBuffer != null) controlPlaneResultBuffer.seal();
     }
 
     private void joinCallbacks() {
@@ -341,9 +342,6 @@ final class QueryBootstrap {
                 () -> { if (materializationMaintenance != null) materializationMaintenance.close(); },
                 () -> { if (speculationScheduler != null) speculationScheduler.close(); },
                 () -> CoordinatorShutdownSequence.stopTimeoutScheduler(queryTimeoutScheduler));
-        if (controlPlaneResultBuffer != null) {
-            controlPlaneResultBuffer.stopExpirationScheduling();
-        }
         ResourceCloser.closeAll(null,
                 () -> {
                     if (readerPinRenewalExecutor != null) {
@@ -469,7 +467,7 @@ final class QueryBootstrap {
     /** Starts the bounded DDL/SHOW/DML acknowledgement transport, never query rows. */
     private CoordinatorResultService startControlPlaneResultTransport() {
         var started = ControlPlaneResultTransportBootstrap.start(
-                config, tracingProvider, schedulerExecutor());
+                config, tracingProvider, schedulerExecutor(), taskTracker::enterQueryOperation);
         controlPlaneResultServer = started.server();
         controlPlaneResultAllocator = started.allocator();
         controlPlaneResultBuffer = started.buffer();

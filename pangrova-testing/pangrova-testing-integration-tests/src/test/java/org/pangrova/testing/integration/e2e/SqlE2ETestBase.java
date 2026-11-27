@@ -237,7 +237,6 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
 
     // Coordinator-local result buffer — serves constant-fold and DDL/DML results via transport.
     protected static volatile CoordinatorResultBuffer coordinatorResultBuffer;
-    protected static volatile CoordinatorResultService coordinatorResultService;
     private static ScheduledExecutorService resultBufferExecutor;
     private static ScheduledExecutorService terminalCleanupTimer;
     private static ExecutorService terminalCleanupWorker;
@@ -1233,7 +1232,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
             return requireResultlessCompletion(queryId, resolution.terminalBody());
         }
         ResultEndpoint endpoint = resolution.endpoint();
-        String canonicalTaskId = hasControlPlaneResult(queryId) ? null
+        String canonicalTaskId = isControlPlaneEndpoint(endpoint, queryId) ? null
                 : requireNativeResultTaskId(endpoint, queryId, taskTracker);
         String workerTaskId = resolveWorkerTaskId(canonicalTaskId);
         List<TypedRow> rows;
@@ -1554,14 +1553,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
             throw new IllegalStateException(
                     "Missing result endpoint for finished query: queryId=" + queryId);
         }
-        // Direct buffer read bypasses the coordinator transport server entirely.
-        if (coordinatorResultBuffer != null) {
-            byte[] buffered = coordinatorResultBuffer.get(queryId);
-            if (buffered != null && buffered.length > 0) {
-                System.err.println("[E2E-DIAG] fetchResults: coordinatorResultBuffer HIT queryId=" + queryId
-                        + " bytes=" + buffered.length);
-                return decodeResultBytes(buffered);
-            }
+        if (isControlPlaneEndpoint(endpoint, queryId)) {
+            return fetchControlPlaneResult(endpoint, queryId);
         }
         // The terminal task may run on any physical Worker. Resolve the
         // actual task placement and require the returned endpoint to match
@@ -1579,10 +1572,31 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         return fetchResultsViaFlight(endpoint, queryId, taskTracker);
     }
 
-    /** Only an actual published control-plane acknowledgement may bypass Native result transport. */
+    /** Reports whether the control-plane server currently owns the acknowledgement. */
     protected static boolean hasControlPlaneResult(String queryId) {
-        byte[] buffered = coordinatorResultBuffer == null ? null : coordinatorResultBuffer.get(queryId);
-        return buffered != null && buffered.length > 0;
+        return coordinatorResultBuffer != null && coordinatorResultBuffer.contains(queryId);
+    }
+
+    protected static boolean isControlPlaneEndpoint(ResultEndpoint endpoint, String queryId) {
+        return endpoint != null && coordinatorTransportServer != null
+                && endpoint.port() == coordinatorTransportServer.getPort() && queryId.equals(endpoint.ticket());
+    }
+
+    protected static List<TypedRow> fetchControlPlaneResult(ResultEndpoint endpoint, String queryId) {
+        if (!isControlPlaneEndpoint(endpoint, queryId)) {
+            throw new IllegalStateException("Control Flight result is not bound to queryId=" + queryId);
+        }
+        var location = org.apache.arrow.flight.Location.forGrpcInsecure(endpoint.host(), endpoint.port());
+        try (var allocator = new org.apache.arrow.memory.RootAllocator(64L * 1024 * 1024);
+             var client = org.apache.arrow.flight.FlightClient.builder(allocator, location).build();
+             var stream = client.getStream(new org.apache.arrow.flight.Ticket(endpoint.ticket()
+                     .getBytes(java.nio.charset.StandardCharsets.UTF_8)))) {
+            List<TypedRow> rows = new java.util.ArrayList<>();
+            while (awaitNextBatch(stream)) appendBatchRows(stream.getRoot(), rows);
+            return rows;
+        } catch (Exception failure) {
+            throw new IllegalStateException("Failed to read control Flight result for queryId=" + queryId, failure);
+        }
     }
 
     private static final int FLIGHT_FETCH_MAX_RETRIES = 3;
@@ -1851,32 +1865,6 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                     "Missing Native task ID for finished query: queryId=" + queryId);
         }
         return resultTaskId;
-    }
-
-    /**
-     * Decodes Arrow IPC stream bytes into a list of row maps.
-     * Uses Arrow SDK ArrowStreamReader to materialize VectorSchemaRoot batches.
-     *
-     * <p>Note: Worker results from C++ FlightResultServer use Velox PrestoVectorSerde
-     * binary blob format (schema: {data: binary}). These require native-side
-     * deserialization which is not yet implemented. Such results decode as empty.</p>
-     */
-    protected static List<TypedRow> decodeResultBytes(byte[] resultBytes) {
-        if (resultBytes == null || resultBytes.length == 0) {
-            return List.of();
-        }
-        List<TypedRow> rows = new java.util.ArrayList<>();
-        try (var allocator = new org.apache.arrow.memory.RootAllocator();
-             var reader = new org.apache.arrow.vector.ipc.ArrowStreamReader(
-                     new java.io.ByteArrayInputStream(resultBytes), allocator)) {
-            while (reader.loadNextBatch()) {
-                appendBatchRows(reader.getVectorSchemaRoot(), rows);
-            }
-        } catch (Exception e) {
-            throw new IllegalStateException(
-                    "Failed to decode result bytes: length=" + resultBytes.length, e);
-        }
-        return rows;
     }
 
     protected static void appendBatchRows(
@@ -2265,14 +2253,15 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     }
 
     /**
-     * Starts a coordinator-side transport server for serving constant-fold and DDL/DML results.
+     * Starts the bounded Coordinator Flight server for control-plane statement results.
      * Worker-side result serving is handled by the C++ FlightResultServer via NativeResultTransport.
      */
     private static TransportServer startCoordinatorTransportServer() {
         var coordinatorProducer = new org.pangrova.coordinator.result.CoordinatorDataProducer(
                 ensureCoordinatorResultBuffer());
-        TransportServer server = new TransportServer(
-                coordinatorProducer, new org.pangrova.protocol.transport.TransportServerConfig(0));
+        coordinatorArrowAllocator = new org.apache.arrow.memory.RootAllocator(128L * 1024 * 1024);
+        TransportServer server = new TransportServer(coordinatorProducer,
+                new org.pangrova.protocol.transport.TransportServerConfig(0), coordinatorArrowAllocator, List.of());
         server.start();
         return server;
     }
@@ -2316,7 +2305,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 };
         // Build CoordinatorResultService BEFORE StatementDispatcher so DDL/metadata
         // results (SHOW INDEXES, DESCRIBE, etc.) are buffered and returned to clients.
-        CoordinatorResultService resultSvc = buildCoordinatorResultService();
+        CoordinatorResultService resultSvc = buildCoordinatorResultService(taskTracker);
         if (workerManager == null) {
             workerManager = new WorkerManager(new org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry());
         }
@@ -2547,17 +2536,14 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         }
     }
 
-    private static CoordinatorResultService buildCoordinatorResultService() {
+    protected static CoordinatorResultService buildCoordinatorResultService(CoordinatorTaskTracker owner) {
         if (coordinatorTransportServer == null || !coordinatorTransportServer.isRunning()) {
             return null;
         }
         CoordinatorResultBuffer buffer = ensureCoordinatorResultBuffer();
-        closeQuietly(coordinatorArrowAllocator, "arrow_allocator");
-        coordinatorArrowAllocator = new org.apache.arrow.memory.RootAllocator(128L * 1024 * 1024);
         var writer = new CoordinatorResultWriter(coordinatorArrowAllocator);
         var endpoint = new ResultEndpoint("localhost", coordinatorTransportServer.getPort(), "coordinator", "grpc");
-        coordinatorResultService = new CoordinatorResultService(buffer, writer, endpoint);
-        return coordinatorResultService;
+        return new CoordinatorResultService(buffer, writer, endpoint, owner::enterQueryOperation);
     }
 
     private static synchronized CoordinatorResultBuffer ensureCoordinatorResultBuffer() {

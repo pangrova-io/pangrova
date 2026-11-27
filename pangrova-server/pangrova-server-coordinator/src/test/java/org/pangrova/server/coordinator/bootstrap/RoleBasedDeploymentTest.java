@@ -441,6 +441,14 @@ class RoleBasedDeploymentTest {
             var response = submitted.get(10, TimeUnit.SECONDS);
             assertThat(response.statusCode()).as("%s", response.body()).isEqualTo(200);
             var receipt = JsonMapperFactory.create().readValue(response.body(), SubmitQueryResponse.class);
+            var resultOwner = bootstrap.getQueryManager().getStateMachine(receipt.queryId());
+            org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(5)).untilAsserted(
+                    () -> assertThat(resultOwner.status().state().name()).isEqualTo("FINISHED"));
+            assertThat(resultOwner.status().drained()).isFalse();
+            assertThat(boundHttpQuota(source)).isOne();
+            var deniedWhileUnread = client.send(showRequest(peer.getHttpPort(), null, authorization),
+                    HttpResponse.BodyHandlers.ofString());
+            assertThat(deniedWhileUnread.statusCode()).as("%s", deniedWhileUnread.body()).isEqualTo(429);
             try (var fetcher = new FlightResultFetcher();
                  var cursor = fetcher.open(receipt.resultEndpoint(), System.currentTimeMillis() + 5_000)) {
                 assertThat(cursor.next()).isFalse();
@@ -448,6 +456,15 @@ class RoleBasedDeploymentTest {
             org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(8))
                     .until(() -> boundHttpQuota(source) == 0
                             && bootstrap.getQueryManager().getStateMachine(receipt.queryId()).status().drained());
+
+            var unopened = client.send(showRequest(bootstrap.getHttpPort(), null, authorization),
+                    HttpResponse.BodyHandlers.ofString());
+            assertThat(unopened.statusCode()).as("%s", unopened.body()).isEqualTo(200);
+            var unopenedReceipt = JsonMapperFactory.create().readValue(unopened.body(), SubmitQueryResponse.class);
+            assertThat(unopenedReceipt.resultEndpoint()).isNotNull();
+            assertThat(boundHttpQuota(source)).isOne();
+            bootstrap.shutdown();
+            assertThat(boundHttpQuota(peer.metadataDataSource())).isZero();
         } finally {
             peer.shutdown();
         }
