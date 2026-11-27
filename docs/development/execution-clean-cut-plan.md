@@ -29,7 +29,7 @@ unlisted: true
 | A7 | Native Parquet 将 `DataSplit` 字节区间应用到行组读取，并在文件边界核验区间。位置删除使用绝对行号。Lance 使用物理行区间或固定 manifest 分区，Paimon merge 要求整个主文件。实时 Iceberg SQL 并行扫描按 manifest `split_offsets` 分片，沿用已有快照字节统计进行阶段估算，并按原始对象共享标量索引判断。剩余验收包括跨主机对象存储 I/O、含大删除文件的成本校准、受保护产物的全链路整对象身份与真实 Apache ORC reader | WP3.4 |
 | A8 | Native 文件适配层的保留字节、返回字节、数据调用、元数据调用和失败调用已贯通 TaskReport 与 Profile。剩余工作是在真实 SDK 请求层按任务计量传输尝试、重试和 wire bytes，补跨主机、缓存和故障注入验证 | WP3.1 |
 | A9 | Iceberg 实时扫描可由同一个构建侧最多四个 BIGINT 键分别生成范围过滤。每个查询可激活最多四组互不共享 Stage 的构建与探测组合，共用 200 ms 等待期限，各自发布范围和 Profile 决策。剩余工作包括其他键类型、连接器、共享 Stage 的组合、向运行中的探测端应用晚到过滤，以及跨主机负载校准 | WP4 |
-| A10 | live 单输入 AQE 已存在；durable replay 关闭 AQE，多输入对齐和可执行 skew split 缺失 | WP5 |
+| A10 | 实时单输入范围合并已存在。普通等值 Join 按已绑定扫描的统计建立两侧哈希分区。符合键顺序、类型和分区数约束的实时双输入 HASH Join 复用同一范围映射，两侧各自保留提交证明，并按合计字节分组。本地独立双 Worker 的 FULL OUTER JOIN 已核验 4 → 1 个消费任务、全部 8 行及物理排空。待补持久重放映射、可执行 skew split、更复杂输入形态和跨主机负载验收 | WP5 |
 | A11 | Shuffle 已有 lease/window/fence；缺少 durable revocation generation、participant ACK 和 convergence receipt | WP6 |
 | A12 | 普通分布式写入删除 redo 后保留带 fingerprint 的终态回执，COPY、CDC 和外部 publication 使用现有写入声明与版本字段。表格导出发布复用同一事务已授权的阶段图，以一次查询校验分片完成状态、分配和输出覆盖，不再逐分片读取 split 或生产者依赖。剩余工作是验证各来源重放窗口并制定可证明的回执回收条件，以及跨主机故障与高并发验收 | WP8 |
 | A13 | 写入 journal 已将确认未发布的精确 fingerprint 固化为 `ABORTED`，保留不确定提交的挂起记录和隔离证据。Paimon 暂存清理仍先比较表快照再尝试删除，各操作之间缺少覆盖目录提交与对象删除的持久屏障。待修复这一竞态并验收跨进程接管和部分删除故障 | WP8 |
@@ -61,7 +61,7 @@ PostgreSQL 接管分类用例预置 4,096 条其他查询日志和 4,096 条其�
 | B2 | `QueryStateMachine` 原子 version/waiter/drain | production provider 接线、租户/principal 上限、终态后 drain 归因 |
 | B3 | callback 隔离、query-order/admission、阶段准备和 durable commit 容量 | 固定到达率叠加阻塞目录、慢对象存储和终态报告压力 |
 | B4 | identity projection 移除、local aggregate reduction | 真实聚合 CPU、首批/完成时延、跨 Worker 与 benchmark 结果 |
-| B5 | live 单输入 AQE 和连续 range mapping | 不同 Join/NULL/重复键/重试/混合负载的阈值与尾时延校准 |
+| B5 | 实时单输入与对齐双输入 AQE 的实际范围映射已验证 | 不同 Join/NULL/重复键/重试/混合负载的阈值与尾时延校准 |
 | B6 | Native result ownership、byte credit、explicit EOF/drain、early-close failure | 跨主机吞吐、soak、完整 ASan/UBSan 和 phase 归因 |
 | B7 | Shuffle read/write window、atomic bounded publication、零逐 batch 授权 SQL | 真实 PostgreSQL 计数、热点、owner 切换、对象清理和并发读取 |
 | B8 | fenced write journal、intent-before-catalog、ambiguous reconciliation | Iceberg/Paimon/Lance/COPY/CDC 高并发和故障组合、跨引擎结果 |
@@ -112,7 +112,7 @@ PostgreSQL 接管分类用例预置 4,096 条其他查询日志和 4,096 条其�
 | 多表授权与目录 | 审查逐表的初始读准入与目录读取。量化大小写回退和显式枚举的实际使用频率。按同一查询的授权范围合并可共享的读取，继续验证其他连接器的具名快照 | PostgreSQL 分别记录授权、命名空间枚举、表枚举与目录指针读取。覆盖重复别名、大小写及歧义、CTE、展开视图、缺失或移动的引用、撤权、目录部署变化、表更替和快照到期 |
 | 物化对象跨 Coordinator 验收 | 分别启动两个 Coordinator，验证跨进程发布、暂停、删除、名字复用和断线重连。测量多租户目录在频繁刷新与缓存淘汰时的加载量和尾时延 | 对照两个进程的 SQL 返回和确切发布代次，验证租户隔离、旧查询租约和新查询的可见性，按查询和变更分别统计目录加载 |
 | 快照和 split 枚举 | 扩展动态过滤的连接器、类型和晚到覆盖，验证对未下发分片的影响。大文件按合法范围拆分，小文件按工作量组包。有界枚举与实际读放大按连接器验证 | 冻结相同快照与授权。比较 split 数、实际对象 GET 和读取字节，覆盖缺失、晚到、失败、删除文件、快照演进和取消 |
-| 计划、分配和控制面 | 测量实际多 Worker 混合负载下，多个大请求同时解码、排队及 Native 创建时的驻留内存和尾时延。量化下游准备隔离在固定到达率、受阻目录 I/O 与写入混合负载下的 P95。以混合负载校准单输入 AQE 的阈值和尾时延，再验证多输入、偏斜拆分和持久重放 | 基线和候选完成同一完整结果。检查覆盖、滞后、重试、投机获胜和 durable replay |
+| 计划、分配和控制面 | 测量实际多 Worker 混合负载下，多个大请求同时解码、排队及 Native 创建时的驻留内存和尾时延。量化下游准备隔离在固定到达率、受阻目录 I/O 与写入混合负载下的 P95。以混合负载校准单输入和对齐双输入 AQE 的阈值和尾时延，再验证更多输入形态、偏斜拆分和持久重放 | 基线和候选完成同一完整结果。检查覆盖、滞后、重试、投机获胜和 durable replay |
 | 远端 Shuffle | 核验更宽和变长输出的实际对象数、内存及跨主机吞吐。扩大热点并发，量化锁等待与尾时延，再校准是否需要段存储 | PostgreSQL 和对象存储真实压测，覆盖权限撤销、owner 切换、背压、未知 PUT、丢 ACK 和 GC |
 | Velox 与结果 | 对剩余 I/O、解码、spill、缓存和单出口成本做归因。继续测跨主机出口、持续内存占用与链路异常下的释放 | 冷热、偏斜及宽窄负载验证精确权限、顺序、首批、EOF、资源窗口与实际归还 |
 | 写入与提交 | 用高并发和故障窗口校准文件大小、写放大、提交时延及各格式恢复。原子发布和跨引擎结果独立验收 | Iceberg/Paimon/Lance/COPY/CDC 保留快照、offset、精确 fence 和资源归还证据 |
@@ -163,7 +163,7 @@ PostgreSQL 接管分类用例预置 4,096 条其他查询日志和 4,096 条其�
 ### 扫描、AQE、结果和写入的适用门槛
 
 - **扫描与 split。** 原有 10 万分片微测证明最小堆适合高扇出，小并行度可能更慢。先用实际 range bytes、对象数、delete/解码估计和 backlog 定任务尺寸，再从生产分布决定是否换分配算法。总 split 有界准备和已签发 task descriptor/重试状态使用各自的容量指标。不能为减少枚举内存而提前签发需要固定 cohort 的 stage。需要先证明完整覆盖的模式仍按固定快照生成清单。用Iceberg manifest 剪枝和现有 Velox pushdown 先减少实际输入字节。 [Iceberg 扫描规划](https://iceberg.apache.org/spec/#scan-planning) · [Trino task sizing](https://trino.io/docs/current/admin/fault-tolerant-execution.html#task-sizing)
-- **真实 AQE。** 派发保持原计划的分区坐标，`ExchangeSourceBuilder` 按 consumer partition ID 取 producer 分区或 receipt。单哈希输入的范围合并已按已提交 producer 输出生成、冻结并校验了实际读取映射。进一步校准阈值及真实负载尾时延。用不同 join 类型、NULL、重复键、倾斜、重试和 durable replay 证明完整覆盖、去重和成本上界，再比较关键路径。Spark AQE 的参考点是使用运行时输出统计与不同读取划分。它的默认阈值不直接作为 Pangrova 门槛。 [Spark SQL AQE](https://spark.apache.org/docs/latest/sql-performance-tuning.html#adaptive-query-execution)
+- **真实 AQE。** 派发保持原计划的分区坐标，`ExchangeSourceBuilder` 按 consumer partition ID 取 producer 分区或 receipt。单哈希输入以及对齐的双哈希输入均已按提交回执生成、冻结并校验实际读取映射。进一步校准阈值及真实负载尾时延。用不同 join 类型、NULL、重复键、倾斜、重试和 durable replay 证明完整覆盖、去重和成本上界，再比较关键路径。Spark AQE 的参考点是使用运行时输出统计与不同读取划分。它的默认阈值不直接作为 Pangrova 门槛。 [Spark SQL AQE](https://spark.apache.org/docs/latest/sql-performance-tuning.html#adaptive-query-execution)
 - **结果出口。** 首先保持单 endpoint 的 SQL 行为，移除客户端 IPC 回转。Arrow Java 当前使用 19.x，依据该版本的 DoGet、batch 生命周期及顺序。限额按 bytes 同时覆盖服务端输出、客户端 Arrow allocator、消费解码和传输队列。先跑慢消费者、客户端提前关闭、读完后终态失败、分区数据齐全。只有单出口带宽或资源滞留占主要成本时，再选择并行 endpoints、range order merge 或持久结果段。全局 ORDER BY/LIMIT 必须证明完整顺序与完成结果。`FlightInfo.ordered` 只能描述已保证的端点拼接顺序。 [Arrow Flight 19](https://arrow.apache.org/docs/19.0/format/Flight.html) · [Trino 结果分段](https://trino.io/docs/current/client/client-protocol.html#spooling-protocol)
 - **DML/CDC。** 提交回执已复用，继续测量高并发和故障窗口内的 authority、journal 与行状态成本。不要因为只有一个发布 API 就把 journal 或清理做成 catalogue commit 的隐式成功。连接器 publish 与 journal 分属不同事务，前后校验不能仅因相邻而合并。COW、write file sizing、碎片包装和 COPY 本地化各用自己的证据，含快照可见、旧文件保留、未知提交和 CDC offset。 [Iceberg 可靠性](https://iceberg.apache.org/docs/latest/reliability/)
 
@@ -182,7 +182,7 @@ PostgreSQL 接管分类用例预置 4,096 条其他查询日志和 4,096 条其�
 ## 后续 PR 与一次性发布
 
 1. 用真实分片、对象读和精确终态扩大跨 Stage 动态过滤。按实际负载评估其他键类型、连接器和等待成本，以及晚到过滤约束尚未发出的分片。
-2. 用完整 SQL 负载校准已启用的单输入范围合并，再验证 Join 两侧的对齐范围、热点拆分与持久重放。
+2. 用完整 SQL 负载校准已启用的单输入及对齐双输入范围合并，再验证热点拆分与持久重放。
 3. 为读写路径运行独立过程与资源压力验收，记录普通路径、失败恢复与物理退出。先对现有行为归因，按明确阈值决定额外的存储和结果并行优化。
 4. 用冻结的 Linux 配置完成同条件跨引擎基准及正式发布回归。
 
@@ -528,6 +528,8 @@ PostgreSQL 在同一语句中读取策略表和当前目录部署证据。普通
 实施批次 102 将远端 Shuffle 的注册、提交回执和 cleanup 能力归属到单个查询。完成或移交后按查询直接移除状态，其他活跃查询的注册和发布回执继续可用。本地进程内微测预装 20,000 个查询，每个四个 Stage，分别运行两组，每组 3,000 次回收。回收 P50 从 1.56–1.67 ms 降到 0.1 µs 以内。计时粒度约为 42 ns，测量范围是进程内状态释放。36 项定向测试、Checkstyle 和正式包双 Worker REMOTE SQL 的 MinIO 与租户释放回归通过。
 
 实施批次 101 复用 Iceberg JDBC SDK 新建表对象时读取的权威元数据。现有非空发布快照复用同一次元数据确认，要求发布回执的空 INSERT 仍提交并查验精确标记。真实 PostgreSQL `pg_stat_statements` 对照中，已绑定写入的精确 Iceberg 目录指针 SELECT 由 8 次减为 7 次，要求发布回执时由 11 次减为 8 次。50 项定向 Java 和 Checkstyle 通过，包含普通 SQL、COPY、空快照、精确重复提交、Dynamic Table 和 Materialized View。
+
+最新本地 Release 以同一 C++ JNI 库打包 Maven classifier 和 Worker JAR。独立 Coordinator、两个 Worker 和 CLI 通过 mTLS 远端 Shuffle 执行单输入聚合和双输入 FULL OUTER JOIN。两侧各四个 Iceberg 文件，Join 从四个原始分区合为一个消费任务，Flight 逐行返回全部八行，覆盖重复键、NULL 与两侧未匹配行。两个 Worker 都有 Native 释放回执，租户槽位和 MinIO Shuffle 对象均已归还。另通过 56 项 Planner 测试以及 20 项双 Worker 回归。跨主机吞吐、尾时延、偏斜和持久重放仍按 A10/B5 验收。
 
 实施批次 100 用实际打包的 Coordinator、两个 Worker、CLI 和 C++ Release JNI 验证了单输入 AQE。公开 SQL 从四个分开提交的 Iceberg 文件读出 20 行，四个哈希分区经 mTLS 远端 Shuffle 合并为一个消费任务。Native Flight 返回有序的四组计数 4、8、4、4。两个 Worker 回报精确 attempt 的 Native 释放，已归还租户槽位与 PostgreSQL Shuffle allocation，MinIO 桶内的实际对象已清空。现有 NATIVE 进程回归还验证了双 Worker 查询和优雅重启。34 项定向 Java 和 Checkstyle、9 项打包工具测试通过。**机制状态：**live 单输入范围合并和真实 4→1 读取映射已实现。**当前验收状态：**本地打包双 Worker 正确性与资源回收已验证；生产阈值、混合负载尾时延、多输入、durable replay 和 skew 尚未完成。**后续 WP：**B5/A10，WP5。
 

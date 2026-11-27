@@ -1,7 +1,10 @@
 package org.pangrova.planner.adaptive;
 
 import org.pangrova.planner.api.adaptive.CoalesceResult;
+import org.pangrova.planner.api.adaptive.PartitionGroup;
 
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.pangrova.shuffle.api.ShufflePartitionStats;
@@ -125,6 +128,38 @@ class PartitionCoalescerEvaluateTest {
         assertThat(coalescer.evaluate(receipt, 4, AdaptiveQueryConfig.ENABLED, 2).groups()).containsExactly(
                 new org.pangrova.planner.api.adaptive.PartitionGroup(0, 2, 16),
                 new org.pangrova.planner.api.adaptive.PartitionGroup(2, 4, 32));
+    }
+
+    @Test
+    void alignedJoinUsesCombinedBytesAndChecksEachInputsCoverage() {
+        var config = new AdaptiveQueryConfig(true, 100, 5.0, 256, 2);
+        var left = receipt(1, 45, 20, 30, 0);
+        var right = receipt(2, 15, 10, 20, 20);
+        assertThat(coalescer.evaluateAligned(List.of(left, right), 4, config, 4).groups()).containsExactly(
+                new PartitionGroup(0, 2, 90), new PartitionGroup(2, 4, 70));
+        assertThat(coalescer.evaluateAligned(List.of(left, receipt(2, 15, 10)), 4, config, 4))
+                .isEqualTo(CoalesceResult.NO_OP);
+        assertThat(coalescer.evaluateAligned(List.of(left, right), 4, config, 1)).isEqualTo(CoalesceResult.NO_OP);
+    }
+
+    @Test
+    void combinedPartitionBytesSaturateWithoutCombiningAnOversizePartition() {
+        var config = new AdaptiveQueryConfig(true, 100, 5.0, 256, 2);
+        var left = receipt(1, Long.MAX_VALUE, 0, 1);
+        var right = receipt(2, 1, 0, 1);
+        assertThat(coalescer.evaluateAligned(List.of(left, right), 3, config, 3).groups()).containsExactly(
+                new PartitionGroup(0, 1, Long.MAX_VALUE), new PartitionGroup(1, 3, 2));
+    }
+
+    private static ShuffleCommitReceipt receipt(int stage, long... bytes) {
+        String checksum = "00".repeat(32);
+        var partitions = new HashMap<Integer, ShuffleCommitReceipt.Partition>();
+        for (int i = 0; i < bytes.length; i++) {
+            long rows = bytes[i] == 0 ? 0 : 1;
+            partitions.put(i, new ShuffleCommitReceipt.Partition(rows - 1, bytes[i], rows, checksum));
+        }
+        return new ShuffleCommitReceipt(new ShufflePublication("query", stage, 2, "shuffle-" + stage),
+                1, checksum, partitions);
     }
 
     @Test

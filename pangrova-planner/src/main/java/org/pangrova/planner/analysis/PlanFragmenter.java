@@ -57,6 +57,7 @@ import org.pangrova.planner.cost.distribution.PangrovaExchangeInput;
 import org.pangrova.planner.cost.distribution.WindowPartitioning;
 import org.pangrova.planner.cost.join.PangrovaBroadcastJoin;
 import org.pangrova.planner.cost.join.BroadcastJoinConfig;
+import org.pangrova.planner.cost.join.HashJoinConfig;
 import org.pangrova.planner.cost.join.PangrovaHashJoin;
 import org.pangrova.planner.metadata.PlanTable;
 import org.pangrova.planner.metadata.catalog.MetadataResolvedTable;
@@ -253,7 +254,7 @@ final class PlanFragmenter {
                 }
             }
             if (liveRead && node instanceof LogicalJoin join) {
-                node = materializeSelectiveBuild(join);
+                node = materializeJoinInputs(join);
             }
             if (node instanceof Aggregate aggregate
                     && !hasOnlyLocalSourceLeaves(aggregate.getInput())) {
@@ -781,6 +782,30 @@ final class PlanFragmenter {
             return Optional.of(new StageRuntimeFilter(buildStage, build.exchangeId(), probeStage, probeRead,
                     keys.stream().map(key -> new StageRuntimeFilter.ProbeKey(
                             key.buildOrdinal(), key.probe().fieldId(), key.probe().name())).toList()));
+        }
+
+        private RelNode materializeJoinInputs(LogicalJoin join) {
+            RelNode broadcast = materializeSelectiveBuild(join);
+            if (broadcast != join) return broadcast;
+            var keys = join.analyzeCondition();
+            if (maxParallelism <= SINGLE_PARALLELISM || sessionParallelismOverride == SINGLE_PARALLELISM
+                    || !PartitionLocalPlanInspector.isIndependent(join.getLeft())
+                    || !PartitionLocalPlanInspector.isIndependent(join.getRight())
+                    || !PartitionLocalPlanInspector.supportsHashPartitioning(join, keys)
+                    || !hasParallelJoinInput(join)) {
+                return join;
+            }
+
+            RelNode left = enforceDistribution(join.getLeft(), PangrovaDistribution.hash(keys.leftKeys));
+            RelNode right = enforceDistribution(join.getRight(), PangrovaDistribution.hash(keys.rightKeys));
+            return new PangrovaHashJoin(new HashJoinConfig(join.getCluster(), join.getTraitSet(), left, right,
+                    join.getCondition(), join.getVariablesSet(), join.getJoinType()));
+        }
+
+        private boolean hasParallelJoinInput(Join join) {
+            return sessionParallelismOverride > SINGLE_PARALLELISM
+                    || join.getInputs().stream().anyMatch(input -> FragmentSourceParallelism.resolve(
+                            input, bytesPerPartition, maxParallelism, SINGLE_PARALLELISM) > SINGLE_PARALLELISM);
         }
 
         private static RelNode materializeSelectiveBuild(LogicalJoin join) {

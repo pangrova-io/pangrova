@@ -2199,13 +2199,23 @@ published Shuffle statistics skips evaluation. Candidate coalescing preserves
 the original partition order as contiguous ranges and requires an observed
 entry for each source partition, including explicitly empty partitions.
 
-Dispatch uses the original stage and exchange coordinates. Each consumer
-binds its corresponding published partition or the direct producer tickets.
-A task count alone cannot describe which producer ranges a consumer reads.
-An adaptive dispatch contract must freeze a complete range mapping against the
-committed allocation and keep consumer attempt identity separate from source
-partition identity. Multi-input stages must agree on matching partitions, and
-retry must keep the chosen mapping and allocation epoch.
+For a live equality join over independent scans, the fragmenter can establish
+hash exchanges on both inputs. It uses the bound source statistics to identify
+parallel work and respects the session's requested parallelism. Ordered equality
+keys must have matching hash types. The same proof applies to the physical
+input bindings used during dispatch.
+
+Live dispatch can freeze a shared range mapping for a partition-local compute
+stage with two committed external hash inputs. The join's equality keys must
+match both exchange keys in order, with the same hash key types and original
+partition count. Each consumer reads the same contiguous range from both
+allocations. The Coordinator budgets the sum of both inputs' bytes per original
+partition and respects the protocol limit on partitions per input.
+
+The range mapping keeps source partition IDs separate from consumer attempt
+IDs. Each input binding carries its own allocation epoch, publication proofs,
+and read access. A live retry uses the frozen mapping for that stage. Durable
+replay uses the original persisted partition allocation.
 
 The implementation and verification requirements are tracked in the
 [query performance plan](../development/query-performance-parity-plan.md#q3-让-cbo聚合和-aqe-缩减跨节点工作).

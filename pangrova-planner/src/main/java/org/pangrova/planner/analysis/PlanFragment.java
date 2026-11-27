@@ -106,6 +106,11 @@ public final class PlanFragment implements StagePlanAccess {
         return PartitionLocalPlanInspector.supportsCoalescedHashInput(planNode, exchangeId, hashKeys);
     }
 
+    /** Checks the ordered key, type and partition alignment of a live hash join's exchange leaves. */
+    public boolean supportsCoalescedHashJoin(java.util.Map<String, List<Integer>> exchanges, int partitions) {
+        return PartitionLocalPlanInspector.supportsCoalescedHashJoin(planNode, exchanges, partitions);
+    }
+
     private static boolean hasWindow(RelNode node) {
         if (node instanceof Window) {
             return true;

@@ -434,8 +434,9 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
         var inputs = coalescedShuffleInputs.select(stage, state.dag());
         stage.freezeCoalescedInputs(inputs);
         if (inputs.isCoalesced()) {
-            LOG.info("event=shuffle_input_coalesced queryId={} stageId={} sourcePartitions={} consumers={}",
-                    state.queryId(), stage.stageId(), inputs.originalCount(), inputs.coalescedCount());
+            LOG.info("event=shuffle_input_coalesced queryId={} stageId={} sourcePartitions={} consumers={} inputs={}",
+                    state.queryId(), stage.stageId(), inputs.originalCount(), inputs.coalescedCount(),
+                    state.dag().edges().getOrDefault(stage.stageId(), List.of()).size());
         }
     }
 
