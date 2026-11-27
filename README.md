@@ -31,12 +31,9 @@ aggregates it to two clicks and one purchase.
 > [current capability status](docs/getting-started/capability-status.md) before
 > choosing features or evaluating a workload.
 
-## CLI workflow demo
+## CLI Demo
 
 https://github.com/user-attachments/assets/ac907ae0-1a61-4912-a43e-805277bd1cc2
-
-[Download the original MP4](website/static/media/pangrova-cli-demo.mp4) ·
-3 min 47 sec · 1080p · English narration
 
 The walkthrough covers SQL, multimodal FILE data, scalar/full-text and vector
 indexes, relational analytics, and table maintenance in a local Standalone
