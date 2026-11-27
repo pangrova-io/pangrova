@@ -288,7 +288,7 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
         assertThat(statementCalls(fullOwnerTemplate) - fullOwnerBefore)
                 .as("complete table control records used for current owner checks").isZero();
         assertThat(statementCalls(compactOwnerTemplate) - compactOwnerBefore)
-                .as("fences before and after snapshot binding and split enumeration").isEqualTo(4);
+                .as("snapshot and split fences, including post-enumeration stage binding").isEqualTo(5);
         assertThat(statementCalls(roleTemplate) - rolesBefore)
                 .as("separate effective role reads during protected query planning").isZero();
         assertThat(statementCalls(grantTemplate) - grantsBefore)
