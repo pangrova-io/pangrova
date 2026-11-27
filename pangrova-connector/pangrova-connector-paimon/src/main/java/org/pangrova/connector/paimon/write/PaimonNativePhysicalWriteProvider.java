@@ -16,7 +16,6 @@ import org.pangrova.protocol.v2.WriteOutputBinding;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
 import org.pangrova.connector.api.commit.DistributedWriteCommitContext;
-import org.pangrova.connector.api.metadata.NativePhysicalFileAllocation;
 import org.pangrova.connector.api.metadata.NativePhysicalFileReceipt;
 import org.pangrova.connector.api.metadata.NativePhysicalWriteAllocation;
 import org.pangrova.connector.api.metadata.NativePhysicalWriteProvider;
@@ -75,35 +74,6 @@ public final class PaimonNativePhysicalWriteProvider implements NativePhysicalWr
             if (!published) PaimonPhysicalObjectVerifier.verify(table, receipt);
         }
         return List.of(PaimonPhysicalCommitMessages.append(handle, receipts));
-    }
-
-    @Override
-    public void abortUncommittedFiles(ConnectorSession session, ConnectorOutputTableHandle output,
-            List<NativePhysicalFileAllocation> allocations, DistributedWriteCommitContext context) {
-        requireSession(session);
-        var handle = requireHandle(output);
-        validateCommitContext(session, handle, context);
-        var allocation = handle.nativePhysicalWriteAllocation().orElseThrow();
-        var table = load(handle);
-        // Callers reach this only after the durable journal records a non-publication
-        // disposition. The format marker must still be absent before any object is removed.
-        if (table.snapshotManager().latestSnapshotOfUser(context.commitFingerprint()).isPresent()) {
-            throw new IllegalStateException("Physical output is already published; refusing cleanup");
-        }
-        var permitted = allocation.files().stream()
-                .map(NativePhysicalFileAllocation::location).toList();
-        String prefix = table.location().toString() + "/";
-        for (var candidate : allocations) {
-            if (!permitted.contains(candidate.location())
-                    || !candidate.location().opaqueLocation().startsWith(prefix)) {
-                throw new IllegalArgumentException(
-                        "Physical cleanup target differs from the exact bound allocation");
-            }
-        }
-        for (var candidate : allocations) {
-            table.fileIO().deleteQuietly(
-                    new org.apache.paimon.fs.Path(candidate.location().opaqueLocation()));
-        }
     }
 
     private void validateCommitContext(ConnectorSession session, PaimonOutputTableHandle handle,

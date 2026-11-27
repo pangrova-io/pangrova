@@ -519,14 +519,14 @@ when a replay decodes the journaled binding. Paimon's `uuid()` can be synthesize
 name and the earliest schema, so location and schema fingerprint are part of the identity rather
 than optional corroboration. A mismatch fails the write; it never re-targets the current table.
 
-Commit retries are limited to explicit conflict signatures (`conflict`, `Cannot commit snapshot`,
-preparing/committing snapshot failures). Catalog, permission, argument, unsupported-operation and
-unclassified exceptions are not retried; recovery re-checks the fingerprint marker instead. A
-three-argument `abortDistributedWrite()` deletes only the staged files named by the fragments, only
-under the table location, and only while no snapshot advanced past the stored base snapshot. If
-another writer advanced the table, abort leaves the files for orphan maintenance. Paimon has no
-irrevocable format-level barrier, so a durable four-argument abort remains unsupported and is
-quarantined for reconciliation rather than guessed.
+The Paimon SDK owns snapshot conflict retries. If the SDK returns an ambiguous error, journal
+recovery checks retained snapshot history for the original fingerprint. The old CDC scheduler
+holds the three-argument `abortDistributedWrite()` path, which checks the base snapshot before
+deleting files named by its staged fragments. That check and deletion are separate operations.
+Production journal recovery uses the four-argument abort contract and quarantines Paimon intents
+when it cannot obtain a durable abort receipt. The Native physical-file adapter validates
+allocations and builds commit metadata. Physical cleanup of a journaled intent requires an
+irrevocable non-publication decision and separately fenced object deletion.
 
 ---
 

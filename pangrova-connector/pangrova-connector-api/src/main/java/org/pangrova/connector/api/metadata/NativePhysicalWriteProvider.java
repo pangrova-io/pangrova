@@ -18,9 +18,4 @@ public interface NativePhysicalWriteProvider {
     List<byte[]> prepareCommitMetadata(ConnectorSession session, ConnectorOutputTableHandle output,
                                        List<NativePhysicalFileReceipt> receipts,
                                        DistributedWriteCommitContext context);
-
-    /** Deletes only exact uncommitted allocations whose publication is known not to have occurred. */
-    void abortUncommittedFiles(ConnectorSession session, ConnectorOutputTableHandle output,
-                               List<NativePhysicalFileAllocation> allocations,
-                               DistributedWriteCommitContext context);
 }
