@@ -6,7 +6,7 @@ on:
       probe:
         description: Isolated CI stage to verify
         type: choice
-        options: [macos-docker, macos-intel-docker, production, worker-files, java-daily, libunwind, ai-fixture, jmh-relative, tpc-transport, macos-libcxx, production-pic, system-pic, system-rebuild]
+        options: [macos-docker, macos-intel-docker, production, worker-files, java-daily, libunwind, ai-fixture, jmh-relative, tpc-transport, macos-libcxx, production-pic, system-pic, system-rebuild, metadata-regression]
         default: macos-docker
       production_source:
         description: Exact production source revision
@@ -17,6 +17,47 @@ permissions:
   actions: read
 
 jobs:
+  metadata-regression:
+    name: Verify PostgreSQL rollback on the exact repaired source
+    if: inputs.probe == 'metadata-regression'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      SOURCE_COMMIT: ${{ inputs.production_source }}
+      MAVEN_ARGS: -C --global-settings ${{ github.workspace }}/.mvn/ci-settings.xml
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.production_source }}
+      - name: Require the requested commit
+        run: |
+          [[ "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$(git rev-parse HEAD)" == "$SOURCE_COMMIT" ]]
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v8
+        with:
+          name: pinned-iceberg-sdk
+          path: ${{ runner.temp }}/pangrova-iceberg-sdk
+          github-token: ${{ github.token }}
+          run-id: 46034791345
+          digest-mismatch: error
+      - name: Install the verified Iceberg SDK
+        run: |
+          mkdir -p "$HOME/.m2/repository/org/apache/iceberg"
+          cp -R "$RUNNER_TEMP/pangrova-iceberg-sdk/org/apache/iceberg/." "$HOME/.m2/repository/org/apache/iceberg/"
+      - name: Run the seven real rollback cases
+        run: |
+          mvn -B -Pfull-regression -pl pangrova-metadata/pangrova-metadata-catalog -am test \
+            '-Dtest=PostgresGenerationStageExchangeStoreTest#failedPartitionClaimRestoresAttemptAndPreservesPrimary' \
+            -Dsurefire.failIfNoSpecifiedTests=false
+
   system-rebuild:
     name: Rebuild and select exact Ubuntu PIC source packages
     if: inputs.probe == 'system-rebuild'
