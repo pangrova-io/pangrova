@@ -39,9 +39,15 @@ final class PaimonScanBudget {
         if (fromExclusive < 0 || toInclusive < fromExclusive || toInclusive == Long.MAX_VALUE) {
             throw new IllegalArgumentException("Invalid Paimon incremental snapshot range");
         }
-        if (toInclusive - fromExclusive > maxCandidates) {
-            throw metadataLimit("snapshots");
-        }
+        checkMetadataCount(toInclusive - fromExclusive, "snapshots");
+    }
+
+    void checkMetadataCount(long count, String unit) {
+        if (count > maxCandidates) throw metadataLimit(unit);
+    }
+
+    boolean admitsCandidate(long count) {
+        return !cancelled() && !stage.expired() && count <= maxCandidates;
     }
 
     List<Split> plan(ReadBuilder builder) {

@@ -11,8 +11,11 @@ import org.pangrova.connector.paimon.PaimonMetadata;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.CatalogFactory;
+import org.apache.paimon.catalog.FileSystemCatalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.GenericRow;
+import org.apache.paimon.fs.SeekableInputStream;
+import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.options.Options;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaChange;
@@ -20,6 +23,8 @@ import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.types.DataTypes;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
 import org.pangrova.connector.api.metadata.SplitPlanningBudget;
@@ -27,16 +32,19 @@ import org.pangrova.connector.api.metadata.Constraint;
 import org.pangrova.connector.api.metadata.DynamicFilter;
 import org.pangrova.connector.api.metadata.table.ConnectorReadBinding;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.metadata.table.SnapshotRange;
 import org.pangrova.coordinator.task.TestConnectorQuery;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Proxy;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -55,6 +63,39 @@ class PaimonReadBindingIntegrationTest {
         @Override public Optional<String> getSchema() { return Optional.of("db"); }
         @Override public Map<String, String> getProperties() { return Map.of("queryId", "read", "tenant_id", "tenant"); }
     };
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void appendRangeReadsEachInteriorSnapshotOnceAndRevalidatesTheTarget(boolean dataEvolution) throws Exception {
+        var io = new CountingSnapshotIo();
+        try (var catalog = new FileSystemCatalog(io, new org.apache.paimon.fs.Path(warehouse.toString()));
+             var registry = new PaimonSplitRegistry()) {
+            catalog.createDatabase("db", false);
+            var id = Identifier.create("db", "append_range");
+            var schema = Schema.newBuilder().column("id", DataTypes.BIGINT())
+                    .option("bucket", "-1").option("file.format", "parquet");
+            if (dataEvolution) schema.option("data-evolution.enabled", "true").option("row-tracking.enabled", "true");
+            catalog.createTable(id, schema.build(), false);
+            var table = (FileStoreTable) catalog.getTable(id);
+            for (int i = 1; i <= 4; i++) write(table, i);
+            var metadata = new PaimonMetadata(catalog, "bound", registry);
+            var handle = metadata.getTableHandle(SESSION, new SchemaTableName("db", "append_range"));
+            var selected = metadata.bindRead(SESSION, handle.withIncrementalRange(new SnapshotRange(1, 4)));
+            io.snapshotOpens.clear();
+
+            assertThat(splits(catalog, registry, metadata, selected)).hasSize(3).allSatisfy(split ->
+                    assertThat(split.getSourceSnapshot()).isEqualTo("4"));
+            assertThat(List.of(io.opens(1), io.opens(2), io.opens(3), io.opens(4)))
+                    .as("base, interior snapshots and fenced upper snapshot").containsExactly(1, 1, 1, 2);
+
+            io.snapshotOpens.clear();
+            var exhausted = new SplitPlanningBudget(SplitPlanningBudget.standard().deadlineNanos(), 0);
+            assertThatThrownBy(() -> splits(catalog, registry, metadata, selected, exhausted))
+                    .isInstanceOfSatisfying(ConnectorException.class, failure ->
+                            assertThat(failure.getErrorCode()).isEqualTo(PangrovaErrorCode.CONNECTOR_SPLIT_LIMIT_REACHED));
+            assertThat(io.opens(3)).as("later snapshot after stage capacity was exhausted").isZero();
+        }
+    }
 
     @Test
     void validatingABoundScanAndPlanningItsFilesShareOneFreshCatalogLoad() throws Exception {
@@ -310,5 +351,22 @@ class PaimonReadBindingIntegrationTest {
             query.retire();
         }
         return result;
+    }
+
+    private static final class CountingSnapshotIo extends LocalFileIO {
+        private final Map<String, AtomicInteger> snapshotOpens = new ConcurrentHashMap<>();
+
+        @Override
+        public SeekableInputStream newInputStream(org.apache.paimon.fs.Path path) throws IOException {
+            if (path.getName().startsWith("snapshot-")) {
+                snapshotOpens.computeIfAbsent(path.getName(), ignored -> new AtomicInteger()).incrementAndGet();
+            }
+            return super.newInputStream(path);
+        }
+
+        int opens(long snapshot) {
+            var count = snapshotOpens.get("snapshot-" + snapshot);
+            return count == null ? 0 : count.get();
+        }
     }
 }

@@ -255,6 +255,13 @@ to the selected connector delta. Workers read the split plan and stream results
 through Native Flight. Connectors validate the selected upper snapshot and reject
 an unsupported append range before returning splits.
 
+For direct Paimon SQL, one pass validates each append snapshot and immediately
+enumerates its delta manifests. The pass opens a single manifest at a time per
+query and checks the remaining stage capacity before retaining its files or
+opening the next object. The upper snapshot is reused for enumeration and read
+fresh at the final identity check. The SDK still supplies table authorization,
+manifest predicates, and split grouping.
+
 `QuerySplit` in `pangrova-query` owns the immutable encoded split plus cache-affinity
 locations. Enumeration and dispatch consume this value without depending on a nested
 class of the catalog fetch implementation. It owns no connector session or buffer lease and does not grant publication or data-access
