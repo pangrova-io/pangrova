@@ -1752,12 +1752,6 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         return java.util.Objects.requireNonNull(workerTaskManagerRef, "Worker task manager has not started");
     }
 
-    /** Actual Native split decisions, captured before scan scheduling. */
-    protected static TaskManager.IndexSplitTotals nativeIndexSplitTotals() {
-        return java.util.Objects.requireNonNull(workerTaskManagerRef,
-                "Worker task manager has not started").getNativeIndexSplitTotals();
-    }
-
     /** Waits for asynchronous Worker registration of an issued result task. */
     protected static String awaitWorkerTaskId(String coordinatorTaskId) {
         if (coordinatorTaskId == null || coordinatorTaskId.isBlank()) {

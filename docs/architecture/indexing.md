@@ -586,8 +586,10 @@ tables is insufficient to justify pruning either table.
 `NativeTaskStats.index_splits_evaluated` and `index_splits_skipped` report
 actual Worker decisions. An index-performance claim must use these counters
 or scan I/O, not the Coordinator's earlier split-filter counters or Iceberg's
-own manifest pruning statistics. The E2E regression uses overlapping file
-min/max ranges to distinguish Bloom pruning from connector pruning.
+own manifest pruning statistics. The E2E regression reads the counters from
+the Coordinator's accepted drain reports for the query's exact attempts.
+Overlapping file min/max ranges distinguish native index pruning from
+connector pruning.
 This placement follows [Velox's split queue contract](https://facebookincubator.github.io/velox/develop/task.html):
 the application decides which splits to add before the scan operator reads
 them. [Iceberg's planning statistics](https://iceberg.apache.org/docs/nightly/performance/)
