@@ -1198,6 +1198,21 @@ The Coordinator schedules in topological order of the Stage DAG: leaf Stages are
 
 For live reads, Worker progress and task acknowledgement release downstream preparation onto a bounded Coordinator pool. Multiple readiness signals for the same query share one queued operation. The operation holds query issuance until preparation exits, including split-source close. Queue saturation fails the affected query with a resource-exhaustion error. A Java linkage failure during preparation fails the query with the dispatch error and retains the original cause. The dispatch waiter is notified immediately, and preparation releases its issuance operation as it exits. Fenced publication and durable recovery retain their authoritative completion order.
 
+Live leaf tasks place the largest estimated scan work on the least loaded
+partition. The Coordinator estimates work once while binding each split and
+stores the weight beside the canonical split. It combines planned input bytes,
+file-open overhead and row decode costs. Iceberg uses the planned range, auxiliary delete bytes and
+estimated rows from its scan task. Paimon merge scans count each physical input
+and its rows, including the bound deletion vector when present. Lance
+manifest partitions use their bound row count and a minimum weight because
+the number of physical files is unavailable at this boundary. The estimate
+issues no catalog, PostgreSQL or storage requests. Artifact-backed tasks
+keep each source object's splits together.
+
+The starting weights are 4 MiB per file open, 32 byte-equivalents per decoded
+row and 64 per Paimon merge input row. The Worker enforces physical I/O, memory
+and task grants against the immutable task binding. [Spark file-open cost](https://spark.apache.org/docs/3.5.6/sql-performance-tuning.html)
+
 ![Stage DAG example (SELECT ... JOIN ... ORDER BY ... LIMIT):](../../website/static/img/diagrams/generated/query-execution-33-90eae7ac69.svg)
 
 **Output Worker selection algorithm**

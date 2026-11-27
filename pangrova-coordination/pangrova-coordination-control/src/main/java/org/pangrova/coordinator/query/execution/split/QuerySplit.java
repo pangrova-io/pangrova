@@ -8,16 +8,24 @@ import org.pangrova.protocol.v2.DataSplit;
  * Canonical split shared by stage binding, placement and task construction.
  * Locations are cache-affinity hints; access is governed by the split's canonical identity.
  */
-public record QuerySplit(DataSplit data, List<String> filePaths, long estimatedScanBytes) {
+public record QuerySplit(DataSplit data, List<String> filePaths, long estimatedPlacementWeight) {
     public QuerySplit(DataSplit data, List<String> filePaths) {
-        this(data, filePaths, 0L);
+        this(data, filePaths, 1L);
+    }
+
+    /** Binds the scan estimate once, before any partition sorting or affinity lookup. */
+    public static QuerySplit fromScanMetadata(DataSplit data, List<String> filePaths, long scanBytes, long scanRows) {
+        if (scanBytes < 0 || scanRows < 0) {
+            throw new IllegalArgumentException("Estimated scan bytes and rows must be non-negative");
+        }
+        return new QuerySplit(data, filePaths, SplitPlacementWeight.estimate(data, scanBytes, scanRows));
     }
 
     public QuerySplit {
         Objects.requireNonNull(data, "data");
         filePaths = filePaths != null ? List.copyOf(filePaths) : List.of();
-        if (estimatedScanBytes < 0) {
-            throw new IllegalArgumentException("Estimated scan bytes must be non-negative");
+        if (estimatedPlacementWeight <= 0L) {
+            throw new IllegalArgumentException("Estimated placement weight must be positive");
         }
     }
 }

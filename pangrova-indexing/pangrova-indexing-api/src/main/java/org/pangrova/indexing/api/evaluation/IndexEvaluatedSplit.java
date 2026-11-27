@@ -56,6 +56,11 @@ public final class IndexEvaluatedSplit implements ConnectorSplit {
         return delegate.estimatedScanBytes();
     }
 
+    @Override
+    public long estimatedScanRows() {
+        return delegate.estimatedScanRows();
+    }
+
     /**
      * Returns data file paths with SKIP files filtered out.
      * This provides automatic worker-side secondary pruning.

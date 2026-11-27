@@ -25,8 +25,8 @@ unlisted: true
 | A3 | WP1.3 已引入显式 `PENDING` / `STREAM` / `NONE`，并贯通 dispatch、状态机、REST、JDBC、CLI 和 benchmark；代码合同已闭合，跨主机 resultless/延迟发布 E2E 仍待验收 | WP1.3，本地验证后提交；生产验收待续 |
 | A4 | 已有阶段观测和固定到达率样本；尚未接入完整 production phase/queue/rejection/timeout/drain KPI 与容量矩阵 | WP2 |
 | A5 | Paimon 已接到阶段剩余额度及绝对截止时间。直接追加 SQL 对每个快照单遍校验并枚举，逐个读取 manifest，阶段容量耗尽后停止开启对象。剩余工作包括限制普通和内部增量 SDK 扫描的 manifest I/O 准入、按编码字节计量并限制元数据、验证已发出的存储调用实际退出，以及跨主机混合负载下的并发度校准 | WP3.2 |
-| A6 | split 成本仍主要是文件字节；object-open、delete/decode、rows/backlog 和 unknown 尚未进入统一估计 | WP3.3 |
-| A7 | `DataSplit` range 已解析，但 Native 多数 reader 仍整对象打开；缺少格式能力矩阵和 fail-closed admission | WP3.4 |
+| A6 | 实时叶子阶段已按绑定时计算的工作量分配，包括数据和删除字节、文件开启、已知行数、Paimon 合并与 Lance 未知字节的最低权重。剩余工作包括把实时 Worker 在途负载纳入放置、评估持久任务初次分配，以及按存储、格式、冷热和并发校准权重 | WP3.3 |
+| A7 | Native 解析 `DataSplit` 的字节区间，但 Parquet/ORC 创建行读取器时没有应用该区间。Lance 使用独立的物理行区间或固定 manifest 分区。仍需格式能力矩阵、拒绝未支持的区间，以及逐格式验证区间并集和删除行位置 | WP3.4 |
 | A8 | 对象读取只导出 requested bytes；attempt/retry/returned/wire bytes 尚未贯通 task report/profile | WP3.1 |
 | A9 | 动态过滤已有 Native 类型、稀疏区间和等待门；planner 仍限定单 filter/单 BIGINT/Iceberg，running probe 无 production late injection | WP4 |
 | A10 | live 单输入 AQE 已存在；durable replay 关闭 AQE，多输入对齐和可执行 skew split 缺失 | WP5 |
@@ -191,6 +191,10 @@ PostgreSQL 接管分类用例预置 4,096 条其他查询日志和 4,096 条其�
 ## 验证记录与覆盖边界
 
 以下均为 **at commit / historical evidence**：数字、SQL 次数和覆盖范围只对应各批次当时提交的角色包与配置。当前未完成项以本文 2026-11-25 的 A/B/C 审计为准；单输入 AQE、局部聚合和写恢复等“机制已实现”不等于生产验收已完成。被后续批次取代的描述在原文附近标注 superseded。
+
+使用生产协议类型组装的 64 个合成 Paimon 合并分片在两个任务分区中各分配 512 MiB。按字节分配时，两区分别承担 1,024 和 32 个输入文件，计入文件开启和解码后，两区均为 528 个输入文件。Iceberg SDK 夹具验证位置删除文件进入调度估计，发给 Worker 的扫描范围保持原样。分配夹具只计量文件和字节。线上尾延迟及权重校准仍需受控混合负载。 [Spark 文件开启成本](https://spark.apache.org/docs/3.5.6/sql-performance-tuning.html)
+
+本地 Corretto 17 定向回归通过 75 项，包含两个独立 Worker 的 Join 和全局 Top-K、Iceberg ORC 位置删除、Paimon MoR 与 MoW 删除向量，以及 Lance 发布和读取。使用已核对 Native 源码和协议输入的 macOS arm64 产物。Checkstyle、模块清单和文档引用检查通过。
 
 Paimon 历史绑定让 schema 和统计共享首次读取的快照。真实本地文件系统样本中，同一个快照的存在探测从 3 次降到 0 次，文件开启从 4 次降到 2 次。两次开启分别用于选择快照和发布绑定前复验。计数覆盖该快照文件的 SDK 调用，远程 GET 和查询延迟仍需按存储环境测量。
 

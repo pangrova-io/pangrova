@@ -89,5 +89,6 @@ public final class NativeReadSplitBinding {
         @Override public SplitConstraint splitConstraint() { return delegate.splitConstraint(); }
         @Override public List<String> dataFilePaths() { return delegate.dataFilePaths(); }
         @Override public long estimatedScanBytes() { return delegate.estimatedScanBytes(); }
+        @Override public long estimatedScanRows() { return delegate.estimatedScanRows(); }
     }
 }

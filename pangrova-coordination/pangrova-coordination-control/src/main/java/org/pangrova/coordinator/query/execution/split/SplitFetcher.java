@@ -94,8 +94,8 @@ public final class SplitFetcher {
      */
     public static List<QuerySplit> toSplitWithPaths(List<ConnectorSplit> splits) {
         return splits.stream()
-                .map(split -> new QuerySplit(canonicalSplit(split), extractFilePaths(split),
-                        split.estimatedScanBytes()))
+                .map(split -> QuerySplit.fromScanMetadata(canonicalSplit(split), extractFilePaths(split),
+                        split.estimatedScanBytes(), split.estimatedScanRows()))
                 .toList();
     }
 

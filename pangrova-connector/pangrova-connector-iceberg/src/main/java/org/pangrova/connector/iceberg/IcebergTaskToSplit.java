@@ -63,6 +63,7 @@ final class IcebergTaskToSplit {
                         task.file().format().name())
                 .tableName(qualifiedTableName)
                 .dataFileSizeBytes(task.file().fileSizeInBytes())
+                .scanEstimate(task.sizeBytes(), task.estimatedRowsCount())
                 .partitionValues(extractPartitionValues(task))
                 .snapshotId(snapshotId)
                 .dataSequenceNumber(dataSeqNum)

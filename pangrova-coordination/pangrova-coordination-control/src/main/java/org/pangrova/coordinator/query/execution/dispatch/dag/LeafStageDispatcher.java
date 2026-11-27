@@ -170,7 +170,7 @@ final class LeafStageDispatcher {
         var assigned = hasArtifactBindings
                 ? partitionArtifactSplits(artifactGroups, taskCount)
                 : StageSplitPartitions.partitionSplits(splits, taskCount,
-                        QuerySplit::estimatedScanBytes);
+                        QuerySplit::estimatedPlacementWeight);
         var partitionedSplits = assigned.stream()
                 .map(partition -> partition.stream().map(QuerySplit::data).toList()).toList();
         var partitionFilePaths = assigned.stream()
@@ -425,7 +425,7 @@ final class LeafStageDispatcher {
         }
         return grouped.values().stream()
                 .map(group -> new SourceObjectSplits(group, group.stream()
-                        .mapToLong(split -> Math.max(1L, split.estimatedScanBytes()))
+                        .mapToLong(QuerySplit::estimatedPlacementWeight)
                         .reduce(0L, (left, right) -> left + Math.min(Long.MAX_VALUE - left, right))))
                 .toList();
     }

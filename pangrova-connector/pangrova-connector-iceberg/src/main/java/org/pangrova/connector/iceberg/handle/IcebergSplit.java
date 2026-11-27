@@ -41,6 +41,8 @@ import org.pangrova.connector.api.metadata.table.TypePromotion;
  * @param columnMappings       schema evolution column mappings (source → target by field ID)
  * @param typePromotions       schema evolution type promotions (e.g., int → long)
  * @param residualPredicate    serialized Substrait expression from FileScanTask.residual for native row-group skip
+ * @param estimatedScanBytes   planned data range and auxiliary delete bytes for Coordinator placement
+ * @param estimatedScanRows    planned data rows for Coordinator placement
  */
 public record IcebergSplit(
         String tableName,
@@ -60,12 +62,9 @@ public record IcebergSplit(
         List<IcebergDeleteFile> deleteFiles,
         List<ColumnMapping> columnMappings,
         List<TypePromotion> typePromotions,
-        byte[] residualPredicate) implements CanonicalConnectorSplit {
-
-    @Override
-    public long estimatedScanBytes() {
-        return Math.max(0L, fileLength);
-    }
+        byte[] residualPredicate,
+        long estimatedScanBytes,
+        long estimatedScanRows) implements CanonicalConnectorSplit {
 
     public IcebergSplit {
         if (fileFormat != null && "LANCE".equalsIgnoreCase(fileFormat)) {
@@ -80,6 +79,8 @@ public record IcebergSplit(
         residualPredicate = residualPredicate == null
                 ? new byte[0]
                 : Arrays.copyOf(residualPredicate, residualPredicate.length);
+        estimatedScanBytes = Math.max(Math.max(0L, fileLength), estimatedScanBytes);
+        estimatedScanRows = Math.max(0L, estimatedScanRows);
     }
 
     @Override
@@ -118,6 +119,8 @@ public record IcebergSplit(
         private List<ColumnMapping> columnMappings = List.of();
         private List<TypePromotion> typePromotions = List.of();
         private byte[] residualPredicate = new byte[0];
+        private long estimatedScanBytes;
+        private long estimatedScanRows;
 
         private Builder(String filePath, long fileOffset, long fileLength, String fileFormat) {
             this.filePath = filePath;
@@ -183,6 +186,12 @@ public record IcebergSplit(
             return this;
         }
 
+        public Builder scanEstimate(long bytes, long rows) {
+            this.estimatedScanBytes = bytes;
+            this.estimatedScanRows = rows;
+            return this;
+        }
+
         /**
          * Builds an immutable {@link IcebergSplit} from the current builder state.
          */
@@ -191,7 +200,8 @@ public record IcebergSplit(
                     tableName, filePath, fileOffset, fileLength, dataFileSizeBytes,
                     fileFormat, partitionValues, snapshotId, dataSequenceNumber,
                     specId, content, readMode, fromSnapshotId, toSnapshotId,
-                    deleteFiles, columnMappings, typePromotions, residualPredicate);
+                    deleteFiles, columnMappings, typePromotions, residualPredicate,
+                    estimatedScanBytes, estimatedScanRows);
         }
     }
 
