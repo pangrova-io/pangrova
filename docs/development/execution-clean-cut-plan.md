@@ -31,8 +31,8 @@ unlisted: true
 | A9 | Iceberg 实时扫描可由同一个构建侧最多四个 BIGINT 键分别生成范围过滤。每个查询可激活最多四组互不共享 Stage 的构建与探测组合，共用 200 ms 等待期限，各自发布范围和 Profile 决策。剩余工作包括其他键类型、连接器、共享 Stage 的组合、向运行中的探测端应用晚到过滤，以及跨主机负载校准 | WP4 |
 | A10 | live 单输入 AQE 已存在；durable replay 关闭 AQE，多输入对齐和可执行 skew split 缺失 | WP5 |
 | A11 | Shuffle 已有 lease/window/fence；缺少 durable revocation generation、participant ACK 和 convergence receipt | WP6 |
-| A12 | 普通分布式写入删除 redo 后保留带 fingerprint 的终态回执，COPY、CDC 和外部 publication 使用现有写入声明与版本字段。剩余工作是验证各来源重放窗口并制定可证明的回执回收条件，以及跨主机故障与高并发验收 | WP8 |
-| A13 | Paimon abort 仍是 best-effort unlink；ambiguous commit 没有 durable abort barrier | WP8 |
+| A12 | 普通分布式写入删除 redo 后保留带 fingerprint 的终态回执，COPY、CDC 和外部 publication 使用现有写入声明与版本字段。表格导出发布复用同一事务已授权的阶段图，以一次查询校验分片完成状态、分配和输出覆盖，不再逐分片读取 split 或生产者依赖。剩余工作是验证各来源重放窗口并制定可证明的回执回收条件，以及跨主机故障与高并发验收 | WP8 |
+| A13 | 写入 journal 已将确认未发布的精确 fingerprint 固化为 `ABORTED`，保留不确定提交的挂起记录和隔离证据。Paimon 暂存清理仍先比较表快照再尝试删除，各操作之间缺少覆盖目录提交与对象删除的持久屏障。待修复这一竞态并验收跨进程接管和部分删除故障 | WP8 |
 | A14 | nightly TPC 已存在；release 不校验同源 Linux/TPC 不可变证据，SF100 零值基线仍不合格 | WP9，需先批准 CI/基础设施变更 |
 
 本地恢复对照在同一个清理线程上阻塞一个 Worker 响应。原实现的独立查询在 5 秒验证窗口内无法持久化回执。候选在该响应仍未返回时持久化独立查询回执。测试同时验证全局四页上限、同查询新旧租约不重叠，以及已保留回执不再读回。跨主机吞吐和恢复尾延迟仍在 B3/B7 验收范围。

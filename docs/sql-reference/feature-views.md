@@ -42,6 +42,14 @@ require observed frozen model bindings before admission.
 Zero-result filters still produce a schema-bearing stream and a published
 zero-row manifest; execution failure is not an empty result.
 
+Publication reuses the stage graph already verified by the current authorization
+check in the publication transaction. After locking the job, the Coordinator
+reads completed page allocations and their output objects together. Each terminal
+partition must have its complete output roles, each compute partition must have
+completed without publishing objects, and the page count must match the job.
+Dispatch and recovery validate the exact split payloads and producer dependencies
+when they use them. Publication uses the resulting fenced page states and outputs.
+
 TABULAR_EXPORT has one relation-output contract: `RELATIONAL_PARTITION` pages
 publish `TABULAR_DATA` in exact `WORK_UNIT` scope, without physical row locators
 or physical-source output coverage. Even an empty input has a real terminal Native
