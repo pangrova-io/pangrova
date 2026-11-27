@@ -42,8 +42,9 @@ import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.predicate.Predicate;
-import org.apache.paimon.table.AbstractFileStoreTable;
+import org.apache.paimon.table.AppendOnlyFileStoreTable;
 import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.table.PrimaryKeyFileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.table.source.DataSplit;
@@ -162,9 +163,10 @@ public class PaimonSplitManager implements ConnectorSplitManager {
             Snapshot snapshot, Constraint constraint, ConnectorQueryAuthority sdkReaderAuthority,
             PaimonScanBudget planning) {
         FileStoreTable scanTable;
-        if (snapshot != null && paimonTable.snapshotId().isPresent()
-                && selectedTable instanceof AbstractFileStoreTable physicalTable) {
-            scanTable = pinnedScanTable(physicalTable, paimonTable, snapshot);
+        boolean physicalTable = selectedTable instanceof AppendOnlyFileStoreTable
+                || selectedTable instanceof PrimaryKeyFileStoreTable;
+        if (snapshot != null && paimonTable.snapshotId().isPresent() && physicalTable) {
+            scanTable = pinnedScanTable(selectedTable, paimonTable, snapshot);
         } else if (paimonTable.snapshotId().isPresent()) {
             scanTable = "true".equals(paimonTable.properties().get(PaimonTableHandle.CURRENT_SCHEMA_PROPERTY))
                     ? selectedTable.copyWithoutTimeTravel(Map.of("scan.snapshot-id",
@@ -186,8 +188,7 @@ public class PaimonSplitManager implements ConnectorSplitManager {
     }
 
     /** Builds one query-local SDK view from the already validated snapshot. */
-    private static FileStoreTable pinnedScanTable(
-            AbstractFileStoreTable table, PaimonTableHandle handle, Snapshot snapshot) {
+    private static FileStoreTable pinnedScanTable(FileStoreTable table, PaimonTableHandle handle, Snapshot snapshot) {
         var schema = table.schema();
         var options = Options.fromMap(schema.options());
         options.set(CoreOptions.PATH, table.location().toString());
