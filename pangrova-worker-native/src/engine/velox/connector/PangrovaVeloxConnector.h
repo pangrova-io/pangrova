@@ -197,12 +197,10 @@ class PangrovaVeloxDataSource : public facebook::velox::connector::DataSource {
   std::optional<facebook::velox::RowVectorPtr> nextFromMergeReader(
       uint64_t batchSize);
 
-  // Apply Iceberg delete filter post-processing on RowVector.
-  // originalBatchSize is the pre-dynamic-filter row count, used to advance
-  // row_index_offset_ correctly for file-level position delete alignment.
+  // Apply deletes to a contiguous batch starting at the original file row.
   facebook::velox::RowVectorPtr applyDeleteFilter(
       facebook::velox::RowVectorPtr rowVector,
-      facebook::velox::vector_size_t originalBatchSize);
+      int64_t firstPhysicalRow);
 
   // Apply partition injection, column mapping, and type promotion.
   // Shared by both the normal read path and the merge reader path.
@@ -257,7 +255,6 @@ class PangrovaVeloxDataSource : public facebook::velox::connector::DataSource {
 
   // Iceberg delete filter (operates directly on RowVector).
   std::vector<std::unique_ptr<delete_filter::RowDeleteFilter>> delete_filters_;
-  int64_t row_index_offset_ = 0;
 
   bool artifact_candidate_filter_enabled_ = false;
   std::unordered_set<uint64_t> artifact_candidate_positions_;

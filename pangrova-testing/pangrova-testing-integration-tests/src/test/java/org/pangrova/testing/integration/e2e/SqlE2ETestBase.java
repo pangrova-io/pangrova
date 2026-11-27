@@ -1379,6 +1379,10 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                     HttpResponse<String> response = HTTP_CLIENT.send(
                             request, HttpResponse.BodyHandlers.ofString());
                     var status = MAPPER.readTree(response.body());
+                    if (response.statusCode() != 200) {
+                        throw new IllegalStateException("Live query status failed: " + queryId
+                                + " HTTP " + response.statusCode() + " — " + extractErrorDetail(status));
+                    }
                     String state = status.path("state").asText();
                     String disposition = status.path("result_disposition").asText();
                     if ("FAILED".equals(state) || "CANCELLED".equals(state)
@@ -1395,9 +1399,9 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                                 status.get("result_endpoint"), ResultEndpoint.class);
                         return true;
                     }
-                    if (!"PENDING".equals(disposition)) {
+                    if (!"PENDING".equals(disposition) && !"NONE".equals(disposition)) {
                         throw new IllegalStateException(
-                                "Live query status omitted result disposition: " + queryId);
+                                "Invalid live query result disposition: " + queryId + " disposition=" + disposition);
                     }
                     if ("FINISHED".equals(state)) {
                         throw new IllegalStateException(

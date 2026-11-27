@@ -532,7 +532,7 @@ IcebergConfig parseIceberg(const proto::IcebergSplitDetail& detail) {
 
 void parseSchemaEvolution(const proto::SchemaEvolution& evolution, SplitConfig& config);
 
-PaimonConfig parsePaimon(const proto::PaimonSplitDetail& detail) {
+PaimonConfig parsePaimon(const proto::PaimonSplitDetail& detail, const SplitConfig& split) {
   if (!detail.has_merge_policy()) throw std::invalid_argument("Paimon split requires exact SDK merge policy");
   PaimonConfig config;
   config.merge_engine = mergeEngineToString(detail.merge_engine());
@@ -549,12 +549,16 @@ PaimonConfig parsePaimon(const proto::PaimonSplitDetail& detail) {
       changelogProducerToString(detail.changelog_producer());
   config.deletion_vectors_enabled = detail.deletion_vectors_enabled();
   config.needs_merge = detail.needs_merge();
+  if (config.needs_merge && split.start_offset != 0) {
+    throw std::runtime_error("Paimon merge requires a whole primary file");
+  }
   config.ignore_delete = detail.merge_policy().ignore_delete();
   config.remove_record_on_delete = detail.merge_policy().remove_record_on_delete();
   config.sequence_column = detail.sequence_column();
   config.aggregation_specs.insert(
       detail.aggregation_specs().begin(), detail.aggregation_specs().end());
   config.lsm_levels.reserve(detail.lsm_levels_size());
+  bool hasWholePrimaryFile = !config.needs_merge;
   for (const auto& level : detail.lsm_levels()) {
     split::LsmLevelConfig parsed;
     parsed.level = level.level();
@@ -580,6 +584,10 @@ PaimonConfig parsePaimon(const proto::PaimonSplitDetail& detail) {
       physical.file_path = file.opaque_location();
       physical.file_format = parseFileFormat(file.file_format());
       physical.file_size = file.file_size();
+      if (!hasWholePrimaryFile && physical.file_path == split.file_path &&
+          physical.file_size == static_cast<uint64_t>(split.length)) {
+        hasWholePrimaryFile = true;
+      }
       physical.min_sequence_number = file.min_sequence_number();
       physical.max_sequence_number = file.max_sequence_number();
       SplitConfig evolution;
@@ -600,6 +608,9 @@ PaimonConfig parsePaimon(const proto::PaimonSplitDetail& detail) {
     }
     parsed.total_record_count = level.total_record_count();
     config.lsm_levels.push_back(std::move(parsed));
+  }
+  if (!hasWholePrimaryFile) {
+    throw std::runtime_error("Paimon merge requires a whole primary file");
   }
   return config;
 }
@@ -968,6 +979,13 @@ SplitConfig parseSplit(const proto::DataSplit& split, const proto::TaskRequest& 
   }
   config.start_offset = checkedInt64(split.start_offset(), "start_offset");
   config.length = checkedInt64(split.length(), "length");
+  if (config.file_format == split::FileFormatType::PARQUET) {
+    if (config.length == 0 || config.start_offset > std::numeric_limits<int64_t>::max() - config.length) {
+      throw std::runtime_error("Parquet split requires a positive, bounded byte range");
+    }
+  } else if (config.start_offset != 0) {
+    throw std::runtime_error("A nonzero byte offset is supported only for Parquet");
+  }
 
   for (const auto& partition : split.partition_values()) {
     if (partition.column_name().empty() ||
@@ -1005,7 +1023,7 @@ SplitConfig parseSplit(const proto::DataSplit& split, const proto::TaskRequest& 
   if (detail.has_iceberg()) {
     config.iceberg = parseIceberg(detail.iceberg());
   } else if (detail.has_paimon()) {
-    config.paimon = parsePaimon(detail.paimon());
+    config.paimon = parsePaimon(detail.paimon(), config);
     config.paimon->partition_values = config.partition_values;
     if (detail.physical_file_scan().has_deletion_vector()) {
       config.deletion_vector = std::make_shared<const proto::DeletionVectorReference>(

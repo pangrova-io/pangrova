@@ -757,6 +757,8 @@ TEST(ParseTaskConfigTest, ParsesGenericDataSplitAndTypedFileDetail) {
   EXPECT_EQ(parsed.table_name, "catalog.schema.items");
   EXPECT_EQ(parsed.file_path, "/data/part-0.parquet");
   EXPECT_EQ(parsed.file_format, split::FileFormatType::PARQUET);
+  EXPECT_EQ(parsed.start_offset, 100);
+  EXPECT_EQ(parsed.length, 5000);
   EXPECT_TRUE(parsed.lance_read_unit.empty());
   EXPECT_EQ(parsed.partition_values.at("region"), "apac");
   ASSERT_EQ(parsed.column_mappings.size(), 1U);
@@ -780,6 +782,24 @@ TEST(ParseTaskConfigTest, ParsesGenericDataSplitAndTypedFileDetail) {
 TEST(ParseTaskConfigTest, RejectsDataSplitWithoutTypedFileDetail) {
   auto request = validRequest();
   addFileSplit(request)->clear_file_detail();
+  EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
+}
+
+TEST(ParseTaskConfigTest, RejectsInvalidParquetByteIntervals) {
+  auto request = validRequest();
+  auto* file = addFileSplit(request);
+  file->set_length(0);
+  EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
+
+  file->set_start_offset(0);
+  EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
+
+  file->set_start_offset(100);
+  file->set_length(std::numeric_limits<int64_t>::max());
+  EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
+
+  file->set_length(5000);
+  file->mutable_file_detail()->set_file_format(proto::FILE_FORMAT_ORC);
   EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
 }
 
@@ -1134,6 +1154,9 @@ TEST(ParseTaskConfigTest, ParsesPaimonAndOrcDetails) {
   auto request = validRequest();
   auto* split = addFileSplit(request, proto::FILE_FORMAT_ORC);
   split->set_connector_id("paimon");
+  split->set_opaque_location("/data/l0.orc");
+  split->set_start_offset(0);
+  split->set_length(4096);
   ASSERT_TRUE(split->has_file_detail());
   auto detail = split->file_detail();
   auto* paimon = detail.mutable_paimon();
@@ -1163,6 +1186,9 @@ TEST(ParseTaskConfigTest, ParsesPaimonAndOrcDetails) {
       config.splits.front().paimon->lsm_levels.front().files.front().file_path,
       "/data/l0.orc");
   EXPECT_TRUE(config.splits.front().paimon->lsm_levels.front().files.front().lance_read_unit.empty());
+
+  split->set_length(4095);
+  EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
 }
 
 TEST(ParseTaskConfigTest, RetainsPaimonDeletionReferenceWithoutSerializingParquetSplit) {
