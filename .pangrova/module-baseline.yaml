@@ -585,6 +585,7 @@ artifacts:
       - org.pangrova.connector.iceberg.enums
       - org.pangrova.connector.iceberg.handle
       - org.pangrova.connector.iceberg.index
+      - org.pangrova.connector.iceberg.write
     providers:
       "org.pangrova.connector.api.plugin.ConnectorFactory":
         - org.pangrova.connector.iceberg.IcebergConnectorFactory
