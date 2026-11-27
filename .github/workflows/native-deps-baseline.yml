@@ -253,9 +253,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: 80cbe6b744e19f8a77a8d7bdcb88e6430189c7c0
+          ref: f0cdbaae4747fc6338e654353efdeb26e5458c70
+          fetch-depth: 2
       - name: Check the validated source revision
-        run: test "$(git rev-parse HEAD)" = 80cbe6b744e19f8a77a8d7bdcb88e6430189c7c0
+        run: |
+          test "$(git rev-parse HEAD)" = f0cdbaae4747fc6338e654353efdeb26e5458c70
+          git diff --exit-code 80cbe6b744e19f8a77a8d7bdcb88e6430189c7c0 HEAD -- . ':!**/src/test/**'
 
       - name: Set up function-contract Python
         uses: actions/setup-python@v7
