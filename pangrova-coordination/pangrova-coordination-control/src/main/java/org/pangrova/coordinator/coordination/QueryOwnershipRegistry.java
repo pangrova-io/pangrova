@@ -145,6 +145,11 @@ final class QueryOwnershipRegistry {
         if (retiring == null) {
             return false;
         }
+        return finishRetirement(retiring, backendOperation);
+    }
+
+    private boolean finishRetirement(Ownership retiring, Predicate<ExecutionAnchor> backendOperation) {
+        String executionId = retiring.anchor().executionId();
         try {
             boolean completed = backendOperation.test(retiring.anchor());
             ownership.remove(executionId, retiring);
@@ -239,6 +244,13 @@ final class QueryOwnershipRegistry {
 
     boolean release(ExecutionAnchor anchor) {
         return retire(anchor.executionId(), current -> sameOwner(current, anchor), store::release);
+    }
+
+    boolean releaseLocallyDrainedQuery(ExecutionAnchor anchor) {
+        var retiring = claimRetirement(anchor.executionId(), current -> sameOwner(current, anchor));
+        // Renewal may already have evicted the stale grant. Its exact drain proof can still reach PostgreSQL.
+        return retiring == null ? store.releaseLocallyDrainedQuery(anchor)
+                : finishRetirement(retiring, store::releaseLocallyDrainedQuery);
     }
 
     boolean releaseDrainedQuery(ExecutionAnchor anchor, boolean remoteShuffle) {

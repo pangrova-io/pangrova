@@ -331,6 +331,13 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
         return ownership.release(anchor);
     }
 
+    /** Releases the original local grant after the execution and its owned resources have drained. */
+    public boolean releaseLocallyDrainedQuery(ExecutionAnchor anchor) {
+        if (!anchor.ownerId().equals(localNodeId.get())
+                || !anchor.ownerIncarnation().equals(localIncarnation.get())) return false;
+        return ownership.releaseLocallyDrainedQuery(anchor);
+    }
+
     /** Retires a drained SQL predecessor, preserving grants that still own durable dependencies. */
     public boolean releaseDrainedRecoveryClaim(ExecutionAnchor anchor, boolean remoteShuffle) {
         return ownership.releaseDrainedQuery(anchor, remoteShuffle);

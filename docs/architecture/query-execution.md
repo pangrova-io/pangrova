@@ -124,9 +124,13 @@ existing fenced work reservation. The expiry index excludes anchors with
 unproven local work. On restart, the exclusive, persistent admission directory
 proves which incarnations have exited. A single indexed startup update
 synchronizes with their existing execution anchors, including a reservation
-still committing in PostgreSQL after the JVM exits. A successor can then claim
-the execution and apply the usual physical drain gates before returning its
-tenant slot.
+still committing in PostgreSQL after the JVM exits. A surviving original
+Coordinator also records proof at actual local drain under its exact original
+grant. This works after the lease expires and after heartbeat renewal evicts
+the grant from the process cache. If the lease expires between journal purge
+and release, recovery uses the retained proof and leaves the retired terminal
+history intact. The ordinary release uses its existing statements. A successor
+applies the remaining drain gates before returning the tenant slot.
 
 The bounded asynchronous submission executor runs SQL planning and starts the
 distributed DAG. The DAG publishes its OUTPUT endpoint after Worker acknowledgement

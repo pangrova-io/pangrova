@@ -16,6 +16,7 @@ import org.pangrova.security.api.enums.TenantStatus;
 import org.pangrova.security.api.tenant.ResourceQuota;
 import org.pangrova.security.api.tenant.Tenant;
 import org.pangrova.server.coordinator.enums.CoordinatorDeploymentRole;
+import org.pangrova.transport.client.FlightResultFetcher;
 import org.postgresql.ds.PGSimpleDataSource;
 
 import java.net.URI;
@@ -71,12 +72,7 @@ class CoordinatorStatementCrashRecoveryTest {
 
                 child.destroyForcibly();
                 assertThat(child.waitFor(10, TimeUnit.SECONDS)).isTrue();
-                try (var connection = source.getConnection();
-                     var expire = connection.prepareStatement("UPDATE execution_anchor "
-                             + "SET expires_at=clock_timestamp(), version=version+1 WHERE execution_id=?")) {
-                    expire.setString(1, query);
-                    assertThat(expire.executeUpdate()).isOne();
-                }
+                expire(source, query);
 
                 var foreign = new CoordinatorBootstrap(configuration("foreign-coordinator", issuer.uri(), jdbc),
                         tempDirectory.resolve("foreign"));
@@ -94,6 +90,65 @@ class CoordinatorStatementCrashRecoveryTest {
                 if (child.isAlive()) child.destroyForcibly();
                 assertThat(child.waitFor(10, TimeUnit.SECONDS)).isTrue();
             }
+        }
+    }
+
+    @Test
+    void expiredCoordinatorGrantWaitsForFlightDrainAndRecoversWithoutRestart() throws Exception {
+        try (var issuer = new SignedOidcIssuer()) {
+            var config = withAuthority(configuration("live-original", issuer.uri(), null));
+            var jdbc = config.metadataJdbcConfig();
+            var source = source(jdbc);
+            var original = new CoordinatorBootstrap(config, tempDirectory.resolve("original"));
+            var successor = new CoordinatorBootstrap(configuration("live-successor", issuer.uri(), jdbc),
+                    tempDirectory.resolve("successor"));
+            original.start();
+            try {
+                createTenant(source);
+                successor.start();
+                try {
+                    assertLiveDrain(issuer, source, original, successor);
+                } finally {
+                    successor.shutdown();
+                }
+            } finally {
+                original.shutdown();
+            }
+        }
+    }
+
+    private static void assertLiveDrain(SignedOidcIssuer issuer, PGSimpleDataSource source,
+            CoordinatorBootstrap original, CoordinatorBootstrap successor) throws Exception {
+        var receipt = submit(issuer, original.getHttpPort());
+        var query = receipt.queryId();
+        var state = original.getQueryManager().getStateMachine(query);
+        await().atMost(Duration.ofSeconds(10)).until(() -> state.status().state().name().equals("FINISHED"));
+
+        var anchors = new JdbcExecutionAnchorStore(source);
+        var owner = anchors.current(query).orElseThrow();
+        expire(source, query);
+        assertThat(anchors.release(owner)).isFalse();
+        assertThat(anchors.claimExpired("probe", "probe-incarnation", Duration.ofSeconds(30), 1)).isEmpty();
+        assertThat(state.status().drained()).isFalse();
+        assertThat(slots(source)).isOne();
+        assertUnresolved(source, query, owner.ownerIncarnation());
+
+        try (var fetcher = new FlightResultFetcher();
+             var cursor = fetcher.open(receipt.resultEndpoint(), System.currentTimeMillis() + 5_000)) {
+            assertThat(cursor.next()).isFalse();
+        }
+        await().atMost(Duration.ofSeconds(45)).until(() -> state.status().drained() && slots(source) == 0);
+        assertThat(original.isStarted()).isTrue();
+        assertThat(successor.isStarted()).isTrue();
+        assertThat(submit(issuer, successor.getHttpPort()).resultEndpoint()).isNotNull();
+    }
+
+    private static void expire(PGSimpleDataSource source, String query) throws Exception {
+        try (var connection = source.getConnection();
+             var statement = connection.prepareStatement("UPDATE execution_anchor "
+                     + "SET expires_at=clock_timestamp(), version=version+1 WHERE execution_id=?")) {
+            statement.setString(1, query);
+            assertThat(statement.executeUpdate()).isOne();
         }
     }
 

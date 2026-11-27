@@ -80,8 +80,10 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
                     + "RETURNING execution_id, owner_id, owner_incarnation, fencing_token, "
                     + "acquired_at, expires_at, version";
     private static final String RELEASE = """
-            WITH owner(execution_id, owner_id, owner_incarnation, fencing_token, retired_at) AS MATERIALIZED (
-                VALUES (CAST(? AS text), CAST(? AS text), CAST(? AS text), CAST(? AS bigint), clock_timestamp())
+            WITH owner(execution_id, owner_id, owner_incarnation, fencing_token, local_drain, retired_at)
+                    AS MATERIALIZED (
+                VALUES (CAST(? AS text), CAST(? AS text), CAST(? AS text), CAST(? AS bigint),
+                        CAST(? AS boolean), clock_timestamp())
             ),
             retirement AS MATERIALIZED (
                 SELECT owner.*, EXISTS (
@@ -94,11 +96,15 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
                 ) AS recover_write FROM owner
             ),
             retained AS (
-                UPDATE execution_anchor a SET expires_at=r.retired_at, version=a.version+1
+                UPDATE execution_anchor a SET expires_at=LEAST(a.expires_at, r.retired_at), version=a.version+1,
+                    coordinator_work_exited = a.coordinator_work_exited
+                        OR (r.local_drain AND a.coordinator_work_token IS NOT DISTINCT FROM a.fencing_token)
                 FROM retirement r
                 WHERE a.execution_id=r.execution_id AND a.owner_id=r.owner_id
                   AND a.owner_incarnation=r.owner_incarnation AND a.fencing_token=r.fencing_token
-                  AND a.expires_at>r.retired_at AND r.recover_write
+                  AND ((a.expires_at>r.retired_at AND r.recover_write)
+                      OR (a.expires_at<=r.retired_at AND r.local_drain AND a.coordinator_work_token=a.fencing_token
+                          AND NOT a.coordinator_work_exited))
                 RETURNING 1
             ),
             removed AS (
@@ -106,6 +112,8 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
                 WHERE a.execution_id=r.execution_id AND a.owner_id=r.owner_id
                   AND a.owner_incarnation=r.owner_incarnation AND a.fencing_token=r.fencing_token
                   AND a.expires_at>r.retired_at AND NOT r.recover_write
+                  AND (a.coordinator_work_token IS NULL OR a.coordinator_work_exited
+                      OR (r.local_drain AND a.coordinator_work_token=a.fencing_token))
                 RETURNING a.execution_id
             ),
             slots AS MATERIALIZED (
@@ -350,13 +358,22 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
 
     @Override
     public boolean release(ExecutionAnchor anchor) {
+        return release(anchor, false);
+    }
+
+    @Override
+    public boolean releaseLocallyDrainedQuery(ExecutionAnchor anchor) {
+        return release(anchor, true);
+    }
+
+    private boolean release(ExecutionAnchor anchor, boolean localDrain) {
         Objects.requireNonNull(anchor, "anchor must not be null");
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             // The admission lock orders same-ID reservation and retirement before tenant or anchor row locks.
             // Start a fresh statement after the row lock so a preceding write intent is visible.
             boolean released = lockRetirement(connection, anchor)
-                    && releaseLockedAnchor(connection, anchor).completed();
+                    && releaseLockedAnchor(connection, anchor, localDrain).completed();
             connection.commit();
             return released;
         } catch (SQLException failure) {
@@ -371,7 +388,7 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
             connection.setAutoCommit(false);
             if (!lockRetirement(connection, anchor)
                     || !readyForRecoveredRetirement(connection, anchor.executionId(), remoteShuffle)
-                    || !releaseLockedAnchor(connection, anchor).removed()) {
+                    || !releaseLockedAnchor(connection, anchor, false).removed()) {
                 connection.rollback();
                 return false;
             }
@@ -425,10 +442,10 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
 
     private record Retirement(boolean completed, boolean removed) { }
 
-    private static Retirement releaseLockedAnchor(Connection connection, ExecutionAnchor anchor)
+    private static Retirement releaseLockedAnchor(Connection connection, ExecutionAnchor anchor, boolean localDrain)
             throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(RELEASE)) {
-            bindOwner(statement, 1, anchor);
+            statement.setBoolean(bindOwner(statement, 1, anchor), localDrain);
             try (ResultSet result = statement.executeQuery()) {
                 if (!result.next() || !result.getBoolean(2)) {
                     connection.rollback();

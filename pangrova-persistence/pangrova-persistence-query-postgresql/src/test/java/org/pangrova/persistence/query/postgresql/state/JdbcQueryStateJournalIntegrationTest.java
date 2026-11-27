@@ -380,6 +380,7 @@ class JdbcQueryStateJournalIntegrationTest {
         }
         assertTrue(journal.reserveCoordinatorStatement(local));
         assertFalse(journal.reserveCoordinatorStatement(local));
+        assertFalse(store.release(local));
 
         assertTrue(store.yield(planning));
         assertTrue(store.yield(local));
@@ -395,6 +396,39 @@ class JdbcQueryStateJournalIntegrationTest {
         assertThat(outcome.state()).isEqualTo("FAILED");
         assertThat(outcome.terminalOutcome().error().errorCode()).isEqualTo("QUERY_OWNER_LOST");
         assertTrue(store.releaseDrainedQuery(planningClaim, false));
+
+        var wrongIncarnation = new org.pangrova.execution.api.ownership.ExecutionAnchor(local.executionId(),
+                local.ownerId(), "another-boot", local.fencingToken(), local.acquiredAt(), local.expiresAt());
+        assertFalse(store.releaseLocallyDrainedQuery(wrongIncarnation));
+        assertFalse(store.release(local));
+        assertTrue(store.releaseLocallyDrainedQuery(local));
+        var localClaim = store.tryAcquire(local.executionId(), "successor", "next-boot", lease).orElseThrow();
+        assertFalse(store.releaseLocallyDrainedQuery(local));
+        assertEquals(DrainOutcome.CONFIRMED, journal.confirmRecoveredTaskDrains(localClaim));
+        assertTrue(store.releaseDrainedQuery(localClaim, false));
+    }
+
+    @Test
+    void localDrainProofSurvivesExpirationAfterTheJournalWasPurged() {
+        var store = new JdbcExecutionAnchorStore(dataSource);
+        var lease = Duration.ofMinutes(1);
+        var original = store.tryAcquire("purged-local-statement", "original", "original-boot", lease).orElseThrow();
+        var context = JournalEventContext.create(System.currentTimeMillis(), original.ownerId());
+        journal.appendFencedAdmissionSync(new QueryStateEvent(context, original.executionId(), "SHOW DYNAMIC TABLES",
+                "{}", "QUEUED"), original);
+        assertTrue(journal.reserveCoordinatorStatement(original));
+
+        journal.purgeOwnedQuery(original);
+        assertThat(journal.latestQueryEvent(original.executionId())).isEmpty();
+        assertTrue(store.yield(original));
+        assertTrue(store.releaseLocallyDrainedQuery(original));
+
+        var recovery = store.tryAcquire(original.executionId(), "successor", "next-boot", lease).orElseThrow();
+        assertThat(journal.observedRecoveryExecutions(Set.of(recovery.executionId())))
+                .containsExactly(recovery.executionId());
+        assertEquals(DrainOutcome.CONFIRMED, journal.confirmRecoveredTaskDrains(recovery));
+        assertThat(journal.latestQueryEvent(original.executionId())).isEmpty();
+        assertTrue(store.releaseDrainedQuery(recovery, false));
     }
 
     @Test
@@ -1350,6 +1384,7 @@ class JdbcQueryStateJournalIntegrationTest {
              Statement stmt = conn.createStatement()) {
             stmt.execute("DELETE FROM task_state_journal");
             stmt.execute("DELETE FROM query_state_journal");
+            stmt.execute("DELETE FROM execution_anchor");
         }
     }
 

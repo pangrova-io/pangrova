@@ -24,7 +24,12 @@ final class JournalTaskDrainSql {
                 SELECT 1 AS hit FROM task_state_journal t
                 WHERE query_fact.hit IS NULL AND t.query_id = claims.id LIMIT 1
             ) task_fact ON true
-            WHERE query_fact.hit IS NOT NULL OR task_fact.hit IS NOT NULL
+            LEFT JOIN LATERAL (
+                SELECT 1 AS hit FROM execution_anchor a
+                WHERE query_fact.hit IS NULL AND task_fact.hit IS NULL
+                  AND a.execution_id = claims.id AND a.coordinator_work_exited LIMIT 1
+            ) work_exit ON true
+            WHERE query_fact.hit IS NOT NULL OR task_fact.hit IS NOT NULL OR work_exit.hit IS NOT NULL
             """;
     private static final String CLAIM = """
             SELECT execution_id, owner_id, owner_incarnation, fencing_token, expires_at,
@@ -61,17 +66,20 @@ final class JournalTaskDrainSql {
             WITH claim AS MATERIALIZED (
             """ + CLAIM + """
                 AND expires_at > clock_timestamp() AND recovery_drain_state IN (1, 2)
+            ), evidence AS MATERIALIZED (
+                SELECT EXISTS (SELECT 1 FROM claim WHERE coordinator_work_exited) AS local_work_exited,
+                       EXISTS (SELECT 1 FROM query_state_journal q JOIN claim c ON q.query_id = c.execution_id)
+                           AS query_observed
             ), outcome AS MATERIALIZED (
                 SELECT CASE
                     WHEN NOT EXISTS (SELECT 1 FROM claim) THEN 'LOST_CLAIM'
                     WHEN EXISTS (SELECT 1 FROM execution_anchor a JOIN claim c USING (execution_id)
                                  WHERE a.recovery_drain_state = 2) THEN 'CONFIRMED'
-                    WHEN NOT EXISTS (SELECT 1 FROM query_state_journal q JOIN claim c ON q.query_id = c.execution_id)
-                        THEN 'NO_SQL_EVIDENCE'
+                    WHEN NOT query_observed AND NOT local_work_exited THEN 'NO_SQL_EVIDENCE'
                     WHEN EXISTS (SELECT 1 FROM claim
                                  WHERE coordinator_work_token IS NOT NULL AND NOT coordinator_work_exited)
                         THEN 'PENDING_COORDINATOR_STATEMENT'
-                    WHEN (NOT EXISTS (
+                    WHEN (NOT local_work_exited AND NOT EXISTS (
                               SELECT 1 FROM task_state_journal t JOIN claim c ON t.query_id = c.execution_id
                               WHERE t.admission_seal IS NOT NULL
                           ) AND NOT EXISTS (
@@ -103,7 +111,7 @@ final class JournalTaskDrainSql {
                         )
                     ) THEN 'PENDING_WRITE'
                     ELSE 'CONFIRMED'
-                END AS state
+                END AS state FROM evidence
             ), sealed AS (
                 UPDATE execution_anchor a SET recovery_drain_state = 2
                 FROM claim c, outcome o
@@ -119,11 +127,11 @@ final class JournalTaskDrainSql {
                             CASE WHEN NOT completed.committed THEN jsonb_build_object(
                                 'errorCode', 'QUERY_OWNER_LOST', 'errorType', 'EXECUTION',
                                 'message', 'Original query execution stopped before completion') END)
-                FROM sealed s CROSS JOIN LATERAL (
+                FROM sealed s CROSS JOIN evidence e CROSS JOIN LATERAL (
                     SELECT EXISTS (SELECT 1 FROM write_commit_journal w
                                    WHERE w.query_id = s.execution_id AND w.state = 'COMMITTED') AS committed
                 ) completed
-                WHERE NOT EXISTS (
+                WHERE e.query_observed AND NOT EXISTS (
                     SELECT 1 FROM query_state_journal q WHERE q.query_id = s.execution_id
                     AND q.state IN ('FINISHED', 'FAILED', 'CANCELLED')
                 )

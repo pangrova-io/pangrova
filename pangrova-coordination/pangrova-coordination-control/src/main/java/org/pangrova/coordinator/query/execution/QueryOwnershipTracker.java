@@ -127,7 +127,7 @@ public final class QueryOwnershipTracker {
 
     void releaseIssuedQueryOwnership(ExecutionAnchor anchor) {
         OwnershipSnapshot snapshot = ownershipSnapshot.get();
-        if (snapshot != null) snapshot.service().releaseRecoveryClaim(anchor);
+        if (snapshot != null) snapshot.service().releaseLocallyDrainedQuery(anchor);
     }
 
     /** Drains split, connector and Shuffle owners while retaining the execution grant. */

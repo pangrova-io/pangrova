@@ -89,6 +89,14 @@ public interface ExecutionAnchorStore {
      */
     boolean release(ExecutionAnchor anchor);
 
+    /**
+     * Retires locally drained work under its original grant. A former owner may
+     * relinquish its own expired local work proof without releasing successor resources.
+     */
+    default boolean releaseLocallyDrainedQuery(ExecutionAnchor anchor) {
+        return release(anchor);
+    }
+
     /** Retires a proven terminal SQL predecessor and its durable pins under the exact recovery fence. */
     default boolean releaseDrainedQuery(ExecutionAnchor anchor, boolean remoteShuffle) {
         throw new UnsupportedOperationException("Durable query drain retirement is unavailable");
