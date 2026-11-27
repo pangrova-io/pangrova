@@ -28,16 +28,10 @@ shared query and governance framework.
 
 ## The Name
 
-The name Pangrova evokes two complementary images from nature:
-
-- **Pangolin (Pang):** Resilience, protection, and adaptability reflect our
-  commitment to dependable distributed execution and governed data access.
-- **Mangrove (grova):** Deep roots and interconnected ecosystems represent an
-  open foundation where data formats, storage, and compute can evolve together.
-
-Together, they express Pangrova's vision: a resilient SQL engine that brings
-relational analytics and AI retrieval to open lakehouses, grounded in open
-standards and interoperability.
+Pangrova evokes the pangolin and the mangrove. The pangolin symbolizes
+resilience, protection, and adaptability; the mangrove symbolizes deep roots,
+interconnection, and a thriving ecosystem. Together, they express our vision
+of reliable, adaptable data systems built on an open foundation.
 
 ## CLI Demo
 
