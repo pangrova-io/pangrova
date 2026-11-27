@@ -31,6 +31,20 @@ aggregates it to two clicks and one purchase.
 > [current capability status](docs/getting-started/capability-status.md) before
 > choosing features or evaluating a workload.
 
+## CLI workflow demo
+
+[![Watch the Pangrova CLI workflow demo](website/static/media/pangrova-cli-demo-poster.png)](website/static/media/pangrova-cli-demo.mp4)
+
+[Watch or download the MP4](website/static/media/pangrova-cli-demo.mp4) ·
+3 min 47 sec · 1080p · English narration
+
+The walkthrough covers SQL, multimodal FILE data, scalar/full-text and vector
+indexes, relational analytics, and table maintenance in a local Standalone
+session. It was recorded from commit `050f8a313` with validated local changes;
+it is not a production qualification or a validation of the current release.
+See the [demo guide](docs/getting-started/clients/cli-demo.mdx) and
+[matching SQL workflow](examples/cli-workflow.sql) for replay instructions.
+
 ## Highlights
 
 - **Open lakehouse access** — query Apache Iceberg and Apache Paimon tables, and
