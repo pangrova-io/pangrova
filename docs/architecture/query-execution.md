@@ -1465,6 +1465,14 @@ closes admission for the scope and all allocations and records the terminal
 intent in one statement. A later claim of the sealed scope updates only the
 cleanup lease and leaves the allocation rows untouched.
 
+A remote reader renews its execution window with two PostgreSQL statements. It
+first locks the exact execution anchor and takes its expiry. The grant statement
+starts a fresh snapshot after that lock, verifies the active scope and terminal
+seal, and applies the captured expiry to the exact pin. Closing a reader deletes
+its pin and execution window in one statement, with the pin locked first.
+Closure can still retire its execution window after cleanup has already removed
+the pin.
+
 The terminal cleanup queue and the proven predecessor drain path drive these
 operations. The Coordinator does not scan Shuffle intents during idle health
 ticks. A stale original grant cannot consume a successor's intent.

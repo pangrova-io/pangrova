@@ -9,6 +9,7 @@ import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.DriverManager;
+import java.sql.SQLException;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -464,6 +465,160 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
     }
 
     @Test
+    void renewsTheExactReadWindowInTwoStatements() throws Exception {
+        String query = "reader-renew-budget-" + UUID.randomUUID();
+        String shuffle = "shuffle-" + query;
+        seedAnchor(query, owner());
+        long until = System.currentTimeMillis() + 60_000;
+        try (var store = PostgresShuffleStore.create(config().database())) {
+            finalizeEmptyShuffle(store, query, shuffle, until);
+            UUID pin = store.openRead(query, owner(), shuffle, 0, 0, until, 30_000).pin().id();
+            try {
+                var before = shuffleStatements();
+                assertThat(store.grantReadWindow(query, owner(), pin)).isPositive();
+                assertShuffleStatementCount(before, 2);
+                assertThat(protectedReaders(query)).isOne();
+            } finally {
+                store.releaseRead(pin);
+            }
+        }
+    }
+
+    @Test
+    void waitingReadRenewalSeesTheTerminalSealCommittedUnderTheAnchorLock() throws Exception {
+        String query = "reader-seal-race-" + UUID.randomUUID();
+        String shuffle = "shuffle-" + query;
+        seedAnchor(query, owner());
+        long until = System.currentTimeMillis() + 60_000;
+        var executor = Executors.newSingleThreadExecutor();
+        try (var store = PostgresShuffleStore.create(config().database());
+                var blocker = DriverManager.getConnection(
+                        POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+                var monitor = DriverManager.getConnection(
+                        POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())) {
+            finalizeEmptyShuffle(store, query, shuffle, until);
+            UUID pin = store.openRead(query, owner(), shuffle, 0, 0, until, 30_000).pin().id();
+            blocker.setAutoCommit(false);
+            try {
+                int blockerPid;
+                try (var lock = blocker.prepareStatement(
+                        "SELECT pg_backend_pid() FROM public.execution_anchor WHERE execution_id = ? FOR UPDATE")) {
+                    lock.setString(1, query);
+                    try (var rows = lock.executeQuery()) {
+                        assertThat(rows.next()).isTrue();
+                        blockerPid = rows.getInt(1);
+                    }
+                }
+                var renewal = executor.submit(() -> store.grantReadWindow(query, owner(), pin));
+                awaitCondition(() -> isStatementBlocked(
+                        monitor, blockerPid, "SELECT%FROM public.execution_anchor%FOR SHARE"));
+                try (var seal = blocker.prepareStatement("INSERT INTO shuffle.shuffle_cleanup_intent "
+                        + "(query_id, revocation_generation) VALUES (?, ?)")) {
+                    seal.setString(1, query);
+                    seal.setLong(2, owner().getFencingToken());
+                    assertThat(seal.executeUpdate()).isOne();
+                }
+                blocker.commit();
+                assertThatThrownBy(() -> renewal.get(5, TimeUnit.SECONDS))
+                        .hasCauseInstanceOf(SecurityException.class).hasRootCauseMessage(
+                                "shuffle read pin is closed, expired or terminally fenced");
+                assertThat(protectedReaders(query)).isOne();
+            } finally {
+                blocker.rollback();
+                store.releaseRead(pin);
+            }
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void closesOnlyTheExactReaderInOneStatementAndClearsAnOrphanedWindow() throws Exception {
+        String query = "reader-close-budget-" + UUID.randomUUID();
+        String shuffle = "shuffle-" + query;
+        seedAnchor(query, owner());
+        long until = System.currentTimeMillis() + 60_000;
+        try (var store = PostgresShuffleStore.create(config().database())) {
+            finalizeEmptyShuffle(store, query, shuffle, until);
+            UUID first = store.openRead(query, owner(), shuffle, 0, 0, until, 30_000).pin().id();
+            UUID second = store.openRead(query, owner(), shuffle, 0, 0, until, 30_000).pin().id();
+            try {
+                var before = shuffleStatements();
+                store.releaseRead(first);
+                assertShuffleStatementCount(before, 1);
+                assertThat(protectedReaders(query)).isOne();
+                assertThatThrownBy(() -> store.grantReadWindow(query, owner(), first))
+                        .isInstanceOf(SecurityException.class);
+                assertThat(store.grantReadWindow(query, owner(), second)).isPositive();
+
+                try (var database = DriverManager.getConnection(
+                        POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+                        var delete = database.prepareStatement(
+                                "DELETE FROM shuffle.shuffle_read_pin WHERE pin_id = ?")) {
+                    delete.setObject(1, second);
+                    assertThat(delete.executeUpdate()).isOne();
+                }
+                assertThat(protectedReaders(query)).isOne();
+                before = shuffleStatements();
+                store.releaseRead(second);
+                assertShuffleStatementCount(before, 1);
+                assertThat(protectedReaders(query)).isZero();
+            } finally {
+                store.releaseRead(first);
+                store.releaseRead(second);
+            }
+        }
+    }
+
+    @Test
+    void readCloseLocksThePinBeforeWaitingForTheExecutionWindow() throws Exception {
+        String query = "reader-lock-order-" + UUID.randomUUID();
+        String shuffle = "shuffle-" + query;
+        seedAnchor(query, owner());
+        long until = System.currentTimeMillis() + 60_000;
+        var executor = Executors.newSingleThreadExecutor();
+        try (var store = PostgresShuffleStore.create(config().database());
+                var blocker = DriverManager.getConnection(
+                        POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+                var monitor = DriverManager.getConnection(
+                        POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())) {
+            finalizeEmptyShuffle(store, query, shuffle, until);
+            UUID pin = store.openRead(query, owner(), shuffle, 0, 0, until, 30_000).pin().id();
+            blocker.setAutoCommit(false);
+            try {
+                int blockerPid;
+                try (var lock = blocker.prepareStatement("SELECT pg_backend_pid() "
+                        + "FROM public.execution_read_window WHERE read_id = ? FOR UPDATE")) {
+                    lock.setObject(1, pin);
+                    try (var rows = lock.executeQuery()) {
+                        assertThat(rows.next()).isTrue();
+                        blockerPid = rows.getInt(1);
+                    }
+                }
+                var close = executor.submit(() -> store.releaseRead(pin));
+                awaitCondition(() -> isStatementBlocked(
+                        monitor, blockerPid, "WITH target(read_id)%DELETE FROM public.execution_read_window%"));
+                try (var checkPin = monitor.prepareStatement(
+                        "SELECT 1 FROM shuffle.shuffle_read_pin WHERE pin_id = ? FOR SHARE NOWAIT")) {
+                    checkPin.setObject(1, pin);
+                    assertThatThrownBy(checkPin::executeQuery)
+                            .isInstanceOfSatisfying(SQLException.class,
+                                    failure -> assertThat(failure.getSQLState()).isEqualTo("55P03"));
+                }
+                blocker.commit();
+                close.get(5, TimeUnit.SECONDS);
+                assertThat(protectedReaders(query)).isZero();
+                assertThatThrownBy(() -> store.grantReadWindow(query, owner(), pin))
+                        .isInstanceOf(SecurityException.class);
+            } finally {
+                blocker.rollback();
+            }
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     void abandonedReaderBlocksCleanupAcrossRestartOnlyUntilItsDrainWindowEnds() throws Exception {
         String query = "reader-crash-" + UUID.randomUUID();
         String shuffle = "shuffle-" + query;
@@ -776,7 +931,7 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
             }
             try {
                 var blocked = executor.submit(() -> store.batchStore().openWriteWindow(firstShuffle, first, 60_000));
-                assertThat(awaitBlockedWriter(monitor, blockerPid)).isTrue();
+                awaitCondition(() -> isStatementBlocked(monitor, blockerPid, "WITH writable_scope%"));
                 var parallel = executor.submit(() -> store.batchStore().openWriteWindow(secondShuffle, second, 60_000));
                 store.batchStore().publishWriteWindow(
                         parallel.get(5, TimeUnit.SECONDS), secondShuffle, second, List.of(secondBatch));
@@ -1394,7 +1549,7 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
                     POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
              var statement = connection.prepareStatement(
                      "SELECT COALESCE(SUM(calls), 0) FROM pg_stat_statements WHERE query LIKE ?")) {
-            statement.setString(1, "WITH pinned AS MATERIALIZED%INSERT INTO public.execution_read_window%");
+            statement.setString(1, "WITH %INSERT INTO public.execution_read_window%");
             try (var row = statement.executeQuery()) {
                 row.next();
                 return row.getLong(1);
@@ -1426,7 +1581,8 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
                 WHERE toplevel
                   AND dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
                   AND query ~ '^(SELECT|WITH|INSERT|UPDATE|DELETE)[[:space:]]'
-                  AND (strpos(query, 'shuffle_') > 0 OR strpos(query, 'public.execution_anchor') > 0)
+                  AND (strpos(query, 'shuffle_') > 0 OR strpos(query, 'public.execution_anchor') > 0
+                       OR strpos(query, 'public.execution_read_window') > 0)
                   AND query NOT LIKE '%pg_stat_statements%'
                 GROUP BY query
                 """;
@@ -1442,26 +1598,21 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
         }
     }
 
-    private static boolean awaitBlockedWriter(java.sql.Connection monitor, int blockerPid) throws Exception {
+    private static boolean isStatementBlocked(
+            java.sql.Connection monitor, int blockerPid, String queryPattern) throws Exception {
         String sql = """
                 SELECT EXISTS (
                     SELECT 1 FROM pg_stat_activity
-                    WHERE query LIKE 'WITH writable_scope%' AND ? = ANY(pg_blocking_pids(pid))
+                    WHERE query LIKE ? AND ? = ANY(pg_blocking_pids(pid))
                 )
                 """;
         try (var statement = monitor.prepareStatement(sql)) {
-            statement.setInt(1, blockerPid);
-            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
-            do {
-                try (var row = statement.executeQuery()) {
-                    row.next();
-                    if (row.getBoolean(1)) {
-                        return true;
-                    }
-                }
-                Thread.sleep(20);
-            } while (System.nanoTime() < deadline);
-            return false;
+            statement.setString(1, queryPattern);
+            statement.setInt(2, blockerPid);
+            try (var row = statement.executeQuery()) {
+                row.next();
+                return row.getBoolean(1);
+            }
         }
     }
 
