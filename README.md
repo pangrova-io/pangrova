@@ -8,7 +8,7 @@
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="Apache 2.0" /></a>
-  <a href="https://github.com/pangrova-io/pangrova/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/pangrova-io/pangrova/ci.yml?branch=main" alt="CI" /></a>
+  <a href="https://github.com/pangrova-io/pangrova/actions/workflows/ci.yml"><img src="https://github.com/pangrova-io/pangrova/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI" /></a>
 </p>
 
 <p align="center">
