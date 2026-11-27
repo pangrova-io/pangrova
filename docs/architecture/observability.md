@@ -186,6 +186,10 @@ Local ownership release does not establish global drain: a durable retirement ma
 
 ### 4.1 Query Tracing
 
+`query.submit` ends when the Coordinator returns the durable HTTP acceptance
+receipt. The captured span context remains the parent of asynchronous query
+execution spans, including work that starts after the receipt is returned.
+
 ```java
 public class QueryTracer {
     public QueryExecution traceQuery(String queryId, String sql,

@@ -1,5 +1,11 @@
 package org.pangrova.coordinator.query;
 
+import io.opentelemetry.context.Context;
+import io.opentelemetry.sdk.trace.ReadWriteSpan;
+import io.opentelemetry.sdk.trace.ReadableSpan;
+import io.opentelemetry.sdk.trace.SdkTracerProvider;
+import io.opentelemetry.sdk.trace.SpanProcessor;
+import io.opentelemetry.sdk.trace.samplers.Sampler;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -18,6 +24,7 @@ import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.testinfra.QueryManagerTestContexts;
 import org.pangrova.execution.task.DispatchResult;
 import org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory;
+import org.pangrova.observability.sdk.tracing.otel.OtelTracingProvider;
 import org.pangrova.persistence.query.api.enums.JournalAdmissionOutcome;
 import org.pangrova.persistence.query.api.exception.JournalWriteException;
 import org.pangrova.persistence.query.api.state.QueryStateJournal;
@@ -85,6 +92,59 @@ class QueryManagerDurableAcceptanceTest {
 
             manager.timeoutQueriesCreatedBy(Instant.now(), Duration.ofMinutes(1));
             assertThat(manager.getQueryState("q-accepted")).contains(QueryState.FAILED);
+        } finally {
+            work.completeExceptionally(new IllegalStateException("test execution exited"));
+        }
+    }
+
+    @Test
+    void durableReceiptEndsSubmitSpanWhileDispatchRetainsItsTraceContext() throws Exception {
+        var dispatchTrace = new CompletableFuture<String>();
+        var work = new CompletableFuture<DispatchResult>();
+        var dispatcher = new QueryManagerAsyncSubmitTest.SlowQueryDispatcher(new CountDownLatch(1), releaseFirst) {
+            @Override
+            public CompletionStage<DispatchResult> executeAsync(QueryStateMachine state, String sql,
+                    QuerySession session) {
+                state.tryTransition(QueryState.PLANNING);
+                dispatchTrace.complete(io.opentelemetry.api.trace.Span.current().getSpanContext().getSpanId());
+                return work;
+            }
+        };
+        var submitSpanEnd = new CompletableFuture<String>();
+        var observer = new SpanProcessor() {
+            @Override
+            public void onStart(Context parent, ReadWriteSpan span) {
+            }
+
+            @Override
+            public boolean isStartRequired() {
+                return false;
+            }
+
+            @Override
+            public void onEnd(ReadableSpan span) {
+                if ("query.submit".equals(span.getName())) {
+                    submitSpanEnd.complete(span.getSpanContext().getSpanId());
+                }
+            }
+
+            @Override
+            public boolean isEndRequired() {
+                return true;
+            }
+        };
+        try (var sdk = SdkTracerProvider.builder()
+                .setSampler(Sampler.alwaysOn()).addSpanProcessor(observer).build()) {
+            var tracing = new OtelTracingProvider(sdk.get("durable-query-test"));
+            var manager = new QueryManager(QueryManagerTestContexts.minimalAsync(dispatcher, tracing,
+                    AsyncSubmitConfig.defaultEnabled(), executor, new InMemoryQueryStateJournal()));
+            var receipt = manager.submitQueryAsync("q-trace", "SELECT 1", session("q-trace", "alice"),
+                    acceptance("alice", FINGERPRINT)).toCompletableFuture().get(5, TimeUnit.SECONDS);
+
+            assertThat(receipt.state()).isEqualTo(QueryState.QUEUED);
+            assertThat(submitSpanEnd).isCompleted();
+            assertThat(dispatchTrace.get(5, TimeUnit.SECONDS)).isEqualTo(submitSpanEnd.join());
+            assertThat(manager.getQueryState("q-trace")).contains(QueryState.PLANNING);
         } finally {
             work.completeExceptionally(new IllegalStateException("test execution exited"));
         }

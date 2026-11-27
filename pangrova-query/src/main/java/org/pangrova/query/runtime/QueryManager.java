@@ -279,7 +279,8 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
         }
         var pending = started.pending();
         var receiptSession = submittedSession;
-        var receiptSpan = span;
+        var acceptanceReceipt = started.acceptanceReceipt();
+        var readinessSpan = acceptanceReceipt == null ? span : null;
         var receipt = pending.receipt().whenComplete((result, failure) -> {
             Throwable cause = failure instanceof CompletionException && failure.getCause() != null
                     ? failure.getCause() : failure;
@@ -291,13 +292,14 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
             } finally {
                 ResourceCloser.closeAll(cause,
                         () -> finishSubmission(started.operation(), queryId, stateMachine, cause),
-                        receiptSpan::end,
+                        ResourceCloser.present(readinessSpan, Span::end),
                         () -> LogContext.restore(previousLogContext));
             }
         });
-        if (started.acceptanceReceipt() != null) {
+        if (acceptanceReceipt != null) {
+            span.end();
             return new QueryAsyncSubmission.Pending(
-                    CompletableFuture.completedFuture(started.acceptanceReceipt()), pending.interrupt());
+                    CompletableFuture.completedFuture(acceptanceReceipt), pending.interrupt());
         }
         return new QueryAsyncSubmission.Pending(receipt, pending.interrupt());
     }
