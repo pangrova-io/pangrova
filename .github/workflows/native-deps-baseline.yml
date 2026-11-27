@@ -488,7 +488,8 @@ jobs:
             .pangrova/scripts/stage-java-native-test-runtime.sh \
             pangrova-connector/pangrova-connector-iceberg/patches \
             .pangrova/scripts/build-iceberg-sdk-candidate.sh \
-            ':(exclude)pangrova-worker-native/src/engine/velox/connector/PangrovaVeloxConnector.cpp'
+            ':(exclude)pangrova-worker-native/src/engine/velox/connector/PangrovaVeloxConnector.cpp' \
+            ':(exclude)pangrova-worker-native/src/command/StatusSerializer.cpp'
           lock=pangrova-worker-native/dependency-versions.txt
           diff -u <(git show "$tested_ref:$lock" | grep -v '^PANGROVA_DEPENDENCY_BUILD=') \
             <(grep -v '^PANGROVA_DEPENDENCY_BUILD=' "$lock")
