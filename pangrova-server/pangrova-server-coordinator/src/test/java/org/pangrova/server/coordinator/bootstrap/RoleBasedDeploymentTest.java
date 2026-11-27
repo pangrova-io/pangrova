@@ -51,6 +51,8 @@ import java.time.Duration;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -150,7 +152,8 @@ class RoleBasedDeploymentTest {
     @ParameterizedTest
     @ValueSource(strings = {"FAILED", "RUNNING"})
     void recoveredPredecessorRetainsItsSlotUntilTheExactWorkerExitReceipt(String priorState) throws Exception {
-        var configuration = withAuthority(queryRole("task-drain-successor"));
+        var workerHealth = new CoordinatorBootstrapConfig.WorkerHealthConfig(20_000, 60_000, 1_000);
+        var configuration = withAuthority(queryRole("task-drain-successor", workerHealth));
         var jdbc = configuration.metadataJdbcConfig();
         var source = new PGSimpleDataSource();
         source.setURL(jdbc.jdbcUrl());
@@ -160,10 +163,20 @@ class RoleBasedDeploymentTest {
         var anchors = new JdbcExecutionAnchorStore(source);
         var prior = anchors.tryAcquireLimitedQuery("terminal-with-issuance", "prior", "prior-incarnation",
                 Duration.ofMinutes(1), "recovery-slot", 1).orElseThrow().anchor();
+        var live = anchors.tryAcquireLimitedQuery("active-peer-query", prior.ownerId(), "live-incarnation",
+                Duration.ofMinutes(5), "live-peer-slot", 1).orElseThrow().anchor();
         var seal = recoverySeal(prior);
-        var receipt = CanonicalTaskAdmissionSeals.closedWithoutOwner(seal).toByteArray();
-        var delivered = new CompletableFuture<TaskAdmissionSealRequest>();
-        var exited = new java.util.concurrent.atomic.AtomicBoolean();
+        var receipt = CanonicalTaskAdmissionSeals.closedWithoutOwner(seal);
+        byte[] exactReceipt = receipt.toByteArray();
+        var wrongWorker = seal.getAttempt().getWorkerExecutionIdentity().toBuilder()
+                .setIncarnationId(UUID.randomUUID().toString());
+        byte[] wrongReceipt = receipt.toBuilder()
+                .setAttempt(seal.getAttempt().toBuilder().setWorkerExecutionIdentity(wrongWorker))
+                .build().toByteArray();
+        var firstRequest = new CompletableFuture<TaskAdmissionSealRequest>();
+        var subsequentRequest = new CompletableFuture<TaskAdmissionSealRequest>();
+        var requests = new AtomicInteger();
+        var allowExactReceipt = new AtomicBoolean();
         var peer = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         peer.createContext("/v1/task/recovery-attempt", exchange -> {
             try (exchange) {
@@ -171,14 +184,18 @@ class RoleBasedDeploymentTest {
                     exchange.sendResponseHeaders(405, -1);
                     return;
                 }
-                delivered.complete(TaskAdmissionSealRequest.parseFrom(exchange.getRequestBody().readAllBytes()));
-                if (!exited.get()) {
+                var request = TaskAdmissionSealRequest.parseFrom(exchange.getRequestBody().readAllBytes());
+                firstRequest.complete(request);
+                int requestNumber = requests.incrementAndGet();
+                if (requestNumber > 2) subsequentRequest.complete(request);
+                if (requestNumber != 2 && !allowExactReceipt.get()) {
                     exchange.sendResponseHeaders(202, -1);
                     return;
                 }
+                byte[] response = requestNumber == 2 ? wrongReceipt : exactReceipt;
                 exchange.getResponseHeaders().set("Content-Type", "application/x-protobuf");
-                exchange.sendResponseHeaders(200, receipt.length);
-                exchange.getResponseBody().write(receipt);
+                exchange.sendResponseHeaders(200, response.length);
+                exchange.getResponseBody().write(response);
             }
         });
         peer.start();
@@ -189,6 +206,9 @@ class RoleBasedDeploymentTest {
             var journalConfig = new StateJournalConfig("JDBC", jdbc.jdbcUrl(), 20, 20, 24, 1024);
             try (var journal = new JdbcQueryStateJournal(source, journalConfig)) {
                 journal.appendQueryEventSync(new QueryStateEvent(context, prior.executionId(), null, null, priorState));
+                journal.appendFencedAdmissionSync(new QueryStateEvent(
+                        JournalEventContext.create(context.timestampMs(), live.ownerId()),
+                        live.executionId(), "SELECT 1", "{}", "QUEUED"), live);
                 journal.appendTaskIssuancesSync(java.util.List.of(new TaskStateEvent(
                         JournalEventContext.create(context.timestampMs(), prior.ownerId()), prior.executionId(),
                         "recovery-attempt", "prior-worker", "SCHEDULED", 0, 0, issuance)));
@@ -197,13 +217,19 @@ class RoleBasedDeploymentTest {
             bootstrap = new CoordinatorBootstrap(configuration);
             bootstrap.start();
 
-            assertThat(delivered.get(10, TimeUnit.SECONDS)).isEqualTo(seal);
+            assertThat(firstRequest.get(10, TimeUnit.SECONDS)).isEqualTo(seal);
             assertThat(anchors.current(prior.executionId())).hasValueSatisfying(anchor ->
                     assertThat(anchor.ownerId()).isEqualTo("task-drain-successor"));
             assertRecoveredResources(source, prior.executionId(), 1);
-            exited.set(true);
+            assertThat(subsequentRequest.get(10, TimeUnit.SECONDS)).isEqualTo(seal);
+            assertRecoveredResources(source, prior.executionId(), 1);
+            assertThat(bootstrap.getQueryManager().getStateMachine(prior.executionId())).isNull();
+            allowExactReceipt.set(true);
             org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(20)).untilAsserted(() ->
                     assertRecoveredResources(source, prior.executionId(), 0));
+            assertThat(anchors.current(live.executionId())).contains(live);
+            assertRetainedSlots(source, live.executionId(), "live-peer-slot", 1);
+            assertThat(bootstrap.getQueryManager().getStateMachine(live.executionId())).isNull();
         } finally {
             peer.stop(0);
         }
@@ -484,12 +510,17 @@ class RoleBasedDeploymentTest {
     }
 
     private static CoordinatorBootstrapConfig queryRole(String coordinatorId) {
+        return queryRole(coordinatorId, CoordinatorBootstrapConfig.WorkerHealthConfig.defaults());
+    }
+
+    private static CoordinatorBootstrapConfig queryRole(
+            String coordinatorId, CoordinatorBootstrapConfig.WorkerHealthConfig workerHealth) {
         return new CoordinatorBootstrapConfig(
                 new CoordinatorBootstrapConfig.CoreConfig(coordinatorId, 0,
                         CoordinatorBootstrapConfig.DEFAULT_SHUTDOWN_TIMEOUT_MS, CoordinatorDeploymentRole.QUERY,
                         "0.0.0.0"),
                 CoordinatorBootstrapConfig.FeatureFlags.allDisabled(), CoordinatorBootstrapConfig.QueryConfig.defaults(),
-                CoordinatorBootstrapConfig.TransportConfig.defaults(), CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
+                CoordinatorBootstrapConfig.TransportConfig.defaults(), workerHealth,
                 null, null, null);
     }
 

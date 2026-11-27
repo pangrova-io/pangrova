@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.protocol.rest.task.TaskStatusWire;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
+import org.pangrova.query.api.submission.AsyncSubmitConfig;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
 import java.nio.file.Path;
@@ -34,7 +35,7 @@ class TaskStatusReceiverJournalTest extends ContainerTestBase {
             var queryId = fixture.queryId();
             try {
                 fixture.startWithoutConsumingResult();
-                var attempt = actualAttempt(fixture);
+                var attempt = actualAttempt(fixture, store);
                 var report = TaskStatusWire.decode(attempt.body());
                 await("RUNNING HTTP acknowledgment").atMost(Duration.ofSeconds(5))
                         .until(() -> attempt.response().get() != null);
@@ -66,7 +67,7 @@ class TaskStatusReceiverJournalTest extends ContainerTestBase {
                  else fixture.failDuringExecution();
              })) {
             try {
-                var attempt = actualAttempt(fixture);
+                var attempt = actualAttempt(fixture, store);
                 var report = TaskStatusWire.decode(attempt.body());
                 var issuedAttempt = fixture.issuedAttempt(report);
                 await("Actual task INSERT waits on table lock").atMost(Duration.ofSeconds(5)).until(store::actualInsertWaiting);
@@ -86,7 +87,11 @@ class TaskStatusReceiverJournalTest extends ContainerTestBase {
         }
     }
 
-    private static StatusReportHttpRelay.Attempt actualAttempt(NativeReportDeliveryFixture fixture) {
+    private static StatusReportHttpRelay.Attempt actualAttempt(
+            NativeReportDeliveryFixture fixture, TaskJournalStoreFixture store) {
+        await("Actual SQL planning commits the Worker issuance")
+                .atMost(Duration.ofMillis(AsyncSubmitConfig.DEFAULT_SUBMIT_TIMEOUT_MS))
+                .until(() -> store.taskStates(fixture.queryId()).contains("SCHEDULED"));
         await("Actual selected Native report reaches HTTP relay").atMost(Duration.ofSeconds(5))
                 .until(() -> !fixture.relay().matchingAttempts().isEmpty());
         return fixture.relay().matchingAttempts().get(0);

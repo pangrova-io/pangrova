@@ -127,10 +127,10 @@ synchronizes with their existing execution anchors, including a reservation
 still committing in PostgreSQL after the JVM exits. A surviving original
 Coordinator also records proof at actual local drain under its exact original
 grant. This works after the lease expires and after heartbeat renewal evicts
-the grant from the process cache. If the lease expires between journal purge
-and release, recovery uses the retained proof and leaves the retired terminal
-history intact. The ordinary release uses its existing statements. A successor
-applies the remaining drain gates before returning the tenant slot.
+the grant from the process cache. If the grant expires before the retirement
+transaction, the original Coordinator records its exit proof and leaves the
+journal facts available to the successor. A successor applies the remaining
+drain gates before returning the tenant slot.
 
 The bounded asynchronous submission executor runs SQL planning and starts the
 distributed DAG. The DAG publishes its OUTPUT endpoint after Worker acknowledgement
