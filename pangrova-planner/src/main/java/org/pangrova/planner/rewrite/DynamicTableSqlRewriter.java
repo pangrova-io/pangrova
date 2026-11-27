@@ -79,11 +79,7 @@ public final class DynamicTableSqlRewriter {
     public DynamicTableAstRewriter.RewriteWithAuthority rewriteWithAuthority(Analysis input) {
         if (!dynamicTableRewriter.allowDirectGenerationAccess()) {
             for (var reference : input.references()) {
-                var parts = reference.table().name().parts();
-                if (parts.stream().anyMatch(RESERVED_SCHEMA::equalsIgnoreCase)
-                        || isGenerationName(parts.get(parts.size() - 1))) {
-                    throw generationAccessDenied();
-                }
+                requireOrdinaryPhysicalName(reference.table().name().parts());
             }
         }
         // Match the existing SQL planner's Dynamic Table lookup scope. The guard above also
@@ -118,6 +114,14 @@ public final class DynamicTableSqlRewriter {
         }
         return new DynamicTableAstRewriter.RewriteWithAuthority(
                 replaceCandidates(input.statement(), replacements), physicalToLogical);
+    }
+
+    /** Validates a resolved SQL relation name before an AST-only read can access it. */
+    public static void requireOrdinaryPhysicalName(List<String> parts) {
+        if (parts.stream().anyMatch(RESERVED_SCHEMA::equalsIgnoreCase)
+                || isGenerationName(parts.get(parts.size() - 1))) {
+            throw generationAccessDenied();
+        }
     }
 
     private static TableRef physicalReference(TableRef ref, QualifiedTableName physical) {

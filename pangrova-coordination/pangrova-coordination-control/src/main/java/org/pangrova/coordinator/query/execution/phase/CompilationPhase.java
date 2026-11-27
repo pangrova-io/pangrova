@@ -117,7 +117,7 @@ public final class CompilationPhase implements QueryExecutionPhase {
         ProtectedPlan protectedPlan = securityPolicyEnforcer.applyPolicies(
                 plannedQuery, context.session());
         plannedQuery = currentCompiler.optimizeProtectedQuery(protectedPlan.plan(),
-                rewriteIsProven(protectedPlan, overrides));
+                rewriteIsProven(protectedPlan, overrides, context.session()));
 
         context.stateMachine().bindLineageMetadata(lineageCapture.captureLineageInfo(
                 context.session().queryId(), context.originalSql(), plannedQuery));
@@ -134,10 +134,11 @@ public final class CompilationPhase implements QueryExecutionPhase {
 
     /**
      * A published snapshot may only replace source scans when the query is an
-     * unfiltered, unmasked, non-time-travelling read of the current generation.
+     * unfiltered, unmasked read of the current generation without a snapshot selector.
      */
     private static boolean rewriteIsProven(ProtectedPlan protectedPlan,
-            Map<String, Long> overrides) {
-        return !protectedPlan.policiesApplied() && overrides.isEmpty();
+            Map<String, Long> overrides, QuerySession session) {
+        return !protectedPlan.policiesApplied() && overrides.isEmpty()
+                && session.sourceSnapshots().isEmpty() && session.sourceIncrementalRanges().isEmpty();
     }
 }

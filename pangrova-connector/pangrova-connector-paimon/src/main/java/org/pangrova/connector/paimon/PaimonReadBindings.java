@@ -89,16 +89,18 @@ final class PaimonReadBindings {
         validateSelected(table, handle, null);
     }
 
-    static void validateSelected(FileStoreTable table, PaimonTableHandle handle, String bindingIdentity) {
+    static Snapshot validateSelected(FileStoreTable table, PaimonTableHandle handle, String bindingIdentity) {
         String expected = handle.properties().get(PaimonTableHandle.SOURCE_IDENTITY_PROPERTY);
-        if (bindingIdentity == null && expected == null) return;
-        String observed = identity(table, selectedSnapshot(table, handle));
+        if (bindingIdentity == null && expected == null && handle.incrementalRange().isEmpty()) return null;
+        Snapshot snapshot = selectedSnapshot(table, handle);
+        String observed = identity(table, snapshot);
         if (bindingIdentity != null && !bindingIdentity.equals(observed)) {
             throw new IllegalStateException("Selected source identity changed");
         }
         if (expected != null && !expected.equals(observed)) {
             throw new IllegalStateException("Selected snapshot changed during split planning");
         }
+        return snapshot;
     }
 
     static FileStoreTable requireSelectedTable(org.apache.paimon.table.Table table, PaimonTableHandle handle) {

@@ -24,7 +24,7 @@ unlisted: true
 | A2 | 已有原子状态版本、签名回执转发和精确 Worker 派发凭证。普通 DAG、投机副本、失败重派和 Worker CDC 在发送前提交已绑定的派发凭证。接管方分批核验并按当前租约持久化匹配的退出回执。单查询最多核验一页，全局最多四页并行，等待 HTTP 不占清理线程。仍存活的原 Worker 为已过期且没有存续执行者的精确尝试出具退出回执，并禁止迟到重放和时钟回拨重新准入。PostgreSQL 将持久租户槽位与执行租约同事务准入，并在本地实际清理后同事务退还。已经取得租约但尚未写入准入 journal 的执行也可在接管后归还槽位。接管批次只读取有 journal 证据的执行 ID。已派发的运行中 SQL 在完整退出证明后原子落下终态，已发布写入保留成功语义。查询阶段与 Worker 非终态进度使用实时投影，已移除这两类 journal 写入。终态、派发凭证和接管退出回执仍持久化，终态写入与 journal 删除按原执行租约验证归属，远端 Shuffle 清理后同事务归还快照 pin、租约和槽位。普通 SQL 的 Shuffle 删除由实际排空后的终态清理触发，暖路径复用现有能力票据，无 scope 时通过 PostgreSQL 直接消除意图，已去掉空闲扫描。客户端用原签名回执在冷路径恢复已物理排空的终态，正常状态查询仍走内存投影。接管方可释放已受理但尚未取得 Worker 或 Coordinator 本地执行权的查询。本地语句在执行前按租约登记，Coordinator 本地 Flight 直接发送 Arrow 批次，缓冲和读取者纳入进程内排空。同一持久目录的替代进程取得独占锁后可证明原进程退出，并启用既有的物理回收。未取得证明的执行不进入到期认领批次。仍在运行的前任可在本地 Flight 和执行资源实际排空后凭原始令牌写入退出证明，即使续租已移除本地缓存。收尾事务开始前租约到期时，接管方凭租约行上的退出证明继续回收。本地排空与对外 DRAINED 分开发布。接管事务提交后才发布 DRAINED，仍持有投影的前任可在认证状态请求中核对租约和槽位归还。正常收尾在同一事务中清理日志、释放租约并归还槽位。到期或待提交的执行保留接管日志。已删除重建查询状态和任务跟踪的旧重放链路。剩余工作包括独立进程故障和跨主机验收 | WP1.2 |
 | A3 | WP1.3 已引入显式 `PENDING` / `STREAM` / `NONE`，并贯通 dispatch、状态机、REST、JDBC、CLI 和 benchmark；代码合同已闭合，跨主机 resultless/延迟发布 E2E 仍待验收 | WP1.3，本地验证后提交；生产验收待续 |
 | A4 | 已有阶段观测和固定到达率样本；尚未接入完整 production phase/queue/rejection/timeout/drain KPI 与容量矩阵 | WP2 |
-| A5 | Paimon 已接到阶段剩余额度及绝对截止时间。普通 SDK 批扫描在 manifest 条目准入时检查预算，物理转换前核对完整 split 数，增量跨度在 SDK 构造快照列表前核对。真实 manifest 超限和取消、绑定读取、Native MoR 与 MoW 删除向量读包含在 131 项通过的定向用例中。剩余工作是对 SDK 整批调度的 manifest I/O 引入准入和字节预算，覆盖特殊扫描模式并验证已发出的存储调用实际退出 | WP3.2 |
+| A5 | Paimon 已接到阶段剩余额度及绝对截止时间。普通 SDK 批扫描在 manifest 条目准入时检查预算，物理转换前核对完整 split 数，增量跨度在 SDK 构造快照列表前核对。真实 manifest 超限和取消、绑定读取、Native MoR 与 MoW 删除向量读包含在 131 项通过的定向用例中。剩余工作包括复用增量范围验证与枚举的快照观测、限制 SDK manifest I/O 准入和字节、覆盖特殊模式并验证已发出的存储调用实际退出 | WP3.2 |
 | A6 | split 成本仍主要是文件字节；object-open、delete/decode、rows/backlog 和 unknown 尚未进入统一估计 | WP3.3 |
 | A7 | `DataSplit` range 已解析，但 Native 多数 reader 仍整对象打开；缺少格式能力矩阵和 fail-closed admission | WP3.4 |
 | A8 | 对象读取只导出 requested bytes；attempt/retry/returned/wire bytes 尚未贯通 task report/profile | WP3.1 |
@@ -34,7 +34,6 @@ unlisted: true
 | A12 | 普通 distributed write 完成后会 purge commit journal；跨重试/外部可见写入的 receipt matrix 与 retention 未统一 | WP8 |
 | A13 | Paimon abort 仍是 best-effort unlink；ambiguous commit 没有 durable abort barrier | WP8 |
 | A14 | nightly TPC 已存在；release 不校验同源 Linux/TPC 不可变证据，SF100 零值基线仍不合格 | WP9，需先批准 CI/基础设施变更 |
-| A15 | `CHANGES BETWEEN SNAPSHOT` 仍由 Coordinator 的元数据任务串行读取 SDK 分页并累积行；该任务没有执行 SQL 投影和过滤。没有增量实现的连接器会进入全量 split 枚举。需将 SQL 范围绑定到标准分布式查询，在 Worker 执行关系算子并用 Native Flight 输出，删除元数据任务和全量回退。验收覆盖区间端点、历史 schema、空区间、显式投影和过滤、无增量能力拒绝，以及客户端取消后实际归还资源 | WP3.2、WP7 |
 
 本地恢复对照在同一个清理线程上阻塞一个 Worker 响应。原实现的独立查询在 5 秒验证窗口内无法持久化回执。候选在该响应仍未返回时持久化独立查询回执。测试同时验证全局四页上限、同查询新旧租约不重叠，以及已保留回执不再读回。跨主机吞吐和恢复尾延迟仍在 B3/B7 验收范围。
 
@@ -194,6 +193,8 @@ PostgreSQL 接管分类用例预置 4,096 条其他查询日志和 4,096 条其�
 以下均为 **at commit / historical evidence**：数字、SQL 次数和覆盖范围只对应各批次当时提交的角色包与配置。当前未完成项以本文 2026-11-25 的 A/B/C 审计为准；单输入 AQE、局部聚合和写恢复等“机制已实现”不等于生产验收已完成。被后续批次取代的描述在原文附近标注 superseded。
 
 Paimon 历史绑定让 schema 和统计共享首次读取的快照。真实本地文件系统样本中，同一个快照的存在探测从 3 次降到 0 次，文件开启从 4 次降到 2 次。两次开启分别用于选择快照和发布绑定前复验。计数覆盖该快照文件的 SDK 调用，远程 GET 和查询延迟仍需按存储环境测量。
+
+`CHANGES BETWEEN SNAPSHOT` 已走标准鉴权、绑定、规划和 Native Flight 链路。Coordinator 的串行 SDK 行读取、全量回退接口和两个注册点已删除。真实 Iceberg 和 Paimon 用例验证区间端点和空区间，Paimon 在上端之后创建新版本并修改 schema 后仍返回历史投影。用例验证过滤、LIMIT、无隐含排序列，以及读完和主动取消后的实际排空。跨主机吞吐和退役压力仍按 B3/B6 验收。
 
 Iceberg 的提交通知与发布收据共享提交后的目录观测。真实 PostgreSQL 的同一份非空追加，生成发布收据时的指针 SELECT 从 7 次降至 6 次，普通追加仍为 6 次。候选的必需发布空追加也为 6 次。发布收据锁定实际提交版本并哈希清单；后续追加推进当前快照后，重放仍返回原版本和原摘要。超时经底层目录核验成功的路径单独打开目录，避免接触可能仍由提交线程使用的 SDK 表。
 

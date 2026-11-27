@@ -5,10 +5,9 @@ import org.pangrova.common.api.annotation.Experimental;
 /**
  * Snapshot interval selecting only rows appended to a source.
  *
- * <p>The range is carried by a connector table handle when a materialization
- * refresh reads a proven append-only change set. It is authoritative only when
- * produced by the coordinator from a pinned source vector; client session
- * properties can never create one.
+ * <p>The coordinator binds a range from an SQL append-range statement or a
+ * materialization refresh source vector. Client session properties never
+ * create ranges. Equal endpoints select an empty interval.
  *
  * <p>Snapshot identifiers are opaque provider values, not ordered counters:
  * Iceberg generates random 63-bit ids, so only the provider can prove that the
@@ -27,9 +26,6 @@ public record SnapshotRange(long fromInclusive, long toInclusive) {
         }
         if (toInclusive <= 0) {
             throw new IllegalArgumentException("toInclusive must be positive");
-        }
-        if (toInclusive == fromInclusive) {
-            throw new IllegalArgumentException("toInclusive must differ from fromInclusive");
         }
     }
 

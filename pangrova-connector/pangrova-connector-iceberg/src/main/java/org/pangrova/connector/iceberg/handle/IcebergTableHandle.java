@@ -128,7 +128,7 @@ public record IcebergTableHandle(
     public IcebergTableHandle withIncrementalRead(long startSnapshotId, long endSnapshotId) {
         return new IcebergTableHandle(
                 schemaName, tableName, tableLocation,
-                Optional.empty(), schemaJson, partitionSpecJson,
+                Optional.of(endSnapshotId), schemaJson, partitionSpecJson,
                 formatVersion, selectorProperties(),
                 READ_MODE_INCREMENTAL, startSnapshotId, endSnapshotId, pushedLimit);
     }

@@ -10,10 +10,9 @@ import org.pangrova.connector.api.metadata.table.SnapshotRange;
 /**
  * Carries trusted append-only snapshot ranges into the authenticated session planner.
  *
- * <p>Ranges are derived exclusively from a refresh plan produced by the
- * materialization kernel. Client session properties using this prefix are
- * removed at admission, so a query can never request an incremental read that
- * the kernel did not plan and pin.
+ * <p>Ranges are derived by the coordinator from parsed SQL or from the
+ * materialization kernel's refresh plan. Client session properties using
+ * this prefix are removed at admission.
  */
 public final class PlanningIncrementalSelectors {
 
@@ -23,7 +22,7 @@ public final class PlanningIncrementalSelectors {
     private PlanningIncrementalSelectors() {
     }
 
-    /** Binds kernel-produced ranges, replacing any value previously present. */
+    /** Binds coordinator-selected ranges, replacing any value previously present. */
     public static ConnectorSession bind(ConnectorSession session, Map<String, SnapshotRange> ranges) {
         var properties = new LinkedHashMap<>(session.getProperties());
         properties.keySet().removeIf(key -> key.startsWith(PROPERTY_PREFIX));

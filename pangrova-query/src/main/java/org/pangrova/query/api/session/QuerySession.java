@@ -141,9 +141,9 @@ public record QuerySession(
     }
 
     /**
-     * Binds incremental snapshot ranges resolved by the materialization kernel.
+     * Binds incremental snapshot ranges resolved from SQL or a materialization refresh plan.
      *
-     * <p>Like exact source snapshots, these selectors are trusted kernel output
+     * <p>Like exact source snapshots, these selectors are resolved by the engine
      * and never originate from client session properties. A source bound here
      * reads only {@code (fromExclusive, toInclusive]}, which is what makes an
      * append-only refresh read the appended delta rather than the whole table.

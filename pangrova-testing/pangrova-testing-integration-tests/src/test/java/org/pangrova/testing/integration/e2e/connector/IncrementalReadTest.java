@@ -13,10 +13,18 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInfo;
+import org.pangrova.client.http.PangrovaRestClient;
+import org.pangrova.common.client.enums.CancelOutcome;
+import org.pangrova.common.client.session.RetryPolicy;
+import org.pangrova.common.enums.QueryWaitTarget;
+import org.pangrova.common.enums.ResultDisposition;
 
+import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * E2E tests for incremental read via CHANGES BETWEEN SNAPSHOT syntax.
@@ -111,6 +119,9 @@ class IncrementalReadTest extends SqlE2ETestBase {
             assertThat(changes.get(0).getRaw("_change_type")).isEqualTo("INSERT");
             assertThat(((Number) changes.get(1).getRaw("id")).longValue()).isEqualTo(4L);
             assertThat(changes.get(1).getRaw("_change_type")).isEqualTo("INSERT");
+            assertThatThrownBy(() -> sqlRunner.execute("SELECT * FROM " + icebergFqn()
+                    + " CHANGES BETWEEN SNAPSHOT " + snapshot2 + " AND " + snapshot1))
+                    .hasMessageContaining("retained ancestor");
         }
 
         @Test
@@ -174,6 +185,45 @@ class IncrementalReadTest extends SqlE2ETestBase {
             assertThat(changes.get(0).getRaw("_change_type")).isEqualTo("INSERT");
             assertThat(((Number) changes.get(1).getRaw("id")).longValue()).isEqualTo(4L);
             assertThat(changes.get(1).getRaw("_change_type")).isEqualTo("INSERT");
+
+            sqlRunner.executeDdl("ALTER TABLE " + paimonFqn() + " ADD COLUMN later VARCHAR");
+            sqlRunner.execute("INSERT INTO " + paimonFqn() + " VALUES (5, 'later row', 'new column')");
+            var submitted = submitQueryViaHttp("SELECT name AS selected_name, _change_type FROM " + paimonFqn()
+                    + " CHANGES BETWEEN SNAPSHOT " + snapshot1 + " AND " + snapshot2
+                    + " WHERE id <> 4 AND _change_type = 'INSERT' ORDER BY id DESC LIMIT 1");
+            var endpoint = awaitResultEndpoint(submitted.queryId(), submitted);
+            assertThat(isControlPlaneEndpoint(endpoint, submitted.queryId())).isFalse();
+            assertThat(consumeSubmittedQuery(submitted)).singleElement().satisfies(row -> {
+                assertThat(row.values()).containsOnlyKeys("selected_name", "_change_type");
+                assertThat(row.getRaw("selected_name")).isEqualTo("charlie");
+                assertThat(row.getRaw("_change_type")).isEqualTo("INSERT");
+            });
+            org.awaitility.Awaitility.await("incremental Flight query physically drained")
+                    .atMost(Duration.ofSeconds(15))
+                    .until(() -> queryManager.getStateMachine(submitted.queryId()).physicalCleanupApplied());
+            taskTracker.requireQueryExecutionDrained(submitted.queryId());
+
+            try (var client = PangrovaRestClient.builder().coordinatorHost("localhost")
+                    .coordinatorPort(coordinatorHttpPort()).bearerToken(E2E_USER_BEARER_TOKEN)
+                    .retryPolicy(RetryPolicy.NONE).build()) {
+                long deadline = System.currentTimeMillis() + Duration.ofSeconds(30).toMillis();
+                var execution = client.beginQuery("SELECT * FROM " + paimonFqn()
+                        + " CHANGES BETWEEN SNAPSHOT " + snapshot1 + " AND " + snapshot2, Map.of());
+                var ready = execution.awaitStatus(QueryWaitTarget.RESULT_OR_TERMINAL, deadline);
+                while (ready.resultEndpoint() == null && ready.resultDisposition() == ResultDisposition.PENDING) {
+                    ready = execution.awaitStatus(QueryWaitTarget.RESULT_OR_TERMINAL, deadline);
+                }
+                assertThat(ready.resultEndpoint()).isNotNull();
+                assertThat(execution.cancel()).isEqualTo(CancelOutcome.CANCEL_ACCEPTED);
+                var terminal = execution.awaitStatus(QueryWaitTarget.DRAINED, deadline);
+                while (!Boolean.TRUE.equals(terminal.drained())) {
+                    terminal = execution.awaitStatus(QueryWaitTarget.DRAINED, deadline);
+                }
+                assertThat(terminal.state()).isEqualTo("CANCELLED");
+                taskTracker.requireQueryExecutionDrained(execution.submission().queryId());
+                assertThat(queryManager.getStateMachine(execution.submission().queryId()).physicalCleanupApplied())
+                        .isTrue();
+            }
         }
     }
 

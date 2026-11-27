@@ -249,6 +249,12 @@ Note: the diagram above shows only the result path. Data from the Compute Worker
 
 ### Live split enumeration and published reads
 
+SQL `CHANGES BETWEEN SNAPSHOT` binds its range during authenticated compilation.
+The ordinary distributed planner applies projections, filters, ordering and limits
+to the selected connector delta. Workers read the split plan and stream results
+through Native Flight. Connectors validate the selected upper snapshot and reject
+an unsupported append range before returning splits.
+
 `QuerySplit` in `pangrova-query` owns the immutable encoded split plus cache-affinity
 locations. Enumeration and dispatch consume this value without depending on a nested
 class of the catalog fetch implementation. It owns no connector session or buffer lease and does not grant publication or data-access

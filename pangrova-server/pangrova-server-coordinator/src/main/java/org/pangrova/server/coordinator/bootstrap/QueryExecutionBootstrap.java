@@ -449,9 +449,6 @@ final class QueryExecutionBootstrap {
                 new org.pangrova.coordinator.query.execution.dispatch.task.DropViewTask(catalogRegistry));
         tasks.put(org.pangrova.parser.api.ast.statement.ShowViewsStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.ShowViewsTask(catalogRegistry));
-        // Incremental read (CHANGES BETWEEN SNAPSHOT x AND y)
-        tasks.put(org.pangrova.parser.api.ast.statement.IncrementalReadStatement.class,
-                new org.pangrova.coordinator.query.execution.dispatch.task.IncrementalReadTask(catalogRegistry));
         // SHOW metadata (redirects to system table queries)
         return new org.pangrova.coordinator.query.execution.dispatch.MetadataExecutionFactory(tasks);
     }

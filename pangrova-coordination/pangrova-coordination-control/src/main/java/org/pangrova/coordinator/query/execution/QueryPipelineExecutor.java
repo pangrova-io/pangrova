@@ -35,6 +35,7 @@ import org.pangrova.observability.sdk.tracing.QueryTracer;
 import org.pangrova.parser.api.ast.Query;
 import org.pangrova.parser.api.ast.Statement;
 import org.pangrova.parser.api.ast.statement.dml.MergeStatement;
+import org.pangrova.parser.api.ast.statement.IncrementalReadStatement;
 import org.pangrova.parser.parse.TimeTravelSqlClauses;
 import org.pangrova.parser.parse.TimeTravelSqlClauses.Analysis;
 import org.pangrova.parser.api.ast.statement.dml.DeleteStatement;
@@ -106,7 +107,14 @@ final class QueryPipelineExecutor {
                 ? queryTracer.startQuerySpan(session.queryId(), sql) : null;
         try {
             var parsed = TimeTravelSqlClauses.extract(sql);
-            var initialCtx = QueryExecutionContext.initial(sm, parsed, session, securityPolicyApplier.getCompiler());
+            var compiler = securityPolicyApplier.getCompiler();
+            QueryExecutionContext initialCtx;
+            if (parsed.statement() instanceof IncrementalReadStatement changes) {
+                var incremental = IncrementalSql.bind(parsed, changes, session);
+                initialCtx = QueryExecutionContext.initial(sm, incremental.analysis(), incremental.session(), compiler);
+            } else {
+                initialCtx = QueryExecutionContext.initial(sm, parsed, session, compiler);
+            }
             String primaryTable = patternRecorder != null && parsed.statement() instanceof Query query
                     ? extractFirstBaseTable(query) : "unknown";
             var coordinator = new QueryLifecycleCoordinator(

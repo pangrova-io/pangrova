@@ -279,8 +279,17 @@ public final class PlanningReadBindings implements ConnectorStatisticsProvider {
                 || binding.snapshotId().getAsLong() != snapshot.getAsLong())) {
             throw new IllegalStateException("Connector did not bind the explicit source snapshot");
         }
-        if (range.isPresent() && !range.equals(binding.handle().incrementalRange())) {
-            throw new IllegalStateException("Connector did not preserve the incremental source range");
+        if (range.isPresent()) {
+            if (!range.equals(binding.handle().incrementalRange())
+                    || binding.snapshotId().isEmpty()
+                    || binding.snapshotId().getAsLong() != range.orElseThrow().toInclusive()) {
+                throw new IllegalStateException(
+                        "Connector did not bind the requested incremental range and upper endpoint");
+            }
+            if (!"true".equals(session.getProperties().get(ConnectorSession.INTERNAL_MATERIALIZATION_EXECUTION))
+                    && binding.declaration().metadata().columns().stream().anyMatch("_change_type"::equalsIgnoreCase)) {
+                throw new IllegalArgumentException("CHANGES requires a table without a reserved _change_type column");
+            }
         }
         if (snapshot.isPresent() || range.isPresent()) binding.declaration().requireExactDeclaration();
         if (!binding.declaration().metadata().table().equals(new SchemaTableName(key.schema(), key.table()))) {

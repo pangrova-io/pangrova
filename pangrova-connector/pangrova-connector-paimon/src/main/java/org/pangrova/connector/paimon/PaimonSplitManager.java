@@ -32,6 +32,9 @@ import org.pangrova.connector.api.metadata.DynamicFilter;
 import org.pangrova.connector.api.metadata.SplitPlanningBudget;
 import org.pangrova.connector.runtime.scan.FixedSplitSource;
 import org.pangrova.connector.api.metadata.table.ConnectorReadBinding;
+import org.pangrova.connector.api.metadata.table.SnapshotRange;
+import org.apache.paimon.Snapshot;
+import org.pangrova.connector.paimon.scan.PaimonReadSchema;
 import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;
@@ -88,7 +91,7 @@ public class PaimonSplitManager implements ConnectorSplitManager {
         ConnectorQueryAuthority authority = PaimonSplitRegistry.authority(session);
         try (var permit = authority.enterOperation()) {
             splitRegistry.requireActiveQuery(authority);
-            return planPhysicalSplits(handle, constraint, null, binding.sourceIdentity(),
+            return planPhysicalSplits(session, handle, constraint, null, binding.sourceIdentity(),
                     scanBudget(budget, authority));
         }
     }
@@ -133,20 +136,21 @@ public class PaimonSplitManager implements ConnectorSplitManager {
                                 system.tableName(), system.sourceIdentity(), system.kind(), object))
                         .toList());
             }
-            return planPhysicalSplits((PaimonTableHandle) table, constraint, authority, null,
+            return planPhysicalSplits(session, (PaimonTableHandle) table, constraint, authority, null,
                     scanBudget(budget, authority));
         }
     }
 
-    private ConnectorSplitSource planPhysicalSplits(PaimonTableHandle handle, Constraint constraint,
+    private ConnectorSplitSource planPhysicalSplits(ConnectorSession session, PaimonTableHandle handle,
+            Constraint constraint,
             ConnectorQueryAuthority sdkReaderAuthority, String bindingIdentity, PaimonScanBudget planning) {
         planning.check(0);
         FileStoreTable table = PaimonReadBindings.requireSelectedTable(loadFreshTable(handle), handle);
-        PaimonReadBindings.validateSelected(table, handle, bindingIdentity);
+        Snapshot snapshot = PaimonReadBindings.validateSelected(table, handle, bindingIdentity);
         if (handle.incrementalRange().isPresent()) {
             var range = handle.incrementalRange().orElseThrow();
-            return getActiveIncrementalSplits(table, handle,
-                    range.fromInclusive(), range.toInclusive(), constraint, sdkReaderAuthority, planning);
+            return getActiveIncrementalSplits(session, table, handle, snapshot, range,
+                    constraint, sdkReaderAuthority, planning);
         }
         return getActiveSplits(table, handle, constraint, sdkReaderAuthority, planning);
     }
@@ -174,47 +178,53 @@ public class PaimonSplitManager implements ConnectorSplitManager {
         return new FixedSplitSource(splits);
     }
 
-    /**
-     * Returns only the data files added between two snapshots using
-     * Paimon's incremental-between scan mode.
-     *
-     * <p>Creates a copy of the table with {@code incremental-between}
-     * configured to the given snapshot range, then plans splits from
-     * that incremental view. This enables O(delta) refresh for Dynamic
-     * Tables backed by Paimon.</p>
-     */
-    @Override
-    public ConnectorSplitSource getIncrementalSplits(
-            ConnectorSession session,
-            ConnectorTableHandle table,
-            long fromSnapshotId,
-            long toSnapshotId,
-            Constraint constraint,
-            SplitPlanningBudget budget) {
-        PaimonTableHandle paimonTable = (PaimonTableHandle) table;
-        ConnectorQueryAuthority authority = PaimonSplitRegistry.authority(session);
-        try (var permit = authority.enterOperation()) {
-            var planning = scanBudget(budget, authority);
-            planning.check(0);
-            FileStoreTable selected = PaimonReadBindings.requireSelectedTable(loadFreshTable(paimonTable), paimonTable);
-            PaimonReadBindings.validateSelected(selected, paimonTable);
-            return getActiveIncrementalSplits(selected, paimonTable, fromSnapshotId, toSnapshotId,
-                    constraint, authority, planning);
-        }
-    }
-
-    private ConnectorSplitSource getActiveIncrementalSplits(FileStoreTable selectedTable, PaimonTableHandle paimonTable,
-            long fromSnapshotId, long toSnapshotId, Constraint constraint,
+    private ConnectorSplitSource getActiveIncrementalSplits(ConnectorSession session, FileStoreTable selectedTable,
+            PaimonTableHandle paimonTable, Snapshot target, SnapshotRange range, Constraint constraint,
             ConnectorQueryAuthority sdkReaderAuthority, PaimonScanBudget planning) {
+        long fromSnapshotId = range.fromInclusive();
+        long toSnapshotId = range.toInclusive();
+        planning.checkSnapshotRange(fromSnapshotId, toSnapshotId);
+        if (fromSnapshotId == toSnapshotId) return new FixedSplitSource(List.of());
+        boolean verified = "true".equals(
+                session.getProperties().get(ConnectorSession.INTERNAL_MATERIALIZATION_EXECUTION));
+        if (!verified) requireAppendRange(selectedTable, target, fromSnapshotId, planning);
         String tableName = paimonTable.tableName();
         LOG.debug("event=incremental_splits_start table={}.{} from_snapshot={} to_snapshot={}",
                 paimonTable.schemaName(), tableName, fromSnapshotId, toSnapshotId);
 
-        List<ConnectorSplit> splits = planIncrementalSplits(
-                selectedTable, tableName, fromSnapshotId, toSnapshotId, constraint, sdkReaderAuthority, planning);
+        List<ConnectorSplit> splits = planIncrementalSplits(selectedTable, tableName, target, range,
+                constraint, sdkReaderAuthority, planning, verified);
+        PaimonReadBindings.validateSelected(selectedTable, paimonTable);
         LOG.debug("event=incremental_splits_complete table={}.{} split_count={}",
                 paimonTable.schemaName(), tableName, splits.size());
         return new FixedSplitSource(splits);
+    }
+
+    private static void requireAppendRange(FileStoreTable table, Snapshot target, long from,
+            PaimonScanBudget planning) {
+        if (!table.primaryKeys().isEmpty()) {
+            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_UNSUPPORTED_OPERATION,
+                    "Paimon CHANGES requires an append-only table without a primary key");
+        }
+        try {
+            PaimonReadSchema.readSnapshot(table, from);
+            for (long id = from + 1; id < target.id(); id++) {
+                planning.check(0);
+                requireAppendSnapshot(PaimonReadSchema.readSnapshot(table, id));
+            }
+            requireAppendSnapshot(target);
+        } catch (java.io.FileNotFoundException missing) {
+            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_SNAPSHOT_NOT_FOUND,
+                    "Paimon append range has an unavailable snapshot", missing);
+        }
+    }
+
+    private static void requireAppendSnapshot(Snapshot snapshot) {
+        if (snapshot.commitKind() != Snapshot.CommitKind.APPEND) {
+            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_UNSUPPORTED_OPERATION,
+                    "Paimon changes require append commits, found " + snapshot.commitKind()
+                            + " at snapshot " + snapshot.id());
+        }
     }
 
     private static PaimonScanBudget scanBudget(SplitPlanningBudget stage, ConnectorQueryAuthority authority) {
@@ -373,13 +383,15 @@ public class PaimonSplitManager implements ConnectorSplitManager {
      * {@link IncrementalScanCapability#isAppendOnly} before calling),
      * so we expand per-file for native reader compatibility.</p>
      */
-    private List<ConnectorSplit> planIncrementalSplits(
-            FileStoreTable table, String tableName,
-            long fromSnapshotId, long toSnapshotId, Constraint constraint,
-            ConnectorQueryAuthority sdkReaderAuthority, PaimonScanBudget planning) {
-        planning.checkSnapshotRange(fromSnapshotId, toSnapshotId);
-        FileStoreTable incrementalView = table.copy(Map.of(
-                "incremental-between", fromSnapshotId + "," + toSnapshotId));
+    private List<ConnectorSplit> planIncrementalSplits(FileStoreTable table, String tableName,
+            Snapshot target, SnapshotRange range, Constraint constraint,
+            ConnectorQueryAuthority sdkReaderAuthority, PaimonScanBudget planning, boolean verified) {
+        Map<String, String> options = new java.util.HashMap<>(table.options());
+        options.put("path", table.location().toString());
+        options.put("scan.mode", "incremental");
+        options.put("incremental-between", range.fromInclusive() + "," + range.toInclusive());
+        if (!verified) options.put("incremental-between-scan-mode", "delta");
+        FileStoreTable incrementalView = table.copy(table.schemaManager().schema(target.schemaId()).copy(options));
 
         ReadBuilder readBuilder = incrementalView.newReadBuilder();
         Predicate paimonFilter = PaimonFilterBuilder.build(incrementalView.rowType(), constraint);
@@ -387,8 +399,8 @@ public class PaimonSplitManager implements ConnectorSplitManager {
             readBuilder.withFilter(paimonFilter);
         }
 
-        String changelogProducer = resolveChangelogProducer(table);
-        TableSplitContext ctx = buildTableContext(table, changelogProducer);
+        String changelogProducer = resolveChangelogProducer(incrementalView);
+        TableSplitContext ctx = buildTableContext(incrementalView, changelogProducer);
         return convertSplits(tableName, ctx, incrementalView, "INCREMENTAL",
                 planning.plan(readBuilder), sdkReaderAuthority, planning, false);
     }

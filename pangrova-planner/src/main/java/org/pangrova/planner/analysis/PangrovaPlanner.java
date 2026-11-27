@@ -11,6 +11,7 @@ import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.prepare.CalciteCatalogReader;
 import org.apache.calcite.rel.RelNode;
 import org.apache.calcite.rel.type.RelDataTypeFactory;
+import org.apache.calcite.sql.SqlKind;
 import org.apache.calcite.sql.SqlNode;
 import org.pangrova.planner.rewrite.DynamicTableAstRewriter;
 import org.pangrova.planner.rewrite.DynamicTableSqlRewriter;
@@ -443,7 +444,9 @@ public final class PangrovaPlanner {
                     validator, catalogReader, cluster,
                     StandardConvertletTable.INSTANCE,
                     PlannerViewExpander.converterConfig());
-            RelNode rel = converter.convertQuery(validated, false, true).rel;
+            var root = converter.convertQuery(validated, false, true);
+            // Calcite keeps ORDER BY expressions in the relational output until RelRoot projects visible fields.
+            RelNode rel = SqlKind.QUERY.contains(root.kind) ? root.project() : root.rel;
             rel = DecorrelationSupport.safeDecorrelate(rel);
             rel = SubqueryRelationalExpansion.expand(rel);
             rel = DerivedQueryExpansion.expand(rel, parserFactory, catalogReader, operatorTable);

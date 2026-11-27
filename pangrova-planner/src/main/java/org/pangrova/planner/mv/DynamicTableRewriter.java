@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
+import org.pangrova.connector.api.session.ConnectorSession;
 
 /**
  * Resolves Dynamic Table names to their published physical generations.
@@ -20,14 +21,6 @@ import org.pangrova.connector.api.metadata.table.QualifiedTableName;
  */
 @org.pangrova.common.concurrent.ThreadSafe
 public final class DynamicTableRewriter {
-
-    /**
-     * Reserved connector-session property binding kernel-authored materialization
-     * execution. The coordinator always removes client copies before setting it
-     * from its trusted execution context, so a client can never forge it.
-     */
-    public static final String INTERNAL_EXECUTION_PROPERTY =
-            "pangrova.materialization.internal-execution";
 
     private final PublishedTargetResolver publishedTargetResolver;
     private final boolean allowDirectGenerationAccess;
@@ -55,8 +48,8 @@ public final class DynamicTableRewriter {
     }
 
     /** Reads the reserved internal-execution binding from a converted session. */
-    public static boolean isInternalExecution(org.pangrova.connector.api.session.ConnectorSession session) {
-        return "true".equals(session.getProperties().get(INTERNAL_EXECUTION_PROPERTY));
+    public static boolean isInternalExecution(ConnectorSession session) {
+        return "true".equals(session.getProperties().get(ConnectorSession.INTERNAL_MATERIALIZATION_EXECUTION));
     }
 
     /** Component-preserving query-local authority for one published generation. */

@@ -217,6 +217,8 @@ WHERE event_type = 'purchase';
 ```
 
 **Notes:**
-- Returns rows added between the two snapshots
-- Includes implicit `_change_type` column indicating INSERT operations
-- Useful for CDC pipelines and incremental ETL
+- Reads appended rows after the lower snapshot through the upper snapshot, using the upper snapshot's schema.
+- Iceberg requires a retained append-only ancestry path. Direct Paimon queries require append commits on a table without a primary key.
+- Equal endpoints return an empty result for the selected schema. Unsupported sources and unavailable endpoints fail.
+- `SELECT *` includes `_change_type` with value `INSERT`. Explicit projections can select or filter on this column.
+- The source must be a physical table without a user column named `_change_type` or an active session branch route.

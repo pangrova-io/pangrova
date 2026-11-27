@@ -2649,9 +2649,6 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         tasks.put(org.pangrova.parser.api.ast.statement.maintenance.AnalyzeStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.AnalyzeTask(
                         new org.pangrova.coordinator.query.statement.AnalyzeExecutor(catalog)));
-        // Incremental read (CHANGES BETWEEN SNAPSHOT x AND y)
-        tasks.put(org.pangrova.parser.api.ast.statement.IncrementalReadStatement.class,
-                new org.pangrova.coordinator.query.execution.dispatch.task.IncrementalReadTask(catalog));
         // Storage Profile management
         org.pangrova.persistence.file.api.profile.StorageProfileRegistry spRegistry = durableStorageProfileScenario
                 ? new org.pangrova.persistence.file.postgresql.profile.JdbcStorageProfileRegistry(
