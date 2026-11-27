@@ -16,6 +16,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.connector.api.commit.DistributedWriteCommitContext;
+import org.pangrova.connector.api.metadata.SplitPlanningBudget;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.pangrova.connector.api.metadata.table.TableIdentity;
 import org.pangrova.connector.api.metadata.Constraint;
@@ -191,7 +192,7 @@ class IcebergJdbcSchemaIsolationIntegrationTest extends ContainerTestBase {
         var manager = new IcebergSplitManager(schema.name(), selected, new IcebergExpressionToSubstrait());
         long beforeSplits = schema.catalogPointerLookups();
         var source = manager.getBoundSplits(ConnectorTransactionHandle.empty(),
-                READER, metadata, binding, DynamicFilter.ALL, Constraint.EMPTY);
+                READER, metadata, binding, DynamicFilter.ALL, Constraint.EMPTY, SplitPlanningBudget.standard());
         try {
             assertThat(source.getNextBatch(10)).hasSize(1);
             assertThat(source.isFinished()).isTrue();
@@ -251,7 +252,7 @@ class IcebergJdbcSchemaIsolationIntegrationTest extends ContainerTestBase {
             long before = schema.catalogPointerLookups();
 
             var source = manager.getBoundSplits(ConnectorTransactionHandle.empty(),
-                    READER, metadata, binding, DynamicFilter.ALL, Constraint.EMPTY);
+                    READER, metadata, binding, DynamicFilter.ALL, Constraint.EMPTY, SplitPlanningBudget.standard());
             try {
                 assertThat(source.getNextBatch(10)).hasSize(1);
                 assertThat(source.isFinished()).isTrue();

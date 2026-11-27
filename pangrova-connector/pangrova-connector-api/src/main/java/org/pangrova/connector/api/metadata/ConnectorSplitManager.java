@@ -45,7 +45,8 @@ public interface ConnectorSplitManager {
      */
     default ConnectorSplitSource getBoundSplits(ConnectorTransactionHandle transaction,
             ConnectorSession session, ConnectorMetadata metadata, ConnectorReadBinding binding,
-            DynamicFilter dynamicFilter, Constraint constraint) {
+            DynamicFilter dynamicFilter, Constraint constraint, SplitPlanningBudget budget) {
+        budget.check(0);
         if (binding.state() == ReadSnapshotState.EMPTY) {
             throw new IllegalArgumentException("An empty binding has no splits to enumerate");
         }
@@ -68,6 +69,7 @@ public interface ConnectorSplitManager {
      * @param fromSnapshotId exclusive lower-bound snapshot ID
      * @param toSnapshotId   inclusive upper-bound snapshot ID
      * @param constraint     pushed-down predicate constraint
+     * @param budget         remaining split planning capacity and deadline
      * @return a split source for iterating over incremental splits, never null
      */
     default ConnectorSplitSource getIncrementalSplits(
@@ -75,7 +77,9 @@ public interface ConnectorSplitManager {
             ConnectorTableHandle table,
             long fromSnapshotId,
             long toSnapshotId,
-            Constraint constraint) {
+            Constraint constraint,
+            SplitPlanningBudget budget) {
+        budget.check(0);
         return getSplits(ConnectorTransactionHandle.empty(), session, table, DynamicFilter.ALL, constraint);
     }
 

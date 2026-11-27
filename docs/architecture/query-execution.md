@@ -267,6 +267,17 @@ single 30-second elapsed-time budget and a 100,000-split cap across the stage's
 sources. A batch that arrives after the deadline or would exceed the cap fails the
 stage and closes the source. An empty binding is still validated against its
 admitted table identity before returning zero splits.
+The Coordinator passes the remaining split capacity and the same monotonic
+deadline to the selected connector. Paimon checks the physical file count for
+append and incremental scans, and the SDK split count for merge reads, before
+allocating the connector split list or registering SDK readers. Conversion
+rechecks the deadline and query lifetime while visiting files. The pinned
+Paimon batch scanner checks cancellation and the deadline on manifest entry
+admission. The connector rejects more than one million candidate manifest
+entries in that scanner or an incremental range spanning more than one million
+snapshots. A rejected scan fails as a whole. The SDK still owns manifest task
+submission and individual storage calls. SDK scan variants that do not expose
+the same manifest hook have extent checks at the planning boundary.
 The direct JDBC catalog reads the metadata pointer during load. Catalog wrappers
 that can return cached SDK tables refresh that observation before validation.
 

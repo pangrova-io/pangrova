@@ -16,6 +16,7 @@ import org.pangrova.planner.analysis.SplitSourceDescriptor;
 import org.pangrova.protocol.index.IndexEvalHintProtoCodec;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
+import org.pangrova.connector.api.metadata.SplitPlanningBudget;
 import org.pangrova.connector.api.metadata.ConnectorSplit;
 import org.pangrova.connector.api.metadata.ConnectorSplitSource;
 import org.pangrova.connector.api.metadata.Constraint;
@@ -39,10 +40,10 @@ public final class SplitFetcher {
     private static final Logger LOG = LoggerFactory.getLogger(SplitFetcher.class);
 
     /** Maximum time to resolve and enumerate all sources of a stage. */
-    private static final long SPLIT_FETCH_TIMEOUT_MS = 30_000;
+    private static final long SPLIT_FETCH_TIMEOUT_MS = SplitPlanningBudget.DEFAULT_TIMEOUT_MS;
 
     /** Maximum number of splits per stage to prevent unbounded memory growth. */
-    private static final int MAX_SPLITS_PER_STAGE = 100_000;
+    private static final int MAX_SPLITS_PER_STAGE = SplitPlanningBudget.DEFAULT_MAX_SPLITS;
     private static final int SPLIT_BATCH_SIZE = 1000;
 
     private SplitFetcher() {}
@@ -196,7 +197,8 @@ public final class SplitFetcher {
         var nativeBinding = NativeReadSplitBinding.prepare(catalog, session);
         ConnectorSplitSource source = catalog.getSplitManager().getBoundSplits(
                 ConnectorTransactionHandle.empty(), session, metadata, binding,
-                DynamicFilter.ALL, desc.constraint());
+                DynamicFilter.ALL, desc.constraint(),
+                new SplitPlanningBudget(deadlineNanos, MAX_SPLITS_PER_STAGE - splits.size()));
         int previousCount = splits.size();
         drainSource(source, splits, deadlineNanos, nativeBinding::bind);
         LOG.debug("event=splits_fetched table={} splitCount={}", desc.qualifiedName(), splits.size() - previousCount);

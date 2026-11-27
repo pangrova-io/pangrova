@@ -12,6 +12,7 @@ import org.pangrova.connector.iceberg.handle.IcebergFileTableSplit;
 import org.pangrova.connector.iceberg.read.IcebergExpressionToSubstrait;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
+import org.pangrova.connector.api.metadata.SplitPlanningBudget;
 import org.pangrova.connector.api.metadata.ConnectorSplit;
 import org.pangrova.connector.api.metadata.ConnectorMetadata;
 import org.pangrova.connector.api.metadata.ConnectorSplitManager;
@@ -131,11 +132,12 @@ public class IcebergSplitManager implements ConnectorSplitManager {
     @Override
     public ConnectorSplitSource getBoundSplits(ConnectorTransactionHandle transaction,
             ConnectorSession session, ConnectorMetadata metadata, ConnectorReadBinding binding,
-            DynamicFilter dynamicFilter, Constraint constraint) {
+            DynamicFilter dynamicFilter, Constraint constraint, SplitPlanningBudget budget) {
+        budget.check(0);
         if (binding.state() == org.pangrova.connector.api.enums.ReadSnapshotState.EMPTY
                 || !(binding.handle() instanceof IcebergTableHandle handle)) {
             return ConnectorSplitManager.super.getBoundSplits(
-                    transaction, session, metadata, binding, dynamicFilter, constraint);
+                    transaction, session, metadata, binding, dynamicFilter, constraint, budget);
         }
         Table table = IcebergCatalogTables.resolveTable(catalog, handle);
         IcebergReadBindings.validate(table, handle, binding);
@@ -166,7 +168,9 @@ public class IcebergSplitManager implements ConnectorSplitManager {
             ConnectorTableHandle table,
             long fromSnapshotId,
             long toSnapshotId,
-            Constraint constraint) {
+            Constraint constraint,
+            SplitPlanningBudget budget) {
+        budget.check(0);
         IcebergTableHandle icebergTable = (IcebergTableHandle) table;
         Table icebergSdkTable = resolveTable(icebergTable);
         validateSnapshotRange(fromSnapshotId, toSnapshotId);

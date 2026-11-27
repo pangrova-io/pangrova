@@ -41,6 +41,7 @@ import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
 import org.pangrova.types.value.ColumnValue;
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.batch.api.page.Page;
+import org.pangrova.connector.api.metadata.SplitPlanningBudget;
 import org.pangrova.connector.api.metadata.Constraint;
 import org.pangrova.connector.api.metadata.ConnectorMetadata;
 import org.pangrova.connector.api.metadata.ConnectorSplit;
@@ -87,7 +88,7 @@ public final class IncrementalReadTask implements MetadataTask<IncrementalReadSt
         List<String> columnNames = List.copyOf(columnHandleMap.keySet());
 
         var splitSource = catalogHandle.getSplitManager().getIncrementalSplits(
-                session, tableHandle, fromSnapshot, toSnapshot, Constraint.EMPTY);
+                session, tableHandle, fromSnapshot, toSnapshot, Constraint.EMPTY, SplitPlanningBudget.standard());
 
         List<TypedRow> rows = new ArrayList<>();
         var pageSourceProvider = catalogHandle.getPageSourceProvider();

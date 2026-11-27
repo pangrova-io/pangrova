@@ -1,6 +1,8 @@
 package org.pangrova.coordinator.integration.connector.paimon;
 
 import org.pangrova.protocol.source.CanonicalConnectorSplit;
+import org.pangrova.common.enums.PangrovaErrorCode;
+import org.pangrova.connector.api.exception.ConnectorException;
 import org.pangrova.connector.api.enums.ReadSnapshotState;
 import org.pangrova.connector.paimon.PaimonSplitRegistry;
 import org.pangrova.connector.paimon.PaimonSplitManager;
@@ -20,6 +22,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
+import org.pangrova.connector.api.metadata.SplitPlanningBudget;
 import org.pangrova.connector.api.metadata.Constraint;
 import org.pangrova.connector.api.metadata.DynamicFilter;
 import org.pangrova.connector.api.metadata.table.ConnectorReadBinding;
@@ -80,6 +83,28 @@ class PaimonReadBindingIntegrationTest {
                 assertThat(tableLoads.get()).isOne();
                 assertThat(invalidations.get()).isOne();
             }
+        }
+    }
+
+    @Test
+    void boundAppendScanCountsPhysicalFilesAgainstRemainingStageCapacity() throws Exception {
+        try (var catalog = catalog(); var registry = new PaimonSplitRegistry()) {
+            var table = create(catalog, "bounded");
+            write(table, 2);
+            write(table, 3);
+            var metadata = new PaimonMetadata(catalog, "bound", registry);
+            var selected = bind(metadata, "bounded");
+            var deadline = SplitPlanningBudget.standard().deadlineNanos();
+
+            var limited = new SplitPlanningBudget(deadline, 1);
+            assertThatThrownBy(() -> splits(catalog, registry, metadata, selected, limited))
+                    .isInstanceOfSatisfying(ConnectorException.class, failure ->
+                            assertThat(failure.getErrorCode())
+                                    .isEqualTo(PangrovaErrorCode.CONNECTOR_SPLIT_LIMIT_REACHED));
+            assertThat(splits(catalog, registry, metadata, selected, new SplitPlanningBudget(deadline, 2)))
+                    .hasSize(2).allSatisfy(split ->
+                            assertThat(split.getSourceSnapshot())
+                                    .isEqualTo(Long.toString(selected.snapshotId().orElseThrow())));
         }
     }
 
@@ -255,6 +280,11 @@ class PaimonReadBindingIntegrationTest {
 
     private static List<org.pangrova.protocol.v2.DataSplit> splits(Catalog catalog, PaimonSplitRegistry registry,
             PaimonMetadata metadata, ConnectorReadBinding binding) throws Exception {
+        return splits(catalog, registry, metadata, binding, SplitPlanningBudget.standard());
+    }
+
+    private static List<org.pangrova.protocol.v2.DataSplit> splits(Catalog catalog, PaimonSplitRegistry registry,
+            PaimonMetadata metadata, ConnectorReadBinding binding, SplitPlanningBudget budget) throws Exception {
         var query = new TestConnectorQuery("read", "reader", "tenant", Map.of());
         var session = query.session("bound", "db");
         registry.beginQuery(query.authority());
@@ -262,7 +292,7 @@ class PaimonReadBindingIntegrationTest {
         List<org.pangrova.protocol.v2.DataSplit> result = new ArrayList<>();
         try {
             var source = manager.getBoundSplits(ConnectorTransactionHandle.empty(), session, metadata, binding,
-                    DynamicFilter.ALL, Constraint.EMPTY);
+                    DynamicFilter.ALL, Constraint.EMPTY, budget);
             try {
                 assertThat(registry.size()).isZero();
                 while (!source.isFinished()) {

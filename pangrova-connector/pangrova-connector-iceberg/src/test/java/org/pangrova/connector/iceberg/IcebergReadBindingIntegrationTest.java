@@ -24,6 +24,7 @@ import org.pangrova.connector.api.enums.ReadSnapshotState;
 import org.pangrova.connector.iceberg.read.IcebergExpressionToSubstrait;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
+import org.pangrova.connector.api.metadata.SplitPlanningBudget;
 import org.pangrova.connector.api.metadata.Constraint;
 import org.pangrova.connector.api.metadata.ConnectorSplitSource;
 import org.pangrova.connector.api.metadata.DynamicFilter;
@@ -225,7 +226,7 @@ class IcebergReadBindingIntegrationTest {
 
             var manager = new IcebergSplitManager("bound", catalog, new IcebergExpressionToSubstrait());
             var planned = drainSplits(manager.getBoundSplits(ConnectorTransactionHandle.empty(), SESSION,
-                    metadata, binding, DynamicFilter.ALL, Constraint.EMPTY));
+                    metadata, binding, DynamicFilter.ALL, Constraint.EMPTY, SplitPlanningBudget.standard()));
             assertThat(planned).singleElement()
                     .satisfies(split -> assertThat(split.getSourceSnapshot()).isEqualTo(snapshotToken));
             assertThat(io.reads(predecessors) - afterBinding).isZero();
@@ -306,7 +307,7 @@ class IcebergReadBindingIntegrationTest {
             var manager = new IcebergSplitManager("bound", cached, new IcebergExpressionToSubstrait());
 
             assertThatThrownBy(() -> manager.getBoundSplits(ConnectorTransactionHandle.empty(),
-                    SESSION, metadata, selected, DynamicFilter.ALL, Constraint.EMPTY))
+                    SESSION, metadata, selected, DynamicFilter.ALL, Constraint.EMPTY, SplitPlanningBudget.standard()))
                     .isInstanceOf(IllegalStateException.class).hasMessageContaining("unavailable");
         }
     }
