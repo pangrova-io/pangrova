@@ -260,6 +260,9 @@ class CoordinatorRestartChaosTest extends ContainerTestBase {
                       root-ca-path: /opt/pangrova/config/root.pem
                       certificate-chain-path: /opt/pangrova/config/role.pem
                       private-key-path: /opt/pangrova/config/role-key.pem
+                  shuffle:
+                    tls:
+                      server-identity: coordinator
                 metadata:
                   enabled: true
                   jdbc-url: "%s"

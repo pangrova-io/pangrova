@@ -188,8 +188,15 @@ class IndexTypeVerificationE2ETest extends SqlE2ETestBase {
         void nativeBTreeSignedZeroMatchesSql() {
             String table = CATALOG + "." + SCHEMA + ".t_bt_zero_" + System.nanoTime();
             sqlRunner.executeDdl("CREATE TABLE " + table + " (amount DOUBLE)");
-            sqlRunner.execute("INSERT INTO " + table + " VALUES "
-                    + "(CAST('-0.0' AS DOUBLE)), (CAST(10 AS DOUBLE))");
+            String source = table + "_source";
+            sqlRunner.executeDdl("CREATE TABLE " + source + " (encoded VARCHAR)");
+            try {
+                sqlRunner.execute("INSERT INTO " + source + " VALUES ('-0.0'), ('10.0')");
+                // Evaluate the cast on the Worker so the fixture retains the IEEE 754 sign bit.
+                sqlRunner.execute("INSERT INTO " + table + " SELECT CAST(encoded AS DOUBLE) FROM " + source);
+            } finally {
+                sqlRunner.executeDdl("DROP TABLE " + source);
+            }
             String query = "SELECT amount FROM " + table + " WHERE amount = CAST(0 AS DOUBLE)";
             List<TypedRow> baseline = sqlRunner.execute(query);
             assertThat(baseline).hasSize(1);

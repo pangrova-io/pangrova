@@ -121,13 +121,18 @@ class SecurityAuthFlowE2ETest extends SqlE2ETestBase {
         mockIdpServer.start();
 
         // Start OpenLDAP TestContainer
-        openLdapContainer = new GenericContainer<>(DockerImageName.parse("osixia/openldap:latest"))
+        openLdapContainer = new GenericContainer<>(DockerImageName.parse("osixia/openldap:1.5.0"))
                 .withNetwork(sharedNetwork)
                 .withExposedPorts(389)
                 .withEnv("LDAP_ORGANISATION", "Pangrova")
                 .withEnv("LDAP_DOMAIN", "pangrova.org")
                 .withEnv("LDAP_ADMIN_PASSWORD", "admin_pass")
-                .withEnv("LDAP_BASE_DN", "dc=pangrova,dc=org");
+                .withEnv("LDAP_BASE_DN", "dc=pangrova,dc=org")
+                .withEnv("LDAP_TLS", "false")
+                .waitingFor(new org.testcontainers.containers.wait.strategy.WaitAllStrategy()
+                        .withStrategy(org.testcontainers.containers.wait.strategy.Wait
+                                .forLogMessage(".*First start is done[.]{3}.*\\s", 1))
+                        .withStrategy(org.testcontainers.containers.wait.strategy.Wait.forListeningPort()));
         openLdapContainer.start();
     }
 
@@ -332,7 +337,7 @@ class SecurityAuthFlowE2ETest extends SqlE2ETestBase {
         @DisplayName("LDAP admin bind succeeds against TestContainers OpenLDAP")
         void ldapAdminBind_succeedsAgainstOpenLdap() {
             LdapAuthenticator authenticator = new LdapAuthenticator();
-            String ldapUrl = "ldap://localhost:" + openLdapContainer.getMappedPort(389);
+            String ldapUrl = "ldap://" + openLdapContainer.getHost() + ":" + openLdapContainer.getMappedPort(389);
             authenticator.init(Map.of(
                     "ldapUrl", ldapUrl,
                     "baseDn", "dc=pangrova,dc=org",
@@ -354,7 +359,7 @@ class SecurityAuthFlowE2ETest extends SqlE2ETestBase {
         @DisplayName("LDAP bind with wrong password fails against TestContainers OpenLDAP")
         void ldapWrongPassword_failsAgainstOpenLdap() {
             LdapAuthenticator authenticator = new LdapAuthenticator();
-            String ldapUrl = "ldap://localhost:" + openLdapContainer.getMappedPort(389);
+            String ldapUrl = "ldap://" + openLdapContainer.getHost() + ":" + openLdapContainer.getMappedPort(389);
             authenticator.init(Map.of(
                     "ldapUrl", ldapUrl,
                     "baseDn", "dc=pangrova,dc=org",
@@ -392,7 +397,7 @@ class SecurityAuthFlowE2ETest extends SqlE2ETestBase {
         @DisplayName("LDAP health check passes with valid OpenLDAP connection")
         void ldapHealthCheck_passesWithValidConnection() {
             LdapAuthenticator authenticator = new LdapAuthenticator();
-            String ldapUrl = "ldap://localhost:" + openLdapContainer.getMappedPort(389);
+            String ldapUrl = "ldap://" + openLdapContainer.getHost() + ":" + openLdapContainer.getMappedPort(389);
             authenticator.init(Map.of(
                     "ldapUrl", ldapUrl,
                     "baseDn", "dc=pangrova,dc=org",

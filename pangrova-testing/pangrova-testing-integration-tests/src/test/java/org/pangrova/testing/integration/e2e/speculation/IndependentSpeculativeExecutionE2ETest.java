@@ -1,5 +1,6 @@
 package org.pangrova.testing.integration.e2e.speculation;
 
+import org.pangrova.common.enums.ResultDisposition;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -109,7 +110,8 @@ class IndependentSpeculativeExecutionE2ETest extends ContainerTestBase {
     void failedOriginalCanBeReplacedBySuccessfulCopy() throws Exception {
         String table = createOutputTable();
         try (var scenario = new SpeculativeProcessScenario(
-                processes, SpeculativeProcessScenario.Fault.ORIGINAL_READ, false, insertSql(table))) {
+                processes, SpeculativeProcessScenario.Fault.ORIGINAL_READ, false, insertSql(table),
+                ResultDisposition.NONE)) {
             var original = scenario.original();
             var copy = scenario.copy();
             var failedOriginal = scenario.report(id(original), "FAILED");
@@ -132,7 +134,8 @@ class IndependentSpeculativeExecutionE2ETest extends ContainerTestBase {
     void bothFailedAttemptsFailTheirLogicalTaskOnce() throws Exception {
         String table = createOutputTable();
         try (var scenario = new SpeculativeProcessScenario(
-                processes, SpeculativeProcessScenario.Fault.BOTH_READ, true, insertSql(table))) {
+                processes, SpeculativeProcessScenario.Fault.BOTH_READ, true, insertSql(table),
+                ResultDisposition.NONE)) {
             var original = scenario.original();
             var copy = scenario.copy();
             var first = scenario.report(id(original), "FAILED");
@@ -155,7 +158,7 @@ class IndependentSpeculativeExecutionE2ETest extends ContainerTestBase {
     void concurrentSpeculativeLoserDoesNotContributeWriteFragment() throws Exception {
         String table = createOutputTable();
         try (var scenario = new SpeculativeProcessScenario(processes, SpeculativeProcessScenario.Fault.NONE, true,
-                insertSql(table))) {
+                insertSql(table), ResultDisposition.NONE)) {
             var original = scenario.original();
             var copy = scenario.copy();
             var first = scenario.report(id(original), "FINISHED");
@@ -218,12 +221,13 @@ class IndependentSpeculativeExecutionE2ETest extends ContainerTestBase {
     }
 
     private static SpeculativeProcessScenario scenario(SpeculativeProcessScenario.Fault fault, boolean holdCopy) {
-        return new SpeculativeProcessScenario(processes, fault, holdCopy, READ_SQL);
+        return new SpeculativeProcessScenario(processes, fault, holdCopy, READ_SQL, ResultDisposition.STREAM);
     }
 
     private static String createOutputTable() throws Exception {
         String table = "spec_output_" + java.util.UUID.randomUUID().toString().replace("-", "");
-        var create = processes.query("CREATE TABLE spec_catalog.default." + table + " (id BIGINT, payload VARCHAR)")
+        var create = processes.query("CREATE TABLE spec_catalog.default." + table + " (id BIGINT, payload VARCHAR)",
+                        ResultDisposition.NONE)
                 .get(5, TimeUnit.MINUTES);
         assertThat(create.succeeded()).as(create.output() + create.errors()).isTrue();
         return table;

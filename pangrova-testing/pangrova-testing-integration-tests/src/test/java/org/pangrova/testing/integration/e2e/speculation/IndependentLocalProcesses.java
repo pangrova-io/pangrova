@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import org.awaitility.Awaitility;
 import org.pangrova.client.http.PangrovaRestClient;
 import org.pangrova.client.http.authentication.ClientAuthentication;
+import org.pangrova.common.enums.ResultDisposition;
 import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.protocol.capability.inventory.CapabilityInventoryCodec;
 import org.pangrova.common.client.query.QueryStatusResponse;
@@ -289,7 +290,7 @@ final class IndependentLocalProcesses implements AutoCloseable {
     void createSourceCatalog() throws Exception {
         String location = warehouse.toString().replace("'", "''");
         String jdbc = hostJdbcUrl().replace("'", "''");
-        query("CREATE CATALOG spec_catalog WITH ('connector' = 'iceberg', "
+        executeWithoutRows("CREATE CATALOG spec_catalog WITH ('connector' = 'iceberg', "
                 + "'type' = 'jdbc', 'uri' = '" + jdbc + "', "
                 + "'jdbc.user' = 'pangrova', 'jdbc.password' = 'pangrova_test', "
                 + "'jdbc.schema-version' = 'V1', 'warehouse' = '" + location + "')",
@@ -467,10 +468,15 @@ final class IndependentLocalProcesses implements AutoCloseable {
     }
 
     QueryResult query(String sql, ResultProtocol expectedProtocol) throws Exception {
-        return requireSuccessfulQuery(executeSql(sql, expectedProtocol), expectedProtocol);
+        return requireSuccessfulQuery(executeSql(sql, expectedProtocol), ResultDisposition.STREAM, expectedProtocol);
     }
 
-    QueryResult requireSuccessfulQuery(CliOutcome outcome, ResultProtocol expectedProtocol) {
+    QueryResult executeWithoutRows(String sql, ResultProtocol protocol) throws Exception {
+        return requireSuccessfulQuery(executeSql(sql, protocol), ResultDisposition.NONE, protocol);
+    }
+
+    QueryResult requireSuccessfulQuery(CliOutcome outcome, ResultDisposition expectedDisposition,
+            ResultProtocol expectedProtocol) {
         if (outcome.exitCode() != 0 || outcome.receipt() == null
                 || outcome.output() == null) {
             preserveDiagnostics = true;
@@ -486,13 +492,19 @@ final class IndependentLocalProcesses implements AutoCloseable {
         }
         String queryId = record.path("queryId").asText();
         QueryStatusResponse publicStatus = status(queryId);
+        boolean expectedResult = switch (expectedDisposition) {
+            case NONE -> publicStatus.resultEndpoint() == null
+                    && outcome.output().lines().anyMatch("OK (no result set)"::equals);
+            case STREAM -> publicStatus.resultEndpoint() != null
+                    && expectedProtocol.value().equals(publicStatus.resultEndpoint().protocol());
+            case PENDING -> throw new IllegalArgumentException("Successful query cannot expect a pending result");
+        };
         if (!"FINISHED".equals(publicStatus.state())
-                || publicStatus.resultDisposition() != org.pangrova.common.enums.ResultDisposition.STREAM
-                || publicStatus.resultEndpoint() == null
-                || !expectedProtocol.value().equals(publicStatus.resultEndpoint().protocol())) {
+                || publicStatus.resultDisposition() != expectedDisposition || !expectedResult) {
             preserveDiagnostics = true;
             throw new IllegalStateException("Public query state or typed result protocol disagrees"
-                    + " with CLI receipt: " + queryId + " status=" + publicStatus);
+                    + " with CLI receipt: " + queryId + " expected=" + expectedDisposition
+                    + " status=" + publicStatus);
         }
         return new QueryResult(queryId, outcome.output());
     }

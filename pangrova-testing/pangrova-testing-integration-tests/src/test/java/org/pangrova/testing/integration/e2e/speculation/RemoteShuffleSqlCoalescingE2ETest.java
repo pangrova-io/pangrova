@@ -39,10 +39,10 @@ class RemoteShuffleSqlCoalescingE2ETest extends ContainerTestBase {
         processes.startCoordinatorAndFirstWorker();
         processes.createSourceCatalog();
         String table = "spec_catalog.default.remote_coalescing";
-        processes.query("CREATE TABLE " + table + " (grp BIGINT, id BIGINT)", ResultProtocol.GRPC_TLS);
+        processes.executeWithoutRows("CREATE TABLE " + table + " (grp BIGINT, id BIGINT)", ResultProtocol.GRPC_TLS);
         for (int partition = 0; partition < 4; partition++) {
             int key = partition * 10;
-            processes.query("INSERT INTO " + table + " VALUES (0," + key + "),(1," + (key + 1)
+            processes.executeWithoutRows("INSERT INTO " + table + " VALUES (0," + key + "),(1," + (key + 1)
                     + "),(1," + (key + 2) + "),(2," + (key + 3) + "),(3," + (key + 4) + ")",
                     ResultProtocol.GRPC_TLS);
         }

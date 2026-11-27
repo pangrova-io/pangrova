@@ -24,9 +24,9 @@ class IndependentLocalDiskShuffleE2ETest extends ContainerTestBase {
             cluster.startSecondWorker();
             cluster.createSourceCatalog();
             String table = "spec_catalog.default.local_disk_" + UUID.randomUUID().toString().replace("-", "");
-            cluster.query("CREATE TABLE " + table + " (id BIGINT, amount BIGINT)", ResultProtocol.GRPC_TLS);
-            cluster.query("INSERT INTO " + table + " VALUES (1, 5), (2, 17)", ResultProtocol.GRPC_TLS);
-            cluster.query("INSERT INTO " + table + " VALUES (1, 9), (2, 11)", ResultProtocol.GRPC_TLS);
+            cluster.executeWithoutRows("CREATE TABLE " + table + " (id BIGINT, amount BIGINT)", ResultProtocol.GRPC_TLS);
+            cluster.executeWithoutRows("INSERT INTO " + table + " VALUES (1, 5), (2, 17)", ResultProtocol.GRPC_TLS);
+            cluster.executeWithoutRows("INSERT INTO " + table + " VALUES (1, 9), (2, 11)", ResultProtocol.GRPC_TLS);
             var result = cluster.query("SELECT l.id, SUM(l.amount * r.amount) AS total FROM " + table
                     + " l JOIN " + table + " r ON l.id = r.id GROUP BY l.id ORDER BY l.id", ResultProtocol.GRPC_TLS);
             assertThat(result.output()).containsPattern("\\|\\s*1\\s*\\|\\s*196\\s*\\|")

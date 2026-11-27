@@ -61,7 +61,7 @@ class IndexCompoundPredicateE2ETest extends SqlE2ETestBase {
         @DisplayName("Compound AND query returns correct results with BTREE + BLOOM_FILTER")
         void compoundAndReturnsCorrectResults() {
             sqlRunner.executeDdl("CREATE INDEX idx_bt ON " + fqn
-                    + "(amount) USING BTREE");
+                    + "(amount) USING BTREE FORCE");
             sqlRunner.executeDdl("CREATE INDEX idx_bf ON " + fqn
                     + "(user_id) USING BLOOM_FILTER");
 
@@ -86,7 +86,7 @@ class IndexCompoundPredicateE2ETest extends SqlE2ETestBase {
 
             // Create both indexes
             sqlRunner.executeDdl("CREATE INDEX idx_bt ON " + fqn
-                    + "(amount) USING BTREE");
+                    + "(amount) USING BTREE FORCE");
             sqlRunner.executeDdl("CREATE INDEX idx_bf ON " + fqn
                     + "(user_id) USING BLOOM_FILTER");
 

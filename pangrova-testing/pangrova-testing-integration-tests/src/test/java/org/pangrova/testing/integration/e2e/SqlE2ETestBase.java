@@ -1249,7 +1249,6 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
             try {
                 rows = fetchResultsViaTransport(endpoint, queryId);
             } catch (Exception transportFailure) {
-                cancelNativeTaskAfterFetch(canonicalTaskId, workerTaskId);
                 String queryFailure = awaitQueryFailure(queryId, transportFailure);
                 if (queryFailure != null) {
                     throw new IllegalStateException("Query failed: " + queryId
@@ -1638,11 +1637,9 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
      * retried — with the async execution model, timeouts indicate genuine
      * server/network failure rather than thread-pool starvation.</p>
      *
-     * <h4>Cleanup (F-DOGET-03)</h4>
-     * <p>On final failure, cancels the native task via WorkerTaskManager and
-     * releases the task executor after its ready messages and reader have
-     * drained. A full byte window suspends the producer until Flight returns
-     * credit or the task is cancelled.</p>
+     * <p>The caller owns cleanup after observing the query's terminal state.
+     * A full byte window suspends the producer until Flight returns credit or
+     * the task is cancelled.</p>
      */
     protected static List<TypedRow> fetchResultsViaFlight(
             ResultEndpoint endpoint, String queryId, CoordinatorTaskTracker tracker) {
@@ -1699,16 +1696,11 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         LOG.error("event=flight_fetch_exhausted queryId={} taskId={} error={}",
                 queryId, nativeTaskId,
                 lastException != null ? lastException.getMessage() : "unknown", lastException);
-        cancelNativeTaskAfterFetch(nativeTaskId);
         String causeMessage = lastException != null && lastException.getMessage() != null
                 ? ": " + lastException.getMessage() : "";
         throw new IllegalStateException(
                 "Native Flight result fetch failed: queryId=" + queryId
                         + " taskId=" + nativeTaskId + causeMessage, lastException);
-    }
-
-    protected static void cancelNativeTaskAfterFetch(String coordinatorTaskId) {
-        cancelNativeTaskAfterFetch(coordinatorTaskId, null);
     }
 
     protected static void cancelNativeTaskAfterFetch(
@@ -2292,7 +2284,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                         java.util.Objects.requireNonNull(sharedWorkerCatalogRuntime, "Worker catalog runtime")),
                 java.util.Objects.requireNonNull(sharedResultReadTickets, "Worker result signing authority"),
                 null, new org.pangrova.worker.file.FileSpaceFileResource(
-                        fileSpaceAccessors, E2E_INTERNAL_AUTH_SECRET, event -> {}));
+                        fileSpaceAccessors, E2E_INTERNAL_AUTH_SECRET, event -> {}),
+                new org.pangrova.worker.http.endpoint.ReclusterStageResource(sharedWorkerCatalogRuntime));
         startServerOrFail(server);
         sharedWorkerHttpPort = server.getPort();
         return server;
@@ -2597,6 +2590,9 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 catalog, maintenancePolicyService,
                 new org.pangrova.persistence.coordination.postgresql.lease.JdbcDistributedLease(stateStoreDataSource),
                 E2E_COORDINATOR_ID, new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory());
+        controlledMaintenance.setReclusterDispatcher(
+                new org.pangrova.coordinator.clustering.WorkerReclusterDispatcher(
+                        embeddingWorkers::getActiveWorkers, E2E_INTERNAL_AUTH_SECRET));
         var maintenanceExecutor = new org.pangrova.coordinator.query.statement.MaintenanceExecutor(
                 controlledMaintenance);
         ddlExecutor.setMaintenancePolicyService(maintenancePolicyService);
@@ -2646,6 +2642,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 new org.pangrova.coordinator.query.execution.dispatch.task.VacuumTask(maintenanceExecutor));
         tasks.put(org.pangrova.parser.api.ast.statement.maintenance.OptimizeStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.OptimizeTask(maintenanceExecutor));
+        org.pangrova.coordinator.query.execution.dispatch.task.ClusteringStatementTasks.register(
+                tasks, controlledMaintenance);
         // CTAS: create table from derived schema, then INSERT SELECT via native DML pipeline
         tasks.put(org.pangrova.parser.api.ast.statement.CreateTableAsSelectStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.CtasTask(

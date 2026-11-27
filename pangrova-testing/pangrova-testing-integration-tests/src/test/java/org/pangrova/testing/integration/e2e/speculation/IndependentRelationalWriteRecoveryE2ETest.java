@@ -1,5 +1,6 @@
 package org.pangrova.testing.integration.e2e.speculation;
 
+import org.pangrova.common.enums.ResultDisposition;
 import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.CatalogFactory;
 import org.apache.paimon.catalog.Identifier;
@@ -61,11 +62,11 @@ class IndependentRelationalWriteRecoveryE2ETest extends ContainerTestBase {
         if (target == Target.ICEBERG) {
             processes.createSourceCatalog();
         } else {
-            processes.query(target.createCatalog(processes.warehouse()), ResultProtocol.GRPC_TLS);
+            processes.executeWithoutRows(target.createCatalog(processes.warehouse()), ResultProtocol.GRPC_TLS);
         }
-        processes.query("CREATE SCHEMA IF NOT EXISTS " + catalog + ".default", ResultProtocol.GRPC_TLS);
+        processes.executeWithoutRows("CREATE SCHEMA IF NOT EXISTS " + catalog + ".default", ResultProtocol.GRPC_TLS);
         String table = catalog + ".default.recovery_after_publication";
-        processes.query("CREATE TABLE " + table + " (id BIGINT, payload VARCHAR)", ResultProtocol.GRPC_TLS);
+        processes.executeWithoutRows("CREATE TABLE " + table + " (id BIGINT, payload VARCHAR)", ResultProtocol.GRPC_TLS);
         rejectCompletion(processes);
         var attempt = processes.executeSql("INSERT INTO " + table + " VALUES (42, 'exact-publication')",
                 ResultProtocol.GRPC_TLS, Duration.ofSeconds(45));
@@ -167,7 +168,7 @@ class IndependentRelationalWriteRecoveryE2ETest extends ContainerTestBase {
 
         String sql = "INSERT INTO " + destination + " SELECT id, payload FROM spec_catalog.default.input";
         try (var scenario = new SpeculativeProcessScenario(
-                processes, SpeculativeProcessScenario.Fault.NONE, true, sql)) {
+                processes, SpeculativeProcessScenario.Fault.NONE, true, sql, ResultDisposition.NONE)) {
             var original = scenario.original();
             var originalAttempt = original.request().taskRequest().getAttempt();
             var originalReport = scenario.report(originalAttempt.getTaskId(), "FINISHED");
@@ -209,7 +210,7 @@ class IndependentRelationalWriteRecoveryE2ETest extends ContainerTestBase {
     }
 
     private static void execute(IndependentSpeculationProcesses processes, String sql) throws Exception {
-        var result = processes.query(sql).get(2, TimeUnit.MINUTES);
+        var result = processes.query(sql, ResultDisposition.NONE).get(2, TimeUnit.MINUTES);
         assertThat(result.succeeded()).as(result.output() + result.errors()).isTrue();
     }
 

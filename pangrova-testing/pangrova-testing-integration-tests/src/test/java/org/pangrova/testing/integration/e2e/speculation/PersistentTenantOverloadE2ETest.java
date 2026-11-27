@@ -131,10 +131,10 @@ class PersistentTenantOverloadE2ETest extends ContainerTestBase {
     private static void runArrivals(IndependentLocalProcesses processes) throws Exception {
         processes.startCoordinatorAndFirstWorker();
         processes.createSourceCatalog();
-        processes.query("CREATE TABLE " + TABLE + " (id BIGINT, shard BIGINT) PARTITIONED BY (shard)",
+        processes.executeWithoutRows("CREATE TABLE " + TABLE + " (id BIGINT, shard BIGINT) PARTITIONED BY (shard)",
                 ResultProtocol.GRPC_TLS);
-        processes.query("INSERT INTO " + TABLE + " VALUES (0,0),(1,0),(2,0),(3,0)", ResultProtocol.GRPC_TLS);
-        processes.query("INSERT INTO " + TABLE + " VALUES (4,1),(5,1),(6,1),(7,1)", ResultProtocol.GRPC_TLS);
+        processes.executeWithoutRows("INSERT INTO " + TABLE + " VALUES (0,0),(1,0),(2,0),(3,0)", ResultProtocol.GRPC_TLS);
+        processes.executeWithoutRows("INSERT INTO " + TABLE + " VALUES (4,1),(5,1),(6,1),(7,1)", ResultProtocol.GRPC_TLS);
         processes.startSecondWorker();
 
         try (var client = processes.coordinatorClientBuilder().retryPolicy(RetryPolicy.NONE).build()) {

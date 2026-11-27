@@ -143,7 +143,7 @@ class IndexNullHandlingE2ETest extends SqlE2ETestBase {
         @DisplayName("Non-NULL equality query excludes NULL rows")
         void nonNullEqualityExcludesNulls() {
             sqlRunner.executeDdl("CREATE INDEX idx_bt ON " + fqn
-                    + "(amount) USING BTREE");
+                    + "(amount) USING BTREE FORCE");
 
             List<TypedRow> rows = sqlRunner.execute(
                     "SELECT * FROM " + fqn + " WHERE amount BETWEEN 100.0 AND 200.0");
@@ -155,7 +155,7 @@ class IndexNullHandlingE2ETest extends SqlE2ETestBase {
         @DisplayName("IS NULL query returns only NULL rows")
         void isNullReturnsOnlyNulls() {
             sqlRunner.executeDdl("CREATE INDEX idx_bt ON " + fqn
-                    + "(amount) USING BTREE");
+                    + "(amount) USING BTREE FORCE");
 
             List<TypedRow> rows = sqlRunner.execute(
                     "SELECT * FROM " + fqn + " WHERE amount IS NULL");
@@ -168,7 +168,7 @@ class IndexNullHandlingE2ETest extends SqlE2ETestBase {
         void correctnessWithNulls() {
             IndexTestFixture.assertCorrectnessInvariant(sqlRunner, fqn,
                     "amount BETWEEN 100.0 AND 200.0",
-                    "CREATE INDEX idx_bt ON " + fqn + "(amount) USING BTREE");
+                    "CREATE INDEX idx_bt ON " + fqn + "(amount) USING BTREE FORCE");
         }
     }
 }
