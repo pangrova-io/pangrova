@@ -125,8 +125,7 @@ class RoleBasedDeploymentTest {
         });
         org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(10)).until(
                 () -> anchors.current(beforeDispatch).isEmpty());
-        assertThat(anchors.current(coordinatorStatement)).hasValueSatisfying(anchor ->
-                assertThat(anchor.ownerId()).isEqualTo("recovery-successor"));
+        assertThat(anchors.current(coordinatorStatement)).isEmpty();
         assertRetainedSlots(source, empty, "limited-tenant", 0);
         assertRetainedSlots(source, beforeDispatch, "planned-tenant", 0);
         assertRetainedSlots(source, coordinatorStatement, "control-tenant", 1);

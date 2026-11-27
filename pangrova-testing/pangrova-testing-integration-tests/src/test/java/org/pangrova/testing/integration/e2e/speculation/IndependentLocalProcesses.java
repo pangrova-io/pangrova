@@ -737,6 +737,8 @@ final class IndependentLocalProcesses implements AutoCloseable {
                   host: 127.0.0.1
                   port: %d
                   role: %s
+                  admission:
+                    state-directory: "%s"
                   internal-auth-secret: "%s"
                   speculation:
                     enabled: %s
@@ -771,7 +773,7 @@ final class IndependentLocalProcesses implements AutoCloseable {
                   enabled: true
                 indexing:
                   enabled: %s
-                """.formatted(coordinatorId(), coordinatorPort, role,
+                """.formatted(coordinatorId(), coordinatorPort, role, workspace.resolve("coordinator-admission"),
                 internalSecret, speculation, advertisedAddress.getHostAddress(),
                 coordinatorIdentity.certificateChain(), coordinatorIdentity.privateKey(),
                 tls.root(), shuffleMode, remoteShuffle == null ? advertisedAddress.getHostAddress() : "localhost",

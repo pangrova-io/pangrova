@@ -47,7 +47,8 @@ final class QueryRuntimeFactory {
         return new InMemoryWorkerRegistry();
     }
 
-    QueryStateJournal createStateJournal() {
+    QueryStateJournal createStateJournal(
+            org.pangrova.common.lifecycle.ProcessIncarnationStore.Identity processIdentity) {
         if (dependencies.metadataDataSource() == null) {
             return new org.pangrova.persistence.query.memory.state.InMemoryQueryStateJournal();
         }
@@ -55,7 +56,7 @@ final class QueryRuntimeFactory {
                 StateJournalConfig.NONE.batchSize(), StateJournalConfig.NONE.retentionHours(),
                 StateJournalConfig.NONE.maxResidentEvents());
         return org.pangrova.server.coordinator.bootstrap.query.state.QueryStateJournalFactory.create(
-                config, dependencies.metadataDataSource());
+                config, dependencies.metadataDataSource(), processIdentity);
     }
 
     org.pangrova.ai.control.embedding.EmbeddingModelRegistry createEmbeddingModelRegistry() {

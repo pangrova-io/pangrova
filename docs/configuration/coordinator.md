@@ -25,6 +25,17 @@ in the `pangrova-config` module. The bundled defaults ship in
 | `coordinator.internal-auth-secret` | string | — | Shared internal control-plane secret, identical to `worker.internal-auth-secret`. The production process rejects absent, blank or fewer than 32 UTF-8 bytes, independently of client authentication. Inject through the YAML `${PANGROVA_INTERNAL_AUTH_SECRET}` placeholder. |
 | `coordinator.query-peer-key` | string | — | Enables live query forwarding through shared HTTP ingress. Use a separate signing key of at least 32 UTF-8 bytes shared by query-serving Coordinators with client authentication enabled. |
 
+| `coordinator.admission.state-directory` | string | `"data/coordinator-admission"` | Persistent local directory for the exclusive Coordinator process identity. Applies to QUERY and COMBINED roles using PostgreSQL. |
+
+Give each query-serving Coordinator a separate persistent directory. Keep the
+same directory across process restarts. Only a replacement holding its exclusive
+filesystem lock can prove that a prior incarnation released ownership. A
+different directory creates a different ownership domain. Preserve each
+Coordinator's directory when replacing a container, and never clone it into
+another running deployment. After a crash, Coordinator-hosted results remain
+unavailable and their execution reservations stay held until the same-domain
+replacement publishes exit proof and normal recovery verifies physical drain.
+
 ## coordinator.transport
 
 These keys configure bounded statement acknowledgements, not relational query

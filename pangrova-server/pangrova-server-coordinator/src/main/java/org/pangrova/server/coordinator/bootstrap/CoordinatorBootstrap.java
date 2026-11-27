@@ -15,6 +15,8 @@ import org.pangrova.persistence.security.postgresql.policy.JdbcCurrentDirectRole
 import org.pangrova.coordinator.ai.branch.BranchTtlCleanupTask;
 import org.pangrova.coordinator.metadata.MetadataBootstrap;
 import org.pangrova.common.exception.BootstrapFailedException;
+import org.pangrova.common.lifecycle.ProcessIncarnationStore;
+import org.pangrova.persistence.query.postgresql.coordination.JdbcCoordinatorWorkRecovery;
 import org.pangrova.coordinator.metadata.PluginConnectorHandleFactory;
 import org.pangrova.metadata.catalog.federation.PluginFederationHandleFactory;
 import org.pangrova.query.runtime.QueryManager;
@@ -32,6 +34,7 @@ import org.pangrova.protocol.transport.TransportServerLifecycle;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import javax.sql.DataSource;
+import java.nio.file.Path;
 import java.util.concurrent.CountDownLatch;
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 import org.pangrova.persistence.catalog.postgresql.projection.PostgresTableProjectionRepository;
@@ -49,6 +52,7 @@ public final class CoordinatorBootstrap {
     private static final java.time.Duration EXECUTION_OWNER_LEASE_TTL = java.time.Duration.ofSeconds(30);
 
     private final CoordinatorBootstrapConfig config;
+    private final Path admissionStateDirectory;
     private final CurrentModelAuthority modelAuthority =
             new JdbcCurrentModelAuthority(new JdbcCurrentDirectRoleReader());
     private final PostgresGenerationStores artifactStores = new PostgresGenerationStores(modelAuthority,
@@ -57,6 +61,7 @@ public final class CoordinatorBootstrap {
             new org.pangrova.server.coordinator.bootstrap.lifecycle.CoordinatorLifecycleAdmission();
     private final CountDownLatch shutdownCompleted = new CountDownLatch(1);
 
+    private ProcessIncarnationStore processStore;
     private SecretResolver secretResolver;
     private ObservabilityBootstrap observability;
     private MetadataBootstrap metadataBootstrap;
@@ -80,7 +85,16 @@ public final class CoordinatorBootstrap {
     private org.pangrova.coordinator.coordination.CoordinatorExecutionAuthority executionAuthority;
 
     public CoordinatorBootstrap(CoordinatorBootstrapConfig config) {
+        this(config, null);
+    }
+
+    /** Configures the durable local ownership domain for Coordinator-hosted statements. */
+    public CoordinatorBootstrap(CoordinatorBootstrapConfig config, Path admissionStateDirectory) {
         this.config = checkNotNull(config, "config must not be null");
+        if (admissionStateDirectory != null && admissionStateDirectory.toString().isBlank()) {
+            throw new IllegalArgumentException("Coordinator admission state directory must not be blank");
+        }
+        this.admissionStateDirectory = admissionStateDirectory;
     }
 
     /** Starts configured subsystems and rolls back all owned resources if any phase fails. */
@@ -146,7 +160,7 @@ public final class CoordinatorBootstrap {
                 metadataDataSource, executionAuthority, modelAuthority,
                 metadataBootstrap == null ? null : metadataBootstrap.catalogRegistry());
         query = buildQueryBootstrap();
-        query.start();
+        query.start(processStore == null ? null : processStore.identity());
         http = buildHttpBootstrap();
         int boundPort = http.bind();
         ha.start(query, boundPort);
@@ -279,7 +293,8 @@ public final class CoordinatorBootstrap {
 
     private void closeResources(Throwable primary) {
         try {
-            closeOwnedResources();
+            if (processStore == null) closeOwnedResources();
+            else processStore.closeAfterDrain(this::closeOwnedResources);
         } catch (RuntimeException | Error failure) {
             if (primary == null) throw failure;
             if (primary != failure) primary.addSuppressed(failure);
@@ -432,9 +447,16 @@ public final class CoordinatorBootstrap {
             }
             return;
         }
+        String incarnation = java.util.UUID.randomUUID().toString();
+        if (config.role().isQuery() && admissionStateDirectory != null) {
+            processStore = ProcessIncarnationStore.open(admissionStateDirectory);
+            processStore.claimAuthority("coordinator-statement");
+            JdbcCoordinatorWorkRecovery.publishRetired(metadataDataSource, processStore);
+            incarnation = processStore.identity().incarnationId();
+        }
         executionAuthority = new org.pangrova.coordinator.coordination.CoordinatorExecutionAuthority(
                 new org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore(metadataDataSource),
-                config.coordinatorId(), java.util.UUID.randomUUID().toString(), EXECUTION_OWNER_LEASE_TTL);
+                config.coordinatorId(), incarnation, EXECUTION_OWNER_LEASE_TTL);
     }
 
     private void startIndexing() {

@@ -70,6 +70,7 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
             "UPDATE execution_anchor SET owner_id=?, owner_incarnation=?, fencing_token=?, "
                     + "acquired_at=?, expires_at=?, version=version+1, recovery_drain_state=1 "
                     + "WHERE execution_id=? AND fencing_token=? AND version=? AND expires_at<=? "
+                    + "AND (coordinator_work_token IS NULL OR coordinator_work_exited) "
                     + "AND NOT EXISTS (SELECT 1 FROM execution_read_window w "
                     + "WHERE w.execution_id=execution_anchor.execution_id "
                     + "AND w.protected_until>clock_timestamp())";
@@ -165,7 +166,8 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
     private static final String SELECT_EXPIRED =
             "SELECT execution_id, owner_id, owner_incarnation, fencing_token, "
                     + "acquired_at, expires_at, version FROM execution_anchor "
-                    + "WHERE expires_at<=? AND NOT EXISTS (SELECT 1 FROM execution_read_window w "
+                    + "WHERE expires_at<=? AND (coordinator_work_token IS NULL OR coordinator_work_exited) "
+                    + "AND NOT EXISTS (SELECT 1 FROM execution_read_window w "
                     + "WHERE w.execution_id=execution_anchor.execution_id "
                     + "AND w.protected_until>clock_timestamp()) "
                     + "ORDER BY expires_at, execution_id LIMIT ? FOR UPDATE SKIP LOCKED";

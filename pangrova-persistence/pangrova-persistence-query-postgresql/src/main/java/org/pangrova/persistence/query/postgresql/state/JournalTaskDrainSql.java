@@ -27,7 +27,8 @@ final class JournalTaskDrainSql {
             WHERE query_fact.hit IS NOT NULL OR task_fact.hit IS NOT NULL
             """;
     private static final String CLAIM = """
-            SELECT execution_id, owner_id, fencing_token, expires_at, coordinator_work_token FROM execution_anchor
+            SELECT execution_id, owner_id, owner_incarnation, fencing_token, expires_at,
+                   coordinator_work_token, coordinator_work_exited FROM execution_anchor
             WHERE execution_id = ? AND owner_id = ? AND owner_incarnation = ? AND fencing_token = ?
             """;
     private static final String RESERVE_COORDINATOR_STATEMENT = """
@@ -35,8 +36,11 @@ final class JournalTaskDrainSql {
             """ + CLAIM + """
                 AND recovery_drain_state = 0 FOR UPDATE
             )
-            UPDATE execution_anchor a SET coordinator_work_token = l.fencing_token
-            FROM locked l WHERE a.execution_id = l.execution_id AND l.coordinator_work_token IS NULL
+            UPDATE execution_anchor a SET coordinator_work_token = l.fencing_token,
+                coordinator_work_domain = origin.id,
+                coordinator_work_incarnation = CASE WHEN origin.id IS NOT NULL THEN l.owner_incarnation END
+            FROM locked l CROSS JOIN (VALUES (CAST(? AS text))) AS origin(id)
+            WHERE a.execution_id = l.execution_id AND l.coordinator_work_token IS NULL
                    AND l.expires_at > clock_timestamp()
             """;
     private static final String PENDING = """
@@ -64,7 +68,8 @@ final class JournalTaskDrainSql {
                                  WHERE a.recovery_drain_state = 2) THEN 'CONFIRMED'
                     WHEN NOT EXISTS (SELECT 1 FROM query_state_journal q JOIN claim c ON q.query_id = c.execution_id)
                         THEN 'NO_SQL_EVIDENCE'
-                    WHEN EXISTS (SELECT 1 FROM claim WHERE coordinator_work_token IS NOT NULL)
+                    WHEN EXISTS (SELECT 1 FROM claim
+                                 WHERE coordinator_work_token IS NOT NULL AND NOT coordinator_work_exited)
                         THEN 'PENDING_COORDINATOR_STATEMENT'
                     WHEN (NOT EXISTS (
                               SELECT 1 FROM task_state_journal t JOIN claim c ON t.query_id = c.execution_id
@@ -146,9 +151,11 @@ final class JournalTaskDrainSql {
 
     private JournalTaskDrainSql() { }
 
-    static boolean reserveCoordinatorStatement(Connection connection, ExecutionAnchor grant) throws SQLException {
+    static boolean reserveCoordinatorStatement(Connection connection, ExecutionAnchor grant, String domain)
+            throws SQLException {
         try (var statement = connection.prepareStatement(RESERVE_COORDINATOR_STATEMENT)) {
             bindClaim(statement, grant);
+            statement.setString(FENCE_PARAMETERS + 1, domain);
             return statement.executeUpdate() == 1;
         }
     }

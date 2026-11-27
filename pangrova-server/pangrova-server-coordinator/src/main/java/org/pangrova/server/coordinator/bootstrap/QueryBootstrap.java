@@ -173,6 +173,10 @@ final class QueryBootstrap {
     }
 
     void start() {
+        start(null);
+    }
+
+    void start(org.pangrova.common.lifecycle.ProcessIncarnationStore.Identity processIdentity) {
         CoordinatorPreflightChecks.validateJdbcConnection(metadataDataSource);
         var runtimeFactory = new QueryRuntimeFactory(new QueryRuntimeFactory.Dependencies(
                 config, tracingProvider, metricsProvider, moduleWiring, metadataDataSource,
@@ -192,7 +196,7 @@ final class QueryBootstrap {
         controlPlaneResultService = startControlPlaneResultTransport();
         cacheAffinityAssigner = new CacheAffinityAssigner();
         workerManager.addTopologyListener(cacheAffinityAssigner);
-        stateJournal = runtimeFactory.createStateJournal();
+        stateJournal = runtimeFactory.createStateJournal(processIdentity);
         speculativeTaskRegistry = new CoordinatorSpeculativeTaskRegistry(taskTracker, stateJournal);
         initSpeculation();
         CatalogRegistry catalog = metadataBootstrap != null

@@ -50,6 +50,12 @@ public final class CoordinatorOptions {
                     + "(background tasks only), or COMBINED (both, default)")
             .build();
 
+    public static final ConfigOption<String> ADMISSION_STATE_DIRECTORY =
+            ConfigOptions.key("coordinator.admission.state-directory")
+                    .stringType().defaultValue("data/coordinator-admission")
+                    .withDescription("Persistent exclusive local directory for Coordinator work exit proof")
+                    .build();
+
     // ---- Internal transport security ----
 
     public static final ConfigOption<Integer> TRANSPORT_PORT = ConfigOptions.key("coordinator.transport.port")

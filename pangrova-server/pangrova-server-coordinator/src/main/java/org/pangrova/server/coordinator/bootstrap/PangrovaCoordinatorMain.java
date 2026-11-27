@@ -47,7 +47,8 @@ public final class PangrovaCoordinatorMain {
             CoordinatorBootstrapConfig config = buildBootstrapConfig(pangrovaConfig);
             validateProductionInternalAuth(config);
             logSecurityPosture(pangrovaConfig);
-            CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(config);
+            CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(config,
+                    Path.of(pangrovaConfig.getString(CoordinatorOptions.ADMISSION_STATE_DIRECTORY)));
             Runtime.getRuntime().addShutdownHook(new Thread(bootstrap::shutdown, "coordinator-shutdown"));
             bootstrap.start();
             LOG.info("event=coordinator_process_started coordinatorId={}", config.coordinatorId());

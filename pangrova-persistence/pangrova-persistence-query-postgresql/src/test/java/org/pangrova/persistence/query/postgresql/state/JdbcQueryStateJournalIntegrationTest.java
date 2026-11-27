@@ -1,6 +1,7 @@
 package org.pangrova.persistence.query.postgresql.state;
 
 import java.sql.Connection;
+import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Duration;
 import java.util.List;
@@ -23,6 +24,8 @@ import org.pangrova.testing.testkit.PostgresCommitWireFault;
 import org.pangrova.persistence.query.api.enums.JournalAdmissionOutcome;
 import org.pangrova.persistence.query.api.exception.JournalWriteException;
 import org.pangrova.persistence.query.api.state.StateJournalConfig;
+import org.pangrova.common.lifecycle.ProcessIncarnationStore;
+import org.pangrova.persistence.query.postgresql.coordination.JdbcCoordinatorWorkRecovery;
 import org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore;
 import org.pangrova.query.api.journal.TaskIssuance;
 import org.pangrova.query.api.journal.TaskStateEvent;
@@ -381,16 +384,70 @@ class JdbcQueryStateJournalIntegrationTest {
         assertTrue(store.yield(planning));
         assertTrue(store.yield(local));
         var planningClaim = store.tryAcquire(planning.executionId(), "successor", "next-boot", lease).orElseThrow();
-        var localClaim = store.tryAcquire(local.executionId(), "successor", "next-boot", lease).orElseThrow();
+        assertThat(store.tryAcquire(local.executionId(), "successor", "next-boot", lease)).isEmpty();
+        assertThat(store.claimExpired("successor", "next-boot", lease, 1)).isEmpty();
         assertFalse(journal.reserveCoordinatorStatement(planning));
         assertFalse(journal.reserveCoordinatorStatement(planningClaim));
-        assertEquals(DrainOutcome.PENDING_COORDINATOR_STATEMENT, journal.confirmRecoveredTaskDrains(localClaim));
-        assertFalse(store.releaseDrainedQuery(localClaim, false));
+        assertEquals(DrainOutcome.LOST_CLAIM, journal.confirmRecoveredTaskDrains(local));
+        assertFalse(store.releaseDrainedQuery(local, false));
         assertEquals(DrainOutcome.CONFIRMED, journal.confirmRecoveredTaskDrains(planningClaim));
         var outcome = journal.latestQueryEvent(planning.executionId()).orElseThrow();
         assertThat(outcome.state()).isEqualTo("FAILED");
         assertThat(outcome.terminalOutcome().error().errorCode()).isEqualTo("QUERY_OWNER_LOST");
         assertTrue(store.releaseDrainedQuery(planningClaim, false));
+    }
+
+    @Test
+    void retiredCoordinatorWaitsForItsAlreadyEnteredReservation(
+            @org.junit.jupiter.api.io.TempDir java.nio.file.Path directory) throws Exception {
+        var original = ProcessIncarnationStore.open(directory);
+        var identity = original.identity();
+        var anchors = new JdbcExecutionAnchorStore(dataSource);
+        var lease = Duration.ofMinutes(1);
+        var owner = anchors.tryAcquire("late-local-reservation", "original", identity.incarnationId(), lease)
+                .orElseThrow();
+        var event = new QueryStateEvent(JournalEventContext.create(System.currentTimeMillis(), owner.ownerId()),
+                owner.executionId(), "SHOW DYNAMIC TABLES", "{}", "QUEUED");
+        journal.appendFencedAdmissionSync(event, owner);
+        try (var inFlight = dataSource.getConnection()) {
+            inFlight.setAutoCommit(false);
+            assertTrue(JournalTaskDrainSql.reserveCoordinatorStatement(inFlight, owner, identity.ownershipDomainId()));
+            // The old JVM has released its file lock while PostgreSQL still owns the open transaction.
+            original.closeAfterDrain(() -> {});
+            var replacement = ProcessIncarnationStore.open(directory);
+            try {
+                int backend = inFlight.unwrap(org.postgresql.PGConnection.class).getBackendPID();
+                var publishing = java.util.concurrent.CompletableFuture.runAsync(
+                        () -> JdbcCoordinatorWorkRecovery.publishRetired(dataSource, replacement));
+                try {
+                    await().atMost(10, SECONDS).until(() -> blockedBy(backend));
+                    assertThat(publishing).isNotDone();
+                } finally {
+                    inFlight.commit();
+                    publishing.get(10, SECONDS);
+                }
+                var claim = anchors.tryAcquire(owner.executionId(), "replacement",
+                        replacement.identity().incarnationId(), lease).orElseThrow();
+                assertEquals(DrainOutcome.CONFIRMED, journal.confirmRecoveredTaskDrains(claim));
+                assertTrue(anchors.releaseDrainedQuery(claim, false));
+            } finally {
+                replacement.closeAfterDrain(() -> {});
+            }
+        } finally {
+            original.closeAfterDrain(() -> {});
+        }
+    }
+
+    private boolean blockedBy(int backend) throws SQLException {
+        try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement("""
+                SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE ? = ANY (pg_blocking_pids(pid)))
+                """)) {
+            statement.setInt(1, backend);
+            try (var rows = statement.executeQuery()) {
+                rows.next();
+                return rows.getBoolean(1);
+            }
+        }
     }
 
     @Test

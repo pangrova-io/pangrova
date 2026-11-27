@@ -14,6 +14,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import javax.sql.DataSource;
 import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.common.lifecycle.ProcessIncarnationStore.Identity;
 import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.query.api.journal.QueryAcceptance;
 import org.pangrova.query.api.journal.QueryAcceptanceAdmission;
@@ -67,12 +68,19 @@ public final class JdbcQueryStateJournal implements QueryStateJournal, Recovered
             """;
 
     private final DataSource dataSource;
+    private final Identity processIdentity;
     private final JournalPendingWrites pending;
     private final JournalFlushOwner flushOwner;
 
     /** Starts the sole writer; the external DataSource remains owned by the caller. */
     public JdbcQueryStateJournal(DataSource dataSource, StateJournalConfig config) {
+        this(dataSource, config, null);
+    }
+
+    /** Starts a writer that can bind Coordinator-hosted work to an exclusive process identity. */
+    public JdbcQueryStateJournal(DataSource dataSource, StateJournalConfig config, Identity processIdentity) {
         this.dataSource = Objects.requireNonNull(dataSource, "dataSource");
+        this.processIdentity = processIdentity;
         Objects.requireNonNull(config, "config");
         pending = new JournalPendingWrites(config.maxResidentEvents());
         flushOwner = new JournalFlushOwner(dataSource, config, pending);
@@ -83,9 +91,13 @@ public final class JdbcQueryStateJournal implements QueryStateJournal, Recovered
     }
     @Override public boolean reserveCoordinatorStatement(ExecutionAnchor anchor) {
         Objects.requireNonNull(anchor, "anchor");
+        if (processIdentity != null && !processIdentity.incarnationId().equals(anchor.ownerIncarnation())) {
+            return false;
+        }
+        String domain = processIdentity == null ? null : processIdentity.ownershipDomainId();
         try {
             return pending.enterSql().perform(dataSource,
-                    connection -> JournalTaskDrainSql.reserveCoordinatorStatement(connection, anchor));
+                    connection -> JournalTaskDrainSql.reserveCoordinatorStatement(connection, anchor, domain));
         } catch (SQLException failure) {
             throw JournalPendingWrites.failure("Failed to fence Coordinator statement execution", failure);
         }

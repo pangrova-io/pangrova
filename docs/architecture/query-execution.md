@@ -119,6 +119,15 @@ construct an in-memory execution. Write reconciliation can defer an execution
 before it is admitted for Worker drain. An exact claim with no query or task
 evidence and no local projection can be released immediately.
 
+Coordinator-hosted statements bind their original process incarnation to the
+existing fenced work reservation. The expiry index excludes anchors with
+unproven local work. On restart, the exclusive, persistent admission directory
+proves which incarnations have exited. A single indexed startup update
+synchronizes with their existing execution anchors, including a reservation
+still committing in PostgreSQL after the JVM exits. A successor can then claim
+the execution and apply the usual physical drain gates before returning its
+tenant slot.
+
 The bounded asynchronous submission executor runs SQL planning and starts the
 distributed DAG. The DAG publishes its OUTPUT endpoint after Worker acknowledgement
 and settles the execution through its completion stage. Each DAG dispatch cohort
