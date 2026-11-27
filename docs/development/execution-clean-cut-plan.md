@@ -28,7 +28,7 @@ unlisted: true
 | A6 | 实时扫描已按绑定元数据估算任务工作量。Worker 放置考虑当前签发窗口、心跳和本 Coordinator 的精确在途任务，报告物理释放或派发前回滚后扣除。剩余工作包括评估持久任务初次分配，校准多 Coordinator 的在途估计，以及按存储、格式、冷热和并发验证尾时延 | WP3.3 |
 | A7 | Native Parquet 将 `DataSplit` 字节区间应用到行组读取，并在文件边界核验区间。位置删除使用绝对行号。Lance 使用物理行区间或固定 manifest 分区，Paimon merge 要求整个主文件。实时 Iceberg SQL 并行扫描按 manifest `split_offsets` 分片，沿用已有快照字节统计进行阶段估算，并按原始对象共享标量索引判断。剩余验收包括跨主机对象存储 I/O、含大删除文件的成本校准、受保护产物的全链路整对象身份与真实 Apache ORC reader | WP3.4 |
 | A8 | Native 文件适配层的保留字节、返回字节、数据调用、元数据调用和失败调用已贯通 TaskReport 与 Profile。剩余工作是在真实 SDK 请求层按任务计量传输尝试、重试和 wire bytes，补跨主机、缓存和故障注入验证 | WP3.1 |
-| A9 | 动态过滤已有 Native 类型、稀疏区间和等待门；planner 仍限定单 filter/单 BIGINT/Iceberg，running probe 无 production late injection | WP4 |
+| A9 | Iceberg 实时扫描可由同一个构建侧最多四个 BIGINT 键分别生成范围过滤。当前只为一个构建与探测组合等待。剩余工作包括其他键类型和连接器、同一查询的多个过滤组合，以及向已经运行的探测端应用晚到过滤 | WP4 |
 | A10 | live 单输入 AQE 已存在；durable replay 关闭 AQE，多输入对齐和可执行 skew split 缺失 | WP5 |
 | A11 | Shuffle 已有 lease/window/fence；缺少 durable revocation generation、participant ACK 和 convergence receipt | WP6 |
 | A12 | 普通分布式写入删除 redo 后保留带 fingerprint 的终态回执，COPY、CDC 和外部 publication 使用现有写入声明与版本字段。剩余工作是验证各来源重放窗口并制定可证明的回执回收条件，以及跨主机故障与高并发验收 | WP8 |
@@ -192,6 +192,8 @@ PostgreSQL 接管分类用例预置 4,096 条其他查询日志和 4,096 条其�
 
 以下均为 **at commit / historical evidence**：数字、SQL 次数和覆盖范围只对应各批次当时提交的角色包与配置。当前未完成项以本文 2026-11-25 的 A/B/C 审计为准；单输入 AQE、局部聚合和写恢复等“机制已实现”不等于生产验收已完成。被后续批次取代的描述在原文附近标注 superseded。
 
+受保护的关系导出先在编译后的 Substrait 消息上绑定 Exchange，再把每个 Stage 编码一次。构建图和重放仍校验实际序列化的输入与输出 schema。本地 Corretto 17 对包含两条 Exchange 的三级图交替测量两轮，每轮五组，每组 400 次。两版的图摘要与三个片段的字节长度相同，每次编译的线程分配中位数从 375,616–375,896 B 降到 295,980–300,689 B。计时受同机负载影响。Planner 通过 1,528 项用例，另有一项生成 golden 的可选用例跳过。
+
 本地读取配额微测复用实际 Native 配额实现，对照每轮 200 万笔 8 字节授权与归还，逐轮核对请求和返回总量。移除每次调用的 Attempt 堆分配，将返回量和调用结果合并到原有 drain 锁内发布。macOS arm64 单线程六轮 CPU 样本中位数由 135.9 ns 降到 43.6 ns。样本只测配额与计数开销，存储延迟单独验收。 10 项文件适配器定向测试通过。用实际本地文件让第二个范围到达 EOF，确认仍报告第一个范围已返回的 4 字节，并记录两次调用和一次失败。73 项协议、任务报告和 Profile 定向测试通过。 完整 Release 重建后的 86 项 Native 定向测试通过。已释放的任务在解析对象地址前被拒绝，后端调用数保持原值。
 
 实时扫描的 Worker 放置复用任务签发与物理释放。两个同等资源的 Worker 中，给缓存节点设置一个心跳尚未覆盖的本地在途任务，再按顺序放置四个同一文件的分区。使用实际选择器的本地探针中，旧缓存优先路径的估算工作量为 1,026/0 MiB，候选为 513/513 MiB。放置探针只计量估算工作分布。定向回归覆盖租户和内存筛选、负载相当时优先使用缓存、心跳与本地计数重叠、Worker 重启身份、派发前回滚和精确物理释放。真实双 Worker Iceberg SQL 通过相同快照的整文件和区间路径读出同样的 4,094 行。Worker 物理释放回执与 Profile 的适配层计数一致。文件缓存命中的分区可只产生元数据调用。相同 Native 构建通过能力握手和 4,383 项本地 Native 全量回归。旧 split work-stealing 原型只维护虚拟计数，已无生产调用、路由和注册，本轮删除原型及仅引用它的测试。跨 Coordinator 与带存储压力的尾时延属于 A6。 [Trino 调度器](https://trino.io/docs/current/admin/properties-node-scheduler.html)
@@ -221,6 +223,8 @@ Paimon 普通扫描的 manifest I/O 探针使用 12 次真实 SDK 提交。把�
 两个实际 Paimon 表分别提交 12 次和 16 次。先测量冷目录下两表各自的编码读取量，再给每次扫描足够单独完成的同一额度。两表共用阶段时，第一张表完成并扣减实际读取的字节，第二张表返回额度错误。对第二张表单独使用同样的初始额度后，扫描完成。预算包含并行读取尚未退出的字节预约。
 
 用 Paimon 1.4.1 的 `ThreadPoolUtils` 和计数执行器验证批次分配。输入 8,192 个 manifest 候选，普通批处理在消费前已提交 8,192 个 Future。SDK 的顺序批处理在消费前提交 0 个，取首条结果时提交 16 个。完整消费的记录与顺序相同。此验证只覆盖 SDK 调度器。生产扫描还需要保留分片生成、删除条目合并和按模式选择快照的语义。 [Paimon 1.4.1 批次调度](https://github.com/apache/paimon/blob/release-1.4.1/paimon-api/src/main/java/org/apache/paimon/utils/ThreadPoolUtils.java)
+
+Paimon 1.4.1 在普通扫描中为新增与删除条目分别调度 manifest。顺序批处理只影响新增条目，`FileEntry.readDeletedEntries` 仍一次提交全部删除候选。完整收敛需要让同一 SDK 调度窗口覆盖两类任务，并让窗口在取消、超时或额度用尽后停止补充任务。验收应覆盖有真实删除条目的快照、结果顺序、候选数量和退出后的在途 I/O。 [Paimon 1.4.1 扫描](https://github.com/apache/paimon/blob/release-1.4.1/paimon-core/src/main/java/org/apache/paimon/operation/AbstractFileStoreScan.java) · [删除条目调度](https://github.com/apache/paimon/blob/release-1.4.1/paimon-core/src/main/java/org/apache/paimon/manifest/FileEntry.java)
 
 在 Paimon 直接追加区间的真实文件系统样本中，四个快照在分片准备阶段的开启次数从 2、2、2、3 降到 1、1、1、2。普通表与启用 data evolution 的表均覆盖单遍枚举和耗尽阶段容量后停止开启后续快照。上端的两次开启分别用于选定和末次复验。跨主机延迟和在途存储调用退出仍待验收。
 

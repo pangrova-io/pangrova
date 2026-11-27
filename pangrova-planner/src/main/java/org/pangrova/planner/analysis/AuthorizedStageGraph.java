@@ -139,17 +139,8 @@ public record AuthorizedStageGraph(StageTerminalPurpose terminalPurpose,
             List<String> outputNames, StageTerminalPurpose terminalPurpose) {
         Objects.requireNonNull(graph, "graph");
         Objects.requireNonNull(compiler, "compiler");
-        List<SerializedStage> stages = new ArrayList<>();
-        for (var stage : graph.stages()) {
-            var fragment = stage.fragment();
-            List<String> names = "OUTPUT".equals(stage.taskType()) ? List.copyOf(outputNames) : fragment.fieldNames();
-            stages.add(new SerializedStage(stage.stageId(), stage.parallelism(), stage.taskType(),
-                    fragment.toSerializedPlan(compiler, names), fragment.splitSources(), names,
-                    fragment.resultColumnModels(), fragment.resultColumnTypes(),
-                    fragment.estimatedShuffleBytes(), fragment.estimatedShuffleRows()));
-        }
         return new AuthorizedStageGraph(terminalPurpose,
-                AuthorizedStageExchangeBindings.bind(stages, graph.transfers()), graph.transfers());
+                AuthorizedStageExchangeBindings.bind(graph, compiler, outputNames), graph.transfers());
     }
 
     /**

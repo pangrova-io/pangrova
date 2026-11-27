@@ -418,6 +418,11 @@ Live stage preparation retains split source descriptors for both enumeration and
 artifact binding. It rechecks the captured owners after connector I/O and before
 dispatch. The frozen descriptors preserve the original snapshot and predicates.
 
+Protected relational exports bind Exchange inputs on the compiled Substrait
+messages. Binding follows producer order and uses the bound producer's physical
+output schema. Each stage is encoded once after binding. Graph construction and
+replay validate the serialized producer and consumer contracts.
+
 A projection and an immediately adjacent filter can prove that a generated
 column has no effect on expressions or emitted fields. This skips its
 publication lookup and artifact binding. A column referenced by a filter,
