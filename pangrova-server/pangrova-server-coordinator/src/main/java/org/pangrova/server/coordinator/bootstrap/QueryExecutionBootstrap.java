@@ -266,6 +266,12 @@ final class QueryExecutionBootstrap {
                         catalog, maintenancePolicyService,
                         moduleWiring != null ? moduleWiring.getDistributedLease() : null,
                         config.coordinatorId(), new OtelExecutionTraceContextFactory());
+        String internalSecret = config.internalAuthSecret();
+        if (internalSecret != null && !internalSecret.isBlank()) {
+            controlledMaintenance.setReclusterDispatcher(
+                    new org.pangrova.coordinator.clustering.WorkerReclusterDispatcher(
+                            workerManager::getActiveWorkers, internalSecret));
+        }
         var maintenanceExecutor = new org.pangrova.coordinator.query.statement.MaintenanceExecutor(
                 controlledMaintenance);
         ddlExecutor.setMaintenancePolicyService(maintenancePolicyService);
@@ -428,15 +434,8 @@ final class QueryExecutionBootstrap {
                 new org.pangrova.coordinator.query.execution.dispatch.task.AnalyzeTask(
                         new org.pangrova.coordinator.query.statement.AnalyzeExecutor(
                                 catalogRegistry)));
-        tasks.put(org.pangrova.parser.api.ast.statement.SetClusteringOrderStatement.class,
-                new org.pangrova.coordinator.query.execution.dispatch.task.SetClusteringOrderTask(
-                        controlledMaintenance::setClusteringOrder));
-        tasks.put(org.pangrova.parser.api.ast.statement.ReclusterTableStatement.class,
-                new org.pangrova.coordinator.query.execution.dispatch.task.ReclusterTableTask(
-                        controlledMaintenance::recluster));
-        tasks.put(org.pangrova.parser.api.ast.statement.ShowClusteringStatusStatement.class,
-                new org.pangrova.coordinator.query.execution.dispatch.task.ShowClusteringStatusTask(
-                        controlledMaintenance::showClusteringStatus));
+        org.pangrova.coordinator.query.execution.dispatch.task.ClusteringStatementTasks.register(
+                tasks, controlledMaintenance);
         // CALL procedure
         tasks.put(org.pangrova.parser.api.ast.statement.maintenance.CallStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.CallProcedureTask(

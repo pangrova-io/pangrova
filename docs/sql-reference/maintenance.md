@@ -171,6 +171,7 @@ MODE LINEAR;
 
 The SQL call waits for an authenticated Worker to stage replacement files and
 for the Coordinator to publish the result under the table maintenance lease.
+The Coordinator and staging Workers must share the internal authentication secret.
 The Worker uses the exact admitted catalog and table metadata revisions. The
 catalog and data paths must be accessible from the Coordinator and Workers.
 If a Worker is unavailable before returning its staging receipt, another
