@@ -1209,29 +1209,32 @@ The Coordinator routes durable Shuffle producer reports by the exact task kind i
 Durable recovery and producer completion use the exchange registration and finalization evidence read under the same barrier locks in their transaction.
 One PostgreSQL query reads the exchange graph, registration, finalization, and pinned source snapshot with shared row locks and a bounded JDBC cursor window. Finalized producer winners are verified against their authoritative partition records.
 
-An exact durable partition claim checks its persisted page coordinates and selects
-the eligible locked page in a single PostgreSQL statement. The result distinguishes
-an invalid allocation from a valid page that is unavailable or already locked.
+Durable stage scheduling inspects up to eight consecutive partitions per
+transaction. Each dispatch window then claims its unfinished partitions in one
+transaction. One PostgreSQL statement distinguishes invalid page identities
+from valid pages that are unavailable or locked. The claim revalidates current
+authority, execution ownership, and exchange barriers once for the window and
+reuses the same locked exchange evidence to prepare each request. A failed
+preparation rolls back the window's new attempts. The Coordinator sends tasks
+only after the claim transaction commits.
 
-Producer completion revalidates authorization and execution ownership using the
-current transaction. It uses the job and page already locked by the producer
-report and skips split loading when the page publishes only Shuffle data.
-Durable stage scheduling inspects up to eight consecutive partition records per authority and barrier transaction. The scheduler checks the whole window before dispatching any of its partitions and revalidates each exact claim against the current owner and page state.
-Loading the durable dispatch specification and validating its authorization scope share the same transaction-level publication lock.
+Producer completion revalidates authorization and execution ownership using
+the current transaction. It uses the job and page already locked by the
+producer report and skips split loading when the page publishes only Shuffle
+data.
 
-Before opening partition-claim transactions, relational replay decodes the
-immutable stage bindings and computes the request plan checksum. Each claim
-matches its current stage and model declarations against that prepared contract,
-then binds its own split, publication, lease, and resource evidence.
-Durable stage scheduling inspects up to eight consecutive partition records per authority and barrier transaction. The scheduler checks the whole window before dispatching any of its partitions and revalidates each exact claim against the current owner and page state.
-Loading the durable dispatch specification and validating its authorization scope share the same transaction-level publication lock.
-Task preparation uses the direct roles already verified by table authorization on this connection. Tenant membership, table policy, model authority, and the exact execution owner are checked within the transaction.
+Relational replay decodes the immutable stage bindings and calculates the plan
+checksum before opening the claim transaction. Each request keeps its exact
+split, publication and lease evidence. Loading the dispatch specification and
+validating its authorization scope share the transaction-level publication lock.
+Task preparation uses the direct roles already verified by table authorization
+on this connection.
 
 #### 3.3.8 Coordinator Scheduler Design
 
 **Stage scheduling order**
 
-Each live or durable dispatch cohort resolves its tenant placement before the first task is issued. The PostgreSQL placement lookup reads the current tenant status and its assigned resource pool. Later stages and retries repeat that lookup. Local Shuffle still requires the same exact Worker incarnation. Durable partition claims use the resolved pool and current in-memory Worker inventory during the claim transaction.
+Each live or durable dispatch cohort resolves its tenant placement before the first task is issued. The PostgreSQL placement lookup reads the current tenant status and its assigned resource pool. Later stages and retries repeat that lookup. Local Shuffle still requires the same exact Worker incarnation. Durable dispatch refreshes the in-memory Worker inventory and filters eligible Workers before each claim window. Each partition is ranked against its exact operator bindings inside the transaction.
 
 The Coordinator schedules in topological order of the Stage DAG: leaf Stages are scheduled first, and the Output Stage is scheduled last.
 

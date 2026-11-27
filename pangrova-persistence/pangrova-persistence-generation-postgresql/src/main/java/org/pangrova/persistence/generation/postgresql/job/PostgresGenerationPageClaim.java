@@ -24,20 +24,31 @@ final class PostgresGenerationPageClaim {
 
     static Optional<GenerationLease> claim(Connection connection, PostgresGenerationJobStoreMappings.PageRow page,
             ExecutionAnchor anchor, long ownerEpoch, Duration duration, Instant now) throws SQLException {
-        int attemptId = Math.incrementExact(page.attemptId());
-        if (attemptId >= page.maxAttempts()) {
+        if (attemptsExhausted(page)) {
             failExhaustedPage(connection, page, now);
             return Optional.empty();
         }
+        var lease = issue(connection, page, anchor, ownerEpoch, duration, now);
+        markJobRunning(connection, page.tenantId(), page.jobId(), now);
+        return Optional.of(lease);
+    }
+
+    static boolean attemptsExhausted(PostgresGenerationJobStoreMappings.PageRow page) {
+        return Math.incrementExact(page.attemptId()) >= page.maxAttempts();
+    }
+
+    /** Issues one locked page whose attempt budget was validated before the first cohort mutation. */
+    static GenerationLease issue(Connection connection, PostgresGenerationJobStoreMappings.PageRow page,
+            ExecutionAnchor anchor, long ownerEpoch, Duration duration, Instant now) throws SQLException {
+        int attemptId = Math.incrementExact(page.attemptId());
         long token = fencingToken(ownerEpoch, attemptId);
         Instant expiresAt = now.plus(duration);
         persist(connection, page, anchor, new IssuedLease(attemptId, token, ownerEpoch, expiresAt), now);
-        markJobRunning(connection, page.tenantId(), page.jobId(), now);
-        return Optional.of(new GenerationLease(page.tenantId(), page.jobId(), page.pageId(),
+        return new GenerationLease(page.tenantId(), page.jobId(), page.pageId(),
                 page.stageId(), page.partitionId(), page.pageOrdinal(), page.kind(),
                 INPUTS.loadSplits(connection, page.tenantId(), page.jobId(), page.pageId()),
                 INPUTS.loadDependencies(connection, page.tenantId(), page.jobId(), page.pageId()),
-                attemptId, token, anchor.ownerId(), ownerEpoch, expiresAt, anchor));
+                attemptId, token, anchor.ownerId(), ownerEpoch, expiresAt, anchor);
     }
 
     private static void persist(Connection connection, PostgresGenerationJobStoreMappings.PageRow page,

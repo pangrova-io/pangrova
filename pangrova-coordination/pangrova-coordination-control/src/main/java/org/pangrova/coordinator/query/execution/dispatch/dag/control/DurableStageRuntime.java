@@ -160,34 +160,42 @@ public final class DurableStageRuntime {
                 firstPartition, count);
     }
 
-    /** Placement and exact claim for one partition of a bound stage. */
+    /** The exact partition and its already prepared exchange access. */
+    public record PartitionTask(int partition, int pageOrdinal, DurablePartitionRequest.ExchangeAccess exchange) {}
+
+    /** Placement and exact claims for a bounded cohort of one stage. */
     @FunctionalInterface
     public interface StageTasks {
-        /** Prepares the exact partition without re-reading tenant placement. */
-        Optional<PreparedTask> prepare(int partition, PartitionProgress progress,
-                DurablePartitionRequest.ExchangeAccess exchange, Instant now);
+        List<PreparedTask> prepare(List<PartitionTask> tasks, Instant now);
     }
 
     /** Freezes one tenant placement before taking a partition claim connection. */
     public StageTasks bindStageTasks(int stage, DurablePartitionRequest.StageRequestPlan requestPlan) {
         var placement = dependencies.scheduler().bindTenant(job.tenantId());
-        return (partition, progress, exchange, now) ->
-                prepare(stage, partition, progress, requestPlan, exchange, now, placement);
+        return (tasks, now) -> prepare(stage, tasks, requestPlan, now, placement);
     }
 
-    private Optional<PreparedTask> prepare(int stage, int partition, PartitionProgress progress,
-            DurablePartitionRequest.StageRequestPlan requestPlan,
-            DurablePartitionRequest.ExchangeAccess exchange, Instant now, TaskScheduler placement) {
-        // The claim callback uses the local Worker snapshot and the already resolved tenant pool.
-        List<WorkerInfo> snapshot = dependencies.workers().getActiveWorkers();
+    private List<PreparedTask> prepare(int stage, List<PartitionTask> tasks,
+            DurablePartitionRequest.StageRequestPlan requestPlan, Instant now, TaskScheduler placement) {
+        long memory = execution.authority().dispatchSpec().maxMemoryBytes();
+        var eligible = placement.eligibleWorkersForTenant(memory, dependencies.workers().getActiveWorkers(),
+                job.tenantId());
         long term = dependencies.controlTerm().getAsLong();
-        var claim = new GenerationStageExecutionStore.PartitionClaim(job, execution.authority().executionAnchor(),
-                stage, partition, progress.pageOrdinal(), term, dependencies.leaseDuration(), now);
-        return dependencies.stages().preparePartition(claim, evidence -> {
-            var request = DurablePartitionRequest.prepare(evidence, requestPlan, exchange, now, control.traceContext());
-            var bindings = request.taskRequest().getOperatorBindingsList();
-            long memory = request.taskRequest().getResourceGrant().getNativeMemoryBytes();
-            var eligible = placement.eligibleWorkersForTenant(memory, snapshot, job.tenantId());
+        var exchanges = new HashMap<Integer, DurablePartitionRequest.ExchangeAccess>(tasks.size());
+        var claims = new ArrayList<GenerationStageExecutionStore.PartitionClaim>(tasks.size());
+        for (var task : tasks) {
+            claims.add(new GenerationStageExecutionStore.PartitionClaim(job, execution.authority().executionAnchor(),
+                    stage, task.partition(), task.pageOrdinal(), term, dependencies.leaseDuration(), now));
+            exchanges.put(task.partition(), task.exchange());
+        }
+        return dependencies.stages().preparePartitions(claims, evidence -> {
+            var request = DurablePartitionRequest.prepare(evidence, requestPlan,
+                    exchanges.get(evidence.lease().partitionId()), now, control.traceContext());
+            var task = request.taskRequest();
+            if (task.getResourceGrant().getNativeMemoryBytes() != memory) {
+                throw new IllegalStateException("Durable partition resource grant differs from its bound stage");
+            }
+            var bindings = task.getOperatorBindingsList();
             var selected = bindings.isEmpty() ? placement.selectWorker(memory, eligible)
                     : placement.selectWorkerWithBindings(memory, eligible, bindings,
                             WorkerInfo::capabilityInventory);

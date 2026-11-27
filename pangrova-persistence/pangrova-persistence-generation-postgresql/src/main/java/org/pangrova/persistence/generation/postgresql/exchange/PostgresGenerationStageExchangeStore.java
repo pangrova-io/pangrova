@@ -127,14 +127,8 @@ public final class PostgresGenerationStageExchangeStore implements GenerationSta
         return transaction(connection -> {
             var context = PostgresCurrentGenerationAuthority.resolve(
                     transactionAuthority, executionFence, connection, job.tenantId(), job.jobId(), owner);
-            return loadValidatedEvidence(connection, context);
+            return readLockedEvidence(connection, context, false, true);
         });
-    }
-
-    /** Same-connection immutable evidence for pure partition preparation; never access capabilities. */
-    public static List<ExchangeEvidence> loadValidatedEvidence(Connection connection,
-            PostgresCurrentGenerationAuthority context) throws SQLException {
-        return readLockedEvidence(connection, context, false, true);
     }
 
     /** Stores the exact submitted graph's immutable consumer edges on the creating transaction. */

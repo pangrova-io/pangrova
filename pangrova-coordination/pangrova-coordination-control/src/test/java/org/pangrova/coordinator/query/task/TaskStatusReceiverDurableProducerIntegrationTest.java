@@ -221,19 +221,7 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
     void inspectsExactStageCohortWithoutPerPartitionTransactions() throws Exception {
         var key = new GenerationJobKey(KEY.tenantId(), "progress-windows");
         int partitions = 20;
-        var wideSpec = specification(key, partitions);
-        var pages = new java.util.ArrayList<GenerationPage>();
-        var upstream = new java.util.ArrayList<String>();
-        for (int partition = 0; partition < partitions; partition++) {
-            String pageId = "producer-" + partition;
-            upstream.add(pageId);
-            pages.add(new GenerationPage(key.jobId(), pageId, 1, partition, partition,
-                    GenerationPageKind.RELATIONAL_COMPUTE, List.of(), List.of(), 3));
-        }
-        pages.add(new GenerationPage(key.jobId(), "terminal-0", 0, 0, partitions,
-                GenerationPageKind.RELATIONAL_PARTITION, List.of(), upstream, 3));
-        builds.createJob(job(key, pages.size()), wideSpec, pages);
-        var owner = executions.takeOwnership(key.tenantId(), key.jobId(), "report-coordinator", 8);
+        var owner = createWideJob(key, partitions);
         installStatementCounters();
         String pageLookup = "SELECT * FROM artifact_build_pages%stage_id=%partition_id%FOR UPDATE";
         long beforePage = statementReads(pageLookup);
@@ -273,6 +261,88 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
         }
         assertThatThrownBy(() -> stages.inspectPartitions(key, owner, 1, 0, window))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("exact stage partitions");
+    }
+
+    @Test
+    void claimsEightPartitionsWithOneAuthorityBarrierAndExactPageRead() throws Exception {
+        int window = GenerationStageExecutionStore.PARTITION_INSPECTION_WINDOW;
+        var key = new GenerationJobKey(KEY.tenantId(), "batched-page-claims");
+        var owner = createWideJob(key, window * 2);
+        installStatementCounters();
+
+        var selectionSql = "WITH requested(partition_id, page_ordinal) AS (VALUES%artifact_build_pages%";
+        var startedSql = "UPDATE artifact_build_jobs SET state=$% WHERE tenant_id=%AND state=$%";
+        var former = partitionClaims(key, owner, 0, window);
+        long exchangeBefore = exchangeReads().combined();
+        long authorityBefore = executionRouteReads();
+        long selectionBefore = statementReads(selectionSql);
+        long startedBefore = statementReads(startedSql);
+        for (var claim : former) stages.preparePartition(claim, prepared -> prepared.lease()).orElseThrow();
+        assertThat(exchangeReads().combined() - exchangeBefore).isEqualTo(window);
+        assertThat(executionRouteReads() - authorityBefore).isEqualTo(window);
+        assertThat(statementReads(selectionSql) - selectionBefore).isEqualTo(window);
+        assertThat(statementReads(startedSql) - startedBefore).as("initial job transition").isOne();
+
+        var claims = partitionClaims(key, owner, window, window);
+        exchangeBefore = exchangeReads().combined();
+        authorityBefore = executionRouteReads();
+        selectionBefore = statementReads(selectionSql);
+        startedBefore = statementReads(startedSql);
+        var leased = stages.preparePartitions(claims, prepared -> prepared.lease());
+        assertThat(leased).extracting(GenerationLease::partitionId)
+                .containsExactlyElementsOf(claims.stream().map(GenerationStageExecutionStore.PartitionClaim::partitionId).toList());
+        assertThat(leased).allSatisfy(lease -> {
+            assertThat(lease.attemptId()).isZero();
+            assertThat(lease.executionAnchor()).isEqualTo(owner);
+        });
+        assertThat(exchangeReads().combined() - exchangeBefore).as("locked exchange evidence reads").isOne();
+        assertThat(executionRouteReads() - authorityBefore).as("execution authority reads").isOne();
+        assertThat(statementReads(selectionSql) - selectionBefore).as("exact page cohort reads").isOne();
+        assertThat(statementReads(startedSql) - startedBefore).as("updates for an already running job").isZero();
+    }
+
+    @Test
+    void aBlockedOrFailedCohortDoesNotConsumeAnyNewAttempt() {
+        var key = new GenerationJobKey(KEY.tenantId(), "atomic-page-claims");
+        var owner = createWideJob(key, 4);
+        var claims = partitionClaims(key, owner, 0, 4);
+        stages.preparePartition(claims.get(3), prepared -> prepared.lease()).orElseThrow();
+
+        assertThat(stages.preparePartitions(claims, prepared -> {
+            throw new AssertionError("A partly available cohort must not prepare a request");
+        })).isEmpty();
+        var failure = new IllegalStateException("request preparation failed");
+        assertThatThrownBy(() -> stages.preparePartitions(claims.subList(0, 3), prepared -> {
+            if (prepared.lease().partitionId() == 2) throw failure;
+            return prepared.lease();
+        })).isSameAs(failure);
+
+        assertThat(stages.preparePartitions(claims.subList(0, 3), prepared -> prepared.lease()))
+                .hasSize(3).allSatisfy(lease -> assertThat(lease.attemptId()).isZero());
+    }
+
+    private ExecutionAnchor createWideJob(GenerationJobKey key, int partitions) {
+        var wideSpec = specification(key, partitions);
+        var pages = new java.util.ArrayList<GenerationPage>();
+        var upstream = new java.util.ArrayList<String>();
+        for (int partition = 0; partition < partitions; partition++) {
+            String pageId = "producer-" + partition;
+            upstream.add(pageId);
+            pages.add(new GenerationPage(key.jobId(), pageId, 1, partition, partition,
+                    GenerationPageKind.RELATIONAL_COMPUTE, List.of(), List.of(), 3));
+        }
+        pages.add(new GenerationPage(key.jobId(), "terminal-0", 0, 0, partitions,
+                GenerationPageKind.RELATIONAL_PARTITION, List.of(), upstream, 3));
+        builds.createJob(job(key, pages.size()), wideSpec, pages);
+        return executions.takeOwnership(key.tenantId(), key.jobId(), "report-coordinator", 8);
+    }
+
+    private static List<GenerationStageExecutionStore.PartitionClaim> partitionClaims(
+            GenerationJobKey key, ExecutionAnchor owner, int first, int count) {
+        Instant now = Instant.now();
+        return java.util.stream.IntStream.range(first, first + count)
+                .mapToObj(partition -> new GenerationStageExecutionStore.PartitionClaim(
+                        key, owner, 1, partition, partition, 8, Duration.ofMinutes(1), now)).toList();
     }
 
     private void installStatementCounters() throws java.sql.SQLException {

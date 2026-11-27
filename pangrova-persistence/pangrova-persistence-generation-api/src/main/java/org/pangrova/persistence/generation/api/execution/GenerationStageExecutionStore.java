@@ -40,7 +40,17 @@ public interface GenerationStageExecutionStore {
      * Claims an exact partition and prepares immutable local metadata before releasing its transaction locks.
      * The callback must not perform network I/O. Any callback failure rolls back the claim and attempt.
      */
-    <T> Optional<T> preparePartition(PartitionClaim request, Function<PreparedPartition, T> prepare);
+    default <T> Optional<T> preparePartition(PartitionClaim request, Function<PreparedPartition, T> prepare) {
+        return preparePartitions(List.of(request), prepare).stream().findFirst();
+    }
+
+    /**
+     * Prepares one ordered cohort of up to PARTITION_INSPECTION_WINDOW exact partitions from one stage.
+     * The cohort shares one authority, clock, lease duration and control term. Unclaimable partitions
+     * yield an empty result before any new lease is issued. Callback failure rolls back the whole cohort.
+     * Callbacks prepare local immutable data only. The result is available after commit.
+     */
+    <T> List<T> preparePartitions(List<PartitionClaim> requests, Function<PreparedPartition, T> prepare);
 
     /**
      * Revalidates an issued lease and prepares local metadata inside the same current-authority transaction.

@@ -2,6 +2,7 @@ package org.pangrova.persistence.generation.postgresql.job;
 
 import org.pangrova.generation.api.enums.GenerationPageKind;
 import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.NativeWinner;
+import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.PartitionClaim;
 import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.PartitionProgress;
 import org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStoreMappings.PageRow;
 
@@ -11,6 +12,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -20,16 +22,6 @@ import static org.pangrova.persistence.jdbc.support.JdbcSupport.setInstant;
 /** One page-selection contract for ordinary polling and exact durable stage partitions. */
 final class PostgresGenerationPageSelection {
     private PostgresGenerationPageSelection() {}
-
-    record Coordinates(int stageId, int partitionId, int pageOrdinal) {
-        Coordinates {
-            if (stageId < 0 || partitionId < 0 || pageOrdinal < 0) {
-                throw new IllegalArgumentException("Durable page coordinates must be nonnegative");
-            }
-        }
-    }
-
-    record Selection(String tenantId, String jobId, Instant now, Optional<Coordinates> coordinates) {}
 
     private static final String CLAIMABLE_PAGE = "SELECT * FROM artifact_build_pages "
         + "WHERE tenant_id=? AND job_id=? "
@@ -47,49 +39,68 @@ final class PostgresGenerationPageSelection {
         + "(SELECT 1 FROM artifact_exchange_finalizations f WHERE f.tenant_id=e.tenant_id "
         + "AND f.job_id=e.job_id AND f.exchange_id=e.exchange_id)) ";
 
-    private static final String CLAIMABLE_ORDER = "ORDER BY page_ordinal LIMIT 1 FOR UPDATE SKIP LOCKED";
-    private static final String CLAIMABLE_ANY = CLAIMABLE_PAGE + CLAIMABLE_ORDER;
-    private static final String CLAIMABLE_EXACT = """
-            WITH exact AS MATERIALIZED (
-                SELECT page_id FROM artifact_build_pages
-                WHERE tenant_id=? AND job_id=? AND stage_id=? AND partition_id=? AND page_ordinal=?
+    private static final String CLAIMABLE_ANY = CLAIMABLE_PAGE + "ORDER BY page_ordinal LIMIT 1 FOR UPDATE SKIP LOCKED";
+    private static final String CLAIMABLE_COHORT = """
+            WITH requested(partition_id, page_ordinal) AS (VALUES %s),
+            exact AS MATERIALIZED (
+                SELECT p.partition_id, p.page_id FROM artifact_build_pages p
+                JOIN requested r USING (partition_id, page_ordinal)
+                WHERE tenant_id=? AND job_id=? AND stage_id=?
             ),
             claimable AS (
-            """ + CLAIMABLE_PAGE
-            + "AND page_id IN (SELECT page_id FROM exact) " + CLAIMABLE_ORDER
-            + """
+            """ + CLAIMABLE_PAGE + """
+            AND page_id IN (SELECT page_id FROM exact)
+            ORDER BY partition_id FOR UPDATE SKIP LOCKED
             )
-            SELECT coordinates.allocations, claimable.*
-            FROM (SELECT count(*) AS allocations FROM exact) coordinates
-            LEFT JOIN claimable ON true
+            SELECT (SELECT count(*) FROM exact WHERE partition_id=r.partition_id) AS allocations,
+                   claimable.*
+            FROM requested r LEFT JOIN claimable USING (partition_id)
+            ORDER BY r.partition_id
             """;
 
-    static Optional<PageRow> selectClaimablePage(Connection connection, Selection selection)
+    static Optional<PageRow> selectClaimablePage(Connection connection, String tenantId, String jobId, Instant now)
             throws SQLException {
-        Coordinates coordinates = selection.coordinates().orElse(null);
-        try (PreparedStatement statement = connection.prepareStatement(
-                coordinates == null ? CLAIMABLE_ANY : CLAIMABLE_EXACT)) {
-            int parameter = 1;
-            if (coordinates != null) {
-                statement.setString(parameter++, selection.tenantId());
-                statement.setString(parameter++, selection.jobId());
-                statement.setInt(parameter++, coordinates.stageId());
-                statement.setInt(parameter++, coordinates.partitionId());
-                statement.setInt(parameter++, coordinates.pageOrdinal());
-            }
-            statement.setString(parameter++, selection.tenantId());
-            statement.setString(parameter++, selection.jobId());
-            setInstant(statement, parameter++, selection.now());
-            setInstant(statement, parameter, selection.now());
+        try (PreparedStatement statement = connection.prepareStatement(CLAIMABLE_ANY)) {
+            statement.setString(1, tenantId);
+            statement.setString(2, jobId);
+            setInstant(statement, 3, now);
+            setInstant(statement, 4, now);
             try (ResultSet result = statement.executeQuery()) {
-                boolean present = result.next();
-                if (coordinates != null && (!present || result.getLong("allocations") != 1)) {
-                    throw new IllegalStateException(
-                            "Durable stage partition lacks one exact immutable page allocation");
-                }
-                return present && (coordinates == null || result.getString("page_id") != null)
-                        ? Optional.of(mapPage(result)) : Optional.empty();
+                return result.next() ? Optional.of(mapPage(result)) : Optional.empty();
             }
+        }
+    }
+
+    /** Locks pages in partition order and distinguishes a missing identity from an unavailable page. */
+    static List<PageRow> selectClaimableCohort(Connection connection, List<PartitionClaim> cohort)
+            throws SQLException {
+        String values = String.join(",", Collections.nCopies(cohort.size(), "(?::integer,?::integer)"));
+        var first = cohort.get(0);
+        try (var statement = connection.prepareStatement(CLAIMABLE_COHORT.formatted(values))) {
+            int parameter = 1;
+            for (var request : cohort) {
+                statement.setInt(parameter++, request.partitionId());
+                statement.setInt(parameter++, request.pageOrdinal());
+            }
+            statement.setString(parameter++, first.job().tenantId());
+            statement.setString(parameter++, first.job().jobId());
+            statement.setInt(parameter++, first.stageId());
+            statement.setString(parameter++, first.job().tenantId());
+            statement.setString(parameter++, first.job().jobId());
+            setInstant(statement, parameter++, first.now());
+            setInstant(statement, parameter, first.now());
+
+            var selected = new ArrayList<PageRow>(cohort.size());
+            try (var rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    if (rows.getLong("allocations") != 1) {
+                        throw new IllegalStateException(
+                                "Durable stage partition lacks one exact immutable page allocation");
+                    }
+                    if (rows.getString("page_id") != null) selected.add(mapPage(rows));
+                }
+            }
+            return selected.size() == cohort.size() ? selected : List.of();
         }
     }
 

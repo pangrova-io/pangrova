@@ -330,8 +330,7 @@ public final class PostgresGenerationJobStore extends PostgresGenerationJobStore
             if (job == null || terminal(job.state())) {
                 return Optional.empty();
             }
-            PageRow page = selectClaimablePage(connection, new PostgresGenerationPageSelection.Selection(
-                    tenantId, jobId, now, Optional.empty())).orElse(null);
+            PageRow page = selectClaimablePage(connection, tenantId, jobId, now).orElse(null);
             if (page == null) {
                 return Optional.empty();
             }
