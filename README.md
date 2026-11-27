@@ -31,7 +31,8 @@ shared query and governance framework.
 Pangrova evokes the pangolin and the mangrove. The pangolin symbolizes
 resilience, protection, and adaptability; the mangrove symbolizes deep roots,
 interconnection, and a thriving ecosystem. Together, they express our vision
-of reliable, adaptable data systems built on an open foundation.
+for data systems: resilient by design, adaptable by nature, and rooted in
+openness.
 
 ## CLI Demo
 
