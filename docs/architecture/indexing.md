@@ -603,7 +603,7 @@ connector decisions must be measured separately.
 - Artifact generations are immutable and atomically published.
 - Every object checksum, format identity and row-locator schema is validated.
 - Workers must advertise the exact capability signature and compatible format.
-- Work-page leases and publication fencing reject stale attempts.
+- Work-page leases use the expiration stored by PostgreSQL. Lease and publication fencing reject stale attempts.
 - Durable snapshot-pin intents survive connector/job crash windows. Published
   retrieval pins are retained by exact live execution anchors while candidates
   hydrate source rows; superseded, dropped and terminal builds release them only
