@@ -431,18 +431,22 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.production_source }}
-      - name: Verify the source and the tested Native fixture inputs
+      - name: Verify the source and the tested Lance fixture inputs
         run: |
           [[ "$PANGROVA_PROBE_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
           test "$(git rev-parse HEAD)" = "$PANGROVA_PROBE_SOURCE_SHA"
           tested_ref=80cbe6b744e19f8a77a8d7bdcb88e6430189c7c0
           git fetch --depth=1 origin "$tested_ref"
+          # The Lance fixture links Arrow, canonical protobuf and Lance C FFI.
+          # Pangrova's production Worker and Velox are rebuilt from HEAD below.
           git diff --exit-code "$tested_ref" HEAD -- pangrova-protocol \
             pangrova-worker-native/CMakeLists.txt pangrova-worker-native/cmake \
-            pangrova-worker-native/src pangrova-worker-native/include \
+            pangrova-worker-native/src pangrova-worker-native/include pangrova-worker-native/test-tools \
             pangrova-worker-native/lance-ffi pangrova-worker-native/tools \
+            .pangrova/scripts/stage-java-native-test-runtime.sh \
             pangrova-connector/pangrova-connector-iceberg/patches \
-            .pangrova/scripts/build-iceberg-sdk-candidate.sh
+            .pangrova/scripts/build-iceberg-sdk-candidate.sh \
+            ':(exclude)pangrova-worker-native/src/engine/velox/connector/PangrovaVeloxConnector.cpp'
           lock=pangrova-worker-native/dependency-versions.txt
           diff -u <(git show "$tested_ref:$lock" | grep -v '^PANGROVA_DEPENDENCY_BUILD=') \
             <(grep -v '^PANGROVA_DEPENDENCY_BUILD=' "$lock")
