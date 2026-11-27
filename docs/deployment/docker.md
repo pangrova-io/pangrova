@@ -114,6 +114,10 @@ build dependency prefix. Velox's Boost build and Pangrova's curl build enable
 PIC explicitly. Both builders verify the archives with shared-library links
 that reject text relocations. The libunwind preflight links both archives in
 a group so the linker can resolve their cross-archive references.
+The builder also rebuilds bzip2, Zstandard, libevent, ICU and libxml2 with
+PIC. It obtains the exact installed packages' source versions from Ubuntu's
+signed repositories and retains their distribution patches. A shared-library
+link checks those archives with the JNI export map before Velox is compiled.
 The Linux ARM64 build requires CPUs with ARM CRC32 instructions: the pinned
 Velox and Folly archives use F14's SIMD+CRC mode, and Pangrova compiles their
 header consumers for the same mode. Deploy `linux/arm64` images only to nodes

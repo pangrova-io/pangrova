@@ -72,6 +72,19 @@ class DockerNativeBootstrapTest(unittest.TestCase):
                 probe = source.split("-shared -Wl,-z,defs,-z,text -Wl,--whole-archive", 1)[1]
                 self.assertIn(archive, probe.split("-Wl,--no-whole-archive", 1)[0])
 
+    def test_production_link_checks_the_rebuilt_system_archives(self):
+        script = (ROOT / "deploy/docker/build-static-system-deps.sh").read_text()
+        for package in ("libbz2-dev", "libzstd-dev", "libevent-dev", "libicu-dev", "libxml2-dev"):
+            self.assertIn(f"download_source {package}", script)
+        self.assertIn("${source:Package}=${source:Version}", script)
+        self.assertIn('source --only-source "$reference"', script)
+        self.assertIn('-Wl,-z,defs,-z,text -Wl,--version-script="$version_map"', script)
+        preflight_index = next(i for i, line in enumerate(self.instructions)
+                               if line.startswith("RUN bash /workspace/build-static-system-deps.sh"))
+        velox_index = next(i for i, line in enumerate(self.instructions)
+                           if line.startswith("RUN ") and "PANGROVA_NATIVE_BUILD_PHASE=velox" in line)
+        self.assertLess(preflight_index, velox_index)
+
     def test_folly_source_and_bootstrap_patches_are_staged_before_velox(self):
         velox_bootstrap = next(i for i, line in enumerate(self.instructions)
                                if line.startswith("RUN ") and "PANGROVA_NATIVE_BUILD_PHASE=velox" in line)
