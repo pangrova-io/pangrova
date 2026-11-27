@@ -228,7 +228,7 @@ public class PaimonSplitManager implements ConnectorSplitManager {
 
     private static PaimonScanBudget scanBudget(SplitPlanningBudget stage, ConnectorQueryAuthority authority) {
         return new PaimonScanBudget(stage, authority::isClosed, authority::enterOperation,
-                PaimonScanBudget.MAX_METADATA_CANDIDATES, PaimonScanBudget.MAX_ENCODED_METADATA_BYTES);
+                PaimonScanBudget.MAX_METADATA_CANDIDATES);
     }
 
     private Table loadFreshTable(PaimonTableHandle handle) {

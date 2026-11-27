@@ -26,22 +26,19 @@ import java.util.function.Supplier;
 /** Applies the stage deadline and caps on Paimon planning and split conversion. */
 final class PaimonScanBudget {
     static final int MAX_METADATA_CANDIDATES = 1_000_000;
-    static final long MAX_ENCODED_METADATA_BYTES = 256L * 1024 * 1024;
 
     private final SplitPlanningBudget stage;
     private final BooleanSupplier queryClosed;
     private final Supplier<ConnectorQueryOperation> enterQueryOperation;
     private final Thread owner = Thread.currentThread();
     private final int maxCandidates;
-    private final long maxEncodedBytes;
 
     PaimonScanBudget(SplitPlanningBudget stage, BooleanSupplier queryClosed,
-            Supplier<ConnectorQueryOperation> enterQueryOperation, int maxCandidates, long maxEncodedBytes) {
+            Supplier<ConnectorQueryOperation> enterQueryOperation, int maxCandidates) {
         this.stage = stage;
         this.queryClosed = queryClosed;
         this.enterQueryOperation = enterQueryOperation;
         this.maxCandidates = maxCandidates;
-        this.maxEncodedBytes = maxEncodedBytes;
     }
 
     void check(long splitCount) {
@@ -77,7 +74,8 @@ final class PaimonScanBudget {
         check(0);
         // SnapshotReader and the table's batch options are delegated to the selected SDK table.
         while (table instanceof DelegatedFileStoreTable delegated) table = delegated.wrapped();
-        try (var io = new PaimonPlanningFileIO(table.fileIO(), this, enterQueryOperation.get(), maxEncodedBytes)) {
+        try (var io = new PaimonPlanningFileIO(table.fileIO(), this,
+                enterQueryOperation.get(), stage.encodedMetadata())) {
             List<Split> splits;
             try {
                 splits = planner.apply(planningTable(table, snapshot, io), io);

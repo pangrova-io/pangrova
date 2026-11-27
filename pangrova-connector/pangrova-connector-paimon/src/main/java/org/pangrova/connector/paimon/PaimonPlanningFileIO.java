@@ -9,6 +9,7 @@ import org.apache.paimon.fs.SeekableInputStream;
 import org.apache.paimon.utils.FileStorePathFactory;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.connector.api.exception.ConnectorException;
+import org.pangrova.connector.api.metadata.SplitPlanningBudget.EncodedMetadataBudget;
 import org.pangrova.connector.api.query.ConnectorQueryOperation;
 
 import java.io.IOException;
@@ -21,17 +22,18 @@ final class PaimonPlanningFileIO implements FileIO {
     private final FileIO delegate;
     private final transient PaimonScanBudget budget;
     private final transient ConnectorQueryOperation permit;
-    private long bytesRemaining;
+    private final transient EncodedMetadataBudget encodedMetadata;
     private int manifestOpens;
     private int active;
     private volatile boolean sealed;
     private volatile ConnectorException rejection;
 
-    PaimonPlanningFileIO(FileIO delegate, PaimonScanBudget budget, ConnectorQueryOperation permit, long bytes) {
+    PaimonPlanningFileIO(FileIO delegate, PaimonScanBudget budget, ConnectorQueryOperation permit,
+            EncodedMetadataBudget encodedMetadata) {
         this.delegate = delegate;
         this.budget = budget;
         this.permit = permit;
-        this.bytesRemaining = bytes;
+        this.encodedMetadata = encodedMetadata;
     }
 
     synchronized ConnectorException reject(ConnectorException failure) {
@@ -81,21 +83,18 @@ final class PaimonPlanningFileIO implements FileIO {
 
     private synchronized int reserve(int requested) {
         check();
-        requireByteBudget();
-        int granted = (int) Math.min(bytesRemaining, requested);
-        bytesRemaining -= granted;
+        int granted = encodedMetadata.reserve(requested);
+        if (granted == 0) throw reject(metadataBudgetExhausted());
         return granted;
     }
 
     private void requireByteBudget() {
-        if (bytesRemaining == 0) {
-            throw reject(new ConnectorException(PangrovaErrorCode.CONNECTOR_SPLIT_LIMIT_REACHED,
-                    "Paimon encoded metadata read budget exhausted"));
-        }
+        if (encodedMetadata.remainingBytes() == 0) throw reject(metadataBudgetExhausted());
     }
 
-    private synchronized void refund(int unused) {
-        bytesRemaining += unused;
+    private static ConnectorException metadataBudgetExhausted() {
+        return new ConnectorException(PangrovaErrorCode.CONNECTOR_SPLIT_LIMIT_REACHED,
+                "Stage encoded metadata read budget exhausted while planning Paimon splits");
     }
 
     @Override
@@ -201,7 +200,7 @@ final class PaimonPlanningFileIO implements FileIO {
                 result = input.read();
                 return result;
             } finally {
-                if (result < 0) refund(1);
+                if (result < 0) encodedMetadata.refund(1);
             }
         }
 
@@ -215,7 +214,7 @@ final class PaimonPlanningFileIO implements FileIO {
                 result = input.read(buffer, offset, granted);
                 return result;
             } finally {
-                refund(granted - Math.max(result, 0));
+                encodedMetadata.refund(granted - Math.max(result, 0));
             }
         }
 

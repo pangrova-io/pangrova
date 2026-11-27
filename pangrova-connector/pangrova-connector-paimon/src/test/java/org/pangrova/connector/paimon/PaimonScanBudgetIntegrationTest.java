@@ -17,6 +17,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.connector.api.exception.ConnectorException;
 import org.pangrova.connector.api.metadata.SplitPlanningBudget;
+import org.pangrova.connector.api.metadata.SplitPlanningBudget.EncodedMetadataBudget;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -112,7 +113,7 @@ class PaimonScanBudgetIntegrationTest {
         try (var catalog = new FileSystemCatalog(io, new org.apache.paimon.fs.Path(directory.toString()))) {
             var table = manifestTable(catalog, 3);
             io.observe = true;
-            var budget = new PaimonScanBudget(SplitPlanningBudget.standard(), () -> false, () -> () -> { }, 100, 1L);
+            var budget = budget(stageBudget(1), 100);
             assertThatThrownBy(() -> budget.plan(table, null, null))
                     .isInstanceOfSatisfying(ConnectorException.class, failure -> {
                         assertThat(failure.getErrorCode()).isEqualTo(PangrovaErrorCode.CONNECTOR_SPLIT_LIMIT_REACHED);
@@ -123,6 +124,56 @@ class PaimonScanBudgetIntegrationTest {
                     "incremental-between", "1,3"));
             assertThat(budget(100).plan(incremental, null, null))
                     .isEqualTo(incremental.newReadBuilder().newScan().plan().splits());
+        }
+    }
+
+    @Test
+    void twoPhysicalSourcesChargeTheSameStageBudget() throws Exception {
+        var warehouse = new org.apache.paimon.fs.Path(directory.toString());
+        var firstId = Identifier.create("db", "first_stage_source");
+        var secondId = Identifier.create("db", "second_stage_source");
+        try (var catalog = new FileSystemCatalog(new LocalFileIO(), warehouse)) {
+            manifestTable(catalog, firstId, 12);
+            manifestTable(catalog, secondId, 16);
+        }
+
+        var baseline = SplitPlanningBudget.standard();
+        long initialBytes = baseline.encodedMetadata().remainingBytes();
+        long firstSourceBytes;
+        long secondSourceBytes;
+        try (var catalog = new FileSystemCatalog(new LocalFileIO(), warehouse)) {
+            assertThat(budget(baseline, 100).plan((FileStoreTable) catalog.getTable(firstId), null, null))
+                    .isNotEmpty();
+            long remainingAfterFirst = baseline.encodedMetadata().remainingBytes();
+            firstSourceBytes = initialBytes - remainingAfterFirst;
+            assertThat(budget(baseline, 100).plan((FileStoreTable) catalog.getTable(secondId), null, null))
+                    .isNotEmpty();
+            secondSourceBytes = remainingAfterFirst - baseline.encodedMetadata().remainingBytes();
+        }
+        assertThat(firstSourceBytes).isPositive();
+        assertThat(secondSourceBytes).isGreaterThan(firstSourceBytes);
+
+        // Each scan fits independently. The first scan consumes more than the spare credit for short reads.
+        long stageBytes = secondSourceBytes + firstSourceBytes / 2;
+        long bytesLeftForSecond = stageBytes - firstSourceBytes;
+        var stage = stageBudget(stageBytes);
+        try (var catalog = new FileSystemCatalog(new LocalFileIO(), warehouse)) {
+            var first = budget(stage.forSource(1000, stage.fileGranularity()), 100);
+            assertThat(first.plan((FileStoreTable) catalog.getTable(firstId), null, null)).isNotEmpty();
+            assertThat(stage.encodedMetadata().remainingBytes()).isEqualTo(bytesLeftForSecond);
+
+            var second = budget(stage.forSource(500, stage.fileGranularity()), 100);
+            var secondTable = (FileStoreTable) catalog.getTable(secondId);
+            assertThatThrownBy(() -> second.plan(secondTable, null, null))
+                    .isInstanceOfSatisfying(ConnectorException.class, failure -> {
+                        assertThat(failure.getErrorCode()).isEqualTo(PangrovaErrorCode.CONNECTOR_SPLIT_LIMIT_REACHED);
+                        assertThat(failure).hasMessageContaining("Stage encoded metadata read budget exhausted");
+                    });
+            assertThat(stage.encodedMetadata().remainingBytes()).isLessThan(bytesLeftForSecond);
+        }
+        try (var catalog = new FileSystemCatalog(new LocalFileIO(), warehouse)) {
+            assertThat(budget(stageBudget(stageBytes), 100)
+                    .plan((FileStoreTable) catalog.getTable(secondId), null, null)).isNotEmpty();
         }
     }
 
@@ -140,7 +191,7 @@ class PaimonScanBudgetIntegrationTest {
                 var budget = new PaimonScanBudget(SplitPlanningBudget.standard(), () -> false, () -> () -> {
                     releases.incrementAndGet();
                     drained.countDown();
-                }, 100, PaimonScanBudget.MAX_ENCODED_METADATA_BYTES);
+                }, 100);
                 try {
                     budget.plan(table, null, null);
                 } catch (RuntimeException error) {
@@ -168,8 +219,11 @@ class PaimonScanBudgetIntegrationTest {
     }
 
     private static FileStoreTable manifestTable(FileSystemCatalog catalog, int count) throws Exception {
-        var id = Identifier.create("db", "bounded_manifest_io");
-        catalog.createDatabase("db", false);
+        return manifestTable(catalog, Identifier.create("db", "bounded_manifest_io"), count);
+    }
+
+    private static FileStoreTable manifestTable(FileSystemCatalog catalog, Identifier id, int count) throws Exception {
+        catalog.createDatabase("db", true);
         catalog.createTable(id, Schema.newBuilder().column("id", DataTypes.BIGINT())
                 .option("bucket", "-1").option("file.format", "parquet")
                 .option("manifest.merge-min-count", "1000")
@@ -180,8 +234,17 @@ class PaimonScanBudgetIntegrationTest {
     }
 
     private static PaimonScanBudget budget(int maxCandidates) {
-        return new PaimonScanBudget(SplitPlanningBudget.standard(), () -> false, () -> () -> { },
-                maxCandidates, PaimonScanBudget.MAX_ENCODED_METADATA_BYTES);
+        return budget(SplitPlanningBudget.standard(), maxCandidates);
+    }
+
+    private static PaimonScanBudget budget(SplitPlanningBudget stage, int maxCandidates) {
+        return new PaimonScanBudget(stage, () -> false, () -> () -> { }, maxCandidates);
+    }
+
+    private static SplitPlanningBudget stageBudget(long bytes) {
+        var standard = SplitPlanningBudget.standard();
+        return new SplitPlanningBudget(standard.deadlineNanos(), standard.remainingSplits(),
+                standard.fileGranularity(), new EncodedMetadataBudget(bytes));
     }
 
     private static final class ManifestIo extends LocalFileIO {
@@ -215,7 +278,7 @@ class PaimonScanBudgetIntegrationTest {
         var budget = new PaimonScanBudget(SplitPlanningBudget.standard(), () -> {
             if (Thread.currentThread() != owner) closed.set(true);
             return closed.get();
-        }, () -> () -> { }, 2, PaimonScanBudget.MAX_ENCODED_METADATA_BYTES);
+        }, () -> () -> { }, 2);
         assertThatThrownBy(() -> budget.plan(table, null, null))
                 .isInstanceOfSatisfying(ConnectorException.class, failure ->
                         assertThat(failure.getErrorCode()).isEqualTo(PangrovaErrorCode.CONNECTOR_SPLIT_FETCH_FAILED));

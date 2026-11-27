@@ -68,12 +68,14 @@ through [snapshot expiration](https://paimon.apache.org/docs/1.4/maintenance/man
 
 ### Split planning I/O
 
-Each physical Paimon scan source has the stage's monotonic planning deadline,
-a one-million manifest-open ceiling and a 256 MiB encoded metadata
-read allowance. The scan reserves bytes before calling the underlying
-reader and returns unused portions of short reads. The allowance covers
-bytes delivered by file I/O to the SDK during scan planning. Manifest
-cache hits do not open files. Exceeding a limit rejects the plan.
+All physical Paimon scan sources in one Coordinator stage share the stage's
+monotonic planning deadline and a 256 MiB encoded metadata read allowance.
+Each source has its own one-million manifest-open ceiling. Standalone split
+enumeration starts with its own allowance. The scan reserves bytes before
+calling the underlying reader. Unused bytes return to the stage when that read
+exits. The allowance covers bytes delivered by file I/O to the SDK during scan
+planning. Manifest cache hits do not open files. Exceeding a limit rejects the
+plan.
 
 When a plan exits after cancellation or failure, its metadata view rejects
 new opens. The Coordinator's query operation stays active until previously

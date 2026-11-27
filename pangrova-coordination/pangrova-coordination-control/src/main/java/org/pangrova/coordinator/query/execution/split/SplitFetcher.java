@@ -68,11 +68,12 @@ public final class SplitFetcher {
         Map<List<String>, SplitSourceDescriptor> unique = deduplicateSources(sources);
         List<ConnectorSplit> allSplits = new ArrayList<>();
         long deadlineNanos = deadlineAfter(SPLIT_FETCH_TIMEOUT_MS);
+        var stage = new SplitPlanningBudget(deadlineNanos, MAX_SPLITS_PER_STAGE, fileGranularity);
         for (SplitSourceDescriptor desc : unique.values()) {
             requireUninterruptedEnumeration();
             checkSplitFetchLimits(allSplits.size(), deadlineNanos);
             fetchConnectorSplits(desc, registry, snapshotOverrides, queryOutputColumns, context, allSplits,
-                    deadlineNanos, fileGranularity);
+                    stage);
         }
         requireUninterruptedEnumeration();
         checkSplitFetchLimits(allSplits.size(), deadlineNanos);
@@ -140,8 +141,7 @@ public final class SplitFetcher {
     private static void fetchConnectorSplits(
             SplitSourceDescriptor desc, CatalogRegistry registry,
             Map<String, Long> snapshotOverrides, List<String> queryOutputColumns,
-            QuerySession context, List<ConnectorSplit> splits, long deadlineNanos,
-            FileGranularity fileGranularity) {
+            QuerySession context, List<ConnectorSplit> splits, SplitPlanningBudget stage) {
         CatalogHandle catalog = registry.getCatalog(desc.catalogName());
         ConnectorSession session = SessionContextConverter.toConnectorSession(
                 context, desc.catalogName(), desc.schemaName());
@@ -171,6 +171,7 @@ public final class SplitFetcher {
             return;
         }
 
+        var fileGranularity = stage.fileGranularity();
         if (fileGranularity == FileGranularity.BYTE_RANGES) {
             var properties = binding.declaration().metadata().properties();
             if (properties.containsKey(GeneratedColumnMetadataCodec.PAYLOAD_PROPERTY)
@@ -182,9 +183,9 @@ public final class SplitFetcher {
         ConnectorSplitSource source = catalog.getSplitManager().getBoundSplits(
                 ConnectorTransactionHandle.empty(), session, metadata, binding,
                 DynamicFilter.ALL, desc.constraint(),
-                new SplitPlanningBudget(deadlineNanos, MAX_SPLITS_PER_STAGE - splits.size(), fileGranularity));
+                stage.forSource(stage.remainingSplits() - splits.size(), fileGranularity));
         int previousCount = splits.size();
-        drainSource(source, splits, deadlineNanos, nativeBinding::bind);
+        drainSource(source, splits, stage.deadlineNanos(), nativeBinding::bind);
         LOG.debug("event=splits_fetched table={} splitCount={}", desc.qualifiedName(), splits.size() - previousCount);
     }
 
