@@ -238,6 +238,8 @@ Paimon 普通扫描的 manifest I/O 探针使用 12 次真实 SDK 提交。把�
 
 用 Paimon 1.4.1 的 `ThreadPoolUtils` 和计数执行器验证批次分配。输入 8,192 个 manifest 候选，普通批处理在消费前已提交 8,192 个 Future。SDK 的顺序批处理在消费前提交 0 个，取首条结果时提交 16 个。完整消费的记录与顺序相同。此验证只覆盖 SDK 调度器。生产扫描还需要保留分片生成、删除条目合并和按模式选择快照的语义。 [Paimon 1.4.1 批次调度](https://github.com/apache/paimon/blob/release-1.4.1/paimon-api/src/main/java/org/apache/paimon/utils/ThreadPoolUtils.java)
 
+将同一批 8,192 个候选交给 Paimon 1.4.1 的真实信号量执行器，许可数设为 2。原批处理在消费第一条结果前已经完成 8,192 个处理任务，分批执行器在同一位置完成 0 个。两种方式完整消费后顺序一致。线程并行度可以约束同时运行的操作，Future 和结果的留存量仍需在消费边界限制。
+
 Paimon 1.4.1 在普通扫描中为新增与删除条目分别调度 manifest。顺序批处理只影响新增条目，`FileEntry.readDeletedEntries` 仍一次提交全部删除候选。完整收敛需要让同一 SDK 调度窗口覆盖两类任务，并让窗口在取消、超时或额度用尽后停止补充任务。验收应覆盖有真实删除条目的快照、结果顺序、候选数量和退出后的在途 I/O。 [Paimon 1.4.1 扫描](https://github.com/apache/paimon/blob/release-1.4.1/paimon-core/src/main/java/org/apache/paimon/operation/AbstractFileStoreScan.java) · [删除条目调度](https://github.com/apache/paimon/blob/release-1.4.1/paimon-core/src/main/java/org/apache/paimon/manifest/FileEntry.java)
 
 在 Paimon 直接追加区间的真实文件系统样本中，四个快照在分片准备阶段的开启次数从 2、2、2、3 降到 1、1、1、2。普通表与启用 data evolution 的表均覆盖单遍枚举和耗尽阶段容量后停止开启后续快照。上端的两次开启分别用于选定和末次复验。跨主机延迟和在途存储调用退出仍待验收。
