@@ -54,10 +54,13 @@ jobs:
           project(SystemPIC LANGUAGES CXX)
           set(PANGROVA_PRODUCTION_BUILD ON)
           set(CMAKE_FIND_LIBRARY_SUFFIXES .a)
+          set(CMAKE_SKIP_RPATH TRUE)
           add_library(velox_imported INTERFACE)
+          target_link_libraries(velox_imported INTERFACE "-Wl,--start-group")
           include(/source/pangrova-worker-native/cmake/PangrovaSystemDeps.cmake)
+          target_link_libraries(velox_imported INTERFACE "-Wl,--end-group")
           add_library(system_check SHARED check.cpp)
-          target_link_libraries(system_check PRIVATE "-Wl,--start-group" velox_imported "-Wl,--end-group")
+          target_link_libraries(system_check PRIVATE velox_imported)
           target_link_options(system_check PRIVATE -Wl,-z,defs,-z,text
             -Wl,--version-script=/source/pangrova-worker-native/jni_exported_symbols.map)
           CMAKE
@@ -83,6 +86,7 @@ jobs:
             grep -F "$PANGROVA_DEPS_PREFIX/lib/lib$archive.a" build/CMakeFiles/system_check.dir/link.txt
           done
           readelf -d build/libsystem_check.so
+          python3 -c 'import ctypes; library=ctypes.CDLL("./build/libsystem_check.so"); assert library.JNI_OnLoad(None, None)==0x00010008'
           BASH
 
   system-pic:
