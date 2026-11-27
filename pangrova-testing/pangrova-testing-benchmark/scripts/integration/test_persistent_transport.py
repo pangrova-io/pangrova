@@ -10,7 +10,9 @@ import os
 from pathlib import Path
 import sys
 import threading
+import time
 import unittest
+from urllib.parse import parse_qs, urlsplit
 import uuid
 
 import pyarrow as pa
@@ -31,6 +33,7 @@ class TransportTest(unittest.TestCase):
         cls.table = pa.Table.from_pylist([{'amount': Decimal('123456789.12'), 'day': date(2001, 1, 2),
                                          'text': '完整结果; ' + 'x' * 200, 'nullable': None, 'ratio': 0.125}], schema=cls.schema)
         cls.queries, cls.cancellations, cls.flight_reads = {}, [], []
+        cls.status_targets = {}
         class Server(flight.FlightServerBase):
             def do_get(self, context, ticket):
                 query_id = ticket.ticket.decode()
@@ -65,12 +68,17 @@ class TransportTest(unittest.TestCase):
                 else:
                     self.send(404, {})
             def do_GET(self):
-                if self.path == '/v1/server/info':
+                endpoint = urlsplit(self.path)
+                if endpoint.path == '/v1/server/info':
                     self.send(200, {'server_version': 'fixture'})
-                elif self.path.endswith('/state'):
-                    query_id = self.path.split('/')[3]
+                elif endpoint.path.endswith('/state'):
+                    query_id = endpoint.path.split('/')[3]
+                    query = parse_qs(endpoint.query)
+                    cls.status_targets[query_id] = query.get('until', [None])[0]
                     sql = cls.queries[query_id]
                     state = 'RUNNING' if sql == 'TIMEOUT' else 'FAILED' if sql == 'FAIL' else 'FINISHED'
+                    if state == 'RUNNING':
+                        time.sleep(int(query.get('waitMs', ['0'])[0]) / 1000)
                     disposition = ('NONE' if sql == 'NO_RESULT' or state == 'FAILED'
                                    else 'STREAM' if state == 'FINISHED' else 'PENDING')
                     body = {'query_id': query_id, 'state': state, 'version': 1, 'drained': False,
@@ -110,6 +118,7 @@ class TransportTest(unittest.TestCase):
         self.assertEqual(pid, client.process.pid)
         self.assertNotEqual(first['queryId'], second['queryId'])
         self.assertEqual(self.queries[first['queryId']], "SELECT '; do not split this SQL'")
+        self.assertEqual(self.status_targets[first['queryId']], 'RESULT_OR_TERMINAL')
         self.assertIn(first['queryId'], self.flight_reads)
         self.assertTrue(first['resultConsumed'])
         self.assertGreater(first['elapsedMs'], 0)
@@ -131,9 +140,11 @@ class TransportTest(unittest.TestCase):
 
     def test_timeout_and_server_failure_retain_query_identity_and_request_cancel(self):
         client = self.client()
-        for sql, timeout in [('TIMEOUT', 1), ('FAIL', 10)]:
+        for sql, timeout, failure in [('TIMEOUT', 1, 'query-timeout'), ('FAIL', 10, 'server-failed')]:
             with self.subTest(sql=sql), self.assertRaises(QueryFailure) as context:
                 client.execute(sql, timeout)
+            self.assertEqual(str(context.exception).split(':', 1)[0], failure)
+            self.assertEqual(self.queries[context.exception.query_id], sql)
             self.assertIn(context.exception.query_id, self.cancellations)
             self.assertEqual(context.exception.cancellation, 'CANCEL_ACCEPTED')
 
