@@ -26,16 +26,12 @@ import org.pangrova.protocol.v2.WriteOutputBinding;
 import org.pangrova.streaming.api.checkpoint.StreamState;
 import org.pangrova.streaming.api.checkpoint.TopicPartitionOffset;
 import org.pangrova.streaming.api.enums.StreamLifecycleState;
-import org.pangrova.streaming.api.source.CdcSourceReader;
-import org.pangrova.streaming.api.source.SourceRecord;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.OptionalLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -50,7 +46,8 @@ class CdcStreamExecutionTest {
                 new CdcSourceIdentity.OffsetRange("orders", 0, 0, 10)));
         var publisher = new java.util.ArrayList<WriteCommitEntry>();
         var acked = new java.util.ArrayList<Map<TopicPartitionOffset, Long>>();
-        var plan = CdcTaskPlanner.plan(stream(), new Reader(), writePlan(),
+        var observed = new CdcTaskPlanner.SourceOffsets(Map.of(new TopicPartitionOffset("orders", 0), 10L));
+        var plan = CdcTaskPlanner.plan(stream(), observed, writePlan(),
                 Map.of(), 100L, 100L, 1, attempt(), security(), grant(),
                 4_102_444_800_000L, "uuid", 42L);
         var dispatcher = (CdcTaskDispatchPort) task -> {
@@ -138,27 +135,6 @@ class CdcStreamExecutionTest {
                         .build(),
                 receipt, new org.pangrova.coordinator.query.task.write.WriteAllocationIntent(
                         "MERGE", Map.of()));
-    }
-
-    private static final class Reader implements CdcSourceReader {
-        @Override public List<SourceRecord> pollBatch(int maxRecords, Duration timeout) {
-            throw new AssertionError();
-        }
-        @Override public void commitOffsets(Map<TopicPartitionOffset, Long> offsets) {
-            throw new AssertionError();
-        }
-        @Override public void seekToOffsets(Map<TopicPartitionOffset, Long> offsets) {
-            throw new AssertionError();
-        }
-        @Override public List<TopicPartitionOffset> partitions() {
-            return List.of(new TopicPartitionOffset("orders", 0));
-        }
-        @Override public Map<TopicPartitionOffset, Long> endOffsets(
-                Collection<TopicPartitionOffset> partitions) {
-            return Map.of(new TopicPartitionOffset("orders", 0), 10L);
-        }
-        @Override public OptionalLong currentLag() { return OptionalLong.empty(); }
-        @Override public void close() { }
     }
 
     private static final class Handle implements ConnectorOutputTableHandle { }

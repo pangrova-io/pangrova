@@ -54,6 +54,10 @@ class IndependentCdcProcessesE2ETest extends ContainerTestBase {
                     + "AND expires_at > clock_timestamp()";
     private static final String STREAM_REVISION_LOOKUP =
             "SELECT * FROM ingestion_stream_state WHERE stream_name = %";
+    private static final String RUNNING_STREAMS_LOOKUP =
+            "SELECT * FROM ingestion_stream_state WHERE lifecycle_state = %";
+    private static final String STREAM_OFFSET_LOOKUP =
+            "SELECT topic, partition_id, committed_offset FROM ingestion_stream_offsets WHERE stream_name = %";
     private static final String CDC_CHECKPOINT_PREDICATE =
             "%FROM write_commit_journal%WHERE tenant_id = % AND cdc_stream_id = %";
     private static final String CHECKPOINT_LOOKUP = "SELECT query_id, commit_fingerprint, state, "
@@ -497,6 +501,9 @@ class IndependentCdcProcessesE2ETest extends ContainerTestBase {
             } else {
                 assertThat(payload(processes)).contains("cdc-visible");
             }
+            if (scenario == Scenario.COMBINED || streamingOnly) {
+                verifyIdleCheckpointReads(processes);
+            }
 
             if (streamingOnly) {
                 rejectJournalCompletion(processes);
@@ -551,6 +558,23 @@ class IndependentCdcProcessesE2ETest extends ContainerTestBase {
                 processes.metadataStatementCalls(STREAM_REVISION_LOOKUP) - revisionReads))
                 .as("point reads for execution ownership and stream revision through one complete local batch")
                 .containsExactly(5L, 4L);
+    }
+
+    private static void verifyIdleCheckpointReads(IndependentLocalProcesses processes) throws Exception {
+        long warmup = processes.metadataStatementCalls(RUNNING_STREAMS_LOOKUP);
+        await("idle stream reconciles after the first acknowledgement").atMost(Duration.ofSeconds(35))
+                .until(() -> processes.metadataStatementCalls(RUNNING_STREAMS_LOOKUP) >= warmup + 2);
+
+        long checkpoints = processes.metadataStatementCalls(CHECKPOINT_LOOKUP);
+        long offsets = processes.metadataStatementCalls(STREAM_OFFSET_LOOKUP);
+        long before = processes.metadataStatementCalls(RUNNING_STREAMS_LOOKUP);
+        await("three more stream reconciliations with unchanged Kafka offsets").atMost(Duration.ofSeconds(35))
+                .until(() -> processes.metadataStatementCalls(RUNNING_STREAMS_LOOKUP) >= before + 3);
+
+        assertThat(List.of(processes.metadataStatementCalls(CHECKPOINT_LOOKUP) - checkpoints,
+                processes.metadataStatementCalls(STREAM_OFFSET_LOOKUP) - offsets))
+                .as("idle checkpoint and offset point reads")
+                .containsExactly(0L, 0L);
     }
 
     private static void verifyPaimonCommitInterruption(IndependentLocalProcesses processes,

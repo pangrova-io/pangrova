@@ -176,6 +176,13 @@ exact checkpoint generation, source ranges, and journal identity. Fenced replay 
 binding and sink fragments when it claims a pending intent. A new checkpoint generation starts
 from its own offsets.
 
+Each source pass observes the partition inventory and its exclusive end offsets once.
+Admission and task planning use the same observation. After the runtime reconciles a stream
+and observes that its source is caught up, later passes with identical source offsets in
+the same maintenance term and stream revision skip checkpoint and committed-offset reads.
+Changed source offsets, a new stream revision or term, and failures invalidate the idle
+observation. New work reloads the durable checkpoint and offsets before admission.
+
 Both paths use the same write journal and connector publication context.
 Independent process tests exercise Paimon recovery when a Worker exits after
 staging and when a MAINTENANCE Coordinator restarts after catalog publication
