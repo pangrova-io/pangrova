@@ -300,10 +300,11 @@ jobs:
     if: inputs.probe == 'tpc-transport'
     env:
       MAVEN_ARGS: -C --global-settings ${{ github.workspace }}/.mvn/ci-settings.xml
+      PANGROVA_CANDIDATE_SHA: ${{ inputs.production_source }}
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: 9b6cec59638eb1172ea888121649aaed6a994317
+          ref: ${{ inputs.production_source }}
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
@@ -314,7 +315,7 @@ jobs:
           cache: maven
       - name: Build the same-source CLI
         run: |
-          test "$(git rev-parse HEAD)" = 9b6cec59638eb1172ea888121649aaed6a994317
+          test "$(git rev-parse HEAD)" = "$PANGROVA_CANDIDATE_SHA"
           mvn -B package -pl pangrova-client/pangrova-client-cli -am -DskipTests -Dmaven.test.skip=true
       - name: Install pinned benchmark tooling
         run: python -m pip install -r pangrova-testing/pangrova-testing-benchmark/requirements.txt
@@ -332,15 +333,16 @@ jobs:
     if: inputs.probe == 'jmh-relative'
     env:
       MAVEN_ARGS: -C --global-settings ${{ github.workspace }}/.mvn/ci-settings.xml
-      PANGROVA_CANDIDATE_SHA: afdddbed3bfa7d18a770a01382d86b8d37bd3c26
+      PANGROVA_CANDIDATE_SHA: ${{ inputs.production_source }}
+      PANGROVA_BASE_SHA: 46cc8ba23eccf4b17f048bfe691519ab5d99467f
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: afdddbed3bfa7d18a770a01382d86b8d37bd3c26
+          ref: ${{ inputs.production_source }}
       - name: Check out the exact pull request base
         uses: actions/checkout@v7
         with:
-          ref: 426d367632b2708a801e56839c592498db6a75a6
+          ref: 46cc8ba23eccf4b17f048bfe691519ab5d99467f
           path: jmh-base
 
       - name: Set up function-contract Python
@@ -355,11 +357,21 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      - name: Build JMH harnesses for the base and candidate
-        env:
-          BASE_SHA: 426d367632b2708a801e56839c592498db6a75a6
+      - uses: actions/download-artifact@v8
+        with:
+          name: pinned-iceberg-sdk
+          path: ${{ runner.temp }}/pangrova-iceberg-sdk
+          github-token: ${{ github.token }}
+          run-id: '46064151775'
+          digest-mismatch: error
+      - name: Install the tested Iceberg SDK
         run: |
-          [[ "$(git -C jmh-base rev-parse HEAD)" == "$BASE_SHA" ]]
+          mkdir -p "$HOME/.m2/repository/org/apache/iceberg"
+          cp -R "$RUNNER_TEMP/pangrova-iceberg-sdk/org/apache/iceberg/." "$HOME/.m2/repository/org/apache/iceberg/"
+
+      - name: Build JMH harnesses for the base and candidate
+        run: |
+          [[ "$(git -C jmh-base rev-parse HEAD)" == "$PANGROVA_BASE_SHA" ]]
           [[ "$(git rev-parse HEAD)" == "$PANGROVA_CANDIDATE_SHA" ]]
           benchmark_args=(-B package -pl pangrova-testing/pangrova-testing-benchmark -am
                           -DskipTests -Dmaven.test.skip=true)
@@ -379,15 +391,6 @@ jobs:
           }
           measure "jmh-base/$jar" base
           measure "$jar" candidate
-
-      - name: Confirm the former empty baseline rejects real measurements
-        run: |
-          git -C jmh-base show HEAD:pangrova-testing/pangrova-testing-benchmark/baseline/jmh-baseline.json > "$RUNNER_TEMP/jmh-previous.json"
-          set +e
-          bash pangrova-testing/pangrova-testing-benchmark/scripts/jmh-regression-check.sh             target/jmh/candidate.json "$RUNNER_TEMP/jmh-previous.json" 0.10
-          result=$?
-          set -e
-          test "$result" -eq 2
 
       - name: Check for regressions (>10% = fail)
         run: |
