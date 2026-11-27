@@ -1,18 +1,17 @@
 package org.pangrova.worker.file;
 
+import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
 import java.net.ProxySelector;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.file.Path;
-import java.security.DigestInputStream;
-import java.security.MessageDigest;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.Base64;
-import java.util.HexFormat;
+import java.util.concurrent.TimeUnit;
 
 import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.servlet.ServletContextHandler;
@@ -37,6 +36,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Tag("integration")
 class FileSpaceLargeObjectIntegrationTest {
     private static final long SIZE = 5L * 1024 * 1024 * 1024;
+    private static final int TEST_TIMEOUT_MINUTES = 10;
     private static final String SECRET = "large-object-test-secret";
     private static final HttpClient CLIENT = HttpClient.newBuilder()
             .proxy(ProxySelector.of(null)).connectTimeout(Duration.ofSeconds(10)).build();
@@ -45,7 +45,7 @@ class FileSpaceLargeObjectIntegrationTest {
     private String base;
 
     @Test
-    @Timeout(value = 10, unit = java.util.concurrent.TimeUnit.MINUTES)
+    @Timeout(value = TEST_TIMEOUT_MINUTES, unit = TimeUnit.MINUTES)
     void streamsFiveGibibytesAndReadsAcrossFourGibibyteBoundary() throws Exception {
         try (var factory = ObjectStoreAccessorFactory.discover()) {
             Server server = server(factory);
@@ -53,19 +53,16 @@ class FileSpaceLargeObjectIntegrationTest {
                 server.start();
                 base = "http://localhost:" + EmbeddedHttpServerFactory.getPort(server)
                         + "/v1/file-space/object";
-                MessageDigest sent = MessageDigest.getInstance("SHA-256");
                 String descriptor = descriptor("write");
                 var upload = request(URI.create(base + "?length=" + SIZE))
                         .header("X-Pangrova-File-Descriptor", descriptor)
                         .header("X-Pangrova-File-Signature", FileAccessSignature.sign(SECRET, descriptor))
                         .header("Content-Type", "application/octet-stream")
-                        .PUT(HttpRequest.BodyPublishers.ofInputStream(
-                                () -> new DigestInputStream(new PatternInputStream(), sent)));
+                        .PUT(HttpRequest.BodyPublishers.ofInputStream(PatternInputStream::new));
                 var uploaded = CLIENT.send(upload.build(), HttpResponse.BodyHandlers.ofString());
                 assertThat(uploaded.statusCode()).as(uploaded.body()).isEqualTo(200);
                 assertThat(JsonMapperFactory.create().readTree(uploaded.body()).get("size").asLong())
                         .isEqualTo(SIZE);
-                String expectedHash = HexFormat.of().formatHex(sent.digest());
 
                 var head = CLIENT.send(request(uri("read"))
                                 .method("HEAD", HttpRequest.BodyPublishers.noBody()).build(),
@@ -75,11 +72,7 @@ class FileSpaceLargeObjectIntegrationTest {
                 var download = CLIENT.send(request(uri("read")).GET().build(),
                         HttpResponse.BodyHandlers.ofInputStream());
                 assertThat(download.statusCode()).isEqualTo(200);
-                MessageDigest received = MessageDigest.getInstance("SHA-256");
-                try (var input = new DigestInputStream(download.body(), received)) {
-                    assertThat(input.transferTo(OutputStream.nullOutputStream())).isEqualTo(SIZE);
-                }
-                assertThat(HexFormat.of().formatHex(received.digest())).isEqualTo(expectedHash);
+                assertDownloadedObject(download.body());
 
                 long offset = 4L * 1024 * 1024 * 1024 - 256;
                 var range = CLIENT.send(request(uri("read"))
@@ -99,6 +92,24 @@ class FileSpaceLargeObjectIntegrationTest {
         }
     }
 
+    private static void assertDownloadedObject(InputStream body) throws IOException {
+        byte[] actual = new byte[1024 * 1024];
+        byte[] expected = new byte[actual.length];
+        var pattern = new PatternInputStream();
+        long transferred = 0;
+        try (body) {
+            int count;
+            while ((count = body.readNBytes(actual, 0, actual.length)) > 0) {
+                assertThat(pattern.read(expected, 0, count)).isEqualTo(count);
+                assertThat(Arrays.mismatch(actual, 0, count, expected, 0, count))
+                        .as("byte mismatch in chunk starting at %s", transferred)
+                        .isEqualTo(-1);
+                transferred += count;
+            }
+        }
+        assertThat(transferred).isEqualTo(SIZE);
+    }
+
     private Server server(ObjectStoreAccessorFactory factory) {
         var config = new ResourceConfig().register(new FileSpaceFileResource(factory, SECRET, event -> {}))
                 .register(new InternalAuthFilter(SECRET)).register(WorkerExceptionMapper.class)
@@ -110,8 +121,11 @@ class FileSpaceLargeObjectIntegrationTest {
     }
 
     private String descriptor(String operation) throws Exception {
+        long expiresAt = System.currentTimeMillis() + TimeUnit.MINUTES.toMillis(TEST_TIMEOUT_MINUTES);
         var grant = new FileAccessDescriptor("local", StorageType.LOCAL, root.toString(), "", "", "",
-                false, "stage", "large.bin", operation, System.currentTimeMillis() + 300_000L, "00000000-0000-0000-0000-000000000001", "alice", "tenant-a", "00000000-0000-0000-0000-000000000002", 1L);
+                false, "stage", "large.bin", operation, expiresAt,
+                "00000000-0000-0000-0000-000000000001", "alice", "tenant-a",
+                "00000000-0000-0000-0000-000000000002", 1L);
         return Base64.getUrlEncoder().withoutPadding().encodeToString(
                 JsonMapperFactory.create().writeValueAsBytes(grant));
     }

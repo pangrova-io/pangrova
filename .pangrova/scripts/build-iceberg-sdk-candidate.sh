@@ -75,12 +75,28 @@ gradle_repository_args=(
 )
 "$gradle_bin" "${gradle_repository_args[@]}" --no-daemon --max-workers=2 \
   :iceberg-core:test --tests org.apache.iceberg.avro.TestFixedByteBufferWriter
-"$gradle_bin" "${gradle_repository_args[@]}" --no-daemon \
+publish_args=(--no-daemon)
+if [[ -n "${PANGROVA_ICEBERG_MAVEN_REPOSITORY:-}" ]]; then
+  publish_args+=("-Dmaven.repo.local=$PANGROVA_ICEBERG_MAVEN_REPOSITORY")
+fi
+"$gradle_bin" "${gradle_repository_args[@]}" "${publish_args[@]}" \
   :iceberg-api:publishToMavenLocal \
   :iceberg-bundled-guava:publishToMavenLocal \
   :iceberg-common:publishToMavenLocal \
   :iceberg-core:publishToMavenLocal \
   :iceberg-orc:publishToMavenLocal \
   :iceberg-parquet:publishToMavenLocal
+
+if [[ -n "${PANGROVA_ICEBERG_MAVEN_REPOSITORY:-}" ]]; then
+  for module in api bundled-guava common core orc parquet; do
+    artifact="$PANGROVA_ICEBERG_MAVEN_REPOSITORY/org/apache/iceberg/iceberg-$module/$candidate_version/iceberg-$module-$candidate_version"
+    for extension in jar pom; do
+      if [[ ! -s "$artifact.$extension" ]]; then
+        echo "Missing Iceberg SDK publication: $artifact.$extension" >&2
+        exit 1
+      fi
+    done
+  done
+fi
 
 echo "Published $candidate_version from $source_commit with patches $patch_sha256 and $fixed_patch_sha256"

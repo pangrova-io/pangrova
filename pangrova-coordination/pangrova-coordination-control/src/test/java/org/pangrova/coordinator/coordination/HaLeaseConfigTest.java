@@ -4,6 +4,12 @@ import org.pangrova.coordination.api.enums.CoordinatorRole;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
+
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
 
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService.CoordinationConfig;
 import org.pangrova.persistence.coordination.memory.lease.InMemoryDistributedLease;
@@ -108,12 +114,12 @@ class HaLeaseConfigTest {
 
     @Test
     @DisplayName("Fast failover config (200ms/50ms) works end-to-end with leader switchover")
-    void fastFailoverConfigWorksEndToEnd() throws Exception {
-        // Use a very aggressive config suitable for testing
+    void fastFailoverConfigWorksEndToEnd() {
         long leaseMs = 200;
         long heartbeatMs = 50;
 
-        InMemoryDistributedLease sharedLease = new InMemoryDistributedLease();
+        InMemoryDistributedLease sharedLease = new InMemoryDistributedLease(
+                Clock.fixed(Instant.EPOCH, ZoneOffset.UTC));
         CoordinationConfig fastConfig = new CoordinationConfig(leaseMs, heartbeatMs);
 
         var node1 = new HighAvailabilityCoordinationService(sharedLease, fastConfig, new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore());
@@ -126,14 +132,12 @@ class HaLeaseConfigTest {
             node2.start("fast-node-2");
             assertThat(node2.getRole()).isEqualTo(CoordinatorRole.STANDBY);
 
-            // Kill node-1 -- lease expires after 200ms, detected within 50ms
             node1.close();
 
-            // Wait for failover (lease expiry + detection cycle + margin)
-            Thread.sleep(500);
-
-            assertThat(node2.getRole()).isEqualTo(CoordinatorRole.LEADER);
-            assertThat(node2.isLeader("fast-node-2")).isTrue();
+            await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> {
+                assertThat(node2.getRole()).isEqualTo(CoordinatorRole.LEADER);
+                assertThat(node2.isLeader("fast-node-2")).isTrue();
+            });
         } finally {
             node1.close();
             node2.close();

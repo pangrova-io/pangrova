@@ -5,6 +5,9 @@ on:
     tags:
       - 'v*'
 
+env:
+  MAVEN_ARGS: -C --global-settings ${{ github.workspace }}/.mvn/ci-settings.xml
+
 jobs:
   validation:
     name: Validate release revision
@@ -197,8 +200,8 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      - name: Build pinned Iceberg SDK dependency
-        uses: ./.github/actions/setup-iceberg-sdk
+      - name: Install same-run Iceberg SDK
+        uses: ./.github/actions/restore-iceberg-sdk
 
       - name: Build Java modules
         run: mvn -B clean package -DskipTests -pl '!pangrova-native-bundle'

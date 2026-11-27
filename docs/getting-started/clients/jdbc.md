@@ -165,8 +165,11 @@ caller. A cancellation on an idle statement returns immediately.
 
 `Statement.cancel()` retains the currently active query identity if its HTTP request
 fails or its acknowledgement is malformed, so an explicit retry still addresses
-the same query. Only a validated, matching `CANCEL_ACCEPTED` or `ALREADY_TERMINAL`
-response retires that identity; a delayed response cannot clear a newer query.
+the same query. A validated, matching `CANCEL_ACCEPTED` or `ALREADY_TERMINAL`
+response retires that identity. A confirmed `CANCELLED` status from the accepting
+Coordinator also retires it and prevents a duplicate cancellation request.
+Retirement applies to the exact query identity, including when a newer query
+starts before a delayed response arrives.
 `NOT_FOUND` raises `SQLException` and leaves an active identity available for retry.
 It proves only that the contacted coordinator did not find the query, not that an
 older coordinator in an HA deployment cancelled it. These logical acknowledgements

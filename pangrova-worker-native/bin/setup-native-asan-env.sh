@@ -86,7 +86,8 @@ PANGROVA_CMAKE_BIN="$(command -v cmake)"
   || die "cmake at $PANGROVA_CMAKE_BIN cannot locate its modules"
 export PATH="$(dirname "$PANGROVA_CMAKE_BIN"):$PATH"
 
-# Use the same LZ4 archive as the Release Flight build and keep Arrow's hash check.
+# Use the same archives as the Release build and keep Arrow's hash checks.
+export ARROW_SNAPPY_URL="${ARROW_SNAPPY_URL:-https://codeload.github.com/google/snappy/tar.gz/refs/tags/1.1.10}"
 export ARROW_LZ4_URL="${ARROW_LZ4_URL:-https://codeload.github.com/lz4/lz4/tar.gz/refs/tags/v1.10.0}"
 command -v ninja >/dev/null 2>&1 || die "ninja not found"
 command -v patch >/dev/null 2>&1 || die "patch not found"
@@ -172,6 +173,7 @@ build_asan_dependency "$GRPC_SOURCE" "$GRPC_SOURCE/build-asan-ci" \
     -DProtobuf_DIR:PATH="$ASAN_PREFIX/lib/cmake/protobuf" \
     -Dre2_DIR:PATH="$ASAN_PREFIX/lib/cmake/re2" \
     -DgRPC_INSTALL=ON -DgRPC_BUILD_TESTS=OFF -DgRPC_BUILD_CSHARP_EXT=OFF \
+    -DgRPC_DOWNLOAD_ARCHIVES=OFF \
     -DBUILD_SHARED_LIBS=OFF \
     -DgRPC_ABSL_PROVIDER=package -DgRPC_PROTOBUF_PROVIDER=package \
     -DgRPC_RE2_PROVIDER=package -DgRPC_CARES_PROVIDER=module \

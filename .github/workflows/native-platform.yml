@@ -7,8 +7,13 @@ on:
         description: Exact platform descriptor selected by CI change scope
         required: true
         type: string
+      sdk-only:
+        description: Warm the macOS SDK for the scheduled dependency baseline
+        type: boolean
+        default: false
 
 env:
+  MAVEN_ARGS: -C --global-settings ${{ github.workspace }}/.mvn/ci-settings.xml
   NATIVE_LIB_DIR: ${{ github.workspace }}/pangrova-worker-native/build
 
 jobs:
@@ -53,6 +58,8 @@ jobs:
           path: ~/.cache/ccache
           key: ${{ steps.core-compiler-cache.outputs.cache-primary-key }}
       - name: Package same-run prerequisite outputs
+        env:
+          PANGROVA_MACOS_STAGE_ARCHIVES: ${{ inputs.sdk-only && '1' || '0' }}
         run: bash .pangrova/scripts/macos-native-stage.sh pack core "$RUNNER_TEMP/macos-core"
       - name: Upload macOS prerequisite outputs
         uses: actions/upload-artifact@v7
@@ -92,6 +99,7 @@ jobs:
           restore-keys: |
             pangrova-macos-sdk-ccache-v1-${{ runner.arch }}-
       - name: Cache macOS dependency archives
+        if: '!inputs.sdk-only'
         uses: actions/cache@v6
         with:
           path: ~/.pangrova/velox/archive-cache
@@ -109,8 +117,10 @@ jobs:
           path: ~/.cache/ccache
           key: ${{ steps.sdk-compiler-cache.outputs.cache-primary-key }}
       - name: Package same-run Native SDK outputs
+        if: '!inputs.sdk-only'
         run: bash .pangrova/scripts/macos-native-stage.sh pack sdk "$RUNNER_TEMP/macos-sdk"
       - name: Upload macOS Native SDK outputs
+        if: '!inputs.sdk-only'
         uses: actions/upload-artifact@v7
         with:
           name: macos-sdk-${{ fromJSON(inputs.platform).name }}
@@ -120,12 +130,35 @@ jobs:
           compression-level: 0
           retention-days: 1
 
+      - name: Package dependency baseline (macOS)
+        if: inputs.sdk-only
+        env:
+          PLATFORM: ${{ fromJSON(inputs.platform).name }}
+        run: |
+          if ! command -v zstd >/dev/null 2>&1; then
+            HOMEBREW_NO_AUTO_UPDATE=1 brew install zstd
+          fi
+          archive="$RUNNER_TEMP/native-deps-$PLATFORM.tar.zst"
+          tar --zstd -cf "$archive" -C "$HOME/.pangrova" \
+            native-deps velox/deps-install velox/archive-cache velox/_build/release/_deps
+          du -h "$archive"
+
+      - name: Upload dependency baseline artifact (macOS)
+        if: inputs.sdk-only
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-deps-${{ fromJSON(inputs.platform).name }}
+          path: ${{ runner.temp }}/native-deps-${{ fromJSON(inputs.platform).name }}.tar.zst
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
   native-build:
     name: Build and test
     runs-on: ${{ fromJSON(inputs.platform).runner }}
     needs: macos-native-sdk
     if: >-
-      ${{ !cancelled() && (fromJSON(inputs.platform).os == 'linux' ||
+      ${{ !cancelled() && !inputs.sdk-only && (fromJSON(inputs.platform).os == 'linux' ||
       needs.macos-native-sdk.result == 'success') }}
     steps:
       - uses: actions/checkout@v7
@@ -208,12 +241,11 @@ jobs:
             echo "::warning::$image is not published; using caches only"
             exit 0
           fi
-          container=$(docker create "$image")
+          # The image contains a filesystem payload and is never started.
+          container=$(docker create "$image" /bin/false)
+          trap 'docker rm "$container" >/dev/null' EXIT
           mkdir -p "$HOME/.pangrova"
           docker cp "$container:/opt/pangrova/native-deps" "$HOME/.pangrova/"
-          docker cp "$container:/opt/pangrova/velox/deps-install" "$HOME/.pangrova/velox/"
-          docker cp "$container:/opt/pangrova/velox/archive-cache" "$HOME/.pangrova/velox/"
-          docker rm "$container"
 
       - name: Install and verify the native toolchain
         uses: ./.github/actions/setup-native-build
