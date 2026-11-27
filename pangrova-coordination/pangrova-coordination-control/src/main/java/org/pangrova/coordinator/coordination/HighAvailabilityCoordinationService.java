@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.coordination;
 
+import java.util.function.Predicate;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.List;
@@ -332,10 +333,11 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
     }
 
     /** Releases the original local grant after the execution and its owned resources have drained. */
-    public boolean releaseLocallyDrainedQuery(ExecutionAnchor anchor) {
+    public boolean releaseLocallyDrainedQuery(ExecutionAnchor anchor,
+            Optional<Predicate<ExecutionAnchor>> durableRetirement) {
         if (!anchor.ownerId().equals(localNodeId.get())
                 || !anchor.ownerIncarnation().equals(localIncarnation.get())) return false;
-        return ownership.releaseLocallyDrainedQuery(anchor);
+        return ownership.releaseLocallyDrainedQuery(anchor, durableRetirement);
     }
 
     /** Checks retirement only for an observer of locally drained work handed to recovery. */

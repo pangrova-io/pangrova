@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.query;
 
+import java.util.function.Predicate;
 import org.pangrova.common.enums.ResultDisposition;
 import org.pangrova.persistence.query.api.enums.JournalAdmissionOutcome;
 import org.pangrova.query.api.error.QueryFailure;
@@ -40,11 +41,12 @@ final class QueryJournalLifecycle
     }
     QueryStateJournal journal() { return journal; }
     @Override public void setOwner(String owner) { coordinatorId = owner; }
-    @Override public void purge(String queryId, QueryStateMachine state) {
-        if (!state.hasJournalOwnership()) return;
-        var grant = state.journalGrant();
-        if (grant == null) journal.purgeQuery(queryId);
-        else journal.purgeOwnedQuery(grant);
+    @Override public Optional<Predicate<ExecutionAnchor>> durableRetirement() {
+        return journal.durableRetirement();
+    }
+
+    @Override public void purgeLocal(String queryId, QueryStateMachine state) {
+        if (state.hasJournalOwnership()) journal.purgeQuery(queryId);
     }
 
     @Override public void appendQueryEvent(QueryStateEvent event) { journal.appendQueryEvent(event); }

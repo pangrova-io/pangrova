@@ -185,7 +185,11 @@ the SQL execution is active, even after deferred work acknowledges it.
 
 Terminal Worker reports and query outcome inserts use the original execution grant in
 the same statement that records the event. Journal retirement also checks that
-grant. A former Coordinator cannot add a late Worker fact, rewrite the
+grant. Local retirement seals journal admission and waits for its admitted
+writers to exit. PostgreSQL then takes the admission and exact anchor locks,
+and releases the execution anchor and slot together with journal retirement in
+one transaction. A handoff retains the journal while recovery owns the
+reservation. A former Coordinator cannot add a late Worker fact, rewrite the
 successor's terminal outcome, or purge the successor's evidence. For a proven
 predecessor without a live local projection, remote Shuffle must remove its
 scope and cleanup intent first. The fenced retirement then removes the

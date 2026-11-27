@@ -53,7 +53,7 @@ class QueryOwnershipRegistryRenewalTest {
 
         assertThat(registry.renewOwned(OWNER, INCARNATION)).isFalse();
         assertThat(registry.localAnchor("stolen")).isEmpty();
-        registry.releaseLocallyDrainedQuery(anchor);
+        registry.releaseLocallyDrainedQuery(anchor, Optional.empty());
         assertThat(store.localDrain).isEqualTo(anchor);
     }
 

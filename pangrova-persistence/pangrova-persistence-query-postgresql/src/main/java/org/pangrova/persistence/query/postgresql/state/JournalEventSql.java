@@ -181,16 +181,6 @@ final class JournalEventSql {
         statement.setLong(FENCE_PARAMETERS, token);
     }
 
-    static boolean lockActiveGrant(Connection connection, org.pangrova.execution.api.ownership.ExecutionAnchor grant)
-            throws SQLException {
-        try (var statement = connection.prepareStatement(LOCK_ACTIVE_GRANT + "SELECT 1 FROM authorized")) {
-            bindGrant(statement, grant.executionId(), grant.ownerId(), grant.ownerIncarnation(), grant.fencingToken());
-            try (var result = statement.executeQuery()) {
-                return result.next();
-            }
-        }
-    }
-
     private static int fencedOutcome(PreparedStatement statement) throws SQLException {
         try (var result = statement.executeQuery()) {
             if (!result.next()) throw new SQLException("Fenced journal insert missing outcome");

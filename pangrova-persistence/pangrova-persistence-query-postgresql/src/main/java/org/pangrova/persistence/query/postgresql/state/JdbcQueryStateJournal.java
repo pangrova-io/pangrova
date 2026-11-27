@@ -1,5 +1,6 @@
 package org.pangrova.persistence.query.postgresql.state;
 
+import java.util.function.Predicate;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -23,7 +24,7 @@ import org.pangrova.persistence.query.api.exception.JournalWriteException;
 import org.pangrova.persistence.query.api.state.QueryStateJournal;
 import org.pangrova.persistence.query.api.state.RecoveredTaskDrainJournal;
 import org.pangrova.persistence.query.api.state.StateJournalConfig;
-import org.pangrova.persistence.query.postgresql.transaction.JdbcWriteCommitJournal;
+import org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionRetirement;
 import org.pangrova.query.api.journal.TaskStateEvent;
 import org.pangrova.query.api.session.JournalSessionPayload;
 
@@ -440,14 +441,18 @@ public final class JdbcQueryStateJournal implements QueryStateJournal, Recovered
     }
 
     @Override public void purgeQuery(String queryId) {
-        purgeQuery(queryId, null);
+        retireQuery(queryId, null);
     }
 
-    @Override public void purgeOwnedQuery(ExecutionAnchor anchor) {
-        purgeQuery(anchor.executionId(), anchor);
+    @Override public Optional<Predicate<ExecutionAnchor>> durableRetirement() {
+        return Optional.of(this::retireOwnedQuery);
     }
 
-    private void purgeQuery(String queryId, ExecutionAnchor anchor) {
+    private boolean retireOwnedQuery(ExecutionAnchor anchor) {
+        return retireQuery(anchor.executionId(), anchor);
+    }
+
+    private boolean retireQuery(String queryId, ExecutionAnchor anchor) {
         Objects.requireNonNull(queryId, "queryId");
         JournalSqlOperation operation = pending.enterPurge(queryId);
         try {
@@ -461,25 +466,26 @@ public final class JdbcQueryStateJournal implements QueryStateJournal, Recovered
             throw failure;
         }
         try {
-            operation.perform(dataSource, connection -> {
-                purgeCommitted(connection, queryId, anchor);
-                return null;
-            });
+            return operation.perform(dataSource, connection -> retireCommitted(connection, queryId, anchor));
         } catch (SQLException failure) {
             throw JournalPendingWrites.failure("Failed to atomically purge query journal: " + queryId, failure);
         }
     }
 
-    private void purgeCommitted(Connection connection, String queryId, ExecutionAnchor anchor) throws SQLException {
+    private boolean retireCommitted(Connection connection, String queryId, ExecutionAnchor anchor)
+            throws SQLException {
         connection.setAutoCommit(false);
         try {
-            if (anchor != null && !JournalEventSql.lockActiveGrant(connection, anchor)) {
-                connection.rollback();
-                return;
+            boolean retired;
+            if (anchor == null) {
+                purgeLocalFacts(connection, queryId, System.currentTimeMillis());
+                retired = true;
+            } else {
+                retired = JdbcExecutionRetirement.retireQuery(connection, anchor);
             }
-            retireQueryFacts(connection, queryId, System.currentTimeMillis(), anchor != null);
             connection.commit();
-        } catch (SQLException failure) {
+            return retired;
+        } catch (SQLException | RuntimeException | Error failure) {
             try {
                 connection.rollback();
             } catch (SQLException rollback) {
@@ -516,17 +522,9 @@ public final class JdbcQueryStateJournal implements QueryStateJournal, Recovered
               )
             """;
     private static final String RETIRE_LOCAL_QUERY = RETIRE_QUERY_PREFIX + RETIRE_QUERY_FACTS;
-    private static final String RETIRE_OWNED_QUERY = RETIRE_QUERY_PREFIX + """
-            , writes AS (
-                DELETE FROM write_commit_journal w USING target t WHERE w.query_id = t.query_id AND
-            """ + JdbcWriteCommitJournal.RETIRABLE_WRITE + """
-            )
-            """ + RETIRE_QUERY_FACTS;
 
-    private static void retireQueryFacts(Connection connection, String queryId, long now, boolean owned)
-            throws SQLException {
-        try (var statement = owned ? connection.prepareStatement(RETIRE_OWNED_QUERY)
-                : connection.prepareStatement(RETIRE_LOCAL_QUERY)) {
+    private static void purgeLocalFacts(Connection connection, String queryId, long now) throws SQLException {
+        try (var statement = connection.prepareStatement(RETIRE_LOCAL_QUERY)) {
             statement.setString(1, queryId);
             statement.setLong(2, now);
             statement.executeUpdate();

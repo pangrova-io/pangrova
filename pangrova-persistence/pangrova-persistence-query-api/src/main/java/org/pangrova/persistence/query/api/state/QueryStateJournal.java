@@ -1,5 +1,6 @@
 package org.pangrova.persistence.query.api.state;
 
+import java.util.function.Predicate;
 import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.query.api.journal.QueryAcceptance;
 import org.pangrova.query.api.journal.QueryAcceptanceAdmission;
@@ -92,8 +93,10 @@ public interface QueryStateJournal extends QueryStateJournalReader, AutoCloseabl
 
     /** Excludes concurrent query admission, drains admitted writes and atomically deletes its facts. */
     void purgeQuery(String queryId);
-    /** Purges under the original execution grant, leaving successor evidence intact. */
-    void purgeOwnedQuery(ExecutionAnchor anchor);
+    /** Atomic durable retirement for backends that share execution authority and query facts. */
+    default Optional<Predicate<ExecutionAnchor>> durableRetirement() {
+        return Optional.empty();
+    }
     /** Seals admission and waits for actual owned operations to exit; failure is retryable. */
     @Override void close();
     /**

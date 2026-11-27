@@ -83,10 +83,6 @@ public final class InMemoryQueryStateJournal implements QueryStateJournal {
         appendQueryEvent(event);
     }
 
-    @Override public void purgeOwnedQuery(ExecutionAnchor anchor) {
-        purgeQuery(anchor.executionId());
-    }
-
     @Override public void appendFencedAdmissionSync(QueryStateEvent event, ExecutionAnchor anchor) {
         appendQueryEventSync(event);
     }

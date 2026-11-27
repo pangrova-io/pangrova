@@ -1,5 +1,7 @@
 package org.pangrova.coordinator.query.execution;
 
+import java.util.Optional;
+import java.util.function.Predicate;
 import org.pangrova.query.lifecycle.QueryExecutionPort.Ownership;
 import java.util.OptionalLong;
 import org.pangrova.connector.api.metadata.ConnectorMetadataScope;
@@ -125,9 +127,10 @@ public final class QueryOwnershipTracker {
         }
     }
 
-    boolean releaseIssuedQueryOwnership(ExecutionAnchor anchor) {
+    boolean releaseIssuedQueryOwnership(ExecutionAnchor anchor,
+            Optional<Predicate<ExecutionAnchor>> durableRetirement) {
         OwnershipSnapshot snapshot = ownershipSnapshot.get();
-        return snapshot != null && snapshot.service().releaseLocallyDrainedQuery(anchor);
+        return snapshot != null && snapshot.service().releaseLocallyDrainedQuery(anchor, durableRetirement);
     }
 
     boolean isQueryRetired(String queryId) {

@@ -1,5 +1,6 @@
 package org.pangrova.query.runtime;
 
+import java.util.function.Predicate;
 import org.pangrova.query.retention.QueryRetentionScheduler;
 
 import org.pangrova.query.lifecycle.QueryExecutionPort;
@@ -85,6 +86,7 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
     private final QueryTerminalEvents terminalEvents;
     private volatile boolean draining;
     private final org.pangrova.query.lifecycle.QueryJournalLifecyclePort journalLifecycle;
+    private final Optional<Predicate<ExecutionAnchor>> durableRetirement;
     private final AsyncSubmitConfig asyncSubmitConfig;
     private final ExecutorService asyncExecutor;
     private final ScheduledExecutorService submitDeadlines;
@@ -123,6 +125,7 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
         this.auditBridge = java.util.Objects.requireNonNull(deps.audit(), "audit");
         this.admission = java.util.Objects.requireNonNull(deps.admission(), "admission");
         this.journalLifecycle = deps.journal();
+        this.durableRetirement = journalLifecycle.durableRetirement();
         this.cleanupScheduler = new QueryRetentionScheduler(queries,
                 terminalCleanup::isPending, this::retryPendingTerminalCompletions,
                 journalLifecycle::purgeExpiredAcceptances);
@@ -531,7 +534,7 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
         if (state.hasConnectorAuthority() && !queryDispatcher.tryCleanupUnadmittedQuery(queryId)) {
             throw new IllegalStateException("Candidate issuance cleanup is not complete: " + queryId);
         }
-        releaseQueryOwnership(queryId, state);
+        releaseQueryOwnership(queryId, state.journalGrant(), Optional.empty());
         if (state.hasConnectorAuthority()) queryDispatcher.retireQueryIssuance(queryId);
     }
 
@@ -765,17 +768,21 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
 
     private void releasePhysicalQuery(QueryTerminalCleanup.Context context) {
         readerPinLifecycle.ifPresent(lifecycle -> lifecycle.release(context.queryId()));
-        journalLifecycle.purge(context.queryId(), context.state());
-        context.state().releaseAdmission();
+        var state = context.state();
+        var grant = state.journalGrant();
+        var retireJournal = grant != null && state.hasJournalOwnership() ? durableRetirement
+                : Optional.<Predicate<ExecutionAnchor>>empty();
+        if (retireJournal.isEmpty()) journalLifecycle.purgeLocal(context.queryId(), state);
+        state.releaseAdmission();
         admission.releaseThrottle(context.queryId());
-        boolean retired = releaseQueryOwnership(context.queryId(), context.state());
+        boolean retired = releaseQueryOwnership(context.queryId(), grant, retireJournal);
         queryDispatcher.retireQueryIssuance(context.queryId());
         queries.complete(context.queryId(), context.state(), retired);
     }
 
-    private boolean releaseQueryOwnership(String queryId, QueryStateMachine state) {
-        var grant = state.journalGrant();
-        if (grant != null) return queryDispatcher.releaseIssuedQueryOwnership(grant);
+    private boolean releaseQueryOwnership(String queryId, ExecutionAnchor grant,
+            Optional<Predicate<ExecutionAnchor>> retireJournal) {
+        if (grant != null) return queryDispatcher.releaseIssuedQueryOwnership(grant, retireJournal);
         queryDispatcher.releaseQueryOwnership(queryId);
         return true;
     }

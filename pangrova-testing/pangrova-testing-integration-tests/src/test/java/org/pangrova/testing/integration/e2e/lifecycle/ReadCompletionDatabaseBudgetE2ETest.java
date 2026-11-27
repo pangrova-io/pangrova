@@ -95,7 +95,14 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
     void readCompletionChecksOwnershipWithoutQueryingTheWriteJournal() throws Exception {
         String retirementLookup = "SELECT NOT EXISTS (%FROM execution_anchor WHERE execution_id=%"
                 + "AND NOT EXISTS (%FROM tenant_concurrency_queries%";
+        String separatePurgeFence = "WITH locked AS MATERIALIZED (%FROM execution_anchor%"
+                + "SELECT % FROM authorized";
+        String atomicRetirement = "WITH owner(execution_id,%FROM removed%"
+                + "DELETE FROM task_state_journal j USING removed r%"
+                + "DELETE FROM query_state_journal q USING removed r%";
         long previousRetirementLookups = calls(retirementLookup);
+        long previousPurgeFences = calls(separatePurgeFence);
+        long previousAtomicRetirements = calls(atomicRetirement);
         long previousJournalLookups = calls(JOURNAL_LOOKUP);
         long previousReleaseJournalLookups = calls(RELEASE_JOURNAL_LOOKUP);
         long previousOwnershipLookups = calls(ANCHOR_LOOKUP);
@@ -129,7 +136,11 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
                 .as("separate write recovery SELECTs during anchor release").isZero();
         assertThat(calls(ANCHOR_LOOKUP) - previousOwnershipLookups).as("query finalization fence SELECTs").isOne();
         assertThat(calls(retirementLookup) - previousRetirementLookups)
-                .as("retirement STATUS checks during normal read completion").isZero();
+                .as("retirement status reads during normal read completion").isZero();
+        assertThat(calls(separatePurgeFence) - previousPurgeFences)
+                .as("separate journal purge fence reads").isZero();
+        assertThat(calls(atomicRetirement) - previousAtomicRetirements)
+                .as("atomic journal and execution retirements").isOne();
         assertExactAttemptProfile(queryId);
         assertProfileIsScopedToTheSubmittingPrincipal(queryId);
         assertQueryLifecycleIsScopedToTheSubmittingPrincipal(queryId);

@@ -30,14 +30,6 @@ import static org.pangrova.common.util.Preconditions.requireText;
 public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
 
     private static final Logger LOG = LoggerFactory.getLogger(JdbcExecutionAnchorStore.class);
-    private static final int ACQUISITION_LOCK_NAMESPACE = 0x5047414E;
-
-    private static final String ADMISSION_LOCK =
-            "SELECT pg_advisory_xact_lock(?, hashtext('execution_anchor'::regclass::oid::text || ':' || ?))";
-    private static final String RELEASE_LOCK = "WITH admission AS MATERIALIZED (" + ADMISSION_LOCK + ") "
-            + "SELECT 1 FROM admission CROSS JOIN execution_anchor a WHERE a.execution_id = ? "
-            + "AND a.owner_id = ? AND a.owner_incarnation = ? AND a.fencing_token = ? FOR UPDATE OF a";
-
     private static final String SELECT_FOR_UPDATE =
             "SELECT owner_id, owner_incarnation, fencing_token, acquired_at, expires_at, version "
                     + "FROM execution_anchor WHERE execution_id = ? FOR UPDATE";
@@ -83,52 +75,6 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
                     + "WHERE owner_id=? AND owner_incarnation=? AND expires_at>? AND execution_id=ANY(?) "
                     + "RETURNING execution_id, owner_id, owner_incarnation, fencing_token, "
                     + "acquired_at, expires_at, version";
-    private static final String RELEASE = """
-            WITH owner(execution_id, owner_id, owner_incarnation, fencing_token, local_drain, retired_at)
-                    AS MATERIALIZED (
-                VALUES (CAST(? AS text), CAST(? AS text), CAST(? AS text), CAST(? AS bigint),
-                        CAST(? AS boolean), clock_timestamp())
-            ),
-            retirement AS MATERIALIZED (
-                SELECT owner.*, EXISTS (
-                    SELECT 1 FROM write_commit_journal j
-                    WHERE j.query_id=owner.execution_id AND j.state='PENDING'
-                      AND NOT EXISTS (
-                        SELECT 1 FROM write_commit_quarantine q
-                        WHERE q.query_id=j.query_id AND q.commit_fingerprint=j.commit_fingerprint
-                      )
-                ) AS recover_write FROM owner
-            ),
-            retained AS (
-                UPDATE execution_anchor a SET expires_at=LEAST(a.expires_at, r.retired_at), version=a.version+1,
-                    coordinator_work_token = CASE WHEN r.local_drain AND a.coordinator_work_token IS NULL
-                        THEN a.fencing_token ELSE a.coordinator_work_token END,
-                    coordinator_work_exited = a.coordinator_work_exited OR (r.local_drain
-                        AND (a.coordinator_work_token IS NULL OR a.coordinator_work_token=a.fencing_token))
-                FROM retirement r
-                WHERE a.execution_id=r.execution_id AND a.owner_id=r.owner_id
-                  AND a.owner_incarnation=r.owner_incarnation AND a.fencing_token=r.fencing_token
-                  AND ((a.expires_at>r.retired_at AND r.recover_write)
-                      OR (a.expires_at<=r.retired_at AND r.local_drain AND NOT a.coordinator_work_exited
-                          AND (a.coordinator_work_token IS NULL OR a.coordinator_work_token=a.fencing_token)))
-                RETURNING 1
-            ),
-            removed AS (
-                DELETE FROM execution_anchor a USING retirement r
-                WHERE a.execution_id=r.execution_id AND a.owner_id=r.owner_id
-                  AND a.owner_incarnation=r.owner_incarnation AND a.fencing_token=r.fencing_token
-                  AND a.expires_at>r.retired_at AND NOT r.recover_write
-                  AND (a.coordinator_work_token IS NULL OR a.coordinator_work_exited
-                      OR (r.local_drain AND a.coordinator_work_token=a.fencing_token))
-                RETURNING a.execution_id
-            ),
-            slots AS MATERIALIZED (
-                SELECT release_tenant_query_slot(execution_id, NULL, TRUE) AS released FROM removed
-            )
-            SELECT EXISTS (SELECT 1 FROM retained) OR EXISTS (SELECT 1 FROM removed),
-                   COALESCE((SELECT bool_and(released) FROM slots), TRUE),
-                   EXISTS (SELECT 1 FROM removed)
-            """;
     private static final String DRAINED_FOR_RETIREMENT = """
             SELECT 1 FROM execution_anchor a
             WHERE a.execution_id = ? AND a.recovery_drain_state = 2 AND a.expires_at > clock_timestamp()
@@ -224,7 +170,7 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
         if (maxConcurrentQueries <= 0) throw new TenantCapacityExceeded(tenantId, maxConcurrentQueries);
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
-            lockAcquisition(connection, executionId);
+            JdbcExecutionRetirement.lockAcquisition(connection, executionId);
             String interval = leaseDuration.toMillis() + " milliseconds";
             OptionalLong issued = insertLimited(connection, executionId, ownerId, ownerIncarnation,
                     interval, tenantId, maxConcurrentQueries);
@@ -265,7 +211,7 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
         requireRequest(executionId, ownerId, ownerIncarnation, leaseDuration);
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
-            lockAcquisition(connection, executionId);
+            JdbcExecutionRetirement.lockAcquisition(connection, executionId);
             var result = acquireLocked(connection, executionId, ownerId, ownerIncarnation, leaseDuration, tenantId);
             if (result.isPresent()) {
                 connection.commit();
@@ -275,17 +221,6 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
             return result;
         } catch (SQLException failure) {
             throw storeFailure("acquire", executionId, failure);
-        }
-    }
-
-    private static void lockAcquisition(Connection connection, String executionId) throws SQLException {
-        // Row locks cannot serialize an absent identifier. Hold this transaction-scoped lock
-        // before allocating a token so another owner cannot acquire and release the same ID
-        // while this transaction is paused between sequence allocation and INSERT.
-        try (var statement = connection.prepareStatement(ADMISSION_LOCK)) {
-            statement.setInt(1, ACQUISITION_LOCK_NAMESPACE);
-            statement.setString(2, executionId);
-            statement.execute();
         }
     }
 
@@ -372,14 +307,15 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
         return release(anchor, true).removed();
     }
 
-    private Retirement release(ExecutionAnchor anchor, boolean localDrain) {
+    private JdbcExecutionRetirement.Result release(ExecutionAnchor anchor, boolean localDrain) {
         Objects.requireNonNull(anchor, "anchor must not be null");
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             // The admission lock orders same-ID reservation and retirement before tenant or anchor row locks.
             // Start a fresh statement after the row lock so a preceding write intent is visible.
-            Retirement released = lockRetirement(connection, anchor)
-                    ? releaseLockedAnchor(connection, anchor, localDrain) : Retirement.NOT_OWNED;
+            JdbcExecutionRetirement.Result released = JdbcExecutionRetirement.lockRetirement(connection, anchor)
+                    ? JdbcExecutionRetirement.releaseLockedAnchor(connection, anchor, localDrain)
+                    : JdbcExecutionRetirement.Result.NOT_OWNED;
             connection.commit();
             return released;
         } catch (SQLException failure) {
@@ -392,9 +328,9 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
         Objects.requireNonNull(anchor, "anchor");
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
-            if (!lockRetirement(connection, anchor)
+            if (!JdbcExecutionRetirement.lockRetirement(connection, anchor)
                     || !readyForRecoveredRetirement(connection, anchor.executionId(), remoteShuffle)
-                    || !releaseLockedAnchor(connection, anchor, false).removed()) {
+                    || !JdbcExecutionRetirement.releaseLockedAnchor(connection, anchor, false).removed()) {
                 connection.rollback();
                 return false;
             }
@@ -435,53 +371,16 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
         }
     }
 
-    private static boolean lockRetirement(Connection connection, ExecutionAnchor anchor) throws SQLException {
-        try (var statement = connection.prepareStatement(RELEASE_LOCK)) {
-            statement.setInt(1, ACQUISITION_LOCK_NAMESPACE);
-            statement.setString(2, anchor.executionId());
-            bindOwner(statement, 3, anchor);
-            try (var rows = statement.executeQuery()) {
-                return rows.next();
-            }
-        }
-    }
-
-    private record Retirement(boolean completed, boolean removed) {
-        private static final Retirement NOT_OWNED = new Retirement(false, false);
-    }
-
-    private static Retirement releaseLockedAnchor(Connection connection, ExecutionAnchor anchor, boolean localDrain)
-            throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement(RELEASE)) {
-            statement.setBoolean(bindOwner(statement, 1, anchor), localDrain);
-            try (ResultSet result = statement.executeQuery()) {
-                if (!result.next() || !result.getBoolean(2)) {
-                    connection.rollback();
-                    throw new IllegalStateException("cluster admission ownership/count mismatch");
-                }
-                return new Retirement(result.getBoolean(1), result.getBoolean(3));
-            }
-        }
-    }
-
     private static boolean yieldLockedAnchor(Connection connection, ExecutionAnchor anchor, Instant now)
             throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(YIELD)) {
             setInstant(statement, 1, now);
-            int next = bindOwner(statement, 2, anchor);
+            int next = JdbcExecutionRetirement.bindOwner(statement, 2, anchor);
             setInstant(statement, next, now);
             return statement.executeUpdate() == 1;
         }
     }
 
-    private static int bindOwner(PreparedStatement statement, int parameter, ExecutionAnchor anchor)
-            throws SQLException {
-        statement.setString(parameter++, anchor.executionId());
-        statement.setString(parameter++, anchor.ownerId());
-        statement.setString(parameter++, anchor.ownerIncarnation());
-        statement.setLong(parameter++, anchor.fencingToken());
-        return parameter;
-    }
 
     @Override
     public int yieldOwned(String ownerId, String ownerIncarnation) {

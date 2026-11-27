@@ -1,5 +1,6 @@
 package org.pangrova.query.lifecycle;
 
+import java.util.function.Predicate;
 import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.query.api.enums.QueryState;
 import org.pangrova.query.api.journal.QueryAcceptance;
@@ -29,7 +30,9 @@ public interface QueryJournalLifecyclePort extends QueryStateJournalPort {
 
     void setOwner(String owner);
 
-    void purge(String queryId, QueryStateMachine state);
+    Optional<Predicate<ExecutionAnchor>> durableRetirement();
+
+    void purgeLocal(String queryId, QueryStateMachine state);
 
     boolean hasLatestEvent(String queryId);
 }

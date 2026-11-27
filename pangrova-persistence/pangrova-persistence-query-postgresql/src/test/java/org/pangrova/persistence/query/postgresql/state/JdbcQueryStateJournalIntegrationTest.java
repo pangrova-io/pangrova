@@ -412,27 +412,137 @@ class JdbcQueryStateJournalIntegrationTest {
 
     @org.junit.jupiter.params.ParameterizedTest
     @org.junit.jupiter.params.provider.ValueSource(booleans = {true, false})
-    void localDrainProofSurvivesExpirationAfterTheJournalWasPurged(boolean coordinatorStatement) {
+    void expiredLocalRetirementKeepsJournalForTheSuccessor(boolean coordinatorStatement) {
         var store = new JdbcExecutionAnchorStore(dataSource);
         var lease = Duration.ofMinutes(1);
-        var original = store.tryAcquire("purged-local-statement", "original", "original-boot", lease).orElseThrow();
+        var original = store.tryAcquire("expired-local-statement", "original", "original-boot", lease).orElseThrow();
         var context = JournalEventContext.create(System.currentTimeMillis(), original.ownerId());
         journal.appendFencedAdmissionSync(new QueryStateEvent(context, original.executionId(), "SELECT 1",
                 "{}", "QUEUED"), original);
         if (coordinatorStatement) assertTrue(journal.reserveCoordinatorStatement(original));
 
-        journal.purgeOwnedQuery(original);
-        assertThat(journal.latestQueryEvent(original.executionId())).isEmpty();
         assertTrue(store.yield(original));
-        assertFalse(store.releaseLocallyDrainedQuery(original));
+        assertFalse(journal.durableRetirement().orElseThrow().test(original));
+        assertThat(journal.latestQueryEvent(original.executionId())).isPresent();
         assertFalse(store.isQueryRetired(original.executionId()));
 
         var recovery = store.tryAcquire(original.executionId(), "successor", "next-boot", lease).orElseThrow();
         assertThat(journal.observedRecoveryExecutions(Set.of(recovery.executionId())))
                 .containsExactly(recovery.executionId());
         assertEquals(DrainOutcome.CONFIRMED, journal.confirmRecoveredTaskDrains(recovery));
-        assertThat(journal.latestQueryEvent(original.executionId())).isEmpty();
+        assertThat(journal.latestQueryEvent(original.executionId())).hasValueSatisfying(
+                event -> assertThat(event.state()).isEqualTo("FAILED"));
         assertTrue(store.releaseDrainedQuery(recovery, false));
+        assertThat(journal.latestQueryEvent(original.executionId())).isEmpty();
+    }
+
+    @Test
+    void pendingWriteHandoffRetainsTheJournalAndBoundSlot() throws Exception {
+        var store = new JdbcExecutionAnchorStore(dataSource);
+        String query = "pending-write-retirement";
+        var lease = Duration.ofMinutes(1);
+        var original = store.tryAcquireLimitedQuery(query, "original", "original-boot", lease,
+                "pending-write-tenant", 1).orElseThrow().anchor();
+        var context = JournalEventContext.create(System.currentTimeMillis(), original.ownerId());
+        journal.appendFencedAdmissionSync(new QueryStateEvent(context, query, "INSERT INTO t VALUES (1)",
+                "{}", "QUEUED"), original);
+        try (var connection = dataSource.getConnection();
+             var statement = connection.prepareStatement("""
+                     INSERT INTO write_commit_journal (query_id, catalog_name, table_name, state,
+                         timestamp_ms, idempotency_key, tenant_id, base_snapshot_id, write_output_binding,
+                         commit_fingerprint, owner_id, owner_incarnation, execution_fencing_token)
+                     VALUES (?, 'test', 'test.default.t', 'PENDING', ?, ?, 'pending-write-tenant',
+                         -1, '{}', ?, ?, ?, ?)
+                     """)) {
+            statement.setString(1, query);
+            statement.setLong(2, System.currentTimeMillis());
+            statement.setString(3, query);
+            statement.setString(4, "a7".repeat(32));
+            statement.setString(5, original.ownerId());
+            statement.setString(6, original.ownerIncarnation());
+            statement.setLong(7, original.fencingToken());
+            assertEquals(1, statement.executeUpdate());
+        }
+        try {
+            assertFalse(journal.durableRetirement().orElseThrow().test(original));
+            assertThat(store.current(query)).isEmpty();
+            assertFalse(store.isQueryRetired(query));
+            assertThat(journal.latestQueryEvent(query)).isPresent();
+            var recovery = store.tryAcquire(query, "successor", "next-boot", lease).orElseThrow();
+            assertEquals(DrainOutcome.PENDING_WRITE, journal.confirmRecoveredTaskDrains(recovery));
+        } finally {
+            try (var connection = dataSource.getConnection();
+                 var statement = connection.prepareStatement("DELETE FROM write_commit_journal WHERE query_id=?")) {
+                statement.setString(1, query);
+                statement.executeUpdate();
+            }
+        }
+        var successor = store.current(query).orElseThrow();
+        assertEquals(DrainOutcome.CONFIRMED, journal.confirmRecoveredTaskDrains(successor));
+        assertTrue(store.releaseDrainedQuery(successor, false));
+        assertTrue(store.isQueryRetired(query));
+    }
+
+    @Test
+    void journalAndBoundSlotAreVisibleUntilTheSameRetirementCommits() throws Exception {
+        var store = new JdbcExecutionAnchorStore(dataSource);
+        String query = "atomic-local-retirement";
+        var grant = store.tryAcquireLimitedQuery(query, "original", "original-boot", Duration.ofMinutes(1),
+                "atomic-retirement-tenant", 1).orElseThrow().anchor();
+        var context = JournalEventContext.create(System.currentTimeMillis(), grant.ownerId());
+        journal.appendFencedAdmissionSync(new QueryStateEvent(context, query, "SELECT 1", "{}", "QUEUED"), grant);
+        journal.appendOwnedTerminalSync(new QueryStateEvent(
+                JournalEventContext.create(System.currentTimeMillis(), grant.ownerId()),
+                query, null, null, "FINISHED", null, null,
+                new QueryTerminalOutcome(ResultDisposition.NONE, null)), grant);
+        try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
+            statement.execute("""
+                    CREATE FUNCTION hold_atomic_query_retirement() RETURNS trigger LANGUAGE plpgsql AS $$
+                    BEGIN
+                        PERFORM pg_advisory_xact_lock(173, 542);
+                        RETURN OLD;
+                    END;
+                    $$;
+                    CREATE TRIGGER hold_atomic_query_retirement BEFORE DELETE ON query_state_journal
+                    FOR EACH ROW WHEN (OLD.query_id = 'atomic-local-retirement')
+                    EXECUTE FUNCTION hold_atomic_query_retirement();
+                    """);
+        }
+        var retire = journal.durableRetirement().orElseThrow();
+        try (var guard = dataSource.getConnection(); var statement = guard.createStatement()) {
+            guard.setAutoCommit(false);
+            statement.execute("SELECT pg_advisory_xact_lock(173, 542)");
+            var pending = java.util.concurrent.CompletableFuture.supplyAsync(() -> retire.test(grant));
+            try {
+                int backend = guard.unwrap(org.postgresql.PGConnection.class).getBackendPID();
+                await().atMost(10, SECONDS).until(() -> blockedBy(backend));
+                assertThat(pending).isNotDone();
+                assertTrue(store.current(query).isPresent());
+                assertFalse(store.isQueryRetired(query));
+                assertThat(journal.latestQueryEvent(query)).isPresent();
+                assertEquals(1, retirementTenantSlots());
+            } finally {
+                guard.rollback();
+            }
+            assertTrue(pending.get(10, SECONDS));
+        } finally {
+            try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
+                statement.execute("DROP TRIGGER hold_atomic_query_retirement ON query_state_journal");
+                statement.execute("DROP FUNCTION hold_atomic_query_retirement()");
+            }
+        }
+        assertTrue(store.isQueryRetired(query));
+        assertThat(journal.latestQueryEvent(query)).isEmpty();
+        assertEquals(0, retirementTenantSlots());
+    }
+
+    private int retirementTenantSlots() throws SQLException {
+        try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement(
+                "SELECT active_count FROM tenant_concurrency_slots WHERE tenant_id='atomic-retirement-tenant'");
+             var rows = statement.executeQuery()) {
+            assertTrue(rows.next());
+            return rows.getInt(1);
+        }
     }
 
     @Test
@@ -505,7 +615,7 @@ class JdbcQueryStateJournalIntegrationTest {
 
         assertTrue(store.yield(prior));
         var successor = store.tryAcquire(prior.executionId(), prior.ownerId(), "new-boot", lease).orElseThrow();
-        journal.purgeOwnedQuery(prior);
+        assertFalse(journal.durableRetirement().orElseThrow().test(prior));
         assertEquals(current, storedTaskEvent(current.context().eventId()));
         var attempt = journal.pendingTaskDrains(successor, 0).get(0);
         assertTrue(journal.retainTaskDrains(successor, List.of(new DrainReceipt(attempt.rowId(), new byte[] {1}))));
@@ -788,8 +898,8 @@ class JdbcQueryStateJournalIntegrationTest {
                 queryId, null, null, "FINISHED", null, null, outcome), anchor);
         assertThat(journal.latestQueryEvent(queryId).orElseThrow().terminalOutcome()).isEqualTo(outcome);
         assertThat(journal.recoverReceipt(queryId, "alice", owner.routeTicket()).orElseThrow().pending()).isTrue();
-        journal.purgeOwnedQuery(anchor);
-        assertTrue(anchors.release(anchor));
+        assertTrue(journal.durableRetirement().orElseThrow().test(anchor));
+        assertTrue(anchors.isQueryRetired(queryId));
         var recovered = journal.recoverReceipt(queryId, "alice", owner.routeTicket()).orElseThrow();
         assertThat(recovered.pending()).isFalse();
         assertThat(recovered.terminalState()).isEqualTo("FINISHED");

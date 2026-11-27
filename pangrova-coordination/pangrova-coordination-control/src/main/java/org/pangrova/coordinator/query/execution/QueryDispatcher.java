@@ -1,5 +1,8 @@
 package org.pangrova.coordinator.query.execution;
 
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
+import java.util.Optional;
+import java.util.function.Predicate;
 import org.pangrova.query.api.write.WriteAuthorityResolver;
 
 import org.pangrova.planner.analysis.AuthorizedRelation;
@@ -249,8 +252,9 @@ public class QueryDispatcher implements org.pangrova.query.lifecycle.QueryExecut
     }
 
     @Override
-    public boolean releaseIssuedQueryOwnership(org.pangrova.execution.api.ownership.ExecutionAnchor anchor) {
-        return ownershipTracker.releaseIssuedQueryOwnership(anchor);
+    public boolean releaseIssuedQueryOwnership(org.pangrova.execution.api.ownership.ExecutionAnchor anchor,
+            Optional<Predicate<ExecutionAnchor>> durableRetirement) {
+        return ownershipTracker.releaseIssuedQueryOwnership(anchor, durableRetirement);
     }
 
     @Override

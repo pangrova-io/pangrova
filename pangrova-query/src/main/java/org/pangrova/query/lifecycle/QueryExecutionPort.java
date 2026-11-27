@@ -1,5 +1,7 @@
 package org.pangrova.query.lifecycle;
 
+import java.util.Optional;
+import java.util.function.Predicate;
 import org.pangrova.common.api.annotation.Experimental;
 import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.connector.api.metadata.ConnectorMetadataScope;
@@ -51,7 +53,8 @@ public interface QueryExecutionPort extends QueryExecutionCleanup {
     void releaseQueryOwnership(String queryId);
 
     /** @return whether releasing the locally drained query removed its durable reservation */
-    default boolean releaseIssuedQueryOwnership(ExecutionAnchor anchor) {
+    default boolean releaseIssuedQueryOwnership(ExecutionAnchor anchor,
+            Optional<Predicate<ExecutionAnchor>> durableRetirement) {
         throw new UnsupportedOperationException("Exact query ownership release is unavailable");
     }
 
