@@ -155,7 +155,8 @@ final class QueryAuditDispatcher implements org.pangrova.query.lifecycle.QueryAu
     private void emitTerminal(String queryId, QueryStateMachine state, QueryState finalState,
             Optional<String> error) {
         QueryLineageFact fact = terminalFact(queryId, state, state.getState());
-        if (fact != null) lineageEmitter.record(fact);
+        // Without journal ownership, the terminal cleanup has already recorded both lineage facts.
+        if (fact != null && state.hasJournalOwnership()) lineageEmitter.record(fact);
         queryDispatcher.removeLineageInfo(queryId);
         events.fireQueryCompleted(new QueryCompletedEvent(queryId, null, state.getAuditPrincipal(), finalState,
                 state.getCreatedAt().toEpochMilli(), fact == null ? System.currentTimeMillis() : fact.timestampMs(),

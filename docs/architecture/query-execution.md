@@ -119,6 +119,10 @@ terminal outcome, including its lineage when configured. An explicit historical
 lookup can show `QUEUED` until the outcome commits. Active status, result
 readiness and operator progress come from the live owner.
 
+Scheduled materialization refreshes register with the definer's identity and
+freeze START lineage before catalog resolution. An early planning failure
+can then persist its START and failure facts before retiring the execution.
+
 Nonterminal Worker reports update the issued attempt, scheduling metrics and
 speculation timestamps in memory. The receiver compares the issued grant
 against the locally held grant for ordinary SQL progress. It transfers no

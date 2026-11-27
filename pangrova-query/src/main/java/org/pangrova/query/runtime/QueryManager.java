@@ -671,22 +671,21 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
         return queries.get(queryId);
     }
 
+    /** Registers a new internal execution whose ownership was acquired before any query journal event. */
+    public QueryStateMachine registerInternalExecution(QuerySession session, String sql) {
+        String queryId = session.queryId();
+        var state = new QueryStateMachine(false, session.userIdentity().principal());
+        state.bindSql(org.pangrova.parser.parse.SqlDiagnostics.forReporting(sql));
+        auditBridge.prepareSubmittedLineage(queryId, state.getSql(), session, state);
+        if (!publishOwnedStateMachine(queryId, state)) {
+            throw new QueryRejectedException("Query already registered: queryId=" + queryId);
+        }
+        return state;
+    }
+
     /** Registers a query state under the current lifecycle gate. */
     public void registerStateMachine(String queryId, QueryStateMachine sm) {
-        queryLifecycleLock.readLock().lock();
-        try {
-            if (draining) throw new QueryRejectedException(DRAIN_REJECTION_MESSAGE);
-            synchronized (sm) {
-                sm.setTransitionOperations(() -> queryDispatcher.enterQueryMetadataOperation(queryId));
-                installShuffleTerminalSeal(sm);
-                if (queries.register(queryId, sm, () -> {
-                    if (sm.isTerminal()) queryDispatcher.openQueryIssuance(queryId);
-                    else queryDispatcher.bindConnectorAuthority(sm, queryId);
-                }) != null) return;
-            }
-        } finally {
-            queryLifecycleLock.readLock().unlock();
-        }
+        if (!publishOwnedStateMachine(queryId, sm)) return;
         var operation = queryDispatcher.enterQueryMetadataOperation(queryId);
         try {
             if (!sm.hasJournalOwnership() && journalLifecycle.hasLatestEvent(queryId)) {
@@ -697,6 +696,23 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
             operation.close();
         }
         if (sm.isTerminal()) completeTerminalQuery(queryId, sm, "registered_terminal");
+    }
+
+    private boolean publishOwnedStateMachine(String queryId, QueryStateMachine state) {
+        queryLifecycleLock.readLock().lock();
+        try {
+            if (draining) throw new QueryRejectedException(DRAIN_REJECTION_MESSAGE);
+            synchronized (state) {
+                state.setTransitionOperations(() -> queryDispatcher.enterQueryMetadataOperation(queryId));
+                installShuffleTerminalSeal(state);
+                return queries.register(queryId, state, () -> {
+                    if (state.isTerminal()) queryDispatcher.openQueryIssuance(queryId);
+                    else queryDispatcher.bindConnectorAuthority(state, queryId);
+                }) == null;
+            }
+        } finally {
+            queryLifecycleLock.readLock().unlock();
+        }
     }
 
     public org.pangrova.query.lifecycle.QueryStateJournalPort getStateJournal() {
