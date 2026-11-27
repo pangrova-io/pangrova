@@ -479,6 +479,8 @@ WHERE event_time >= TIMESTAMP '2024-06-15 12:00:00' - INTERVAL '6' HOUR;
 
 ## EXPLAIN
 
+Character expressions in the plan can include explicit UTF-8 annotations.
+
 ```sql
 EXPLAIN
 SELECT u.name, SUM(o.amount) AS total_spent

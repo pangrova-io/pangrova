@@ -5,7 +5,7 @@ LogicalProject(l_orderkey=[$0], revenue=[$3], o_orderdate=[$1], o_shippriority=[
         LogicalJoin(condition=[=($6, $2)], joinType=[inner])
           LogicalJoin(condition=[=($0, $3)], joinType=[inner])
             LogicalProject(C_CUSTKEY=[$0], C_MKTSEGMENT=[$6])
-              LogicalFilter(condition=[=($6, 'BUILDING')])
+              LogicalFilter(condition=[=($6, _UTF-8'BUILDING')])
                 LogicalTableScan(table=[[customer]])
             LogicalProject(O_ORDERKEY=[$0], O_CUSTKEY=[$1], O_ORDERDATE=[$4], O_SHIPPRIORITY=[$7])
               LogicalFilter(condition=[<($4, 1995-03-15)])
