@@ -37,6 +37,7 @@ const sidebars: SidebarsConfig = {
             {type: 'doc', id: 'getting-started/clients/rest-api', label: 'REST API'},
             {type: 'doc', id: 'getting-started/clients/rest-catalog-api', label: 'REST Catalog API'},
             {type: 'doc', id: 'getting-started/clients/cli', label: 'CLI'},
+            {type: 'doc', id: 'getting-started/clients/cli-demo', label: 'CLI Workflow Demo'},
           ],
         },
         {

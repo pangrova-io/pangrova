@@ -6,6 +6,8 @@ description: "Interactive SQL shell and script mode"
 # CLI
 
 Use the Pangrova CLI for interactive queries and scripted SQL execution.
+Watch the [CLI workflow demo](./cli-demo.mdx) for a complete catalog, table, write,
+and query example.
 
 
 ## CLI
