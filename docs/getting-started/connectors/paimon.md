@@ -66,6 +66,20 @@ intervals fail explicitly; they cannot be accepted as an empty change set. Paimo
 snapshot IDs advance sequentially, while retained history may lose older snapshots
 through [snapshot expiration](https://paimon.apache.org/docs/1.4/maintenance/manage-snapshots/).
 
+### Split planning I/O
+
+Each physical Paimon scan source has the stage's monotonic planning deadline,
+a one-million manifest-open ceiling and a 256 MiB encoded metadata
+read allowance. The scan reserves bytes before calling the underlying
+reader and returns unused portions of short reads. The allowance covers
+bytes delivered by file I/O to the SDK during scan planning. Manifest
+cache hits do not open files. Exceeding a limit rejects the plan.
+
+When a plan exits after cancellation or failure, its metadata view rejects
+new opens. The Coordinator's query operation stays active until previously
+admitted backend calls and streams close. Paimon planning uses the existing
+SDK scan and its worker pool.
+
 ### Physical file formats
 
 Native scan splits retain the Paimon SDK's exact snapshot ID, physical file

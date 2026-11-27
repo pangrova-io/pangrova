@@ -37,7 +37,6 @@ import org.apache.paimon.CoreOptions;
 import org.apache.paimon.Snapshot;
 import org.apache.paimon.options.Options;
 import org.apache.paimon.schema.SchemaValidation;
-import org.apache.paimon.shade.caffeine2.com.github.benmanes.caffeine.cache.Caffeine;
 import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;
@@ -165,7 +164,8 @@ public class PaimonSplitManager implements ConnectorSplitManager {
         FileStoreTable scanTable;
         boolean physicalTable = selectedTable instanceof AppendOnlyFileStoreTable
                 || selectedTable instanceof PrimaryKeyFileStoreTable;
-        if (snapshot != null && paimonTable.snapshotId().isPresent() && physicalTable) {
+        boolean pinned = snapshot != null && paimonTable.snapshotId().isPresent() && physicalTable;
+        if (pinned) {
             scanTable = pinnedScanTable(selectedTable, paimonTable, snapshot);
         } else if (paimonTable.snapshotId().isPresent()) {
             scanTable = "true".equals(paimonTable.properties().get(PaimonTableHandle.CURRENT_SCHEMA_PROPERTY))
@@ -178,7 +178,7 @@ public class PaimonSplitManager implements ConnectorSplitManager {
         String changelogProducer = resolveChangelogProducer(scanTable);
         TableSplitContext ctx = buildTableContext(scanTable, changelogProducer);
         List<ConnectorSplit> splits = planSplits(scanTable, paimonTable.tableName(), ctx, constraint,
-                sdkReaderAuthority, planning);
+                sdkReaderAuthority, planning, pinned ? snapshot : null);
         PaimonReadBindings.validateSelected(selectedTable, paimonTable);
         LOG.debug("event=splits_planned count={} table={}.{} changelog_producer={} partitioned={} snapshotId={}",
                 splits.size(), paimonTable.schemaName(), paimonTable.tableName(),
@@ -201,14 +201,7 @@ public class PaimonSplitManager implements ConnectorSplitManager {
         var scanSchema = schema.copy(options.toMap());
         SchemaValidation.validateTableSchema(scanSchema);
 
-        // Seed only the detached scan's SDK cache. The source-identity checks
-        // before and after planning read the actual snapshot object directly.
-        FileStoreTable scan = table.copy(scanSchema);
-        var snapshots = Caffeine.newBuilder().executor(Runnable::run).maximumSize(1)
-                .<org.apache.paimon.fs.Path, Snapshot>build();
-        snapshots.put(scan.snapshotManager().snapshotPath(snapshot.id()), snapshot);
-        scan.setSnapshotCache(snapshots);
-        return scan;
+        return table.copy(scanSchema);
     }
 
     private ConnectorSplitSource getActiveIncrementalSplits(ConnectorSession session, FileStoreTable selectedTable,
@@ -234,7 +227,8 @@ public class PaimonSplitManager implements ConnectorSplitManager {
     }
 
     private static PaimonScanBudget scanBudget(SplitPlanningBudget stage, ConnectorQueryAuthority authority) {
-        return new PaimonScanBudget(stage, authority::isClosed, PaimonScanBudget.MAX_METADATA_CANDIDATES);
+        return new PaimonScanBudget(stage, authority::isClosed, authority::enterOperation,
+                PaimonScanBudget.MAX_METADATA_CANDIDATES, PaimonScanBudget.MAX_ENCODED_METADATA_BYTES);
     }
 
     private Table loadFreshTable(PaimonTableHandle handle) {
@@ -327,7 +321,7 @@ public class PaimonSplitManager implements ConnectorSplitManager {
 
     private List<ConnectorSplit> planSplits(
             FileStoreTable table, String tableName, TableSplitContext ctx, Constraint constraint,
-            ConnectorQueryAuthority sdkReaderAuthority, PaimonScanBudget planning) {
+            ConnectorQueryAuthority sdkReaderAuthority, PaimonScanBudget planning, Snapshot snapshot) {
         Predicate paimonFilter = PaimonFilterBuilder.build(table.rowType(), constraint);
         if (paimonFilter != null) {
             LOG.debug("event=paimon_predicate_pushdown table={}", tableName);
@@ -348,7 +342,7 @@ public class PaimonSplitManager implements ConnectorSplitManager {
         }
 
         String readMode = ctx.primaryKeys.isEmpty() ? "APPEND" : "PRIMARY_KEY";
-        return convertSplits(tableName, ctx, table, readMode, planning.plan(table, paimonFilter),
+        return convertSplits(tableName, ctx, table, readMode, planning.plan(table, paimonFilter, snapshot),
                 sdkReaderAuthority, planning, ctx.needsMerge);
     }
 
@@ -389,9 +383,10 @@ public class PaimonSplitManager implements ConnectorSplitManager {
         Predicate paimonFilter = PaimonFilterBuilder.build(incrementalView.rowType(), constraint);
         List<Split> splits;
         if (verified) {
-            splits = planning.plan(incrementalView, paimonFilter);
+            splits = planning.plan(incrementalView, paimonFilter, target);
         } else {
-            splits = PaimonAppendRangeScan.plan(incrementalView, target, range, paimonFilter, planning);
+            splits = planning.withPlanningTable(incrementalView, target,
+                    (view, io) -> PaimonAppendRangeScan.plan(view, target, range, paimonFilter, planning));
         }
 
         String changelogProducer = resolveChangelogProducer(incrementalView);
