@@ -2,6 +2,8 @@ package org.pangrova.testing.integration.e2e.performance;
 
 import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
+import org.pangrova.testing.integration.e2e.setup.TestConnectorFactory;
+import org.pangrova.testing.testkit.TestDataGenerator;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -10,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
 
@@ -31,7 +34,7 @@ class SqlLatencyBaselineTest extends SqlE2ETestBase {
 
     private static final Logger LOG = LoggerFactory.getLogger(SqlLatencyBaselineTest.class);
 
-    private static final String CATALOG = "iceberg_catalog";
+    private static final String CATALOG = "sql_latency_iceberg";
     private static final String SCHEMA = "default";
 
     private static final int WARMUP_ITERATIONS = 10;
@@ -41,18 +44,23 @@ class SqlLatencyBaselineTest extends SqlE2ETestBase {
 
     @Override
     protected List<ConnectorTestConfig> connectorConfigs() {
+        return benchmarkConnectors();
+    }
+
+    private static List<ConnectorTestConfig> benchmarkConnectors() {
         return List.of(
-                ConnectorTestConfig.icebergLocal(CATALOG, SCHEMA, icebergWarehouse().toString()));
+                ConnectorTestConfig.icebergLocal(CATALOG, SCHEMA, benchmarkWarehouse().toString()));
+    }
+
+    private static Path benchmarkWarehouse() {
+        return icebergWarehouse().resolveSibling("sql-latency-iceberg-warehouse");
     }
 
     @BeforeAll
     static void loadTestData() {
         isDockerReady();
-        registerTestConnectors(List.of(
-                ConnectorTestConfig.icebergLocal(CATALOG, SCHEMA, icebergWarehouse().toString())));
-        dataSetup.loadTpcHDataViaConnector(
-                org.pangrova.testing.integration.e2e.setup.TestConnectorFactory.createIcebergConnector(icebergWarehouse()),
-                1);
+        registerTestConnectors(benchmarkConnectors());
+        dataSetup.loadTpcHDataViaConnector(TestConnectorFactory.createIcebergConnector(benchmarkWarehouse()), 1);
     }
 
     // -- Benchmark infrastructure --
@@ -141,7 +149,11 @@ class SqlLatencyBaselineTest extends SqlE2ETestBase {
         @Test
         @DisplayName("SHOW TABLES — max < 1000ms")
         void showTablesLatency() {
-            assertLatency("metadata", "SHOW TABLES FROM " + CATALOG + "." + SCHEMA, 1000);
+            String sql = "SHOW TABLES FROM " + CATALOG + "." + SCHEMA;
+            assertThat(sqlRunner.execute(sql))
+                    .extracting(row -> row.getString("table_name"))
+                    .containsExactlyInAnyOrderElementsOf(TestDataGenerator.getSchemas().keySet());
+            assertLatency("metadata", sql, 1000);
         }
     }
 
