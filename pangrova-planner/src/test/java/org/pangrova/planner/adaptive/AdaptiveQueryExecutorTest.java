@@ -115,6 +115,16 @@ class AdaptiveQueryExecutorTest {
         assertThat(result.newJoinStrategy()).isEmpty();
     }
 
+    @Test
+    void parallelismRecommendationSaturatesBeforeNarrowingToInt() {
+        long targetTaskBytes = 256L * 1024 * 1024;
+        long intOverflowBytes = (1L + Integer.MAX_VALUE) * targetTaskBytes;
+        assertThat(executor.evaluateParallelism(stats(intOverflowBytes, intOverflowBytes), 16))
+                .isEqualTo(1024);
+        assertThat(executor.evaluateParallelism(stats(Long.MAX_VALUE, Long.MAX_VALUE), 16))
+                .isEqualTo(1024);
+    }
+
     // --- Helpers ---
 
     private ShuffleStageStats stats(long estimated, long actual) {

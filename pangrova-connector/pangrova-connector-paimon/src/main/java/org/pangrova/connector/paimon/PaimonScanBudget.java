@@ -1,7 +1,10 @@
 package org.pangrova.connector.paimon;
 
+import org.apache.paimon.globalindex.DataEvolutionBatchScan;
+import org.apache.paimon.predicate.Predicate;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.source.DataTableBatchScan;
-import org.apache.paimon.table.source.ReadBuilder;
+import org.apache.paimon.table.source.DataTableScan;
 import org.apache.paimon.table.source.Split;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.connector.api.exception.ConnectorException;
@@ -50,17 +53,20 @@ final class PaimonScanBudget {
         return !cancelled() && !stage.expired() && count <= maxCandidates;
     }
 
-    List<Split> plan(ReadBuilder builder) {
+    List<Split> plan(FileStoreTable table, Predicate filter) {
         check(0);
-        var scan = builder.newScan();
+        var options = table.coreOptions();
+        // Match the SDK batch factory, retaining its authorization and optional
+        // data-evolution wrapper, but install admission before the wrapper hides the reader.
+        var batch = new DataTableBatchScan(table.schema(), table.schemaManager(), options, table.newSnapshotReader(),
+                table.catalogEnvironment().tableQueryAuth(options));
         var candidates = new AtomicLong();
-        if (scan instanceof DataTableBatchScan batch) {
-            // The SDK owns concurrent manifest reads. Finish that work before reporting a rejected
-            // plan so a filter exception does not abandon the SDK's outstanding futures.
-            batch.snapshotReader().withManifestEntryFilter(ignored ->
-                    !cancelled() && !stage.expired() && candidates.incrementAndGet() <= maxCandidates);
-        }
-        var splits = scan.plan().splits();
+        // The SDK owns concurrent manifest reads. Finish that work before reporting a rejected
+        // plan so a filter exception does not abandon the SDK's outstanding futures.
+        batch.snapshotReader().withManifestEntryFilter(ignored ->
+                !cancelled() && !stage.expired() && candidates.incrementAndGet() <= maxCandidates);
+        DataTableScan scan = options.dataEvolutionEnabled() ? new DataEvolutionBatchScan(table, batch) : batch;
+        var splits = scan.withFilter(filter).plan().splits();
         check(0);
         if (candidates.get() > maxCandidates) {
             throw metadataLimit("manifest entries");

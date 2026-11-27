@@ -306,7 +306,8 @@ append and incremental scans, and the SDK split count for merge reads, before
 allocating the connector split list or registering SDK readers. Conversion
 rechecks the deadline and query lifetime while visiting files. The pinned
 Paimon batch scanner checks cancellation and the deadline on manifest entry
-admission. The connector rejects more than one million candidate manifest
+admission, including the underlying scanner for data-evolution reads. The
+connector retains the SDK's data-evolution wrapper and query authorization. The connector rejects more than one million candidate manifest
 entries in that scanner or an incremental range spanning more than one million
 snapshots. A rejected scan fails as a whole. The SDK still owns manifest task
 submission and individual storage calls. SDK scan variants that do not expose

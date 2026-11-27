@@ -16,12 +16,15 @@ import org.pangrova.protocol.v2.BatchChunk;
 import org.pangrova.protocol.v2.shuffle.ReadBatchResponse;
 import org.pangrova.protocol.v2.shuffle.ReadPartitionTerminal;
 import org.pangrova.shuffle.config.ShuffleServiceConfig;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static org.pangrova.shuffle.server.ShuffleServiceModel.FinalizedPartition;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.ReadBatch;
 
 /** Backpressure-aware reader for one finalized output partition. */
 final class ShuffleReadPump implements Runnable {
+    private static final Logger LOG = LoggerFactory.getLogger(ShuffleReadPump.class);
     private static final int MAX_FRAMES_PER_PUMP = 4;
     private static final int BUFFER_PEAK_MULTIPLIER = 3;
 
@@ -104,7 +107,7 @@ final class ShuffleReadPump implements Runnable {
 
     void cancel() {
         if (closed.compareAndSet(false, true)) {
-            releaseIfIdle();
+            releaseIfIdle(null);
         }
     }
 
@@ -221,7 +224,7 @@ final class ShuffleReadPump implements Runnable {
 
     private void fail(RuntimeException failure) {
         if (closed.compareAndSet(false, true)) {
-            releaseIfIdle();
+            releaseIfIdle(failure);
             response.onError(CanonicalShuffleGrpcServer.status(failure));
         }
     }
@@ -229,13 +232,26 @@ final class ShuffleReadPump implements Runnable {
     private synchronized void setRunning(boolean value) {
         running = value;
         if (!value && closed.get()) {
-            releaseRead();
+            releaseAfterClose(null);
         }
     }
 
-    private synchronized void releaseIfIdle() {
+    private synchronized void releaseIfIdle(RuntimeException primaryFailure) {
         if (!running) {
+            releaseAfterClose(primaryFailure);
+        }
+    }
+
+    // An uncommitted durable release leaves the existing protection window intact.
+    // It must not suppress the terminal stream error or escape a cancellation callback.
+    private void releaseAfterClose(RuntimeException primaryFailure) {
+        try {
             releaseRead();
+        } catch (RuntimeException releaseFailure) {
+            if (primaryFailure != null && primaryFailure != releaseFailure) {
+                primaryFailure.addSuppressed(releaseFailure);
+            }
+            LOG.warn("event=shuffle_read_release_failed", releaseFailure);
         }
     }
 

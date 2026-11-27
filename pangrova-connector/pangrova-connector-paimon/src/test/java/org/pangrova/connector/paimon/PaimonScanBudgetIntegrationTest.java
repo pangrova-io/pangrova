@@ -38,14 +38,44 @@ class PaimonScanBudgetIntegrationTest {
             write(table, 2);
 
             var limited = new PaimonScanBudget(SplitPlanningBudget.standard(), () -> false, 1);
-            assertThatThrownBy(() -> limited.plan(table.newReadBuilder()))
+            assertThatThrownBy(() -> limited.plan(table, null))
                     .isInstanceOfSatisfying(ConnectorException.class, failure -> {
                         assertThat(failure.getErrorCode()).isEqualTo(PangrovaErrorCode.CONNECTOR_SPLIT_LIMIT_REACHED);
                         assertThat(failure).hasMessageContaining("candidate manifest entries");
                     });
             var allowed = new PaimonScanBudget(SplitPlanningBudget.standard(), () -> false, 2);
-            assertThat(allowed.plan(table.newReadBuilder()).stream()
+            assertThat(allowed.plan(table, null).stream()
                     .map(DataSplit.class::cast).mapToInt(split -> split.dataFiles().size()).sum()).isEqualTo(2);
+            assertCancellationDuringManifestRead(table);
+        }
+    }
+
+    @Test
+    void dataEvolutionScanRejectsCandidateOverflowWithoutDroppingItsWrapper() throws Exception {
+        var options = new Options();
+        options.setString("warehouse", directory.toString());
+        try (var catalog = CatalogFactory.createCatalog(CatalogContext.create(options))) {
+            catalog.createDatabase("db", false);
+            var id = Identifier.create("db", "evolution");
+            catalog.createTable(id, Schema.newBuilder().column("id", DataTypes.BIGINT())
+                    .option("bucket", "-1").option("file.format", "parquet")
+                    .option("data-evolution.enabled", "true").option("row-tracking.enabled", "true")
+                    .build(), false);
+            var table = (FileStoreTable) catalog.getTable(id);
+            write(table, 1);
+            write(table, 2);
+
+            var limited = new PaimonScanBudget(SplitPlanningBudget.standard(), () -> false, 1);
+            assertThatThrownBy(() -> limited.plan(table, null))
+                    .isInstanceOfSatisfying(ConnectorException.class, failure -> {
+                        assertThat(failure.getErrorCode()).isEqualTo(PangrovaErrorCode.CONNECTOR_SPLIT_LIMIT_REACHED);
+                        assertThat(failure).hasMessageContaining("candidate manifest entries");
+                    });
+            var allowed = new PaimonScanBudget(SplitPlanningBudget.standard(), () -> false, 2);
+            assertThat(allowed.plan(table, null)).isEqualTo(table.newReadBuilder().newScan().plan().splits());
+            var filter = new org.apache.paimon.predicate.PredicateBuilder(table.rowType()).equal(0, 1L);
+            assertThat(allowed.plan(table, filter))
+                    .isEqualTo(table.newReadBuilder().withFilter(filter).newScan().plan().splits());
             assertCancellationDuringManifestRead(table);
         }
     }
@@ -57,7 +87,7 @@ class PaimonScanBudgetIntegrationTest {
             if (Thread.currentThread() != owner) closed.set(true);
             return closed.get();
         }, 2);
-        assertThatThrownBy(() -> budget.plan(table.newReadBuilder()))
+        assertThatThrownBy(() -> budget.plan(table, null))
                 .isInstanceOfSatisfying(ConnectorException.class, failure ->
                         assertThat(failure.getErrorCode()).isEqualTo(PangrovaErrorCode.CONNECTOR_SPLIT_FETCH_FAILED));
         assertThat(closed).isTrue();

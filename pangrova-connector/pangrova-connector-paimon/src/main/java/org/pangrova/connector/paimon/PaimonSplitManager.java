@@ -42,7 +42,6 @@ import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.table.source.DataSplit;
-import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.table.source.Split;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -294,11 +293,8 @@ public class PaimonSplitManager implements ConnectorSplitManager {
     private List<ConnectorSplit> planSplits(
             FileStoreTable table, String tableName, TableSplitContext ctx, Constraint constraint,
             ConnectorQueryAuthority sdkReaderAuthority, PaimonScanBudget planning) {
-        ReadBuilder readBuilder = table.newReadBuilder();
-
         Predicate paimonFilter = PaimonFilterBuilder.build(table.rowType(), constraint);
         if (paimonFilter != null) {
-            readBuilder.withFilter(paimonFilter);
             LOG.debug("event=paimon_predicate_pushdown table={}", tableName);
         }
 
@@ -317,7 +313,7 @@ public class PaimonSplitManager implements ConnectorSplitManager {
         }
 
         String readMode = ctx.primaryKeys.isEmpty() ? "APPEND" : "PRIMARY_KEY";
-        return convertSplits(tableName, ctx, table, readMode, planning.plan(readBuilder),
+        return convertSplits(tableName, ctx, table, readMode, planning.plan(table, paimonFilter),
                 sdkReaderAuthority, planning, ctx.needsMerge);
     }
 
@@ -358,9 +354,7 @@ public class PaimonSplitManager implements ConnectorSplitManager {
         Predicate paimonFilter = PaimonFilterBuilder.build(incrementalView.rowType(), constraint);
         List<Split> splits;
         if (verified) {
-            ReadBuilder readBuilder = incrementalView.newReadBuilder();
-            if (paimonFilter != null) readBuilder.withFilter(paimonFilter);
-            splits = planning.plan(readBuilder);
+            splits = planning.plan(incrementalView, paimonFilter);
         } else {
             splits = PaimonAppendRangeScan.plan(incrementalView, target, range, paimonFilter, planning);
         }
