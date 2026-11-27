@@ -6,7 +6,7 @@ on:
       probe:
         description: Isolated CI stage to verify
         type: choice
-        options: [macos-docker, macos-intel-docker, production, worker-files, java-daily, libunwind, ai-fixture, jmh-relative, tpc-transport]
+        options: [macos-docker, macos-intel-docker, production, worker-files, java-daily, libunwind, ai-fixture, jmh-relative, tpc-transport, macos-libcxx]
         default: macos-docker
 
 permissions:
@@ -14,6 +14,53 @@ permissions:
   actions: read
 
 jobs:
+  macos-libcxx:
+    name: Verify macOS libc++ exception ABI
+    if: inputs.probe == 'macos-libcxx'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15-intel, macos-15]
+    steps:
+      - name: Reproduce exception linkage and verify deployment target
+        run: |
+          work=$(mktemp -d "$RUNNER_TEMP/libcxx-probe.XXXXXXXX")
+          cxx="$(brew --prefix llvm@18)/bin/clang++"
+          "$cxx" --version
+          export SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
+          printf 'SDK=%s\n' "$SDKROOT"
+          cat > "$work/exception.cpp" <<'CPP'
+          #include <future>
+          #include <stdexcept>
+          int main() {
+              std::promise<int> promise;
+              auto result = promise.get_future();
+              promise.set_exception(std::make_exception_ptr(std::runtime_error("expected")));
+              try { return result.get(); }
+              catch (const std::runtime_error&) { return 0; }
+          }
+          CPP
+          unset MACOSX_DEPLOYMENT_TARGET
+          "$cxx" -isysroot "$SDKROOT" -std=c++20 -O2 -c "$work/exception.cpp" -o "$work/default.o"
+          nm -u "$work/default.o"
+          if "$cxx" -isysroot "$SDKROOT" "$work/default.o" -o "$work/default"; then
+            "$work/default"
+          else
+            printf 'Default deployment target reproduced an exception link failure\n'
+          fi
+          export MACOSX_DEPLOYMENT_TARGET=13.0
+          "$cxx" -isysroot "$SDKROOT" -std=c++20 -O2 -c "$work/exception.cpp" -o "$work/compatible.o"
+          nm -u "$work/compatible.o" > "$work/symbols"
+          cat "$work/symbols"
+          if grep -E '__cxa_init_primary_exception|__from_native_exception_pointer' "$work/symbols"; then
+            exit 1
+          fi
+          "$cxx" -isysroot "$SDKROOT" "$work/compatible.o" -o "$work/compatible"
+          "$work/compatible"
+          xcrun vtool -show-build "$work/compatible"
+
   tpc-transport:
     name: Verify TPC workload contracts and real client transport
     runs-on: ubuntu-latest
