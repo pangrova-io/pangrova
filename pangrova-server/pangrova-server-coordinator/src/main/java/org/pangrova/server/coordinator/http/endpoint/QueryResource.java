@@ -34,14 +34,12 @@ import org.pangrova.common.client.query.QueryStatusResponse;
 import org.pangrova.common.client.query.QueryOwnerEndpoint;
 import org.pangrova.common.enums.QueryWaitTarget;
 import org.pangrova.common.client.query.SubmitQueryRequest;
-import org.pangrova.common.client.query.SubmitQueryResponse;
 import org.pangrova.security.api.exception.AuthenticationRequiredException;
 import org.pangrova.security.api.identity.UserIdentity;
 import org.pangrova.server.coordinator.http.endpoint.QueryPeerRouting.Observation;
 import org.pangrova.server.coordinator.http.endpoint.QueryPeerRouting.Operation;
 
 import java.util.concurrent.CompletionException;
-import java.util.concurrent.CompletionStage;
 import java.util.function.Supplier;
 import java.util.Optional;
 import java.util.UUID;
@@ -89,40 +87,27 @@ public final class QueryResource {
             @Suspended AsyncResponse response) {
         validateSubmitRequest(request);
         UserIdentity identity = extractUserIdentity(requestContext);
-        String key = requestContext == null ? null : requestContext.getHeaderString("Idempotency-Key");
-        QueryOwnerEndpoint localOwner = ownerEndpoint.get();
+        if (identity == null || identity.principal() == null || identity.principal().isBlank()) {
+            throw new AuthenticationRequiredException("Query submission requires a principal");
+        }
+        String key = requestContext.getHeaderString("Idempotency-Key");
         String queryId = UUID.randomUUID().toString();
-        if (queryPeers != null && identity != null) {
+        QueryOwnerEndpoint localOwner = ownerEndpoint.get();
+        if (queryPeers != null) {
             localOwner = queryPeers.issue(localOwner, queryId, identity.principal());
         }
-        CompletionStage<SubmitQueryResponse> receipt;
-        if (key != null && !key.isBlank()) {
-            if (identity == null || identity.principal() == null || identity.principal().isBlank()) {
-                throw new AuthenticationRequiredException("Idempotent query submission requires a principal");
-            }
-            var acceptance = new QueryAcceptanceRequest(identity.principal(),
-                    QueryRequestFingerprint.keyDigest(key), QueryRequestFingerprint.request(request), localOwner);
-            receipt = doSubmit(queryId, request, identity, acceptance, localOwner);
-        } else {
-            receipt = doSubmit(queryId, request, identity, null, localOwner);
-        }
-        receipt.whenComplete((result, failure) -> {
-            if (failure == null) {
-                response.resume(Response.ok(result).build());
-            } else {
-                response.resume(unwrap(failure));
-            }
-        });
-    }
-
-    private CompletionStage<SubmitQueryResponse> doSubmit(
-            String queryId, SubmitQueryRequest request, UserIdentity identity,
-            QueryAcceptanceRequest acceptance, QueryOwnerEndpoint localOwner) {
+        String keyDigest = key == null || key.isBlank()
+                ? QueryRequestFingerprint.freshKeyDigest(queryId) : QueryRequestFingerprint.keyDigest(key);
+        var acceptance = new QueryAcceptanceRequest(identity.principal(),
+                keyDigest, QueryRequestFingerprint.request(request), localOwner);
         QuerySession session = new QuerySession(
                 queryId, request.sessionProperties(), identity, null, Optional.empty(), traceContexts.capture());
-        return queryManager.submitQueryAsync(queryId, request.query(), session, acceptance)
-                .thenApply(result -> QueryResponseMapper.submission(result,
-                        acceptance == null ? localOwner : result.ownerEndpoint()));
+        queryManager.submitQueryAsync(queryId, request.query(), session, acceptance)
+                .thenApply(QueryResponseMapper::submission)
+                .whenComplete((result, failure) -> {
+                    if (failure == null) response.resume(Response.ok(result).build());
+                    else response.resume(unwrap(failure));
+                });
     }
 
     private static Throwable unwrap(Throwable failure) {
@@ -184,7 +169,8 @@ public final class QueryResource {
         }
         var outcome = receipt.outcome();
         return Response.ok(QueryStatusResponse.recovered(queryId, receipt.terminalState(),
-                QueryResponseMapper.failure(outcome.error()), outcome.resultDisposition())).build();
+                QueryResponseMapper.failure(outcome.error()), outcome.resultDisposition(),
+                QueryResponseMapper.branchSelection(outcome.branchSelection()))).build();
     }
 
     private static void validateObservation(Observation observation, boolean history) {
@@ -255,7 +241,8 @@ public final class QueryResource {
     private static Response statusResponse(String queryId, QueryStateMachine.Status status) {
         ErrorDetail error = status.error() == null ? null : QueryResponseMapper.failure(status.error());
         return Response.ok(new QueryStatusResponse(queryId, status.state().name(),
-                error, null, status.disposition(), status.endpoint(), status.version(), status.drained())).build();
+                error, null, status.disposition(), status.endpoint(), status.version(), status.drained(),
+                QueryResponseMapper.branchSelection(status.branchSelection()))).build();
     }
 
     /** Requests cancellation of a running query. */

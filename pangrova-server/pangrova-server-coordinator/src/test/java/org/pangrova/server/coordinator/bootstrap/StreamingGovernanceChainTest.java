@@ -42,6 +42,7 @@ import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+import static org.pangrova.server.coordinator.testinfra.QuerySubmissionTestSupport.assertAdmissionThenWorkerFailure;
 import static org.assertj.core.api.Assertions.*;
 
 /**
@@ -161,8 +162,7 @@ class StreamingGovernanceChainTest extends org.pangrova.server.coordinator.testi
         int port = coordinatorBootstrap.getHttpPort();
 
         HttpResponse<String> resp = submitQuery(port, "SELECT 1");
-        assertThat(resp.statusCode()).isEqualTo(503);
-        assertThat(resp.body()).contains("No available worker for task dispatch");
+        assertAdmissionThenWorkerFailure(coordinatorBootstrap.getQueryManager(), resp);
     }
 
     /** DebeziumJsonConverter parses a Debezium JSON message into correct CdcEnvelope fields. */

@@ -47,8 +47,7 @@ SDK, Coordinator, Worker, Client DTOs or provider implementations.
 
 ### Query submission and execution completion
 
-The HTTP submission exchange suspends while a non-idempotent query waits for
-readiness. With an authenticated `Idempotency-Key`, the candidate query first
+Every authenticated HTTP submission returns a durable acceptance receipt. The candidate query first
 passes admission and execution-owner acquisition, then atomically commits its initial
 `QUEUED` journal fact with principal, key digest, request fingerprint, lineage, and a
 `QUEUED`/`PENDING` acceptance receipt. PostgreSQL locks the exact execution grant
@@ -59,8 +58,9 @@ transaction. Only that durable acceptance publishes the query into the
 executable registry. If the predecessor's accepted insert committed before
 takeover, replay of that exact event can return the original receipt.
 An accepted query continues under the query and task deadlines after its
-receipt is returned. The initial readiness wait applies to submissions that
-are still awaiting their HTTP response.
+receipt is returned. A request without an idempotency key receives a fresh
+journal identity derived from its query ID. A supplied key addresses retries
+in the principal's client-key namespace.
 The receipt includes the issuing Coordinator
 incarnation and HTTP origin. Matching retries return the original route and query ID
 without a second execution; different fingerprints fail with HTTP 409.
@@ -73,6 +73,11 @@ independently of physical completion retries and drain. A failed sweep is logged
 retried on a subsequent retention pass. Pending candidates reserve drain capacity before blocking admission work;
 cancellation requests are recorded until acceptance and registration complete, and a
 replay releases its candidate admission and throttle reservations. Cancelling an observer does not cancel the admitted query.
+
+Successful `USE BRANCH` returns `branch_selection` in the terminal state.
+The same selection is stored in the terminal journal fact and available from
+receipt recovery. A connection applies the selection once when observing
+successful completion and sends the route in later query session properties.
 
 Shared ingress can authenticate a user and relay a live query control to the
 incarnation in its signed receipt. It uses one bounded async HTTP call. The
@@ -420,6 +425,8 @@ encoding the plan. The output stage validates declared logical result types.
 Live stage preparation retains split source descriptors for both enumeration and
 artifact binding. It rechecks the captured owners after connector I/O and before
 dispatch. The frozen descriptors preserve the original snapshot and predicates.
+Ordinary SQL resolves those descriptors during stage preparation. Reranker analysis
+resolves them earlier only when a reranker needs to bind indexes.
 
 Protected relational exports bind Exchange inputs on the compiled Substrait
 messages. Binding follows producer order and uses the bound producer's physical

@@ -42,7 +42,7 @@ class QueryOwnerRoutingTest {
         var endpoint = new QueryOwnerEndpoint("coord-original", "incarnation-original", "127.0.0.1", port,
                 "fixture-route-ticket");
         var receipt = new SubmitQueryResponse("q", "QUEUED", ResultDisposition.PENDING,
-                null, List.of(), null, endpoint);
+                null, List.of(), endpoint);
         String body = JsonMapperFactory.writer().writeValueAsString(receipt);
         ingress.createContext("/v1/query/submit", exchange -> {
             submissions.incrementAndGet();
@@ -96,7 +96,7 @@ class QueryOwnerRoutingTest {
         var original = new QueryOwnerEndpoint("coord-original", "incarnation-original",
                 "127.0.0.1", owner.getAddress().getPort(), "fixture-route-ticket");
         var receipt = new SubmitQueryResponse("q", "QUEUED", ResultDisposition.PENDING,
-                null, List.of(), null, original);
+                null, List.of(), original);
         var receipts = new AtomicInteger();
         var unexpected = new CopyOnWriteArrayList<String>();
         var observed = new CopyOnWriteArrayList<String>();
@@ -156,7 +156,7 @@ class QueryOwnerRoutingTest {
         var original = new QueryOwnerEndpoint("coord", "old-incarnation", "127.0.0.1",
                 server.getAddress().getPort(), "signed-receipt");
         var receipt = new SubmitQueryResponse("q", "QUEUED", ResultDisposition.PENDING,
-                null, List.of(), null, original);
+                null, List.of(), original);
         var methods = new CopyOnWriteArrayList<String>();
         server.createContext("/v1/query/q/cancel", exchange -> {
             methods.add(exchange.getRequestMethod());

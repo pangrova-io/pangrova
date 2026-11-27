@@ -61,7 +61,7 @@ public class QueryStateMachine {
     );
 
     private volatile Status status =
-            new Status(0, QueryState.QUEUED, null, ResultDisposition.PENDING, null, false);
+            new Status(0, QueryState.QUEUED, null, ResultDisposition.PENDING, null, false, null);
     private Map<QueryWaitTarget, Set<CompletableFuture<Status>>> statusWaiters;
     private final Instant createdAt = Instant.now();
     private volatile String tenantId;
@@ -583,7 +583,8 @@ public class QueryStateMachine {
 
     /** Coherent state, result disposition, authority and physical-release evidence for one query owner. */
     public record Status(long version, QueryState state, QueryFailure error,
-                         ResultDisposition disposition, ResultEndpoint endpoint, boolean drained) {
+                         ResultDisposition disposition, ResultEndpoint endpoint, boolean drained,
+                         org.pangrova.query.api.session.BranchSelection branchSelection) {
         public Status {
             if (disposition == null || disposition == ResultDisposition.UNAVAILABLE) {
                 throw new IllegalArgumentException("Live status requires a live result disposition");
@@ -640,7 +641,7 @@ public class QueryStateMachine {
                         ? ResultDisposition.NONE
                         : disposition;
         var next = new Status(Math.incrementExact(previousVersion), state, error,
-                publishedDisposition, endpoint, drained);
+                publishedDisposition, endpoint, drained, state == QueryState.FINISHED ? branchSelection : null);
         status = next;
         if (statusWaiters == null) return StatusChange.UNOBSERVED;
         List<Set<CompletableFuture<Status>>> released = null;

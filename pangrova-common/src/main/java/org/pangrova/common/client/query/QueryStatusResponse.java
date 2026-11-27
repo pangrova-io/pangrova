@@ -23,13 +23,14 @@ public record QueryStatusResponse(
     @JsonProperty("result_disposition") ResultDisposition resultDisposition,
     @JsonProperty("result_endpoint") ResultEndpoint resultEndpoint,
     @JsonProperty("version") Long version,
-    @JsonProperty("drained") Boolean drained
+    @JsonProperty("drained") Boolean drained,
+    @JsonProperty("branch_selection") BranchSelection branchSelection
 ) {
     public static final long MAX_WAIT_MILLIS = 5_000;
 
     public QueryStatusResponse(String queryId, String state, ErrorDetail error, QueryStats stats,
                                ResultDisposition resultDisposition, ResultEndpoint resultEndpoint) {
-        this(queryId, state, error, stats, requireLiveDisposition(resultDisposition), resultEndpoint, null, null);
+        this(queryId, state, error, stats, requireLiveDisposition(resultDisposition), resultEndpoint, null, null, null);
     }
 
     /** Compact constructor enforcing the result disposition and endpoint invariant. */
@@ -38,6 +39,9 @@ public record QueryStatusResponse(
             throw new IllegalArgumentException("queryId must not be null or blank");
         }
         state = requireCanonicalState(state);
+        if (branchSelection != null && (!"FINISHED".equals(state) || resultDisposition != ResultDisposition.NONE)) {
+            throw new IllegalArgumentException("Branch selection requires successful resultless completion");
+        }
         if (resultDisposition == null) {
             if (error != null || stats != null || version != null || drained != null || resultEndpoint != null) {
                 throw new IllegalArgumentException("Historical status must contain only query_id and state");
@@ -68,9 +72,10 @@ public record QueryStatusResponse(
 
     /** Returns an immutable outcome after durable physical retirement. */
     public static QueryStatusResponse recovered(
-            String queryId, String state, ErrorDetail error, ResultDisposition disposition) {
+            String queryId, String state, ErrorDetail error, ResultDisposition disposition,
+            BranchSelection branchSelection) {
         return new QueryStatusResponse(queryId, state, error, null,
-                requireLiveDisposition(disposition), null, null, true);
+                requireLiveDisposition(disposition), null, null, true, branchSelection);
     }
 
     /** Whether the response proves durable retirement without a live projection version. */
@@ -80,7 +85,7 @@ public record QueryStatusResponse(
 
     /** Factory for durable diagnostic state without live result or drain authority. */
     public static QueryStatusResponse historical(String queryId, String state) {
-        return new QueryStatusResponse(queryId, state, null, null, null, null, null, null);
+        return new QueryStatusResponse(queryId, state, null, null, null, null, null, null, null);
     }
 
     /** Factory for status with statistics and an explicit result disposition. */

@@ -291,10 +291,11 @@ class RoleBasedDeploymentTest {
 
         var receipt = submitShow(HttpClient.newHttpClient(), bootstrap.getHttpPort(), null);
         assertThat(receipt.ownerEndpoint().port()).isEqualTo(bootstrap.getHttpPort());
-        assertThat(receipt.resultDisposition()).isEqualTo(ResultDisposition.STREAM);
-        assertThat(receipt.resultEndpoint()).isNotNull();
+        var status = org.pangrova.server.coordinator.testinfra.QuerySubmissionTestSupport
+                .awaitResultOrTerminal(bootstrap.getQueryManager(), receipt);
+        assertThat(status.disposition()).isEqualTo(ResultDisposition.STREAM);
         try (var fetcher = new FlightResultFetcher();
-             var cursor = fetcher.open(receipt.resultEndpoint(), System.currentTimeMillis() + 5_000)) {
+             var cursor = fetcher.open(status.endpoint(), System.currentTimeMillis() + 5_000)) {
             assertThat(cursor.columns()).extracting(ColumnDescriptor::name).contains("dt_name", "schedule_state");
             assertThat(cursor.next()).isFalse();
         }
@@ -322,9 +323,11 @@ class RoleBasedDeploymentTest {
                 String intentRetirement = "%DELETE FROM shuffle.shuffle_cleanup_intent%";
                 long before = postgresCalls(intentRetirement);
                 var receipt = submitShow(HttpClient.newHttpClient(), bootstrap.getHttpPort(), null);
-                assertThat(receipt.resultDisposition()).isEqualTo(ResultDisposition.STREAM);
+                var status = org.pangrova.server.coordinator.testinfra.QuerySubmissionTestSupport
+                        .awaitResultOrTerminal(bootstrap.getQueryManager(), receipt);
+                assertThat(status.disposition()).isEqualTo(ResultDisposition.STREAM);
                 try (var fetcher = new FlightResultFetcher();
-                        var cursor = fetcher.open(receipt.resultEndpoint(), System.currentTimeMillis() + 5_000)) {
+                        var cursor = fetcher.open(status.endpoint(), System.currentTimeMillis() + 5_000)) {
                     assertThat(cursor.next()).isFalse();
                 }
                 org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(5)).until(
@@ -475,7 +478,7 @@ class RoleBasedDeploymentTest {
                     HttpResponse.BodyHandlers.ofString());
             assertThat(deniedWhileUnread.statusCode()).as("%s", deniedWhileUnread.body()).isEqualTo(429);
             try (var fetcher = new FlightResultFetcher();
-                 var cursor = fetcher.open(receipt.resultEndpoint(), System.currentTimeMillis() + 5_000)) {
+                 var cursor = fetcher.open(resultOwner.status().endpoint(), System.currentTimeMillis() + 5_000)) {
                 assertThat(cursor.next()).isFalse();
             }
             org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(8))
@@ -486,7 +489,8 @@ class RoleBasedDeploymentTest {
                     HttpResponse.BodyHandlers.ofString());
             assertThat(unopened.statusCode()).as("%s", unopened.body()).isEqualTo(200);
             var unopenedReceipt = JsonMapperFactory.create().readValue(unopened.body(), SubmitQueryResponse.class);
-            assertThat(unopenedReceipt.resultEndpoint()).isNotNull();
+            assertThat(org.pangrova.server.coordinator.testinfra.QuerySubmissionTestSupport
+                    .awaitResultOrTerminal(bootstrap.getQueryManager(), unopenedReceipt).endpoint()).isNotNull();
             assertThat(boundHttpQuota(source)).isOne();
             bootstrap.shutdown();
             assertThat(boundHttpQuota(peer.metadataDataSource())).isZero();

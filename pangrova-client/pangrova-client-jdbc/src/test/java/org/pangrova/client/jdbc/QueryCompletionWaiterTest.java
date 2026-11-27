@@ -71,7 +71,7 @@ class QueryCompletionWaiterTest {
         var endpoint = new QueryOwnerEndpoint("coord", "prior-incarnation", "127.0.0.1",
                 server.getAddress().getPort(), "signed-receipt");
         var receipt = new SubmitQueryResponse("q-retired", "QUEUED", ResultDisposition.PENDING,
-                null, List.of(), null, endpoint);
+                null, List.of(), endpoint);
         server.createContext("/v1/query/q-retired/state", exchange -> sendJson(exchange, 404, """
                 {"error_code":"QUERY_OWNER_UNAVAILABLE","message":"Original owner is unavailable"}
                 """));

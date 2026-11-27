@@ -32,6 +32,8 @@ import org.pangrova.query.api.journal.TaskStateEvent;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.persistence.query.api.state.RecoveredTaskDrainJournal.DrainOutcome;
 import org.pangrova.persistence.query.api.state.RecoveredTaskDrainJournal.DrainReceipt;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -486,7 +488,7 @@ class JdbcQueryStateJournalIntegrationTest {
         journal.appendOwnedTerminalSync(new QueryStateEvent(
                 JournalEventContext.create(System.currentTimeMillis(), grant.ownerId()),
                 query, null, null, "FINISHED", null, null,
-                new QueryTerminalOutcome(ResultDisposition.NONE, null)), grant);
+                new QueryTerminalOutcome(ResultDisposition.NONE, null, null)), grant);
         try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
             statement.execute("""
                     CREATE FUNCTION hold_atomic_query_retirement() RETURNS trigger LANGUAGE plpgsql AS $$
@@ -868,14 +870,16 @@ class JdbcQueryStateJournalIntegrationTest {
         assertEquals(1, countQueryRows("query_state_journal", queryId));
     }
 
-    @Test
-    void exactDurableReceiptExposesTerminalOutcomeOnlyAfterAnchorRetirement() {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void exactDurableReceiptExposesTerminalOutcomeOnlyAfterAnchorRetirement(boolean selectsBranch) {
         String queryId = "receipt-recovery";
         var owner = new QueryOwnerEndpoint("original", "original-boot", "localhost", 8080, "original-ticket");
         var request = new QueryAcceptanceRequest("alice", "a".repeat(64), "b".repeat(64), owner);
         var acceptance = QueryAcceptance.pending(request, queryId, 60_000);
         var context = JournalEventContext.create(System.currentTimeMillis(), owner.coordinatorId());
-        var admission = new QueryStateEvent(context, queryId, "SELECT 1", "{}", "QUEUED", null, acceptance);
+        var admission = new QueryStateEvent(context, queryId,
+                selectsBranch ? "USE BRANCH dev ON lake.db.items" : "SELECT 1", "{}", "QUEUED", null, acceptance);
         var anchors = new JdbcExecutionAnchorStore(dataSource);
         var anchor = anchors.tryAcquire(queryId, owner.coordinatorId(), owner.incarnation(), Duration.ofMinutes(1))
                 .orElseThrow();
@@ -884,7 +888,10 @@ class JdbcQueryStateJournalIntegrationTest {
         assertThat(journal.recoverReceipt(queryId, "bob", owner.routeTicket())).isEmpty();
         assertThat(journal.recoverReceipt(queryId, "alice", "other-ticket")).isEmpty();
 
-        var outcome = new QueryTerminalOutcome(ResultDisposition.UNAVAILABLE, null);
+        var outcome = selectsBranch
+                ? new QueryTerminalOutcome(ResultDisposition.NONE, null,
+                        new org.pangrova.query.api.session.BranchSelection("lake.db.items", "dev"))
+                : new QueryTerminalOutcome(ResultDisposition.UNAVAILABLE, null, null);
         journal.appendOwnedTerminalSync(new QueryStateEvent(
                 JournalEventContext.create(System.currentTimeMillis(), owner.coordinatorId()),
                 queryId, null, null, "FINISHED", null, null, outcome), anchor);

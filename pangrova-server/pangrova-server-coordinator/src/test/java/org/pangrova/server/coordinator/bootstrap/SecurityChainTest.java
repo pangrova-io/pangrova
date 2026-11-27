@@ -33,6 +33,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import static org.pangrova.server.coordinator.testinfra.QuerySubmissionTestSupport.assertAdmissionThenWorkerFailure;
 import static org.pangrova.server.coordinator.testinfra.SecuredCoordinatorFixtures.withAuthority;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -93,8 +94,7 @@ class SecurityChainTest extends ContainerTestBase {
 
         HttpResponse<String> resp = submitQuery(port, "SELECT 1", null);
         // NOOP passes authentication; without a Worker, execution is unavailable.
-        assertThat(resp.statusCode()).isEqualTo(503);
-        assertThat(resp.body()).contains("COORDINATOR-0001");
+        assertAdmissionThenWorkerFailure(bootstrap.getQueryManager(), resp);
     }
 
     /**
@@ -139,7 +139,7 @@ class SecurityChainTest extends ContainerTestBase {
 
         // NOOP accepts authentication; no Worker is registered for execution.
         HttpResponse<String> resp = submitQuery(port, "SELECT 1", null);
-        assertThat(resp.statusCode()).isEqualTo(503);
+        assertAdmissionThenWorkerFailure(bootstrap.getQueryManager(), resp);
 
         // Now test with a separate HTTP server using a rejecting authenticator
         // to validate the filter correctly returns 401
@@ -158,8 +158,7 @@ class SecurityChainTest extends ContainerTestBase {
         int port = bootstrap.getHttpPort();
 
         HttpResponse<String> resp = submitQuery(port, "SELECT 1", "Bearer test-token");
-        assertThat(resp.statusCode()).isEqualTo(503);
-        assertThat(resp.body()).contains("COORDINATOR-0001");
+        assertAdmissionThenWorkerFailure(bootstrap.getQueryManager(), resp);
     }
 
     /**
@@ -228,7 +227,15 @@ class SecurityChainTest extends ContainerTestBase {
 
             // Valid token passes auth; dispatch still requires a Native Worker.
             HttpResponse<String> validAuth = submitQuery(rejectPort, "SELECT 1", "Bearer valid");
-            assertThat(validAuth.statusCode()).isEqualTo(503);
+            assertThat(validAuth.statusCode()).isEqualTo(200);
+            var receipt = MAPPER.readTree(validAuth.body());
+            assertThat(receipt.path("state").asText()).isEqualTo("QUEUED");
+            var stateRequest = HttpRequest.newBuilder(URI.create("http://localhost:" + rejectPort + "/v1/query/"
+                            + receipt.path("query_id").asText() + "/state"))
+                    .header("Authorization", "Bearer valid").GET().build();
+            var state = http.httpClient().send(stateRequest, HttpResponse.BodyHandlers.ofString());
+            assertThat(state.statusCode()).isEqualTo(200);
+            assertThat(MAPPER.readTree(state.body()).path("state").asText()).isEqualTo("FAILED");
         } finally {
             server.stop();
         }

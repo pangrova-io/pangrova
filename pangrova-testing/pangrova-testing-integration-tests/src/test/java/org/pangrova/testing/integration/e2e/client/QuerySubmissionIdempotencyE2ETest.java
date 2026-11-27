@@ -111,11 +111,39 @@ class QuerySubmissionIdempotencyE2ETest extends SqlE2ETestBase {
                 QueryStatusResponse.class);
     }
 
+    @Test
+    void queriesWithoutKeysGetFreshPendingReceiptsAndCompleteNativeWrites() throws Exception {
+        String table = "iceberg_catalog.default.unkeyed_" + UUID.randomUUID().toString().replace("-", "");
+        sqlRunner.executeDdl("CREATE TABLE " + table + " (id BIGINT)");
+        try {
+            var first = submit(null, "{\"query\":\"INSERT INTO " + table + " VALUES (1)\"}", E2E_USER_BEARER_TOKEN);
+            assertThat(first.statusCode()).as(first.body()).isEqualTo(200);
+            var receipt = CanonicalJsonMapper.readValue(first.body().getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                    SubmitQueryResponse.class);
+            assertThat(receipt.state()).isEqualTo("QUEUED");
+            assertThat(receipt.resultDisposition()).isEqualTo(ResultDisposition.PENDING);
+            consumeSubmittedQuery(receipt);
+
+            var distinct = submit(receipt.queryId(), "{\"query\":\"INSERT INTO " + table + " VALUES (2)\"}",
+                    E2E_USER_BEARER_TOKEN);
+            assertThat(distinct.statusCode()).as(distinct.body()).isEqualTo(200);
+            var next = CanonicalJsonMapper.readValue(distinct.body().getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                    SubmitQueryResponse.class);
+            assertThat(next.queryId()).isNotEqualTo(receipt.queryId());
+            consumeSubmittedQuery(next);
+            assertThat(sqlRunner.execute("SELECT id FROM " + table + " ORDER BY id"))
+                    .extracting(row -> row.getLong("id")).containsExactly(1L, 2L);
+        } finally {
+            sqlRunner.executeDdl("DROP TABLE " + table);
+        }
+    }
+
     private static HttpResponse<String> submit(String key, String body, String token) throws Exception {
         var request = HttpRequest.newBuilder(URI.create("http://localhost:" + coordinatorHttpPort() + "/v1/query/submit"))
                 .timeout(Duration.ofSeconds(30)).header("Content-Type", "application/json")
-                .header("Idempotency-Key", key).header("Authorization", "Bearer " + token)
-                .POST(HttpRequest.BodyPublishers.ofString(body)).build();
-        return CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
+                .header("Authorization", "Bearer " + token)
+                .POST(HttpRequest.BodyPublishers.ofString(body));
+        if (key != null) request.header("Idempotency-Key", key);
+        return CLIENT.send(request.build(), HttpResponse.BodyHandlers.ofString());
     }
 }

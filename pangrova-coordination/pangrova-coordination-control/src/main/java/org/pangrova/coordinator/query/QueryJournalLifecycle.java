@@ -181,7 +181,7 @@ final class QueryJournalLifecycle
                 : ResultDisposition.NONE;
         var error = status.state() == QueryState.FAILED ? status.error() : null;
         return new QueryTerminalOutcome(disposition, error == null ? null
-                : new QueryFailure(error.errorCode(), error.errorType(), error.message()));
+                : new QueryFailure(error.errorCode(), error.errorType(), error.message()), status.branchSelection());
     }
 
     @Override

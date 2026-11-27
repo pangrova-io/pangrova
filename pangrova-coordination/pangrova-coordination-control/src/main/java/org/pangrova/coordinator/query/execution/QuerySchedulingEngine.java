@@ -118,7 +118,7 @@ final class QuerySchedulingEngine {
         DispatchQueryContext effectiveCtx = enricher.enrichWithVectorSearch(
                 plannedQuery, ctx, session.queryId(), session.tenantId());
         effectiveCtx = enricher.enrichWithReranker(
-                plannedQuery.splitSources(), effectiveCtx, statement, session.queryId(), session.tenantId());
+                plannedQuery::splitSources, effectiveCtx, statement, session.queryId(), session.tenantId());
         return dispatchToWorker(
                 sm, withPolicyContext(session, plannedQuery), plannedQuery, effectiveCtx);
     }

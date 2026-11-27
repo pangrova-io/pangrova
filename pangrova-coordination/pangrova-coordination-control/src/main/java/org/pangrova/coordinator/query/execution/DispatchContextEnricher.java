@@ -25,6 +25,7 @@ import org.pangrova.parser.api.ast.Query;
 import org.pangrova.parser.api.ast.Statement;
 import org.pangrova.parser.api.ast.TableRef;
 import org.pangrova.planner.analysis.PlannedQuery;
+import org.pangrova.planner.analysis.SplitSourceDescriptor;
 import org.pangrova.planner.rerank.RerankerInjectionRule;
 import org.pangrova.planner.rerank.RerankerPlanNode;
 import org.pangrova.planner.rerank.FullTextScoringNode;
@@ -37,6 +38,7 @@ import org.slf4j.LoggerFactory;
 import java.util.List;
 import java.util.Comparator;
 import java.util.Locale;
+import java.util.function.Supplier;
 
 /**
  * Enriches a {@link DispatchQueryContext} with vector search and reranker metadata
@@ -71,7 +73,7 @@ final class DispatchContextEnricher {
     }
 
     DispatchQueryContext enrichWithReranker(
-            List<org.pangrova.planner.analysis.SplitSourceDescriptor> sources,
+            Supplier<List<SplitSourceDescriptor>> sources,
             DispatchQueryContext ctx, Statement statement, String queryId, String tenantId) {
         if (!(statement instanceof Query query)) {
             return ctx;
@@ -89,7 +91,7 @@ final class DispatchContextEnricher {
                 rerankerPlan.get().topK(),
                 rerankerPlan.get().isHybrid());
         return ctx.withRerankerPlan(bindFullTextIndexes(
-                rerankerPlan.get(), ctx, tenantId, sources));
+                rerankerPlan.get(), ctx, tenantId, sources.get()));
     }
 
     private static String extractTableName(Query query) {

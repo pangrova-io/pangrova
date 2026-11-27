@@ -56,7 +56,7 @@ class CoordinatorStatementCrashRecoveryTest {
             try {
                 int port = awaitChild(child);
                 var receipt = submit(issuer, port);
-                assertThat(receipt.resultEndpoint()).isNotNull();
+                assertThat(receipt.resultDisposition()).isEqualTo(ResultDisposition.PENDING);
                 String query = receipt.queryId();
                 var anchors = new JdbcExecutionAnchorStore(source);
                 var owner = anchors.current(query).orElseThrow();
@@ -69,6 +69,7 @@ class CoordinatorStatementCrashRecoveryTest {
                                         .isEqualTo(ResultDisposition.UNAVAILABLE);
                             }));
                 }
+                assertThat(status(issuer, port, query).resultEndpoint()).isNotNull();
                 assertThat(slots(source)).isOne();
 
                 child.destroyForcibly();
@@ -137,7 +138,7 @@ class CoordinatorStatementCrashRecoveryTest {
         assertUnresolved(source, query, owner.ownerIncarnation());
 
         try (var fetcher = new FlightResultFetcher();
-             var cursor = fetcher.open(receipt.resultEndpoint(), System.currentTimeMillis() + 5_000)) {
+             var cursor = fetcher.open(state.status().endpoint(), System.currentTimeMillis() + 5_000)) {
             assertThat(cursor.next()).isFalse();
         }
         await().atMost(Duration.ofSeconds(10)).until(state::physicalCleanupApplied);
@@ -154,7 +155,13 @@ class CoordinatorStatementCrashRecoveryTest {
         assertThat(status(issuer, original.getHttpPort(), query)).isEqualTo(drained);
         assertThat(original.isStarted()).isTrue();
         assertThat(successor.isStarted()).isTrue();
-        assertThat(submit(issuer, successor.getHttpPort()).resultEndpoint()).isNotNull();
+        var next = submit(issuer, successor.getHttpPort());
+        var nextStatus = org.pangrova.server.coordinator.testinfra.QuerySubmissionTestSupport
+                .awaitResultOrTerminal(successor.getQueryManager(), next);
+        try (var fetcher = new FlightResultFetcher();
+             var cursor = fetcher.open(nextStatus.endpoint(), System.currentTimeMillis() + 5_000)) {
+            assertThat(cursor.next()).isFalse();
+        }
     }
 
     private static QueryStatusResponse status(SignedOidcIssuer issuer, int port, String query) throws Exception {

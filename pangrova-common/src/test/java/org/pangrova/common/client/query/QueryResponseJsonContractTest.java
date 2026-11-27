@@ -29,7 +29,7 @@ class QueryResponseJsonContractTest {
         ResultEndpoint endpoint = new ResultEndpoint("host1", 9090, "ticket-abc", "grpc");
         QueryStats stats = new QueryStats(1500L, 200L, 42L);
         QueryStatusResponse response = new QueryStatusResponse(
-                "q-123", "FAILED", error, stats, ResultDisposition.STREAM, endpoint, 17L, false);
+                "q-123", "FAILED", error, stats, ResultDisposition.STREAM, endpoint, 17L, false, null);
 
         JsonNode root = MAPPER.valueToTree(response);
 
@@ -124,19 +124,21 @@ class QueryResponseJsonContractTest {
 
     @Test
     void branchAcknowledgementDistinguishesUnchangedSelectionAndReset() throws Exception {
-        SubmitQueryResponse ordinary = new SubmitQueryResponse(
-                "q", "FINISHED", ResultDisposition.NONE, null, null);
+        QueryStatusResponse ordinary = QueryStatusResponse.of("q", "FINISHED", null, ResultDisposition.NONE, null);
         JsonNode ordinaryJson = MAPPER.valueToTree(ordinary);
         assertThat(ordinaryJson.has("branch_selection")).isFalse();
-        assertThat(MAPPER.treeToValue(ordinaryJson, SubmitQueryResponse.class).branchSelection()).isNull();
+        assertThat(MAPPER.treeToValue(ordinaryJson, QueryStatusResponse.class).branchSelection()).isNull();
 
         for (BranchSelection change : java.util.List.of(
                 new BranchSelection("catalog.db.orders", "dev"), new BranchSelection("catalog.db.orders", null))) {
-            SubmitQueryResponse response = new SubmitQueryResponse(
-                    "q", "FINISHED", ResultDisposition.NONE, null, null, change, null);
+            QueryStatusResponse response = new QueryStatusResponse(
+                    "q", "FINISHED", null, null, ResultDisposition.NONE, null, 1L, false, change);
             JsonNode json = MAPPER.valueToTree(response);
             assertThat(json.at("/branch_selection/table").asText()).isEqualTo(change.table());
-            assertThat(MAPPER.treeToValue(json, SubmitQueryResponse.class).branchSelection()).isEqualTo(change);
+            assertThat(MAPPER.treeToValue(json, QueryStatusResponse.class).branchSelection()).isEqualTo(change);
+            var recovered = QueryStatusResponse.recovered("q", "FINISHED", null, ResultDisposition.NONE, change);
+            assertThat(MAPPER.readValue(MAPPER.writeValueAsBytes(recovered), QueryStatusResponse.class))
+                    .isEqualTo(recovered);
         }
         assertThat(MAPPER.valueToTree(QueryStatusResponse.of(
                 "q", "FINISHED", null, ResultDisposition.NONE, null))
@@ -147,7 +149,7 @@ class QueryResponseJsonContractTest {
     void ownerEndpointIsAnOptionalSubmitReceiptField() throws Exception {
         var owner = new QueryOwnerEndpoint("coordinator-1", "incarnation-1", "localhost", 8080);
         var receipt = new SubmitQueryResponse(
-                "q", "QUEUED", ResultDisposition.PENDING, null, null, null, owner);
+                "q", "QUEUED", ResultDisposition.PENDING, null, null, owner);
         JsonNode json = MAPPER.valueToTree(receipt);
         assertThat(json.at("/owner_endpoint/coordinator_id").asText()).isEqualTo("coordinator-1");
         assertThat(json.at("/owner_endpoint/incarnation").asText()).isEqualTo("incarnation-1");
@@ -168,7 +170,16 @@ class QueryResponseJsonContractTest {
         var endpoint = new ResultEndpoint("worker", 8080, "ticket", "grpc");
 
         assertThat(ResultDisposition.values())
-                .containsExactly(ResultDisposition.PENDING, ResultDisposition.STREAM, ResultDisposition.NONE);
+                .containsExactly(ResultDisposition.PENDING, ResultDisposition.STREAM, ResultDisposition.NONE,
+                        ResultDisposition.UNAVAILABLE);
+        assertThatThrownBy(() -> new SubmitQueryResponse(
+                "q", "FINISHED", ResultDisposition.UNAVAILABLE, null, null))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> QueryStatusResponse.of(
+                "q", "FINISHED", null, ResultDisposition.UNAVAILABLE, null))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThat(QueryStatusResponse.recovered("q", "FINISHED", null, ResultDisposition.UNAVAILABLE, null)
+                .recovered()).isTrue();
         assertThatThrownBy(() -> new SubmitQueryResponse(
                 "q", "RUNNING", ResultDisposition.STREAM, null, null))
                 .isInstanceOf(IllegalArgumentException.class);
@@ -248,7 +259,7 @@ class QueryResponseJsonContractTest {
         assertThat(json.has("drained")).isFalse();
         assertThat(MAPPER.treeToValue(json, QueryStatusResponse.class)).isEqualTo(historical);
         assertThatThrownBy(() -> new QueryStatusResponse("q", "FAILED",
-                new ErrorDetail("ERR", "TYPE", "message"), null, null, null, null, null))
+                new ErrorDetail("ERR", "TYPE", "message"), null, null, null, null, null, null))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("only query_id and state");
     }

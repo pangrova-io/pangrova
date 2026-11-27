@@ -31,6 +31,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+import static org.pangrova.server.coordinator.testinfra.QuerySubmissionTestSupport.assertAdmissionThenWorkerFailure;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -149,8 +150,7 @@ class PlannerChainTest extends org.pangrova.server.coordinator.testinfra.SignedO
         assertThat(port).isGreaterThan(0);
 
         HttpResponse<String> resp = submitQuery(port, "SELECT 1");
-        assertThat(resp.statusCode()).isEqualTo(503);
-        assertThat(resp.body()).contains("No available worker for task dispatch");
+        assertAdmissionThenWorkerFailure(bootstrap.getQueryManager(), resp);
     }
 
     @Test

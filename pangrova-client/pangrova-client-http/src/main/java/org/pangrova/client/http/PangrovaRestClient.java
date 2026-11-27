@@ -132,13 +132,7 @@ public final class PangrovaRestClient implements QueryClient, AutoCloseable {
         var properties = new java.util.HashMap<>(branchRoutes);
         if (sessionProperties != null) properties.putAll(sessionProperties);
         var request = new SubmitQueryRequest(sql, properties);
-        var response = postNonIdempotent("/v1/query/submit", request, SubmitQueryResponse.class, selection);
-        var branch = response.branchSelection();
-        if (branch != null) {
-            if (branch.branch() == null) branchRoutes.remove(branch.propertyKey());
-            else branchRoutes.put(branch.propertyKey(), branch.branch());
-        }
-        return response;
+        return postNonIdempotent("/v1/query/submit", request, SubmitQueryResponse.class, selection);
     }
 
     /**
@@ -298,6 +292,7 @@ public final class PangrovaRestClient implements QueryClient, AutoCloseable {
         private final String observer = java.util.UUID.randomUUID().toString();
         private volatile QueryControlRoute route;
         private volatile QueryStatusResponse recovered;
+        private volatile boolean branchApplied;
         private Long version;
 
         OwnerQuery(SubmitQueryResponse receipt, EndpointRouting.Selection selection) {
@@ -369,6 +364,7 @@ public final class PangrovaRestClient implements QueryClient, AutoCloseable {
                         response.statusCode());
             }
             version = status.version();
+            applyBranchSelection(status);
             return status;
         }
 
@@ -410,8 +406,20 @@ public final class PangrovaRestClient implements QueryClient, AutoCloseable {
                         "Receipt recovery requires a matching, physically drained terminal outcome",
                         response.statusCode());
             }
+            applyBranchSelection(status);
             recovered = status;
             return status;
+        }
+
+        private void applyBranchSelection(QueryStatusResponse status) {
+            var branch = status.branchSelection();
+            if (branch == null || branchApplied) return;
+            synchronized (this) {
+                if (branchApplied) return;
+                if (branch.branch() == null) branchRoutes.remove(branch.propertyKey());
+                else branchRoutes.put(branch.propertyKey(), branch.branch());
+                branchApplied = true;
+            }
         }
 
         private HttpResponse<String> executeObservation(EndpointRouting.Selection selected,

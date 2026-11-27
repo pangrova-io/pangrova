@@ -59,7 +59,7 @@ class QueryStateMachineReadinessTest {
         state.setResultEndpoint(endpoint);
         assertThat(waiting).isCompletedWithValue(
                 new QueryStateMachine.Status(initial.version() + 1, QueryState.RUNNING, null,
-                        ResultDisposition.STREAM, endpoint, false));
+                        ResultDisposition.STREAM, endpoint, false, null));
         assertThat(state.awaitStatus(QueryWaitTarget.NEXT_VERSION, initial.version()))
                 .isCompletedWithValue(state.status());
 
@@ -72,7 +72,7 @@ class QueryStateMachineReadinessTest {
         assertThat(state.claimPhysicalCleanup(true)).isFalse();
         assertThat(drained).isCompletedWithValue(
                 new QueryStateMachine.Status(terminal.version() + 1, QueryState.FINISHED, null,
-                        ResultDisposition.STREAM, endpoint, true));
+                        ResultDisposition.STREAM, endpoint, true, null));
     }
 
     @Test

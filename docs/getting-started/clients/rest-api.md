@@ -164,16 +164,22 @@ The protocol is canonical and must be
 `grpc` or `grpc+tls`. Consume a readable `RUNNING`
 or `FINISHING` stream before waiting for `FINISHED`; bounded output can require an
 active reader to finish. The `session_properties` field is optional and defaults
-to an empty map. When an authenticated principal submits an `Idempotency-Key`, the
-Coordinator atomically records the principal, key digest, canonical request
+to an empty map. For each authenticated submission, the
+Coordinator atomically records the principal, journal key digest, canonical request
 fingerprint, lineage, and a deterministic `QUEUED`/`PENDING` acceptance receipt in
 the initial journal row. A normal new acceptance performs one journal INSERT and no
-readback. During the acceptance window, a matching retry returns the same query ID
+readback. A request without `Idempotency-Key` creates a fresh query identity.
+During the acceptance window, a matching retry with an explicit key returns the same query ID
 and acceptance receipt without executing the SQL again; changing SQL or session
 properties returns HTTP 409. Each principal has an independent key space.
 Once the acceptance receipt is returned, the query continues under its
 execution deadline. Poll its status for the transition to a readable result or
 terminal outcome.
+
+Successful `USE BRANCH` includes `branch_selection` in terminal status and receipt
+recovery. Use its table and branch to set the corresponding
+`branch.routing.<catalog>.<schema>.<table>` session property on later requests.
+A null branch clears the property.
 
 Acceptance facts remain until ten minutes after the later of acceptance or terminal
 completion. Once that window elapses, a new candidate may reuse the key with either
