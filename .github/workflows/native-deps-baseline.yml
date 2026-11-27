@@ -6,7 +6,7 @@ on:
       probe:
         description: Isolated CI stage to verify
         type: choice
-        options: [macos-docker, macos-intel-docker, production, worker-files, java-daily, libunwind, ai-fixture]
+        options: [macos-docker, macos-intel-docker, production, worker-files, java-daily, libunwind, ai-fixture, jmh-relative]
         default: macos-docker
 
 permissions:
@@ -14,6 +14,83 @@ permissions:
   actions: read
 
 jobs:
+  jmh-relative:
+    name: JMH comparison on a single runner
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    if: inputs.probe == 'jmh-relative'
+    env:
+      MAVEN_ARGS: -C --global-settings ${{ github.workspace }}/.mvn/ci-settings.xml
+      PANGROVA_CANDIDATE_SHA: afdddbed3bfa7d18a770a01382d86b8d37bd3c26
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: afdddbed3bfa7d18a770a01382d86b8d37bd3c26
+      - name: Check out the exact pull request base
+        uses: actions/checkout@v7
+        with:
+          ref: 426d367632b2708a801e56839c592498db6a75a6
+          path: jmh-base
+
+      - name: Set up function-contract Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build JMH harnesses for the base and candidate
+        env:
+          BASE_SHA: 426d367632b2708a801e56839c592498db6a75a6
+        run: |
+          [[ "$(git -C jmh-base rev-parse HEAD)" == "$BASE_SHA" ]]
+          [[ "$(git rev-parse HEAD)" == "$PANGROVA_CANDIDATE_SHA" ]]
+          benchmark_args=(-B package -pl pangrova-testing/pangrova-testing-benchmark -am
+                          -DskipTests -Dmaven.test.skip=true)
+          (cd jmh-base && mvn "${benchmark_args[@]}")
+          mvn "${benchmark_args[@]}"
+
+      - name: Measure the base and candidate on the same runner
+        run: |
+          jar=pangrova-testing/pangrova-testing-benchmark/target/pangrova-benchmarks.jar
+          mkdir -p target/jmh
+          printf 'base=%s\ncandidate=%s\n' "$(git -C jmh-base rev-parse HEAD)" "$PANGROVA_CANDIDATE_SHA" \
+            > target/jmh/revisions.txt
+          measure() {
+            java --add-opens=java.base/java.nio=ALL-UNNAMED -jar "$1" \
+              -f 2 -wi 2 -i 3 -t 1 -foe true -jvmArgsAppend '-Xms512m -Xmx512m' \
+              -rf json -rff "target/jmh/$2.json"
+          }
+          measure "jmh-base/$jar" base
+          measure "$jar" candidate
+
+      - name: Confirm the former empty baseline rejects real measurements
+        run: |
+          git -C jmh-base show HEAD:pangrova-testing/pangrova-testing-benchmark/baseline/jmh-baseline.json > "$RUNNER_TEMP/jmh-previous.json"
+          set +e
+          bash pangrova-testing/pangrova-testing-benchmark/scripts/jmh-regression-check.sh             target/jmh/candidate.json "$RUNNER_TEMP/jmh-previous.json" 0.10
+          result=$?
+          set -e
+          test "$result" -eq 2
+
+      - name: Check for regressions (>10% = fail)
+        run: |
+          bash pangrova-testing/pangrova-testing-benchmark/scripts/jmh-regression-check.sh \
+            target/jmh/candidate.json target/jmh/base.json 0.10
+
+      - name: Upload JMH results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: jmh-benchmark-results
+          path: target/jmh/
+          retention-days: 30
+
   ai-fixture:
     if: inputs.probe == 'ai-fixture'
     name: Prepare and validate the real offline AI fixture
