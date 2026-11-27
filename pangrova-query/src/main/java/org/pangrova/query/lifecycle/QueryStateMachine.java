@@ -65,6 +65,8 @@ public class QueryStateMachine {
     private Map<QueryWaitTarget, Set<CompletableFuture<Status>>> statusWaiters;
     private final Instant createdAt = Instant.now();
     private volatile String tenantId;
+    @GuardedBy("this")
+    private QueryRegistry tenantUsageRegistry;
     private final String auditPrincipal;
     private volatile String sql;
     private volatile QueryAuditRecord terminalAudit;
@@ -148,12 +150,27 @@ public class QueryStateMachine {
         }
     }
 
+    synchronized void bindTenantUsage(QueryRegistry registry) {
+        if (physicalCleanupApplied) return;
+        if (tenantUsageRegistry != null) {
+            throw new IllegalStateException("Tenant usage is already registered");
+        }
+        if (tenantId != null) {
+            registry.updateTenantUsage(tenantId, 1, status.state() == QueryState.QUEUED ? 1 : 0);
+        }
+        tenantUsageRegistry = registry;
+    }
+
     /** Completes local cleanup once and publishes drain immediately when retirement also committed. */
     public boolean claimPhysicalCleanup(boolean retired) {
         StatusChange change = StatusChange.UNOBSERVED;
         synchronized (this) {
             if (physicalCleanupApplied) return false;
             if (retired) change = publishPhysicalRetirement();
+            if (tenantUsageRegistry != null && tenantId != null) {
+                tenantUsageRegistry.updateTenantUsage(tenantId, -1, status.state() == QueryState.QUEUED ? -1 : 0);
+            }
+            tenantUsageRegistry = null;
             physicalCleanupApplied = true;
         }
         change.notifyWaiters();
@@ -405,6 +422,9 @@ public class QueryStateMachine {
             if (target == QueryState.FAILED && failure == null) failure = failureError;
             change = publishStatus(target, failure, previous.disposition(),
                     previous.endpoint(), previous.drained());
+            if (previous.state() == QueryState.QUEUED && tenantUsageRegistry != null && tenantId != null) {
+                tenantUsageRegistry.updateTenantUsage(tenantId, 0, -1);
+            }
             terminalTransitionPending = null;
             pendingTransitionTarget = null;
         }
@@ -504,8 +524,11 @@ public class QueryStateMachine {
         return principal != null && !principal.isBlank() && principal.equals(auditPrincipal);
     }
 
-    /** Sets the tenant identifier for per-tenant quota filtering. */
-    public void setTenantId(String tenantId) {
+    /** Assigns the tenant before registering the query for local quota accounting. */
+    public synchronized void setTenantId(String tenantId) {
+        if (tenantUsageRegistry != null && !java.util.Objects.equals(this.tenantId, tenantId)) {
+            throw new IllegalStateException("Tenant cannot change after query registration");
+        }
         this.tenantId = tenantId;
     }
 

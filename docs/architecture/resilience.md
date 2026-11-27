@@ -253,7 +253,14 @@ matching slot, and decrements the tenant count. A write recovery handoff keeps b
 uncertain transaction acknowledgement leaves any committed slot discoverable through the same
 execution anchor. [PostgreSQL INSERT](https://www.postgresql.org/docs/16/sql-insert.html) · [PostgreSQL WITH](https://www.postgresql.org/docs/16/queries-with.html)
 
-A submission resolves its authenticated membership and active tenant together. The Scheduler uses the concurrency and memory limits supplied by that authority read. Later placement cohorts observe their current tenant policy. An identity without tenant membership receives HTTP 403 with `SECURITY-0002`.
+A submission resolves its authenticated membership and active tenant together.
+The Coordinator looks up the resolved tenant's local occupancy directly. A
+registered query leaves the queued count on its first transition out of
+`QUEUED` and leaves the local concurrent count after physical cleanup.
+Retained terminal query history contributes zero after cleanup. The Scheduler
+uses the concurrency and memory limits from the membership and tenant read.
+Later placement cohorts observe their current tenant policy. An identity
+without tenant membership receives HTTP 403 with `SECURITY-0002`.
 
 A Worker can explicitly reject task admission while its control epoch catches up.
 The Coordinator retries the same stamped attempt while its dispatch deadline has

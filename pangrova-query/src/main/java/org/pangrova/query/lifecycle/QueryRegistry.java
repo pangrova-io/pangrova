@@ -1,8 +1,6 @@
 package org.pangrova.query.lifecycle;
 
 import java.time.Instant;
-import java.util.Collection;
-import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -14,9 +12,12 @@ import java.util.function.BiConsumer;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import org.pangrova.query.exception.QueryRegistrationPendingException;
+import org.pangrova.query.lifecycle.TenantAdmissionPort.LocalUsage;
 
 /** Owns local query membership, including retained terminal states and outstanding physical cleanup. */
 public final class QueryRegistry {
+    private static final LocalUsage EMPTY_TENANT_USAGE = new LocalUsage(0, 0);
+    private final ConcurrentHashMap<String, LocalUsage> tenantUsage;
     private final ConcurrentHashMap<String, QueryStateMachine> queries = new ConcurrentHashMap<>();
     // Initializers may call external services. Reserve the identity outside shared map operations.
     private final ConcurrentHashMap<String, QueryStateMachine> registering = new ConcurrentHashMap<>();
@@ -25,6 +26,14 @@ public final class QueryRegistry {
     private final AtomicInteger outstanding = new AtomicInteger();
     private final ReentrantLock drainLock = new ReentrantLock();
     private final Condition progressed = drainLock.newCondition();
+
+    public QueryRegistry() {
+        this(false);
+    }
+
+    public QueryRegistry(boolean trackTenantUsage) {
+        tenantUsage = trackTenantUsage ? new ConcurrentHashMap<>() : null;
+    }
 
     /** Initializes a new lifetime before making it visible. A duplicate never invokes the initializer. */
     public QueryStateMachine register(String id, QueryStateMachine state, Runnable initialize) {
@@ -40,6 +49,9 @@ public final class QueryRegistry {
             QueryStateMachine current = queries.get(id);
             if (current != null) return current;
             initialize.run();
+            if (tenantUsage != null) {
+                state.bindTenantUsage(this);
+            }
             outstanding.incrementAndGet();
             queries.put(id, state);
             return null;
@@ -94,9 +106,22 @@ public final class QueryRegistry {
         return Map.copyOf(queries);
     }
 
-    /** Live membership for quota accounting. Clients may only observe it. */
-    public Collection<QueryStateMachine> states() {
-        return Collections.unmodifiableCollection(queries.values());
+    /** Returns the current local occupancy directly by tenant. */
+    public LocalUsage tenantUsage(String tenantId) {
+        return tenantUsage == null ? EMPTY_TENANT_USAGE : tenantUsage.getOrDefault(tenantId, EMPTY_TENANT_USAGE);
+    }
+
+    // Called while holding the affected query's state lock. The map operation must not acquire state locks.
+    void updateTenantUsage(String tenantId, int concurrentDelta, int queuedDelta) {
+        tenantUsage.compute(tenantId, (id, existing) -> {
+            var previous = existing == null ? EMPTY_TENANT_USAGE : existing;
+            int concurrent = previous.concurrentQueries() + concurrentDelta;
+            int queued = previous.queuedQueries() + queuedDelta;
+            if (queued < 0 || queued > concurrent) {
+                throw new IllegalStateException("Inconsistent query occupancy for tenant " + id);
+            }
+            return concurrent == 0 ? null : new LocalUsage(concurrent, queued);
+        });
     }
 
     public void forEach(BiConsumer<String, QueryStateMachine> consumer) {

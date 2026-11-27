@@ -1,10 +1,12 @@
 package org.pangrova.query.runtime;
 
+import java.util.function.Function;
 import java.util.function.Predicate;
 import org.pangrova.query.retention.QueryRetentionScheduler;
 
 import org.pangrova.query.lifecycle.QueryExecutionPort;
 import org.pangrova.query.lifecycle.QueryTerminalCleanup;
+import org.pangrova.query.lifecycle.TenantAdmissionPort;
 
 import org.pangrova.query.lifecycle.QueryStateMachine;
 
@@ -67,7 +69,7 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
     private static final String DRAIN_REJECTION_MESSAGE =
             "Coordinator is draining, not accepting new queries";
 
-    private final QueryRegistry queries = new QueryRegistry();
+    private final QueryRegistry queries;
     private final Map<String, QueryStateMachine> pendingCandidateCleanup = new ConcurrentHashMap<>();
     private final Set<QueryStateMachine> candidateCleanupClaims = ConcurrentHashMap.newKeySet();
     private final Set<String> pendingCancellations = ConcurrentHashMap.newKeySet();
@@ -77,7 +79,8 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
     private final QueryExecutionPort queryDispatcher;
     private final TracingProvider tracingProvider;
     private final ExecutionTraceContextFactory traceContexts;
-    private final org.pangrova.query.lifecycle.TenantAdmissionPort tenantAdmission;
+    private final TenantAdmissionPort tenantAdmission;
+    private final Function<String, TenantAdmissionPort.LocalUsage> tenantUsage;
     private final QueryRetentionScheduler cleanupScheduler;
     private final org.pangrova.query.lifecycle.QueryAuditPort auditBridge;
     private final LongCounter querySubmitCounter;
@@ -115,6 +118,8 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
         this.tracingProvider = deps.tracingProvider();
         this.traceContexts = deps.traceContexts();
         this.tenantAdmission = deps.tenantAdmission();
+        this.queries = new QueryRegistry(tenantAdmission != null);
+        this.tenantUsage = queries::tenantUsage;
         this.lifecycleMetrics = new QueryLifecycleMetrics(deps.metricsProvider(), nanoClock);
         this.terminalCleanup = new QueryTerminalCleanup(queryDispatcher, this::appendTerminalJournal,
                 this::emitTerminalEvents,
@@ -336,7 +341,7 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
         QueryAcceptanceAdmission acceptanceAdmission = null;
         try {
             ResolvedTenantContext tenant = tenantAdmission == null ? null
-                    : tenantAdmission.resolveTenant(session.userIdentity(), queries.states());
+                    : tenantAdmission.resolveTenant(session.userIdentity(), tenantUsage);
             String tenantId = tenant == null ? unscopedTenantId(session) : tenant.tenantId();
             sm.setTenantId(tenantId);
             enriched = session.withTenantId(tenantId);
