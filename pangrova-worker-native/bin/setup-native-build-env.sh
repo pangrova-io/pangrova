@@ -379,6 +379,8 @@ build_grpc() {
   # dependency. Force HTTP/1.1 for Git transports that fail HTTP/2 framing.
   git -c http.version=HTTP/1.1 -C "$src" submodule update --init --depth 1 \
     third_party/cares/cares
+  # gRPC ships the generated sources for the installed libraries. Its
+  # optional external proto downloads would add network access to configure.
   cmake -S "$src" -B "$src/_cmake_build" -GNinja \
     -U CMAKE_CXX_FLAGS \
     -DCMAKE_BUILD_TYPE=Release \
@@ -394,6 +396,7 @@ build_grpc() {
     -DgRPC_INSTALL=ON \
     -DgRPC_BUILD_TESTS=OFF \
     -DgRPC_BUILD_CSHARP_EXT=OFF \
+    -DgRPC_DOWNLOAD_ARCHIVES=OFF \
     -DgRPC_ABSL_PROVIDER=package \
     -DgRPC_CARES_PROVIDER=module \
     -DgRPC_PROTOBUF_PROVIDER=package \

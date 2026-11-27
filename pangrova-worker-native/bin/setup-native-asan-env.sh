@@ -173,6 +173,7 @@ build_asan_dependency "$GRPC_SOURCE" "$GRPC_SOURCE/build-asan-ci" \
     -DProtobuf_DIR:PATH="$ASAN_PREFIX/lib/cmake/protobuf" \
     -Dre2_DIR:PATH="$ASAN_PREFIX/lib/cmake/re2" \
     -DgRPC_INSTALL=ON -DgRPC_BUILD_TESTS=OFF -DgRPC_BUILD_CSHARP_EXT=OFF \
+    -DgRPC_DOWNLOAD_ARCHIVES=OFF \
     -DBUILD_SHARED_LIBS=OFF \
     -DgRPC_ABSL_PROVIDER=package -DgRPC_PROTOBUF_PROVIDER=package \
     -DgRPC_RE2_PROVIDER=package -DgRPC_CARES_PROVIDER=module \

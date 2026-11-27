@@ -97,6 +97,9 @@ miss:
 
 - gRPC's configure needs OpenSSL and zlib headers that `setup-ubuntu.sh` would
   have installed afterwards, so CI installs them up front.
+- The gRPC library builds use the generated protocol sources in the pinned
+  checkout. Both the standard and ASan builds disable gRPC's optional
+  configure-time archive downloads.
 - The package-managed CMake can shadow the system one without a Modules
   directory, so both bootstraps validate the CMake found at startup and put its
   directory back in front of `PATH` before configuring Velox.

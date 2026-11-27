@@ -286,6 +286,7 @@ printf '%s\\n' "$@" >> "$TRACE"
         trace = (self.root / "cmake-trace").read_text()
         self.assertIn(str(self.root / "build/abseil-cpp"), trace)
         self.assertIn(str(self.root / "build/grpc"), trace)
+        self.assertIn("-DgRPC_DOWNLOAD_ARCHIVES=OFF", trace.splitlines())
         self.assertNotIn("-DCMAKE_OSX_ARCHITECTURES=arm64", trace)
 
     def test_macos_arm_bootstrap_keeps_the_architecture_argument(self):
