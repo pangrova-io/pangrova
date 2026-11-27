@@ -65,9 +65,9 @@ public final class QueryRegistry {
         if (pendingSubmissions.remove(id, state)) signalDrained();
     }
 
-    /** Called after physical resources have been released. The lifetime owns the once-only transition. */
-    public void complete(String id, QueryStateMachine state) {
-        if (!state.claimPhysicalCleanup()) return;
+    /** Completes local bookkeeping and publishes global drain only with committed retirement evidence. */
+    public void complete(String id, QueryStateMachine state, boolean retired) {
+        if (!state.claimPhysicalCleanup(retired)) return;
         if (state.discardUnadmittedQuery()) queries.remove(id, state);
         if (outstanding.decrementAndGet() == 0) {
             signalDrained();

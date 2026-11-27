@@ -144,7 +144,7 @@ class QueryTerminalCleanupContractTest {
         private final QueryTerminalCleanup cleanup = new QueryTerminalCleanup(
                 execution, ignored -> events.add("journal"), ignored -> events.add("observability"),
                 context -> {
-                    assertThat(context.state().claimPhysicalCleanup()).isTrue();
+                    assertThat(context.state().claimPhysicalCleanup(true)).isTrue();
                     events.add("release");
                 }, clock::get);
     }

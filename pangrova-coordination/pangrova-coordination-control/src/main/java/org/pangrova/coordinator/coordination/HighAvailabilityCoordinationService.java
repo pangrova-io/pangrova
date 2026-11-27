@@ -338,6 +338,11 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
         return ownership.releaseLocallyDrainedQuery(anchor);
     }
 
+    /** Checks retirement only for an observer of locally drained work handed to recovery. */
+    public boolean isQueryRetired(String queryId) {
+        return ownership.isQueryRetired(queryId);
+    }
+
     /** Retires a drained SQL predecessor, preserving grants that still own durable dependencies. */
     public boolean releaseDrainedRecoveryClaim(ExecutionAnchor anchor, boolean remoteShuffle) {
         return ownership.releaseDrainedQuery(anchor, remoteShuffle);

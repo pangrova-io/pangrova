@@ -253,6 +253,10 @@ final class QueryOwnershipRegistry {
                 : finishRetirement(retiring, store::releaseLocallyDrainedQuery);
     }
 
+    boolean isQueryRetired(String executionId) {
+        return store.isQueryRetired(executionId);
+    }
+
     boolean releaseDrainedQuery(ExecutionAnchor anchor, boolean remoteShuffle) {
         // A remote scope or commit can still be pending. Keep the local grant renewable while it is live.
         Ownership retiring = claimRetirement(anchor.executionId(), current -> sameOwner(current, anchor));

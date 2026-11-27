@@ -216,7 +216,7 @@ public final class QueryResource {
             response.resume(queryNotFound(queryId));
             return;
         }
-        var current = owner.status();
+        var current = queryManager.observeOwnerStatus(queryId, owner);
         if (observation.waitMillis() == 0 || current.reaches(observation.target(), observation.afterVersion())) {
             response.resume(statusResponse(queryId, current));
             return;

@@ -21,8 +21,8 @@ class QueryRegistryTest {
         assertThat(registry.outstandingCount()).isZero();
         assertThat(registry.register("q", state, () -> {})).isNull();
         assertThat(registry.outstandingIds()).containsExactly("q");
-        registry.complete("q", state);
-        registry.complete("q", state);
+        registry.complete("q", state, true);
+        registry.complete("q", state, true);
         assertThat(registry.outstandingCount()).isZero();
         assertThat(registry.awaitDrain(0, () -> {})).isTrue();
     }
@@ -49,7 +49,7 @@ class QueryRegistryTest {
         registry.releaseSubmission("candidate", state);
         assertThat(registry.outstandingCount()).isOne();
         assertThat(registry.awaitDrain(0, () -> {})).isFalse();
-        registry.complete("candidate", state);
+        registry.complete("candidate", state, true);
         assertThat(registry.awaitDrain(0, () -> {})).isTrue();
     }
 

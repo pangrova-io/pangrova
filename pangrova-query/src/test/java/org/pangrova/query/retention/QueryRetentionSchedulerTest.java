@@ -112,13 +112,13 @@ class QueryRetentionSchedulerTest {
         queries.register("physical-owner", state, () -> { });
         assertThat(scheduler.cleanupTerminalQueries(Duration.ZERO)).isZero();
         assertThat(queries.snapshot()).containsKey("physical-owner");
-        assertThat(state.claimPhysicalCleanup()).isTrue();
+        assertThat(state.claimPhysicalCleanup(true)).isTrue();
         assertThat(scheduler.cleanupTerminalQueries(Duration.ZERO)).isEqualTo(1);
     }
 
     private static QueryStateMachine terminalStateMachine() {
         var sm = logicalTerminal();
-        sm.claimPhysicalCleanup();
+        sm.claimPhysicalCleanup(true);
         return sm;
     }
 

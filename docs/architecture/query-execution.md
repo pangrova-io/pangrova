@@ -778,10 +778,15 @@ Live response:
 Live status always includes `result_disposition`, `version`, and `drained`.
 Optional `error`, `stats`, and `result_endpoint` fields are omitted when absent.
 Result endpoint protocols are canonical: `grpc` or `grpc+tls`.
-`version` orders live owner snapshots and supports bounded waits; `drained`
-reports physical resource release rather than logical cancellation. Historical
-journal diagnostics contain only `query_id` and `state` because durable history
-does not carry live result, version, or drain authority.
+`version` orders live owner snapshots and supports bounded waits. A live owner
+publishes `drained` after local resources have exited and the execution anchor
+and execution-bound tenant reservation have been returned. When retirement
+passes to recovery, local cleanup finishes without publishing `drained`.
+Recovery in the same process wakes existing drain waiters after commit. An
+authenticated status request to a former owner can confirm a peer's retirement
+with one indexed check. Each query permits one check in flight, and active or
+already retired queries use the in-memory status.
+Historical journal diagnostics contain only `query_id` and `state`.
 
 Cancel query `POST /v1/query/{queryId}/cancel`
 

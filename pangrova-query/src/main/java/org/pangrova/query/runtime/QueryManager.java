@@ -607,6 +607,14 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
         return journalLifecycle.lookupForPrincipal(queryId, principal);
     }
 
+    /** Refreshes a formerly local observation after its original grant was handed off. */
+    public QueryStateMachine.Status observeOwnerStatus(String queryId, QueryStateMachine owner) {
+        var current = owner.status();
+        if (current.drained() || !owner.physicalCleanupApplied()) return current;
+        owner.refreshPhysicalRetirement(() -> queryDispatcher.isQueryRetired(queryId));
+        return owner.status();
+    }
+
     /** Resolves an authenticated receipt after a live owner cannot answer. */
     public Optional<org.pangrova.query.api.journal.QueryStateJournalReader.ReceiptRecovery> recoverReceipt(
             String queryId, String principal, String ticket) {
@@ -760,15 +768,16 @@ public final class QueryManager implements org.pangrova.query.api.lifecycle.Quer
         journalLifecycle.purge(context.queryId(), context.state());
         context.state().releaseAdmission();
         admission.releaseThrottle(context.queryId());
-        releaseQueryOwnership(context.queryId(), context.state());
+        boolean retired = releaseQueryOwnership(context.queryId(), context.state());
         queryDispatcher.retireQueryIssuance(context.queryId());
-        queries.complete(context.queryId(), context.state());
+        queries.complete(context.queryId(), context.state(), retired);
     }
 
-    private void releaseQueryOwnership(String queryId, QueryStateMachine state) {
+    private boolean releaseQueryOwnership(String queryId, QueryStateMachine state) {
         var grant = state.journalGrant();
-        if (grant == null) queryDispatcher.releaseQueryOwnership(queryId);
-        else queryDispatcher.releaseIssuedQueryOwnership(grant);
+        if (grant != null) return queryDispatcher.releaseIssuedQueryOwnership(grant);
+        queryDispatcher.releaseQueryOwnership(queryId);
+        return true;
     }
 
     /** Advances exact-attempt seals even when their query is still running. */

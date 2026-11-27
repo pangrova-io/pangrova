@@ -401,27 +401,31 @@ class JdbcQueryStateJournalIntegrationTest {
                 local.ownerId(), "another-boot", local.fencingToken(), local.acquiredAt(), local.expiresAt());
         assertFalse(store.releaseLocallyDrainedQuery(wrongIncarnation));
         assertFalse(store.release(local));
-        assertTrue(store.releaseLocallyDrainedQuery(local));
+        assertFalse(store.releaseLocallyDrainedQuery(local));
+        assertFalse(store.isQueryRetired(local.executionId()));
         var localClaim = store.tryAcquire(local.executionId(), "successor", "next-boot", lease).orElseThrow();
         assertFalse(store.releaseLocallyDrainedQuery(local));
         assertEquals(DrainOutcome.CONFIRMED, journal.confirmRecoveredTaskDrains(localClaim));
         assertTrue(store.releaseDrainedQuery(localClaim, false));
+        assertTrue(store.isQueryRetired(local.executionId()));
     }
 
-    @Test
-    void localDrainProofSurvivesExpirationAfterTheJournalWasPurged() {
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {true, false})
+    void localDrainProofSurvivesExpirationAfterTheJournalWasPurged(boolean coordinatorStatement) {
         var store = new JdbcExecutionAnchorStore(dataSource);
         var lease = Duration.ofMinutes(1);
         var original = store.tryAcquire("purged-local-statement", "original", "original-boot", lease).orElseThrow();
         var context = JournalEventContext.create(System.currentTimeMillis(), original.ownerId());
-        journal.appendFencedAdmissionSync(new QueryStateEvent(context, original.executionId(), "SHOW DYNAMIC TABLES",
+        journal.appendFencedAdmissionSync(new QueryStateEvent(context, original.executionId(), "SELECT 1",
                 "{}", "QUEUED"), original);
-        assertTrue(journal.reserveCoordinatorStatement(original));
+        if (coordinatorStatement) assertTrue(journal.reserveCoordinatorStatement(original));
 
         journal.purgeOwnedQuery(original);
         assertThat(journal.latestQueryEvent(original.executionId())).isEmpty();
         assertTrue(store.yield(original));
-        assertTrue(store.releaseLocallyDrainedQuery(original));
+        assertFalse(store.releaseLocallyDrainedQuery(original));
+        assertFalse(store.isQueryRetired(original.executionId()));
 
         var recovery = store.tryAcquire(original.executionId(), "successor", "next-boot", lease).orElseThrow();
         assertThat(journal.observedRecoveryExecutions(Set.of(recovery.executionId())))

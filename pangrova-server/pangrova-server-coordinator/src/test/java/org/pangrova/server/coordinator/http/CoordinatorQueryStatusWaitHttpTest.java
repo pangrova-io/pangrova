@@ -114,7 +114,7 @@ class CoordinatorQueryStatusWaitHttpTest {
 
             var released = peer.waitFor("q-events", 0, 5_000,
                     UUID.randomUUID().toString(), QueryWaitTarget.DRAINED);
-            assertThat(state.claimPhysicalCleanup()).isTrue();
+            assertThat(state.claimPhysicalCleanup(true)).isTrue();
             var drained = status(released.get(4, TimeUnit.SECONDS));
             assertThat(drained.drained()).isTrue();
             assertThat(drained.version()).isGreaterThan(finished.version());

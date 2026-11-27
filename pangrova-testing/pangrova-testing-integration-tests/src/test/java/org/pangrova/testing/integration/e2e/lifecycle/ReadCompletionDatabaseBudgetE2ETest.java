@@ -93,6 +93,9 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
 
     @Test
     void readCompletionChecksOwnershipWithoutQueryingTheWriteJournal() throws Exception {
+        String retirementLookup = "SELECT NOT EXISTS (%FROM execution_anchor WHERE execution_id=%"
+                + "AND NOT EXISTS (%FROM tenant_concurrency_queries%";
+        long previousRetirementLookups = calls(retirementLookup);
         long previousJournalLookups = calls(JOURNAL_LOOKUP);
         long previousReleaseJournalLookups = calls(RELEASE_JOURNAL_LOOKUP);
         long previousOwnershipLookups = calls(ANCHOR_LOOKUP);
@@ -125,6 +128,8 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
         assertThat(calls(RELEASE_JOURNAL_LOOKUP) - previousReleaseJournalLookups)
                 .as("separate write recovery SELECTs during anchor release").isZero();
         assertThat(calls(ANCHOR_LOOKUP) - previousOwnershipLookups).as("query finalization fence SELECTs").isOne();
+        assertThat(calls(retirementLookup) - previousRetirementLookups)
+                .as("retirement STATUS checks during normal read completion").isZero();
         assertExactAttemptProfile(queryId);
         assertProfileIsScopedToTheSubmittingPrincipal(queryId);
         assertQueryLifecycleIsScopedToTheSubmittingPrincipal(queryId);

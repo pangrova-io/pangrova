@@ -249,8 +249,13 @@ public class QueryDispatcher implements org.pangrova.query.lifecycle.QueryExecut
     }
 
     @Override
-    public void releaseIssuedQueryOwnership(org.pangrova.execution.api.ownership.ExecutionAnchor anchor) {
-        ownershipTracker.releaseIssuedQueryOwnership(anchor);
+    public boolean releaseIssuedQueryOwnership(org.pangrova.execution.api.ownership.ExecutionAnchor anchor) {
+        return ownershipTracker.releaseIssuedQueryOwnership(anchor);
+    }
+
+    @Override
+    public boolean isQueryRetired(String queryId) {
+        return ownershipTracker.isQueryRetired(queryId);
     }
 
     public org.pangrova.connector.api.query.ConnectorQueryAuthority openQueryIssuance(String queryId) {

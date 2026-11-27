@@ -2,6 +2,7 @@ package org.pangrova.server.coordinator.bootstrap;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.pangrova.common.client.query.QueryStatusResponse;
 import org.pangrova.common.client.query.SubmitQueryResponse;
 import org.pangrova.common.enums.ResultDisposition;
 import org.pangrova.common.json.JsonMapperFactory;
@@ -102,17 +103,17 @@ class CoordinatorStatementCrashRecoveryTest {
             var original = new CoordinatorBootstrap(config, tempDirectory.resolve("original"));
             var successor = new CoordinatorBootstrap(configuration("live-successor", issuer.uri(), jdbc),
                     tempDirectory.resolve("successor"));
-            original.start();
+            successor.start();
             try {
                 createTenant(source);
-                successor.start();
+                original.start();
                 try {
                     assertLiveDrain(issuer, source, original, successor);
                 } finally {
-                    successor.shutdown();
+                    original.shutdown();
                 }
             } finally {
-                original.shutdown();
+                successor.shutdown();
             }
         }
     }
@@ -126,6 +127,8 @@ class CoordinatorStatementCrashRecoveryTest {
 
         var anchors = new JdbcExecutionAnchorStore(source);
         var owner = anchors.current(query).orElseThrow();
+        var readWindow = java.util.UUID.randomUUID();
+        setReadWindow(source, query, readWindow);
         expire(source, query);
         assertThat(anchors.release(owner)).isFalse();
         assertThat(anchors.claimExpired("probe", "probe-incarnation", Duration.ofSeconds(30), 1)).isEmpty();
@@ -137,10 +140,50 @@ class CoordinatorStatementCrashRecoveryTest {
              var cursor = fetcher.open(receipt.resultEndpoint(), System.currentTimeMillis() + 5_000)) {
             assertThat(cursor.next()).isFalse();
         }
-        await().atMost(Duration.ofSeconds(45)).until(() -> state.status().drained() && slots(source) == 0);
+        await().atMost(Duration.ofSeconds(10)).until(state::physicalCleanupApplied);
+        var pending = status(issuer, original.getHttpPort(), query);
+        assertThat(pending.drained()).isFalse();
+        assertThat(slots(source)).isOne();
+
+        releaseReadWindow(source, readWindow);
+        await().atMost(Duration.ofSeconds(45)).until(() -> slots(source) == 0);
+        assertThat(state.status().drained()).isFalse();
+        var drained = status(issuer, original.getHttpPort(), query);
+        assertThat(drained.drained()).isTrue();
+        assertThat(drained.version()).isGreaterThan(pending.version());
+        assertThat(status(issuer, original.getHttpPort(), query)).isEqualTo(drained);
         assertThat(original.isStarted()).isTrue();
         assertThat(successor.isStarted()).isTrue();
         assertThat(submit(issuer, successor.getHttpPort()).resultEndpoint()).isNotNull();
+    }
+
+    private static QueryStatusResponse status(SignedOidcIssuer issuer, int port, String query) throws Exception {
+        var request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/v1/query/" + query + "/state"))
+                .timeout(Duration.ofSeconds(10))
+                .header("Authorization", "Bearer " + issuer.token(AUDIENCE, true))
+                .GET().build();
+        var response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).as("%s", response.body()).isEqualTo(200);
+        return JsonMapperFactory.create().readValue(response.body(), QueryStatusResponse.class);
+    }
+
+    private static void setReadWindow(PGSimpleDataSource source, String query, java.util.UUID readId) throws Exception {
+        try (var connection = source.getConnection(); var statement = connection.prepareStatement("""
+                INSERT INTO execution_read_window (read_id, execution_id, protected_until)
+                VALUES (?, ?, clock_timestamp() + INTERVAL '5 minutes')
+                """)) {
+            statement.setObject(1, readId);
+            statement.setString(2, query);
+            assertThat(statement.executeUpdate()).isOne();
+        }
+    }
+
+    private static void releaseReadWindow(PGSimpleDataSource source, java.util.UUID readId) throws Exception {
+        try (var connection = source.getConnection(); var statement = connection.prepareStatement(
+                "DELETE FROM execution_read_window WHERE read_id=?")) {
+            statement.setObject(1, readId);
+            assertThat(statement.executeUpdate()).isOne();
+        }
     }
 
     private static void expire(PGSimpleDataSource source, String query) throws Exception {

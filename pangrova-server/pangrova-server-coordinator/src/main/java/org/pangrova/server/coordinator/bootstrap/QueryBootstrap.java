@@ -568,7 +568,9 @@ final class QueryBootstrap {
         // The same process can claim its own expired grant while local resources still exist.
         var original = queryManager.getStateMachine(claim.executionId());
         if (original != null && !original.physicalCleanupApplied()) return false;
-        return durableRecovery.releaseRecoveredQuery(claim);
+        if (!durableRecovery.releaseRecoveredQuery(claim)) return false;
+        if (original != null) original.confirmPhysicalRetirement();
+        return true;
     }
 
     java.util.Set<String> observedRecoveryExecutions(java.util.Set<String> executions) {

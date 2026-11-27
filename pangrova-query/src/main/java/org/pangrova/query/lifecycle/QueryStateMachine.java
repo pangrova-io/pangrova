@@ -85,6 +85,8 @@ public class QueryStateMachine {
     private volatile boolean controlPlaneWriteFinalization;
     private volatile boolean readOnlyTaskExecution;
     private final AtomicBoolean terminalEffectsApplied = new AtomicBoolean();
+    private final AtomicBoolean retirementCheckInProgress = new AtomicBoolean();
+    private volatile boolean physicalCleanupApplied;
     private final AtomicBoolean journalOwnership = new AtomicBoolean();
     private volatile Runnable admissionRelease;
     @GuardedBy("this")
@@ -146,21 +148,47 @@ public class QueryStateMachine {
         }
     }
 
-    /** Claims bookkeeping once, only after the cleanup owner has completed physical release. */
-    public boolean claimPhysicalCleanup() {
-        StatusChange change;
+    /** Completes local cleanup once and publishes drain immediately when retirement also committed. */
+    public boolean claimPhysicalCleanup(boolean retired) {
+        StatusChange change = StatusChange.UNOBSERVED;
         synchronized (this) {
-            Status previous = status;
-            if (previous.drained()) return false;
-            change = publishStatus(previous.state(), previous.error(), previous.disposition(),
-                    previous.endpoint(), true);
+            if (physicalCleanupApplied) return false;
+            if (retired) change = publishPhysicalRetirement();
+            physicalCleanupApplied = true;
         }
         change.notifyWaiters();
         return true;
     }
 
-    /** Logical termination alone never sets this physical completion evidence. */
-    public boolean physicalCleanupApplied() { return status.drained(); }
+    /** Marks global drain after the recovery transaction returned the execution reservation. */
+    public void confirmPhysicalRetirement() {
+        StatusChange change;
+        synchronized (this) {
+            if (!physicalCleanupApplied || status.drained()) return;
+            change = publishPhysicalRetirement();
+        }
+        change.notifyWaiters();
+    }
+
+    /** Coalesces concurrent demand checks after local cleanup has handed off retirement. */
+    public void refreshPhysicalRetirement(java.util.function.BooleanSupplier retired) {
+        if (!physicalCleanupApplied || status.drained() || !retirementCheckInProgress.compareAndSet(false, true)) {
+            return;
+        }
+        try {
+            if (!status.drained() && retired.getAsBoolean()) confirmPhysicalRetirement();
+        } finally {
+            retirementCheckInProgress.set(false);
+        }
+    }
+
+    private StatusChange publishPhysicalRetirement() {
+        var previous = status;
+        return publishStatus(previous.state(), previous.error(), previous.disposition(), previous.endpoint(), true);
+    }
+
+    /** Local ownership has drained, irrespective of a pending durable recovery. */
+    public boolean physicalCleanupApplied() { return physicalCleanupApplied; }
     /** Journal owner records an accepted admission, including an outcome requiring confirmation. */
     public void retainJournalOwnership() { journalOwnership.set(true); }
     /** Whether this query retains responsibility for a potentially accepted journal admission. */

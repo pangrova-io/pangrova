@@ -148,6 +148,11 @@ class QueryOwnershipRegistryRenewalTest {
         }
 
         @Override
+        public boolean isQueryRetired(String executionId) {
+            return delegate.isQueryRetired(executionId);
+        }
+
+        @Override
         public Optional<ExecutionAnchor> current(String executionId) {
             return delegate.current(executionId);
         }

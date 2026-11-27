@@ -91,7 +91,9 @@ public interface ExecutionAnchorStore {
 
     /**
      * Retires locally drained work under its original grant. A former owner may
-     * relinquish its own expired local work proof without releasing successor resources.
+     * publish physical drain evidence for recovery without releasing successor resources.
+     *
+     * @return whether retirement actually removed the execution and its reservation
      */
     default boolean releaseLocallyDrainedQuery(ExecutionAnchor anchor) {
         return release(anchor);
@@ -117,6 +119,9 @@ public interface ExecutionAnchorStore {
             String newOwnerIncarnation,
             Duration leaseDuration,
             int maxBatchSize);
+
+    /** Checks physical retirement on demand, including reservations still held by expired executions. */
+    boolean isQueryRetired(String executionId);
 
     /** Returns the unexpired live anchor for an execution, if present. */
     Optional<ExecutionAnchor> current(String executionId);

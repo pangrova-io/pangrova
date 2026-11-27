@@ -125,9 +125,14 @@ public final class QueryOwnershipTracker {
         }
     }
 
-    void releaseIssuedQueryOwnership(ExecutionAnchor anchor) {
+    boolean releaseIssuedQueryOwnership(ExecutionAnchor anchor) {
         OwnershipSnapshot snapshot = ownershipSnapshot.get();
-        if (snapshot != null) snapshot.service().releaseLocallyDrainedQuery(anchor);
+        return snapshot != null && snapshot.service().releaseLocallyDrainedQuery(anchor);
+    }
+
+    boolean isQueryRetired(String queryId) {
+        OwnershipSnapshot snapshot = ownershipSnapshot.get();
+        return snapshot != null && snapshot.service().isQueryRetired(queryId);
     }
 
     /** Drains split, connector and Shuffle owners while retaining the execution grant. */
