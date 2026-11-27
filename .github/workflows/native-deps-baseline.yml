@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   metadata-regression:
-    name: Verify PostgreSQL rollback on the exact repaired source
+    name: Verify rollback and UTF-8 plans on the exact repaired source
     if: inputs.probe == 'metadata-regression'
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -52,10 +52,10 @@ jobs:
         run: |
           mkdir -p "$HOME/.m2/repository/org/apache/iceberg"
           cp -R "$RUNNER_TEMP/pangrova-iceberg-sdk/org/apache/iceberg/." "$HOME/.m2/repository/org/apache/iceberg/"
-      - name: Run the seven real rollback cases
+      - name: Run the rollback and planner cases
         run: |
-          mvn -B -Pfull-regression -pl pangrova-metadata/pangrova-metadata-catalog -am test \
-            '-Dtest=PostgresGenerationStageExchangeStoreTest#failedPartitionClaimRestoresAttemptAndPreservesPrimary' \
+          mvn -B -Pfull-regression -pl pangrova-metadata/pangrova-metadata-catalog,pangrova-planner -am test \
+            '-Dtest=PostgresGenerationStageExchangeStoreTest#failedPartitionClaimRestoresAttemptAndPreservesPrimary,TpchPlanStabilityTest,TpcdsPlanStabilityTest,JoinAlgorithmEligibilityTest,PangrovaPlannerTest' \
             -Dsurefire.failIfNoSpecifiedTests=false
 
   system-rebuild:
