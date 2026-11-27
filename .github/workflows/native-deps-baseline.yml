@@ -6,7 +6,7 @@ on:
       probe:
         description: Isolated CI stage to verify
         type: choice
-        options: [macos-docker, macos-intel-docker, production, worker-files, java-daily, libunwind, ai-fixture, jmh-relative]
+        options: [macos-docker, macos-intel-docker, production, worker-files, java-daily, libunwind, ai-fixture, jmh-relative, tpc-transport]
         default: macos-docker
 
 permissions:
@@ -14,6 +14,38 @@ permissions:
   actions: read
 
 jobs:
+  tpc-transport:
+    name: Verify TPC workload contracts and real client transport
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    if: inputs.probe == 'tpc-transport'
+    env:
+      MAVEN_ARGS: -C --global-settings ${{ github.workspace }}/.mvn/ci-settings.xml
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: 9b6cec59638eb1172ea888121649aaed6a994317
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-java@v6
+        with:
+          java-version: '17'
+          distribution: temurin
+          cache: maven
+      - name: Build the same-source CLI
+        run: |
+          test "$(git rev-parse HEAD)" = 9b6cec59638eb1172ea888121649aaed6a994317
+          mvn -B package -pl pangrova-client/pangrova-client-cli -am -DskipTests -Dmaven.test.skip=true
+      - name: Install pinned benchmark tooling
+        run: python -m pip install -r pangrova-testing/pangrova-testing-benchmark/requirements.txt
+      - name: Verify complete workloads, real Parquet conversion, runner and comparison contracts
+        run: python -m unittest discover -s pangrova-testing/pangrova-testing-benchmark/scripts/tests -v
+      - name: Verify persistent production client over real HTTP and Flight transport
+        run: >-
+          python pangrova-testing/pangrova-testing-benchmark/scripts/integration/test_persistent_transport.py
+          --classpath pangrova-client/pangrova-client-cli/target/pangrova-client-cli-0.1.0-SNAPSHOT-exec.jar
+
   jmh-relative:
     name: JMH comparison on a single runner
     runs-on: ubuntu-latest
