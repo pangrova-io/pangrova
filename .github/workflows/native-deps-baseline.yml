@@ -55,11 +55,21 @@ jobs:
           nm -u "$work/compatible.o" > "$work/symbols"
           cat "$work/symbols"
           if grep -E '__cxa_init_primary_exception|__from_native_exception_pointer' "$work/symbols"; then
+            printf 'Changing the deployment target alone retained the newer exception symbols\n'
+          fi
+          if "$cxx" -isysroot "$SDKROOT" "$work/compatible.o" -o "$work/compatible"; then
+            "$work/compatible"
+          fi
+          "$cxx" -isysroot "$SDKROOT" -nostdinc++ -isystem "$SDKROOT/usr/include/c++/v1" \
+            -std=c++20 -O2 -c "$work/exception.cpp" -o "$work/sdk-libcxx.o"
+          nm -u "$work/sdk-libcxx.o" > "$work/sdk-symbols"
+          cat "$work/sdk-symbols"
+          if grep -E '__cxa_init_primary_exception|__from_native_exception_pointer' "$work/sdk-symbols"; then
             exit 1
           fi
-          "$cxx" -isysroot "$SDKROOT" "$work/compatible.o" -o "$work/compatible"
-          "$work/compatible"
-          xcrun vtool -show-build "$work/compatible"
+          "$cxx" -isysroot "$SDKROOT" "$work/sdk-libcxx.o" -o "$work/sdk-libcxx"
+          "$work/sdk-libcxx"
+          xcrun vtool -show-build "$work/sdk-libcxx"
 
   tpc-transport:
     name: Verify TPC workload contracts and real client transport
