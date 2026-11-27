@@ -231,16 +231,21 @@ final class ShuffleServiceModel {
         }
     }
 
-    record CleanupPlan(
-            String queryId,
-            String leaseOwner,
-            long partitionCount,
-            long bytes) {
+    sealed interface CleanupStart permits CleanupPlan, CleanupReceipt {}
+
+    record CleanupPlan(String queryId, String leaseOwner) implements CleanupStart {
         CleanupPlan {
-            if (queryId == null || queryId.isBlank()
-                    || leaseOwner == null || leaseOwner.isBlank()
-                    || partitionCount < 0 || bytes < 0) {
+            if (queryId == null || queryId.isBlank() || leaseOwner == null || leaseOwner.isBlank()) {
                 throw new IllegalArgumentException("cleanup plan is invalid");
+            }
+        }
+    }
+
+    record CleanupReceipt(String queryId, long revocationGeneration, long convergedAtMs,
+                          boolean uncertainWriteHandoff) implements CleanupStart {
+        CleanupReceipt {
+            if (queryId == null || queryId.isBlank() || revocationGeneration <= 0 || convergedAtMs <= 0) {
+                throw new IllegalArgumentException("cleanup receipt is invalid");
             }
         }
     }

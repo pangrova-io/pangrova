@@ -239,6 +239,25 @@ class PangrovaShuffleCoordinatorTest {
     }
 
     @Test
+    void rejectsMismatchedCleanupReceiptBeforeDiscardingTrackedState() throws Exception {
+        RecordingShuffleService service = new RecordingShuffleService();
+        try (RunningService running = RunningService.start(service);
+                PangrovaShuffleCoordinator manager = manager(running.port())) {
+            String queryId = "query-cleanup-receipt";
+            manager.registerShuffle(registration(queryId, 1, 3, 2, 1L));
+            service.mismatchCleanupReceipt = true;
+
+            assertThatThrownBy(() -> manager.cleanupShuffle(queryId))
+                    .isInstanceOf(IllegalStateException.class).hasMessageContaining("cleanup receipt");
+
+            service.mismatchCleanupReceipt = false;
+            manager.cleanupShuffle(queryId);
+            manager.cleanupShuffle(queryId);
+            assertThat(service.cleanups).hasSize(2);
+        }
+    }
+
+    @Test
     void drivesMultiStageRegisterFinalizeAndIdempotentCleanup() throws Exception {
         RecordingShuffleService service = new RecordingShuffleService();
         try (RunningService running = RunningService.start(service);
@@ -710,6 +729,7 @@ class PangrovaShuffleCoordinatorTest {
         private volatile boolean denyRecovery;
         private volatile boolean loseRegistrationResponse;
         private volatile boolean renewCleanupCapability;
+        private volatile boolean mismatchCleanupReceipt;
         private volatile boolean rotateCleanupTokenWithoutRenewal;
         private volatile ShuffleAccessCapability latestCleanupCapability;
         private volatile CountDownLatch concurrentRegistrationArrivals;
@@ -823,8 +843,10 @@ class PangrovaShuffleCoordinatorTest {
                 StreamObserver<CleanupResponse> observer) {
             cleanups.add(request);
             observer.onNext(CleanupResponse.newBuilder()
-                    .setPartitionsCleaned(registrationsById.size())
-                    .setBytesFreed(10L * registrationsById.size())
+                    .setQueryId(mismatchCleanupReceipt ? "another-query" : request.getQueryId())
+                    .setExecutionOwner(request.getExecutionOwner())
+                    .setRevocationGeneration(request.getExecutionOwner().getFencingToken())
+                    .setScopeConvergedAtEpochMillis(System.currentTimeMillis())
                     .build());
             observer.onCompleted();
         }

@@ -10,6 +10,21 @@ exporter catalogue used by function-contract tests.
 
 ## Current capture
 
+On 2026-11-28 the packaged macOS arm64 Worker handshake and the matching Native
+exporter captured the remote Shuffle cleanup receipt protocol. Java and Native
+protoc agree on all 20 normalized descriptors, with SHA-256
+`a1a877a558645239c0355160a63835907d4996867f0b5e6a7178ce5a5b667afb`.
+The handshake verified the Worker publication against the actual Native
+inventory and both configured model declarations.
+
+| Artifact | Bytes | SHA-256 | Capabilities / functions / models |
+| --- | ---: | --- | ---: |
+| Native library | 323012149 | `d1e3b38391f0e774ef54a315343e4a1ef780eb79df35f1c37c1bc9e9c1fde7b1` | |
+| Worker inventory | 796871 | `7586619016252a4e5a37bec54e685e06f44faf9bb4c0a740dc4368d3d419b007` | 19 / 108 / 2 |
+| Function exporter catalogue | 784252 | `5bdae22b87f63a616b7db039cb8390f8c82f308074645973b010faec5cf0fec3` | 9 / 92 / 0 |
+
+## November 27 object-read observation capture
+
 On 2026-11-27 the matching macOS arm64 exporter and Java/Native Worker handshake
 captured the protocol that carries Native object-read observations. The
 handshake verified descriptor SHA-256

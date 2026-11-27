@@ -17,7 +17,7 @@ import javax.sql.DataSource;
 
 import org.pangrova.shuffle.server.authority.ExecutionAnchorFence;
 
-import static org.pangrova.shuffle.server.PostgresShuffleRecords.claimCleanup;
+import static org.pangrova.shuffle.server.PostgresShuffleRecords.claimSealedCleanup;
 import static org.pangrova.shuffle.server.PostgresShuffleRecords.lockExpiredCleanupScope;
 import static org.pangrova.shuffle.server.PostgresShuffleRecords.requireCleanupPageLimit;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.Allocation;
@@ -26,7 +26,9 @@ import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupCursor;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupLease;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupObjectPage;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupPlan;
+import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupReceipt;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupShufflePage;
+import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupStart;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.FinalizeCommand;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.FinalizeResult;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.FinalizedPartition;
@@ -118,33 +120,37 @@ final class PostgresShuffleLifecycleTransitions {
         });
     }
 
-    Optional<CleanupPlan> beginCleanup(CleanupCommand command, CleanupLease lease) {
+    CleanupStart beginCleanup(CleanupCommand command, CleanupLease lease) {
         String queryId = command.queryId();
         CleanupAdmission admission = transaction(dataSource, connection -> {
             ExecutionAnchorFence.lockCleanupOwner(connection, queryId, command.owner());
             PostgresShuffleStore.QueryScope scope = PostgresShuffleStore.lockExistingQueryScope(connection, queryId);
             if (scope == null) {
-                PostgresShuffleRecords.recordCleanupConvergence(connection, queryId);
-                return new CleanupAdmission(null, null);
+                return new CleanupAdmission(PostgresShuffleRecords.recordEmptyScopeConvergence(
+                        connection, command), null);
             }
             PostgresShuffleStore.adoptOwnerIfFenced(connection, queryId, scope.owner(), command.owner());
             if (hasActiveReads(connection, queryId)) {
-                PostgresShuffleRecords.sealCleanupAdmission(connection, queryId, null);
+                PostgresShuffleRecords.sealCleanupAdmission(connection, command, null);
                 return new CleanupAdmission(null, "shuffle reads are still in progress");
             }
             if (protectOutstandingWrites(connection, queryId)) {
-                PostgresShuffleRecords.sealCleanupAdmission(connection, queryId, null);
+                PostgresShuffleRecords.sealCleanupAdmission(connection, command, null);
                 return new CleanupAdmission(null, "shuffle writes are still in progress");
             }
-            claimCleanup(connection, queryId, scope.state(), scope.cleanupLeaseExpiresAtMs(), lease);
-            return new CleanupAdmission(PostgresShuffleRecords.cleanupPlan(connection, queryId, lease.owner()), null);
+            if ("ACTIVE".equals(scope.state())) {
+                PostgresShuffleRecords.sealCleanupAdmission(connection, command, lease);
+            } else {
+                claimSealedCleanup(connection, queryId, scope.cleanupLeaseExpiresAtMs(), lease);
+            }
+            return new CleanupAdmission(new CleanupPlan(queryId, lease.owner()), null);
         });
         // Preserve the committed admission seal even when existing I/O delays deletion.
         if (admission.pendingReason() != null) throw new IllegalStateException(admission.pendingReason());
-        return Optional.ofNullable(admission.plan());
+        return admission.start();
     }
 
-    private record CleanupAdmission(CleanupPlan plan, String pendingReason) {}
+    private record CleanupAdmission(CleanupStart start, String pendingReason) {}
 
     Optional<CleanupPlan> beginExpiredCleanup(CleanupLease lease) {
         return transaction(dataSource, connection -> {
@@ -153,8 +159,8 @@ final class PostgresShuffleLifecycleTransitions {
             String queryId = scope.queryId();
             if (hasActiveReads(connection, queryId)) return Optional.empty();
             if (protectOutstandingWrites(connection, queryId)) return Optional.empty();
-            claimCleanup(connection, queryId, "CLEANING", scope.leaseExpiresAtMs(), lease);
-            return Optional.of(PostgresShuffleRecords.cleanupPlan(connection, queryId, lease.owner()));
+            claimSealedCleanup(connection, queryId, scope.leaseExpiresAtMs(), lease);
+            return Optional.of(new CleanupPlan(queryId, lease.owner()));
         });
     }
 
@@ -232,11 +238,8 @@ final class PostgresShuffleLifecycleTransitions {
         });
     }
 
-    void completeCleanup(CleanupPlan plan) {
-        transaction(dataSource, connection -> {
-            PostgresShuffleRecords.completeCleanup(connection, plan);
-            return null;
-        });
+    CleanupReceipt completeCleanup(CleanupPlan plan) {
+        return transaction(dataSource, connection -> PostgresShuffleRecords.completeCleanup(connection, plan));
     }
 
     private static boolean hasActiveReads(Connection connection, String queryId) throws SQLException {

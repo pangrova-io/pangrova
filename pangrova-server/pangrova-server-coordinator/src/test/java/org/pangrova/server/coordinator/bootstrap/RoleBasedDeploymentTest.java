@@ -320,7 +320,8 @@ class RoleBasedDeploymentTest {
                     metadata, null, null));
             try {
                 startRemoteQueryCoordinator(config);
-                String intentRetirement = "%INSERT INTO shuffle.shuffle_cleanup_intent AS existing (query_id, converged_at)%";
+                String intentRetirement = "%INSERT INTO shuffle.shuffle_cleanup_intent "
+                        + "AS saved (query_id, revocation_generation, converged_at)%";
                 long before = postgresCalls(intentRetirement);
                 var receipt = submitShow(HttpClient.newHttpClient(), bootstrap.getHttpPort(), null);
                 var status = org.pangrova.server.coordinator.testinfra.QuerySubmissionTestSupport

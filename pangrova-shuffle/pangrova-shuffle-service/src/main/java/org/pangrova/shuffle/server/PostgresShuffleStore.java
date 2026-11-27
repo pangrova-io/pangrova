@@ -36,7 +36,9 @@ import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupCursor;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupLease;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupObjectPage;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupPlan;
+import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupReceipt;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupShufflePage;
+import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupStart;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.FinalizeCommand;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.FinalizeResult;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.RegisterCommand;
@@ -400,7 +402,7 @@ final class PostgresShuffleStore implements ShuffleLifecycleStore {
     }
 
     @Override
-    public Optional<CleanupPlan> beginCleanup(CleanupCommand command, CleanupLease lease) {
+    public CleanupStart beginCleanup(CleanupCommand command, CleanupLease lease) {
         return transitions.beginCleanup(command, lease);
     }
 
@@ -442,8 +444,8 @@ final class PostgresShuffleStore implements ShuffleLifecycleStore {
     }
 
     @Override
-    public void completeCleanup(CleanupPlan plan) {
-        transitions.completeCleanup(plan);
+    public CleanupReceipt completeCleanup(CleanupPlan plan) {
+        return transitions.completeCleanup(plan);
     }
 
     @Override

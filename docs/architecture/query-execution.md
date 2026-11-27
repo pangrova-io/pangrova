@@ -1450,8 +1450,13 @@ scope under the same grant, with no Shuffle RPC. An untracked durable scope
 requires service acknowledgement. The Shuffle service commits scope removal and
 convergence together after object cleanup. Both paths keep the terminal seal
 until retirement deletes the execution anchor, fencing delayed registration
-even when cleanup has already completed. Replays keep the original convergence
-timestamp.
+even when cleanup has already completed. The cleanup response carries the query,
+the exact authenticated owner, the first terminal seal's fencing token as the
+revocation generation, and the durable scope convergence time. A replay or
+authorized successor receives the original generation and timestamp. The
+Coordinator checks the binding before discarding its tracked query state. Cleanup
+never aggregates the batch manifest for its control response. The response marks
+a durable handoff when an expired uncertain upload still requires prefix sweeps.
 
 The Shuffle service selects an expired cleanup scope under a row lock and carries
 its previous lease deadline into the recovery claim. The claim still checks active

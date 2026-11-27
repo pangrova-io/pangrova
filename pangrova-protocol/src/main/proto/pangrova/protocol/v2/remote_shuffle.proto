@@ -195,8 +195,15 @@ message CleanupRequest {
 }
 
 message CleanupResponse {
-  int64 partitions_cleaned = 1;
-  int64 bytes_freed = 2;
+  reserved 1, 2;
+  reserved "partitions_cleaned", "bytes_freed";
+
+  string query_id = 3;
+  uint64 revocation_generation = 4;
+  int64 scope_converged_at_epoch_millis = 5;
+  pangrova.protocol.v2.ExecutionOwnerIdentity execution_owner = 6;
+  // Expired uncertain uploads were handed off to the durable prefix sweeper.
+  bool uncertain_write_handoff = 7;
 }
 
 message HeartbeatRequest {

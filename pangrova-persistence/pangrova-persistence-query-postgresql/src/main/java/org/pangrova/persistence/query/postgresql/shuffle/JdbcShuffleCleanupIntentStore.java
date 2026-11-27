@@ -46,7 +46,7 @@ public final class JdbcShuffleCleanupIntentStore implements ShuffleCleanupIntent
                 if (lockLiveAnchor(connection, grant) != 2) {
                     throw new SecurityException("Recovered Shuffle cleanup lacks predecessor exit proof");
                 }
-                boolean pending = !recordCleanupState(connection, grant.executionId());
+                boolean pending = !recordCleanupState(connection, grant);
                 connection.commit();
                 return pending;
             } catch (SQLException | RuntimeException failure) {
@@ -68,7 +68,7 @@ public final class JdbcShuffleCleanupIntentStore implements ShuffleCleanupIntent
             connection.setAutoCommit(false);
             try {
                 boolean complete = lockLiveAnchor(connection, grant) != 0
-                        || recordCleanupState(connection, grant.executionId());
+                        || recordCleanupState(connection, grant);
                 connection.commit();
                 return complete;
             } catch (SQLException | RuntimeException failure) {
@@ -84,21 +84,23 @@ public final class JdbcShuffleCleanupIntentStore implements ShuffleCleanupIntent
         }
     }
 
-    private static boolean recordCleanupState(Connection connection, String queryId) throws SQLException {
+    private static boolean recordCleanupState(Connection connection, ExecutionAnchor grant) throws SQLException {
         try (var statement = connection.prepareStatement("""
-                WITH target(query_id) AS (VALUES (CAST(? AS text))),
+                WITH target(query_id, revocation_generation) AS (VALUES (CAST(? AS text), CAST(? AS bigint))),
                 allocated AS MATERIALIZED (
                     SELECT 1 FROM shuffle.shuffle_query_scope s JOIN target t USING (query_id)
                 ), recorded AS (
-                    INSERT INTO shuffle.shuffle_cleanup_intent AS existing (query_id, converged_at)
-                    SELECT t.query_id, CASE WHEN NOT EXISTS (SELECT 1 FROM allocated) THEN clock_timestamp() END
+                    INSERT INTO shuffle.shuffle_cleanup_intent AS saved (query_id, revocation_generation, converged_at)
+                    SELECT t.query_id, t.revocation_generation,
+                           CASE WHEN NOT EXISTS (SELECT 1 FROM allocated) THEN clock_timestamp() END
                     FROM target t
                     ON CONFLICT (query_id) DO UPDATE SET converged_at = EXCLUDED.converged_at
-                    WHERE existing.converged_at IS NULL AND EXCLUDED.converged_at IS NOT NULL
+                    WHERE saved.converged_at IS NULL AND EXCLUDED.converged_at IS NOT NULL
                 )
                 SELECT NOT EXISTS (SELECT 1 FROM allocated)
                 """)) {
-            statement.setString(1, queryId);
+            statement.setString(1, grant.executionId());
+            statement.setLong(2, grant.fencingToken());
             try (var rows = statement.executeQuery()) {
                 if (!rows.next()) throw new SQLException("Shuffle cleanup state returned no outcome");
                 return rows.getBoolean(1);
@@ -138,8 +140,8 @@ public final class JdbcShuffleCleanupIntentStore implements ShuffleCleanupIntent
                 ), admission AS MATERIALIZED (
                     SELECT COALESCE((SELECT owner_matches FROM locked_scope), true) AS allowed
                 ), recorded AS (
-                    INSERT INTO shuffle.shuffle_cleanup_intent (query_id)
-                    SELECT ? FROM admission WHERE allowed
+                    INSERT INTO shuffle.shuffle_cleanup_intent (query_id, revocation_generation)
+                    SELECT ?, ? FROM admission WHERE allowed
                     ON CONFLICT (query_id) DO NOTHING
                 )
                 SELECT allowed FROM admission
@@ -150,6 +152,7 @@ public final class JdbcShuffleCleanupIntentStore implements ShuffleCleanupIntent
             statement.setLong(3, grant.fencingToken());
             statement.setString(4, grant.executionId());
             statement.setString(5, grant.executionId());
+            statement.setLong(6, grant.fencingToken());
             try (ResultSet rows = statement.executeQuery()) {
                 if (!rows.next() || !rows.getBoolean(1)) {
                     throw new SecurityException("shuffle cleanup intent scope owner mismatch");

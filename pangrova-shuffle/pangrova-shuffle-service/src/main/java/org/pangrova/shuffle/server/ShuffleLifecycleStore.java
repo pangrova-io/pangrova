@@ -14,7 +14,9 @@ import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupCursor;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupLease;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupObjectPage;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupPlan;
+import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupReceipt;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupShufflePage;
+import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupStart;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.FinalizeCommand;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.FinalizeResult;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.PublishedPartition;
@@ -84,7 +86,7 @@ interface ShuffleCleanupStore {
     /** Schedules the next sweep; an uncertain prefix is retained indefinitely. */
     void completeUncertainSweep(String shuffleId, String owner, long intervalMillis);
 
-    Optional<CleanupPlan> beginCleanup(CleanupCommand command, CleanupLease lease);
+    CleanupStart beginCleanup(CleanupCommand command, CleanupLease lease);
 
     Optional<CleanupPlan> beginExpiredCleanup(CleanupLease lease);
 
@@ -96,7 +98,7 @@ interface ShuffleCleanupStore {
 
     void renewCleanup(CleanupPlan plan, CleanupLease lease);
 
-    void completeCleanup(CleanupPlan plan);
+    CleanupReceipt completeCleanup(CleanupPlan plan);
 }
 
 /** Executes one cleanup under a renewable durable lease using bounded pages. */
@@ -118,11 +120,10 @@ final class ShuffleCleanupCoordinator {
         this.clock = clock;
     }
 
-    Optional<CleanupPlan> cleanup(CleanupCommand command) {
+    CleanupReceipt cleanup(CleanupCommand command) {
         String owner = UUID.randomUUID().toString();
-        Optional<CleanupPlan> plan = store.beginCleanup(command, lease(owner));
-        plan.ifPresent(this::execute);
-        return plan;
+        CleanupStart start = store.beginCleanup(command, lease(owner));
+        return start instanceof CleanupPlan plan ? execute(plan) : (CleanupReceipt) start;
     }
 
     int recoverInterrupted(int limit) {
@@ -165,10 +166,10 @@ final class ShuffleCleanupCoordinator {
         return swept;
     }
 
-    private void execute(CleanupPlan plan) {
+    private CleanupReceipt execute(CleanupPlan plan) {
         deleteTrackedObjects(plan);
         deleteObjectPrefixes(plan);
-        store.completeCleanup(plan);
+        return store.completeCleanup(plan);
     }
 
     private void deleteTrackedObjects(CleanupPlan plan) {

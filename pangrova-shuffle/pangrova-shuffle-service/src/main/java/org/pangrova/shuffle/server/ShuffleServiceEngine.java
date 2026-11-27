@@ -41,7 +41,6 @@ import static org.pangrova.shuffle.server.ShuffleServiceModel.Allocation;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.AllocationShape;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.BatchIdentity;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupCommand;
-import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupPlan;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CommitCommand;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CommitResult;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.FinalizeCommand;
@@ -211,15 +210,14 @@ final class ShuffleServiceEngine implements AutoCloseable {
     CleanupResponse cleanup(CleanupRequest request) {
         capabilities.verify(request.getAccessCapability(), CapabilityScope.forQuery(
                 request.getQueryId(), request.getExecutionOwner()), clock.millis());
-        var plan = cleanup.cleanup(
-                new CleanupCommand(request.getQueryId(), request.getExecutionOwner()));
-        if (plan.isEmpty()) {
-            return CleanupResponse.getDefaultInstance();
-        }
-        CleanupPlan claimed = plan.orElseThrow();
+        var receipt = cleanup.cleanup(new CleanupCommand(request.getQueryId(), request.getExecutionOwner()));
         return CleanupResponse.newBuilder()
-                .setPartitionsCleaned(claimed.partitionCount())
-                .setBytesFreed(claimed.bytes()).build();
+                .setQueryId(receipt.queryId())
+                .setExecutionOwner(request.getExecutionOwner())
+                .setRevocationGeneration(receipt.revocationGeneration())
+                .setScopeConvergedAtEpochMillis(receipt.convergedAtMs())
+                .setUncertainWriteHandoff(receipt.uncertainWriteHandoff())
+                .build();
     }
 
     RenewAccessResponse renewAccess(RenewAccessRequest request, boolean coordinatorPeer) {

@@ -73,6 +73,8 @@ import static org.pangrova.shuffle.server.ShuffleServiceModel.AllocationShape;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.BatchIdentity;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupCommand;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupLease;
+import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupPlan;
+import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupReceipt;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.RegisterCommand;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.StoredBatch;
 
@@ -257,8 +259,13 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
         var permit = restarted.engine.renewAccess(renew, true).getAccessCapability();
         var cleanupRequest = CleanupRequest.newBuilder().setQueryId("query-1").setExecutionOwner(successor)
                 .setAccessCapability(permit).build();
-        assertThat(restarted.engine.cleanup(cleanupRequest).getBytesFreed()).isPositive();
-        assertThat(restarted.engine.cleanup(cleanupRequest).getBytesFreed()).isZero();
+        var receipt = restarted.engine.cleanup(cleanupRequest);
+        assertThat(receipt.getQueryId()).isEqualTo("query-1");
+        assertThat(receipt.getExecutionOwner()).isEqualTo(successor);
+        assertThat(receipt.getRevocationGeneration()).isEqualTo(owner().getFencingToken());
+        assertThat(receipt.getScopeConvergedAtEpochMillis()).isPositive();
+        assertThat(receipt.getUncertainWriteHandoff()).isFalse();
+        assertThat(restarted.engine.cleanup(cleanupRequest)).isEqualTo(receipt);
         restarted.engine.close();
     }
 
@@ -451,7 +458,7 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
             assertThatThrownBy(() -> store.beginManifestWrite(allocation, key, 60_000))
                     .isInstanceOf(SecurityException.class).hasMessageContaining("not active");
             store.settleManifestWrite(reservation, shuffle, key);
-            store.completeCleanup(store.beginCleanup(command, lease).orElseThrow());
+            store.completeCleanup(claimCleanup(store, command, lease));
             assertThat(store.findAllocation(shuffle)).isEmpty();
         }
     }
@@ -490,7 +497,7 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
             age.setLong(1, 2);
             assertThat(age.executeUpdate()).isEqualTo(1);
             var beforeClaim = shuffleStatements();
-            var plan = successor.beginCleanup(command, lease).orElseThrow();
+            var plan = claimCleanup(successor, command, lease);
             assertThat(shuffleStatementDelta(beforeClaim).keySet())
                     .as("claim after reader drain retains the existing seal")
                     .noneMatch(sql -> sql.contains("UPDATE shuffle_allocation") && sql.contains("SET state = "));
@@ -537,12 +544,14 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
         try (var store = PostgresShuffleStore.create(config().database());
              var database = DriverManager.getConnection(
                      POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
-             var intent = database.prepareStatement("INSERT INTO shuffle.shuffle_cleanup_intent (query_id) VALUES (?)")) {
+             var intent = database.prepareStatement("INSERT INTO shuffle.shuffle_cleanup_intent "
+                     + "(query_id, revocation_generation) VALUES (?, ?)")) {
             long until = System.currentTimeMillis() + 60_000;
             finalizeEmptyShuffle(store, query, shuffle, until);
             store.register(registerCommand(query, writableShuffle, 2, until));
             var pin = store.openRead(query, owner(), shuffle, 0, 0, until, 30_000).pin();
             intent.setString(1, query);
+            intent.setLong(2, owner().getFencingToken());
             assertThat(intent.executeUpdate()).isEqualTo(1);
             assertThatThrownBy(() -> store.grantReadWindow(query, owner(), pin.id()))
                     .isInstanceOf(SecurityException.class).hasMessageContaining("terminally fenced");
@@ -553,8 +562,8 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
             assertThatThrownBy(() -> store.batchStore().openWriteWindow(writableShuffle, writer, 30_000))
                     .isInstanceOf(SecurityException.class).hasMessageContaining("terminally fenced");
             store.releaseRead(pin.id());
-            var plan = store.beginCleanup(new CleanupCommand(query, owner()),
-                    new CleanupLease("terminal-reader", 100, 200)).orElseThrow();
+            var plan = claimCleanup(store, new CleanupCommand(query, owner()),
+                    new CleanupLease("terminal-reader", 100, 200));
             store.completeCleanup(plan);
         }
     }
@@ -826,8 +835,8 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
                     .isInstanceOf(IllegalStateException.class).hasMessageContaining("Legacy shuffle attempt");
             assertThatThrownBy(() -> restarted.batchStore().openWriteWindow(shuffleId, producer, 60_000))
                     .isInstanceOf(SecurityException.class).hasMessageContaining("attempt identity conflicts");
-            var cleanup = restarted.beginCleanup(new CleanupCommand(queryId, owner()),
-                    new CleanupLease("legacy-cleaner", 100, 200)).orElseThrow();
+            var cleanup = claimCleanup(restarted, new CleanupCommand(queryId, owner()),
+                    new CleanupLease("legacy-cleaner", 100, 200));
             restarted.completeCleanup(cleanup);
         }
     }
@@ -844,8 +853,8 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
             assertThat(store.findAllocation(first.identity().shuffleId()).orElseThrow()
                     .cleanupExpiresAtMs()).isEqualTo(5_000);
 
-            var plan = store.beginCleanup(new CleanupCommand("ttl-query", owner()),
-                    new CleanupLease("ttl-cleaner", 6_000, 7_000)).orElseThrow();
+            var plan = claimCleanup(store, new CleanupCommand("ttl-query", owner()),
+                    new CleanupLease("ttl-cleaner", 6_000, 7_000));
             store.completeCleanup(plan);
         }
     }
@@ -858,10 +867,12 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
             store.register(registerCommand(queryId, shuffleId, 1, 10_000));
             insertBatches(shuffleId, 2_505);
 
-            var firstPlan = store.beginCleanup(new CleanupCommand(queryId, owner()),
-                    new CleanupLease("first-cleaner", 100, 200)).orElseThrow();
-            assertThat(firstPlan.bytes()).isEqualTo(2_505);
-            assertThat(firstPlan.partitionCount()).isEqualTo(4);
+            var beforeFirstClaim = shuffleStatements();
+            var firstPlan = claimCleanup(store, new CleanupCommand(queryId, owner()),
+                    new CleanupLease("first-cleaner", 100, 200));
+            assertThat(shuffleStatementDelta(beforeFirstClaim).keySet())
+                    .as("first cleanup claim does not aggregate batches")
+                    .noneMatch(sql -> sql.startsWith("SELECT COUNT(DISTINCT") && sql.contains("shuffle_batch"));
             assertThat(store.findAllocation(shuffleId).orElseThrow().state())
                     .isEqualTo(ShuffleAllocationState.CLEANING);
             assertThat(store.beginExpiredCleanup(
@@ -871,6 +882,9 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
             var recovered = store.beginExpiredCleanup(
                     new CleanupLease("recovery-cleaner", 201, 1_000)).orElseThrow();
             var recoveryStatements = shuffleStatementDelta(beforeRecovery).keySet();
+            assertThat(recoveryStatements)
+                    .as("cleanup claim does not aggregate batches for its control response")
+                    .noneMatch(sql -> sql.startsWith("SELECT COUNT(DISTINCT") && sql.contains("shuffle_batch"));
             assertThat(recoveryStatements)
                     .as("recovery already holds the selected shuffle scope row lock")
                     .noneMatch(sql -> sql.startsWith("SELECT owner_id, owner_incarnation, owner_fencing_token,")
@@ -897,9 +911,11 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
             assertThatThrownBy(() -> store.completeCleanup(firstPlan))
                     .isInstanceOf(IllegalStateException.class).hasMessageContaining("cleanup lease");
             assertThat(store.findAllocation(shuffleId)).isPresent();
-            store.completeCleanup(recovered);
+            var receipt = store.completeCleanup(recovered);
             assertThat(store.findAllocation(shuffleId)).isEmpty();
-            assertThat(cleanupConvergedAt(queryId)).isNotNull();
+            var convergedAt = cleanupConvergedAt(queryId);
+            assertThat(receipt.convergedAtMs()).isEqualTo(convergedAt.toInstant().toEpochMilli());
+            assertThat(receipt.uncertainWriteHandoff()).isFalse();
             try (var restarted = PostgresShuffleStore.create(config().database())) {
                 assertThatThrownBy(() -> restarted.register(registerCommand(
                         queryId, "late-after-object-cleanup", 2, 10_000)))
@@ -942,8 +958,8 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
                     new CleanupCommand(queryId, owner()),
                     new CleanupLease("old-cleaner", 100, 200)))
                     .isInstanceOf(SecurityException.class);
-            var plan = store.beginCleanup(new CleanupCommand(queryId, successor),
-                    new CleanupLease("new-cleaner", 100, 200)).orElseThrow();
+            var plan = claimCleanup(store, new CleanupCommand(queryId, successor),
+                    new CleanupLease("new-cleaner", 100, 200));
             store.completeCleanup(plan);
         }
     }
@@ -983,8 +999,8 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
                     new CleanupLease("waiting-successor", 100, 200)))
                     .isInstanceOf(IllegalStateException.class).hasMessageContaining("writes are still in progress");
             store.batchStore().settleWriteWindow(reservation, shuffleId, producer);
-            var plan = store.beginCleanup(new CleanupCommand(queryId, successor),
-                    new CleanupLease("second-cleaner", 100, 200)).orElseThrow();
+            var plan = claimCleanup(store, new CleanupCommand(queryId, successor),
+                    new CleanupLease("second-cleaner", 100, 200));
             store.completeCleanup(plan);
         }
     }
@@ -1014,7 +1030,7 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
             assertThat(hasTombstone(shuffle)).isFalse();
 
             store.batchStore().settleWriteWindow(active, shuffle, producer);
-            var plan = store.beginCleanup(cleanup, lease).orElseThrow();
+            var plan = claimCleanup(store, cleanup, lease);
             assertThat(hasTombstone(shuffle)).isTrue();
             store.completeCleanup(plan);
             deleteTombstone(shuffle);
@@ -1029,16 +1045,18 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
                 var connection = DriverManager.getConnection(
                         POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
                 var statement = connection.prepareStatement(
-                        "INSERT INTO shuffle.shuffle_cleanup_intent (query_id) VALUES (?)")) {
+                        "INSERT INTO shuffle.shuffle_cleanup_intent (query_id, revocation_generation) VALUES (?, ?)")) {
             statement.setString(1, queryId);
+            statement.setLong(2, owner().getFencingToken());
             statement.executeUpdate();
             assertThatThrownBy(() -> store.register(registerCommand(
                     queryId, "terminal-before-register-shuffle", 1, 10_000)))
                     .isInstanceOf(SecurityException.class)
                     .hasMessageContaining("terminally fenced");
             store.recoverCleanupAccess(queryId, owner(), System.currentTimeMillis() + 60_000);
-            assertThat(store.beginCleanup(new CleanupCommand(queryId, owner()),
-                    new CleanupLease("terminal-cleaner", 100, 200))).isEmpty();
+            var receipt = (CleanupReceipt) store.beginCleanup(new CleanupCommand(queryId, owner()),
+                    new CleanupLease("terminal-cleaner", 100, 200));
+            assertThat(receipt.revocationGeneration()).isEqualTo(owner().getFencingToken());
             assertThatThrownBy(() -> store.register(registerCommand(
                     queryId, "late-after-cleanup-shuffle", 1, 10_000)))
                     .isInstanceOf(SecurityException.class)
@@ -1047,10 +1065,16 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
             assertThat(converged).isNotNull();
             try (var restarted = PostgresShuffleStore.create(config().database())) {
                 assertThat(restarted.beginCleanup(new CleanupCommand(queryId, owner()),
-                        new CleanupLease("replayed-terminal-cleaner", 201, 300))).isEmpty();
+                        new CleanupLease("replayed-terminal-cleaner", 201, 300))).isEqualTo(receipt);
             }
             assertThat(cleanupConvergedAt(queryId)).isEqualTo(converged);
         }
+    }
+
+    private static CleanupPlan claimCleanup(PostgresShuffleStore store, CleanupCommand command, CleanupLease lease) {
+        var start = store.beginCleanup(command, lease);
+        assertThat(start).isInstanceOf(CleanupPlan.class);
+        return (CleanupPlan) start;
     }
 
     private static java.time.OffsetDateTime cleanupConvergedAt(String queryId) throws Exception {
@@ -1109,9 +1133,12 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
             assertThat(expire.executeUpdate()).isEqualTo(2);
         }
         Harness restarted = openHarness();
-        restarted.engine.cleanup(CleanupRequest.newBuilder()
+        var cleanupRequest = CleanupRequest.newBuilder()
                 .setQueryId(queryId).setExecutionOwner(owner())
-                .setAccessCapability(registration.getCleanupCapability()).build());
+                .setAccessCapability(registration.getCleanupCapability()).build();
+        var receipt = restarted.engine.cleanup(cleanupRequest);
+        assertThat(receipt.getUncertainWriteHandoff()).isTrue();
+        assertThat(restarted.engine.cleanup(cleanupRequest)).isEqualTo(receipt);
         assertThat(restarted.engine.sweepUncertainWritePrefixes(1)).isEqualTo(1);
         try (S3Client client = s3Client()) {
             for (String key : List.of(objectKey, manifestKey)) {
