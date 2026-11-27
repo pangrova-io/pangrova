@@ -16,6 +16,7 @@ import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.persistence.query.api.commit.CdcSourceIdentity;
 import org.pangrova.persistence.query.api.commit.WriteCommitJournal;
+import org.pangrova.persistence.query.api.enums.WriteCommitState;
 import org.pangrova.persistence.query.api.state.QueryStateJournal;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
 import org.pangrova.execution.api.ownership.ExecutionAnchor;
@@ -316,27 +317,25 @@ final class JournaledCdcRuntime implements AutoCloseable {
 
     private void recoverCommittedCheckpoint(
             StreamState state, Map<TopicPartitionOffset, Long> offsets, long maintenanceTerm) {
-        var previous = journal.findCdcCheckpoint(state.tenantId(), state.streamName(), state.checkpointId());
-        if (previous.isEmpty()) {
-            return;
-        }
-        var entry = previous.orElseThrow();
-        if (local != null && entry.state() == org.pangrova.persistence.query.api.enums.WriteCommitState.PENDING) {
-            local.recover(entry, () -> requireCurrentStream(state, maintenanceTerm));
-            entry = journal.findCdcCheckpoint(state.tenantId(), state.streamName(), state.checkpointId())
+        var checkpoint = journal.findCdcCheckpoint(state.tenantId(), state.streamName(), state.checkpointId())
+                .orElse(null);
+        if (checkpoint == null) return;
+        if (local != null && checkpoint.state() == WriteCommitState.PENDING) {
+            local.recover(checkpoint, () -> requireCurrentStream(state, maintenanceTerm));
+            checkpoint = journal.findCdcCheckpoint(state.tenantId(), state.streamName(), state.checkpointId())
                     .orElse(null);
-            if (entry == null) return;
+            if (checkpoint == null) return;
         }
-        if (entry.state() == org.pangrova.persistence.query.api.enums.WriteCommitState.PENDING) {
+        if (checkpoint.state() == WriteCommitState.PENDING) {
             throw new IllegalStateException("CDC publication must be reconciled before admitting another batch: "
-                    + entry.queryId());
+                    + checkpoint.queryId());
         }
         Map<TopicPartitionOffset, Long> recovered = new HashMap<>();
-        for (var range : entry.cdcSource().ranges()) {
+        for (var range : checkpoint.cdcSource().ranges()) {
             var partition = new TopicPartitionOffset(range.topic(), range.partition());
             long saved = recovered.getOrDefault(partition, offsets.getOrDefault(partition, 0L));
             if (saved < range.startOffset()) {
-                throw new IllegalStateException("CDC checkpoint has a gap before " + entry.queryId());
+                throw new IllegalStateException("CDC checkpoint has a gap before " + checkpoint.queryId());
             }
             if (saved < range.endOffset()) recovered.put(partition, range.endOffset());
         }
@@ -344,7 +343,8 @@ final class JournaledCdcRuntime implements AutoCloseable {
             requireCurrentStream(state, maintenanceTerm);
             offsetStore.acknowledge(state, recovered);
             offsets.putAll(recovered);
-            LOG.info("event=cdc_worker_checkpoint_restored stream={} queryId={}", state.streamName(), entry.queryId());
+            LOG.info("event=cdc_worker_checkpoint_restored stream={} queryId={}",
+                    state.streamName(), checkpoint.queryId());
         }
     }
 

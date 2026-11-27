@@ -1,6 +1,7 @@
 package org.pangrova.persistence.query.memory.transaction;
 
 import org.pangrova.persistence.query.api.enums.WriteCommitState;
+import org.pangrova.persistence.query.api.commit.CdcWriteCheckpoint;
 import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
 import org.pangrova.persistence.query.api.commit.WriteCommitJournal;
 import org.pangrova.persistence.query.api.commit.WriteCommitReceipt;
@@ -118,7 +119,7 @@ public final class InMemoryWriteCommitJournal implements WriteCommitJournal {
     }
 
     @Override
-    public Optional<WriteCommitEntry> findCdcCheckpoint(String tenantId, String streamId, String sourceEpoch) {
+    public Optional<CdcWriteCheckpoint> findCdcCheckpoint(String tenantId, String streamId, String sourceEpoch) {
         return entries.values().stream()
                 .filter(entry -> entry.cdcSource() != null && entry.tenantId().equals(tenantId)
                         && entry.cdcSource().streamId().equals(streamId)
@@ -128,7 +129,9 @@ public final class InMemoryWriteCommitJournal implements WriteCommitJournal {
                 .max(java.util.Comparator.<WriteCommitEntry, Boolean>comparing(
                         entry -> entry.state() == WriteCommitState.PENDING)
                         .thenComparingLong(WriteCommitEntry::timestampMs)
-                        .thenComparing(WriteCommitEntry::queryId));
+                        .thenComparing(WriteCommitEntry::queryId))
+                .map(entry -> new CdcWriteCheckpoint(
+                        entry.queryId(), entry.commitFingerprint(), entry.state(), entry.cdcSource()));
     }
 
     @Override

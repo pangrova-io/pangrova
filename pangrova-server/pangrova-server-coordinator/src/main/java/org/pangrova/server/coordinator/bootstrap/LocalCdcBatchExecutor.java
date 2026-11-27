@@ -11,7 +11,7 @@ import org.pangrova.coordinator.streaming.CdcWriteIntentFactory;
 import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.persistence.query.api.commit.CdcSourceIdentity;
-import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
+import org.pangrova.persistence.query.api.commit.CdcWriteCheckpoint;
 import org.pangrova.persistence.query.api.commit.WriteCommitJournal;
 import org.pangrova.persistence.query.api.transaction.WriteCommitQuarantineStore;
 import org.pangrova.security.api.enums.Privilege;
@@ -84,14 +84,14 @@ final class LocalCdcBatchExecutor {
                 (actual, fingerprint) -> acknowledge.commit(actual, plan.endOffsets(), fingerprint)).commit(intent);
     }
 
-    void recover(WriteCommitEntry entry, Runnable fence) {
-        if (quarantine.exists(entry.queryId(), entry.commitFingerprint())) {
+    void recover(CdcWriteCheckpoint checkpoint, Runnable fence) {
+        if (quarantine.exists(checkpoint.queryId(), checkpoint.commitFingerprint())) {
             return;
         }
         fence.run();
-        authority.acquire(entry.queryId()).ifPresent(anchor -> {
+        authority.acquire(checkpoint.queryId()).ifPresent(anchor -> {
             try {
-                recovery.recover(Map.of(entry.queryId(), anchor.fencingToken()), (id, token) -> {
+                recovery.recover(Map.of(checkpoint.queryId(), anchor.fencingToken()), (id, token) -> {
                     fence.run();
                     return authority.backend().current(id).filter(current -> current.fencingToken() == token
                             && current.ownerIncarnation().equals(anchor.ownerIncarnation())).isPresent();

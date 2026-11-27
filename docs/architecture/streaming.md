@@ -171,8 +171,10 @@ can restore missing offsets from the exact ranges in the journal.
 PostgreSQL checks the running stream revision in the same transaction that
 advances these offsets. Replayed acknowledgements preserve the greatest
 committed offset for each partition. The journaled runtime discovers running streams
-and resolves their checkpoints through the write journal and offset store. A new
-checkpoint generation starts from its own offsets.
+and resolves their checkpoints through the write journal and offset store. Discovery reads the
+exact checkpoint generation, source ranges, and journal identity. Fenced replay loads the write
+binding and sink fragments when it claims a pending intent. A new checkpoint generation starts
+from its own offsets.
 
 Both paths use the same write journal and connector publication context.
 Independent process tests exercise Paimon recovery when a Worker exits after
@@ -181,18 +183,12 @@ while the journal is still PENDING. The other crash windows and equivalent
 Iceberg cases remain open. See
 [distributed writes](distributed-writes.md#worker-cdc-publication-and-recovery).
 
-Schedulers start paused until maintenance leadership is acquired. A dedicated
-control loop reconciles persisted stream states every five seconds, and immediately
-after election, without running source initialization on the lease-renewal thread.
-It discovers remote CREATE/RESUME operations and stops local attempts superseded
-by remote SUSPEND/DROP or a newer epoch. Each start, lifecycle change, configuration
-change and terminal failure advances the stream epoch. Source and sink cleanup is
-owned by exactly one queued cancellation or running pipeline. A late callback cannot
-remove a replacement attempt. Maintenance renewal exceptions demote local background
-services; a changed backend epoch triggers demotion and activation again.
-
-These are local scheduling and metadata fences. They do not atomically fence an
-external catalog publication or establish Kafka-to-Worker recovery correctness.
+The elected Coordinator reconciles running stream definitions every five seconds.
+Source work runs on a separate executor from lease renewal. DDL changes advance the
+durable stream epoch, and a batch from a superseded epoch fails its next authoritative
+boundary check. A renewal error clears the local maintenance epoch, which cancels local
+staging at its next poll or batch boundary. A new backend term is activated only after
+local demotion. Atomic publication and recovery still use the connector authority.
 
 ### 2.5 CDC Write Semantics
 

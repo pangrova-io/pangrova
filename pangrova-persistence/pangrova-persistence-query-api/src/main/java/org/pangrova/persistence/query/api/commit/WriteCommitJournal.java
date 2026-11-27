@@ -85,9 +85,10 @@ public interface WriteCommitJournal extends WriteCommitOutbox {
     /**
      * Finds a batch awaiting publication or the most recently confirmed checkpoint for
      * one exact CDC source generation. An unresolved batch takes priority over confirmed
-     * history so another batch cannot bypass it after leadership transfer.
+     * history so another batch cannot bypass it after leadership transfer. The checkpoint
+     * carries source ranges and journal identity. Fenced replay reads the redo separately.
      */
-    Optional<WriteCommitEntry> findCdcCheckpoint(String tenantId, String streamId, String sourceEpoch);
+    Optional<CdcWriteCheckpoint> findCdcCheckpoint(String tenantId, String streamId, String sourceEpoch);
 
     /**
      * Replays PENDING entries only for executions atomically claimed by the

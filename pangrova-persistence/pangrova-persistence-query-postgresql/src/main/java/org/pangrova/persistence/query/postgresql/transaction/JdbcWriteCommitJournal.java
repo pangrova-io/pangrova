@@ -6,6 +6,7 @@ import org.pangrova.persistence.query.api.enums.WriteCommitState;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.persistence.query.api.exception.JournalWriteException;
 import org.pangrova.persistence.query.api.commit.CdcSourceIdentity;
+import org.pangrova.persistence.query.api.commit.CdcWriteCheckpoint;
 import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
 import org.pangrova.persistence.query.api.commit.WriteCommitJournal;
 import org.pangrova.persistence.query.api.commit.WriteCommitReceipt;
@@ -111,6 +112,13 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
                     + "copy_claim_digest, copy_table_uuid, cdc_stream_id, cdc_source_epoch, "
                     + "cdc_offset_ranges::text "
                     + "FROM write_commit_journal WHERE state = 'PENDING' AND query_id IN (";
+
+    private static final String SELECT_CDC_CHECKPOINT = """
+            SELECT query_id, commit_fingerprint, state, cdc_stream_id, cdc_source_epoch, cdc_offset_ranges::text
+            FROM write_commit_journal
+            WHERE tenant_id = ? AND cdc_stream_id = ? AND cdc_source_epoch = ? AND state IN ('PENDING', 'COMMITTED')
+            ORDER BY (state = 'PENDING') DESC, timestamp_ms DESC, query_id DESC LIMIT 1
+            """;
 
     /** Predicate shared by journal and execution retirement for the write row aliased as w. */
     public static final String ACKNOWLEDGED_WRITE = """
@@ -520,17 +528,16 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
     }
 
     @Override
-    public Optional<WriteCommitEntry> findCdcCheckpoint(String tenantId, String streamId, String sourceEpoch) {
-        String sql = SELECT_BY_QUERY_ID.replace("WHERE query_id = ?",
-                "WHERE tenant_id = ? AND cdc_stream_id = ? AND cdc_source_epoch = ? "
-                        + "AND state IN ('PENDING', 'COMMITTED') "
-                        + "ORDER BY (state = 'PENDING') DESC, timestamp_ms DESC, query_id DESC LIMIT 1");
-        try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement(sql)) {
+    public Optional<CdcWriteCheckpoint> findCdcCheckpoint(String tenantId, String streamId, String sourceEpoch) {
+        try (var connection = dataSource.getConnection();
+                var statement = connection.prepareStatement(SELECT_CDC_CHECKPOINT)) {
             statement.setString(1, tenantId);
             statement.setString(2, streamId);
             statement.setString(3, sourceEpoch);
             try (var result = statement.executeQuery()) {
-                return result.next() ? Optional.of(readEntry(result)) : Optional.empty();
+                return result.next() ? Optional.of(new CdcWriteCheckpoint(result.getString("query_id"),
+                        result.getString("commit_fingerprint"), WriteCommitState.valueOf(result.getString("state")),
+                        readCdcSource(result))) : Optional.empty();
             }
         } catch (SQLException failure) {
             throw new JournalWriteException("Cannot resolve the durable CDC checkpoint", failure,

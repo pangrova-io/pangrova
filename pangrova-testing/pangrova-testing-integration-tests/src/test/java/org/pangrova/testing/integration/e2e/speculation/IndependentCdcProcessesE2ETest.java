@@ -54,6 +54,12 @@ class IndependentCdcProcessesE2ETest extends ContainerTestBase {
                     + "AND expires_at > clock_timestamp()";
     private static final String STREAM_REVISION_LOOKUP =
             "SELECT * FROM ingestion_stream_state WHERE stream_name = %";
+    private static final String CDC_CHECKPOINT_PREDICATE =
+            "%FROM write_commit_journal%WHERE tenant_id = % AND cdc_stream_id = %";
+    private static final String CHECKPOINT_LOOKUP = "SELECT query_id, commit_fingerprint, state, "
+            + "cdc_stream_id, cdc_source_epoch, cdc_offset_ranges::text" + CDC_CHECKPOINT_PREDICATE;
+    private static final String CHECKPOINT_REDO_LOOKUP = "SELECT query_id, catalog_name, table_name, state, "
+            + "timestamp_ms, fragments," + CDC_CHECKPOINT_PREDICATE;
 
     private enum Scenario { COMBINED, MAINTENANCE, WORKER_EXIT, ICEBERG_WORKER_EXIT }
 
@@ -435,6 +441,8 @@ class IndependentCdcProcessesE2ETest extends ContainerTestBase {
         processes.startCoordinatorAndFirstWorker();
         processes.enableMetadataStatementCounters();
         long legacyReads = processes.metadataStatementCalls("%FROM cdc_commit_state%");
+        long checkpointReads = processes.metadataStatementCalls(CHECKPOINT_LOOKUP);
+        long checkpointRedoReads = processes.metadataStatementCalls(CHECKPOINT_REDO_LOOKUP);
         if (iceberg) {
             processes.createSourceCatalog();
         } else {
@@ -523,6 +531,12 @@ class IndependentCdcProcessesE2ETest extends ContainerTestBase {
         assertThat(processes.metadataStatementCalls("%FROM cdc_commit_state%"))
                 .as("The journaled CDC path reads only its own checkpoint authority")
                 .isEqualTo(legacyReads);
+        assertThat(processes.metadataStatementCalls(CHECKPOINT_LOOKUP))
+                .as("CDC discovers exact source ranges through the checkpoint projection")
+                .isGreaterThan(checkpointReads);
+        assertThat(processes.metadataStatementCalls(CHECKPOINT_REDO_LOOKUP))
+                .as("CDC discovery never loads sink fragments or write bindings")
+                .isEqualTo(checkpointRedoReads);
         assertThat(processes.coordinatorLog()).doesNotContain("event=stream_resume_all");
     }
 

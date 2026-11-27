@@ -31,7 +31,7 @@ unlisted: true
 | A9 | Iceberg 实时扫描可由同一个构建侧最多四个 BIGINT 键分别生成范围过滤。每个查询可激活最多四组互不共享 Stage 的构建与探测组合，共用 200 ms 等待期限，各自发布范围和 Profile 决策。剩余工作包括其他键类型、连接器、共享 Stage 的组合、向运行中的探测端应用晚到过滤，以及跨主机负载校准 | WP4 |
 | A10 | 实时单输入范围合并已存在。普通等值 Join 按已绑定扫描的统计建立两侧哈希分区。符合键顺序、类型和分区数约束的实时双输入 HASH Join 复用同一范围映射，两侧各自保留提交证明，并按合计字节分组。本地独立双 Worker 的 FULL OUTER JOIN 已核验 4 → 1 个消费任务、全部 8 行及物理排空。待补持久重放映射、可执行 skew split、更复杂输入形态和跨主机负载验收 | WP5 |
 | A11 | Shuffle 已有 lease/window/fence；缺少 durable revocation generation、participant ACK 和 convergence receipt | WP6 |
-| A12 | 普通分布式写入删除 redo 后保留带 fingerprint 的终态回执，COPY、CDC 和外部 publication 使用现有写入声明与版本字段。生产 CDC 由 journaled runtime 负责发现和恢复，旧调度器周期读及旧提交表读已移除。真实 COMBINED 和 MAINTENANCE 进程在 Kafka/Paimon 发布、重启和 offset 恢复期间，对旧提交表的 SELECT 增量为零。表格导出发布复用同一事务已授权的阶段图，以一次查询校验分片完成状态、分配和输出覆盖，不再逐分片读取 split 或生产者依赖。剩余工作包括验证各来源重放窗口和回执回收条件，以及跨主机故障与高并发验收。MAINTENANCE 角色目前在每个输入批次暂存前读取运行中流的版本与执行租约。需用本地有界许可消除重复读，并在目录发布和 offset 确认保留事务级围栏 | WP8 |
+| A12 | 普通分布式写入删除 redo 后保留带 fingerprint 的终态回执，COPY、CDC 和外部 publication 使用现有写入声明与版本字段。生产 CDC 由 journaled runtime 负责发现和恢复，旧调度器周期读及旧提交表读已移除。MAINTENANCE 暂存使用本地领导任期与任务期限，权威点查保留在受理、journal、目录发布和 offset 确认边界。CDC 发现只读 checkpoint 所需的精确来源与回执字段，实际重放才读取写入绑定和片段。表格导出发布复用同一事务已授权的阶段图，以一次查询校验分片完成状态、分配和输出覆盖。剩余工作包括减少稳态重复发现及 offset 读取、验证各来源重放窗口和回执回收条件，以及跨主机故障与高并发验收 | WP8 |
 | A13 | 写入 journal 已将确认未发布的精确 fingerprint 固化为 `ABORTED`，保留不确定提交的挂起记录和隔离证据。已删除零调用方的 Paimon Native 文件删除接口。Paimon 三参数暂存清理仍由旧 CDC 调度器持有，正常 journaled 恢复通过四参数接口取得目录级终止证明，Paimon 尚无该证明。待移除旧调用链，在首次 SDK 发布前原子记录精确的发布权与终止权，或由目录提交端提供不可逆的未发布证明。持久化终止证明后仍需独立的对象清理认领和完成回执，并验收跨进程接管与部分删除故障 | WP8 |
 | A14 | nightly TPC 已存在；release 不校验同源 Linux/TPC 不可变证据，SF100 零值基线仍不合格 | WP9，需先批准 CI/基础设施变更 |
 
@@ -197,6 +197,8 @@ PostgreSQL 接管分类用例预置 4,096 条其他查询日志和 4,096 条其�
 持久受理后，查询由执行期限继续约束。原来受理与结果就绪共用提交计时器，已返回 `QUEUED/PENDING` 的查询也可能在 250 ms 初始就绪期限后失败。双 Worker 基线中的无键初始化 INSERT 在进入派发前等待约 12 秒，Worker 登记后约 8.6 秒完成启动，原提交请求返回 HTTP 500。统一受理后，带键和无键请求都在 PostgreSQL 确认受理后返回 `QUEUED/PENDING`，由查询执行期限约束后续运行。本地真实双 Worker 用例完成初始化 INSERT，执行查询并通过 Native Flight 读取结果。真实 PostgreSQL 恢复用例和分支会话 E2E 验证了成功终态的分支选择。
 
 新一轮独立进程验收覆盖 Iceberg、Paimon、Lance 的六项写入恢复，Local Disk Shuffle 的跨阶段 Worker 绑定，及两项真实 Iceberg RECLUSTER 恢复。修复前，目录解析失败的后台物化刷新缺少 START 血缘，导致 Coordinator 关闭时需要 SIGKILL。修复后，定向回归核对失败先落下唯一的 START 和 FAIL 并完成排空，Local Disk Shuffle 进程正常退出。写入恢复按原查询 ID 和 fingerprint 检查紧凑终态回执，再读取已发布结果。RECLUSTER 用例验证了 Worker 鉴权、原 Worker 退出后重做暂存、提交恢复以及精确快照。
+
+独立 Coordinator、Kafka 和 PostgreSQL 的 MAINTENANCE 对照中，一次本地暂存至 offset 确认的执行租约点查从 7 次降至 5 次，流版本点查从 6 次降至 4 次。Paimon 目录发布后的 journal 完成故障和 offset 确认故障均能在重启后恢复。COMBINED 实际 Worker 的 Paimon 发布及 Iceberg Worker 退出后接管也通过。两种角色在 checkpoint 投影上线后的实际 PostgreSQL 回归中均使用六列 checkpoint 查询，发现路径的完整 redo 查询计数为零。独立的 16 项 PostgreSQL journal 用例通过，包括挂起优先、终态回执与流代隔离。
 
 同一台 macOS arm64 上的两个独立 Coordinator 共用 PostgreSQL 和租户槽位，每个 Coordinator 有独立 Worker。两个结果流占满槽位时，按 25 ms 计划到达的 40 次提交全部返回配额拒绝。归还槽位后，按 125 ms 计划到达的 80 个混合查询均读至 EOF 并实际排空。按计划到达起算，剔除两次预热后，受理、端点就绪、首行、EOF 和排空的 P95 分别为 89.8、203.7、205.8、206.2 和 229.2 ms。24 次认证状态重连的 journal SELECT 增量为零，两个 Coordinator 均正常关闭。跨主机容量及尾延迟仍属 A4/B 项验收。
 

@@ -8,6 +8,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import org.pangrova.persistence.query.api.commit.CdcSourceIdentity;
+import org.pangrova.persistence.query.api.commit.CdcWriteCheckpoint;
 import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
 import org.pangrova.persistence.query.api.commit.WriteCommitFingerprint;
 import org.pangrova.persistence.query.api.exception.JournalWriteException;
@@ -200,13 +201,15 @@ class JdbcWriteCommitJournalPostgresTest extends ContainerTestBase {
         journal.markCommitted(confirmed.queryId());
         var reopened = new JdbcWriteCommitJournal(dataSource);
         assertThat(reopened.findCdcCheckpoint("tenant-a", "orders", "stream:orders-v1"))
-                .get().extracting(WriteCommitEntry::queryId).isEqualTo(olderPending.queryId());
+                .contains(new CdcWriteCheckpoint(
+                        olderPending.queryId(), olderPending.commitFingerprint(), WriteCommitState.PENDING, source));
         assertThat(reopened.findCdcCheckpoint("tenant-a", "orders", "stream:orders-v2")).isEmpty();
         assertThat(reopened.findCdcCheckpoint("tenant-b", "orders", "stream:orders-v1")).isEmpty();
 
         journal.markAborted(olderPending.queryId(), olderPending.commitFingerprint());
         assertThat(reopened.findCdcCheckpoint("tenant-a", "orders", "stream:orders-v1"))
-                .get().extracting(WriteCommitEntry::queryId).isEqualTo(confirmed.queryId());
+                .contains(new CdcWriteCheckpoint(
+                        confirmed.queryId(), confirmed.commitFingerprint(), WriteCommitState.COMMITTED, source));
     }
 
     @Test
