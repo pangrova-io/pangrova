@@ -226,7 +226,7 @@ index 454e72b..26ca432 100644
 +    : poolOwner_(pool ? pool->shared_from_this() : nullptr),
 +      type_(std::move(type)),
 diff --git a/velox/vector/arrow/Bridge.cpp b/velox/vector/arrow/Bridge.cpp
-index f980599..919d2c7 100644
+index f980599..5a691d8 100644
 --- a/velox/vector/arrow/Bridge.cpp
 +++ b/velox/vector/arrow/Bridge.cpp
 @@ -22,0 +23,2 @@
@@ -410,16 +410,73 @@ index f980599..919d2c7 100644
 +  return static_cast<int64_t>(nanos);
 +}
 +
-@@ -449 +584 @@ void gatherFromTimestampBuffer(
+@@ -436,17 +571,5 @@ void gatherFromTimestampBuffer(
+-  vector_size_t j = 0; // index into dst
+-  if (!vec.mayHaveNulls() || vec.getNullCount() == 0) {
+-    switch (unit) {
+-      case TimestampUnit::kSecond:
+-        rows.apply([&](vector_size_t i) { dst[j++] = src[i].getSeconds(); });
+-        break;
+-      case TimestampUnit::kMilli:
+-        rows.apply([&](vector_size_t i) { dst[j++] = src[i].toMillis(); });
+-        break;
+-      case TimestampUnit::kMicro:
+-        rows.apply([&](vector_size_t i) { dst[j++] = src[i].toMicros(); });
+-        break;
+-      case TimestampUnit::kNano:
 -        rows.apply([&](vector_size_t i) { dst[j++] = src[i].toNanos(); });
-+        rows.apply([&](vector_size_t i) { dst[j++] = timestampNanosForArrow(src[i]); });
-@@ -484 +619 @@ void gatherFromTimestampBuffer(
+-        break;
+-      default:
+-        VELOX_UNREACHABLE();
++  const auto gather = [&](const auto& convert) {
++    vector_size_t ordinal = 0;
++    if (!rows.masked() && (!vec.mayHaveNulls() || vec.getNullCount() == 0)) {
++      rows.apply([&](vector_size_t row) { dst[ordinal++] = convert(src[row]); });
++      return;
+@@ -454,2 +577,5 @@ void gatherFromTimestampBuffer(
+-    return;
+-  }
++    rows.applyWithVisibility([&](vector_size_t row, bool hidden) {
++      // A null parent may have left this child's value uninitialized.
++      dst[ordinal++] = hidden || vec.isNullAt(row) ? 0 : convert(src[row]);
++    });
++  };
+@@ -458,6 +584 @@ void gatherFromTimestampBuffer(
+-      rows.apply([&](vector_size_t i) {
+-        if (!vec.isNullAt(i)) {
+-          dst[j] = src[i].getSeconds();
+-        }
+-        j++;
+-      });
++      gather([](const Timestamp& value) { return value.getSeconds(); });
+@@ -466,6 +587 @@ void gatherFromTimestampBuffer(
+-      rows.apply([&](vector_size_t i) {
+-        if (!vec.isNullAt(i)) {
+-          dst[j] = src[i].toMillis();
+-        }
+-        j++;
+-      });
++      gather([](const Timestamp& value) { return value.toMillis(); });
+@@ -474,6 +590 @@ void gatherFromTimestampBuffer(
+-      rows.apply([&](vector_size_t i) {
+-        if (!vec.isNullAt(i)) {
+-          dst[j] = src[i].toMicros();
+-        };
+-        j++;
+-      });
++      gather([](const Timestamp& value) { return value.toMicros(); });
+@@ -482,6 +593 @@ void gatherFromTimestampBuffer(
+-      rows.apply([&](vector_size_t i) {
+-        if (!vec.isNullAt(i)) {
 -          dst[j] = src[i].toNanos();
-+          dst[j] = timestampNanosForArrow(src[i]);
-@@ -710 +845 @@ void exportValidityBitmap(
+-        }
+-        j++;
+-      });
++      gather(timestampNanosForArrow);
+@@ -710 +816 @@ void exportValidityBitmap(
 -  if (!vec.nulls()) {
 +  if (!vec.nulls() && !rows.masked()) {
-@@ -718 +853,7 @@ void exportValidityBitmap(
+@@ -718 +824,7 @@ void exportValidityBitmap(
 -  if (rows.changed()) {
 +  if (rows.masked()) {
 +    nulls = AlignedBuffer::allocate<bool>(out.length, pool);
@@ -428,7 +485,7 @@ index f980599..919d2c7 100644
 +      bits::setBit(nulls->asMutable<uint64_t>(), ordinal++, !hidden && !vec.isNullAt(row));
 +    });
 +  } else if (rows.changed()) {
-@@ -736,7 +877,3 @@ bool isFlatScalarZeroCopy(const TypePtr& type, const ArrowOptions& options) {
+@@ -736,7 +848,3 @@ bool isFlatScalarZeroCopy(const TypePtr& type, const ArrowOptions& options) {
 -  // - Velox's Timestamp representation (2x 64bit values) does not have an
 -  // equivalent in Arrow.
 -  // - Velox's TIME is in milliseconds, Arrow time64 is in microseconds.
@@ -439,20 +496,20 @@ index f980599..919d2c7 100644
 +  // UUID converts to big-endian bytes. Millisecond TIME narrows to time32;
 +  // microsecond TIME already has Arrow time64's exact layout.
 +  const bool convertsLayout = type->equivalent(*TIME()) || isUuidType(type);
-@@ -744,2 +881 @@ bool isFlatScalarZeroCopy(const TypePtr& type, const ArrowOptions& options) {
+@@ -744,2 +852 @@ bool isFlatScalarZeroCopy(const TypePtr& type, const ArrowOptions& options) {
 -    // Short decimal is zero-copy.
 -    return !type->isTimestamp() && !isTime;
 +    return !type->isTimestamp() && !convertsLayout;
-@@ -747,2 +883 @@ bool isFlatScalarZeroCopy(const TypePtr& type, const ArrowOptions& options) {
+@@ -747,2 +854 @@ bool isFlatScalarZeroCopy(const TypePtr& type, const ArrowOptions& options) {
 -  // Short decimal requires conversion.
 -  return !type->isShortDecimal() && !type->isTimestamp() && !isTime;
 +  return !type->isShortDecimal() && !type->isTimestamp() && !convertsLayout;
-@@ -758,3 +893 @@ size_t getArrowElementSize(const TypePtr& type, const ArrowOptions& options) {
+@@ -758,3 +864 @@ size_t getArrowElementSize(const TypePtr& type, const ArrowOptions& options) {
 -  } else if (type->isTime()) {
 -    VELOX_DCHECK(type->equivalent(*TIME()));
 -    // TIME is exported as Arrow time32 (int32_t).
 +  } else if (type->equivalent(*TIME())) {
-@@ -791 +924,9 @@ void exportValues(
+@@ -791 +895,9 @@ void exportValues(
 -  if (type->kind() == TypeKind::TIMESTAMP) {
 +  if (isUuidType(type)) {
 +    const auto* input = vec.as<FlatVector<int128_t>>();
@@ -463,16 +520,16 @@ index f980599..919d2c7 100644
 +          ? 0 : DecimalUtil::bigEndian(input->valueAt(row));
 +    });
 +  } else if (type->kind() == TypeKind::TIMESTAMP) {
-@@ -793,2 +934 @@ void exportValues(
+@@ -793,2 +905 @@ void exportValues(
 -  } else if (type->kind() == TypeKind::BIGINT && type->isTime()) {
 -    VELOX_DCHECK(type->equivalent(*TIME()));
 +  } else if (type->equivalent(*TIME())) {
-@@ -992,0 +1133 @@ void exportRows(
+@@ -992,0 +1104 @@ void exportRows(
 +  const auto childRows = rows.withParentNulls(vec);
-@@ -997 +1138 @@ void exportRows(
+@@ -997 +1109 @@ void exportRows(
 -          rows,
 +          childRows,
-@@ -1012,0 +1154,11 @@ bool isCompact(const Vector& vec) {
+@@ -1012,0 +1125,11 @@ bool isCompact(const Vector& vec) {
 +  if (vec.size() == 0) {
 +    return true;
 +  }
@@ -484,32 +541,32 @@ index f980599..919d2c7 100644
 +      return false;
 +    }
 +  }
-@@ -1014 +1166 @@ bool isCompact(const Vector& vec) {
+@@ -1014 +1137 @@ bool isCompact(const Vector& vec) {
 -    if (vec.offsetAt(i - 1) + vec.sizeAt(i - 1) != vec.offsetAt(i)) {
 +    if (checkedPlus<vector_size_t>(vec.offsetAt(i - 1), vec.sizeAt(i - 1)) != vec.offsetAt(i)) {
-@@ -1029,2 +1180,0 @@ void exportOffsets(
+@@ -1029,2 +1151,0 @@ void exportOffsets(
 -  VELOX_CHECK_GE(vec.size(), rows.count());
 -
-@@ -1035 +1185,4 @@ void exportOffsets(
+@@ -1035 +1156,4 @@ void exportOffsets(
 -  if (!rows.changed() && isCompact(vec)) {
 +  const bool exactCoverage = !rows.changed() && isCompact(vec) &&
 +      (vec.size() == 0 ? 0 : checkedPlus<vector_size_t>(
 +          vec.offsetAt(vec.size() - 1), vec.sizeAt(vec.size() - 1))) == childRows.count();
 +  if (exactCoverage) {
-@@ -1046 +1199 @@ void exportOffsets(
+@@ -1046 +1170 @@ void exportOffsets(
 -    rows.apply([&](vector_size_t i) {
 +    rows.applyWithVisibility([&](vector_size_t i, bool hidden) {
-@@ -1048 +1201 @@ void exportOffsets(
+@@ -1048 +1172 @@ void exportOffsets(
 -      if (!vec.isNullAt(i)) {
 +      if (!hidden && !vec.isNullAt(i)) {
-@@ -1050 +1203 @@ void exportOffsets(
+@@ -1050 +1174 @@ void exportOffsets(
 -        k += vec.sizeAt(i);
 +        k = checkedPlus<vector_size_t>(k, vec.sizeAt(i));
-@@ -1094,0 +1248,3 @@ void exportMaps(
+@@ -1094,0 +1219,3 @@ void exportMaps(
 +  childRows.apply([&](vector_size_t row) {
 +    VELOX_USER_CHECK(!vec.mapKeys()->isNullAt(row), "Visible MAP key contains NULL");
 +  });
-@@ -1141,0 +1298,27 @@ void exportDictionary(
+@@ -1141,0 +1269,27 @@ void exportDictionary(
 +  auto& values = *vec.valueVector()->loadedVector();
 +  if (!values.isScalar()) {
 +    auto indices = AlignedBuffer::allocate<vector_size_t>(out.length, pool);
@@ -537,11 +594,11 @@ index f980599..919d2c7 100644
 +    exportToArrowImpl(values, selectedValues, options, *out.dictionary, pool);
 +    return;
 +  }
-@@ -1149 +1331,0 @@ void exportDictionary(
+@@ -1149 +1302,0 @@ void exportDictionary(
 -  auto& values = *vec.valueVector()->loadedVector();
-@@ -1181,0 +1364 @@ void exportConstantValue(
+@@ -1181,0 +1335 @@ void exportConstantValue(
 +    selection = Selection(valuesVector->size());
-@@ -1226 +1409,29 @@ void exportConstant(
+@@ -1226 +1380,29 @@ void exportConstant(
 -  exportConstantValue(vec, options, *holder.allocateChild(1), pool);
 +  const bool constantNull = vec.size() > 0 && vec.isNullAt(0);
 +  const bool expandVisibility = !vec.isScalar() && (rows.masked() || constantNull);
@@ -572,13 +629,13 @@ index f980599..919d2c7 100644
 +  } else {
 +    exportConstantValue(vec, options, *holder.allocateChild(1), pool);
 +  }
-@@ -1230 +1441 @@ void exportConstant(
+@@ -1230 +1412 @@ void exportConstant(
 -  auto runEndsHolder = std::make_unique<VeloxToArrowBridgeHolder>();
 +  auto runEndsHolder = std::make_unique<VeloxToArrowBridgeHolder>(vec.pool(), pool);
-@@ -1233 +1444 @@ void exportConstant(
+@@ -1233 +1415 @@ void exportConstant(
 -  runEnds->length = 1;
 +  runEnds->length = expandVisibility ? visibleRunEnds.size() : 1;
-@@ -1242,2 +1453,8 @@ void exportConstant(
+@@ -1242,2 +1424,8 @@ void exportConstant(
 -  auto runsBuffer = AlignedBuffer::allocate<int32_t>(1, pool);
 -  runsBuffer->asMutable<int32_t>()[0] = vec.size();
 +  auto runsBuffer = AlignedBuffer::allocate<int32_t>(runEnds->length, pool);
@@ -589,7 +646,7 @@ index f980599..919d2c7 100644
 +  } else {
 +    runsBuffer->asMutable<int32_t>()[0] = rows.count();
 +  }
-@@ -1256 +1473,24 @@ void exportToArrowImpl(
+@@ -1256 +1444,24 @@ void exportToArrowImpl(
 -  auto holder = std::make_unique<VeloxToArrowBridgeHolder>();
 +  const bool dictionary = vec.encoding() == VectorEncoding::Simple::DICTIONARY;
 +  const bool constant = vec.encoding() == VectorEncoding::Simple::CONSTANT;
@@ -615,16 +672,16 @@ index f980599..919d2c7 100644
 +    return;
 +  }
 +  auto holder = std::make_unique<VeloxToArrowBridgeHolder>(vec.pool(), pool);
-@@ -1357,0 +1598 @@ TypePtr importFromArrowImpl(
+@@ -1357,0 +1569 @@ TypePtr importFromArrowImpl(
 +  if (isArrowUuid(arrowSchema)) return UUID();
-@@ -1403,0 +1645,3 @@ TypePtr importFromArrowImpl(
+@@ -1403,0 +1616,3 @@ TypePtr importFromArrowImpl(
 +        if (format[2] == 'u') {
 +          return TIME_MICRO_UTC();
 +        }
-@@ -1484,0 +1729,2 @@ void exportToArrow(
+@@ -1484,0 +1700,2 @@ void exportToArrow(
 +  static_cast<VeloxToArrowBridgeHolder*>(arrowArray.private_data)
 +      ->holdVector(vector);
-@@ -1490,0 +1737,9 @@ void exportToArrow(
+@@ -1490,0 +1708,9 @@ void exportToArrow(
 +  const bool dictionary = vec->encoding() == VectorEncoding::Simple::DICTIONARY;
 +  const bool constant = vec->encoding() == VectorEncoding::Simple::CONSTANT;
 +  if (!vec->isScalar() && ((dictionary && options.flattenDictionary) ||
@@ -634,13 +691,13 @@ index f980599..919d2c7 100644
 +    exportToArrow(BaseVector::loadedVectorShared(values), arrowSchema, options);
 +    return;
 +  }
-@@ -1535,0 +1791 @@ void exportToArrow(
+@@ -1535,0 +1762 @@ void exportToArrow(
 +      if (isUuidType(type)) valuesChild->metadata = uuidExtensionMetadata().data();
-@@ -1628,0 +1885,3 @@ void exportToArrow(
+@@ -1628,0 +1856,3 @@ void exportToArrow(
 +  if (isUuidType(type) && std::string_view(arrowSchema.format) == "w:16") {
 +    arrowSchema.metadata = uuidExtensionMetadata().data();
 +  }
-@@ -2229,0 +2489,22 @@ VectorPtr importFromArrowImpl(
+@@ -2229,0 +2460,22 @@ VectorPtr importFromArrowImpl(
 +  if (isUuidType(type)) {
 +    VELOX_USER_CHECK_EQ(arrowArray.n_buffers, 2, "Arrow UUID requires validity and value buffers");
 +    VELOX_USER_CHECK_LE(arrowArray.length, std::numeric_limits<vector_size_t>::max(),
@@ -663,11 +720,11 @@ index f980599..919d2c7 100644
 +    return createFlatVector<TypeKind::HUGEINT>(pool, type, std::move(nulls), length,
 +        std::move(values), arrowArray.null_count);
 +  }
-@@ -2272,2 +2553 @@ VectorPtr importFromArrowImpl(
+@@ -2272,2 +2524 @@ VectorPtr importFromArrowImpl(
 -  } else if (type->isTime()) {
 -    VELOX_DCHECK(type->equivalent(*TIME()));
 +  } else if (type->equivalent(*TIME())) {
-@@ -2386,18 +2666,21 @@ VectorPtr importFromArrowImpl(
+@@ -2386,18 +2637,21 @@ VectorPtr importFromArrowImpl(
 -  std::shared_ptr<ArrowSchema> schemaReleaser(
 -      new ArrowSchema(arrowSchema), [](ArrowSchema* toDelete) {
 -        if (toDelete != nullptr) {
@@ -707,12 +764,12 @@ index f980599..919d2c7 100644
 +  arrowArray.release = nullptr;
 +  std::shared_ptr<ArrowSchema> schemaReleaser(owner, &owner->schema);
 +  std::shared_ptr<ArrowArray> arrayReleaser(owner, &owner->array);
-@@ -2405,2 +2688,2 @@ VectorPtr importFromArrowImpl(
+@@ -2405,2 +2659,2 @@ VectorPtr importFromArrowImpl(
 -      arrowSchema,
 -      arrowArray,
 +      owner->schema,
 +      owner->array,
-@@ -2414,3 +2696,0 @@ VectorPtr importFromArrowImpl(
+@@ -2414,3 +2667,0 @@ VectorPtr importFromArrowImpl(
 -  arrowSchema.release = nullptr;
 -  arrowArray.release = nullptr;
 -
