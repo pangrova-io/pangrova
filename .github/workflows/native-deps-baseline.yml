@@ -6,7 +6,7 @@ on:
       probe:
         description: Isolated CI stage to verify
         type: choice
-        options: [macos-docker, macos-intel-docker, production, worker-files, java-daily, libunwind, ai-fixture, jmh-relative, tpc-transport, macos-libcxx, production-pic, system-pic, system-rebuild, metadata-regression]
+        options: [macos-docker, macos-intel-docker, production, worker-files, java-daily, libunwind, ai-fixture, jmh-relative, tpc-transport, macos-libcxx, production-pic, system-pic, system-rebuild, metadata-regression, macos-arm-crash]
         default: macos-docker
       production_source:
         description: Exact production source revision
@@ -17,6 +17,134 @@ permissions:
   actions: read
 
 jobs:
+  macos-arm-crash:
+    name: Diagnose ARM64 Native runtime failures with their verified SDK
+    if: inputs.probe == 'macos-arm-crash'
+    runs-on: macos-15
+    timeout-minutes: 170
+    env:
+      ORIGINAL_BUILD: b470b54b75bc6caeb7ca4dfa91a5926350593eea
+      ORIGINAL_RUN: '45963319376'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: b470b54b75bc6caeb7ca4dfa91a5926350593eea
+      - name: Verify the archived build identity
+        run: |
+          test "$(git rev-parse HEAD)" = "$ORIGINAL_BUILD"
+          test "$(uname -m)" = arm64
+          uname -a
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - uses: ./.github/actions/setup-native-build
+      - uses: ./.github/actions/setup-macos-native-cache
+      - uses: actions/download-artifact@v8
+        with:
+          name: macos-sdk-osx-aarch_64
+          path: ${{ runner.temp }}/archived-sdk
+          github-token: ${{ github.token }}
+          run-id: '45963319376'
+          digest-mismatch: error
+      - name: Restore the SDK from the failed run with its own provenance
+        run: |
+          GITHUB_RUN_ID="$ORIGINAL_RUN" GITHUB_SHA="$ORIGINAL_BUILD" \
+            bash .pangrova/scripts/macos-native-stage.sh restore sdk "$RUNNER_TEMP/archived-sdk"
+          SKIP_DEPS=1 SKIP_VELOX=1 bash pangrova-worker-native/bin/setup-native-build-env.sh
+          bash pangrova-worker-native/bin/build-lance-ffi.sh
+      - name: Build the actual Native implementation with the affected test suites
+        working-directory: pangrova-worker-native
+        run: |
+          set -eo pipefail
+          source ~/.pangrova/env.sh
+          mkdir -p "$RUNNER_TEMP/native-crash-diagnostics"
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("CMakeLists.txt")
+          source = path.read_text()
+          collection = 'file(GLOB_RECURSE TEST_SOURCES CONFIGURE_DEPENDS\n    "${CMAKE_CURRENT_SOURCE_DIR}/test/*.cpp")'
+          assert source.count(collection) == 1
+          files = [
+              "TestMain.cpp",
+              "engine/delete/DeleteFileReaderTest.cpp",
+              "engine/result/ResultFlightStreamTest.cpp",
+              "engine/velox/FilteredArtifactRetrievalExecutionTest.cpp",
+              "engine/velox/HashJoinScanFilterTest.cpp",
+              "engine/velox/NativeDynamicFilterReceptionTest.cpp",
+              "engine/velox/NullAwareMarkExecutionTest.cpp",
+              "engine/velox/exchange/NativeExchangeDataPlaneE2ETest.cpp",
+              "jni/RuntimeInitializerTest.cpp",
+          ]
+          assert all(Path("test", name).is_file() for name in files)
+          replacement = 'set(TEST_SOURCES\n' + '\n'.join('    "${CMAKE_CURRENT_SOURCE_DIR}/test/' + name + '"' for name in files) + ')'
+          path.write_text(source.replace(collection, replacement))
+          PY
+          cmake --preset dev-release -G Ninja
+          cmake --build build --parallel 2 --target pangrova_native_tests
+          cp build/compile_commands.json "$RUNNER_TEMP/native-crash-diagnostics/product-compile-commands.json"
+          cp "$VELOX_BUILD_DIR/CMakeCache.txt" "$RUNNER_TEMP/native-crash-diagnostics/velox-cmake-cache.txt"
+          otool -L build/pangrova_native_tests
+      - name: Capture representative crash stacks and compare Mach-O visibility
+        working-directory: pangrova-worker-native
+        run: |
+          set -eo pipefail
+          source ~/.pangrova/env.sh
+          cat > "$RUNNER_TEMP/run-crash-probe.py" <<'PY'
+          import os
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          cases = [
+              "DeleteFileReaderTest.ScanKeepsPhysicalPositionsBeforePredicateFiltering",
+              "ResultFlightStreamTest.SignedFlightClaimsOnlyAnAlreadyReadableRegistration",
+              "ResultFlightStreamTest.ActualFlightCancellationWakesPendingReadAndRetiresItsLease",
+              "FilteredArtifactRetrievalExecutionTest.ActualDictionaryParquetFilterAndHydrationPreserveEligibleRows",
+              "HashJoinScanFilterTest.ActualBuildFiltersOnlyItsInnerProbeScan",
+              "NullAwareMarkExecutionTest.BuilderAndSerdeKeepTheSameActualThreeValuedExecution",
+              "NativeExchangeDataPlaneE2ETest.PublishedBuildFiltersTheLocalJoinProbe",
+              "NativeExchangeDataPlaneE2ETest.CancellingOneFlightSourceKeepsTheSharedPeerStreamAlive",
+              "RuntimeInitializerTest.CachedPhysicalFilesRetainDistinctLiveIdentifiersAndValues",
+              "DynamicFilterReception/NativeDynamicFilterReceptionTest.AddDynamicFilterReceivesFilter/Varchar_Card100",
+          ]
+          exe = Path("build/pangrova_native_tests").resolve()
+          logdir = Path(os.environ["RUNNER_TEMP"], "native-crash-diagnostics")
+          variant, = sys.argv[1:]
+          failures = 0
+          for index, case in enumerate(cases):
+              arg = "--gtest_filter=" + case
+              run = subprocess.run([exe, arg], capture_output=True, timeout=50, text=True, errors="replace")
+              print(variant, run.returncode, case, flush=True)
+              (logdir / f"{variant}-{index}.log").write_text(run.stdout + run.stderr)
+              if run.returncode != 0 or "[  PASSED  ] 1 test." not in run.stdout:
+                  failures += 1
+                  debugger = ["xcrun", "lldb", "-b", "-o", "settings set target.disable-aslr false",
+                              "-o", "run", "-k", "thread backtrace all", "-o", "thread backtrace all",
+                              "--", exe, arg]
+                  with (logdir / f"{variant}-{index}.lldb.log").open("w") as stack:
+                      try:
+                          subprocess.run(debugger, stdout=stack, stderr=subprocess.STDOUT, timeout=55)
+                      except subprocess.TimeoutExpired:
+                          stack.write("Debugger exceeded its diagnostic budget\n")
+          print(f"{variant}: {failures} of {len(cases)} unusable", flush=True)
+          (logdir / f"{variant}.result").write_text(str(failures))
+          PY
+          python3 "$RUNNER_TEMP/run-crash-probe.py" standard
+          cmake --preset dev-release -G Ninja \
+            "-DCMAKE_EXE_LINKER_FLAGS=-Wl,-exported_symbols_list,$PWD/test_asan_exported_symbols_macos.list"
+          cmake --build build --parallel 2 --target pangrova_native_tests
+          python3 "$RUNNER_TEMP/run-crash-probe.py" private
+          test "$(cat "$RUNNER_TEMP/native-crash-diagnostics/standard.result")" -eq 0
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: archived-macos-arm-crash-diagnostics
+          path: ${{ runner.temp }}/native-crash-diagnostics/
+
   metadata-regression:
     name: Verify rollback, UTF-8 plans and Arrow metadata on the exact repaired source
     if: inputs.probe == 'metadata-regression'
