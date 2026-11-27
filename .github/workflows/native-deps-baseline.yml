@@ -138,6 +138,25 @@ jobs:
             "-DCMAKE_EXE_LINKER_FLAGS=-Wl,-exported_symbols_list,$PWD/test_asan_exported_symbols_macos.list"
           cmake --build build --parallel 2 --target pangrova_native_tests
           python3 "$RUNNER_TEMP/run-crash-probe.py" private
+          folly_source="$VELOX_HOME/deps-download/folly"
+          folly_build="$RUNNER_TEMP/release-folly"
+          folly_archive="$VELOX_HOME/deps-install/lib/libfolly.a"
+          cp "$folly_source/_build/CMakeCache.txt" "$RUNNER_TEMP/native-crash-diagnostics/original-folly-cache.txt"
+          cmake -S "$folly_source" -B "$folly_build" -GNinja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+            "-DCMAKE_PREFIX_PATH=$VELOX_HOME/deps-install;$(brew --prefix libevent);$(brew --prefix)" \
+            "-DOPENSSL_ROOT_DIR=$OPENSSL_ROOT_DIR" \
+            "-DCMAKE_CXX_FLAGS=-mcpu=apple-m1+crc -isystem $(brew --prefix)/include" \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DBUILD_SHARED_LIBS=OFF \
+            -DBUILD_TESTING=OFF -DBUILD_TESTS=OFF -DBUILD_EXAMPLES=OFF -DBUILD_BENCHMARKS=OFF \
+            -DFOLLY_HAVE_INT128_T=ON -DGFLAGS_SHARED=FALSE
+          cmake --build "$folly_build" --target folly --parallel 2
+          test -s "$folly_build/libfolly.a"
+          cp "$folly_build/CMakeCache.txt" "$RUNNER_TEMP/native-crash-diagnostics/release-folly-cache.txt"
+          cp "$folly_build/libfolly.a" "$folly_archive"
+          cmake --preset dev-release -G Ninja -DCMAKE_EXE_LINKER_FLAGS=
+          cmake --build build --parallel 2 --target pangrova_native_tests
+          python3 "$RUNNER_TEMP/run-crash-probe.py" release-folly
           test "$(cat "$RUNNER_TEMP/native-crash-diagnostics/standard.result")" -eq 0
       - uses: actions/upload-artifact@v7
         if: always()
