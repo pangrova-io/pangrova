@@ -63,7 +63,8 @@ public class QueryStateMachine {
             new Status(0, QueryState.QUEUED, null, ResultDisposition.PENDING, null, false, null);
     private Map<QueryWaitTarget, Set<CompletableFuture<Status>>> statusWaiters;
     private final Instant createdAt = Instant.now();
-    private volatile String tenantId;
+    @GuardedBy("this")
+    private String tenantId;
     @GuardedBy("this")
     private QueryRegistry tenantUsageRegistry;
     private final String auditPrincipal;
@@ -509,7 +510,7 @@ public class QueryStateMachine {
     }
 
     /** Returns the tenant identifier associated with this query, or null if unset. */
-    public String getTenantId() {
+    public synchronized String getTenantId() {
         return tenantId;
     }
 
