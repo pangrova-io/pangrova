@@ -98,7 +98,7 @@ final class QueryRuntimeFactory {
             var audit = org.pangrova.coordinator.query.QueryManagerCollaborators.audit(
                     auditEmitter, dependencies.queryAuditService(),
                     dependencies.moduleWiring().getLineageEmitter(),
-                    queryDispatcher, null);
+                    queryDispatcher, null, stateJournal.commitsLineageFacts());
             QueryManagerContext context = new QueryManagerContext(
                     queryDispatcher, dependencies.tracingProvider(), dependencies.metricsProvider(),
                     org.pangrova.coordinator.query.QueryManagerCollaborators.tenant(

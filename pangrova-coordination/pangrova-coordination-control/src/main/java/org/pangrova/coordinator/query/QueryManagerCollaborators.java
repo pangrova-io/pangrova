@@ -25,9 +25,15 @@ public final class QueryManagerCollaborators {
     public static QueryAuditPort audit(
             AuditEventEmitter emitter, QueryAuditSink service, LineageEventEmitter lineage,
             QueryDispatcher dispatcher, QueryEventDispatcher events) {
-        return new QueryAuditDispatcher(
-                QueryAuditDispatcher.createAuditEmitter(emitter, service),
-                lineage, dispatcher, events);
+        return audit(emitter, service, lineage, dispatcher, events, false);
+    }
+
+    /** Uses the journal transaction as the publisher for lineage attached to an owned query event. */
+    public static QueryAuditPort audit(
+            AuditEventEmitter emitter, QueryAuditSink service, LineageEventEmitter lineage,
+            QueryDispatcher dispatcher, QueryEventDispatcher events, boolean journalCommitsLineage) {
+        return new QueryAuditDispatcher(QueryAuditDispatcher.createAuditEmitter(emitter, service),
+                lineage, dispatcher, events, journalCommitsLineage);
     }
 
     /** Wraps the process-selected durable journal for the query lifecycle. */

@@ -121,7 +121,7 @@ PostgreSQL 接管分类用例预置 4,096 条其他查询日志和 4,096 条其�
 ## 固定三条稳态零读库门槛（目标状态）
 
 1. **状态订阅和诊断读取。** 活跃 query 由 owner 的认证状态投影提供。正常状态读取与客户端重连在投影窗口内产生零 journal SELECT。接管按认领的执行 ID 查证，显式历史查询返回最后写入的准入或终态。以两个 Coordinator 和大量同 query 的客户端断言次数，覆盖 Ready endpoint 和错误细节。已验证本机直连和签名票据定向转发，接管仍见 A2。
-2. **持久 journal。** 正常新受理和新事件各一次 INSERT，独立 SELECT 为零。A1 的初始 `QUEUED` 行同时承载 principal、key digest、request fingerprint、lineage 和确定性 `QUEUED`/`PENDING` 回执；`INSERT ... ON CONFLICT DO NOTHING` 的正常路径不读回，只有 event/idempotency 冲突或未知提交结果才 SELECT 核对。事务、lineage 原子性和最终 ACK 所代表的 durability 保持一致。 JDBC 已在受理和终态事务内写入 lineage outbox。观察回调仍会重复追加同一事件，触发冲突后的 payload SELECT。需以 journal 已完成持久化的证据跳过该调用，并单独验证内存 journal 的 lineage 投递。对已提交写的状态判断只读取一次，未知提交仍从权威证据核对。
+2. **持久 journal。** 正常新受理和新事件各一次 INSERT，独立 SELECT 为零。A1 的初始 `QUEUED` 行同时承载 principal、key digest、request fingerprint、lineage 和确定性 `QUEUED`/`PENDING` 回执；`INSERT ... ON CONFLICT DO NOTHING` 的正常路径不读回，只有 event/idempotency 冲突或未知提交结果才 SELECT 核对。事务、lineage 原子性和最终 ACK 所代表的 durability 保持一致。 JDBC 在受理和终态事务内写入 lineage outbox，持久 HTTP 后端直接投递这两条记录。本地真实 PostgreSQL 对照中，一次完整查询原有 2 次重复 payload SELECT，修复后增量为零。START 和终态各保留一条记录，均取得 HTTP 确认。内存 journal 的投递保留原有行为，并通过定向回归。对已提交写的状态判断只读取一次，未知提交仍从权威证据核对。
 3. **Shuffle steady state。** 只在建流、续租、最终关闭与恢复触及读租约数据库。manifest 是由已提交 attempt 发布的不可变数据。每 batch 禁止同步数据库操作，同时本地核验 scope/epoch、租约有效期、撤销与 byte credit；已有在途读取保有精确保护时间。测试每 batch/每 chunk 的 SQL 计数和撤销后新数据是否可见。durable revocation 收敛尚未实现，见 A11。
 
 已验证本地状态和 JSON profile 的历史读取分离。两个 profile 路由共用查询留存的终态审计记录和本机任务统计。真实 QUERY Coordinator 上，HTTP 提交并经 Flight 消费结果后，两条 profile 路由共 32 个并发请求，返回一致且审计表 SELECT 增量为零。主动清除本地投影后，普通状态和 profile 请求均返回 404，journal 和审计表 SELECT 增量为零。显式 `history=true` 的 profile 返回相同审计数据，只有一次按查询和提交主体限定的 SELECT。
@@ -197,6 +197,8 @@ PostgreSQL 接管分类用例预置 4,096 条其他查询日志和 4,096 条其�
 持久受理后，查询由执行期限继续约束。原来受理与结果就绪共用提交计时器，已返回 `QUEUED/PENDING` 的查询也可能在 250 ms 初始就绪期限后失败。双 Worker 基线中的无键初始化 INSERT 在进入派发前等待约 12 秒，Worker 登记后约 8.6 秒完成启动，原提交请求返回 HTTP 500。统一受理后，带键和无键请求都在 PostgreSQL 确认受理后返回 `QUEUED/PENDING`，由查询执行期限约束后续运行。本地真实双 Worker 用例完成初始化 INSERT，执行查询并通过 Native Flight 读取结果。真实 PostgreSQL 恢复用例和分支会话 E2E 验证了成功终态的分支选择。
 
 新一轮独立进程验收覆盖 Iceberg、Paimon、Lance 的六项写入恢复，Local Disk Shuffle 的跨阶段 Worker 绑定，及两项真实 Iceberg RECLUSTER 恢复。修复前，目录解析失败的后台物化刷新缺少 START 血缘，导致 Coordinator 关闭时需要 SIGKILL。修复后，定向回归核对失败先落下唯一的 START 和 FAIL 并完成排空，Local Disk Shuffle 进程正常退出。写入恢复按原查询 ID 和 fingerprint 检查紧凑终态回执，再读取已发布结果。RECLUSTER 用例验证了 Worker 鉴权、原 Worker 退出后重做暂存、提交恢复以及精确快照。
+
+同一台 macOS arm64 上的两个独立 Coordinator 共用 PostgreSQL 和租户槽位，每个 Coordinator 有独立 Worker。两个结果流占满槽位时，按 25 ms 计划到达的 40 次提交全部返回配额拒绝。归还槽位后，按 125 ms 计划到达的 80 个混合查询均读至 EOF 并实际排空。按计划到达起算，剔除两次预热后，受理、端点就绪、首行、EOF 和排空的 P95 分别为 89.8、203.7、205.8、206.2 和 229.2 ms。24 次认证状态重连的 journal SELECT 增量为零，两个 Coordinator 均正常关闭。跨主机容量及尾延迟仍属 A4/B 项验收。
 
 OpenTelemetry 对照把派发停在 PLANNING。旧代码已返回持久回执时仍未结束 `query.submit`；候选在返回回执时已结束该跨度，后台线程仍使用同一个 span ID 作为父上下文。运行结果和物理排空继续由查询生命周期发布。
 

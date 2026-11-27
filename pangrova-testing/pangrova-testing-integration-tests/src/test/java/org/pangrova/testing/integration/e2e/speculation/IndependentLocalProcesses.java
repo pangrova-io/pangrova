@@ -72,6 +72,7 @@ final class IndependentLocalProcesses implements AutoCloseable {
     private final HttpClient http = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(2)).build();
     private OwnedProcess coordinator;
+    private URI lineageCollector;
     private ProcessRemoteShuffle remoteShuffle;
     private final int coordinatorPort;
     private boolean closed;
@@ -236,6 +237,11 @@ final class IndependentLocalProcesses implements AutoCloseable {
 
     void allowCatalog(String catalog) {
         security.allowCatalog(catalog);
+    }
+
+    void configureDurableLineage(URI collector) {
+        if (coordinator != null) throw new IllegalStateException("Configure lineage before starting Coordinator");
+        lineageCollector = java.util.Objects.requireNonNull(collector, "collector");
     }
 
     private void startQueryControlPlane() throws Exception {
@@ -703,6 +709,8 @@ final class IndependentLocalProcesses implements AutoCloseable {
         command.add("-Dlogback.configurationFile=" + loggingConfig);
         command.add("-DPANGROVA_LOG_DIR=" + logDirectory);
         command.add("-DPANGROVA_ROLE=" + name);
+        boolean durableLineage = "coordinator".equals(name) && lineageCollector != null;
+        if (durableLineage) command.add("-Dpangrova.lineage.backend=HTTP");
         command.add("-Dpangrova.test.runtime-manifest=" + artifacts.manifestPath());
         command.add("-Dpangrova.test.runtime-manifest-sha256=" + artifacts.manifestSha256());
         command.add("-Dpangrova.test.native-sha256=" + artifacts.nativeSha256());
@@ -712,8 +720,12 @@ final class IndependentLocalProcesses implements AutoCloseable {
                 "--add-opens=java.base/java.util.concurrent=ALL-UNNAMED",
                 "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED",
                 "-cp", classpath, mainClass, "--config", config.toString()));
-        Process process = new ProcessBuilder(command)
-                .redirectErrorStream(true).redirectOutput(log.toFile()).start();
+        ProcessBuilder builder = new ProcessBuilder(command).redirectErrorStream(true).redirectOutput(log.toFile());
+        if (durableLineage) {
+            builder.environment().put("OPENLINEAGE_URL", lineageCollector.toASCIIString());
+            builder.environment().remove("OPENLINEAGE_API_KEY");
+        }
+        Process process = builder.start();
         OwnedProcess owner = new OwnedProcess(name, process, config, log);
         owned.add(owner);
         LOG.info("event=local_process_spawn role={} pid={} manifest={} manifestSha256={} "

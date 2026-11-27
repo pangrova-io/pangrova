@@ -50,6 +50,8 @@ public final class JdbcQueryStateJournal implements QueryStateJournal, Recovered
         flushOwner = new JournalFlushOwner(dataSource, config, pending);
     }
 
+    @Override public boolean commitsLineageFacts() { return true; }
+
     @Override public void appendQueryEvent(QueryStateEvent event) {
         pending.admit(new JournalPendingWrites.Write(pending, event), false);
     }

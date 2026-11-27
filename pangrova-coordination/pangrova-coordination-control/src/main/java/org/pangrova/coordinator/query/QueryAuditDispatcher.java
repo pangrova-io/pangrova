@@ -32,19 +32,21 @@ final class QueryAuditDispatcher implements org.pangrova.query.lifecycle.QueryAu
     private final QueryEventDispatcher events;
     private final boolean lineageEnabled;
     private final LineageEventEmitter lineageEmitter;
+    private final boolean journalCommitsLineage;
 
     QueryAuditDispatcher(QueryAuditEmitter auditEmitter, LineageEventEmitter lineageEmitter,
             QueryDispatcher queryDispatcher) {
-        this(auditEmitter, lineageEmitter, queryDispatcher, QueryEventDispatcher.of());
+        this(auditEmitter, lineageEmitter, queryDispatcher, QueryEventDispatcher.of(), false);
     }
 
     QueryAuditDispatcher(QueryAuditEmitter auditEmitter, LineageEventEmitter lineageEmitter,
-            QueryDispatcher queryDispatcher, QueryEventDispatcher events) {
+            QueryDispatcher queryDispatcher, QueryEventDispatcher events, boolean journalCommitsLineage) {
         this.auditEmitter = auditEmitter;
         this.queryDispatcher = queryDispatcher;
         QueryEventDispatcher parent = events == null ? QueryEventDispatcher.of() : events;
         lineageEnabled = lineageEmitter != null;
         this.lineageEmitter = lineageEmitter;
+        this.journalCommitsLineage = journalCommitsLineage && lineageEnabled && lineageEmitter.isDurable();
         this.events = parent;
     }
 
@@ -61,7 +63,7 @@ final class QueryAuditDispatcher implements org.pangrova.query.lifecycle.QueryAu
     public void emitAuditSubmitted(String queryId, String sql, QuerySession session, QueryStateMachine state) {
         String principal = session.userIdentity() == null ? "anonymous" : session.userIdentity().principal();
         QueryLineageFact fact = prepareSubmittedLineage(queryId, sql, session, state);
-        if (fact != null) lineageEmitter.record(fact);
+        if (fact != null && !(journalCommitsLineage && state.hasJournalOwnership())) lineageEmitter.record(fact);
         events.fireQueryCreated(new QueryCreatedEvent(queryId, sql, principal, state.getCreatedAt().toEpochMilli()));
         if (auditEmitter != null) auditEmitter.emitQuerySubmitted(queryId, sql, session);
     }
@@ -155,8 +157,8 @@ final class QueryAuditDispatcher implements org.pangrova.query.lifecycle.QueryAu
     private void emitTerminal(String queryId, QueryStateMachine state, QueryState finalState,
             Optional<String> error) {
         QueryLineageFact fact = terminalFact(queryId, state, state.getState());
-        // Without journal ownership, the terminal cleanup has already recorded both lineage facts.
-        if (fact != null && state.hasJournalOwnership()) lineageEmitter.record(fact);
+        // Cleanup already published both facts for unjournaled work. The durable journal publishes owned facts.
+        if (fact != null && state.hasJournalOwnership() && !journalCommitsLineage) lineageEmitter.record(fact);
         queryDispatcher.removeLineageInfo(queryId);
         events.fireQueryCompleted(new QueryCompletedEvent(queryId, null, state.getAuditPrincipal(), finalState,
                 state.getCreatedAt().toEpochMilli(), fact == null ? System.currentTimeMillis() : fact.timestampMs(),

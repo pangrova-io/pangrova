@@ -115,7 +115,10 @@ the SQL.
 
 Query planning, scheduling, running and finishing states live in the owning
 Coordinator's status projection. The query journal commits admission and the
-terminal outcome, including its lineage when configured. An explicit historical
+terminal outcome, including its lineage when configured. The JDBC journal
+commits each owned lineage fact in the query event transaction. The observer
+publishes lineage for an in-memory journal through its configured emitter.
+An explicit historical
 lookup can show `QUEUED` until the outcome commits. Active status, result
 readiness and operator progress come from the live owner.
 

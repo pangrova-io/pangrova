@@ -1,5 +1,6 @@
 package org.pangrova.testing.integration.e2e.speculation;
 
+import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.pangrova.client.http.PangrovaRestClient;
@@ -16,6 +17,8 @@ import org.pangrova.testing.testkit.E2ETest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.net.InetSocketAddress;
+import java.net.URI;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -25,6 +28,7 @@ import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
+import static org.awaitility.Awaitility.await;
 import static org.pangrova.testing.integration.e2e.speculation.ProcessQueryResults.awaitResult;
 import static org.pangrova.testing.integration.e2e.speculation.ProcessQueryResults.consumeAndDrain;
 
@@ -62,13 +66,25 @@ class PersistentTenantOverloadE2ETest extends ContainerTestBase {
                 + "JOIN tenant_user_memberships m ON m.tenant_id=t.tenant_id WHERE m.user_principal=$1";
         String tenantLookup = "SELECT * FROM tenants WHERE tenant_id = $1";
         String placementLookup = "SELECT status, resource_pool FROM tenants WHERE tenant_id = $1";
-        try (var processes = new IndependentLocalProcesses()) {
+        String lineageLookup = "SELECT payload::text FROM query_lineage_outbox WHERE event_id = $1";
+        var collector = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        collector.createContext("/", exchange -> {
+            try (exchange) {
+                exchange.getRequestBody().transferTo(java.io.OutputStream.nullOutputStream());
+                exchange.sendResponseHeaders(204, -1);
+            }
+        });
+        collector.start();
+        try (AutoCloseable stopCollector = () -> collector.stop(0);
+                var processes = new IndependentLocalProcesses()) {
+            processes.configureDurableLineage(URI.create("http://127.0.0.1:" + collector.getAddress().getPort()));
             processes.startCoordinatorAndFirstWorker();
             processes.enableMetadataStatementCounters();
             try (var client = processes.coordinatorClientBuilder().retryPolicy(RetryPolicy.NONE).build()) {
                 long initialMembership = processes.metadataStatementCalls(membershipLookup);
                 long initialTenant = processes.metadataStatementCalls(tenantLookup);
                 long initialPlacement = processes.metadataStatementCalls(placementLookup);
+                long initialLineage = processes.metadataStatementCalls(lineageLookup);
                 long deadline = System.currentTimeMillis() + TIMEOUT.toMillis();
                 var query = client.beginQuery("SELECT CAST(42 AS BIGINT)", Map.of());
                 consumeAndDrain(client, query, awaitResult(query, deadline), List.of(42L), deadline);
@@ -81,6 +97,10 @@ class PersistentTenantOverloadE2ETest extends ContainerTestBase {
                 assertThat(membershipReads).as("authorization membership lookups").isOne();
                 assertThat(tenantReads).as("full tenant reads for placement").isZero();
                 assertThat(placementReads).as("current placement read for one cohort").isOne();
+                assertThat(processes.metadataStatementCalls(lineageLookup) - initialLineage)
+                        .as("duplicate durable lineage payload SELECTs").isZero();
+                await("both durable lineage facts delivered")
+                        .atMost(TIMEOUT).untilAsserted(() -> assertOwnedLineage(processes, query.submission().queryId()));
 
                 processes.revokeTenantMembership();
                 var revoked = catchThrowableOfType(() -> client.beginQuery("SELECT CAST(43 AS BIGINT)", Map.of()),
@@ -91,6 +111,24 @@ class PersistentTenantOverloadE2ETest extends ContainerTestBase {
                 assertThat(processes.metadataStatementCalls(tenantLookup) - initialTenant).isZero();
                 assertThat(processes.metadataStatementCalls(placementLookup) - initialPlacement).isOne();
                 assertThat(processes.activeTenantReservations()).isZero();
+            }
+        }
+    }
+
+    private static void assertOwnedLineage(IndependentLocalProcesses processes, String queryId) throws Exception {
+        try (var connection = processes.metadataDataSource().getConnection();
+                var statement = connection.prepareStatement(
+                        """
+                        SELECT category FROM query_lineage_outbox
+                        WHERE query_id=? AND delivered_at IS NOT NULL ORDER BY category
+                        """)) {
+            statement.setString(1, queryId);
+            try (var rows = statement.executeQuery()) {
+                assertThat(rows.next()).isTrue();
+                assertThat(rows.getString(1)).isEqualTo("START");
+                assertThat(rows.next()).isTrue();
+                assertThat(rows.getString(1)).isEqualTo("TERMINAL");
+                assertThat(rows.next()).isFalse();
             }
         }
     }

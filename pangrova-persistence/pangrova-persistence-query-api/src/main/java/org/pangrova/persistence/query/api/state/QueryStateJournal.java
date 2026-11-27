@@ -22,6 +22,9 @@ import org.pangrova.common.api.annotation.Stable;
  */
 @Stable(since = "1.0")
 public interface QueryStateJournal extends QueryStateJournalReader, AutoCloseable {
+    /** Whether a committed query event also publishes its lineage to the durable outbox. */
+    default boolean commitsLineageFacts() { return false; }
+
     /** Admits a query event or throws without accepting it; accepted failures remain owned. */
     void appendQueryEvent(QueryStateEvent event);
     /** Commits the exact frozen query event or reports an unestablished outcome for retry. */
