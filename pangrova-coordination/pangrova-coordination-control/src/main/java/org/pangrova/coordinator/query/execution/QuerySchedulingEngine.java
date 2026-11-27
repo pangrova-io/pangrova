@@ -18,9 +18,6 @@ import org.pangrova.coordinator.metadata.ConnectorWriteBindingFactory;
 import org.pangrova.execution.write.WriteAuthorityAdmission;
 import org.pangrova.query.api.write.WriteAuthorityResolver;
 import org.pangrova.query.api.write.WriteAuthorityRequest;
-
-import org.pangrova.coordinator.query.execution.split.QuerySplit;
-
 import org.pangrova.query.api.enums.QueryState;
 
 import java.util.List;
@@ -41,7 +38,6 @@ import org.pangrova.execution.stage.QueryExecutionScope;
 import org.pangrova.execution.stage.binding.RerankIntent;
 import org.pangrova.coordinator.query.execution.retrieval.RetrievalIntentCollector;
 import org.pangrova.coordinator.scheduler.placement.DefaultWorkerSelector;
-import org.pangrova.coordinator.query.execution.split.SplitFetcher;
 import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.task.write.NativeWriteCommitTracker;
@@ -456,17 +452,6 @@ final class QuerySchedulingEngine {
     }
 
     // ── Split and stage infrastructure ──
-
-    List<QuerySplit> fetchAndFilterSplits(
-            PlannedQuery plannedQuery, Map<String, Long> snapshotOverrides,
-            String queryId, QuerySession session) {
-        if (deps.indexAwareSplitFetcher() != null) {
-            return deps.indexAwareSplitFetcher().fetchAndFilterSplits(
-                    plannedQuery, snapshotOverrides, queryId, session);
-        }
-        return SplitFetcher.fetchSplitsWithFilePaths(
-                plannedQuery, deps.catalogRegistry(), snapshotOverrides, session);
-    }
 
     void registerStageListeners(StageDAG dag, QueryStateMachine querySm) {
         for (Stage stage : dag.stageEntities()) {

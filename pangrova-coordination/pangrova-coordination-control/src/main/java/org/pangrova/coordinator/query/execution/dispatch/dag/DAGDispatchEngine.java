@@ -7,6 +7,8 @@ import org.pangrova.execution.stage.QueryExecutionScope;
 import org.pangrova.coordinator.query.execution.split.QuerySplit;
 import org.pangrova.query.api.enums.StageState;
 import org.pangrova.query.api.stage.StageCompletionCallback;
+import org.pangrova.connector.api.metadata.SplitPlanningBudget.FileGranularity;
+
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -416,8 +418,7 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
     private void freezePhysicalInputs(Stage stage, DAGExecutionState state) {
         if (state.durable() != null) return;
         var context = lifecycle.queryContext(state.queryId());
-        if (context == null || context.writeConfig() != null || context.retrievalMerge().isPresent()
-                || !context.retrievalArtifacts().isEmpty()) {
+        if (!isLiveRelationalRead(context)) {
             return;
         }
         var inputs = coalescedShuffleInputs.select(stage, state.dag());
@@ -426,6 +427,11 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
             LOG.info("event=shuffle_input_coalesced queryId={} stageId={} sourcePartitions={} consumers={}",
                     state.queryId(), stage.stageId(), inputs.originalCount(), inputs.coalescedCount());
         }
+    }
+
+    private static boolean isLiveRelationalRead(QueryExecutionScope context) {
+        return context != null && context.writeConfig() == null && context.retrievalMerge().isEmpty()
+                && context.retrievalArtifacts().isEmpty();
     }
 
     private PreparedStage prepareStage(Stage stage, DAGExecutionState state, int generation,
@@ -456,12 +462,15 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
                     state.queryId(), plan.stageId(), compiled.retrievalTopKHints().stream()
                             .map(hint -> hint.kind() + ":" + hint.sourceKey()).toList());
         }
+        boolean allowsRanges = !outputStage && plan.parallelism() > 1 && isLiveRelationalRead(queryContext)
+                && compiled.retrievalTopKHints().isEmpty();
         long enumerationStarted = dispatchTimestamp(observations);
         var fetched = stageSplitFetcher.fetch(
                 plan, queryContext == null ? null : queryContext.requireLiveSession(),
                 queryContext == null ? Map.of() : queryContext.snapshotOverrides(),
                 queryContext == null || queryContext.writeConfig() == null
-                        ? null : queryContext.writeConfig().writeMode(), state.buildFilter());
+                        ? null : queryContext.writeConfig().writeMode(), state.buildFilter(),
+                allowsRanges ? FileGranularity.BYTE_RANGES : FileGranularity.WHOLE_OBJECT);
         List<QuerySplit> splits = fetched.splits();
         recordDispatchWork(observations, plan.stageId(), generation, DispatchPhase.ENUMERATE_SPLITS,
                 enumerationStarted, splits.size(), true);

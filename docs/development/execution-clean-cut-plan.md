@@ -26,7 +26,7 @@ unlisted: true
 | A4 | 已有阶段观测和固定到达率样本；尚未接入完整 production phase/queue/rejection/timeout/drain KPI 与容量矩阵 | WP2 |
 | A5 | Paimon 已接到阶段剩余额度及绝对截止时间。直接追加 SQL 对每个快照单遍校验并枚举，逐个读取 manifest，阶段容量耗尽后停止开启对象。剩余工作包括限制普通和内部增量 SDK 扫描的 manifest I/O 准入、按编码字节计量并限制元数据、验证已发出的存储调用实际退出，以及跨主机混合负载下的并发度校准 | WP3.2 |
 | A6 | 实时叶子阶段已按绑定时计算的工作量分配，包括数据和删除字节、文件开启、已知行数、Paimon 合并与 Lance 未知字节的最低权重。剩余工作包括把实时 Worker 在途负载纳入放置、评估持久任务初次分配，以及按存储、格式、冷热和并发校准权重 | WP3.3 |
-| A7 | Native Parquet 将 `DataSplit` 字节区间应用到行组读取，并在文件边界核验区间。位置删除使用绝对行号。Lance 使用物理行区间或固定 manifest 分区，Paimon merge 要求整个主文件。Iceberg 当前枚举整文件任务，后续需使用 manifest 已有的 `split_offsets` 为适用的 SQL 扫描分片，并验证 artifact 的整对象身份、跨主机 I/O 和真实 Apache ORC reader | WP3.4 |
+| A7 | Native Parquet 将 `DataSplit` 字节区间应用到行组读取，并在文件边界核验区间。位置删除使用绝对行号。Lance 使用物理行区间或固定 manifest 分区，Paimon merge 要求整个主文件。实时 Iceberg SQL 并行扫描按 manifest `split_offsets` 分片，沿用已有快照字节统计进行阶段估算，并按原始对象共享标量索引判断。剩余验收包括跨主机对象存储 I/O、含大删除文件的成本校准、受保护产物的全链路整对象身份与真实 Apache ORC reader | WP3.4 |
 | A8 | 对象读取只导出 requested bytes；attempt/retry/returned/wire bytes 尚未贯通 task report/profile | WP3.1 |
 | A9 | 动态过滤已有 Native 类型、稀疏区间和等待门；planner 仍限定单 filter/单 BIGINT/Iceberg，running probe 无 production late injection | WP4 |
 | A10 | live 单输入 AQE 已存在；durable replay 关闭 AQE，多输入对齐和可执行 skew split 缺失 | WP5 |
@@ -192,7 +192,9 @@ PostgreSQL 接管分类用例预置 4,096 条其他查询日志和 4,096 条其�
 
 以下均为 **at commit / historical evidence**：数字、SQL 次数和覆盖范围只对应各批次当时提交的角色包与配置。当前未完成项以本文 2026-11-25 的 A/B/C 审计为准；单输入 AQE、局部聚合和写恢复等“机制已实现”不等于生产验收已完成。被后续批次取代的描述在原文附近标注 superseded。
 
-两个相邻区间读取同一个 1,573,814 字节、两行组的本地 Parquet 文件。旧实现让两个区间各请求整个文件并重复返回行。候选分别请求 852,184 和 852,187 字节，按文件绝对行号删除两行，两个结果的并集与整文件读取一致。只含 footer 的有效区间返回空结果，越过文件末尾的区间失败。数字来自 Native 任务的数据文件读取预算。Iceberg 大文件规划仍需使用 manifest 的区间信息，跨主机场景需另行测量。 [Iceberg 文件区间元数据](https://iceberg.apache.org/spec/)
+真实 HTTP SQL 测试用 Iceberg SDK 写入一个多行组 Parquet 文件，并提交含两条位置删除的快照。保持 SQL 和快照一致，只调节表的读取分片目标。整文件路径发出一个扫描分片和一个扫描任务；区间路径发出 10 个分片，由两个独立 Worker JVM 上的 8 个扫描任务读取。两次都经 Native Flight 返回同样的 4,094 行并完成物理排空。两次枚举都只规划了一个原始数据文件和一个位置删除文件。定向回归还覆盖阶段预算耗尽、无可用偏移、来源快照绑定、索引按原始对象应用判断、窄列投影、Join、Top-K 和写后读。该测试使用本地文件和 48 KiB 的小分片目标。跨主机与默认分片目标的吞吐、尾延迟和远程对象 I/O 仍按 A7/A8 验收。
+
+两个相邻区间读取同一个 1,573,814 字节、两行组的本地 Parquet 文件。旧实现让两个区间各请求整个文件并重复返回行。候选分别请求 852,184 和 852,187 字节，按文件绝对行号删除两行，两个结果的并集与整文件读取一致。只含 footer 的有效区间返回空结果，越过文件末尾的区间失败。数字来自 Native 任务的数据文件读取预算。该批次直接向 Native 提供字节区间，跨主机 I/O 继续在 A7 验收。 [Iceberg 文件区间元数据](https://iceberg.apache.org/spec/)
 
 macOS arm64 重编受影响的 Native 对象后，83 项隔离 Native 用例、56 项 Java 定向用例和 24 项 JNI 端到端用例通过。两个独立 Worker 完成 Join 和全局 Top-K。测试轮询现在将非终态 `NONE` 识别为无结果流的在途查询，等待提交终态。完整平台矩阵由 CI 验收。
 

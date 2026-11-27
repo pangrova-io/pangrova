@@ -121,7 +121,7 @@ final class IcebergReadBindings {
                 capturedMetadata.formatVersion(), properties, handle.readMode(), handle.fromSnapshotId(),
                 handle.toSnapshotId(), handle.pushedLimit());
         TableStatistics statistics = snapshot == null ? new TableStatistics(0, 0, 0, Map.of())
-                : IcebergStatisticsCollector.planningStatistics(snapshot, table, handle, schema);
+                : IcebergStatisticsCollector.planningStatistics(snapshot, table, bound, schema);
         return new ConnectorReadBinding(bound, declaration, statistics,
                 snapshot == null ? ReadSnapshotState.EMPTY
                         : ReadSnapshotState.SNAPSHOT,

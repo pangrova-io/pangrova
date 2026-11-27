@@ -83,6 +83,19 @@ public record IcebergSplit(
         estimatedScanRows = Math.max(0L, estimatedScanRows);
     }
 
+    /** Creates a physical subrange of the same immutable Parquet object. */
+    public IcebergSplit withRange(long offset, long length) {
+        if (offset < fileOffset || length <= 0 || offset - fileOffset > fileLength - length) {
+            throw new IllegalArgumentException("Parquet range falls outside the planned file interval");
+        }
+        long auxiliaryBytes = estimatedScanBytes - fileLength;
+        long rows = Math.round(estimatedScanRows * ((double) length / fileLength));
+        return new IcebergSplit(tableName, filePath, offset, length, dataFileSizeBytes, fileFormat,
+                partitionValues, snapshotId, dataSequenceNumber, specId, content, readMode,
+                fromSnapshotId, toSnapshotId, deleteFiles, columnMappings, typePromotions, residualPredicate,
+                Math.addExact(length, auxiliaryBytes), rows);
+    }
+
     @Override
     public byte[] residualPredicate() {
         return Arrays.copyOf(residualPredicate, residualPredicate.length);

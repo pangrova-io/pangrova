@@ -2,6 +2,7 @@ package org.pangrova.coordinator.query.execution.dispatch.dag.binding;
 
 import org.pangrova.planner.enums.StagePlanMode;
 import org.pangrova.coordinator.query.execution.split.QuerySplit;
+import org.pangrova.connector.api.metadata.SplitPlanningBudget.FileGranularity;
 
 import java.util.List;
 import java.util.Map;
@@ -53,12 +54,13 @@ public final class StageSplitFetcher {
             QuerySession session,
             Map<String, Long> snapshotOverrides,
             String writeMode) {
-        return fetch(plan, session, snapshotOverrides, writeMode, null);
+        return fetch(plan, session, snapshotOverrides, writeMode, null, FileGranularity.WHOLE_OBJECT);
     }
 
     /** Applies proven probe ranges within the normal authorized catalog enumeration. */
     public FetchedSplits fetch(StageNode plan, QuerySession session,
-            Map<String, Long> snapshotOverrides, String writeMode, BuildFilterGate filter) {
+            Map<String, Long> snapshotOverrides, String writeMode, BuildFilterGate filter,
+            FileGranularity fileGranularity) {
         if (session == null) {
             throw new IllegalStateException("Query session is required for authenticated split lookup");
         }
@@ -77,12 +79,13 @@ public final class StageSplitFetcher {
         var ranges = filter == null ? null : filter.probeRanges(plan.stageId());
         if (ranges == null || sources.size() != 1) {
             return new FetchedSplits(
-                    splitSource.fetchAndFilterSplits(fragment, sources, overrides, session.queryId(), session),
+                    splitSource.fetchAndFilterSplits(fragment, sources, overrides, session, fileGranularity),
                     sourcePlan);
         }
         var original = sources.get(0);
         var pruned = prune(original, filter.plan(), ranges);
-        var splits = splitSource.fetchAndFilterSplits(fragment, List.of(pruned), overrides, session.queryId(), session);
+        var splits = splitSource.fetchAndFilterSplits(fragment, List.of(pruned), overrides, session,
+                fileGranularity);
         if (original != pruned) {
             LOG.info("event=runtime_filter_probe_splits queryId={} stageId={} splitCount={} emptyBuild={}",
                     session.queryId(), plan.stageId(), splits.size(), ranges.isEmpty());
@@ -136,7 +139,7 @@ public final class StageSplitFetcher {
                         Constraint.EMPTY, source.tableColumns(), source.readBinding()))
                 .toList();
         return SplitFetcher.fetchSplitsWithFilePaths(
-                unpruned, catalogRegistry, overrides, outputColumns, session);
+                unpruned, catalogRegistry, overrides, outputColumns, session, FileGranularity.WHOLE_OBJECT);
     }
 
 }

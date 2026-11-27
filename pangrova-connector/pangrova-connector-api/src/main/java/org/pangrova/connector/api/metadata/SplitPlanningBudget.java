@@ -8,11 +8,19 @@ import java.util.concurrent.TimeUnit;
 
 /** The remaining stage capacity and monotonic deadline available to one split source. */
 @Experimental
-public record SplitPlanningBudget(long deadlineNanos, int remainingSplits) {
+public record SplitPlanningBudget(long deadlineNanos, int remainingSplits, FileGranularity fileGranularity) {
+    /** Whether the consumer can execute byte ranges independently within one data object. */
+    public enum FileGranularity { WHOLE_OBJECT, BYTE_RANGES }
+
     public static final long DEFAULT_TIMEOUT_MS = 30_000;
     public static final int DEFAULT_MAX_SPLITS = 100_000;
 
+    public SplitPlanningBudget(long deadlineNanos, int remainingSplits) {
+        this(deadlineNanos, remainingSplits, FileGranularity.WHOLE_OBJECT);
+    }
+
     public SplitPlanningBudget {
+        java.util.Objects.requireNonNull(fileGranularity, "fileGranularity");
         if (remainingSplits < 0) throw new IllegalArgumentException("Split capacity must not be negative");
     }
 

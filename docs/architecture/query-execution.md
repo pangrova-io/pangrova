@@ -281,6 +281,19 @@ sources. A batch that arrives after the deadline or would exceed the cap fails t
 stage and closes the source. An empty binding is still validated against its
 admitted table identity before returning zero splits.
 
+An Iceberg snapshot's existing file count and byte total estimate the available
+scan parallelism. In parallel live SQL scan stages, the split source groups
+adjacent Parquet row groups from manifest `split_offsets` using the table's
+`read.split.target-size` (128 MiB by default). A file with usable boundaries
+produces disjoint byte intervals under one data object and snapshot identity.
+Each interval has its own split ID and carries the same position-delete
+descriptors. Native applies deletes using file-global row positions. Files
+without usable offsets, single-task result stages, writes and artifact-backed
+reads retain whole-object units. The planner derives the ranges entirely from
+manifest metadata. Scalar index pruning batches metadata lookups for distinct paths
+and evaluates an immutable file once before applying its decision and hints to
+the file's ranges.
+
 Paimon historical read binding uses the selected snapshot object to resolve the
 exact schema and locate its statistics. It reads the snapshot object directly
 for initial selection and for the final identity check before publishing the

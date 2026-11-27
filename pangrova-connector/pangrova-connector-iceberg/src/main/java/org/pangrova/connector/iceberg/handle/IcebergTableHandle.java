@@ -1,5 +1,8 @@
 package org.pangrova.connector.iceberg.handle;
 
+import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.util.PropertyUtil;
+
 import java.util.Map;
 import java.util.Optional;
 
@@ -84,6 +87,11 @@ public record IcebergTableHandle(
         snapshotId = snapshotId == null ? Optional.empty() : snapshotId;
         properties = properties == null ? Map.of() : Map.copyOf(properties);
         readMode = readMode == null ? READ_MODE_FULL : readMode;
+    }
+
+    /** Returns the scan range target captured with the table declaration. */
+    public long targetScanRangeBytes() {
+        return PropertyUtil.propertyAsLong(properties, TableProperties.SPLIT_SIZE, TableProperties.SPLIT_SIZE_DEFAULT);
     }
 
     @Override

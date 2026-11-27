@@ -1,5 +1,11 @@
 package org.pangrova.testing.integration.e2e.shuffle;
 
+import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.data.GenericRecord;
+import org.apache.iceberg.data.Record;
+import org.apache.iceberg.data.parquet.GenericParquetWriter;
+import org.apache.iceberg.parquet.Parquet;
 import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -8,6 +14,8 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.api.TestReporter;
 import org.pangrova.connector.api.metadata.table.TableStatistics;
+import org.pangrova.connector.iceberg.IcebergMetadata;
+import org.pangrova.connector.iceberg.write.IcebergDeleteWriter;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.protocol.v2.BuildKeyRange;
 import org.pangrova.protocol.v2.BuildKeySummary;
@@ -35,6 +43,7 @@ import java.util.Set;
 import java.util.StringJoiner;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.LongStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -726,6 +735,71 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
             metrics.publishEntry("filtered_parquet_file_bytes", Long.toString(filteredBytes));
         } finally {
             sqlRunner.executeDdl("DROP TABLE " + table);
+        }
+    }
+
+    @Test
+    void oneIcebergParquetObjectUsesBothScanWorkersAndKeepsFileGlobalDeletes(TestReporter metrics)
+            throws Exception {
+        String name = "iceberg_ranges_" + Long.toHexString(System.nanoTime());
+        String source = CATALOG + "." + SCHEMA + "." + name;
+        sqlRunner.executeDdl("CREATE TABLE " + source + " (id BIGINT, payload VARCHAR)"
+                + " TBLPROPERTIES ('format-version' = '2')");
+        try {
+            var metadata = (IcebergMetadata) metadataBootstrap.catalogRegistry().getCatalog(CATALOG)
+                    .getMetadata(authenticatedCatalogSession(CATALOG));
+            var table = metadata.catalog().loadTable(TableIdentifier.of(SCHEMA, name));
+            table.updateProperties().set(TableProperties.SPLIT_SIZE, Long.toString(Long.MAX_VALUE)).commit();
+            var writer = Parquet.writeData(table.io().newOutputFile(table.location() + "/data/one.parquet"))
+                    .forTable(table).withSpec(table.spec()).createWriterFunc(GenericParquetWriter::create)
+                    .set(TableProperties.PARQUET_COMPRESSION, "uncompressed")
+                    .set(TableProperties.PARQUET_ROW_GROUP_SIZE_BYTES, "16384")
+                    .set(TableProperties.PARQUET_ROW_GROUP_CHECK_MIN_RECORD_COUNT, "1")
+                    .set(TableProperties.PARQUET_ROW_GROUP_CHECK_MAX_RECORD_COUNT, "1")
+                    .<Record>build();
+            int rowCount = 4096;
+            try (writer) {
+                for (long id = 0; id < rowCount; id++) {
+                    var row = GenericRecord.create(table.schema());
+                    row.setField("id", id);
+                    row.setField("payload", Long.toHexString(id).repeat(48));
+                    writer.write(row);
+                }
+            }
+            var data = writer.toDataFile();
+            table.newAppend().appendFile(data).commit();
+            assertThat(data.splitOffsets()).hasSizeGreaterThan(3);
+            assertThat(data.fileSizeInBytes()).isGreaterThan(96 * 1024L);
+            var deletes = IcebergDeleteWriter.buildPositionDeleteFile(table, data.location(), List.of(5L, 3000L));
+            table.newRowDelta().addDeletes(deletes).commit();
+            try (var files = table.newScan().planFiles()) {
+                assertThat(files).singleElement().satisfies(file -> {
+                    assertThat(file.file().splitOffsets()).isEqualTo(data.splitOffsets());
+                    assertThat(file.deletes()).hasSize(1);
+                });
+            }
+
+            String sql = "SELECT id FROM " + source + " ORDER BY id";
+            var whole = executeWithDrainedReports(sql);
+            assertThat(whole.sourceSplits(source)).isOne();
+
+            table.updateProperties().set(TableProperties.SPLIT_SIZE, "49152").commit();
+            var ranged = executeWithDrainedReports(sql);
+            assertThat(ranged.sourceSplits(source)).isGreaterThan(1);
+            assertThat(ranged.reports().stream().filter(report -> report.getCoverage().getSourceSnapshotsList()
+                    .stream().anyMatch(coverage -> coverage.getSourceId().equals(source))))
+                    .extracting(report -> report.getAttempt().getWorkerExecutionIdentity())
+                    .contains(workerManager.getWorker(WORKER_ID).workerExecutionIdentity().toProto(),
+                            workerManager.getWorker(SECOND_WORKER_ID).workerExecutionIdentity().toProto());
+            var expected = LongStream.range(0, rowCount).filter(id -> id != 5 && id != 3000).boxed().toList();
+            assertThat(whole.rows()).extracting(row -> row.getLong("id")).containsExactlyElementsOf(expected);
+            assertThat(ranged.rows()).extracting(row -> row.getLong("id")).containsExactlyElementsOf(expected);
+            metrics.publishEntry(Map.of("manifest_row_groups", Integer.toString(data.splitOffsets().size()),
+                    "range_splits", Long.toString(ranged.sourceSplits(source)),
+                    "whole_file_requested_bytes", Long.toString(whole.sourceReadBytes(source)),
+                    "range_requested_bytes", Long.toString(ranged.sourceReadBytes(source))));
+        } finally {
+            sqlRunner.executeDdl("DROP TABLE " + source);
         }
     }
 

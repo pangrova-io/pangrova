@@ -38,13 +38,13 @@ final class IcebergStatisticsCollector {
      * Builds table statistics from an Iceberg snapshot summary and manifest files.
      */
     static TableStatistics buildStatistics(Snapshot snapshot, Table icebergTable, IcebergTableHandle handle) {
-        return snapshotStatistics(snapshot, handle, () -> collectColumnStatistics(snapshot, icebergTable));
+        return snapshotStatistics(snapshot, handle, 0, () -> collectColumnStatistics(snapshot, icebergTable));
     }
 
     /** Binds query statistics using the selected metadata already loaded by the catalog. */
     static TableStatistics planningStatistics(
             Snapshot snapshot, Table table, IcebergTableHandle handle, Schema selectedSchema) {
-        return snapshotStatistics(snapshot, handle, () -> {
+        return snapshotStatistics(snapshot, handle, handle.targetScanRangeBytes(), () -> {
             var ndv = readNdvFromPuffin(table, snapshot, false);
             Map<String, TableStatistics.ColumnStatistics> columns = new HashMap<>();
             for (Types.NestedField field : selectedSchema.columns()) {
@@ -57,7 +57,7 @@ final class IcebergStatisticsCollector {
     }
 
     private static TableStatistics snapshotStatistics(Snapshot snapshot, IcebergTableHandle handle,
-            Supplier<Map<String, TableStatistics.ColumnStatistics>> columns) {
+            long targetRangeBytes, Supplier<Map<String, TableStatistics.ColumnStatistics>> columns) {
         // A range scan reads only files appended between its endpoints. The end
         // snapshot's live-file, row and byte totals describe a different source.
         if (IcebergTableHandle.READ_MODE_INCREMENTAL.equals(handle.readMode())) {
@@ -69,6 +69,11 @@ final class IcebergStatisticsCollector {
                 snapshot.summary().getOrDefault("total-files-size", "-1"));
         long sourceWorkUnits = Long.parseLong(
                 snapshot.summary().getOrDefault("total-data-files", "-1"));
+        // The snapshot has file counts and total bytes. Actual ranges are chosen from
+        // manifest offsets during enumeration, so this only sizes the candidate stage.
+        if (sourceWorkUnits > 0 && targetRangeBytes > 0 && dataSize > 0) {
+            sourceWorkUnits = Math.max(sourceWorkUnits, dataSize / targetRangeBytes);
+        }
         return new TableStatistics(rowCount, dataSize, sourceWorkUnits, columns.get());
     }
 

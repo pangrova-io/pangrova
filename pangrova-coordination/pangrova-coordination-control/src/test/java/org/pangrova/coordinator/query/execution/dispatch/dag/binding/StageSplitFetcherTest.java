@@ -27,6 +27,8 @@ import org.pangrova.security.api.exception.AccessDeniedException;
 import org.pangrova.security.api.identity.UserIdentity;
 
 import java.time.Instant;
+import org.pangrova.connector.api.metadata.SplitPlanningBudget.FileGranularity;
+
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -48,15 +50,15 @@ class StageSplitFetcherTest {
         var overrides = Map.of("lake.public.items", 17L);
         var expected = List.of(new QuerySplit(split("encoded-query-split"), List.of("s3://bucket/object")));
         var calls = new AtomicInteger();
-        var fetcher = new StageSplitFetcher(null, (supplied, sources, snapshots, queryId, actor) -> {
+        var fetcher = new StageSplitFetcher(null, (supplied, sources, snapshots, actor, granularity) -> {
             calls.incrementAndGet();
             assertThat(supplied).isSameAs(fragment);
             assertThat(snapshots).isEqualTo(overrides);
-            assertThat(queryId).isEqualTo(session.queryId());
+            assertThat(granularity).isEqualTo(FileGranularity.BYTE_RANGES);
             assertThat(actor).isSameAs(session);
             return expected;
         });
-        assertThat(fetcher.fetch(stage(fragment), session, overrides, null).splits())
+        assertThat(fetcher.fetch(stage(fragment), session, overrides, null, null, FileGranularity.BYTE_RANGES).splits())
                 .containsExactlyElementsOf(expected);
         assertThat(calls).hasValue(1);
     }
@@ -71,7 +73,7 @@ class StageSplitFetcherTest {
         var scan = LogicalTableScan.create(cluster, qualified, List.of());
         var fragment = new PlanFragment(scan, -1, -1);
         var original = selection.get();
-        var fetcher = new StageSplitFetcher(null, (ignored, sources, snapshots, queryId, actor) -> {
+        var fetcher = new StageSplitFetcher(null, (ignored, sources, snapshots, actor, granularity) -> {
             assertThat(sources).singleElement().satisfies(source ->
                     assertThat(source.readBinding()).containsSame(original));
             selection.set(snapshotBinding(18));
@@ -98,7 +100,7 @@ class StageSplitFetcherTest {
         var session = session();
         for (RuntimeException failure : List.of(new AccessDeniedException("revoked"),
                 new CancellationException("query cancelled"), new IllegalStateException("provider unavailable"))) {
-            var fetcher = new StageSplitFetcher(null, (fragment, sources, snapshots, queryId, actor) -> {
+            var fetcher = new StageSplitFetcher(null, (fragment, sources, snapshots, actor, granularity) -> {
                 throw failure;
             });
             assertThatThrownBy(() -> fetcher.fetch(stage(fragment()), session, Map.of(), null))
@@ -112,7 +114,7 @@ class StageSplitFetcherTest {
                 "lake", "public", "items", org.pangrova.connector.api.metadata.Constraint.EMPTY,
                 List.of("id"), Optional.empty());
         assertThatThrownBy(() -> org.pangrova.coordinator.query.execution.split.SplitFetcher
-                .fetchRawConnectorSplits(List.of(source), null, Map.of(), List.of("id"), session()))
+                .fetchRawConnectorSplits(List.of(source), null, Map.of(), List.of("id"), session(), FileGranularity.WHOLE_OBJECT))
                 .isInstanceOf(org.pangrova.common.exception.PangrovaException.class)
                 .hasMessageContaining("configured catalog registry");
     }
@@ -121,7 +123,7 @@ class StageSplitFetcherTest {
     void wholeTableReplacementDoesNotInvokeAnIndexPruningSource() {
         var session = session();
         var calls = new AtomicInteger();
-        var fetcher = new StageSplitFetcher(null, (fragment, sources, snapshots, queryId, actor) -> {
+        var fetcher = new StageSplitFetcher(null, (fragment, sources, snapshots, actor, granularity) -> {
             calls.incrementAndGet();
             throw new AssertionError("A whole-table replacement must enumerate its unpruned read");
         });
@@ -138,10 +140,10 @@ class StageSplitFetcherTest {
     @Test
     void partitionSourceCannotMutatePinnedSnapshotSelectors() {
         var selectors = new java.util.HashMap<>(Map.of("lake.public.items", 17L));
-        var fetcher = new StageSplitFetcher(null, (fragment, sources, snapshots, queryId, actor) -> {
+        var fetcher = new StageSplitFetcher(null, (fragment, sources, snapshots, actor, granularity) -> {
             assertThatThrownBy(() -> snapshots.put("lake.public.items", 18L))
                     .isInstanceOf(UnsupportedOperationException.class);
-            assertThat(queryId).isEqualTo(actor.queryId());
+            assertThat(granularity).isEqualTo(FileGranularity.WHOLE_OBJECT);
             return List.of();
         });
         fetcher.fetch(stage(fragment()), session(), selectors, null);
