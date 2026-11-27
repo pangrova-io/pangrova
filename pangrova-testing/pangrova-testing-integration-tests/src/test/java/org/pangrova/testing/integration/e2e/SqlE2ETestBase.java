@@ -119,6 +119,8 @@ import org.pangrova.persistence.workflow.postgresql.projection.PostgresMetadataP
 import org.pangrova.persistence.catalog.postgresql.synchronization.PostgresMetadataSyncRepository;
 import org.pangrova.query.dispatch.StatementExecutionFactory;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 // StageFragmenter removed from prod — QueryDispatcher now takes only (deps, statementDispatcher)
 
 /**
@@ -1302,6 +1304,23 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
             }
         }
         return null;
+    }
+
+    /** Checks a DDL policy decision through the durable submit receipt and terminal status. */
+    protected static void assertAcceptedAuthorizationFailure(String sql, String privilege, String object)
+            throws Exception {
+        var receipt = submitQueryViaHttp(sql);
+        assertThat(receipt.state()).isEqualTo("QUEUED");
+        assertThat(receipt.resultDisposition()).isEqualTo(ResultDisposition.PENDING);
+
+        var terminal = MAPPER.readTree(pollUntilTerminal(receipt.queryId()));
+        assertThat(terminal.path("state").asText()).isEqualTo("FAILED");
+        assertThat(terminal.path("result_disposition").asText()).isEqualTo("NONE");
+        assertThat(terminal.hasNonNull("result_endpoint")).isFalse();
+        var error = terminal.path("error");
+        assertThat(error.path("error_code").asText()).isEqualTo("SECURITY-0002");
+        assertThat(error.path("message").asText())
+                .contains("lacks " + privilege + " on " + object);
     }
 
     protected static SubmitQueryResponse submitQueryViaHttp(String sql) throws Exception {
