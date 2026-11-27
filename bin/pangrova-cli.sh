@@ -47,6 +47,8 @@ Environment Variables:
   PANGROVA_CONF_DIR          Config directory (default: \$PANGROVA_HOME/etc)
   PANGROVA_COORDINATOR_URL   Coordinator URL (e.g. https://coordinator:8080); --host/--port
                            are extracted from it when not explicitly provided on the command line
+  NO_COLOR                   Disable ANSI color in interactive output
+  COLUMNS                    Terminal width; below 80 uses the compact wordmark
 
 Examples:
   $(basename "$0")

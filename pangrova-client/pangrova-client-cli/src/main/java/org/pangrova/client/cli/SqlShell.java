@@ -37,6 +37,15 @@ final class SqlShell {
     private static final int DISPLAY_PAGE_ROWS = 128;
     private static final String PROMPT = "pangrova> ";
     private static final String CONTINUATION_PROMPT = "     -> ";
+    private static final int COMPACT_BANNER_WIDTH = 80;
+    private static final String FULL_BANNER = """
+            ██████╗  █████╗ ███╗   ██╗ ██████╗ ██████╗  ██████╗ ██╗   ██╗ █████╗
+            ██╔══██╗██╔══██╗████╗  ██║██╔════╝ ██╔══██╗██╔═══██╗██║   ██║██╔══██╗
+            ██║  ██║███████║██╔██╗ ██║██║  ███╗██████╔╝██║   ██║██║   ██║███████║
+            ██║  ██║██╔══██║██║╚██╗██║██║   ██║██╔══██╗██║   ██║╚██╗ ██╔╝██╔══██║
+            ██████╔╝██║  ██║██║ ╚████║╚██████╔╝██║  ██║╚██████╔╝ ╚████╔╝ ███████╗
+            ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═══╝ ╚═════╝ ╚═╝  ╚═╝ ╚═════╝   ╚═══╝  ╚══════╝
+            """;
 
     private final QueryClient client;
     private final BufferedReader reader;
@@ -44,6 +53,7 @@ final class SqlShell {
     private final Duration queryTimeout;
     private final String catalog;
     private final String schema;
+    private final TerminalStyle style;
 
     SqlShell(QueryClient client, BufferedReader reader, PrintStream out, Duration queryTimeout) {
         this(client, reader, out, queryTimeout, null);
@@ -56,12 +66,18 @@ final class SqlShell {
 
     SqlShell(QueryClient client, BufferedReader reader, PrintStream out, Duration queryTimeout,
              String catalog, String schema) {
+        this(client, reader, out, queryTimeout, catalog, schema, TerminalStyle.plain());
+    }
+
+    SqlShell(QueryClient client, BufferedReader reader, PrintStream out, Duration queryTimeout,
+             String catalog, String schema, TerminalStyle style) {
         this.client = client;
         this.reader = reader;
         this.out = out;
         this.queryTimeout = queryTimeout;
         this.catalog = catalog;
         this.schema = schema;
+        this.style = style;
     }
 
     /**
@@ -69,8 +85,7 @@ final class SqlShell {
      * or the input stream is exhausted.
      */
     void run() {
-        out.println("Pangrova SQL Shell. Type \\q or exit to quit.");
-        out.println();
+        printWelcome(out);
 
         StringBuilder sqlBuffer = new StringBuilder();
         boolean multiLine = false;
@@ -84,7 +99,7 @@ final class SqlShell {
             String trimmed = line.trim();
 
             if (!multiLine && isQuitCommand(trimmed)) {
-                out.println("Bye!");
+                out.println(style.dim("Bye!"));
                 break;
             }
 
@@ -96,8 +111,30 @@ final class SqlShell {
         }
     }
 
+    private void printWelcome(PrintStream output) {
+        if (style.width() < COMPACT_BANNER_WIDTH) {
+            output.println(style.header("PANGROVA CLI") + style.dim("  ·  Distributed SQL for open lakehouses"));
+        } else {
+            output.print(style.accent(FULL_BANNER));
+            output.println(style.bold("Distributed SQL for open lakehouses"));
+        }
+        output.println(style.dim("Open-source lakehouse analytics and AI retrieval."));
+        output.println(style.dim("Calcite planning · Velox execution · Arrow Flight · Iceberg · Paimon · Lance"));
+        if (catalog != null || schema != null) {
+            output.println(style.dim("Session · catalog=" + valueOrDash(catalog) + " · schema=" + valueOrDash(schema)));
+        }
+        output.println();
+        output.println(style.bold("Pangrova SQL Shell") + ". Type \\q or exit to quit.");
+        output.println(style.dim("End statements with ';'. Results are paged in groups of up to 128 rows."));
+        output.println();
+    }
+
+    private static String valueOrDash(String value) {
+        return value == null ? "—" : value;
+    }
+
     private String readLine(boolean multiLine) {
-        out.print(multiLine ? CONTINUATION_PROMPT : PROMPT);
+        out.print(multiLine ? style.dim(CONTINUATION_PROMPT) : style.prompt(PROMPT));
         out.flush();
         try {
             return reader.readLine();
@@ -123,11 +160,11 @@ final class SqlShell {
         try {
             execute(sql);
         } catch (QueryTimeoutException e) {
-            out.println("Error [QUERY_TIMEOUT]: " + e.getMessage());
+            out.println(style.error("Error [QUERY_TIMEOUT]: " + e.getMessage()));
         } catch (PangrovaClientException e) {
-            out.println("Error [" + e.errorCode() + "]: " + e.getMessage());
+            out.println(style.error("Error [" + e.errorCode() + "]: " + e.getMessage()));
         } catch (Exception e) {
-            out.println("Error: " + e.getMessage());
+            out.println(style.error("Error: " + e.getMessage()));
             LOG.debug("Unexpected error during query execution", e);
         }
     }
@@ -140,7 +177,7 @@ final class SqlShell {
         if (schema != null) sessionProps.put("schema", schema);
         QueryExecution query = client.beginQuery(sql, Map.copyOf(sessionProps));
         String queryId = query.submission().queryId();
-        out.println("Query submitted: " + queryId);
+        out.println(style.dim("Query submitted: " + queryId));
         consumeAndComplete(query);
         if (out.checkError()) throw new IllegalStateException("Failed to write query results");
         return queryId;
@@ -198,7 +235,7 @@ final class SqlShell {
         if (result != null) {
             result.finish();
         } else if (status.resultDisposition() == ResultDisposition.NONE) {
-            out.println("OK (no result set)");
+            out.println(style.success("OK (no result set)"));
         } else {
             throw new PangrovaClientException("RESULT_ENDPOINT_MISSING", "Query finished without its result endpoint");
         }
@@ -206,7 +243,7 @@ final class SqlShell {
 
     private ResultDisplay consumeResult(QueryExecution query, QueryStatusResponse ready, long deadlineMs) {
         try (ResultCursor cursor = client.openResult(ready.resultEndpoint(), deadlineMs)) {
-            var display = new ResultDisplay(cursor.columns().stream().map(ColumnDescriptor::name).toList(), out);
+            var display = new ResultDisplay(cursor.columns().stream().map(ColumnDescriptor::name).toList(), out, style);
             while (cursor.next()) {
                 display.add(cursor);
             }
@@ -302,12 +339,18 @@ final class SqlShell {
     static final class ResultDisplay {
         private final List<String> headers;
         private final PrintStream output;
+        private final TerminalStyle style;
         private final List<List<String>> page = new ArrayList<>(DISPLAY_PAGE_ROWS);
         private long rowCount;
 
         ResultDisplay(List<String> headers, PrintStream output) {
+            this(headers, output, TerminalStyle.plain());
+        }
+
+        ResultDisplay(List<String> headers, PrintStream output, TerminalStyle style) {
             this.headers = headers;
             this.output = output;
+            this.style = style;
         }
 
         void add(ResultCursor cursor) {
@@ -326,12 +369,12 @@ final class SqlShell {
         void finish() {
             printPage();
             if (!headers.isEmpty()) {
-                output.println(rowCount + (rowCount == 1 ? " row" : " rows"));
+                output.println(style.dim(rowCount + (rowCount == 1 ? " row" : " rows")));
             }
         }
 
         private void printPage() {
-            output.print(TableFormatter.formatPage(headers, page));
+            output.print(TableFormatter.formatPage(headers, page, style));
             if (output.checkError()) throw new IllegalStateException("Failed to write query results");
         }
     }

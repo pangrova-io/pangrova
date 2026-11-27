@@ -57,9 +57,8 @@ public final class PangrovaCli {
             return;
         }
         try (PangrovaRestClient client = createClient(parsed)) {
-            if (parsed.catalog != null) out.println("Catalog: " + parsed.catalog);
             new SqlShell(client, reader, out, parsed.queryTimeout,
-                    parsed.catalog, parsed.schema).run();
+                    parsed.catalog, parsed.schema, TerminalStyle.detect()).run();
         }
     }
 

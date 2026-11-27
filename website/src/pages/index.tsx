@@ -186,7 +186,10 @@ function Hero() {
             <span className={styles.heroBadgeDot} />
             Open source · Apache License 2.0
           </div>
-          <img src="img/logo-transparent.png" alt="Pangrova" className={styles.heroLogo} />
+          <div className={styles.heroBrand}>
+            <img src="img/logo-transparent.png" alt="Pangrova logo" className={styles.heroLogo} />
+            <span className={styles.heroWordmark}>Pangrova</span>
+          </div>
           <h1 className={styles.heroTitle}>{siteConfig.tagline}</h1>
           <p className={styles.heroSubtitle}>
             {siteConfig.title} is a distributed SQL engine for lakehouse analytics and AI
