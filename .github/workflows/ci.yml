@@ -326,6 +326,11 @@ jobs:
     if: github.event_name == 'pull_request' && needs.change-scope.outputs.performance == 'true'
     steps:
       - uses: actions/checkout@v7
+      - name: Check out the exact pull request base
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: jmh-base
 
       - name: Set up function-contract Python
         uses: actions/setup-python@v7
@@ -342,34 +347,42 @@ jobs:
       - name: Install same-run Iceberg SDK
         uses: ./.github/actions/restore-iceberg-sdk
 
-      - name: Build benchmark JAR
-        run: |
-          mvn -B package -pl pangrova-testing/pangrova-testing-benchmark -am \
-            -DskipTests -Dmaven.test.skip=true
-
-      - name: Run JMH benchmarks (short mode for CI)
-        run: |
-          java --add-opens=java.base/java.nio=ALL-UNNAMED \
-            -jar pangrova-testing/pangrova-testing-benchmark/target/pangrova-benchmarks.jar \
-            -f 1 -wi 2 -i 3 -t 1 \
-            -rf json -rff target/jmh-results.json
+      - name: Build JMH harnesses for the base and candidate
         env:
-          MAVEN_OPTS: "-Xmx4g"
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          [[ "$(git -C jmh-base rev-parse HEAD)" == "$BASE_SHA" ]]
+          [[ "$(git rev-parse HEAD)" == "$GITHUB_SHA" ]]
+          benchmark_args=(-B package -pl pangrova-testing/pangrova-testing-benchmark -am
+                          -DskipTests -Dmaven.test.skip=true)
+          (cd jmh-base && mvn "${benchmark_args[@]}")
+          mvn "${benchmark_args[@]}"
+
+      - name: Measure the base and candidate on the same runner
+        run: |
+          jar=pangrova-testing/pangrova-testing-benchmark/target/pangrova-benchmarks.jar
+          mkdir -p target/jmh
+          printf 'base=%s\ncandidate=%s\n' "$(git -C jmh-base rev-parse HEAD)" "$GITHUB_SHA" \
+            > target/jmh/revisions.txt
+          measure() {
+            java --add-opens=java.base/java.nio=ALL-UNNAMED -jar "$1" \
+              -f 2 -wi 2 -i 3 -t 1 -foe true -jvmArgsAppend '-Xms512m -Xmx512m' \
+              -rf json -rff "target/jmh/$2.json"
+          }
+          measure "jmh-base/$jar" base
+          measure "$jar" candidate
 
       - name: Check for regressions (>10% = fail)
         run: |
-          chmod +x pangrova-testing/pangrova-testing-benchmark/scripts/jmh-regression-check.sh
-          pangrova-testing/pangrova-testing-benchmark/scripts/jmh-regression-check.sh \
-            target/jmh-results.json \
-            pangrova-testing/pangrova-testing-benchmark/baseline/jmh-baseline.json \
-            0.10
+          bash pangrova-testing/pangrova-testing-benchmark/scripts/jmh-regression-check.sh \
+            target/jmh/candidate.json target/jmh/base.json 0.10
 
       - name: Upload JMH results
         if: always()
         uses: actions/upload-artifact@v7
         with:
           name: jmh-benchmark-results
-          path: target/jmh-results.json
+          path: target/jmh/
           retention-days: 30
 
   dead-stub-detection:

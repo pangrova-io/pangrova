@@ -465,6 +465,14 @@ private:
 
 ## 5. Performance Testing Framework
 
+When PR CI selects performance checks, it builds the JMH harness from both the
+pull request base and the candidate commits. It measures both on the same runner
+using the same JDK and fork options. The comparator requires matching benchmark
+cases, units and harness settings and fails for point-estimate regressions above
+10%. The `jmh-benchmark-results` artifact retains both raw result files and source
+revisions. Use dedicated hosts and the published workload runbook for TPC
+performance qualification.
+
 ![Performance Testing Framework](../../website/static/img/diagrams/generated/testing-09-ec8d291802.svg)
 
 ```java

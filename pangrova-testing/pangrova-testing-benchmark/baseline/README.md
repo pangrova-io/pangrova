@@ -1,5 +1,9 @@
 # Baseline ownership
 
+PR CI measures JMH for both the exact base and candidate commits on the same
+runner with the same JDK and harness arguments. Both result sets and their
+revisions are retained as workflow artifacts.
+
 The historical SF10 summaries and zero-valued SF100 file remain unchanged as
 historical evidence. They do not satisfy current calibration contracts.
 

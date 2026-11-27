@@ -686,6 +686,18 @@ class RuntimeScopeTest(unittest.TestCase):
         self.assertIn('docker cp "$container:/opt/pangrova/native-deps" "$HOME/.pangrova/"', restore)
         self.assertNotIn('/opt/pangrova/velox', restore)
 
+    def test_jmh_compares_real_base_and_candidate_measurements(self):
+        workflow = (WORKFLOWS / 'ci.yml').read_text()
+        job = workflow.split('  jmh-benchmarks:\n', 1)[1].split('\n  dead-stub-detection:', 1)[0]
+        self.assertIn('ref: ${{ github.event.pull_request.base.sha }}', job)
+        self.assertIn('[[ "$(git -C jmh-base rev-parse HEAD)" == "$BASE_SHA" ]]', job)
+        self.assertIn('(cd jmh-base && mvn "${benchmark_args[@]}")', job)
+        self.assertIn('measure "jmh-base/$jar" base', job)
+        self.assertIn('measure "$jar" candidate', job)
+        self.assertIn('-foe true', job)
+        self.assertIn('target/jmh/candidate.json target/jmh/base.json 0.10', job)
+        self.assertIn('path: target/jmh/', job)
+
     def test_docs_policy_website_and_gate_tools_use_lightweight_checks(self):
         paths = ['AGENTS.md', '.pangrova/rules/testing.md', '.pangrova/setup.sh',
                  'docs/architecture/overview.md', 'pangrova-worker-native/README.md',
