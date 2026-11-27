@@ -21,8 +21,8 @@ unlisted: true
 | ID | 当前事实与缺口 | 实施工作包 |
 |---|---|---|
 | A1 | HTTP 提交共用持久受理，未提供幂等键时按新查询生成 journal 身份。principal、key digest、canonical fingerprint、lineage 和 `QUEUED`/`PENDING` 回执原子写入，正常新受理一次 INSERT；冲突和未知提交读取权威行。分支选择通过成功终态和恢复回执发布。已通过本地真实 PostgreSQL 回执恢复、无键写入和双 Worker 链路。待补跨主机多 Coordinator、Worker 故障组合 | WP1.1 |
-| A2 | 已有原子状态版本、签名回执转发和精确 Worker 派发凭证。普通 DAG、投机副本、失败重派和 Worker CDC 在发送前提交已绑定的派发凭证。接管方分批核验并按当前租约持久化匹配的退出回执。单查询最多核验一页，全局最多四页并行，等待 HTTP 不占清理线程。仍存活的原 Worker 为已过期且没有存续执行者的精确尝试出具退出回执，并禁止迟到重放和时钟回拨重新准入。PostgreSQL 将持久租户槽位与执行租约同事务准入，并在本地实际清理后同事务退还。已经取得租约但尚未写入准入 journal 的执行也可在接管后归还槽位。接管批次只读取有 journal 证据的执行 ID。已派发的运行中 SQL 在完整退出证明后原子落下终态，已发布写入保留成功语义。查询阶段与 Worker 非终态进度使用实时投影，已移除这两类 journal 写入。终态、派发凭证和接管退出回执仍持久化，终态写入与 journal 删除按原执行租约验证归属，远端 Shuffle 清理后同事务归还快照 pin、租约和槽位。普通 SQL 的 Shuffle 删除由实际排空后的终态清理触发，暖路径复用现有能力票据，无 scope 时通过 PostgreSQL 直接消除意图，已去掉空闲扫描。客户端用原签名回执在冷路径恢复已物理排空的终态，正常状态查询仍走内存投影。接管方可释放已受理但尚未取得 Worker 或 Coordinator 本地执行权的查询。本地语句在执行前按租约登记，Coordinator 本地 Flight 直接发送 Arrow 批次，缓冲和读取者纳入进程内排空。同一持久目录的替代进程取得独占锁后可证明原进程退出，并启用既有的物理回收。未取得证明的执行不进入到期认领批次。仍在运行的前任可在本地 Flight 和执行资源实际排空后凭原始令牌写入退出证明，即使续租已移除本地缓存。收尾事务开始前租约到期时，接管方凭租约行上的退出证明继续回收。本地排空与对外 DRAINED 分开发布。接管事务提交后才发布 DRAINED，仍持有投影的前任可在认证状态请求中核对租约和槽位归还。正常收尾在同一事务中清理日志、释放租约并归还槽位。到期或待提交的执行保留接管日志。已删除重建查询状态和任务跟踪的旧重放链路。剩余工作包括独立进程故障和跨主机验收 | WP1.2 |
-| A3 | WP1.3 已引入显式 `PENDING` / `STREAM` / `NONE`，并贯通 dispatch、状态机、REST、JDBC、CLI 和 benchmark；代码合同已闭合，跨主机 resultless/延迟发布 E2E 仍待验收 | WP1.3，本地验证后提交；生产验收待续 |
+| A2 | 已有原子状态版本、签名回执转发和精确 Worker 派发凭证。普通 DAG、投机副本、失败重派和 Worker CDC 在发送前提交已绑定的派发凭证。接管方分批核验并按当前租约持久化匹配的退出回执。单查询最多核验一页，全局最多四页并行，等待 HTTP 不占清理线程。仍存活的原 Worker 为已过期且没有存续执行者的精确尝试出具退出回执，并禁止迟到重放和时钟回拨重新准入。PostgreSQL 将持久租户槽位与执行租约同事务准入，并在本地实际清理后同事务退还。已经取得租约但尚未写入准入 journal 的执行也可在接管后归还槽位。接管批次只读取有 journal 证据的执行 ID。已派发的运行中 SQL 在完整退出证明后原子落下终态，已发布写入保留成功语义。查询阶段与 Worker 非终态进度使用实时投影，已移除这两类 journal 写入。终态、派发凭证和接管退出回执仍持久化，终态写入与 journal 删除按原执行租约验证归属，远端 Shuffle 清理后同事务归还快照 pin、租约和槽位。普通 SQL 的 Shuffle 删除由实际排空后的终态清理触发，暖路径复用现有能力票据，无 scope 时通过 PostgreSQL 直接消除意图，已去掉空闲扫描。客户端用原签名回执在冷路径恢复已物理排空的终态，正常状态查询仍走内存投影。接管方可释放已受理但尚未取得 Worker 或 Coordinator 本地执行权的查询。本地语句在执行前按租约登记，Coordinator 本地 Flight 直接发送 Arrow 批次，缓冲和读取者纳入进程内排空。同一持久目录的替代进程取得独占锁后可证明原进程退出，并启用既有的物理回收。未取得证明的执行不进入到期认领批次。仍在运行的前任可在本地 Flight 和执行资源实际排空后凭原始令牌写入退出证明，即使续租已移除本地缓存。收尾事务开始前租约到期时，接管方凭租约行上的退出证明继续回收。本地排空与对外 DRAINED 分开发布。接管事务提交后才发布 DRAINED，仍持有投影的前任可在认证状态请求中核对租约和槽位归还。正常收尾在同一事务中清理日志、释放租约并归还槽位。到期或待提交的执行保留接管日志。已删除重建查询状态和任务跟踪的旧重放链路。物化刷新在注册前冻结 START 血缘，目录解析失败后会记录一次终态并排空，避免阻塞 Coordinator 关闭。剩余工作包括更多独立进程故障和跨主机验收 | WP1.2 |
+| A3 | WP1.3 已引入显式 `PENDING` / `STREAM` / `NONE`，并贯通 dispatch、状态机、REST、JDBC、CLI 和 benchmark；本地独立 CLI、真实双 Worker 与三种连接器写入恢复验证了无结果端点、结果流和持久终态回执。跨主机 resultless/延迟发布 E2E 仍待验收 | WP1.3，本地验证后提交；生产验收待续 |
 | A4 | 生产已记录派发阶段、准备排队与运行时长、准备结果、胜出超时和本地释放时间。HTTP 持久受理的提交跨度结束于受理回执，后台执行沿用已捕获的追踪上下文。持久受理路径直接排队，复用原受理回执。排队取消后可即时释放，已进入派发的回调持有独立执行操作直至退出。在有界执行器和固定 17 ms 排队时钟下验证派发等待，以及队列满、执行器停机、入口封口和租户限额的分别计量；仅启动的回调产生排队样本。全局物理排空计数在租约与租户槽位事务确认后按本地和接管路径记录，复用事务结果，不新增 SQL。真实 PostgreSQL 验证未排空、旧租约和重复确认不计数。Coordinator 已移除从未接收查询的加权执行器，使用配置指定的放置策略。租户准入直接读取本地租户计数，离开 QUEUED 时归还排队计数，本地物理清理后归还并发计数。成员关系、租户状态和跨节点槽位仍由现有权威校验。剩余工作包括跨主机混合容量矩阵及全局排空尾延迟测量 | WP2 |
 | A5 | Paimon 使用阶段剩余 split 容量和绝对截止时间。直接追加 SQL 对每个快照单遍校验并逐个读取 manifest，普通已绑定扫描复用首次校验取得的快照。普通扫描、内部增量和直接追加在 FileIO 打开前核验源的 manifest 配额，并共用阶段的 256 MiB 编码元数据额度。计划退出后保留已进入的 I/O 所有权直至实际关闭。剩余工作包括限制 SDK 批次的 Future 分配、对象存储故障注入，以及校准阶段字节额度和跨主机混合负载并发度 | WP3.2 |
 | A6 | 实时扫描已按绑定元数据估算任务工作量。Worker 放置考虑当前签发窗口、心跳和本 Coordinator 的精确在途任务，报告物理释放或派发前回滚后扣除。持久分片按现有的最多八个分片窗口共同认领，合并权威、锁定交换证据和页面选择，Worker 候选集在事务前按窗口筛选。真实 PostgreSQL 对照逐个认领和八分片窗口，执行权威、锁定交换证据、精确页面、split 清单和依赖查询分别由 8 次降到 1 次，已运行作业无需重复更新。发布清单和 pin 按窗口复用，源对象和校验值按窗口内的来源集合批读。两份不同来源的实际分片验证了对象隔离、各次发布读取各执行一次，并验证源校验失败时整窗不消耗尝试。不可认领和请求构建失败也未消耗其他分片的尝试。九页持久作业幂等重试实测分片分配、split 和生产者依赖各读一次，依赖变序和 split 校验值损坏均被拒绝。Producer 终态实测阶段合同、直接角色和锁定作业各读一次，等待锁后再次检查执行租约。剩余工作包括按任务负载校准持久任务初次分配、多 Coordinator 的在途估计，以及按存储、格式、冷热和并发验证尾时延 | WP3.3 |
@@ -31,7 +31,7 @@ unlisted: true
 | A9 | Iceberg 实时扫描可由同一个构建侧最多四个 BIGINT 键分别生成范围过滤。每个查询可激活最多四组互不共享 Stage 的构建与探测组合，共用 200 ms 等待期限，各自发布范围和 Profile 决策。剩余工作包括其他键类型、连接器、共享 Stage 的组合、向运行中的探测端应用晚到过滤，以及跨主机负载校准 | WP4 |
 | A10 | 实时单输入范围合并已存在。普通等值 Join 按已绑定扫描的统计建立两侧哈希分区。符合键顺序、类型和分区数约束的实时双输入 HASH Join 复用同一范围映射，两侧各自保留提交证明，并按合计字节分组。本地独立双 Worker 的 FULL OUTER JOIN 已核验 4 → 1 个消费任务、全部 8 行及物理排空。待补持久重放映射、可执行 skew split、更复杂输入形态和跨主机负载验收 | WP5 |
 | A11 | Shuffle 已有 lease/window/fence；缺少 durable revocation generation、participant ACK 和 convergence receipt | WP6 |
-| A12 | 普通分布式写入删除 redo 后保留带 fingerprint 的终态回执，COPY、CDC 和外部 publication 使用现有写入声明与版本字段。表格导出发布复用同一事务已授权的阶段图，以一次查询校验分片完成状态、分配和输出覆盖，不再逐分片读取 split 或生产者依赖。剩余工作是验证各来源重放窗口并制定可证明的回执回收条件，以及跨主机故障与高并发验收 | WP8 |
+| A12 | 普通分布式写入删除 redo 后保留带 fingerprint 的终态回执，COPY、CDC 和外部 publication 使用现有写入声明与版本字段。表格导出发布复用同一事务已授权的阶段图，以一次查询校验分片完成状态、分配和输出覆盖，不再逐分片读取 split 或生产者依赖。剩余工作包括验证各来源重放窗口和回执回收条件，以及跨主机故障与高并发验收。MAINTENANCE 角色目前在每个输入批次暂存前读取运行中流的版本与执行租约。需用本地有界许可消除重复读，并在目录发布和 offset 确认保留事务级围栏 | WP8 |
 | A13 | 写入 journal 已将确认未发布的精确 fingerprint 固化为 `ABORTED`，保留不确定提交的挂起记录和隔离证据。Paimon 暂存清理仍先比较表快照再尝试删除，各操作之间缺少覆盖目录提交与对象删除的持久屏障。待修复这一竞态并验收跨进程接管和部分删除故障 | WP8 |
 | A14 | nightly TPC 已存在；release 不校验同源 Linux/TPC 不可变证据，SF100 零值基线仍不合格 | WP9，需先批准 CI/基础设施变更 |
 
@@ -121,7 +121,7 @@ PostgreSQL 接管分类用例预置 4,096 条其他查询日志和 4,096 条其�
 ## 固定三条稳态零读库门槛（目标状态）
 
 1. **状态订阅和诊断读取。** 活跃 query 由 owner 的认证状态投影提供。正常状态读取与客户端重连在投影窗口内产生零 journal SELECT。接管按认领的执行 ID 查证，显式历史查询返回最后写入的准入或终态。以两个 Coordinator 和大量同 query 的客户端断言次数，覆盖 Ready endpoint 和错误细节。已验证本机直连和签名票据定向转发，接管仍见 A2。
-2. **持久 journal。** 正常新受理和新事件各一次 INSERT，独立 SELECT 为零。A1 的初始 `QUEUED` 行同时承载 principal、key digest、request fingerprint、lineage 和确定性 `QUEUED`/`PENDING` 回执；`INSERT ... ON CONFLICT DO NOTHING` 的正常路径不读回，只有 event/idempotency 冲突或未知提交结果才 SELECT 核对。事务、lineage 原子性和最终 ACK 所代表的 durability 保持一致。对已提交写的状态判断只读取一次，未知提交仍从权威证据核对。
+2. **持久 journal。** 正常新受理和新事件各一次 INSERT，独立 SELECT 为零。A1 的初始 `QUEUED` 行同时承载 principal、key digest、request fingerprint、lineage 和确定性 `QUEUED`/`PENDING` 回执；`INSERT ... ON CONFLICT DO NOTHING` 的正常路径不读回，只有 event/idempotency 冲突或未知提交结果才 SELECT 核对。事务、lineage 原子性和最终 ACK 所代表的 durability 保持一致。 JDBC 已在受理和终态事务内写入 lineage outbox。观察回调仍会重复追加同一事件，触发冲突后的 payload SELECT。需以 journal 已完成持久化的证据跳过该调用，并单独验证内存 journal 的 lineage 投递。对已提交写的状态判断只读取一次，未知提交仍从权威证据核对。
 3. **Shuffle steady state。** 只在建流、续租、最终关闭与恢复触及读租约数据库。manifest 是由已提交 attempt 发布的不可变数据。每 batch 禁止同步数据库操作，同时本地核验 scope/epoch、租约有效期、撤销与 byte credit；已有在途读取保有精确保护时间。测试每 batch/每 chunk 的 SQL 计数和撤销后新数据是否可见。durable revocation 收敛尚未实现，见 A11。
 
 已验证本地状态和 JSON profile 的历史读取分离。两个 profile 路由共用查询留存的终态审计记录和本机任务统计。真实 QUERY Coordinator 上，HTTP 提交并经 Flight 消费结果后，两条 profile 路由共 32 个并发请求，返回一致且审计表 SELECT 增量为零。主动清除本地投影后，普通状态和 profile 请求均返回 404，journal 和审计表 SELECT 增量为零。显式 `history=true` 的 profile 返回相同审计数据，只有一次按查询和提交主体限定的 SELECT。
@@ -196,6 +196,8 @@ PostgreSQL 接管分类用例预置 4,096 条其他查询日志和 4,096 条其�
 
 持久受理后，查询由执行期限继续约束。原来受理与结果就绪共用提交计时器，已返回 `QUEUED/PENDING` 的查询也可能在 250 ms 初始就绪期限后失败。双 Worker 基线中的无键初始化 INSERT 在进入派发前等待约 12 秒，Worker 登记后约 8.6 秒完成启动，原提交请求返回 HTTP 500。统一受理后，带键和无键请求都在 PostgreSQL 确认受理后返回 `QUEUED/PENDING`，由查询执行期限约束后续运行。本地真实双 Worker 用例完成初始化 INSERT，执行查询并通过 Native Flight 读取结果。真实 PostgreSQL 恢复用例和分支会话 E2E 验证了成功终态的分支选择。
 
+新一轮独立进程验收覆盖 Iceberg、Paimon、Lance 的六项写入恢复，Local Disk Shuffle 的跨阶段 Worker 绑定，及两项真实 Iceberg RECLUSTER 恢复。修复前，目录解析失败的后台物化刷新缺少 START 血缘，导致 Coordinator 关闭时需要 SIGKILL。修复后，定向回归核对失败先落下唯一的 START 和 FAIL 并完成排空，Local Disk Shuffle 进程正常退出。写入恢复按原查询 ID 和 fingerprint 检查紧凑终态回执，再读取已发布结果。RECLUSTER 用例验证了 Worker 鉴权、原 Worker 退出后重做暂存、提交恢复以及精确快照。
+
 OpenTelemetry 对照把派发停在 PLANNING。旧代码已返回持久回执时仍未结束 `query.submit`；候选在返回回执时已结束该跨度，后台线程仍使用同一个 span ID 作为父上下文。运行结果和物理排空继续由查询生命周期发布。
 
 集合查询的排序和分页由解析器绑定到整个集合结果，动态表 AST 改写保留它们，Calcite 在集合运算上生成全局排序与截断。仅指定 OFFSET 时，Substrait 使用标准 offset 表达式并留空 count，Worker 在最终流水线应用一次偏移。真实双 Worker 的 Flight 用例核对了全局 ASC、DESC、带 LIMIT 的 OFFSET、仅 OFFSET 和实际排空。Iceberg 与 Paimon 独立执行同一 UNION ALL 后返回相同的有序结果。分支自己的分页在派生表内表达，递归 CTE 的排序和分页在消费它的查询中应用。
@@ -238,7 +240,7 @@ Paimon 普通扫描的 manifest I/O 探针使用 12 次真实 SDK 提交。把�
 
 用 Paimon 1.4.1 的 `ThreadPoolUtils` 和计数执行器验证批次分配。输入 8,192 个 manifest 候选，普通批处理在消费前已提交 8,192 个 Future。SDK 的顺序批处理在消费前提交 0 个，取首条结果时提交 16 个。完整消费的记录与顺序相同。此验证只覆盖 SDK 调度器。生产扫描还需要保留分片生成、删除条目合并和按模式选择快照的语义。 [Paimon 1.4.1 批次调度](https://github.com/apache/paimon/blob/release-1.4.1/paimon-api/src/main/java/org/apache/paimon/utils/ThreadPoolUtils.java)
 
-将同一批 8,192 个候选交给 Paimon 1.4.1 的真实信号量执行器，许可数设为 2。原批处理在消费第一条结果前已经完成 8,192 个处理任务，分批执行器在同一位置完成 0 个。两种方式完整消费后顺序一致。线程并行度可以约束同时运行的操作，Future 和结果的留存量仍需在消费边界限制。
+将同一批 8,192 个候选交给 Paimon 1.4.1 的真实信号量执行器，许可数设为 2。原批处理在消费第一条结果前已经完成 8,192 个处理任务，分批执行器在同一位置完成 0 个。两种方式完整消费后顺序一致。线程并行度可以约束同时运行的操作，Future 和结果的留存量仍需在消费边界限制。 复核固定版本源码确认，`AbstractFileStoreScan.readFileIterator` 只为新增条目启用分批读取。全量快照的删除条目仍经 `FileEntry.readDeletedEntries` 为每个含删除的 manifest 提交 Future。A5 的验收要分别测两类输入的峰值待处理任务、选中条目与实际对象读取次数。
 
 Paimon 1.4.1 在普通扫描中为新增与删除条目分别调度 manifest。顺序批处理只影响新增条目，`FileEntry.readDeletedEntries` 仍一次提交全部删除候选。完整收敛需要让同一 SDK 调度窗口覆盖两类任务，并让窗口在取消、超时或额度用尽后停止补充任务。验收应覆盖有真实删除条目的快照、结果顺序、候选数量和退出后的在途 I/O。 [Paimon 1.4.1 扫描](https://github.com/apache/paimon/blob/release-1.4.1/paimon-core/src/main/java/org/apache/paimon/operation/AbstractFileStoreScan.java) · [删除条目调度](https://github.com/apache/paimon/blob/release-1.4.1/paimon-core/src/main/java/org/apache/paimon/manifest/FileEntry.java)
 
