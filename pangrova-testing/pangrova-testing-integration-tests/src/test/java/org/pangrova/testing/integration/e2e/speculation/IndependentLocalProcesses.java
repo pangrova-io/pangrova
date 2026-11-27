@@ -495,18 +495,14 @@ final class IndependentLocalProcesses implements AutoCloseable {
     }
 
     QueryResult query(String sql, ResultProtocol expectedProtocol) throws Exception {
-        return requireSuccessfulQuery(executeSql(sql, expectedProtocol), expectedProtocol);
+        return requireSuccessfulExecution(executeSql(sql, expectedProtocol), ResultDisposition.STREAM, expectedProtocol);
     }
 
     QueryResult command(String sql, ResultProtocol clientProtocol) throws Exception {
         return requireSuccessfulExecution(executeSql(sql, clientProtocol), ResultDisposition.NONE, clientProtocol);
     }
 
-    QueryResult requireSuccessfulQuery(CliOutcome outcome, ResultProtocol expectedProtocol) {
-        return requireSuccessfulExecution(outcome, ResultDisposition.STREAM, expectedProtocol);
-    }
-
-    private QueryResult requireSuccessfulExecution(
+    QueryResult requireSuccessfulExecution(
             CliOutcome outcome, ResultDisposition expected, ResultProtocol expectedProtocol) {
         if (outcome.exitCode() != 0 || outcome.receipt() == null
                 || outcome.output() == null) {

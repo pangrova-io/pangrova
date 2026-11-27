@@ -175,10 +175,10 @@ class PersistentTenantOverloadE2ETest extends ContainerTestBase {
 
     private static void seedArrivalTable(IndependentLocalProcesses processes) throws Exception {
         processes.createSourceCatalog();
-        processes.query("CREATE TABLE " + TABLE + " (id BIGINT, shard BIGINT) PARTITIONED BY (shard)",
+        processes.command("CREATE TABLE " + TABLE + " (id BIGINT, shard BIGINT) PARTITIONED BY (shard)",
                 ResultProtocol.GRPC_TLS);
-        processes.query("INSERT INTO " + TABLE + " VALUES (0,0),(1,0),(2,0),(3,0)", ResultProtocol.GRPC_TLS);
-        processes.query("INSERT INTO " + TABLE + " VALUES (4,1),(5,1),(6,1),(7,1)", ResultProtocol.GRPC_TLS);
+        processes.command("INSERT INTO " + TABLE + " VALUES (0,0),(1,0),(2,0),(3,0)", ResultProtocol.GRPC_TLS);
+        processes.command("INSERT INTO " + TABLE + " VALUES (4,1),(5,1),(6,1),(7,1)", ResultProtocol.GRPC_TLS);
     }
 
     private static void runArrivals(IndependentLocalProcesses processes) throws Exception {

@@ -72,6 +72,11 @@ mvn -pl pangrova-testing/pangrova-testing-integration-tests test \
   -Dpangrova.e2e.local.native-lib="$release_library"
 ```
 
+Public CLI assertions check the terminal disposition declared by each scenario.
+Ordinary catalog and table creation and SQL writes must reach `FINISHED` with
+`NONE` and no result endpoint. Reads must reach `STREAM` with the expected
+Flight transport, and the CLI receipt must confirm consumption.
+
 A missing artifact, rejected runtime hash, child startup failure, or failed scenario
 is a test failure; the fixture does not skip or replace it with an in-process worker.
 
@@ -81,8 +86,8 @@ is a test failure; the fixture does not skip or replace it with an in-process wo
 It kills the original Worker process after staging while the relay holds its
 terminal report. A surviving Worker publishes one catalog version with the
 expected row count. A separate scenario interrupts journal confirmation and
-restarts the Coordinator. The test checks the original query ID, fingerprint and
-exact visible rows. The failure follows catalog publication in Iceberg and Paimon.
+restarts the Coordinator. It checks the durable terminal receipt for the original
+query ID and fingerprint, then verifies the exact visible rows. The failure follows catalog publication in Iceberg and Paimon.
 Lance updates its catalog pointer and journal in a single PostgreSQL transaction,
 so the same fault leaves the pointer unchanged until recovery. The Lance test
 also observes a second serialization failure during a live recovery scan,

@@ -34,8 +34,8 @@ class IndependentPublicationDirectoryE2ETest extends ContainerTestBase {
         try (var writer = new IndependentLocalProcesses()) {
             writer.startCoordinatorAndFirstWorker();
             writer.createSourceCatalog();
-            writer.query("CREATE TABLE " + SOURCE + " (id BIGINT)", ResultProtocol.GRPC_TLS);
-            writer.query("INSERT INTO " + SOURCE + " VALUES (41)", ResultProtocol.GRPC_TLS);
+            writer.command("CREATE TABLE " + SOURCE + " (id BIGINT)", ResultProtocol.GRPC_TLS);
+            writer.command("INSERT INTO " + SOURCE + " VALUES (41)", ResultProtocol.GRPC_TLS);
             try (var reader = writer.startPeer()) {
                 try {
                     verifyPublication(writer, reader);
