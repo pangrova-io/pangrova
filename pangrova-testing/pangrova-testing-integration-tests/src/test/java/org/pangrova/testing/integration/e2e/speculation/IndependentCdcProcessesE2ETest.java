@@ -557,7 +557,7 @@ class IndependentCdcProcessesE2ETest extends ContainerTestBase {
                 processes.metadataStatementCalls(EXECUTION_OWNER_LOOKUP) - ownerReads,
                 processes.metadataStatementCalls(STREAM_REVISION_LOOKUP) - revisionReads))
                 .as("point reads for execution ownership and stream revision through one complete local batch")
-                .containsExactly(5L, 4L);
+                .containsExactly(4L, 4L);
     }
 
     private static void verifyIdleCheckpointReads(IndependentLocalProcesses processes) throws Exception {

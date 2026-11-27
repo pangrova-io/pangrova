@@ -206,8 +206,9 @@ class CoordinatorExecutionAuthorityIntegrationTest {
         var backend = new JdbcExecutionAnchorStore(dataSource);
         var maintenance = new CoordinatorExecutionAuthority(backend, "maintenance-node", "first-process",
                 Duration.ofSeconds(2));
-        var initial = maintenance.acquire("artifact:maintenance-owned-job").orElseThrow();
+        var initial = maintenance.acquireNew("artifact:maintenance-owned-job").orElseThrow();
         try {
+            assertThat(maintenance.acquireNew(initial.executionId())).isEmpty();
             assertThat(maintenance.acquire(initial.executionId()).orElseThrow().fencingToken()).isEqualTo(initial.fencingToken());
             // No QUERY role or HA election service exists. The shared backend lease must still advance.
             await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->

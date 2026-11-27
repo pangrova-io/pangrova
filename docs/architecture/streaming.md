@@ -159,6 +159,8 @@ registration advertises CDC, subject to tenant placement and resource limits.
 The shared membership store persists the capability for the registered Worker
 incarnation so Coordinator failover preserves eligibility.
 Both roles bind the persisted stream creator and durable execution owner before staging.
+MAINTENANCE claims a new execution identity directly through the durable lease acquisition
+transaction. Recovery can reuse the exact live lease held by the same process.
 During MAINTENANCE staging, each poll and private-file batch checks interruption, the task
 deadline, and the locally observed maintenance term. The runtime rechecks PostgreSQL ownership
 and stream revision before accepting the staged fragments into the journal, again before catalog

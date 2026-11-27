@@ -275,7 +275,7 @@ final class JournaledCdcRuntime implements AutoCloseable {
 
     private ExecutionAnchor acquire(String executionId) {
         if (workers == null) {
-            return executionAuthority.acquire(executionId).orElseThrow(() ->
+            return executionAuthority.acquireNew(executionId).orElseThrow(() ->
                     new IllegalStateException("Could not acquire CDC execution ownership: " + executionId));
         }
         if (!workers.coordination().acquireQueryOwnership(executionId, coordinatorId)) {
