@@ -171,8 +171,8 @@ artifacts:
   pangrova-scheduler-policy:
     path: pangrova-scheduler/pangrova-scheduler-policy
     moduleName: org.pangrova.scheduler.policy
-    packageRoots: [org.pangrova.scheduler.admission, org.pangrova.scheduler.enums, org.pangrova.scheduler.placement, org.pangrova.scheduler.resource, org.pangrova.scheduler.retry, org.pangrova.scheduler.speculation]
-    exports: [org.pangrova.scheduler.admission, org.pangrova.scheduler.enums, org.pangrova.scheduler.placement, org.pangrova.scheduler.resource, org.pangrova.scheduler.retry, org.pangrova.scheduler.speculation]
+    packageRoots: [org.pangrova.scheduler.admission, org.pangrova.scheduler.enums, org.pangrova.scheduler.placement, org.pangrova.scheduler.retry, org.pangrova.scheduler.speculation]
+    exports: [org.pangrova.scheduler.admission, org.pangrova.scheduler.enums, org.pangrova.scheduler.placement, org.pangrova.scheduler.retry, org.pangrova.scheduler.speculation]
     allowedImports: [pangrova-scheduler-api, pangrova-common, pangrova-config, pangrova-protocol, pangrova-query, pangrova-shuffle-exchange, pangrova-persistence-security-api, pangrova-security-api, pangrova-persistence-coordination-api]
     forbiddenImports: [pangrova-scheduler-strategies-builtin, pangrova-persistence-generation-postgresql, pangrova-coordination-control, pangrova-worker, pangrova-metadata-catalog, pangrova-planner, pangrova-connector-runtime, pangrova-connector-iceberg, pangrova-connector-paimon, pangrova-connector-lance, pangrova-persistence-table-postgresql, pangrova-persistence-table-memory, pangrova-persistence-file-postgresql]
     providers: {}

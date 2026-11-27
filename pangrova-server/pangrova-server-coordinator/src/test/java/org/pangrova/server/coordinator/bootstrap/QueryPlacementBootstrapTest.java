@@ -1,15 +1,9 @@
 package org.pangrova.server.coordinator.bootstrap;
 
-import ch.qos.logback.classic.Logger;
-import ch.qos.logback.classic.spi.ILoggingEvent;
-import ch.qos.logback.core.AppenderBase;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.pangrova.server.coordinator.enums.CoordinatorDeploymentRole;
 import org.pangrova.server.coordinator.testinfra.SignedOidcCoordinatorTestBase;
-import org.slf4j.LoggerFactory;
-
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -17,42 +11,28 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @Tag("integration")
 class QueryPlacementBootstrapTest extends SignedOidcCoordinatorTestBase {
     @Test
-    void securedQueryBootstrapNeverStartsTheUnusedDispatcherOnSuccessOrFailure() {
-        Logger logger = (Logger) LoggerFactory.getLogger("org.pangrova.scheduler.resource.WeightedFairScheduler");
-        var starts = new AtomicInteger();
-        var capture = new AppenderBase<ILoggingEvent>() {
-            @Override
-            protected void append(ILoggingEvent event) {
-                if (event.getFormattedMessage().equals("WeightedFairScheduler started")) {
-                    starts.incrementAndGet();
-                }
-            }
-        };
-        capture.setContext(logger.getLoggerContext());
-        capture.start();
-        logger.addAppender(capture);
+    void securedQueryBootstrapStartsWithoutTheRetiredDispatcher() {
+        assertThat(CoordinatorBootstrap.class.getClassLoader().getResource(
+                "org/pangrova/scheduler/resource/WeightedFairScheduler.class")).isNull();
+        var running = new CoordinatorBootstrap(tenantConfig(CoordinatorBootstrapConfig.QueryConfig.defaults()));
         try {
-            var running = new CoordinatorBootstrap(tenantConfig(CoordinatorBootstrapConfig.QueryConfig.defaults()));
-            try {
-                running.start();
-                assertThat(running.isStarted()).isTrue();
-                assertThat(starts).hasValue(0);
-            } finally {
-                running.shutdown();
-            }
-
-            var invalidCleanup = new CoordinatorBootstrapConfig.QueryConfig(300, 10, 0, 600, 0);
-            var failed = new CoordinatorBootstrap(tenantConfig(invalidCleanup));
-            try {
-                assertThatThrownBy(failed::start).isInstanceOf(IllegalArgumentException.class);
-                assertThat(failed.isStarted()).isFalse();
-                assertThat(starts).hasValue(0);
-            } finally {
-                failed.shutdown();
-            }
+            running.start();
+            assertThat(running.isStarted()).isTrue();
         } finally {
-            logger.detachAppender(capture);
-            capture.stop();
+            running.shutdown();
+        }
+        assertThat(running.isStarted()).isFalse();
+    }
+
+    @Test
+    void invalidCleanupConfigurationLeavesTheBootstrapStopped() {
+        var invalidCleanup = new CoordinatorBootstrapConfig.QueryConfig(300, 10, 0, 600, 0);
+        var failed = new CoordinatorBootstrap(tenantConfig(invalidCleanup));
+        try {
+            assertThatThrownBy(failed::start).isInstanceOf(IllegalArgumentException.class);
+            assertThat(failed.isStarted()).isFalse();
+        } finally {
+            failed.shutdown();
         }
     }
 

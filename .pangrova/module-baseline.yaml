@@ -3757,7 +3757,6 @@ artifacts:
       - org.pangrova.scheduler.admission
       - org.pangrova.scheduler.enums
       - org.pangrova.scheduler.placement
-      - org.pangrova.scheduler.resource
       - org.pangrova.scheduler.retry
       - org.pangrova.scheduler.speculation
     pomDependencies:
