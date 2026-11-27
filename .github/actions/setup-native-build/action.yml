@@ -152,6 +152,7 @@ runs:
         }
         echo "PANGROVA_LLVM_PREFIX=$llvm_prefix" >> "$GITHUB_ENV"
         echo "SDKROOT=$sdk_root" >> "$GITHUB_ENV"
+        echo "MACOSX_DEPLOYMENT_TARGET=${MACOSX_DEPLOYMENT_TARGET:-13.0}" >> "$GITHUB_ENV"
         echo "$llvm_prefix/bin" >> "$GITHUB_PATH"
         for tool in bison flex; do
           prefix="$(brew --prefix "$tool" 2>/dev/null || true)"

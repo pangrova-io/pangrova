@@ -196,6 +196,8 @@ configure_compiler() {
   [[ "$SDKROOT" == /* && "$SDKROOT" != "/" && -d "$SDKROOT/usr/include" ]] \
     || die "macOS SDK headers not found at $SDKROOT"
   export SDKROOT
+  # Keep the C++ deployment baseline aligned with the packaged Lance C FFI.
+  export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-13.0}"
   export PATH="$PANGROVA_HOME/bin:$llvm_prefix/bin:$PATH"
   [[ -n "$BISON_PREFIX" && -d "$BISON_PREFIX/bin" ]] && export PATH="$BISON_PREFIX/bin:$PATH"
   [[ -n "$FLEX_PREFIX" && -d "$FLEX_PREFIX/bin" ]] && export PATH="$FLEX_PREFIX/bin:$PATH"
@@ -203,6 +205,7 @@ configure_compiler() {
   export CXX="$llvm_prefix/bin/clang++"
   step "Using $("$CXX" --version | head -1)"
   step "Using macOS SDK $SDKROOT"
+  step "Using macOS deployment target $MACOSX_DEPLOYMENT_TARGET"
   configure_darwin_cxx_runtime
 }
 
@@ -1005,7 +1008,7 @@ ENVEOF
     "$PANGROVA_HOME/env.sh"
   if [[ "$OS" == "Darwin" ]]; then
     local llvm_env
-    llvm_env="export CC=\"$CC\"\nexport CXX=\"$CXX\"\nexport SDKROOT=\"$SDKROOT\"\nexport OPENSSL_ROOT_DIR=\"$OPENSSL_PREFIX\"\nexport PATH=\"$(dirname "$CC"):\$PATH\""
+    llvm_env="export CC=\"$CC\"\nexport CXX=\"$CXX\"\nexport SDKROOT=\"$SDKROOT\"\nexport MACOSX_DEPLOYMENT_TARGET=\"$MACOSX_DEPLOYMENT_TARGET\"\nexport OPENSSL_ROOT_DIR=\"$OPENSSL_PREFIX\"\nexport PATH=\"$(dirname "$CC"):\$PATH\""
     sed -i.tmp -e "s|LLVM_ENV|$llvm_env|" "$PANGROVA_HOME/env.sh"
   else
     sed -i.tmp -e '/LLVM_ENV/d' "$PANGROVA_HOME/env.sh"

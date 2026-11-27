@@ -65,8 +65,9 @@ LLVM. The bootstrap resolves `SDKROOT` with `xcrun` when needed and records it
 in `env.sh`: CMake then treats the SDK headers as implicit system headers
 instead of placing them ahead of libc++ while building gRPC. CI compiles a small
 zlib consumer to verify that header ordering before building the dependencies.
-With LLVM 18 or newer, the bootstrap pairs the selected Clang driver with
-the Xcode SDK's libc++ headers and links against the macOS system runtime.
+The bootstrap uses the macOS 13.0 deployment target by default, matching the
+packaged Lance C FFI. With LLVM 18 or newer it pairs the selected Clang driver
+with the Xcode SDK's libc++ headers and links against the macOS system runtime.
 It verifies exception creation and rethrow before building dependencies.
 The generated driver is shared by Velox, its dependencies and the JNI build.
 Same-run macOS receipts include the compiler checksum and deployment target.

@@ -16,6 +16,7 @@ case "$stage" in core|sdk) ;; *) die "Unknown stage: $stage";; esac
 : "${GITHUB_WORKSPACE:?missing workspace path}"
 : "${PANGROVA_LLVM_PREFIX:?missing selected compiler}"
 : "${SDKROOT:?missing selected macOS SDK}"
+: "${MACOSX_DEPLOYMENT_TARGET:?missing macOS deployment target}"
 
 printf 'macOS Native stage %s %s on runner image %s\n' \
     "$stage" "$operation" "${ImageVersion:-unknown}"
@@ -26,7 +27,7 @@ fingerprint() {
         "run=$GITHUB_RUN_ID" "revision=$GITHUB_SHA" "workspace=$GITHUB_WORKSPACE" \
         "prefix=$root" "architecture=$(uname -m)" \
         "sdk=$SDKROOT" "compiler=$PANGROVA_LLVM_PREFIX" \
-        "deployment=${MACOSX_DEPLOYMENT_TARGET:-default}"
+        "deployment=$MACOSX_DEPLOYMENT_TARGET"
     sw_vers -buildVersion
     xcodebuild -version
     "$PANGROVA_LLVM_PREFIX/bin/clang++" --version
