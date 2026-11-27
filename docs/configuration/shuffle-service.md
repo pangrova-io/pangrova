@@ -107,7 +107,7 @@ Overlapping ranges are a deployment error even though each entry is individually
 
 The service shares the Coordinator's authority database. Apply the metadata
 migrations, including `V120__execution_read_windows.sql`, before starting it.
-This release initializes the Shuffle schema through `V10__write_window_reservations.sql`.
+This release initializes the Shuffle schema through `V12__uncertain_write_acknowledgements.sql`.
 Use an empty Shuffle schema and object prefix for the new deployment.
 Use the permissions required by the Shuffle schema and grant the service
 `SELECT` and the column-level `UPDATE` privilege needed for row locking on
@@ -141,8 +141,12 @@ An unconfirmed object PUT surfaces immediately to the write stream when the SDK
 reports failure. The SDK performs a single attempt for each PUT. Its reservation
 protects the object prefix through the configured call deadline plus 60 seconds
 for drain. Cleanup closes new admission, waits for protected writes and records
-any expired reservation as a tombstone before deleting objects. Writers for
-different stages of the same query share the scope lock. Each allocation
+the prefix for compensation before deleting objects. Exact expired reservations
+survive allocation removal. A confirmed late PUT settles its reservation
+without restoring publication authority. The service retires the periodic
+sweep after a complete sweep claimed with all reservations settled. Any PUT
+with an unknown outcome keeps the prefix scheduled for compensation. Writers
+for different stages of the same query share the scope lock. Each allocation
 serializes its batch sequence and producer-winner updates.
 
 When terminal cleanup closes the scope, the current execution owner can renew
@@ -163,6 +167,11 @@ The Coordinator holds allocation and publication state per query and drops that 
 | `object-storage.replication-enabled` | bool | `false` | Declare that the bucket replicates objects across regions or zones |
 | `object-storage.api-call-timeout-seconds` | int | `120` | Total per-call timeout; must be positive |
 | `object-storage.api-call-attempt-timeout-seconds` | int | `45` | Per-attempt timeout; must be positive and no greater than the total timeout |
+
+The Shuffle bucket must provide strongly consistent prefix listing. A LIST
+issued after a successful PUT must include the new key, and a LIST issued
+after a successful delete must reflect the deletion. Cleanup uses this property
+to remove objects after the last writer settles. [Amazon S3 consistency model](https://docs.aws.amazon.com/AmazonS3/latest/userguide/Welcome.html#ConsistencyModel)
 
 Enabling replication does not by itself establish a recovery guarantee; the deployment must
 verify that required objects are readable from the surviving location.

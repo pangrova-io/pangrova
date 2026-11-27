@@ -1457,6 +1457,12 @@ authorized successor receives the original generation and timestamp. The
 Coordinator checks the binding before discarding its tracked query state. Cleanup
 never aggregates the batch manifest for its control response. The response marks
 a durable handoff when an expired uncertain upload still requires prefix sweeps.
+Expired producer windows and manifest PUTs retain their exact reservation IDs
+after scope removal. Once every reservation is settled by its writer, the next
+sweep claim records that all writers had settled before the object listing
+began. Successful completion under that same lease retires the sweep schedule
+and preserves the allocation identity fence. A reservation with an unknown
+outcome keeps its prefix eligible for subsequent sweeps.
 
 The Shuffle service selects an expired cleanup scope under a row lock and carries
 its previous lease deadline into the recovery claim. The claim still checks active

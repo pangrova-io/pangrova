@@ -83,7 +83,7 @@ interface ShuffleCleanupStore {
     /** Extends the exact sweep owner's lease before the next object-storage page. */
     void renewUncertainSweep(String shuffleId, String owner, long leaseMillis);
 
-    /** Schedules the next sweep; an uncertain prefix is retained indefinitely. */
+    /** Retires a completed final sweep or schedules another pass for an unresolved prefix. */
     void completeUncertainSweep(String shuffleId, String owner, long intervalMillis);
 
     CleanupStart beginCleanup(CleanupCommand command, CleanupLease lease);

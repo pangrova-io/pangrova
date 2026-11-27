@@ -45,8 +45,9 @@ final class PostgresShuffleLifecycleTransitions {
                     + "AND lease_expires_at > clock_timestamp()";
     private static final String UNCERTAIN_SWEEP_COMPLETE_SQL =
             "UPDATE shuffle_uncertain_write_tombstone SET "
-                    + "next_sweep_at = clock_timestamp() + (? * INTERVAL '1 millisecond'), "
-                    + "lease_owner = NULL, lease_expires_at = NULL "
+                    + "next_sweep_at = CASE WHEN final_sweep THEN NULL "
+                    + "ELSE clock_timestamp() + (? * INTERVAL '1 millisecond') END, "
+                    + "lease_owner = NULL, lease_expires_at = NULL, final_sweep = FALSE "
                     + "WHERE shuffle_id = ? AND lease_owner = ?::uuid "
                     + "AND lease_expires_at > clock_timestamp()";
     private final DataSource dataSource;
@@ -102,22 +103,25 @@ final class PostgresShuffleLifecycleTransitions {
     }
 
     void settleManifestWrite(String reservation, String shuffleId, String key) {
-        transaction(dataSource, connection -> {
+        boolean live = transaction(dataSource, connection -> {
             String sql = """
                     DELETE FROM shuffle_write_intent
                     WHERE reservation_id = ?::uuid AND shuffle_id = ? AND object_key = ?
-                      AND recovery_after > clock_timestamp()
+                    RETURNING recovery_after > clock_timestamp()
                     """;
             try (PreparedStatement statement = connection.prepareStatement(sql)) {
                 statement.setString(1, reservation);
                 statement.setString(2, shuffleId);
                 statement.setString(3, key);
-                if (statement.executeUpdate() != 1) {
-                    throw new SecurityException("shuffle manifest write reservation expired or was lost");
+                try (ResultSet row = statement.executeQuery()) {
+                    return row.next() && row.getBoolean(1);
                 }
             }
-            return null;
         });
+        // Keep an exact late acknowledgement even when the writer may no longer publish.
+        if (!live) {
+            throw new SecurityException("shuffle manifest write reservation expired or was lost");
+        }
     }
 
     CleanupStart beginCleanup(CleanupCommand command, CleanupLease lease) {
@@ -167,33 +171,32 @@ final class PostgresShuffleLifecycleTransitions {
     Optional<String> claimUncertainSweep(String owner, long leaseMillis) {
         requireSweepInterval(leaseMillis);
         return transaction(dataSource, connection -> {
-            String shuffleId;
-            try (PreparedStatement select = connection.prepareStatement(
-                    "SELECT shuffle_id FROM shuffle_uncertain_write_tombstone "
-                            + "WHERE next_sweep_at <= clock_timestamp() "
-                            + "AND (lease_expires_at IS NULL "
-                            + "OR lease_expires_at <= clock_timestamp()) "
-                            + "ORDER BY next_sweep_at, shuffle_id "
-                            + "FOR UPDATE SKIP LOCKED LIMIT 1")) {
-                try (ResultSet row = select.executeQuery()) {
-                    if (!row.next()) {
-                        return Optional.empty();
-                    }
-                    shuffleId = row.getString(1);
+            // A final sweep needs positive drain evidence before the first object listing.
+            String sql = """
+                    WITH due AS MATERIALIZED (
+                        SELECT t.shuffle_id FROM shuffle_uncertain_write_tombstone t
+                        WHERE t.next_sweep_at <= clock_timestamp()
+                          AND (t.lease_expires_at IS NULL OR t.lease_expires_at <= clock_timestamp())
+                          AND NOT EXISTS (SELECT 1 FROM shuffle_allocation a WHERE a.shuffle_id = t.shuffle_id)
+                        ORDER BY t.next_sweep_at, t.shuffle_id
+                        FOR UPDATE OF t SKIP LOCKED LIMIT 1
+                    )
+                    UPDATE shuffle_uncertain_write_tombstone t
+                    SET lease_owner = ?::uuid,
+                        lease_expires_at = clock_timestamp() + (? * INTERVAL '1 millisecond'),
+                        final_sweep = t.reservations_retained AND NOT EXISTS (
+                            SELECT 1 FROM shuffle_write_intent i WHERE i.shuffle_id = t.shuffle_id
+                        )
+                    FROM due WHERE t.shuffle_id = due.shuffle_id
+                    RETURNING t.shuffle_id
+                    """;
+            try (PreparedStatement statement = connection.prepareStatement(sql)) {
+                statement.setString(1, owner);
+                statement.setLong(2, leaseMillis);
+                try (ResultSet row = statement.executeQuery()) {
+                    return row.next() ? Optional.of(row.getString(1)) : Optional.empty();
                 }
             }
-            try (PreparedStatement update = connection.prepareStatement(
-                    "UPDATE shuffle_uncertain_write_tombstone "
-                            + "SET lease_owner = ?::uuid, "
-                            + "lease_expires_at = clock_timestamp() "
-                            + "+ (? * INTERVAL '1 millisecond') "
-                            + "WHERE shuffle_id = ?")) {
-                update.setString(1, owner);
-                update.setLong(2, leaseMillis);
-                update.setString(3, shuffleId);
-                update.executeUpdate();
-            }
-            return Optional.of(shuffleId);
         });
     }
 
@@ -265,8 +268,8 @@ final class PostgresShuffleLifecycleTransitions {
                     FROM shuffle_write_intent i JOIN shuffle_allocation a USING (shuffle_id)
                     CROSS JOIN cutoff WHERE a.query_id = ?
                 ), fenced AS (
-                    INSERT INTO shuffle_uncertain_write_tombstone (shuffle_id)
-                    SELECT DISTINCT shuffle_id FROM reservations WHERE NOT protected
+                    INSERT INTO shuffle_uncertain_write_tombstone (shuffle_id, reservations_retained)
+                    SELECT DISTINCT shuffle_id, TRUE FROM reservations WHERE NOT protected
                       AND NOT EXISTS (SELECT 1 FROM reservations WHERE protected)
                     ON CONFLICT (shuffle_id) DO NOTHING
                 )
