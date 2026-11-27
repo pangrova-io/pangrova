@@ -184,6 +184,7 @@ public final class DdlExecutor {
         record.ifPresent(target -> tableControlOperations.purgeTableState(target, context));
         record.ifPresent(target -> tableControlOperations.purgeColumnMasks(target, columns));
         invalidateSchemaCache();
+        applySchemaChange(schemaOperation);
         LOG.info("event=table_dropped table={}", ref);
         return List.of();
     }
@@ -252,6 +253,7 @@ public final class DdlExecutor {
             }
         }
         invalidateSchemaCache();
+        applySchemaChange(schemaOperation);
         LOG.info("event=table_altered table={} operation={}", ref, stmt.getClass().getSimpleName());
         return List.of();
     }
@@ -541,6 +543,12 @@ public final class DdlExecutor {
                 unknownSchemaChange(operationId, failure);
                 throw failure;
             }
+        }
+    }
+
+    private void applySchemaChange(java.util.UUID operationId) {
+        if (operationId != null) {
+            schemaEvolutionHandler.applyCommitted(operationId);
         }
     }
 

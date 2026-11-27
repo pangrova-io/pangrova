@@ -74,6 +74,19 @@ public final class IndexSchemaEvolutionHandler {
         metadataStore.markSchemaEvolutionCommitted(operationId, targetIdentity, Instant.now());
     }
 
+    /** Settles the exact successful connector operation before its SQL invocation returns. */
+    public void applyCommitted(UUID operationId) {
+        IndexSchemaEvolutionRecord record = metadataStore.findSchemaEvolution(operationId)
+                .orElseThrow(() -> new IllegalStateException("Index schema operation disappeared: " + operationId));
+        if (record.state() == IndexSchemaEvolutionState.APPLIED) {
+            return;
+        }
+        if (record.state() != IndexSchemaEvolutionState.COMMITTED) {
+            throw new IllegalStateException("Index schema operation " + operationId + " is " + record.state());
+        }
+        metadataStore.applySchemaEvolution(operationId, transitions(record, () -> true).orElseThrow(), Instant.now());
+    }
+
     /** No connector implementation may manufacture an abort from a generic exception. */
     public void unknown(UUID operationId) {
         metadataStore.markSchemaEvolutionUnknown(operationId, Instant.now());

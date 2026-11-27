@@ -27,6 +27,31 @@ class IcebergSnapshotPinProviderTest {
     @TempDir Path warehouse;
 
     @Test
+    void droppedSourceMakesItsPinnedSnapshotUnavailable() throws IOException {
+        HadoopTestGuard.assumeHadoopCompatible();
+        var id = TableIdentifier.of("db", "items");
+        try (var catalog = new HadoopCatalog(new Configuration(), warehouse.toString())) {
+            catalog.createNamespace(Namespace.of("db"));
+            var table = catalog.createTable(id, new Schema(Types.NestedField.required(1, "id", Types.LongType.get())));
+            var file = DataFiles.builder(table.spec()).withPath(table.location() + "/data/items.parquet")
+                    .withFormat(FileFormat.PARQUET).withRecordCount(1).withFileSizeInBytes(32).build();
+            table.newFastAppend().appendFile(file).commit();
+            String token = Long.toString(table.currentSnapshot().snapshotId());
+            var owner = new SnapshotPinOwner("index-1", 0, "attempt-1");
+            var pins = new IcebergSnapshotPinProvider(catalog);
+            pins.pinSnapshot("cat", "db", "items", token, owner);
+            pins.validateSnapshotPin("cat", "db", "items", token, owner);
+
+            assertThat(catalog.dropTable(id, false)).isTrue();
+
+            assertThatThrownBy(() -> pins.validateSnapshotPin("cat", "db", "items", token, owner))
+                    .isInstanceOfSatisfying(SnapshotExpiredException.class, expired ->
+                            assertThat(expired.snapshotId()).isEqualTo(token))
+                    .hasCauseInstanceOf(org.apache.iceberg.exceptions.NoSuchTableException.class);
+        }
+    }
+
+    @Test
     void mixedEncodingHoldsCanBeReadAndReleasedAfterRestart() throws IOException {
         HadoopTestGuard.assumeHadoopCompatible();
         var id = TableIdentifier.of("db", "items");

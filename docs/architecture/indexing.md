@@ -196,8 +196,10 @@ names are rejected before dispatch.
 Retries reuse stable work-unit identities while attempt IDs and fencing tokens
 advance. No in-memory build state is authoritative. Publication revalidates the
 exact durable and connector pin; cancellation of an expired or revoked job is
-fenced by the current publication owner, epoch and token. A maintenance scan is
-only a candidate list. Cleanup rechecks the current build binding, active
+fenced by the current publication owner, epoch and token. Dropping an Iceberg
+source table makes its pinned snapshot unavailable, so the dispatcher cancels
+the affected job. A maintenance scan is only a candidate list. Cleanup rechecks
+the current build binding, active
 generation and execution references while claiming the exact ledger row. The
 durable transition to `RELEASING` prevents new job binding and retention before
 the connector release happens outside the cleanup transaction. An uncertain
@@ -367,11 +369,11 @@ in-memory metadata event dispatcher:
 1. Before connector DDL starts, the Coordinator claims the canonical source
    table scope (and the rename target), inserts an `INTENDED` operation, and moves
    affected non-dropped descriptors to `STALE` in the same transaction.
-2. Only a successful connector mutation records `COMMITTED`. Maintenance
-   applies descriptor transitions only to the original captured fence, while
-   the expected state, generation and update timestamp still match.
-3. The maintenance leader applies bounded batches of confirmed `COMMITTED`
-   operations every minute. It cannot infer success from connector schema equality
+2. Only a successful connector mutation records `COMMITTED`. The Coordinator
+   applies the exact operation before returning SQL success. Descriptor transitions
+   require the original fence, state, generation and update timestamp to match.
+3. The maintenance leader recovers bounded batches of unapplied `COMMITTED`
+   operations. It cannot infer success from connector schema equality
    or from a missing table. A crash leaving `INTENDED` or an uncertain connector
    result leaves the scope claimed and requires authoritative outcome evidence.
 4. An exact post-operation table identity allows table and column renames to
