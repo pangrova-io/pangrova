@@ -157,7 +157,7 @@ final class PlanFragmenter {
         private final Map<Integer, MutableStage> stages = new HashMap<>();
         private final Map<Integer, List<Integer>> dependencies = new HashMap<>();
         private final List<StageTransfer> transfers = new ArrayList<>();
-        private final List<StageRuntimeFilter> runtimeFilters = new ArrayList<>(1);
+        private final List<StageRuntimeFilter> runtimeFilters = new ArrayList<>();
         private final int sessionParallelismOverride;
         private final long bytesPerPartition;
         private final int maxParallelism;
@@ -473,7 +473,7 @@ final class PlanFragmenter {
             }
             RelNode rewritten = changed ? node.copy(node.getTraitSet(), rewrittenInputs) : node;
             if (liveRead && rewritten instanceof Join join && (join instanceof PangrovaHashJoin
-                    || join instanceof PangrovaBroadcastJoin) && runtimeFilters.size() < 2) {
+                    || join instanceof PangrovaBroadcastJoin)) {
                 eligibleRuntimeFilter(join).ifPresent(runtimeFilters::add);
             }
             return rewritten;
@@ -749,12 +749,12 @@ final class PlanFragmenter {
                     .sorted(Map.Entry.comparingByKey())
                     .forEach(entry -> immutableDependencies.put(
                             entry.getKey(), List.copyOf(entry.getValue())));
-            Optional<StageRuntimeFilter> filter = runtimeFilters.size() == 1
-                    ? Optional.of(runtimeFilters.get(0)).filter(candidate ->
-                            countPhysicalScans(stages.get(candidate.probeStageId()).plan) == 1)
-                    : Optional.empty();
-            return new FragmentedPlan(planStages, transfers, immutableDependencies,
-                    filter);
+            List<StageRuntimeFilter> filters = runtimeFilters.isEmpty() ? List.of() : runtimeFilters.stream()
+                    .filter(candidate -> countPhysicalScans(stages.get(candidate.probeStageId()).plan) == 1)
+                    .filter(candidate -> immutableDependencies.getOrDefault(candidate.probeStageId(), List.of())
+                            .stream().allMatch(upstream -> upstream == candidate.buildStageId()))
+                    .toList();
+            return new FragmentedPlan(planStages, transfers, immutableDependencies, filters);
         }
 
         private Optional<StageRuntimeFilter> eligibleRuntimeFilter(Join join) {

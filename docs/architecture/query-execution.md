@@ -1570,16 +1570,19 @@ Note: Velox internally uses a shared thread pool (`thread-pool-size`) to schedul
 
 ## 5. Dynamic Filtering
 
-For an eligible inner equality join, the Coordinator binds the BIGINT key
-ordinal of an actual build exchange to a direct Iceberg scan field. The binding
+For an eligible inner equality join, the Coordinator binds up to four BIGINT key
+ordinals of an actual build exchange to direct Iceberg scan fields. Each binding
 retains the selected snapshot and stable field identity. A small build can use
 the existing broadcast exchange when a probe needs at least 32 files or 128 MiB.
-Native collects one signed range while producing the exchange. The range travels
-with the task's canonical terminal report. The Coordinator combines ranges from
-the full winning cohort and waits at most 200 ms before allowing probe discovery.
-An incomplete or late cohort leaves the scan unconstrained. A proven all-NULL
-cohort still validates the pinned read authority and emits no probe splits. A
-nonempty range joins the existing static constraints in the same Iceberg scan.
+Native collects signed ranges while producing the exchange and includes them in
+the task's canonical terminal report. The Coordinator selects up to four pairs
+with disjoint build and probe stages, prioritizing estimated probe bytes and file
+count. Each probe uses its own winning build cohort. The pairs share one 200 ms
+wait window after initial source scheduling. One build can release its probe
+while another is still collecting. An incomplete or late cohort leaves its
+probe's static constraints in effect. A proven all-NULL cohort still validates
+the pinned read authority and emits no probe splits. Proven nonempty ranges join
+the existing constraints in the same Iceberg scan.
 
 ![Scenario: SELECT * FROM orders o JOIN customers c ON o.customer_id = c.id](../../website/static/img/diagrams/generated/query-execution-42-97f613bbd6.svg)
 

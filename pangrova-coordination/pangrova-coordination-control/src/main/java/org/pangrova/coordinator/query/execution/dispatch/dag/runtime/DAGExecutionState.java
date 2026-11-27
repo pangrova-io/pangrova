@@ -31,24 +31,40 @@ public record DAGExecutionState(StageExecutionContext execution, StageDAG dag, S
         ConcurrentHashMap<Integer, DispatchResult> results, CompletableFuture<DispatchResult> completion,
         AtomicBoolean cancelled, AtomicInteger runningStageCount, AtomicInteger downstreamWakeups,
         ConcurrentHashMap<Integer, Throwable> dispatchFailures, Consumer<DispatchResult> resultReadySink,
-        BuildFilterGate buildFilter) {
+        List<BuildFilterGate> buildFilters) {
     /** Allocates only volatile bookkeeping, never a second planning or execution path. */
     public static DAGExecutionState create(StageExecutionContext execution, StageDAG dag, SqlCompiler compiler,
             WorkerSelector selector, DurableStageRuntime durable, Consumer<DispatchResult> sink) {
-        return create(execution, dag, compiler, selector, durable, sink, null);
+        return create(execution, dag, compiler, selector, durable, sink, List.of());
     }
 
-    /** Installs a gate for an eligible live read query. */
+    /** Installs the independently selected gates for an eligible live read query. */
     public static DAGExecutionState create(StageExecutionContext execution, StageDAG dag, SqlCompiler compiler,
             WorkerSelector selector, DurableStageRuntime durable, Consumer<DispatchResult> sink,
-            BuildFilterGate buildFilter) {
+            List<BuildFilterGate> buildFilters) {
         return new DAGExecutionState(execution, dag, compiler, selector, durable, new CopyOnWriteArrayList<>(),
                 new ConcurrentHashMap<>(), new CompletableFuture<>(), new AtomicBoolean(), new AtomicInteger(),
                 new AtomicInteger(),
-                new ConcurrentHashMap<>(), sink, buildFilter);
+                new ConcurrentHashMap<>(), sink, List.copyOf(buildFilters));
     }
     public String queryId() { return execution.executionId(); }
     public QuerySession session() { return execution.requireLiveSession(); }
+
+    /** Looks up the independent gate that can delay this probe. */
+    public BuildFilterGate filterForProbe(int stageId) {
+        for (var filter : buildFilters) {
+            if (filter.isProbe(stageId)) return filter;
+        }
+        return null;
+    }
+
+    /** Looks up the independent gate that needs this build's winning summaries. */
+    public BuildFilterGate filterForBuild(int stageId) {
+        for (var filter : buildFilters) {
+            if (filter.plan().buildStageId() == stageId) return filter;
+        }
+        return null;
+    }
 
     /** Compiles the actual live stage with the pre-optimization output ordinal names. */
     public CompiledStagePlan compilePlan(

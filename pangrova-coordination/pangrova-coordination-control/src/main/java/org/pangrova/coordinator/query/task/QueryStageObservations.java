@@ -28,10 +28,11 @@ public final class QueryStageObservations {
     private final ConcurrentLinkedQueue<SelectedAttempt> selectedAttempts = new ConcurrentLinkedQueue<>();
     private final ConcurrentLinkedQueue<Preparation> preparations = new ConcurrentLinkedQueue<>();
     private final ConcurrentLinkedQueue<StageDispatchWork> stageDispatchWork = new ConcurrentLinkedQueue<>();
-    private volatile RuntimeFilterWait runtimeFilterWait;
+    private final ConcurrentLinkedQueue<RuntimeFilterWait> runtimeFilterWaits;
 
     QueryStageObservations(StageDAG dag, QueryStageMetrics metrics) {
         this.metrics = metrics;
+        runtimeFilterWaits = dag.runtimeFilters().isEmpty() ? null : new ConcurrentLinkedQueue<>();
         stages = dag.stages().stream().map(stage -> new Stage(stage.stageId(), stage.taskType(), stage.parallelism()))
                 .toList();
         exchanges = dag.stageEdges().stream().map(edge -> new Exchange(edge.exchangeId(), edge.upstreamStageId(),
@@ -73,8 +74,8 @@ public final class QueryStageObservations {
     /** Records the actual decision before the held probe enumerates files. */
     public void recordRuntimeFilterWait(int buildStageId, int probeStageId, int probeGeneration,
             long startedNanos, RuntimeFilterOutcome outcome, int rangeCount) {
-        runtimeFilterWait = new RuntimeFilterWait(buildStageId, probeStageId, probeGeneration,
-                startedNanos, elapsedNanos(), outcome, rangeCount);
+        runtimeFilterWaits.add(new RuntimeFilterWait(buildStageId, probeStageId, probeGeneration,
+                startedNanos, elapsedNanos(), outcome, rangeCount));
     }
 
     /** One scheduler-owned operation, with a consistent snapshot at each transition. */
@@ -105,7 +106,8 @@ public final class QueryStageObservations {
                 .sorted(Comparator.comparingLong(DownstreamPreparation::submittedNanos)).toList();
         var dispatch = stageDispatchWork.stream().sorted(Comparator.comparingLong(StageDispatchWork::startedNanos))
                 .toList();
-        return new ExecutionGraph(stages, exchanges, timeline, selected, preparation, dispatch,
-                runtimeFilterWait);
+        List<RuntimeFilterWait> filterWaits = runtimeFilterWaits == null ? List.of() : runtimeFilterWaits.stream()
+                .sorted(Comparator.comparingInt(RuntimeFilterWait::probeStageId)).toList();
+        return new ExecutionGraph(stages, exchanges, timeline, selected, preparation, dispatch, filterWaits);
     }
 }

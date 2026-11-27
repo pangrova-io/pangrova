@@ -6,7 +6,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import org.pangrova.planner.analysis.AuthorizedStageGraph;
 import org.pangrova.planner.analysis.FragmentedPlan;
@@ -35,7 +34,7 @@ public record StageDAG(
         Map<Integer, Stage> stageEntityIndex,
         Map<Integer, StageNode> stageNodeIndex,
         Map<Integer, List<Integer>> downstreamIndex,
-        Optional<StageRuntimeFilter> runtimeFilter
+        List<StageRuntimeFilter> runtimeFilters
 ) {
 
     public StageDAG {
@@ -50,7 +49,7 @@ public record StageDAG(
         stageEntityIndex = stageEntityIndex != null ? Map.copyOf(stageEntityIndex) : Map.of();
         stageNodeIndex = stageNodeIndex != null ? Map.copyOf(stageNodeIndex) : Map.of();
         downstreamIndex = downstreamIndex != null ? Map.copyOf(downstreamIndex) : Map.of();
-        checkNotNull(runtimeFilter, "runtimeFilter must not be null");
+        runtimeFilters = List.copyOf(runtimeFilters);
     }
 
     /**
@@ -61,15 +60,15 @@ public record StageDAG(
      */
     public static StageDAG create(List<Stage> stageEntities, List<StageNode> stages,
                                   Map<Integer, List<Integer>> edges, List<StageEdge> stageEdges) {
-        return create(stageEntities, stages, edges, stageEdges, Optional.empty());
+        return create(stageEntities, stages, edges, stageEdges, List.of());
     }
 
     private static StageDAG create(List<Stage> stageEntities, List<StageNode> stages,
-            Map<Integer, List<Integer>> edges, List<StageEdge> stageEdges, Optional<StageRuntimeFilter> filter) {
+            Map<Integer, List<Integer>> edges, List<StageEdge> stageEdges, List<StageRuntimeFilter> filters) {
         validateNoCycles(edges);
         return new StageDAG(stageEntities, stages, edges, stageEdges,
                 buildEntityIndex(stageEntities), buildNodeIndex(stages),
-                buildDownstreamIndex(edges), filter);
+                buildDownstreamIndex(edges), filters);
     }
 
     /**
@@ -93,7 +92,8 @@ public record StageDAG(
                         t.shuffleType(), t.distributionKeys(), t.exchangeId(),
                         t.partitionCount(), t.batchSerde(), t.requireComplete()))
                 .toList();
-        return create(List.of(), nodes, fragmentedPlan.stageDependencies(), stageEdges, fragmentedPlan.runtimeFilter());
+        return create(List.of(), nodes, fragmentedPlan.stageDependencies(), stageEdges,
+                fragmentedPlan.runtimeFilters());
     }
 
     /** Restores the same execution topology from immutable authorized stage bytes, without Calcite or SQL. */
@@ -136,7 +136,7 @@ public record StageDAG(
         List<Stage> entities = stages.stream()
                 .map(node -> Stage.create(node, queryId))
                 .toList();
-        return create(entities, stages, edges, stageEdges, runtimeFilter);
+        return create(entities, stages, edges, stageEdges, runtimeFilters);
     }
 
     /**

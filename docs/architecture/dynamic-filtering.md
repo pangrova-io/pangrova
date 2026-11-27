@@ -37,9 +37,12 @@ Stable connector field IDs identify the probe fields.
 
 Each successful elected Native build task reports up to 16 disjoint inclusive
 ranges per requested output ordinal. A completed ordinal with only NULL keys
-has an empty domain. The Coordinator waits up to 200 ms for the complete
-winning cohort and its Exchange publication. It unions ranges across tasks
-per ordinal and uses one enclosing interval when the range limit is exceeded.
+has an empty domain. The Coordinator can activate up to four independent stage
+pairs per live query, prioritizing the estimated bytes and file count of each
+probe. The pairs share one 200 ms window after initial source scheduling. Each
+probe waits independently for its complete winning build cohort and committed
+Exchange. The Coordinator unions ranges across tasks per ordinal and uses one
+enclosing interval when the range limit is exceeded.
 A winning attempt with a missing summary, a late result, or an incomplete
 cohort keeps the original scan constraints. Retired attempts cannot authorize
 pruning.
@@ -51,6 +54,6 @@ The Worker evaluates the complete Join condition on the rows, preserving
 build key correlation, duplicates and SQL NULL semantics. SQL tests cover
 results, actual scanned splits and bytes, and physical release.
 
-Additional key types, connector coverage and late predicates for work that is
-still unsigned remain in the
+Additional key types, connector coverage, filters sharing a build or probe
+stage, and late predicates for already-running probes remain in the
 [query performance plan](../development/query-performance-parity-plan.md).

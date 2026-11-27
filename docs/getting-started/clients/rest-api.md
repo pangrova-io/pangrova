@@ -83,13 +83,14 @@ and stage generation. A speculative copy can settle its original logical slot.
 The record carries both task IDs and the physical attempt’s plan epoch. It can
 include earlier stage generations from a retried query.
 
-`runtimeFilterWait` records the single cross-stage build decision before the probe
-begins enumerating splits. It identifies the build and probe stages, the probe
-generation, and the range count. The wait runs from `startedNanos` to
-`finishedNanos` on the graph's Coordinator clock. Outcomes are `APPLIED`,
-`EMPTY_BUILD`, `MISSING_SUMMARY`, `TIMED_OUT`, and `QUERY_TERMINATED`. An absent
-entry means the graph recorded no completed build wait. The interval can overlap
-Native execution and the acknowledgement of already-issued tasks.
+`runtimeFilterWaits` lists the recorded cross-stage decisions in probe stage order.
+Each entry identifies the build and probe stages, the probe generation, and the
+range count. Independent probes share the query's 200 ms wait window and may
+release at different times. Each interval runs from `startedNanos` to
+`finishedNanos` on the graph's Coordinator clock and can overlap Native execution
+and the acknowledgement of already-issued tasks. Outcomes are `APPLIED`,
+`EMPTY_BUILD`, `MISSING_SUMMARY`, `TIMED_OUT`, and `QUERY_TERMINATED`. An empty
+list means the graph recorded no completed build wait.
 
 `downstreamPreparations` describes work submitted to the live read preparation
 executor. Each entry covers one executor submission, which can handle multiple

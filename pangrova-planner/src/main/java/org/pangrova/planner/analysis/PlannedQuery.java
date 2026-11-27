@@ -457,8 +457,7 @@ public final class PlannedQuery {
                     stage.fragment().estimatedShuffleBytes(), stage.fragment().estimatedShuffleRows()),
                     stage.parallelism(), stage.taskType());
         }).toList();
-        return new FragmentedPlan(stages, fragments.transfers(), fragments.stageDependencies(),
-                java.util.Optional.empty());
+        return new FragmentedPlan(stages, fragments.transfers(), fragments.stageDependencies(), List.of());
     }
 
     /** Serializes only this protected plan's exchange stages; no original SQL retry or persisted node is needed. */

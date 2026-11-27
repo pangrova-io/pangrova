@@ -157,11 +157,12 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
             Consumer<DispatchResult> resultReadySink) {
         lifecycle.registerQuery(session.queryId(), dag, queryContext);
         var scope = lifecycle.queryContext(session.queryId());
-        var filter = scope == null || scope.writeConfig() != null ? null : BuildFilterGate.create(dag);
+        var filters = scope == null || scope.writeConfig() != null ? List.<BuildFilterGate>of()
+                : BuildFilterGate.forLiveQuery(dag);
         DAGExecutionState state = DAGExecutionState.create(new StageExecutionContext.Live(session), dag,
                 compiler, pipelineConfig.localShuffle() && !dag.stageEdges().isEmpty()
                         ? new org.pangrova.coordinator.scheduler.placement.LocalShufflePlacement(workerSelector)
-                        : workerSelector, null, resultReadySink, filter);
+                        : workerSelector, null, resultReadySink, filters);
         lifecycle.registerLiveExecution(state);
         try {
             scheduleRootStages(state, registerListeners(state));
@@ -226,7 +227,8 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
             case RUNNING -> onStageRunning(state, observations);
             case FINISHED -> {
                 fireHandlerEvent(stage, state, StageLifecycleHandler::onFinished);
-                if (state.buildFilter() != null) state.buildFilter().onFinished(stage);
+                var filter = state.filterForBuild(stage.stageId());
+                if (filter != null) filter.onFinished(stage);
                 onStageFinished(state, observations);
             }
             case FAILED -> onFailedState(stage, state, observations);
@@ -285,11 +287,18 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
                     "DAG has no root stages for query " + state.queryId());
         }
         roots.forEach(stage -> scheduleStage(stage, state, observations));
-        var gate = state.buildFilter();
-        if (gate == null) return;
+        if (state.buildFilters().isEmpty()) return;
 
         long waitStarted = observations == null ? 0L : observations.elapsedNanos();
-        gate.releaseProbe(state.completion(), deadlines).thenAccept(release -> {
+        long deadlineNanos = System.nanoTime() + BuildFilterGate.MAX_WAIT_NANOS;
+        for (var gate : state.buildFilters()) {
+            releaseFilteredProbe(gate, state, observations, waitStarted, deadlineNanos);
+        }
+    }
+
+    private void releaseFilteredProbe(BuildFilterGate gate, DAGExecutionState state,
+            QueryStageObservations observations, long waitStarted, long deadlineNanos) {
+        gate.releaseProbe(state.completion(), deadlines, deadlineNanos).thenAccept(release -> {
             try {
                 var probe = state.dag().findStage(gate.plan().probeStageId());
                 if (observations != null) {
@@ -348,11 +357,11 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
     }
 
     private void scheduleReadyDownstream(DAGExecutionState state, QueryStageObservations observations) {
-        var gate = state.buildFilter();
-        if (gate != null && !gate.blocks(gate.plan().probeStageId())) {
-            // The probe is a source root. Like the initial roots, it can feed the
-            // producer/consumer pipeline even when the downstream cap is reached.
-            var probe = state.dag().findStage(gate.plan().probeStageId());
+        for (var gate : state.buildFilters()) {
+            int probeId = gate.plan().probeStageId();
+            if (gate.blocksProbe() || !state.dag().edges().getOrDefault(probeId, List.of()).isEmpty()) continue;
+            // Released roots can feed the producer/consumer pipeline despite the downstream cap.
+            var probe = state.dag().findStage(probeId);
             if (probe.stateMachine().getState() == StageState.PLANNED) {
                 scheduleStage(probe, state, observations);
             }
@@ -389,7 +398,8 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
     }
 
     private void scheduleStage(Stage stage, DAGExecutionState state, QueryStageObservations observations) {
-        if (state.cancelled().get() || (state.buildFilter() != null && state.buildFilter().blocks(stage.stageId()))
+        var probeFilter = state.filterForProbe(stage.stageId());
+        if (state.cancelled().get() || (probeFilter != null && probeFilter.blocksProbe())
                 || !state.dag().admitInputs(stage.stageId())
                 || !stage.stateMachine().tryTransitionTo(
                         StageState.SCHEDULING)) {
@@ -467,7 +477,7 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
                         plan, queryContext == null ? null : queryContext.requireLiveSession(),
                         queryContext == null ? Map.of() : queryContext.snapshotOverrides(),
                         queryContext == null || queryContext.writeConfig() == null
-                                ? null : queryContext.writeConfig().writeMode(), state.buildFilter(),
+                                ? null : queryContext.writeConfig().writeMode(), state.filterForProbe(plan.stageId()),
                         allowsRanges ? FileGranularity.BYTE_RANGES : FileGranularity.WHOLE_OBJECT),
                 result -> result.splits().size());
         List<QuerySplit> splits = fetched.splits();
@@ -484,12 +494,13 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
         var writeConfig = queryContext == null
                 || state.dag().findDownstreamEdge(plan.stageId()) != null
                 ? null : queryContext.writeConfig();
+        var buildFilter = state.filterForBuild(stage.stageId());
         var dispatch = new LeafStageDispatcher.LeafDispatch(
                 state.execution(), plan, boundPlan, splits, state.workerSelector(),
                 state.dag(), state.dispatched(), writeConfig,
                 !compiled.retrievalTopKHints().isEmpty(),
                 Math.addExact(stage.currentGeneration(), 1L), null,
-                state.buildFilter() == null ? List.of() : state.buildFilter().buildOrdinals(stage.stageId()));
+                buildFilter == null ? List.of() : buildFilter.buildOrdinals());
         return new PreparedStage(plan, dispatch, null);
     }
 

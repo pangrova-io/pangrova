@@ -1,20 +1,32 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.runtime;
 
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.planner.analysis.StageRuntimeFilter;
 import org.pangrova.query.api.stage.StageCompletionCallback.BuildKeyRange;
 import org.pangrova.query.profiling.enums.RuntimeFilterOutcome;
 
-/** Bounds the delay before the single eligible probe root enumerates its pinned splits. */
+/** Bounds the delay before one eligible probe enumerates its pinned splits. */
+@ThreadSafe
 public final class BuildFilterGate {
-    private static final long MAX_WAIT_MS = 200;
+    public static final long MAX_WAIT_NANOS = TimeUnit.MILLISECONDS.toNanos(200);
+    static final int MAX_FILTERS_PER_QUERY = 4;
+    private static final Comparator<StageRuntimeFilter> PRIORITY = Comparator
+            .<StageRuntimeFilter>comparingLong(plan -> plan.probeRead().statistics().dataSize()).reversed()
+            .thenComparing(Comparator.<StageRuntimeFilter>comparingLong(
+                    plan -> plan.probeRead().statistics().sourceWorkUnits()).reversed())
+            .thenComparingInt(StageRuntimeFilter::probeStageId)
+            .thenComparingInt(StageRuntimeFilter::buildStageId);
 
     private static final ProbeRelease EMPTY = new ProbeRelease(RuntimeFilterOutcome.EMPTY_BUILD, Map.of());
     private static final ProbeRelease MISSING = new ProbeRelease(RuntimeFilterOutcome.MISSING_SUMMARY, null);
@@ -42,30 +54,46 @@ public final class BuildFilterGate {
                 .map(StageRuntimeFilter.ProbeKey::buildOrdinal).distinct().sorted().toList();
     }
 
-    /** Enables the gate only for a bounded build and a probe with enough potential I/O savings. */
-    public static BuildFilterGate create(StageDAG dag) {
-        var plan = dag.runtimeFilter().orElse(null);
-        if (plan == null) return null;
+    /** Selects bounded, independent pairs in decreasing order of estimated probe I/O. */
+    public static List<BuildFilterGate> forLiveQuery(StageDAG dag) {
+        if (dag.runtimeFilters().isEmpty()) return List.of();
+        var eligible = dag.runtimeFilters().stream()
+                .filter(candidate -> eligible(dag, candidate))
+                .sorted(PRIORITY)
+                .toList();
+        var selected = new ArrayList<BuildFilterGate>();
+        var selectedStages = new HashSet<Integer>();
+        for (var candidate : eligible) {
+            if (selectedStages.contains(candidate.buildStageId())
+                    || selectedStages.contains(candidate.probeStageId())) {
+                continue;
+            }
+            selected.add(new BuildFilterGate(candidate));
+            selectedStages.add(candidate.buildStageId());
+            selectedStages.add(candidate.probeStageId());
+            if (selected.size() == MAX_FILTERS_PER_QUERY) break;
+        }
+        return List.copyOf(selected);
+    }
+
+    private static boolean eligible(StageDAG dag, StageRuntimeFilter plan) {
+        if (plan.buildStageId() == plan.probeStageId()
+                || !dag.edges().getOrDefault(plan.buildStageId(), List.of()).isEmpty()) return false;
         var build = dag.findStage(plan.buildStageId()).plan();
         var edge = dag.findDownstreamEdge(plan.buildStageId());
-        if (edge == null || !edge.exchangeId().equals(plan.buildExchangeId())
-                || build.estimatedShuffleRows() < 0
-                || build.estimatedShuffleRows() > StageRuntimeFilter.MAX_BUILD_ROWS) {
-            return null;
-        }
-        var probe = plan.probeRead().statistics();
-        return StageRuntimeFilter.enoughProbeWork(probe) ? new BuildFilterGate(plan) : null;
+        return edge != null && edge.exchangeId().equals(plan.buildExchangeId())
+                && build.estimatedShuffleRows() >= 0
+                && build.estimatedShuffleRows() <= StageRuntimeFilter.MAX_BUILD_ROWS
+                && StageRuntimeFilter.enoughProbeWork(plan.probeRead().statistics());
     }
 
     public StageRuntimeFilter plan() { return plan; }
 
     public boolean isProbe(int stageId) { return stageId == plan.probeStageId(); }
 
-    public boolean blocks(int stageId) { return isProbe(stageId) && releasedProbe == null; }
+    public boolean blocksProbe() { return releasedProbe == null; }
 
-    public List<Integer> buildOrdinals(int stageId) {
-        return stageId == plan.buildStageId() ? buildOrdinals : List.of();
-    }
+    public List<Integer> buildOrdinals() { return buildOrdinals; }
 
     /** Called after the winning cohort has finished and any external publication is fenced. */
     public void onFinished(Stage stage) {
@@ -80,12 +108,13 @@ public final class BuildFilterGate {
                 ? EMPTY : new ProbeRelease(RuntimeFilterOutcome.APPLIED, ranges));
     }
 
-    /** Releases exactly one scan decision when the build, deadline or query settles first. */
+    /** Releases exactly one decision inside the common query-level wait window. */
     public CompletionStage<ProbeRelease> releaseProbe(CompletableFuture<?> queryCompletion,
-            ScheduledExecutorService deadlines) {
+            ScheduledExecutorService deadlines, long deadlineNanos) {
         queryCompletion.whenComplete((result, failure) -> completedBuild.complete(TERMINATED));
         var timeout = completedBuild.isDone() ? null : deadlines.schedule(
-                () -> { completedBuild.complete(TIMEOUT); }, MAX_WAIT_MS, TimeUnit.MILLISECONDS);
+                () -> { completedBuild.complete(TIMEOUT); },
+                Math.max(0, deadlineNanos - System.nanoTime()), TimeUnit.NANOSECONDS);
         return completedBuild.thenApply(decision -> {
             if (timeout != null) timeout.cancel(false);
             releasedProbe = decision;

@@ -19,7 +19,7 @@ public interface OperatorStatsSource {
 
     record ExecutionGraph(List<Stage> stages, List<Exchange> exchanges, List<StageTransition> transitions,
             List<SelectedAttempt> selectedAttempts, List<DownstreamPreparation> downstreamPreparations,
-            List<StageDispatchWork> stageDispatchWork, RuntimeFilterWait runtimeFilterWait) {
+            List<StageDispatchWork> stageDispatchWork, List<RuntimeFilterWait> runtimeFilterWaits) {
         public ExecutionGraph {
             stages = List.copyOf(stages);
             exchanges = List.copyOf(exchanges);
@@ -27,6 +27,7 @@ public interface OperatorStatsSource {
             selectedAttempts = List.copyOf(selectedAttempts);
             downstreamPreparations = List.copyOf(downstreamPreparations);
             stageDispatchWork = List.copyOf(stageDispatchWork);
+            runtimeFilterWaits = List.copyOf(runtimeFilterWaits);
         }
     }
 
@@ -50,7 +51,7 @@ public interface OperatorStatsSource {
     record StageDispatchWork(int stageId, int generation, DispatchPhase phase, long startedNanos,
             long finishedNanos, Integer itemCount, boolean successful) {}
 
-    /** Outcome of the sole cross-stage build gate used before enumerating this probe. */
+    /** Outcome of a cross-stage build gate used before enumerating its probe. */
     record RuntimeFilterWait(int buildStageId, int probeStageId, int probeGeneration,
             long startedNanos, long finishedNanos, RuntimeFilterOutcome outcome, int rangeCount) {}
 

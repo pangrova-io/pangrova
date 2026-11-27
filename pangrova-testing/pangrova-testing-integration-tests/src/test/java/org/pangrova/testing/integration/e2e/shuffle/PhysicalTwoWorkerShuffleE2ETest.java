@@ -521,9 +521,9 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
         var empty = executeWithDrainedReports(projected + " JOIN " + allNull + " b ON " + condition);
         assertThat(empty.rows()).isEmpty();
         assertThat(empty.sourceSplits(probe)).isZero();
-        assertThat(empty.runtimeFilterWait()).isNotNull();
-        assertThat(empty.runtimeFilterWait().outcome()).isEqualTo(RuntimeFilterOutcome.EMPTY_BUILD);
-        assertThat(empty.runtimeFilterWait().rangeCount()).isZero();
+        var emptyWait = empty.onlyRuntimeFilterWait();
+        assertThat(emptyWait.outcome()).isEqualTo(RuntimeFilterOutcome.EMPTY_BUILD);
+        assertThat(emptyWait.rangeCount()).isZero();
         assertThat(empty.buildSummaries()).singleElement().satisfies(summary ->
                 assertThat(summary.getRangesList()).isEmpty());
     }
@@ -558,9 +558,8 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
                 .containsExactly(102L, 102L, 103L, 135L, 136L);
         assertThat(unpruned.rows()).usingRecursiveComparison().isEqualTo(pruned.rows());
         assertThat(unpruned.buildSummaries()).isEmpty();
-        assertThat(unpruned.runtimeFilterWait()).isNull();
-        var wait = pruned.runtimeFilterWait();
-        assertThat(wait).isNotNull();
+        assertThat(unpruned.runtimeFilterWaits()).isEmpty();
+        var wait = pruned.onlyRuntimeFilterWait();
         assertThat(wait.outcome()).isEqualTo(RuntimeFilterOutcome.APPLIED);
         assertThat(wait.rangeCount()).isEqualTo(2);
         assertThat(wait.buildStageId()).isNotEqualTo(wait.probeStageId());
@@ -620,8 +619,7 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
         assertThat(unpruned.sourceSplits(probe)).isEqualTo(40L);
         assertThat(pruned.sourceSplits(probe)).isEqualTo(3L);
         assertThat(pruned.sourceReadBytes(probe)).isPositive().isLessThan(unpruned.sourceReadBytes(probe));
-        assertThat(pruned.runtimeFilterWait()).isNotNull();
-        assertThat(pruned.runtimeFilterWait().outcome()).isEqualTo(RuntimeFilterOutcome.APPLIED);
+        assertThat(pruned.onlyRuntimeFilterWait().outcome()).isEqualTo(RuntimeFilterOutcome.APPLIED);
         assertThat(pruned.buildSummaries()).singleElement().satisfies(summary ->
                 assertThat(summary.getRangesList()).containsExactly(buildKeyRange(2, 2), buildKeyRange(35, 36)));
         org.slf4j.LoggerFactory.getLogger(PhysicalTwoWorkerShuffleE2ETest.class).info(
@@ -653,8 +651,9 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
         assertThat(tagOnly.rows()).usingRecursiveComparison().isEqualTo(idOnly.rows());
         assertThat(both.sourceSplits(probe)).isEqualTo(6L);
         assertThat(both.buildSummaries()).hasSize(2);
-        assertThat(both.runtimeFilterWait().outcome()).isEqualTo(RuntimeFilterOutcome.APPLIED);
-        assertThat(both.runtimeFilterWait().rangeCount()).isEqualTo(5);
+        var wait = both.onlyRuntimeFilterWait();
+        assertThat(wait.outcome()).isEqualTo(RuntimeFilterOutcome.APPLIED);
+        assertThat(wait.rangeCount()).isEqualTo(5);
         assertThat(idOnly.sourceSplits(probe)).isEqualTo(15L);
         assertThat(tagOnly.sourceSplits(probe)).isEqualTo(16L);
         assertThat(both.sourceReadBytes(probe)).isPositive()
@@ -664,8 +663,51 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
             var query = sample.getValue();
             logger.info("event=multi_key_probe variant={} rows={} splits={} readerBytes={} profile={} summaries={}",
                     sample.getKey(), query.rows().size(), query.sourceSplits(probe), query.sourceReadBytes(probe),
-                    query.runtimeFilterWait(), query.buildSummaries());
+                    query.runtimeFilterWaits(), query.buildSummaries());
         }
+    }
+
+    @Test
+    void independentJoinBranchesPruneTheirOwnProbeSplits() {
+        String probe = orders + "_branch_filter_probe";
+        String build = orders + "_branch_filter_build";
+        sqlRunner.executeDdl("CREATE TABLE " + probe + " (id BIGINT) PARTITIONED BY (id)");
+        sqlRunner.executeDdl("CREATE TABLE " + build + " (id BIGINT, cohort INTEGER)");
+        String probeValues = java.util.stream.IntStream.range(0, 40)
+                .mapToObj(id -> "(" + id + ")")
+                .collect(java.util.stream.Collectors.joining(", "));
+        sqlRunner.execute("INSERT INTO " + probe + " VALUES " + probeValues);
+        sqlRunner.execute("INSERT INTO " + build + " VALUES (2, 1), (2, 1), (3, 1), (35, 2), (36, 2), (NULL, 2)");
+
+        String query = """
+                SELECT 1 AS branch_id, COUNT(*) AS matches FROM %s p JOIN %s b ON %s = b.id WHERE b.cohort = 1
+                UNION ALL
+                SELECT 2 AS branch_id, COUNT(*) AS matches FROM %s p JOIN %s b ON %s = b.id WHERE b.cohort = 2
+                """;
+        var pruned = executeWithDrainedReports(query.formatted(probe, build, "p.id", probe, build, "p.id"));
+        var unpruned = executeWithDrainedReports(query.formatted(probe, build, "ABS(p.id)", probe, build, "ABS(p.id)"));
+        assertThat(pruned.rows()).extracting(row -> row.getLong("branch_id"), row -> row.getLong("matches"))
+                .containsExactlyInAnyOrder(org.assertj.core.groups.Tuple.tuple(1L, 3L),
+                        org.assertj.core.groups.Tuple.tuple(2L, 2L));
+        assertThat(unpruned.rows()).usingRecursiveFieldByFieldElementComparator()
+                .containsExactlyInAnyOrderElementsOf(pruned.rows());
+
+        long fullSplits = unpruned.sourceSplits(probe);
+        long filteredSplits = pruned.sourceSplits(probe);
+        long fullBytes = unpruned.sourceReadBytes(probe);
+        long filteredBytes = pruned.sourceReadBytes(probe);
+        org.slf4j.LoggerFactory.getLogger(PhysicalTwoWorkerShuffleE2ETest.class).info(
+                "event=independent_probe_filter_evidence fullSplits={} filteredSplits={} fullBytes={} filteredBytes={}",
+                fullSplits, filteredSplits, fullBytes, filteredBytes);
+        assertThat(fullSplits).isEqualTo(80);
+        assertThat(filteredSplits).isEqualTo(4);
+        assertThat(filteredBytes).isPositive().isLessThan(fullBytes);
+        assertThat(unpruned.runtimeFilterWaits()).isEmpty();
+        assertThat(pruned.runtimeFilterWaits()).hasSize(2).allSatisfy(wait -> {
+            assertThat(wait.outcome()).isEqualTo(RuntimeFilterOutcome.APPLIED);
+            assertThat(wait.rangeCount()).isOne();
+        });
+        assertThat(pruned.runtimeFilterWaits()).extracting(RuntimeFilterWait::probeStageId).doesNotHaveDuplicates();
     }
 
     @Test
@@ -850,14 +892,19 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
             var profile = queryProfileService().getProfile(queryId, E2E_USER_PRINCIPAL).orElseThrow();
             return new DrainedQuery(rows, capture.get().values().stream()
                     .filter(report -> report.getAttempt().getQueryOrJobId().equals(queryId)).toList(),
-                    profile.executionGraph().runtimeFilterWait(), profile.attempts());
+                    profile.executionGraph().runtimeFilterWaits(), profile.attempts());
         } finally {
             capture.set(null);
         }
     }
 
     private record DrainedQuery(List<TypedRow> rows, List<TaskReport> reports,
-            RuntimeFilterWait runtimeFilterWait, List<Attempt> attempts) {
+            List<RuntimeFilterWait> runtimeFilterWaits, List<Attempt> attempts) {
+        RuntimeFilterWait onlyRuntimeFilterWait() {
+            assertThat(runtimeFilterWaits).hasSize(1);
+            return runtimeFilterWaits.get(0);
+        }
+
         List<BuildKeySummary> buildSummaries() {
             return reports.stream().map(TaskReport::getNativeTaskStats)
                     .flatMap(stats -> stats.getBuildKeySummariesList().stream()).toList();
