@@ -46,7 +46,7 @@ public final class JdbcShuffleCleanupIntentStore implements ShuffleCleanupIntent
                 if (lockLiveAnchor(connection, grant) != 2) {
                     throw new SecurityException("Recovered Shuffle cleanup lacks predecessor exit proof");
                 }
-                boolean pending = recordRecoveredIntent(connection, grant.executionId());
+                boolean pending = !recordCleanupState(connection, grant.executionId());
                 connection.commit();
                 return pending;
             } catch (SQLException | RuntimeException failure) {
@@ -62,35 +62,13 @@ public final class JdbcShuffleCleanupIntentStore implements ShuffleCleanupIntent
         }
     }
 
-    private static boolean recordRecoveredIntent(Connection connection, String queryId) throws SQLException {
-        try (var statement = connection.prepareStatement("""
-                WITH target(query_id) AS (VALUES (CAST(? AS text))),
-                allocated AS MATERIALIZED (
-                    SELECT s.query_id FROM shuffle.shuffle_query_scope s JOIN target t USING (query_id)
-                ), recorded AS (
-                    INSERT INTO shuffle.shuffle_cleanup_intent (query_id)
-                    SELECT query_id FROM allocated ON CONFLICT (query_id) DO NOTHING
-                ), empty AS (
-                    DELETE FROM shuffle.shuffle_cleanup_intent i USING target t
-                    WHERE i.query_id = t.query_id AND NOT EXISTS (SELECT 1 FROM allocated)
-                )
-                SELECT EXISTS (SELECT 1 FROM allocated)
-                """)) {
-            statement.setString(1, queryId);
-            try (var rows = statement.executeQuery()) {
-                if (!rows.next()) throw new SQLException("Recovered Shuffle intent returned no outcome");
-                return rows.getBoolean(1);
-            }
-        }
-    }
-
     @Override
     public boolean completeWithoutScope(ExecutionAnchor grant) {
         try (var connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try {
                 boolean complete = lockLiveAnchor(connection, grant) != 0
-                        || deleteEmptyIntent(connection, grant.executionId());
+                        || recordCleanupState(connection, grant.executionId());
                 connection.commit();
                 return complete;
             } catch (SQLException | RuntimeException failure) {
@@ -102,24 +80,27 @@ public final class JdbcShuffleCleanupIntentStore implements ShuffleCleanupIntent
                 throw failure;
             }
         } catch (SQLException failure) {
-            throw new IllegalStateException("empty Shuffle cleanup intent retirement failed", failure);
+            throw new IllegalStateException("Shuffle cleanup state persistence failed", failure);
         }
     }
 
-    private static boolean deleteEmptyIntent(Connection connection, String queryId) throws SQLException {
+    private static boolean recordCleanupState(Connection connection, String queryId) throws SQLException {
         try (var statement = connection.prepareStatement("""
                 WITH target(query_id) AS (VALUES (CAST(? AS text))),
                 allocated AS MATERIALIZED (
                     SELECT 1 FROM shuffle.shuffle_query_scope s JOIN target t USING (query_id)
-                ), retired AS (
-                    DELETE FROM shuffle.shuffle_cleanup_intent i USING target t
-                    WHERE i.query_id = t.query_id AND NOT EXISTS (SELECT 1 FROM allocated)
+                ), recorded AS (
+                    INSERT INTO shuffle.shuffle_cleanup_intent AS existing (query_id, converged_at)
+                    SELECT t.query_id, CASE WHEN NOT EXISTS (SELECT 1 FROM allocated) THEN clock_timestamp() END
+                    FROM target t
+                    ON CONFLICT (query_id) DO UPDATE SET converged_at = EXCLUDED.converged_at
+                    WHERE existing.converged_at IS NULL AND EXCLUDED.converged_at IS NOT NULL
                 )
                 SELECT NOT EXISTS (SELECT 1 FROM allocated)
                 """)) {
             statement.setString(1, queryId);
             try (var rows = statement.executeQuery()) {
-                if (!rows.next()) throw new SQLException("Empty Shuffle intent retirement returned no outcome");
+                if (!rows.next()) throw new SQLException("Shuffle cleanup state returned no outcome");
                 return rows.getBoolean(1);
             }
         }

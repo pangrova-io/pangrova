@@ -15,8 +15,9 @@ public interface ShuffleCleanupIntentStore {
     void markPending(ExecutionAnchor grant);
 
     /**
-     * Removes the intent under the original fresh grant only when there is no durable Shuffle scope.
-     * False requires the remote cleanup protocol. A stale grant leaves the intent for its successor.
+     * Records convergence under the original fresh grant when there is no durable Shuffle scope.
+     * The terminal seal survives until anchor retirement. False requires the remote cleanup protocol.
+     * A stale grant leaves the cleanup state for its successor.
      */
     boolean completeWithoutScope(ExecutionAnchor grant);
 }

@@ -493,7 +493,7 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
             var plan = successor.beginCleanup(command, lease).orElseThrow();
             assertThat(shuffleStatementDelta(beforeClaim).keySet())
                     .as("claim after reader drain retains the existing seal")
-                    .noneMatch(sql -> sql.startsWith("UPDATE shuffle_allocation SET state = "));
+                    .noneMatch(sql -> sql.contains("UPDATE shuffle_allocation") && sql.contains("SET state = "));
             assertThatThrownBy(() -> successor.openRead(query, owner(), shuffle, 0, 0, until, 30_000))
                     .isInstanceOf(SecurityException.class).hasMessageContaining("not active");
             successor.completeCleanup(plan);
@@ -878,7 +878,7 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
                             && sql.endsWith(" FOR UPDATE"));
             assertThat(recoveryStatements)
                     .as("takeover of a sealed scope does not rewrite its shuffle allocations")
-                    .noneMatch(sql -> sql.startsWith("UPDATE shuffle_allocation SET state = "));
+                    .noneMatch(sql -> sql.contains("UPDATE shuffle_allocation") && sql.contains("SET state = "));
             var cursor = (ShuffleServiceModel.CleanupCursor) null;
             List<Integer> pageSizes = new ArrayList<>();
             int objectCount = 0;
@@ -894,8 +894,17 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
             }
             assertThat(pageSizes).containsExactly(1_000, 1_000, 505);
             assertThat(objectCount).isEqualTo(2_505);
+            assertThatThrownBy(() -> store.completeCleanup(firstPlan))
+                    .isInstanceOf(IllegalStateException.class).hasMessageContaining("cleanup lease");
+            assertThat(store.findAllocation(shuffleId)).isPresent();
             store.completeCleanup(recovered);
             assertThat(store.findAllocation(shuffleId)).isEmpty();
+            assertThat(cleanupConvergedAt(queryId)).isNotNull();
+            try (var restarted = PostgresShuffleStore.create(config().database())) {
+                assertThatThrownBy(() -> restarted.register(registerCommand(
+                        queryId, "late-after-object-cleanup", 2, 10_000)))
+                        .isInstanceOf(SecurityException.class).hasMessageContaining("terminally fenced");
+            }
         }
     }
 
@@ -1030,12 +1039,29 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
             store.recoverCleanupAccess(queryId, owner(), System.currentTimeMillis() + 60_000);
             assertThat(store.beginCleanup(new CleanupCommand(queryId, owner()),
                     new CleanupLease("terminal-cleaner", 100, 200))).isEmpty();
-            try (var check = connection.prepareStatement(
-                    "SELECT 1 FROM shuffle.shuffle_cleanup_intent WHERE query_id = ?")) {
-                check.setString(1, queryId);
-                try (var row = check.executeQuery()) {
-                    assertThat(row.next()).isFalse();
-                }
+            assertThatThrownBy(() -> store.register(registerCommand(
+                    queryId, "late-after-cleanup-shuffle", 1, 10_000)))
+                    .isInstanceOf(SecurityException.class)
+                    .hasMessageContaining("terminally fenced");
+            var converged = cleanupConvergedAt(queryId);
+            assertThat(converged).isNotNull();
+            try (var restarted = PostgresShuffleStore.create(config().database())) {
+                assertThat(restarted.beginCleanup(new CleanupCommand(queryId, owner()),
+                        new CleanupLease("replayed-terminal-cleaner", 201, 300))).isEmpty();
+            }
+            assertThat(cleanupConvergedAt(queryId)).isEqualTo(converged);
+        }
+    }
+
+    private static java.time.OffsetDateTime cleanupConvergedAt(String queryId) throws Exception {
+        try (var connection = DriverManager.getConnection(
+                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+                var query = connection.prepareStatement(
+                        "SELECT converged_at FROM shuffle.shuffle_cleanup_intent WHERE query_id = ?")) {
+            query.setString(1, queryId);
+            try (var rows = query.executeQuery()) {
+                assertThat(rows.next()).isTrue();
+                return rows.getObject(1, java.time.OffsetDateTime.class);
             }
         }
     }

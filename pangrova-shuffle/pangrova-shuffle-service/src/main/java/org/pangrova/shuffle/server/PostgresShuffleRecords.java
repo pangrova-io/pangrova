@@ -6,6 +6,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Types;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -272,11 +273,24 @@ final class PostgresShuffleRecords {
         }
     }
 
-    static void sealCleanupAdmission(Connection connection, String queryId) throws SQLException {
-        try (PreparedStatement seal = connection.prepareStatement(
-                "UPDATE shuffle_query_scope SET state = 'CLEANING' WHERE query_id = ? AND state = 'ACTIVE'")) {
-            seal.setString(1, queryId);
-            if (seal.executeUpdate() == 1) markCleaningAllocations(connection, queryId);
+    static void sealCleanupAdmission(Connection connection, String queryId, CleanupLease lease) throws SQLException {
+        String sql = """
+                WITH sealed AS (
+                    UPDATE shuffle_query_scope SET state = 'CLEANING',
+                        cleanup_lease_owner = ?, cleanup_lease_expires_at_ms = ?
+                    WHERE query_id = ? AND state = 'ACTIVE' RETURNING query_id
+                ), allocations AS (
+                    UPDATE shuffle_allocation a SET state = 'CLEANING'
+                    FROM sealed s WHERE a.query_id = s.query_id
+                )
+                INSERT INTO shuffle_cleanup_intent (query_id)
+                SELECT query_id FROM sealed ON CONFLICT (query_id) DO NOTHING
+                """;
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, lease == null ? null : lease.owner());
+            statement.setObject(2, lease == null ? null : lease.expiresAtMs(), Types.BIGINT);
+            statement.setString(3, queryId);
+            statement.executeUpdate();
         }
     }
 
@@ -286,32 +300,32 @@ final class PostgresShuffleRecords {
             String state,
             Long currentLeaseExpiry,
             CleanupLease lease) throws SQLException {
-        boolean active = "ACTIVE".equals(state);
-        boolean expired = "CLEANING".equals(state)
-                && (currentLeaseExpiry == null || currentLeaseExpiry <= lease.nowMs());
-        if (!active && !expired) {
+        if ("ACTIVE".equals(state)) {
+            sealCleanupAdmission(connection, queryId, lease);
+            return;
+        }
+        if (!"CLEANING".equals(state) || currentLeaseExpiry != null && currentLeaseExpiry > lease.nowMs()) {
             throw new IllegalStateException("shuffle cleanup already has an active lease");
         }
         try (PreparedStatement query = connection.prepareStatement(
-                "UPDATE shuffle_query_scope SET state = 'CLEANING', "
-                        + "cleanup_lease_owner = ?, cleanup_lease_expires_at_ms = ? "
+                "UPDATE shuffle_query_scope SET cleanup_lease_owner = ?, cleanup_lease_expires_at_ms = ? "
                         + "WHERE query_id = ?")) {
             query.setString(1, lease.owner());
             query.setLong(2, lease.expiresAtMs());
             query.setString(3, queryId);
             query.executeUpdate();
         }
-        if (active) {
-            // The first seal updates allocations atomically and blocks subsequent registration.
-            markCleaningAllocations(connection, queryId);
-        }
     }
 
-    private static void markCleaningAllocations(Connection connection, String queryId) throws SQLException {
-        try (PreparedStatement allocations = connection.prepareStatement(
-                "UPDATE shuffle_allocation SET state = 'CLEANING' WHERE query_id = ?")) {
-            allocations.setString(1, queryId);
-            allocations.executeUpdate();
+    static void recordCleanupConvergence(Connection connection, String queryId) throws SQLException {
+        String sql = """
+                INSERT INTO shuffle_cleanup_intent (query_id, converged_at) VALUES (?, clock_timestamp())
+                ON CONFLICT (query_id) DO UPDATE SET converged_at = EXCLUDED.converged_at
+                WHERE shuffle_cleanup_intent.converged_at IS NULL
+                """;
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, queryId);
+            statement.executeUpdate();
         }
     }
 
@@ -407,20 +421,32 @@ final class PostgresShuffleRecords {
 
     static void completeCleanup(Connection connection, CleanupPlan plan)
             throws SQLException {
-        renewCleanup(connection, plan,
-                new CleanupLease(plan.leaseOwner(), 1, Long.MAX_VALUE));
-        try (PreparedStatement statement = connection.prepareStatement(
-                "DELETE FROM shuffle_allocation WHERE query_id = ?")) {
+        String removeAllocations = """
+                WITH locked AS MATERIALIZED (
+                    SELECT query_id FROM shuffle_query_scope
+                    WHERE query_id = ? AND state = 'CLEANING' AND cleanup_lease_owner = ? FOR UPDATE
+                )
+                DELETE FROM shuffle_allocation a USING locked l WHERE a.query_id = l.query_id
+                """;
+        try (PreparedStatement statement = connection.prepareStatement(removeAllocations)) {
             statement.setString(1, plan.queryId());
+            statement.setString(2, plan.leaseOwner());
             statement.executeUpdate();
         }
-        try (PreparedStatement statement = connection.prepareStatement(
-                "DELETE FROM shuffle_query_scope WHERE query_id = ? AND state = 'CLEANING' "
-                        + "AND cleanup_lease_owner = ?")) {
+        String converge = """
+                WITH retired AS (
+                    DELETE FROM shuffle_query_scope
+                    WHERE query_id = ? AND state = 'CLEANING' AND cleanup_lease_owner = ?
+                    RETURNING query_id
+                )
+                UPDATE shuffle_cleanup_intent i SET converged_at = clock_timestamp()
+                FROM retired r WHERE i.query_id = r.query_id AND i.converged_at IS NULL
+                """;
+        try (PreparedStatement statement = connection.prepareStatement(converge)) {
             statement.setString(1, plan.queryId());
             statement.setString(2, plan.leaseOwner());
             if (statement.executeUpdate() != 1) {
-                throw new IllegalStateException("shuffle cleanup lease has been lost");
+                throw new IllegalStateException("shuffle cleanup lease or terminal seal has been lost");
             }
         }
     }

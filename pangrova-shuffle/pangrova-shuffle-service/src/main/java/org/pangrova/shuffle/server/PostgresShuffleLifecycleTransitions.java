@@ -121,19 +121,19 @@ final class PostgresShuffleLifecycleTransitions {
     Optional<CleanupPlan> beginCleanup(CleanupCommand command, CleanupLease lease) {
         String queryId = command.queryId();
         CleanupAdmission admission = transaction(dataSource, connection -> {
-            ExecutionAnchorFence.requireCleanupOwner(connection, queryId, command.owner());
+            ExecutionAnchorFence.lockCleanupOwner(connection, queryId, command.owner());
             PostgresShuffleStore.QueryScope scope = PostgresShuffleStore.lockExistingQueryScope(connection, queryId);
             if (scope == null) {
-                deleteCleanupIntent(connection, queryId);
+                PostgresShuffleRecords.recordCleanupConvergence(connection, queryId);
                 return new CleanupAdmission(null, null);
             }
             PostgresShuffleStore.adoptOwnerIfFenced(connection, queryId, scope.owner(), command.owner());
             if (hasActiveReads(connection, queryId)) {
-                PostgresShuffleRecords.sealCleanupAdmission(connection, queryId);
+                PostgresShuffleRecords.sealCleanupAdmission(connection, queryId, null);
                 return new CleanupAdmission(null, "shuffle reads are still in progress");
             }
             if (protectOutstandingWrites(connection, queryId)) {
-                PostgresShuffleRecords.sealCleanupAdmission(connection, queryId);
+                PostgresShuffleRecords.sealCleanupAdmission(connection, queryId, null);
                 return new CleanupAdmission(null, "shuffle writes are still in progress");
             }
             claimCleanup(connection, queryId, scope.state(), scope.cleanupLeaseExpiresAtMs(), lease);
@@ -235,7 +235,6 @@ final class PostgresShuffleLifecycleTransitions {
     void completeCleanup(CleanupPlan plan) {
         transaction(dataSource, connection -> {
             PostgresShuffleRecords.completeCleanup(connection, plan);
-            deleteCleanupIntent(connection, plan.queryId());
             return null;
         });
     }
@@ -276,15 +275,6 @@ final class PostgresShuffleLifecycleTransitions {
                 row.next();
                 return row.getBoolean(1);
             }
-        }
-    }
-
-    private static void deleteCleanupIntent(Connection connection, String queryId)
-            throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement(
-                "DELETE FROM shuffle_cleanup_intent WHERE query_id = ?")) {
-            statement.setString(1, queryId);
-            statement.executeUpdate();
         }
     }
 

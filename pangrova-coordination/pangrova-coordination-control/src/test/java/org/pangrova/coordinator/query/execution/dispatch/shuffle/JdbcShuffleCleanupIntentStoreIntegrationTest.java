@@ -4,6 +4,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.time.Duration;
+import java.time.OffsetDateTime;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
@@ -17,6 +18,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.persistence.jdbc.support.SchemaMigrationRunner;
+import org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore;
 import org.pangrova.persistence.query.postgresql.shuffle.JdbcShuffleCleanupIntentStore;
 import org.pangrova.shuffle.api.ShuffleExecutionOwner;
 import org.pangrova.execution.api.ownership.ExecutionAnchor;
@@ -160,7 +162,7 @@ class JdbcShuffleCleanupIntentStoreIntegrationTest {
     }
 
     @Test
-    void emptyCleanupConsumesOnlyTheIntentAndDoesNotReinsertItOnRetry() throws Exception {
+    void emptyCleanupPreservesItsSealAndReplaysTheOriginalConvergenceTime() throws Exception {
         String queryId = "empty-cleanup-" + UUID.randomUUID();
         seedAnchor(queryId);
         store.markPending(grant(queryId));
@@ -168,9 +170,10 @@ class JdbcShuffleCleanupIntentStoreIntegrationTest {
 
         assertThat(store.completeWithoutScope(grant(queryId))).isTrue();
         assertThat(cleanupStatements() - before).isEqualTo(2);
-        assertThat(hasIntent(queryId)).isFalse();
+        var converged = convergenceTime(queryId);
+        assertThat(converged).isNotNull();
         assertThat(store.completeWithoutScope(grant(queryId))).isTrue();
-        assertThat(hasIntent(queryId)).isFalse();
+        assertThat(convergenceTime(queryId)).isEqualTo(converged);
     }
 
     @Test
@@ -200,7 +203,7 @@ class JdbcShuffleCleanupIntentStoreIntegrationTest {
         assertThat(hasIntent(queryId)).isTrue();
         setDrainState(queryId, 2);
         assertThat(store.prepareProvenRecovery(grant(queryId))).isFalse();
-        assertThat(hasIntent(queryId)).isFalse();
+        assertThat(convergenceTime(queryId)).isNotNull();
     }
 
     @Test
@@ -217,6 +220,33 @@ class JdbcShuffleCleanupIntentStoreIntegrationTest {
         setDrainState(queryId, 2);
         assertThat(store.prepareProvenRecovery(grant(queryId))).isTrue();
         assertThat(hasIntent(queryId)).isTrue();
+    }
+
+    @Test
+    void recoveredRetirementRequiresPositiveConvergenceAndReapsItWithTheAnchor() throws Exception {
+        String queryId = "cleanup-retirement-" + UUID.randomUUID();
+        seedAnchor(queryId);
+        var owner = grant(queryId);
+        var anchors = new JdbcExecutionAnchorStore(dataSource);
+        setDrainState(queryId, 2);
+        assertThat(anchors.releaseDrainedQuery(owner, true)).isFalse();
+        assertThat(anchors.current(queryId)).isPresent();
+        assertThat(store.prepareProvenRecovery(owner)).isFalse();
+        assertThat(convergenceTime(queryId)).isNotNull();
+        assertThat(anchors.releaseDrainedQuery(owner, true)).isTrue();
+        assertThat(anchors.current(queryId)).isEmpty();
+        assertThat(hasIntent(queryId)).isFalse();
+    }
+
+    private static OffsetDateTime convergenceTime(String queryId) throws Exception {
+        try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement(
+                "SELECT converged_at FROM shuffle.shuffle_cleanup_intent WHERE query_id = ?")) {
+            statement.setString(1, queryId);
+            try (var rows = statement.executeQuery()) {
+                assertThat(rows.next()).isTrue();
+                return rows.getObject(1, OffsetDateTime.class);
+            }
+        }
     }
 
     private static ExecutionAnchor grant(String queryId) {

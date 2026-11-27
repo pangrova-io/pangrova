@@ -213,9 +213,9 @@ one transaction. A handoff retains the journal while recovery owns the
 reservation. A former Coordinator cannot add a late Worker fact, rewrite the
 successor's terminal outcome, or purge the successor's evidence. For a proven
 predecessor without a live local projection, remote Shuffle must remove its
-scope and cleanup intent first. The fenced retirement then removes the
-predecessor's reader pins, task journal, acknowledged write record when
-eligible, anchor and tenant slot in one transaction. Keyed query receipts
+scope and record convergence under the terminal seal. The fenced retirement
+then removes the predecessor's reader pins, task journal, acknowledged write
+record when eligible, anchor, terminal seal and tenant slot in one transaction. Keyed query receipts
 retain their journal retention. Query pin admission checks the live, fresh
 execution anchor in the existing generation lock statement.
 
@@ -1445,16 +1445,20 @@ grant to seal admission. The live DAG reports its outcome without deleting
 Shuffle. Physical cleanup starts after local operations, report publication and
 all issued Worker attempts have drained. The Coordinator uses the cached cleanup
 capability for a tracked scope when it is still usable. If registration was
-never reached, PostgreSQL removes the intent after verifying the absence of a
-scope under the same grant, with no Shuffle RPC. An untracked durable scope still
-requires service acknowledgement of object and intent deletion.
+never reached, PostgreSQL records convergence after verifying the absence of a
+scope under the same grant, with no Shuffle RPC. An untracked durable scope
+requires service acknowledgement. The Shuffle service commits scope removal and
+convergence together after object cleanup. Both paths keep the terminal seal
+until retirement deletes the execution anchor, fencing delayed registration
+even when cleanup has already completed. Replays keep the original convergence
+timestamp.
 
 The Shuffle service selects an expired cleanup scope under a row lock and carries
 its previous lease deadline into the recovery claim. The claim still checks active
 read pins and outstanding write reservations under that lock. The initial seal
-closes admission for the scope and all allocations in one transaction. A later
-claim of the sealed scope updates only the cleanup lease and leaves the
-allocation rows untouched.
+closes admission for the scope and all allocations and records the terminal
+intent in one statement. A later claim of the sealed scope updates only the
+cleanup lease and leaves the allocation rows untouched.
 
 The terminal cleanup queue and the proven predecessor drain path drive these
 operations. The Coordinator does not scan Shuffle intents during idle health

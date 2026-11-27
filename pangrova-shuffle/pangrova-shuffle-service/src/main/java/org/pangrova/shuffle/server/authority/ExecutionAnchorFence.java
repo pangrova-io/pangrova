@@ -13,8 +13,7 @@ public final class ExecutionAnchorFence {
             + "fencing_token, expires_at > clock_timestamp() AS live "
             + "FROM public.execution_anchor WHERE execution_id = ?";
     private static final String LOCKED_LIVE_ANCHOR = LIVE_ANCHOR + " FOR SHARE";
-    private static final String CLEANUP_ANCHOR = LIVE_ANCHOR
-            + " AND recovery_drain_state <> 1 FOR SHARE";
+    private static final String CLEANUP_ANCHOR = LIVE_ANCHOR + " AND recovery_drain_state <> 1";
 
     private ExecutionAnchorFence() {}
 
@@ -33,7 +32,15 @@ public final class ExecutionAnchorFence {
     /** Requires either the original execution or proven predecessor exit before adopting cleanup. */
     public static void requireCleanupOwner(Connection connection, String queryId, ExecutionOwnerIdentity requested)
             throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement(CLEANUP_ANCHOR)) {
+        try (PreparedStatement statement = connection.prepareStatement(CLEANUP_ANCHOR + " FOR SHARE")) {
+            requireOwner(statement, queryId, requested);
+        }
+    }
+
+    /** Orders terminal sealing with new registrations, including when no scope row exists yet. */
+    public static void lockCleanupOwner(Connection connection, String queryId, ExecutionOwnerIdentity requested)
+            throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(CLEANUP_ANCHOR + " FOR UPDATE")) {
             requireOwner(statement, queryId, requested);
         }
     }

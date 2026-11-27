@@ -81,7 +81,8 @@ public final class JdbcExecutionAnchorStore implements ExecutionAnchorStore {
             """;
     private static final String REMOTE_DRAINED_FOR_RETIREMENT = DRAINED_FOR_RETIREMENT + """
             AND NOT EXISTS (SELECT 1 FROM shuffle.shuffle_query_scope s WHERE s.query_id = a.execution_id)
-            AND NOT EXISTS (SELECT 1 FROM shuffle.shuffle_cleanup_intent i WHERE i.query_id = a.execution_id)
+            AND EXISTS (SELECT 1 FROM shuffle.shuffle_cleanup_intent i
+                        WHERE i.query_id = a.execution_id AND i.converged_at IS NOT NULL)
             """;
     private static final String PURGE_RECOVERED_QUERY = """
             WITH target(query_id) AS (VALUES (CAST(? AS text))),
