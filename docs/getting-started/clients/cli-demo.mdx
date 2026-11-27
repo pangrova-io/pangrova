@@ -1,18 +1,19 @@
 ---
 title: "CLI Workflow Demo"
-description: "Watch a real Pangrova CLI walkthrough covering SQL, multimodal FILE data, indexing, analytics, and table maintenance"
+description: "Watch the Pangrova homepage and branded CLI, then a real CLI walkthrough covering SQL, multimodal FILE data, indexing, analytics, and table maintenance"
 ---
 
 import useBaseUrl from '@docusaurus/useBaseUrl';
 
 # CLI Workflow Demo
 
-Watch a complete Pangrova CLI walkthrough executed against a local Standalone
-instance built from commit `050f8a313` with validated local changes in the
-query-execution performance worktree. The recording keeps only the CLI surface
-and removes logger noise and query IDs. It illustrates the workflow, but is not
-a reproducibility or end-to-end validation result for the current `main` branch
-or a released build.
+Watch a complete Pangrova walkthrough that opens on the project homepage and
+branded CLI, then executes the live workflow against a local Standalone instance
+built from commit `050f8a313` with validated local changes in the
+query-execution performance worktree. The recording keeps only the product
+surface and removes logger noise and query IDs. It illustrates the workflow, but
+is not a reproducibility or end-to-end validation result for the current `main`
+branch or a released build.
 
 <video
   controls
@@ -25,25 +26,27 @@ or a released build.
   Your browser does not support embedded video.
 </video>
 
-<a href={useBaseUrl('/media/pangrova-cli-demo.mp4')} download="pangrova-cli-demo.mp4">Download the MP4</a> · 3 min 47 sec · 1080p · English narration
+<a href={useBaseUrl('/media/pangrova-cli-demo.mp4')} download="pangrova-cli-demo.mp4">Download the MP4</a> · 4 min 15 sec · 1080p · English narration
 
 ## Demo coverage
 
-1. **Core SQL** — register a local Iceberg catalog, create a schema and a
+1. **Project and CLI introduction** — open on the Pangrova homepage and a branded
+   CLI introduction with the project pitch.
+2. **Core SQL** — register a local Iceberg catalog, create a schema and a
    partitioned events table, insert six rows, inspect the schema, and run detail
    and aggregate queries.
-2. **Multimodal FILE data** — publish a PNG image, a text document, and a PDF
+3. **Multimodal FILE data** — publish a PNG image, a text document, and a PDF
    through `FILE_FROM_BYTES`, then query their governed MIME type and size.
-3. **Scalar and full-text indexes** — create Bloom filter, B-tree, bitmap, hash,
+4. **Scalar and full-text indexes** — create Bloom filter, B-tree, bitmap, hash,
    sparse, prefix, n-gram Bloom, and inverted indexes; inspect their state and run
    selective predicates plus full-text filtering.
-4. **Containment, spatial, and vector indexes** — create JVM GIN and R-Tree
+5. **Containment, spatial, and vector indexes** — create JVM GIN and R-Tree
    indexes and Native HNSW and IVF-PQ vector indexes. Exercise text filtering,
    spatial ranges, and exact vector nearest-neighbor ordering. The vector query
    uses a positive `OFFSET`, which follows the documented exact ordered path.
    `SHOW INDEXES` reports descriptor state; neither the returned rows nor
    a `READY` descriptor alone proves that a query used an index.
-5. **Relational analytics and maintenance** — join customer and order tables,
+6. **Relational analytics and maintenance** — join customer and order tables,
    rank rows with a window function, aggregate through a CTE, compact and vacuum
    the table, and verify the final row count.
 
