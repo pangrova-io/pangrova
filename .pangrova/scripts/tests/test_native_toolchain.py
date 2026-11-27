@@ -335,7 +335,7 @@ printf '%s\\n' "$@" >> "$TRACE"
 die() { printf '%s\\n' "$*" >&2; exit 1; }
 wget_and_untar() { :; }
 cmake_install_dir() { printf '%s\\n' "$@"; }
-darwin_folly_has_alignment_patch() { return 0; }
+darwin_folly_has_release_archive() { return 0; }
 run_and_time() {
     if [[ "$1" == install_fbthrift ]]; then install_fbthrift; fi
 }
@@ -416,7 +416,7 @@ install_fbthrift() {
         import hashlib
         patch = BOOTSTRAP.parent.parent / "patches/folly-2026.01.05-spookyhash-alignment.patch"
         stamp = sdk / "deps-install/.pangrova-folly-alignment"
-        stamp.write_text(hashlib.sha256(patch.read_bytes()).hexdigest() + "\n")
+        stamp.write_text(f"Release {hashlib.sha256(patch.read_bytes()).hexdigest()}\n")
         fbthrift = sdk / "deps-install/.pangrova-fbthrift-ready"
         fbthrift.write_text("openssl@3\n")
         self.executable(self.bin / "git", "exit 0")
@@ -430,7 +430,7 @@ install_fbthrift() {
         source = BOOTSTRAP.read_text()
         functions = "\n".join(
             name + "() {" + source.split(f"\n{name}() {{", 1)[1].split("\n}\n", 1)[0] + "\n}"
-            for name in ("darwin_folly_has_alignment_patch", "verify_prepared_velox_dependencies")
+            for name in ("darwin_folly_has_release_archive", "verify_prepared_velox_dependencies")
         )
         command = ('set -euo pipefail\nstep() { :; }\n'
                    'die() { echo "$*" >&2; exit 1; }\n'
@@ -487,9 +487,9 @@ ensure_darwin_snappy "$PREFIX"
                     self.assertNotEqual(result.returncode, 0)
                     self.assertIn("Pinned Snappy package is incomplete", result.stderr)
 
-    def test_darwin_folly_requires_archive_and_current_alignment_stamp(self):
+    def test_darwin_folly_requires_release_archive_and_current_alignment_stamp(self):
         source = BOOTSTRAP.read_text()
-        name = "darwin_folly_has_alignment_patch"
+        name = "darwin_folly_has_release_archive"
         function = name + "() {" + source.split(f"\n{name}() {{", 1)[1].split("\n}", 1)[0] + "\n}"
         prefix = self.root / "cached dependency prefix"
         (prefix / "lib").mkdir(parents=True)
@@ -497,15 +497,19 @@ ensure_darwin_snappy "$PREFIX"
         archive = prefix / "lib/libfolly.a"
         command = function + f'\n{name} "$1" current-digest'
 
-        for saved_digest, has_archive, reuse in (
-            (None, True, False), ("old-digest", True, False),
-            ("current-digest", False, False), ("current-digest", True, True),
+        for saved_receipt, has_archive, reuse in (
+            (None, True, False),
+            ("current-digest", True, False),
+            ("Debug current-digest", True, False),
+            ("Release old-digest", True, False),
+            ("Release current-digest", False, False),
+            ("Release current-digest", True, True),
         ):
-            with self.subTest(saved_digest=saved_digest, has_archive=has_archive):
-                if saved_digest is None:
+            with self.subTest(saved_receipt=saved_receipt, has_archive=has_archive):
+                if saved_receipt is None:
                     stamp.unlink(missing_ok=True)
                 else:
-                    stamp.write_text(saved_digest + "\n")
+                    stamp.write_text(saved_receipt + "\n")
                 if has_archive:
                     archive.touch()
                 else:

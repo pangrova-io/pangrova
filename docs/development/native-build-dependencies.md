@@ -122,8 +122,9 @@ The bootstrap enforces these dependency contracts.
 - The pinned Folly SpookyHash short-tail path uses alignment-safe loads in
   the regular, production and instrumented builds. The byte order and hash
   values stay compatible with the pinned upstream version. The Darwin
-  bootstrap rebuilds a cached Folly archive when its alignment-patch digest
-  is missing or differs from the reviewed patch.
+  bootstrap builds Folly in Release mode to match the inline F14 templates
+  used by Velox and the Worker. It accepts a cached archive when the receipt
+  records Release mode and the current alignment-patch digest.
 
 ## Sanitizer Dependency Chain
 

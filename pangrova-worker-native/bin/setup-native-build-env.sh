@@ -422,11 +422,11 @@ ensure_darwin_snappy() {
     || die "Pinned Snappy package is incomplete at $prefix"
 }
 
-darwin_folly_has_alignment_patch() {
+darwin_folly_has_release_archive() {
   local prefix="$1"
   local digest="$2"
   local stamp="$prefix/.pangrova-folly-alignment"
-  [[ -f "$prefix/lib/libfolly.a" && -f "$stamp" && "$(< "$stamp")" == "$digest" ]]
+  [[ -f "$prefix/lib/libfolly.a" && -f "$stamp" && "$(< "$stamp")" == "Release $digest" ]]
 }
 
 prepare_velox_dependencies() {
@@ -654,16 +654,20 @@ prepare_velox_dependencies() {
         "https://github.com/facebook/folly/archive/refs/tags/${FB_OS_VERSION}.tar.gz" \
         folly
       apply_folly_source_patches "$DEPENDENCY_DIR/folly"
-      # Use the formula's opt prefix even if Homebrew leaves it unlinked.
-      cmake_install_dir folly \
+      # Release consumers instantiate Folly's inline templates with NDEBUG.
+      # Reconfigure generated Folly builds before replacing an older archive.
+      PROMPT_ALWAYS_RESPOND=y cmake_install_dir folly \
+        -DCMAKE_BUILD_TYPE=Release \
         -DBUILD_SHARED_LIBS="$VELOX_BUILD_SHARED" -DBUILD_TESTS=OFF \
         -DFOLLY_HAVE_INT128_T=ON -DGFLAGS_SHARED=FALSE \
         "-DCMAKE_PREFIX_PATH=$INSTALL_PREFIX;$libevent_prefix;$HOMEBREW_PREFIX"
       if [[ "$VELOX_BUILD_SHARED" != "ON" ]]; then
         [[ -f "$INSTALL_PREFIX/lib/libfolly.a" ]] || die "Darwin Folly archive was not installed"
+        grep -Fxq 'CMAKE_BUILD_TYPE:STRING=Release' "$DEPENDENCY_DIR/folly/_build/CMakeCache.txt" \
+          || die "Darwin Folly archive was not built in Release mode"
         local stamp
         stamp=$(mktemp "$INSTALL_PREFIX/.pangrova-folly-alignment.XXXXXXXX")
-        printf '%s\n' "$folly_alignment_digest" > "$stamp"
+        printf 'Release %s\n' "$folly_alignment_digest" > "$stamp"
         mv "$stamp" "$INSTALL_PREFIX/.pangrova-folly-alignment"
       fi
     }
@@ -697,7 +701,7 @@ prepare_velox_dependencies() {
       run_and_time install_aws_deps
     fi
     if [[ -f "$fbthrift_stamp" ]]; then
-      if ! darwin_folly_has_alignment_patch "$INSTALL_PREFIX" "$folly_alignment_digest"; then
+      if ! darwin_folly_has_release_archive "$INSTALL_PREFIX" "$folly_alignment_digest"; then
         run_and_time install_folly
       fi
       if [[ "$(<"$fbthrift_stamp")" != openssl@3 ]]; then
@@ -769,8 +773,8 @@ verify_prepared_velox_dependencies() {
   [[ "$INSTALL_PREFIX" == "$VELOX_DIR/deps-install" ]] || die "Prepared Velox prefix differs"
   local folly_alignment_digest
   folly_alignment_digest="$(shasum -a 256 "$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/folly-2026.01.05-spookyhash-alignment.patch" | awk '{print $1}')"
-  darwin_folly_has_alignment_patch "$INSTALL_PREFIX" "$folly_alignment_digest" \
-    || die "Prepared Folly archive lacks the required alignment patch identity"
+  darwin_folly_has_release_archive "$INSTALL_PREFIX" "$folly_alignment_digest" \
+    || die "Prepared Folly archive lacks the required Release and alignment patch identity"
   [[ -f "$INSTALL_PREFIX/.pangrova-fbthrift-ready" && \
       "$(< "$INSTALL_PREFIX/.pangrova-fbthrift-ready")" == openssl@3 && \
       -f "$INSTALL_PREFIX/lib/cmake/Snappy/SnappyConfig.cmake" && \
