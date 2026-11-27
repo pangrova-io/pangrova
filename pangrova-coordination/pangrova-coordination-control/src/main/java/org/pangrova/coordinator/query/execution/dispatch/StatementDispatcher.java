@@ -166,7 +166,7 @@ public final class StatementDispatcher {
         }
         if (resultService != null && (!result.rows().isEmpty() || !result.columnNames().isEmpty())) {
             var control = resultService.dispatchControlPlaneRows(
-                    queryId, result.rows(), result.columnNames(), () -> { });
+                    queryId, result.rows(), result.columnNames(), result.columnTypes(), () -> { });
             // The response bytes and endpoint must be visible before FINISHED:
             // Native CTAS may already have completed, while an outer DDL still
             // needs to publish its metadata head and acknowledge the statement.

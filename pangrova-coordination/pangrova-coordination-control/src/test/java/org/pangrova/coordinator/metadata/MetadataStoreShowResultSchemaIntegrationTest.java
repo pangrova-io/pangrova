@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.metadata;
 
+import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.indexing.connector.ConnectorAccessorResolver;
 import org.pangrova.coordinator.indexing.ddl.IndexBuildServices;
@@ -78,19 +79,23 @@ class MetadataStoreShowResultSchemaIntegrationTest extends ContainerTestBase {
             var task = new ShowIndexesTask(ddl);
             var stmt = new ShowIndexesStatement(Identifier.of("test_cat", "default", "orders"));
             List<String> columns = List.of("index_name", "index_type", "columns", "state",
-                    "stale_reason", "created_at", "algorithm", "metric");
-            assertThat(results.execute(stmt, task, columns)).isEmpty();
+                    "stale_reason", "created_at", "algorithm", "metric", "index_id", "generation",
+                    "build_snapshot_id", "last_indexed_snapshot_id", "updated_at");
+            Map<String, ArrowType> types = Map.of("generation", new ArrowType.Int(32, true));
+            assertThat(results.execute(stmt, task, columns, types)).isEmpty();
 
             store.registerIndex(descriptor("scalar", IndexType.BLOOM_FILTER, Map.of()));
-            assertThat(results.execute(stmt, task, columns)).hasSize(1)
+            assertThat(results.execute(stmt, task, columns, types)).hasSize(1)
                     .allSatisfy(row -> {
                         assertThat(row.get(0)).isEqualTo("scalar");
                         assertThat(row.get(6)).isEmpty();
                         assertThat(row.get(7)).isEmpty();
+                        assertThat(row.subList(8, 13)).containsExactly(
+                                "show-index-scalar", "0", "snap-1", "snap-1", Instant.EPOCH.toString());
                     });
             store.registerIndex(descriptor("vector", IndexType.VECTOR, Map.of("algorithm", "hnsw", "metric", "cosine")));
             store.registerIndex(descriptor("inverted", IndexType.INVERTED, Map.of("analyzer", "standard")));
-            var rows = results.execute(stmt, task, columns);
+            var rows = results.execute(stmt, task, columns, types);
             assertThat(rows).hasSize(3);
             assertThat(rows.stream().filter(row -> row.get(0).equals("vector")).findFirst().orElseThrow().subList(6, 8))
                     .containsExactly("hnsw", "cosine");

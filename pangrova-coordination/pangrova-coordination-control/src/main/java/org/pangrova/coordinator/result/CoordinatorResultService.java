@@ -3,11 +3,13 @@ package org.pangrova.coordinator.result;
 import org.pangrova.execution.task.DispatchResult;
 
 import org.pangrova.common.client.result.ResultEndpoint;
+import org.pangrova.types.enums.PangrovaType;
 import org.pangrova.types.value.TypedRow;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -40,11 +42,19 @@ public final class CoordinatorResultService implements AutoCloseable {
     public DispatchResult dispatchControlPlaneRows(
             String queryId, List<TypedRow> rows, List<String> columnNames,
             Runnable finisher) {
+        return dispatchControlPlaneRows(queryId, rows, columnNames, Map.of(), finisher);
+    }
+
+    /** Publishes rows with explicitly declared column types before running the finisher. */
+    public DispatchResult dispatchControlPlaneRows(
+            String queryId, List<TypedRow> rows, List<String> columnNames,
+            Map<String, PangrovaType> columnTypes,
+            Runnable finisher) {
         Objects.requireNonNull(queryId, "queryId");
         Objects.requireNonNull(rows, "rows");
         Objects.requireNonNull(columnNames, "columnNames");
         Objects.requireNonNull(finisher, "finisher");
-        byte[] resultBytes = writer.serializeTypedRows(rows, columnNames);
+        byte[] resultBytes = writer.serializeTypedRows(rows, columnNames, columnTypes);
         buffer.put(queryId, resultBytes);
         finisher.run();
         LOG.debug("event=control_plane_result_complete queryId={} bytes={}",

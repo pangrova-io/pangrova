@@ -109,6 +109,11 @@ class MetadataShowResultSchemaTest {
                 new CoordinatorResultWriter(allocator), new ResultEndpoint("localhost", 9091, "unused", "grpc"));
 
         List<List<String>> execute(Statement statement, MetadataTask<?> task, List<String> columns) throws Exception {
+            return execute(statement, task, columns, Map.of());
+        }
+
+        List<List<String>> execute(Statement statement, MetadataTask<?> task, List<String> columns,
+                                   Map<String, ArrowType> declaredTypes) throws Exception {
             String id = UUID.randomUUID().toString();
             var state = new QueryStateMachine();
             var factory = new MetadataExecutionFactory(Map.of(statement.getClass(), task));
@@ -123,7 +128,9 @@ class MetadataShowResultSchemaTest {
             try (var reader = new ArrowStreamReader(new ByteArrayInputStream(buffer.get(id)), allocator)) {
                 var root = reader.getVectorSchemaRoot();
                 assertThat(root.getSchema().getFields()).extracting(field -> field.getName()).containsExactlyElementsOf(columns);
-                assertThat(root.getSchema().getFields()).allMatch(field -> field.getType().equals(ArrowType.Utf8.INSTANCE));
+                assertThat(root.getSchema().getFields()).allSatisfy(field ->
+                        assertThat(field.getType()).as("Arrow type of %s", field.getName())
+                                .isEqualTo(declaredTypes.getOrDefault(field.getName(), ArrowType.Utf8.INSTANCE)));
                 List<List<String>> values = new ArrayList<>();
                 while (reader.loadNextBatch()) {
                     for (int row = 0; row < root.getRowCount(); row++) {

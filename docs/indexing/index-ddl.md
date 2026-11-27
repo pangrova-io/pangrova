@@ -69,8 +69,8 @@ SHOW INDEXES ON prod.analytics.events;
 ```
 
 The result is ordered by `index_name`, then `index_id`, and excludes `DROPPED`
-descriptors. Every row has the same columns in the order shown below. New
-descriptor fields follow the existing positional result columns:
+descriptors. The result declares these columns in the same order for empty and
+populated results.
 
 | Column | Meaning |
 |---|---|
@@ -83,7 +83,7 @@ descriptor fields follow the existing positional result columns:
 | `algorithm` | Vector algorithm or full-text analyzer, otherwise empty |
 | `metric` | Vector metric, otherwise empty |
 | `index_id` | Stable Pangrova descriptor identity |
-| `generation` | Integer current descriptor generation |
+| `generation` | Current descriptor generation as a signed 32-bit integer |
 | `build_snapshot_id` | Snapshot reserved by the current build, or empty |
 | `last_indexed_snapshot_id` | Last published source snapshot, or empty |
 | `updated_at` | Last descriptor transition timestamp |

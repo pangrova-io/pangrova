@@ -17,6 +17,7 @@ import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
+import org.pangrova.types.enums.PangrovaType;
 import org.pangrova.types.value.ColumnValue;
 import org.pangrova.types.value.TypedRow;
 
@@ -69,9 +70,14 @@ public final class CoordinatorResultWriter {
      * Pre-extracts column data into a column-major array to avoid per-cell map lookups.
      */
     public byte[] serializeTypedRows(List<TypedRow> rows, List<String> columnNames) {
+        return serializeTypedRows(rows, columnNames, Map.of());
+    }
+
+    byte[] serializeTypedRows(List<TypedRow> rows, List<String> columnNames, Map<String, PangrovaType> columnTypes) {
         Objects.requireNonNull(rows, "rows");
         Objects.requireNonNull(columnNames, "columnNames");
-        Schema schema = buildSchemaFromTypedRows(rows, columnNames);
+        Objects.requireNonNull(columnTypes, "columnTypes");
+        Schema schema = buildSchemaFromTypedRows(rows, columnNames, columnTypes);
         int colCount = columnNames.size();
         int rowCount = rows.size();
         Object[][] columnData = new Object[colCount][rowCount];
@@ -87,13 +93,18 @@ public final class CoordinatorResultWriter {
 
     // ── Schema builders ──
 
-    private Schema buildSchemaFromTypedRows(List<TypedRow> rows, List<String> columnNames) {
+    private Schema buildSchemaFromTypedRows(List<TypedRow> rows, List<String> columnNames,
+                                           Map<String, PangrovaType> columnTypes) {
         List<Field> arrowFields = new ArrayList<>(columnNames.size());
         TypedRow sample = rows.isEmpty() ? null : rows.get(0);
         for (String name : columnNames) {
-            ArrowType type = (sample != null)
-                    ? columnValueToArrowType(sample.get(name))
-                    : ArrowType.Utf8.INSTANCE;
+            PangrovaType declaredType = columnTypes.get(name);
+            ArrowType type = ArrowType.Utf8.INSTANCE;
+            if (declaredType != null) {
+                type = declaredArrowType(declaredType);
+            } else if (sample != null) {
+                type = columnValueToArrowType(sample.get(name));
+            }
             arrowFields.add(new Field(name, FieldType.nullable(type), null));
         }
         return new Schema(arrowFields);
@@ -193,16 +204,24 @@ public final class CoordinatorResultWriter {
     // ── Type mapping ──
 
     private static final int DECIMAL_PRECISION = 38;
+    private static final Map<PangrovaType, ArrowType> SCALAR_ARROW_TYPES = Map.of(
+            PangrovaType.INTEGER, new ArrowType.Int(32, true),
+            PangrovaType.BIGINT, new ArrowType.Int(64, true),
+            PangrovaType.FLOAT, new ArrowType.FloatingPoint(FloatingPointPrecision.SINGLE),
+            PangrovaType.DOUBLE, new ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE),
+            PangrovaType.BOOLEAN, ArrowType.Bool.INSTANCE,
+            PangrovaType.VARCHAR, ArrowType.Utf8.INSTANCE,
+            PangrovaType.VARBINARY, ArrowType.Binary.INSTANCE);
 
     private static final Map<Class<? extends ColumnValue>, java.util.function.Function<ColumnValue, ArrowType>>
             CV_TO_ARROW = Map.ofEntries(
-            Map.entry(ColumnValue.IntValue.class, cv -> new ArrowType.Int(32, true)),
-            Map.entry(ColumnValue.LongValue.class, cv -> new ArrowType.Int(64, true)),
-            Map.entry(ColumnValue.FloatValue.class, cv -> new ArrowType.FloatingPoint(FloatingPointPrecision.SINGLE)),
-            Map.entry(ColumnValue.DoubleValue.class, cv -> new ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE)),
-            Map.entry(ColumnValue.BooleanValue.class, cv -> ArrowType.Bool.INSTANCE),
-            Map.entry(ColumnValue.StringValue.class, cv -> ArrowType.Utf8.INSTANCE),
-            Map.entry(ColumnValue.BytesValue.class, cv -> ArrowType.Binary.INSTANCE),
+            Map.entry(ColumnValue.IntValue.class, cv -> declaredArrowType(PangrovaType.INTEGER)),
+            Map.entry(ColumnValue.LongValue.class, cv -> declaredArrowType(PangrovaType.BIGINT)),
+            Map.entry(ColumnValue.FloatValue.class, cv -> declaredArrowType(PangrovaType.FLOAT)),
+            Map.entry(ColumnValue.DoubleValue.class, cv -> declaredArrowType(PangrovaType.DOUBLE)),
+            Map.entry(ColumnValue.BooleanValue.class, cv -> declaredArrowType(PangrovaType.BOOLEAN)),
+            Map.entry(ColumnValue.StringValue.class, cv -> declaredArrowType(PangrovaType.VARCHAR)),
+            Map.entry(ColumnValue.BytesValue.class, cv -> declaredArrowType(PangrovaType.VARBINARY)),
             Map.entry(ColumnValue.DecimalValue.class, cv -> new ArrowType.Decimal(DECIMAL_PRECISION, 10, 128)),
             Map.entry(ColumnValue.DateValue.class, cv -> new ArrowType.Date(DateUnit.DAY)),
             Map.entry(ColumnValue.TimestampValue.class, cv -> new ArrowType.Timestamp(TimeUnit.MICROSECOND, null)),
@@ -211,6 +230,14 @@ public final class CoordinatorResultWriter {
                 return new ArrowType.FixedSizeList(dim);
             })
     );
+
+    private static ArrowType declaredArrowType(PangrovaType type) {
+        ArrowType arrowType = SCALAR_ARROW_TYPES.get(type);
+        if (arrowType == null) {
+            throw new IllegalArgumentException("Unsupported declared control-plane column type: " + type);
+        }
+        return arrowType;
+    }
 
     private static ArrowType columnValueToArrowType(ColumnValue cv) {
         var mapper = CV_TO_ARROW.get(cv.getClass());
