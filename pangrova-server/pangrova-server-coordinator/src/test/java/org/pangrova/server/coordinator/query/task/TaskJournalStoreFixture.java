@@ -18,6 +18,7 @@ import java.util.UUID;
 
 /** Real task insert locks and committed observations remain observable after normal query journal purge. */
 final class TaskJournalStoreFixture implements AutoCloseable {
+    static final String COORDINATOR_ID = "report-coordinator";
     private final DataSource administrator;
     private final String application = "native_task_journal_" + UUID.randomUUID();
     private final JdbcQueryStateJournal journal;
@@ -28,6 +29,7 @@ final class TaskJournalStoreFixture implements AutoCloseable {
         String schema;
         try (var connection = administrator.getConnection(); var statement = connection.createStatement()) {
             schema = connection.getSchema();
+            statement.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public");
             statement.execute("CREATE TABLE task_insert_observations (LIKE task_state_journal)");
             statement.execute("CREATE FUNCTION observe_task_insert() RETURNS trigger LANGUAGE plpgsql AS $$"
                     + "BEGIN INSERT INTO " + schema + ".task_insert_observations SELECT NEW.*; RETURN NEW; END $$");
@@ -59,6 +61,7 @@ final class TaskJournalStoreFixture implements AutoCloseable {
         authority = new HighAvailabilityCoordinationService(
                 new InMemoryDistributedLease(), new JdbcExecutionAnchorStore(source));
         journal = new JdbcQueryStateJournal(source, new StateJournalConfig("JDBC", source.getURL(), 20, 20, 24, 50_000));
+        authority.start(COORDINATOR_ID);
     }
 
     JdbcQueryStateJournal journal() { return journal; }
@@ -114,6 +117,22 @@ final class TaskJournalStoreFixture implements AutoCloseable {
 
     List<String> taskStates(String queryId) throws SQLException {
         return observedStates("SELECT state FROM task_insert_observations WHERE query_id=? ORDER BY id", queryId);
+    }
+
+    long statementCalls(String fingerprint) throws SQLException {
+        try (var connection = administrator.getConnection();
+                var statement = connection.prepareStatement("""
+                        SELECT COALESCE(SUM(calls), 0)
+                        FROM public.pg_stat_statements
+                        WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+                          AND query LIKE ?
+                        """)) {
+            statement.setString(1, fingerprint);
+            try (var rows = statement.executeQuery()) {
+                rows.next();
+                return rows.getLong(1);
+            }
+        }
     }
 
     private List<String> observedStates(String sql, String queryId) throws SQLException {

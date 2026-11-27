@@ -101,7 +101,7 @@ final class NativeReportDeliveryFixture implements AutoCloseable {
             });
             context = new QueryDispatcherContext(null, context.compiler(), context.security(), context.scheduling(),
                     null, null, context.taskTimeoutSeconds(), null, null, null,
-                    authority, "report-coordinator", store.journal(), null, null, null, null);
+                    authority, TaskJournalStoreFixture.COORDINATOR_ID, store.journal(), null, null, null, null);
         }
         var execution = new QueryDispatcher(SourceFreeQueryFixture.withPolicies(context), null, null);
         connectQueries(execution, tracker, store == null ? null : store.journal());
@@ -154,7 +154,7 @@ final class NativeReportDeliveryFixture implements AutoCloseable {
                             journal, null),
                     null, AsyncSubmitConfig.defaultEnabled(), queryExecutor, submitDeadlines,
                     new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory()));
-            queries.setLocalCoordinatorId("report-coordinator");
+            queries.setLocalCoordinatorId(TaskJournalStoreFixture.COORDINATOR_ID);
             worker.connect(execution, tracker, workers, queries);
         }
     }

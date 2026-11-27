@@ -19,6 +19,11 @@ import static org.awaitility.Awaitility.await;
 @Tag("native-required")
 @Tag("routing-integration")
 class TaskStatusReceiverJournalTest extends ContainerTestBase {
+    private static final String SEPARATE_PURGE_FENCE = "WITH locked AS MATERIALIZED (%FROM execution_anchor%"
+            + "SELECT % FROM authorized";
+    private static final String ATOMIC_RETIREMENT = "WITH owner(execution_id,%FROM removed%"
+            + "DELETE FROM task_state_journal j USING removed r%"
+            + "DELETE FROM query_state_journal q USING removed r%";
     @TempDir Path directory;
 
     @Test
@@ -33,6 +38,8 @@ class TaskStatusReceiverJournalTest extends ContainerTestBase {
              var fixture = new NativeReportDeliveryFixture(directory, "RUNNING", false, 0, 0, store);
              var blocker = store.blockTaskReportInserts()) {
             var queryId = fixture.queryId();
+            long previousPurgeFences = store.statementCalls(SEPARATE_PURGE_FENCE);
+            long previousAtomicRetirements = store.statementCalls(ATOMIC_RETIREMENT);
             try {
                 fixture.startWithoutConsumingResult();
                 var attempt = actualAttempt(fixture, store);
@@ -51,10 +58,15 @@ class TaskStatusReceiverJournalTest extends ContainerTestBase {
             }
             fixture.consumeResult();
             fixture.recoverAndDrain();
+            assertThat(fixture.queries().getStateMachine(queryId).status().drained()).isTrue();
             assertThat(fixture.rows()).containsExactly(java.util.List.of(42));
             assertThat(store.queryStates(queryId)).containsExactly("QUEUED", "FINISHED");
             assertThat(store.taskStates(queryId)).startsWith("SCHEDULED").contains("FINISHED")
                     .allMatch(state -> state.equals("SCHEDULED") || state.equals("FINISHED"));
+            assertThat(store.statementCalls(SEPARATE_PURGE_FENCE) - previousPurgeFences)
+                    .as("separate journal purge fence reads").isZero();
+            assertThat(store.statementCalls(ATOMIC_RETIREMENT) - previousAtomicRetirements)
+                    .as("atomic journal and execution retirements").isOne();
         }
     }
 

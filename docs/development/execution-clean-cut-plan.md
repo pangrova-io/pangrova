@@ -41,6 +41,8 @@ unlisted: true
 
 真实 Coordinator/PostgreSQL 在 Worker 控制回应 HTTP 202 时保留已派发查询的任务、租约与槽位。匹配退出回执后，三者归零。真实 PostgreSQL 验证缺少派发事实或租约换代均不能确认排空。运行中 SQL 同样等待完整退出证明，旧查询在接管后不能重建快照 pin。PostgreSQL/MinIO 的 Shuffle 服务验收在证明前拒绝清理授权，在证明后删除对象并验证重复清理不再释放字节。受控 Worker HTTP 先返回 202，再返回来自不同 Worker 实例的 200 退出回执。真实 Coordinator 在两种响应下都保留任务、租约和槽位，只在收到匹配回执后释放。运行中和已失败的前任均不重建内存查询，同名但实例标识不同的活动租约与槽位保持原状。此组验证没有终止独立 Coordinator 进程。
 
+真实 Worker Native 与 Flight 的查询回归使用已启动的 Coordinator 执行租约和 PostgreSQL 查询日志。服务端语句计数记录一次合并收尾，独立的日志清理验权 SELECT 为零。读取结果后验证状态已排空。Iceberg INSERT、CTAS 与读回一并通过。
+
 签名回执恢复验收由两个真实 Coordinator、OIDC、PostgreSQL 和 Flight 共同完成。正常版本状态和无效签名请求均为零次 journal 读取。持有效回执时，未物理排空返回待恢复，原 Coordinator 停止且租约删除后返回原查询的终态，每次恢复请求一条 SQL。已消费的 Flight 结果可完成终态确认。未消费但已无法取回的流报告结果不可用，客户端保留原查询 ID，不重新执行 SQL。已保存的恢复终态直接供后续状态和取消判断使用。独立 Coordinator 进程强制退出和跨主机验收仍在 B1/B6 范围。
 
 实际 QUERY Coordinator 接管仅有受理记录的执行时，写入失败终态并归还其执行租约和租户槽位。已取得本地语句执行权的查询继续持有槽位。PostgreSQL 回归验证同一工作权只授予一次，过期前任及接管租约均无法重新启动本地语句。OIDC 与 Flight 联合用例实测本地语句只发出一次工作权 UPDATE，实时等待仍没有增加 journal 读取。Coordinator 本地 Flight 已移除中间 IPC 字节、重复解码和批次填充线程。每个批次只授予一个读取者，实际关闭 Arrow 分配后才释放查询操作。关闭 Coordinator 时撤销未领取批次，已开始的读仍保有分配。实际 TCP 发送暂停时，Arrow 分配与查询操作均保持占用，恢复发送后归零。真实双 Coordinator 与 PostgreSQL 验证已完成但未读取的查询仍占用槽位，读取结束或正常关停后归还。mTLS 和 SQL `SHOW VIEWS` 经真实 Flight 验证。接管方仍需独立进程退出证据。
