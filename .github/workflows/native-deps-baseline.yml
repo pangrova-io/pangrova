@@ -6,7 +6,7 @@ on:
       probe:
         description: Isolated CI stage to verify
         type: choice
-        options: [macos-docker, macos-intel-docker, production, worker-files, java-daily, libunwind, ai-fixture, jmh-relative, tpc-transport, macos-libcxx]
+        options: [macos-docker, macos-intel-docker, production, worker-files, java-daily, libunwind, ai-fixture, jmh-relative, tpc-transport, macos-libcxx, production-pic]
         default: macos-docker
 
 permissions:
@@ -14,6 +14,60 @@ permissions:
   actions: read
 
 jobs:
+  production-pic:
+    name: Audit production PIC archives
+    if: inputs.probe == 'production-pic'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Verify actual Boost and curl shared-library links
+        run: |
+          docker run --rm -i -v "$GITHUB_WORKSPACE:/source:ro" \
+            ubuntu:22.04@sha256:0a9887931b0e38af2e3487ed39e29436b0535c4f3f52e57745baaf79d1898956 \
+            bash -euo pipefail -s <<'BASH'
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -qq
+          apt-get install -y --no-install-recommends build-essential gcc-11 g++-11 ninja-build \
+            python3-pip sudo git curl ca-certificates pkg-config xz-utils libssl-dev zlib1g-dev \
+            libbz2-dev liblzma-dev libevent-dev libsnappy-dev libdouble-conversion-dev \
+            libsodium-dev libxml2-dev liblz4-dev libzstd-dev libxxhash-dev libicu-dev
+          python3 -m pip install --no-cache-dir --only-binary=:all: cmake==3.28.3
+          export CC=gcc-11 CXX=g++-11 BUILD_THREADS=2 CMAKE_BUILD_PARALLEL_LEVEL=2
+          git -c http.version=HTTP/1.1 clone --depth 1 --branch v2026.04.17.00 \
+            https://github.com/facebookincubator/velox.git /tmp/velox
+          cd /tmp/velox
+          git apply --check /source/pangrova-worker-native/patches/velox-linux-production-pic-boost.patch
+          git apply /source/pangrova-worker-native/patches/velox-linux-production-pic-boost.patch
+          scripts/setup-ubuntu.sh install_boost
+          boost_lib=/usr/local/lib
+          "$CXX" -shared -Wl,-z,defs,-z,text -Wl,--whole-archive \
+            "$boost_lib/libboost_filesystem.a" "$boost_lib/libboost_atomic.a" \
+            -Wl,--no-whole-archive -pthread -o /tmp/boost-pic-check.so
+          echo 'Pinned Boost static PIC shared link passed'
+          export PANGROVA_DEPS_PREFIX=/opt/pangrova-production/native-deps
+          bash /source/deploy/docker/build-static-curl.sh
+          echo 'Pinned curl static PIC shared link passed'
+          multiarch=$("$CC" -dumpmachine)
+          failure=0
+          for name in bz2 lzma z event_core event_extra event_openssl event_pthreads snappy \
+            double-conversion sodium xml2 lz4 zstd xxhash ssl crypto icui18n icuuc icudata; do
+            archive="/usr/lib/$multiarch/lib$name.a"
+            test -f "$archive"
+            if "$CXX" -shared -Wl,-z,text -Wl,--whole-archive "$archive" \
+                -Wl,--no-whole-archive -o /tmp/system-pic-check.so; then
+              printf 'System archive PIC link passed %s\n' "$archive"
+            else
+              failure=1
+            fi
+          done
+          exit "$failure"
+          BASH
+
   macos-libcxx:
     name: Verify macOS libc++ exception ABI
     if: inputs.probe == 'macos-libcxx'

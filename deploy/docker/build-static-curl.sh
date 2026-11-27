@@ -17,6 +17,7 @@ tar -xf "$archive" -C "$work_dir"
 cmake -S "$work_dir/curl-$curl_version" -B "$work_dir/build" -GNinja \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_INSTALL_PREFIX="$PANGROVA_DEPS_PREFIX" \
+  -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
   -DBUILD_SHARED_LIBS=OFF -DBUILD_STATIC_LIBS=ON -DBUILD_CURL_EXE=OFF \
   -DCURL_USE_OPENSSL=ON -DCURL_USE_GSSAPI=OFF \
   -DCURL_DISABLE_KERBEROS_AUTH=ON -DCURL_DISABLE_NEGOTIATE_AUTH=ON \
@@ -29,5 +30,17 @@ cmake --install "$work_dir/build"
 
 test -f "$PANGROVA_DEPS_PREFIX/lib/libcurl.a"
 test ! -f "$PANGROVA_DEPS_PREFIX/lib/libcurl.so"
-PKG_CONFIG_PATH="$PANGROVA_DEPS_PREFIX/lib/pkgconfig" pkg-config --modversion libcurl \
-  | grep -Fx "$curl_version"
+export PKG_CONFIG_PATH="$PANGROVA_DEPS_PREFIX/lib/pkgconfig"
+pkg-config --modversion libcurl | grep -Fx "$curl_version"
+
+# Link every curl object once so rarely used code cannot carry text relocations.
+static_flags=$(pkg-config --static --libs libcurl)
+read -r -a curl_flags <<< "$static_flags"
+dependencies=()
+for flag in "${curl_flags[@]}"; do
+  [[ "$flag" == -lcurl ]] || dependencies+=("$flag")
+done
+"${CC:-cc}" -shared -Wl,-z,defs,-z,text -Wl,--whole-archive \
+  "$PANGROVA_DEPS_PREFIX/lib/libcurl.a" -Wl,--no-whole-archive \
+  "${dependencies[@]}" -o "$work_dir/curl-pic-check.so"
+rm "$work_dir/curl-pic-check.so"
