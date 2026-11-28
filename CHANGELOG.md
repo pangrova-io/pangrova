@@ -117,7 +117,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   nested initializer
 - Three `Thread.sleep` call sites whose `catch` blocks did nothing but re-assert the interrupt
   flag (`LineageEventEmitter`, `BatchStreamProducer`, `OutputBufferResultSink`) now delegate to
-  the canonical `ThreadUtils.sleepQuietly`, removing three duplicated helpers. The other 23
+  the canonical `ThreadSleeper.sleepQuietly`, removing three duplicated helpers. The other 23
   sites were each read and left alone: they perform real work after re-asserting the interrupt
   (throw a domain exception, return a documented sentinel, break the loop, set a shutdown
   flag), so routing them through a quiet helper would have discarded behaviour
