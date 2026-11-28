@@ -18,6 +18,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Sole process-local admission authority, retaining compact identities until their deadline. Task
@@ -30,7 +31,7 @@ final class TaskAdmissionRegistry {
     private final Map<String, Entry> entries = new HashMap<>();
     private final int capacity;
     private final Clock clock;
-    private volatile int inFlightTaskCount;
+    private final AtomicInteger inFlightTaskCount = new AtomicInteger();
     // Advanced under entries before forgetting a drained admission or proving expired absence.
     private volatile long closedThroughDeadline;
     private boolean closed;
@@ -87,7 +88,7 @@ final class TaskAdmissionRegistry {
                             attempt, preparation);
             Reservation reservation = new Reservation(taskId, added, true);
             entries.put(taskId, added);
-            inFlightTaskCount++;
+            inFlightTaskCount.incrementAndGet();
             return reservation;
         }
     }
@@ -295,13 +296,13 @@ final class TaskAdmissionRegistry {
     }
 
     int inFlightTaskCount() {
-        return inFlightTaskCount;
+        return inFlightTaskCount.get();
     }
 
     // Called under entries before publishing the first physical exit for an owned reservation.
     private void closeOwnership(Entry entry) {
         if (!entry.noOwnerExited && entry.drainReceipt == null) {
-            inFlightTaskCount--;
+            inFlightTaskCount.decrementAndGet();
         }
     }
 

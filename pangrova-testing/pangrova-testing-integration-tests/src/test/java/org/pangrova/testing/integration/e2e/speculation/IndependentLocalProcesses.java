@@ -531,7 +531,8 @@ final class IndependentLocalProcesses implements AutoCloseable {
                     && outcome.output().lines().anyMatch("OK (no result set)"::equals);
             case STREAM -> publicStatus.resultEndpoint() != null
                     && expectedProtocol.value().equals(publicStatus.resultEndpoint().protocol());
-            case PENDING -> throw new IllegalArgumentException("Successful query cannot expect a pending result");
+            case PENDING, UNAVAILABLE -> throw new IllegalArgumentException(
+                    "A consumed query must expect a stream or a command acknowledgement");
         };
         if (!"FINISHED".equals(publicStatus.state())
                 || publicStatus.resultDisposition() != expectedDisposition || !expectedResult) {
