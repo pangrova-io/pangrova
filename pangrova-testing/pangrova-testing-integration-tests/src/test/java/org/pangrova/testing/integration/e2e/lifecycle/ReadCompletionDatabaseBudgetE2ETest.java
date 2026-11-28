@@ -34,6 +34,9 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
     private static final String ANCHOR_LOOKUP =
             "SELECT owner_id, owner_incarnation, fencing_token,%FROM execution_anchor "
                     + "WHERE execution_id = $1 AND expires_at > clock_timestamp()";
+    private static final String ATOMIC_RETIREMENT =
+            "WITH owner(execution_id,%DELETE FROM execution_anchor a USING retirement r%"
+                    + "SELECT release_tenant_query_slot(%";
     private static final String PUBLICATION_LOOKUP =
             "SELECT tenant_id,requesting_principal,%FROM materialization.attempts WHERE execution_anchor=$1";
     private static final String PUBLISHED_NAME_LOOKUP =
@@ -141,8 +144,8 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
 
     @Test
     void warmOrdinaryReadsDoNotReadThePublicationDirectory() throws SQLException {
-        String left = "iceberg_catalog.default.publication_budget_left";
-        String right = "iceberg_catalog.default.publication_budget_right";
+        String left = QUALIFIED_SCHEMA + "publication_budget_left";
+        String right = QUALIFIED_SCHEMA + "publication_budget_right";
         sqlRunner.executeDdl("CREATE TABLE " + left + " (id BIGINT)");
         sqlRunner.executeDdl("CREATE TABLE " + right + " (id BIGINT)");
         sqlRunner.execute("INSERT INTO " + left + " VALUES (42)");
@@ -258,7 +261,7 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
 
     @Test
     void exactNamedVersionSharesTableDiscoveryWithReadBinding() throws SQLException {
-        String table = "iceberg_catalog.default.named_version_database_budget";
+        String table = QUALIFIED_SCHEMA + "named_version_database_budget";
         sqlRunner.executeDdl("CREATE TABLE " + table + " (id BIGINT)");
         sqlRunner.execute("INSERT INTO " + table + " VALUES (42)");
         sqlRunner.executeDdl("ALTER TABLE " + table + " CREATE TAG pinned");
@@ -287,8 +290,8 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
                     assertThat(row.getLong("left_id")).isEqualTo(42L);
                     assertThat(row.getLong("right_id")).isEqualTo(42L);
                 });
-        assertThat(sqlRunner.execute("SELECT id FROM iceberg_catalog.DEFAULT.NAMED_VERSION_DATABASE_BUDGET"
-                + " VERSION AS OF TAG 'pinned'"))
+        assertThat(sqlRunner.execute("SELECT id FROM " + CATALOG
+                + ".DEFAULT.NAMED_VERSION_DATABASE_BUDGET VERSION AS OF TAG 'pinned'"))
                 .extracting(row -> row.getLong("id")).containsExactly(42L);
         assertThatThrownBy(() -> sqlRunner.execute("SELECT id FROM " + table + " VERSION AS OF TAG 'missing'"))
                 .hasMessageContaining("Selected source ref is unavailable: missing");
@@ -336,19 +339,23 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
     @Test
     void publicInsertPublishesWithoutLookingForAnInternalMaterializationAttempt() throws SQLException {
         String table = QUALIFIED_SCHEMA + "completion_database_budget";
-        sqlRunner.executeDdl("CREATE TABLE " + table + " (id BIGINT)");
-        long previousLookups = calls(PUBLICATION_LOOKUP);
-        long previousOwnershipLookups = calls(ANCHOR_LOOKUP);
         try (var client = PangrovaRestClient.builder().coordinatorHost("localhost")
                 .coordinatorPort(coordinatorHttpPort()).bearerToken(E2E_USER_BEARER_TOKEN)
                 .retryPolicy(RetryPolicy.NONE).build()) {
             long deadline = System.currentTimeMillis() + Duration.ofSeconds(30).toMillis();
+            awaitSuccessfulDrain(client.beginQuery("CREATE TABLE " + table + " (id BIGINT)", Map.of()), deadline);
+            long previousLookups = calls(PUBLICATION_LOOKUP);
+            long previousOwnershipLookups = calls(ANCHOR_LOOKUP);
+            long previousRetirements = calls(ATOMIC_RETIREMENT);
             var execution = client.beginQuery("INSERT INTO " + table + " VALUES (7)",
                     Map.of("pangrova.materialization.internal-execution", "true"));
             awaitSuccessfulDrain(execution, deadline);
+            assertThat(calls(PUBLICATION_LOOKUP) - previousLookups).as("materialization attempt SELECTs").isZero();
+            assertThat(calls(ANCHOR_LOOKUP) - previousOwnershipLookups)
+                    .as("distinct write fence SELECTs").isEqualTo(2L);
+            assertThat(calls(ATOMIC_RETIREMENT) - previousRetirements)
+                    .as("atomic anchor and admission retirements").isOne();
         }
-        assertThat(calls(PUBLICATION_LOOKUP) - previousLookups).as("materialization attempt SELECTs").isZero();
-        assertThat(calls(ANCHOR_LOOKUP) - previousOwnershipLookups).as("distinct write fence SELECTs").isEqualTo(3L);
         assertThat(sqlRunner.execute("SELECT id FROM " + table)).extracting(row -> row.getLong("id"))
                 .containsExactly(7L);
     }
