@@ -212,6 +212,15 @@ the real Worker status reports and the corresponding responses received by the
 relay. This covers control traffic at the application layer. A slow or failing
 release fails the fork rather than silently omitting it.
 
+The samples also include the accepted OUTPUT attempt's first payload, producer EOF
+and transport completion offsets from opening the Native Flight reader. Native
+file-adapter calls and byte totals come from drained attempts. S3 counters cover
+SDK attempts, retries and response body bytes. Blank fields indicate missing
+Native receipts. PostgreSQL journal SELECT, journal INSERT and catalog definition
+SELECT deltas cover submission through drain observation. These fixture-wide
+counters also include matching background statements. Measure pool and lock
+waits separately. Client first-row latency requires a client-side clock.
+
 For per-role observations on macOS, redirect each fork's combined output to
 `<fork>.log` next to its `<fork>.csv`. Start the following sampler before the
 forks and create the completion marker after the last fork exits.
