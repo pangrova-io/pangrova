@@ -47,7 +47,8 @@ public final class InMemoryCoordinatorRegistry implements CoordinatorRegistry {
                 existing.epoch(),
                 System.currentTimeMillis(),
                 existing.registeredAtMs(),
-                existing.lastProcessedInvalidationId()
+                existing.lastProcessedInvalidationId(),
+                existing.incarnation()
         ));
     }
 
@@ -69,7 +70,8 @@ public final class InMemoryCoordinatorRegistry implements CoordinatorRegistry {
                 existing.epoch(),
                 existing.lastHeartbeatMs(),
                 existing.registeredAtMs(),
-                existing.lastProcessedInvalidationId()
+                existing.lastProcessedInvalidationId(),
+                existing.incarnation()
         ));
     }
 

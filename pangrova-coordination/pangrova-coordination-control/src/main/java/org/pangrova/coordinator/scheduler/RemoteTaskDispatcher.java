@@ -16,6 +16,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
 import java.time.Duration;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -28,15 +29,19 @@ import org.pangrova.common.client.result.ResultEndpoint;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.common.exception.PangrovaException;
 import org.pangrova.transport.http.client.HttpClientFactory;
-import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.execution.task.DispatchResult;
 import org.pangrova.coordinator.worker.WorkerInfo;
+import org.pangrova.protocol.v2.RuntimeFilterBinding;
+import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.coordinator.transport.ShuffleTlsConfig;
 import org.pangrova.protocol.http.TaskAdmitted;
 import org.pangrova.protocol.http.TaskShuffleEndpoint;
 import org.pangrova.protocol.http.TaskSubmitAck;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.ExecutionOwnerIdentity;
+import org.pangrova.protocol.task.CanonicalTaskAdmissionSeals;
+import org.pangrova.protocol.v2.TaskAdmissionSealRequest;
+import org.pangrova.query.api.journal.TaskStateEvent;
 import org.pangrova.execution.binding.TaskControlBinding;
 import org.pangrova.observability.api.tracing.TracingProvider;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
@@ -56,13 +61,6 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
 
     /** Circuit breaker service name used as a prefix for per-host breaker keys. */
     private static final String BREAKER_SERVICE = "coordinator-to-worker";
-
-    /** Maximum retry attempts for commit notifications (BUG-D28). */
-    static final int COMMIT_NOTIFY_MAX_ATTEMPTS = 3;
-    /** Initial backoff for commit notification retry: 1 second. */
-    static final long COMMIT_NOTIFY_INITIAL_BACKOFF_MS = 1_000;
-    /** Maximum backoff for commit notification retry: 4 seconds. */
-    static final long COMMIT_NOTIFY_MAX_BACKOFF_MS = 4_000;
 
     private static final String INTERNAL_AUTH_HEADER = "X-Internal-Auth";
     private static final int HTTP_OK = 200;
@@ -112,7 +110,7 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
         this.tracingProvider = checkNotNull(tracingProvider, "tracingProvider must not be null");
         this.internalAuthSecret = internalAuthSecret;
         this.taskControlClient = new WorkerTaskControlClient(
-                httpClient, JsonMapperFactory.shared(), tracingProvider, internalAuthSecret);
+                httpClient, tracingProvider, internalAuthSecret);
     }
 
     public RemoteTaskDispatcher(HttpClient httpClient, CircuitBreakerPolicy circuitBreakerPolicy,
@@ -132,7 +130,7 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
         this.tracingProvider = checkNotNull(tracingProvider, "tracingProvider must not be null");
         this.internalAuthSecret = internalAuthSecret;
         this.taskControlClient = new WorkerTaskControlClient(
-                httpClient, JsonMapperFactory.shared(), tracingProvider, internalAuthSecret);
+                httpClient, tracingProvider, internalAuthSecret);
     }
 
     /**
@@ -186,6 +184,15 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
 
     @Override
     public DispatchResult dispatch(SubmitTaskRequest request, WorkerInfo worker) {
+        return sendTask(request, worker, false);
+    }
+
+    @Override
+    public DispatchResult dispatchBound(SubmitTaskRequest request, WorkerInfo worker) {
+        return sendTask(request, worker, true);
+    }
+
+    private DispatchResult sendTask(SubmitTaskRequest request, WorkerInfo worker, boolean alreadyBound) {
         checkNotNull(request, "request must not be null");
         checkNotNull(worker, "worker must not be null");
 
@@ -195,7 +202,9 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
         }
 
         try {
-            DispatchResult result = doDispatch(request, worker);
+            var stamped = alreadyBound ? request
+                    : bindSourceInput(bindControlIdentity(bindWorkerIdentity(request, worker)));
+            DispatchResult result = doDispatch(stamped, worker);
             circuitBreakerPolicy.recordSuccess(breakerKey);
             return result;
         } catch (Exception e) {
@@ -205,8 +214,7 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
         }
     }
 
-    private DispatchResult doDispatch(SubmitTaskRequest request, WorkerInfo worker) {
-        SubmitTaskRequest stamped = bindSourceInput(bindControlIdentity(bindWorkerIdentity(request, worker)));
+    private DispatchResult doDispatch(SubmitTaskRequest stamped, WorkerInfo worker) {
         requireEncryptedCopyTaskTransport(stamped, worker);
         byte[] body = stamped.encode();
         long deadline = System.nanoTime() + EPOCH_CATCHUP_TIMEOUT_NANOS;
@@ -403,16 +411,25 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
      */
     @Override
     public CompletableFuture<DispatchResult> dispatchAsync(SubmitTaskRequest request, WorkerInfo worker) {
+        return sendTaskAsync(request, worker, false);
+    }
+
+    @Override
+    public CompletableFuture<DispatchResult> dispatchBoundAsync(SubmitTaskRequest request, WorkerInfo worker) {
+        return sendTaskAsync(request, worker, true);
+    }
+
+    private CompletableFuture<DispatchResult> sendTaskAsync(SubmitTaskRequest request, WorkerInfo worker,
+            boolean alreadyBound) {
         checkNotNull(request, "request must not be null");
         checkNotNull(worker, "worker must not be null");
-
         String breakerKey = breakerKey(worker.host());
         if (!circuitBreakerPolicy.allowRequest(breakerKey)) {
             return CompletableFuture.failedFuture(new CircuitBreakerOpenException(worker.host()));
         }
 
-        // F-COORD-HA-04: Stamp epoch before async dispatch (same as sync path).
-        SubmitTaskRequest stamped = bindSourceInput(bindControlIdentity(bindWorkerIdentity(request, worker)));
+        var stamped = alreadyBound ? request
+                : bindSourceInput(bindControlIdentity(bindWorkerIdentity(request, worker)));
         requireEncryptedCopyTaskTransport(stamped, worker);
         byte[] body = stamped.encode();
         long deadline = System.nanoTime() + EPOCH_CATCHUP_TIMEOUT_NANOS;
@@ -577,62 +594,66 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
     }
 
     @Override
-    public void injectDynamicFilter(String taskId, String planNodeId,
-                                    byte[] filterProto, String workerId) {
-        taskControlClient.injectDynamicFilter(
-                taskId, planNodeId, filterProto, workerId);
+    public CompletableFuture<Boolean> injectDynamicFilter(TaskAttemptId attempt,
+            RuntimeFilterBinding update, WorkerInfo worker) {
+        return taskControlClient.injectDynamicFilter(attempt, update, worker);
     }
 
     @Override
     public SchedulerCancelResult cancelTask(SubmitTaskRequest request, String workerHost, int httpPort) {
-        var attempt = request.taskRequest().getAttempt();
-        if (!attempt.hasWorkerExecutionIdentity()) {
+        if (!request.taskRequest().getAttempt().hasWorkerExecutionIdentity()) {
             return SchedulerCancelResult.failed("Issued task has no physical Worker execution identity", false);
         }
+        var seal = CanonicalTaskAdmissionSeals.create(request.taskRequest());
+        var destinations = controlDestinations(seal, workerHost, httpPort);
+        if (destinations.size() != 1) {
+            return SchedulerCancelResult.failed("Ambiguous current Worker admission domain", true);
+        }
+        var address = destinations.get(0);
+        return taskControlClient.cancelTask(seal, address.host(), address.port());
+    }
+
+    /** Sends the original canonical seal and validates an exit-only response for that exact attempt. */
+    public CompletableFuture<SchedulerCancelResult> recoverTaskDrain(TaskStateEvent issued) {
+        var authority = java.util.Objects.requireNonNull(issued.issuance(), "durable issuance");
+        try {
+            var seal = TaskAdmissionSealRequest.parseFrom(authority.admissionSeal());
+            CanonicalTaskAdmissionSeals.validate(seal, issued.taskId());
+            var attempt = seal.getAttempt();
+            var owner = attempt.getExecutionOwner();
+            if (!attempt.hasWorkerExecutionIdentity() || !issued.queryId().equals(attempt.getQueryOrJobId())
+                    || issued.stageId() != attempt.getStageId()
+                    || !issued.context().coordinatorId().equals(owner.getOwnerId())
+                    || !authority.ownerIncarnation().equals(owner.getOwnerIncarnation())
+                    || authority.fencingToken() != owner.getFencingToken()) {
+                throw new IllegalArgumentException("Durable task issuance changed its execution identity");
+            }
+            var destinations = controlDestinations(seal, authority.workerHost(), authority.workerHttpPort());
+            if (destinations.size() != 1) {
+                return CompletableFuture.completedFuture(
+                        SchedulerCancelResult.failed("Ambiguous current Worker admission domain", true));
+            }
+            var address = destinations.get(0);
+            return taskControlClient.recoverTask(seal, address.host(), address.port());
+        } catch (InvalidProtocolBufferException | IllegalArgumentException malformed) {
+            return CompletableFuture.completedFuture(SchedulerCancelResult.failed(malformed.getMessage(), false));
+        }
+    }
+
+    private List<RecoveryDestination> controlDestinations(TaskAdmissionSealRequest seal, String host, int port) {
         var inventory = recoveryWorkers;
         if (inventory != null) {
-            String domain = attempt.getWorkerExecutionIdentity().getAdmissionDomainId();
+            String domain = seal.getAttempt().getWorkerExecutionIdentity().getAdmissionDomainId();
             var destinations = inventory.get().stream()
                     .filter(worker -> domain.equals(worker.workerExecutionIdentity().admissionDomainId()))
                     .map(worker -> new RecoveryDestination(worker.host(), worker.httpPort(),
                             worker.workerExecutionIdentity()))
                     .distinct().toList();
-            if (destinations.size() > 1) {
-                return SchedulerCancelResult.failed("Ambiguous current Worker admission domain", true);
-            }
-            if (!destinations.isEmpty()) {
-                var destination = destinations.get(0);
-                // Route to the exclusive successor, retaining the ORIGINAL sealed attempt bytes.
-                return taskControlClient.cancelTask(request, destination.host(), destination.port());
-            }
+            if (!destinations.isEmpty()) return destinations;
         }
-        // The original endpoint may still own the task even before re-registration completes.
-        // Its exact seal remains authoritative; an unknown endpoint never implies successful drain.
-        return taskControlClient.cancelTask(request, workerHost, httpPort);
+        return List.of(new RecoveryDestination(host, port, null));
     }
 
     private record RecoveryDestination(String host, int port,
             org.pangrova.protocol.execution.identity.WorkerExecutionIdentity identity) { }
-
-    @Override
-    public void notifyUpstreamCommit(String workerHost, int httpPort,
-                                     String queryId, int upstreamStageId) {
-        notifyUpstreamCommit(workerHost, httpPort, queryId, upstreamStageId, null);
-    }
-
-    /**
-     * Notifies a downstream Worker that an upstream stage has committed, with retry.
-     *
-     * <p>Retries up to {@link #COMMIT_NOTIFY_MAX_ATTEMPTS} times with exponential backoff
-     * (1s/2s/4s). On final failure, invokes {@code stageFailureCallback} so the caller
-     * can fail the downstream stage explicitly (BUG-D28 fix).
-     */
-    @Override
-    public void notifyUpstreamCommit(String workerHost, int httpPort,
-                                     String queryId, int upstreamStageId,
-                                     Runnable stageFailureCallback) {
-        taskControlClient.notifyUpstreamCommit(
-                workerHost, httpPort, queryId, upstreamStageId,
-                stageFailureCallback);
-    }
 }

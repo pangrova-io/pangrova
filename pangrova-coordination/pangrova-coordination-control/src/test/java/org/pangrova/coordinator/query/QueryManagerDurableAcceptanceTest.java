@@ -1,25 +1,38 @@
 package org.pangrova.coordinator.query;
 
+import io.opentelemetry.context.Context;
+import io.opentelemetry.sdk.trace.ReadWriteSpan;
+import io.opentelemetry.sdk.trace.ReadableSpan;
+import io.opentelemetry.sdk.trace.SdkTracerProvider;
+import io.opentelemetry.sdk.trace.SpanProcessor;
+import io.opentelemetry.sdk.trace.samplers.Sampler;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.SynchronousQueue;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.testinfra.QueryManagerTestContexts;
 import org.pangrova.execution.task.DispatchResult;
 import org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory;
+import org.pangrova.observability.sdk.tracing.otel.OtelTracingProvider;
 import org.pangrova.persistence.query.api.enums.JournalAdmissionOutcome;
 import org.pangrova.persistence.query.api.exception.JournalWriteException;
 import org.pangrova.persistence.query.api.state.QueryStateJournal;
 import org.pangrova.persistence.query.memory.state.InMemoryQueryStateJournal;
+import org.pangrova.query.api.enums.QueryState;
 import org.pangrova.query.api.exception.IdempotencyConflictException;
 import org.pangrova.query.api.journal.QueryAcceptanceAdmission;
 import org.pangrova.query.api.journal.QueryAcceptanceRequest;
@@ -51,6 +64,204 @@ class QueryManagerDurableAcceptanceTest {
         releaseSecond.countDown();
         executor.shutdownNow();
         assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+    }
+
+    @Test
+    void acceptedWorkOutlivesTheReadinessDeadlineAndStillObeysTheQueryDeadline() throws Exception {
+        var entered = new CountDownLatch(1);
+        var work = new CompletableFuture<DispatchResult>();
+        var dispatcher = new QueryManagerAsyncSubmitTest.SlowQueryDispatcher(entered, releaseFirst) {
+            @Override
+            public CompletionStage<DispatchResult> executeAsync(QueryStateMachine state, String sql,
+                    QuerySession session) {
+                state.tryTransition(QueryState.PLANNING);
+                entered.countDown();
+                return work;
+            }
+        };
+        var manager = new QueryManager(QueryManagerTestContexts.minimalAsync(dispatcher, TestObservability.TRACING,
+                new AsyncSubmitConfig(true, 250), executor, new InMemoryQueryStateJournal()));
+        try {
+            var receipt = manager.submitQueryAsync("q-accepted", "SELECT 1", session("q-accepted", "alice"),
+                    acceptance("alice", FINGERPRINT)).toCompletableFuture().get(5, TimeUnit.SECONDS);
+            assertThat(receipt.state()).isEqualTo(QueryState.QUEUED);
+            assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+
+            // The second deadline is armed after the durable receipt on the same scheduler.
+            var pending = manager.submitQueryAsync("q-unkeyed", "SELECT 1", session("q-unkeyed", "alice"));
+            assertThatThrownBy(() -> pending.toCompletableFuture().get(5, TimeUnit.SECONDS))
+                    .hasRootCauseMessage("Result endpoint or write dispatch was not ready before submit timeout: q-unkeyed");
+            assertThat(manager.getQueryState("q-accepted")).contains(QueryState.PLANNING);
+
+            manager.timeoutQueriesCreatedBy(Instant.now(), Duration.ofMinutes(1));
+            assertThat(manager.getQueryState("q-accepted")).contains(QueryState.FAILED);
+        } finally {
+            work.completeExceptionally(new IllegalStateException("test execution exited"));
+        }
+    }
+
+    @Test
+    void cancellingAnAcceptedQueuedQueryReleasesItsSlotWithoutStartingDispatch() throws Exception {
+        var queue = Executors.newSingleThreadExecutor();
+        var unblock = new CountDownLatch(1);
+        var entered = new CountDownLatch(1);
+        var starts = new AtomicInteger();
+        var dispatcher = new QueryDispatcher(QueryManagerAsyncSubmitTest.SlowQueryDispatcher.buildMinimalContext(),
+                null, null) {
+            @Override
+            public CompletionStage<DispatchResult> executeAsync(QueryStateMachine state, String sql,
+                    QuerySession session) {
+                starts.incrementAndGet();
+                return CompletableFuture.completedFuture(null);
+            }
+        };
+        try {
+            queue.submit(() -> {
+                entered.countDown();
+                return unblock.await(5, TimeUnit.SECONDS);
+            });
+            assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+            var admission = new CountingAdmission();
+            var manager = new QueryManager(QueryManagerTestContexts.minimalAsync(dispatcher,
+                    TestObservability.TRACING, AsyncSubmitConfig.defaultEnabled(), queue,
+                    new InMemoryQueryStateJournal(), admission));
+            var receipt = manager.submitQueryAsync("q-queued", "SELECT 1", session("q-queued", "alice"),
+                    acceptance("alice", FINGERPRINT)).toCompletableFuture().get(5, TimeUnit.SECONDS);
+
+            assertThat(receipt.state()).isEqualTo(QueryState.QUEUED);
+            assertThat(manager.cancelQuery(receipt.queryId())).isTrue();
+            assertThat(manager.getStateMachine(receipt.queryId()).status().drained()).isTrue();
+            assertThat(admission.clusterReleases).hasValue(1);
+
+            unblock.countDown();
+            queue.submit(() -> { }).get(5, TimeUnit.SECONDS);
+            assertThat(starts).hasValue(0);
+        } finally {
+            unblock.countDown();
+            queue.shutdownNow();
+            assertThat(queue.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test
+    void cancellationRetainsAcceptedDispatchOwnershipUntilItsCallbackExits() throws Exception {
+        var entered = new CountDownLatch(1);
+        var work = new CompletableFuture<DispatchResult>();
+        var dispatcher = new QueryDispatcher(QueryManagerAsyncSubmitTest.SlowQueryDispatcher.buildMinimalContext(),
+                null, null) {
+            @Override
+            public CompletionStage<DispatchResult> executeAsync(QueryStateMachine state, String sql,
+                    QuerySession session) {
+                state.tryTransition(QueryState.PLANNING);
+                entered.countDown();
+                return work;
+            }
+        };
+        var admission = new CountingAdmission();
+        var manager = new QueryManager(QueryManagerTestContexts.minimalAsync(dispatcher, TestObservability.TRACING,
+                AsyncSubmitConfig.defaultEnabled(), executor, new InMemoryQueryStateJournal(), admission));
+        try {
+            var receipt = manager.submitQueryAsync("q-running", "SELECT 1", session("q-running", "alice"),
+                    acceptance("alice", FINGERPRINT)).toCompletableFuture().get(5, TimeUnit.SECONDS);
+            assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(manager.cancelQuery(receipt.queryId())).isTrue();
+            assertThat(manager.getStateMachine(receipt.queryId()).status().drained()).isFalse();
+            assertThat(admission.clusterReleases).hasValue(0);
+
+            work.cancel(false);
+            org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> {
+                assertThat(manager.getStateMachine(receipt.queryId()).status().drained()).isTrue();
+                assertThat(admission.clusterReleases).hasValue(1);
+            });
+        } finally {
+            work.cancel(false);
+        }
+    }
+
+    @Test
+    void saturatedDispatchQueueRetainsTheDurableReceiptAndReturnsTheSlot() throws Exception {
+        var unblock = new CountDownLatch(1);
+        var entered = new CountDownLatch(1);
+        var queue = new ThreadPoolExecutor(1, 1, 0, TimeUnit.MILLISECONDS, new SynchronousQueue<>());
+        try {
+            queue.submit(() -> {
+                entered.countDown();
+                return unblock.await(5, TimeUnit.SECONDS);
+            });
+            assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+            var journal = new InMemoryQueryStateJournal();
+            var admission = new CountingAdmission();
+            var dispatcher = new QueryDispatcher(QueryManagerAsyncSubmitTest.SlowQueryDispatcher.buildMinimalContext(),
+                    null, null);
+            var manager = new QueryManager(QueryManagerTestContexts.minimalAsync(dispatcher,
+                    TestObservability.TRACING, AsyncSubmitConfig.defaultEnabled(), queue, journal, admission));
+            var receipt = manager.submitQueryAsync("q-overloaded", "SELECT 1", session("q-overloaded", "alice"),
+                    acceptance("alice", FINGERPRINT)).toCompletableFuture().get(5, TimeUnit.SECONDS);
+
+            assertThat(receipt).isEqualTo(journal.findAcceptance("alice", KEY_DIGEST).orElseThrow().receipt());
+            assertThat(manager.getQueryState(receipt.queryId())).contains(QueryState.FAILED);
+            assertThat(manager.getQueryError(receipt.queryId()).orElseThrow().errorType())
+                    .isEqualTo("ASYNC_SUBMIT_QUEUE_FULL");
+            assertThat(manager.getStateMachine(receipt.queryId()).status().drained()).isTrue();
+            assertThat(admission.clusterReleases).hasValue(1);
+        } finally {
+            unblock.countDown();
+            queue.shutdownNow();
+            assertThat(queue.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test
+    void durableReceiptEndsSubmitSpanWhileDispatchRetainsItsTraceContext() throws Exception {
+        var dispatchTrace = new CompletableFuture<String>();
+        var work = new CompletableFuture<DispatchResult>();
+        var dispatcher = new QueryManagerAsyncSubmitTest.SlowQueryDispatcher(new CountDownLatch(1), releaseFirst) {
+            @Override
+            public CompletionStage<DispatchResult> executeAsync(QueryStateMachine state, String sql,
+                    QuerySession session) {
+                state.tryTransition(QueryState.PLANNING);
+                dispatchTrace.complete(io.opentelemetry.api.trace.Span.current().getSpanContext().getSpanId());
+                return work;
+            }
+        };
+        var submitSpanEnd = new CompletableFuture<String>();
+        var observer = new SpanProcessor() {
+            @Override
+            public void onStart(Context parent, ReadWriteSpan span) {
+            }
+
+            @Override
+            public boolean isStartRequired() {
+                return false;
+            }
+
+            @Override
+            public void onEnd(ReadableSpan span) {
+                if ("query.submit".equals(span.getName())) {
+                    submitSpanEnd.complete(span.getSpanContext().getSpanId());
+                }
+            }
+
+            @Override
+            public boolean isEndRequired() {
+                return true;
+            }
+        };
+        try (var sdk = SdkTracerProvider.builder()
+                .setSampler(Sampler.alwaysOn()).addSpanProcessor(observer).build()) {
+            var tracing = new OtelTracingProvider(sdk.get("durable-query-test"));
+            var manager = new QueryManager(QueryManagerTestContexts.minimalAsync(dispatcher, tracing,
+                    AsyncSubmitConfig.defaultEnabled(), executor, new InMemoryQueryStateJournal()));
+            var receipt = manager.submitQueryAsync("q-trace", "SELECT 1", session("q-trace", "alice"),
+                    acceptance("alice", FINGERPRINT)).toCompletableFuture().get(5, TimeUnit.SECONDS);
+
+            assertThat(receipt.state()).isEqualTo(QueryState.QUEUED);
+            assertThat(submitSpanEnd).isCompleted();
+            assertThat(dispatchTrace.get(5, TimeUnit.SECONDS)).isEqualTo(submitSpanEnd.join());
+            assertThat(manager.getQueryState("q-trace")).contains(QueryState.PLANNING);
+        } finally {
+            work.completeExceptionally(new IllegalStateException("test execution exited"));
+        }
     }
 
     @Test
@@ -239,6 +450,24 @@ class QueryManagerDurableAcceptanceTest {
         }
 
         @Override
+        public void appendOwnedTerminalSync(QueryStateEvent event,
+                org.pangrova.execution.api.ownership.ExecutionAnchor anchor) {
+            delegate.appendOwnedTerminalSync(event, anchor);
+        }
+
+        @Override
+        public void appendFencedAdmissionSync(QueryStateEvent event,
+                org.pangrova.execution.api.ownership.ExecutionAnchor anchor) {
+            delegate.appendFencedAdmissionSync(event, anchor);
+        }
+
+        @Override
+        public QueryAcceptanceAdmission acceptFencedQuerySync(QueryStateEvent event,
+                org.pangrova.execution.api.ownership.ExecutionAnchor anchor) {
+            return delegate.acceptFencedQuerySync(event, anchor);
+        }
+
+        @Override
         public Optional<org.pangrova.query.api.journal.QueryAcceptance> findAcceptance(String principal,
                 String idempotencyKeyDigest) {
             return delegate.findAcceptance(principal, idempotencyKeyDigest);
@@ -250,18 +479,13 @@ class QueryManagerDurableAcceptanceTest {
         }
 
         @Override
+        public void appendTaskIssuancesSync(List<TaskStateEvent> events) {
+            delegate.appendTaskIssuancesSync(events);
+        }
+
+        @Override
         public void appendTaskEventSync(TaskStateEvent event) {
             delegate.appendTaskEventSync(event);
-        }
-
-        @Override
-        public List<QueryStateEvent> replayActiveQueries() {
-            return delegate.replayActiveQueries();
-        }
-
-        @Override
-        public List<TaskStateEvent> replayActiveTasks() {
-            return delegate.replayActiveTasks();
         }
 
         @Override

@@ -72,10 +72,9 @@ public record GenerationLease(
             GenerationPageKind kind,
             List<GenerationSplit> splits,
             List<String> dependencyPageIds) {
-        if (kind == GenerationPageKind.RELATIONAL_COMPUTE
-                || kind == GenerationPageKind.RELATIONAL_PARTITION) {
-            if (!splits.isEmpty() && !dependencyPageIds.isEmpty()) {
-                throw new IllegalArgumentException("relational exchange lease cannot also enumerate source splits");
+        if (kind.isRelational()) {
+            if (!dependencyPageIds.isEmpty()) {
+                throw new IllegalArgumentException("relational dependencies belong to stage exchanges");
             }
             return;
         }

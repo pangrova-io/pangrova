@@ -5,18 +5,17 @@ import org.pangrova.common.api.annotation.Internal;
 /**
  * Configuration for asynchronous query submission behavior.
  *
- * <p>When {@code enabled} is true, query submission returns
- * as soon as the query reaches RUNNING state (readable result endpoint, or
- * resultless WRITE task dispatched), rather than blocking until the entire DAG completes.
- * Execution continues in a background executor detached from the request thread.
+ * <p>When {@code enabled} is true, execution proceeds in a background executor.
+ * A submission without a durable acceptance receipt waits for a readable
+ * endpoint, a dispatched resultless write, or terminal completion.
  *
- * <p>The {@code submitTimeoutMs} bounds only the compilation + initial dispatch
- * phase. It is deliberately decoupled from the task execution timeout, which
- * governs how long individual tasks may run on workers.
+ * <p>The {@code submitTimeoutMs} bounds an HTTP caller waiting for initial readiness.
+ * Once durable acceptance has issued the receipt, execution is governed by the
+ * query and task deadlines.
  *
  * @param enabled         whether async submit mode is active (default true)
- * @param submitTimeoutMs maximum time to wait for the query to reach RUNNING
- *                        state before returning a timeout error (default 30 000 ms)
+ * @param submitTimeoutMs maximum time to wait for initial readiness when the
+ *                        receipt still depends on it (default 30 000 ms)
  */
 @Internal
 public record AsyncSubmitConfig(boolean enabled, long submitTimeoutMs) {

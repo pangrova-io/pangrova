@@ -79,7 +79,7 @@ class DAGCompletionCallbackTest {
         var deps = new DAGDispatchContext(
                 new NoOpTaskDispatcher(),
                 new org.pangrova.coordinator.task.CoordinatorTaskTracker(),
-                null, null, 300, null, null,
+                null, null, 300, null,
                 null, // speculativeStageHandler
                 PipelineConfig.DISABLED,
                 org.pangrova.coordinator.query.execution.dispatch.shuffle.UnavailableExternalShuffleLifecycle.INSTANCE,

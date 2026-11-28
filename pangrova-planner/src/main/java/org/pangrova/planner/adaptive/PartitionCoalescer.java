@@ -41,6 +41,22 @@ public class PartitionCoalescer {
                 partition -> receipt.partitions().get(partition).bytes());
     }
 
+    /** Uses the combined size of each original partition to form one range mapping for every input. */
+    public CoalesceResult evaluateAligned(List<ShuffleCommitReceipt> receipts, int partitionCount,
+            AdaptiveQueryConfig config, int maxPartitionsPerGroup) {
+        if (receipts.size() < 2 || maxPartitionsPerGroup < 2
+                || receipts.stream().anyMatch(receipt -> receipt.partitions().size() != partitionCount)) {
+            return CoalesceResult.NO_OP;
+        }
+        return group(partitionCount, config, maxPartitionsPerGroup, partition -> {
+            long total = 0;
+            for (var receipt : receipts) {
+                total += Math.min(Long.MAX_VALUE - total, receipt.partitions().get(partition).bytes());
+            }
+            return total;
+        });
+    }
+
     private static CoalesceResult group(int partitionCount, AdaptiveQueryConfig config,
             int maxPartitionsPerGroup, IntToLongFunction partitionBytes) {
         if (partitionCount < Math.max(2, config.minPartitionsForCoalesce())) {

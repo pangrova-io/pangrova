@@ -191,6 +191,23 @@ class IcebergSplitManagerTest {
     }
 
     @Test
+    void placementEstimateIncludesPositionDeleteBytesWithoutChangingCanonicalRange() {
+        Table table = createTable("db", "position_delete_estimate", TEST_SCHEMA);
+        String dataPath = "/data/with-position-delete.parquet";
+        appendDataFile(table, dataPath, 512L);
+        var delete = org.pangrova.connector.iceberg.write.IcebergDeleteWriter.buildPositionDeleteFile(
+                table, dataPath, List.of(1L));
+        table.newRowDelta().addDeletes(delete).commit();
+
+        assertThat(drainSplits(handleFor("db", "position_delete_estimate", table))).singleElement()
+                .isInstanceOfSatisfying(IcebergSplit.class, split -> {
+                    assertThat(split.estimatedScanBytes()).isEqualTo(512L + delete.fileSizeInBytes());
+                    assertThat(split.estimatedScanRows()).isEqualTo(10L);
+                    assertThat(split.toDataSplit().getLength()).isEqualTo(512L);
+                });
+    }
+
+    @Test
     void getSplits_resolvesTableFromCatalogWhenHandleHasNoTableRef() {
         Table table = createTable("db", "lazy", TEST_SCHEMA);
         appendDataFile(table, "/data/lazy-001.parquet", 128L);

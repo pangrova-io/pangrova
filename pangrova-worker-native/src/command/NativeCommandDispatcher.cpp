@@ -249,19 +249,25 @@ validateExternalSource(const proto::ExternalShuffleInput& external,
     return "External shuffle source is missing service or producer metadata";
   }
   for (const auto& publication : external.publications()) {
-    if (!publication.has_last_sequence() || publication.last_sequence() < -1 ||
+    const int64_t first = publication.start_sequence();
+    const int64_t last = publication.last_sequence();
+    if (!publication.has_last_sequence() || first < 0 || last < -1 ||
+        last == std::numeric_limits<int64_t>::max() ||
         !publication.has_total_rows() || publication.total_rows() < 0 ||
         !publication.has_total_bytes() || publication.total_bytes() < 0 ||
         publication.manifest_sha256().size() != 32 ||
-        (publication.last_sequence() == -1
-             ? publication.total_rows() != 0 || publication.total_bytes() != 0
-             : publication.last_sequence() >= publication.total_rows() ||
-                   publication.last_sequence() >= publication.total_bytes()) ||
-        publication.last_sequence() + 1 >
-            std::numeric_limits<int64_t>::max() - expected_batches) {
+        (last == -1
+             ? publication.has_start_sequence() || publication.total_rows() != 0 ||
+                   publication.total_bytes() != 0
+             : first > last || last - first >= publication.total_rows() ||
+                   last - first >= publication.total_bytes())) {
       return "Invalid coordinator shuffle partition publication";
     }
-    expected_batches += publication.last_sequence() + 1;
+    const int64_t count = last - first + 1;
+    if (count > std::numeric_limits<int64_t>::max() - expected_batches) {
+      return "Invalid coordinator shuffle partition publication";
+    }
+    expected_batches += count;
   }
   return validateExternalEndpointCoverage(external);
 }
@@ -271,9 +277,9 @@ validateExternalSource(const proto::ExternalShuffleInput& external,
 void handleInjectRuntimeFilter(const proto::RuntimeCommand& cmd,
                                int64_t executor_handle,
                                proto::RuntimeCommandResponse& resp) {
-  proto::InjectRuntimeFilterRequest payload;
+  proto::RuntimeFilterBinding payload;
   if (!unpackPayload(cmd, &payload, resp,
-                     "pangrova.protocol.v2.InjectRuntimeFilterRequest")) {
+                     "pangrova.protocol.v2.RuntimeFilterBinding")) {
     return;
   }
 
@@ -285,7 +291,7 @@ void handleInjectRuntimeFilter(const proto::RuntimeCommand& cmd,
     return;
   }
 
-  executor->injectDynamicFilter(payload.plan_node_id(), payload.filters());
+  executor->injectDynamicFilter(payload);
   resp = successResponse();
 }
 

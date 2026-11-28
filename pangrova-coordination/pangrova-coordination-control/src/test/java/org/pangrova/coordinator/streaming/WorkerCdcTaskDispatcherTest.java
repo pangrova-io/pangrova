@@ -9,10 +9,18 @@ import org.pangrova.coordinator.worker.TestWorkerInfoBuilder;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.v2.TaskKind;
+import org.pangrova.protocol.task.CanonicalTaskAdmissionSeals;
+import org.pangrova.query.api.journal.JournalEventContext;
+import org.pangrova.query.api.journal.QueryStateEvent;
+import org.pangrova.query.api.journal.TaskStateEvent;
+import org.pangrova.persistence.query.memory.state.InMemoryQueryStateJournal;
+import org.pangrova.persistence.query.api.exception.JournalWriteException;
 
+import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class WorkerCdcTaskDispatcherTest {
 
@@ -20,6 +28,10 @@ class WorkerCdcTaskDispatcherTest {
     void registersAndDispatchesTheExactCdcTask() {
         var tracker = new CoordinatorTaskTracker();
         var dispatched = new AtomicReference<SubmitTaskRequest>();
+        var committed = new AtomicReference<List<TaskStateEvent>>();
+        var journal = new InMemoryQueryStateJournal();
+        journal.appendQueryEventSync(new QueryStateEvent(JournalEventContext.create(1, "issuer"),
+                "query-1", null, null, "RUNNING"));
         TaskDispatcher transport = new TaskDispatcher() {
             @Override
             public SubmitTaskRequest bindControlIdentity(SubmitTaskRequest request) {
@@ -29,6 +41,18 @@ class WorkerCdcTaskDispatcherTest {
 
             @Override
             public org.pangrova.execution.task.DispatchResult dispatch(SubmitTaskRequest request, WorkerInfo worker) {
+                throw new AssertionError("CDC must send the already-bound request");
+            }
+
+            @Override
+            public org.pangrova.execution.task.DispatchResult dispatchBound(SubmitTaskRequest request, WorkerInfo worker) {
+                assertThat(committed.get()).singleElement().satisfies(event -> {
+                    assertThat(event.taskId()).isEqualTo(request.taskRequest().getAttempt().getTaskId());
+                    assertThat(event.issuance().workerHost()).isEqualTo(worker.host());
+                    assertThat(event.issuance().workerHttpPort()).isEqualTo(worker.httpPort());
+                    assertThat(event.issuance().admissionSeal())
+                            .isEqualTo(CanonicalTaskAdmissionSeals.create(request.taskRequest()).toByteArray());
+                });
                 dispatched.set(request);
                 return new org.pangrova.execution.task.DispatchResult(
                         worker.host(), request.taskRequest().getAttempt().getTaskId(), null);
@@ -48,7 +72,10 @@ class WorkerCdcTaskDispatcherTest {
                         .setNativeMemoryBytes(1_048_576).build();
             }
         };
-        var adapter = new WorkerCdcTaskDispatcher(transport, selector, tracker);
+        var adapter = new WorkerCdcTaskDispatcher(transport, selector, tracker, facts -> {
+            journal.appendTaskIssuancesSync(facts);
+            committed.set(facts);
+        });
         var builder = CanonicalTaskRequestTestFixture.builder(
                 "task-1", "query-1", 0, 0, TaskKind.TASK_KIND_CDC_INGEST,
                 new byte[0])
@@ -68,6 +95,13 @@ class WorkerCdcTaskDispatcherTest {
                 .isEqualTo(worker().workerExecutionIdentity().toProto());
         assertThat(tracker.getTaskRequest("task-1")).isSameAs(dispatched.get());
         assertThat(tracker.getTaskState("query-1", "task-1").name()).isEqualTo("SCHEDULED");
+
+        journal.close();
+        builder.setAttempt(builder.getAttempt().toBuilder().setTaskId("rejected-task"));
+        assertThatThrownBy(() -> adapter.dispatch(builder.build())).isInstanceOf(JournalWriteException.class)
+                .hasMessageContaining("journal is closed");
+        assertThat(tracker.getTaskRequest("rejected-task")).isNull();
+        assertThat(dispatched.get().taskRequest().getAttempt().getTaskId()).isEqualTo("task-1");
     }
 
     private static WorkerInfo worker() {

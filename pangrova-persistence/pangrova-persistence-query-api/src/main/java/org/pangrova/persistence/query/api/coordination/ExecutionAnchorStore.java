@@ -7,6 +7,7 @@ import org.pangrova.common.api.annotation.Stable;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 /**
  * Durable, fenced ownership store for queries and background executions.
@@ -31,6 +32,42 @@ public interface ExecutionAnchorStore {
             String ownerIncarnation,
             Duration leaseDuration);
 
+    /** One committed SQL execution grant and its observed tenant publication revision. */
+    record QueryAcquisition(ExecutionAnchor anchor, OptionalLong publicationRevision) {
+        public QueryAcquisition {
+            java.util.Objects.requireNonNull(anchor, "anchor");
+            java.util.Objects.requireNonNull(publicationRevision, "publicationRevision");
+        }
+    }
+
+    /**
+     * Acquires a new SQL execution and samples the tenant's publication revision with the grant.
+     * Backends without a publication schema return an acquisition without a revision.
+     */
+    default Optional<QueryAcquisition> tryAcquireQuery(String executionId, String ownerId,
+            String ownerIncarnation, Duration leaseDuration, String tenantId) {
+        return tryAcquire(executionId, ownerId, ownerIncarnation, leaseDuration)
+                .map(anchor -> new QueryAcquisition(anchor, OptionalLong.empty()));
+    }
+
+    /**
+     * Acquires a fresh query, reserves its tenant slot, and samples publication visibility in one transaction.
+     * @throws TenantCapacityExceeded if the tenant has no available query slot
+     */
+    default Optional<QueryAcquisition> tryAcquireLimitedQuery(String executionId, String ownerId,
+            String ownerIncarnation, Duration leaseDuration, String tenantId, int maxConcurrentQueries) {
+        throw new UnsupportedOperationException("Atomic durable query admission is unavailable");
+    }
+
+    /** The durable tenant capacity gate denied the candidate. */
+    final class TenantCapacityExceeded extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+
+        public TenantCapacityExceeded(String tenantId, int capacity) {
+            super("concurrent query limit reached for tenant " + tenantId + " (capacity " + capacity + ")");
+        }
+    }
+
     /**
      * Renews every live anchor held by one exact process incarnation in one batch.
      *
@@ -52,6 +89,21 @@ public interface ExecutionAnchorStore {
      */
     boolean release(ExecutionAnchor anchor);
 
+    /**
+     * Retires locally drained work under its original grant. A former owner may
+     * publish physical drain evidence for recovery without releasing successor resources.
+     *
+     * @return whether retirement actually removed the execution and its reservation
+     */
+    default boolean releaseLocallyDrainedQuery(ExecutionAnchor anchor) {
+        return release(anchor);
+    }
+
+    /** Retires a proven terminal SQL predecessor and its durable pins under the exact recovery fence. */
+    default boolean releaseDrainedQuery(ExecutionAnchor anchor, boolean remoteShuffle) {
+        throw new UnsupportedOperationException("Durable query drain retirement is unavailable");
+    }
+
     /** Makes one exact fenced execution immediately eligible for takeover. */
     boolean yield(ExecutionAnchor anchor);
 
@@ -67,6 +119,9 @@ public interface ExecutionAnchorStore {
             String newOwnerIncarnation,
             Duration leaseDuration,
             int maxBatchSize);
+
+    /** Checks physical retirement on demand, including reservations still held by expired executions. */
+    boolean isQueryRetired(String executionId);
 
     /** Returns the unexpired live anchor for an execution, if present. */
     Optional<ExecutionAnchor> current(String executionId);

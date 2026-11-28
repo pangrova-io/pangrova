@@ -26,6 +26,7 @@ public final class ReaderPinLeases {
     private static final Duration DEFAULT_LEASE = Duration.ofMinutes(5);
 
     private final MaterializationRepository repository;
+    private final java.util.function.Consumer<ReaderPin> acquirePin;
     private final Clock clock;
     private final Duration lease;
     private final Set<QueryId> leased = ConcurrentHashMap.newKeySet();
@@ -42,6 +43,17 @@ public final class ReaderPinLeases {
      * @param lease pin lease duration
      */
     public ReaderPinLeases(MaterializationRepository repository, Clock clock, Duration lease) {
+        this(repository, clock, lease, repository::pinReader);
+    }
+
+    /** Binds production SQL pin admission to its durable execution grant. */
+    public static ReaderPinLeases forActiveQueries(MaterializationRepository repository, Clock clock) {
+        return new ReaderPinLeases(repository, clock, DEFAULT_LEASE, repository::pinActiveQueryReader);
+    }
+
+    private ReaderPinLeases(MaterializationRepository repository, Clock clock, Duration lease,
+            java.util.function.Consumer<ReaderPin> acquirePin) {
+        this.acquirePin = acquirePin;
         this.repository = Objects.requireNonNull(repository, "repository");
         this.clock = Objects.requireNonNull(clock, "clock");
         if (lease == null || lease.isZero() || lease.isNegative()) {
@@ -59,7 +71,7 @@ public final class ReaderPinLeases {
      */
     public void acquire(GenerationId generation, QueryId query, String owner) {
         Instant now = clock.now();
-        repository.pinReader(new ReaderPin(generation, ReaderId.query(query), owner,
+        acquirePin.accept(new ReaderPin(generation, ReaderId.query(query), owner,
                 now.plus(lease), now));
         leased.add(query);
     }

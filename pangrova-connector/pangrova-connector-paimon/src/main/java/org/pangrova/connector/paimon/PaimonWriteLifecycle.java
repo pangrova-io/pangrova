@@ -2,6 +2,7 @@ package org.pangrova.connector.paimon;
 
 import org.pangrova.connector.paimon.handle.PaimonTableIdentity;
 
+import org.apache.paimon.Snapshot;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.table.FileStoreTable;
@@ -11,16 +12,21 @@ import org.pangrova.connector.paimon.handle.PaimonOutputTableHandle;
 import org.pangrova.connector.paimon.handle.PaimonTableHandle;
 import org.pangrova.connector.paimon.handle.PaimonTableHandleFactory;
 import org.pangrova.connector.paimon.write.PaimonNativePhysicalWriteProvider;
+import org.pangrova.connector.paimon.write.PaimonObservedWriteStaging;
 import org.pangrova.connector.paimon.write.PaimonPhysicalWriteAllocations;
 import org.pangrova.protocol.write.PhysicalFileWriteReceipts;
 import org.pangrova.protocol.v2.WriteOutputBinding;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.exception.ConnectorException;
 import org.pangrova.connector.api.commit.DistributedWriteCommitContext;
+import org.pangrova.connector.api.enums.CommitEventType;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.function.Supplier;
 
 /** Exact output allocation and sole durable SDK publication; no execution of row data. */
 final class PaimonWriteLifecycle {
@@ -37,6 +43,21 @@ final class PaimonWriteLifecycle {
     }
 
     PaimonNativePhysicalWriteProvider physical() { return physical; }
+
+    boolean reclaimObservedStaging(ConnectorSession session, PaimonOutputTableHandle verifiedOutput,
+            List<byte[]> fragments,
+            DistributedWriteCommitContext context) {
+        if (verifiedOutput.nativePhysicalWriteAllocation().isPresent()) return false;
+        if (!tenantId(session).equals(context.tenantId()) || context.copyFile() != null) {
+            throw new IllegalArgumentException("Paimon cleanup context differs from the bound tenant");
+        }
+        try {
+            return PaimonObservedWriteStaging.reclaim(verifiedOutput, fragments);
+        } catch (IOException e) {
+            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
+                    "Observed Paimon staged objects could not be reclaimed", e);
+        }
+    }
 
     PaimonOutputTableHandle create(org.pangrova.connector.api.metadata.table.ConnectorTableMetadata metadata) {
         PaimonTableHandleFactory.requireWriteDeclarationSupported(metadata.properties());
@@ -105,30 +126,43 @@ final class PaimonWriteLifecycle {
         return PaimonTableHandleFactory.outputFromTable(handle.schemaName(), handle.tableName(), table, "DELETE");
     }
 
-    PaimonOutputTableHandle reconstruct(SchemaTableName tableName, String mode, long baseSnapshotId) {
-        if (!List.of("INSERT", "OVERWRITE", "DELETE", "MERGE").contains(mode)) {
-            throw new UnsupportedOperationException("Paimon recovery cannot reconstruct write mode: " + mode);
-        }
-        return PaimonTableHandleFactory.outputFromTable(tableName.schema(), tableName.table(),
-                load(tableName.schema(), tableName.table()), mode).withBaseSnapshotId(baseSnapshotId);
-    }
-
     void finish(ConnectorSession session, PaimonOutputTableHandle handle, List<byte[]> fragments,
             DistributedWriteCommitContext context) {
-        PaimonOutputTableHandle journaled = boundHandle(context);
+        byte[] bindingBytes = context.writeOutputBinding();
+        WriteOutputBinding binding = parseWriteBinding(bindingBytes);
+        PaimonOutputTableHandle journaled = boundHandle(binding);
         requireSameTarget(handle, journaled);
-        validateFingerprint(session, journaled, fragments, context);
-        Table table = load(journaled.schemaName(), journaled.tableName());
-        org.pangrova.connector.paimon.handle.PaimonTableIdentity.requireSame(
+        String tenant = tenantId(session);
+        validateFingerprint(tenant, journaled, fragments, context, bindingBytes);
+        var identifier = Identifier.create(journaled.schemaName(), journaled.tableName());
+        Table table;
+        try {
+            table = PaimonTableIdentity.loadFresh(catalog, identifier);
+        } catch (Catalog.TableNotExistException failure) {
+            throw new org.pangrova.connector.api.exception.SourceTableUnavailableException(
+                    "Paimon publication target is absent: " + identifier, failure);
+        }
+        var exactTable = PaimonTableIdentity.requireSame(
                 table, journaled.tableUuid(), journaled.tableLocation(), journaled.schemaFingerprint(),
                 "Paimon distributed write");
-        List<byte[]> sdkFragments = fragments;
-        if (journaled.nativePhysicalWriteAllocation().isPresent()) {
-            var receipts = PhysicalFileWriteReceipts.decode(physicalBinding(context), fragments);
-            sdkFragments = physical.prepareCommitMetadata(session, journaled, receipts, context);
+        Supplier<Optional<Snapshot>> existingPublication =
+                () -> exactTable.snapshotManager().latestSnapshotOfUser(context.commitFingerprint());
+        PaimonDistributedWriteFinisher.DeserializedFragments prepared;
+        var allocation = journaled.nativePhysicalWriteAllocation();
+        if (allocation.isPresent()) {
+            if (!binding.hasPhysical()) {
+                throw new IllegalArgumentException("Durable physical output binding is missing");
+            }
+            var receipts = PhysicalFileWriteReceipts.decode(binding.getPhysical(), fragments);
+            var snapshot = existingPublication.get();
+            var messages = physical.prepareCommitMessages(session, journaled, allocation.orElseThrow(), exactTable,
+                    binding, receipts, context, snapshot.isPresent());
+            prepared = new PaimonDistributedWriteFinisher.DeserializedFragments(messages, CommitEventType.APPEND);
+            existingPublication = () -> snapshot;
+        } else {
+            prepared = PaimonDistributedWriteFinisher.deserialize(fragments, journaled);
         }
-        String tenant = tenantId(session);
-        PaimonDistributedWriteFinisher.finish(table, journaled, sdkFragments, context,
+        PaimonDistributedWriteFinisher.finish(exactTable, journaled, prepared, context, existingPublication,
                 (schema, target, added, removed, snapshot, event, fingerprint) -> notifier.notify(
                         tenant, schema, target, added, removed, snapshot, event, fingerprint));
     }
@@ -137,26 +171,20 @@ final class PaimonWriteLifecycle {
      * The journaled output binding is the authoritative write identity for a first attempt and
      * crash recovery. Reconstructed handles may only restate the same target.
      */
-    private static PaimonOutputTableHandle boundHandle(DistributedWriteCommitContext context) {
-        try {
-            var binding = WriteOutputBinding.parseFrom(context.writeOutputBinding());
-            var serialized = binding.hasPhysical()
-                    ? binding.getPhysical().getOutputHandle()
-                    : binding.hasConnector() ? binding.getConnector().getOutputHandle() : null;
-            if (serialized == null) {
-                throw new IllegalArgumentException("Durable Paimon write binding has no output handle");
-            }
-            var codec = new org.pangrova.connector.paimon.handle.PaimonOutputHandleCodec();
-            if (!codec.typeUrl().equals(serialized.getTypeUrl())
-                    || codec.codecVersion() != serialized.getCodecVersion()) {
-                throw new IllegalArgumentException(
-                        "Durable Paimon write binding uses an unsupported output handle");
-            }
-            return (PaimonOutputTableHandle) codec.deserialize(
-                    serialized.getCodecVersion(), serialized.getPayload().toByteArray());
-        } catch (com.google.protobuf.InvalidProtocolBufferException failure) {
-            throw new IllegalArgumentException("Malformed durable Paimon output binding", failure);
+    private static PaimonOutputTableHandle boundHandle(WriteOutputBinding binding) {
+        var serialized = binding.hasPhysical()
+                ? binding.getPhysical().getOutputHandle()
+                : binding.hasConnector() ? binding.getConnector().getOutputHandle() : null;
+        if (serialized == null) {
+            throw new IllegalArgumentException("Durable Paimon write binding has no output handle");
         }
+        var codec = new org.pangrova.connector.paimon.handle.PaimonOutputHandleCodec();
+        if (!codec.typeUrl().equals(serialized.getTypeUrl())
+                || codec.codecVersion() != serialized.getCodecVersion()) {
+            throw new IllegalArgumentException("Durable Paimon write binding uses an unsupported output handle");
+        }
+        return (PaimonOutputTableHandle) codec.deserialize(
+                serialized.getCodecVersion(), serialized.getPayload().toByteArray());
     }
 
     private static void requireSameTarget(PaimonOutputTableHandle handle, PaimonOutputTableHandle journaled) {
@@ -167,13 +195,13 @@ final class PaimonWriteLifecycle {
         }
     }
 
-    private void validateFingerprint(ConnectorSession session, PaimonOutputTableHandle handle,
-            List<byte[]> fragments, DistributedWriteCommitContext context) {
+    private void validateFingerprint(String tenant, PaimonOutputTableHandle handle,
+            List<byte[]> fragments, DistributedWriteCommitContext context, byte[] bindingBytes) {
         if (context.copyFile() != null) {
             throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
                     "Paimon cannot publish an Iceberg COPY file claim marker");
         }
-        if (handle.baseSnapshotId() != context.baseSnapshotId() || !tenantId(session).equals(context.tenantId())) {
+        if (handle.baseSnapshotId() != context.baseSnapshotId() || !tenant.equals(context.tenantId())) {
             throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
                     "Paimon commit context does not match the bound write handle");
         }
@@ -192,7 +220,7 @@ final class PaimonWriteLifecycle {
                 new org.pangrova.persistence.query.api.commit.WriteCommitFingerprint.Intent(context.executionId(),
                         context.tenantId(), catalogName,
                         new SchemaTableName(handle.schemaName(), handle.tableName()).toString(),
-                        handle.writeMode(), handle.baseSnapshotId(), context.writeOutputBinding(),
+                        handle.writeMode(), handle.baseSnapshotId(), bindingBytes,
                         context.principal(), context.authorizationReceipt(), null, cdcSource), fragments);
         if (!expected.equals(context.commitFingerprint())) {
             throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
@@ -200,16 +228,11 @@ final class PaimonWriteLifecycle {
         }
     }
 
-    private static org.pangrova.protocol.v2.PhysicalFileWriteBinding physicalBinding(
-            DistributedWriteCommitContext context) {
+    private static WriteOutputBinding parseWriteBinding(byte[] binding) {
         try {
-            var binding = WriteOutputBinding.parseFrom(context.writeOutputBinding());
-            if (!binding.hasPhysical()) {
-                throw new IllegalArgumentException("Durable physical output binding is missing");
-            }
-            return binding.getPhysical();
+            return WriteOutputBinding.parseFrom(binding);
         } catch (com.google.protobuf.InvalidProtocolBufferException failure) {
-            throw new IllegalArgumentException("Malformed durable physical output binding", failure);
+            throw new IllegalArgumentException("Malformed durable Paimon output binding", failure);
         }
     }
 

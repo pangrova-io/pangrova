@@ -1,7 +1,8 @@
 package org.pangrova.persistence.generation.postgresql.publication;
 
 import org.pangrova.generation.api.enums.GenerationGraphPurpose;
-import org.pangrova.persistence.jdbc.api.generation.GenerationTransactionInputs;
+import org.pangrova.generation.api.graph.GenerationStageGraph;
+import org.pangrova.generation.api.graph.GenerationStageGraph.StagePlan;
 import org.pangrova.generation.api.output.GenerationOutput;
 import org.pangrova.generation.api.enums.GenerationOutputScope;
 import org.pangrova.generation.api.enums.GenerationPageKind;
@@ -15,26 +16,28 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /** Validates complete artifact output bundles before atomic publication. */
 final class GenerationPublicationOutputValidator {
 
-    private final GenerationTransactionInputs inputs;
+    private GenerationPublicationOutputValidator() {}
 
-    GenerationPublicationOutputValidator(GenerationTransactionInputs inputs) {
-        this.inputs = java.util.Objects.requireNonNull(inputs, "inputs");
-    }
-
-    List<GenerationOutput> loadAndValidate(
-            Connection connection, GenerationPublicationJob job)
+    static List<GenerationOutput> loadAndValidate(
+            Connection connection, GenerationPublicationJob job, GenerationStageGraph graph)
             throws SQLException {
-        requireAllPagesSucceeded(connection, job);
-        List<PageOutput> outputs = loadOutputs(connection, job);
+        if (job.completedPages() != job.expectedPages()) {
+            throw new IllegalStateException("Artifact job has not crossed the all-pages barrier");
+        }
+        boolean relational = job.artifactType().equals(
+                org.pangrova.generation.api.constants.GenerationOutputTypeIds.TABULAR_EXPORT);
+        Map<Integer, StagePlan> stages = relational ? relationalStages(graph) : Map.of();
+        List<PageOutput> outputs = loadCompletedOutputs(connection, job, stages);
         if (job.expectedPages() == 0) {
             if (!outputs.isEmpty()) {
                 throw new IllegalStateException("Empty artifact generation unexpectedly has outputs");
@@ -51,57 +54,75 @@ final class GenerationPublicationOutputValidator {
         if (outputs.isEmpty()) {
             throw new IllegalStateException("Complete artifact generation has no objects");
         }
-        validateWorkPages(connection, job, outputs);
+        validateWorkPages(connection, job, outputs, relational);
         return outputs.stream().map(PageOutput::output)
-                .filter(output -> output.scope() != GenerationOutputScope.WORK_UNIT
-                        || job.artifactType().equals(
-                                org.pangrova.generation.api.constants.GenerationOutputTypeIds.TABULAR_EXPORT))
+                .filter(output -> relational || output.scope() != GenerationOutputScope.WORK_UNIT)
                 .toList();
     }
 
-    private static void requireAllPagesSucceeded(
-            Connection connection, GenerationPublicationJob job)
-            throws SQLException {
-        if (job.completedPages() != job.expectedPages()) {
-            throw new IllegalStateException("Artifact job has not crossed the all-pages barrier");
+    private static Map<Integer, StagePlan> relationalStages(GenerationStageGraph graph) {
+        if (graph.purpose() != GenerationGraphPurpose.RELATIONAL_EXPORT) {
+            throw new IllegalStateException("Tabular export requires the relational terminal purpose");
         }
-        try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT COUNT(*) FROM artifact_build_pages "
-                        + "WHERE tenant_id=? AND job_id=? AND state='SUCCEEDED'")) {
-            statement.setString(1, job.tenantId());
-            statement.setString(2, job.jobId());
-            try (ResultSet result = statement.executeQuery()) {
-                result.next();
-                if (result.getLong(1) != job.expectedPages()) {
-                    throw new IllegalStateException(
-                            "Artifact page states differ from the completion barrier");
-                }
-            }
-        }
+        return graph.stages().stream().collect(Collectors.toUnmodifiableMap(StagePlan::stageId, Function.identity()));
     }
 
-    private static List<PageOutput> loadOutputs(
-            Connection connection, GenerationPublicationJob job)
+    private static List<PageOutput> loadCompletedOutputs(
+            Connection connection, GenerationPublicationJob job, Map<Integer, StagePlan> stages)
             throws SQLException {
         List<PageOutput> outputs = new ArrayList<>();
-        try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT o.page_id,p.page_kind,o.object_id,o.opaque_uri,o.object_role,"
-                        + "o.source_object_id,o.object_ordinal,o.object_scope,o.size_bytes,"
-                        + "o.row_count,o.checksum_sha256,o.encryption_key_ref "
-                        + "FROM artifact_build_outputs o JOIN artifact_build_pages p "
-                        + "ON p.tenant_id=o.tenant_id AND p.job_id=o.job_id "
-                        + "AND p.page_id=o.page_id "
-                        + "WHERE o.tenant_id=? AND o.job_id=? "
-                        + "ORDER BY o.page_id,o.object_ordinal,o.object_id")) {
+        int completed = 0;
+        String previousPage = null;
+        try (PreparedStatement statement = connection.prepareStatement("""
+                SELECT p.page_id,p.page_kind,o.object_id,o.opaque_uri,o.object_role,
+                       o.source_object_id,o.object_ordinal,o.object_scope,o.size_bytes,
+                       o.row_count,o.checksum_sha256,o.encryption_key_ref,p.state,
+                       p.stage_id,p.partition_id
+                FROM artifact_build_pages p LEFT JOIN artifact_build_outputs o
+                  ON p.tenant_id=o.tenant_id AND p.job_id=o.job_id AND p.page_id=o.page_id
+                WHERE p.tenant_id=? AND p.job_id=?
+                ORDER BY p.page_id,o.object_ordinal,o.object_id
+                """)) {
             statement.setString(1, job.tenantId());
             statement.setString(2, job.jobId());
-            try (ResultSet result = statement.executeQuery()) {
-                while (result.next()) {
-                    outputs.add(mapOutput(result));
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    String pageId = rows.getString("page_id");
+                    boolean hasOutput = rows.getString("object_id") != null;
+                    if (!pageId.equals(previousPage)) {
+                        validateCompletedPage(rows, stages, hasOutput);
+                        completed++;
+                        previousPage = pageId;
+                    }
+                    if (hasOutput) {
+                        outputs.add(mapOutput(rows));
+                    }
                 }
             }
         }
+        if (completed != job.expectedPages()) {
+            throw new IllegalStateException("Artifact page states differ from the completion barrier");
+        }
         return outputs;
+    }
+
+    private static void validateCompletedPage(
+            ResultSet page, Map<Integer, StagePlan> stages, boolean hasOutput) throws SQLException {
+        if (!"SUCCEEDED".equals(page.getString("state"))) {
+            throw new IllegalStateException("Artifact page states differ from the completion barrier");
+        }
+        if (stages.isEmpty()) {
+            return;
+        }
+        StagePlan stage = stages.get(page.getInt("stage_id"));
+        int partition = page.getInt("partition_id");
+        if (stage == null || !stage.pageKind().name().equals(page.getString("page_kind"))
+                || partition < 0 || partition >= stage.parallelism()) {
+            throw new IllegalStateException("Export page differs from its persisted stage allocation");
+        }
+        if (stage.publicationOutput() != hasOutput) {
+            throw new IllegalStateException("Export output coverage differs from its terminal partition cohort");
+        }
     }
 
     private static PageOutput mapOutput(ResultSet result) throws SQLException {
@@ -117,17 +138,17 @@ final class GenerationPublicationOutputValidator {
         return new PageOutput(pageId, kind, output);
     }
 
-    private void validateWorkPages(
+    private static void validateWorkPages(
             Connection connection, GenerationPublicationJob job,
-            List<PageOutput> outputs) throws SQLException {
+            List<PageOutput> outputs, boolean relational) throws SQLException {
         GenerationOutputFormat contract = BuiltInGenerationOutputFormats.require(
                 job.formatId(), job.artifactType());
         Map<String, List<PageOutput>> pages = outputs.stream().collect(
-                java.util.stream.Collectors.groupingBy(
-                        PageOutput::pageId, LinkedHashMap::new,
-                        java.util.stream.Collectors.toList()));
-        if (job.artifactType().equals(org.pangrova.generation.api.constants.GenerationOutputTypeIds.TABULAR_EXPORT)) {
-            validateRelationalTerminalPages(connection, job, pages, contract);
+                Collectors.groupingBy(PageOutput::pageId, LinkedHashMap::new, Collectors.toList()));
+        if (relational) {
+            for (List<PageOutput> pageOutputs : pages.values()) {
+                validatePageOutputs(job, pageOutputs.get(0), null, pageOutputs, contract);
+            }
             return;
         }
         if (pages.size() != job.expectedPages()) {
@@ -148,34 +169,6 @@ final class GenerationPublicationOutputValidator {
                     "Artifact generation finalizer count differs from its format contract");
         }
         validatePublishedBundles(job, sourcePages, outputs, contract);
-    }
-
-    private void validateRelationalTerminalPages(Connection connection, GenerationPublicationJob job,
-            Map<String, List<PageOutput>> outputs, GenerationOutputFormat contract) throws SQLException {
-        var graph = inputs.findDispatchSpec(connection, job.tenantId(), job.jobId())
-                .orElseThrow(() -> new IllegalStateException("Export has no persisted stage graph")).stageGraph();
-        if (graph.purpose() != GenerationGraphPurpose.RELATIONAL_EXPORT) {
-            throw new IllegalStateException("Tabular export requires the relational terminal purpose");
-        }
-        var pages = inputs.loadPages(connection, job.tenantId(), job.jobId());
-        Set<String> terminals = new HashSet<>();
-        for (var page : pages) {
-            var stage = graph.requireStage(page.stageId());
-            if (stage.pageKind() != page.kind() || page.partitionId() >= stage.parallelism()) {
-                throw new IllegalStateException("Export page differs from its persisted stage allocation");
-            }
-            if (stage.publicationOutput()) {
-                terminals.add(page.pageId());
-                var pageOutputs = outputs.get(page.pageId());
-                if (pageOutputs == null || pageOutputs.stream().anyMatch(output -> output.kind() != page.kind())) {
-                    throw new IllegalStateException("Export terminal is missing its exact output report");
-                }
-                validatePageOutputs(job, pageOutputs.get(0), null, pageOutputs, contract);
-            }
-        }
-        if (terminals.isEmpty() || !terminals.equals(outputs.keySet())) {
-            throw new IllegalStateException("Export output coverage differs from its terminal partition cohort");
-        }
     }
 
     private static void validatePageOutputs(

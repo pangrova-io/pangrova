@@ -4,6 +4,8 @@ coordinator:
   host: 0.0.0.0
   port: 8080
   role: COMBINED
+  admission:
+    state-directory: "${PANGROVA_COORDINATOR_ADMISSION_STATE_DIRECTORY:-/opt/pangrova/data/coordinator-admission}"
   internal-auth-secret: "${PANGROVA_INTERNAL_AUTH_SECRET}"
   ha:
     enabled: false

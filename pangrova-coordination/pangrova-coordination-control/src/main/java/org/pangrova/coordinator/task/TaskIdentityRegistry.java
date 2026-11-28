@@ -3,6 +3,7 @@ package org.pangrova.coordinator.task;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.TaskAttemptDescriptor;
 import org.pangrova.coordinator.task.TaskReportPublication.Fact;
+import org.pangrova.protocol.execution.identity.WorkerExecutionIdentity;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.HashMap;
@@ -15,6 +16,8 @@ import org.pangrova.coordinator.worker.WorkerInfo;
 @org.pangrova.common.concurrent.ThreadSafe
 final class TaskIdentityRegistry {
     private final ConcurrentHashMap<String, Identity> identities = new ConcurrentHashMap<>();
+    // Published under the issuance lock and read by placement without locking or scanning attempts.
+    private final ConcurrentHashMap<WorkerExecutionIdentity, Integer> workerLoads = new ConcurrentHashMap<>();
     // This is the admission state of the SAME issued identities, not a second
     // completion registry. All mutations below are local; no RPC runs here.
     @javax.annotation.concurrent.GuardedBy("this")
@@ -48,11 +51,6 @@ final class TaskIdentityRegistry {
         if (scope == null || scope.sealed) {
             throw new IllegalStateException("Query has no open issuance authority: " + queryId);
         }
-    }
-
-    synchronized void markRecoveryUnresolved(String queryId) {
-        openQuery(queryId);
-        scopes.get(queryId).recoveryUnresolved = true;
     }
 
     synchronized void registerLogicalTask(String queryId, Runnable publication) {
@@ -252,11 +250,40 @@ final class TaskIdentityRegistry {
         if (existing.drainReceipt() != null) {
             throw new IllegalStateException("Drained task cannot acquire another dispatch target");
         }
-        if (existing.worker() != null && !existing.worker().equals(worker)) {
-            throw new IllegalStateException("Issued task target changed: " + taskId);
+        if (existing.worker() != null) {
+            if (!existing.worker().equals(worker)) {
+                throw new IllegalStateException("Issued task target changed: " + taskId);
+            }
+            return;
         }
         identities.put(taskId, new Identity(existing.attempt(), existing.request(), existing.drainReceipt(),
                 java.util.Objects.requireNonNull(worker, "worker"), existing.entered()));
+        workerLoads.merge(worker.workerExecutionIdentity(), 1, Integer::sum);
+    }
+
+    CoordinatorTaskTracker.IssuedTask liveReadTarget(String taskId, String queryId) {
+        var identity = identities.get(taskId);
+        if (identity == null || !identity.entered() || identity.drainReceipt() != null
+                || identity.worker() == null || identity.request() == null) return null;
+        var task = identity.request().taskRequest();
+        if (!task.getAttempt().getQueryOrJobId().equals(queryId) || task.getSplitsCount() == 0
+                || task.getTaskKind() != org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ) return null;
+        return new CoordinatorTaskTracker.IssuedTask(identity.request(), identity.worker(), java.util.Optional.empty());
+    }
+
+    int workerLoad(WorkerExecutionIdentity worker) {
+        return workerLoads.getOrDefault(worker, 0);
+    }
+
+    private void releaseWorkerLoad(Identity identity) {
+        if (identity.worker() == null) return;
+        var target = identity.worker().workerExecutionIdentity();
+        workerLoads.compute(target, (key, count) -> {
+            if (count == null) {
+                throw new IllegalStateException("Issued Worker has no placement load: " + key);
+            }
+            return count == 1 ? null : count - 1;
+        });
     }
 
     synchronized void enterDispatch(SubmitTaskRequest request) {
@@ -292,14 +319,12 @@ final class TaskIdentityRegistry {
         if (scope == null) throw new IllegalStateException("Query has no issuance authority: " + queryId);
         scope.sealed = true;
         if (scope.operations != 0) return false;
-        requireResolvedIssuance(queryId, scope);
         if (hasPendingReport(scope) || taskWithoutDrain(scope) != null) return false;
         scope.cleanupClaimed = true;
         return true;
     }
 
     private void claimDrainedScope(String queryId, Scope scope) {
-        requireResolvedIssuance(queryId, scope);
         if (hasPendingReport(scope)) {
             throw new IllegalStateException("Query still owns required report journal/publication work: " + queryId);
         }
@@ -308,12 +333,6 @@ final class TaskIdentityRegistry {
             throw new IllegalStateException("Issued task still lacks its exact execution drain receipt: " + missing);
         }
         scope.cleanupClaimed = true;
-    }
-
-    private static void requireResolvedIssuance(String queryId, Scope scope) {
-        if (scope.recoveryUnresolved) {
-            throw new IllegalStateException("Recovered query lacks durable issued authority: " + queryId);
-        }
     }
 
     private static boolean hasPendingReport(Scope scope) {
@@ -465,6 +484,7 @@ final class TaskIdentityRegistry {
                 if (publication != null && !publication.notificationsCompleted) {
                     throw new IllegalStateException("Task still owns required report publication");
                 }
+                if (existing.drainReceipt() == null) releaseWorkerLoad(existing);
                 scope.tasks.remove(taskId);
                 scope.scheduled.remove(taskId);
                 removed[0] = true;
@@ -532,6 +552,7 @@ final class TaskIdentityRegistry {
         if (existing.request() != null) {
             scopes.get(existing.request().taskRequest().getAttempt().getQueryOrJobId()).tasks.remove(taskId);
         }
+        releaseWorkerLoad(existing);
         identities.remove(taskId, existing);
     }
 
@@ -556,8 +577,11 @@ final class TaskIdentityRegistry {
             }
             long ackDeadline = clock.getAsLong()
                     + org.pangrova.protocol.constants.TerminalReportDeliveryPolicy.ACK_RETENTION.toNanos();
-            return new Identity(existing.attempt(), existing.request(), report, existing.worker(), existing.entered(),
-                    existing.workerId(), existing.deadline(), ackDeadline, existing.directReadResult());
+            Identity drained = new Identity(existing.attempt(), existing.request(), report, existing.worker(),
+                    existing.entered(), existing.workerId(), existing.deadline(), ackDeadline,
+                    existing.directReadResult());
+            releaseWorkerLoad(existing);
+            return drained;
         });
     }
 
@@ -630,7 +654,6 @@ final class TaskIdentityRegistry {
         private final HashMap<String, org.pangrova.query.api.journal.TaskStateEvent> scheduled = new HashMap<>();
         private boolean sealed;
         private boolean retired;
-        private boolean recoveryUnresolved;
         private long deadline;
         private int operations;
         private boolean cleanupClaimed;

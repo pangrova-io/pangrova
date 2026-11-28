@@ -1,11 +1,15 @@
 package org.pangrova.query.lifecycle;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
+import org.pangrova.query.api.enums.QueryState;
 import org.pangrova.query.exception.QueryRegistrationPendingException;
+import org.pangrova.query.lifecycle.TenantAdmissionPort.LocalUsage;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -22,8 +26,8 @@ class QueryRegistryTest {
         assertThat(registry.outstandingCount()).isZero();
         assertThat(registry.register("q", state, () -> {})).isNull();
         assertThat(registry.outstandingIds()).containsExactly("q");
-        registry.complete("q", state);
-        registry.complete("q", state);
+        registry.complete("q", state, true);
+        registry.complete("q", state, true);
         assertThat(registry.outstandingCount()).isZero();
         assertThat(registry.awaitDrain(0, () -> {})).isTrue();
     }
@@ -50,7 +54,7 @@ class QueryRegistryTest {
         registry.releaseSubmission("candidate", state);
         assertThat(registry.outstandingCount()).isOne();
         assertThat(registry.awaitDrain(0, () -> {})).isFalse();
-        registry.complete("candidate", state);
+        registry.complete("candidate", state, true);
         assertThat(registry.awaitDrain(0, () -> {})).isTrue();
     }
 
@@ -68,6 +72,73 @@ class QueryRegistryTest {
         registry.releaseSubmission("shared", candidate);
         assertThat(registry.register("shared", recovered, initialized::incrementAndGet)).isNull();
         assertThat(registry.get("shared")).isSameAs(recovered);
+    }
+
+    @Test
+    void tenantUsageReleasesQueuedAndConcurrentCapacityAtTheirOwnBoundaries() {
+        var registry = new QueryRegistry(true);
+        var queued = new QueryStateMachine();
+        queued.setTenantId("tenant-a");
+        var planning = new QueryStateMachine();
+        planning.setTenantId("tenant-a");
+        var other = new QueryStateMachine();
+        other.setTenantId("tenant-b");
+        assertThat(registry.reserveSubmission("queued", queued)).isTrue();
+        assertThat(registry.tenantUsage("tenant-a")).isEqualTo(new LocalUsage(0, 0));
+
+        registry.register("queued", queued, () -> {});
+        registry.releaseSubmission("queued", queued);
+        registry.register("planning", planning, () -> {});
+        registry.register("other", other, () -> {});
+        assertThat(registry.register("planning", new QueryStateMachine(), () -> {})).isSameAs(planning);
+        assertThat(registry.tenantUsage("tenant-a")).isEqualTo(new LocalUsage(2, 2));
+        assertThat(registry.tenantUsage("tenant-b")).isEqualTo(new LocalUsage(1, 1));
+
+        assertThat(planning.tryTransition(QueryState.PLANNING)).isTrue();
+        assertThat(queued.tryTransition(QueryState.CANCELLED)).isTrue();
+        assertThat(registry.tenantUsage("tenant-a")).isEqualTo(new LocalUsage(2, 0));
+        registry.complete("queued", queued, false);
+        registry.complete("queued", queued, true);
+        queued.confirmPhysicalRetirement();
+        assertThat(registry.get("queued")).isSameAs(queued);
+        assertThat(registry.tenantUsage("tenant-a")).isEqualTo(new LocalUsage(1, 0));
+
+        assertThat(planning.tryTransition(QueryState.CANCELLED)).isTrue();
+        registry.complete("planning", planning, true);
+        assertThat(registry.tenantUsage("tenant-a")).isEqualTo(new LocalUsage(0, 0));
+        assertThat(registry.tenantUsage("tenant-b")).isEqualTo(new LocalUsage(1, 1));
+    }
+
+    @Test
+    void concurrentQueriesUpdateOneTenantWithoutLosingOccupancy() throws Exception {
+        var registry = new QueryRegistry(true);
+        var workers = Executors.newFixedThreadPool(8);
+        try {
+            List<java.util.concurrent.Callable<Void>> registrations = new ArrayList<>();
+            List<java.util.concurrent.Callable<Void>> completions = new ArrayList<>();
+            for (int index = 0; index < 64; index++) {
+                String queryId = "query-" + index;
+                var query = new QueryStateMachine();
+                query.setTenantId("tenant");
+                registrations.add(() -> {
+                    registry.register(queryId, query, () -> {});
+                    return null;
+                });
+                completions.add(() -> {
+                    assertThat(query.tryTransition(QueryState.CANCELLED)).isTrue();
+                    registry.complete(queryId, query, true);
+                    return null;
+                });
+            }
+            for (var registration : workers.invokeAll(registrations, 10, TimeUnit.SECONDS)) registration.get();
+            assertThat(registry.tenantUsage("tenant")).isEqualTo(new LocalUsage(64, 64));
+
+            for (var completion : workers.invokeAll(completions, 10, TimeUnit.SECONDS)) completion.get();
+            assertThat(registry.tenantUsage("tenant")).isEqualTo(new LocalUsage(0, 0));
+            assertThat(registry.snapshot()).hasSize(64);
+        } finally {
+            workers.shutdownNow();
+        }
     }
 
     @Test

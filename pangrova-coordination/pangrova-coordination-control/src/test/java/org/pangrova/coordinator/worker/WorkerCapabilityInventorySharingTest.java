@@ -52,11 +52,7 @@ class WorkerCapabilityInventorySharingTest {
                 .isEqualTo(original.getWorker("recover-a").capabilityInventory());
         assertThat(recovered.getWorker("recover-a").host()).isEqualTo("host-a");
         assertThat(recovered.getWorker("recover-b").httpPort()).isEqualTo(8081);
-        var singleRecovery = new WorkerManager(20_000, 60_000, registry);
-        assertThat(singleRecovery.tryRecoverFromRegistry("recover-a")).isTrue();
-        assertThat(singleRecovery.tryRecoverFromRegistry("recover-b")).isTrue();
-        assertThat(singleRecovery.getWorker("recover-a").capabilityInventory())
-                .isSameAs(singleRecovery.getWorker("recover-b").capabilityInventory());
+
     }
 
     @Test

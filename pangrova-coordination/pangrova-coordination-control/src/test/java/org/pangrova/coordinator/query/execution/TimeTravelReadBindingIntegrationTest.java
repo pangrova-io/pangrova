@@ -11,6 +11,7 @@ import org.pangrova.planner.metadata.catalog.PlanningReadBindings;
 import org.pangrova.planner.metadata.catalog.PlanningSnapshotSelectors;
 import org.pangrova.coordinator.metadata.ReadBindingSdkFixture;
 import org.pangrova.planner.analysis.PangrovaPlanner;
+import org.pangrova.planner.analysis.SqlCompiler;
 import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.testing.testkit.ContainerTestBase;
 
@@ -40,8 +41,13 @@ class TimeTravelReadBindingIntegrationTest extends ContainerTestBase {
             var schema = new MetadataSchemaBuilder(
                     fixture.bootstrap.metadataService(), fixture.bootstrap.catalogRegistry())
                     .buildRootSchema(session, owner);
-            var plan = new PangrovaPlanner(schema, List.of("bound", "db"))
-                    .planForPolicyApplication(extracted.strippedSql()).toPlannedQuery();
+            var compiler = new SqlCompiler().withSessionPlanner(
+                    (ignored, revision) -> new PangrovaPlanner(schema, List.of("bound", "db")));
+            assertThatThrownBy(() -> compiler.forSession(fixture.session)
+                    .compileForPolicyApplication(extracted.parsedSql()))
+                    .hasMessageContaining("Explicit snapshot selectors must be bound");
+            var plan = compiler.forSession(session)
+                    .compileForPolicyApplication(extracted.parsedSql()).toPlannedQuery();
             var binding = owner.resolve("bound", "db", "history").orElseThrow();
             assertThat(binding.declaration().metadata().columns()).containsExactly("id");
             assertThat(plan.splitSources()).singleElement().satisfies(source ->

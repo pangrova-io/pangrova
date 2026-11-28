@@ -59,7 +59,7 @@ class QueryStateMachineReadinessTest {
         state.setResultEndpoint(endpoint);
         assertThat(waiting).isCompletedWithValue(
                 new QueryStateMachine.Status(initial.version() + 1, QueryState.RUNNING, null,
-                        ResultDisposition.STREAM, endpoint, false));
+                        ResultDisposition.STREAM, endpoint, false, null));
         assertThat(state.awaitStatus(QueryWaitTarget.NEXT_VERSION, initial.version()))
                 .isCompletedWithValue(state.status());
 
@@ -68,11 +68,11 @@ class QueryStateMachineReadinessTest {
         var terminal = state.status();
         assertThat(terminal.drained()).isFalse();
         var drained = state.awaitStatus(QueryWaitTarget.NEXT_VERSION, terminal.version());
-        assertThat(state.claimPhysicalCleanup()).isTrue();
-        assertThat(state.claimPhysicalCleanup()).isFalse();
+        assertThat(state.claimPhysicalCleanup(true)).isTrue();
+        assertThat(state.claimPhysicalCleanup(true)).isFalse();
         assertThat(drained).isCompletedWithValue(
                 new QueryStateMachine.Status(terminal.version() + 1, QueryState.FINISHED, null,
-                        ResultDisposition.STREAM, endpoint, true));
+                        ResultDisposition.STREAM, endpoint, true, null));
     }
 
     @Test
@@ -98,8 +98,29 @@ class QueryStateMachineReadinessTest {
         assertThat(released).isNotDone();
         assertThat(state.awaitStatus(QueryWaitTarget.TERMINAL, state.status().version()))
                 .isCompletedWithValue(state.status());
-        state.claimPhysicalCleanup();
+        state.claimPhysicalCleanup(true);
         assertThat(released).isCompletedWithValue(state.status());
+    }
+
+    @Test
+    void confirmedRetirementWakesDrainObserversAfterLocalCleanup() {
+        var state = new QueryStateMachine();
+        running(state);
+        state.tryTransition(QueryState.FINISHING);
+        state.tryTransition(QueryState.FINISHED);
+        var terminal = state.status();
+        var waiter = state.awaitStatus(QueryWaitTarget.DRAINED, terminal.version());
+        state.refreshPhysicalRetirement(() -> { throw new AssertionError("Query is locally active"); });
+        assertThat(state.claimPhysicalCleanup(false)).isTrue();
+        assertThat(state.physicalCleanupApplied()).isTrue();
+        assertThat(state.status()).isEqualTo(terminal);
+        state.refreshPhysicalRetirement(() -> false);
+        assertThat(waiter).isNotDone();
+        state.refreshPhysicalRetirement(() -> true);
+        assertThat(waiter).isCompletedWithValue(state.status());
+        assertThat(state.status().version()).isEqualTo(terminal.version() + 1);
+        assertThat(state.status().drained()).isTrue();
+        state.refreshPhysicalRetirement(() -> { throw new AssertionError("Query was already retired"); });
     }
 
     @Test

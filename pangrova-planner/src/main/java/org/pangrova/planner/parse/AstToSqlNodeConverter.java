@@ -39,6 +39,7 @@ import org.apache.calcite.sql.SqlLiteral;
 import org.apache.calcite.sql.SqlNode;
 import org.apache.calcite.sql.SqlNodeList;
 import org.apache.calcite.sql.SqlOperator;
+import org.apache.calcite.sql.SqlOrderBy;
 import org.apache.calcite.sql.SqlPivot;
 import org.apache.calcite.sql.SqlSelect;
 import org.apache.calcite.sql.SqlSelectKeyword;
@@ -65,6 +66,16 @@ import java.util.List;
 public final class AstToSqlNodeConverter {
 
     private static final SqlParserPos POS = SqlParserPos.ZERO;
+    private final boolean snapshotSelectorsBound;
+
+    public AstToSqlNodeConverter() {
+        this(false);
+    }
+
+    AstToSqlNodeConverter(boolean snapshotSelectorsBound) {
+        this.snapshotSelectorsBound = snapshotSelectorsBound;
+    }
+
     private final ExpressionToSqlNodeConverter exprConverter = new ExpressionToSqlNodeConverter(this);
     private final ExtensionStatementSqlNodeConverter extensionConverter =
             new ExtensionStatementSqlNodeConverter(this);
@@ -108,11 +119,22 @@ public final class AstToSqlNodeConverter {
         List<Query> queries = sq.queries();
         List<SetOperatorType> operators = sq.operators();
         SqlNode result = convertQuery(queries.get(0));
-        for (int i = 1; i < queries.size(); i++) {
-            SqlOperator op = mapSetOperator(operators.get(i - 1));
-            result = new SqlBasicCall(op, new SqlNode[]{result, convertQuery(queries.get(i))}, POS);
+        for (int i = 0; i < operators.size(); i++) {
+            SetOperatorType op = operators.get(i);
+            SqlNode right = convertQuery(queries.get(i + 1));
+            // Consume the higher-precedence INTERSECT terms before UNION or EXCEPT.
+            while (op != SetOperatorType.INTERSECT && i + 1 < operators.size()
+                    && operators.get(i + 1) == SetOperatorType.INTERSECT) {
+                i++;
+                right = new SqlBasicCall(SqlStdOperatorTable.INTERSECT,
+                        new SqlNode[]{right, convertQuery(queries.get(i + 1))}, POS);
+            }
+            result = new SqlBasicCall(mapSetOperator(op), new SqlNode[]{result, right}, POS);
         }
-        return result;
+        if (sq.orderBy().isEmpty() && sq.offset().isEmpty() && sq.limit().isEmpty()) return result;
+        var orderBy = sq.orderBy().isEmpty() ? SqlNodeList.EMPTY : convertOrderBy(sq.orderBy());
+        return new SqlOrderBy(POS, result, orderBy, sq.offset().map(this::convertExpression).orElse(null),
+                sq.limit().map(this::convertExpression).orElse(null));
     }
 
     private static SqlOperator mapSetOperator(SetOperatorType type) {
@@ -322,7 +344,7 @@ public final class AstToSqlNodeConverter {
     }
 
     private SqlNode applyTimeTravel(SqlNode table, TableRef ref) {
-        if (ref.timeTravelSpec().isEmpty()) {
+        if (snapshotSelectorsBound || ref.timeTravelSpec().isEmpty()) {
             return table;
         }
         TimeTravelSpec spec = ref.timeTravelSpec().get();

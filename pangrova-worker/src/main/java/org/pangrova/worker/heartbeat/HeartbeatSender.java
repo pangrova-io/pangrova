@@ -1,5 +1,6 @@
 package org.pangrova.worker.heartbeat;
 
+import org.pangrova.protocol.rest.worker.HeartbeatRequest;
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
 import java.net.URI;
@@ -64,7 +65,7 @@ public class HeartbeatSender {
     static final int DEGRADATION_THRESHOLD = 10;
 
     private final HeartbeatConfig config;
-    private final Supplier<HeartbeatPayload> payloadSupplier;
+    private final Supplier<HeartbeatRequest> payloadSupplier;
     private final ScheduledExecutorService scheduler;
     private final HttpClient httpClient;
     private final org.pangrova.transport.http.client.ManagedHttpClient managedClient;
@@ -81,21 +82,21 @@ public class HeartbeatSender {
     private final String internalAuthSecret;
 
     public HeartbeatSender(HeartbeatConfig config,
-                           Supplier<HeartbeatPayload> payloadSupplier,
+                           Supplier<HeartbeatRequest> payloadSupplier,
                            ScheduledExecutorService scheduler) {
         this(config, payloadSupplier, scheduler, (String) null);
     }
 
     /** Creates a sender with the given auth secret and a default HTTP client. */
     public HeartbeatSender(HeartbeatConfig config,
-                           Supplier<HeartbeatPayload> payloadSupplier,
+                           Supplier<HeartbeatRequest> payloadSupplier,
                            ScheduledExecutorService scheduler,
                            String internalAuthSecret) {
         this(config, payloadSupplier, scheduler, createManagedClient(config, payloadSupplier, scheduler),
                 internalAuthSecret);
     }
 
-    HeartbeatSender(HeartbeatConfig config, Supplier<HeartbeatPayload> payloadSupplier,
+    HeartbeatSender(HeartbeatConfig config, Supplier<HeartbeatRequest> payloadSupplier,
                     ScheduledExecutorService scheduler, org.pangrova.transport.http.client.ManagedHttpClient managed,
                     String internalAuthSecret) {
         this.config = checkNotNull(config, "config must not be null");
@@ -108,7 +109,7 @@ public class HeartbeatSender {
     }
 
     private static org.pangrova.transport.http.client.ManagedHttpClient createManagedClient(
-            HeartbeatConfig config, Supplier<HeartbeatPayload> payloadSupplier, ScheduledExecutorService scheduler) {
+            HeartbeatConfig config, Supplier<HeartbeatRequest> payloadSupplier, ScheduledExecutorService scheduler) {
         checkNotNull(config, "config must not be null");
         checkNotNull(payloadSupplier, "payloadSupplier must not be null");
         checkNotNull(scheduler, "scheduler must not be null");
@@ -116,7 +117,7 @@ public class HeartbeatSender {
     }
 
     public HeartbeatSender(HeartbeatConfig config,
-                           Supplier<HeartbeatPayload> payloadSupplier,
+                           Supplier<HeartbeatRequest> payloadSupplier,
                            ScheduledExecutorService scheduler,
                            HttpClient httpClient) {
         this(config, payloadSupplier, scheduler, httpClient, null);
@@ -124,7 +125,7 @@ public class HeartbeatSender {
 
     /** Creates a sender with an externally provided HTTP client. */
     public HeartbeatSender(HeartbeatConfig config,
-                           Supplier<HeartbeatPayload> payloadSupplier,
+                           Supplier<HeartbeatRequest> payloadSupplier,
                            ScheduledExecutorService scheduler,
                            HttpClient httpClient,
                            String internalAuthSecret) {
@@ -236,7 +237,7 @@ public class HeartbeatSender {
 
     void sendHeartbeat() {
         if (fenced.get()) return;
-        HeartbeatPayload payload = collectPayload();
+        HeartbeatRequest payload = collectPayload();
         if (payload == null) {
             return;
         }
@@ -257,7 +258,7 @@ public class HeartbeatSender {
         return ThreadLocalRandom.current().nextLong(base - jitter, base + jitter + 1);
     }
 
-    private HeartbeatPayload collectPayload() {
+    private HeartbeatRequest collectPayload() {
         try {
             return payloadSupplier.get();
         } catch (RuntimeException e) {
@@ -266,7 +267,7 @@ public class HeartbeatSender {
         }
     }
 
-    private byte[] serialize(HeartbeatPayload payload) {
+    private byte[] serialize(HeartbeatRequest payload) {
         try {
             return mapper.writeValueAsBytes(payload);
         } catch (Exception e) {

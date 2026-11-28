@@ -132,7 +132,7 @@ class IcebergSplitPredicateInjectionIntegrationTest {
                 "/data/lineitem-001.parquet", 0L, 10240L, 10240L, "PARQUET",
                 Map.of(),
                 100L, 1L, 0, "DATA", "FULL", 0L, 0L, List.of(),
-                List.of(), List.of(), predicateBytes);
+                List.of(), List.of(), predicateBytes, 0L, 0L);
 
         assertThat(split.residualPredicate())
                 .as("IcebergSplit should carry the residual predicate bytes")
@@ -165,7 +165,7 @@ class IcebergSplitPredicateInjectionIntegrationTest {
                 "/data/lineitem-no-filter.parquet", 0L, 4096L, 4096L, "PARQUET",
                 Map.of(),
                 100L, 1L, 0, "DATA", "FULL", 0L, 0L, List.of(),
-                List.of(), List.of(), new byte[0]);
+                List.of(), List.of(), new byte[0], 0L, 0L);
 
         byte[] protoBytes = CanonicalConnectorSplit.from(split).toByteArray();
         DataSplit info = DataSplit.parseFrom(protoBytes);

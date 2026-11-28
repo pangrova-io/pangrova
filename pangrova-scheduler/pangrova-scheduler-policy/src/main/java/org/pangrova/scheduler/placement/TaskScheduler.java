@@ -95,21 +95,17 @@ public class TaskScheduler {
             long estimatedMemoryBytes,
             List<W> candidates,
             String resourcePoolId) {
-        List<W> scoped = candidates;
-        if (resourcePoolId != null) {
-            List<W> poolCandidates = candidates.stream()
-                    .filter(worker -> resourcePoolId.equals(
-                            worker.resourcePoolId()))
-                    .toList();
-            scoped = poolCandidates;
-        }
-        return scoped.stream()
-                .filter(worker -> worker.healthState() == HealthState.ACTIVE)
-                .filter(worker -> worker.memoryPressure()
-                        != MemoryPressure.CRITICAL)
-                .filter(worker -> isMemoryAcceptable(
-                        worker, estimatedMemoryBytes))
+        return candidates.stream()
+                .filter(worker -> isEligible(estimatedMemoryBytes, worker, resourcePoolId))
                 .toList();
+    }
+
+    /** Rechecks a selected Worker without scanning or copying the active cohort. */
+    public boolean isEligible(long estimatedMemoryBytes, PlacementWorker worker, String resourcePoolId) {
+        return worker.healthState() == HealthState.ACTIVE
+                && worker.memoryPressure() != MemoryPressure.CRITICAL
+                && (resourcePoolId == null || resourcePoolId.equals(worker.resourcePoolId()))
+                && isMemoryAcceptable(worker, estimatedMemoryBytes);
     }
 
     /**

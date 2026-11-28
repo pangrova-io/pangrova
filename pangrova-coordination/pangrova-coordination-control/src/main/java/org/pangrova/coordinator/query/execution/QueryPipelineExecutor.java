@@ -28,9 +28,16 @@ import org.pangrova.coordinator.query.execution.security.SecurityPolicyApplier;
 import org.pangrova.coordinator.query.execution.dispatch.StatementDispatcher;
 import org.pangrova.coordinator.query.audit.QueryLineageCapture;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
+import org.pangrova.connector.api.metadata.ConnectorReadDiscovery;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.pangrova.observability.sdk.tracing.QueryTracer;
+import org.pangrova.parser.api.ast.Query;
+import org.pangrova.parser.api.ast.Statement;
 import org.pangrova.parser.api.ast.statement.dml.MergeStatement;
+import org.pangrova.parser.api.ast.statement.IncrementalReadStatement;
+import org.pangrova.parser.parse.TimeTravelSqlClauses;
+import org.pangrova.parser.parse.TimeTravelSqlClauses.Analysis;
 import org.pangrova.parser.api.ast.statement.dml.DeleteStatement;
 import org.pangrova.planner.analysis.SqlCompiler;
 import org.pangrova.planner.api.exception.PlannerException;
@@ -79,6 +86,10 @@ final class QueryPipelineExecutor {
         this.pipelinePhases = buildPipeline();
     }
 
+    void discardControlResult(String queryId) {
+        if (statementDispatcher != null) statementDispatcher.discardControlResult(queryId);
+    }
+
     // ── Pipeline execution ──
 
     void setPatternRecorder(org.pangrova.planner.advisor.QueryPatternRecorder recorder) {
@@ -86,8 +97,7 @@ final class QueryPipelineExecutor {
     }
 
     /**
-     * Executes the full query pipeline: statement dispatch → compilation →
-     * cache lookup → distributed dispatch.
+     * Executes statement dispatch, protected compilation, and distributed dispatch.
      */
     CompletionStage<DispatchResult> doExecute(QueryStateMachine sm, String sql, QuerySession session) {
         if (!sm.tryTransition(QueryState.PLANNING)) {
@@ -96,14 +106,23 @@ final class QueryPipelineExecutor {
         Span querySpan = queryTracer != null
                 ? queryTracer.startQuerySpan(session.queryId(), sql) : null;
         try {
-            var initialCtx = QueryExecutionContext.initial(
-                    sm, sql, session, securityPolicyApplier.getCompiler());
+            var parsed = TimeTravelSqlClauses.extract(sql);
+            var compiler = securityPolicyApplier.getCompiler();
+            QueryExecutionContext initialCtx;
+            if (parsed.statement() instanceof IncrementalReadStatement changes) {
+                var incremental = IncrementalSql.bind(parsed, changes, session);
+                initialCtx = QueryExecutionContext.initial(sm, incremental.analysis(), incremental.session(), compiler);
+            } else {
+                initialCtx = QueryExecutionContext.initial(sm, parsed, session, compiler);
+            }
+            String primaryTable = patternRecorder != null && parsed.statement() instanceof Query query
+                    ? extractFirstBaseTable(query) : "unknown";
             var coordinator = new QueryLifecycleCoordinator(
                     pipelinePhases,
                     () -> LOG.debug("event=query_start queryId={}", session.queryId()),
                     () -> {
                         LOG.debug("event=query_end queryId={}", session.queryId());
-                        recordQueryCompletion(session.queryId(), sql, session);
+                        recordQueryCompletion(session.queryId(), primaryTable);
                     });
             return coordinator.execute(initialCtx).whenComplete((result, failure) -> {
                 if (querySpan != null) querySpan.end();
@@ -114,11 +133,9 @@ final class QueryPipelineExecutor {
         }
     }
 
-    private void recordQueryCompletion(String queryId, String sql,
-                                        QuerySession session) {
+    private void recordQueryCompletion(String queryId, String tableName) {
         if (patternRecorder != null) {
             try {
-                String tableName = extractPrimaryTableFromSql(sql);
                 patternRecorder.record(new org.pangrova.planner.advisor.QueryPatternRecorder.QueryPattern(
                         tableName, java.util.Set.of(), java.util.Set.of(),
                         java.util.Set.of(), java.util.Set.of(),
@@ -129,34 +146,7 @@ final class QueryPipelineExecutor {
         }
     }
 
-    /**
-     * Extracts a best-effort primary table name from a SQL string.
-     * Uses the parser AST to extract the first table reference.
-     */
-    private String extractPrimaryTableFromSql(String sql) {
-        if (sql == null || sql.isBlank()) {
-            return "unknown";
-        }
-        SqlCompiler currentCompiler = securityPolicyApplier.getCompiler();
-        return extractTableFromAst(sql, currentCompiler);
-    }
-
-    private static String extractTableFromAst(String sql, SqlCompiler compiler) {
-        if (compiler == null) {
-            return "unknown";
-        }
-        try {
-            var stmt = compiler.parseToAst(sql);
-            if (!(stmt instanceof org.pangrova.parser.api.ast.Query query)) {
-                return "unknown";
-            }
-            return extractFirstBaseTable(query);
-        } catch (Exception e) {
-            return "unknown";
-        }
-    }
-
-    private static String extractFirstBaseTable(org.pangrova.parser.api.ast.Query query) {
+    private static String extractFirstBaseTable(Query query) {
         var tables = query.from();
         if (tables == null || tables.isEmpty()) {
             return "unknown";
@@ -174,19 +164,21 @@ final class QueryPipelineExecutor {
     AuthorizedRelation compileAuthorizedRelation(String sql, QuerySession session) {
         requireAuthorizedSession(session);
         SqlCompiler compiler = securityPolicyApplier.getCompiler().forSession(
-                org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(session));
-        var statement = compiler.parseToAst(sql);
+                org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(session),
+                session.publicationRevision());
+        var parsed = TimeTravelSqlClauses.extract(sql);
+        var statement = parsed.statement();
         if (!(statement instanceof org.pangrova.parser.api.ast.Query)
                 && !(statement instanceof org.pangrova.parser.api.ast.CteQuery)) {
             throw new PlannerException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
                     "Reusable relational intent must be a read-only query");
         }
-        var normalized = extractTimeTravelFromSql(sql, compiler, session);
+        var normalized = extractTimeTravelFromSql(parsed, session);
         if (!normalized.snapshotOverrides().isEmpty()) {
             throw new PlannerException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
                     "Reusable relational intent cannot override its explicit source snapshot");
         }
-        var result = compiler.compileForPolicyApplication(normalized.strippedSql());
+        var result = compiler.compileForPolicyApplication(normalized.parsedSql());
         if (result.toPlannedQuery().dmlWriteTarget().isPresent()) {
             throw new PlannerException(PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
                     "Reusable relational intent cannot contain a write operation");
@@ -212,7 +204,8 @@ final class QueryPipelineExecutor {
     private CompletionStage<DispatchResult> startDmlSql(QueryStateMachine sm, String sql,
             QuerySession session, String writeModeOverride) {
         SqlCompiler compiler = securityPolicyApplier.getCompiler().forSession(
-                org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(session));
+                org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(session),
+                session.publicationRevision());
         var observed = securityPolicyApplier.applyPoliciesObserved(compiler.compileToPlannedQuery(sql), session);
         PlannedQuery plan = observed.plan();
         LOG.info("event=dml_plan_dump sql_preview={} plan=\n{}",
@@ -220,13 +213,14 @@ final class QueryPipelineExecutor {
                 plan.planExplanation());
         DispatchQueryContext ctx = new DispatchQueryContext(Map.of(), sql, compiler);
         ctx = enrichWithDmlWriteContext(plan, ctx);
-        ctx = withWriteObservation(ctx, WritePolicyObservation.capture(observed, compiler, compiler.parseToAst(sql)));
+        Statement statement = compiler.parseToAst(sql);
+        ctx = withWriteObservation(ctx, WritePolicyObservation.capture(observed, compiler, statement));
         if (writeModeOverride != null && ctx.dmlWriteContext().isPresent()) {
             ctx = ctx.withDmlWriteContext(new DmlWriteContext(
                     ctx.dmlWriteContext().get().targetTable(), writeModeOverride,
                     ctx.dmlWriteContext().get().partitionSpec(), ctx.dmlWriteContext().get().policyObservation()));
         }
-        return schedulingEngine.startQuery(sm, session, plan, ctx);
+        return schedulingEngine.startQuery(sm, session, plan, ctx, statement);
     }
 
     /**
@@ -237,7 +231,8 @@ final class QueryPipelineExecutor {
     CompletionStage<DispatchResult> startDmlStatement(QueryStateMachine sm,
             org.pangrova.parser.api.ast.Statement stmt, QuerySession session) {
         SqlCompiler compiler = securityPolicyApplier.getCompiler().forSession(
-                org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(session));
+                org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(session),
+                session.publicationRevision());
 
         // A MERGE must be dispatched as one Native write and one catalog commit.
         if (stmt instanceof MergeStatement merge) {
@@ -262,9 +257,7 @@ final class QueryPipelineExecutor {
         var observed = securityPolicyApplier.applyPoliciesObserved(
                 compiler.compileStatementToPlannedQuery(stmt), session);
         PlannedQuery plan = observed.plan();
-        // The dispatch context is reparsed for enrichment and retry. Calcite's
-        // SqlNode unparser emits VALUES ROW(...), which the Pangrova SQL grammar
-        // does not accept; preserve the source dialect when serializing the AST.
+        // Keep the source dialect in the dispatch context for retries and diagnostics.
         String sqlForRetry = new org.pangrova.parser.format.AstPrinter().print(stmt);
         DispatchQueryContext ctx = new DispatchQueryContext(
                 Map.of(), sqlForRetry, compiler);
@@ -272,7 +265,7 @@ final class QueryPipelineExecutor {
         ctx = withWriteObservation(ctx, WritePolicyObservation.capture(observed, compiler, stmt));
         ctx = adjustNativeDmlWriteMode(stmt, ctx);
 
-        return schedulingEngine.startQuery(sm, session, plan, ctx);
+        return schedulingEngine.startQuery(sm, session, plan, ctx, stmt);
     }
 
     private static DispatchQueryContext adjustNativeDmlWriteMode(
@@ -378,45 +371,68 @@ final class QueryPipelineExecutor {
     }
 
     private CompletionStage<DispatchResult> executeDistributedDispatch(QueryExecutionContext ctx) {
-        PlannedQuery plan = (PlannedQuery) ctx.compiledPlan();
         return schedulingEngine.startQuery(
-                ctx.stateMachine(), ctx.session(), plan,
-                new DispatchQueryContext(ctx.snapshotOverrides(), ctx.sql(), ctx.compiler(), ctx.preOptColumnNames()));
+                ctx.stateMachine(), ctx.session(), ctx.compiledPlan(),
+                new DispatchQueryContext(ctx.snapshotOverrides(), ctx.sql(), ctx.compiler(), ctx.preOptColumnNames()),
+                ctx.parsedSql() == null ? null : ctx.parsedSql().statement());
     }
 
     private CompilationPhase.TimeTravelResult extractTimeTravelFromSql(
-            String sql, SqlCompiler compiler, QuerySession context) {
-        String expanded = viewExpander.expand(sql, compiler, context);
+            Analysis parsed, QuerySession context) {
+        var expanded = viewExpander.expand(parsed, context);
         return TimeTravelExtractor.extract(expanded, context,
                 (catalog, schema, table, refType, refName) -> resolveRefSnapshot(
                         context, catalog, schema, table, refType, refName));
     }
 
-    private java.util.OptionalLong resolveRefSnapshot(
+    private Optional<TimeTravelExtractor.ResolvedReference> resolveRefSnapshot(
             QuerySession context,
             String catalog, String schema, String table,
             String refType, String refName) {
         if (catalogRegistry == null) {
-            return java.util.OptionalLong.empty();
+            return Optional.empty();
         }
         String selectedCatalog = canonicalName(catalog, catalogRegistry.listCatalogNames());
         if (selectedCatalog == null) {
-            return java.util.OptionalLong.empty();
+            return Optional.empty();
         }
         securityPolicyApplier.requireBranchRead(selectedCatalog, schema, table, context);
         catalogRegistry.requireVisibleDescriptor(selectedCatalog, context.tenantId());
         var session = org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(
                 context, selectedCatalog, schema);
         var metadata = catalogRegistry.metadataForQuery(selectedCatalog, session);
+        boolean exactLookup = metadata.supportsExactTableNameLookup()
+                && schema.indexOf('.') < 0 && table.indexOf('$') < 0;
+        if (exactLookup) {
+            var discovery = metadata.discoverRead(session, new SchemaTableName(schema, table));
+            if (discovery != null) {
+                return selectReference(new QualifiedTableName(selectedCatalog, schema, table),
+                        discovery, refType, refName);
+            }
+        }
         String selectedSchema = canonicalName(schema, metadata.listSchemaNames(session));
-        if (selectedSchema == null) return java.util.OptionalLong.empty();
+        if (selectedSchema == null) return Optional.empty();
         session = org.pangrova.coordinator.query.session.SessionContextConverter.toConnectorSession(
                 context, selectedCatalog, selectedSchema);
         String selectedTable = canonicalName(table, metadata.listTables(session, java.util.Optional.of(selectedSchema))
                 .stream().map(SchemaTableName::table).toList());
-        if (selectedTable == null) return java.util.OptionalLong.empty();
-        return metadata.resolveRefSnapshotId(session,
-                new SchemaTableName(selectedSchema, selectedTable), refType, refName);
+        if (selectedTable == null) return Optional.empty();
+        var tableName = new SchemaTableName(selectedSchema, selectedTable);
+        var qualified = new QualifiedTableName(selectedCatalog, selectedSchema, selectedTable);
+        if (exactLookup) {
+            var discovery = metadata.discoverRead(session, tableName);
+            return discovery == null ? Optional.empty() : selectReference(qualified, discovery, refType, refName);
+        }
+        var snapshot = metadata.resolveRefSnapshotId(session, tableName, refType, refName);
+        return snapshot.isEmpty() ? Optional.empty() : Optional.of(
+                new TimeTravelExtractor.ResolvedReference(snapshot.getAsLong(), qualified, Optional.empty()));
+    }
+
+    private static Optional<TimeTravelExtractor.ResolvedReference> selectReference(
+            QualifiedTableName table, ConnectorReadDiscovery discovery, String refType, String refName) {
+        var snapshot = discovery.referenceSnapshot().apply(refType, refName);
+        return snapshot.isEmpty() ? Optional.empty() : Optional.of(
+                new TimeTravelExtractor.ResolvedReference(snapshot.getAsLong(), table, Optional.of(discovery)));
     }
 
     private static String canonicalName(String requested, List<String> names) {

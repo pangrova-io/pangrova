@@ -37,17 +37,21 @@ public final class QueryRetentionScheduler {
     private final QueryRegistry queries;
     private final Predicate<String> hasPendingCompletion;
     private final Runnable retryPendingCompletions;
+    private final Runnable acceptanceRetentionSweep;
+    private final java.util.concurrent.atomic.AtomicBoolean acceptanceSweepRunning =
+            new java.util.concurrent.atomic.AtomicBoolean();
 
     /** Borrows the authoritative concurrent registry; eviction must update that same registry. */
     public QueryRetentionScheduler(QueryRegistry queries,
                           Predicate<String> hasPendingCompletion,
-                          Runnable retryPendingCompletions) {
+                          Runnable retryPendingCompletions, Runnable acceptanceRetentionSweep) {
         this.queries = queries;
         this.hasPendingCompletion = hasPendingCompletion;
         this.retryPendingCompletions = retryPendingCompletions;
+        this.acceptanceRetentionSweep = acceptanceRetentionSweep;
     }
 
-    /** Retries completion and evicts by creation-time retention only after terminal effects and physical cleanup. */
+    /** Retries completion, evicts completed projections, and sweeps durable acceptances on the retention cadence. */
     public int cleanupTerminalQueries(Duration retention) {
         retryPendingCompletions.run();
         Instant cutoff = Instant.now().minus(retention);
@@ -55,7 +59,19 @@ public final class QueryRetentionScheduler {
         if (removed > 0) {
             LOG.info("event=query_cleanup removed={} retention={}", removed, retention);
         }
+        sweepExpiredAcceptances();
         return removed;
+    }
+
+    private void sweepExpiredAcceptances() {
+        if (!acceptanceSweepRunning.compareAndSet(false, true)) return;
+        try {
+            acceptanceRetentionSweep.run();
+        } catch (RuntimeException failure) {
+            LOG.warn("event=query_acceptance_retention_error", failure);
+        } finally {
+            acceptanceSweepRunning.set(false);
+        }
     }
 
     /** Registers retention and completion-retry timers on caller-owned executors. */

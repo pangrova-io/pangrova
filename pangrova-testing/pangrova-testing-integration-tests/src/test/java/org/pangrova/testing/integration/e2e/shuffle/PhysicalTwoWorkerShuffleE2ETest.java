@@ -1,5 +1,11 @@
 package org.pangrova.testing.integration.e2e.shuffle;
 
+import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.data.GenericRecord;
+import org.apache.iceberg.data.Record;
+import org.apache.iceberg.data.parquet.GenericParquetWriter;
+import org.apache.iceberg.parquet.Parquet;
 import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -8,6 +14,8 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.api.TestReporter;
 import org.pangrova.connector.api.metadata.table.TableStatistics;
+import org.pangrova.connector.iceberg.IcebergMetadata;
+import org.pangrova.connector.iceberg.write.IcebergDeleteWriter;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.protocol.v2.BuildKeyRange;
 import org.pangrova.protocol.v2.BuildKeySummary;
@@ -16,6 +24,8 @@ import org.pangrova.protocol.v2.OperatorStats;
 import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.v2.WorkerExecutionIdentity;
 import org.pangrova.query.profiling.enums.RuntimeFilterOutcome;
+import org.pangrova.query.profiling.OperatorStatsSource.Attempt;
+import org.pangrova.query.profiling.OperatorStatsSource.ObjectReads;
 import org.pangrova.query.profiling.OperatorStatsSource.RuntimeFilterWait;
 import org.pangrova.scheduler.api.enums.HealthState;
 import org.pangrova.types.value.TypedRow;
@@ -35,6 +45,7 @@ import java.util.Set;
 import java.util.StringJoiner;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.LongStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -510,9 +521,9 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
         var empty = executeWithDrainedReports(projected + " JOIN " + allNull + " b ON " + condition);
         assertThat(empty.rows()).isEmpty();
         assertThat(empty.sourceSplits(probe)).isZero();
-        assertThat(empty.runtimeFilterWait()).isNotNull();
-        assertThat(empty.runtimeFilterWait().outcome()).isEqualTo(RuntimeFilterOutcome.EMPTY_BUILD);
-        assertThat(empty.runtimeFilterWait().rangeCount()).isZero();
+        var emptyWait = empty.onlyRuntimeFilterWait();
+        assertThat(emptyWait.outcome()).isEqualTo(RuntimeFilterOutcome.EMPTY_BUILD);
+        assertThat(emptyWait.rangeCount()).isZero();
         assertThat(empty.buildSummaries()).singleElement().satisfies(summary ->
                 assertThat(summary.getRangesList()).isEmpty());
     }
@@ -547,9 +558,8 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
                 .containsExactly(102L, 102L, 103L, 135L, 136L);
         assertThat(unpruned.rows()).usingRecursiveComparison().isEqualTo(pruned.rows());
         assertThat(unpruned.buildSummaries()).isEmpty();
-        assertThat(unpruned.runtimeFilterWait()).isNull();
-        var wait = pruned.runtimeFilterWait();
-        assertThat(wait).isNotNull();
+        assertThat(unpruned.runtimeFilterWaits()).isEmpty();
+        var wait = pruned.onlyRuntimeFilterWait();
         assertThat(wait.outcome()).isEqualTo(RuntimeFilterOutcome.APPLIED);
         assertThat(wait.rangeCount()).isEqualTo(2);
         assertThat(wait.buildStageId()).isNotEqualTo(wait.probeStageId());
@@ -609,8 +619,7 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
         assertThat(unpruned.sourceSplits(probe)).isEqualTo(40L);
         assertThat(pruned.sourceSplits(probe)).isEqualTo(3L);
         assertThat(pruned.sourceReadBytes(probe)).isPositive().isLessThan(unpruned.sourceReadBytes(probe));
-        assertThat(pruned.runtimeFilterWait()).isNotNull();
-        assertThat(pruned.runtimeFilterWait().outcome()).isEqualTo(RuntimeFilterOutcome.APPLIED);
+        assertThat(pruned.onlyRuntimeFilterWait().outcome()).isEqualTo(RuntimeFilterOutcome.APPLIED);
         assertThat(pruned.buildSummaries()).singleElement().satisfies(summary ->
                 assertThat(summary.getRangesList()).containsExactly(buildKeyRange(2, 2), buildKeyRange(35, 36)));
         org.slf4j.LoggerFactory.getLogger(PhysicalTwoWorkerShuffleE2ETest.class).info(
@@ -642,8 +651,9 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
         assertThat(tagOnly.rows()).usingRecursiveComparison().isEqualTo(idOnly.rows());
         assertThat(both.sourceSplits(probe)).isEqualTo(6L);
         assertThat(both.buildSummaries()).hasSize(2);
-        assertThat(both.runtimeFilterWait().outcome()).isEqualTo(RuntimeFilterOutcome.APPLIED);
-        assertThat(both.runtimeFilterWait().rangeCount()).isEqualTo(5);
+        var wait = both.onlyRuntimeFilterWait();
+        assertThat(wait.outcome()).isEqualTo(RuntimeFilterOutcome.APPLIED);
+        assertThat(wait.rangeCount()).isEqualTo(5);
         assertThat(idOnly.sourceSplits(probe)).isEqualTo(15L);
         assertThat(tagOnly.sourceSplits(probe)).isEqualTo(16L);
         assertThat(both.sourceReadBytes(probe)).isPositive()
@@ -653,8 +663,62 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
             var query = sample.getValue();
             logger.info("event=multi_key_probe variant={} rows={} splits={} readerBytes={} profile={} summaries={}",
                     sample.getKey(), query.rows().size(), query.sourceSplits(probe), query.sourceReadBytes(probe),
-                    query.runtimeFilterWait(), query.buildSummaries());
+                    query.runtimeFilterWaits(), query.buildSummaries());
         }
+    }
+
+    @Test
+    void independentJoinBranchesPruneTheirOwnProbeSplits() {
+        String probe = orders + "_branch_filter_probe";
+        String build = orders + "_branch_filter_build";
+        sqlRunner.executeDdl("CREATE TABLE " + probe + " (id BIGINT) PARTITIONED BY (id)");
+        sqlRunner.executeDdl("CREATE TABLE " + build + " (id BIGINT, cohort INTEGER)");
+        String probeValues = java.util.stream.IntStream.range(0, 40)
+                .mapToObj(id -> "(" + id + ")")
+                .collect(java.util.stream.Collectors.joining(", "));
+        sqlRunner.execute("INSERT INTO " + probe + " VALUES " + probeValues);
+        sqlRunner.execute("INSERT INTO " + build + " VALUES (2, 1), (2, 1), (3, 1), (35, 2), (36, 2), (NULL, 2)");
+
+        String query = """
+                SELECT 1 AS branch_id, COUNT(*) AS matches FROM %s p JOIN %s b ON %s = b.id WHERE b.cohort = 1
+                UNION ALL
+                SELECT 2 AS branch_id, COUNT(*) AS matches FROM %s p JOIN %s b ON %s = b.id WHERE b.cohort = 2
+                ORDER BY branch_id
+                """;
+        var pruned = executeWithDrainedReports(query.formatted(probe, build, "p.id", probe, build, "p.id"));
+        var unpruned = executeWithDrainedReports(query.formatted(probe, build, "ABS(p.id)", probe, build, "ABS(p.id)"));
+        assertThat(pruned.rows()).extracting(row -> row.getLong("branch_id"), row -> row.getLong("matches"))
+                .containsExactly(org.assertj.core.groups.Tuple.tuple(1L, 3L),
+                        org.assertj.core.groups.Tuple.tuple(2L, 2L));
+        assertThat(unpruned.rows()).usingRecursiveComparison().isEqualTo(pruned.rows());
+
+        long fullSplits = unpruned.sourceSplits(probe);
+        long filteredSplits = pruned.sourceSplits(probe);
+        long fullBytes = unpruned.sourceReadBytes(probe);
+        long filteredBytes = pruned.sourceReadBytes(probe);
+        org.slf4j.LoggerFactory.getLogger(PhysicalTwoWorkerShuffleE2ETest.class).info(
+                "event=independent_probe_filter_evidence fullSplits={} filteredSplits={} fullBytes={} filteredBytes={}",
+                fullSplits, filteredSplits, fullBytes, filteredBytes);
+        assertThat(fullSplits).isEqualTo(80);
+        assertThat(filteredSplits).isEqualTo(4);
+        assertThat(filteredBytes).isPositive().isLessThan(fullBytes);
+        assertThat(unpruned.runtimeFilterWaits()).isEmpty();
+        assertThat(pruned.runtimeFilterWaits()).hasSize(2).allSatisfy(wait -> {
+            assertThat(wait.outcome()).isEqualTo(RuntimeFilterOutcome.APPLIED);
+            assertThat(wait.rangeCount()).isOne();
+        });
+        assertThat(pruned.runtimeFilterWaits()).extracting(RuntimeFilterWait::probeStageId).doesNotHaveDuplicates();
+    }
+
+    @Test
+    void topLevelUnionPaginationUsesTheGlobalOrder() {
+        String union = "SELECT id FROM " + orders + " WHERE id IN (1, 4) "
+                + "UNION ALL SELECT id FROM " + orders + " WHERE id IN (2, 3)";
+        var page = executeWithDrainedReports(union + " ORDER BY id DESC LIMIT 2 OFFSET 1");
+        var tail = executeWithDrainedReports(union + " ORDER BY id OFFSET 2");
+
+        assertThat(page.rows()).extracting(row -> row.getLong("id")).containsExactly(3L, 2L);
+        assertThat(tail.rows()).extracting(row -> row.getLong("id")).containsExactly(3L, 4L);
     }
 
     @Test
@@ -729,6 +793,106 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
         }
     }
 
+    @Test
+    void oneIcebergParquetObjectUsesBothScanWorkersAndKeepsFileGlobalDeletes(TestReporter metrics)
+            throws Exception {
+        String name = "iceberg_ranges_" + Long.toHexString(System.nanoTime());
+        String source = CATALOG + "." + SCHEMA + "." + name;
+        sqlRunner.executeDdl("CREATE TABLE " + source + " (id BIGINT, payload VARCHAR)"
+                + " TBLPROPERTIES ('format-version' = '2')");
+        try {
+            var metadata = (IcebergMetadata) metadataBootstrap.catalogRegistry().getCatalog(CATALOG)
+                    .getMetadata(authenticatedCatalogSession(CATALOG));
+            var table = metadata.catalog().loadTable(TableIdentifier.of(SCHEMA, name));
+            table.updateProperties().set(TableProperties.SPLIT_SIZE, Long.toString(Long.MAX_VALUE)).commit();
+            var writer = Parquet.writeData(table.io().newOutputFile(table.location() + "/data/one.parquet"))
+                    .forTable(table).withSpec(table.spec()).createWriterFunc(GenericParquetWriter::create)
+                    .set(TableProperties.PARQUET_COMPRESSION, "uncompressed")
+                    .set(TableProperties.PARQUET_ROW_GROUP_SIZE_BYTES, "16384")
+                    .set(TableProperties.PARQUET_ROW_GROUP_CHECK_MIN_RECORD_COUNT, "1")
+                    .set(TableProperties.PARQUET_ROW_GROUP_CHECK_MAX_RECORD_COUNT, "1")
+                    .<Record>build();
+            int rowCount = 4096;
+            try (writer) {
+                for (long id = 0; id < rowCount; id++) {
+                    var row = GenericRecord.create(table.schema());
+                    row.setField("id", id);
+                    row.setField("payload", Long.toHexString(id).repeat(48));
+                    writer.write(row);
+                }
+            }
+            var data = writer.toDataFile();
+            table.newAppend().appendFile(data).commit();
+            assertThat(data.splitOffsets()).hasSizeGreaterThan(3);
+            assertThat(data.fileSizeInBytes()).isGreaterThan(96 * 1024L);
+            var deletes = IcebergDeleteWriter.buildPositionDeleteFile(table, data.location(), List.of(5L, 3000L));
+            table.newRowDelta().addDeletes(deletes).commit();
+            try (var files = table.newScan().planFiles()) {
+                assertThat(files).singleElement().satisfies(file -> {
+                    assertThat(file.file().splitOffsets()).isEqualTo(data.splitOffsets());
+                    assertThat(file.deletes()).hasSize(1);
+                });
+            }
+
+            String sql = "SELECT id FROM " + source + " ORDER BY id";
+            var whole = executeWithDrainedReports(sql);
+            assertThat(whole.sourceSplits(source)).isOne();
+
+            table.updateProperties().set(TableProperties.SPLIT_SIZE, "49152").commit();
+            var ranged = executeWithDrainedReports(sql);
+            assertThat(ranged.sourceSplits(source)).isGreaterThan(1);
+            assertThat(ranged.reports()).filteredOn(TaskReport::hasNativeResultDelivery)
+                    .singleElement().satisfies(report -> {
+                        var delivery = report.getNativeResultDelivery();
+                        assertThat(delivery.getPayloadBatches()).isPositive();
+                        assertThat(delivery.hasFirstPayloadNanos()).isTrue();
+                        assertThat(delivery.getFirstPayloadNanos()).isBetween(0L, delivery.getProducerEofNanos());
+                        assertThat(delivery.getTransportCompleteNanos()).isGreaterThanOrEqualTo(
+                                delivery.getProducerEofNanos());
+                        assertThat(ranged.attempts()).filteredOn(attempt ->
+                                attempt.taskId().equals(report.getAttempt().getTaskId()))
+                                .singleElement().satisfies(attempt -> assertThat(attempt.nativeResultDelivery())
+                                        .isEqualTo(new org.pangrova.query.profiling.OperatorStatsSource.ResultDelivery(
+                                                delivery.getPayloadBatches(), delivery.getFirstPayloadNanos(),
+                                                delivery.getProducerEofNanos(), delivery.getTransportCompleteNanos())));
+                    });
+            var scanReports = ranged.sourceReports(source);
+            assertThat(scanReports).extracting(report -> report.getAttempt().getWorkerExecutionIdentity())
+                    .contains(workerManager.getWorker(WORKER_ID).workerExecutionIdentity().toProto(),
+                            workerManager.getWorker(SECOND_WORKER_ID).workerExecutionIdentity().toProto());
+            var profileReads = ranged.attempts().stream().filter(attempt -> attempt.nativeObjectReads() != null)
+                    .collect(java.util.stream.Collectors.toMap(Attempt::taskId, Attempt::nativeObjectReads));
+            assertThat(scanReports).anySatisfy(report -> {
+                assertThat(report.getNativeObjectReads().getReturnedBytes()).isPositive();
+                assertThat(report.getNativeObjectReads().getPayloadCalls()).isPositive();
+            });
+            assertThat(scanReports).allSatisfy(report -> {
+                assertThat(report.hasNativeObjectReads()).isTrue();
+                var read = report.getNativeObjectReads();
+                assertThat(read.getRequestedBytes()).isEqualTo(report.getUsage().getObjectStoreReadBytes());
+                assertThat(read.getReturnedBytes()).isBetween(0L, read.getRequestedBytes());
+                assertThat(read.getPayloadCalls() > 0).isEqualTo(read.getReturnedBytes() > 0);
+                assertThat(read.getMetadataCalls()).isPositive();
+                assertThat(read.getFailedCalls()).isZero();
+                assertThat(profileReads).containsEntry(report.getAttempt().getTaskId(),
+                        new ObjectReads(read.getRequestedBytes(), read.getReturnedBytes(), read.getPayloadCalls(),
+                                read.getMetadataCalls(), read.getFailedCalls(), 0, 0, 0));
+                assertThat(read.getS3SdkAttempts()).isZero();
+                assertThat(read.getS3SdkRetries()).isZero();
+                assertThat(read.getS3ResponseBodyBytes()).isZero();
+            });
+            var expected = LongStream.range(0, rowCount).filter(id -> id != 5 && id != 3000).boxed().toList();
+            assertThat(whole.rows()).extracting(row -> row.getLong("id")).containsExactlyElementsOf(expected);
+            assertThat(ranged.rows()).extracting(row -> row.getLong("id")).containsExactlyElementsOf(expected);
+            metrics.publishEntry(Map.of("manifest_row_groups", Integer.toString(data.splitOffsets().size()),
+                    "range_splits", Long.toString(ranged.sourceSplits(source)),
+                    "whole_file_requested_bytes", Long.toString(whole.sourceReadBytes(source)),
+                    "range_requested_bytes", Long.toString(ranged.sourceReadBytes(source))));
+        } finally {
+            sqlRunner.executeDdl("DROP TABLE " + source);
+        }
+    }
+
     private static BuildKeyRange buildKeyRange(long minimum, long maximum) {
         return BuildKeyRange.newBuilder().setMinimum(minimum).setMaximum(maximum).build();
     }
@@ -754,18 +918,22 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
                         assertThat(queryManager.getStateMachines().get(queryId).physicalCleanupApplied()).isTrue();
                         assertThat(queryProfileService().getProfile(queryId, E2E_USER_PRINCIPAL)).isPresent();
                     });
-            var graph = queryProfileService().getProfile(queryId, E2E_USER_PRINCIPAL).orElseThrow()
-                    .executionGraph();
+            var profile = queryProfileService().getProfile(queryId, E2E_USER_PRINCIPAL).orElseThrow();
             return new DrainedQuery(rows, capture.get().values().stream()
                     .filter(report -> report.getAttempt().getQueryOrJobId().equals(queryId)).toList(),
-                    graph.runtimeFilterWait());
+                    profile.executionGraph().runtimeFilterWaits(), profile.attempts());
         } finally {
             capture.set(null);
         }
     }
 
     private record DrainedQuery(List<TypedRow> rows, List<TaskReport> reports,
-            RuntimeFilterWait runtimeFilterWait) {
+            List<RuntimeFilterWait> runtimeFilterWaits, List<Attempt> attempts) {
+        RuntimeFilterWait onlyRuntimeFilterWait() {
+            assertThat(runtimeFilterWaits).hasSize(1);
+            return runtimeFilterWaits.get(0);
+        }
+
         List<BuildKeySummary> buildSummaries() {
             return reports.stream().map(TaskReport::getNativeTaskStats)
                     .flatMap(stats -> stats.getBuildKeySummariesList().stream()).toList();
@@ -783,10 +951,13 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
                     .mapToLong(OperatorStats::getOutputBytes).sum();
         }
 
-        long sourceReadBytes(String source) {
+        List<TaskReport> sourceReports(String source) {
             return reports.stream().filter(report -> report.getCoverage().getSourceSnapshotsList().stream()
-                            .anyMatch(coverage -> coverage.getSourceId().equals(source)))
-                    .mapToLong(report -> report.getUsage().getObjectStoreReadBytes()).sum();
+                    .anyMatch(coverage -> coverage.getSourceId().equals(source))).toList();
+        }
+
+        long sourceReadBytes(String source) {
+            return sourceReports(source).stream().mapToLong(report -> report.getUsage().getObjectStoreReadBytes()).sum();
         }
     }
 

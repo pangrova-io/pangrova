@@ -511,7 +511,7 @@ class DynamicTableMaterializationE2ETest extends SqlE2ETestBase {
     }
 
     @Test
-    void logicalGrantsAuthorizeManageAndCreationButNeverExposePhysicalGenerations() {
+    void logicalGrantsAuthorizeManageAndCreationButNeverExposePhysicalGenerations() throws Exception {
         String suffix = Long.toHexString(System.nanoTime());
         String sourceTable = "dt_source_" + suffix;
         String logicalTable = "dt_rollup_" + suffix;
@@ -554,8 +554,7 @@ class DynamicTableMaterializationE2ETest extends SqlE2ETestBase {
                     .message()).contains("SECURITY-0002");
         }
 
-        assertThat(sqlRunner.executeExpectingError("ALTER DYNAMIC TABLE " + logical + " REFRESH")
-                .message()).contains("HTTP 403", "SECURITY-0002");
+        assertAcceptedAuthorizationFailure("ALTER DYNAMIC TABLE " + logical + " REFRESH", "ALTER", logical);
         assertThat(published(logical).physicalTable().qualifiedName()).isEqualTo(originalHead);
         assertIds(logical, 1L, 2L);
 

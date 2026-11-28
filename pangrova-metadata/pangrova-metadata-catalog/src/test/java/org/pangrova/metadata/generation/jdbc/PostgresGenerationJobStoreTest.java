@@ -220,6 +220,8 @@ class PostgresGenerationJobStoreTest {
             }
             assertThatThrownBy(() -> inputs.loadPages(connection, TENANT, "job-1"))
                     .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("SHA-256 differs");
+            assertThatThrownBy(() -> store.createJob(job(2), spec, expectedPages))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("SHA-256 differs");
             try (var statement = connection.prepareStatement(
                     "UPDATE artifact_build_page_sources SET split_bytes=NULL "
                             + "WHERE tenant_id=? AND job_id=? AND page_id=?")) {
@@ -917,7 +919,10 @@ class PostgresGenerationJobStoreTest {
         var miswired = new org.pangrova.persistence.jdbc.api.generation.GenerationTransactionAuthority() {
             @Override
             public AuthorizedDispatch authorize(java.sql.Connection connection, String tenant, String job) {
-                return new AuthorizedDispatch(dispatchSpec("tenant-2"), Set.of("artifact_builder"));
+                var spec = dispatchSpec("tenant-2");
+                var stored = new org.pangrova.persistence.jdbc.api.generation.GenerationTransactionInputs.StoredDispatch(
+                        spec, org.pangrova.generation.codec.execution.GenerationStageGraphCodec.sha256(spec.stageGraph()));
+                return new AuthorizedDispatch(stored, Set.of("artifact_builder"));
             }
             @Override
             public void requireCurrent(java.sql.Connection connection, String tenant, String principal,

@@ -5,6 +5,8 @@ import org.pangrova.persistence.query.api.enums.WriteCommitState;
 import org.pangrova.persistence.query.postgresql.transaction.JdbcWriteCommitJournal;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.metadata.testinfra.MetadataWriteReceiptFixtures;
 import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import org.pangrova.persistence.file.api.claim.CopyFileClaim;
@@ -54,8 +56,7 @@ class JdbcCopyFilePublicationPostgresTest {
         journal.purge(intent.queryId());
         assertThat(journal.getEntry(intent.queryId())).isEmpty();
 
-        // Replaying after retirement must read the immutable row first. Its INSERT
-        // trigger correctly rejects a new publication without a live journal intent.
+        // A retired redo must still resolve the proof without firing the admission trigger.
         new JdbcWriteCommitJournal(source).recordCopyFilePublication(intent, proof);
         assertThat(journal.findCopyFilePublication(intent)).contains(proof);
         assertThatThrownBy(() -> journal.recordCopyFilePublication(intent, publication(intent, 74L)))
@@ -94,19 +95,24 @@ class JdbcCopyFilePublicationPostgresTest {
         assertThat(new JdbcWriteCommitJournal(source).findCopyFilePublication(intent)).isEmpty();
     }
 
-    @Test
-    void competingSnapshotProofsHaveOneDurableWinner() throws Exception {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void competingSnapshotProofsResolveOneDurableWinner(boolean identical) throws Exception {
         DataSource source = SharedPostgresContainer.migratedDataSource("copy_publish_race");
         WriteCommitEntry intent = admittedIntent(source, "racing-execution");
         var executor = Executors.newFixedThreadPool(2);
         CountDownLatch start = new CountDownLatch(1);
         try {
             var first = executor.submit(() -> recordAfter(source, intent, 81L, start));
-            var second = executor.submit(() -> recordAfter(source, intent, 82L, start));
+            var second = executor.submit(() -> recordAfter(source, intent, identical ? 81L : 82L, start));
             start.countDown();
             boolean firstWon = first.get(10, TimeUnit.SECONDS);
             boolean secondWon = second.get(10, TimeUnit.SECONDS);
-            assertThat(firstWon).isNotEqualTo(secondWon);
+            if (identical) {
+                assertThat(firstWon && secondWon).isTrue();
+            } else {
+                assertThat(firstWon).isNotEqualTo(secondWon);
+            }
             assertThat(new JdbcWriteCommitJournal(source).findCopyFilePublication(intent).orElseThrow()
                     .snapshotId()).isEqualTo(firstWon ? 81L : 82L);
         } finally {
@@ -123,8 +129,8 @@ class JdbcCopyFilePublicationPostgresTest {
         JdbcWriteCommitJournal journal = new JdbcWriteCommitJournal(source);
 
         assertThatThrownBy(() -> journal.recordIntent(intent))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("durable file admission");
+                .isInstanceOf(org.pangrova.persistence.query.api.exception.JournalWriteException.class)
+                .rootCause().hasMessageContaining("COPY journal intent differs from durable file admission");
         assertThat(new JdbcCopyFileClaimStore(source).claim(claim))
                 .isEqualTo(CopyFileClaimResult.ACQUIRED);
         journal.recordIntent(intent);

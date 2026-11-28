@@ -60,7 +60,12 @@ try (Connection conn = DriverManager.getConnection(url, props);
 
 ### Forward-only results
 
-JDBC uses the accepting Coordinator endpoint for status and cancellation.
+JDBC uses the accepting Coordinator for live status and cancellation. If that
+Coordinator becomes unavailable, an authenticated query with a signed receipt can
+recover its terminal outcome through another configured ingress or the same
+ingress after restart. JDBC throws a `SQLException` when the query succeeded but
+the original Flight stream is unavailable and the client has yet to consume it.
+A recovered resultless statement retains its success outcome.
 `executeQuery()` returns after the result schema and first data batch are
 available, or Flight reaches EOF. `ResultSet.next()` reads subsequent batches
 as needed. JDBC validates the Coordinator's terminal outcome before returning

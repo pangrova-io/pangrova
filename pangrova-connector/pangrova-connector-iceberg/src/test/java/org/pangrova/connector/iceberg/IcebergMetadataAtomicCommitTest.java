@@ -190,7 +190,7 @@ class IcebergMetadataAtomicCommitTest {
     }
 
     @Test
-    void recoveryReplayFindsFingerprintInSnapshotLineageAndDoesNotAppendTwice() {
+    void recoveryReplayFindsFingerprintInSnapshotLineageAndDoesNotAppendTwice() throws Exception {
         Table table = createTable("recover_once");
         IcebergOutputTableHandle handle = beginInsert("recover_once");
         byte[] fragment = buildAppendFragmentBytes(table, "recover-once.parquet", 7, 700);
@@ -219,10 +219,7 @@ class IcebergMetadataAtomicCommitTest {
         int snapshotsBeforeReplay = countSnapshots(table);
         long latestSnapshot = table.currentSnapshot().snapshotId();
 
-        IcebergOutputTableHandle rebuilt = (IcebergOutputTableHandle)
-                metadata.reconstructOutputHandle(
-                        SESSION, new SchemaTableName(NAMESPACE, "recover_once"),
-                        "INSERT", handle.baseSnapshotId());
+        IcebergOutputTableHandle rebuilt = decodeJournaledHandle(context);
         metadata.finishDistributedWrite(SESSION, rebuilt, List.of(fragment), context);
 
         table.refresh();
@@ -304,6 +301,48 @@ class IcebergMetadataAtomicCommitTest {
         assertThat(replayed.get()).isNotNull();
         assertThat(replayed.get().snapshotId()).isEqualTo(String.valueOf(committedSnapshot));
         assertThat(replayed.get().commitFingerprint()).isEqualTo(context.commitFingerprint());
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {0, 1})
+    void requiredEmptyInsertReplaysNotificationAfterFailure(int fragmentCount) throws Exception {
+        Table table = createTable("empty_replay_event");
+        IcebergOutputTableHandle handle = beginInsert("empty_replay_event");
+        var fragments = java.util.Collections.nCopies(fragmentCount, "[]".getBytes(StandardCharsets.UTF_8));
+        var context = context("q-empty-replay-event", handle, fragments);
+        AtomicInteger deliveries = new AtomicInteger();
+        AtomicReference<org.pangrova.connector.api.index.CommitEvent> replayed = new AtomicReference<>();
+        metadata.registerCommitListener(event -> {
+            if (deliveries.incrementAndGet() == 1) {
+                throw new IllegalStateException("commit log unavailable");
+            }
+            replayed.set(event);
+        });
+
+        assertThatThrownBy(() -> metadata.finishDistributedWriteWithPublication(SESSION, handle, fragments, context))
+                .isInstanceOf(CommitNotificationException.class)
+                .hasCauseInstanceOf(IllegalStateException.class);
+        table.refresh();
+        var committed = table.currentSnapshot();
+        assertThat(committed).isNotNull();
+
+        table.newAppend().appendFile(DataFiles.builder(table.spec())
+                .withPath(table.location() + "/data/later.parquet")
+                .withFormat(FileFormat.PARQUET).withRecordCount(1).withFileSizeInBytes(100)
+                .build()).commit();
+        var receipt = metadata.finishDistributedWriteWithPublication(SESSION, handle, fragments, context);
+        assertThat(deliveries).hasValue(2);
+        assertThat(replayed.get()).isNotNull();
+        assertThat(replayed.get().snapshotId()).isEqualTo(String.valueOf(committed.snapshotId()));
+        assertThat(replayed.get().commitFingerprint()).isEqualTo(context.commitFingerprint());
+        assertThat(replayed.get().addedFiles()).isEmpty();
+        assertThat(receipt.publishedVersion()).isEqualTo(committed.snapshotId());
+        try (var input = table.io().newInputFile(committed.manifestListLocation()).newStream()) {
+            assertThat(receipt.manifestSha256()).isEqualTo(
+                    java.security.MessageDigest.getInstance("SHA-256").digest(input.readAllBytes()));
+        }
+        table.refresh();
+        assertThat(countSnapshots(table)).isEqualTo(2);
     }
 
     @Test
@@ -469,7 +508,7 @@ class IcebergMetadataAtomicCommitTest {
     // --- helpers ---
 
     @Test
-    void abortDistributedWrite_deletesStagedFilesAndCreatesNoSnapshot() throws Exception {
+    void abortWithoutADurableCatalogBarrierPreservesStagedFilesAndCreatesNoSnapshot() throws Exception {
         Table table = createTable("staged_abort");
         int snapshotsBefore = countSnapshots(table);
         IcebergOutputTableHandle handle = beginInsert("staged_abort");
@@ -483,47 +522,38 @@ class IcebergMetadataAtomicCommitTest {
                 .as("staged file should exist before abort").isTrue();
 
         byte[] fragment = buildAppendFragmentBytes(table, "staged-abort-0.parquet", 5, 1024);
-        metadata.abortDistributedWrite(SESSION, handle, List.of(fragment));
+        var fragments = List.of(fragment);
+        var context = context("staged-abort", handle, fragments);
+        assertThatThrownBy(() -> metadata.abortDistributedWrite(SESSION, handle, fragments, context))
+                .isInstanceOf(UnsupportedOperationException.class);
 
-        // A-EOS-02: abort deletes the staged file and publishes NO snapshot (true 2PC discard).
-        assertThat(table.io().newInputFile(stagedPath).exists())
-                .as("aborted staged file must be deleted").isFalse();
+        assertThat(table.io().newInputFile(stagedPath).exists()).isTrue();
         assertThat(countSnapshots(table))
                 .as("abort must not create a snapshot").isEqualTo(snapshotsBefore);
     }
 
     @Test
-    void reconstructOutputHandle_rebuildsHandleUsableByFinishDistributedWrite() {
-        Table table = createTable("reconstruct_me");
-        // A-COMMIT-01: a recovering coordinator rebuilds the handle from the live table (no original).
-        IcebergOutputTableHandle rebuilt = (IcebergOutputTableHandle) metadata.reconstructOutputHandle(
-                SESSION, new SchemaTableName(NAMESPACE, "reconstruct_me"), "INSERT");
-        assertThat(rebuilt.schemaName()).isEqualTo(NAMESPACE);
-        assertThat(rebuilt.tableName()).isEqualTo("reconstruct_me");
-        assertThat(rebuilt.writeMode()).isEqualTo(IcebergOutputTableHandle.MODE_INSERT);
-        assertThat(rebuilt.targetTable()).contains(new SchemaTableName(NAMESPACE, "reconstruct_me"));
+    void durableOutputHandleCanDriveTheFirstPublication() throws Exception {
+        Table table = createTable("durable_output");
+        var issued = beginInsert("durable_output");
+        var fragments = List.of(buildAppendFragmentBytes(table, "durable-0.parquet", 3, 512));
+        var context = context("durable-output", issued, fragments);
+        var decoded = decodeJournaledHandle(context);
+        assertThat(decoded).isEqualTo(issued);
 
-        // The rebuilt handle must be accepted by finishDistributedWrite (the recovery re-drive path):
-        // committing a worker fragment through it lands exactly one new snapshot.
         int before = countSnapshots(table);
-        byte[] fragment = buildAppendFragmentBytes(table, "reconstructed-0.parquet", 3, 512);
-        metadata.finishDistributedWrite(SESSION, rebuilt, List.of(fragment));
-        assertThat(countSnapshots(table))
-                .as("rebuilt handle drives a real commit").isEqualTo(before + 1);
+        metadata.finishDistributedWrite(SESSION, decoded, fragments, context);
+        table.refresh();
+
+        assertThat(countSnapshots(table)).isEqualTo(before + 1);
     }
 
-    @Test
-    void reconstructOutputHandleRejectsUnknownWriteMode() {
-        createTable("reject_unknown_mode");
-        SchemaTableName table = new SchemaTableName(NAMESPACE, "reject_unknown_mode");
-        for (String mode : List.of("UNKNOWN", "APPEND", "overwrite", "")) {
-            assertThatThrownBy(() -> metadata.reconstructOutputHandle(SESSION, table, mode))
-                    .isInstanceOf(IllegalArgumentException.class)
-                    .hasMessageContaining("write recovery mode");
-        }
-        assertThatThrownBy(() -> metadata.reconstructOutputHandle(SESSION, table, null))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("write recovery mode");
+    private static IcebergOutputTableHandle decodeJournaledHandle(DistributedWriteCommitContext context)
+            throws com.google.protobuf.InvalidProtocolBufferException {
+        var binding = org.pangrova.protocol.v2.WriteOutputBinding.parseFrom(context.writeOutputBinding());
+        var handle = binding.getConnector().getOutputHandle();
+        return (IcebergOutputTableHandle) new IcebergOutputHandleCodec().deserialize(
+                handle.getCodecVersion(), handle.getPayload().toByteArray());
     }
 
     @Test

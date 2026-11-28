@@ -3,17 +3,25 @@ package org.pangrova.coordinator.query.execution.dispatch.dag.runtime;
 import org.apache.calcite.jdbc.JavaTypeFactoryImpl;
 import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.plan.volcano.VolcanoPlanner;
+import org.apache.calcite.prepare.RelOptTableImpl;
+import org.apache.calcite.rel.logical.LogicalTableScan;
 import org.apache.calcite.rel.logical.LogicalValues;
 import org.apache.calcite.rex.RexBuilder;
 import org.junit.jupiter.api.Test;
+import org.pangrova.connector.api.enums.FieldIdStability;
 import org.pangrova.connector.api.enums.ReadSnapshotState;
 import org.pangrova.connector.api.enums.TableDeclarationEvidence;
+import org.pangrova.connector.api.metadata.Domain;
+import org.pangrova.connector.api.metadata.SplitPlanningBudget.FileGranularity;
 import org.pangrova.connector.api.metadata.table.ConnectorReadBinding;
+import org.pangrova.connector.api.metadata.table.ConnectorReadSchemaIdentity;
 import org.pangrova.connector.api.metadata.table.ConnectorTableHandle;
 import org.pangrova.connector.api.metadata.table.ConnectorTableMetadata;
 import org.pangrova.connector.api.metadata.table.ConnectorTableReadMetadata;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.metadata.table.TableIdentity;
 import org.pangrova.connector.api.metadata.table.TableStatistics;
+import org.pangrova.coordinator.query.execution.dispatch.dag.binding.StageSplitFetcher;
 import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageEdge;
@@ -21,34 +29,43 @@ import org.pangrova.coordinator.query.stage.StageNode;
 import org.pangrova.planner.analysis.PlanFragment;
 import org.pangrova.planner.analysis.StageRuntimeFilter;
 import org.pangrova.planner.enums.ShuffleType;
+import org.pangrova.planner.metadata.catalog.MetadataResolvedTable;
 import org.pangrova.query.api.enums.StageState;
+import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.query.api.stage.StageCompletionCallback.BuildKeyRange;
 import org.pangrova.query.profiling.enums.RuntimeFilterOutcome;
+import org.pangrova.security.api.identity.UserIdentity;
+import org.pangrova.types.enums.PangrovaType;
+import org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory;
 
+import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.OptionalLong;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class BuildFilterGateTest {
     private static final int BUILD = 0;
     private static final int PROBE = 1;
-    private static final int OUTPUT = 2;
 
     @Test
     void completedBuildReleasesProbeAndCancelsItsDeadline() {
         var dag = dag();
-        var gate = BuildFilterGate.create(dag);
+        var gate = onlyGate(dag);
         try (var timer = new Deadline()) {
-            var release = gate.releaseProbe(new CompletableFuture<>(), timer).toCompletableFuture();
+            var release = gate.releaseProbe(new CompletableFuture<>(), timer, deadline()).toCompletableFuture();
             assertThat(release).isNotDone();
-            assertThat(gate.blocks(PROBE)).isTrue();
+            assertThat(gate.blocksProbe()).isTrue();
 
             var ranges = Map.of(0, List.of(new BuildKeyRange(2, 3), new BuildKeyRange(35, 36)),
                     2, List.of(new BuildKeyRange(11, 11)));
@@ -57,36 +74,148 @@ class BuildFilterGateTest {
             assertThat(release.join().outcome()).isEqualTo(RuntimeFilterOutcome.APPLIED);
             assertThat(gate.probeRanges(PROBE)).isEqualTo(ranges);
             assertThat(release.join().rangeCount()).isEqualTo(3);
-            assertThat(gate.buildOrdinals(BUILD)).containsExactly(0, 2);
-            assertThat(gate.blocks(PROBE)).isFalse();
+            assertThat(gate.buildOrdinals()).containsExactly(0, 2);
+            assertThat(gate.blocksProbe()).isFalse();
             assertThat(timer.getQueue()).isEmpty();
         }
     }
 
     @Test
-    void deadlineReleasesWithoutRangesAndIgnoresLateBuild() {
+    void deadlineReleasesTheProbeAndRetainsAFinishedBuildForEnumeration() {
         var dag = dag();
-        var gate = BuildFilterGate.create(dag);
+        var gate = onlyGate(dag);
         try (var timer = new Deadline()) {
-            var release = gate.releaseProbe(new CompletableFuture<>(), timer).toCompletableFuture();
+            var release = gate.releaseProbe(new CompletableFuture<>(), timer, deadline()).toCompletableFuture();
             assertThat(release).isNotDone();
 
             timer.expire();
-            gate.onFinished(completeBuild(dag, Map.of(0, List.of(new BuildKeyRange(2, 3)), 2, List.of(new BuildKeyRange(11, 11)))));
-
             assertThat(release.join().outcome()).isEqualTo(RuntimeFilterOutcome.TIMED_OUT);
             assertThat(gate.probeRanges(PROBE)).isNull();
-            assertThat(gate.blocks(PROBE)).isFalse();
+            assertThat(gate.blocksProbe()).isFalse();
             assertThat(timer.getQueue()).isEmpty();
+
+            var ranges = Map.of(0, List.of(new BuildKeyRange(2, 3)), 2, List.of(new BuildKeyRange(11, 11)));
+            gate.onFinished(completeBuild(dag, ranges));
+
+            assertThat(gate.probeRanges(PROBE)).isEqualTo(ranges);
+            assertThat(gate.probeRanges(BUILD)).isNull();
+            assertThat(release.join().outcome()).isEqualTo(RuntimeFilterOutcome.TIMED_OUT);
+        }
+    }
+
+    @Test
+    void finishedBuildAfterTimeoutPrunesOneExactEnumerationAndDoesNotCrossSnapshots() {
+        var dag = dag();
+        var gate = onlyGate(dag);
+        var session = new QuerySession("probe-query", Map.of(),
+                new UserIdentity("reader", Set.of(), Map.of(), Instant.EPOCH), "tenant",
+                Optional.empty(), new OtelExecutionTraceContextFactory().capture());
+        var loads = new AtomicInteger();
+        var fetcher = new StageSplitFetcher(null, (fragment, sources, overrides, actor, granularity) -> {
+            assertThat(actor).isSameAs(session);
+            assertThat(sources).singleElement().satisfies(source -> {
+                var domains = source.constraint().getDomains();
+                if (loads.getAndIncrement() == 0) {
+                    assertThat(source.readBinding()).containsSame(gate.plan().probeRead());
+                    assertThat(domains.values()).containsExactlyInAnyOrder(
+                            new Domain.Range(2L, 3L, true, true), new Domain.Range(11L, 11L, true, true));
+                } else {
+                    assertThat(source.readBinding().orElseThrow().snapshotId()).hasValue(8);
+                    assertThat(domains).isEmpty();
+                }
+            });
+            return List.of();
+        });
+        try (var timer = new Deadline()) {
+            var release = gate.releaseProbe(new CompletableFuture<>(), timer, deadline()).toCompletableFuture();
+            timer.expire();
+            gate.onFinished(completeBuild(dag, Map.of(
+                    0, List.of(new BuildKeyRange(2, 3)), 2, List.of(new BuildKeyRange(11, 11)))));
+            fetcher.fetch(dag.findStage(PROBE).plan(), session, Map.of(), null, gate, FileGranularity.WHOLE_OBJECT);
+
+            var drift = probeFragment(cluster(), selected(8));
+            fetcher.fetch(new StageNode(PROBE, drift, 1, "COMPUTE", List.of()), session,
+                    Map.of(), null, gate, FileGranularity.WHOLE_OBJECT);
+            assertThat(release.join().outcome()).isEqualTo(RuntimeFilterOutcome.TIMED_OUT);
+            assertThat(loads).hasValue(2);
+        }
+    }
+
+    @Test
+    void anUnfilteredProbeCanClaimThePublishedBindingOncePerExactAttempt() {
+        var dag = dag();
+        var gate = onlyGate(dag);
+        try (var timer = new Deadline()) {
+            gate.releaseProbe(new CompletableFuture<>(), timer, deadline());
+            timer.expire();
+            var first = org.pangrova.protocol.v2.TaskAttemptId.newBuilder()
+                    .setTaskId("probe-attempt").setStageId(PROBE).setPlanEpoch(2).build();
+
+            gate.bindProbeGeneration(2, true);
+            assertThat(gate.claimLateBinding(first)).isEmpty();
+            gate.onFinished(completeBuild(dag, Map.of(
+                    0, List.of(new BuildKeyRange(2, 2), new BuildKeyRange(34, 34)),
+                    2, List.of(new BuildKeyRange(-5, -4), new BuildKeyRange(11, 12)))));
+            assertThat(gate.claimLateBinding(first.toBuilder().setPlanEpoch(1).build())).isEmpty();
+            assertThat(gate.claimLateBinding(first.toBuilder().setStageId(BUILD).build())).isEmpty();
+
+            var binding = gate.claimLateBinding(first).orElseThrow();
+            assertThat(binding.getSoleTableScan()).isTrue();
+            assertThat(binding.getFilters(0).getInList().getValuesList())
+                    .extracting(org.pangrova.protocol.v2.TypedValue::getInt64Value).containsExactly(2L, 34L);
+            assertThat(binding.getFilters(1).getRange().getLower().getInt64Value()).isEqualTo(-5);
+            assertThat(binding.getFilters(1).getRange().getUpper().getInt64Value()).isEqualTo(12);
+            assertThat(gate.claimLateBinding(first)).isEmpty();
+            assertThat(gate.claimLateBinding(first.toBuilder().setTaskId("speculative-attempt").build()))
+                    .containsSame(binding);
+
+            gate.bindProbeGeneration(3, false);
+            assertThat(gate.claimLateBinding(first)).isEmpty();
+            assertThat(gate.claimLateBinding(first.toBuilder().setPlanEpoch(3).build())).isEmpty();
+        }
+    }
+
+    @Test
+    void completeBuildRacingEnumerationRemainsAvailableToLaterRunningAttempts() {
+        var dag = dag();
+        var gate = onlyGate(dag);
+        try (var timer = new Deadline()) {
+            gate.releaseProbe(new CompletableFuture<>(), timer, deadline());
+            timer.expire();
+            gate.onFinished(completeBuild(dag, Map.of(
+                    0, List.of(new BuildKeyRange(2, 3)), 2, List.of(new BuildKeyRange(11, 11)))));
+            assertThat(gate.lateDeliveryReady()).isFalse();
+
+            gate.bindProbeGeneration(1, true);
+            var attempt = org.pangrova.protocol.v2.TaskAttemptId.newBuilder()
+                    .setTaskId("started-later").setStageId(PROBE).setPlanEpoch(1).build();
+            assertThat(gate.claimLateBinding(attempt)).isPresent();
+        }
+    }
+
+    @Test
+    void terminalQueryRetiresTheBuildEvenWhenTheProbeHadAlreadyTimedOut() {
+        var dag = dag();
+        var gate = onlyGate(dag);
+        var query = new CompletableFuture<>();
+        try (var timer = new Deadline()) {
+            var release = gate.releaseProbe(query, timer, deadline()).toCompletableFuture();
+            timer.expire();
+            query.complete(null);
+            var ranges = Map.of(0, List.of(new BuildKeyRange(2, 3)), 2, List.of(new BuildKeyRange(11, 11)));
+            gate.onFinished(completeBuild(dag, ranges));
+
+            assertThat(gate.probeRanges(PROBE)).isNull();
+            assertThat(release.join().outcome()).isEqualTo(RuntimeFilterOutcome.TIMED_OUT);
         }
     }
 
     @Test
     void queryTerminationRemovesDeadlineAndRetainsFirstDecision() {
-        var gate = BuildFilterGate.create(dag());
+        var gate = onlyGate(dag());
         var query = new CompletableFuture<>();
         try (var timer = new Deadline()) {
-            var release = gate.releaseProbe(query, timer).toCompletableFuture();
+            var release = gate.releaseProbe(query, timer, deadline()).toCompletableFuture();
             query.cancel(false);
             timer.expire();
 
@@ -98,10 +227,10 @@ class BuildFilterGateTest {
     @Test
     void emptyBuildAlreadyAvailableNeedsNoDeadline() {
         var dag = dag();
-        var gate = BuildFilterGate.create(dag);
+        var gate = onlyGate(dag);
         gate.onFinished(completeBuild(dag, Map.of(0, List.of(new BuildKeyRange(2, 3)), 2, List.of())));
         try (var timer = new Deadline()) {
-            var release = gate.releaseProbe(new CompletableFuture<>(), timer).toCompletableFuture();
+            var release = gate.releaseProbe(new CompletableFuture<>(), timer, deadline()).toCompletableFuture();
             assertThat(release.join().outcome()).isEqualTo(RuntimeFilterOutcome.EMPTY_BUILD);
             assertThat(gate.probeRanges(PROBE)).isEmpty();
             assertThat(timer.getQueue()).isEmpty();
@@ -109,19 +238,60 @@ class BuildFilterGateTest {
     }
 
     @Test
+    void independentProbesReleaseSeparatelyInsideOneSharedDeadline() {
+        var dag = dag(2);
+        var gates = BuildFilterGate.forLiveQuery(dag);
+        assertThat(gates).hasSize(2);
+        var first = gates.get(0);
+        var second = gates.get(1);
+        var query = new CompletableFuture<>();
+        long deadline = deadline();
+        try (var firstTimer = new Deadline(); var secondTimer = new Deadline()) {
+            var firstRelease = first.releaseProbe(query, firstTimer, deadline).toCompletableFuture();
+            var secondRelease = second.releaseProbe(query, secondTimer, deadline).toCompletableFuture();
+            var ranges = Map.of(0, List.of(new BuildKeyRange(2, 3)), 2, List.of(new BuildKeyRange(11, 11)));
+            var firstBuild = completeBuild(dag, ranges);
+            first.onFinished(firstBuild);
+            second.onFinished(firstBuild);
+
+            assertThat(firstRelease.join().outcome()).isEqualTo(RuntimeFilterOutcome.APPLIED);
+            assertThat(first.probeRanges(PROBE)).isEqualTo(ranges);
+            assertThat(secondRelease).isNotDone();
+            assertThat(second.blocksProbe()).isTrue();
+
+            secondTimer.expire();
+            assertThat(secondRelease.join().outcome()).isEqualTo(RuntimeFilterOutcome.TIMED_OUT);
+            assertThat(second.probeRanges(PROBE + 2)).isNull();
+            assertThat(firstTimer.getQueue()).isEmpty();
+            assertThat(secondTimer.getQueue()).isEmpty();
+        }
+    }
+
+    @Test
+    void boundsTheNumberOfActivePairsAndBreaksTiesByProbeStage() {
+        var gates = BuildFilterGate.forLiveQuery(dag(6));
+        assertThat(gates).hasSize(BuildFilterGate.MAX_FILTERS_PER_QUERY)
+                .extracting(gate -> gate.plan().probeStageId()).containsExactly(1, 3, 5, 7);
+    }
+
+    @Test
     void incompleteOrdinalsReleaseTheFullProbe() {
         var dag = dag();
-        var gate = BuildFilterGate.create(dag);
+        var gate = onlyGate(dag);
         gate.onFinished(completeBuild(dag, Map.of(0, List.of())));
         try (var timer = new Deadline()) {
-            var release = gate.releaseProbe(new CompletableFuture<>(), timer).toCompletableFuture();
+            var release = gate.releaseProbe(new CompletableFuture<>(), timer, deadline()).toCompletableFuture();
             assertThat(release.join().outcome()).isEqualTo(RuntimeFilterOutcome.MISSING_SUMMARY);
             assertThat(gate.probeRanges(PROBE)).isNull();
         }
     }
 
     private static Stage completeBuild(StageDAG dag, Map<Integer, List<BuildKeyRange>> ranges) {
-        var build = dag.findStage(BUILD);
+        return completeBuild(dag, BUILD, ranges);
+    }
+
+    private static Stage completeBuild(StageDAG dag, int buildId, Map<Integer, List<BuildKeyRange>> ranges) {
+        var build = dag.findStage(buildId);
         build.addTaskId("build-task");
         assertThat(build.stateMachine().tryTransitionTo(StageState.SCHEDULING)).isTrue();
         assertThat(build.stateMachine().tryTransitionTo(StageState.RUNNING)).isTrue();
@@ -130,25 +300,70 @@ class BuildFilterGateTest {
         return build;
     }
 
+    private static BuildFilterGate onlyGate(StageDAG dag) {
+        var gates = BuildFilterGate.forLiveQuery(dag);
+        assertThat(gates).hasSize(1);
+        return gates.get(0);
+    }
+
+    private static long deadline() {
+        return System.nanoTime() + BuildFilterGate.MAX_WAIT_NANOS;
+    }
+
     private static StageDAG dag() {
-        var cluster = RelOptCluster.create(new VolcanoPlanner(), new RexBuilder(new JavaTypeFactoryImpl()));
+        return dag(1);
+    }
+
+    private static StageDAG dag(int pairCount) {
+        var cluster = cluster();
         var fragment = new PlanFragment(LogicalValues.createOneRow(cluster), 256, 4);
-        var build = new StageNode(BUILD, fragment, 1, "COMPUTE", List.of(), 256, 4);
-        var probe = new StageNode(PROBE, fragment, 1, "COMPUTE", List.of());
-        var output = new StageNode(OUTPUT, fragment, 1, "OUTPUT", List.of());
-        var buildEdge = new StageEdge(BUILD, OUTPUT, ShuffleType.HASH, List.of(0));
-        var probeEdge = new StageEdge(PROBE, OUTPUT, ShuffleType.HASH, List.of(0));
-        var declaration = new ConnectorTableMetadata(new SchemaTableName("default", "items"),
-                List.of("id"), Map.of());
-        var selected = new ConnectorReadBinding(new ConnectorTableHandle() { },
+        var selected = selected(7);
+        var probe = probeFragment(cluster, selected);
+        int outputId = 2 * pairCount;
+        var stages = new ArrayList<StageNode>();
+        var exchanges = new ArrayList<StageEdge>();
+        var dependencies = new ArrayList<Integer>();
+        var filters = new ArrayList<StageRuntimeFilter>();
+        for (int buildId = 0; buildId < outputId; buildId += 2) {
+            int probeId = buildId + 1;
+            stages.add(new StageNode(buildId, fragment, 1, "COMPUTE", List.of(), 256, 4));
+            stages.add(new StageNode(probeId, probe, 1, "COMPUTE", List.of()));
+            var buildEdge = new StageEdge(buildId, outputId, ShuffleType.HASH, List.of(0));
+            exchanges.add(buildEdge);
+            exchanges.add(new StageEdge(probeId, outputId, ShuffleType.HASH, List.of(0)));
+            dependencies.addAll(List.of(buildId, probeId));
+            filters.add(new StageRuntimeFilter(buildId, buildEdge.exchangeId(), probeId, selected,
+                    List.of(new StageRuntimeFilter.ProbeKey(0, 1, "id"),
+                            new StageRuntimeFilter.ProbeKey(2, 2, "tag"))));
+        }
+        stages.add(new StageNode(outputId, fragment, 1, "OUTPUT", List.of()));
+        return StageDAG.fromNodes(stages, Map.of(outputId, dependencies), exchanges, filters).withStages("query");
+    }
+
+    private static RelOptCluster cluster() {
+        return RelOptCluster.create(new VolcanoPlanner(), new RexBuilder(new JavaTypeFactoryImpl()));
+    }
+
+    private static ConnectorReadBinding selected(long snapshot) {
+        var columns = List.of(new ConnectorTableMetadata.Column("id", PangrovaType.BIGINT, OptionalInt.of(1), null),
+                new ConnectorTableMetadata.Column("tag", PangrovaType.BIGINT, OptionalInt.of(2), null));
+        var declaration = new ConnectorTableMetadata(
+                new SchemaTableName("default", "items"), List.of("id", "tag"), columns, Map.of());
+        var schema = new ConnectorReadSchemaIdentity(
+                new TableIdentity("ICEBERG", "items-uuid", "s3://test/items", "schema-1"),
+                "test-items", columns, FieldIdStability.SELECTED_SOURCE);
+        return new ConnectorReadBinding(new ConnectorTableHandle() { },
                 new ConnectorTableReadMetadata(declaration, TableDeclarationEvidence.EXACT),
                 new TableStatistics(2_048, 32_768, 40, Map.of()),
-                ReadSnapshotState.SNAPSHOT, OptionalLong.of(7), "selected-items", Optional.empty(), Optional.empty());
-        var filter = new StageRuntimeFilter(BUILD, buildEdge.exchangeId(), PROBE, selected,
-                List.of(new StageRuntimeFilter.ProbeKey(0, 1, "id"),
-                        new StageRuntimeFilter.ProbeKey(2, 2, "tag")));
-        return new StageDAG(List.of(), List.of(build, probe, output), Map.of(OUTPUT, List.of(BUILD, PROBE)),
-                List.of(buildEdge, probeEdge), Map.of(), Map.of(), Map.of(), Optional.of(filter)).withStages("query");
+                ReadSnapshotState.SNAPSHOT, OptionalLong.of(snapshot), "selected-items",
+                Optional.of(schema), Optional.empty());
+    }
+
+    private static PlanFragment probeFragment(RelOptCluster cluster, ConnectorReadBinding binding) {
+        var table = MetadataResolvedTable.fromReadBinding(() -> binding);
+        var qualified = RelOptTableImpl.create(null, table.getRowType(cluster.getTypeFactory()),
+                List.of("lake", "default", "items"), table, ignored -> null);
+        return new PlanFragment(LogicalTableScan.create(cluster, qualified, List.of()), 32_768, 2_048);
     }
 
     private static final class Deadline extends ScheduledThreadPoolExecutor implements AutoCloseable {
@@ -161,7 +376,7 @@ class BuildFilterGateTest {
 
         @Override
         public ScheduledFuture<?> schedule(Runnable task, long delay, TimeUnit unit) {
-            assertThat(unit.toMillis(delay)).isEqualTo(200L);
+            assertThat(unit.toNanos(delay)).isBetween(0L, BuildFilterGate.MAX_WAIT_NANOS);
             timeout = task;
             return super.schedule(task, 1, TimeUnit.DAYS);
         }

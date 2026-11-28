@@ -17,11 +17,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 
+import org.pangrova.connector.api.metadata.ConnectorReadDiscovery;
+import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.audit.QueryLineageCapture;
 import org.pangrova.planner.analysis.PlannedQuery;
 import org.pangrova.planner.analysis.PlanResult;
 import org.pangrova.planner.analysis.SqlCompiler;
+import org.pangrova.parser.parse.TimeTravelSqlClauses.Analysis;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
@@ -57,17 +60,19 @@ public final class CompilationPhase implements QueryExecutionPhase {
     /** Extracts time-travel specs from SQL, returning stripped SQL and snapshot overrides. */
     @FunctionalInterface
     public interface TimeTravelExtractor {
-        TimeTravelResult extract(String sql, SqlCompiler compiler, QuerySession session);
+        TimeTravelResult extract(Analysis input, QuerySession session);
     }
 
     /** Result of time-travel extraction. */
-    public record TimeTravelResult(String strippedSql, Map<String, Long> snapshotOverrides) {
+    public record TimeTravelResult(Analysis parsedSql, Map<String, Long> snapshotOverrides,
+            Map<QualifiedTableName, ConnectorReadDiscovery> discoveries) {
         public TimeTravelResult {
             snapshotOverrides = Map.copyOf(snapshotOverrides);
+            discoveries = Map.copyOf(discoveries);
         }
 
-        public static TimeTravelResult passthrough(String sql) {
-            return new TimeTravelResult(sql, Map.of());
+        public String strippedSql() {
+            return parsedSql.strippedSql();
         }
     }
 
@@ -93,21 +98,18 @@ public final class CompilationPhase implements QueryExecutionPhase {
         SqlCompiler snapshot = compilerSnapshotFn.apply(context.compiler());
         var session = org.pangrova.coordinator.query.session.SessionContextConverter
                 .toConnectorSession(context.session());
-        SqlCompiler extractionCompiler = snapshot.forSession(session);
-        TimeTravelResult ttResult = context.metadataQuery() == null
-                ? timeTravelExtractor.extract(context.sql(), extractionCompiler, context.session())
-                : TimeTravelResult.passthrough(context.sql());
-        SqlCompiler currentCompiler = ttResult.snapshotOverrides().isEmpty() ? extractionCompiler
-                : snapshot.forSession(org.pangrova.planner.metadata.catalog.PlanningSnapshotSelectors.bind(
-                        session, ttResult.snapshotOverrides()));
-        QueryExecutionContext updated = context.withCompiler(currentCompiler)
-                .withTimeTravelResult(ttResult.strippedSql(), ttResult.snapshotOverrides());
+        TimeTravelResult timeTravel = context.metadataQuery() == null
+                ? timeTravelExtractor.extract(context.parsedSql(), context.session()) : null;
+        Map<String, Long> overrides = timeTravel == null ? Map.of() : timeTravel.snapshotOverrides();
+        SqlCompiler currentCompiler = snapshot.forSession(overrides.isEmpty() ? session
+                : org.pangrova.planner.metadata.catalog.PlanningSnapshotSelectors.bind(
+                        session, overrides, timeTravel.discoveries()), context.session().publicationRevision());
 
         // Schema, name caches and statistics belong to this authenticated query.
         // Authorize and transform expressions before optimization; policy results must never be cached.
-        PlanResult planResult = context.metadataQuery() == null
-                ? currentCompiler.compileForPolicyApplication(ttResult.strippedSql())
-                : currentCompiler.compileForPolicyApplication(context.metadataQuery());
+        PlanResult planResult = timeTravel == null
+                ? currentCompiler.compileForPolicyApplication(context.metadataQuery())
+                : currentCompiler.compileForPolicyApplication(timeTravel.parsedSql());
         List<String> preOptNames = planResult.preOptimizationColumnNames();
         PlannedQuery plannedQuery = planResult.toPlannedQuery();
 
@@ -115,14 +117,14 @@ public final class CompilationPhase implements QueryExecutionPhase {
         ProtectedPlan protectedPlan = securityPolicyEnforcer.applyPolicies(
                 plannedQuery, context.session());
         plannedQuery = currentCompiler.optimizeProtectedQuery(protectedPlan.plan(),
-                rewriteIsProven(protectedPlan, ttResult));
+                rewriteIsProven(protectedPlan, overrides, context.session()));
 
         context.stateMachine().bindLineageMetadata(lineageCapture.captureLineageInfo(
                 context.session().queryId(), context.originalSql(), plannedQuery));
         lineageCapture.captureColumnNames(
                 context.session().queryId(), preOptNames, plannedQuery);
-        return new PhaseResult.Continue(
-                updated.withCompiledPlan(plannedQuery, preOptNames));
+        return new PhaseResult.Continue(context.withCompilation(currentCompiler, plannedQuery, preOptNames,
+                timeTravel == null ? null : timeTravel.parsedSql(), overrides));
     }
 
     @Override
@@ -132,10 +134,11 @@ public final class CompilationPhase implements QueryExecutionPhase {
 
     /**
      * A published snapshot may only replace source scans when the query is an
-     * unfiltered, unmasked, non-time-travelling read of the current generation.
+     * unfiltered, unmasked read of the current generation without a snapshot selector.
      */
     private static boolean rewriteIsProven(ProtectedPlan protectedPlan,
-            TimeTravelResult timeTravel) {
-        return !protectedPlan.policiesApplied() && timeTravel.snapshotOverrides().isEmpty();
+            Map<String, Long> overrides, QuerySession session) {
+        return !protectedPlan.policiesApplied() && overrides.isEmpty()
+                && session.sourceSnapshots().isEmpty() && session.sourceIncrementalRanges().isEmpty();
     }
 }

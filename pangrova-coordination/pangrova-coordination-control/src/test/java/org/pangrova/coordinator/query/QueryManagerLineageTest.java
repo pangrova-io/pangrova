@@ -5,6 +5,7 @@ import org.pangrova.query.runtime.QueryManagerContext;
 import org.pangrova.governance.api.enums.LineageEventType;
 import org.pangrova.coordinator.testinfra.QueryManagerTestContexts;
 import org.pangrova.query.api.enums.QueryState;
+import org.pangrova.query.api.error.QueryFailure;
 import org.pangrova.persistence.query.memory.state.InMemoryQueryStateJournal;
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
@@ -65,6 +66,26 @@ class QueryManagerLineageTest {
         emitter.close();
 
         assertThat(qm.getQueryState("q-1")).contains(QueryState.FAILED);
+        assertThat(capturedEvents).extracting(LineageEvent::eventType)
+                .containsExactly(LineageEventType.START, LineageEventType.FAIL);
+    }
+
+    @Test
+    void internalExecutionFailureBeforeDispatchPersistsLineageAndDrains() {
+        var capturedEvents = new CopyOnWriteArrayList<LineageEvent>();
+        emitter = new LineageEventEmitter(new CapturingLineageBackend(capturedEvents));
+        var manager = buildQueryManagerWithLineage(emitter);
+        var session = session("mat-refresh-missing-catalog");
+
+        var state = manager.registerInternalExecution(session, "SELECT id FROM unavailable.default.source");
+        assertThat(state.getAuditPrincipal()).isEqualTo(session.userIdentity().principal());
+        assertThat(state.lineageStart().sql()).isEqualTo("SELECT id FROM unavailable.default.source");
+
+        manager.onTaskFailed(session.queryId(), new QueryFailure(
+                "TEST-MISSING-CATALOG", "MATERIALIZATION_ERROR", "Catalog is unavailable"));
+        assertThat(state.status().state()).isEqualTo(QueryState.FAILED);
+        assertThat(state.status().drained()).isTrue();
+        emitter.close();
         assertThat(capturedEvents).extracting(LineageEvent::eventType)
                 .containsExactly(LineageEventType.START, LineageEventType.FAIL);
     }

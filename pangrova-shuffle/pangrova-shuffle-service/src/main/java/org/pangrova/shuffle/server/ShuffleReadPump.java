@@ -16,12 +16,15 @@ import org.pangrova.protocol.v2.BatchChunk;
 import org.pangrova.protocol.v2.shuffle.ReadBatchResponse;
 import org.pangrova.protocol.v2.shuffle.ReadPartitionTerminal;
 import org.pangrova.shuffle.config.ShuffleServiceConfig;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static org.pangrova.shuffle.server.ShuffleServiceModel.FinalizedPartition;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.ReadBatch;
 
 /** Backpressure-aware reader for one finalized output partition. */
 final class ShuffleReadPump implements Runnable {
+    private static final Logger LOG = LoggerFactory.getLogger(ShuffleReadPump.class);
     private static final int MAX_FRAMES_PER_PUMP = 4;
     private static final int BUFFER_PEAK_MULTIPLIER = 3;
 
@@ -61,7 +64,8 @@ final class ShuffleReadPump implements Runnable {
         this.executor = executor;
         this.memoryBytes = memoryBytes;
         this.indexMemoryBytes = indexMemoryBytes;
-        this.indexReservation = result.manifest().memoryReservation(result.startSequence());
+        this.indexReservation = result.manifest().memoryReservation(
+                result.startSequence(), result.endSequenceExclusive());
         this.limits = limits;
         this.sequence = result.startSequence();
         if (!indexMemoryBytes.tryAcquire(indexReservation)) {
@@ -104,7 +108,7 @@ final class ShuffleReadPump implements Runnable {
 
     void cancel() {
         if (closed.compareAndSet(false, true)) {
-            releaseIfIdle();
+            releaseIfIdle(null);
         }
     }
 
@@ -145,7 +149,7 @@ final class ShuffleReadPump implements Runnable {
         if (payload != null) {
             return true;
         }
-        if (sequence > result.partition().committedLastSequence()) {
+        if (sequence == result.endSequenceExclusive()) {
             if (pageIndex != page.size()) {
                 throw new IllegalStateException("finalized shuffle partition exceeds its committed sequence");
             }
@@ -208,20 +212,27 @@ final class ShuffleReadPump implements Runnable {
 
     private ReadBatchResponse terminal() {
         FinalizedPartition partition = result.partition();
-        return ReadBatchResponse.newBuilder().setTerminal(
-                ReadPartitionTerminal.newBuilder()
-                        .setCommittedLastSequence(partition.committedLastSequence())
-                        .setOutputChecksum(ShuffleChecksums.protocol(partition.checksum()))
-                        .setCommittedProducerCount(result.committedProducerCount())
-                        .setTotalBytes(partition.totalBytes()).setTotalRows(partition.totalRows())
-                        .setProducerSetChecksum(ShuffleChecksums.protocol(
-                                result.producerSetChecksum()))
-                        .setGenerationPlanEpoch(result.planEpoch())).build();
+        var terminal = ReadPartitionTerminal.newBuilder()
+                .setCommittedLastSequence(result.endSequenceExclusive() - 1)
+                .setCommittedProducerCount(result.committedProducerCount())
+                .setProducerSetChecksum(ShuffleChecksums.protocol(result.producerSetChecksum()))
+                .setGenerationPlanEpoch(result.planEpoch());
+        var range = result.range();
+        if (range == null) {
+            terminal.setTotalBytes(partition.totalBytes()).setTotalRows(partition.totalRows())
+                    .setOutputChecksum(ShuffleChecksums.protocol(partition.checksum()));
+        } else {
+            terminal.setCertifiedStartSequence(range.startSequence())
+                    .setTotalBytes(range.bytes()).setTotalRows(range.rows())
+                    .setOutputChecksum(ShuffleChecksums.protocol(
+                            java.util.HexFormat.of().parseHex(range.manifestSha256())));
+        }
+        return ReadBatchResponse.newBuilder().setTerminal(terminal).build();
     }
 
     private void fail(RuntimeException failure) {
         if (closed.compareAndSet(false, true)) {
-            releaseIfIdle();
+            releaseIfIdle(failure);
             response.onError(CanonicalShuffleGrpcServer.status(failure));
         }
     }
@@ -229,13 +240,26 @@ final class ShuffleReadPump implements Runnable {
     private synchronized void setRunning(boolean value) {
         running = value;
         if (!value && closed.get()) {
-            releaseRead();
+            releaseAfterClose(null);
         }
     }
 
-    private synchronized void releaseIfIdle() {
+    private synchronized void releaseIfIdle(RuntimeException primaryFailure) {
         if (!running) {
+            releaseAfterClose(primaryFailure);
+        }
+    }
+
+    // An uncommitted durable release leaves the existing protection window intact.
+    // It must not suppress the terminal stream error or escape a cancellation callback.
+    private void releaseAfterClose(RuntimeException primaryFailure) {
+        try {
             releaseRead();
+        } catch (RuntimeException releaseFailure) {
+            if (primaryFailure != null && primaryFailure != releaseFailure) {
+                primaryFailure.addSuppressed(releaseFailure);
+            }
+            LOG.warn("event=shuffle_read_release_failed", releaseFailure);
         }
     }
 

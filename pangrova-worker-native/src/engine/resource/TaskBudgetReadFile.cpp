@@ -9,6 +9,7 @@
 #include <openssl/evp.h>
 
 #include "folly/executors/InlineExecutor.h"
+#include "velox/common/file/FileSystems.h"
 
 namespace pangrova::resource {
 namespace {
@@ -21,9 +22,10 @@ uint64_t fileSize(const std::shared_ptr<facebook::velox::ReadFile>& input,
     const std::shared_ptr<TaskObjectReadBudget>& budget, const folly::CancellationToken& cancellation) {
   if (!input || !budget) throw std::invalid_argument("Task backend requires its admitted read owner");
   checkpoint(cancellation);
-  auto attempt = budget->begin(0);
+  auto attempt = budget->begin(0, TaskObjectReadBudget::Operation::METADATA);
+  attempt.startCall();
   const auto size = input->size();
-  attempt->complete(0);
+  attempt.completeCall(0);
   checkpoint(cancellation);
   return size;
 }
@@ -40,11 +42,35 @@ uint64_t requested(const std::vector<folly::Range<char*>>& buffers) {
 }
 }  // namespace
 
+std::shared_ptr<TaskBudgetReadFile> TaskBudgetReadFile::open(
+    facebook::velox::filesystems::FileSystem& filesystem, std::string_view path,
+    const std::shared_ptr<TaskObjectReadBudget>& budget, const folly::CancellationToken& cancellation,
+    std::optional<int64_t> file_size) {
+  checkpoint(cancellation);
+  auto opening = budget->begin(0, TaskObjectReadBudget::Operation::METADATA);
+  opening.startCall();
+  facebook::velox::filesystems::FileOptions options;
+  options.fileSize = file_size;
+  if (path.starts_with("s3://")) options.stats = budget->s3IoStats();
+  auto file = filesystem.openFileForRead(path, options);
+  opening.completeCall(0);
+  return std::make_shared<TaskBudgetReadFile>(std::move(file), budget, cancellation, options.stats);
+}
+
 TaskBudgetReadFile::TaskBudgetReadFile(
     std::shared_ptr<facebook::velox::ReadFile> input,
-    std::shared_ptr<TaskObjectReadBudget> budget, folly::CancellationToken cancellation)
+    std::shared_ptr<TaskObjectReadBudget> budget, folly::CancellationToken cancellation,
+    facebook::velox::IoStats* s3_io_stats)
     : input_(std::move(input)), budget_(std::move(budget)), cancellation_(std::move(cancellation)),
-      size_(fileSize(input_, budget_, cancellation_)) {}
+      size_(fileSize(input_, budget_, cancellation_)), s3_io_stats_(s3_io_stats) {}
+
+std::optional<facebook::velox::FileIoContext> TaskBudgetReadFile::s3ReadContext(
+    const facebook::velox::FileIoContext& original) const {
+  if (!s3_io_stats_) return std::nullopt;
+  auto context = original;
+  context.ioStats = s3_io_stats_;
+  return context;
+}
 
 void TaskBudgetReadFile::verifySha256(std::string_view expected, uint64_t declaredLength) const {
   checkpoint(cancellation_);
@@ -78,8 +104,10 @@ std::string_view TaskBudgetReadFile::pread(uint64_t offset, uint64_t length,
   checkpoint(cancellation_);
   addLength(offset, length);
   auto attempt = budget_->begin(length);
-  auto output = input_->pread(offset, length, buffer, context);
-  attempt->complete(output.size());
+  attempt.startCall();
+  const auto s3_context = s3ReadContext(context);
+  auto output = input_->pread(offset, length, buffer, s3_context ? *s3_context : context);
+  attempt.completeCall(output.size());
   checkpoint(cancellation_);
   return output;
 }
@@ -91,8 +119,10 @@ uint64_t TaskBudgetReadFile::preadv(uint64_t offset,
   const auto bytes = requested(buffers);
   addLength(offset, bytes);
   auto attempt = budget_->begin(bytes);
-  const auto output = input_->preadv(offset, buffers, context);
-  attempt->complete(output);
+  attempt.startCall();
+  const auto s3_context = s3ReadContext(context);
+  const auto output = input_->preadv(offset, buffers, s3_context ? *s3_context : context);
+  attempt.completeCall(output);
   checkpoint(cancellation_);
   return output;
 }
@@ -112,6 +142,7 @@ uint64_t TaskBudgetReadFile::preadv(
   }
   auto attempt = budget_->begin(bytes);
   uint64_t output = 0;
+  const auto s3_context = s3ReadContext(context);
   // The SDK regions overload permits undisclosed coalesced gap bytes. Issue
   // these exact admitted ranges through the same backend instead, so this
   // owner cannot expand its grant through provider-specific coalescing.
@@ -119,14 +150,16 @@ uint64_t TaskBudgetReadFile::preadv(
     checkpoint(cancellation_);
     const auto& region = regions[index];
     buffers[index] = folly::IOBuf(folly::IOBuf::CREATE, region.length);
-    const auto read = input_->pread(region.offset, region.length, buffers[index].writableData(), context);
+    attempt.startCall();
+    const auto read = input_->pread(region.offset, region.length, buffers[index].writableData(),
+        s3_context ? *s3_context : context);
+    attempt.completeCall(read.size());
     if (read.size() != region.length) {
       throw std::runtime_error("Task backend returned a truncated admitted region");
     }
     buffers[index].append(read.size());
     output = addLength(output, read.size());
   }
-  attempt->complete(output);
   checkpoint(cancellation_);
   return output;
 }
@@ -144,13 +177,15 @@ folly::SemiFuture<uint64_t> TaskBudgetReadFile::preadvAsync(uint64_t offset,
     auto attempt = budget_->begin(bytes);
     // SDK hasPreadvAsync=false guarantees this branch is synchronous. Never
     // delegate a native async read whose caller-owned buffers may be released.
-    return input_->preadvAsync(offset, buffers, context)
+    attempt.startCall();
+    const auto s3_context = s3ReadContext(context);
+    return input_->preadvAsync(offset, buffers, s3_context ? *s3_context : context)
         .via(&folly::InlineExecutor::instance())
         .thenTry([attempt = std::move(attempt), input = input_, token = cancellation_]
-            (folly::Try<uint64_t>&& outcome) {
+            (folly::Try<uint64_t>&& outcome) mutable {
           (void)input;
           const auto bytes = outcome.value();
-          attempt->complete(bytes);
+          attempt.completeCall(bytes);
           checkpoint(token);
           return bytes;
         }).semi();

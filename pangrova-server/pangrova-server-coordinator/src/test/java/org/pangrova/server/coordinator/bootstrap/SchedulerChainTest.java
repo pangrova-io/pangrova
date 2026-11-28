@@ -29,6 +29,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
+import static org.pangrova.server.coordinator.testinfra.QuerySubmissionTestSupport.assertAdmissionThenWorkerFailure;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -162,8 +163,7 @@ class SchedulerChainTest extends org.pangrova.server.coordinator.testinfra.Signe
 
         HttpResponse<String> resp = submitQuery(port, "SELECT 1");
 
-        assertThat(resp.statusCode()).isEqualTo(503);
-        assertThat(resp.body()).contains("COORDINATOR-0001");
+        assertAdmissionThenWorkerFailure(coordinatorBootstrap.getQueryManager(), resp);
     }
 
     /** Task tracker detects failed task after PENDING→SCHEDULED→RUNNING→FAILED transitions. */

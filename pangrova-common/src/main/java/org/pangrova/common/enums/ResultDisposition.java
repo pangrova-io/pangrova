@@ -6,7 +6,9 @@ import org.pangrova.common.client.result.ResultEndpoint;
 public enum ResultDisposition {
     PENDING,
     STREAM,
-    NONE;
+    NONE,
+    /** A retired execution cannot serve its original stream. Only a recovered observation uses this value. */
+    UNAVAILABLE;
 
     /** Enforces the endpoint invariant shared by lifecycle, submission and wire observations. */
     public void validateEndpoint(ResultEndpoint endpoint) {

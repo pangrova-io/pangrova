@@ -23,7 +23,7 @@ class QueryStateJournalFactoryTest {
             QueryStateEvent event = event("q-1");
             journal.appendQueryEventSync(event);
             assertEquals(event, journal.latestQueryEvent("q-1").orElseThrow());
-            assertTrue(other.replayActiveQueries().isEmpty());
+            assertTrue(other.latestQueryEvent("q-1").isEmpty());
         }
     }
 
@@ -65,7 +65,7 @@ class QueryStateJournalFactoryTest {
         try (QueryStateJournal journal = QueryStateJournalFactory.create(config, null)) {
             journal.appendQueryEventSync(event("q-1"));
             assertThrows(JournalWriteException.class, () -> journal.appendQueryEventSync(event("q-2")));
-            assertEquals(1, journal.replayActiveQueries().size());
+            assertTrue(journal.latestQueryEvent("q-1").isPresent());
         }
     }
 

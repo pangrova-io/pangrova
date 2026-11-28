@@ -236,6 +236,9 @@ final class SqlShell {
             result.finish();
         } else if (status.resultDisposition() == ResultDisposition.NONE) {
             out.println(style.success("OK (no result set)"));
+        } else if (status.resultDisposition() == ResultDisposition.UNAVAILABLE) {
+            throw new PangrovaClientException("RESULT_UNAVAILABLE",
+                    "Query result is no longer available, queryId=" + status.queryId());
         } else {
             throw new PangrovaClientException("RESULT_ENDPOINT_MISSING", "Query finished without its result endpoint");
         }

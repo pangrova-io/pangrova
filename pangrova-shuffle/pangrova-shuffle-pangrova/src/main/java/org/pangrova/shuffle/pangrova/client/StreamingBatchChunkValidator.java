@@ -15,8 +15,7 @@ import java.security.MessageDigest;
 /** Incrementally verifies ordered chunks without materializing a complete batch. */
 final class StreamingBatchChunkValidator {
 
-    private final ShufflePartitionManifestChecksum.Accumulator manifest =
-            ShufflePartitionManifestChecksum.accumulator();
+    private final ShufflePartitionManifestChecksum.Accumulator manifest;
     private MessageDigest batchDigest;
     private Checksum expectedBatchChecksum;
     private long nextBatchSequence;
@@ -27,6 +26,15 @@ final class StreamingBatchChunkValidator {
     private long batchRows;
     private int nextChunkIndex;
     private int chunkCount;
+
+    StreamingBatchChunkValidator() {
+        this(0);
+    }
+
+    StreamingBatchChunkValidator(long firstSequence) {
+        manifest = ShufflePartitionManifestChecksum.accumulator(firstSequence);
+        nextBatchSequence = firstSequence;
+    }
 
     void accept(BatchChunk chunk, long rowCount) {
         validateIdentity(chunk);

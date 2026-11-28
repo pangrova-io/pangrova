@@ -56,8 +56,9 @@ class BranchTagE2ETest extends PangrovaE2ETestBase {
             executeDdl("CREATE BRANCH dev ON " + fqn());
             executeDml("INSERT INTO " + fqn() + " VALUES (22)");
             var changed = submitQueryViaHttp("USE BRANCH dev ON " + fqn());
-            consumeSubmittedQuery(changed);
-            var route = changed.branchSelection();
+            var route = org.pangrova.common.json.CanonicalJsonMapper.readValue(
+                    pollUntilTerminal(changed.queryId()).getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                    org.pangrova.common.client.query.QueryStatusResponse.class).branchSelection();
             assertThat(route.table()).isEqualTo(fqn().toLowerCase(java.util.Locale.ROOT));
             assertThat(route.branch()).isEqualTo("dev");
             var properties = java.util.Map.of(route.propertyKey(), route.branch());
@@ -66,11 +67,13 @@ class BranchTagE2ETest extends PangrovaE2ETestBase {
             assertThat(executeQuery("SELECT id FROM " + fqn()))
                     .extracting(row -> row.getLong("id")).containsExactlyInAnyOrder(11L, 22L);
             var cleared = submitQueryViaHttp("USE BRANCH MAIN ON " + fqn(), properties);
-            consumeSubmittedQuery(cleared);
-            assertThat(cleared.branchSelection().table()).isEqualTo(route.table());
-            assertThat(cleared.branchSelection().branch()).isNull();
+            var reset = org.pangrova.common.json.CanonicalJsonMapper.readValue(
+                    pollUntilTerminal(cleared.queryId()).getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                    org.pangrova.common.client.query.QueryStatusResponse.class).branchSelection();
+            assertThat(reset.table()).isEqualTo(route.table());
+            assertThat(reset.branch()).isNull();
             assertThat(org.assertj.core.api.Assertions.catchThrowable(() ->
-                    submitQueryViaHttp("USE BRANCH unknown ON " + fqn())))
+                    consumeSubmittedQuery(submitQueryViaHttp("USE BRANCH unknown ON " + fqn()))))
                     .hasMessageContaining("Branch unavailable");
         } finally {
             executeDdl("DROP TABLE " + fqn());

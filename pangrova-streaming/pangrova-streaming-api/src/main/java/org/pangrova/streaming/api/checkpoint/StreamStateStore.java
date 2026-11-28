@@ -1,7 +1,5 @@
 package org.pangrova.streaming.api.checkpoint;
 
-import org.pangrova.streaming.api.enums.StreamLifecycleState;
-
 import org.pangrova.common.api.annotation.Experimental;
 
 import org.pangrova.common.exception.StaleEpochException;
@@ -48,21 +46,6 @@ public interface StreamStateStore {
      * @return unmodifiable list of stream states for the tenant
      */
     List<StreamState> listByTenant(String tenantId);
-
-    /**
-     * List all streams in the given lifecycle state.
-     *
-     * @param lifecycleState the lifecycle state to filter by
-     * @return unmodifiable list of matching stream states
-     */
-    List<StreamState> listByState(StreamLifecycleState lifecycleState);
-
-    /**
-     * List all stream states regardless of state or tenant.
-     *
-     * @return unmodifiable list of all stream states
-     */
-    List<StreamState> listAll();
 
     /**
      * Delete the matching tenant, incarnation and epoch, including its cached offsets.

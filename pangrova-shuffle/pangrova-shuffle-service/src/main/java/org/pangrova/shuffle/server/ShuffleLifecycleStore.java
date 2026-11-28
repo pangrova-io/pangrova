@@ -1,20 +1,21 @@
 package org.pangrova.shuffle.server;
 
 import java.time.Clock;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
 import org.pangrova.protocol.v2.TaskAttemptId;
+import org.pangrova.shuffle.api.ShuffleCommitReceipt.ReadRange;
 import org.pangrova.shuffle.security.enums.CapabilityOperation;
 
 import static org.pangrova.shuffle.server.ShuffleServiceModel.Allocation;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupCommand;
-import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupCursor;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupLease;
-import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupObjectPage;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupPlan;
-import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupShufflePage;
+import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupReceipt;
+import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupStart;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.FinalizeCommand;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.FinalizeResult;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.PublishedPartition;
@@ -24,8 +25,13 @@ import static org.pangrova.shuffle.server.ShuffleServiceModel.RegisterCommand;
 interface ShuffleLifecycleStore extends ShuffleCleanupStore, AutoCloseable {
 
     /** Opens the exact finalized partition and durably pins its objects in one transaction. */
+    default ReadAdmission openRead(String queryId, ExecutionOwnerIdentity owner, String shuffleId, int partitionId,
+            long startSequence, long readUntilMs, long drainMillis) {
+        return openRead(queryId, owner, shuffleId, partitionId, startSequence, null, readUntilMs, drainMillis);
+    }
+
     ReadAdmission openRead(String queryId, ExecutionOwnerIdentity owner, String shuffleId, int partitionId,
-            long startSequence, long readUntilMs, long drainMillis);
+            long startSequence, ReadRange range, long readUntilMs, long drainMillis);
 
     /** Renews frame and object-read admission under the exact live owner and pin. */
     long grantReadWindow(String queryId, ExecutionOwnerIdentity owner, UUID id);
@@ -75,28 +81,28 @@ interface ShuffleLifecycleStore extends ShuffleCleanupStore, AutoCloseable {
 /** Durable cleanup claim, paging, lease-renewal, and completion boundary. */
 interface ShuffleCleanupStore {
 
+    /** Settles expired manifest PUTs whose unique object keys are visible before deletion. */
+    void settleVisibleManifestWrites(String shuffleId, List<String> keys);
+
     /** Claims one durable prefix tombstone for a bounded compensation sweep. */
     Optional<String> claimUncertainSweep(String owner, long leaseMillis);
 
     /** Extends the exact sweep owner's lease before the next object-storage page. */
     void renewUncertainSweep(String shuffleId, String owner, long leaseMillis);
 
-    /** Schedules the next sweep; an uncertain prefix is retained indefinitely. */
+    /** Retires a completed final sweep or schedules another pass for an unresolved prefix. */
     void completeUncertainSweep(String shuffleId, String owner, long intervalMillis);
 
-    Optional<CleanupPlan> beginCleanup(CleanupCommand command, CleanupLease lease);
+    CleanupStart beginCleanup(CleanupCommand command, CleanupLease lease);
 
     Optional<CleanupPlan> beginExpiredCleanup(CleanupLease lease);
 
-    CleanupObjectPage cleanupObjects(
-            CleanupPlan plan, CleanupCursor after, int limit, CleanupLease lease);
-
-    CleanupShufflePage cleanupShuffles(
+    List<String> cleanupShuffles(
             CleanupPlan plan, String after, int limit, CleanupLease lease);
 
     void renewCleanup(CleanupPlan plan, CleanupLease lease);
 
-    void completeCleanup(CleanupPlan plan);
+    CleanupReceipt completeCleanup(CleanupPlan plan);
 }
 
 /** Executes one cleanup under a renewable durable lease using bounded pages. */
@@ -118,11 +124,10 @@ final class ShuffleCleanupCoordinator {
         this.clock = clock;
     }
 
-    Optional<CleanupPlan> cleanup(CleanupCommand command) {
+    CleanupReceipt cleanup(CleanupCommand command) {
         String owner = UUID.randomUUID().toString();
-        Optional<CleanupPlan> plan = store.beginCleanup(command, lease(owner));
-        plan.ifPresent(this::execute);
-        return plan;
+        CleanupStart start = store.beginCleanup(command, lease(owner));
+        return start instanceof CleanupPlan plan ? execute(plan) : (CleanupReceipt) start;
     }
 
     int recoverInterrupted(int limit) {
@@ -157,7 +162,7 @@ final class ShuffleCleanupCoordinator {
             String after = null;
             do {
                 store.renewUncertainSweep(id, owner, LEASE_MILLIS);
-                after = objects.deletePrefixPage(id + "/", after, PAGE_SIZE);
+                after = deleteObjectPage(id, after, true);
             } while (after != null);
             store.completeUncertainSweep(id, owner, UNCERTAIN_SWEEP_INTERVAL_MILLIS);
             swept++;
@@ -165,37 +170,22 @@ final class ShuffleCleanupCoordinator {
         return swept;
     }
 
-    private void execute(CleanupPlan plan) {
-        deleteTrackedObjects(plan);
+    private CleanupReceipt execute(CleanupPlan plan) {
+        // The sealed scope authorizes the exact prefixes. Strongly consistent storage listing
+        // includes both accepted objects and uploads that never entered the batch inventory.
         deleteObjectPrefixes(plan);
-        store.completeCleanup(plan);
-    }
-
-    private void deleteTrackedObjects(CleanupPlan plan) {
-        CleanupCursor cursor = null;
-        while (true) {
-            CleanupObjectPage page = store.cleanupObjects(
-                    plan, cursor, PAGE_SIZE, lease(plan.leaseOwner()));
-            if (page.objectKeys().isEmpty()) {
-                return;
-            }
-            objects.delete(page.objectKeys());
-            cursor = page.nextCursor();
-        }
+        return store.completeCleanup(plan);
     }
 
     private void deleteObjectPrefixes(CleanupPlan plan) {
         String shuffleAfter = null;
         while (true) {
-            CleanupShufflePage page = store.cleanupShuffles(
-                    plan, shuffleAfter, PAGE_SIZE, lease(plan.leaseOwner()));
-            if (page.shuffleIds().isEmpty()) {
-                return;
-            }
-            for (String shuffleId : page.shuffleIds()) {
+            List<String> shuffleIds = store.cleanupShuffles(plan, shuffleAfter, PAGE_SIZE, lease(plan.leaseOwner()));
+            for (String shuffleId : shuffleIds) {
                 deleteObjectPrefix(plan, shuffleId);
             }
-            shuffleAfter = page.nextShuffleId();
+            if (shuffleIds.size() < PAGE_SIZE) return;
+            shuffleAfter = shuffleIds.get(shuffleIds.size() - 1);
         }
     }
 
@@ -203,9 +193,21 @@ final class ShuffleCleanupCoordinator {
         String objectAfter = null;
         do {
             store.renewCleanup(plan, lease(plan.leaseOwner()));
-            objectAfter = objects.deletePrefixPage(
-                    shuffleId + "/", objectAfter, PAGE_SIZE);
+            objectAfter = deleteObjectPage(shuffleId, objectAfter, plan.recoverWrites());
         } while (objectAfter != null);
+    }
+
+    private String deleteObjectPage(String shuffleId, String after, boolean recoverWrites) {
+        var page = objects.listPrefixPage(shuffleId + "/", after, PAGE_SIZE);
+        if (recoverWrites) {
+            String nodePrefix = ShufflePartitionManifest.nodePrefix(shuffleId);
+            List<String> manifestKeys = page.keys().stream().filter(key -> key.startsWith(nodePrefix)).toList();
+            if (!manifestKeys.isEmpty()) {
+                store.settleVisibleManifestWrites(shuffleId, manifestKeys);
+            }
+        }
+        objects.delete(page.keys());
+        return page.next();
     }
 
     private CleanupLease lease(String owner) {

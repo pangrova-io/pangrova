@@ -25,9 +25,15 @@ public final class QueryManagerCollaborators {
     public static QueryAuditPort audit(
             AuditEventEmitter emitter, QueryAuditSink service, LineageEventEmitter lineage,
             QueryDispatcher dispatcher, QueryEventDispatcher events) {
-        return new QueryAuditDispatcher(
-                QueryAuditDispatcher.createAuditEmitter(emitter, service),
-                lineage, dispatcher, events);
+        return audit(emitter, service, lineage, dispatcher, events, false);
+    }
+
+    /** Uses the journal transaction as the publisher for lineage attached to an owned query event. */
+    public static QueryAuditPort audit(
+            AuditEventEmitter emitter, QueryAuditSink service, LineageEventEmitter lineage,
+            QueryDispatcher dispatcher, QueryEventDispatcher events, boolean journalCommitsLineage) {
+        return new QueryAuditDispatcher(QueryAuditDispatcher.createAuditEmitter(emitter, service),
+                lineage, dispatcher, events, journalCommitsLineage);
     }
 
     /** Wraps the process-selected durable journal for the query lifecycle. */
@@ -44,20 +50,11 @@ public final class QueryManagerCollaborators {
         if (resolver == null || checker == null) {
             return null;
         }
-        return (user, activeQueries) -> new org.pangrova.security.tenant.TenantQueryGuard(
+        return (user, usageByTenant) -> new org.pangrova.security.tenant.TenantQueryGuard(
                 resolver, checker, tenantId -> {
-                    int concurrent = 0;
-                    int queued = 0;
-                    for (var state : activeQueries) {
-                        if (state.physicalCleanupApplied() || !tenantId.equals(state.getTenantId())) {
-                            continue;
-                        }
-                        concurrent++;
-                        if (state.getState() == org.pangrova.query.api.enums.QueryState.QUEUED) {
-                            queued++;
-                        }
-                    }
-                    return new org.pangrova.security.tenant.TenantUsage(concurrent, queued, 0L, 0L);
+                    var usage = usageByTenant.apply(tenantId);
+                    return new org.pangrova.security.tenant.TenantUsage(
+                            usage.concurrentQueries(), usage.queuedQueries(), 0L, 0L);
                 }).checkAndResolve(user);
     }
 }

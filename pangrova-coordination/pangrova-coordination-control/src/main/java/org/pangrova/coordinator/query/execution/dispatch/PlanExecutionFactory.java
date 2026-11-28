@@ -80,6 +80,12 @@ public final class PlanExecutionFactory implements StatementExecutionFactory<Sta
     }
 
     @Override
+    public boolean usesCoordinatorStatementAuthority(Statement statement) {
+        // EXPLAIN produces a local Flight result. Native DML is fenced by task issuance and the write journal.
+        return statement instanceof ExplainStatement;
+    }
+
+    @Override
     public StatementResult execute(Statement statement, StatementExecutionContext ctx) {
         return DAGCompletionEvaluator.awaitResult(start(statement, ctx), ctx.queryId(), () -> { });
     }

@@ -1,24 +1,24 @@
 package org.pangrova.server.coordinator.bootstrap;
 
-import org.pangrova.query.api.enums.QueryState;
-
 import org.pangrova.persistence.workflow.postgresql.generation.PostgresGenerationStores;
 import org.pangrova.persistence.jdbc.api.security.model.CurrentModelAuthority;
 
 import org.pangrova.server.coordinator.lifecycle.PangrovaCoordinator;
+import org.pangrova.coordinator.coordination.CoordinatorExecutionAuthority;
 import org.pangrova.coordinator.coordination.HighAvailabilityCoordinationService;
 import org.pangrova.query.runtime.QueryManager;
-import org.pangrova.query.recovery.JournalRecoveryService;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerHealthScheduler;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
+import org.pangrova.observability.api.metrics.MetricsProvider;
 import org.pangrova.persistence.coordination.api.lease.DistributedLease;
 import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.persistence.coordination.api.membership.CoordinatorRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Set;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -33,7 +33,7 @@ import javax.sql.DataSource;
  * non-durable Memory path.</p>
  *
  * <h3>Task 38 / G-META-02: Catalog divergence detection</h3>
- * <p>When a {@link CatalogRegistry} is configured via {@link #setCatalogRegistry},
+ * <p>When a {@link CatalogRegistry} is configured,
  * the failover callback calls {@link CatalogRegistry#reconcileFromStore()} to detect
  * and repair any divergence between the local in-memory catalog registry and the
  * authoritative shared store. This ensures the newly promoted leader has a consistent
@@ -49,80 +49,59 @@ final class HighAvailabilityBootstrap {
 
     private static final Logger LOG = LoggerFactory.getLogger(HighAvailabilityBootstrap.class);
 
-    /** Default grace window for worker re-registration after failover (SI-6). */
-    static final long DEFAULT_WORKER_LIVENESS_GRACE_MS = 60_000;
-
     private final CoordinatorBootstrapConfig config;
-    private final QueryManager queryManager;
-    private final WorkerManager workerManager;
-    private final CoordinatorTaskTracker taskTracker;
-    private final ScheduledExecutorService schedulerExecutor;
-    private final DistributedLease distributedLease;
-    private final PostgresGenerationStores artifactStores;
-    private final CoordinatorShutdownSequence.WorkerTaskRetrier workerTaskRetrier;
-
-    private DataSource dataSource;
-    private PangrovaCoordinator coordinator;
-    private HighAvailabilityCoordinationService haService;
-    private WorkerHealthScheduler healthScheduler;
-    private CatalogRegistry catalogRegistry;
+    private final HighAvailabilityCoordinationService haService;
     private final CoordinatorRegistry coordinatorRegistry;
-    private boolean durableExecutionAnchors;
-    private org.pangrova.persistence.generation.api.job.GenerationJobStore artifactExecutions;
-    private org.pangrova.coordinator.coordination.CoordinatorExecutionAuthority executionAuthority;
+    private final CatalogRegistry catalogRegistry;
+    private final boolean durableExecutionAnchors;
+    private final org.pangrova.persistence.generation.api.job.GenerationJobStore artifactExecutions;
+    private QueryManager queryManager;
+    private WorkerManager workerManager;
+    private CoordinatorTaskTracker taskTracker;
+    private ScheduledExecutorService schedulerExecutor;
+    private QueryBootstrap query;
+    private PangrovaCoordinator coordinator;
+    private WorkerHealthScheduler healthScheduler;
     private final AtomicBoolean executionRecoveryRunning = new AtomicBoolean();
     private volatile boolean querySchedulingStopped;
     private volatile java.util.concurrent.ScheduledFuture<?> recoveryFuture;
     private volatile java.util.concurrent.ScheduledFuture<?> taskTimeoutFuture;
-    private java.util.function.Function<java.util.List<ExecutionAnchor>, java.util.Set<String>>
-            claimedExecutionRecovery = ignored -> java.util.Set.of();
-    private long workerLivenessGraceMs = DEFAULT_WORKER_LIVENESS_GRACE_MS;
 
     HighAvailabilityBootstrap(CoordinatorBootstrapConfig config,
-                QueryManager queryManager,
-                WorkerManager workerManager,
-                CoordinatorTaskTracker taskTracker,
-                ScheduledExecutorService schedulerExecutor,
-                DistributedLease distributedLease, CoordinatorRegistry coordinatorRegistry,
-                        CurrentModelAuthority modelAuthority,
-                CoordinatorShutdownSequence.WorkerTaskRetrier workerTaskRetrier) {
+            DistributedLease lease, CoordinatorRegistry coordinatorRegistry, DataSource dataSource,
+            CoordinatorExecutionAuthority executionAuthority, CurrentModelAuthority modelAuthority,
+            CatalogRegistry catalogRegistry, MetricsProvider metrics) {
         this.config = config;
-        this.queryManager = queryManager;
-        this.workerManager = workerManager;
-        this.taskTracker = taskTracker;
-        this.schedulerExecutor = schedulerExecutor;
-        this.distributedLease = distributedLease;
         this.coordinatorRegistry = coordinatorRegistry;
-        artifactStores = new PostgresGenerationStores(modelAuthority, CoordinatorTableWriteAuthority.create());
-        this.workerTaskRetrier = workerTaskRetrier;
-    }
-
-    /** Supplies the durable execution backend for HA recovery. */
-    void setDataSource(DataSource dataSource) {
-        this.dataSource = dataSource;
-    }
-
-    void setExecutionAuthority(org.pangrova.coordinator.coordination.CoordinatorExecutionAuthority authority) {
-        executionAuthority = java.util.Objects.requireNonNull(authority, "executionAuthority");
-    }
-
-    /**
-     * Sets the catalog registry for peer divergence detection at leader election time.
-     * When set, the failover callback calls {@link CatalogRegistry#reconcileFromStore()}
-     * to sync the local registry with the authoritative store (Task 38 / G-META-02).
-     */
-    void setCatalogRegistry(CatalogRegistry catalogRegistry) {
         this.catalogRegistry = catalogRegistry;
+        durableExecutionAnchors = dataSource != null;
+        if (durableExecutionAnchors && executionAuthority == null) {
+            throw new IllegalStateException("durable HA requires the process-wide execution authority binding");
+        }
+        var anchors = durableExecutionAnchors ? executionAuthority.backend()
+                : new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore();
+        artifactExecutions = durableExecutionAnchors
+                ? new PostgresGenerationStores(modelAuthority, CoordinatorTableWriteAuthority.create())
+                        .builds(dataSource)
+                : null;
+        haService = new HighAvailabilityCoordinationService(lease,
+                HighAvailabilityCoordinationService.CoordinationConfig.defaults(),
+                anchors, durableExecutionAnchors ? metrics : null);
+        if (durableExecutionAnchors) {
+            haService.bindExecutionAuthority(executionAuthority);
+        }
     }
 
-    void setClaimedExecutionRecovery(
-            java.util.function.Function<java.util.List<ExecutionAnchor>, java.util.Set<String>>
-                    recovery) {
-        this.claimedExecutionRecovery = java.util.Objects.requireNonNull(
-                recovery, "recovery must not be null");
-    }
-
-    void start() {
+    void start(QueryBootstrap queryBootstrap, int httpPort) {
+        query = queryBootstrap;
+        queryManager = queryBootstrap.queryManager();
+        workerManager = queryBootstrap.workerManager();
+        taskTracker = queryBootstrap.taskTracker();
+        schedulerExecutor = queryBootstrap.schedulerExecutor();
+        if (coordinatorRegistry != null) {
+            haService.setCoordinatorRegistry(
+                    coordinatorRegistry, config.coordinatorTransportAdvertisedHost(), httpPort);
+        }
         startHealthScheduler();
         startHA();
     }
@@ -135,9 +114,7 @@ final class HighAvailabilityBootstrap {
         // persist orphaned queries, and unregister from the coordinator registry.
         // Without this, graceful shutdown leaves a stale lease (delaying failover),
         // loses in-flight queries, and leaves a stale registry entry.
-        if (haService != null) {
-            haService.close();
-        }
+        haService.close();
     }
 
     /** Cancels future query-producing callbacks; the assembly still joins their actual executor before retirement. */
@@ -158,22 +135,6 @@ final class HighAvailabilityBootstrap {
     }
 
     private void startHA() {
-        if (dataSource != null && executionAuthority == null) {
-            throw new IllegalStateException("durable HA requires the process-wide execution authority binding");
-        }
-        var anchors = dataSource != null ? executionAuthority.backend()
-                : new org.pangrova.persistence.query.memory.coordination.InMemoryExecutionAnchorStore();
-        haService = new HighAvailabilityCoordinationService(distributedLease,
-                HighAvailabilityCoordinationService.CoordinationConfig.defaults(), anchors);
-        if (dataSource != null) {
-            haService.bindExecutionAuthority(executionAuthority);
-            durableExecutionAnchors = true;
-            artifactExecutions = artifactStores.builds(dataSource);
-        }
-        if (coordinatorRegistry != null) {
-            haService.setCoordinatorRegistry(coordinatorRegistry,
-                    config.coordinatorTransportAdvertisedHost(), config.httpPort());
-        }
         coordinator = new PangrovaCoordinator(
                 config.coordinatorId(), queryManager, workerManager, haService);
         coordinator.start();
@@ -227,9 +188,8 @@ final class HighAvailabilityBootstrap {
     }
 
     /**
-     * Claims explicit durable orphans and replays only their original owners.
-     * Active peers' journal rows are never included. Recovery is bounded by the
-     * reclaimer batch size and keeps the worker-liveness grace window.
+     * Claims durable orphans and resolves their issued resources without constructing a new runnable DAG.
+     * Active peers are never included. Recovery is bounded by the reclaimer batch size.
      */
     private void recoverExpiredJournalState() {
         if (querySchedulingStopped || !durableExecutionAnchors
@@ -238,35 +198,25 @@ final class HighAvailabilityBootstrap {
         }
         java.util.List<ExecutionAnchor> claimed = java.util.List.of();
         try {
-            org.pangrova.query.lifecycle.QueryStateJournalPort journal =
-                    queryManager.getStateJournal();
             claimed = haService.claimExpiredExecutions(256);
             if (claimed.isEmpty()) {
                 return;
             }
-            var artifacts = claimed.stream().filter(anchor -> artifactJob(anchor).isPresent()).toList();
-            java.util.Set<String> terminalCleaned = new java.util.HashSet<>(claimedExecutionRecovery.apply(
-                    claimed.stream().filter(anchor -> !artifacts.contains(anchor)).toList()));
-            artifacts.forEach(anchor -> terminalCleaned.add(anchor.executionId()));
-            var queryIds = claimed.stream()
+            var ordinaryClaims = claimed.stream().filter(anchor -> !isArtifactExecution(anchor)).toList();
+            var deferredWrites = query.recoverWriteCommitIntents(ordinaryClaims);
+            var queryIds = ordinaryClaims.stream()
                     .map(ExecutionAnchor::executionId)
-                    .filter(id -> !terminalCleaned.contains(id))
+                    .filter(id -> !deferredWrites.contains(id))
                     .collect(java.util.stream.Collectors.toUnmodifiableSet());
-            int recovered = new JournalRecoveryService(
-                    journal, queryManager, taskTracker, workerManager,
-                    null, workerLivenessGraceMs).recover(queryIds);
-            settleRecoveryClaims(claimed);
-            LOG.info("event=execution_anchor_recovery_completed "
-                            + "queriesClaimed={} queriesRecovered={} graceMs={}",
-                    claimed.size(), recovered, workerLivenessGraceMs);
+            var observed = query.observedRecoveryExecutions(queryIds);
+            settleRecoveryClaims(claimed, queryIds, observed);
+            query.trackRecoveredTaskDrains(ordinaryClaims.stream()
+                    .filter(anchor -> observed.contains(anchor.executionId()))
+                    .toList());
+            LOG.info("event=execution_anchor_recovery_completed queriesClaimed={} withJournalEvidence={}",
+                    claimed.size(), observed.size());
         } catch (Exception e) {
-            // NEW-COORD-05: per-entry poison rows are already isolated inside JournalRecoveryService
-            // (each query/task replay is try/caught + skipped with a warning). A failure reaching
-            // here means the whole replay could not run (e.g. metadata DB transiently unavailable).
-            // Hard-failing would crash a newly-promoted leader and leave the cluster with NO leader
-            // — a worse outage than degrading. Raise a CRITICAL alarm and continue starting DEGRADED:
-            // un-recovered predecessor queries are fail-safe (detected + failed by worker-liveness /
-            // task-timeout checks) rather than blocking the entire cluster's recovery.
+            // Yield the exact grants and keep the durable evidence for the next recovery pass.
             for (ExecutionAnchor anchor : claimed) {
                 haService.yieldExecution(anchor);
             }
@@ -278,7 +228,8 @@ final class HighAvailabilityBootstrap {
         }
     }
 
-    private void settleRecoveryClaims(java.util.List<ExecutionAnchor> claimed) {
+    private void settleRecoveryClaims(java.util.List<ExecutionAnchor> claimed, Set<String> eligible,
+            Set<String> observed) {
         for (ExecutionAnchor anchor : claimed) {
             var artifact = artifactJob(anchor);
             if (artifact.isPresent()) {
@@ -288,21 +239,26 @@ final class HighAvailabilityBootstrap {
                 if (job.state() == org.pangrova.generation.api.enums.GenerationJobState.PUBLISHED
                         || job.state() == org.pangrova.generation.api.enums.GenerationJobState.FAILED
                         || job.state() == org.pangrova.generation.api.enums.GenerationJobState.CANCELLED) {
-                    haService.releaseQueryOwnership(anchor.executionId(), config.coordinatorId());
+                    haService.releaseRecoveryClaim(anchor);
                 }
                 continue;
             }
-            var state = queryManager.getQueryState(anchor.executionId());
-            if (state.isEmpty() || isTerminal(state.orElseThrow())) {
-                haService.releaseQueryOwnership(
-                        anchor.executionId(), config.coordinatorId());
+            // Admission is committed before dispatch. A local projection or a logical terminal
+            // event does not prove that every originally issued attempt has actually exited.
+            if (eligible.contains(anchor.executionId()) && !observed.contains(anchor.executionId())
+                    && queryManager.getStateMachine(anchor.executionId()) == null) {
+                haService.releaseRecoveryClaim(anchor);
             }
         }
     }
 
+    private static boolean isArtifactExecution(ExecutionAnchor anchor) {
+        return anchor.executionId().startsWith("artifact:");
+    }
+
     private java.util.Optional<org.pangrova.generation.api.identity.GenerationJobKey> artifactJob(
             ExecutionAnchor anchor) {
-        if (!anchor.executionId().startsWith("artifact:")) {
+        if (!isArtifactExecution(anchor)) {
             return java.util.Optional.empty();
         }
         if (artifactExecutions == null) {
@@ -312,15 +268,9 @@ final class HighAvailabilityBootstrap {
                 new IllegalStateException("artifact recovery has no exact durable association")));
     }
 
-    private static boolean isTerminal(QueryState state) {
-        return state == QueryState.FINISHED
-                || state == QueryState.FAILED
-                || state == QueryState.CANCELLED;
-    }
-
     private void recoverExecutionsIfControlLeader() {
         try {
-            if (haService != null && haService.isLeader(config.coordinatorId())) {
+            if (haService.isLeader(config.coordinatorId())) {
                 recoverExpiredJournalState();
             }
         } catch (RuntimeException failure) {
@@ -341,10 +291,10 @@ final class HighAvailabilityBootstrap {
 
     private void onDeadWorker(String workerId) {
         CoordinatorShutdownSequence.onDeadWorker(
-                workerId, taskTracker, queryManager, workerTaskRetrier);
+                workerId, taskTracker, queryManager, query::retryTaskOnDeadWorker);
     }
 
-    /** Returns the HA service for post-construction wiring into other components. */
+    /** Provides the shared authority when assembling query and HTTP services. */
     HighAvailabilityCoordinationService haService() {
         return haService;
     }

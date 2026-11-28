@@ -15,7 +15,7 @@ public record SubmitQueryResponse(
     @JsonProperty("result_disposition") ResultDisposition resultDisposition,
     @JsonProperty("result_endpoint") ResultEndpoint resultEndpoint,
     @JsonProperty("column_names") List<String> columnNames,
-    @JsonInclude(JsonInclude.Include.NON_NULL) @JsonProperty("branch_selection") BranchSelection branchSelection
+    @JsonInclude(JsonInclude.Include.NON_NULL) @JsonProperty("owner_endpoint") QueryOwnerEndpoint ownerEndpoint
 ) {
 
     public SubmitQueryResponse(String queryId, String state, ResultDisposition resultDisposition,
@@ -30,6 +30,9 @@ public record SubmitQueryResponse(
         state = QueryStatusResponse.requireCanonicalState(state);
         if (resultDisposition == null) {
             throw new IllegalArgumentException("resultDisposition must not be null");
+        }
+        if (resultDisposition == ResultDisposition.UNAVAILABLE) {
+            throw new IllegalArgumentException("Submission cannot contain a recovered disposition");
         }
         resultDisposition.validateEndpoint(resultEndpoint);
         if (resultDisposition == ResultDisposition.PENDING && QueryStatusResponse.isTerminalState(state)) {

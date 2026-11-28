@@ -10,7 +10,6 @@ import org.pangrova.generation.codec.execution.GenerationExchangeEvidenceCodec;
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.util.DigestUtils;
 
-import java.util.Base64;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -18,7 +17,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class GenerationExchangeEvidenceTest {
     @Test
-    void canonicalRoundTripPreservesExactRpcBytesAndHasNoCredentialFields() {
+    void canonicalRoundTripPreservesProviderDigestAndHasNoCredentialFields() {
         var allocation = allocation();
         var finalization = finalized(allocation, List.of(partition(0)), 0);
         assertThat(GenerationExchangeEvidenceCodec.decodeRegistration(GenerationExchangeEvidenceCodec.encode(allocation), GenerationExchangeEvidenceCodec.sha256(allocation))).isEqualTo(allocation);
@@ -60,6 +59,9 @@ class GenerationExchangeEvidenceTest {
             assertThatThrownBy(() -> GenerationExchangeEvidenceCodec.decodeFinalization(GenerationExchangeEvidenceCodec.encode(finalization), invalid))
                     .isInstanceOf(IllegalArgumentException.class);
         }
+        byte[] receipt = GenerationExchangeEvidenceCodec.encode(finalization);
+        assertThat(new String(receipt, java.nio.charset.StandardCharsets.UTF_8))
+                .contains(finalization.responseSha256()).doesNotContain("responseBase64");
         byte[] canonical = GenerationExchangeEvidenceCodec.encode(allocation);
         byte[] noncanonical = java.util.Arrays.copyOf(canonical, canonical.length + 1);
         noncanonical[canonical.length] = '\n';
@@ -67,18 +69,6 @@ class GenerationExchangeEvidenceTest {
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("not canonical");
         assertThatThrownBy(() -> GenerationExchangeEvidenceCodec.decodeRegistration(null, GenerationExchangeEvidenceCodec.sha256(allocation)))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("checksum or size");
-    }
-
-    @Test
-    void finalizationRejectsResponseBytesWithWrongIntegrityDigest() {
-        var allocation = allocation();
-        // Negative metadata contract only: these bytes are not claimed to be a Native or shuffle receipt.
-        String encoded = Base64.getEncoder().encodeToString(GenerationExchangeEvidenceCodec.encode(allocation));
-        assertThatThrownBy(() -> new GenerationExchangeFinalization(allocation.exchangeId(), GenerationExchangeEvidenceCodec.sha256(allocation),
-                allocation.shuffleId(), allocation.planEpoch(), allocation.registeredOwner(),
-                allocation.producerCount(), allocation.producerSetSha256(), List.of(partition(0)), 0, 0,
-                encoded, "0".repeat(64)))
-                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("response checksum or size");
     }
 
     private static GenerationExchangeRegistration allocation() {
@@ -97,6 +87,6 @@ class GenerationExchangeEvidenceTest {
         byte[] response = new byte[]{8, 1};
         return new GenerationExchangeFinalization(allocation.exchangeId(), GenerationExchangeEvidenceCodec.sha256(allocation), allocation.shuffleId(),
                 allocation.planEpoch(), allocation.registeredOwner(), 1, allocation.producerSetSha256(), partitions,
-                bytes, 0, Base64.getEncoder().encodeToString(response), DigestUtils.sha256Hex(response));
+                bytes, 0, DigestUtils.sha256Hex(response));
     }
 }

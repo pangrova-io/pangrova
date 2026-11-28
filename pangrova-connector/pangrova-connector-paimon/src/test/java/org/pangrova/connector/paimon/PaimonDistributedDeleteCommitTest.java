@@ -55,12 +55,18 @@ class PaimonDistributedDeleteCommitTest extends PaimonDeleteTestSupport {
         var table = new org.apache.paimon.table.AppendOnlyFileStoreTable(faultyIo,
                 original.location(), original.schema(), org.apache.paimon.table.CatalogEnvironment.empty());
 
-        assertThatThrownBy(() -> PaimonDistributedWriteFinisher.finish(table, output, fragments, context,
+        var prepared = PaimonDistributedWriteFinisher.deserialize(fragments, output);
+        assertThatThrownBy(() -> PaimonDistributedWriteFinisher.finish(table, output, prepared, context,
+                () -> table.snapshotManager().latestSnapshotOfUser(context.commitFingerprint()),
                 (schema, name, added, removed, snapshot, event, fingerprint) -> notifications.incrementAndGet()))
                 .isInstanceOf(org.pangrova.connector.api.exception.ConnectorException.class)
                 .hasStackTraceContaining("Exception occurs when committing snapshot");
         assertThat(publications).hasValue(1);
         assertThat(notifications).hasValue(0);
+        assertThat(readRows()).containsExactly(DELETED);
+        assertThatThrownBy(() -> metadata.finishDistributedWrite(SESSION, output, fragments, context))
+                .isInstanceOf(org.pangrova.connector.api.exception.ConnectorException.class)
+                .hasMessageContaining("previously started without a confirmed snapshot");
         assertThat(readRows()).containsExactly(DELETED);
     }
 
@@ -138,6 +144,73 @@ class PaimonDistributedDeleteCommitTest extends PaimonDeleteTestSupport {
     }
 
     @Test
+    void stagedSdkDataFilesUseTheAllocationFromTheDispatchedHandle() throws Exception {
+        createTable(false, false, Map.of("data-file.prefix", "custom-data-"));
+        var metadata = new PaimonMetadata(catalog, "delete_catalog", new PaimonSplitRegistry());
+        var first = (org.pangrova.connector.paimon.handle.PaimonOutputTableHandle)
+                metadata.beginInsert(SESSION, handle(metadata));
+        var second = (org.pangrova.connector.paimon.handle.PaimonOutputTableHandle)
+                metadata.beginInsert(SESSION, handle(metadata));
+        var codec = new org.pangrova.connector.paimon.handle.PaimonOutputHandleCodec();
+        var restored = (org.pangrova.connector.paimon.handle.PaimonOutputTableHandle)
+                codec.deserialize(codec.codecVersion(), codec.serialize(first));
+        assertThat(restored.stagedFileNames()).isEqualTo(first.stagedFileNames());
+        assertThat(second.stagedFileNames().allocationId()).isNotEqualTo(first.stagedFileNames().allocationId());
+        assertThat(first.stagedFileNames().dataPrefix()).startsWith("custom-data-");
+        assertThat(second.stagedFileNames().dataPrefix()).isNotEqualTo(first.stagedFileNames().dataPrefix());
+        assertThatThrownBy(() -> codec.deserialize(4, codec.serialize(first)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("version");
+
+        byte[] receipt = finish(provider().createPageSink(ConnectorTransactionHandle.empty(), SESSION, restored),
+                SURVIVOR);
+        var prepared = org.pangrova.connector.paimon.write.PaimonSdkWriteFragment.decode(receipt, restored);
+        assertThat(prepared.messages()).singleElement().satisfies(message -> {
+            var increment = ((org.apache.paimon.table.sink.CommitMessageImpl) message).newFilesIncrement();
+            assertThat(increment.newFiles()).singleElement().satisfies(file -> {
+                assertThat(file.fileName()).startsWith(first.stagedFileNames().dataPrefix());
+                assertThat(file.fileName()).doesNotStartWith(second.stagedFileNames().dataPrefix());
+            });
+        });
+        assertThat(prepared.objects()).hasSize(1);
+        var object = prepared.objects().get(0);
+        var path = java.nio.file.Path.of(java.net.URI.create(object.uri()));
+        assertThat(path).isRegularFile();
+        assertThat(java.nio.file.Files.size(path)).isEqualTo(object.sizeBytes());
+        assertThat(path.getFileName().toString()).startsWith(first.stagedFileNames().dataPrefix());
+        assertThatThrownBy(() -> org.pangrova.connector.paimon.write.PaimonSdkWriteFragment.decode(receipt, second))
+                .hasMessageContaining("staged file allocation");
+        byte[] changedSize = receipt.clone();
+        changedSize[changedSize.length - 1] ^= 1;
+        assertThatThrownBy(() -> org.pangrova.connector.paimon.write.PaimonSdkWriteFragment.decode(changedSize, restored))
+                .hasMessageContaining("differs from its SDK commit metadata");
+        assertThat(snapshotId()).isEqualTo(-1L);
+    }
+
+    @Test
+    void observedStagingReplaysDeletionOnlyInTheOriginalLocalStorageNamespace() throws Exception {
+        createTable(false, false);
+        var metadata = new PaimonMetadata(catalog, "delete_catalog", new PaimonSplitRegistry());
+        var handle = (org.pangrova.connector.paimon.handle.PaimonOutputTableHandle)
+                metadata.beginInsert(SESSION, handle(metadata));
+        var first = finish(provider().createPageSink(ConnectorTransactionHandle.empty(), SESSION, handle), SURVIVOR);
+        var second = finish(provider().createPageSink(ConnectorTransactionHandle.empty(), SESSION, handle), SURVIVOR);
+        var prior = org.pangrova.connector.paimon.write.PaimonSdkWriteFragment.decode(first, handle);
+        var current = org.pangrova.connector.paimon.write.PaimonSdkWriteFragment.decode(second, handle);
+        var deleted = java.nio.file.Path.of(java.net.URI.create(prior.objects().get(0).uri()));
+        var remaining = java.nio.file.Path.of(java.net.URI.create(current.objects().get(0).uri()));
+        assertThat(deleted).isNotEqualTo(remaining);
+        java.nio.file.Files.delete(deleted);
+        var fragments = List.of(first, second);
+        var context = PaimonCommitTestSupport.context(metadata, SESSION, handle, fragments);
+        boolean authoritative = !current.localAuthority().isEmpty();
+
+        assertThat(metadata.reclaimObservedStaging(SESSION, handle, fragments, context)).isEqualTo(authoritative);
+        assertThat(java.nio.file.Files.exists(remaining)).isEqualTo(!authoritative);
+        assertThat(metadata.reclaimObservedStaging(SESSION, handle, fragments, context)).isEqualTo(authoritative);
+        assertThat(snapshotId()).isEqualTo(-1L);
+    }
+
+    @Test
     void durableCommitReplayDoesNotPublishDuplicateRowsOrSnapshots() throws Exception {
         createTable(false, false);
         var metadata = new PaimonMetadata(catalog, "delete_catalog", new org.pangrova.connector.paimon.PaimonSplitRegistry());
@@ -149,9 +222,11 @@ class PaimonDistributedDeleteCommitTest extends PaimonDeleteTestSupport {
 
         metadata.finishDistributedWrite(SESSION, output, fragments, context);
         long publishedSnapshot = snapshotId();
-        var recovered = metadata.reconstructOutputHandle(
-                SESSION, output.targetTable().orElseThrow(),
-                output.writeMode(), context.baseSnapshotId());
+        var binding = org.pangrova.protocol.v2.WriteOutputBinding.parseFrom(context.writeOutputBinding());
+        var handle = binding.getConnector().getOutputHandle();
+        var recovered = new org.pangrova.connector.paimon.handle.PaimonOutputHandleCodec().deserialize(
+                handle.getCodecVersion(), handle.getPayload().toByteArray());
+        assertThat(recovered).isEqualTo(output);
         metadata.finishDistributedWrite(SESSION, recovered, fragments, context);
 
         assertThat(snapshotId()).isEqualTo(publishedSnapshot);
@@ -159,7 +234,7 @@ class PaimonDistributedDeleteCommitTest extends PaimonDeleteTestSupport {
     }
 
     @Test
-    void unjournaledCommitAndUnrecoverablePartitionOverwriteFailClosed() throws Exception {
+    void unjournaledPartitionOverwriteFailsClosed() throws Exception {
         createTable(true, false);
         var metadata = new PaimonMetadata(catalog, "delete_catalog", new org.pangrova.connector.paimon.PaimonSplitRegistry());
         var output = metadata.beginOverwrite(
@@ -168,18 +243,15 @@ class PaimonDistributedDeleteCommitTest extends PaimonDeleteTestSupport {
         assertThatThrownBy(() -> metadata.finishDistributedWrite(
                 SESSION, output, List.of(prepare(output))))
                 .isInstanceOf(UnsupportedOperationException.class);
-        assertThatThrownBy(() -> metadata.reconstructOutputHandle(
-                SESSION, output.targetTable().orElseThrow(),
-                output.writeMode(), output.writeBaseSnapshotId().orElse(-1L)))
-                .isInstanceOf(UnsupportedOperationException.class);
     }
 
-    @Test
-    void mixedShardOperationsFailBeforeCatalogCommit() throws Exception {
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void rejectsMixedShardOperationsAndAllocationsBeforeCatalogCommit(boolean sameAllocation) throws Exception {
         createTable(false, false);
         var metadata = new PaimonMetadata(catalog, "delete_catalog", new org.pangrova.connector.paimon.PaimonSplitRegistry());
         var insert = metadata.beginInsert(SESSION, handle(metadata));
-        var overwrite = metadata.beginOverwrite(SESSION, handle(metadata));
+        var overwrite = sameAllocation ? insert : metadata.beginOverwrite(SESSION, handle(metadata));
         ConnectorPageSink insertSink = provider().createPageSink(
                 ConnectorTransactionHandle.empty(), SESSION, insert);
         byte[] insertFragment = finish(insertSink, SURVIVOR);
@@ -189,7 +261,8 @@ class PaimonDistributedDeleteCommitTest extends PaimonDeleteTestSupport {
 
         assertThatThrownBy(() -> metadata.finishDistributedWrite(
                 SESSION, insert, fragments, context))
-                .hasMessageContaining("Mixed Paimon write operations");
+                .hasStackTraceContaining(sameAllocation
+                        ? "Mixed Paimon write operations in one commit" : "differs from its staged file allocation");
         assertThat(readRows()).isEmpty();
         assertThat(snapshotId()).isEqualTo(-1L);
     }

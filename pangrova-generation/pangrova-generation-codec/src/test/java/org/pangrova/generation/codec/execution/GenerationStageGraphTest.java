@@ -88,6 +88,34 @@ class GenerationStageGraphTest {
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("purpose");
     }
 
+    @Test
+    void freezesExactSplittableExchangeIdsInsideTheGraphDigest() {
+        var template = GenerationStageTemplate.of(new byte[0], List.of(), List.of());
+        var left = stage(1, 2, GenerationPageKind.RELATIONAL_COMPUTE, false);
+        var right = stage(2, 2, GenerationPageKind.RELATIONAL_COMPUTE, false);
+        var terminal = stage(4, 1, GenerationPageKind.RELATIONAL_PARTITION, true);
+        var edges = List.of(
+                new GenerationStageGraph.Exchange("left", 1, 3, GenerationExchangeDistribution.HASH,
+                        List.of(0), 2, "BATCH_SERDE_ARROW_BATCH", true),
+                new GenerationStageGraph.Exchange("right", 2, 3, GenerationExchangeDistribution.HASH,
+                        List.of(0), 2, "BATCH_SERDE_ARROW_BATCH", true),
+                new GenerationStageGraph.Exchange("result", 3, 4, GenerationExchangeDistribution.SINGLETON,
+                        List.of(), 1, "BATCH_SERDE_ARROW_BATCH", true));
+        java.util.function.Function<List<String>, GenerationStageGraph> graph = allowed -> new GenerationStageGraph(
+                GenerationStageGraph.FORMAT_VERSION, GenerationGraphPurpose.RELATIONAL_EXPORT,
+                List.of(left, right, GenerationStageGraph.StagePlan.of(3, 2, GenerationPageKind.RELATIONAL_COMPUTE,
+                        new byte[]{7}, template, List.of(), List.of("id"), false, true, allowed), terminal),
+                edges, List.of());
+
+        var frozen = graph.apply(List.of("right", "left"));
+        var digest = GenerationStageGraphCodec.sha256(frozen);
+        assertThat(GenerationStageGraphCodec.decode(GenerationStageGraphCodec.encode(frozen), digest)
+                .requireStage(3).splittableHashInputs()).containsExactly("left", "right");
+        assertThat(GenerationStageGraphCodec.sha256(graph.apply(List.of("left")))).isNotEqualTo(digest);
+        assertThatThrownBy(() -> graph.apply(List.of("result"))).hasMessageContaining("incoming HASH");
+        assertThatThrownBy(() -> graph.apply(List.of("left", "left"))).hasMessageContaining("skew eligibility");
+    }
+
     private static GenerationStageGraph.StagePlan stage(int id, int parallelism,
             GenerationPageKind kind, boolean terminal) {
         return GenerationStageGraph.StagePlan.of(id, parallelism, kind, new byte[] {1, 2},

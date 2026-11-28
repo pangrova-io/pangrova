@@ -22,6 +22,7 @@ import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.pangrova.connector.api.metadata.table.TableStatistics;
 import org.pangrova.connector.api.metadata.table.TableVersionToken;
 
+import java.io.FileNotFoundException;
 import java.util.LinkedHashMap;
 import java.util.Optional;
 import java.util.OptionalLong;
@@ -34,7 +35,7 @@ final class PaimonReadBindings {
         FileStoreTable table = load(catalog, selector);
         Snapshot snapshot = selectedSnapshot(table, selector);
         String identity = identity(table, snapshot);
-        var schema = PaimonReadSchema.resolve(selector, table);
+        var schema = PaimonReadSchema.resolve(selector, table, snapshot);
         var columns = PaimonTypeMapper.toPangrovaColumns(schema.rowType(), schema.options());
         var declaration = new ConnectorTableReadMetadata(new ConnectorTableMetadata(
                 new SchemaTableName(selector.schemaName(), selector.tableName()),
@@ -88,16 +89,18 @@ final class PaimonReadBindings {
         validateSelected(table, handle, null);
     }
 
-    static void validateSelected(FileStoreTable table, PaimonTableHandle handle, String bindingIdentity) {
+    static Snapshot validateSelected(FileStoreTable table, PaimonTableHandle handle, String bindingIdentity) {
         String expected = handle.properties().get(PaimonTableHandle.SOURCE_IDENTITY_PROPERTY);
-        if (bindingIdentity == null && expected == null) return;
-        String observed = identity(table, selectedSnapshot(table, handle));
+        if (bindingIdentity == null && expected == null && handle.incrementalRange().isEmpty()) return null;
+        Snapshot snapshot = selectedSnapshot(table, handle);
+        String observed = identity(table, snapshot);
         if (bindingIdentity != null && !bindingIdentity.equals(observed)) {
             throw new IllegalStateException("Selected source identity changed");
         }
         if (expected != null && !expected.equals(observed)) {
             throw new IllegalStateException("Selected snapshot changed during split planning");
         }
+        return snapshot;
     }
 
     static FileStoreTable requireSelectedTable(org.apache.paimon.table.Table table, PaimonTableHandle handle) {
@@ -129,11 +132,12 @@ final class PaimonReadBindings {
         }
         if (handle.snapshotId().isEmpty()) return table.snapshotManager().latestSnapshot();
         long version = handle.snapshotId().orElseThrow();
-        if (!table.snapshotManager().snapshotExists(version)) {
+        try {
+            return PaimonReadSchema.readSnapshot(table, version);
+        } catch (FileNotFoundException missing) {
             throw new ConnectorException(PangrovaErrorCode.CONNECTOR_SNAPSHOT_NOT_FOUND,
-                    "Selected snapshot is unavailable: " + version);
+                    "Selected snapshot is unavailable: " + version, missing);
         }
-        return table.snapshotManager().snapshot(version);
     }
 
     private static FileStoreTable load(Catalog catalog, PaimonTableHandle handle) {

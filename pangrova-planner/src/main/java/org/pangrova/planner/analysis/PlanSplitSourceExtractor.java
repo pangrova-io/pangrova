@@ -5,6 +5,8 @@ import org.pangrova.connector.api.metadata.table.ConnectorReadBinding;
 import java.util.Optional;
 import org.pangrova.planner.api.exception.PlannerException;
 import org.pangrova.planner.metadata.PlanTable;
+import org.pangrova.planner.metadata.catalog.MetadataResolvedTable;
+import org.apache.calcite.prepare.RelOptTableImpl;
 
 import org.pangrova.connector.api.metadata.Constraint;
 import org.pangrova.connector.api.metadata.Domain;
@@ -59,12 +61,12 @@ public final class PlanSplitSourceExtractor {
 
     /** Retains the exact source evidence to fence later dispatch after connector I/O. */
     public static PreparedSources prepare(RelNode relNode) {
-        Map<RelOptTable, Optional<ConnectorReadBinding>> verified = new IdentityHashMap<>();
-        return new PreparedSources(extract(relNode, verified), verified);
+        Map<Object, VerifiedBinding> verified = new IdentityHashMap<>();
+        return new PreparedSources(extract(relNode, verified), List.copyOf(verified.values()));
     }
 
     private static List<SplitSourceDescriptor> extract(RelNode relNode,
-            Map<RelOptTable, Optional<ConnectorReadBinding>> verifiedBindings) {
+            Map<Object, VerifiedBinding> verifiedBindings) {
         List<TableScanRef> refs = new ArrayList<>();
         collectTableScans(relNode, refs);
         if (refs.isEmpty()) {
@@ -89,10 +91,9 @@ public final class PlanSplitSourceExtractor {
     /** Captures immutable split selection and can recheck its owner without rebuilding the selection. */
     public static final class PreparedSources {
         private final List<SplitSourceDescriptor> descriptors;
-        private final Map<RelOptTable, Optional<ConnectorReadBinding>> bindings;
+        private final List<VerifiedBinding> bindings;
 
-        private PreparedSources(List<SplitSourceDescriptor> descriptors,
-                Map<RelOptTable, Optional<ConnectorReadBinding>> bindings) {
+        private PreparedSources(List<SplitSourceDescriptor> descriptors, List<VerifiedBinding> bindings) {
             this.descriptors = List.copyOf(descriptors);
             this.bindings = bindings;
         }
@@ -104,14 +105,14 @@ public final class PlanSplitSourceExtractor {
 
         /** Rechecks all original binding owners at the post-enumeration dispatch boundary. */
         public void requireCurrent() {
-            bindings.forEach((table, expected) -> {
-                var current = Optional.ofNullable(table.unwrap(ConnectorReadBinding.class));
-                if (!expected.equals(current)) {
+            for (var verification : bindings) {
+                var current = Optional.ofNullable(verification.table().unwrap(ConnectorReadBinding.class));
+                if (!verification.binding().equals(current)) {
                     throw new PlannerException(org.pangrova.common.enums.PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,
                             "The selected split source binding changed during stage preparation: "
-                                    + table.getQualifiedName());
+                                    + verification.table().getQualifiedName());
                 }
-            });
+            }
         }
     }
 
@@ -156,7 +157,7 @@ public final class PlanSplitSourceExtractor {
     }
 
     private static Map<List<String>, TableScanRef> deduplicateTableRefs(List<TableScanRef> refs,
-            Map<RelOptTable, Optional<ConnectorReadBinding>> verifiedBindings) {
+            Map<Object, VerifiedBinding> verifiedBindings) {
         LinkedHashMap<List<String>, TableScanRef> unique = new LinkedHashMap<>();
         for (TableScanRef ref : refs) {
             var key = List.of(ref.catalogName(), ref.schemaName(), ref.tableName());
@@ -175,13 +176,21 @@ public final class PlanSplitSourceExtractor {
     }
 
     private static Optional<ConnectorReadBinding> verifyBinding(TableScanRef source,
-            Map<RelOptTable, Optional<ConnectorReadBinding>> verifiedBindings) {
-        return verifiedBindings.computeIfAbsent(PlanTable.require(source.scan()),
-                table -> Optional.ofNullable(table.unwrap(ConnectorReadBinding.class)));
+            Map<Object, VerifiedBinding> verifiedBindings) {
+        RelOptTable table = PlanTable.require(source.scan());
+        // Calcite can copy a relational table for each reference. The metadata
+        // table remains the exact query-local owner of its unwrapped binding.
+        var metadata = table instanceof RelOptTableImpl ? table.unwrap(MetadataResolvedTable.class) : null;
+        Object owner = metadata == null ? table : metadata;
+        return verifiedBindings.computeIfAbsent(owner,
+                ignored -> new VerifiedBinding(table, Optional.ofNullable(table.unwrap(ConnectorReadBinding.class))))
+                .binding();
     }
 
+    private record VerifiedBinding(RelOptTable table, Optional<ConnectorReadBinding> binding) {}
+
     private static void requireSameReadSource(TableScanRef previous, TableScanRef current,
-            Map<RelOptTable, Optional<ConnectorReadBinding>> verifiedBindings) {
+            Map<Object, VerifiedBinding> verifiedBindings) {
         if (!verifyBinding(previous, verifiedBindings).equals(verifyBinding(current, verifiedBindings))
                 || !previous.scan().getRowType().equals(current.scan().getRowType())) {
             throw new PlannerException(org.pangrova.common.enums.PangrovaErrorCode.PLANNER_VALIDATION_FAILURE,

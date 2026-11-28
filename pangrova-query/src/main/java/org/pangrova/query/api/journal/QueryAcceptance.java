@@ -40,6 +40,6 @@ public record QueryAcceptance(
         return new QueryAcceptance(request.principal(), request.idempotencyKeyDigest(),
                 request.requestFingerprint(),
                 new QuerySubmissionResult(queryId, QueryState.QUEUED, ResultDisposition.PENDING,
-                        null, java.util.List.of()), retentionMs);
+                        null, java.util.List.of(), null, request.ownerEndpoint()), retentionMs);
     }
 }

@@ -50,7 +50,7 @@ public final class JdbcWorkerRegistry implements WorkerRegistry {
             "INSERT INTO worker_registry "
                     + "(worker_id, host, http_port, transport_port, protocol_version, "
                     + "rack_id, data_locality, memory_pressure, cpu_utilization, "
-                    + "running_task_count, available_memory_bytes, last_heartbeat_ms, registered_at_ms, "
+                    + "in_flight_task_count, available_memory_bytes, last_heartbeat_ms, registered_at_ms, "
                     + "result_server_port, capability_inventory_proto, copy_task_tls_port, "
                     + "admission_domain_id, incarnation_id, shuffle_mode, shuffle_provider, cdc_ingest_supported) "
                     + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
@@ -58,7 +58,7 @@ public final class JdbcWorkerRegistry implements WorkerRegistry {
     private static final String SQL_UPDATE_REGISTRATION =
             "UPDATE worker_registry SET host=?, http_port=?, transport_port=?, "
                     + "protocol_version=?, rack_id=?, data_locality=?, "
-                    + "memory_pressure=?, cpu_utilization=?, running_task_count=?, "
+                    + "memory_pressure=?, cpu_utilization=?, in_flight_task_count=?, "
                     + "available_memory_bytes=?, last_heartbeat_ms=?, result_server_port=?, "
                     + "capability_inventory_proto=?, copy_task_tls_port=?, "
                     + "admission_domain_id=?, incarnation_id=?, shuffle_mode=?, shuffle_provider=?, "
@@ -66,7 +66,7 @@ public final class JdbcWorkerRegistry implements WorkerRegistry {
 
     private static final String SQL_HEARTBEAT =
             "UPDATE worker_registry SET memory_pressure=?, cpu_utilization=?, "
-                    + "running_task_count=?, available_memory_bytes=?, last_heartbeat_ms=? "
+                    + "in_flight_task_count=?, available_memory_bytes=?, last_heartbeat_ms=? "
                     + "WHERE worker_id=? AND admission_domain_id=? AND incarnation_id=? RETURNING *";
 
     private static final String SQL_REFRESH_REGISTRATION = SQL_INSERT
@@ -79,7 +79,7 @@ public final class JdbcWorkerRegistry implements WorkerRegistry {
             + "data_locality=EXCLUDED.data_locality,"
             + "memory_pressure=EXCLUDED.memory_pressure,"
             + "cpu_utilization=EXCLUDED.cpu_utilization,"
-            + "running_task_count=EXCLUDED.running_task_count,"
+            + "in_flight_task_count=EXCLUDED.in_flight_task_count,"
             + "available_memory_bytes=EXCLUDED.available_memory_bytes,"
             + "last_heartbeat_ms=EXCLUDED.last_heartbeat_ms,"
             + "result_server_port=EXCLUDED.result_server_port,"
@@ -193,7 +193,7 @@ public final class JdbcWorkerRegistry implements WorkerRegistry {
             ps.setString(parameter++, serializeList(w.dataLocality()));
             ps.setString(parameter++, w.memoryPressure());
             ps.setDouble(parameter++, w.cpuUtilization());
-            ps.setInt(parameter++, w.runningTaskCount());
+            ps.setInt(parameter++, w.inFlightTaskCount());
             ps.setLong(parameter++, w.availableMemoryBytes());
             ps.setLong(parameter++, w.lastHeartbeatMs());
             ps.setInt(parameter++, w.resultServerPort());
@@ -219,7 +219,7 @@ public final class JdbcWorkerRegistry implements WorkerRegistry {
         ps.setString(PARAM_DATA_LOCALITY, serializeList(w.dataLocality()));
         ps.setString(PARAM_MEMORY_PRESSURE, w.memoryPressure());
         ps.setDouble(PARAM_CPU_UTILIZATION, w.cpuUtilization());
-        ps.setInt(PARAM_RUNNING_TASK_COUNT, w.runningTaskCount());
+        ps.setInt(PARAM_RUNNING_TASK_COUNT, w.inFlightTaskCount());
         ps.setLong(PARAM_AVAILABLE_MEMORY_BYTES, w.availableMemoryBytes());
         ps.setLong(PARAM_LAST_HEARTBEAT_MS, w.lastHeartbeatMs());
         ps.setLong(PARAM_REGISTERED_AT_MS, w.registeredAtMs());
@@ -258,7 +258,7 @@ public final class JdbcWorkerRegistry implements WorkerRegistry {
              PreparedStatement ps = conn.prepareStatement(SQL_HEARTBEAT)) {
             ps.setString(1, snapshot.memoryPressure());
             ps.setDouble(2, snapshot.cpuUtilization());
-            ps.setInt(3, snapshot.runningTaskCount());
+            ps.setInt(3, snapshot.inFlightTaskCount());
             ps.setLong(4, snapshot.availableMemoryBytes());
             ps.setLong(5, System.currentTimeMillis());
             ps.setString(6, expected.workerId());
@@ -361,7 +361,7 @@ public final class JdbcWorkerRegistry implements WorkerRegistry {
                 deserializeList(rs.getString("data_locality")),
                 rs.getString("memory_pressure"),
                 rs.getDouble("cpu_utilization"),
-                rs.getInt("running_task_count"),
+                rs.getInt("in_flight_task_count"),
                 rs.getLong("available_memory_bytes"),
                 rs.getLong("last_heartbeat_ms"),
                 rs.getLong("registered_at_ms"),

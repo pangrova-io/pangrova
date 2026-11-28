@@ -37,7 +37,7 @@ import java.util.Map;
  *
  * <h2>Runtime Behavior</h2>
  *
- * <p>Each instance runs on a dedicated thread managed by the StreamScheduler.
+ * <p>Each caller owns the executor used to run the loop.
  * The loop integrates with {@link CdcQuotaEnforcer} for backpressure,
  * {@link org.pangrova.streaming.watermark.WatermarkTracker} for watermark tracking,
  * and {@link org.pangrova.streaming.maintenance.MaintenanceScheduler} for compaction scheduling.</p>

@@ -11,11 +11,13 @@ import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.coordinator.query.session.SessionContextConverter;
 import org.pangrova.metadata.api.catalog.CatalogHandle;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
-import org.pangrova.planner.analysis.PlannedQuery;
 import org.pangrova.planner.analysis.SplitSourceDescriptor;
 import org.pangrova.protocol.index.IndexEvalHintProtoCodec;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
+import org.pangrova.connector.api.metadata.SplitPlanningBudget;
+import org.pangrova.connector.api.metadata.SplitPlanningBudget.FileGranularity;
+import org.pangrova.generation.codec.column.GeneratedColumnMetadataCodec;
 import org.pangrova.connector.api.metadata.ConnectorSplit;
 import org.pangrova.connector.api.metadata.ConnectorSplitSource;
 import org.pangrova.connector.api.metadata.Constraint;
@@ -39,24 +41,13 @@ public final class SplitFetcher {
     private static final Logger LOG = LoggerFactory.getLogger(SplitFetcher.class);
 
     /** Maximum time to resolve and enumerate all sources of a stage. */
-    private static final long SPLIT_FETCH_TIMEOUT_MS = 30_000;
+    private static final long SPLIT_FETCH_TIMEOUT_MS = SplitPlanningBudget.DEFAULT_TIMEOUT_MS;
 
     /** Maximum number of splits per stage to prevent unbounded memory growth. */
-    private static final int MAX_SPLITS_PER_STAGE = 100_000;
+    private static final int MAX_SPLITS_PER_STAGE = SplitPlanningBudget.DEFAULT_MAX_SPLITS;
     private static final int SPLIT_BATCH_SIZE = 1000;
 
     private SplitFetcher() {}
-
-    /**
-     * Fetches raw ConnectorSplit objects for a PlannedQuery.
-     */
-    public static List<ConnectorSplit> fetchRawConnectorSplits(
-            PlannedQuery plannedQuery, CatalogRegistry registry,
-            Map<String, Long> snapshotOverrides, QuerySession context) {
-        return fetchRawConnectorSplits(
-                plannedQuery.splitSources(), registry, snapshotOverrides,
-                plannedQuery.queryOutputColumns(), context);
-    }
 
     /**
      * Fetches raw ConnectorSplit objects from split source descriptors.
@@ -66,7 +57,7 @@ public final class SplitFetcher {
     public static List<ConnectorSplit> fetchRawConnectorSplits(
             List<SplitSourceDescriptor> sources, CatalogRegistry registry,
             Map<String, Long> snapshotOverrides, List<String> queryOutputColumns,
-            QuerySession context) {
+            QuerySession context, FileGranularity fileGranularity) {
         if (sources.isEmpty()) {
             return List.of();
         }
@@ -77,11 +68,12 @@ public final class SplitFetcher {
         Map<List<String>, SplitSourceDescriptor> unique = deduplicateSources(sources);
         List<ConnectorSplit> allSplits = new ArrayList<>();
         long deadlineNanos = deadlineAfter(SPLIT_FETCH_TIMEOUT_MS);
+        var stage = new SplitPlanningBudget(deadlineNanos, MAX_SPLITS_PER_STAGE, fileGranularity);
         for (SplitSourceDescriptor desc : unique.values()) {
             requireUninterruptedEnumeration();
             checkSplitFetchLimits(allSplits.size(), deadlineNanos);
             fetchConnectorSplits(desc, registry, snapshotOverrides, queryOutputColumns, context, allSplits,
-                    deadlineNanos);
+                    stage);
         }
         requireUninterruptedEnumeration();
         checkSplitFetchLimits(allSplits.size(), deadlineNanos);
@@ -93,23 +85,9 @@ public final class SplitFetcher {
      */
     public static List<QuerySplit> toSplitWithPaths(List<ConnectorSplit> splits) {
         return splits.stream()
-                .map(split -> new QuerySplit(canonicalSplit(split), extractFilePaths(split),
-                        split.estimatedScanBytes()))
+                .map(split -> QuerySplit.fromScanMetadata(canonicalSplit(split), extractFilePaths(split),
+                        split.estimatedScanBytes(), split.estimatedScanRows()))
                 .toList();
-    }
-
-    /**
-     * Fetches splits with file path metadata for a PlannedQuery.
-     *
-     * @param snapshotOverrides table FQN (catalog.schema.table) → snapshot ID
-     * @throws PangrovaException if any table scan's split enumeration fails
-     */
-    public static List<QuerySplit> fetchSplitsWithFilePaths(
-            PlannedQuery plannedQuery, CatalogRegistry registry,
-            Map<String, Long> snapshotOverrides, QuerySession context) {
-        List<ConnectorSplit> allSplits = fetchRawConnectorSplits(plannedQuery, registry, snapshotOverrides, context);
-        LOG.info("event=split_fetch_summary total_splits={}", allSplits.size());
-        return toSplitWithPaths(allSplits);
     }
 
     /**
@@ -120,9 +98,9 @@ public final class SplitFetcher {
     public static List<QuerySplit> fetchSplitsWithFilePaths(
             List<SplitSourceDescriptor> sources, CatalogRegistry registry,
             Map<String, Long> snapshotOverrides, List<String> queryOutputColumns,
-            QuerySession context) {
+            QuerySession context, FileGranularity fileGranularity) {
         List<ConnectorSplit> allSplits = fetchRawConnectorSplits(sources, registry, snapshotOverrides,
-                queryOutputColumns, context);
+                queryOutputColumns, context, fileGranularity);
         LOG.info("event=split_fetch_summary total_splits={}", allSplits.size());
         return toSplitWithPaths(allSplits);
     }
@@ -163,7 +141,7 @@ public final class SplitFetcher {
     private static void fetchConnectorSplits(
             SplitSourceDescriptor desc, CatalogRegistry registry,
             Map<String, Long> snapshotOverrides, List<String> queryOutputColumns,
-            QuerySession context, List<ConnectorSplit> splits, long deadlineNanos) {
+            QuerySession context, List<ConnectorSplit> splits, SplitPlanningBudget stage) {
         CatalogHandle catalog = registry.getCatalog(desc.catalogName());
         ConnectorSession session = SessionContextConverter.toConnectorSession(
                 context, desc.catalogName(), desc.schemaName());
@@ -193,12 +171,21 @@ public final class SplitFetcher {
             return;
         }
 
+        var fileGranularity = stage.fileGranularity();
+        if (fileGranularity == FileGranularity.BYTE_RANGES) {
+            var properties = binding.declaration().metadata().properties();
+            if (properties.containsKey(GeneratedColumnMetadataCodec.PAYLOAD_PROPERTY)
+                    || properties.containsKey(GeneratedColumnMetadataCodec.SHA256_PROPERTY)) {
+                fileGranularity = FileGranularity.WHOLE_OBJECT;
+            }
+        }
         var nativeBinding = NativeReadSplitBinding.prepare(catalog, session);
         ConnectorSplitSource source = catalog.getSplitManager().getBoundSplits(
                 ConnectorTransactionHandle.empty(), session, metadata, binding,
-                DynamicFilter.ALL, desc.constraint());
+                DynamicFilter.ALL, desc.constraint(),
+                stage.forSource(stage.remainingSplits() - splits.size(), fileGranularity));
         int previousCount = splits.size();
-        drainSource(source, splits, deadlineNanos, nativeBinding::bind);
+        drainSource(source, splits, stage.deadlineNanos(), nativeBinding::bind);
         LOG.debug("event=splits_fetched table={} splitCount={}", desc.qualifiedName(), splits.size() - previousCount);
     }
 

@@ -81,21 +81,7 @@ public final class JdbcStreamStateStore implements StreamStateStore {
     @Override
     public List<StreamState> listByTenant(String tenantId) {
         String sql = "SELECT * FROM ingestion_stream_state WHERE tenant_id = ?";
-        return executeQuery(sql, ps -> ps.setString(1, tenantId), this::mapRows);
-    }
-
-    @Override
-    public List<StreamState> listByState(StreamLifecycleState lifecycleState) {
-        String sql = "SELECT * FROM ingestion_stream_state WHERE lifecycle_state = ?";
-        return executeQuery(sql,
-                ps -> ps.setString(1, lifecycleState.name()),
-                this::mapRows);
-    }
-
-    @Override
-    public List<StreamState> listAll() {
-        String sql = "SELECT * FROM ingestion_stream_state";
-        return executeQuery(sql, ps -> { }, this::mapRows);
+        return executeQuery(sql, ps -> ps.setString(1, tenantId), JdbcStreamStateStore::mapRows);
     }
 
     @Override
@@ -158,7 +144,7 @@ public final class JdbcStreamStateStore implements StreamStateStore {
 
     // ── Row mapping ─────────────────────────────────────────────────
 
-    private StreamState mapRow(ResultSet rs) throws SQLException {
+    private static StreamState mapRow(ResultSet rs) throws SQLException {
         Timestamp lastCommit = rs.getTimestamp("last_offset_commit_time");
         return new StreamState(
                 rs.getString("stream_name"),
@@ -183,7 +169,7 @@ public final class JdbcStreamStateStore implements StreamStateStore {
                 rs.getTimestamp("updated_at").toInstant());
     }
 
-    private List<StreamState> mapRows(ResultSet rs) throws SQLException {
+    static List<StreamState> mapRows(ResultSet rs) throws SQLException {
         List<StreamState> result = new ArrayList<>();
         while (rs.next()) {
             result.add(mapRow(rs));

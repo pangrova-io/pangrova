@@ -1,6 +1,5 @@
 package org.pangrova.persistence.query.memory.state;
 
-import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.pangrova.query.api.journal.JournalEventContext;
 import org.pangrova.query.api.journal.QueryAcceptance;
@@ -19,7 +18,6 @@ class InMemoryQueryStateJournalTest {
         QueryStateEvent event = query("q-1", "QUEUED", 1000);
         assertDoesNotThrow(() -> journal.appendQueryEvent(event));
         assertDoesNotThrow(() -> journal.appendQueryEventSync(event));
-        assertEquals(List.of(event), journal.replayActiveQueries());
         assertEquals(event, journal.latestQueryEvent("q-1").orElseThrow());
     }
 
@@ -28,49 +26,44 @@ class InMemoryQueryStateJournalTest {
         TaskStateEvent event = task("q-1", 1000);
         assertDoesNotThrow(() -> journal.appendTaskEvent(event));
         assertDoesNotThrow(() -> journal.appendTaskEventSync(event));
-        assertEquals(List.of(event), journal.replayActiveTasks());
+        var changed = new TaskStateEvent(event.context(), "q-1", "different-task", "w-1", "RUNNING", 0, 1);
+        assertThrows(JournalWriteException.class, () -> journal.appendTaskEventSync(changed));
+        assertDoesNotThrow(() -> journal.appendTaskEventSync(event));
     }
 
-    @Test void replayActiveQueriesPreservesAdmissionOrderNotTimestampOrder() {
+    @Test void latestQueryFactUsesInsertionOrder() {
         QueryStateEvent first = query("q-1", "QUEUED", 1000);
         QueryStateEvent second = query("q-1", "RUNNING", 500);
         journal.appendQueryEventSync(first);
         journal.appendQueryEventSync(second);
-        assertEquals(List.of(first, second), journal.replayActiveQueries());
         assertEquals(second, journal.latestQueryEvent("q-1").orElseThrow());
-    }
-
-    @Test void replayActiveTasksExcludesTerminalAndMissingQueryFacts() {
-        journal.appendQueryEventSync(query("q-1", "QUEUED", 1));
-        journal.appendTaskEventSync(task("q-1", 2));
-        journal.appendTaskEventSync(task("missing", 2));
-        assertEquals(1, journal.replayActiveTasks().size());
-        journal.appendQueryEventSync(query("q-1", "FINISHED", 3));
-        assertTrue(journal.replayActiveQueries().isEmpty());
-        assertTrue(journal.replayActiveTasks().isEmpty());
     }
 
     @Test void purgeQueryRemovesItsFactsOnlyAndIsIdempotent() {
         QueryStateEvent other = query("q-2", "RUNNING", 1);
         TaskStateEvent otherTask = task("q-2", 2);
         journal.appendQueryEventSync(query("q-1", "QUEUED", 1));
-        journal.appendTaskEventSync(task("q-1", 2));
+        var removed = task("q-1", 2);
+        journal.appendTaskEventSync(removed);
         journal.appendQueryEventSync(other);
         journal.appendTaskEventSync(otherTask);
         assertDoesNotThrow(() -> journal.purgeQuery("q-1"));
         assertDoesNotThrow(() -> journal.purgeQuery("q-1"));
-        assertEquals(List.of(other), journal.replayActiveQueries());
-        assertEquals(List.of(otherTask), journal.replayActiveTasks());
+        assertEquals(other, journal.latestQueryEvent("q-2").orElseThrow());
         assertTrue(journal.latestQueryEvent("q-1").isEmpty());
+        var changed = new TaskStateEvent(removed.context(), "q-1", "replacement", "w-1", "RUNNING", 0, 1);
+        assertDoesNotThrow(() -> journal.appendTaskEventSync(changed));
+        var conflicting = new TaskStateEvent(otherTask.context(), "q-2", "replacement", "w-1", "RUNNING", 0, 1);
+        assertThrows(JournalWriteException.class, () -> journal.appendTaskEventSync(conflicting));
     }
 
     @Test void instancesHaveIndependentFactsAndLifecycle() {
         InMemoryQueryStateJournal other = new InMemoryQueryStateJournal();
         assertNotSame(other, journal);
         journal.appendQueryEventSync(query("q-1", "RUNNING", 1));
-        assertTrue(other.replayActiveQueries().isEmpty());
+        assertTrue(other.latestQueryEvent("q-1").isEmpty());
         other.close();
-        assertEquals(1, journal.replayActiveQueries().size());
+        assertTrue(journal.latestQueryEvent("q-1").isPresent());
     }
 
     @Test void sameKindIdConflictCannotOverwriteOriginalPayload() {
@@ -86,8 +79,9 @@ class InMemoryQueryStateJournalTest {
         TaskStateEvent task = new TaskStateEvent(query.context(), "q-1", "t-1", "w-1", "RUNNING", 0, 1);
         journal.appendQueryEventSync(query);
         journal.appendTaskEventSync(task);
-        assertEquals(List.of(query), journal.replayActiveQueries());
-        assertEquals(List.of(task), journal.replayActiveTasks());
+        assertEquals(query, journal.latestQueryEvent("q-1").orElseThrow());
+        var changed = new TaskStateEvent(query.context(), "q-1", "different-task", "w-1", "RUNNING", 0, 1);
+        assertThrows(JournalWriteException.class, () -> journal.appendTaskEventSync(changed));
     }
 
     @Test void capacityCountsCommittedFactsAndPurgeActuallyReturnsCapacity() {
@@ -100,7 +94,7 @@ class InMemoryQueryStateJournalTest {
         bounded.purgeQuery("q-1");
         QueryStateEvent next = query("q-2", "QUEUED", 3);
         bounded.appendQueryEventSync(next);
-        assertEquals(List.of(next), bounded.replayActiveQueries());
+        assertEquals(next, bounded.latestQueryEvent("q-2").orElseThrow());
     }
 
     @Test void closedStoreRejectsWritesReadsAndPurgeWithoutPretendingSuccess() {
@@ -109,16 +103,8 @@ class InMemoryQueryStateJournalTest {
         journal.close();
         journal.close();
         assertThrows(JournalWriteException.class, () -> journal.appendQueryEventSync(event));
-        assertThrows(JournalWriteException.class, journal::replayActiveQueries);
+        assertThrows(JournalWriteException.class, () -> journal.latestQueryEvent("q-1"));
         assertThrows(JournalWriteException.class, () -> journal.purgeQuery("q-1"));
-    }
-
-    @Test void ownerFilteredReplayKeepsOnlyActualFrozenOwners() {
-        QueryStateEvent owned = new QueryStateEvent(JournalEventContext.create(1, "coord-1"),
-                "q-1", "SELECT 1", "{}", "RUNNING");
-        journal.appendQueryEventSync(owned);
-        journal.appendQueryEventSync(query("q-2", "RUNNING", 2));
-        assertEquals(List.of(owned), journal.replayActiveQueriesForOwner("coord-1"));
     }
 
     @Test void expiredTerminalAcceptanceAllowsNewFingerprintBeforeSweep() {

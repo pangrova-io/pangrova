@@ -436,7 +436,15 @@ public record CoordinatorBootstrapConfig(
 
     /** The selected factory owns the configuration schema and creates the process authenticator. */
     public record SecurityConfig(Optional<AuthenticatorFactory> clientAuthenticator,
-                                 String internalAuthSecret, java.util.Map<String, String> authenticatorProperties) {
+                                 String internalAuthSecret, java.util.Map<String, String> authenticatorProperties,
+                                 String queryPeerKey) {
+        private static final int MIN_QUERY_PEER_KEY_BYTES = 32;
+
+        public SecurityConfig(Optional<AuthenticatorFactory> clientAuthenticator, String internalAuthSecret,
+                java.util.Map<String, String> authenticatorProperties) {
+            this(clientAuthenticator, internalAuthSecret, authenticatorProperties, null);
+        }
+
         public SecurityConfig(String providerId, String internalAuthSecret,
                 java.util.Map<String, String> authenticatorProperties) {
             this(CoordinatorAuthenticatorFactories.select(providerId), internalAuthSecret, authenticatorProperties);
@@ -460,6 +468,14 @@ public record CoordinatorBootstrapConfig(
                 clientAuthenticator.orElseThrow().validate(authenticatorProperties);
             } else if (!authenticatorProperties.isEmpty()) {
                 throw new IllegalArgumentException("Client authentication properties require a provider");
+            }
+            if (queryPeerKey != null && (queryPeerKey.isBlank()
+                    || queryPeerKey.getBytes(java.nio.charset.StandardCharsets.UTF_8).length < MIN_QUERY_PEER_KEY_BYTES
+                    || queryPeerKey.equals(internalAuthSecret)
+                    || clientAuthenticator.isEmpty()
+                    || "NOOP".equals(clientAuthenticator.orElseThrow().providerId()))) {
+                throw new IllegalArgumentException(
+                        "Query peer forwarding requires client authentication and a separate key of at least 32 bytes");
             }
         }
 

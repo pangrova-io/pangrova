@@ -65,6 +65,15 @@ class RecursiveCteExpanderTest {
     }
 
     @Test
+    void rejectsPaginationOfTheRecursiveDefinition() {
+        String sql = "WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL "
+                + "SELECT n + 1 FROM seq WHERE n < 5 ORDER BY n LIMIT 2) SELECT n FROM seq";
+        assertThatThrownBy(() -> expander.expand(sql))
+                .isInstanceOf(PlannerException.class)
+                .hasMessageContaining("apply ORDER BY, LIMIT or OFFSET in the query consuming recursive CTE");
+    }
+
+    @Test
     void compilesRecursiveCteIntoANativeSubstraitPlan() throws Exception {
         byte[] bytes = new SqlCompiler().compile(
                 "WITH RECURSIVE seq(n) AS ("

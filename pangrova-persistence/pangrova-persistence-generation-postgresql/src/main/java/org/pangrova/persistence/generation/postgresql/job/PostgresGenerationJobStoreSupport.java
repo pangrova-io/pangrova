@@ -39,9 +39,10 @@ abstract class PostgresGenerationJobStoreSupport extends PostgresGenerationJobSt
         super(dataSource);
     }
 
-    protected static void insertDispatchSpec(
+    protected static String insertDispatchSpec(
             Connection connection, GenerationDispatchSpec spec) throws SQLException {
         byte[] graphBytes = GenerationStageGraphCodec.encode(spec.stageGraph());
+        String graphSha256 = org.pangrova.common.util.DigestUtils.sha256Hex(graphBytes);
         String sql = "INSERT INTO artifact_build_dispatch_specs "
                 + "(tenant_id,job_id,stage_graph_bytes,stage_graph_sha256,principal,max_memory_bytes,"
                 + "max_threads,max_spill_bytes,task_timeout_millis,authorization_scope_bytes) "
@@ -51,7 +52,7 @@ abstract class PostgresGenerationJobStoreSupport extends PostgresGenerationJobSt
             statement.setString(parameter++, spec.tenantId());
             statement.setString(parameter++, spec.jobId());
             statement.setBytes(parameter++, graphBytes);
-            statement.setString(parameter++, org.pangrova.common.util.DigestUtils.sha256Hex(graphBytes));
+            statement.setString(parameter++, graphSha256);
             statement.setString(parameter++, spec.principal());
             statement.setLong(parameter++, spec.maxMemoryBytes());
             statement.setInt(parameter++, spec.maxThreads());
@@ -61,6 +62,7 @@ abstract class PostgresGenerationJobStoreSupport extends PostgresGenerationJobSt
                     spec.authorizationScope()));
             statement.executeUpdate();
         }
+        return graphSha256;
     }
 
     protected static void insertPage(
@@ -144,9 +146,8 @@ abstract class PostgresGenerationJobStoreSupport extends PostgresGenerationJobSt
     }
 
     protected static void advanceCompletionBarrier(
-            Connection connection, String tenantId, String jobId, Instant now)
+            Connection connection, GenerationJob job, Instant now)
             throws SQLException {
-        GenerationJob job = findJob(connection, tenantId, jobId, true).orElseThrow();
         if (job.state() != GenerationJobState.RUNNING
                 && job.state() != GenerationJobState.QUEUED) {
             throw new IllegalStateException("artifact job cannot accept completed pages");
@@ -161,8 +162,8 @@ abstract class PostgresGenerationJobStoreSupport extends PostgresGenerationJobSt
             statement.setInt(1, completed);
             statement.setString(2, next.name());
             setInstant(statement, 3, now);
-            statement.setString(4, tenantId);
-            statement.setString(5, jobId);
+            statement.setString(4, job.tenantId());
+            statement.setString(5, job.jobId());
             statement.setInt(6, job.completedPages());
             if (statement.executeUpdate() != 1) {
                 throw new IllegalStateException("artifact all-pages barrier fence was lost");

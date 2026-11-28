@@ -21,6 +21,7 @@ import java.util.Objects;
  * @param registeredAtMs  epoch millis of initial registration
  * @param lastProcessedInvalidationId highest invalidation_log ID processed by this coordinator's
  *                                     {@code JdbcInvalidationPoller}; -1 if unknown
+ * @param incarnation    the process identity used by execution ownership
  */
 @Experimental
 public record CoordinatorSnapshot(
@@ -31,7 +32,8 @@ public record CoordinatorSnapshot(
         long epoch,
         long lastHeartbeatMs,
         long registeredAtMs,
-        long lastProcessedInvalidationId
+        long lastProcessedInvalidationId,
+        String incarnation
 ) {
 
     public CoordinatorSnapshot {
@@ -42,7 +44,7 @@ public record CoordinatorSnapshot(
     /** Re-registration refreshes membership while the poller owns the stored watermark. */
     public CoordinatorSnapshot withInvalidationProgress(long lastProcessedId) {
         return new CoordinatorSnapshot(coordinatorId, host, httpPort, role, epoch,
-                lastHeartbeatMs, registeredAtMs, lastProcessedId);
+                lastHeartbeatMs, registeredAtMs, lastProcessedId, incarnation);
     }
 
     /** Creates a snapshot before invalidation progress has been observed. */
@@ -50,6 +52,13 @@ public record CoordinatorSnapshot(
                                 String role, long epoch,
                                 long lastHeartbeatMs, long registeredAtMs) {
         this(coordinatorId, host, httpPort, role, epoch,
-                lastHeartbeatMs, registeredAtMs, -1);
+                lastHeartbeatMs, registeredAtMs, -1, null);
+    }
+
+    /** Creates a topology snapshot without a published process identity. */
+    public CoordinatorSnapshot(String coordinatorId, String host, int httpPort,
+            String role, long epoch, long lastHeartbeatMs, long registeredAtMs, long lastProcessedInvalidationId) {
+        this(coordinatorId, host, httpPort, role, epoch,
+                lastHeartbeatMs, registeredAtMs, lastProcessedInvalidationId, null);
     }
 }

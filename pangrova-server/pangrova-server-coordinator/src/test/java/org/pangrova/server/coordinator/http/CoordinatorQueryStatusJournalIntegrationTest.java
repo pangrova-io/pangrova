@@ -37,12 +37,12 @@ class CoordinatorQueryStatusJournalIntegrationTest extends ContainerTestBase {
             recordAdmission(journal, foreignQuery, "other-principal");
             int baseline = source.borrows.get();
             assertThat(peer.get("/v1/query/" + foreignQuery + "/state").statusCode()).isEqualTo(404);
-            baseline += 1;
             assertThat(source.borrows).hasValue(baseline);
             for (int i = 0; i < 16; i++) {
-                assertThat(status(peer.get("/v1/query/" + query + "/state")).state()).isEqualTo("RUNNING");
+                assertThat(peer.get("/v1/query/" + query + "/state").statusCode()).isEqualTo(404);
+                assertThat(status(owner.get("/v1/query/" + query + "/state")).state()).isEqualTo("RUNNING");
             }
-            assertThat(source.borrows).hasValue(baseline + 16);
+            assertThat(source.borrows).hasValue(baseline);
             for (int i = 0; i < 16; i++) {
                 var observed = status(owner.waitFor(query, state.status().version(), 10, observer)
                         .get(3, TimeUnit.SECONDS));
@@ -50,7 +50,12 @@ class CoordinatorQueryStatusJournalIntegrationTest extends ContainerTestBase {
                 assertThat(peer.waitFor(query, observed.version(), 10, observer)
                         .get(3, TimeUnit.SECONDS).statusCode()).isEqualTo(404);
             }
-            assertThat(source.borrows).hasValue(baseline + 16);
+            assertThat(source.borrows).hasValue(baseline);
+
+            assertThat(peer.get("/v1/query/" + foreignQuery + "/state?history=true").statusCode()).isEqualTo(404);
+            assertThat(source.borrows).hasValue(baseline + 1);
+            assertThat(status(peer.get("/v1/query/" + query + "/state?history=true")).state()).isEqualTo("RUNNING");
+            assertThat(source.borrows).hasValue(baseline + 2);
         }
     }
 

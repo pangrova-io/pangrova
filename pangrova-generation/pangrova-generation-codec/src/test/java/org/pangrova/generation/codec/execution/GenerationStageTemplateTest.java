@@ -76,7 +76,7 @@ class GenerationStageTemplateTest {
                 .getBytes(StandardCharsets.UTF_8);
         assertThatThrownBy(() -> GenerationStageGraphCodec.decode(old, DigestUtils.sha256Hex(old)))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("invalid")
-                .hasRootCauseMessage("Durable graph requires format 2; explicitly rebuild old jobs");
+                .hasRootCauseMessage("Durable graph requires format 4; explicitly rebuild old jobs");
     }
 
     private static PublicationRead read(String artifact) {
@@ -86,6 +86,6 @@ class GenerationStageTemplateTest {
     private static GenerationStageGraph graph(GenerationStageTemplate template, ModelSnapshot model) {
         var stage = GenerationStageGraph.StagePlan.of(0, 1, GenerationPageKind.RELATIONAL_PARTITION,
                 new byte[]{1}, template, List.of("lake.raw.t"), List.of("value"), true);
-        return new GenerationStageGraph(2, GenerationGraphPurpose.RELATIONAL_EXPORT, List.of(stage), List.of(), List.of(model));
+        return new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION, GenerationGraphPurpose.RELATIONAL_EXPORT, List.of(stage), List.of(), List.of(model));
     }
 }

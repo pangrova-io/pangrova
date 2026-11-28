@@ -1,4 +1,5 @@
 package org.pangrova.coordinator.query;
+import org.pangrova.parser.parse.TimeTravelSqlClauses.Analysis;
 import org.pangrova.query.runtime.QueryManager;
 
 import org.pangrova.query.lifecycle.QueryStateMachine;
@@ -428,7 +429,7 @@ class QueryManagerAsyncSubmitTest {
         var executingState = new AtomicReference<QueryStateMachine>();
         var compiler = new SqlCompiler() {
             @Override
-            public org.pangrova.planner.analysis.PlanResult compileForPolicyApplication(String sql) {
+            public org.pangrova.planner.analysis.PlanResult compileForPolicyApplication(Analysis input) {
                 var state = executingState.get();
                 state.tryTransition(QueryState.SCHEDULING);
                 state.tryTransition(QueryState.RUNNING);
@@ -589,8 +590,8 @@ class QueryManagerAsyncSubmitTest {
         }
 
         @Override
-        public boolean acquireQueryOwnership(String queryId) {
-            return true; // always succeed in test
+        public Ownership acquireQueryOwnership(String queryId, String tenantId) {
+            return new Ownership(true, java.util.OptionalLong.empty()); // always succeed in test
         }
 
         @Override
@@ -599,7 +600,8 @@ class QueryManagerAsyncSubmitTest {
         }
 
         @Override
-        public boolean tryCleanupQuery(String queryId) {
+        public boolean tryCleanupQuery(String queryId,
+                org.pangrova.execution.api.ownership.ExecutionAnchor originalGrant) {
             return true;
         }
 
@@ -608,7 +610,7 @@ class QueryManagerAsyncSubmitTest {
             // no-op in test
         }
 
-        private static QueryDispatcherContext buildMinimalContext() {
+        static QueryDispatcherContext buildMinimalContext() {
             return buildMinimalContext(new SqlCompiler());
         }
 

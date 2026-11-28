@@ -51,6 +51,33 @@ class CoordinatorTaskTrackerTest {
     }
 
     @Test
+    void lateFilterTargetUsesTheFrozenEnteredReadAndDisappearsAtTerminalState() {
+        var worker = org.pangrova.coordinator.worker.TestWorkerInfoBuilder.active(
+                "physical-worker", "issued-host", 9110, 9111);
+        var canonical = org.pangrova.testing.testkit.CanonicalTaskRequestTestFixture.builder(
+                "probe", QUERY_ID, 1, 0, org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ, new byte[] {1})
+                .addSplits(org.pangrova.protocol.v2.DataSplit.newBuilder().setSplitId("split"))
+                .build();
+        var request = SubmitTaskRequest.from(canonical.toBuilder().setAttempt(canonical.getAttempt().toBuilder()
+                .setWorkerExecutionIdentity(worker.workerExecutionIdentity().toProto())).build());
+
+        tracker.prepareTaskDispatch(request, worker);
+        assertThat(tracker.runningReadTarget(QUERY_ID, "probe")).isNull();
+        tracker.enterTaskDispatch(request);
+        assertThat(tracker.updateTaskState(QUERY_ID, "probe", "RUNNING")).isTrue();
+        var destinations = new ArrayList<String>();
+        tracker.visitRunningTasks(QUERY_ID, destinations::add);
+        assertThat(destinations).containsExactly("probe");
+        var destination = tracker.runningReadTarget(QUERY_ID, "probe");
+        assertThat(destination.request()).isSameAs(request);
+        assertThat(destination.worker()).isSameAs(worker);
+        assertThat(tracker.runningReadTarget("another-query", "probe")).isNull();
+
+        assertThat(tracker.updateTaskState(QUERY_ID, "probe", "FINISHED")).isTrue();
+        assertThat(tracker.runningReadTarget(QUERY_ID, "probe")).isNull();
+    }
+
+    @Test
     void completedPeerDurationStaysFrozenWhileRunningTaskContinues() {
         Instant started = Instant.now().minusSeconds(2);
         for (String taskId : List.of("fast", "slow")) {

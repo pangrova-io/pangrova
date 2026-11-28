@@ -233,7 +233,7 @@ class CatalogExportTransactionIntegrationTest extends org.pangrova.testing.testk
         var stage = GenerationStageGraph.StagePlan.of(0, 1, GenerationPageKind.RELATIONAL_PARTITION,
                 new byte[]{1}, GenerationStageTemplate.of(new byte[]{2}, List.of(), List.of()),
                 List.of(), List.of(), true);
-        var graph = new GenerationStageGraph(2, GenerationGraphPurpose.RELATIONAL_EXPORT,
+        var graph = new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION, GenerationGraphPurpose.RELATIONAL_EXPORT,
                 List.of(stage), List.of(), List.of());
         return new GenerationDispatchSpec(job.jobId(), graph, tenant, principal, SCOPE, 4096, 1, 4096, 60_000);
     }

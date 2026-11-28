@@ -42,6 +42,14 @@ require observed frozen model bindings before admission.
 Zero-result filters still produce a schema-bearing stream and a published
 zero-row manifest; execution failure is not an empty result.
 
+Publication reuses the stage graph already verified by the current authorization
+check in the publication transaction. After locking the job, the Coordinator
+reads completed page allocations and their output objects together. Each terminal
+partition must have its complete output roles, each compute partition must have
+completed without publishing objects, and the page count must match the job.
+Dispatch and recovery validate the exact split payloads and producer dependencies
+when they use them. Publication uses the resulting fenced page states and outputs.
+
 TABULAR_EXPORT has one relation-output contract: `RELATIONAL_PARTITION` pages
 publish `TABULAR_DATA` in exact `WORK_UNIT` scope, without physical row locators
 or physical-source output coverage. Even an empty input has a real terminal Native
@@ -84,15 +92,17 @@ acceptance is not yet verified; metadata/planner checks are not a substitute for
 that gate, and a deployment without actual external shuffle cannot execute global
 jobs.
 
-The only readable durable graph envelope is format 2. It hashes canonical
-operator bindings, indexed logical result types, exact published input pointers
-and observed model incarnation/configuration/deployment/signature identities.
+The durable graph uses format 4. It hashes canonical operator bindings, indexed
+logical result types, exact published input pointers, observed model identities,
+and the planner's proof that eligible HASH inputs can be coalesced.
 Old envelopes are explicitly rejected and require secure resubmission; their
 stored jobs and allocations are not removed. Replay never discovers a new model
 version or publication. A partition claim loads its exact immutable publication
 objects and checks canonical source split digests on the claim connection. The
 remaining task-local materialization is pure metadata computation and does not
 borrow another database connection, perform network calls, or hold data rows.
+Eligible compute stages freeze both their input ranges and physical producer
+count before dispatch. A new owner reuses that decision during recovery.
 
 Global relational export must reuse the generic stage DAG and durable artifact
 barrier: pin each authorized source, schedule map/exchange/global relational

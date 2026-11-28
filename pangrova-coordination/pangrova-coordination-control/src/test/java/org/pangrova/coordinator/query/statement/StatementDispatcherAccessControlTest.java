@@ -1,7 +1,9 @@
 package org.pangrova.coordinator.query.statement;
 import org.pangrova.query.dispatch.StatementResult;
 
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.query.api.session.QuerySession;
+import org.pangrova.query.lifecycle.QueryStateMachine;
 import org.pangrova.coordinator.query.execution.dispatch.*;
 import org.pangrova.query.api.enums.StatementCategory;
 import org.pangrova.parser.api.ast.Identifier;
@@ -15,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import java.time.Instant;
 import java.util.*;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
@@ -63,6 +66,32 @@ class StatementDispatcherAccessControlTest {
 
         // Null user — permission check skipped, factory executes normally
         dispatcher.executeDirect(drop, null, "q-null-user", SESSION_NO_USER);
+    }
+
+    @Test
+    void staleCoordinatorGrantRejectsStatementBeforeFactoryInvocation() {
+        var invoked = new java.util.concurrent.atomic.AtomicBoolean();
+        MetadataTask<Statement> task = (statement, context) -> {
+            invoked.set(true);
+            return new StatementResult(List.of(), List.of(), null, StatementCategory.DDL);
+        };
+        var factory = new MetadataExecutionFactory(Map.of(DropTableStatement.class, task));
+        var context = new StatementDispatcherContext(null, List.of(factory), List.of(), null);
+        var now = Instant.now();
+        var grant = new ExecutionAnchor(SESSION_WITH_USER.queryId(), "coord", "incarnation", 4, now, now.plusSeconds(30));
+        var observed = new java.util.concurrent.atomic.AtomicReference<ExecutionAnchor>();
+        var dispatcher = new StatementDispatcher(context, proposed -> {
+            observed.set(proposed);
+            return false;
+        });
+        var state = new QueryStateMachine();
+        state.bindJournalGrant(grant);
+        var statement = new DropTableStatement(Identifier.of("catalog", "schema", "orders"), false);
+
+        assertThatThrownBy(() -> dispatcher.tryDispatch(state, statement, grant.executionId(), SESSION_WITH_USER))
+                .hasMessageContaining("Coordinator statement grant no longer permits execution");
+        assertThat(observed.get()).isSameAs(grant);
+        assertThat(invoked.get()).isFalse();
     }
 
     private static StatementDispatcher buildDispatcher(AccessControl accessControl) {

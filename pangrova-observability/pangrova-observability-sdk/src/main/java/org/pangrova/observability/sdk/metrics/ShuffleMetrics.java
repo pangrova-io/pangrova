@@ -187,10 +187,7 @@ public final class ShuffleMetrics {
     /**
      * Records the receive-side completion of a shuffle stage on the coordinator.
      *
-     * <p>Called when the coordinator stores a {@code ShuffleStageStatsReport}
-     * onto a {@code Stage} (the trip-wire indicating the downstream consumers
-     * finished pulling the stage's shuffle data). Increments
-     * {@code pangrova.shuffle.bytes.received} by the stage bytes total.</p>
+     * <p>Increments {@code pangrova.shuffle.bytes.received} by the stage bytes total.</p>
      *
      * @param stageId    the shuffle stage identifier
      * @param totalBytes total bytes received (must be non-negative)

@@ -49,8 +49,19 @@ final class JdbcMaterializationReaderPins {
         }
     }
     public void pinReader(ReaderPin pin) {
+        pinReader(pin, null);
+    }
+
+    void pinActiveQueryReader(ReaderPin pin) {
+        if (!"QUERY".equals(pin.reader().kind().name())) {
+            throw new IllegalArgumentException("Query reader authority requires a QUERY pin");
+        }
+        pinReader(pin, pin.reader().id());
+    }
+
+    private void pinReader(ReaderPin pin, String queryId) {
         sql.inTransaction("pinReader", connection -> {
-            String state = lockGenerationState(connection, pin.generation());
+            String state = lockGenerationState(connection, pin.generation(), queryId);
             if (!"PUBLISHED".equals(state) && !"RETIRED".equals(state)
                     && !"COMMITTED".equals(state)) {
                 throw MaterializationException.requestRejected(
@@ -77,12 +88,26 @@ final class JdbcMaterializationReaderPins {
         });
     }
 
-    private static String lockGenerationState(Connection connection, GenerationId generation)
+    private static String lockGenerationState(Connection connection, GenerationId generation, String queryId)
             throws SQLException {
-        try (PreparedStatement lock = connection.prepareStatement(
-                "SELECT state FROM materialization.generations "
-                        + "WHERE generation_id=? FOR SHARE")) {
-            lock.setObject(1, generation.value());
+        String sql = queryId == null
+                ? "SELECT state FROM materialization.generations WHERE generation_id=? FOR SHARE"
+                : """
+                    WITH owner AS MATERIALIZED (
+                        SELECT expires_at, recovery_drain_state FROM execution_anchor
+                        WHERE execution_id=? FOR SHARE
+                    )
+                    SELECT g.state FROM materialization.generations g CROSS JOIN owner
+                    WHERE g.generation_id=? AND owner.expires_at > clock_timestamp() AND owner.recovery_drain_state=0
+                    FOR SHARE OF g
+                    """;
+        try (PreparedStatement lock = connection.prepareStatement(sql)) {
+            if (queryId == null) {
+                lock.setObject(1, generation.value());
+            } else {
+                lock.setString(1, queryId);
+                lock.setObject(2, generation.value());
+            }
             try (java.sql.ResultSet result = lock.executeQuery()) {
                 if (!result.next()) {
                     throw MaterializationException.requestRejected(

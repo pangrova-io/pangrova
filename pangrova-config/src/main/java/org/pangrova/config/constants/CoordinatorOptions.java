@@ -50,6 +50,12 @@ public final class CoordinatorOptions {
                     + "(background tasks only), or COMBINED (both, default)")
             .build();
 
+    public static final ConfigOption<String> ADMISSION_STATE_DIRECTORY =
+            ConfigOptions.key("coordinator.admission.state-directory")
+                    .stringType().defaultValue("data/coordinator-admission")
+                    .withDescription("Persistent exclusive local directory for Coordinator work exit proof")
+                    .build();
+
     // ---- Internal transport security ----
 
     public static final ConfigOption<Integer> TRANSPORT_PORT = ConfigOptions.key("coordinator.transport.port")
@@ -74,6 +80,12 @@ public final class CoordinatorOptions {
                     .stringType()
                     .withDescription("Shared internal control-plane secret; "
                             + "production requires at least 32 UTF-8 bytes")
+                    .build();
+
+    public static final ConfigOption<String> QUERY_PEER_KEY =
+            ConfigOptions.key("coordinator.query-peer-key")
+                    .stringType()
+                    .withDescription("Coordinator-only signing key for query owner forwarding")
                     .build();
 
     public static final ConfigOption<Boolean> TRANSPORT_TLS_ENABLED =

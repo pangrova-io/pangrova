@@ -187,7 +187,8 @@ final class PangrovaShuffleControlProtocol {
                     partitionId,
                     new ShuffleCommitReceipt.Partition(partition.getCommittedLastSequence(),
                             partition.getTotalBytes(), partition.getTotalRows(),
-                            HexFormat.of().formatHex(partition.getOutputChecksum().getDigest().toByteArray())));
+                            HexFormat.of().formatHex(partition.getOutputChecksum().getDigest().toByteArray()),
+                            readRanges(partition)));
             if (previous != null) {
                 throw new IllegalStateException(
                         "shuffle finalization returned a duplicate partition");
@@ -216,6 +217,21 @@ final class PangrovaShuffleControlProtocol {
                     "shuffle finalization returned invalid partition statistics");
         }
         requireChecksum(partition.getOutputChecksum(), null, "partition output");
+    }
+
+    private static List<ShuffleCommitReceipt.ReadRange> readRanges(
+            org.pangrova.protocol.v2.shuffle.PartitionFinalizationSummary partition) {
+        if (partition.getReadRangesCount() > ShuffleCommitReceipt.MAX_READ_RANGES_PER_PARTITION) {
+            throw new IllegalStateException("shuffle finalization returned too many read ranges");
+        }
+        return partition.getReadRangesList().stream().map(range -> {
+            if (!org.pangrova.protocol.shuffle.codec.CanonicalShuffleReadRanges.valid(range)) {
+                throw new IllegalStateException("shuffle finalization returned incomplete read range evidence");
+            }
+            return new ShuffleCommitReceipt.ReadRange(range.getStartSequence(), range.getEndSequenceExclusive(),
+                    range.getTotalBytes(), range.getTotalRows(),
+                    HexFormat.of().formatHex(range.getManifestSha256().toByteArray()));
+        }).toList();
     }
 
     private static void requireTotals(

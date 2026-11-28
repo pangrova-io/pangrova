@@ -1,4 +1,5 @@
 #include "engine/delete/io/DeletionVectorReader.h"
+#include "engine/velox/connector/MetadataReadContext.h"
 
 #include <cstring>
 #include <charconv>
@@ -56,8 +57,15 @@ std::string readLocalFileBytes(const std::string& filePath) {
 
 }  // namespace
 
-std::string DeletionVectorReader::readFileBytes(const std::string& filePath) {
+std::string DeletionVectorReader::readFileBytes(const std::string& filePath,
+    const pangrova::velox::MetadataReadContext* reads) {
 #if PANGROVA_HAS_VELOX_FS
+  if (reads) {
+    auto file = reads->open(filePath);
+    auto body = file->pread(0, file->size());
+    if (body.empty()) throw std::runtime_error("Deletion vector object is empty");
+    return body;
+  }
   // Prefer Velox FileSystem API for S3/HDFS/GCS/Local support.
   // Fall back to local ifstream for paths without a registered scheme
   // (e.g., plain local paths in unit tests before filesystem registration).
@@ -177,8 +185,9 @@ DeletionVectorReader::BlobLocation DeletionVectorReader::parsePuffinFooter(
 }
 
 roaring::Roaring64Map DeletionVectorReader::readIcebergDV(
-    const std::string& filePath, const std::string& dataFilePath) {
-  const auto content = readFileBytes(filePath);
+    const std::string& filePath, const std::string& dataFilePath,
+    const pangrova::velox::MetadataReadContext* reads) {
+  const auto content = readFileBytes(filePath, reads);
   validatePuffinMagic(content, 0, "header");
   const auto blob = parsePuffinFooter(content, dataFilePath);
   const auto* bytes = reinterpret_cast<const unsigned char*>(content.data() + blob.offset);
@@ -237,7 +246,7 @@ roaring::Roaring64Map DeletionVectorReader::readIcebergDV(
 
 roaring::Roaring DeletionVectorReader::readRawRoaringBitmap(
     const std::string& filePath) {
-  auto fileContent = readFileBytes(filePath);
+  auto fileContent = readFileBytes(filePath, nullptr);
 
   // A generic portable bitmap payload; not an SDK DeletionFile container.
   return roaring::Roaring::readSafe(

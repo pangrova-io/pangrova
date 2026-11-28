@@ -260,7 +260,7 @@ class MaterializedViewMaterializationE2ETest extends SqlE2ETestBase {
     }
 
     @Test
-    void logicalGrantsAuthorizeCreateRefreshAndDropWithoutPhysicalReads() {
+    void logicalGrantsAuthorizeCreateRefreshAndDropWithoutPhysicalReads() throws Exception {
         String suffix = Long.toHexString(System.nanoTime());
         String sourceTable = "mv_secure_source_" + suffix;
         String logicalTable = "mv_secure_totals_" + suffix;
@@ -291,12 +291,10 @@ class MaterializedViewMaterializationE2ETest extends SqlE2ETestBase {
         assertIds(logical, 1L, 2L);
         String head = created.physicalTable().qualifiedName();
 
-        assertThat(sqlRunner.executeExpectingError("REFRESH MATERIALIZED VIEW " + logical)
-                .message()).contains("HTTP 403", "SECURITY-0002");
+        assertAcceptedAuthorizationFailure("REFRESH MATERIALIZED VIEW " + logical, "ALTER", logical);
         assertThat(published(logical).physicalTable().qualifiedName()).isEqualTo(head);
 
-        assertThat(sqlRunner.executeExpectingError("DROP MATERIALIZED VIEW " + logical)
-                .message()).contains("HTTP 403", "SECURITY-0002");
+        assertAcceptedAuthorizationFailure("DROP MATERIALIZED VIEW " + logical, "DROP", logical);
         assertThat(authority.catalog().findPublished(id(logical))).isPresent();
 
         grants.addGrant(PrivilegeGrant.of(role, Privilege.ALTER,

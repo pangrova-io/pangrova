@@ -52,6 +52,18 @@ namespace pangrova::velox {
 
 namespace {
 
+template <typename Integer>
+void collectSignedBuildKeys(
+    const facebook::velox::DecodedVector& key,
+    facebook::velox::vector_size_t row_count,
+    BuildKeyRanges& ranges) {
+  for (facebook::velox::vector_size_t index = 0; index < row_count; ++index) {
+    if (!key.isNullAt(index)) {
+      ranges.add(static_cast<int64_t>(key.valueAt<Integer>(index)));
+    }
+  }
+}
+
 // Collect leaf node IDs that require splits, with their table names
 // for precise split routing.
 struct SplitLeafNode {
@@ -205,9 +217,12 @@ void VeloxTaskRunner::start(const std::vector<split::SplitConfig>& splits) {
     throw std::invalid_argument("Too many runtime-filter build keys");
   }
   for (const auto ordinal : config_.build_key_ordinals) {
-    if (!config_.is_shuffle_task || ordinal >= plan_->outputType()->size() ||
-        plan_->outputType()->childAt(ordinal)->kind() != facebook::velox::TypeKind::BIGINT) {
-      throw std::invalid_argument("Runtime-filter build keys require BIGINT shuffle output columns");
+    if (!config_.is_shuffle_task || ordinal >= plan_->outputType()->size()) {
+      throw std::invalid_argument("Runtime-filter build keys require shuffle output columns");
+    }
+    const auto& type = plan_->outputType()->childAt(ordinal);
+    if (!type->isTinyint() && !type->isSmallint() && !type->isInteger() && !type->isBigint()) {
+      throw std::invalid_argument("Runtime-filter build keys require signed integer shuffle output columns");
     }
   }
   build_key_ranges_.resize(config_.build_key_ordinals.size());
@@ -785,8 +800,9 @@ void VeloxTaskRunner::start(const std::vector<split::SplitConfig>& splits) {
       // Direct runner tests have no executor registry owner. Canonical Task
       // execution always binds a positive handle before the runner is built.
       if (config_.executor_handle > 0) {
-        info.report_stream_finished = [handle = config_.executor_handle, reporter = config_.failure_reporter] {
-          reporter->reportResultStreamFinished(handle);
+        info.report_stream_finished = [handle = config_.executor_handle, reporter = config_.failure_reporter](
+            const protocol::v2::NativeResultDeliveryStats& delivery) {
+          reporter->reportResultStreamFinished(handle, delivery);
         };
         const std::weak_ptr<facebook::velox::exec::Task> producer = velox_task_;
         info.report_stream_failure = [handle = config_.executor_handle, reporter = config_.failure_reporter,
@@ -1139,6 +1155,11 @@ void VeloxTaskRunner::injectDynamicFilter(
     return;
   }
 
+  std::lock_guard<std::mutex> lock(dynamic_filter_publication_mutex_);
+  if (dynamic_filter_publication_closed_) {
+    throw std::runtime_error("Native scan has already released its runtime filters");
+  }
+
   // Route dynamic filter to the process-global PendingFilterRegistry.
   // PangrovaVeloxDataSource::next() drains pending filters from the registry
   // on each batch read, applying them as row-level filters.
@@ -1167,9 +1188,24 @@ void VeloxTaskRunner::collectBuildKeyRanges(const facebook::velox::RowVector& ro
   std::array<BuildKeyRanges, executor::TaskExecutorConfig::kMaximumBuildKeyColumns> batch;
   bool containsKey = false;
   for (size_t channel = 0; channel < count; ++channel) {
-    facebook::velox::DecodedVector key(*rows.childAt(config_.build_key_ordinals[channel]));
-    for (facebook::velox::vector_size_t index = 0; index < rows.size(); ++index) {
-      if (!key.isNullAt(index)) batch[channel].add(key.valueAt<int64_t>(index));
+    const auto& column = rows.childAt(config_.build_key_ordinals[channel]);
+    facebook::velox::DecodedVector key(*column);
+    using facebook::velox::TypeKind;
+    switch (column->typeKind()) {
+      case TypeKind::TINYINT:
+        collectSignedBuildKeys<int8_t>(key, rows.size(), batch[channel]);
+        break;
+      case TypeKind::SMALLINT:
+        collectSignedBuildKeys<int16_t>(key, rows.size(), batch[channel]);
+        break;
+      case TypeKind::INTEGER:
+        collectSignedBuildKeys<int32_t>(key, rows.size(), batch[channel]);
+        break;
+      case TypeKind::BIGINT:
+        collectSignedBuildKeys<int64_t>(key, rows.size(), batch[channel]);
+        break;
+      default:
+        throw std::invalid_argument("Runtime-filter build output changed its signed integer type");
     }
     containsKey |= !batch[channel].ranges().empty();
   }
@@ -1249,7 +1285,11 @@ void VeloxTaskRunner::revokeResultOutput() {
 
 void VeloxTaskRunner::cleanup() {
   std::call_once(cleanup_once_, [this] {
-    PendingFilterRegistry::instance().remove(config_.task_id);
+    {
+      std::lock_guard<std::mutex> lock(dynamic_filter_publication_mutex_);
+      dynamic_filter_publication_closed_ = true;
+      PendingFilterRegistry::instance().remove(config_.task_id);
+    }
     // Successful producer completion is not consumption or result revocation.
     if (cancelled_.load() || !errorMessage().empty()) revokeResultOutput();
     // A successful producer flushes explicitly before publishing FINISHED.

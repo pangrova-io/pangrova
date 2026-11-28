@@ -2,7 +2,7 @@ package org.pangrova.testing.integration.e2e.cancellation;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.pangrova.common.json.JsonMapperFactory;
-import org.pangrova.coordinator.query.task.report.CanonicalTaskReportValidator;
+import org.pangrova.protocol.task.CanonicalExecutionDrainReports;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.protocol.task.CanonicalTaskAdmissionSeals;
 import org.pangrova.protocol.capability.inventory.CapabilityInventoryCodec;
@@ -89,7 +89,8 @@ abstract class TaskCancellationTestBase extends SqlE2ETestBase {
     protected static TaskReport receipt(HttpResponse<byte[]> response, SubmitTaskRequest expected) {
         assertThat(response.statusCode()).isEqualTo(200);
         assertThat(response.headers().firstValue("Content-Type").orElseThrow()).startsWith("application/x-protobuf");
-        return new CanonicalTaskReportValidator().validateExecutionDrainReceipt(response.body(), expected);
+        return CanonicalExecutionDrainReports.decode(
+                response.body(), expected.taskRequest().getAttempt());
     }
 
     protected static URI workerUri() {
@@ -102,7 +103,7 @@ abstract class TaskCancellationTestBase extends SqlE2ETestBase {
                 actual.dataLocality(), null, CapabilityInventoryCodec.encode(actual.capabilityInventory()), actual.workerExecutionIdentity());
         postInternal("/v1/workers/register", MAPPER.writeValueAsBytes(request));
         postInternal("/v1/worker/heartbeat", MAPPER.writeValueAsBytes(new HeartbeatRequest(actual.workerId(),
-                actual.memoryPressure().name(), actual.cpuUtilization(), actual.runningTaskCount(),
+                actual.memoryPressure().name(), actual.cpuUtilization(), actual.inFlightTaskCount(),
                 actual.availableMemoryBytes(), actual.workerExecutionIdentity())));
     }
 

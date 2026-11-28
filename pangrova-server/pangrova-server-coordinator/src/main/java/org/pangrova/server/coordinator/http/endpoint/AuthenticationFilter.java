@@ -63,6 +63,7 @@ public final class AuthenticationFilter implements ContainerRequestFilter {
     private final AuthenticationManager authenticationManager;
     private final String internalAuthSecret;
     private final BruteForceGuard bruteForceGuard;
+    private final boolean queryPeerEnabled;
 
     public AuthenticationFilter(AuthenticationManager authenticationManager) {
         this(authenticationManager, null, new BruteForceGuard());
@@ -72,14 +73,26 @@ public final class AuthenticationFilter implements ContainerRequestFilter {
         this(authenticationManager, internalAuthSecret, new BruteForceGuard());
     }
 
+    /** Reserves the exact query-peer RPC for its independent signature verifier. */
+    public AuthenticationFilter(AuthenticationManager authenticationManager, String internalAuthSecret,
+            boolean queryPeerEnabled) {
+        this(authenticationManager, internalAuthSecret, new BruteForceGuard(), queryPeerEnabled);
+    }
+
     /** Full constructor with a configurable brute-force guard. */
     public AuthenticationFilter(AuthenticationManager authenticationManager,
                                 String internalAuthSecret,
                                 BruteForceGuard bruteForceGuard) {
+        this(authenticationManager, internalAuthSecret, bruteForceGuard, false);
+    }
+
+    private AuthenticationFilter(AuthenticationManager authenticationManager, String internalAuthSecret,
+            BruteForceGuard bruteForceGuard, boolean queryPeerEnabled) {
         this.authenticationManager = checkNotNull(authenticationManager,
                 "authenticationManager must not be null");
         this.internalAuthSecret = internalAuthSecret;
         this.bruteForceGuard = checkNotNull(bruteForceGuard, "bruteForceGuard must not be null");
+        this.queryPeerEnabled = queryPeerEnabled;
     }
 
     /**
@@ -98,7 +111,7 @@ public final class AuthenticationFilter implements ContainerRequestFilter {
 
     @Override
     public void filter(ContainerRequestContext requestContext) {
-        if (isHealthCheck(requestContext)) {
+        if (isHealthCheck(requestContext) || isQueryPeerRpc(requestContext)) {
             return;
         }
 
@@ -129,6 +142,12 @@ public final class AuthenticationFilter implements ContainerRequestFilter {
 
         bruteForceGuard.recordSuccess(clientIp);
         requestContext.setProperty(USER_IDENTITY_PROPERTY, result.userIdentity());
+    }
+
+    private boolean isQueryPeerRpc(ContainerRequestContext request) {
+        if (!queryPeerEnabled || !"POST".equals(request.getMethod())) return false;
+        String path = request.getUriInfo().getPath();
+        return QueryPeerRouting.PATH.equals(path) || ("/" + QueryPeerRouting.PATH).equals(path);
     }
 
     static String queryPrincipal(ContainerRequestContext context) {

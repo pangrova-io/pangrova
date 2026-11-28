@@ -134,7 +134,41 @@ Routing rule: relational writes, including DELETE ALL and VALUES, use Native tas
 
 ## 2. Write Transaction Atomicity
 
-Ordinary SQL writes use the execution owner's catalog and journal fences. The Coordinator checks the durable materialization consumer for trusted internal executions and during recovery. A COPY publication validates ownership after persisting its exact file receipt. A connector publication recorded by the journal carries its durable evidence into the remaining commit steps.
+Ordinary SQL writes use the execution owner's catalog and journal fences. The Coordinator
+checks the durable materialization consumer for trusted internal executions and during recovery.
+A COPY write persists its exact file receipt before finalizing the journal. An owned execution
+finalizes its journal in one PostgreSQL statement that locks the execution anchor and exact
+intent, checks expiry against the database clock after obtaining the row locks, and records the
+outcome under the current fencing token. Recovery supplies its claimed token with the
+original fingerprint. A connector publication recorded by the journal carries its durable
+evidence into the remaining commit steps.
+
+Paimon takes a one-time publication claim just before invoking its snapshot
+publisher. The claim and an abort-before-publication decision lock the same
+execution anchor and exact journal intent. A successor can record an abort after
+a confirmed missing target when the claim is still unopened. Once the claim
+is recorded, recovery requires the exact published snapshot marker. If the
+marker is absent, the intent remains pending for reconciliation. An abort
+receipt establishes the logical outcome and leaves physical object cleanup to
+its own authority.
+
+For a Native physical Paimon append, the Coordinator resolves the table and
+durable binding once. Physical receipt validation and publication share the
+same observed snapshot marker. Verified closed-file receipts become Paimon
+SDK commit messages directly. The existing Worker SDK fragment format is
+decoded at its original boundary.
+
+Paimon output handle version 5 binds a distinct SDK staging allocation. The
+handle preserves the catalog's data and changelog filename prefixes with an
+allocation-specific suffix. Each INSERT, OVERWRITE, DELETE, and CDC SDK
+sink uses those exact names from its dispatched handle. The versioned fragment
+header carries the allocation UUID and table name, which the coordinator
+validates before decoding the SDK messages. The fragment also records the URI
+and byte length of each reported allocated file that the SDK resolved under
+the original table root. Recovery can validate the recorded objects against
+the allocation and SDK messages without opening the table. Physical deletion
+still requires a durable absence decision, writer exit evidence, and
+authority to delete the exact object set.
 
 ### Problem Statement
 
@@ -143,11 +177,17 @@ marking its local journal committed. A coordinator crash or timeout in that inte
 from the RPC result alone whether publication happened. Recovery therefore needs both a durable
 redo record and an externally visible idempotency marker.
 
-A successful PostgreSQL journal insert uses the affected-row count as evidence
-inside the transaction. Duplicate event IDs trigger an exact readback, and
-query events with lineage still commit with their outbox rows. The coordinator
+Write-intent admission resolves the compact fingerprint receipt and inserts missing
+redo in one PostgreSQL statement. Ordinary writes and CDC can proceed with a new
+or existing pending intent, or recognize an exact committed replay without a
+separate preflight query. A concurrent winner outside the statement snapshot is
+resolved through an exact receipt read. The COPY journal trigger checks the immutable
+file admission in the insert transaction. Query events with lineage still commit
+with their outbox rows. The coordinator
 uses one loaded COMMITTED write entry for recovery, COPY proof, and deferred
-work acknowledgement.
+work acknowledgement. COPY resolves an existing immutable publication or inserts a
+new one in a single PostgreSQL statement. A concurrent winner outside the
+statement's snapshot is resolved through a fresh read of the exact proof.
 
 ### Failure Scenarios
 
@@ -283,10 +323,13 @@ Each Iceberg commit attempt uses the same fresh metadata for fingerprint lookup 
 of the retained ancestry. The old secondary commit token is retired. SDK metadata checks for
 the atomic commit and the final publication observation still run at their respective boundaries.
 
-A fresh Iceberg JDBC table load already reads the authoritative metadata pointer. Pangrova uses
-that metadata for the UUID check and exact publication receipt. Required empty INSERTs publish
-a marker-bearing snapshot and verify it after publication. Their publication step uses the empty
-INSERT classification from the original fragment collection.
+Iceberg resolves the write target once and checks its UUID against the durable handle. After a
+commit, the listener and exact publication receipt use the same observation of the catalog and
+its marker-bearing snapshot. The receipt hashes that snapshot's manifest list. A required empty
+INSERT uses the original fragment classification, commits a marker-bearing snapshot, and shares
+its post-commit observation with the listener and receipt as well. After timeout reconciliation,
+the receipt uses a separate catalog observation because the cancelled commit task may still be
+using the original SDK table.
 
 The Iceberg fragment collector parses each Worker UTF-8 payload once per collection. It reads
 the operation and file lists from the same JSON tree and appends the file descriptors directly
@@ -351,6 +394,17 @@ publication updates are mutually exclusive on the journal row; a published PENDI
 be aborted. Missing intent evidence fails closed, rather than being treated as a successful abort.
 This barrier does not close the separate execution-anchor check/update transaction race or define
 safe long-term terminal retention. Ambiguous PENDING writes still require explicit reconciliation.
+Recovery reconstructs the allocation from its persisted codec payload,
+including the original write mode, snapshot and overwrite scope. Iceberg
+allocation uses the current table metadata already loaded by write admission.
+PostgreSQL stores the canonical output binding as `bytea` and Worker fragments
+as an ordered `bytea[]`. The journal preserves fragment boundaries, including
+zero-length fragments, and passes the original bytes to recovery.
+
+The Coordinator decodes the exact Worker write binding and rebuilds it once
+to verify the canonical payload, columns, and allocation. If publication
+reports a missing target, abort confirmation uses the same bound handle and
+connector metadata authority.
 Native task authorization ends at the earlier of the initial execution lease and task timeout;
 database lease renewal does not extend an already issued Native credential. Large builds need
 a canonical acknowledged Native lease-renewal contract rather than a widened timeout.
@@ -400,7 +454,13 @@ rejects later mutation. The Worker completion path accepts a CDC result only as 
 statistics; Native task reports keep their existing `NATIVE` contract. When a Coordinator
 hosts both streaming and query roles, the streaming scheduler selects the supervised Worker
 CDC runtime and disables the local Coordinator pipeline; leadership loss blocks publication
-and offset acknowledgement. A reusable Worker
+and offset acknowledgement. The Worker runtime writes the exact bound task
+issuance under the current execution anchor before HTTP. That write verifies
+execution ownership atomically. The stream identity and maintenance epoch are
+checked separately. On failure, the Coordinator yields its anchor so the
+successor can reconcile any admitted attempt even if publication never began.
+Successful completion removes the task journal facts after each Worker owner
+has drained and publication and acknowledgement have finished. A reusable Worker
 range ingestor seeks each admitted partition start, filters records to the exact intervals,
 decodes and stages each batch, and returns commit fragments without publishing the catalog
 or acknowledging source offsets. Empty polls probe exact source end offsets and only complete
@@ -510,14 +570,18 @@ when a replay decodes the journaled binding. Paimon's `uuid()` can be synthesize
 name and the earliest schema, so location and schema fingerprint are part of the identity rather
 than optional corroboration. A mismatch fails the write; it never re-targets the current table.
 
-Commit retries are limited to explicit conflict signatures (`conflict`, `Cannot commit snapshot`,
-preparing/committing snapshot failures). Catalog, permission, argument, unsupported-operation and
-unclassified exceptions are not retried; recovery re-checks the fingerprint marker instead. A
-three-argument `abortDistributedWrite()` deletes only the staged files named by the fragments, only
-under the table location, and only while no snapshot advanced past the stored base snapshot. If
-another writer advanced the table, abort leaves the files for orphan maintenance. Paimon has no
-irrevocable format-level barrier, so a durable four-argument abort remains unsupported and is
-quarantined for reconciliation rather than guessed.
+Paimon reuses the decoded output binding for file receipts and validates the
+physical allocation against the table observation already used to check
+publication. An exact snapshot found during replay is passed directly to
+the commit notifier. A write with a bound base validates that snapshot
+directly. Initial writes still inspect the earliest retained snapshot.
+The Paimon SDK owns snapshot conflict retries. If the SDK returns an ambiguous error, journal
+recovery checks retained snapshot history for the original fingerprint. The connector SPI requires
+the durable intent identity for abort. Journal recovery quarantines Paimon intents when it cannot
+obtain a durable abort receipt and preserves their staged files. CDC stages ordered mutations
+through the bound connector sink and uses the same journaled publication path. The Native physical-file adapter validates
+allocations and builds commit metadata. Physical cleanup of a journaled intent requires an
+irrevocable non-publication decision and separately fenced object deletion.
 
 ---
 

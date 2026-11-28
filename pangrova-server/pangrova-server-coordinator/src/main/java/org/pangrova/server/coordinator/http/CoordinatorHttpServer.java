@@ -18,6 +18,8 @@ import org.pangrova.server.coordinator.http.request.QueryStatusWaits;
 import org.pangrova.server.coordinator.http.endpoint.CoordinatorHealthResource;
 import org.pangrova.server.coordinator.http.endpoint.CoordinatorTaskResource;
 import org.pangrova.server.coordinator.http.endpoint.QueryResource;
+import org.pangrova.server.coordinator.http.endpoint.QueryPeerResource;
+import org.pangrova.server.coordinator.http.endpoint.QueryPeerRouting;
 import org.pangrova.server.coordinator.http.endpoint.RequestLimitFilter;
 import org.pangrova.server.coordinator.http.endpoint.StreamingResource;
 import org.pangrova.server.coordinator.http.endpoint.TracingFilter;
@@ -33,8 +35,10 @@ import org.pangrova.query.runtime.QueryManager;
 import org.pangrova.coordinator.query.task.TaskStatusReceiver;
 import org.pangrova.observability.sdk.tracing.http.TracingHttpFilter;
 import org.pangrova.common.lifecycle.HealthCheckEndpoint;
+import org.pangrova.common.client.query.QueryOwnerEndpoint;
 import org.pangrova.security.authentication.AuthenticationManager;
 import org.eclipse.jetty.server.Server;
+import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.servlet.ServletContextHandler;
 import org.eclipse.jetty.servlet.ServletHolder;
 import org.glassfish.jersey.jackson.JacksonFeature;
@@ -42,11 +46,15 @@ import org.glassfish.jersey.server.ResourceConfig;
 import org.glassfish.jersey.server.ServerProperties;
 import org.glassfish.jersey.servlet.ServletContainer;
 
+import java.util.function.IntFunction;
+import java.util.function.Supplier;
+
 /**
  * Coordinator-side Jetty HTTP server lifecycle wrapper.
  * Uses Jersey ResourceConfig + ServletContainer for JAX-RS resource registration.
  */
 public final class CoordinatorHttpServer {
+    private volatile QueryOwnerEndpoint queryOwnerEndpoint;
 
     /** Max concurrent request threads for Coordinator (Requirement 50.4). */
     static final int COORDINATOR_MAX_THREADS = 256;
@@ -68,15 +76,27 @@ public final class CoordinatorHttpServer {
 
     /** Binds the HTTP service to the exact address used by its advertised endpoint. */
     public CoordinatorHttpServer(InetSocketAddress address, CoordinatorHttpServerContext deps) {
+        this(address, deps, null, null);
+    }
+
+    /** Issues query owner locations using the actual bound HTTP port. */
+    public CoordinatorHttpServer(InetSocketAddress address, CoordinatorHttpServerContext deps,
+            IntFunction<QueryOwnerEndpoint> ownerEndpointFactory, QueryPeerRouting queryPeers) {
         checkNotNull(deps, "deps must not be null");
+        if (queryPeers != null && (ownerEndpointFactory == null || deps.queryManager() == null
+                || deps.authenticationManager() == null)) {
+            throw new IllegalArgumentException(
+                    "Query peer routing requires a local query authority and authentication");
+        }
         this.copySourceReadEnabled = deps.copySourceReadResource() != null;
 
         ServletContextHandler handler = new ServletContextHandler();
         handler.setContextPath("/");
         this.server = EmbeddedHttpServerFactory.create(address, handler, COORDINATOR_MAX_THREADS);
 
-        var statusWaits = new QueryStatusWaits(server.getThreadPool());
-        ResourceConfig config = buildResourceConfig(deps, statusWaits);
+        var statusWaits = new QueryStatusWaits(server.getThreadPool(), deps.metricsProvider());
+        ResourceConfig config = buildResourceConfig(deps, statusWaits,
+                () -> getQueryOwnerEndpoint(ownerEndpointFactory), queryPeers);
         handler.addServlet(new ServletHolder(new ServletContainer(config)), "/*");
     }
 
@@ -113,6 +133,11 @@ public final class CoordinatorHttpServer {
                 healthCheckEndpoint, null, null, null));
     }
 
+    /** Reserves the real endpoint while the Coordinator prepares its execution authority. */
+    public void bind() throws java.io.IOException {
+        connector().open();
+    }
+
     /** Starts the Jetty server. */
     public void start() throws Exception {
         if (copySourceReadEnabled) {
@@ -134,7 +159,11 @@ public final class CoordinatorHttpServer {
     public void stop() throws Exception {
         // A failed bind has no started servlet context to drain gracefully.
         if (!server.isStarted()) server.setStopTimeout(0);
-        server.stop();
+        try {
+            server.stop();
+        } finally {
+            connector().close();
+        }
     }
 
     /** Returns the actual bound port (useful when port=0 for random binding). */
@@ -142,24 +171,36 @@ public final class CoordinatorHttpServer {
         return EmbeddedHttpServerFactory.getPort(server);
     }
 
-    private static ResourceConfig buildResourceConfig(CoordinatorHttpServerContext deps, QueryStatusWaits statusWaits) {
+    private ServerConnector connector() {
+        return (ServerConnector) server.getConnectors()[0];
+    }
+
+    private QueryOwnerEndpoint getQueryOwnerEndpoint(IntFunction<QueryOwnerEndpoint> ownerEndpointFactory) {
+        if (ownerEndpointFactory == null) return null;
+        var endpoint = queryOwnerEndpoint;
+        if (endpoint == null) {
+            endpoint = ownerEndpointFactory.apply(getPort());
+            queryOwnerEndpoint = endpoint;
+        }
+        return endpoint;
+    }
+
+    private static ResourceConfig buildResourceConfig(CoordinatorHttpServerContext deps, QueryStatusWaits statusWaits,
+            Supplier<QueryOwnerEndpoint> ownerEndpoint, QueryPeerRouting queryPeers) {
         ResourceConfig config = new ResourceConfig();
 
-        registerResources(config, deps, statusWaits);
-        registerFilters(config, deps);
+        registerResources(config, deps, statusWaits, ownerEndpoint, queryPeers);
+        registerFilters(config, deps, queryPeers != null);
         registerInfrastructure(config);
 
         return config;
     }
 
     private static void registerResources(ResourceConfig config, CoordinatorHttpServerContext deps,
-                                          QueryStatusWaits statusWaits) {
+            QueryStatusWaits statusWaits, Supplier<QueryOwnerEndpoint> ownerEndpoint, QueryPeerRouting queryPeers) {
         config.register(new org.pangrova.server.coordinator.http.endpoint.ServerInfoResource(
                 CoordinatorHttpServer.class.getPackage().getImplementationVersion()));
         config.register(new CoordinatorTaskResource(deps.receiver()));
-        registerIfPresent(config, deps.queryManager(),
-                qm -> new QueryResource(qm, deps.profilerEndpoint(), deps.queryProfileService(),
-                        new OtelExecutionTraceContextFactory(), statusWaits));
         registerIfPresent(config, deps.healthCheckEndpoint(), CoordinatorHealthResource::new);
         registerIfPresent(config, deps.workerManager(),
                 manager -> new WorkerResource(manager, deps.coordinatorEpochSupplier()));
@@ -180,14 +221,28 @@ public final class CoordinatorHttpServer {
             }
             config.register(deps.fileSpaceFilesResource());
         }
-        registerWebUiResource(config, deps);
+        registerQueryResources(config, deps, statusWaits, ownerEndpoint, queryPeers);
     }
 
-    private static void registerWebUiResource(ResourceConfig config, CoordinatorHttpServerContext deps) {
+    private static void registerQueryResources(ResourceConfig config, CoordinatorHttpServerContext deps,
+            QueryStatusWaits statusWaits, Supplier<QueryOwnerEndpoint> ownerEndpoint, QueryPeerRouting queryPeers) {
         if (deps.queryManager() != null) {
+            var queries = new QueryResource(deps.queryManager(), deps.profilerEndpoint(), deps.queryProfileService(),
+                    new OtelExecutionTraceContextFactory(), statusWaits, ownerEndpoint, queryPeers);
+            config.register(queries);
             config.register(new WebUiResource(
-                    deps.queryManager(), deps.workerManager(), deps.queryProfileService()));
+                    deps.queryManager(), deps.workerManager(), deps.queryProfileService(), queries));
             config.register(new WebUiStaticResource());
+            if (queryPeers != null) {
+                var peer = new QueryPeerResource(queries, queryPeers, ownerEndpoint);
+                config.register(peer);
+                config.register((jakarta.ws.rs.container.DynamicFeature) (resource, registration) -> {
+                    if (resource.getResourceClass() == QueryPeerResource.class) {
+                        registration.register((jakarta.ws.rs.container.ContainerResponseFilter) peer::signResponse,
+                                jakarta.ws.rs.container.ContainerResponseFilter.class);
+                    }
+                }, jakarta.ws.rs.container.DynamicFeature.class);
+            }
         }
     }
 
@@ -202,7 +257,8 @@ public final class CoordinatorHttpServer {
         }
     }
 
-    private static void registerFilters(ResourceConfig config, CoordinatorHttpServerContext deps) {
+    private static void registerFilters(ResourceConfig config, CoordinatorHttpServerContext deps,
+            boolean queryPeerEnabled) {
         config.register(org.pangrova.server.coordinator.http.endpoint.ApiVersionFilter.class);
         config.register(org.pangrova.server.coordinator.http.endpoint.RequestPeerAddressFilter.class);
         if (deps.workerManager() != null && (deps.authenticationManager() == null
@@ -216,7 +272,7 @@ public final class CoordinatorHttpServer {
                 RequestLimitConfig.DEFAULT_MAX_REQUEST_SIZE_BYTES, maxRequestsPerMinute)));
         if (deps.authenticationManager() != null) {
             config.register(new AuthenticationFilter(
-                    deps.authenticationManager(), deps.internalAuthSecret()));
+                    deps.authenticationManager(), deps.internalAuthSecret(), queryPeerEnabled));
         }
         registerIfPresent(config, deps.tracingHttpFilter(), TracingFilter::new);
     }

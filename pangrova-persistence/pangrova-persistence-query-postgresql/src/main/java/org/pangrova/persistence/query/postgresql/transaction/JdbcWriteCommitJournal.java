@@ -6,8 +6,10 @@ import org.pangrova.persistence.query.api.enums.WriteCommitState;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.persistence.query.api.exception.JournalWriteException;
 import org.pangrova.persistence.query.api.commit.CdcSourceIdentity;
+import org.pangrova.persistence.query.api.commit.CdcWriteCheckpoint;
 import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
 import org.pangrova.persistence.query.api.commit.WriteCommitJournal;
+import org.pangrova.persistence.query.api.commit.WriteCommitReceipt;
 import org.pangrova.common.file.CopyFileCommitBinding;
 import org.pangrova.common.file.CopyFilePublication;
 import org.pangrova.connector.api.commit.NativeWriteFinalization;
@@ -27,7 +29,6 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -41,50 +42,107 @@ import java.util.UUID;
  * a crash between intent-record and commit-execute leaves a recoverable
  * PENDING entry in the database.</p>
  *
- * <p>Schema (auto-created on first use):
- * <pre>{@code
- * CREATE TABLE IF NOT EXISTS write_commit_journal (
- *     query_id     VARCHAR(255) PRIMARY KEY,
- *     catalog_name VARCHAR(255) NOT NULL,
- *     table_name   VARCHAR(1024) NOT NULL,
- *     state        VARCHAR(32) NOT NULL,
- *     timestamp_ms BIGINT NOT NULL,
- *     fragments    TEXT,               -- Base64 worker commit fragments (replay payload)
- *     write_mode   VARCHAR(64),
- *     idempotency_key VARCHAR(512),
- *     tenant_id VARCHAR(255) NOT NULL,
- *     base_snapshot_id BIGINT NOT NULL,
- *     write_output_binding TEXT NOT NULL,
- *     commit_fingerprint VARCHAR(64) NOT NULL,
- *     owner_id VARCHAR(255),
- *     owner_incarnation VARCHAR(255),
- *     execution_fencing_token BIGINT NOT NULL DEFAULT 0,
- *     cdc_stream_id VARCHAR(255),
- *     cdc_source_epoch VARCHAR(255),
- *     cdc_offset_ranges JSONB
- * )
- * }</pre>
+ * <p>Flyway owns the journal schema. Redo binds the exact Worker fragments
+ * and canonical output bytes directly through PostgreSQL binary columns.</p>
  */
 @ThreadSafe
 public final class JdbcWriteCommitJournal implements WriteCommitJournal {
 
     private static final Logger LOG = LoggerFactory.getLogger(JdbcWriteCommitJournal.class);
     private static final ObjectMapper JSON = new ObjectMapper();
+    private static final int NO_EXACT_PUBLICATION_INTENT = -2;
+
+    private static final String SELECT_ADMISSION_RECEIPT =
+            "SELECT state, commit_fingerprint FROM write_commit_receipts WHERE query_id = ?";
 
     private static final String INSERT_ENTRY =
-            "INSERT INTO write_commit_journal (query_id, catalog_name, table_name, state, "
+            "WITH existing AS MATERIALIZED (" + SELECT_ADMISSION_RECEIPT + "), inserted AS ("
+                    + "INSERT INTO write_commit_journal (query_id, catalog_name, table_name, state, "
                     + "timestamp_ms, fragments, write_mode, idempotency_key, owner_id, "
                     + "tenant_id, base_snapshot_id, commit_fingerprint, owner_incarnation, "
                     + "execution_fencing_token, write_output_binding, principal, deferred_authorization_scope, "
                     + "published_version, manifest_sha256, copy_claim_key, copy_load_generation, "
                     + "copy_claim_digest, copy_table_uuid, cdc_stream_id, cdc_source_epoch, cdc_offset_ranges) "
-                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb) "
-                    + "ON CONFLICT (query_id) DO NOTHING";
+                    + "SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb "
+                    + "WHERE NOT EXISTS (SELECT 1 FROM existing) "
+                    + "ON CONFLICT (query_id) DO NOTHING RETURNING state, commit_fingerprint"
+                    + ") SELECT state, commit_fingerprint FROM inserted UNION ALL "
+                    + "SELECT state, commit_fingerprint FROM existing";
 
     private static final String UPDATE_STATE =
             "UPDATE write_commit_journal SET state = ?, timestamp_ms = ? "
-                    + "WHERE query_id = ? AND state = 'PENDING'";
+                    + "WHERE query_id = ? AND state = 'PENDING' AND NOT EXISTS "
+                    + "(SELECT 1 FROM execution_anchor WHERE execution_id=write_commit_journal.query_id)";
 
+    // The CASE makes the wall-clock sample depend on obtaining the exact journal row lock.
+    private static final String LOCK_OWNED_INTENT = """
+            WITH owner AS MATERIALIZED (
+                SELECT execution_id, expires_at
+                FROM execution_anchor WHERE execution_id = ? AND fencing_token = ?
+                FOR SHARE
+            ), target AS MATERIALIZED (
+                SELECT journal.query_id, journal.state, journal.publication_started
+                FROM owner JOIN write_commit_journal journal ON journal.query_id = owner.execution_id
+                WHERE journal.commit_fingerprint = ?
+                FOR UPDATE OF journal
+            ), authority AS MATERIALIZED (
+                SELECT owner.execution_id
+                FROM owner
+                WHERE CASE WHEN (SELECT count(*) FROM target) <= 1
+                    THEN owner.expires_at > clock_timestamp()
+                    ELSE false END
+            )
+            """;
+    private static final String RECORD_FENCED_OUTCOME = LOCK_OWNED_INTENT + """
+            , transition AS (
+                UPDATE write_commit_journal journal
+                SET state = ?, timestamp_ms = (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::bigint
+                FROM target JOIN authority ON authority.execution_id = target.query_id
+                WHERE journal.query_id = target.query_id AND target.state = 'PENDING'
+                    AND (CAST(? AS boolean) OR journal.published_version IS NULL
+                        AND journal.manifest_sha256 IS NULL)
+                RETURNING journal.query_id
+            )
+            SELECT EXISTS (SELECT 1 FROM authority) AS current_owner,
+                   EXISTS (SELECT 1 FROM transition)
+                       OR EXISTS (SELECT 1 FROM target WHERE state = ?)
+                       OR EXISTS (SELECT 1 FROM write_commit_receipts receipt
+                           JOIN authority ON authority.execution_id = receipt.query_id
+                           WHERE receipt.commit_fingerprint = ? AND receipt.state = ?) AS exact_outcome
+            """;
+
+    private static final String BEGIN_PUBLICATION = LOCK_OWNED_INTENT + """
+            , transition AS (
+                UPDATE write_commit_journal journal SET publication_started = true
+                FROM target JOIN authority ON authority.execution_id = target.query_id
+                WHERE journal.query_id = target.query_id AND target.state = 'PENDING'
+                    AND NOT target.publication_started AND journal.published_version IS NULL
+                    AND journal.manifest_sha256 IS NULL
+                RETURNING journal.query_id
+            )
+            SELECT CASE
+                WHEN NOT EXISTS (SELECT 1 FROM authority) THEN -1
+                WHEN NOT EXISTS (SELECT 1 FROM target WHERE state = 'PENDING') THEN -2
+                WHEN EXISTS (SELECT 1 FROM transition) THEN 1
+                ELSE 0 END
+            """;
+    private static final String ABORT_UNSTARTED_PUBLICATION = LOCK_OWNED_INTENT + """
+            , transition AS (
+                UPDATE write_commit_journal journal SET state = 'ABORTED', staging_drain_token = 0
+                FROM target JOIN authority ON authority.execution_id = target.query_id
+                WHERE journal.query_id = target.query_id AND target.state IN ('PENDING', 'ABORTED')
+                    AND NOT target.publication_started AND journal.published_version IS NULL
+                    AND journal.manifest_sha256 IS NULL AND journal.staging_drain_token IS NULL
+                RETURNING journal.query_id
+            )
+            SELECT CASE
+                WHEN NOT EXISTS (SELECT 1 FROM authority) THEN -1
+                WHEN NOT EXISTS (SELECT 1 FROM target) THEN -2
+                WHEN EXISTS (SELECT 1 FROM transition)
+                    OR EXISTS (SELECT 1 FROM target WHERE state = 'ABORTED' AND NOT publication_started)
+                    THEN 1
+                ELSE 0 END
+            """;
     private static final String RECORD_PUBLICATION =
             "UPDATE write_commit_journal SET published_version = ?, manifest_sha256 = ? "
                     + "WHERE query_id = ? AND commit_fingerprint = ? AND "
@@ -111,20 +169,40 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
                     + "cdc_offset_ranges::text "
                     + "FROM write_commit_journal WHERE state = 'PENDING' AND query_id IN (";
 
-    private static final String DELETE_ENTRY =
-            "DELETE FROM write_commit_journal WHERE query_id = ? "
-                    + "AND state='COMMITTED' AND deferred_work_acknowledged "
-                    + "AND NOT EXISTS (SELECT 1 FROM index_commit_log e "
-                    + "WHERE e.commit_fingerprint=write_commit_journal.commit_fingerprint AND NOT e.processed)";
+    private static final String SELECT_CDC_CHECKPOINT = """
+            SELECT query_id, commit_fingerprint, state, cdc_stream_id, cdc_source_epoch, cdc_offset_ranges::text
+            FROM write_commit_journal
+            WHERE tenant_id = ? AND cdc_stream_id = ? AND cdc_source_epoch = ? AND state IN ('PENDING', 'COMMITTED')
+            ORDER BY (state = 'PENDING') DESC, timestamp_ms DESC, query_id DESC LIMIT 1
+            """;
 
-    private static final String INSERT_COPY_PUBLICATION =
-            "INSERT INTO copy_file_publications (claim_key, load_generation, claim_digest, "
-                    + "execution_id, tenant_id, table_uuid, commit_fingerprint, snapshot_id) "
-                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
-                    + "ON CONFLICT (claim_key, load_generation) DO NOTHING";
-    private static final String SELECT_COPY_PUBLICATION =
-            "SELECT claim_digest, execution_id, tenant_id, table_uuid, commit_fingerprint, snapshot_id "
-                    + "FROM copy_file_publications WHERE claim_key=? AND load_generation=?";
+    /** Predicate shared by journal and execution retirement for the write row aliased as w. */
+    public static final String ACKNOWLEDGED_WRITE = """
+            w.state = 'COMMITTED' AND w.deferred_work_acknowledged
+            AND NOT EXISTS (SELECT 1 FROM index_commit_log e
+                            WHERE e.commit_fingerprint = w.commit_fingerprint AND NOT e.processed)
+            """;
+    public static final String RETIRABLE_WRITE = ACKNOWLEDGED_WRITE + """
+              AND NOT EXISTS (
+                  SELECT 1 FROM execution_anchor a WHERE a.execution_id = w.query_id
+                  AND EXISTS (SELECT 1 FROM query_state_journal q WHERE q.query_id = w.query_id)
+                  AND NOT EXISTS (SELECT 1 FROM query_state_journal q WHERE q.query_id = w.query_id
+                                  AND q.state IN ('FINISHED', 'FAILED', 'CANCELLED'))
+              )
+            """;
+    private static final String DELETE_ENTRY =
+            "DELETE FROM write_commit_journal w WHERE w.query_id = ? AND " + RETIRABLE_WRITE;
+
+    private static final String COPY_PUBLICATION_COLUMNS =
+            "claim_digest, execution_id, tenant_id, table_uuid, commit_fingerprint, snapshot_id";
+    private static final String SELECT_COPY_PUBLICATION = "SELECT " + COPY_PUBLICATION_COLUMNS
+            + " FROM copy_file_publications WHERE claim_key=? AND load_generation=?";
+    private static final String INSERT_COPY_PUBLICATION = "WITH existing AS MATERIALIZED (" + SELECT_COPY_PUBLICATION
+            + "), inserted AS ("
+            + "INSERT INTO copy_file_publications (claim_key, load_generation, " + COPY_PUBLICATION_COLUMNS + ") "
+            + "SELECT ?, ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM existing) "
+            + "ON CONFLICT (claim_key, load_generation) DO NOTHING RETURNING " + COPY_PUBLICATION_COLUMNS
+            + ") SELECT * FROM inserted UNION ALL SELECT * FROM existing";
 
     private final DataSource dataSource;
 
@@ -136,7 +214,8 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
 
     private void validateSchema() {
         try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement(SELECT_BY_QUERY_ID + " AND FALSE")) {
+             PreparedStatement statement = connection.prepareStatement(
+                     SELECT_BY_QUERY_ID + " AND staging_drain_token IS NULL AND FALSE")) {
             statement.setString(1, "");
             try (ResultSet ignored = statement.executeQuery()) {
                 // Validate the canonical required columns; never create a parallel schema.
@@ -149,7 +228,7 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
     }
 
     @Override
-    public void recordIntent(WriteCommitEntry entry) {
+    public WriteCommitState recordIntent(WriteCommitEntry entry) {
         Objects.requireNonNull(entry, "entry must not be null");
         if (entry.state() != WriteCommitState.PENDING) {
             throw new IllegalArgumentException("Only PENDING write intents may be recorded");
@@ -160,16 +239,14 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
         }
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(INSERT_ENTRY)) {
-            if (entry.copyFile() != null) {
-                requireMatchingCopyAdmission(conn, entry);
-            }
             int parameter = 1;
-            ps.setString(parameter++, entry.queryId());
+            ps.setString(parameter++, entry.queryId()); // exact compact identity lookup
+            ps.setString(parameter++, entry.queryId()); // redo INSERT
             ps.setString(parameter++, entry.catalogName());
             ps.setString(parameter++, entry.tableName());
             ps.setString(parameter++, entry.state().name());
             ps.setLong(parameter++, entry.timestampMs());
-            ps.setString(parameter++, encodeFragments(entry.fragments()));
+            ps.setObject(parameter++, entry.fragments().toArray(byte[][]::new));
             ps.setString(parameter++, entry.writeMode());
             ps.setString(parameter++, entry.idempotencyKey());
             ps.setString(parameter++, entry.ownerId());
@@ -178,8 +255,7 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
             ps.setString(parameter++, entry.commitFingerprint());
             ps.setString(parameter++, entry.ownerIncarnation());
             ps.setLong(parameter++, entry.executionFencingToken());
-            ps.setString(parameter++, Base64.getEncoder().encodeToString(
-                    entry.writeOutputBinding()));
+            ps.setBytes(parameter++, entry.writeOutputBinding());
             ps.setString(parameter++, entry.principal());
             ps.setBytes(parameter++, entry.authorizationReceipt().authorizationScope());
             if (entry.publication() == null) {
@@ -211,37 +287,16 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
                 ps.setString(parameter++, cdcSource.sourceEpoch());
                 ps.setString(parameter, encodeCdcRanges(cdcSource));
             }
-            int inserted = ps.executeUpdate();
-            if (inserted == 0) {
-                requireMatchingExistingIntent(conn, entry);
-            }
-            LOG.info("event=write_commit_intent_recorded queryId={} catalog={} table={}",
-                    entry.queryId(), entry.catalogName(), entry.tableName());
+            WriteCommitState state = admitIntent(conn, ps, entry);
+            LOG.info("event=write_commit_intent_resolved queryId={} catalog={} table={} state={}",
+                    entry.queryId(), entry.catalogName(), entry.tableName(), state);
+            return state;
         } catch (SQLException e) {
             LOG.error("event=write_commit_intent_failed queryId={} error={}",
                     entry.queryId(), e.getMessage(), e);
             throw new JournalWriteException(
                     "Failed to record write commit intent for queryId=" + entry.queryId(), e,
                     JournalAdmissionOutcome.ACCEPTED_UNESTABLISHED);
-        }
-    }
-
-    private static void requireMatchingCopyAdmission(Connection connection, WriteCommitEntry entry)
-            throws SQLException {
-        CopyFileCommitBinding binding = entry.copyFile();
-        try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT claim_digest, execution_id, tenant_id, table_uuid "
-                        + "FROM copy_file_claims WHERE claim_key=? AND load_generation=?")) {
-            statement.setString(1, binding.fileKey());
-            statement.setLong(2, binding.loadGeneration());
-            try (ResultSet result = statement.executeQuery()) {
-                if (!result.next() || !binding.claimDigest().equals(result.getString("claim_digest"))
-                        || !entry.queryId().equals(result.getString("execution_id"))
-                        || !entry.tenantId().equals(result.getString("tenant_id"))
-                        || !binding.tableUuid().equals(result.getObject("table_uuid", UUID.class).toString())) {
-                    throw new IllegalStateException("COPY write intent differs from durable file admission");
-                }
-            }
         }
     }
 
@@ -255,16 +310,11 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
             throw new IllegalArgumentException("COPY publication differs from its exact write intent");
         }
         try (Connection connection = dataSource.getConnection()) {
-            // The journal may have been purged after an earlier successful publication.
-            // A PostgreSQL BEFORE INSERT guard requires a live journal row, so replay
-            // must inspect the immutable publication before attempting another insert.
-            Optional<CopyFilePublication> recorded = readCopyPublication(connection, entry);
-            if (recorded.isPresent()) {
-                requireSamePublication(recorded.orElseThrow(), publication);
-                return;
-            }
+            // An existing immutable proof skips the INSERT trigger, even after redo retirement.
             try (PreparedStatement insert = connection.prepareStatement(INSERT_COPY_PUBLICATION)) {
                 int parameter = 1;
+                insert.setString(parameter++, publication.binding().fileKey());
+                insert.setLong(parameter++, publication.binding().loadGeneration());
                 insert.setString(parameter++, publication.binding().fileKey());
                 insert.setLong(parameter++, publication.binding().loadGeneration());
                 insert.setString(parameter++, publication.binding().claimDigest());
@@ -273,15 +323,19 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
                 insert.setObject(parameter++, UUID.fromString(publication.binding().tableUuid()));
                 insert.setString(parameter++, publication.commitFingerprint());
                 insert.setLong(parameter, publication.snapshotId());
-                if (insert.executeUpdate() == 1) {
-                    return;
+                try (ResultSet result = insert.executeQuery()) {
+                    if (result.next()) {
+                        requireSamePublication(copyPublicationFromRow(entry, result), publication);
+                        return;
+                    }
                 }
             }
+            // ON CONFLICT can detect a concurrent insert outside the first statement's snapshot.
             requireSamePublication(readCopyPublication(connection, entry).orElseThrow(() ->
                     new IllegalStateException("COPY publication disappeared during concurrent replay")), publication);
         } catch (SQLException failure) {
             // A concurrent winner may publish and retire the journal between our
-            // initial lookup and the guarded INSERT. Only its exact immutable
+            // initial snapshot and the guarded INSERT. Only its exact immutable
             // proof makes that SQL failure an idempotent success.
             Optional<CopyFilePublication> recorded = findCopyFilePublication(entry);
             if (recorded.isPresent()) {
@@ -315,18 +369,24 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
                 if (!result.next()) {
                     return Optional.empty();
                 }
-                if (!binding.claimDigest().equals(result.getString("claim_digest"))
-                        || !entry.queryId().equals(result.getString("execution_id"))
-                        || !entry.tenantId().equals(result.getString("tenant_id"))
-                        || !binding.tableUuid().equals(result.getObject("table_uuid", UUID.class).toString())
-                        || !entry.commitFingerprint().equals(result.getString("commit_fingerprint"))
-                        || result.getLong("snapshot_id") <= 0) {
-                    throw new IllegalStateException("COPY file publication conflicts with immutable intent");
-                }
-                return Optional.of(new CopyFilePublication(binding, entry.queryId(),
-                        entry.commitFingerprint(), result.getLong("snapshot_id")));
+                return Optional.of(copyPublicationFromRow(entry, result));
             }
         }
+    }
+
+    private static CopyFilePublication copyPublicationFromRow(WriteCommitEntry entry, ResultSet result)
+            throws SQLException {
+        CopyFileCommitBinding binding = entry.copyFile();
+        long snapshot = result.getLong("snapshot_id");
+        if (!binding.claimDigest().equals(result.getString("claim_digest"))
+                || !entry.queryId().equals(result.getString("execution_id"))
+                || !entry.tenantId().equals(result.getString("tenant_id"))
+                || !binding.tableUuid().equals(result.getObject("table_uuid", UUID.class).toString())
+                || !entry.commitFingerprint().equals(result.getString("commit_fingerprint"))
+                || snapshot <= 0) {
+            throw new IllegalStateException("COPY file publication conflicts with immutable intent");
+        }
+        return new CopyFilePublication(binding, entry.queryId(), entry.commitFingerprint(), snapshot);
     }
 
     private static void requireSamePublication(CopyFilePublication recorded, CopyFilePublication expected) {
@@ -409,6 +469,77 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
         }
     }
 
+    @Override
+    public boolean recordTerminalOutcome(WriteCommitEntry intent, long token, WriteCommitState outcome) {
+        Objects.requireNonNull(intent, "intent");
+        Objects.requireNonNull(outcome, "outcome");
+        if (outcome == WriteCommitState.PENDING || token <= 0) {
+            throw new IllegalArgumentException("Durable finalization requires a terminal outcome and execution token");
+        }
+        try (var connection = dataSource.getConnection();
+             var statement = connection.prepareStatement(RECORD_FENCED_OUTCOME)) {
+            statement.setString(1, intent.queryId());
+            statement.setLong(2, token);
+            statement.setString(3, intent.commitFingerprint());
+            statement.setString(4, outcome.name());
+            statement.setBoolean(5, outcome == WriteCommitState.COMMITTED);
+            statement.setString(6, outcome.name());
+            statement.setString(7, intent.commitFingerprint());
+            statement.setString(8, outcome.name());
+            try (var result = statement.executeQuery()) {
+                if (!result.next()) {
+                    throw new IllegalStateException("Missing write outcome result: " + intent.queryId());
+                }
+                if (!result.getBoolean("current_owner")) {
+                    return false;
+                }
+                if (!result.getBoolean("exact_outcome")) {
+                    throw new IllegalStateException("Conflicting terminal write outcome: " + intent.queryId());
+                }
+                return true;
+            }
+        } catch (SQLException failure) {
+            throw new JournalWriteException("Cannot persist fenced write outcome: " + intent.queryId(), failure,
+                    JournalAdmissionOutcome.ACCEPTED_UNESTABLISHED);
+        }
+    }
+
+    @Override
+    public boolean tryBeginPublication(WriteCommitEntry intent, long fencingToken) {
+        return applyPublicationGate(BEGIN_PUBLICATION, intent, fencingToken);
+    }
+
+    @Override
+    public boolean abortBeforePublication(WriteCommitEntry intent, long fencingToken) {
+        return applyPublicationGate(ABORT_UNSTARTED_PUBLICATION, intent, fencingToken);
+    }
+
+    private boolean applyPublicationGate(String sql, WriteCommitEntry intent, long token) {
+        Objects.requireNonNull(intent, "intent");
+        if (token <= 0) {
+            throw new IllegalArgumentException("Durable external publication requires an execution token");
+        }
+        try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement(sql)) {
+            statement.setString(1, intent.queryId());
+            statement.setLong(2, token);
+            statement.setString(3, intent.commitFingerprint());
+            try (var result = statement.executeQuery()) {
+                if (!result.next()) throw new SQLException("Missing external publication gate result");
+                return switch (result.getInt(1)) {
+                    case 1 -> true;
+                    case 0 -> false;
+                    case -1 -> throw new IllegalStateException("Lost execution anchor for write " + intent.queryId());
+                    case NO_EXACT_PUBLICATION_INTENT -> throw new IllegalStateException(
+                        "Write publication gate has no exact intent " + intent.queryId());
+                    default -> throw new SQLException("Unknown external publication gate result");
+                };
+            }
+        } catch (SQLException failure) {
+            throw new JournalWriteException("Cannot persist external publication gate: " + intent.queryId(), failure,
+                    JournalAdmissionOutcome.ACCEPTED_UNESTABLISHED);
+        }
+    }
+
     /** Locks and decodes the real redo intent on the source catalog's publication connection. */
     public static WriteCommitEntry lockIntent(Connection connection, String queryId) throws SQLException {
         if (connection.getAutoCommit()) throw new IllegalArgumentException("Intent lock requires a transaction");
@@ -430,7 +561,7 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
         try (var statement = connection.prepareStatement(
                 "UPDATE write_commit_journal SET state='COMMITTED',published_version=?,manifest_sha256=? "
                         + "WHERE query_id=? AND commit_fingerprint=? AND state IN ('PENDING','COMMITTED') "
-                        + "AND ((published_version IS NULL AND manifest_sha256 IS NULL) "
+                        + "AND ((state = 'PENDING' AND published_version IS NULL AND manifest_sha256 IS NULL) "
                         + "OR (published_version=? AND manifest_sha256=?))")) {
             statement.setLong(1, publication.publishedVersion());
             statement.setBytes(2, publication.manifestSha256());
@@ -461,9 +592,29 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
 
     @Override
     public boolean isCommitted(String queryId) {
-        return getEntry(queryId)
+        return getReceipt(queryId)
                 .map(e -> e.state() == WriteCommitState.COMMITTED)
                 .orElse(false);
+    }
+
+    @Override
+    public Optional<WriteCommitReceipt> getReceipt(String queryId) {
+        Objects.requireNonNull(queryId, "queryId");
+        try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement(
+                "SELECT * FROM write_commit_receipts WHERE query_id=? AND state IN ('COMMITTED','ABORTED')")) {
+            statement.setString(1, queryId);
+            try (var row = statement.executeQuery()) {
+                if (!row.next()) return Optional.empty();
+                return Optional.of(new WriteCommitReceipt(queryId, row.getString("tenant_id"),
+                        row.getString("catalog_name"), row.getString("table_name"), row.getString("write_mode"),
+                        row.getLong("base_snapshot_id"), row.getString("commit_fingerprint"),
+                        WriteCommitState.valueOf(row.getString("state")), row.getLong("finalized_at_ms"),
+                        row.getBoolean("copy_write"), row.getBoolean("cdc_write"), readPublication(row)));
+            }
+        } catch (SQLException failure) {
+            throw new JournalWriteException("Cannot resolve terminal write receipt", failure,
+                    JournalAdmissionOutcome.ACCEPTED_UNESTABLISHED);
+        }
     }
 
     @Override
@@ -488,17 +639,16 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
     }
 
     @Override
-    public Optional<WriteCommitEntry> findCdcCheckpoint(String tenantId, String streamId, String sourceEpoch) {
-        String sql = SELECT_BY_QUERY_ID.replace("WHERE query_id = ?",
-                "WHERE tenant_id = ? AND cdc_stream_id = ? AND cdc_source_epoch = ? "
-                        + "AND state IN ('PENDING', 'COMMITTED') "
-                        + "ORDER BY (state = 'PENDING') DESC, timestamp_ms DESC, query_id DESC LIMIT 1");
-        try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement(sql)) {
+    public Optional<CdcWriteCheckpoint> findCdcCheckpoint(String tenantId, String streamId, String sourceEpoch) {
+        try (var connection = dataSource.getConnection();
+                var statement = connection.prepareStatement(SELECT_CDC_CHECKPOINT)) {
             statement.setString(1, tenantId);
             statement.setString(2, streamId);
             statement.setString(3, sourceEpoch);
             try (var result = statement.executeQuery()) {
-                return result.next() ? Optional.of(readEntry(result)) : Optional.empty();
+                return result.next() ? Optional.of(new CdcWriteCheckpoint(result.getString("query_id"),
+                        result.getString("commit_fingerprint"), WriteCommitState.valueOf(result.getString("state")),
+                        readCdcSource(result))) : Optional.empty();
             }
         } catch (SQLException failure) {
             throw new JournalWriteException("Cannot resolve the durable CDC checkpoint", failure,
@@ -598,7 +748,8 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
         try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement(
                 "UPDATE write_commit_journal SET state='ABORTED' WHERE query_id=? AND commit_fingerprint=? "
                         + "AND state IN ('PENDING','ABORTED') "
-                        + "AND published_version IS NULL AND manifest_sha256 IS NULL")) {
+                        + "AND published_version IS NULL AND manifest_sha256 IS NULL AND NOT EXISTS "
+                        + "(SELECT 1 FROM execution_anchor WHERE execution_id=write_commit_journal.query_id)")) {
             statement.setString(1, queryId);
             statement.setString(2, fingerprint);
             if (statement.executeUpdate() == 0) {
@@ -613,10 +764,9 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
     @Override
     public void purge(String queryId) {
         Objects.requireNonNull(queryId, "queryId must not be null");
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement(DELETE_ENTRY)) {
-            ps.setString(1, queryId);
-            ps.executeUpdate();
+        try (Connection conn = dataSource.getConnection(); var statement = conn.prepareStatement(DELETE_ENTRY)) {
+            statement.setString(1, queryId);
+            statement.executeUpdate();
         } catch (SQLException e) {
             LOG.error("event=write_commit_purge_failed queryId={} error={}",
                     queryId, e.getMessage(), e);
@@ -626,21 +776,21 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
         }
     }
 
-    private static WriteCommitEntry readEntry(ResultSet rs) throws SQLException {
+    static WriteCommitEntry readEntry(ResultSet rs) throws SQLException {
         return new WriteCommitEntry(
                 rs.getString("query_id"),
                 rs.getString("catalog_name"),
                 rs.getString("table_name"),
                 WriteCommitState.valueOf(rs.getString("state")),
                 rs.getLong("timestamp_ms"),
-                decodeFragments(rs.getString("fragments")),
+                readFragments(rs),
                 rs.getString("write_mode"),
                 rs.getString("idempotency_key"),
                 rs.getString("tenant_id"),
                 rs.getString("principal"),
                 DeferredAuthorizationScopeCodec.decodeWriteReceipt(rs.getBytes("deferred_authorization_scope")),
                 rs.getLong("base_snapshot_id"),
-                Base64.getDecoder().decode(rs.getString("write_output_binding")),
+                rs.getBytes("write_output_binding"),
                 rs.getString("commit_fingerprint"),
                 rs.getString("owner_id"),
                 rs.getString("owner_incarnation"),
@@ -712,62 +862,68 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
                 NativeWriteCommitOutcome.COMMITTED, version, result.getBytes("manifest_sha256"));
     }
 
-    private static void requireMatchingExistingIntent(
-            Connection connection, WriteCommitEntry candidate) throws SQLException {
-        try (PreparedStatement ps = connection.prepareStatement(SELECT_BY_QUERY_ID)) {
-            ps.setString(1, candidate.queryId());
-            try (ResultSet rs = ps.executeQuery()) {
-                if (!rs.next()
-                        || !candidate.commitFingerprint().equals(
-                        rs.getString("commit_fingerprint"))
-                        || WriteCommitState.ABORTED.name().equals(rs.getString("state"))) {
-                    throw new JournalWriteException(
-                            "Conflicting write commit intent for queryId=" + candidate.queryId(),
-                            new IllegalStateException(
-                                    "query id has a different fingerprint or a durable abort barrier"),
-                            JournalAdmissionOutcome.ACCEPTED_UNESTABLISHED);
+    private static WriteCommitState admitIntent(Connection connection, PreparedStatement admission,
+            WriteCommitEntry candidate) throws SQLException {
+        SQLException racedRetirement = null;
+        try (ResultSet result = admission.executeQuery()) {
+            if (result.next()) {
+                return requireExactAdmittedState(result, candidate);
+            }
+        } catch (SQLException failure) {
+            if (!"23505".equals(failure.getSQLState())) {
+                throw failure;
+            }
+            // A competing insert and retirement can leave only the unique compact receipt.
+            racedRetirement = failure;
+        }
+        // A concurrent winner may be absent from the INSERT statement's original snapshot.
+        try (var statement = connection.prepareStatement(SELECT_ADMISSION_RECEIPT)) {
+            statement.setString(1, candidate.queryId());
+            try (var result = statement.executeQuery()) {
+                if (result.next()) {
+                    return requireExactAdmittedState(result, candidate);
                 }
+                if (racedRetirement != null) {
+                    throw racedRetirement;
+                }
+                throw new JournalWriteException("Write admission has no durable receipt for queryId="
+                        + candidate.queryId(), new IllegalStateException("Missing write admission receipt"),
+                        JournalAdmissionOutcome.ACCEPTED_UNESTABLISHED);
             }
         }
+    }
+
+    private static WriteCommitState requireExactAdmittedState(ResultSet row, WriteCommitEntry candidate)
+            throws SQLException {
+        if (candidate.commitFingerprint().equals(row.getString("commit_fingerprint"))) {
+            WriteCommitState state = WriteCommitState.valueOf(row.getString("state"));
+            if (state != WriteCommitState.ABORTED) {
+                return state;
+            }
+        }
+        throw new JournalWriteException("Conflicting write commit intent for queryId=" + candidate.queryId(),
+                new IllegalStateException("query id has a different fingerprint or a durable abort barrier"),
+                JournalAdmissionOutcome.ACCEPTED_UNESTABLISHED);
     }
 
     private static void requireCommittedEntry(Connection connection, String queryId) throws SQLException {
-        try (var statement = connection.prepareStatement("SELECT state FROM write_commit_journal WHERE query_id=?")) {
+        try (var statement = connection.prepareStatement("SELECT state FROM write_commit_receipts WHERE query_id=?")) {
             statement.setString(1, queryId);
             try (var row = statement.executeQuery()) {
                 if (!row.next() || !WriteCommitState.COMMITTED.name().equals(row.getString(1))) {
-                    throw new IllegalStateException("Cannot commit a missing or aborted write intent: " + queryId);
+                    throw new IllegalStateException(
+                        "Cannot commit a missing, aborted or fenced write intent: " + queryId);
                 }
             }
         }
     }
 
-    /** Encodes worker commit fragments as a comma-separated Base64 list for durable storage. */
-    private static String encodeFragments(List<byte[]> fragments) {
-        if (fragments == null || fragments.isEmpty()) {
-            return "";
+    private static List<byte[]> readFragments(ResultSet row) throws SQLException {
+        var fragments = row.getArray("fragments");
+        try {
+            return List.of((byte[][]) fragments.getArray());
+        } finally {
+            fragments.free();
         }
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < fragments.size(); i++) {
-            if (i > 0) {
-                sb.append(',');
-            }
-            sb.append(Base64.getEncoder().encodeToString(fragments.get(i)));
-        }
-        return sb.toString();
-    }
-
-    /** Reconstructs worker commit fragments from the comma-separated Base64 storage form. */
-    private static List<byte[]> decodeFragments(String encoded) {
-        if (encoded == null || encoded.isEmpty()) {
-            return List.of();
-        }
-        List<byte[]> out = new ArrayList<>();
-        for (String token : encoded.split(",")) {
-            if (!token.isEmpty()) {
-                out.add(Base64.getDecoder().decode(token));
-            }
-        }
-        return out;
     }
 }

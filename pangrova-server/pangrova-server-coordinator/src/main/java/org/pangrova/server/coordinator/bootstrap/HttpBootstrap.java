@@ -4,6 +4,8 @@ import org.pangrova.common.enums.ClusterNodeType;
 import org.pangrova.server.coordinator.http.CoordinatorHttpServer;
 import org.pangrova.common.exception.BootstrapFailedException;
 import org.pangrova.server.coordinator.http.CoordinatorHttpServerContext;
+import org.pangrova.server.coordinator.http.endpoint.QueryPeerRouting;
+import org.pangrova.common.lifecycle.ResourceCloser;
 import org.pangrova.query.runtime.QueryManager;
 import org.pangrova.coordinator.query.task.TaskStatusReceiver;
 import org.pangrova.coordinator.worker.WorkerManager;
@@ -31,6 +33,7 @@ final class HttpBootstrap {
     private final AuthenticationManager authenticationManager;
     private final TaskStatusReceiver taskStatusReceiver;
     private final QueryManager queryManager;
+    private final org.pangrova.observability.api.metrics.MetricsProvider metricsProvider;
     private final QueryProfileService queryProfileService;
     private final WorkerManager workerManager;
     private final CdcLifecycleManager cdcLifecycleManager;
@@ -38,6 +41,7 @@ final class HttpBootstrap {
     private final MetadataService metadataService;
 
     private CoordinatorHttpServer httpServer;
+    private QueryPeerRouting queryPeers;
 
     HttpBootstrap(CoordinatorBootstrapConfig config,
                   TracingProvider tracingProvider,
@@ -53,6 +57,7 @@ final class HttpBootstrap {
         this.authenticationManager = authenticationManager;
         this.taskStatusReceiver = taskStatusReceiver;
         this.queryManager = queryBootstrap.queryManager();
+        this.metricsProvider = queryBootstrap.metricsProvider();
         this.queryProfileService = queryBootstrap.queryAuditServices().profileService();
         this.workerManager = workerManager;
         this.cdcLifecycleManager = cdcLifecycleManager;
@@ -60,7 +65,7 @@ final class HttpBootstrap {
         this.metadataService = metadataService;
     }
 
-    void start() {
+    int bind() {
         try {
             TracingHttpFilter tracingFilter = buildTracingFilter();
             HealthCheckEndpoint healthEndpoint = buildHealthEndpoint();
@@ -72,9 +77,23 @@ final class HttpBootstrap {
                     config.internalAuthSecret(),
                     coordinatorBootstrap::currentCoordinatorEpoch,
                     coordinatorBootstrap.copySourceReadResource(),
-                    coordinatorBootstrap.fileSpaceFilesResource());
+                    coordinatorBootstrap.fileSpaceFilesResource(), metricsProvider);
+            String peerKey = config.securityConfig() == null ? null : config.securityConfig().queryPeerKey();
+            if (peerKey != null) {
+                queryPeers = new QueryPeerRouting(peerKey);
+            }
             httpServer = new CoordinatorHttpServer(
-                    new java.net.InetSocketAddress(config.httpHost(), config.httpPort()), httpDeps);
+                    new java.net.InetSocketAddress(config.httpHost(), config.httpPort()), httpDeps,
+                    coordinatorBootstrap::queryOwnerEndpoint, queryPeers);
+            httpServer.bind();
+            return httpServer.getPort();
+        } catch (Exception e) {
+            throw new BootstrapFailedException("HTTP bind", e);
+        }
+    }
+
+    void start() {
+        try {
             httpServer.start();
             LOG.info("Phase: HTTP — listening on port {}", httpServer.getPort());
         } catch (Exception e) {
@@ -83,7 +102,8 @@ final class HttpBootstrap {
     }
 
     void shutdown() {
-        CoordinatorShutdownSequence.stopHttp(httpServer);
+        ResourceCloser.closeAll(null, () -> CoordinatorShutdownSequence.stopHttp(httpServer),
+                ResourceCloser.present(queryPeers, QueryPeerRouting::close));
     }
 
     private TracingHttpFilter buildTracingFilter() {

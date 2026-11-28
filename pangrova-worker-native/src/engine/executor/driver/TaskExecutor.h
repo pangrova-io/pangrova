@@ -264,14 +264,13 @@ class TaskExecutor {
   std::string errorMessage() const;
   TaskLifecycle::Snapshot lifecycleSnapshot() const;
   void recordExecutionError(const protocol::v2::ExecutionError& error);
-  void recordResultStreamFinished();
+  void recordResultStreamFinished(const protocol::v2::NativeResultDeliveryStats& delivery);
   void recordResultStreamFailure(const std::string& message);
   std::string nativeStackTrace() const;
   std::optional<protocol::v2::ArtifactWorkReport> artifactWorkReport() const;
 
   // Dynamic filter injection.
-  void injectDynamicFilter(const std::string& plan_node_id,
-      const google::protobuf::RepeatedPtrField<protocol::v2::RuntimeFilter>& filters);
+  void injectDynamicFilter(const protocol::v2::RuntimeFilterBinding& binding);
 
   // Memory limit update from Java side — delegates to VeloxMemoryGovernor.
   void updateMemoryLimit(int64_t new_limit_bytes);
@@ -297,7 +296,7 @@ class TaskExecutor {
   // Collect task stats from Velox TaskStats via VeloxTaskRunner.
   std::optional<protocol::v2::NativeTaskStats> collectTaskStats() const;
   bool hasFinalTaskStats() const;
-  uint64_t requestedObjectReadBytes() const;
+  std::optional<protocol::v2::NativeObjectReadStats> objectReadStats() const;
 
   // Access the active VeloxTaskRunner (may be null if not yet started).
   // Used by StatusSerializer to collect Velox TaskStats.

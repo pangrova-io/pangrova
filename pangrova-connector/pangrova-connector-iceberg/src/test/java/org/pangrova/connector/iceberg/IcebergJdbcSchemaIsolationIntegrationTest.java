@@ -13,8 +13,10 @@ import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.connector.api.commit.DistributedWriteCommitContext;
+import org.pangrova.connector.api.metadata.SplitPlanningBudget;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.pangrova.connector.api.metadata.table.TableIdentity;
 import org.pangrova.connector.api.metadata.Constraint;
@@ -151,6 +153,66 @@ class IcebergJdbcSchemaIsolationIntegrationTest extends ContainerTestBase {
     }
 
     @Test
+    void namedReferenceDiscoveryUsesRequestedKindAndOneMetadataObservation() throws Exception {
+        try (var schema = DatabaseSchema.create(); var selected = catalog(schema, "V1")) {
+            verifyNamedReferenceDiscovery(schema, selected);
+        }
+    }
+
+    private static void verifyNamedReferenceDiscovery(DatabaseSchema schema, JdbcCatalog selected) throws SQLException {
+        createTable(selected);
+        var table = selected.loadTable(TABLE);
+        table.newAppend().appendFile(DataFiles.builder(PartitionSpec.unpartitioned())
+                .withPath(table.location() + "/data/first.parquet").withFileSizeInBytes(128)
+                .withRecordCount(1).build()).commit();
+        long original = table.currentSnapshot().snapshotId();
+        table.manageSnapshots().createBranch("feature", original).createTag("release", original).commit();
+
+        var metadata = new IcebergMetadata(selected, schema.name());
+        schema.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public");
+        long before = schema.catalogPointerLookups();
+        var discovery = metadata.discoverRead(READER, new SchemaTableName("data", "events"));
+        assertThat(discovery).isNotNull();
+        assertThat(discovery.referenceSnapshot().apply("BRANCH", "feature")).hasValue(original);
+        assertThat(discovery.referenceSnapshot().apply("TAG", "release")).hasValue(original);
+        assertThat(discovery.referenceSnapshot().apply("BRANCH", "release")).isEmpty();
+        assertThat(discovery.referenceSnapshot().apply("TAG", "feature")).isEmpty();
+        assertThat(discovery.referenceSnapshot().apply("TAG", "missing")).isEmpty();
+        assertThat(schema.catalogPointerLookups() - before).isOne();
+
+        table.newAppend().appendFile(DataFiles.builder(PartitionSpec.unpartitioned())
+                .withPath(table.location() + "/data/second.parquet").withFileSizeInBytes(128)
+                .withRecordCount(1).build()).commit();
+        table.manageSnapshots().replaceBranch("feature", table.currentSnapshot().snapshotId()).commit();
+        assertThat(discovery.referenceSnapshot().apply("BRANCH", "feature")).hasValue(original);
+        var binding = discovery.binder().bind(READER,
+                discovery.handle().withTimeTravelSnapshot(Long.toString(original)), null);
+        assertThat(binding.snapshotId()).hasValue(original);
+
+        var manager = new IcebergSplitManager(schema.name(), selected, new IcebergExpressionToSubstrait());
+        long beforeSplits = schema.catalogPointerLookups();
+        var source = manager.getBoundSplits(ConnectorTransactionHandle.empty(),
+                READER, metadata, binding, DynamicFilter.ALL, Constraint.EMPTY, SplitPlanningBudget.standard());
+        try {
+            assertThat(source.getNextBatch(10)).hasSize(1);
+            assertThat(source.isFinished()).isTrue();
+        } finally {
+            source.close();
+        }
+        assertThat(schema.catalogPointerLookups() - beforeSplits).isOne();
+
+        table.updateSchema().addColumn("added_after_snapshot", Types.StringType.get()).commit();
+        long beforeEvolution = schema.catalogPointerLookups();
+        var evolved = java.util.Objects.requireNonNull(metadata.discoverRead(READER, new SchemaTableName("data", "events")));
+        var historical = evolved.binder().bind(READER,
+                evolved.handle().withTimeTravelSnapshot(Long.toString(original)), null);
+        assertThat(((IcebergTableHandle) evolved.handle()).schemaJson()).contains("added_after_snapshot");
+        assertThat(((IcebergTableHandle) historical.handle()).schemaJson()).doesNotContain("added_after_snapshot");
+        assertThat(historical.snapshotId()).hasValue(original);
+        assertThat(schema.catalogPointerLookups() - beforeEvolution).isOne();
+    }
+
+    @Test
     void jdbcNamedSchemaEvidenceRespectsSpellingAndFirstLevelProjection() throws Exception {
         try (var schema = DatabaseSchema.create(); var selected = catalog(schema, "V1")) {
             var metadata = new IcebergMetadata(selected, schema.name());
@@ -190,7 +252,7 @@ class IcebergJdbcSchemaIsolationIntegrationTest extends ContainerTestBase {
             long before = schema.catalogPointerLookups();
 
             var source = manager.getBoundSplits(ConnectorTransactionHandle.empty(),
-                    READER, metadata, binding, DynamicFilter.ALL, Constraint.EMPTY);
+                    READER, metadata, binding, DynamicFilter.ALL, Constraint.EMPTY, SplitPlanningBudget.standard());
             try {
                 assertThat(source.getNextBatch(10)).hasSize(1);
                 assertThat(source.isFinished()).isTrue();
@@ -309,9 +371,13 @@ class IcebergJdbcSchemaIsolationIntegrationTest extends ContainerTestBase {
             long before = schema.catalogPointerLookups();
 
             var discovered = java.util.Objects.requireNonNull(metadata.discoverRead(READER, name));
-            var binding = discovered.binder().bind(READER, discovered.handle(),
+            var discoveredHandle = (IcebergTableHandle) discovered.handle();
+            var binding = discovered.binder().bind(READER, discoveredHandle,
                     observed -> assertThat(observed).isEqualTo(expected));
+            var boundHandle = (IcebergTableHandle) binding.handle();
 
+            assertThat(boundHandle.schemaJson()).isSameAs(discoveredHandle.schemaJson());
+            assertThat(boundHandle.partitionSpecJson()).isSameAs(discoveredHandle.partitionSpecJson());
             assertThat(schema.catalogPointerLookups() - before).isOne();
             assertThat(binding.schemaIdentity()).hasValueSatisfying(identity ->
                     assertThat(identity.tableIdentity()).isEqualTo(expected.orElseThrow()));
@@ -343,18 +409,23 @@ class IcebergJdbcSchemaIsolationIntegrationTest extends ContainerTestBase {
     }
 
     @ParameterizedTest
-    @ValueSource(booleans = {false, true})
-    void distributedWriteCatalogPointerBudget(boolean requiresPublication) throws Exception {
+    @CsvSource({"false, false", "true, false", "true, true"})
+    void distributedWriteCatalogPointerBudget(boolean requiresPublication, boolean emptyInsert) throws Exception {
         try (var schema = DatabaseSchema.create(); var catalog = catalog(schema, "V1")) {
             createTable(catalog);
             var metadata = new IcebergMetadata(catalog, schema.name());
             var name = new SchemaTableName("data", "events");
-            var handle = (IcebergOutputTableHandle) metadata.beginInsert(READER, metadata.getTableHandle(READER, name));
+            schema.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public");
+            var target = metadata.getTableHandle(READER, name);
+            long beforeAllocation = schema.catalogPointerLookups();
+            var handle = (IcebergOutputTableHandle) metadata.beginInsert(READER, target);
+            assertThat(schema.catalogPointerLookups() - beforeAllocation)
+                    .as("exact catalog pointer SELECTs during allocation").isOne();
             var table = catalog.loadTable(TABLE);
             var data = DataFiles.builder(table.spec()).withPath(table.location() + "/data/committed.parquet")
                     .withFileSizeInBytes(128).withRecordCount(1).build();
-            var fragments = List.of(("[" + ContentFileParser.toJson(data, table.spec()) + "]")
-                    .getBytes(StandardCharsets.UTF_8));
+            var fragments = emptyInsert ? List.<byte[]>of() : List.of(
+                    ("[" + ContentFileParser.toJson(data, table.spec()) + "]").getBytes(StandardCharsets.UTF_8));
             var binding = IcebergWriteBindingFixtures.binding(handle);
             var receipt = IcebergWriteReceiptFixtures.receipt();
             var tenant = READER.getProperties().get("tenant_id");
@@ -363,21 +434,32 @@ class IcebergJdbcSchemaIsolationIntegrationTest extends ContainerTestBase {
                     handle.baseSnapshotId(), binding, READER.getUser(), receipt, null), fragments);
             var context = new DistributedWriteCommitContext("exact-write", tenant, handle.baseSnapshotId(),
                     binding, fingerprint, READER.getUser(), receipt, null);
-            schema.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA public");
             long before = schema.catalogPointerLookups();
 
-            if (requiresPublication) {
-                assertThat(metadata.finishDistributedWriteWithPublication(READER, handle, fragments, context)
-                        .manifestSha256()).hasSize(32);
-            } else {
-                metadata.finishDistributedWrite(READER, handle, fragments, context);
-            }
-            assertThat(schema.catalogPointerLookups() - before).as("exact catalog pointer SELECTs")
-                    .isEqualTo(requiresPublication ? 7 : 6);
+            var publication = requiresPublication
+                    ? metadata.finishDistributedWriteWithPublication(READER, handle, fragments, context) : null;
+            if (!requiresPublication) metadata.finishDistributedWrite(READER, handle, fragments, context);
+            assertThat(schema.catalogPointerLookups() - before).as("exact catalog pointer SELECTs").isEqualTo(6);
             table.refresh();
             assertThat(table.snapshots()).hasSize(1);
-            assertThat(table.currentSnapshot().summary()).containsEntry(IcebergDistributedCommitMarker.FINGERPRINT,
+            var committed = table.currentSnapshot();
+            assertThat(committed.summary()).containsEntry(IcebergDistributedCommitMarker.FINGERPRINT,
                     context.commitFingerprint());
+            if (publication != null) {
+                assertThat(publication.publishedVersion()).isEqualTo(committed.snapshotId());
+                try (var input = table.io().newInputFile(committed.manifestListLocation()).newStream()) {
+                    assertThat(publication.manifestSha256()).isEqualTo(
+                            java.security.MessageDigest.getInstance("SHA-256").digest(input.readAllBytes()));
+                }
+                table.newAppend().appendFile(DataFiles.builder(table.spec())
+                        .withPath(table.location() + "/data/unrelated.parquet")
+                        .withFileSizeInBytes(96).withRecordCount(1).build()).commit();
+                assertThat(metadata.finishDistributedWriteWithPublication(READER, handle, fragments, context))
+                        .isEqualTo(publication);
+                table.refresh();
+                assertThat(table.snapshots()).hasSize(2);
+                assertThat(table.currentSnapshot().snapshotId()).isNotEqualTo(publication.publishedVersion());
+            }
         }
     }
 

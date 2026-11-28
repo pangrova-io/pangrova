@@ -57,6 +57,7 @@ import org.pangrova.planner.cost.distribution.PangrovaExchangeInput;
 import org.pangrova.planner.cost.distribution.WindowPartitioning;
 import org.pangrova.planner.cost.join.PangrovaBroadcastJoin;
 import org.pangrova.planner.cost.join.BroadcastJoinConfig;
+import org.pangrova.planner.cost.join.HashJoinConfig;
 import org.pangrova.planner.cost.join.PangrovaHashJoin;
 import org.pangrova.planner.metadata.PlanTable;
 import org.pangrova.planner.metadata.catalog.MetadataResolvedTable;
@@ -113,12 +114,13 @@ final class PlanFragmenter {
     static FragmentedPlan fragment(RelNode root, int sessionParallelismOverride,
             StageTerminalPurpose terminalPurpose, int clusterParallelismLimit, boolean needsRetrievalReducer) {
         return fragment(root, sessionParallelismOverride, terminalPurpose, clusterParallelismLimit,
-                needsRetrievalReducer, List::of, ignored -> 0);
+                needsRetrievalReducer, List::of, ignored -> 0, true);
     }
 
     static FragmentedPlan fragment(RelNode root, int sessionParallelismOverride,
             StageTerminalPurpose terminalPurpose, int clusterParallelismLimit, boolean needsRetrievalReducer,
-            Supplier<List<FunctionCatalogView>> catalogueSource, IntUnaryOperator driverEstimate) {
+            Supplier<List<FunctionCatalogView>> catalogueSource, IntUnaryOperator driverEstimate,
+            boolean supportsBroadcastExchange) {
         checkNotNull(root, "root RelNode must not be null");
         if (clusterParallelismLimit < 1) {
             throw new IllegalArgumentException("Cluster parallelism limit must be positive");
@@ -127,7 +129,8 @@ final class PlanFragmenter {
                 sessionParallelismOverride,
                 DEFAULT_BYTES_PER_PARTITION,
                 Math.min(DEFAULT_MAX_PARALLELISM, clusterParallelismLimit),
-                checkNotNull(terminalPurpose, "terminalPurpose must not be null"), catalogueSource, driverEstimate);
+                checkNotNull(terminalPurpose, "terminalPurpose must not be null"), catalogueSource, driverEstimate,
+                supportsBroadcastExchange);
         return context.fragment(root, needsRetrievalReducer);
     }
 
@@ -157,7 +160,7 @@ final class PlanFragmenter {
         private final Map<Integer, MutableStage> stages = new HashMap<>();
         private final Map<Integer, List<Integer>> dependencies = new HashMap<>();
         private final List<StageTransfer> transfers = new ArrayList<>();
-        private final List<StageRuntimeFilter> runtimeFilters = new ArrayList<>(1);
+        private final List<StageRuntimeFilter> runtimeFilters = new ArrayList<>();
         private final int sessionParallelismOverride;
         private final long bytesPerPartition;
         private final int maxParallelism;
@@ -165,6 +168,7 @@ final class PlanFragmenter {
         private final Supplier<List<FunctionCatalogView>> catalogueSource;
         private List<FunctionCatalogView> functionCatalogues;
         private final IntUnaryOperator driverEstimate;
+        private final boolean supportsBroadcastExchange;
         private int nextStageId;
         private boolean liveRead;
 
@@ -174,9 +178,10 @@ final class PlanFragmenter {
                 int maxParallelism,
                 StageTerminalPurpose terminalPurpose,
                 Supplier<List<FunctionCatalogView>> catalogueSource,
-                IntUnaryOperator driverEstimate) {
+                IntUnaryOperator driverEstimate, boolean supportsBroadcastExchange) {
             this.catalogueSource = catalogueSource;
             this.driverEstimate = driverEstimate;
+            this.supportsBroadcastExchange = supportsBroadcastExchange;
             this.sessionParallelismOverride = sessionParallelismOverride;
             this.bytesPerPartition = bytesPerPartition;
             this.maxParallelism = maxParallelism;
@@ -252,8 +257,14 @@ final class PlanFragmenter {
                     node = node.copy(node.getTraitSet(), inputs);
                 }
             }
-            if (liveRead && node instanceof LogicalJoin join) {
-                node = materializeSelectiveBuild(join);
+            if (!supportsBroadcastExchange && node instanceof PangrovaBroadcastJoin join) {
+                var build = exchangeBoundary(join.getRight());
+                if (build == null || build.distribution().type() != DistributionType.BROADCAST) {
+                    throw new IllegalArgumentException("Physical broadcast join lacks its build exchange");
+                }
+                node = materializeHashJoin(join, build.input());
+            } else if (liveRead && node instanceof LogicalJoin join) {
+                node = materializeJoinInputs(join);
             }
             if (node instanceof Aggregate aggregate
                     && !hasOnlyLocalSourceLeaves(aggregate.getInput())) {
@@ -473,7 +484,7 @@ final class PlanFragmenter {
             }
             RelNode rewritten = changed ? node.copy(node.getTraitSet(), rewrittenInputs) : node;
             if (liveRead && rewritten instanceof Join join && (join instanceof PangrovaHashJoin
-                    || join instanceof PangrovaBroadcastJoin) && runtimeFilters.size() < 2) {
+                    || join instanceof PangrovaBroadcastJoin)) {
                 eligibleRuntimeFilter(join).ifPresent(runtimeFilters::add);
             }
             return rewritten;
@@ -749,12 +760,12 @@ final class PlanFragmenter {
                     .sorted(Map.Entry.comparingByKey())
                     .forEach(entry -> immutableDependencies.put(
                             entry.getKey(), List.copyOf(entry.getValue())));
-            Optional<StageRuntimeFilter> filter = runtimeFilters.size() == 1
-                    ? Optional.of(runtimeFilters.get(0)).filter(candidate ->
-                            countPhysicalScans(stages.get(candidate.probeStageId()).plan) == 1)
-                    : Optional.empty();
-            return new FragmentedPlan(planStages, transfers, immutableDependencies,
-                    filter);
+            List<StageRuntimeFilter> filters = runtimeFilters.isEmpty() ? List.of() : runtimeFilters.stream()
+                    .filter(candidate -> countPhysicalScans(stages.get(candidate.probeStageId()).plan) == 1)
+                    .filter(candidate -> immutableDependencies.getOrDefault(candidate.probeStageId(), List.of())
+                            .stream().allMatch(upstream -> upstream == candidate.buildStageId()))
+                    .toList();
+            return new FragmentedPlan(planStages, transfers, immutableDependencies, filters);
         }
 
         private Optional<StageRuntimeFilter> eligibleRuntimeFilter(Join join) {
@@ -781,6 +792,37 @@ final class PlanFragmenter {
             return Optional.of(new StageRuntimeFilter(buildStage, build.exchangeId(), probeStage, probeRead,
                     keys.stream().map(key -> new StageRuntimeFilter.ProbeKey(
                             key.buildOrdinal(), key.probe().fieldId(), key.probe().name())).toList()));
+        }
+
+        private RelNode materializeJoinInputs(LogicalJoin join) {
+            if (supportsBroadcastExchange) {
+                RelNode broadcast = materializeSelectiveBuild(join);
+                if (broadcast != join) return broadcast;
+            }
+            var keys = join.analyzeCondition();
+            if (maxParallelism <= SINGLE_PARALLELISM || sessionParallelismOverride == SINGLE_PARALLELISM
+                    || !PartitionLocalPlanInspector.isIndependent(join.getLeft())
+                    || !PartitionLocalPlanInspector.isIndependent(join.getRight())
+                    || !PartitionLocalPlanInspector.supportsHashPartitioning(join, keys)
+                    || !hasParallelJoinInput(join)) {
+                return join;
+            }
+
+            return materializeHashJoin(join, join.getRight());
+        }
+
+        private static RelNode materializeHashJoin(Join join, RelNode buildInput) {
+            var keys = join.analyzeCondition();
+            RelNode left = enforceDistribution(join.getLeft(), PangrovaDistribution.hash(keys.leftKeys));
+            RelNode right = enforceDistribution(buildInput, PangrovaDistribution.hash(keys.rightKeys));
+            return new PangrovaHashJoin(new HashJoinConfig(join.getCluster(), join.getTraitSet(), left, right,
+                    join.getCondition(), join.getVariablesSet(), join.getJoinType()));
+        }
+
+        private boolean hasParallelJoinInput(Join join) {
+            return sessionParallelismOverride > SINGLE_PARALLELISM
+                    || join.getInputs().stream().anyMatch(input -> FragmentSourceParallelism.resolve(
+                            input, bytesPerPartition, maxParallelism, SINGLE_PARALLELISM) > SINGLE_PARALLELISM);
         }
 
         private static RelNode materializeSelectiveBuild(LogicalJoin join) {
@@ -823,15 +865,18 @@ final class PlanFragmenter {
                 if (!(conjunct instanceof RexCall equality)
                         || equality.getKind() != SqlKind.EQUALS
                         || !(equality.operands.get(0) instanceof RexInputRef first)
-                        || !(equality.operands.get(1) instanceof RexInputRef second)
-                        || first.getType().getSqlTypeName() != SqlTypeName.BIGINT
-                        || second.getType().getSqlTypeName() != SqlTypeName.BIGINT) {
+                        || !(equality.operands.get(1) instanceof RexInputRef second)) {
+                    continue;
+                }
+                SqlTypeName type = first.getType().getSqlTypeName();
+                if (!SqlTypeName.INT_TYPES.contains(type)
+                        || second.getType().getSqlTypeName() != type) {
                     continue;
                 }
                 int probeOrdinal = Math.min(first.getIndex(), second.getIndex());
                 int buildOrdinal = Math.max(first.getIndex(), second.getIndex()) - leftCount;
                 if (probeOrdinal < leftCount && buildOrdinal >= 0) {
-                    var probe = directProbeColumn(probeInput, probeOrdinal).orElse(null);
+                    var probe = directProbeColumn(probeInput, probeOrdinal, type).orElse(null);
                     if (probe != null && keys.stream().noneMatch(key -> key.probe().fieldId() == probe.fieldId())) {
                         keys.add(new RuntimeFilterKey(buildOrdinal, probe));
                         if (keys.size() == limit) break;
@@ -856,21 +901,23 @@ final class PlanFragmenter {
         private record ProbeColumn(org.pangrova.connector.api.metadata.table.ConnectorReadBinding read,
                                    int fieldId, String name) {}
 
-        private static Optional<ProbeColumn> directProbeColumn(RelNode node, int ordinal) {
+        private static Optional<ProbeColumn> directProbeColumn(RelNode node, int ordinal, SqlTypeName type) {
             if (node instanceof Project project && project.getProjects().get(ordinal) instanceof RexInputRef ref) {
-                return directProbeColumn(project.getInput(), ref.getIndex());
+                return directProbeColumn(project.getInput(), ref.getIndex(), type);
             }
-            if (node instanceof Filter filter) return directProbeColumn(filter.getInput(), ordinal);
+            if (node instanceof Filter filter) return directProbeColumn(filter.getInput(), ordinal, type);
             if (!(node instanceof TableScan scan)
-                    || scan.getRowType().getFieldList().get(ordinal).getType().getSqlTypeName()
-                            != SqlTypeName.BIGINT) {
+                    || scan.getRowType().getFieldList().get(ordinal).getType().getSqlTypeName() != type) {
                 return Optional.empty();
             }
             String name = scan.getRowType().getFieldNames().get(ordinal);
             return selectedRead(scan)
                     .filter(read -> read.snapshotId().isPresent() && read.handle().incrementalRange().isEmpty())
                     .flatMap(read -> read.schemaIdentity()
-                            .filter(schema -> "ICEBERG".equals(schema.tableIdentity().format()))
+                            .filter(schema -> switch (schema.tableIdentity().format()) {
+                                case "ICEBERG", "PAIMON" -> true;
+                                default -> false;
+                            })
                             .stream().flatMap(schema -> schema.fields().stream())
                             .filter(field -> field.name().equals(name))
                             .findFirst().map(field -> new ProbeColumn(read, field.fieldId().orElseThrow(), name)));

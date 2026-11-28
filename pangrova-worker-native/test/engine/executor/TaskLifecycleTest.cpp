@@ -79,18 +79,18 @@ TEST(TaskLifecycleTest, ProducerFailurePrecedesResultStreamRevocation) {
 
 TEST(TaskLifecycleTest, ResultDeliveryCommitsOnceAndCannotReplaceFailure) {
   TaskLifecycle delivered;
-  EXPECT_FALSE(delivered.finishResultStream());
+  EXPECT_FALSE(delivered.finishResultStream({}));
   ASSERT_TRUE(delivered.transitionTo(ExecutorState::RUNNING));
-  EXPECT_TRUE(delivered.finishResultStream());
-  EXPECT_FALSE(delivered.finishResultStream());
+  EXPECT_TRUE(delivered.finishResultStream({}));
+  EXPECT_FALSE(delivered.finishResultStream({}));
   EXPECT_EQ(delivered.state(), ExecutorState::FINISHED);
 
   TaskLifecycle failed;
   ASSERT_TRUE(failed.transitionTo(ExecutorState::RUNNING));
   failed.appendError("Flight write failed");
-  EXPECT_FALSE(failed.finishResultStream());
+  EXPECT_FALSE(failed.finishResultStream({}));
   failed.notifyTaskFailed("secondary transport failure");
-  EXPECT_FALSE(failed.finishResultStream());
+  EXPECT_FALSE(failed.finishResultStream({}));
   EXPECT_EQ(failed.state(), ExecutorState::FAILED);
   EXPECT_EQ(failed.errorMessage(), "Flight write failed");
 }

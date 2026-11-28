@@ -430,11 +430,6 @@ message NativeMetricsSnapshot {
   CacheMetrics cache = 5;
 }
 
-message InjectRuntimeFilterRequest {
-  string plan_node_id = 1;
-  repeated RuntimeFilter filters = 2;
-}
-
 message ConnectExchangeSourceRequest {
   string plan_node_id = 1;
   string exchange_id = 2;

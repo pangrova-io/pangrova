@@ -58,7 +58,7 @@ class JdbcWorkerRegistryIntegrationTest extends ContainerTestBase {
         assertThat(got.dataLocality()).containsExactly("/data/0");
         assertThat(got.memoryPressure()).isEqualTo("NONE");
         assertThat(got.cpuUtilization()).isEqualTo(0.1);
-        assertThat(got.runningTaskCount()).isEqualTo(2);
+        assertThat(got.inFlightTaskCount()).isEqualTo(2);
         assertThat(got.availableMemoryBytes()).isEqualTo(1024L);
         assertThat(got.lastHeartbeatMs()).isEqualTo(worker.lastHeartbeatMs());
         assertThat(got.registeredAtMs()).isEqualTo(worker.registeredAtMs());
@@ -119,7 +119,7 @@ class JdbcWorkerRegistryIntegrationTest extends ContainerTestBase {
         // Dynamic fields updated
         assertThat(got.memoryPressure()).isEqualTo("HIGH");
         assertThat(got.cpuUtilization()).isEqualTo(0.95);
-        assertThat(got.runningTaskCount()).isEqualTo(10);
+        assertThat(got.inFlightTaskCount()).isEqualTo(10);
         assertThat(got.availableMemoryBytes()).isEqualTo(256L);
         // last_heartbeat_ms updated by heartbeat() to System.currentTimeMillis()
         assertThat(got.lastHeartbeatMs()).isGreaterThanOrEqualTo(worker.lastHeartbeatMs());

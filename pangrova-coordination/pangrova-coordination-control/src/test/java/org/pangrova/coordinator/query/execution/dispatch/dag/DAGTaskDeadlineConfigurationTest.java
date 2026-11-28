@@ -25,7 +25,7 @@ class DAGTaskDeadlineConfigurationTest {
             throw new AssertionError("Configuration validation must not dispatch tasks");
         };
         return new DAGDispatchContext(uninvoked, new CoordinatorTaskTracker(), null, null,
-                timeoutSeconds, null, null, null, PipelineConfig.DISABLED,
+                timeoutSeconds, null, null, PipelineConfig.DISABLED,
                 null, null, null);
     }
 }

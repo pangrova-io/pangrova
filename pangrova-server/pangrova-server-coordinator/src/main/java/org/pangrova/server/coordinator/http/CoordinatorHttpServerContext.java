@@ -8,6 +8,7 @@ import org.pangrova.server.coordinator.http.endpoint.copy.CopySourceReadResource
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.metadata.api.resolution.MetadataService;
 import org.pangrova.observability.profiling.ProfilerEndpoint;
+import org.pangrova.observability.api.metrics.MetricsProvider;
 import org.pangrova.query.profiling.QueryProfileService;
 import org.pangrova.observability.sdk.tracing.http.TracingHttpFilter;
 import org.pangrova.common.lifecycle.HealthCheckEndpoint;
@@ -31,6 +32,7 @@ import java.util.function.LongSupplier;
  * @param coordinatorEpochSupplier current cluster control term published to Workers (never null)
  * @param copySourceReadResource optional COPY source-read endpoint
  * @param fileSpaceFilesResource optional Volume/Stage Files API ticket endpoint
+ * @param metricsProvider       process metrics provider (nullable for standalone tests)
  */
 public record CoordinatorHttpServerContext(
         TaskStatusReceiver receiver,
@@ -46,7 +48,8 @@ public record CoordinatorHttpServerContext(
         String internalAuthSecret,
         LongSupplier coordinatorEpochSupplier,
         CopySourceReadResource copySourceReadResource,
-        org.pangrova.server.coordinator.http.endpoint.file.FileSpaceFilesResource fileSpaceFilesResource) {
+        org.pangrova.server.coordinator.http.endpoint.file.FileSpaceFilesResource fileSpaceFilesResource,
+        MetricsProvider metricsProvider) {
 
     public CoordinatorHttpServerContext {
         checkNotNull(receiver, "receiver must not be null");
@@ -73,7 +76,7 @@ public record CoordinatorHttpServerContext(
         this(receiver, queryManager, tracingHttpFilter, authenticationManager,
                 healthCheckEndpoint, workerManager, profilerEndpoint, cdcHandler,
                 queryProfileService, metadataService,
-                internalAuthSecret, coordinatorEpochSupplier, null, null);
+                internalAuthSecret, coordinatorEpochSupplier, null, null, null);
     }
     // CHECKSTYLE.ON: ParameterNumber
 

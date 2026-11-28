@@ -66,7 +66,7 @@ void TaskLifecycle::recordExecutionError(
 
 TaskLifecycle::Snapshot TaskLifecycle::snapshot() const {
   std::lock_guard<std::mutex> lock(error_mutex_);
-  return {state_.load(), error_, native_stack_trace_};
+  return {state_.load(), error_, native_stack_trace_, result_delivery_};
 }
 
 void TaskLifecycle::appendError(const std::string& message) {
@@ -90,10 +90,11 @@ void TaskLifecycle::notifyTaskComplete() {
   transitionTo(ExecutorState::FLUSHING);
 }
 
-bool TaskLifecycle::finishResultStream() {
+bool TaskLifecycle::finishResultStream(protocol::v2::NativeResultDeliveryStats delivery) {
   std::lock_guard<std::mutex> lock(error_mutex_);
-  return !error_ && transitionToLocked(ExecutorState::FLUSHING) &&
-      transitionToLocked(ExecutorState::FINISHED);
+  if (error_ || !transitionToLocked(ExecutorState::FLUSHING)) return false;
+  result_delivery_.emplace(std::move(delivery));
+  return transitionToLocked(ExecutorState::FINISHED);
 }
 
 void TaskLifecycle::notifyTaskFailed(const std::string& message) {

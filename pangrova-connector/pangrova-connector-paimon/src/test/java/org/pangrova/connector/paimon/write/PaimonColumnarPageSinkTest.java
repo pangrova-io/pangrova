@@ -4,6 +4,8 @@ import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.batch.arrow.ColumnarBatch;
 import org.pangrova.connector.api.data.ColumnarPageSink;
 import org.pangrova.connector.api.exception.ConnectorException;
+import org.pangrova.connector.paimon.handle.PaimonOutputTableHandle;
+import org.pangrova.connector.paimon.handle.PaimonTableHandleFactory;
 import org.apache.arrow.memory.RootAllocator;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogContext;
@@ -15,9 +17,8 @@ import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.data.serializer.InternalRowSerializer;
 import org.apache.paimon.options.Options;
 import org.apache.paimon.schema.Schema;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
-import org.apache.paimon.table.sink.CommitMessage;
-import org.apache.paimon.table.sink.CommitMessageSerializer;
 import org.apache.paimon.types.DataTypes;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -26,8 +27,6 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
-import java.io.ByteArrayInputStream;
-import java.io.DataInputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -63,13 +62,14 @@ class PaimonColumnarPageSinkTest {
     @ValueSource(ints = {1, -1})
     void writesNestedValuesAfterCallerClosesBatch(int bucket) throws Exception {
         Table table = createTable(bucket);
-        try (ColumnarPageSink sink = sink(table, "APPEND"); RootAllocator allocator = new RootAllocator()) {
+        var output = output(table, "APPEND");
+        try (ColumnarPageSink sink = sink(table, output); RootAllocator allocator = new RootAllocator()) {
             try (ColumnarBatch batch = PaimonColumnarTestBatch.open(allocator, false)) {
                 sink.appendColumnarBatch(batch);
                 assertThat(batch.value(0, 0)).isEqualTo(Long.MIN_VALUE);
             }
             assertThat(allocator.getAllocatedMemory()).isZero();
-            commit(table, sink.finishWithMetadata(), "APPEND");
+            commit(table, sink.finishWithMetadata(), output, "APPEND");
         }
         List<InternalRow> rows = readRows(table);
         assertThat(rows).hasSize(2);
@@ -85,7 +85,8 @@ class PaimonColumnarPageSinkTest {
     @Test
     void recomputesOrdinalsForReorderedAndMissingColumns() throws Exception {
         Table table = createTable(1);
-        try (ColumnarPageSink sink = sink(table, "APPEND"); RootAllocator allocator = new RootAllocator()) {
+        var output = output(table, "APPEND");
+        try (ColumnarPageSink sink = sink(table, output); RootAllocator allocator = new RootAllocator()) {
             try (ColumnarBatch batch = PaimonColumnarTestBatch.open(allocator, false)) {
                 sink.appendColumnarBatch(batch);
                 try (ColumnarBatch view = batch.project(List.of("name", "id"),
@@ -95,7 +96,7 @@ class PaimonColumnarPageSinkTest {
                 assertThat(batch.value(0, 0)).isEqualTo(Long.MIN_VALUE);
             }
             assertThat(allocator.getAllocatedMemory()).isZero();
-            commit(table, sink.finishWithMetadata(), "APPEND");
+            commit(table, sink.finishWithMetadata(), output, "APPEND");
         }
         List<InternalRow> rows = readRows(table);
         assertThat(rows).hasSize(2);
@@ -114,12 +115,13 @@ class PaimonColumnarPageSinkTest {
     @ValueSource(strings = {"APPEND", "OVERWRITE", "DELETE"})
     void emptyBatchWritesNoRows(String operation) throws Exception {
         Table table = createTable(1);
-        try (ColumnarPageSink sink = sink(table, operation); RootAllocator allocator = new RootAllocator()) {
+        var output = output(table, operation);
+        try (ColumnarPageSink sink = sink(table, output); RootAllocator allocator = new RootAllocator()) {
             try (ColumnarBatch batch = PaimonColumnarTestBatch.open(allocator, true)) {
                 sink.appendColumnarBatch(batch);
             }
             assertThat(allocator.getAllocatedMemory()).isZero();
-            commit(table, sink.finishWithMetadata(), operation);
+            commit(table, sink.finishWithMetadata(), output, operation);
         }
         assertThat(readRows(table)).isEmpty();
     }
@@ -130,14 +132,16 @@ class PaimonColumnarPageSinkTest {
         Table table = createTable(1);
         try (RootAllocator allocator = new RootAllocator();
                 ColumnarBatch batch = PaimonColumnarTestBatch.open(allocator, false)) {
-            try (ColumnarPageSink append = sink(table, "APPEND")) {
+            var appendOutput = output(table, "APPEND");
+            try (ColumnarPageSink append = sink(table, appendOutput)) {
                 append.appendColumnarBatch(batch);
-                commit(table, append.finishWithMetadata(), "APPEND");
+                commit(table, append.finishWithMetadata(), appendOutput, "APPEND");
             }
-            try (ColumnarPageSink change = sink(table, operation);
+            var changeOutput = output(table, operation);
+            try (ColumnarPageSink change = sink(table, changeOutput);
                     ColumnarBatch keys = batch.project(List.of("id"), new int[] {0}, new int[] {-1})) {
                 change.appendColumnarBatch(keys);
-                commit(table, change.finishWithMetadata(), operation);
+                commit(table, change.finishWithMetadata(), changeOutput, operation);
             }
         }
         List<InternalRow> rows = readRows(table);
@@ -152,7 +156,8 @@ class PaimonColumnarPageSinkTest {
     @Test
     void conversionFailureCanBeAbortedWithoutRetainingBatchOrCommittingRows() throws Exception {
         Table table = createTable(1);
-        try (ColumnarPageSink sink = sink(table, "APPEND"); RootAllocator allocator = new RootAllocator()) {
+        var output = output(table, "APPEND");
+        try (ColumnarPageSink sink = sink(table, output); RootAllocator allocator = new RootAllocator()) {
             try (ColumnarBatch batch = PaimonColumnarTestBatch.open(allocator, false);
                     ColumnarBatch invalid = batch.project(List.of("id"), new int[] {1}, new int[] {-1})) {
                 sink.appendColumnarBatch(batch);
@@ -191,34 +196,31 @@ class PaimonColumnarPageSinkTest {
         return catalog.getTable(identifier);
     }
 
-    private ColumnarPageSink sink(Table table, String operation) throws Exception {
+    private static PaimonOutputTableHandle output(Table table, String operation) {
+        return PaimonTableHandleFactory.outputFromTable("db", "table",
+                table, "APPEND".equals(operation) ? "INSERT" : operation);
+    }
+
+    private ColumnarPageSink sink(Table table, PaimonOutputTableHandle output) throws Exception {
         String spill = Files.createDirectories(warehouse.resolve("spill")).toString();
-        return switch (operation) {
-            case "OVERWRITE" -> new PaimonOverwritePageSink(table, "db", "table", spill, Map.of());
-            case "DELETE" -> new PaimonDeletePageSink(table, "db", "table", spill);
-            default -> new PaimonPageSink(table, "db", "table", spill);
+        var sdk = (FileStoreTable) table;
+        return switch (output.mode()) {
+            case "OVERWRITE" -> new PaimonOverwritePageSink(sdk, output, spill);
+            case "DELETE" -> new PaimonDeletePageSink(sdk, output, spill);
+            default -> new PaimonPageSink(sdk, output, spill);
         };
     }
 
-    private void commit(Table table, byte[] metadata, String operation) throws Exception {
-        List<CommitMessage> messages = new ArrayList<>();
-        CommitMessageSerializer serializer = new CommitMessageSerializer();
-        try (DataInputStream input = new DataInputStream(new ByteArrayInputStream(metadata))) {
-            int version = input.readInt();
-            assertThat(input.readUTF()).isEqualTo(operation);
-            assertThat(input.readUTF()).isEqualTo("db");
-            assertThat(input.readUTF()).isEqualTo("table");
-            int count = input.readInt();
-            for (int i = 0; i < count; i++) {
-                messages.add(serializer.deserialize(version, input.readNBytes(input.readInt())));
-            }
-        }
+    private void commit(Table table, byte[] metadata, PaimonOutputTableHandle output, String operation)
+            throws Exception {
+        var decoded = PaimonSdkWriteFragment.decode(metadata, output);
+        assertThat(decoded.eventType().name()).isEqualTo(operation);
         var builder = table.newBatchWriteBuilder();
         if (operation.equals("OVERWRITE")) {
             builder = builder.withOverwrite(Map.of());
         }
         try (var commit = builder.newCommit()) {
-            commit.commit(messages);
+            commit.commit(decoded.messages());
         }
     }
 

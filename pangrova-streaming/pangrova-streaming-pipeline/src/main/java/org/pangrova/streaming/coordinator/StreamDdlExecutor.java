@@ -28,16 +28,15 @@ import java.util.Optional;
  *
  * <p>State machine:</p>
  * <pre>
- *   CREATING → RUNNING
+ *   CREATE → RUNNING
  *   RUNNING  → SUSPENDED
  *   SUSPENDED → RUNNING (resume)
  *   FAILED   → RUNNING (resume)
  *   any      → DROPPING → DROPPED
  * </pre>
  *
- * <p>Concurrency strategy: all mutable state is managed by thread-safe
- * dependencies ({@link StreamStateStore}, {@link StreamScheduler}).
- * This class holds no mutable fields.</p>
+ * <p>The durable {@link StreamStateStore} owns lifecycle state. The runtime discovers
+ * runnable revisions independently.</p>
  */
 @ThreadSafe
 public final class StreamDdlExecutor {
@@ -56,8 +55,7 @@ public final class StreamDdlExecutor {
      * Creates a new ingestion stream.
      *
      * <p>Validates settings through the selected source factory,
-     * checks per-tenant quota, persists CREATING state, registers with scheduler,
-     * then transitions to RUNNING.</p>
+     * checks per-tenant quota, and persists the complete running definition.</p>
      *
      * @param stmt            parsed CREATE STREAM statement
      * @param tenantId        owning tenant identifier
@@ -84,23 +82,22 @@ public final class StreamDdlExecutor {
                 .filter(s -> s.lifecycleState() == StreamLifecycleState.RUNNING
                         || s.lifecycleState() == StreamLifecycleState.CREATING)
                 .count();
-        if (activeCount >= deps.config().maxStreamsPerTenant()) {
+        if (activeCount >= deps.maxStreamsPerTenant()) {
             throw new StreamQuotaExceededException(
                     PangrovaErrorCode.STREAM_QUOTA_EXCEEDED,
                     "Tenant " + tenantId + " exceeds max streams limit: "
-                            + deps.config().maxStreamsPerTenant());
+                            + deps.maxStreamsPerTenant());
         }
 
         // Validate source properties
         deps.sources().validate(stmt.sourceProvider(), stmt.sourceProperties());
-        deps.scheduler().requireSupportedFormat(stmt.sourceFormat());
+        deps.converters().get(stmt.sourceFormat());
 
-        // Persist CREATING state
         Instant now = Instant.now();
-        StreamState creating = StreamState.builder()
+        StreamState running = StreamState.builder()
                 .streamName(streamName)
                 .tenantId(tenantId)
-                .lifecycleState(StreamLifecycleState.CREATING)
+                .lifecycleState(StreamLifecycleState.RUNNING)
                 .targetTable(String.join(".", stmt.targetTable().parts()))
                 .sourceProvider(stmt.sourceProvider())
                 .sourceProperties(stmt.sourceProperties())
@@ -113,7 +110,7 @@ public final class StreamDdlExecutor {
                 .createdAt(now)
                 .updatedAt(now)
                 .build();
-        if (!stateStore().createState(creating)) {
+        if (!stateStore().createState(running)) {
             // Another CREATE may have won after the initial lookup. Never upsert over it.
             loadOrThrow(streamName, tenantId);
             if (stmt.ifNotExists()) {
@@ -122,13 +119,6 @@ public final class StreamDdlExecutor {
             throw new StreamAlreadyExistsException(PangrovaErrorCode.STREAM_ALREADY_EXISTS,
                     "Stream already exists: " + streamName);
         }
-        LOG.info("event=stream_state_persisted stream={} tenant={} state=CREATING", streamName, tenantId);
-
-        // Register with scheduler and transition to RUNNING
-        StreamState running = creating.withLifecycleState(StreamLifecycleState.RUNNING);
-        stateStore().saveState(running);
-        deps.scheduler().start(running);
-
         LOG.info("event=stream_created stream={} tenant={} target={} creator={}",
                 streamName, tenantId, running.targetTable(), creatorIdentity);
     }
@@ -170,7 +160,6 @@ public final class StreamDdlExecutor {
         StreamState suspended = state.withLifecycleState(StreamLifecycleState.SUSPENDED)
                 .toBuilder().epoch(Math.incrementExact(state.epoch())).build();
         stateStore().saveStateIfEpoch(suspended, state.epoch());
-        deps.scheduler().stop(streamName);
         LOG.info("event=stream_suspended stream={}", streamName);
     }
 
@@ -187,7 +176,6 @@ public final class StreamDdlExecutor {
                 .updatedAt(Instant.now())
                 .build();
         stateStore().saveStateIfEpoch(running, state.epoch());
-        deps.scheduler().start(running);
         LOG.info("event=stream_resumed stream={}", streamName);
     }
 
@@ -205,10 +193,6 @@ public final class StreamDdlExecutor {
                 .updatedAt(Instant.now())
                 .build();
         stateStore().saveStateIfEpoch(updated, state.epoch());
-        deps.scheduler().stop(streamName);
-        if (updated.lifecycleState() == StreamLifecycleState.RUNNING) {
-            deps.scheduler().start(updated);
-        }
         LOG.info("event=stream_properties_updated stream={} keys={}", streamName, sp.properties().keySet());
     }
 
@@ -217,8 +201,7 @@ public final class StreamDdlExecutor {
     /**
      * Drops an ingestion stream.
      *
-     * <p>Transitions to DROPPING, stops the pipeline, deletes state and offsets,
-     * then marks as DROPPED.</p>
+     * <p>Fences the running revision before removing the stream and its offsets.</p>
      *
      * @param stmt     parsed DROP STREAM statement
      * @param tenantId owning tenant identifier
@@ -245,9 +228,6 @@ public final class StreamDdlExecutor {
                 .toBuilder().epoch(Math.incrementExact(state.epoch())).build();
         stateStore().saveStateIfEpoch(dropping, state.epoch());
         LOG.info("event=stream_dropping stream={}", streamName);
-
-        // Stop pipeline
-        deps.scheduler().stop(streamName);
 
         // The guarded delete cascades to cached offsets in the same transaction.
         // A separate name-only delete could erase a concurrently recreated stream's offsets.

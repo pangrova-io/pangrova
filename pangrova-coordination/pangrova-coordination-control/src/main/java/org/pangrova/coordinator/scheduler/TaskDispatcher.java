@@ -4,6 +4,8 @@ import java.util.concurrent.CompletableFuture;
 
 import org.pangrova.execution.task.DispatchResult;
 import org.pangrova.coordinator.worker.WorkerInfo;
+import org.pangrova.protocol.v2.RuntimeFilterBinding;
+import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 
 /**
@@ -44,6 +46,11 @@ public interface TaskDispatcher {
 
     DispatchResult dispatch(SubmitTaskRequest request, WorkerInfo worker);
 
+    /** Sends an already bound request without replacing its persisted attempt. */
+    default DispatchResult dispatchBound(SubmitTaskRequest request, WorkerInfo worker) {
+        return dispatch(request, worker);
+    }
+
     /**
      * Asynchronously dispatches a task to a target worker.
      * Default implementation wraps the synchronous dispatch in a CompletableFuture.
@@ -52,18 +59,16 @@ public interface TaskDispatcher {
         return CompletableFuture.supplyAsync(() -> dispatch(request, worker));
     }
 
-    /**
-     * Injects a dynamic filter into a running task on the specified worker.
-     * Default implementation is a no-op for dispatchers that do not support dynamic filters.
-     *
-     * @param taskId      the probe-side task identifier
-     * @param planNodeId  the TableScan plan node to receive the filter
-     * @param filterProto serialized filter expression (protobuf bytes)
-     * @param workerId    the worker hosting the task
-     */
-    default void injectDynamicFilter(String taskId, String planNodeId,
-                                     byte[] filterProto, String workerId) {
-        // No-op — concrete dispatchers override when dynamic filter support is available.
+    /** Sends an already bound request without replacing its persisted attempt. */
+    default CompletableFuture<DispatchResult> dispatchBoundAsync(SubmitTaskRequest request, WorkerInfo worker) {
+        return dispatchAsync(request, worker);
+    }
+
+    /** Returns true only when the exact Worker attempt acknowledged the runtime filter. */
+    default CompletableFuture<Boolean> injectDynamicFilter(TaskAttemptId attempt,
+            RuntimeFilterBinding update, WorkerInfo worker) {
+        return CompletableFuture.failedFuture(
+                new UnsupportedOperationException("Runtime filter delivery is unavailable"));
     }
 
     /**
@@ -78,34 +83,4 @@ public interface TaskDispatcher {
     default SchedulerCancelResult cancelTask(SubmitTaskRequest request, String workerHost, int httpPort) {
         return SchedulerCancelResult.failed("Cancel not supported by this dispatcher", false);
     }
-    /**
-     * Notifies a downstream Worker that an upstream stage has committed its output.
-     * Enables BLOCKING exchange sources to begin delivering data.
-     *
-     * @param workerHost       the downstream Worker host
-     * @param httpPort         the downstream Worker HTTP port
-     * @param queryId          the query identifier
-     * @param upstreamStageId  the upstream stage that committed
-     */
-    default void notifyUpstreamCommit(String workerHost, int httpPort,
-                                      String queryId, int upstreamStageId) {
-        // No-op — concrete dispatchers override when commit notification is supported.
-    }
-
-    /**
-     * Notifies a downstream Worker that an upstream stage has committed its output,
-     * with retry and a failure callback invoked when all retries are exhausted.
-     *
-     * @param workerHost           the downstream Worker host
-     * @param httpPort             the downstream Worker HTTP port
-     * @param queryId              the query identifier
-     * @param upstreamStageId      the upstream stage that committed
-     * @param stageFailureCallback invoked when all retry attempts fail; may be null
-     */
-    default void notifyUpstreamCommit(String workerHost, int httpPort,
-                                      String queryId, int upstreamStageId,
-                                      Runnable stageFailureCallback) {
-        notifyUpstreamCommit(workerHost, httpPort, queryId, upstreamStageId);
-    }
-
 }

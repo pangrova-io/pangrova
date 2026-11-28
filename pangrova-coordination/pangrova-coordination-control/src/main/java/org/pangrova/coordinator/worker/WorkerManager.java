@@ -33,7 +33,7 @@ import org.slf4j.LoggerFactory;
  * use ConcurrentHashMap.compute for atomicity.</p>
  */
 @ThreadSafe
-public final class WorkerManager implements org.pangrova.query.recovery.RecoveredWorkerHealth {
+public final class WorkerManager {
 
     private static final Logger LOG = LoggerFactory.getLogger(WorkerManager.class);
 
@@ -56,7 +56,7 @@ public final class WorkerManager implements org.pangrova.query.recovery.Recovere
     public record HeartbeatData(
             MemoryPressure pressure,
             double cpuUtilization,
-            int runningTaskCount,
+            int inFlightTaskCount,
             long availableMemoryBytes,
             org.pangrova.coordination.api.heartbeat.CacheCatalogSummary cacheSummary,
             Map<String, org.pangrova.protocol.rest.worker.TenantUsageSnapshot> tenantUsage) {
@@ -67,16 +67,16 @@ public final class WorkerManager implements org.pangrova.query.recovery.Recovere
 
         /** Convenience constructor for workers without cache reporting. */
         public HeartbeatData(MemoryPressure pressure, double cpuUtilization,
-                             int runningTaskCount, long availableMemoryBytes) {
-            this(pressure, cpuUtilization, runningTaskCount,
+                             int inFlightTaskCount, long availableMemoryBytes) {
+            this(pressure, cpuUtilization, inFlightTaskCount,
                     availableMemoryBytes, null, Map.of());
         }
 
         /** Convenience constructor including the cache catalog summary. */
         public HeartbeatData(MemoryPressure pressure, double cpuUtilization,
-                             int runningTaskCount, long availableMemoryBytes,
+                             int inFlightTaskCount, long availableMemoryBytes,
                              org.pangrova.coordination.api.heartbeat.CacheCatalogSummary cacheSummary) {
-            this(pressure, cpuUtilization, runningTaskCount,
+            this(pressure, cpuUtilization, inFlightTaskCount,
                     availableMemoryBytes, cacheSummary, Map.of());
         }
 
@@ -322,8 +322,8 @@ public final class WorkerManager implements org.pangrova.query.recovery.Recovere
                 return existing;
             }
             changed.set(true);
-            LOG.info("event=worker_decommission_start workerId={} runningTasks={}",
-                    workerId, existing.runningTaskCount());
+            LOG.info("event=worker_decommission_start workerId={} inFlightTasks={}",
+                    workerId, existing.inFlightTaskCount());
             return existing.withHealthState(HealthState.DECOMMISSIONING);
         });
         if (changed.get()) {
@@ -343,7 +343,7 @@ public final class WorkerManager implements org.pangrova.query.recovery.Recovere
         WorkerInfo info = workers.get(workerId);
         return info != null
                 && info.healthState() == HealthState.DECOMMISSIONING
-                && info.runningTaskCount() == 0;
+                && info.inFlightTaskCount() == 0;
     }
 
     public WorkerInfo getWorker(String workerId) {
@@ -403,7 +403,7 @@ public final class WorkerManager implements org.pangrova.query.recovery.Recovere
                 existing.resultServerPort(),
                 existing.healthState() == HealthState.DECOMMISSIONING
                         ? HealthState.DECOMMISSIONING : HealthState.ACTIVE, data.pressure(),
-                data.cpuUtilization(), data.runningTaskCount(),
+                data.cpuUtilization(), data.inFlightTaskCount(),
                 data.availableMemoryBytes(), Instant.now(),
                 existing.performanceScore(), existing.resourcePoolId(),
                 existing.protocolVersion(),
@@ -439,32 +439,6 @@ public final class WorkerManager implements org.pangrova.query.recovery.Recovere
         }
         fireTopologyChanged();
         LOG.info("event=registry_loaded workerCount={}", workers.size());
-    }
-
-    /**
-     * Attempts to recover a single worker from the persistent registry into
-     * the in-memory cache. Used when a heartbeat arrives for a worker that
-     * exists in the DB (written by the previous leader) but not in memory
-     * (post-failover scenario).
-     *
-     * @param workerId the worker to recover
-     * @return true if the worker was found in the registry and loaded
-     */
-    public boolean tryRecoverFromRegistry(String workerId) {
-        checkNotNull(workerId, "workerId must not be null");
-        if (workers.containsKey(workerId)) {
-            return true;
-        }
-        return registry.getWorker(workerId)
-                .filter(snapshot -> supportsShuffle(snapshot.shuffleDeployment()))
-                .map(snapshot -> {
-                    WorkerInfo info = inventoryPool.share(fromSnapshot(snapshot));
-                    workers.putIfAbsent(info.workerId(), info);
-                    fireTopologyChanged();
-                    LOG.info("event=worker_recovered_from_registry workerId={}", workerId);
-                    return true;
-                })
-                .orElse(false);
     }
 
     /**
@@ -508,7 +482,7 @@ public final class WorkerManager implements org.pangrova.query.recovery.Recovere
                 info.dataLocality(),
                 info.memoryPressure().name(),
                 info.cpuUtilization(),
-                info.runningTaskCount(),
+                info.inFlightTaskCount(),
                 info.availableMemoryBytes(),
                 info.lastHeartbeat().toEpochMilli(),
                 info.lastHeartbeat().toEpochMilli(),
@@ -523,7 +497,7 @@ public final class WorkerManager implements org.pangrova.query.recovery.Recovere
         return new HeartbeatSnapshot(
                 data.pressure().name(),
                 data.cpuUtilization(),
-                data.runningTaskCount(),
+                data.inFlightTaskCount(),
                 data.availableMemoryBytes(),
                 data.cacheSummary());
     }
@@ -538,7 +512,7 @@ public final class WorkerManager implements org.pangrova.query.recovery.Recovere
                 HealthState.ACTIVE,
                 MemoryPressure.valueOf(snapshot.memoryPressure()),
                 snapshot.cpuUtilization(),
-                snapshot.runningTaskCount(),
+                snapshot.inFlightTaskCount(),
                 snapshot.availableMemoryBytes(),
                 Instant.ofEpochMilli(snapshot.lastHeartbeatMs()),
                 0.0,

@@ -162,8 +162,8 @@ artifacts:
   pangrova-query:
     path: pangrova-query
     moduleName: org.pangrova.query
-    packageRoots: [org.pangrova.query.api, org.pangrova.query.audit, org.pangrova.query.dispatch, org.pangrova.query.event, org.pangrova.query.exception, org.pangrova.query.lifecycle, org.pangrova.query.profiling, org.pangrova.query.recovery, org.pangrova.query.retention, org.pangrova.query.runtime, org.pangrova.query.session, org.pangrova.query.stage, org.pangrova.query.statement]
-    exports: [org.pangrova.query.api, org.pangrova.query.audit, org.pangrova.query.dispatch, org.pangrova.query.event, org.pangrova.query.exception, org.pangrova.query.lifecycle, org.pangrova.query.profiling, org.pangrova.query.recovery, org.pangrova.query.retention, org.pangrova.query.runtime, org.pangrova.query.session, org.pangrova.query.stage, org.pangrova.query.statement]
+    packageRoots: [org.pangrova.query.api, org.pangrova.query.audit, org.pangrova.query.dispatch, org.pangrova.query.event, org.pangrova.query.exception, org.pangrova.query.lifecycle, org.pangrova.query.profiling, org.pangrova.query.retention, org.pangrova.query.runtime, org.pangrova.query.session, org.pangrova.query.stage, org.pangrova.query.statement]
+    exports: [org.pangrova.query.api, org.pangrova.query.audit, org.pangrova.query.dispatch, org.pangrova.query.event, org.pangrova.query.exception, org.pangrova.query.lifecycle, org.pangrova.query.profiling, org.pangrova.query.retention, org.pangrova.query.runtime, org.pangrova.query.session, org.pangrova.query.stage, org.pangrova.query.statement]
     allowedImports: [pangrova-governance-api, pangrova-execution-api, pangrova-parser, pangrova-connector-api, pangrova-common, pangrova-transport-http, pangrova-security-api, pangrova-scheduler-api, pangrova-types, pangrova-observability-api]
     forbiddenImports: [pangrova-coordination-control, pangrova-worker, pangrova-metadata-catalog, pangrova-planner, pangrova-observability-sdk, pangrova-persistence-generation-postgresql, pangrova-persistence-query-postgresql, pangrova-persistence-query-memory, pangrova-persistence-table-postgresql, pangrova-persistence-table-memory, pangrova-persistence-file-postgresql]
     providers: {}
@@ -171,8 +171,8 @@ artifacts:
   pangrova-scheduler-policy:
     path: pangrova-scheduler/pangrova-scheduler-policy
     moduleName: org.pangrova.scheduler.policy
-    packageRoots: [org.pangrova.scheduler.admission, org.pangrova.scheduler.enums, org.pangrova.scheduler.placement, org.pangrova.scheduler.resource, org.pangrova.scheduler.retry, org.pangrova.scheduler.speculation]
-    exports: [org.pangrova.scheduler.admission, org.pangrova.scheduler.enums, org.pangrova.scheduler.placement, org.pangrova.scheduler.resource, org.pangrova.scheduler.retry, org.pangrova.scheduler.speculation]
+    packageRoots: [org.pangrova.scheduler.admission, org.pangrova.scheduler.enums, org.pangrova.scheduler.placement, org.pangrova.scheduler.retry, org.pangrova.scheduler.speculation]
+    exports: [org.pangrova.scheduler.admission, org.pangrova.scheduler.enums, org.pangrova.scheduler.placement, org.pangrova.scheduler.retry, org.pangrova.scheduler.speculation]
     allowedImports: [pangrova-scheduler-api, pangrova-common, pangrova-config, pangrova-protocol, pangrova-query, pangrova-shuffle-exchange, pangrova-persistence-security-api, pangrova-security-api, pangrova-persistence-coordination-api]
     forbiddenImports: [pangrova-scheduler-strategies-builtin, pangrova-persistence-generation-postgresql, pangrova-coordination-control, pangrova-worker, pangrova-metadata-catalog, pangrova-planner, pangrova-connector-runtime, pangrova-connector-iceberg, pangrova-connector-paimon, pangrova-connector-lance, pangrova-persistence-table-postgresql, pangrova-persistence-table-memory, pangrova-persistence-file-postgresql]
     providers: {}

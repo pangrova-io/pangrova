@@ -39,7 +39,7 @@ class WorkerManagerRegistryPropertyTest {
     private record IdentityPart(
             String workerId, String host, int httpPort, int transportPort,
             HealthState healthState, MemoryPressure memoryPressure,
-            double cpuUtilization, int runningTaskCount) {}
+            double cpuUtilization, int inFlightTaskCount) {}
 
     /** Dynamic/metric fields of a WorkerInfo. */
     private record MetricsPart(
@@ -77,7 +77,7 @@ class WorkerManagerRegistryPropertyTest {
                 id.workerId(), id.host(), id.httpPort(), id.transportPort(),
                 0,
                 id.healthState(), id.memoryPressure(),
-                id.cpuUtilization(), id.runningTaskCount(),
+                id.cpuUtilization(), id.inFlightTaskCount(),
                 m.availableMemoryBytes(), m.lastHeartbeat(),
                 m.performanceScore(), m.resourcePoolId(),
                 2, m.rackId(), m.dataLocality(), null,
@@ -136,7 +136,7 @@ class WorkerManagerRegistryPropertyTest {
         WorkerSnapshot snapshot = registry.getWorker(info.workerId()).orElseThrow();
         assertThat(snapshot.memoryPressure()).isEqualTo(heartbeat.pressure().name());
         assertThat(snapshot.cpuUtilization()).isEqualTo(heartbeat.cpuUtilization());
-        assertThat(snapshot.runningTaskCount()).isEqualTo(heartbeat.runningTaskCount());
+        assertThat(snapshot.inFlightTaskCount()).isEqualTo(heartbeat.inFlightTaskCount());
         assertThat(snapshot.availableMemoryBytes()).isEqualTo(heartbeat.availableMemoryBytes());
         // static fields unchanged
         assertThat(snapshot.host()).isEqualTo(info.host());
@@ -185,7 +185,7 @@ class WorkerManagerRegistryPropertyTest {
                     uniqueId, template.host(), template.httpPort(), template.transportPort(),
                     0,
                     HealthState.ACTIVE, template.memoryPressure(),
-                    template.cpuUtilization(), template.runningTaskCount(),
+                    template.cpuUtilization(), template.inFlightTaskCount(),
                     template.availableMemoryBytes(), Instant.now(),
                     template.performanceScore(), null,
                     template.protocolVersion(), template.rackId(),

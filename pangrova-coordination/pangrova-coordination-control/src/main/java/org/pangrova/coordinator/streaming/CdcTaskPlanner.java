@@ -15,6 +15,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Plans canonical CDC tasks from committed source offsets and current log ends.
@@ -27,28 +28,10 @@ public final class CdcTaskPlanner {
 
     private CdcTaskPlanner() {}
 
-    /** Plans the full observed source interval, split into bounded tasks. */
-    public static CdcTaskPlan plan(
-            StreamState stream,
-            CdcSourceReader reader,
-            CdcWriteAuthority.CdcWritePlan writePlan,
-            Map<TopicPartitionOffset, Long> committedOffsets,
-            long maxRecordsPerRange,
-            int rangesPerTask,
-            TaskAttemptId baseAttempt,
-            SecurityContext security,
-            StageResourceGrant baseGrant,
-            long deadlineEpochMs,
-            String targetTableUuid,
-            long baseSnapshotId) {
-        return plan(stream, reader, writePlan, committedOffsets, maxRecordsPerRange, Long.MAX_VALUE, rangesPerTask,
-                baseAttempt, security, baseGrant, deadlineEpochMs, targetTableUuid, baseSnapshotId);
-    }
-
     /** Builds tasks for one stream without committing offsets or publishing data. */
     public static CdcTaskPlan plan(
             StreamState stream,
-            CdcSourceReader reader,
+            SourceOffsets source,
             CdcWriteAuthority.CdcWritePlan writePlan,
             Map<TopicPartitionOffset, Long> committedOffsets,
             long maxRecordsPerRange,
@@ -61,28 +44,27 @@ public final class CdcTaskPlanner {
             String targetTableUuid,
             long baseSnapshotId) {
         Objects.requireNonNull(stream, "stream");
-        Objects.requireNonNull(reader, "reader");
+        Objects.requireNonNull(source, "source");
         Objects.requireNonNull(writePlan, "writePlan");
         Objects.requireNonNull(baseAttempt, "baseAttempt");
         Objects.requireNonNull(security, "security");
-        List<TopicPartitionOffset> partitions = reader.partitions();
         if (maxOffsetsPerPartitionPerBatch <= 0) {
             throw new IllegalArgumentException("CDC batch offset bound must be positive");
         }
         long batchLimit = maxOffsetsPerPartitionPerBatch;
         if (writePlan.outputHandle().requiresSingleCdcRange()) {
-            if (partitions.size() != 1) {
+            if (source.endOffsets().size() != 1) {
                 throw new UnsupportedOperationException("CDC mutation target requires a single source partition");
             }
             batchLimit = Math.min(maxRecordsPerRange, batchLimit);
         }
-        Map<TopicPartitionOffset, Long> logEnds = reader.endOffsets(partitions);
         Map<TopicPartitionOffset, Long> starts = new HashMap<>();
         Map<TopicPartitionOffset, Long> admittedEnds = new HashMap<>();
-        for (TopicPartitionOffset partition : partitions) {
+        for (var observed : source.endOffsets().entrySet()) {
+            TopicPartitionOffset partition = observed.getKey();
             long start = committedOffsets.getOrDefault(partition, 0L);
-            Long logEnd = logEnds.get(partition);
-            if (start < 0 || logEnd == null || logEnd < start) {
+            long logEnd = observed.getValue();
+            if (start < 0 || logEnd < start) {
                 throw new IllegalArgumentException("Invalid CDC source interval for " + partition);
             }
             if (logEnd > start) {
@@ -106,6 +88,27 @@ public final class CdcTaskPlanner {
                     targetTableUuid, baseSnapshotId));
         }
         return new CdcTaskPlan(List.copyOf(tasks), Map.copyOf(admittedEnds));
+    }
+
+    /** One immutable source observation shared by admission and task planning. */
+    public record SourceOffsets(Map<TopicPartitionOffset, Long> endOffsets) {
+        public SourceOffsets {
+            endOffsets = Map.copyOf(endOffsets);
+            if (endOffsets.values().stream().anyMatch(end -> end < 0)) {
+                throw new IllegalArgumentException("CDC source has a negative end offset");
+            }
+        }
+
+        /** Reads the partition inventory and its exclusive end offsets exactly once. */
+        public static SourceOffsets observe(CdcSourceReader reader) {
+            var partitions = List.copyOf(reader.partitions());
+            var observed = new SourceOffsets(reader.endOffsets(partitions));
+            if (partitions.size() != observed.endOffsets.size()
+                    || !Set.copyOf(partitions).equals(observed.endOffsets.keySet())) {
+                throw new IllegalStateException("CDC source end offsets differ from its partition inventory");
+            }
+            return observed;
+        }
     }
 
     /** Planned tasks plus the exact source boundary to acknowledge after publication. */

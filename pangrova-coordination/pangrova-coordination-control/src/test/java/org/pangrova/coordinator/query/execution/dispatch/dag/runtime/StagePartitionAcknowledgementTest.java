@@ -5,6 +5,7 @@ import org.pangrova.coordinator.enums.ScheduledTaskState;
 import org.junit.jupiter.api.Test;
 import org.pangrova.coordinator.CanonicalTaskRequestTestFixture;
 import org.pangrova.execution.task.DispatchResult;
+import org.pangrova.query.api.journal.TaskStateEvent;
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.DispatchCanceller;
 import org.pangrova.coordinator.scheduler.TaskDispatcher;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
@@ -14,7 +15,9 @@ import org.pangrova.common.client.result.ResultEndpoint;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.v2.TaskKind;
 
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -30,6 +33,52 @@ class StagePartitionAcknowledgementTest {
     private final WorkerInfo worker = TestWorkerInfoBuilder.active("worker", "localhost", 8080, 8081);
     private final StagePartitionDispatcher partitions = new StagePartitionDispatcher(
             transport, new DispatchCanceller(transport, tracker), java.util.function.UnaryOperator.identity());
+
+    @Test
+    void workerDispatchObservesTheExactFrozenSealBeforeAcknowledgement() throws Exception {
+        try (var journal = new org.pangrova.persistence.query.memory.state.InMemoryQueryStateJournal()) {
+            var context = org.pangrova.query.api.journal.JournalEventContext.create(100, "owner");
+            journal.appendQueryEventSync(new org.pangrova.query.api.journal.QueryStateEvent(
+                    context, QUERY, "SELECT 1", "{}", "RUNNING"));
+            var committed = new AtomicReference<List<TaskStateEvent>>();
+            TaskDispatcher transport = new TaskDispatcher() {
+                @Override public DispatchResult dispatch(SubmitTaskRequest request, WorkerInfo target) {
+                    throw new AssertionError("Expected asynchronous dispatch");
+                }
+
+                @Override public CompletableFuture<DispatchResult> dispatchAsync(
+                        SubmitTaskRequest request, WorkerInfo target) {
+                    var facts = committed.get();
+                    assertThat(facts).hasSize(1);
+                    var issuance = facts.get(0).issuance();
+                    assertThat(issuance.workerHost()).isEqualTo(target.host());
+                    assertThat(issuance.workerHttpPort()).isEqualTo(target.httpPort());
+                    assertThat(org.pangrova.protocol.task.CanonicalTaskAdmissionSeals.create(request.taskRequest())
+                            .toByteArray()).containsExactly(issuance.admissionSeal());
+                    return CompletableFuture.completedFuture(result(TASK));
+                }
+            };
+            var dispatcher = new StagePartitionDispatcher(transport, new DispatchCanceller(transport, tracker),
+                    java.util.function.UnaryOperator.identity(), facts -> {
+                        journal.appendTaskIssuancesSync(facts);
+                        committed.set(facts);
+                    });
+            assertThat(dispatcher.dispatch(request(5_000), worker).acknowledgement().join().taskId()).isEqualTo(TASK);
+        }
+    }
+
+    @Test
+    void journalRejectionDiscardsThePreparedAttemptWithoutSendingHttp() {
+        var journal = new org.pangrova.persistence.query.memory.state.InMemoryQueryStateJournal();
+        journal.close();
+        var dispatcher = new StagePartitionDispatcher(transport, new DispatchCanceller(transport, tracker),
+                java.util.function.UnaryOperator.identity(), journal::appendTaskIssuancesSync);
+
+        assertThatThrownBy(() -> dispatcher.dispatch(request(5_000), worker))
+                .isInstanceOf(org.pangrova.persistence.query.api.exception.JournalWriteException.class);
+        assertThat(tracker.getTaskRequest(TASK)).isNull();
+        assertThat(transport.dispatched).isFalse();
+    }
 
     @Test
     void lateAcknowledgementPreservesTheAcceptedTerminalAttemptBeforePublishingItsFuture() {
@@ -114,6 +163,8 @@ class StagePartitionAcknowledgementTest {
     private static SubmitTaskRequest request(long durationMillis) {
         return SubmitTaskRequest.from(CanonicalTaskRequestTestFixture.builder(
                 TASK, QUERY, 0, 0, TaskKind.TASK_KIND_READ, new byte[] {1})
+                .setResourceGrant(org.pangrova.protocol.v2.StageResourceGrant.newBuilder()
+                        .setGrantId("grant").setCpuSlots(1).setNativeMemoryBytes(1024))
                 .setDeadlineEpochMs(System.currentTimeMillis() + durationMillis).build());
     }
 
@@ -123,8 +174,10 @@ class StagePartitionAcknowledgementTest {
 
     private static final class ControlledAcknowledgement implements TaskDispatcher {
         private final CompletableFuture<DispatchResult> response = new CompletableFuture<>();
+        private boolean dispatched;
 
         @Override public CompletableFuture<DispatchResult> dispatchAsync(SubmitTaskRequest request, WorkerInfo worker) {
+            dispatched = true;
             return response;
         }
 

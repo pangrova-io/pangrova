@@ -1,5 +1,7 @@
 package org.pangrova.server.coordinator.bootstrap;
 
+import org.pangrova.persistence.coordination.postgresql.admission.JdbcClusterConcurrencySlots;
+import org.pangrova.scheduler.admission.TenantQuotaAdmissionController;
 import org.pangrova.common.lifecycle.ResourceCloser;
 import org.pangrova.generation.api.constants.GenerationOutputTypeIds;
 
@@ -92,13 +94,13 @@ final class QueryBootstrap {
     private ExecutorService terminalCleanupExecutor;
     private ExecutorService readerPinRenewalExecutor;
     private ExecutorService shuffleCleanupExecutor;
+    private RecoveredTaskDrainPoll recoveredTaskDrains;
     private CacheAffinityAssigner cacheAffinityAssigner;
     private SpeculativeStageHandler speculativeStageHandler;
     private SpeculativeTaskLauncher speculativeTaskLauncher;
     private org.pangrova.scheduler.speculation.SpeculativeExecutionScheduler speculationScheduler;
     private RemoteTaskDispatcher remoteTaskDispatcher;
     private TaskScheduler taskScheduler;
-    private QuerySchedulingRuntime queryScheduling;
     private org.pangrova.persistence.generation.api.job.GenerationJobStore artifactBuildStore;
     private org.pangrova.coordinator.ai.embedding.GeneratedValueMaterializationCoordinator
             generatedValueMaterialization;
@@ -111,6 +113,7 @@ final class QueryBootstrap {
     private org.pangrova.observability.sdk.metrics.CoordinatorMetrics coordinatorMetrics;
     private QueryDispatcher queryDispatcher;
     private org.pangrova.persistence.query.api.state.QueryStateJournal stateJournal;
+    private CoordinatorSpeculativeTaskRegistry speculativeTaskRegistry;
     private QueryExecutionBootstrap executionWiring;
 
     QueryExecutionBootstrap executionWiring() {
@@ -157,7 +160,7 @@ final class QueryBootstrap {
         // metadata database fall back to it.
         this.queryAuditServices = new QueryAuditServices(metadataDataSource != null
                 ? new org.pangrova.persistence.query.postgresql.audit.JdbcQueryAuditStore(metadataDataSource)
-                : new org.pangrova.persistence.query.memory.audit.InMemoryQueryAuditStore());
+                : new org.pangrova.persistence.query.memory.audit.InMemoryQueryAuditStore(), metricsProvider);
         this.streamingBootstrap = streamingBootstrap;
         this.coordinationService = coordinationService;
         durableRecovery = new QueryDurableRecovery(
@@ -169,6 +172,10 @@ final class QueryBootstrap {
     }
 
     void start() {
+        start(null);
+    }
+
+    void start(org.pangrova.common.lifecycle.ProcessIncarnationStore.Identity processIdentity) {
         CoordinatorPreflightChecks.validateJdbcConnection(metadataDataSource);
         var runtimeFactory = new QueryRuntimeFactory(new QueryRuntimeFactory.Dependencies(
                 config, tracingProvider, metricsProvider, moduleWiring, metadataDataSource,
@@ -188,8 +195,10 @@ final class QueryBootstrap {
         controlPlaneResultService = startControlPlaneResultTransport();
         cacheAffinityAssigner = new CacheAffinityAssigner();
         workerManager.addTopologyListener(cacheAffinityAssigner);
+        stateJournal = runtimeFactory.createStateJournal(processIdentity);
+        speculativeTaskRegistry = new CoordinatorSpeculativeTaskRegistry(
+                taskTracker, stateJournal::appendTaskIssuancesSync);
         initSpeculation();
-        stateJournal = runtimeFactory.createStateJournal();
         CatalogRegistry catalog = metadataBootstrap != null
                 ? metadataBootstrap.catalogRegistry() : null;
         this.writeCommitTracker = catalog != null
@@ -198,9 +207,8 @@ final class QueryBootstrap {
                 createReaderPinLeases();
         SqlCompiler compiler = new SqlCompilerFactory(config, metadataBootstrap, readerPinLeases, accessControl)
                 .buildSqlCompiler();
-        queryScheduling = new QuerySchedulingRuntime(
+        taskScheduler = QueryPlacementFactory.create(
                 moduleWiring != null ? moduleWiring.getTenantStore() : null, config.query().placementProvider());
-        taskScheduler = queryScheduling.scheduler();
         if (metadataDataSource != null) {
             artifactBuildStore = artifactStores.builds(
                     metadataDataSource);
@@ -222,6 +230,10 @@ final class QueryBootstrap {
                 "coordinator-terminal-cleanup", 2, 32);
         shuffleCleanupExecutor = ManagedExecutorFactory.newBoundedThreadPool(
                 "coordinator-shuffle-cleanup", 4, 64);
+        if (stateJournal instanceof org.pangrova.persistence.query.api.state.RecoveredTaskDrainJournal drainJournal) {
+            recoveredTaskDrains = new RecoveredTaskDrainPoll(drainJournal, remoteTaskDispatcher::recoverTaskDrain,
+                    this::releaseDrainedRecovery, shuffleCleanupExecutor, config.workerHealthCheckIntervalMs());
+        }
         if (readerPinLeases != null) {
             readerPinRenewalExecutor = ManagedExecutorFactory.newBoundedThreadPool(
                     "query-reader-pin-renewal", 1, 1);
@@ -238,9 +250,15 @@ final class QueryBootstrap {
         // P1-5b: enforce tenant budget limits across coordinators on the submission path.
         if (moduleWiring != null && moduleWiring.getTenantResolver() != null
                 && moduleWiring.getQuotaChecker() != null) {
-            queryManager.setClusterAdmissionController(SecurityBootstrap.createClusterAdmissionController(
-                    workerManager.tenantUsageView(), metadataDataSource));
+            if (metadataDataSource != null) {
+                JdbcClusterConcurrencySlots.verifyAuthority(metadataDataSource);
+                queryManager.enableDurableTenantCapacity();
+            } else {
+                queryManager.setClusterAdmissionController(new TenantQuotaAdmissionController(
+                        workerManager.tenantUsageView(), null));
+            }
         }
+        durableRecovery.startObservedStaging(catalog);
         LOG.info("event=query_bootstrap_complete speculation={} embedding={}",
                 config.speculationEnabled(),
                 config.embeddingEnabled());
@@ -279,7 +297,7 @@ final class QueryBootstrap {
             speculativeTaskLauncher.setDispatchDependencies(
                     new CoordinatorSpeculativeAttemptDispatcher(remoteTaskDispatcher),
                     new CoordinatorSpeculativeWorkerInventory(workerManager),
-                    new CoordinatorSpeculativeTaskRegistry(taskTracker));
+                    speculativeTaskRegistry);
             speculativeTaskLauncher.setCancelRetrier(
                     new CoordinatorSpeculativeAttemptCanceller(
                             queryDispatcher.cancelRetrier()));
@@ -317,10 +335,12 @@ final class QueryBootstrap {
                     asyncSubmitExecutor, EXECUTOR_DRAIN_TIMEOUT_MILLIS);
         }
         if (artifactBuildDispatcher != null) artifactBuildDispatcher.close();
+        if (controlPlaneResultBuffer != null) controlPlaneResultBuffer.seal();
     }
 
     private void joinCallbacks() {
-        durableRecovery.close();
+        ResourceCloser.closeAll(null, durableRecovery::close,
+                () -> { if (recoveredTaskDrains != null) recoveredTaskDrains.close(); });
         if (queryManager != null) queryManager.stopPeriodicCleanup();
         ResourceCloser.closeAll(null,
                 () -> { if (materializationMaintenance != null) materializationMaintenance.close(); },
@@ -347,8 +367,7 @@ final class QueryBootstrap {
                 },
                 () -> CoordinatorShutdownSequence.shutdownSchedulerExecutor(submitDeadlines),
                 () -> CoordinatorShutdownSequence.shutdownSchedulerExecutor(schedulerExecutor),
-                () -> { if (queryDispatcher != null) queryDispatcher.dagEngine().close(); },
-                () -> { if (queryScheduling != null) queryScheduling.close(); });
+                () -> { if (queryDispatcher != null) queryDispatcher.dagEngine().close(); });
     }
 
     private void closeQueryResources(
@@ -366,31 +385,11 @@ final class QueryBootstrap {
                 CoordinatorShutdownSequence.closeTransportAllocator(controlPlaneResultAllocator));
     }
 
-    /** Completes post-start HA wiring once the elected epoch service exists. */
-    void wireHighAvailability(HighAvailabilityCoordinationService service) {
-        if (service == null) {
-            throw new IllegalArgumentException("HA coordination service must not be null");
-        }
-        durableRecovery.wireHighAvailability(service, this::schedulerExecutor,
-                shuffleCleanupExecutor,
-                config.workerHealthCheckIntervalMs());
-        // Query and durable artifact scheduling are active-active. The elected
-        // coordinator owns only singleton control loops; it is never a gateway
-        // for task data or a prerequisite for another coordinator to dispatch.
-        // Every coordinator stamps work with the current cluster control term,
-        // and Workers fence stale terms at admission.
+    /** Starts coordination-dependent background work after the shared authority has started. */
+    void startCoordinationLoops() {
+        var service = java.util.Objects.requireNonNull(coordinationService, "Query coordination authority");
+        if (recoveredTaskDrains != null) recoveredTaskDrains.start(schedulerExecutor());
         java.util.function.LongSupplier activeControlTerm = service::getCurrentEpoch;
-        remoteTaskDispatcher.setControlEpochSupplier(activeControlTerm);
-        remoteTaskDispatcher.setExecutionOwnerResolver(executionId -> {
-            var anchor = service.requireExecutionAnchor(executionId);
-            return new org.pangrova.protocol.rest.task.ExecutionOwnerIdentity(
-                    anchor.ownerId(), anchor.ownerIncarnation(),
-                    anchor.fencingToken());
-        });
-        var fencer = WriteCommitComponentFactory.createFencer(service);
-        if (fencer != null) {
-            taskStatusReceiver.setWriteCommitFencer(fencer);
-        }
         startMaterializationMaintenance(service);
         if (artifactBuildStore == null || artifactBuildDispatcher != null) {
             return;
@@ -471,7 +470,7 @@ final class QueryBootstrap {
     /** Starts the bounded DDL/SHOW/DML acknowledgement transport, never query rows. */
     private CoordinatorResultService startControlPlaneResultTransport() {
         var started = ControlPlaneResultTransportBootstrap.start(
-                config, tracingProvider, schedulerExecutor());
+                config, tracingProvider, schedulerExecutor(), taskTracker::enterQueryOperation);
         controlPlaneResultServer = started.server();
         controlPlaneResultAllocator = started.allocator();
         controlPlaneResultBuffer = started.buffer();
@@ -493,7 +492,7 @@ final class QueryBootstrap {
         }
         var repository = metadataBootstrap.materializationRepository();
         return repository == null ? null
-                : new org.pangrova.materialization.usecase.ReaderPinLeases(
+                : org.pangrova.materialization.usecase.ReaderPinLeases.forActiveQueries(
                         repository, java.time.Instant::now);
     }
 
@@ -521,7 +520,7 @@ final class QueryBootstrap {
         speculativeStageHandler = new SpeculativeStageHandler(
                 speculationConfig, new StragglerDetector(speculationConfig),
                 speculativeTaskLauncher,
-                new CoordinatorSpeculativeTaskRegistry(taskTracker));
+                speculativeTaskRegistry);
         LOG.info("event=speculation_initialized");
     }
 
@@ -532,7 +531,7 @@ final class QueryBootstrap {
         speculationScheduler = new org.pangrova.scheduler.speculation.SpeculativeExecutionScheduler(
                 speculativeStageHandler,
                 new CoordinatorSpeculativeQueryInventory(queryManager),
-                new CoordinatorSpeculativeTaskRegistry(taskTracker),
+                speculativeTaskRegistry,
                 SpeculationConfig.DEFAULT_DETECTION_INTERVAL_MS);
         speculationScheduler.start();
     }
@@ -559,10 +558,34 @@ final class QueryBootstrap {
         return receiver;
     }
 
+    JournaledCdcRuntime.WorkerDispatch cdcWorkerDispatch(HighAvailabilityCoordinationService service) {
+        return new JournaledCdcRuntime.WorkerDispatch(service, queryDispatcher.taskDispatcher(),
+                queryDispatcher.workerSelector(), taskTracker, taskStatusReceiver, stateJournal);
+    }
+
+    private boolean releaseDrainedRecovery(org.pangrova.execution.api.ownership.ExecutionAnchor claim) {
+        // The same process can claim its own expired grant while local resources still exist.
+        var original = queryManager.getStateMachine(claim.executionId());
+        if (original != null && !original.physicalCleanupApplied()) return false;
+        if (!durableRecovery.releaseRecoveredQuery(claim)) return false;
+        if (original != null) original.confirmPhysicalRetirement();
+        return true;
+    }
+
+    java.util.Set<String> observedRecoveryExecutions(java.util.Set<String> executions) {
+        if (!(stateJournal instanceof org.pangrova.persistence.query.api.state.RecoveredTaskDrainJournal journal)) {
+            throw new IllegalStateException("Durable recovery requires the shared task journal");
+        }
+        return journal.observedRecoveryExecutions(executions);
+    }
+
+    void trackRecoveredTaskDrains(java.util.List<org.pangrova.execution.api.ownership.ExecutionAnchor> claims) {
+        if (recoveredTaskDrains != null) recoveredTaskDrains.track(claims);
+    }
+
     java.util.Set<String> recoverWriteCommitIntents(
-            java.util.List<org.pangrova.execution.api.ownership.ExecutionAnchor> claimed,
-            HighAvailabilityCoordinationService service) {
-        return durableRecovery.recover(claimed, service, writeCommitRecoveryService);
+            java.util.List<org.pangrova.execution.api.ownership.ExecutionAnchor> claimed) {
+        return durableRecovery.recover(claimed, writeCommitRecoveryService);
     }
 
     /**
@@ -614,6 +637,10 @@ final class QueryBootstrap {
     WorkerManager workerManager() { return workerManager; }
     AuditEventEmitter auditEmitter() { return auditEmitter; }
     org.pangrova.persistence.query.api.commit.WriteCommitJournal writeCommitJournal() { return writeCommitJournal; }
+    MetricsProvider metricsProvider() {
+        return metricsProvider;
+    }
+
     QueryManager queryManager() { return queryManager; }
     QueryAuditServices queryAuditServices() { return queryAuditServices; }
     org.pangrova.observability.sdk.metrics.CoordinatorMetrics coordinatorMetrics() { return coordinatorMetrics; }

@@ -174,7 +174,6 @@ public final class WorkerHttpServer {
         }
         this.taskResource = new TaskResource(
                 taskManager, exchangeTransport,
-                new org.pangrova.worker.exchange.source.ExchangeSourceRegistry(),
                 config.workerHost(), config.transportPort(), null,
                 new TaskResource.ResultBinding(config.resultProtocol(), resultTickets));
         ResourceConfig resourceConfig = buildResourceConfig(

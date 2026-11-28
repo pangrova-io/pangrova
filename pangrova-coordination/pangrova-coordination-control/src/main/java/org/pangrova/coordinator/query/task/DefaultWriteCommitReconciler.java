@@ -14,8 +14,10 @@ import org.pangrova.protocol.rest.catalog.CatalogDeploymentResponse;
 import org.pangrova.protocol.v2.WriteOutputBinding;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.exception.SourcePublicationRetryableException;
+import org.pangrova.connector.api.metadata.ConnectorMetadata;
 import org.pangrova.connector.api.metadata.ConnectorOutputTableHandle;
 import org.pangrova.connector.api.metadata.ConnectorOutputHandleCodec;
+import org.pangrova.connector.api.metadata.DistributedWriteStagingCleanup;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
 import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
 import org.pangrova.persistence.query.api.commit.WriteCommitJournal;
@@ -26,7 +28,6 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Map;
 import java.util.Optional;
-import java.util.Arrays;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
@@ -66,8 +67,22 @@ public final class DefaultWriteCommitReconciler implements WriteCommitReconciler
         this.catalogResolver = checkNotNull(catalogResolver, "catalogResolver must not be null");
     }
 
+    /** Resolves the original catalog and binding before asking its storage to reclaim reported objects. */
+    public static boolean reclaimObservedStaging(WriteCommitEntry entry, ConnectorCatalogHandle catalog) {
+        if (entry.state() != WriteCommitState.ABORTED || entry.publication() != null) {
+            throw new IllegalArgumentException("Observed staging cleanup requires an unpublished abort");
+        }
+        SchemaTableName table = parseTable(entry.tableName());
+        if (table == null || catalog == null) return false;
+        var handle = decodeExactHandle(entry, table, catalog);
+        var session = new RecoveryConnectorSession(entry.catalogName(), table.schema(), entry.tenantId(),
+                entry.principal());
+        return catalog.getMetadata(session) instanceof DistributedWriteStagingCleanup reclaim
+                && reclaim.reclaimObservedStaging(session, handle, entry.fragments(), entry.commitContext());
+    }
+
     @Override
-    public WriteRecoveryOutcome reconcile(WriteCommitEntry entry) {
+    public WriteRecoveryOutcome reconcile(WriteCommitEntry entry, long claimedToken) {
         Optional<CopyFilePublication> recorded = entry.copyFile() == null
                 ? Optional.empty() : journal.findCopyFilePublication(entry);
         if (isCommittedCopyMissingPublication(entry, recorded)) {
@@ -89,20 +104,22 @@ public final class DefaultWriteCommitReconciler implements WriteCommitReconciler
                     + "reason=unknown_catalog", entry.queryId(), entry.catalogName());
             return WriteRecoveryOutcome.QUARANTINED;
         }
+        ConnectorMetadata metadata = null;
+        ConnectorOutputTableHandle handle = null;
         try {
-            var metadata = catalog.getMetadata(session);
+            metadata = catalog.getMetadata(session);
             if (entry.cdcSource() != null && !"INSERT".equals(entry.writeMode())
                     && !metadata.supportsCdcMutations()) {
                 LOG.error("event=write_commit_reconcile queryId={} table={} outcome=QUARANTINED "
                         + "reason=cdc_mutation_sink_unavailable", entry.queryId(), table);
                 return WriteRecoveryOutcome.QUARANTINED;
             }
-            ConnectorOutputTableHandle handle = decodeExactHandle(entry, table, catalog);
+            handle = decodeExactHandle(entry, table, catalog);
             if (recorded.isPresent()) {
                 confirmRecordedCopyPublication(metadata, session, handle, entry, recorded.orElseThrow());
                 return WriteRecoveryOutcome.COMMITTED;
             }
-            RequiredWritePublication.commit(journal, metadata, session, handle, entry,
+            RequiredWritePublication.commit(journal, metadata, session, handle, entry, claimedToken,
                     journal.requiresPublication(entry));
             if (entry.copyFile() != null) {
                 if (!(metadata instanceof CopyFilePublicationMetadata copyMetadata)) {
@@ -123,25 +140,31 @@ public final class DefaultWriteCommitReconciler implements WriteCommitReconciler
                     + "reason=connector_cannot_decode", entry.queryId(), table);
             return WriteRecoveryOutcome.QUARANTINED;
         } catch (RuntimeException e) {
-            if (mayConfirmOrdinaryAbort(entry, e)) {
-                try {
-                    ConnectorOutputTableHandle handle = decodeExactHandle(entry, table, catalog);
-                    var receipt = catalog.getMetadata(session).abortDistributedWrite(
-                            session, handle, entry.fragments(), entry.commitContext());
-                    if (!receipt.executionId().equals(entry.queryId())
-                            || !receipt.commitFingerprint().equals(entry.commitFingerprint())) {
-                        throw new IllegalStateException("Durable abort receipt differs from journal intent");
-                    }
-                    return WriteRecoveryOutcome.ABORTED;
-                } catch (RuntimeException barrierFailure) {
-                    LOG.warn("event=write_commit_reconcile queryId={} outcome=QUARANTINED "
-                            + "reason=source_abort_unconfirmed error={}",
-                            entry.queryId(), barrierFailure.toString());
-                    return WriteRecoveryOutcome.QUARANTINED;
-                }
+            if (handle != null && mayConfirmOrdinaryAbort(entry, e)) {
+                return confirmAbort(metadata, session, handle, entry, claimedToken);
             }
             LOG.error("event=write_commit_reconcile queryId={} table={} outcome=QUARANTINED "
                     + "reason=ambiguous error={}", entry.queryId(), table, e.toString());
+            return WriteRecoveryOutcome.QUARANTINED;
+        }
+    }
+
+    private WriteRecoveryOutcome confirmAbort(ConnectorMetadata metadata, ConnectorSession session,
+            ConnectorOutputTableHandle handle, WriteCommitEntry entry, long claimedToken) {
+        try {
+            if (metadata.requiresPublicationClaim()) {
+                return journal.abortBeforePublication(entry, claimedToken) ? WriteRecoveryOutcome.ABORTED
+                        : WriteRecoveryOutcome.QUARANTINED;
+            }
+            var receipt = metadata.abortDistributedWrite(session, handle, entry.fragments(), entry.commitContext());
+            if (!receipt.executionId().equals(entry.queryId())
+                    || !receipt.commitFingerprint().equals(entry.commitFingerprint())) {
+                throw new IllegalStateException("Durable abort receipt differs from journal intent");
+            }
+            return WriteRecoveryOutcome.ABORTED;
+        } catch (RuntimeException barrierFailure) {
+            LOG.warn("event=write_commit_reconcile queryId={} outcome=QUARANTINED "
+                    + "reason=source_abort_unconfirmed error={}", entry.queryId(), barrierFailure.toString());
             return WriteRecoveryOutcome.QUARANTINED;
         }
     }
@@ -201,17 +224,14 @@ public final class DefaultWriteCommitReconciler implements WriteCommitReconciler
         }
         ConnectorOutputTableHandle handle = codec.deserialize(
                 outputBinding.getCodecVersion(), payload);
-        validateDecodedHandle(entry, table, catalog, binding, outputBinding, codec, payload, handle);
+        validateDecodedHandle(entry, table, catalog, binding, handle);
         return handle;
     }
 
     private static void validateDecodedHandle(WriteCommitEntry entry, SchemaTableName table,
-            ConnectorCatalogHandle catalog, WriteOutputBinding binding,
-            org.pangrova.protocol.v2.SerializedConnectorOutputHandle outputBinding,
-            ConnectorOutputHandleCodec codec, byte[] payload, ConnectorOutputTableHandle handle) {
-        if (!Arrays.equals(codec.serialize(handle), payload)
-                || !codec.writeColumnNames(handle).equals(outputBinding.getWriteColumnNamesList())
-                || !handle.targetTable().equals(Optional.of(table))
+            ConnectorCatalogHandle catalog, WriteOutputBinding binding, ConnectorOutputTableHandle handle) {
+        // Rebuilding the complete binding verifies the payload, columns and native allocation together.
+        if (!handle.targetTable().equals(Optional.of(table))
                 || !handle.writeMode().equals(entry.writeMode())
                 || handle.writeBaseSnapshotId().orElse(-1L) != entry.baseSnapshotId()
                 || !ConnectorWriteBindingFactory

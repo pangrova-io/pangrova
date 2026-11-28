@@ -1,6 +1,8 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.control;
 
 import org.pangrova.shuffle.api.coordinator.ExternalShuffleDescriptorEncoder;
+import org.pangrova.generation.api.exchange.GenerationExchangeFinalization;
+import org.pangrova.generation.api.exchange.GenerationExchangeFinalization.BatchRange;
 import org.pangrova.generation.api.exchange.GenerationExchangeRegistration;
 import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.PreparedPartition;
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
@@ -11,6 +13,7 @@ import org.pangrova.protocol.v2.ExchangeReadMode;
 import org.pangrova.shuffle.api.ShuffleServerEndpoint;
 import org.pangrova.shuffle.api.ShuffleServiceAddress;
 
+import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.List;
 
@@ -25,17 +28,26 @@ final class StageExchangeAccessValidator {
         if (access.inputs().size() != incoming.size()) {
             throw new IllegalArgumentException("Task inputs differ from the exact persisted incoming edges");
         }
-        for (var edge : incoming) {
+        for (int side = 0; side < incoming.size(); side++) {
+            var edge = incoming.get(side);
             var inputs = access.inputs().stream()
                     .filter(input -> input.getExchangeId().equals(edge.exchangeId())).toList();
             var evidence = prepared.exchanges().stream().filter(value ->
                     value.registration().exchangeId().equals(edge.exchangeId())).findFirst().orElseThrow();
-            if (inputs.size() != 1 || !inputs.get(0).hasExternal() || evidence.finalization().isEmpty()) {
+            if (inputs.size() != 1 || !inputs.get(0).hasExternal()) {
                 throw new IllegalArgumentException("Consumer task requires one actually finalized external allocation");
             }
+            var finalized = evidence.finalization().orElseThrow(() ->
+                    new IllegalArgumentException("Consumer task requires one actually finalized external allocation"));
             var binding = inputs.get(0);
             requireBlocking(binding);
-            requireInput(binding.getExternal(), prepared, evidence.registration(), access.descriptorEncoder());
+            var certificate = switch (side) {
+                case 0 -> prepared.inputRange().first();
+                case 1 -> prepared.inputRange().second();
+                default -> null;
+            };
+            requireInput(binding.getExternal(), prepared, evidence.registration(),
+                    finalized, certificate, access.descriptorEncoder());
         }
         var outgoing = graph.exchanges().stream().filter(edge -> edge.upstreamStageId() == stage).toList();
         requireOutput(prepared, access, outgoing);
@@ -49,18 +61,64 @@ final class StageExchangeAccessValidator {
     }
 
     private static void requireInput(ExternalShuffleInput input, PreparedPartition prepared,
-            GenerationExchangeRegistration registration, ExternalShuffleDescriptorEncoder encoder) {
+            GenerationExchangeRegistration registration, GenerationExchangeFinalization finalized,
+            BatchRange certificate, ExternalShuffleDescriptorEncoder encoder) {
         if (!input.getShuffleId().equals(registration.shuffleId())
                 || input.getPlanEpoch() != registration.planEpoch()
                 || !input.hasSourcePartitionStart()
-                || input.getSourcePartitionStart() != prepared.lease().partitionId()
-                || input.getPublicationsCount() != 1
+                || input.getSourcePartitionStart() != prepared.inputRange().startInclusive()
+                || input.getPublicationsCount() != prepared.inputRange().count()
                 || input.getPartitionCount() != registration.partitionCount()
                 || input.getExpectedProducerPartitions() != registration.producerCount()) {
             throw new IllegalArgumentException("Consumer access changed the immutable allocation, epoch or cohort");
         }
         requireChecksum(input.getExpectedProducerSetChecksum(), registration);
+        if (certificate == null) {
+            requirePublishedRange(input, finalized);
+        } else {
+            requireCertifiedRange(input, finalized, certificate);
+        }
         requireConsumerTransport(input, prepared, registration, encoder);
+    }
+
+    static void requireCertifiedRange(ExternalShuffleInput input, GenerationExchangeFinalization finalized,
+            BatchRange expected) {
+        int original = input.getSourcePartitionStart();
+        if (!input.hasSourcePartitionStart() || original < 0 || original >= finalized.partitions().size()
+                || finalized.partitions().get(original).rangeIndexSha256() == null
+                || input.getPublicationsCount() != 1) {
+            throw new IllegalArgumentException("Consumer certificate differs from its finalized partition");
+        }
+        var actual = input.getPublications(0);
+        if (!actual.hasStartSequence() || actual.getStartSequence() != expected.startSequence()
+                || !actual.hasLastSequence() || actual.getLastSequence() != expected.endSequenceExclusive() - 1
+                || !actual.hasTotalBytes() || actual.getTotalBytes() != expected.totalBytes()
+                || !actual.hasTotalRows() || actual.getTotalRows() != expected.totalRows()
+                || !Arrays.equals(actual.getManifestSha256().toByteArray(),
+                        HexFormat.of().parseHex(expected.manifestSha256()))) {
+            throw new IllegalArgumentException("Consumer publication differs from the frozen batch certificate");
+        }
+    }
+
+    static void requirePublishedRange(ExternalShuffleInput input, GenerationExchangeFinalization finalized) {
+        int start = input.getSourcePartitionStart();
+        int count = input.getPublicationsCount();
+        if (!input.hasSourcePartitionStart() || start < 0 || count == 0
+                || start > finalized.partitions().size() - count) {
+            throw new IllegalArgumentException("Consumer range is outside the persisted Shuffle receipt");
+        }
+        for (int offset = 0; offset < count; offset++) {
+            var expected = finalized.partitions().get(start + offset);
+            var actual = input.getPublications(offset);
+            if (actual.hasStartSequence() || !actual.hasLastSequence()
+                    || actual.getLastSequence() != expected.committedLastSequence()
+                    || !actual.hasTotalBytes() || actual.getTotalBytes() != expected.totalBytes()
+                    || !actual.hasTotalRows() || actual.getTotalRows() != expected.totalRows()
+                    || !Arrays.equals(actual.getManifestSha256().toByteArray(),
+                            HexFormat.of().parseHex(expected.manifestSha256()))) {
+                throw new IllegalArgumentException("Consumer publication differs from the persisted Shuffle receipt");
+            }
+        }
     }
 
     private static void requireConsumerTransport(ExternalShuffleInput input, PreparedPartition prepared,

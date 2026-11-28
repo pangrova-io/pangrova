@@ -1,94 +1,89 @@
 package org.pangrova.coordinator.result;
 
-import org.pangrova.protocol.enums.DataTicketType;
-import org.pangrova.protocol.exception.DataProducerException;
-import org.pangrova.protocol.transport.DataTicket;
-import org.pangrova.protocol.enums.TransportStatus;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
+import org.apache.arrow.flight.CallStatus;
+import org.apache.arrow.flight.FlightProducer.ServerStreamListener;
+import org.apache.arrow.flight.FlightRuntimeException;
+import org.apache.arrow.flight.Ticket;
+import org.apache.arrow.memory.ArrowBuf;
+import org.apache.arrow.memory.RootAllocator;
+import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.arrow.vector.dictionary.DictionaryProvider;
+import org.apache.arrow.vector.ipc.message.IpcOption;
 import org.junit.jupiter.api.Test;
+import org.pangrova.types.value.TypedRow;
 
+import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/**
- * Tests for CoordinatorDataProducer — request cursors return buffered data
- * or throws DataProducerException(NOT_FOUND) for missing queryId.
- * Uses real CoordinatorResultBuffer (no mocks).
- */
 class CoordinatorDataProducerTest {
-
-    private ScheduledExecutorService executor;
-    private CoordinatorResultBuffer buffer;
-    private CoordinatorDataProducer producer;
-
-    @BeforeEach
-    void setUp() {
-        executor = Executors.newSingleThreadScheduledExecutor();
-        buffer = new CoordinatorResultBuffer(executor, 60_000L);
-        producer = new CoordinatorDataProducer(buffer);
-    }
-
-    @AfterEach
-    void tearDown() {
-        executor.shutdownNow();
+    @Test
+    void cancelledAndFailedTransportsReleaseTheSingleReader() throws Exception {
+        var scheduler = Executors.newSingleThreadScheduledExecutor();
+        try (var allocator = new RootAllocator(1024 * 1024);
+             var buffer = new CoordinatorResultBuffer(scheduler, 60_000)) {
+            var producer = new CoordinatorDataProducer(buffer);
+            var writer = new CoordinatorResultWriter(allocator);
+            var exits = new AtomicInteger();
+            for (boolean cancelled : List.of(true, false)) {
+                buffer.publish("q", writer.buildBatch(List.of(TypedRow.builder().putInt("id", 1).build()),
+                        List.of("id")), exits::incrementAndGet);
+                var listener = new Listener(cancelled);
+                producer.getStream(null, new Ticket("q".getBytes(StandardCharsets.UTF_8)), listener);
+                assertThat(listener.completed).isFalse();
+                if (cancelled) {
+                    assertThat(listener.error).isNull();
+                } else {
+                    assertThat(listener.error).hasMessage("transport failed");
+                }
+                assertThat(buffer.size()).isZero();
+            }
+            assertThat(exits.get()).isEqualTo(2);
+        } finally {
+            scheduler.shutdownNow();
+            assertThat(scheduler.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
     }
 
     @Test
-    void doGetReturnsBufferedData() {
-        byte[] expected = {10, 20, 30};
-        buffer.put("q1", expected);
-
-        DataTicket ticket = new DataTicket("q1", "t1", 0, DataTicketType.RESULT);
-        byte[] result = producer.openStream(ticket).next();
-
-        assertThat(result).isEqualTo(expected);
-    }
-
-    @Test
-    void doGetThrowsNotFoundForMissingQuery() {
-        DataTicket ticket = new DataTicket("missing", "t1", 0, DataTicketType.RESULT);
-
-        assertThatThrownBy(() -> producer.openStream(ticket))
-                .isInstanceOf(DataProducerException.class)
-                .satisfies(ex -> assertThat(((DataProducerException) ex).getStatus())
-                        .isEqualTo(TransportStatus.NOT_FOUND))
-                .hasMessageContaining("missing");
-    }
-
-    @Test
-    void doGetReturnsDataForMultipleQueries() {
-        buffer.put("q1", new byte[]{1});
-        buffer.put("q2", new byte[]{2});
-
-        assertThat(producer.openStream(ticket("q1")).next()).isEqualTo(new byte[]{1});
-        assertThat(producer.openStream(ticket("q2")).next()).isEqualTo(new byte[]{2});
-    }
-
-    @Test
-    void independentRequestsRetainDataWhileEachCursorReachesEof() {
-        buffer.put("q1", new byte[]{42});
-        var first = producer.openStream(ticket("q1"));
-        var second = producer.openStream(ticket("q1"));
-        assertThat(first.next()).containsExactly((byte) 42);
-        assertThat(first.next()).isEmpty();
-        assertThat(second.next()).containsExactly((byte) 42);
-        assertThat(second.next()).isEmpty();
-        assertThat(first.next()).isEmpty();
-        assertThat(buffer.contains("q1")).isTrue();
+    void missingResultReportsFlightNotFoundInsteadOfEof() throws Exception {
+        var scheduler = Executors.newSingleThreadScheduledExecutor();
+        try (var buffer = new CoordinatorResultBuffer(scheduler, 60_000)) {
+            var listener = new Listener(false);
+            new CoordinatorDataProducer(buffer).getStream(null, new Ticket(new byte[] {1}), listener);
+            assertThat(listener.completed).isFalse();
+            assertThat(((FlightRuntimeException) listener.error).status().code())
+                    .isEqualTo(CallStatus.NOT_FOUND.code());
+        } finally {
+            scheduler.shutdownNow();
+            assertThat(scheduler.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
     }
 
     @Test
     void constructorRejectsNullBuffer() {
-        assertThatThrownBy(() -> new CoordinatorDataProducer(null))
-                .isInstanceOf(NullPointerException.class)
-                .hasMessageContaining("buffer");
+        assertThatThrownBy(() -> new CoordinatorDataProducer(null)).isInstanceOf(NullPointerException.class);
     }
 
-    private static DataTicket ticket(String queryId) {
-        return new DataTicket(queryId, "t1", 0, DataTicketType.RESULT);
+    private static final class Listener implements ServerStreamListener {
+        private final boolean cancelled;
+        private Throwable error;
+        private boolean completed;
+
+        private Listener(boolean cancelled) { this.cancelled = cancelled; }
+        @Override public boolean isCancelled() { return cancelled; }
+        @Override public boolean isReady() { return !cancelled; }
+        @Override public void setOnCancelHandler(Runnable handler) { }
+        @Override public void start(VectorSchemaRoot root, DictionaryProvider dictionaries, IpcOption option) { }
+        @Override public void putNext() { throw new IllegalStateException("transport failed"); }
+        @Override public void putNext(ArrowBuf metadata) { throw new UnsupportedOperationException(); }
+        @Override public void putMetadata(ArrowBuf metadata) { throw new UnsupportedOperationException(); }
+        @Override public void error(Throwable failure) { error = failure; }
+        @Override public void completed() { completed = true; }
     }
 }

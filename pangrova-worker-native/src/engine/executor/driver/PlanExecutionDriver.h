@@ -91,7 +91,7 @@ class PlanExecutionDriver {
   // Final actual producer statistics survive Task deletion until receipt handoff.
   std::optional<protocol::v2::NativeTaskStats> collectTaskStats() const;
   bool hasFinalTaskStats() const;
-  uint64_t requestedObjectReadBytes() const;
+  std::optional<protocol::v2::NativeObjectReadStats> objectReadStats() const;
 
   // Cancel execution (best-effort, thread-safe).
   // Propagates cancel to VeloxTaskRunner if active, closes output
@@ -112,21 +112,13 @@ class PlanExecutionDriver {
   std::optional<facebook::velox::RowTypePtr> getScanNodeOutputType(
       const std::string& plan_node_id) const;
 
-  // Resolve a runtime-filter target to an exact scan node. Exact IDs win. A
-  // legacy/logical selector may be resolved by column only when exactly one
-  // scan exposes that column; zero or multiple matches fail closed.
-  std::string resolveScanNodeId(
-      const std::string& requested_plan_node_id,
-      const std::string& column_name) const;
-
-  // Validate and enqueue an external runtime filter. Calls racing task startup
-  // are retained and applied before the first Velox driver is started.
-  void injectDynamicFilter(
-      const std::string& plan_node_id,
-      const google::protobuf::RepeatedPtrField<protocol::v2::RuntimeFilter>& filters);
+  // Calls racing startup are retained until the exact converted scan is known.
+  void injectDynamicFilter(const protocol::v2::RuntimeFilterBinding& binding);
 
  private:
   struct Execution;
+  // An empty requested ID is permitted only for an explicitly asserted sole scan.
+  std::string resolveScanNodeId(const std::string& requested_plan_node_id) const;
   struct PendingDynamicFilter {
     std::string requested_plan_node_id;
     std::string column_name;

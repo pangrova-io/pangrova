@@ -54,6 +54,7 @@ final class CanonicalShuffleGrpcServer extends ShuffleServiceGrpc.ShuffleService
         implements AutoCloseable {
     private static final Logger LOG = LoggerFactory.getLogger(CanonicalShuffleGrpcServer.class);
     private static final int SETTLEMENT_THREADS = 4;
+    private static final int CLEANUP_THREADS = 2;
     private static final long SETTLEMENT_SHUTDOWN_SECONDS = 5;
     private static final int BUFFER_PEAK_MULTIPLIER = 3;
     private static final int MAX_INDEX_MEMORY_BYTES = 64 * 1024 * 1024;
@@ -61,6 +62,7 @@ final class CanonicalShuffleGrpcServer extends ShuffleServiceGrpc.ShuffleService
     private final ShuffleServiceEngine engine;
     private final ShuffleServiceConfig.Limits limits;
     private final ExecutorService ioExecutor;
+    private final ExecutorService cleanupExecutor;
     private final ExecutorService settlements;
     private final Semaphore writeStreams;
     private final Semaphore memoryBytes;
@@ -70,6 +72,8 @@ final class CanonicalShuffleGrpcServer extends ShuffleServiceGrpc.ShuffleService
         this.engine = engine;
         this.limits = limits;
         this.ioExecutor = boundedExecutor(limits);
+        this.cleanupExecutor = boundedExecutor(Math.min(CLEANUP_THREADS, limits.ioThreads()),
+                limits.maxQueuedOperations(), "shuffle-cleanup-");
         int settlementThreads = Math.min(SETTLEMENT_THREADS, limits.ioThreads());
         this.settlements = boundedExecutor(settlementThreads, limits.maxWriteStreams(), "shuffle-write-settlement-");
         this.writeStreams = new Semaphore(limits.maxWriteStreams());
@@ -81,7 +85,7 @@ final class CanonicalShuffleGrpcServer extends ShuffleServiceGrpc.ShuffleService
     public void registerShuffle(
             RegisterShuffleRequest request,
             StreamObserver<RegisterShuffleResponse> response) {
-        dispatchUnary(response, () -> engine.register(request));
+        dispatchUnary(ioExecutor, response, () -> engine.register(request));
     }
 
     @Override
@@ -102,14 +106,14 @@ final class CanonicalShuffleGrpcServer extends ShuffleServiceGrpc.ShuffleService
     public void commitProducerAttempt(
             CommitProducerAttemptRequest request,
             StreamObserver<CommitProducerAttemptResponse> response) {
-        dispatchUnary(response, () -> engine.commit(request));
+        dispatchUnary(ioExecutor, response, () -> engine.commit(request));
     }
 
     @Override
     public void finalizeShuffle(
             FinalizeShuffleRequest request,
             StreamObserver<FinalizeShuffleResponse> response) {
-        dispatchUnary(response, () -> engine.finalizeShuffle(request));
+        dispatchUnary(ioExecutor, response, () -> engine.finalizeShuffle(request));
     }
 
     @Override
@@ -124,7 +128,7 @@ final class CanonicalShuffleGrpcServer extends ShuffleServiceGrpc.ShuffleService
         PendingRead pending = new PendingRead(request, serverResponse, Context.current());
         serverResponse.setOnCancelHandler(pending::cancel);
         serverResponse.setOnReadyHandler(pending::ready);
-        if (!tryExecute(pending::start)) {
+        if (!tryExecute(ioExecutor, pending::start)) {
             response.onError(overloaded());
         }
     }
@@ -133,7 +137,7 @@ final class CanonicalShuffleGrpcServer extends ShuffleServiceGrpc.ShuffleService
     public void cleanup(
             CleanupRequest request,
             StreamObserver<CleanupResponse> response) {
-        dispatchUnary(response, () -> engine.cleanup(request));
+        dispatchUnary(cleanupExecutor, response, () -> engine.cleanup(request));
     }
 
     @Override
@@ -141,7 +145,7 @@ final class CanonicalShuffleGrpcServer extends ShuffleServiceGrpc.ShuffleService
             RenewAccessRequest request,
             StreamObserver<RenewAccessResponse> response) {
         boolean coordinatorPeer = CoordinatorPeerInterceptor.isCoordinatorPeer();
-        dispatchUnary(response, () -> engine.renewAccess(request, coordinatorPeer));
+        dispatchUnary(ioExecutor, response, () -> engine.renewAccess(request, coordinatorPeer));
     }
 
     @Override
@@ -153,9 +157,10 @@ final class CanonicalShuffleGrpcServer extends ShuffleServiceGrpc.ShuffleService
         response.onCompleted();
     }
 
-    private <T> void dispatchUnary(StreamObserver<T> response, Operation<T> operation) {
+    private static <T> void dispatchUnary(ExecutorService executor, StreamObserver<T> response,
+            Operation<T> operation) {
         Context context = Context.current();
-        if (!tryExecute(context.wrap(() -> runUnary(response, operation, context)))) {
+        if (!tryExecute(executor, context.wrap(() -> runUnary(response, operation, context)))) {
             response.onError(overloaded());
         }
     }
@@ -205,9 +210,9 @@ final class CanonicalShuffleGrpcServer extends ShuffleServiceGrpc.ShuffleService
         T run();
     }
 
-    private boolean tryExecute(Runnable operation) {
+    private static boolean tryExecute(ExecutorService executor, Runnable operation) {
         try {
-            ioExecutor.execute(operation);
+            executor.execute(operation);
             return true;
         } catch (RejectedExecutionException rejected) {
             return false;
@@ -452,6 +457,7 @@ final class CanonicalShuffleGrpcServer extends ShuffleServiceGrpc.ShuffleService
     @Override
     public void close() {
         ioExecutor.shutdownNow();
+        cleanupExecutor.shutdownNow();
         settlements.shutdown();
         try {
             if (!settlements.awaitTermination(SETTLEMENT_SHUTDOWN_SECONDS, TimeUnit.SECONDS)) {

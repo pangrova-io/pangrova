@@ -19,8 +19,12 @@ import org.pangrova.streaming.api.checkpoint.StreamState;
 import javax.sql.DataSource;
 import java.sql.SQLException;
 import java.util.stream.Stream;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -90,6 +94,88 @@ class JdbcStreamOffsetStoreTest extends ContainerTestBase {
 
         offsetStore.acknowledge(replacement, Map.of(partition, 200L));
         assertThat(offsetStore.loadOffsets(before.streamName())).containsEntry(partition, 200L);
+    }
+
+    @Test
+    void acknowledgeAdvancesSeveralOffsetsAndIgnoresAnOlderReplay() {
+        StreamState state = insertParentStream("multi-acknowledgement");
+        var first = new TopicPartitionOffset("orders", 0);
+        var second = new TopicPartitionOffset("orders", 2);
+        var otherTopic = new TopicPartitionOffset("shipments", 0);
+        offsetStore.acknowledge(state, Map.of(first, 30L, second, 80L, otherTopic, 5L));
+        offsetStore.acknowledge(state, Map.of(first, 25L, second, 80L, otherTopic, 6L));
+        assertThat(offsetStore.loadOffsets(state.streamName()))
+                .containsExactlyInAnyOrderEntriesOf(Map.of(first, 30L, second, 80L, otherTopic, 6L));
+
+        stateStore.saveStateIfEpoch(state.withLifecycleState(StreamLifecycleState.SUSPENDED), state.epoch());
+        assertThatThrownBy(() -> offsetStore.acknowledge(state, Map.of(first, 100L, second, 100L)))
+                .isInstanceOf(StaleEpochException.class);
+        assertThat(offsetStore.loadOffsets(state.streamName()))
+                .containsExactlyInAnyOrderEntriesOf(Map.of(first, 30L, second, 80L, otherTopic, 6L));
+    }
+
+    @Test
+    void acknowledgementRechecksRevisionAfterWaitingForSuspension() throws Exception {
+        StreamState state = insertParentStream("suspension-before-acknowledgement");
+        var partition = new TopicPartitionOffset("orders", 0);
+        var acknowledge = new FutureTask<>(() -> {
+            offsetStore.acknowledge(state, Map.of(partition, 25L));
+            return null;
+        });
+        try (var connection = dataSource.getConnection();
+                var statement = connection.createStatement()) {
+            connection.setAutoCommit(false);
+            int blocker;
+            try (var rows = statement.executeQuery("SELECT pg_backend_pid()")) {
+                assertThat(rows.next()).isTrue();
+                blocker = rows.getInt(1);
+            }
+            assertThat(statement.executeUpdate("UPDATE ingestion_stream_state SET lifecycle_state = 'SUSPENDED'"))
+                    .isOne();
+            new Thread(acknowledge, "stream-offset-acknowledgement").start();
+            awaitBlockingOn(blocker);
+            connection.commit();
+            assertThatThrownBy(() -> acknowledge.get(10, TimeUnit.SECONDS))
+                    .isInstanceOf(ExecutionException.class)
+                    .hasCauseInstanceOf(StaleEpochException.class);
+        } finally {
+            acknowledge.cancel(true);
+        }
+        assertThat(offsetStore.loadOffsets(state.streamName())).isEmpty();
+    }
+
+    private void awaitBlockingOn(int blocker) throws SQLException, InterruptedException {
+        try (var connection = dataSource.getConnection();
+                var statement = connection.prepareStatement("SELECT EXISTS (SELECT 1 FROM pg_stat_activity "
+                        + "WHERE ? = ANY(pg_blocking_pids(pid)))")) {
+            statement.setInt(1, blocker);
+            long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
+            while (System.nanoTime() < deadline) {
+                try (var rows = statement.executeQuery()) {
+                    if (rows.next() && rows.getBoolean(1)) {
+                        return;
+                    }
+                }
+                Thread.sleep(20);
+            }
+        }
+        throw new AssertionError("Offset acknowledgement did not wait for the stream revision lock");
+    }
+
+    @Test
+    void rejectedOffsetRollsBackTheWholeAcknowledgement() throws SQLException {
+        StreamState state = insertParentStream("rejected-acknowledgement");
+        try (var connection = dataSource.getConnection();
+                var statement = connection.createStatement()) {
+            statement.execute("ALTER TABLE ingestion_stream_offsets ADD CHECK (committed_offset < 500)");
+        }
+        var first = new TopicPartitionOffset("orders", 0);
+        var second = new TopicPartitionOffset("orders", 1);
+        offsetStore.acknowledge(state, Map.of(first, 100L));
+        assertThatThrownBy(() -> offsetStore.acknowledge(state, Map.of(first, 300L, second, 500L)))
+                .isInstanceOf(StreamingStoreException.class)
+                .hasCauseInstanceOf(SQLException.class);
+        assertThat(offsetStore.loadOffsets(state.streamName())).containsExactlyEntriesOf(Map.of(first, 100L));
     }
 
     @Test

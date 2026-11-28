@@ -1,6 +1,9 @@
 package org.pangrova.coordinator.task;
 
 import org.pangrova.coordinator.enums.ScheduledTaskState;
+import org.pangrova.coordinator.worker.WorkerInfo;
+import org.pangrova.query.api.journal.TaskStateEvent;
+import org.pangrova.query.api.journal.TaskIssuance;
 import org.pangrova.query.api.lifecycle.QueryOperation;
 
 import java.time.Instant;
@@ -15,6 +18,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.rest.task.TaskAttemptDescriptor;
+import org.pangrova.protocol.task.CanonicalTaskAdmissionSeals;
 import org.pangrova.scheduler.api.speculation.TaskDuration;
 
 /**
@@ -22,7 +26,7 @@ import org.pangrova.scheduler.api.speculation.TaskDuration;
  * Local publication is serialized with issuance sealing; transport operations run outside that gate.
  */
 @ThreadSafe
-public class CoordinatorTaskTracker implements org.pangrova.query.recovery.RecoveredTaskRegistry {
+public class CoordinatorTaskTracker {
 
     private final ConcurrentHashMap<String, ConcurrentHashMap<String, TaskStateMachine>> queryTasks =
             new ConcurrentHashMap<>();
@@ -220,6 +224,22 @@ public class CoordinatorTaskTracker implements org.pangrova.query.recovery.Recov
         return Set.copyOf(tasks.keySet());
     }
 
+    /** Visits running task IDs without copying the query's task catalog or consulting durable state. */
+    public void visitRunningTasks(String queryId, java.util.function.Consumer<String> visitor) {
+        var tasks = queryTasks.get(queryId);
+        if (tasks == null) return;
+        tasks.forEach((taskId, state) -> {
+            if (state.getState() == ScheduledTaskState.RUNNING) visitor.accept(taskId);
+        });
+    }
+
+    /** Reads the frozen target for a non-drained physical scan still observed running. */
+    public IssuedTask runningReadTarget(String queryId, String taskId) {
+        var state = findStateMachine(queryId, taskId);
+        return state != null && state.getState() == ScheduledTaskState.RUNNING
+                ? taskIdentityStore.liveReadTarget(taskId, queryId) : null;
+    }
+
     /** Returns the most recently started task identity, when available. */
     public String getLatestStartedTaskId(String queryId) {
         Set<String> taskIds = getTaskIds(queryId);
@@ -390,8 +410,6 @@ public class CoordinatorTaskTracker implements org.pangrova.query.recovery.Recov
         return taskIdentityStore.openQuery(queryId);
     }
 
-    public void markRecoveredIssuanceUnresolved(String queryId) { taskIdentityStore.markRecoveryUnresolved(queryId); }
-
     /** Enters a query issuance operation and notifies listeners when it exits. */
     public QueryOperation enterQueryOperation(String queryId) {
         Runnable exited = taskIdentityStore.enterQueryOperation(queryId);
@@ -446,6 +464,41 @@ public class CoordinatorTaskTracker implements org.pangrova.query.recovery.Recov
         return taskIdentityStore.enterReport(request, report, resourceOnly,
                 () -> publishExecutionDrain(report.taskId()),
                 () -> notifyQueryDrainProgress(report.queryId()));
+    }
+
+    /** Installs the local attempt and target before the journal or Worker can observe this issuance. */
+    public void prepareTaskDispatch(SubmitTaskRequest request, WorkerInfo worker) {
+        var attempt = request.taskRequest().getAttempt();
+        String taskId = attempt.getTaskId();
+        String queryId = attempt.getQueryOrJobId();
+        registerTask(queryId, taskId);
+        try {
+            registerTaskRequest(taskId, request);
+            bindDispatchTarget(request, worker);
+            markScheduled(queryId, taskId);
+            assignWorker(taskId, worker.workerId());
+            setDeadline(taskId, Instant.ofEpochMilli(request.taskRequest().getDeadlineEpochMs()));
+        } catch (RuntimeException | Error failure) {
+            org.pangrova.common.lifecycle.ResourceCloser.closeAll(failure,
+                    () -> unregisterUndispatchedTask(queryId, taskId));
+            throw failure;
+        }
+    }
+
+    /** Encodes the exact frozen attempt and Worker endpoint without any discovery or journal read. */
+    public TaskStateEvent issuanceFact(SubmitTaskRequest request, WorkerInfo worker) {
+        var seal = CanonicalTaskAdmissionSeals.create(request.taskRequest());
+        var owner = seal.getAttempt().getExecutionOwner();
+        var fact = taskIdentityStore.scheduledEvent(seal.getAttempt().getTaskId());
+        var issuance = new TaskIssuance(worker.host(), worker.httpPort(), owner.getOwnerIncarnation(),
+                owner.getFencingToken(), seal.toByteArray());
+        return new TaskStateEvent(fact.context(), fact.queryId(), fact.taskId(), fact.workerId(),
+                fact.state(), fact.stageId(), fact.reportSequence(), issuance);
+    }
+
+    /** Counts assigned attempts through their exact physical release or pre-transport rollback. */
+    public int placementLoad(WorkerInfo worker) {
+        return taskIdentityStore.workerLoad(worker.workerExecutionIdentity());
     }
 
     /** Captures the actual target before transport admission, never a later WorkerId lookup. */

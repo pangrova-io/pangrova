@@ -126,7 +126,7 @@ public final class TaskStatusReceiver {
 
         boolean durableWork = isBackgroundTask(expectedRequest);
 
-        ReportOwnership ownership = reportOwnership(report, durableWork);
+        ReportOwnership ownership = reportOwnership(report, expectedRequest, durableWork);
         if (!ownership.accepted()) return false;
         if (durableWork && isFinishedState(report.state()) && !isScheduledDurableTask(report)) {
             LOG.warn("event=durable_report_rejected_unsubmitted taskId={} attempt={}",
@@ -180,7 +180,9 @@ public final class TaskStatusReceiver {
             recordExecutionDrain(expectedRequest, validation);
             boolean accepted = publication.publicationCompleted();
             if (!accepted) {
-                journalTaskEvent(report, expectedRequest);
+                if (isTerminalTaskState(report.state())) {
+                    journalTerminalReport(report, expectedRequest);
+                }
                 accepted = publication.resourceOnly() || processReservedReport(report, expectedRequest, validation,
                         ownership.owner(), durableWork);
             }
@@ -199,17 +201,30 @@ public final class TaskStatusReceiver {
         return validateRegisteredTask(report);
     }
 
-    private ReportOwnership reportOwnership(TaskStatusReport report, boolean durable) {
+    private ReportOwnership reportOwnership(TaskStatusReport report, SubmitTaskRequest issued, boolean durable) {
         WriteCommitFencer fencer = writes.fencer();
         if (fencer == null || durable) return new ReportOwnership(true, null);
         try {
             ExecutionAnchor anchor = fencer.currentAnchor(report.queryId());
-            return new ReportOwnership(anchor != null, anchor == null ? null : anchor.ownerId());
+            if (anchor == null) return new ReportOwnership(false, null);
+            if (!isTerminalTaskState(report.state()) && !matchesGrant(issued, anchor)) {
+                LOG.debug("event=progress_report_rejected_superseded_grant queryId={} taskId={}",
+                        report.queryId(), report.taskId());
+                return new ReportOwnership(false, null);
+            }
+            return new ReportOwnership(true, anchor.ownerId());
         } catch (IllegalStateException staleOwner) {
             LOG.info("event=status_report_rejected_stale_owner queryId={} taskId={}",
                     report.queryId(), report.taskId());
             return new ReportOwnership(false, null);
         }
+    }
+
+    private static boolean matchesGrant(SubmitTaskRequest issued, ExecutionAnchor anchor) {
+        var owner = issued.taskRequest().getAttempt().getExecutionOwner();
+        return anchor.fencingToken() == owner.getFencingToken()
+                && anchor.ownerId().equals(owner.getOwnerId())
+                && anchor.ownerIncarnation().equals(owner.getOwnerIncarnation());
     }
 
     private boolean isScheduledDurableTask(TaskStatusReport report) {
@@ -277,6 +292,9 @@ public final class TaskStatusReceiver {
             return true;
         }
 
+        if ("RUNNING".equals(report.state()) && stageCompletionCallback != null) {
+            stageCompletionCallback.onTaskRunning(queryId, taskId, report.stageId());
+        }
         if (isFinishedState(report.state())) {
             return speculation.handleTaskCompletion(queryId, taskId, report);
         }
@@ -423,16 +441,15 @@ public final class TaskStatusReceiver {
         return "FINISHED".equals(state) || "FAILED".equals(state) || "CANCELLED".equals(state);
     }
 
-    private void journalTaskEvent(TaskStatusReport report, SubmitTaskRequest issued) {
+    private void journalTerminalReport(TaskStatusReport report, SubmitTaskRequest issued) {
+        var attempt = issued.taskRequest().getAttempt();
+        var owner = attempt.getExecutionOwner();
         TaskStateEvent event = new TaskStateEvent(org.pangrova.coordinator.task.TaskJournalEventContext.create(
-                issued.taskRequest().getAttempt(), report.reportSequence(), report.timestampMs()),
+                attempt, report.reportSequence(), report.timestampMs()),
                 report.queryId(), report.taskId(), report.workerId(), report.state(),
-                report.stageId(), report.reportSequence());
-        if (isTerminalTaskState(report.state())) {
-            stateJournal.appendTaskEventSync(event);
-        } else {
-            stateJournal.appendTaskEvent(event);
-        }
+                report.stageId(), report.reportSequence(), null,
+                new TaskStateEvent.ReportAuthority(owner.getOwnerIncarnation(), owner.getFencingToken()));
+        stateJournal.appendTaskEventSync(event);
     }
 
     private static boolean isBackgroundTask(SubmitTaskRequest expectedRequest) {

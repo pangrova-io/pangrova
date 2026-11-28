@@ -17,6 +17,9 @@ import org.pangrova.protocol.v2.ExecutionCallbackContext;
 import org.pangrova.protocol.v2.SecurityContext;
 import org.pangrova.protocol.v2.ShufflePartitionPublication;
 import org.pangrova.protocol.v2.TaskAttemptId;
+import org.pangrova.protocol.v2.TaskReport;
+import org.pangrova.protocol.v2.TaskReportOrigin;
+import org.pangrova.protocol.v2.TaskState;
 
 /** Canonical v2 task construction and Worker-admission validation. */
 public final class CanonicalTaskRequests {
@@ -28,6 +31,41 @@ public final class CanonicalTaskRequests {
     private static final int MAX_PORT = 65_535;
 
     private CanonicalTaskRequests() {}
+
+    /** Validates Native adapter observations in the signed accounting domain. */
+    public static boolean nativeObjectReadsWithinUsage(org.pangrova.protocol.v2.TaskReport status) {
+        if (!status.hasNativeObjectReads()) return true;
+        var reads = status.getNativeObjectReads();
+        if (!status.hasUsage() || !reads.getUnknownFields().asMap().isEmpty()
+                || reads.getRequestedBytes() < 0 || reads.getReturnedBytes() < 0
+                || reads.getPayloadCalls() < 0 || reads.getMetadataCalls() < 0 || reads.getFailedCalls() < 0
+                || reads.getS3SdkAttempts() < 0 || reads.getS3SdkRetries() < 0
+                || reads.getS3ResponseBodyBytes() < 0) {
+            return false;
+        }
+        long metadataFailures = Math.max(0L, reads.getFailedCalls() - reads.getPayloadCalls());
+        return reads.getRequestedBytes() <= status.getUsage().getObjectStoreReadBytes()
+                && reads.getReturnedBytes() <= reads.getRequestedBytes()
+                && (reads.getReturnedBytes() == 0 || reads.getPayloadCalls() > 0)
+                && metadataFailures <= reads.getMetadataCalls()
+                && reads.getS3SdkRetries() <= reads.getS3SdkAttempts()
+                && (reads.getS3ResponseBodyBytes() == 0 || reads.getS3SdkAttempts() > 0);
+    }
+
+    /** Accepts Flight observations from the exact successfully delivered Native OUTPUT report. */
+    public static boolean nativeResultDeliveryMatchesOutput(TaskRequest request, TaskReport status) {
+        if (!status.hasNativeResultDelivery()) return true;
+        var delivery = status.getNativeResultDelivery();
+        return request != null && request.getExecutionOptions().getDirectResultOutput()
+                && status.getState() == TaskState.TASK_STATE_FINISHED
+                && status.getReportOrigin() == TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE
+                && delivery.getUnknownFields().asMap().isEmpty()
+                && delivery.getPayloadBatches() >= 0
+                && delivery.hasFirstPayloadNanos() == (delivery.getPayloadBatches() > 0)
+                && delivery.getFirstPayloadNanos() >= 0
+                && delivery.getFirstPayloadNanos() <= delivery.getProducerEofNanos()
+                && delivery.getProducerEofNanos() <= delivery.getTransportCompleteNanos();
+    }
 
     /** Validates canonical usage against its exact grant in Java's representable accounting domain. */
     public static boolean usageWithinGrant(ResourceUsage usage, StageResourceGrant grant) {
@@ -471,24 +509,27 @@ public final class CanonicalTaskRequests {
     private static boolean validPublications(java.util.List<ShufflePartitionPublication> publications) {
         long batches = 0;
         for (var publication : publications) {
-            if (!validPartitionPublication(publication)
-                    || publication.getLastSequence() + 1 > Long.MAX_VALUE - batches) {
+            if (!validPartitionPublication(publication)) {
                 return false;
             }
-            batches += publication.getLastSequence() + 1;
+            long count = publication.getLastSequence() - publication.getStartSequence() + 1;
+            if (count > Long.MAX_VALUE - batches) return false;
+            batches += count;
         }
         return true;
     }
 
     /** Checks coordinator-attested partition bounds before a Worker opens any external read. */
     public static boolean validPartitionPublication(ShufflePartitionPublication evidence) {
-        return evidence.hasLastSequence() && evidence.getLastSequence() >= -1
+        long first = evidence.getStartSequence();
+        long last = evidence.getLastSequence();
+        return evidence.hasLastSequence() && last >= -1 && last < Long.MAX_VALUE && first >= 0
                 && evidence.hasTotalBytes() && evidence.getTotalBytes() >= 0
                 && evidence.hasTotalRows() && evidence.getTotalRows() >= 0
                 && evidence.getManifestSha256().size() == SHA256_BYTES
-                && (evidence.getLastSequence() == -1
-                        ? evidence.getTotalBytes() == 0 && evidence.getTotalRows() == 0
-                        : evidence.getLastSequence() < Math.min(evidence.getTotalBytes(), evidence.getTotalRows()));
+                && (last == -1
+                        ? !evidence.hasStartSequence() && evidence.getTotalBytes() == 0 && evidence.getTotalRows() == 0
+                        : first <= last && last - first < Math.min(evidence.getTotalBytes(), evidence.getTotalRows()));
     }
 
     private static boolean validExternalIdentity(
@@ -566,7 +607,8 @@ public final class CanonicalTaskRequests {
     private static void validateRuntimeFilters(TaskRequest request) {
         HashSet<String> planNodeIds = new HashSet<>();
         for (var binding : request.getInitialRuntimeFiltersList()) {
-            if (binding.getPlanNodeId().isBlank()
+            if (!TaskRuntimeFilterWire.hasScanTarget(binding)
+                    || (binding.getSoleTableScan() && request.getInitialRuntimeFiltersCount() != 1)
                     || !planNodeIds.add(binding.getPlanNodeId())
                     || binding.getFiltersCount() == 0
                     || binding.getFiltersList().stream().anyMatch(filter ->

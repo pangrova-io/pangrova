@@ -10,8 +10,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
 import org.pangrova.materialization.api.enums.MaterializationKind;
-import org.pangrova.materialization.api.domain.TenantId;
-import org.pangrova.persistence.materialization.api.publication.MaterializationCatalog;
 import org.pangrova.materialization.api.port.PublishedMaterialization;
 import org.pangrova.planner.mv.MaterializedViewRewriteCatalog;
 import org.pangrova.connector.api.session.ConnectorSession;
@@ -44,8 +42,7 @@ public final class KernelMaterializedViewRewriteCatalog implements MaterializedV
     private static final Logger LOG =
             LoggerFactory.getLogger(KernelMaterializedViewRewriteCatalog.class);
 
-    private final MaterializationCatalog catalog;
-    private final TenantId tenant;
+    private final PlanningMaterializations publications;
     private final AccessControl accessControl;
     private final UserIdentity requester;
     private final String defaultCatalog;
@@ -54,12 +51,11 @@ public final class KernelMaterializedViewRewriteCatalog implements MaterializedV
     private final Instant queryStart;
     private final Consumer<PublishedMaterialization> pinner;
 
-    private KernelMaterializedViewRewriteCatalog(MaterializationCatalog catalog, TenantId tenant,
+    private KernelMaterializedViewRewriteCatalog(PlanningMaterializations publications,
             AccessControl accessControl, UserIdentity requester, String defaultCatalog,
             String defaultSchema, Duration maxStaleness, Instant queryStart,
             Consumer<PublishedMaterialization> pinner) {
-        this.catalog = catalog;
-        this.tenant = tenant;
+        this.publications = publications;
         this.accessControl = accessControl;
         this.requester = requester;
         this.defaultCatalog = defaultCatalog;
@@ -72,18 +68,17 @@ public final class KernelMaterializedViewRewriteCatalog implements MaterializedV
     /**
      * Creates a rewrite catalog that leases each candidate generation for the query.
      *
-     * @param catalog published materialization read model
-     * @param tenantId authenticated tenant
+     * @param publications query-local tenant publication directory
      * @param session authenticated connector session
      * @param accessControl authorization policy, or null to disable rewrite
      * @param queryStart planning instant
      * @param pinner leases a candidate's published generation before it is exposed
      * @return rewrite catalog when enabled
      */
-    public static Optional<MaterializedViewRewriteCatalog> create(MaterializationCatalog catalog,
-            String tenantId, ConnectorSession session, AccessControl accessControl,
+    public static Optional<MaterializedViewRewriteCatalog> create(PlanningMaterializations publications,
+            ConnectorSession session, AccessControl accessControl,
             Instant queryStart, Consumer<PublishedMaterialization> pinner) {
-        if (catalog == null || accessControl == null || tenantId == null || tenantId.isBlank()) {
+        if (publications == null || accessControl == null) {
             return Optional.empty();
         }
         Map<String, String> properties = session.getProperties();
@@ -104,8 +99,8 @@ public final class KernelMaterializedViewRewriteCatalog implements MaterializedV
             return Optional.empty();
         }
         UserIdentity identity = new UserIdentity(user, Set.of(), Map.of(), Instant.EPOCH);
-        return Optional.of(new KernelMaterializedViewRewriteCatalog(catalog,
-                new TenantId(tenantId), accessControl, identity,
+        return Optional.of(new KernelMaterializedViewRewriteCatalog(publications,
+                accessControl, identity,
                 catalogName.toLowerCase(Locale.ROOT), schemaName.toLowerCase(Locale.ROOT),
                 staleness.get(), queryStart, java.util.Objects.requireNonNull(pinner, "pinner")));
     }
@@ -113,7 +108,7 @@ public final class KernelMaterializedViewRewriteCatalog implements MaterializedV
     @Override
     public List<PublishedView> candidates(Set<String> referencedTables) {
         List<PublishedView> candidates = new ArrayList<>();
-        for (PublishedMaterialization published : catalog.listPublished(tenant)) {
+        for (PublishedMaterialization published : publications.snapshot().publications()) {
             if (published.kind() != MaterializationKind.MATERIALIZED_VIEW) {
                 continue;
             }

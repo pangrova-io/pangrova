@@ -75,6 +75,54 @@ class CanonicalTaskReportValidatorTest {
     }
 
     @Test
+    void nativeAdapterCountersMustDescribeBytesAndCallsWithinTheExactReportedUsage() {
+        var ordinary = request("COMPUTE", List.of());
+        var issued = SubmitTaskRequest.from(ordinary.taskRequest().toBuilder()
+                .setResourceGrant(ordinary.taskRequest().getResourceGrant().toBuilder().setObjectStoreReadBytes(12))
+                .build());
+        var reads = org.pangrova.protocol.v2.NativeObjectReadStats.newBuilder()
+                .setRequestedBytes(8).setReturnedBytes(4).setPayloadCalls(2).setMetadataCalls(1).setFailedCalls(1);
+        var status = TaskReport.newBuilder().setAttempt(nativeAttempt())
+                .setState(TaskState.TASK_STATE_FINISHED).setCoverage(completeCoverage())
+                .setReportOrigin(org.pangrova.protocol.v2.TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE)
+                .setUsage(ResourceUsage.newBuilder().setObjectStoreReadBytes(12))
+                .setNativeObjectReads(reads).build();
+
+        assertThat(validator.validate(report(issued, status), issued)).contains(status);
+        for (var malformed : List.of(reads.clone().setReturnedBytes(9), reads.clone().setFailedCalls(4),
+                reads.clone().setRequestedBytes(-1L), reads.clone().setRequestedBytes(13))) {
+            var invalid = status.toBuilder().setNativeObjectReads(malformed).build();
+            assertThatThrownBy(() -> validator.validate(report(issued, invalid), issued))
+                    .hasMessageContaining("object read counters");
+        }
+    }
+
+    @Test
+    void nativeFlightObservationsRequireAnExactOutputAndMonotonicPhases() {
+        var compute = request("COMPUTE", List.of());
+        var canonical = compute.taskRequest().toBuilder();
+        canonical.getExecutionOptionsBuilder().setDirectResultOutput(true);
+        var output = SubmitTaskRequest.from(canonical.build());
+        var delivery = org.pangrova.protocol.v2.NativeResultDeliveryStats.newBuilder()
+                .setPayloadBatches(2).setFirstPayloadNanos(10).setProducerEofNanos(30)
+                .setTransportCompleteNanos(40);
+        var finished = TaskReport.newBuilder().setAttempt(nativeAttempt())
+                .setState(TaskState.TASK_STATE_FINISHED).setCoverage(completeCoverage())
+                .setReportOrigin(org.pangrova.protocol.v2.TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE)
+                .setNativeResultDelivery(delivery).build();
+
+        assertThat(validator.validate(report(output, finished), output)).contains(finished);
+        assertThatThrownBy(() -> validator.validate(report(compute, finished), compute))
+                .hasMessageContaining("Native Flight observations");
+        for (var malformed : List.of(delivery.clone().clearFirstPayloadNanos(),
+                delivery.clone().setTransportCompleteNanos(20), delivery.clone().setPayloadBatches(-1))) {
+            var invalid = finished.toBuilder().setNativeResultDelivery(malformed).build();
+            assertThatThrownBy(() -> validator.validate(report(output, invalid), output))
+                    .hasMessageContaining("Native Flight observations");
+        }
+    }
+
+    @Test
     void shufflePayloadObservationDoesNotConsumeAnExecutionGrant() {
         var issued = request("COMPUTE", List.of());
         assertThat(issued.taskRequest().getResourceGrant().getShuffleSendBytes()).isZero();
@@ -287,6 +335,9 @@ class CanonicalTaskReportValidatorTest {
                 .setAttempt(request.taskRequest().getAttempt())
                 .setState(TaskState.TASK_STATE_FAILED)
                 .setUsage(observedUsage)
+                .setNativeObjectReads(org.pangrova.protocol.v2.NativeObjectReadStats.newBuilder()
+                        .setMetadataCalls(1).setFailedCalls(1)
+                        .setS3SdkAttempts(2).setS3SdkRetries(1).setS3ResponseBodyBytes(7))
                 .setError(ExecutionError.newBuilder()
                         .setErrorClass(ErrorClass.ERROR_CLASS_PROVIDER)
                         .setCode("PROVIDER_FAILED")
@@ -299,6 +350,7 @@ class CanonicalTaskReportValidatorTest {
                         "provider rejected request"), nativeFailure);
 
         assertThat(status.getUsage()).isEqualTo(observedUsage);
+        assertThat(status.getNativeObjectReads()).isEqualTo(nativeFailure.getNativeObjectReads());
         assertThat(status.getError().getCode()).isEqualTo("PROVIDER_FAILED");
         assertThat(status.getError().getFailedComponent()).isEqualTo("provider");
         assertThat(status.getReportOrigin())
@@ -306,6 +358,18 @@ class CanonicalTaskReportValidatorTest {
                         .TASK_REPORT_ORIGIN_WORKER_RECONCILED);
         assertThat(validator.validate(report(request, status, "FAILED"), request))
                 .contains(status);
+    }
+
+    @Test
+    void rejectsS3RetriesExceedingActualAttempts() throws Exception {
+        SubmitTaskRequest request = request("COMPUTE", List.of());
+        TaskReport invalid = TaskReport.newBuilder()
+                .setAttempt(request.taskRequest().getAttempt()).setState(TaskState.TASK_STATE_FAILED)
+                .setUsage(ResourceUsage.getDefaultInstance())
+                .setNativeObjectReads(org.pangrova.protocol.v2.NativeObjectReadStats.newBuilder()
+                        .setS3SdkAttempts(1).setS3SdkRetries(2))
+                .build();
+        assertThat(org.pangrova.protocol.task.CanonicalTaskRequests.nativeObjectReadsWithinUsage(invalid)).isFalse();
     }
 
     @Test
@@ -767,6 +831,7 @@ class CanonicalTaskReportValidatorTest {
     }
 
     private static String taskType(SubmitTaskRequest request) {
+        if (request.taskRequest().getExecutionOptions().getDirectResultOutput()) return "OUTPUT";
         return switch (request.taskRequest().getTaskKind()) {
             case TASK_KIND_BACKGROUND_BUILD -> "BACKGROUND_BUILD";
             case TASK_KIND_BACKGROUND_EXPORT -> "BACKGROUND_EXPORT";

@@ -31,24 +31,49 @@ public record DAGExecutionState(StageExecutionContext execution, StageDAG dag, S
         ConcurrentHashMap<Integer, DispatchResult> results, CompletableFuture<DispatchResult> completion,
         AtomicBoolean cancelled, AtomicInteger runningStageCount, AtomicInteger downstreamWakeups,
         ConcurrentHashMap<Integer, Throwable> dispatchFailures, Consumer<DispatchResult> resultReadySink,
-        BuildFilterGate buildFilter) {
+        List<BuildFilterGate> buildFilters) {
+    public DAGExecutionState {
+        buildFilters = List.copyOf(buildFilters);
+    }
+
+    @Override
+    public List<BuildFilterGate> buildFilters() {
+        return List.copyOf(buildFilters);
+    }
+
     /** Allocates only volatile bookkeeping, never a second planning or execution path. */
     public static DAGExecutionState create(StageExecutionContext execution, StageDAG dag, SqlCompiler compiler,
             WorkerSelector selector, DurableStageRuntime durable, Consumer<DispatchResult> sink) {
-        return create(execution, dag, compiler, selector, durable, sink, null);
+        return create(execution, dag, compiler, selector, durable, sink, List.of());
     }
 
-    /** Installs a gate for an eligible live read query. */
+    /** Installs the independently selected gates for an eligible live read query. */
     public static DAGExecutionState create(StageExecutionContext execution, StageDAG dag, SqlCompiler compiler,
             WorkerSelector selector, DurableStageRuntime durable, Consumer<DispatchResult> sink,
-            BuildFilterGate buildFilter) {
+            List<BuildFilterGate> buildFilters) {
         return new DAGExecutionState(execution, dag, compiler, selector, durable, new CopyOnWriteArrayList<>(),
                 new ConcurrentHashMap<>(), new CompletableFuture<>(), new AtomicBoolean(), new AtomicInteger(),
                 new AtomicInteger(),
-                new ConcurrentHashMap<>(), sink, buildFilter);
+                new ConcurrentHashMap<>(), sink, buildFilters);
     }
     public String queryId() { return execution.executionId(); }
     public QuerySession session() { return execution.requireLiveSession(); }
+
+    /** Looks up the independent gate that can delay this probe. */
+    public BuildFilterGate filterForProbe(int stageId) {
+        for (var filter : buildFilters) {
+            if (filter.isProbe(stageId)) return filter;
+        }
+        return null;
+    }
+
+    /** Looks up the independent gate that needs this build's winning summaries. */
+    public BuildFilterGate filterForBuild(int stageId) {
+        for (var filter : buildFilters) {
+            if (filter.plan().buildStageId() == stageId) return filter;
+        }
+        return null;
+    }
 
     /** Compiles the actual live stage with the pre-optimization output ordinal names. */
     public CompiledStagePlan compilePlan(
@@ -77,16 +102,16 @@ public record DAGExecutionState(StageExecutionContext execution, StageDAG dag, S
     }
 
     private List<StageTransfer> incomingTransfers(int stageId) {
-        return dag.stageEdges().stream().filter(edge -> edge.downstreamStageId() == stageId)
+        return dag.incomingEdges(stageId).stream()
                 .map(edge -> new StageTransfer(edge.upstreamStageId(), edge.downstreamStageId(),
                         edge.shuffleType(), edge.distributionKeys(), edge.exchangeId(), edge.partitionCount(),
                         edge.batchSerde(), edge.requireComplete())).toList();
     }
 
     private Map<Integer, List<ByteString>> producerPlans(List<StageTransfer> incoming) {
+        var producers = incoming.stream().map(StageTransfer::upstreamStageId).collect(Collectors.toSet());
         return dispatched.stream()
-                .filter(record -> record.request() != null)
-                .filter(record -> incoming.stream().anyMatch(edge -> edge.upstreamStageId() == record.stageId()))
+                .filter(record -> record.request() != null && producers.contains(record.stageId()))
                 .collect(Collectors.groupingBy(StageDispatchRecord::stageId,
                         Collectors.mapping(record -> record.request().taskRequest().getSubstraitPlan(),
                                 Collectors.toList())));

@@ -4,7 +4,10 @@ import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.coordinator.query.stage.StageDAG;
+import org.pangrova.observability.api.metrics.MetricsProvider;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
+import org.pangrova.protocol.v2.NativeObjectReadStats;
+import org.pangrova.protocol.v2.NativeResultDeliveryStats;
 import org.pangrova.protocol.v2.NativeTaskStats;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.protocol.v2.TaskReport;
@@ -25,6 +28,17 @@ public final class QueryOperatorStatsRegistry implements OperatorStatsSource {
             .thenComparingInt(Attempt::partitionId).thenComparingLong(Attempt::planEpoch)
             .thenComparingInt(Attempt::attemptId).thenComparing(Attempt::taskId);
 
+    private final QueryStageMetrics stageMetrics;
+
+    public QueryOperatorStatsRegistry() {
+        this(null);
+    }
+
+    /** Registers process-wide metrics once, when a provider is supplied. */
+    public QueryOperatorStatsRegistry(MetricsProvider metricsProvider) {
+        stageMetrics = metricsProvider == null ? null : new QueryStageMetrics(metricsProvider);
+    }
+
     private final Cache<String, QueryTelemetry> byQuery = Caffeine.newBuilder()
             .maximumSize(MAX_QUERIES)
             .expireAfterAccess(RETENTION)
@@ -34,11 +48,15 @@ public final class QueryOperatorStatsRegistry implements OperatorStatsSource {
     public void record(TaskAttemptId attempt, TaskStatusReport report, TaskReport canonical) {
         NativeTaskStats stats = canonical != null && canonical.hasNativeTaskStats()
                 ? canonical.getNativeTaskStats() : report.supplementalStats();
-        if (stats == null || stats.getOperatorStatsCount() == 0) return;
+        var reads = canonical != null && canonical.hasNativeObjectReads() ? canonical.getNativeObjectReads() : null;
+        var delivery = canonical != null && canonical.hasNativeResultDelivery()
+                ? canonical.getNativeResultDelivery() : null;
+        if (reads == null && delivery == null && (stats == null || stats.getOperatorStatsCount() == 0)) return;
+        var sampleStats = stats == null ? NativeTaskStats.getDefaultInstance() : stats;
         var attempts = byQuery.get(attempt.getQueryOrJobId(), ignored -> new QueryTelemetry()).attempts;
         long sequence = report.reportSequence();
         attempts.compute(attempt, (ignored, previous) -> previous == null || sequence > previous.sequence()
-                ? new Sample(report.workerId(), report.state(), sequence, stats) : previous);
+                ? new Sample(report.workerId(), report.state(), sequence, sampleStats, reads, delivery) : previous);
     }
 
     @Override
@@ -54,7 +72,7 @@ public final class QueryOperatorStatsRegistry implements OperatorStatsSource {
 
     /** Copies only the public execution coordinates before the first stage can dispatch. */
     public QueryStageObservations beginExecution(String queryId, StageDAG dag) {
-        var observation = new QueryStageObservations(dag);
+        var observation = new QueryStageObservations(dag, stageMetrics);
         byQuery.get(queryId, ignored -> new QueryTelemetry()).observations = observation;
         return observation;
     }
@@ -71,7 +89,8 @@ public final class QueryOperatorStatsRegistry implements OperatorStatsSource {
         private volatile QueryStageObservations observations;
     }
 
-    private record Sample(String workerId, String state, long sequence, NativeTaskStats stats) {
+    private record Sample(String workerId, String state, long sequence, NativeTaskStats stats,
+            NativeObjectReadStats reads, NativeResultDeliveryStats delivery) {
         Attempt toAttempt(TaskAttemptId attempt) {
             var operators = stats.getOperatorStatsList().stream()
                     .map(op -> new Metric(op.getOperatorType(), op.getPlanNodeId(), op.getInputRows(),
@@ -82,7 +101,20 @@ public final class QueryOperatorStatsRegistry implements OperatorStatsSource {
                     .toList();
             return new Attempt(attempt.getStageId(), attempt.getPartitionId(), attempt.getPlanEpoch(),
                     attempt.getAttemptId(), attempt.getTaskId(), workerId, state, sequence,
-                    stats.getElapsedTimeMs(), stats.getCpuTimeMs(), stats.getBackpressureWaitMs(), operators);
+                    stats.getElapsedTimeMs(), stats.getCpuTimeMs(), stats.getBackpressureWaitMs(),
+                    operators, objectReads(), resultDelivery());
+        }
+
+        private ResultDelivery resultDelivery() {
+            return delivery == null ? null : new ResultDelivery(delivery.getPayloadBatches(),
+                    delivery.hasFirstPayloadNanos() ? delivery.getFirstPayloadNanos() : null,
+                    delivery.getProducerEofNanos(), delivery.getTransportCompleteNanos());
+        }
+
+        private ObjectReads objectReads() {
+            return reads == null ? null : new ObjectReads(reads.getRequestedBytes(), reads.getReturnedBytes(),
+                    reads.getPayloadCalls(), reads.getMetadataCalls(), reads.getFailedCalls(),
+                    reads.getS3SdkAttempts(), reads.getS3SdkRetries(), reads.getS3ResponseBodyBytes());
         }
     }
 }

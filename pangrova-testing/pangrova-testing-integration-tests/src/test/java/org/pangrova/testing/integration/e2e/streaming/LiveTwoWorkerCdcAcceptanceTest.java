@@ -207,7 +207,8 @@ class LiveTwoWorkerCdcAcceptanceTest extends ContainerTestBase {
                 journal,
                 intent -> {
                     metadata.finishDistributedWrite(
-                            SESSION, output, intent.fragments(), intent.commitContext());
+                            SESSION, output, intent.fragments(),
+                            journal.publicationContext(intent, intent.executionFencingToken()));
                     published.add(intent);
                 },
                 (source, offsets, fingerprint) -> acknowledged.add(Map.copyOf(offsets)),
@@ -221,8 +222,8 @@ class LiveTwoWorkerCdcAcceptanceTest extends ContainerTestBase {
             String attempt) {
         try (CdcSourceReader reader = sources.open("kafka", attempt,
                 sourceProperties("plan-" + attempt))) {
-            return CdcTaskPlanner.plan(stream(), reader, writePlan, Map.of(),
-                    2L, 1, attempt("cdc-" + attempt), security(), grant(),
+            return CdcTaskPlanner.plan(stream(), CdcTaskPlanner.SourceOffsets.observe(reader), writePlan, Map.of(),
+                    2L, Long.MAX_VALUE, 1, attempt("cdc-" + attempt), security(), grant(),
                     System.currentTimeMillis() + 120_000L,
                     output.tableUuid(), output.baseSnapshotId());
         }

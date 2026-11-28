@@ -34,7 +34,7 @@ class QueryResourceIdempotencyTest {
                 new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry()),
                 new CoordinatorTaskTracker(), journal);
         var resource = new QueryResource(queries, null, null,
-                new OtelExecutionTraceContextFactory(), new QueryStatusWaits(Runnable::run));
+                new OtelExecutionTraceContextFactory(), new QueryStatusWaits(Runnable::run, null), () -> null, null);
         try {
             var request = new SubmitQueryRequest("SELECT 1", Map.of());
             SubmitQueryResponse original = submit(resource, "alice", "key-a", request);
@@ -44,10 +44,17 @@ class QueryResourceIdempotencyTest {
             assertThat(original.queryId()).isNotBlank();
             assertThat(replay).isEqualTo(original);
             assertThat(otherPrincipal.queryId()).isNotEqualTo(original.queryId());
+            SubmitQueryResponse fresh = submit(resource, "alice", null, request);
+            assertThat(fresh.state()).isEqualTo("QUEUED");
+            assertThat(fresh.resultDisposition()).isEqualTo(org.pangrova.common.enums.ResultDisposition.PENDING);
+            assertThat(submit(resource, "alice", null, request).queryId()).isNotEqualTo(fresh.queryId());
+            assertThat(submit(resource, "alice", fresh.queryId(), request).queryId()).isNotEqualTo(fresh.queryId());
             assertThatThrownBy(() -> submit(resource, "alice", "key-a",
                     new SubmitQueryRequest("SELECT 2", Map.of())))
                     .isInstanceOf(IdempotencyConflictException.class);
             assertThatThrownBy(() -> submit(resource, null, "key-a", request))
+                    .isInstanceOf(AuthenticationRequiredException.class);
+            assertThatThrownBy(() -> submit(resource, null, null, request))
                     .isInstanceOf(AuthenticationRequiredException.class);
         } finally {
             journal.close();

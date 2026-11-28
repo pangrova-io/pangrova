@@ -301,6 +301,8 @@ class VeloxTaskRunner
   std::shared_ptr<pangrova::result::ResultPayloadQueue> result_queue_;
   std::unique_ptr<pangrova::result::ResultPayloadProducer> result_producer_;
   std::atomic<bool> cancelled_{false};
+  std::mutex dynamic_filter_publication_mutex_;
+  bool dynamic_filter_publication_closed_ = false;
   mutable std::mutex error_mutex_;
   std::string error_message_;
   std::once_flag cleanup_once_;

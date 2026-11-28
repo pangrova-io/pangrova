@@ -1,7 +1,7 @@
 LogicalSort(sort0=[$0], sort1=[$1], sort2=[$2], dir0=[ASC], dir1=[ASC], dir2=[ASC])
   LogicalAggregate(group=[{0, 1, 2}], revenue=[SUM($3)])
     LogicalProject(supp_nation=[$12], cust_nation=[$14], l_year=[EXTRACT(FLAG(YEAR), $6)], volume=[*($4, -(1, $5))])
-      LogicalJoin(condition=[AND(=($10, $13), OR(AND(=($12, 'FRANCE'), =($14, 'GERMANY')), AND(=($12, 'GERMANY'), =($14, 'FRANCE'))))], joinType=[inner])
+      LogicalJoin(condition=[AND(=($10, $13), OR(AND(=($12, _UTF-8'FRANCE'), =($14, _UTF-8'GERMANY')), AND(=($12, _UTF-8'GERMANY'), =($14, _UTF-8'FRANCE'))))], joinType=[inner])
         LogicalJoin(condition=[=($1, $11)], joinType=[inner])
           LogicalJoin(condition=[=($9, $8)], joinType=[inner])
             LogicalJoin(condition=[=($7, $2)], joinType=[inner])

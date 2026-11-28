@@ -267,6 +267,22 @@ class IcebergMetadataTest {
     }
 
     @Test
+    void resolvesOnlyReferencesOfTheRequestedKind() {
+        createNamespace("db");
+        var tableName = new SchemaTableName("db", "orders");
+        var table = catalog.createTable(TableIdentifier.of("db", "orders"), TEST_SCHEMA);
+        appendSyntheticFile(table, "first.parquet");
+        long snapshot = table.currentSnapshot().snapshotId();
+        table.manageSnapshots().createBranch("feature", snapshot).createTag("release", snapshot).commit();
+
+        assertThat(metadata.resolveRefSnapshotId(SESSION, tableName, "BRANCH", "feature")).hasValue(snapshot);
+        assertThat(metadata.resolveRefSnapshotId(SESSION, tableName, "TAG", "release")).hasValue(snapshot);
+        assertThat(metadata.resolveRefSnapshotId(SESSION, tableName, "BRANCH", "release")).isEmpty();
+        assertThat(metadata.resolveRefSnapshotId(SESSION, tableName, "TAG", "feature")).isEmpty();
+        assertThat(metadata.resolveRefSnapshotId(SESSION, tableName, "TAG", "missing")).isEmpty();
+    }
+
+    @Test
     void listSnapshotReferences_emptyTableReturnsEmptyCatalogList() {
         createNamespace("db");
         catalog.createTable(TableIdentifier.of("db", "empty_orders"), TEST_SCHEMA);

@@ -4,10 +4,12 @@ import org.pangrova.coordinator.scheduler.TaskDispatcher;
 import org.pangrova.coordinator.scheduler.placement.WorkerSelector;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
-import org.pangrova.protocol.rest.task.TaskAttemptDescriptor;
+import org.pangrova.query.api.journal.TaskStateEvent;
 import org.pangrova.protocol.v2.TaskRequest;
 
+import java.util.List;
 import java.util.Objects;
+import java.util.function.Consumer;
 
 /** Real Coordinator transport adapter for one planned CDC task. */
 public final class WorkerCdcTaskDispatcher implements CdcTaskDispatchPort {
@@ -15,14 +17,18 @@ public final class WorkerCdcTaskDispatcher implements CdcTaskDispatchPort {
     private final TaskDispatcher dispatcher;
     private final WorkerSelector selector;
     private final CoordinatorTaskTracker tracker;
+    private final Consumer<List<TaskStateEvent>> recordIssuances;
 
+    /** Uses the shared execution journal to fence CDC issuance before the Worker can start. */
     public WorkerCdcTaskDispatcher(
             TaskDispatcher dispatcher,
             WorkerSelector selector,
-            CoordinatorTaskTracker tracker) {
+            CoordinatorTaskTracker tracker,
+            Consumer<List<TaskStateEvent>> recordIssuances) {
         this.dispatcher = Objects.requireNonNull(dispatcher, "dispatcher");
         this.selector = Objects.requireNonNull(selector, "selector");
         this.tracker = Objects.requireNonNull(tracker, "tracker");
+        this.recordIssuances = Objects.requireNonNull(recordIssuances, "recordIssuances");
     }
 
     @Override
@@ -34,13 +40,13 @@ public final class WorkerCdcTaskDispatcher implements CdcTaskDispatchPort {
         var submitted = dispatcher.bindControlIdentity(
                 dispatcher.bindWorkerIdentity(SubmitTaskRequest.from(request), worker));
         org.pangrova.protocol.task.CanonicalTaskRequests.validateForAdmission(submitted.taskRequest());
-        tracker.registerTask(queryId, taskId);
+        var issuedOwner = submitted.taskRequest().getAttempt().getExecutionOwner();
+        if (!issuedOwner.equals(request.getAttempt().getExecutionOwner())) {
+            throw new IllegalStateException("CDC request changed its execution owner while binding the Worker");
+        }
+        tracker.prepareTaskDispatch(submitted, worker);
         try {
-            tracker.registerTaskRequest(taskId, submitted);
-            tracker.registerTaskAttempt(taskId, TaskAttemptDescriptor.from(submitted.taskRequest().getAttempt()));
-            tracker.bindDispatchTarget(submitted, worker);
-            tracker.assignWorker(taskId, worker.workerId());
-            tracker.markScheduled(queryId, taskId);
+            recordIssuances.accept(List.of(tracker.issuanceFact(submitted, worker)));
             tracker.enterTaskDispatch(submitted);
         } catch (RuntimeException | Error failure) {
             try {
@@ -50,6 +56,9 @@ public final class WorkerCdcTaskDispatcher implements CdcTaskDispatchPort {
             }
             throw failure;
         }
-        dispatcher.dispatch(submitted, worker);
+        var acknowledged = dispatcher.dispatchBound(submitted, worker);
+        if (acknowledged == null || !taskId.equals(acknowledged.taskId())) {
+            throw new IllegalStateException("Worker acknowledgement changed the issued CDC task identity");
+        }
     }
 }

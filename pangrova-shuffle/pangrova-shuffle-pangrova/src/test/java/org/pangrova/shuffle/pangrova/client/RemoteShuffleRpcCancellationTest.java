@@ -6,6 +6,7 @@ import io.grpc.ServerBuilder;
 import io.grpc.stub.StreamObserver;
 import org.junit.jupiter.api.Test;
 import org.pangrova.protocol.v2.ShuffleAccessCapability;
+import org.pangrova.protocol.v2.ShufflePartitionPublication;
 import org.pangrova.protocol.v2.TaskAdmissionSealRequest;
 import org.pangrova.protocol.v2.shuffle.CommitProducerAttemptRequest;
 import org.pangrova.protocol.v2.shuffle.CommitProducerAttemptResponse;
@@ -45,7 +46,8 @@ class RemoteShuffleRpcCancellationTest {
             var lease = pool.borrow(new ShuffleServiceAddress("127.0.0.1", server.getPort(), ""));
             var context = new ExchangeChannelContext(attempt(), 0, System.currentTimeMillis() + 60_000);
             var binding = new PangrovaPartitionRead("shuffle", context, 2, 4, new byte[32],
-                    new org.pangrova.shuffle.api.ShuffleCommitReceipt.Partition(-1, 0, 0, "00".repeat(32)));
+                    ShufflePartitionPublication.newBuilder().setLastSequence(-1).setTotalBytes(0).setTotalRows(0)
+                            .setManifestSha256(ByteString.copyFrom(new byte[32])).build());
             var grant = new ShuffleAccess(new byte[] {1}, System.currentTimeMillis() + 10_000);
             try (var source = new RemoteShuffleExchangeSource(binding, grant, lease)) {
                 assertThat(service.reading.await(5, TimeUnit.SECONDS)).isTrue();

@@ -6,7 +6,9 @@ import org.pangrova.connector.api.query.ConnectorQueryAuthority;
 import org.pangrova.observability.api.tracing.ExecutionTraceContext;
 
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 import static org.pangrova.common.util.Preconditions.checkNotNull;
 
@@ -27,7 +29,8 @@ public record QuerySession(
         ExecutionTraceContext traceContext,
         Map<String, Long> sourceSnapshots,
         Map<String, SnapshotRange> sourceIncrementalRanges,
-        boolean internalMaterializationExecution
+        boolean internalMaterializationExecution,
+        OptionalLong publicationRevision
 ) {
 
     public QuerySession {
@@ -44,6 +47,10 @@ public record QuerySession(
         }
         queryAuthority = checkNotNull(queryAuthority, "queryAuthority must not be null");
         traceContext = checkNotNull(traceContext, "traceContext must not be null");
+        publicationRevision = checkNotNull(publicationRevision, "publicationRevision");
+        if (publicationRevision.isPresent() && (publicationRevision.getAsLong() < 0 || queryAuthority.isEmpty())) {
+            throw new IllegalArgumentException("Publication revision requires a valid admitted query");
+        }
         queryAuthority.ifPresent(authority -> {
             if (!queryId.equals(authority.queryId())) {
                 throw new IllegalArgumentException("Session queryId differs from its issued authority");
@@ -56,13 +63,13 @@ public record QuerySession(
             UserIdentity userIdentity, String tenantId, Optional<ConnectorQueryAuthority> queryAuthority,
             ExecutionTraceContext traceContext) {
         this(queryId, sessionProperties, userIdentity, tenantId, queryAuthority, traceContext,
-                Map.of(), Map.of(), false);
+                Map.of(), Map.of(), false, OptionalLong.empty());
     }
 
     public QuerySession withTraceContext(ExecutionTraceContext context) {
         return new QuerySession(
                 queryId, sessionProperties, userIdentity, tenantId, queryAuthority, context,
-                sourceSnapshots, sourceIncrementalRanges, internalMaterializationExecution);
+                sourceSnapshots, sourceIncrementalRanges, internalMaterializationExecution, publicationRevision);
     }
 
     /**
@@ -77,14 +84,22 @@ public record QuerySession(
     public QuerySession withSessionProperties(Map<String, String> properties) {
         return new QuerySession(queryId, properties, userIdentity, tenantId,
                 queryAuthority, traceContext, sourceSnapshots, sourceIncrementalRanges,
-                internalMaterializationExecution);
+                internalMaterializationExecution, publicationRevision);
     }
 
-    /** Replaces the resolved tenant while retaining all trusted execution state. */
+    /** Replaces the resolved tenant, dropping any revision for a different tenant. */
     public QuerySession withTenantId(String resolvedTenantId) {
         return new QuerySession(queryId, sessionProperties, userIdentity, resolvedTenantId,
                 queryAuthority, traceContext, sourceSnapshots, sourceIncrementalRanges,
-                internalMaterializationExecution);
+                internalMaterializationExecution, Objects.equals(tenantId, resolvedTenantId)
+                        ? publicationRevision : OptionalLong.empty());
+    }
+
+    /** Binds the tenant publication revision returned by execution admission. */
+    public QuerySession withPublicationRevision(OptionalLong revision) {
+        return new QuerySession(queryId, sessionProperties, userIdentity, tenantId,
+                queryAuthority, traceContext, sourceSnapshots, sourceIncrementalRanges,
+                internalMaterializationExecution, revision);
     }
 
     /** Binds the actual engine-owned query lifetime without altering the authenticated actor. */
@@ -94,7 +109,7 @@ public record QuerySession(
         }
         return new QuerySession(queryId, sessionProperties, userIdentity, tenantId,
                 Optional.of(authority), traceContext, sourceSnapshots, sourceIncrementalRanges,
-                internalMaterializationExecution);
+                internalMaterializationExecution, publicationRevision);
     }
 
     /**
@@ -105,7 +120,8 @@ public record QuerySession(
             throw new IllegalStateException("An admitted session cannot change its query identity");
         }
         return new QuerySession(newQueryId, sessionProperties, userIdentity, tenantId, queryAuthority,
-                traceContext, sourceSnapshots, sourceIncrementalRanges, internalMaterializationExecution);
+                traceContext, sourceSnapshots, sourceIncrementalRanges,
+                internalMaterializationExecution, publicationRevision);
     }
 
     /**
@@ -121,13 +137,13 @@ public record QuerySession(
     public QuerySession withSourceSnapshots(Map<String, Long> snapshots) {
         return new QuerySession(queryId, sessionProperties, userIdentity, tenantId,
                 queryAuthority, traceContext, snapshots, sourceIncrementalRanges,
-                internalMaterializationExecution);
+                internalMaterializationExecution, publicationRevision);
     }
 
     /**
-     * Binds incremental snapshot ranges resolved by the materialization kernel.
+     * Binds incremental snapshot ranges resolved from SQL or a materialization refresh plan.
      *
-     * <p>Like exact source snapshots, these selectors are trusted kernel output
+     * <p>Like exact source snapshots, these selectors are resolved by the engine
      * and never originate from client session properties. A source bound here
      * reads only {@code (fromExclusive, toInclusive]}, which is what makes an
      * append-only refresh read the appended delta rather than the whole table.
@@ -138,7 +154,7 @@ public record QuerySession(
     public QuerySession withSourceIncrementalRanges(Map<String, SnapshotRange> ranges) {
         return new QuerySession(queryId, sessionProperties, userIdentity, tenantId,
                 queryAuthority, traceContext, sourceSnapshots, ranges,
-                internalMaterializationExecution);
+                internalMaterializationExecution, publicationRevision);
     }
 
     /** Binds the durable definer identity under which kernel-authored execution runs. */
@@ -146,7 +162,7 @@ public record QuerySession(
         return new QuerySession(queryId, sessionProperties,
                 checkNotNull(identity, "identity must not be null"), tenantId, queryAuthority,
                 traceContext, sourceSnapshots, sourceIncrementalRanges,
-                internalMaterializationExecution);
+                internalMaterializationExecution, publicationRevision);
     }
 
     /**
@@ -162,6 +178,6 @@ public record QuerySession(
      */
     public QuerySession withInternalMaterializationExecution() {
         return new QuerySession(queryId, sessionProperties, userIdentity, tenantId,
-                queryAuthority, traceContext, sourceSnapshots, sourceIncrementalRanges, true);
+                queryAuthority, traceContext, sourceSnapshots, sourceIncrementalRanges, true, publicationRevision);
     }
 }

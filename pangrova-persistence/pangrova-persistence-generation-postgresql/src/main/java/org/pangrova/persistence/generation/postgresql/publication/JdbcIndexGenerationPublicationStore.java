@@ -44,7 +44,6 @@ public final class JdbcIndexGenerationPublicationStore
     private final GenerationTransactionAuthority transactionAuthority;
     private final GenerationExecutionTransactionFence executionFence;
     private final GenerationTransactionInputs inputs;
-    private final GenerationPublicationOutputValidator outputValidator;
 
     /** Composes index publication with current authority, execution fencing and same-connection input reads. */
     public JdbcIndexGenerationPublicationStore(
@@ -53,7 +52,6 @@ public final class JdbcIndexGenerationPublicationStore
         this.transactionAuthority = java.util.Objects.requireNonNull(transactionAuthority, "transactionAuthority");
         this.executionFence = java.util.Objects.requireNonNull(executionFence, "executionFence");
         this.inputs = Objects.requireNonNull(inputs, "inputs");
-        this.outputValidator = new GenerationPublicationOutputValidator(inputs);
         this.dataSource = Objects.requireNonNull(dataSource, "dataSource must not be null");
     }
 
@@ -71,11 +69,12 @@ public final class JdbcIndexGenerationPublicationStore
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try {
-                transactionAuthority.requireCurrent(connection, claimedJob.tenantId(), claimedJob.jobId());
+                var dispatch = transactionAuthority.requireCurrent(
+                        connection, claimedJob.tenantId(), claimedJob.jobId());
                 executionFence.requirePublication(connection, claimedJob.tenantId(), claimedJob.jobId());
                 JobRow job = lockClaimedJob(connection, claimedJob, owner, ownerEpoch, now);
                 List<GenerationOutput> outputs =
-                        outputValidator.loadAndValidate(connection, job);
+                        GenerationPublicationOutputValidator.loadAndValidate(connection, job, dispatch.stageGraph());
                 Aggregate aggregate = aggregate(job, outputs);
                 try (PreparedStatement schemaLock = connection.prepareStatement(
                         "SELECT pangrova_assert_index_schema_descriptor_available(?)")) {

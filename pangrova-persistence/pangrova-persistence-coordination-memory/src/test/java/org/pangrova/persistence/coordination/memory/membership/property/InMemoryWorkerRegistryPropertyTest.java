@@ -31,7 +31,7 @@ class InMemoryWorkerRegistryPropertyTest {
     /** Intermediate record to hold the remaining 6 fields of WorkerSnapshot. */
     private record MetricsPart(
             String memoryPressure, double cpuUtilization,
-            int runningTaskCount, long availableMemoryBytes,
+            int inFlightTaskCount, long availableMemoryBytes,
             long lastHeartbeatMs, long registeredAtMs) {}
 
     @Provide
@@ -61,7 +61,7 @@ class InMemoryWorkerRegistryPropertyTest {
         return Combinators.combine(identity, metrics).as((id, m) -> new WorkerSnapshot(
                 id.workerId(), id.host(), id.httpPort(), id.transportPort(),
                 2, id.rackId(), id.dataLocality(),
-                m.memoryPressure(), m.cpuUtilization(), m.runningTaskCount(),
+                m.memoryPressure(), m.cpuUtilization(), m.inFlightTaskCount(),
                 m.availableMemoryBytes(), m.lastHeartbeatMs(), m.registeredAtMs(),
                 0, null, "dGVzdA==",
                 "00000000-0000-0000-0000-0000000000d1", "00000000-0000-0000-0000-0000000000e1"));
@@ -120,7 +120,7 @@ class InMemoryWorkerRegistryPropertyTest {
 
     /**
      * For any registered worker and any HeartbeatSnapshot, after heartbeat(),
-     * the dynamic fields (memoryPressure, cpuUtilization, runningTaskCount,
+     * the dynamic fields (memoryPressure, cpuUtilization, inFlightTaskCount,
      * availableMemoryBytes) match the heartbeat snapshot.
      */
     @Property(tries = 10)
@@ -136,7 +136,7 @@ class InMemoryWorkerRegistryPropertyTest {
         var updated = registry.getWorker(worker.workerId()).orElseThrow();
         assertThat(updated.memoryPressure()).isEqualTo(heartbeat.memoryPressure());
         assertThat(updated.cpuUtilization()).isEqualTo(heartbeat.cpuUtilization());
-        assertThat(updated.runningTaskCount()).isEqualTo(heartbeat.runningTaskCount());
+        assertThat(updated.inFlightTaskCount()).isEqualTo(heartbeat.inFlightTaskCount());
         assertThat(updated.availableMemoryBytes()).isEqualTo(heartbeat.availableMemoryBytes());
         assertThat(updated.lastHeartbeatMs()).isGreaterThanOrEqualTo(beforeHeartbeat);
     }
@@ -159,7 +159,7 @@ class InMemoryWorkerRegistryPropertyTest {
                 template.protocolVersion(),
                 template.rackId(), template.dataLocality(),
                 template.memoryPressure(), template.cpuUtilization(),
-                template.runningTaskCount(), template.availableMemoryBytes(),
+                template.inFlightTaskCount(), template.availableMemoryBytes(),
                 now, template.registeredAtMs(), template.resultServerPort(),
                 template.cacheSummary(), template.capabilityInventory(),
                 "00000000-0000-0000-0000-0000000000d1", "00000000-0000-0000-0000-0000000000e1");
@@ -170,7 +170,7 @@ class InMemoryWorkerRegistryPropertyTest {
                 template.protocolVersion(),
                 template.rackId(), template.dataLocality(),
                 template.memoryPressure(), template.cpuUtilization(),
-                template.runningTaskCount(), template.availableMemoryBytes(),
+                template.inFlightTaskCount(), template.availableMemoryBytes(),
                 now - thresholdMs - 10_000, template.registeredAtMs(),
                 template.resultServerPort(), template.cacheSummary(),
                 template.capabilityInventory(),

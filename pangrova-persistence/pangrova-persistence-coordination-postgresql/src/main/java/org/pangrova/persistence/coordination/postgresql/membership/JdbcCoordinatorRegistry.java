@@ -40,12 +40,13 @@ public final class JdbcCoordinatorRegistry implements CoordinatorRegistry {
 
     private static final String SQL_REGISTER =
             "INSERT INTO coordinator_registry "
-                    + "(coordinator_id, host, http_port, role, epoch, last_heartbeat_ms, registered_at_ms) "
-                    + "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                    + "(coordinator_id, host, http_port, role, epoch, last_heartbeat_ms, "
+                    + "registered_at_ms, incarnation) "
+                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
                     + "ON CONFLICT (coordinator_id) DO UPDATE SET "
                     + "host=EXCLUDED.host, http_port=EXCLUDED.http_port, role=EXCLUDED.role, "
                     + "epoch=EXCLUDED.epoch, last_heartbeat_ms=EXCLUDED.last_heartbeat_ms, "
-                    + "registered_at_ms=EXCLUDED.registered_at_ms";
+                    + "registered_at_ms=EXCLUDED.registered_at_ms, incarnation=EXCLUDED.incarnation";
 
     private static final String SQL_HEARTBEAT =
             "UPDATE coordinator_registry SET last_heartbeat_ms=? WHERE coordinator_id=?";
@@ -89,6 +90,7 @@ public final class JdbcCoordinatorRegistry implements CoordinatorRegistry {
             ps.setLong(5, coordinator.epoch());
             ps.setLong(6, coordinator.lastHeartbeatMs());
             ps.setLong(7, coordinator.registeredAtMs());
+            ps.setString(8, coordinator.incarnation());
             ps.executeUpdate();
             LOG.info("event=coordinator_registered coordinatorId={} host={} httpPort={}",
                     coordinator.coordinatorId(), coordinator.host(), coordinator.httpPort());
@@ -235,7 +237,8 @@ public final class JdbcCoordinatorRegistry implements CoordinatorRegistry {
                 rs.getLong("epoch"),
                 rs.getLong("last_heartbeat_ms"),
                 rs.getLong("registered_at_ms"),
-                lastProcessedInvalidationId
+                lastProcessedInvalidationId,
+                rs.getString("incarnation")
         );
     }
 

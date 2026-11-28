@@ -8,6 +8,7 @@ import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.protocol.capability.inventory.CapabilityInventoryCodec;
 import org.pangrova.common.client.query.QueryStatusResponse;
 import org.pangrova.common.client.enums.ResultProtocol;
+import org.pangrova.common.enums.ResultDisposition;
 import org.pangrova.config.enums.ShuffleMode;
 import org.pangrova.protocol.rest.worker.WorkerRegistrationRequest;
 import org.pangrova.protocol.rest.worker.WorkerControlResponse;
@@ -58,6 +59,8 @@ final class IndependentLocalProcesses implements AutoCloseable {
     private final String cdcKafkaBootstrap;
     private final ShuffleMode shuffleMode;
     private final ProcessSecurityAuthority security;
+    private final boolean ownsSecurity;
+    private final String nodeName;
     private final ProcessStatusReportRelay reports;
     private final TestTlsAuthority tls;
     private final TestTlsAuthority.Identity coordinatorIdentity;
@@ -69,6 +72,7 @@ final class IndependentLocalProcesses implements AutoCloseable {
     private final HttpClient http = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(2)).build();
     private OwnedProcess coordinator;
+    private URI lineageCollector;
     private ProcessRemoteShuffle remoteShuffle;
     private final int coordinatorPort;
     private boolean closed;
@@ -121,6 +125,15 @@ final class IndependentLocalProcesses implements AutoCloseable {
 
     private IndependentLocalProcesses(org.pangrova.worker.function.NativeFunctionConfig functions,
             boolean speculation, ShuffleMode shuffleMode, String cdcKafkaBootstrap, boolean indexing) throws Exception {
+        this(functions, speculation, shuffleMode, cdcKafkaBootstrap, indexing, null);
+    }
+
+    private IndependentLocalProcesses(org.pangrova.worker.function.NativeFunctionConfig functions,
+            boolean speculation, ShuffleMode shuffleMode, String cdcKafkaBootstrap, boolean indexing,
+            ProcessSecurityAuthority sharedSecurity) throws Exception {
+        ownsSecurity = sharedSecurity == null;
+        nodeName = ownsSecurity ? "local" : "peer";
+        securityClosed = !ownsSecurity;
         this.cdcKafkaBootstrap = cdcKafkaBootstrap;
         this.indexing = indexing;
         this.shuffleMode = shuffleMode;
@@ -151,18 +164,20 @@ final class IndependentLocalProcesses implements AutoCloseable {
         int chosenPort;
         try {
             createdWarehouse = Files.createDirectory(workspace.resolve("warehouse"));
-            createdSecurity = new ProcessSecurityAuthority(
-                    SharedTestContainers.NETWORK, shuffleMode == ShuffleMode.REMOTE);
+            if (ownsSecurity) {
+                createdSecurity = new ProcessSecurityAuthority(
+                        SharedTestContainers.NETWORK, shuffleMode == ShuffleMode.REMOTE);
+            }
             createdReports = new ProcessStatusReportRelay();
             createdTls = new TestTlsAuthority(workspace);
-            createdClient = createdTls.issue("local-client", "localhost", false);
+            createdClient = createdTls.issue(nodeName + "-client", "localhost", false);
             String coordinatorDns = shuffleMode == ShuffleMode.REMOTE
                     ? ProcessRemoteShuffle.COORDINATOR_IDENTITY : null;
-            createdCoordinator = createdTls.issue("local-coordinator", advertisedAddress, coordinatorDns, false);
-            workerIdentities.put("local-worker-1",
-                    createdTls.issue("local-worker-1", advertisedAddress, false));
-            workerIdentities.put("local-worker-2",
-                    createdTls.issue("local-worker-2", advertisedAddress, false));
+            createdCoordinator = createdTls.issue(nodeName + "-coordinator", advertisedAddress, coordinatorDns, false);
+            workerIdentities.put(workerId(1),
+                    createdTls.issue(workerId(1), advertisedAddress, false));
+            workerIdentities.put(workerId(2),
+                    createdTls.issue(workerId(2), advertisedAddress, false));
             chosenPort = availablePort();
         } catch (Exception | Error failure) {
             for (AutoCloseable owner : new AutoCloseable[] {
@@ -179,7 +194,7 @@ final class IndependentLocalProcesses implements AutoCloseable {
                             + workspace, failure);
         }
         warehouse = createdWarehouse;
-        security = createdSecurity;
+        security = ownsSecurity ? createdSecurity : sharedSecurity;
         reports = createdReports;
         tls = createdTls;
         clientIdentity = createdClient;
@@ -188,7 +203,7 @@ final class IndependentLocalProcesses implements AutoCloseable {
     }
 
     void startCoordinatorAndFirstWorker() throws Exception {
-        security.start();
+        if (ownsSecurity) security.start();
         if (shuffleMode == ShuffleMode.REMOTE) {
             remoteShuffle = ProcessRemoteShuffle.start(workspace, security, tls, availablePort());
         }
@@ -196,13 +211,42 @@ final class IndependentLocalProcesses implements AutoCloseable {
         startQueryControlPlane();
     }
 
+    IndependentLocalProcesses startPeer() throws Exception {
+        var peer = new IndependentLocalProcesses(functions, false, ShuffleMode.NATIVE, null, false, security);
+        try {
+            peer.startCoordinatorAndFirstWorker();
+            return peer;
+        } catch (Exception | Error failure) {
+            failure.addSuppressed(new IllegalStateException("Peer diagnostics retained at " + peer.retainDiagnostics()));
+            try {
+                peer.close();
+            } catch (Exception cleanup) {
+                failure.addSuppressed(cleanup);
+            }
+            throw failure;
+        }
+    }
+
+    private String workerId(int index) {
+        return nodeName + "-worker-" + index;
+    }
+
+    String coordinatorId() {
+        return nodeName + "-process-coordinator";
+    }
+
     void allowCatalog(String catalog) {
         security.allowCatalog(catalog);
     }
 
+    void configureDurableLineage(URI collector) {
+        if (coordinator != null) throw new IllegalStateException("Configure lineage before starting Coordinator");
+        lineageCollector = java.util.Objects.requireNonNull(collector, "collector");
+    }
+
     private void startQueryControlPlane() throws Exception {
         launchQueryCoordinator();
-        startWorker("local-worker-1");
+        startWorker(workerId(1));
         query("SELECT 42", ResultProtocol.GRPC_TLS);
     }
 
@@ -277,9 +321,9 @@ final class IndependentLocalProcesses implements AutoCloseable {
     }
 
     void startSecondWorker() throws Exception {
-        startWorker("local-worker-2");
-        var first = acceptedWorkers.get("local-worker-1").request();
-        var second = acceptedWorkers.get("local-worker-2").request();
+        startWorker(workerId(2));
+        var first = acceptedWorkers.get(workerId(1)).request();
+        var second = acceptedWorkers.get(workerId(2)).request();
         if (first.httpPort() == second.httpPort()
                 || first.resultServerPort() == second.resultServerPort()) {
             throw new IllegalStateException("Two live Workers registered overlapping endpoints");
@@ -289,7 +333,7 @@ final class IndependentLocalProcesses implements AutoCloseable {
     void createSourceCatalog() throws Exception {
         String location = warehouse.toString().replace("'", "''");
         String jdbc = hostJdbcUrl().replace("'", "''");
-        query("CREATE CATALOG spec_catalog WITH ('connector' = 'iceberg', "
+        command("CREATE CATALOG spec_catalog WITH ('connector' = 'iceberg', "
                 + "'type' = 'jdbc', 'uri' = '" + jdbc + "', "
                 + "'jdbc.user' = 'pangrova', 'jdbc.password' = 'pangrova_test', "
                 + "'jdbc.schema-version' = 'V1', 'warehouse' = '" + location + "')",
@@ -332,19 +376,19 @@ final class IndependentLocalProcesses implements AutoCloseable {
     }
 
     void stopAndRestartFirstWorker(WhileFirstWorkerStopped whileStopped) throws Exception {
-        OwnedProcess old = workers.get("local-worker-1");
+        OwnedProcess old = workers.get(workerId(1));
         long oldPid = old.process().pid();
-        RegisteredWorker previous = acceptedWorkers.get("local-worker-1");
+        RegisteredWorker previous = acceptedWorkers.get(workerId(1));
         terminateGracefully(old, Duration.ofSeconds(60));
-        workers.remove("local-worker-1");
-        acceptedWorkers.remove("local-worker-1");
+        workers.remove(workerId(1));
+        acceptedWorkers.remove(workerId(1));
         query("SELECT 42", ResultProtocol.GRPC_TLS); // second Worker serves a public query alone
         whileStopped.run();
-        startWorker("local-worker-1");
-        if (workers.get("local-worker-1").process().pid() == oldPid) {
+        startWorker(workerId(1));
+        if (workers.get(workerId(1)).process().pid() == oldPid) {
             throw new IllegalStateException("Restart reused the old Worker process");
         }
-        RegisteredWorker replacement = acceptedWorkers.get("local-worker-1");
+        RegisteredWorker replacement = acceptedWorkers.get(workerId(1));
         if (replacement.receivedNanos() <= previous.receivedNanos()
                 || replacement.coordinatorEpoch() < previous.coordinatorEpoch()) {
             throw new IllegalStateException("Restart did not publish a fresh, fenced registration");
@@ -430,16 +474,6 @@ final class IndependentLocalProcesses implements AutoCloseable {
         tenants.removeUserFromTenant(ProcessSecurityAuthority.TENANT, ProcessSecurityAuthority.USER);
     }
 
-    boolean reservePeerTenantSlot(String queryId) {
-        return new JdbcClusterConcurrencySlots(security.dataSource())
-                .tryReserve(ProcessSecurityAuthority.TENANT, queryId, 2);
-    }
-
-    void releasePeerTenantSlot(String queryId) {
-        new JdbcClusterConcurrencySlots(security.dataSource())
-                .release(ProcessSecurityAuthority.TENANT, queryId);
-    }
-
     int activeTenantReservations() {
         return new JdbcClusterConcurrencySlots(security.dataSource())
                 .active(ProcessSecurityAuthority.TENANT);
@@ -467,10 +501,15 @@ final class IndependentLocalProcesses implements AutoCloseable {
     }
 
     QueryResult query(String sql, ResultProtocol expectedProtocol) throws Exception {
-        return requireSuccessfulQuery(executeSql(sql, expectedProtocol), expectedProtocol);
+        return requireSuccessfulExecution(executeSql(sql, expectedProtocol), ResultDisposition.STREAM, expectedProtocol);
     }
 
-    QueryResult requireSuccessfulQuery(CliOutcome outcome, ResultProtocol expectedProtocol) {
+    QueryResult command(String sql, ResultProtocol clientProtocol) throws Exception {
+        return requireSuccessfulExecution(executeSql(sql, clientProtocol), ResultDisposition.NONE, clientProtocol);
+    }
+
+    QueryResult requireSuccessfulExecution(
+            CliOutcome outcome, ResultDisposition expected, ResultProtocol expectedProtocol) {
         if (outcome.exitCode() != 0 || outcome.receipt() == null
                 || outcome.output() == null) {
             preserveDiagnostics = true;
@@ -486,10 +525,12 @@ final class IndependentLocalProcesses implements AutoCloseable {
         }
         String queryId = record.path("queryId").asText();
         QueryStatusResponse publicStatus = status(queryId);
-        if (!"FINISHED".equals(publicStatus.state())
-                || publicStatus.resultDisposition() != org.pangrova.common.enums.ResultDisposition.STREAM
-                || publicStatus.resultEndpoint() == null
-                || !expectedProtocol.value().equals(publicStatus.resultEndpoint().protocol())) {
+        var endpoint = publicStatus.resultEndpoint();
+        boolean endpointMatches = expected == ResultDisposition.STREAM
+                ? endpoint != null && expectedProtocol.value().equals(endpoint.protocol())
+                : endpoint == null;
+        if (!"FINISHED".equals(publicStatus.state()) || publicStatus.resultDisposition() != expected
+                || !endpointMatches) {
             preserveDiagnostics = true;
             throw new IllegalStateException("Public query state or typed result protocol disagrees"
                     + " with CLI receipt: " + queryId + " status=" + publicStatus);
@@ -668,6 +709,8 @@ final class IndependentLocalProcesses implements AutoCloseable {
         command.add("-Dlogback.configurationFile=" + loggingConfig);
         command.add("-DPANGROVA_LOG_DIR=" + logDirectory);
         command.add("-DPANGROVA_ROLE=" + name);
+        boolean durableLineage = "coordinator".equals(name) && lineageCollector != null;
+        if (durableLineage) command.add("-Dpangrova.lineage.backend=HTTP");
         command.add("-Dpangrova.test.runtime-manifest=" + artifacts.manifestPath());
         command.add("-Dpangrova.test.runtime-manifest-sha256=" + artifacts.manifestSha256());
         command.add("-Dpangrova.test.native-sha256=" + artifacts.nativeSha256());
@@ -677,8 +720,12 @@ final class IndependentLocalProcesses implements AutoCloseable {
                 "--add-opens=java.base/java.util.concurrent=ALL-UNNAMED",
                 "--add-opens=java.base/sun.nio.ch=ALL-UNNAMED",
                 "-cp", classpath, mainClass, "--config", config.toString()));
-        Process process = new ProcessBuilder(command)
-                .redirectErrorStream(true).redirectOutput(log.toFile()).start();
+        ProcessBuilder builder = new ProcessBuilder(command).redirectErrorStream(true).redirectOutput(log.toFile());
+        if (durableLineage) {
+            builder.environment().put("OPENLINEAGE_URL", lineageCollector.toASCIIString());
+            builder.environment().remove("OPENLINEAGE_API_KEY");
+        }
+        Process process = builder.start();
         OwnedProcess owner = new OwnedProcess(name, process, config, log);
         owned.add(owner);
         LOG.info("event=local_process_spawn role={} pid={} manifest={} manifestSha256={} "
@@ -694,10 +741,12 @@ final class IndependentLocalProcesses implements AutoCloseable {
     private String coordinatorYaml(String role) {
         return """
                 coordinator:
-                  id: local-process-coordinator
+                  id: "%s"
                   host: 127.0.0.1
                   port: %d
                   role: %s
+                  admission:
+                    state-directory: "%s"
                   internal-auth-secret: "%s"
                   speculation:
                     enabled: %s
@@ -732,7 +781,7 @@ final class IndependentLocalProcesses implements AutoCloseable {
                   enabled: true
                 indexing:
                   enabled: %s
-                """.formatted(coordinatorPort, role,
+                """.formatted(coordinatorId(), coordinatorPort, role, workspace.resolve("coordinator-admission"),
                 internalSecret, speculation, advertisedAddress.getHostAddress(),
                 coordinatorIdentity.certificateChain(), coordinatorIdentity.privateKey(),
                 tls.root(), shuffleMode, remoteShuffle == null ? advertisedAddress.getHostAddress() : "localhost",

@@ -432,7 +432,12 @@ TEST_F(ResultFlightStreamTest, OnlyExplicitTransportCloseCommitsPreparedEof) {
   auto info = registration();
   int commits = 0;
   int failures = 0;
-  info.report_stream_finished = [&] { ++commits; };
+  info.report_stream_finished = [&](const protocol::v2::NativeResultDeliveryStats& delivery) {
+    ++commits;
+    EXPECT_EQ(delivery.payload_batches(), 0);
+    EXPECT_FALSE(delivery.has_first_payload_nanos());
+    EXPECT_LE(delivery.producer_eof_nanos(), delivery.transport_complete_nanos());
+  };
   info.report_stream_failure = [&](const std::string& message) {
     ++failures;
     EXPECT_NE(message.find("closed before committed EOF"), std::string::npos);
@@ -457,6 +462,29 @@ TEST_F(ResultFlightStreamTest, OnlyExplicitTransportCloseCommitsPreparedEof) {
   stream.reset();
   EXPECT_EQ(commits, 1);
   EXPECT_EQ(failures, 1);
+}
+
+TEST_F(ResultFlightStreamTest, ReportsTheFirstPayloadAndCommittedCloseForANonemptyStream) {
+  auto info = registration();
+  std::optional<protocol::v2::NativeResultDeliveryStats> confirmed;
+  info.report_stream_finished = [&](const protocol::v2::NativeResultDeliveryStats& delivery) {
+    confirmed = delivery;
+  };
+  info.claimed = true;
+  ASSERT_TRUE(stage(info, 11).ValueOrDie());
+  ASSERT_TRUE(stage(info, 22).ValueOrDie());
+  ASSERT_TRUE(info.queue->seal().ok());
+  auto stream = resultFlightStream(info, 10, nullptr).ValueOrDie();
+  ASSERT_TRUE(stream->Next().ValueOrDie().ipc_message.metadata);
+  ASSERT_TRUE(stream->Next().ValueOrDie().ipc_message.metadata);
+  ASSERT_FALSE(stream->Next().ValueOrDie().ipc_message.metadata);
+  ASSERT_FALSE(confirmed.has_value());
+  ASSERT_TRUE(stream->Close().ok());
+  ASSERT_TRUE(confirmed.has_value());
+  EXPECT_EQ(confirmed->payload_batches(), 2);
+  EXPECT_TRUE(confirmed->has_first_payload_nanos());
+  EXPECT_LE(confirmed->first_payload_nanos(), confirmed->producer_eof_nanos());
+  EXPECT_LE(confirmed->producer_eof_nanos(), confirmed->transport_complete_nanos());
 }
 
 TEST_F(ResultFlightStreamTest, RevocationDiscardsPayloadsAndPreservesTheFailureOwner) {

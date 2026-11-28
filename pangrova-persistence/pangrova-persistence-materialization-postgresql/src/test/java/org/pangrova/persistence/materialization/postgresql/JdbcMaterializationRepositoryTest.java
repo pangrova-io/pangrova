@@ -16,6 +16,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.UUID;
 import javax.sql.DataSource;
@@ -65,6 +66,7 @@ import org.pangrova.materialization.api.domain.TenantId;
 import org.pangrova.materialization.api.enums.TriggerKind;
 import org.pangrova.materialization.api.port.CommandRecord;
 import org.pangrova.persistence.materialization.api.publication.MaterializationCatalog;
+import org.pangrova.persistence.materialization.api.publication.MaterializationPublicationSnapshot;
 import org.pangrova.materialization.api.port.MaterializationEvent;
 import org.pangrova.materialization.api.enums.MaterializationEventType;
 import org.pangrova.persistence.materialization.api.lifecycle.MaterializationRepository;
@@ -121,7 +123,11 @@ class JdbcMaterializationRepositoryTest extends ContainerTestBase {
     @MethodSource("transactionFailures")
     void reservesCommitsAndPublishesExactlyOnceWithIdempotentReplay(
             Throwable failure, SQLException rollbackFailure) throws Exception {
-        DataSource dataSource = MigratedPostgres.create();
+        exercisePublicationLifecycle(MigratedPostgres.create(), failure, rollbackFailure);
+    }
+
+    private static void exercisePublicationLifecycle(
+            DataSource dataSource, Throwable failure, SQLException rollbackFailure) throws Exception {
         MaterializationRepository repository = new JdbcMaterializationRepository(dataSource);
         MaterializationCatalog catalog = new JdbcMaterializationCatalog(dataSource);
 
@@ -155,6 +161,11 @@ class JdbcMaterializationRepositoryTest extends ContainerTestBase {
         assertThat(catalog.findPublished(object)).isEmpty();
         long epochAfterCreate = catalog.registryEpoch(new TenantId(tenant));
         assertThat(epochAfterCreate).isPositive();
+        var beforePublication = catalog.snapshot(object.tenant(), OptionalLong.of(epochAfterCreate));
+        assertThat(beforePublication.revision()).isEqualTo(epochAfterCreate);
+        assertThat(beforePublication.find(object.name())).isEmpty();
+        assertThat(catalog.snapshot(object.tenant(), OptionalLong.of(epochAfterCreate)))
+                .isSameAs(beforePublication);
         assertThat(repository.findDefinition(object, 1)).get()
                 .satisfies(found -> assertThat(found.fingerprint())
                         .isEqualTo(definition.fingerprint()));
@@ -244,7 +255,18 @@ class JdbcMaterializationRepositoryTest extends ContainerTestBase {
         assertThat(projection.refreshKind()).isEqualTo(RefreshKind.FULL);
         assertThat(projection.sources()).containsExactly(source);
         assertThat(catalog.listPublished(new TenantId(tenant))).containsExactly(projection);
-        assertThat(catalog.registryEpoch(new TenantId(tenant))).isGreaterThan(epochAfterCreate);
+        long publishedRevision = catalog.registryEpoch(object.tenant());
+        assertThat(publishedRevision).isGreaterThan(epochAfterCreate);
+        var otherCoordinator = new JdbcMaterializationCatalog(dataSource);
+        var afterPublication = otherCoordinator.snapshot(object.tenant(), OptionalLong.of(publishedRevision));
+        assertThat(afterPublication.revision()).isEqualTo(publishedRevision);
+        assertThat(afterPublication.find(object.name())).contains(projection);
+        assertThat(otherCoordinator.snapshot(object.tenant(), OptionalLong.of(publishedRevision)))
+                .isSameAs(afterPublication);
+        assertThat(catalog.snapshot(object.tenant(), OptionalLong.of(publishedRevision))
+                .find(object.name())).contains(projection);
+        assertThat(beforePublication.find(object.name())).isEmpty();
+        assertThat(otherCoordinator.snapshot(new TenantId(uniqueTenant()), OptionalLong.empty()).revision()).isZero();
 
         CommandRecord receipt = repository.findCommand(new TenantId(tenant), publishCommand)
                 .orElseThrow();
@@ -258,6 +280,7 @@ class JdbcMaterializationRepositoryTest extends ContainerTestBase {
         assertThat(replayed.generation().id()).isEqualTo(generationId);
         assertReaderPinFailure(dataSource, repository, generationId, now, failure, rollbackFailure);
         assertReaderNamespacesIsolated(repository, generationId, now);
+        assertSqlReaderCannotPinAfterTakeover(dataSource, repository, generationId, now);
         assertThat(repository.findObject(object).orElseThrow().revision()).isEqualTo(1);
 
         PublishCommand stale = new PublishCommand(object, 0, candidate, attempt, evidence, fence,
@@ -276,6 +299,50 @@ class JdbcMaterializationRepositoryTest extends ContainerTestBase {
                 .satisfies(lease -> assertThat(lease.owner()).isEqualTo("scheduler-1"));
         assertThat(repository.findSchedule(object)).get()
                 .satisfies(found -> assertThat(found.version()).isEqualTo(1));
+
+        head = assertPublishedDefinitionSurvivesRedefinition(repository, catalog, otherCoordinator,
+                head, definition, projection, afterPublication, publishedAt.plusSeconds(3));
+
+        Instant suspendedAt = publishedAt.plusSeconds(4);
+        repository.updateObject(head.transitionTo(ObjectState.SUSPENDED, head.revision(), suspendedAt),
+                head.revision(), CommandId.random(), event(
+                        MaterializationEventType.OBJECT_ALTERED, object, requester, definer, suspendedAt));
+        long suspendedRevision = otherCoordinator.registryEpoch(object.tenant());
+        assertThat(suspendedRevision).isGreaterThan(publishedRevision);
+        assertThat(catalog.snapshot(object.tenant(), OptionalLong.of(suspendedRevision)).find(object.name()))
+                .isEmpty();
+        assertThat(otherCoordinator.snapshot(object.tenant(), OptionalLong.of(suspendedRevision)).find(object.name()))
+                .isEmpty();
+        assertThat(afterPublication.find(object.name())).contains(projection);
+    }
+
+    private static MaterializationObject assertPublishedDefinitionSurvivesRedefinition(
+            MaterializationRepository repository, MaterializationCatalog catalog,
+            MaterializationCatalog otherCoordinator, MaterializationObject head, DefinitionRevision definition,
+            PublishedMaterialization projection, MaterializationPublicationSnapshot afterPublication,
+            Instant redefinedAt) {
+        var object = head.id();
+        var sql = definition.sql() + " WHERE total IS NOT NULL";
+        var replacement = new DefinitionRevision(object, 2, sql, new Binding(sql, "d".repeat(64)),
+                definition.outputSchema(), definition.sources(), Set.of(), definition.policySnapshot(),
+                definition.securityMode(), definition.definer(), definition.sessionProperties(), redefinedAt);
+        var redefined = head.withDefinitionRevision(2, head.revision(), redefinedAt);
+        repository.replaceDefinition(replacement, redefined, head.revision(), CommandId.random(),
+                event(MaterializationEventType.OBJECT_ALTERED, object, definition.definer(),
+                        definition.definer(), redefinedAt));
+        assertThat(repository.findObject(object).orElseThrow().definitionRevision()).isEqualTo(2);
+        assertThat(repository.findDefinition(object, 2).orElseThrow().sql()).isEqualTo(sql);
+        long redefinedRevision = catalog.registryEpoch(object.tenant());
+        assertThat(redefinedRevision).isGreaterThan(afterPublication.revision());
+        // The head describes the next definition; until refresh publishes it, readers see the old generation.
+        assertThat(catalog.findPublished(object)).contains(projection);
+        assertThat(catalog.listPublished(object.tenant())).containsExactly(projection);
+        assertThat(catalog.snapshot(object.tenant(), OptionalLong.of(redefinedRevision)).find(object.name()))
+                .contains(projection);
+        assertThat(otherCoordinator.snapshot(object.tenant(), OptionalLong.of(redefinedRevision)).find(object.name()))
+                .contains(projection);
+        assertThat(afterPublication.find(object.name())).contains(projection);
+        return redefined;
     }
 
     @ParameterizedTest
@@ -300,6 +367,36 @@ class JdbcMaterializationRepositoryTest extends ContainerTestBase {
 
         assertThat(repository.findObject(object)).isEmpty();
         assertTransactionFailure(caught, failure, rollbackFailure);
+    }
+
+    private static void assertSqlReaderCannotPinAfterTakeover(DataSource dataSource,
+            MaterializationRepository repository, GenerationId generation, Instant now) throws SQLException {
+        String queryId = "pin-proof-" + java.util.UUID.randomUUID();
+        var pin = new ReaderPin(generation, ReaderId.query(new QueryId(queryId)), "reader", now.plusSeconds(60), now);
+        try (var connection = dataSource.getConnection(); var insert = connection.prepareStatement("""
+                INSERT INTO execution_anchor (execution_id, owner_id, owner_incarnation, fencing_token,
+                    acquired_at, expires_at)
+                VALUES (?, 'prior', 'prior-boot', nextval('execution_anchor_token_seq'),
+                    clock_timestamp(), clock_timestamp() + INTERVAL '1 minute')
+                """)) {
+            insert.setString(1, queryId);
+            assertThat(insert.executeUpdate()).isOne();
+        }
+        repository.pinActiveQueryReader(pin);
+        assertReaderPinCount(dataSource, pin, 1);
+        try (var connection = dataSource.getConnection(); var takeover = connection.prepareStatement("""
+                UPDATE execution_anchor SET owner_id='successor', owner_incarnation='next-boot',
+                    fencing_token=nextval('execution_anchor_token_seq'), recovery_drain_state=1
+                WHERE execution_id=?
+                """)) {
+            takeover.setString(1, queryId);
+            assertThat(takeover.executeUpdate()).isOne();
+        }
+        assertThat(catchThrowable(() -> repository.pinActiveQueryReader(pin))).isInstanceOf(
+                MaterializationException.class);
+        assertReaderPinCount(dataSource, pin, 1);
+        repository.releaseReaderPin(generation, pin.reader());
+        assertReaderPinCount(dataSource, pin, 0);
     }
 
     private static void assertReaderNamespacesIsolated(MaterializationRepository repository,
@@ -734,7 +831,7 @@ class JdbcMaterializationRepositoryTest extends ContainerTestBase {
             statement.setLong(4, committedAt.toEpochMilli());
             statement.setString(5, authority.anchor());
             statement.setString(6, tenant);
-            statement.setString(7, "binding:" + authority.anchor());
+            statement.setBytes(7, ("binding:" + authority.anchor()).getBytes(java.nio.charset.StandardCharsets.UTF_8));
             statement.setString(8, evidence.commitFingerprint());
             statement.setBytes(9, MANIFEST);
             statement.setString(10, principal.name());

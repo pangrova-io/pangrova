@@ -234,8 +234,9 @@ abstract class PostgresGenerationJobStoreMappings {
             String tenantId, String jobId, String pageId, int stageId, int partitionId,
             int pageOrdinal, GenerationPageKind kind, String state,
             int attemptId, long fencingToken,
-            String leaseOwner, long ownerEpoch, Instant leaseExpiresAt,
+            String leaseOwner, long ownerEpoch, Instant leaseExpiresAt, Instant nextAvailableAt,
             int maxAttempts, byte[] reportBytes, String reportSha256,
+            org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.InputRange inputRange,
             org.pangrova.generation.api.execution.GenerationExecutionOwner executionOwner) {
         /** Owns the nullable persisted report independently of the JDBC buffer. */
         protected PageRow {

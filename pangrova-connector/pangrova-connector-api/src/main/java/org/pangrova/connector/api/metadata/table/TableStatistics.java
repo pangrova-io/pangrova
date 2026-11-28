@@ -9,7 +9,7 @@ import org.pangrova.common.api.annotation.Experimental;
  *
  * @param rowCount      estimated number of rows, or -1 if unknown
  * @param dataSize      estimated data size in bytes, or -1 if unknown
- * @param sourceWorkUnits number of independently scannable source units in the selected
+ * @param sourceWorkUnits estimated number of independently scannable source units in the selected
  *                        snapshot, or -1 if unknown; zero denotes a proven empty source
  * @param columnStats   per-column statistics keyed by column name; empty if unavailable
  */

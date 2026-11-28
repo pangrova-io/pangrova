@@ -312,6 +312,31 @@ enum ExecutionDrainState {
   EXECUTION_DRAIN_STATE_WORKER_TASK_COMPLETED = 4;
 }
 
+// Cumulative Native calls through the admitted file adapter. Counts are
+// published after the scoped operation exits, including failures and partial
+// progress in a multi-range call. The S3 counters come from the SDK request
+// path and include retries and unsuccessful response bodies.
+message NativeObjectReadStats {
+  uint64 requested_bytes = 1;
+  uint64 returned_bytes = 2;
+  uint64 payload_calls = 3;
+  uint64 metadata_calls = 4;
+  uint64 failed_calls = 5;
+  uint64 s3_sdk_attempts = 6;
+  uint64 s3_sdk_retries = 7;
+  // Bytes delivered to the S3 HTTP body callback. Headers and framing are excluded.
+  uint64 s3_response_body_bytes = 8;
+}
+
+// Worker monotonic offsets from opening the exact Flight reader. A first
+// payload is absent for an empty result. Close succeeds after transport writes.
+message NativeResultDeliveryStats {
+  uint64 payload_batches = 1;
+  optional uint64 first_payload_nanos = 2;
+  uint64 producer_eof_nanos = 3;
+  uint64 transport_complete_nanos = 4;
+}
+
 message TaskReport {
   TaskAttemptId attempt = 1;
   TaskState state = 2;
@@ -327,6 +352,11 @@ message TaskReport {
   // Absent when admission/cancellation prevented execution from creating a Task.
   NativeTaskStats native_task_stats = 11;
   ExecutionDrainState execution_drain_state = 12;
+  // Present when the attempt established the Native read owner, even if no
+  // Velox task started. Requested bytes cover Native reservations only.
+  NativeObjectReadStats native_object_reads = 13;
+  // A successful Native OUTPUT reader reports this once at committed Flight close.
+  NativeResultDeliveryStats native_result_delivery = 14;
 }
 
 message ExecutionEnvelope {

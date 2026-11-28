@@ -2,6 +2,7 @@ package org.pangrova.query.api.lifecycle;
 
 import org.pangrova.common.api.annotation.Experimental;
 import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
 
 /**
  * Execution owner's terminal cleanup boundary, borrowed by the query lifecycle owner.
@@ -29,12 +30,12 @@ public interface QueryExecutionCleanup {
 
     /**
      * Cleans an execution-owned terminal query after actual drain, including connector
-     * scopes and required shuffle cleanup, before releasing its execution ownership.
+     * scopes and required Shuffle cleanup. The caller still owns the execution grant.
      * Returns false while local operations, report publication or exact task drain
      * receipts are outstanding. Physical progress signals another cleanup attempt.
-     * Cleanup or ownership failures propagate to the caller.
+     * Cleanup failures propagate to the caller.
      */
-    boolean tryCleanupQuery(String queryId);
+    boolean tryCleanupQuery(String queryId, ExecutionAnchor originalGrant);
 
     /**
      * Cleans only the local creation scope of a query that did not acquire execution

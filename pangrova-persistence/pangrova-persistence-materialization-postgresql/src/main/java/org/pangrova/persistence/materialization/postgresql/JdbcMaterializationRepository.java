@@ -877,6 +877,11 @@ public final class JdbcMaterializationRepository implements MaterializationRepos
     }
 
     @Override
+    public void pinActiveQueryReader(ReaderPin pin) {
+        readerPins.pinActiveQueryReader(pin);
+    }
+
+    @Override
     public void releaseReaderPin(GenerationId generation, ReaderId reader) {
         readerPins.releaseReaderPin(generation, reader);
     }

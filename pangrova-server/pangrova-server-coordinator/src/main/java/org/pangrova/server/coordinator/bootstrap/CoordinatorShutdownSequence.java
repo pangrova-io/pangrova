@@ -36,7 +36,7 @@ final class CoordinatorShutdownSequence {
     record ShutdownOwners(QueryBootstrap query, HighAvailabilityBootstrap ha,
             MaintenanceLeadershipBootstrap maintenanceLeadership,
             org.pangrova.coordinator.ai.branch.BranchTtlCleanupTask branchTtlCleanupTask,
-            StreamingBootstrap streamingBootstrap, JournaledCdcRuntime cdcRuntime,
+            JournaledCdcRuntime cdcRuntime,
             HttpBootstrap http, ModuleIntegrationBootstrap moduleWiring,
             NativeDatasetControlBootstrap nativeDatasetControl, MetadataBootstrap metadataBootstrap,
             PluginConnectorHandleFactory connectorHandleFactory,
@@ -70,8 +70,6 @@ final class CoordinatorShutdownSequence {
                         present(owners.branchTtlCleanupTask(), CoordinatorShutdownSequence::closeBranchCleanup)),
                 () -> lifecycle.step("cdc-runtime",
                         present(owners.cdcRuntime(), JournaledCdcRuntime::close)),
-                () -> lifecycle.step("streaming",
-                        present(owners.streamingBootstrap(), CoordinatorShutdownSequence::closeStreamingBootstrap)),
                 () -> lifecycle.step("query-drain", present(owners.query(), QueryBootstrap::drainQueries)));
         if (owners.query() != null) owners.query().joinSchedulingOwners();
     }
@@ -184,12 +182,6 @@ final class CoordinatorShutdownSequence {
         }
     }
 
-
-    static void closeStreamingBootstrap(StreamingBootstrap streaming) {
-        if (streaming == null) return;
-        streaming.close();
-        LOG.info("event=phase_closed phase=streaming_bootstrap");
-    }
 
     static void closeBranchCleanup(org.pangrova.coordinator.ai.branch.BranchTtlCleanupTask cleanup) {
         if (cleanup == null) return;

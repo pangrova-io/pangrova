@@ -2,18 +2,22 @@ package org.pangrova.persistence.query.api.lifecycle;
 
 import org.pangrova.common.api.annotation.Experimental;
 
-import java.util.List;
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
 
 /** Durable responsibility to clean up remote Shuffle scopes of a terminal query. */
 @Experimental
 public interface ShuffleCleanupIntentStore {
 
-    /** Records cleanup responsibility before a terminal query state is published. */
-    void markPending(String queryId);
+    /**
+     * Seals new Shuffle admissions before publishing a logical terminal state under the original fresh grant.
+     * Stale or recovered grants leave the shared scope to the recovery owner.
+     */
+    void markPending(ExecutionAnchor grant);
 
-    /** Returns whether cleanup remains due, including after Coordinator restart. */
-    boolean isPending(String queryId);
-
-    /** Keyset page of pending cleanups whose execution anchor is owned by {@code ownerId}. */
-    List<String> pendingForOwnerAfter(String ownerId, String afterQueryId, int limit);
+    /**
+     * Records convergence under the original fresh grant when there is no durable Shuffle scope.
+     * The terminal seal survives until anchor retirement. False requires the remote cleanup protocol.
+     * A stale grant leaves the cleanup state for its successor.
+     */
+    boolean completeWithoutScope(ExecutionAnchor grant);
 }

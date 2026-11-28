@@ -626,6 +626,30 @@ class TaskStatusReceiverWriteCommitTest {
     }
 
     @Test
+    void progressRequiresTheOriginallyIssuedLocalGrantWithoutAStorageRead() {
+        registerTwoTasks();
+        var issued = tracker.getTaskRequest("t-1").taskRequest().getAttempt().getExecutionOwner();
+        var exact = new ExecutionAnchor(QUERY_ID, issued.getOwnerId(), issued.getOwnerIncarnation(),
+                issued.getFencingToken(), Instant.EPOCH, Instant.EPOCH.plusSeconds(1));
+        var successor = new ExecutionAnchor(QUERY_ID, exact.ownerId(), exact.ownerIncarnation(),
+                exact.fencingToken() + 1, exact.acquiredAt(), exact.expiresAt());
+        var local = new AtomicReference<>(successor);
+        receiver.setWriteCommitFencer(new WriteCommitFencer() {
+            @Override public ExecutionAnchor currentAnchor(String executionId) { return local.get(); }
+
+            @Override public boolean isCurrent(String executionId, long token) {
+                throw new AssertionError("Progress must not consult the durable fence");
+            }
+        });
+        var progress = new TaskStatusReport("t-1", QUERY_ID, 0, 0, "WRITE", WORKER_ID, "RUNNING",
+                null, null, null, 1, System.currentTimeMillis(), null, null, canonicalAttempt("t-1"));
+
+        assertThat(receiver.onTaskStatus(progress)).isFalse();
+        local.set(exact);
+        assertThat(receiver.onTaskStatus(progress)).isTrue();
+    }
+
+    @Test
     void currentExecutionOwnerCommitProceeds() {
         byte[] fragment = {9};
         writeCommitTracker.registerWriteContext(

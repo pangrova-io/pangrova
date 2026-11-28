@@ -1,6 +1,9 @@
 package org.pangrova.query.lifecycle;
 
+import java.util.Optional;
+import java.util.function.Predicate;
 import org.pangrova.common.api.annotation.Experimental;
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.connector.api.metadata.ConnectorMetadataScope;
 import org.pangrova.connector.api.query.ConnectorQueryAuthority;
 import org.pangrova.query.api.lifecycle.QueryExecutionCleanup;
@@ -8,6 +11,7 @@ import org.pangrova.query.api.lifecycle.QueryOperation;
 import org.pangrova.query.api.session.QuerySession;
 
 import java.util.List;
+import java.util.OptionalLong;
 import java.util.concurrent.CompletionStage;
 import java.util.function.Consumer;
 
@@ -30,20 +34,40 @@ public interface QueryExecutionPort extends QueryExecutionCleanup {
     /** Retires exact output column names after response construction. */
     List<String> removeColumnNames(String queryId);
 
-    /** Acquires the durable execution ownership for a query. */
-    boolean acquireQueryOwnership(String queryId);
+    /** Acquires durable execution ownership and samples the authenticated tenant's publication revision. */
+    Ownership acquireQueryOwnership(String queryId, String tenantId);
 
-    /** Releases only the candidate execution grant without implying local issuance cleanup. */
+    /** Atomically acquires fresh SQL execution ownership and reserves one authorized tenant slot. */
+    default Ownership acquireLimitedQueryOwnership(String queryId, String tenantId, int maxConcurrentQueries) {
+        throw new UnsupportedOperationException("Atomic durable query admission is unavailable");
+    }
+
+    /** Exact grant and publication revision for the submitted query, or a process-local grant. */
+    record Ownership(boolean acquired, OptionalLong publicationRevision, ExecutionAnchor anchor) {
+        public Ownership(boolean acquired, OptionalLong publicationRevision) {
+            this(acquired, publicationRevision, null);
+        }
+    }
+
+    /** Releases the execution grant after its local or recovered dependencies have drained. */
     void releaseQueryOwnership(String queryId);
+
+    /** @return whether releasing the locally drained query removed its durable reservation */
+    default boolean releaseIssuedQueryOwnership(ExecutionAnchor anchor,
+            Optional<Predicate<ExecutionAnchor>> durableRetirement) {
+        throw new UnsupportedOperationException("Exact query ownership release is unavailable");
+    }
+
+    /** Cold confirmation of retirement after local cleanup transfers responsibility to recovery. */
+    default boolean isQueryRetired(String queryId) {
+        throw new UnsupportedOperationException("Exact query retirement check is unavailable");
+    }
 
     /** Binds the exact connector authority for the query lifetime. */
     ConnectorMetadataScope bindConnectorAuthority(QueryStateMachine state, String queryId);
 
     /** Opens the exact connector query issuance for a recovered query. */
     ConnectorQueryAuthority openQueryIssuance(String queryId);
-
-    /** Marks a recovered issuance unresolved; it must not be treated as complete. */
-    void markRecoveredIssuanceUnresolved(String queryId);
 
     /** Retires the exact query issuance after its terminal publication. */
     void retireQueryIssuance(String queryId);

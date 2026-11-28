@@ -119,6 +119,8 @@ import org.pangrova.persistence.workflow.postgresql.projection.PostgresMetadataP
 import org.pangrova.persistence.catalog.postgresql.synchronization.PostgresMetadataSyncRepository;
 import org.pangrova.query.dispatch.StatementExecutionFactory;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 // StageFragmenter removed from prod — QueryDispatcher now takes only (deps, statementDispatcher)
 
 /**
@@ -237,7 +239,6 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
 
     // Coordinator-local result buffer — serves constant-fold and DDL/DML results via transport.
     protected static volatile CoordinatorResultBuffer coordinatorResultBuffer;
-    protected static volatile CoordinatorResultService coordinatorResultService;
     private static ScheduledExecutorService resultBufferExecutor;
     private static ScheduledExecutorService terminalCleanupTimer;
     private static ExecutorService terminalCleanupWorker;
@@ -1233,7 +1234,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
             return requireResultlessCompletion(queryId, resolution.terminalBody());
         }
         ResultEndpoint endpoint = resolution.endpoint();
-        String canonicalTaskId = hasControlPlaneResult(queryId) ? null
+        String canonicalTaskId = isControlPlaneEndpoint(endpoint, queryId) ? null
                 : requireNativeResultTaskId(endpoint, queryId, taskTracker);
         String workerTaskId = resolveWorkerTaskId(canonicalTaskId);
         List<TypedRow> rows;
@@ -1303,6 +1304,23 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
             }
         }
         return null;
+    }
+
+    /** Checks a DDL policy decision through the durable submit receipt and terminal status. */
+    protected static void assertAcceptedAuthorizationFailure(String sql, String privilege, String object)
+            throws Exception {
+        var receipt = submitQueryViaHttp(sql);
+        assertThat(receipt.state()).isEqualTo("QUEUED");
+        assertThat(receipt.resultDisposition()).isEqualTo(ResultDisposition.PENDING);
+
+        var terminal = MAPPER.readTree(pollUntilTerminal(receipt.queryId()));
+        assertThat(terminal.path("state").asText()).isEqualTo("FAILED");
+        assertThat(terminal.path("result_disposition").asText()).isEqualTo("NONE");
+        assertThat(terminal.hasNonNull("result_endpoint")).isFalse();
+        var error = terminal.path("error");
+        assertThat(error.path("error_code").asText()).isEqualTo("SECURITY-0002");
+        assertThat(error.path("message").asText())
+                .contains("lacks " + privilege + " on " + object);
     }
 
     protected static SubmitQueryResponse submitQueryViaHttp(String sql) throws Exception {
@@ -1380,6 +1398,10 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                     HttpResponse<String> response = HTTP_CLIENT.send(
                             request, HttpResponse.BodyHandlers.ofString());
                     var status = MAPPER.readTree(response.body());
+                    if (response.statusCode() != 200) {
+                        throw new IllegalStateException("Live query status failed: " + queryId
+                                + " HTTP " + response.statusCode() + " — " + extractErrorDetail(status));
+                    }
                     String state = status.path("state").asText();
                     String disposition = status.path("result_disposition").asText();
                     if ("FAILED".equals(state) || "CANCELLED".equals(state)
@@ -1396,9 +1418,9 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                                 status.get("result_endpoint"), ResultEndpoint.class);
                         return true;
                     }
-                    if (!"PENDING".equals(disposition)) {
+                    if (!"PENDING".equals(disposition) && !"NONE".equals(disposition)) {
                         throw new IllegalStateException(
-                                "Live query status omitted result disposition: " + queryId);
+                                "Invalid live query result disposition: " + queryId + " disposition=" + disposition);
                     }
                     if ("FINISHED".equals(state)) {
                         throw new IllegalStateException(
@@ -1554,14 +1576,8 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
             throw new IllegalStateException(
                     "Missing result endpoint for finished query: queryId=" + queryId);
         }
-        // Direct buffer read bypasses the coordinator transport server entirely.
-        if (coordinatorResultBuffer != null) {
-            byte[] buffered = coordinatorResultBuffer.get(queryId);
-            if (buffered != null && buffered.length > 0) {
-                System.err.println("[E2E-DIAG] fetchResults: coordinatorResultBuffer HIT queryId=" + queryId
-                        + " bytes=" + buffered.length);
-                return decodeResultBytes(buffered);
-            }
+        if (isControlPlaneEndpoint(endpoint, queryId)) {
+            return fetchControlPlaneResult(endpoint, queryId);
         }
         // The terminal task may run on any physical Worker. Resolve the
         // actual task placement and require the returned endpoint to match
@@ -1579,10 +1595,31 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         return fetchResultsViaFlight(endpoint, queryId, taskTracker);
     }
 
-    /** Only an actual published control-plane acknowledgement may bypass Native result transport. */
+    /** Reports whether the control-plane server currently owns the acknowledgement. */
     protected static boolean hasControlPlaneResult(String queryId) {
-        byte[] buffered = coordinatorResultBuffer == null ? null : coordinatorResultBuffer.get(queryId);
-        return buffered != null && buffered.length > 0;
+        return coordinatorResultBuffer != null && coordinatorResultBuffer.contains(queryId);
+    }
+
+    protected static boolean isControlPlaneEndpoint(ResultEndpoint endpoint, String queryId) {
+        return endpoint != null && coordinatorTransportServer != null
+                && endpoint.port() == coordinatorTransportServer.getPort() && queryId.equals(endpoint.ticket());
+    }
+
+    protected static List<TypedRow> fetchControlPlaneResult(ResultEndpoint endpoint, String queryId) {
+        if (!isControlPlaneEndpoint(endpoint, queryId)) {
+            throw new IllegalStateException("Control Flight result is not bound to queryId=" + queryId);
+        }
+        var location = org.apache.arrow.flight.Location.forGrpcInsecure(endpoint.host(), endpoint.port());
+        try (var allocator = new org.apache.arrow.memory.RootAllocator(64L * 1024 * 1024);
+             var client = org.apache.arrow.flight.FlightClient.builder(allocator, location).build();
+             var stream = client.getStream(new org.apache.arrow.flight.Ticket(endpoint.ticket()
+                     .getBytes(java.nio.charset.StandardCharsets.UTF_8)))) {
+            List<TypedRow> rows = new java.util.ArrayList<>();
+            while (awaitNextBatch(stream)) appendBatchRows(stream.getRoot(), rows);
+            return rows;
+        } catch (Exception failure) {
+            throw new IllegalStateException("Failed to read control Flight result for queryId=" + queryId, failure);
+        }
     }
 
     private static final int FLIGHT_FETCH_MAX_RETRIES = 3;
@@ -1851,32 +1888,6 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                     "Missing Native task ID for finished query: queryId=" + queryId);
         }
         return resultTaskId;
-    }
-
-    /**
-     * Decodes Arrow IPC stream bytes into a list of row maps.
-     * Uses Arrow SDK ArrowStreamReader to materialize VectorSchemaRoot batches.
-     *
-     * <p>Note: Worker results from C++ FlightResultServer use Velox PrestoVectorSerde
-     * binary blob format (schema: {data: binary}). These require native-side
-     * deserialization which is not yet implemented. Such results decode as empty.</p>
-     */
-    protected static List<TypedRow> decodeResultBytes(byte[] resultBytes) {
-        if (resultBytes == null || resultBytes.length == 0) {
-            return List.of();
-        }
-        List<TypedRow> rows = new java.util.ArrayList<>();
-        try (var allocator = new org.apache.arrow.memory.RootAllocator();
-             var reader = new org.apache.arrow.vector.ipc.ArrowStreamReader(
-                     new java.io.ByteArrayInputStream(resultBytes), allocator)) {
-            while (reader.loadNextBatch()) {
-                appendBatchRows(reader.getVectorSchemaRoot(), rows);
-            }
-        } catch (Exception e) {
-            throw new IllegalStateException(
-                    "Failed to decode result bytes: length=" + resultBytes.length, e);
-        }
-        return rows;
     }
 
     protected static void appendBatchRows(
@@ -2265,14 +2276,15 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
     }
 
     /**
-     * Starts a coordinator-side transport server for serving constant-fold and DDL/DML results.
+     * Starts the bounded Coordinator Flight server for control-plane statement results.
      * Worker-side result serving is handled by the C++ FlightResultServer via NativeResultTransport.
      */
     private static TransportServer startCoordinatorTransportServer() {
         var coordinatorProducer = new org.pangrova.coordinator.result.CoordinatorDataProducer(
                 ensureCoordinatorResultBuffer());
-        TransportServer server = new TransportServer(
-                coordinatorProducer, new org.pangrova.protocol.transport.TransportServerConfig(0));
+        coordinatorArrowAllocator = new org.apache.arrow.memory.RootAllocator(128L * 1024 * 1024);
+        TransportServer server = new TransportServer(coordinatorProducer,
+                new org.pangrova.protocol.transport.TransportServerConfig(0), coordinatorArrowAllocator, List.of());
         server.start();
         return server;
     }
@@ -2316,7 +2328,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 };
         // Build CoordinatorResultService BEFORE StatementDispatcher so DDL/metadata
         // results (SHOW INDEXES, DESCRIBE, etc.) are buffered and returned to clients.
-        CoordinatorResultService resultSvc = buildCoordinatorResultService();
+        CoordinatorResultService resultSvc = buildCoordinatorResultService(taskTracker);
         if (workerManager == null) {
             workerManager = new WorkerManager(new org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry());
         }
@@ -2361,10 +2373,10 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         var scheduling = new org.pangrova.coordinator.query.execution.SchedulingContextBundle(
                 httpDispatcher, scheduler, workerManager, taskTracker, null, null,
                 E2eCurrentAuthority.configuredSpillBudget(NATIVE_WRITE_STAGE_BYTES), null);
-        var deps = new QueryDispatcherContext(new org.pangrova.shuffle.skew.MedianSkewDetector(),
+        var deps = new QueryDispatcherContext(
                 compiler, security, scheduling,
                 metadataBootstrap.catalogRegistry(), null, 0L,
-                null, null, null, null, null, null, indexAwareSplitFetcher, embeddingRegistry,
+                null, null, null, null, null, indexAwareSplitFetcher, embeddingRegistry,
                 new org.pangrova.generation.publication.read.PublishedGenerationBindingResolver(
                         sharedArtifactBuildStore),
                 new org.pangrova.coordinator.generation.read.GeneratedValueReadResolver(
@@ -2547,17 +2559,14 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         }
     }
 
-    private static CoordinatorResultService buildCoordinatorResultService() {
+    protected static CoordinatorResultService buildCoordinatorResultService(CoordinatorTaskTracker owner) {
         if (coordinatorTransportServer == null || !coordinatorTransportServer.isRunning()) {
             return null;
         }
         CoordinatorResultBuffer buffer = ensureCoordinatorResultBuffer();
-        closeQuietly(coordinatorArrowAllocator, "arrow_allocator");
-        coordinatorArrowAllocator = new org.apache.arrow.memory.RootAllocator(128L * 1024 * 1024);
         var writer = new CoordinatorResultWriter(coordinatorArrowAllocator);
         var endpoint = new ResultEndpoint("localhost", coordinatorTransportServer.getPort(), "coordinator", "grpc");
-        coordinatorResultService = new CoordinatorResultService(buffer, writer, endpoint);
-        return coordinatorResultService;
+        return new CoordinatorResultService(buffer, writer, endpoint, owner::enterQueryOperation);
     }
 
     private static synchronized CoordinatorResultBuffer ensureCoordinatorResultBuffer() {
@@ -2663,9 +2672,6 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         tasks.put(org.pangrova.parser.api.ast.statement.maintenance.AnalyzeStatement.class,
                 new org.pangrova.coordinator.query.execution.dispatch.task.AnalyzeTask(
                         new org.pangrova.coordinator.query.statement.AnalyzeExecutor(catalog)));
-        // Incremental read (CHANGES BETWEEN SNAPSHOT x AND y)
-        tasks.put(org.pangrova.parser.api.ast.statement.IncrementalReadStatement.class,
-                new org.pangrova.coordinator.query.execution.dispatch.task.IncrementalReadTask(catalog));
         // Storage Profile management
         org.pangrova.persistence.file.api.profile.StorageProfileRegistry spRegistry = durableStorageProfileScenario
                 ? new org.pangrova.persistence.file.postgresql.profile.JdbcStorageProfileRegistry(
@@ -2740,7 +2746,7 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                         (sql, sess) -> {
                             SqlCompiler compiler = buildSqlCompiler().forSession(
                                     org.pangrova.coordinator.query.session.SessionContextConverter
-                                            .toConnectorSession(sess));
+                                            .toConnectorSession(sess), sess.publicationRevision());
                             PlannedQuery query = compiler.compileForPolicyApplication(sql)
                                     .toPlannedQuery();
                             PlannedQuery optimized = compiler.optimizeProtectedQuery(query, true);
@@ -2876,28 +2882,22 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
                 .withNativeCapabilities(org.pangrova.planner.validation.NativeCapabilityRegistry.live(() ->
                         workerManager.getActiveWorkers().stream().map(
                                 org.pangrova.coordinator.worker.WorkerInfo::capabilityInventory).toList()))
-                .withSessionPlanner(session -> {
+                .withSessionPlanner((session, publicationRevision) -> {
                     var bindings = new org.pangrova.planner.metadata.catalog.PlanningReadBindings(
                             metadataBootstrap.catalogRegistry(), session,
                             metadataBootstrap.catalogRegistry().tableStatistics());
                     var readerPin = new org.pangrova.coordinator.materialization.MaterializationReadPin(
                             java.util.Optional.of(readerPinLeases()), session);
+                    var publications = org.pangrova.coordinator.materialization.PlanningMaterializations.forSession(
+                            materializationCatalog(), session, E2E_TENANT_ID, publicationRevision);
                     var durableRewriter = new org.pangrova.planner.mv.DynamicTableRewriter(
                             new org.pangrova.coordinator.dynamictable.DurableDynamicTableResolver(
-                                    materializationCatalog(),
-                                    session.getProperties().getOrDefault("tenant_id", E2E_TENANT_ID),
-                                    session.getCatalog().orElse(null),
+                                    publications, session.getCatalog().orElse(null),
                                     session.getSchema().orElse(null), readerPin),
                             org.pangrova.planner.mv.DynamicTableRewriter.isInternalExecution(session));
-                    var materializationCatalog = materializationCatalog();
-                    var mvCatalog = materializationCatalog == null ? null
-                            : org.pangrova.coordinator.materialization
-                                    .KernelMaterializedViewRewriteCatalog.create(
-                                            materializationCatalog,
-                                            session.getProperties().getOrDefault(
-                                                    "tenant_id", E2E_TENANT_ID),
-                                            session, currentAccessControl,
-                                            java.time.Instant.now(), readerPin).orElse(null);
+                    var mvCatalog = org.pangrova.coordinator.materialization.KernelMaterializedViewRewriteCatalog
+                            .create(publications, session, currentAccessControl, java.time.Instant.now(), readerPin)
+                            .orElse(null);
                     var deps = new org.pangrova.planner.analysis.PlannerContext(
                             new org.pangrova.planner.statistics.StatisticsCollector(bindings),
                             mvCatalog,

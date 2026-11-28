@@ -158,22 +158,22 @@ final class PostgresGenerationOutputQueries {
             Connection connection, String tenantId, String jobId, List<String> sourceIds,
             Map<String, String> requested) throws SQLException {
         requirePublishedJob(connection, tenantId, jobId);
-        return matchesLockedPublishedSplits(connection, tenantId, jobId, sourceIds, requested);
+        var stored = loadLockedPublishedSplitChecksums(connection, tenantId, jobId, sourceIds);
+        return stored.keySet().equals(requested.keySet())
+                && stored.entrySet().stream().allMatch(entry ->
+                        entry.getValue() != null && entry.getValue().equalsIgnoreCase(
+                                requested.get(entry.getKey())));
     }
 
-    /** Compares sources while the caller holds the lock on this exact published job. */
-    static boolean matchesLockedPublishedSplits(Connection connection, String tenantId, String jobId,
-            List<String> sourceIds, Map<String, String> requested) throws SQLException {
+    static Map<String, String> loadLockedPublishedSplitChecksums(Connection connection, String tenantId,
+            String jobId, List<String> sourceIds) throws SQLException {
         Map<String, String> stored = new HashMap<>();
         for (int offset = 0; offset < sourceIds.size(); offset += LOOKUP_BATCH_SIZE) {
             List<String> batch = sourceIds.subList(
                     offset, Math.min(sourceIds.size(), offset + LOOKUP_BATCH_SIZE));
             loadStoredSplits(connection, tenantId, jobId, batch, stored);
         }
-        return stored.keySet().equals(requested.keySet())
-                && stored.entrySet().stream().allMatch(entry ->
-                        entry.getValue() != null && entry.getValue().equalsIgnoreCase(
-                                requested.get(entry.getKey())));
+        return stored;
     }
 
     static Map<String, GenerationSplit> loadPublishedSourceSplits(

@@ -107,7 +107,7 @@ class WorkerRegistryE2ETest extends ContainerTestBase {
     class HeartbeatPersistence {
 
         @Test
-        @DisplayName("Heartbeat updates DB fields: memory_pressure, cpu_utilization, running_task_count, available_memory_bytes")
+        @DisplayName("Heartbeat updates DB fields: memory_pressure, cpu_utilization, in_flight_task_count, available_memory_bytes")
         void heartbeat_updatesDbFields() throws Exception {
             WorkerManager manager = new WorkerManager(SUSPECT_MS, DEAD_MS, registry);
             WorkerInfo worker = createWorkerInfo("worker-hb", "host-hb", 8080, 9090);
@@ -120,13 +120,13 @@ class WorkerRegistryE2ETest extends ContainerTestBase {
             // Verify DB fields updated
             try (Connection conn = dataSource.getConnection();
                  PreparedStatement ps = conn.prepareStatement(
-                         "SELECT memory_pressure, cpu_utilization, running_task_count, available_memory_bytes FROM worker_registry WHERE worker_id = ?")) {
+                         "SELECT memory_pressure, cpu_utilization, in_flight_task_count, available_memory_bytes FROM worker_registry WHERE worker_id = ?")) {
                 ps.setString(1, "worker-hb");
                 try (ResultSet rs = ps.executeQuery()) {
                     assertThat(rs.next()).isTrue();
                     assertThat(rs.getString("memory_pressure")).isEqualTo("HIGH");
                     assertThat(rs.getDouble("cpu_utilization")).isCloseTo(0.85, org.assertj.core.data.Offset.offset(0.01));
-                    assertThat(rs.getInt("running_task_count")).isEqualTo(5);
+                    assertThat(rs.getInt("in_flight_task_count")).isEqualTo(5);
                     assertThat(rs.getLong("available_memory_bytes")).isEqualTo(1024L * 1024 * 512);
                 }
             }

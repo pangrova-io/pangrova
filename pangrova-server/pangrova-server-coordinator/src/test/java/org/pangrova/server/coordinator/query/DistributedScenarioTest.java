@@ -392,7 +392,7 @@ class DistributedScenarioTest {
     private static WorkerInfo routingSnapshot(WorkerInfo actual, double score, Instant heartbeat) {
         return new WorkerInfo(actual.workerId(), actual.host(), actual.httpPort(), actual.transportPort(),
                 actual.resultServerPort(), actual.healthState(), actual.memoryPressure(), 1.0 - score,
-                actual.runningTaskCount(), ROUTING_MEMORY_BYTES, heartbeat, score, actual.resourcePoolId(),
+                actual.inFlightTaskCount(), ROUTING_MEMORY_BYTES, heartbeat, score, actual.resourcePoolId(),
                 actual.protocolVersion(), actual.rackId(), actual.dataLocality(), actual.cacheSummary(),
                 actual.capabilityInventory(), actual.workerExecutionIdentity());
     }

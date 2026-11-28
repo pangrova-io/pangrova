@@ -1,6 +1,8 @@
 package org.pangrova.testing.integration.e2e.speculation;
 
+import org.pangrova.common.enums.ResultDisposition;
 import org.pangrova.coordinator.query.task.report.CanonicalTaskReportValidator;
+import org.pangrova.protocol.task.CanonicalExecutionDrainReports;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.protocol.v2.ExecutionDrainState;
 import org.pangrova.protocol.v2.TaskKind;
@@ -30,7 +32,8 @@ final class SpeculativeProcessScenario implements AutoCloseable {
     private final CompletableFuture<IndependentSpeculationProcesses.SqlOutput> output;
     private final CopyOnWriteArrayList<Throwable> faultFailures = new CopyOnWriteArrayList<>();
 
-    SpeculativeProcessScenario(IndependentSpeculationProcesses processes, Fault fault, boolean holdCopy, String sql) {
+    SpeculativeProcessScenario(IndependentSpeculationProcesses processes, Fault fault, boolean holdCopy,
+            String sql, ResultDisposition expected) {
         this.processes = processes;
         files = new ProcessFileFault(processes.input().dataFiles());
         originalReports = processes.reports().holdReports(report -> matchesOriginal(report) && terminal(report));
@@ -39,7 +42,7 @@ final class SpeculativeProcessScenario implements AutoCloseable {
             worker.http().beforeDelivery(transfer -> beforeDelivery(worker.workerId(), transfer, fault));
             worker.http().disconnectBeforeDelivery(transfer -> fault == Fault.COPY_DISPATCH && copySubmission(transfer));
         }
-        output = processes.query(sql);
+        output = processes.execute(sql, expected);
     }
 
     IndependentSpeculationProcesses.IssuedTask original() {
@@ -113,7 +116,8 @@ final class SpeculativeProcessScenario implements AutoCloseable {
                 if (!transfer.method().equals("DELETE") || !transfer.path().getPath().equals("/v1/task/" + taskId)) continue;
                 var response = transfer.response().get();
                 if (response != null && response.statusCode() == 200) {
-                    new CanonicalTaskReportValidator().validateExecutionDrainReceipt(response.body(), issued.request());
+                    CanonicalExecutionDrainReports.decode(
+                            response.body(), issued.request().taskRequest().getAttempt());
                     return true;
                 }
             }
