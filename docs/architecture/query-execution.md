@@ -799,6 +799,12 @@ reports. An idempotent finalization conflict compares the retained provider byte
 and partition evidence. First finalization and retries lock only the exact
 registration and its pinned source snapshot.
 
+Relational export stores each producer-to-consumer dependency once in the stage
+graph and its exchange index. A consumer page is eligible only after its incoming
+exchanges have finalized. Exact claim and issued-lease preparation therefore skip
+page dependency and split reads for those consumers. Root stages still read their
+frozen scan splits, and artifact reductions still read their ordered page inputs.
+
 Durable graph startup validates the complete exchange index. Afterwards, partition
 progress reads only the exact page window under the current authority. Claims
 and issued-lease preparation read only the immutable registrations and finalized

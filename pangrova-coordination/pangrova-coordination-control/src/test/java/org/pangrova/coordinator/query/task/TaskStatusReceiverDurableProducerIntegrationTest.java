@@ -139,7 +139,7 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
                 new GenerationPage(KEY.jobId(), "producer-0", 1, 0, 0,
                         GenerationPageKind.RELATIONAL_COMPUTE, List.of(), List.of(), 3),
                 new GenerationPage(KEY.jobId(), "terminal-0", 0, 0, 1,
-                        GenerationPageKind.RELATIONAL_PARTITION, List.of(), List.of("producer-0"), 3)));
+                        GenerationPageKind.RELATIONAL_PARTITION, List.of(), List.of(), 3)));
         anchor = executions.takeOwnership(KEY.tenantId(), KEY.jobId(), "report-coordinator", 8);
         registerExchange();
         lease = stages.preparePartition(claim(1, 0), value -> value.lease()).orElseThrow();
@@ -322,7 +322,7 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
         assertThat(statementReads(selectionSql) - selectionBefore).isEqualTo(window);
         assertThat(statementReads(startedSql) - startedBefore).as("initial job transition").isOne();
         assertThat(statementReads(splitSql) - splitBefore).isEqualTo(window);
-        assertThat(statementReads(dependenciesSql) - dependenciesBefore).isEqualTo(window);
+        assertThat(statementReads(dependenciesSql) - dependenciesBefore).isZero();
 
         var claims = partitionClaims(key, owner, window, window);
         exchangeBefore = exchangeReads().combined();
@@ -343,14 +343,19 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
         assertThat(statementReads(selectionSql) - selectionBefore).as("exact page cohort reads").isOne();
         assertThat(statementReads(startedSql) - startedBefore).as("updates for an already running job").isZero();
         assertThat(statementReads(splitSql) - splitBefore).as("page source reads").isOne();
-        assertThat(statementReads(dependenciesSql) - dependenciesBefore).as("page dependency reads").isOne();
+        assertThat(statementReads(dependenciesSql) - dependenciesBefore).as("page dependency reads").isZero();
 
         try (var connection = dataSource.getConnection()) {
-            var inputs = new org.pangrova.persistence.generation.postgresql.query.PostgresGenerationQueries()
-                    .loadPageInputs(connection, key.tenantId(), key.jobId(), List.of("terminal-0", "producer-0"));
-            assertThat(inputs.get(0).dependencies()).containsExactlyElementsOf(
-                    java.util.stream.IntStream.range(0, window * 2).mapToObj(i -> "producer-" + i).toList());
-            assertThat(inputs.get(1).dependencies()).isEmpty();
+            try (var sql = connection.prepareStatement("""
+                    SELECT count(*) FROM artifact_build_page_dependencies WHERE tenant_id=? AND job_id=?
+                    """)) {
+                sql.setString(1, key.tenantId());
+                sql.setString(2, key.jobId());
+                try (var rows = sql.executeQuery()) {
+                    assertThat(rows.next()).isTrue();
+                    assertThat(rows.getLong(1)).isZero();
+                }
+            }
         }
     }
 
@@ -367,8 +372,7 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
                     GenerationPageKind.RELATIONAL_COMPUTE, List.of(split), List.of(), 3));
         }
         pages.add(new GenerationPage(key.jobId(), "terminal-0", 0, 0, partitions,
-                GenerationPageKind.RELATIONAL_PARTITION, List.of(),
-                pages.stream().map(GenerationPage::pageId).toList(), 3));
+                GenerationPageKind.RELATIONAL_PARTITION, List.of(), List.of(), 3));
         builds.createJob(job(key, pages.size()), placementSpec, pages);
         var owner = executions.takeOwnership(key.tenantId(), key.jobId(), "report-coordinator", 8);
         var access = placementExchange(key, placementSpec, owner, partitions);
@@ -457,22 +461,21 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
     }
 
     @Test
-    void idempotentAdmissionReadsEachPageInputTableOnceAndKeepsExactOrdinals() throws Exception {
+    void idempotentRelationalAdmissionReadsOnlyFrozenSplitsAndKeepsExactOrdinals() throws Exception {
         var key = new GenerationJobKey(KEY.tenantId(), "admission-replay");
         int partitions = 8;
         var dispatch = specification(key, partitions);
         var pages = new java.util.ArrayList<GenerationPage>();
-        var dependencyOrder = new java.util.ArrayList<String>();
         for (int partition = 0; partition < partitions; partition++) {
             String pageId = "producer-" + (partitions - partition);
-            dependencyOrder.add(0, pageId);
             pages.add(new GenerationPage(key.jobId(), pageId, 1, partition, partition,
                     GenerationPageKind.RELATIONAL_COMPUTE,
-                    List.of(GenerationSplit.of("source-" + partition, new byte[]{(byte) partition, 1})),
+                    List.of(GenerationSplit.of("source-" + partition, new byte[]{(byte) partition, 1}),
+                            GenerationSplit.of("source-" + partition + "-next", new byte[]{(byte) partition, 2})),
                     List.of(), 3));
         }
         var terminal = new GenerationPage(key.jobId(), "terminal-0", 0, 0, partitions,
-                GenerationPageKind.RELATIONAL_PARTITION, List.of(), dependencyOrder, 3);
+                GenerationPageKind.RELATIONAL_PARTITION, List.of(), List.of(), 3);
         pages.add(terminal);
         var job = job(key, pages.size());
         builds.createJob(job, dispatch, pages);
@@ -489,15 +492,16 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
 
         assertThat(statementReads(pageSql) - pageBefore).isOne();
         assertThat(statementReads(splitSql) - splitBefore).isOne();
-        assertThat(statementReads(dependencySql) - dependencyBefore).isOne();
+        assertThat(statementReads(dependencySql) - dependencyBefore).isZero();
         try (var connection = dataSource.getConnection()) {
             assertThat(new PostgresGenerationQueries().loadPages(connection, key.tenantId(), key.jobId()))
                     .containsExactlyElementsOf(pages);
         }
 
-        java.util.Collections.reverse(dependencyOrder);
-        pages.set(partitions, new GenerationPage(key.jobId(), terminal.pageId(), 0, 0, partitions,
-                terminal.kind(), List.of(), dependencyOrder, terminal.maxAttempts()));
+        var first = pages.get(0);
+        pages.set(0, new GenerationPage(key.jobId(), first.pageId(), first.stageId(), first.partitionId(),
+                first.pageOrdinal(), first.kind(), List.of(first.splits().get(1), first.splits().get(0)),
+                List.of(), first.maxAttempts()));
         assertThatThrownBy(() -> builds.createJob(job, dispatch, pages))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("different work pages");
     }
@@ -525,15 +529,13 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
     private ExecutionAnchor createWideJob(GenerationJobKey key, int partitions) {
         var wideSpec = specification(key, partitions);
         var pages = new java.util.ArrayList<GenerationPage>();
-        var upstream = new java.util.ArrayList<String>();
         for (int partition = 0; partition < partitions; partition++) {
             String pageId = "producer-" + partition;
-            upstream.add(pageId);
             pages.add(new GenerationPage(key.jobId(), pageId, 1, partition, partition,
                     GenerationPageKind.RELATIONAL_COMPUTE, List.of(), List.of(), 3));
         }
         pages.add(new GenerationPage(key.jobId(), "terminal-0", 0, 0, partitions,
-                GenerationPageKind.RELATIONAL_PARTITION, List.of(), upstream, 3));
+                GenerationPageKind.RELATIONAL_PARTITION, List.of(), List.of(), 3));
         builds.createJob(job(key, pages.size()), wideSpec, pages);
         return executions.takeOwnership(key.tenantId(), key.jobId(), "report-coordinator", 8);
     }
@@ -695,8 +697,16 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
         assertThat(statementReads(graphLookup) - globalBefore).isZero();
         assertThat(stages.prepareExecution(KEY, anchor).exchanges()).singleElement()
                 .satisfies(evidence -> assertThat(evidence.finalization()).contains(proof));
+        String splitLookup = "SELECT%source_object_id,split_bytes,split_sha256%FROM artifact_build_page_sources%";
+        String dependencyLookup = "SELECT%dependency_page_id%FROM artifact_build_page_dependencies%";
+        long splitsBefore = statementReads(splitLookup);
+        long dependenciesBefore = statementReads(dependencyLookup);
         var terminal = stages.preparePartition(claim(0, 1), prepared -> prepared.lease()).orElseThrow();
+        assertThat(terminal.splits()).isEmpty();
+        assertThat(terminal.dependencyPageIds()).isEmpty();
         var leasedEvidence = stages.prepareLeasedPartition(terminal, Instant.now(), prepared -> prepared.exchanges());
+        assertThat(statementReads(splitLookup) - splitsBefore).isZero();
+        assertThat(statementReads(dependencyLookup) - dependenciesBefore).isZero();
         assertThat(leasedEvidence).singleElement()
                 .satisfies(evidence -> assertThat(evidence.finalization()).contains(proof));
         assertThat(statementReads(reportScan) - before).isZero();

@@ -161,9 +161,7 @@ public record GenerationStageGraph(int formatVersion, GenerationGraphPurpose pur
             if (byId.put(stage.stageId(), stage) != null) {
                 throw new IllegalArgumentException("Duplicate durable stage id");
             }
-            boolean relational = stage.pageKind() == GenerationPageKind.RELATIONAL_COMPUTE
-                    || stage.pageKind() == GenerationPageKind.RELATIONAL_PARTITION;
-            if (relational != (purpose == GenerationGraphPurpose.RELATIONAL_EXPORT)) {
+            if (stage.pageKind().isRelational() != (purpose == GenerationGraphPurpose.RELATIONAL_EXPORT)) {
                 throw new IllegalArgumentException("Durable stage kind differs from terminal purpose");
             }
         }

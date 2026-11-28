@@ -49,13 +49,13 @@ class GenerationCancellationLockIntegrationTest extends ContainerTestBase {
             execute(claimant, "SET LOCAL statement_timeout='3s'");
             execute(owner, "SELECT page_id FROM artifact_build_pages WHERE job_id='job-a' FOR UPDATE");
 
-            assertThat(PostgresGenerationPageSelection.selectClaimableCohort(claimant, ready)).isEmpty();
-            assertThatThrownBy(() -> PostgresGenerationPageSelection.selectClaimableCohort(claimant, wrongOrdinal))
+            assertThat(PostgresGenerationPageSelection.selectClaimableCohort(claimant, ready, false)).isEmpty();
+            assertThatThrownBy(() -> PostgresGenerationPageSelection.selectClaimableCohort(claimant, wrongOrdinal, false))
                     .isInstanceOf(IllegalStateException.class).hasMessageContaining("exact immutable page allocation");
 
             owner.rollback();
-            assertThat(PostgresGenerationPageSelection.selectClaimableCohort(claimant, future)).isEmpty();
-            assertThat(PostgresGenerationPageSelection.selectClaimableCohort(claimant, ready))
+            assertThat(PostgresGenerationPageSelection.selectClaimableCohort(claimant, future, false)).isEmpty();
+            assertThat(PostgresGenerationPageSelection.selectClaimableCohort(claimant, ready, false))
                     .singleElement().satisfies(page -> assertThat(page.pageId()).isEqualTo("page-a"));
             claimant.rollback();
         }

@@ -28,8 +28,13 @@ final class FeatureExportStageGraph {
     static Prepared prepare(AuthorizedStageGraph graph, String jobId, String sourceId,
             List<GenerationSplit> splits, OperatorBinding sink, int maxAttempts) {
         requireAdmitted(graph, sourceId);
+        if (splits.stream().map(GenerationSplit::canonicalSplitBase64).distinct().count() != splits.size()) {
+            throw new IllegalArgumentException("Feature export repeats a canonical source split");
+        }
         var stages = new ArrayList<GenerationStageGraph.StagePlan>();
         var pages = new ArrayList<GenerationPage>();
+        var consumers = graph.transfers().stream().map(transfer -> transfer.downstreamStageId())
+                .collect(java.util.stream.Collectors.toSet());
         for (var stage : topologicalStages(graph)) {
             boolean terminal = "OUTPUT".equals(stage.taskType());
             var plan = terminal ? TabularExportPlanBuilder.build(stage.serializedPlan().planBytes()).planBytes()
@@ -51,7 +56,8 @@ final class FeatureExportStageGraph {
                     FrozenStageBindings.freeze(bound, List.of()),
                     stage.sources().stream().map(source -> source.qualifiedName()).toList(),
                     stage.outputNames(), terminal));
-            pages.addAll(pages(graph, stage, jobId, splits, kind, maxAttempts, pages.size()));
+            pages.addAll(pages(stage, jobId, consumers.contains(stage.stageId()) ? List.of() : splits,
+                    kind, maxAttempts, pages.size()));
         }
         var edges = graph.transfers().stream().map(edge -> new GenerationStageGraph.Exchange(edge.exchangeId(),
                 edge.upstreamStageId(), edge.downstreamStageId(),
@@ -86,27 +92,16 @@ final class FeatureExportStageGraph {
         return List.copyOf(ordered);
     }
 
-    private static List<GenerationPage> pages(AuthorizedStageGraph graph, AuthorizedStageGraph.SerializedStage stage,
+    private static List<GenerationPage> pages(AuthorizedStageGraph.SerializedStage stage,
             String job, List<GenerationSplit> splits, GenerationPageKind kind, int maxAttempts, int ordinalBase) {
-        var producers = graph.transfers().stream().filter(edge -> edge.downstreamStageId() == stage.stageId())
-                .map(edge -> graph.stages().stream().filter(value -> value.stageId() == edge.upstreamStageId())
-                        .findFirst().orElseThrow()).toList();
-        var dependencies = producers.stream().flatMap(producer -> java.util.stream.IntStream
-                .range(0, producer.parallelism()).mapToObj(partition -> pageId(job, producer.stageId(), partition)))
-                .toList();
-        var byBytes = splits.stream().collect(java.util.stream.Collectors.toUnmodifiableMap(
-                GenerationSplit::canonicalSplitBase64, java.util.function.Function.identity()));
-        var allocations = producers.isEmpty() ? StageSplitPartitions.partitionSplits(
-                splits.stream().map(GenerationSplit::canonicalSplitBase64).toList(), stage.parallelism(),
-                ignored -> 1L)
-                : List.<List<String>>of();
-        var result = new ArrayList<GenerationPage>();
+        var allocations = splits.isEmpty()
+                ? java.util.Collections.nCopies(stage.parallelism(), List.<GenerationSplit>of())
+                : StageSplitPartitions.partitionSplits(splits, stage.parallelism(), ignored -> 1L);
+        var result = new ArrayList<GenerationPage>(stage.parallelism());
         for (int partition = 0; partition < stage.parallelism(); partition++) {
             result.add(new GenerationPage(job, pageId(job, stage.stageId(), partition),
-                    stage.stageId(), partition,
-                    Math.addExact(ordinalBase, partition), kind,
-                    producers.isEmpty() ? allocations.get(partition).stream().map(byBytes::get).toList()
-                            : List.of(), dependencies, maxAttempts));
+                    stage.stageId(), partition, Math.addExact(ordinalBase, partition), kind,
+                    allocations.get(partition), List.of(), maxAttempts));
         }
         return List.copyOf(result);
     }

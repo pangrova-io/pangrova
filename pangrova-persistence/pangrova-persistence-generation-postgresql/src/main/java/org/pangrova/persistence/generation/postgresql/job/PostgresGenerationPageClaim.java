@@ -4,12 +4,14 @@ import org.pangrova.persistence.generation.postgresql.query.PostgresGenerationQu
 import org.pangrova.persistence.generation.postgresql.query.PostgresGenerationQueries.PageInputs;
 
 import org.pangrova.generation.api.page.GenerationLease;
+import org.pangrova.generation.api.page.GenerationSplit;
 import org.pangrova.execution.api.ownership.ExecutionAnchor;
 
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 import static org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStoreMappings.fencingToken;
@@ -24,16 +26,26 @@ final class PostgresGenerationPageClaim {
     private PostgresGenerationPageClaim() {}
 
     static Optional<GenerationLease> claim(Connection connection, PostgresGenerationJobStoreMappings.PageRow page,
-            ExecutionAnchor anchor, long ownerEpoch, Duration duration, Instant now) throws SQLException {
+            ExecutionAnchor anchor, long ownerEpoch, Duration duration, Instant now, boolean readsSplits)
+            throws SQLException {
         if (attemptsExhausted(page)) {
             failExhaustedPage(connection, page, now);
             return Optional.empty();
         }
-        var inputs = new PageInputs(INPUTS.loadSplits(connection, page.tenantId(), page.jobId(), page.pageId()),
-                INPUTS.loadDependencies(connection, page.tenantId(), page.jobId(), page.pageId()));
+        var inputs = readInputs(connection, page, readsSplits);
         var lease = issue(connection, page, inputs, anchor, ownerEpoch, duration, now);
         markJobRunning(connection, page.tenantId(), page.jobId(), now);
         return Optional.of(lease);
+    }
+
+    static PageInputs readInputs(Connection connection, PostgresGenerationJobStoreMappings.PageRow page,
+            boolean readsSplits) throws SQLException {
+        var splits = readsSplits
+                ? INPUTS.loadSplits(connection, page.tenantId(), page.jobId(), page.pageId())
+                : List.<GenerationSplit>of();
+        var dependencies = page.kind().isRelational() ? List.<String>of()
+                : INPUTS.loadDependencies(connection, page.tenantId(), page.jobId(), page.pageId());
+        return new PageInputs(splits, dependencies);
     }
 
     static boolean attemptsExhausted(PostgresGenerationJobStoreMappings.PageRow page) {

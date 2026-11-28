@@ -148,7 +148,8 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
             var job = findJob(connection, key.tenantId(), key.jobId(), true).orElseThrow();
             if (terminal(job.state())) return List.of();
 
-            var pages = PostgresGenerationPageSelection.selectClaimableCohort(connection, cohort);
+            var pages = PostgresGenerationPageSelection.selectClaimableCohort(
+                    connection, cohort, stage.pageKind().isRelational());
             if (pages.isEmpty()) return List.of();
             for (var page : pages) {
                 if (page.kind() != stage.pageKind()) {
@@ -160,12 +161,14 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
                 }
             }
 
-            requireConsumerEvidence(authority, first.stageId(), exchanges);
+            boolean consumesExchange = requireConsumerEvidence(authority, first.stageId(), exchanges);
             if (job.state() == GenerationJobState.QUEUED) {
                 markJobRunning(connection, key.tenantId(), key.jobId(), first.now());
             }
-            var inputs = INPUTS.loadPageInputs(connection, key.tenantId(), key.jobId(),
-                    pages.stream().map(PageRow::pageId).toList());
+            var inputs = stage.pageKind().isRelational() && consumesExchange
+                    ? java.util.Collections.nCopies(pages.size(), new PageInputs(List.of(), List.of()))
+                    : INPUTS.loadPageInputs(connection, key.tenantId(), key.jobId(),
+                            pages.stream().map(PageRow::pageId).toList(), stage.pageKind());
             var publications = PostgresGenerationPublishedInputs.load(connection, key.tenantId(),
                     authority.executionAnchor().executionId(), stage.template().publicationReads(),
                     inputs.stream().map(PageInputs::splits).toList());
@@ -217,16 +220,15 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
             var page = PostgresGenerationPageSelection.findPage(connection, lease.tenantId(), lease.jobId(),
                     lease.pageId(), true).orElseThrow();
             requireIssuedLease(page, lease, now);
-            var actualSplits = INPUTS.loadSplits(connection, lease.tenantId(), lease.jobId(), lease.pageId());
-            var actualDependencies = INPUTS.loadDependencies(
-                    connection, lease.tenantId(), lease.jobId(), lease.pageId());
-            if (!actualSplits.equals(lease.splits()) || !actualDependencies.equals(lease.dependencyPageIds())) {
+            boolean consumesExchange = requireConsumerEvidence(authority, lease.stageId(), exchanges);
+            var inputs = PostgresGenerationPageClaim.readInputs(connection, page,
+                    !page.kind().isRelational() || !consumesExchange);
+            if (!inputs.splits().equals(lease.splits()) || !inputs.dependencies().equals(lease.dependencyPageIds())) {
                 throw new IllegalStateException("Issued durable partition inputs differ from immutable PG allocations");
             }
-            requireConsumerEvidence(authority, lease.stageId(), exchanges);
             var template = authority.dispatchSpec().stageGraph().requireStage(lease.stageId()).template();
             var publications = PostgresGenerationPublishedInputs.load(connection, lease.tenantId(),
-                    authority.executionAnchor().executionId(), template.publicationReads(), List.of(actualSplits));
+                    authority.executionAnchor().executionId(), template.publicationReads(), List.of(inputs.splits()));
             var evidence = prepareEvidence(connection, authority, job, lease, exchanges, publications.get(0));
             return Objects.requireNonNull(
                     prepare.apply(evidence), "partition preparation must return immutable metadata");
@@ -249,17 +251,20 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
         }
     }
 
-    private static void requireConsumerEvidence(PostgresCurrentGenerationAuthority authority, int stage,
+    private static boolean requireConsumerEvidence(PostgresCurrentGenerationAuthority authority, int stage,
             List<ExchangeEvidence> exchanges) {
         var graph = authority.dispatchSpec().stageGraph();
+        boolean consumesExchange = false;
         for (var edge : graph.exchanges()) {
             if (edge.downstreamStageId() != stage) continue;
+            consumesExchange = true;
             var matching = exchanges.stream().filter(value ->
                     value.registration().exchangeId().equals(edge.exchangeId())).toList();
             if (matching.size() != 1 || matching.get(0).finalization().isEmpty()) {
                 throw new IllegalStateException("Durable consumer requires real persisted external finalize evidence");
             }
         }
+        return consumesExchange;
     }
 
     private static PreparedPartition prepareEvidence(java.sql.Connection connection,

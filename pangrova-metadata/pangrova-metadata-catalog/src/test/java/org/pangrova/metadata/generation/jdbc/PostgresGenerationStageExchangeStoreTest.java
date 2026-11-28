@@ -81,7 +81,7 @@ class PostgresGenerationStageExchangeStoreTest {
                 new GenerationPage(KEY.jobId(), "producer-0", 1, 0, 0, GenerationPageKind.RELATIONAL_COMPUTE,
                         List.of(), List.of(), 3),
                 new GenerationPage(KEY.jobId(), "terminal-0", 0, 0, 1, GenerationPageKind.RELATIONAL_PARTITION,
-                        List.of(), List.of("producer-0"), 3)));
+                        List.of(), List.of(), 3)));
         anchor = owners.takeOwnership(KEY.tenantId(), KEY.jobId(), "process-a", 8);
     }
 
@@ -178,7 +178,6 @@ class PostgresGenerationStageExchangeStoreTest {
         var stages = new ArrayList<GenerationStageGraph.StagePlan>();
         var edges = new ArrayList<GenerationStageGraph.Exchange>();
         var pages = new ArrayList<GenerationPage>();
-        var producers = new ArrayList<String>();
         var compute = spec.stageGraph().requireStage(1);
         stages.add(spec.stageGraph().requireStage(0));
         for (int stage = 1; stage <= 9; stage++) {
@@ -187,12 +186,11 @@ class PostgresGenerationStageExchangeStoreTest {
             edges.add(new GenerationStageGraph.Exchange("exchange-" + stage + "-0", stage, 0,
                     GenerationExchangeDistribution.SINGLETON, List.of(), 1, "BATCH_SERDE_ARROW_BATCH", true));
             String page = "producer-" + stage;
-            producers.add(page);
             pages.add(new GenerationPage(key.jobId(), page, stage, 0, stage - 1,
                     GenerationPageKind.RELATIONAL_COMPUTE, List.of(), List.of(), 3));
         }
-        pages.add(new GenerationPage(key.jobId(), "terminal-0", 0, 0, producers.size(),
-                GenerationPageKind.RELATIONAL_PARTITION, List.of(), producers, 3));
+        pages.add(new GenerationPage(key.jobId(), "terminal-0", 0, 0, pages.size(),
+                GenerationPageKind.RELATIONAL_PARTITION, List.of(), List.of(), 3));
         var graph = new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION,
                 GenerationGraphPurpose.RELATIONAL_EXPORT, stages, edges, List.of());
         var work = GenerationDispatchSpecFactory.create(key.jobId(), graph, key.tenantId(), spec.principal(),
@@ -366,6 +364,21 @@ class PostgresGenerationStageExchangeStoreTest {
             assertThat(rows.next()).isTrue();
             assertThat(List.of(rows.getLong(1), rows.getLong(2))).containsExactly(0L, 0L);
         }
+    }
+
+    @Test
+    void exchangeConsumersCannotAlsoClaimSourceSplits() {
+        var invalid = List.of(
+                new GenerationPage(KEY.jobId(), "producer-0", 1, 0, 0, GenerationPageKind.RELATIONAL_COMPUTE,
+                        List.of(), List.of(), 3),
+                new GenerationPage(KEY.jobId(), "terminal-0", 0, 0, 1, GenerationPageKind.RELATIONAL_PARTITION,
+                        List.of(org.pangrova.generation.api.page.GenerationSplit.of("unbound-source", new byte[]{1})),
+                        List.of(), 3));
+        assertThatThrownBy(() -> builds.createJob(job(), spec, invalid))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("cannot enumerate source splits");
+        assertThatThrownBy(() -> new GenerationPage(KEY.jobId(), "terminal-0", 0, 0, 1,
+                GenerationPageKind.RELATIONAL_PARTITION, List.of(), List.of("producer-0"), 3))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("belong to stage exchanges");
     }
 
     @Test

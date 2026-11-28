@@ -110,7 +110,8 @@ public final class PostgresGenerationQueries implements GenerationTransactionInp
         if (pages.isEmpty()) {
             return List.of();
         }
-        PageInputRows rows = readPageInputs(connection, tenantId, jobId, null);
+        boolean includeDependencies = pages.stream().anyMatch(page -> !page.kind().isRelational());
+        PageInputRows rows = readPageInputs(connection, tenantId, jobId, null, includeDependencies);
         return pages.stream().map(page -> {
             PageInputs inputs = rows.forPage(page.id());
             return new GenerationPage(jobId, page.id(), page.stage(), page.partition(), page.ordinal(),
@@ -143,7 +144,7 @@ public final class PostgresGenerationQueries implements GenerationTransactionInp
         return List.copyOf(splits);
     }
 
-    /** Loads the exact producer-page barrier in its persisted dependency order. */
+    /** Loads artifact reduction inputs in their persisted dependency order. */
     public List<String> loadDependencies(
             Connection connection, String tenantId, String jobId, String pageId)
             throws SQLException {
@@ -172,15 +173,15 @@ public final class PostgresGenerationQueries implements GenerationTransactionInp
         }
     }
 
-    /** Loads the supplied locked page IDs with two bounded-cursor reads on the caller's connection. */
-    public List<PageInputs> loadPageInputs(
-            Connection connection, String tenantId, String jobId, List<String> pageIds) throws SQLException {
+    /** Loads a homogeneous locked page cohort on the caller's connection. */
+    public List<PageInputs> loadPageInputs(Connection connection, String tenantId, String jobId,
+            List<String> pageIds, GenerationPageKind kind) throws SQLException {
         if (pageIds.isEmpty()) {
             return List.of();
         }
         Array ids = connection.createArrayOf("varchar", pageIds.toArray(String[]::new));
         try {
-            PageInputRows rows = readPageInputs(connection, tenantId, jobId, ids);
+            PageInputRows rows = readPageInputs(connection, tenantId, jobId, ids, !kind.isRelational());
             return pageIds.stream().map(rows::forPage).toList();
         } finally {
             ids.free();
@@ -188,9 +189,9 @@ public final class PostgresGenerationQueries implements GenerationTransactionInp
     }
 
     private static PageInputRows readPageInputs(
-            Connection connection, String tenantId, String jobId, Array ids) throws SQLException {
+            Connection connection, String tenantId, String jobId, Array ids, boolean includeDependencies)
+            throws SQLException {
         Map<String, List<GenerationSplit>> splits = new HashMap<>();
-        Map<String, List<String>> dependencies = new HashMap<>();
         try (var statement = connection.prepareStatement(ids == null
                 ? SPLIT_ROWS + SPLIT_ORDER
                 : SPLIT_ROWS + PAGE_WINDOW + SPLIT_ORDER)) {
@@ -201,6 +202,9 @@ public final class PostgresGenerationQueries implements GenerationTransactionInp
                 }
             }
         }
+        if (!includeDependencies) return new PageInputRows(splits, Map.of());
+
+        Map<String, List<String>> dependencies = new HashMap<>();
         try (var statement = connection.prepareStatement(ids == null
                 ? DEPENDENCY_ROWS + DEPENDENCY_ORDER
                 : DEPENDENCY_ROWS + PAGE_WINDOW + DEPENDENCY_ORDER)) {

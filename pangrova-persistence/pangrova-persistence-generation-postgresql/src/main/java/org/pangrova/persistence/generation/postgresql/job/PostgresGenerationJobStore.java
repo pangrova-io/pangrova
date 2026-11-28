@@ -10,6 +10,7 @@ import org.pangrova.persistence.generation.postgresql.execution.PostgresCurrentG
 import org.pangrova.persistence.generation.postgresql.exchange.PostgresGenerationStageExchangeStore;
 import org.pangrova.generation.api.job.GenerationJob;
 import org.pangrova.generation.api.enums.GenerationJobState;
+import org.pangrova.generation.api.enums.GenerationGraphPurpose;
 import org.pangrova.generation.api.page.GenerationLease;
 import org.pangrova.generation.api.identity.GenerationJobKey;
 import org.pangrova.generation.api.output.GenerationOutput;
@@ -273,16 +274,7 @@ public final class PostgresGenerationJobStore extends PostgresGenerationJobStore
                              + "WHERE p.tenant_id=j.tenant_id AND p.job_id=j.job_id "
                              + "AND ((p.state='PENDING' AND p.next_available_at<=?) "
                              + "OR (p.state='LEASED' AND p.lease_expires_at<?)) "
-                             + "AND NOT EXISTS (SELECT 1 FROM artifact_build_page_dependencies d "
-                             + "JOIN artifact_build_pages u ON u.tenant_id=d.tenant_id "
-                             + "AND u.job_id=d.job_id "
-                             + "AND u.page_id=d.dependency_page_id WHERE d.job_id=p.job_id "
-                             + "AND d.tenant_id=p.tenant_id AND d.page_id=p.page_id "
-                             + "AND u.state<>'SUCCEEDED') "
-                             + "AND NOT EXISTS (SELECT 1 FROM artifact_stage_exchanges e WHERE "
-                             + "e.tenant_id=p.tenant_id AND e.job_id=p.job_id AND e.consumer_stage_id=p.stage_id "
-                             + "AND NOT EXISTS (SELECT 1 FROM artifact_exchange_finalizations f WHERE "
-                             + "f.tenant_id=e.tenant_id AND f.job_id=e.job_id AND f.exchange_id=e.exchange_id))) "
+                             + PostgresGenerationPageSelection.READY_PAGE_INPUTS + ") "
                              + "ORDER BY j.updated_at,j.tenant_id,j.job_id LIMIT ?")) {
             setInstant(statement, 1, now);
             setInstant(statement, 2, now);
@@ -330,11 +322,19 @@ public final class PostgresGenerationJobStore extends PostgresGenerationJobStore
             if (job == null || terminal(job.state())) {
                 return Optional.empty();
             }
-            PageRow page = selectClaimablePage(connection, tenantId, jobId, now).orElse(null);
+            var graph = context.dispatchSpec().stageGraph();
+            boolean relational = graph.purpose() == GenerationGraphPurpose.RELATIONAL_EXPORT;
+            PageRow page = selectClaimablePage(connection, tenantId, jobId, now, relational).orElse(null);
             if (page == null) {
                 return Optional.empty();
             }
-            return PostgresGenerationPageClaim.claim(connection, page, executionAnchor, ownerEpoch, leaseDuration, now);
+            if (graph.requireStage(page.stageId()).pageKind() != page.kind()) {
+                throw new IllegalStateException("Durable page kind differs from its graph");
+            }
+            boolean readsSplits = !relational
+                    || graph.exchanges().stream().noneMatch(edge -> edge.downstreamStageId() == page.stageId());
+            return PostgresGenerationPageClaim.claim(
+                    connection, page, executionAnchor, ownerEpoch, leaseDuration, now, readsSplits);
         });
     }
 

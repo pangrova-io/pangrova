@@ -6,5 +6,10 @@ public enum GenerationPageKind {
     DEPENDENCY_REDUCE,
     GENERATION_FINALIZE,
     RELATIONAL_COMPUTE,
-    RELATIONAL_PARTITION
+    RELATIONAL_PARTITION;
+
+    /** Relational pages obtain dependencies from the stage's input exchanges. */
+    public boolean isRelational() {
+        return this == RELATIONAL_COMPUTE || this == RELATIONAL_PARTITION;
+    }
 }

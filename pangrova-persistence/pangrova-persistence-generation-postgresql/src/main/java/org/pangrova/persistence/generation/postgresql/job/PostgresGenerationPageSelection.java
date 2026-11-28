@@ -22,24 +22,36 @@ import static org.pangrova.persistence.jdbc.support.JdbcSupport.setInstant;
 final class PostgresGenerationPageSelection {
     private PostgresGenerationPageSelection() {}
 
-    private static final String CLAIMABLE_PAGE = "SELECT * FROM artifact_build_pages "
-        + "WHERE tenant_id=? AND job_id=? "
-        + "AND ((state='PENDING' AND next_available_at<=?) "
-        + "OR (state='LEASED' AND lease_expires_at<?)) "
-        + "AND NOT EXISTS (SELECT 1 FROM artifact_build_page_dependencies d "
-        + "JOIN artifact_build_pages u ON u.tenant_id=d.tenant_id "
-        + "AND u.job_id=d.job_id "
-        + "AND u.page_id=d.dependency_page_id WHERE d.job_id=artifact_build_pages.job_id "
-        + "AND d.tenant_id=artifact_build_pages.tenant_id "
-        + "AND d.page_id=artifact_build_pages.page_id AND u.state<>'SUCCEEDED') "
-        + "AND NOT EXISTS (SELECT 1 FROM artifact_stage_exchanges e WHERE "
-        + "e.tenant_id=artifact_build_pages.tenant_id AND e.job_id=artifact_build_pages.job_id "
-        + "AND e.consumer_stage_id=artifact_build_pages.stage_id AND NOT EXISTS "
-        + "(SELECT 1 FROM artifact_exchange_finalizations f WHERE f.tenant_id=e.tenant_id "
-        + "AND f.job_id=e.job_id AND f.exchange_id=e.exchange_id)) ";
+    private static final String FINALIZED_STAGE_INPUTS = """
+            AND NOT EXISTS (
+                SELECT 1 FROM artifact_stage_exchanges e
+                WHERE e.tenant_id = p.tenant_id AND e.job_id = p.job_id AND e.consumer_stage_id = p.stage_id
+                    AND NOT EXISTS (
+                        SELECT 1 FROM artifact_exchange_finalizations f
+                        WHERE f.tenant_id = e.tenant_id AND f.job_id = e.job_id AND f.exchange_id = e.exchange_id
+                    )
+            )
+            """;
 
-    private static final String CLAIMABLE_ANY = CLAIMABLE_PAGE + "ORDER BY page_ordinal LIMIT 1 FOR UPDATE SKIP LOCKED";
-    private static final String CLAIMABLE_COHORT = """
+    // The mixed job queue includes artifact reductions with page-level dependencies.
+    static final String READY_PAGE_INPUTS = """
+            AND (p.page_kind IN ('RELATIONAL_COMPUTE', 'RELATIONAL_PARTITION') OR NOT EXISTS (
+                SELECT 1 FROM artifact_build_page_dependencies d
+                JOIN artifact_build_pages u ON u.tenant_id = d.tenant_id
+                    AND u.job_id = d.job_id AND u.page_id = d.dependency_page_id
+                WHERE d.tenant_id = p.tenant_id AND d.job_id = p.job_id AND d.page_id = p.page_id
+                    AND u.state <> 'SUCCEEDED'
+            ))
+            """ + FINALIZED_STAGE_INPUTS;
+
+    private static final String CLAIMABLE_PAGE = """
+            SELECT p.* FROM artifact_build_pages p WHERE p.tenant_id=? AND p.job_id=?
+            AND ((p.state='PENDING' AND p.next_available_at<=?) OR (p.state='LEASED' AND p.lease_expires_at<?))
+            """;
+    private static final String SELECT_NEXT = "ORDER BY page_ordinal LIMIT 1 FOR UPDATE SKIP LOCKED";
+    private static final String CLAIMABLE_ANY = CLAIMABLE_PAGE + READY_PAGE_INPUTS + SELECT_NEXT;
+    private static final String CLAIMABLE_RELATIONAL = CLAIMABLE_PAGE + FINALIZED_STAGE_INPUTS + SELECT_NEXT;
+    private static final String SELECT_COHORT = """
             WITH requested(partition_id, page_ordinal) AS (
                 SELECT * FROM unnest(?::integer[], ?::integer[])
             ),
@@ -49,7 +61,7 @@ final class PostgresGenerationPageSelection {
                 WHERE tenant_id=? AND job_id=? AND stage_id=?
             ),
             claimable AS (
-            """ + CLAIMABLE_PAGE + """
+            %s
             AND page_id IN (SELECT page_id FROM exact)
             ORDER BY partition_id FOR UPDATE SKIP LOCKED
             )
@@ -58,10 +70,12 @@ final class PostgresGenerationPageSelection {
             FROM requested r LEFT JOIN claimable USING (partition_id)
             ORDER BY r.partition_id
             """;
+    private static final String CLAIMABLE_COHORT = SELECT_COHORT.formatted(CLAIMABLE_PAGE + READY_PAGE_INPUTS);
+    private static final String RELATIONAL_COHORT = SELECT_COHORT.formatted(CLAIMABLE_PAGE + FINALIZED_STAGE_INPUTS);
 
-    static Optional<PageRow> selectClaimablePage(Connection connection, String tenantId, String jobId, Instant now)
-            throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement(CLAIMABLE_ANY)) {
+    static Optional<PageRow> selectClaimablePage(Connection connection, String tenantId, String jobId, Instant now,
+            boolean relational) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(relational ? CLAIMABLE_RELATIONAL : CLAIMABLE_ANY)) {
             statement.setString(1, tenantId);
             statement.setString(2, jobId);
             setInstant(statement, 3, now);
@@ -73,10 +87,10 @@ final class PostgresGenerationPageSelection {
     }
 
     /** Locks pages in partition order and distinguishes a missing identity from an unavailable page. */
-    static List<PageRow> selectClaimableCohort(Connection connection, List<PartitionClaim> cohort)
-            throws SQLException {
+    static List<PageRow> selectClaimableCohort(Connection connection, List<PartitionClaim> cohort,
+            boolean relational) throws SQLException {
         var first = cohort.get(0);
-        try (var statement = connection.prepareStatement(CLAIMABLE_COHORT)) {
+        try (var statement = connection.prepareStatement(relational ? RELATIONAL_COHORT : CLAIMABLE_COHORT)) {
             statement.setObject(1, cohort.stream().mapToInt(PartitionClaim::partitionId).toArray());
             statement.setObject(2, cohort.stream().mapToInt(PartitionClaim::pageOrdinal).toArray());
             statement.setString(3, first.job().tenantId());
