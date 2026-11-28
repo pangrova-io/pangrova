@@ -35,7 +35,7 @@ class GenerationEncodingCompatibilityTest {
                 new byte[]{7, 8}, template, List.of(), List.of("id", "value"), true);
         var edge = new GenerationStageGraph.Exchange("edge-1", 5, 0, GenerationExchangeDistribution.HASH,
                 List.of(0), 3, "BATCH_SERDE_ARROW_BATCH", true);
-        return new GenerationStageGraph(2, GenerationGraphPurpose.RELATIONAL_EXPORT,
+        return new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION, GenerationGraphPurpose.RELATIONAL_EXPORT,
                 List.of(source, terminal), List.of(edge),
                 List.of(new ModelSnapshot("model-文本", "incarnation", 7, "deployment-v1", "a".repeat(64))));
     }
@@ -56,9 +56,9 @@ class GenerationEncodingCompatibilityTest {
     }
     @Test
     void graphKeepsPersistedBytesAndDigest() throws Exception {
-        byte[] expected = golden("stage-graph-v2.json");
+        byte[] expected = golden("stage-graph-v3.json");
         assertThat(GenerationStageGraphCodec.encode(graph())).isEqualTo(expected);
-        assertThat(GenerationStageGraphCodec.sha256(graph())).isEqualTo("8373d039d72a8da44581c45f520e3b9bce59d1bcd4d488bb139a0ef388b00e80");
+        assertThat(GenerationStageGraphCodec.sha256(graph())).isEqualTo("6d81ca5e84a02b41e35d94ee06850ab548d4b1626defff753cddbdb7aa987531");
         assertThat(GenerationStageGraphCodec.decode(expected, GenerationStageGraphCodec.sha256(graph()))).isEqualTo(graph());
     }
 
@@ -83,7 +83,7 @@ class GenerationEncodingCompatibilityTest {
         var terminal = GenerationStageGraph.StagePlan.of(0, 1, GenerationPageKind.RELATIONAL_PARTITION,
                 new byte[]{1}, GenerationStageTemplate.of(new byte[]{2}, List.of(), List.of()),
                 List.of(), List.of("x".repeat(16 * 1024 * 1024)), true);
-        var oversized = new GenerationStageGraph(2, GenerationGraphPurpose.RELATIONAL_EXPORT,
+        var oversized = new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION, GenerationGraphPurpose.RELATIONAL_EXPORT,
                 List.of(terminal), List.of(), List.of());
         assertThatThrownBy(() -> GenerationStageGraphCodec.encode(oversized)).isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("size limit");
@@ -128,7 +128,7 @@ class GenerationEncodingCompatibilityTest {
 
     @Test
     void correctlyHashedNullExtraFieldsAndTrailingValuesCannotBecomeReplayEvidence() throws Exception {
-        rejectNoncanonical("stage-graph-v2.json", GenerationStageGraphCodec::decode);
+        rejectNoncanonical("stage-graph-v3.json", GenerationStageGraphCodec::decode);
         rejectNoncanonical("exchange-registration.json", GenerationExchangeEvidenceCodec::decodeRegistration);
         rejectNoncanonical("exchange-finalization.json", GenerationExchangeEvidenceCodec::decodeFinalization);
     }

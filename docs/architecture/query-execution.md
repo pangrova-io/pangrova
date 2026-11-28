@@ -786,8 +786,17 @@ evidence cannot be persisted and later become unreadable. The submission
 factory validates graph size before returning a dispatch specification, and
 all build insertion paths validate again before SQL mutations, including
 caller-owned transactions. Domain record construction alone is not persistence
-admission. Stored graph format 2, immutable bindings, owner/fence validation
-and canonical replay comparison remain unchanged.
+admission. Graph format 3 binds the planner's partition-local proof to the
+immutable stage plan and exchange shape.
+
+The durable DAG reuses the live byte-based coalescer for certified single HASH
+inputs and aligned two-input HASH joins. When a stage reduces its task count,
+PostgreSQL freezes the original partition ranges and physical producer count
+before any output allocation or lease. The transaction retires unused page
+ordinals and accounts for them in the submitted logical page total. Recovery
+loads the same ranges under the current owner, including after an adaptive
+configuration change. Each new claim verifies its own stored range against
+every finalized input, while downstream partitions retain their original shape.
 
 Finalization stores the original provider message in a PostgreSQL binary column.
 The same insert binds its SHA-256 to the compact receipt. PostgreSQL checks the

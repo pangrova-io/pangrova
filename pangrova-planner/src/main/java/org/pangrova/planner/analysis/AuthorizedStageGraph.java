@@ -49,7 +49,15 @@ public record AuthorizedStageGraph(StageTerminalPurpose terminalPurpose,
             SerializedPlanFragment serializedPlan, List<SplitSourceDescriptor> sources,
             List<String> outputNames, List<ResultColumnModel> resultColumnModels,
             List<ResultColumnLogicalType> resultColumnTypes,
-            long estimatedShuffleBytes, long estimatedShuffleRows) implements StagePlanAccess {
+            long estimatedShuffleBytes, long estimatedShuffleRows, boolean coalescibleHashInputs)
+            implements StagePlanAccess {
+        public SerializedStage(int stageId, int parallelism, String taskType, SerializedPlanFragment serializedPlan,
+                List<SplitSourceDescriptor> sources, List<String> outputNames, List<ResultColumnModel> resultColumnModels,
+                List<ResultColumnLogicalType> resultColumnTypes, long estimatedShuffleBytes, long estimatedShuffleRows) {
+            this(stageId, parallelism, taskType, serializedPlan, sources, outputNames, resultColumnModels,
+                    resultColumnTypes, estimatedShuffleBytes, estimatedShuffleRows, false);
+        }
+
         /** Copies metadata and requires explicit stage role, field names and canonical non-empty plan bytes. */
         public SerializedStage {
             Objects.requireNonNull(serializedPlan, "serializedPlan");
@@ -181,6 +189,7 @@ public record AuthorizedStageGraph(StageTerminalPurpose terminalPurpose,
         output.writeInt(stage.stageId());
         output.writeInt(stage.parallelism());
         writeText(output, stage.taskType());
+        output.writeBoolean(stage.coalescibleHashInputs());
         byte[] plan = stage.serializedPlan().planBytes();
         output.writeInt(plan.length);
         output.write(plan);

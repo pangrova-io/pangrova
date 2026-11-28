@@ -33,7 +33,7 @@ import java.util.stream.Collectors;
 public final class PostgresGenerationStageExchangeStore implements GenerationStageExchangeStore {
     private static final String LOCKED_EXCHANGE_EVIDENCE = """
             WITH locked_edges AS MATERIALIZED (
-                SELECT tenant_id, job_id, exchange_id, producer_stage_id, consumer_stage_id, graph_sha256
+                SELECT tenant_id, job_id, exchange_id, producer_stage_id, consumer_stage_id, graph_sha256, physical_producer_count
                 FROM artifact_stage_exchanges WHERE tenant_id = ? AND job_id = ? %s
                 ORDER BY exchange_id FOR SHARE
             ), locked_registrations AS MATERIALIZED (
@@ -47,7 +47,7 @@ public final class PostgresGenerationStageExchangeStore implements GenerationSta
                 JOIN locked_edges e USING (tenant_id, job_id, exchange_id)
                 ORDER BY f.exchange_id FOR SHARE OF f
             )
-            SELECT e.exchange_id, e.producer_stage_id, e.consumer_stage_id, e.graph_sha256,
+            SELECT e.exchange_id, e.producer_stage_id, e.consumer_stage_id, e.graph_sha256, e.physical_producer_count,
                    j.source_snapshot, r.registration_bytes, r.registration_sha256,
                    f.finalization_bytes, f.finalization_sha256
             FROM locked_edges e
@@ -61,7 +61,7 @@ public final class PostgresGenerationStageExchangeStore implements GenerationSta
             "AND (producer_stage_id = ? OR consumer_stage_id = ?)");
     private static final String LOCKED_REGISTRATION = """
             WITH exact_registration_edge AS MATERIALIZED (
-                SELECT tenant_id, job_id, exchange_id, producer_stage_id, consumer_stage_id, graph_sha256
+                SELECT tenant_id, job_id, exchange_id, producer_stage_id, consumer_stage_id, graph_sha256, physical_producer_count
                 FROM artifact_stage_exchanges
                 WHERE tenant_id = ? AND job_id = ? AND exchange_id = ? FOR SHARE
             ), registration AS MATERIALIZED (
@@ -70,7 +70,7 @@ public final class PostgresGenerationStageExchangeStore implements GenerationSta
                 JOIN exact_registration_edge e USING (tenant_id, job_id, exchange_id)
                 FOR SHARE OF r
             )
-            SELECT e.exchange_id, e.producer_stage_id, e.consumer_stage_id, e.graph_sha256,
+            SELECT e.exchange_id, e.producer_stage_id, e.consumer_stage_id, e.graph_sha256, e.physical_producer_count,
                    j.source_snapshot, r.registration_bytes, r.registration_sha256
             FROM exact_registration_edge e
             JOIN artifact_build_jobs j USING (tenant_id, job_id)
@@ -276,7 +276,7 @@ public final class PostgresGenerationStageExchangeStore implements GenerationSta
         String registrationDigest = row.getString("registration_sha256");
         var allocation = GenerationExchangeEvidenceCodec.decodeRegistration(registered, registrationDigest);
         var stage = context.dispatchSpec().stageGraph().requireStage(edge.upstreamStageId());
-        requireRegistrationIdentity(context, allocation, stage, edge, graphSha256);
+        requireRegistrationIdentity(context, allocation, stage, edge, graphSha256, physicalCount(row, stage));
         requireSourceSnapshot(allocation, row.getString("source_snapshot"));
         var finalization = Optional.<GenerationExchangeFinalization>empty();
         if (finalized != null) {
@@ -296,13 +296,18 @@ public final class PostgresGenerationStageExchangeStore implements GenerationSta
                 .findFirst().orElseThrow(() ->
                         new IllegalArgumentException("Exchange is not part of the persisted graph"));
         var stage = graph.requireStage(edge.upstreamStageId());
-        requireRegistrationIdentity(context, registration, stage, edge, graphSha256);
-        try (var statement = connection.prepareStatement("SELECT source_snapshot FROM artifact_build_jobs "
-                + "WHERE tenant_id=? AND job_id=?")) {
+        try (var statement = connection.prepareStatement("""
+                SELECT j.source_snapshot, e.physical_producer_count
+                FROM artifact_stage_exchanges e JOIN artifact_build_jobs j USING (tenant_id,job_id)
+                WHERE e.tenant_id=? AND e.job_id=? AND e.exchange_id=?
+                """)) {
             statement.setString(1, spec.tenantId());
             statement.setString(2, spec.jobId());
+            statement.setString(3, edge.exchangeId());
             try (var row = statement.executeQuery()) {
-                requireSourceSnapshot(registration, row.next() ? row.getString(1) : null);
+                if (!row.next()) throw new IllegalStateException("Durable registration has no stage edge");
+                requireRegistrationIdentity(context, registration, stage, edge, graphSha256, physicalCount(row, stage));
+                requireSourceSnapshot(registration, row.getString("source_snapshot"));
             }
         }
     }
@@ -313,15 +318,25 @@ public final class PostgresGenerationStageExchangeStore implements GenerationSta
         }
     }
 
+    private static int physicalCount(ResultSet row,
+            org.pangrova.generation.api.graph.GenerationStageGraph.StagePlan stage) throws SQLException {
+        int count = row.getInt("physical_producer_count");
+        if (row.wasNull()) return stage.parallelism();
+        if (count <= 0 || count >= stage.parallelism()) {
+            throw new IllegalStateException("Frozen Shuffle producer count differs from its original stage");
+        }
+        return count;
+    }
+
     private static void requireRegistrationIdentity(PostgresCurrentGenerationAuthority context,
             GenerationExchangeRegistration registration,
             org.pangrova.generation.api.graph.GenerationStageGraph.StagePlan stage,
-            org.pangrova.generation.api.graph.GenerationStageGraph.Exchange edge, String graphSha256) {
+            org.pangrova.generation.api.graph.GenerationStageGraph.Exchange edge, String graphSha256, int physicalProducers) {
         if (!registration.executionId().equals(context.executionAnchor().executionId())
                 || !registration.graphSha256().equals(graphSha256)
                 || !registration.stagePlanSha256().equals(stage.planSha256())
                 || registration.producerStageId() != stage.stageId()
-                || registration.producerCount() != stage.parallelism()
+                || registration.producerCount() != physicalProducers
                 || registration.partitionCount() != edge.partitionCount()) {
             throw new IllegalArgumentException("External allocation differs from the persisted stage contract");
         }

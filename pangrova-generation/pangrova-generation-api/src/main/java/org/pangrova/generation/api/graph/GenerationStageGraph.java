@@ -22,12 +22,12 @@ import java.util.Set;
 /** Canonical durable stage topology. Metadata stores bytes and identities, never planner nodes or row data. */
 public record GenerationStageGraph(int formatVersion, GenerationGraphPurpose purpose, List<StagePlan> stages,
         List<Exchange> exchanges, List<ModelSnapshot> modelSnapshots) {
-    public static final int FORMAT_VERSION = 2;
+    public static final int FORMAT_VERSION = 3;
     private static final int MAX_GRAPH_ENTRIES = 4096;
 
     public GenerationStageGraph {
         if (formatVersion != FORMAT_VERSION) {
-            throw new IllegalArgumentException("Durable graph requires format 2; explicitly rebuild old jobs");
+            throw new IllegalArgumentException("Durable graph requires format 3; explicitly rebuild old jobs");
         }
         Objects.requireNonNull(purpose, "purpose");
         modelSnapshots = modelSnapshots.stream().sorted(Comparator.comparing(ModelSnapshot::logicalName)).toList();
@@ -42,7 +42,14 @@ public record GenerationStageGraph(int formatVersion, GenerationGraphPurpose pur
     /** Exact per-stage executable payload and immutable partition cohort. */
     public record StagePlan(int stageId, int parallelism, GenerationPageKind pageKind,
             String planBase64, String planSha256, GenerationStageTemplate template,
-            List<String> sourceKeys, List<String> outputNames, boolean publicationOutput) {
+            List<String> sourceKeys, List<String> outputNames, boolean publicationOutput, boolean coalescibleHashInputs) {
+        public StagePlan(int stageId, int parallelism, GenerationPageKind pageKind, String planBase64,
+                String planSha256, GenerationStageTemplate template, List<String> sourceKeys,
+                List<String> outputNames, boolean publicationOutput) {
+            this(stageId, parallelism, pageKind, planBase64, planSha256, template, sourceKeys,
+                    outputNames, publicationOutput, false);
+        }
+
         public StagePlan {
             Objects.requireNonNull(pageKind, "pageKind");
             sourceKeys = List.copyOf(sourceKeys);
@@ -50,6 +57,10 @@ public record GenerationStageGraph(int formatVersion, GenerationGraphPurpose pur
             if (stageId < 0 || parallelism < 0
                     || (parallelism == 0 && pageKind != GenerationPageKind.SOURCE_MAP)) {
                 throw new IllegalArgumentException("Invalid durable stage coordinates");
+            }
+            if (coalescibleHashInputs && (pageKind != GenerationPageKind.RELATIONAL_COMPUTE
+                    || parallelism < 2 || !sourceKeys.isEmpty())) {
+                throw new IllegalArgumentException("Only partition-local relational compute can coalesce Shuffle inputs");
             }
             decode(planBase64, planSha256, false, "stage plan");
             Objects.requireNonNull(template, "Durable stage template is absent; explicitly rebuild old jobs");
@@ -69,9 +80,15 @@ public record GenerationStageGraph(int formatVersion, GenerationGraphPurpose pur
         public static StagePlan of(int stageId, int parallelism, GenerationPageKind kind,
                 byte[] plan, GenerationStageTemplate template, List<String> sourceKeys, List<String> outputNames,
                 boolean publicationOutput) {
+            return of(stageId, parallelism, kind, plan, template, sourceKeys, outputNames, publicationOutput, false);
+        }
+
+        public static StagePlan of(int stageId, int parallelism, GenerationPageKind kind,
+                byte[] plan, GenerationStageTemplate template, List<String> sourceKeys, List<String> outputNames,
+                boolean publicationOutput, boolean coalescibleHashInputs) {
             return new StagePlan(stageId, parallelism, kind, Base64.getEncoder().encodeToString(plan),
                     DigestUtils.sha256Hex(plan), template,
-                    sourceKeys, outputNames, publicationOutput);
+                    sourceKeys, outputNames, publicationOutput, coalescibleHashInputs);
         }
 
         public byte[] planBytes() {

@@ -1,5 +1,6 @@
 package org.pangrova.planner.analysis;
 
+import org.pangrova.planner.enums.ShuffleType;
 import com.google.protobuf.Any;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
@@ -140,9 +141,10 @@ final class AuthorizedStageExchangeBindings {
             Integer id = ready.pollFirst();
             var stage = pending.remove(id);
             var fragment = fragment(id, stage.compiled().plan());
-            var binding = bindStage(id, fragment, incoming.getOrDefault(id, Map.of()), frozen);
+            var inputs = incoming.getOrDefault(id, Map.of());
+            var binding = bindStage(id, fragment, inputs, frozen);
             frozen.put(id, binding);
-            bound.add(stage.serialize(binding.plan()));
+            bound.add(stage.serialize(binding.plan(), inputs));
             for (int target : downstream.getOrDefault(id, List.of())) {
                 if (degrees.compute(target, (key, degree) -> degree - 1) == 0) ready.add(target);
             }
@@ -288,11 +290,27 @@ final class AuthorizedStageExchangeBindings {
     private record CompiledStage(PlanStage stage, CompiledStagePlan compiled, List<String> names,
             List<SplitSourceDescriptor> sources, List<ResultColumnModel> resultModels,
             List<ResultColumnLogicalType> resultTypes) {
-        private AuthorizedStageGraph.SerializedStage serialize(Plan boundPlan) {
+        private AuthorizedStageGraph.SerializedStage serialize(Plan boundPlan, Map<String, StageTransfer> inputs) {
             var source = stage.fragment();
             return new AuthorizedStageGraph.SerializedStage(stage.stageId(), stage.parallelism(), stage.taskType(),
                     compiled.withPlan(boundPlan).serialize(), sources, names, resultModels, resultTypes,
-                    source.estimatedShuffleBytes(), source.estimatedShuffleRows());
+                    source.estimatedShuffleBytes(), source.estimatedShuffleRows(), coalescible(source, inputs));
+        }
+
+        private boolean coalescible(PlanFragment source, Map<String, StageTransfer> inputs) {
+            if (!stage.taskType().equals("COMPUTE") || stage.parallelism() < 2 || !sources.isEmpty()
+                    || inputs.isEmpty() || inputs.size() > 2 || inputs.values().stream().anyMatch(edge ->
+                            edge.shuffleType() != ShuffleType.HASH || !edge.requireComplete()
+                                    || edge.partitionCount() != stage.parallelism())) {
+                return false;
+            }
+            if (inputs.size() == 1) {
+                var edge = inputs.values().iterator().next();
+                return source.supportsCoalescedHashInput(edge.exchangeId(), edge.distributionKeys());
+            }
+            var keys = inputs.values().stream()
+                    .collect(Collectors.toMap(StageTransfer::exchangeId, StageTransfer::distributionKeys));
+            return source.supportsCoalescedHashJoin(keys, stage.parallelism());
         }
     }
 }

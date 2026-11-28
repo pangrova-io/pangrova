@@ -7,6 +7,7 @@ import org.pangrova.observability.api.tracing.ExecutionTraceContextFactory;
 import org.pangrova.coordinator.generation.template.PersistedStagePlan;
 import org.pangrova.execution.task.DispatchResult;
 import org.pangrova.execution.stage.QueryExecutionScope;
+import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageEdge;
 import org.pangrova.coordinator.query.stage.StageNode;
@@ -23,7 +24,10 @@ import org.pangrova.persistence.generation.api.execution.GenerationStageExecutio
 import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.PartitionWindow;
 import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.PreparedPartition;
 import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.NativeWinner;
+import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.InputRange;
 import org.pangrova.persistence.generation.api.exchange.GenerationStageExchangeStore;
+import org.pangrova.planner.api.adaptive.CoalesceResult;
+import org.pangrova.planner.api.adaptive.PartitionGroup;
 import org.pangrova.planner.enums.ShuffleType;
 import org.pangrova.planner.analysis.AuthorizedStageGraph;
 import org.pangrova.planner.api.fragment.SerializedPlanFragment;
@@ -44,6 +48,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
 import java.util.function.IntFunction;
@@ -57,6 +62,7 @@ public final class DurableStageRuntime {
     private final Dependencies dependencies;
     private final GenerationJobKey job;
     private final StageExecutionContext.Durable control;
+    private final Map<Integer, Integer> physicalCohorts = new ConcurrentHashMap<>();
 
     /** Runtime dependencies do not become part of the immutable plan or persisted identity. */
     public record Dependencies(GenerationStageExecutionStore stages, WorkerManager workers,
@@ -115,13 +121,44 @@ public final class DurableStageRuntime {
         return new DurableStageShuffleEvidence(dependencies.exchanges(),
                 execution.authority().dispatchSpec(), execution.job().sourceSnapshot(),
                 () -> org.pangrova.generation.api.execution.GenerationExecutionOwner.from(
-                        execution.authority().executionAnchor()));
+                        execution.authority().executionAnchor()),
+                stage -> physicalCohorts.getOrDefault(stage,
+                        execution.authority().dispatchSpec().stageGraph().requireStage(stage).parallelism()));
     }
 
     /** No live SQL, time-travel override, write declaration or discovery intent is admitted during replay. */
     public QueryExecutionScope queryContext() {
         return new QueryExecutionScope(control, Map.of(), null, List.of(), null, List.of(),
                 Optional.empty(), Optional.empty());
+    }
+
+    /** Installs the committed ranges before the stage's outgoing allocation or Worker claims. */
+    public CoalesceResult freezeInputRanges(Stage stage, StageDAG dag, CoalesceResult proposal) {
+        var frozen = execution.authority().dispatchSpec().stageGraph().requireStage(stage.stageId());
+        var output = dag.findDownstreamEdge(stage.stageId());
+        if (!frozen.coalescibleHashInputs() || output == null || output.shuffleType() == ShuffleType.BROADCAST) {
+            return CoalesceResult.NO_OP;
+        }
+        var requested = proposal.groups().stream().map(group ->
+                new InputRange(group.startInclusive(), group.endExclusive())).toList();
+        var ranges = dependencies.stages().freezeInputRanges(job, execution.authority().executionAnchor(),
+                stage.stageId(), requested);
+        if (ranges.isEmpty()) return CoalesceResult.NO_OP;
+        physicalCohorts.put(stage.stageId(), ranges.size());
+        if (ranges.equals(requested)) return proposal;
+        var receipts = dag.incomingEdges(stage.stageId()).stream()
+                .map(edge -> dag.findStage(edge.upstreamStageId()).requireShuffleReceipt()).toList();
+        var groups = new ArrayList<PartitionGroup>(ranges.size());
+        for (var range : ranges) {
+            long bytes = 0;
+            for (var receipt : receipts) {
+                for (int partition = range.startInclusive(); partition < range.endExclusive(); partition++) {
+                    bytes += Math.min(Long.MAX_VALUE - bytes, receipt.partitions().get(partition).bytes());
+                }
+            }
+            groups.add(new PartitionGroup(range.startInclusive(), range.endExclusive(), bytes));
+        }
+        return new CoalesceResult(groups, frozen.parallelism(), groups.size());
     }
 
     /** Creates ordinary Stage entities from the same persisted graph's exact parallelism and exchange shape. */

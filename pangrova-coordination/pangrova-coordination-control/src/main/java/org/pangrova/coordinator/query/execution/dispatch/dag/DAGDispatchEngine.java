@@ -438,12 +438,11 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
     }
 
     private void freezePhysicalInputs(Stage stage, DAGExecutionState state) {
-        if (state.durable() != null) return;
         var context = lifecycle.queryContext(state.queryId());
-        if (!isLiveRelationalRead(context)) {
-            return;
-        }
-        var inputs = coalescedShuffleInputs.select(stage, state.dag());
+        if (state.durable() == null && !isLiveRelationalRead(context)) return;
+        var candidate = coalescedShuffleInputs.select(stage, state.dag());
+        var inputs = state.durable() == null ? candidate
+                : state.durable().freezeInputRanges(stage, state.dag(), candidate);
         stage.freezeCoalescedInputs(inputs);
         if (inputs.isCoalesced()) {
             LOG.info("event=shuffle_input_coalesced queryId={} stageId={} sourcePartitions={} consumers={} inputs={}",

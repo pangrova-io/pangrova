@@ -135,6 +135,21 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
     }
 
     @Override
+    public List<InputRange> freezeInputRanges(GenerationJobKey key, ExecutionAnchor anchor, int stageId,
+            List<InputRange> proposed) {
+        if (!key.executionId().equals(anchor.executionId())) {
+            throw new IllegalArgumentException("Durable layout belongs to another execution");
+        }
+        var ranges = List.copyOf(proposed);
+        return inTransaction("freeze durable Shuffle input ranges", connection -> {
+            var authority = PostgresCurrentGenerationAuthority.resolve(
+                    transactionAuthority, executionFence, connection, key.tenantId(), key.jobId(),
+                    GenerationExecutionOwner.from(anchor));
+            return PostgresGenerationInputRanges.freeze(connection, authority, key, stageId, ranges);
+        });
+    }
+
+    @Override
     public <T> List<T> prepareWindow(PartitionWindow window, BiFunction<Integer, NativeWinner, T> restore,
             Function<PreparedPartition, T> prepare) {
         Objects.requireNonNull(window, "window");
@@ -224,7 +239,7 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
         for (int i = 0; i < pages.size(); i++) {
             var lease = PostgresGenerationPageClaim.issue(connection, pages.get(i), inputs.get(i),
                     claim.anchor(), claim.controlTerm(), claim.leaseDuration(), claim.now());
-            var evidence = prepareEvidence(connection, authority, job, lease, exchanges, publications.get(i));
+            var evidence = prepareEvidence(connection, authority, job, lease, exchanges, publications.get(i), pages.get(i));
             result.add(Objects.requireNonNull(prepare.apply(evidence),
                     "partition preparation must return immutable metadata"));
         }
@@ -279,7 +294,7 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
             var template = authority.dispatchSpec().stageGraph().requireStage(lease.stageId()).template();
             var publications = PostgresGenerationPublishedInputs.load(connection, lease.tenantId(),
                     authority.executionAnchor().executionId(), template.publicationReads(), List.of(inputs.splits()));
-            var evidence = prepareEvidence(connection, authority, job, lease, exchanges, publications.get(0));
+            var evidence = prepareEvidence(connection, authority, job, lease, exchanges, publications.get(0), page);
             return Objects.requireNonNull(
                     prepare.apply(evidence), "partition preparation must return immutable metadata");
         });
@@ -321,12 +336,16 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
 
     private static PreparedPartition prepareEvidence(java.sql.Connection connection,
             PostgresCurrentGenerationAuthority authority, GenerationJob job, GenerationLease lease,
-            List<ExchangeEvidence> exchanges, Map<PublicationRead, PublishedInput> publications)
+            List<ExchangeEvidence> exchanges, Map<PublicationRead, PublishedInput> publications, PageRow page)
             throws java.sql.SQLException {
         var dependencies = lease.kind() == GenerationPageKind.DEPENDENCY_REDUCE
                 || lease.kind() == GenerationPageKind.GENERATION_FINALIZE
                 ? PostgresGenerationOutputQueries.loadDependencies(connection, lease.tenantId(), lease.jobId(),
                         lease.dependencyPageIds()) : List.<GenerationOutput>of();
-        return new PreparedPartition(authority, job, lease, publications, dependencies, exchanges);
+        var range = page.inputRange();
+        if (range == null) {
+            range = new InputRange(lease.partitionId(), Math.incrementExact(lease.partitionId()));
+        }
+        return new PreparedPartition(authority, job, lease, publications, dependencies, exchanges, range);
     }
 }

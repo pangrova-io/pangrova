@@ -55,6 +55,23 @@ public interface GenerationStageExecutionStore {
     <T> List<T> prepareWindow(PartitionWindow window, BiFunction<Integer, NativeWinner, T> restore,
             Function<PreparedPartition, T> prepare);
 
+    /**
+     * Freezes an optional coalesced layout before the outgoing allocation or any leases exist.
+     * An empty result retains the original cohort. A takeover always reuses a previously frozen layout.
+     */
+    List<InputRange> freezeInputRanges(GenerationJobKey key, ExecutionAnchor anchor, int stageId,
+            List<InputRange> proposed);
+
+    /** Contiguous range of original Shuffle partitions consumed by one physical task. */
+    record InputRange(int startInclusive, int endExclusive) {
+        public InputRange {
+            if (startInclusive < 0 || endExclusive <= startInclusive) {
+                throw new IllegalArgumentException("Invalid durable Shuffle input range");
+            }
+        }
+        public int count() { return endExclusive - startInclusive; }
+    }
+
     /** An exact contiguous physical window under a single durable execution anchor. */
     record PartitionWindow(GenerationJobKey job, ExecutionAnchor anchor, int stageId, int firstPartition,
             int count, long controlTerm, Duration leaseDuration, Instant now) {
@@ -113,8 +130,16 @@ public interface GenerationStageExecutionStore {
     record PreparedPartition(CurrentGenerationAuthority authority, GenerationJob job,
             GenerationLease lease, Map<PublicationRead, PublishedInput> publications,
             List<GenerationOutput> dependencyOutputs,
-            List<ExchangeEvidence> exchanges) {
+            List<ExchangeEvidence> exchanges, InputRange inputRange) {
+        public PreparedPartition(CurrentGenerationAuthority authority, GenerationJob job, GenerationLease lease,
+                Map<PublicationRead, PublishedInput> publications, List<GenerationOutput> dependencyOutputs,
+                List<ExchangeEvidence> exchanges) {
+            this(authority, job, lease, publications, dependencyOutputs, exchanges,
+                    new InputRange(lease.partitionId(), Math.incrementExact(lease.partitionId())));
+        }
+
         public PreparedPartition {
+            Objects.requireNonNull(inputRange, "inputRange");
             publications = Map.copyOf(publications);
             dependencyOutputs = List.copyOf(dependencyOutputs);
             exchanges = List.copyOf(exchanges);

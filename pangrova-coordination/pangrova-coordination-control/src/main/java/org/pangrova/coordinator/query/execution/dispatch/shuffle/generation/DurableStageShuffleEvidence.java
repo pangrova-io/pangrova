@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.function.IntUnaryOperator;
 import java.util.function.Supplier;
 
 /** Persists capability-free proof from real ordinary-DAG allocation/finalize RPCs. */
@@ -30,11 +31,18 @@ public final class DurableStageShuffleEvidence implements ShuffleLifecycleEviden
     private final Supplier<GenerationExecutionOwner> currentOwner;
     private final GenerationJobKey job;
     private final String graphSha256;
+    private final IntUnaryOperator producerCount;
     private final ConcurrentMap<Integer, GenerationExchangeRegistration> registered = new ConcurrentHashMap<>();
 
     /** Binds a durable artifact job to its real shuffle allocation and finalization store. */
     public DurableStageShuffleEvidence(GenerationStageExchangeStore store, GenerationDispatchSpec spec,
             String sourceSnapshot, Supplier<GenerationExecutionOwner> currentOwner) {
+        this(store, spec, sourceSnapshot, currentOwner, stage -> spec.stageGraph().requireStage(stage).parallelism());
+    }
+
+    public DurableStageShuffleEvidence(GenerationStageExchangeStore store, GenerationDispatchSpec spec,
+            String sourceSnapshot, Supplier<GenerationExecutionOwner> currentOwner, IntUnaryOperator producerCount) {
+        this.producerCount = java.util.Objects.requireNonNull(producerCount, "producerCount");
         this.store = java.util.Objects.requireNonNull(store, "store");
         this.spec = java.util.Objects.requireNonNull(spec, "spec");
         this.sourceSnapshot = java.util.Objects.requireNonNull(sourceSnapshot, "sourceSnapshot");
@@ -124,7 +132,7 @@ public final class DurableStageShuffleEvidence implements ShuffleLifecycleEviden
                 edge.upstreamStageId() == registration.stageId()).toList();
         if (edges.size() != 1 || !registration.queryId().equals(job.executionId())
                 || registration.expectedProducerCount()
-                        != spec.stageGraph().requireStage(registration.stageId()).parallelism()
+                        != producerCount.applyAsInt(registration.stageId())
                 || registration.numPartitions() != edges.get(0).partitionCount()
                 || !java.util.Arrays.equals(registration.expectedProducerSetChecksum(),
                         ShuffleProducerSetChecksum.forContiguousPartitions(

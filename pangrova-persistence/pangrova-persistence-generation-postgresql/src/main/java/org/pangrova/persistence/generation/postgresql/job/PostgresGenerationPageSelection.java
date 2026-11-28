@@ -1,6 +1,7 @@
 package org.pangrova.persistence.generation.postgresql.job;
 
 import org.pangrova.generation.api.enums.GenerationPageKind;
+import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.InputRange;
 import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.NativeWinner;
 import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.PartitionClaim;
 import org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStoreMappings.PageRow;
@@ -184,6 +185,8 @@ final class PostgresGenerationPageSelection {
 
     static PageRow mapPage(ResultSet result) throws SQLException {
         Instant leaseExpiresAt = getInstant(result, "lease_expires_at");
+        int inputEnd = result.getInt("exchange_partition_end");
+        var range = inputEnd == 0 ? null : new InputRange(result.getInt("exchange_partition_start"), inputEnd);
         return new PageRow(
                 result.getString("tenant_id"), result.getString("job_id"),
                 result.getString("page_id"),
@@ -195,7 +198,7 @@ final class PostgresGenerationPageSelection {
                 result.getString("lease_owner"), result.getLong("owner_epoch"),
                 leaseExpiresAt, getInstant(result, "next_available_at"),
                 result.getInt("max_attempts"), result.getBytes("report_bytes"),
-                result.getString("report_sha256"),
+                result.getString("report_sha256"), range,
                 result.getString("execution_owner_id") == null ? null
                         : new org.pangrova.generation.api.execution.GenerationExecutionOwner(
                                 result.getString("execution_owner_id"), result.getString("execution_owner_incarnation"),

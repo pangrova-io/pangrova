@@ -87,7 +87,7 @@ class MetadataCollectionOwnershipTest {
         var stages = new ArrayList<>(List.of(source, terminal));
         var edges = new ArrayList<>(List.of(edge));
         var models = new ArrayList<>(List.of(model));
-        var graph = new GenerationStageGraph(2, GenerationGraphPurpose.RELATIONAL_EXPORT, stages, edges, models);
+        var graph = new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION, GenerationGraphPurpose.RELATIONAL_EXPORT, stages, edges, models);
         byte[] canonical = GenerationStageGraphCodec.encode(graph);
         String digest = GenerationStageGraphCodec.sha256(graph);
 
@@ -211,11 +211,11 @@ class MetadataCollectionOwnershipTest {
         var registration = registration(ShuffleProviderDescriptor.of("test", 1, new byte[]{1}));
         assertThatThrownBy(() -> registration(null)).isInstanceOf(NullPointerException.class);
         assertThatThrownBy(() -> finalization(registration, null)).isInstanceOf(NullPointerException.class);
-        assertThatThrownBy(() -> new GenerationStageGraph(2, GenerationGraphPurpose.RELATIONAL_EXPORT,
+        assertThatThrownBy(() -> new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION, GenerationGraphPurpose.RELATIONAL_EXPORT,
                 null, List.of(), List.of())).isInstanceOf(NullPointerException.class);
-        assertThatThrownBy(() -> new GenerationStageGraph(2, GenerationGraphPurpose.RELATIONAL_EXPORT,
+        assertThatThrownBy(() -> new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION, GenerationGraphPurpose.RELATIONAL_EXPORT,
                 List.of(), null, List.of())).isInstanceOf(NullPointerException.class);
-        assertThatThrownBy(() -> new GenerationStageGraph(2, GenerationGraphPurpose.RELATIONAL_EXPORT,
+        assertThatThrownBy(() -> new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION, GenerationGraphPurpose.RELATIONAL_EXPORT,
                 List.of(), List.of(), null)).isInstanceOf(NullPointerException.class);
         assertThatThrownBy(() -> GenerationStageTemplate.of(new byte[0], List.of(), null))
                 .isInstanceOf(NullPointerException.class);

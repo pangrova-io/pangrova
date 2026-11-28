@@ -262,7 +262,7 @@ final class LeafStageDispatcher {
             LeafDispatch input, DurablePartitionRequest.StageRequestPlan requestPlan) {
         List<DAGDispatchEngine.PartitionDispatch> result = new ArrayList<>();
         int stage = input.plan().stageId();
-        int total = input.plan().parallelism();
+        int total = input.dag().findStage(stage).physicalTaskCount();
         int window = Math.min(GenerationStageExecutionStore.PARTITION_WINDOW,
                 QueryStateJournal.MAX_TASK_ISSUANCE_BATCH);
         var exchangeInputs = ExchangeSourceBuilder.prepare(input.plan(), input.dag(), input.dispatched());

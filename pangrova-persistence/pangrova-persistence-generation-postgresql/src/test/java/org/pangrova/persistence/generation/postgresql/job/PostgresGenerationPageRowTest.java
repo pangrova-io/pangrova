@@ -28,6 +28,6 @@ class PostgresGenerationPageRowTest {
     private static PostgresGenerationJobStoreMappings.PageRow row(byte[] bytes) {
         return new PostgresGenerationJobStoreMappings.PageRow("tenant", "job", "page", 0, 0, 0,
                 GenerationPageKind.SOURCE_MAP, "PENDING", 0, 0, null, 0, null, Instant.EPOCH,
-                3, bytes, null, null);
+                3, bytes, null, null, null);
     }
 }

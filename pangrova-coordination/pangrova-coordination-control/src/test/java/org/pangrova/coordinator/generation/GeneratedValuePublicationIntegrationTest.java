@@ -233,7 +233,7 @@ class GeneratedValuePublicationIntegrationTest {
                 List.of(read, sink.toBuilder().setOutputArtifact(output).build())), List.of());
         var stage = GenerationStageGraph.StagePlan.of(0, partitions.size(), GenerationPageKind.SOURCE_MAP,
                 plan, template, List.of(SOURCE_ID), List.of("embedding"), true);
-        var graph = new GenerationStageGraph(2, GenerationGraphPurpose.ARTIFACT_GENERATION,
+        var graph = new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION, GenerationGraphPurpose.ARTIFACT_GENERATION,
                 List.of(stage), List.of(), List.of());
         String consumerJob = "same-connection-consumer";
         var spec = GenerationDispatchSpecFactory.create(consumerJob, graph, TENANT, "alice", original.authorizationScope(),

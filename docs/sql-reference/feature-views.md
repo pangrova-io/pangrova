@@ -92,15 +92,17 @@ acceptance is not yet verified; metadata/planner checks are not a substitute for
 that gate, and a deployment without actual external shuffle cannot execute global
 jobs.
 
-The only readable durable graph envelope is format 2. It hashes canonical
-operator bindings, indexed logical result types, exact published input pointers
-and observed model incarnation/configuration/deployment/signature identities.
+The durable graph uses format 3. It hashes canonical operator bindings, indexed
+logical result types, exact published input pointers, observed model identities,
+and the planner's proof that eligible HASH inputs can be coalesced.
 Old envelopes are explicitly rejected and require secure resubmission; their
 stored jobs and allocations are not removed. Replay never discovers a new model
 version or publication. A partition claim loads its exact immutable publication
 objects and checks canonical source split digests on the claim connection. The
 remaining task-local materialization is pure metadata computation and does not
 borrow another database connection, perform network calls, or hold data rows.
+Eligible compute stages freeze both their input ranges and physical producer
+count before dispatch. A new owner reuses that decision during recovery.
 
 Global relational export must reuse the generic stage DAG and durable artifact
 barrier: pin each authorized source, schedule map/exchange/global relational
