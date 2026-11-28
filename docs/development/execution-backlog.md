@@ -177,6 +177,28 @@ description: "Pangrova 查询与写入优化、Java 类型和包更名及单机�
   随后的进程退出在 AWS SDK 清理阶段崩溃。见 `final-s3-probe-direct.log`。
 - Coordinator、Shuffle 和上游依赖的 Checkstyle 与 SpotBugs 定向复验通过，
   见 `updated-static-analysis-retry.log`。
+- `e6dadeb28` 修复进程退出时 Velox AWS SDK 的清理顺序，保留普通 Native 停机后的重启。
+  `e5f441a72` 的同源 153 模块构建及打包握手通过，Native dylib SHA-256 为
+  `c862bd242e1b2563b485cef195c25bd27bfc54f690ed783797a87b967255638c`，角色 manifest
+  为 `f73e31ae7c0241c9fcab6ff206b5fafcd25e6f5e35179366fe8429453d6ed59f`。
+  `run-native-tests.py --build-dir <release> -- -j 2 --output-on-failure` 实跑 4,391 项全过，
+  见 `native-acceptance-ctest.log`。MinIO 子进程正常退出，固定对象长度前后 SDK 请求
+  分别为 2 次和 1 次，两边响应体与返回值均为 639 字节，各 0 重试。无效凭证对应 1 次
+  真实失败尝试。见 `acceptance-local-sql-first.log` 中的 `NativeS3ReadEvidenceE2ETest`。
+- 同一角色包的双 Coordinator 租户矩阵 4 项及独立提交饱和回归 2 项通过。固定到达率
+  记录 207 条，其中 122 条实际排空、85 条配额拒绝。已排空请求的首行、EOF、排空
+  P50/P95 分别为 68.415/98.723、68.557/98.895、85.623/117.729 毫秒。
+  与功能回归同机并行，作为容量回归证据。单独的相同性能负载另作对照。
+- `ClusteringE2ETest` 3 项、`AdaptiveQueryExecutionE2ETest` 4 项、
+  `IndependentClientCancellationE2ETest` 和 `IndependentPublicationDirectoryE2ETest`
+  各 1 项通过，见 `acceptance-local-sql-second.log`。PostgreSQL SQL 预算回归修复旧
+  catalog 名称和过时的写入计数后 8 项通过。普通写入观察到 2 次独立 fencing 查询、
+  1 次原子 anchor 与租户槽位退役、0 次 materialization attempt 查询。四张表的五个
+  alias 只查询 1 次 subject 和 1 次 policy。见 `acceptance-local-sql-budget-retry.log`。
+- `caae3d8fc` 对单次 S3 PUT 的明确 `NoSuchBucket` 回应结清对应 manifest 预留或
+  producer window。真实 MinIO 与 PostgreSQL 回归覆盖 257 个批次触发外置 manifest，
+  验证两种失败均保留失败回执、无残余 write intent，健康路径最终发布并完成清理。
+  网络超时和未收到回执的远端退出仍保留补偿义务。
 - 同版本交付提交集中到 [PR #127](https://github.com/pangrova-io/pangrova/pull/127)。
 
 Java 定向测试使用下面的命令结构，日志保留各批传入的选择器和 Maven reactor。
@@ -203,10 +225,10 @@ python3 -m unittest discover -s .pangrova/scripts/tests -p 'test_*.py'
 | A5 · WP3.2 Paimon 枚举 | 普通读取、内部增量和直接追加共用阶段上限，已加入跨窗口删除合并与受阻读取用例 | 在最新候选统一复跑并加入对象存储流中断、超时、取消和 manifest 压力。核对固定快照、完整结果、I/O 实际关闭和元素/字节/并发额度，校准阶段预算 |
 | A6 · WP3.3 分片工作量与 Worker 放置 | 窗口合并持久认领，已纳入冻结 split、交换字节和精确在途计数。已区分本地预留与进入派发的 attempt | 补多 Coordinator 样本传播和并发放置验证。核对 Worker incarnation、样本新鲜度、ACK、派发前回滚、在途与心跳重叠以及实际释放。按格式、冷热、删除文件和并发校准打包/放置，测分配等待和最长任务。共享样本不可扩大查询授权 |
 | A7 · WP3.4 物理读取覆盖 | Parquet/Iceberg 支持基于合法范围读取并共享对象长度，Lance/Paimon 已有各自的整文件或范围约束 | 验证受保护产物贯穿授权与读取的整对象身份、本地对象存储的 GET/HEAD 次数，以及删除文件较大时的成本与位置正确性。范围不得重叠或缺失，需核对整文件对照、删除语义、投影、压缩和对象版本不匹配。见 A8 |
-| A8 · WP3.1 物理 I/O 和权限 | Native 读取计数及 S3 body 字节已进入 attempt Profile，标准 Iceberg/Paimon 已有逐目录凭证和缓存隔离实现 | 复跑真实 MinIO 与独立 Native 进程夹具，再按标准 SQL 路径及其他 SDK 实测逻辑请求、实际请求/重试、返回字节、缓存与异常。验证同地址不同凭证、目录变更、撤权及缓存隔离。HTTP header/传输帧如未实测标为不可用 |
+| A8 · WP3.1 物理 I/O 和权限 | 独立 Native 与真实 MinIO 已验证固定 Iceberg 对象长度消除 1 次请求，相同凭证读取字节一致，错误凭证拒绝并正常退出 | 按标准 SQL 路径及其他 SDK 实测逻辑请求、实际请求/重试、返回字节、缓存与异常。验证目录变更、撤权及缓存隔离。HTTP header/传输帧如未实测标为不可用 |
 | A9 · WP4 跨 Stage 动态过滤 | Iceberg/Paimon 同宽 TINYINT、SMALLINT、INTEGER、BIGINT 及多独立组合已实现，摘要有界。A9 已有定向 Java 和 Native 交换回归 | 以独立双 Worker 同源部署包验证晚到过滤、被接纳 attempt、Native 确认、split/row group/读取字节、结果与实际释放。覆盖共享 Stage、其他键、连接器及并行组合。按负载校准等待成本和晚到对已发 I/O 的影响，保持缺证、NULL、版本不匹配时的结果正确 |
 | A10 · WP5 AQE 与持久读取布局 | 单输入和对齐双输入已有真实 SQL 合并证据，持久单/双侧拆分、接管与最终发布有 PostgreSQL 回归 | 复跑同源部署的 Shuffle → JNI → Flight 混合范围和偏斜用例。验证更复杂输入、Join 类型、NULL、重复键、投机获胜、原有 epoch、重试、durable replay、读取覆盖、最终 producer cohort 和复制上界。用混合负载校准阈值与尾 task。见 B5 |
-| A11 · WP6 Shuffle 撤权、producer 停止与回收 | 已有读写 lease/window、终态封口、精确收敛、晚到对象清扫和本地 PostgreSQL/MinIO 证据 | 补未出现对象的 PUT 与 producer window 的正向停止证明，覆盖丢 ACK、迟到 PUT、清扫跨页、旧 owner、替换实例和并发 reader。撤销后阻止新的读取/发帧，在途 I/O 与实际退出有证据才删除或交还。本机多实例复跑 SQL 计数、热点并发与故障回归。见 B7 |
+| A11 · WP6 Shuffle 撤权、producer 停止与回收 | 已有读写 lease/window、终态封口、实际晚到对象清扫。单次 PUT 确切拒绝时结清本次预留 | 补远端响应未知且对象未出现时的止写证明，覆盖丢 ACK、迟到 PUT、清扫跨页、旧 owner、替换实例和并发 reader。撤销后阻止新的读取/发帧，在途 I/O 与实际退出有证据才删除或交还。本机多实例复跑 SQL 计数、热点并发与故障回归。见 B7 |
 | A12 · WP8 写入日志与 CDC 回执 | 二进制 journal、精确回执、CDC 领导任期和 PostgreSQL 变更订阅已接入，本地写入 journal 有定向验证 | 验证各来源重放窗口、回执回收、提交 ACK 丢失、CDC 断线重连与跨 Coordinator 暂停/恢复。复跑空闲数据库计数，覆盖并发/故障与锁等待。只有目录提交可见且精确发布证明成立才确认成功或前进 offset。见 B8 |
 | A13 · WP8 暂存文件与 fenced commit | 已接入 Paimon SDK 已上报文件的同 Linux 存储命名空间清理及独立租约回收 | 补未上报文件、Native 物理写出、外部根/对象存储的存储权威。用本地分离存储根和 MinIO 测试，注入部分删除、未知提交、受保护存储身份变化、租约变化和重复清理，验证匹配指纹、实际止写、回收与发布 fencing。覆盖成功快照及遗留孤儿对象，核验保留集合。见 B8 |
 
