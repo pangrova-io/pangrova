@@ -379,7 +379,7 @@ public class QueryDispatcher implements org.pangrova.query.lifecycle.QueryExecut
         return new DAGDispatchEngine(new DAGDispatchContext(
                 deps.dispatcher(), deps.taskTracker(),
                 deps.lineageEmitter(), deps.catalogRegistry(),
-                deps.taskTimeoutSeconds(), deps.adaptiveQueryExecutor(),
+                deps.taskTimeoutSeconds(),
                 deps.adaptiveQueryConfig(),
                 deps.speculativeStageHandler(),
                 deps.workerManager().requiresLocalShuffle() ? PipelineConfig.LOCAL : PipelineConfig.ENABLED,
@@ -398,15 +398,6 @@ public class QueryDispatcher implements org.pangrova.query.lifecycle.QueryExecut
             handlers.add(new org.pangrova.coordinator.query.execution
                     .dispatch.dag.handler.ShuffleStageHandler(
                     deps.shuffleLifecycleManager()));
-        }
-        if (deps.adaptiveQueryConfig() != null
-                && deps.adaptiveQueryExecutor() != null) {
-            handlers.add(new org.pangrova.coordinator.query.execution
-                    .dispatch.dag.handler.AdaptiveQueryStageHandler(
-                    new org.pangrova.coordinator.query.execution
-                            .dispatch.adaptive.AdaptiveQueryEvaluator(
-                            deps.skewDetector(), deps.adaptiveQueryConfig(),
-                            deps.adaptiveQueryExecutor())));
         }
         if (deps.resilienceRegistry() != null && !deps.workerManager().requiresLocalShuffle()) {
             handlers.add(new org.pangrova.coordinator.query.execution

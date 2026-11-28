@@ -7,9 +7,8 @@ import org.pangrova.common.api.annotation.Internal;
  * Callback interface invoked by {@code StageReplanCoordinator} after producing a
  * {@link StageReplanDecision} that indicates downstream sub-plans need re-optimization.
  *
- * <p>This extension has algorithm-level callers and tests. The production DAG
- * currently uses its AdaptiveQueryEvaluator path and does not assemble this
- * callback pipeline. Declaring this port does not enable adaptive execution.</p>
+ * <p>The algorithm-level coordinator invokes this callback. The production DAG
+ * freezes physical Shuffle ranges from commit receipts.</p>
  *
  * <p>Typical flow:
  * <ol>

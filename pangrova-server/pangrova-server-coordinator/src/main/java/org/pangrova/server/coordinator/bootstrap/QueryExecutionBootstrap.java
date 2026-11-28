@@ -183,12 +183,11 @@ final class QueryExecutionBootstrap {
                 config.spillBudget(),
                 moduleWiring != null ? moduleWiring.getResilienceRegistry() : null);
         QueryDispatcherContext deps = new QueryDispatcherContext(
-                new org.pangrova.shuffle.skew.MedianSkewDetector(), scopedCompiler,
+                scopedCompiler,
                 security, scheduling,
                 metadataBootstrap == null ? null : metadataBootstrap.catalogRegistry(),
                 moduleWiring != null ? moduleWiring.getLineageEmitter() : null,
                 config.effectiveTaskTimeoutSeconds(),
-                new org.pangrova.planner.adaptive.AdaptiveQueryExecutor(),
                 org.pangrova.planner.adaptive.AdaptiveQueryConfig.ENABLED,
                 shuffleSession, coordinationService,
                 coordinationService != null ? config.coordinatorId() : null,

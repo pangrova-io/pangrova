@@ -1,14 +1,8 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.handler;
 
-import java.util.Map;
-import java.util.stream.Collectors;
-
 import org.pangrova.execution.authority.StageExecutionContext;
 import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageEdge;
-import org.pangrova.protocol.rest.shuffle.PartitionStats;
-import org.pangrova.protocol.rest.shuffle.ShuffleStageStatsReport;
-import org.pangrova.shuffle.api.ShuffleCommitReceipt;
 import org.pangrova.shuffle.api.ShuffleLifecycleManager;
 import org.pangrova.protocol.shuffle.codec.ShuffleProducerSetChecksum;
 import org.pangrova.shuffle.api.ShuffleRegistration;
@@ -77,11 +71,14 @@ public final class ShuffleStageHandler implements StageLifecycleHandler {
         var publication = stage.shufflePublication(event.queryId());
         var receipt = shuffleLifecycleManager.commitShuffle(publication);
         stage.bindShuffleReceipt(publication, receipt);
-        var report = buildStatsReport(event.queryId(), stage.stageId(), receipt);
-        stage.setShuffleStatsReport(report);
+        long bytes = 0;
+        long rows = 0;
+        for (var partition : receipt.partitions().values()) {
+            bytes = Math.addExact(bytes, partition.bytes());
+            rows = Math.addExact(rows, partition.rows());
+        }
         LOG.info("event=shuffle_commit_stats queryId={} stageId={} totalBytes={} totalRows={} partitions={}",
-                event.queryId(), stage.stageId(), report.shuffleBytes(), report.shuffleRows(),
-                        receipt.partitions().size());
+                event.queryId(), stage.stageId(), bytes, rows, receipt.partitions().size());
     }
 
     private static StageEdge externalShuffleOutput(StageLifecycleEvent event) {
@@ -107,23 +104,6 @@ public final class ShuffleStageHandler implements StageLifecycleHandler {
         }
         return estimatedBytes / partitionCount
                 + (estimatedBytes % partitionCount == 0 ? 0 : 1);
-    }
-
-    private static ShuffleStageStatsReport buildStatsReport(
-            String queryId, int stageId, ShuffleCommitReceipt receipt) {
-        Map<Integer, PartitionStats> protocolStats = receipt.partitions().entrySet().stream()
-                .collect(Collectors.toMap(
-                        Map.Entry::getKey,
-                        e -> new PartitionStats(e.getValue().bytes(), e.getValue().rows())));
-        return new ShuffleStageStatsReport(
-                queryId,
-                String.valueOf(stageId),
-                protocolStats,
-                receipt.partitions().values().stream().map(ShuffleCommitReceipt.Partition::bytes).reduce(0L,
-                        Math::addExact),
-                receipt.partitions().values().stream().map(ShuffleCommitReceipt.Partition::rows).reduce(0L,
-                        Math::addExact),
-                System.currentTimeMillis());
     }
 
     @Override

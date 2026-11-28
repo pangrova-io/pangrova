@@ -2260,13 +2260,11 @@ dynamic-filter:
 
 ## 16. Shuffle feedback and adaptive execution
 
-The Coordinator derives bytes and rows per output partition from the external
-Shuffle commit receipt. The receipt belongs to one allocation and plan epoch
-and proves the exact producer set. The adaptive evaluator uses these statistics
-to report candidate coalescing, skew, and strategy changes. A stage without
-published Shuffle statistics skips evaluation. Candidate coalescing preserves
-the original partition order as contiguous ranges and requires an observed
-entry for each source partition, including explicitly empty partitions.
+The Coordinator uses the external Shuffle commit receipt directly. The receipt
+proves the exact producer set for one allocation and plan epoch. Live dispatch
+can assign contiguous source ranges to fewer consumers for eligible stages.
+Each source partition, including an empty one, must appear in the receipt.
+The stage retains the receipt used by its physical input bindings.
 
 For a live equality join over independent scans, the fragmenter can establish
 hash exchanges on both inputs. It uses the bound source statistics to identify
@@ -2310,10 +2308,6 @@ The following metrics from [14 §3](./observability.md) are emitted by query exe
 | `pangrova.task.execution_time_ms` | histogram | TaskExecutor | Per-task execution time |
 | `pangrova.shuffle.bytes_transferred` | counter | ShuffleManager | Shuffle data volume |
 | `pangrova.dynamic_filter.rows_filtered` | counter | DynamicFilterService | Rows eliminated by dynamic filters |
-| `pangrova.aqe.reoptimizations_total` | counter | AdaptiveQueryEvaluator | AQE re-optimization events |
-| `pangrova.aqe.partitions_coalesced` | counter | AdaptiveQueryEvaluator | Partitions merged by coalescing |
-| `pangrova.aqe.joins_converted` | counter | AdaptiveQueryEvaluator | Joins converted to broadcast |
-| `pangrova.aqe.skew_splits` | counter | AdaptiveQueryEvaluator | Skewed partitions split |
 
 ### 17.2 Tracing Spans
 
@@ -2324,7 +2318,7 @@ Query execution emits the following spans (see [14 §4](./observability.md) for 
 ### 17.3 Log Events
 
 - Query lifecycle transitions: QUEUED → PLANNING → SCHEDULING → RUNNING → FINISHED/FAILED (INFO)
-- AQE re-optimization decisions: coalescing, join switching, skew handling (INFO)
+- Committed Shuffle totals and applied range coalescing (INFO)
 - Dynamic filter generation and application events (DEBUG)
 - Write path commit/abort events (INFO)
 

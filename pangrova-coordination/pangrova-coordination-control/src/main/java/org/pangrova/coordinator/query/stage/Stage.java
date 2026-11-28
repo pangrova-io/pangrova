@@ -15,9 +15,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.pangrova.common.concurrent.ThreadSafe;
-import org.pangrova.planner.api.adaptive.AdaptiveDecision;
 import org.pangrova.query.api.error.QueryFailure;
-import org.pangrova.protocol.rest.shuffle.ShuffleStageStatsReport;
 import org.pangrova.shuffle.api.ShuffleHandle;
 import org.pangrova.shuffle.api.ShuffleCommitReceipt;
 import org.pangrova.query.api.stage.StageCompletionCallback.BuildKeyRange;
@@ -52,12 +50,10 @@ public final class Stage {
      */
     private final AtomicInteger attemptGeneration = new AtomicInteger(0);
     private volatile QueryFailure lastError;
-    private volatile ShuffleStageStatsReport shuffleStatsReport;
     private volatile ShuffleHandle shuffleHandle;
     private volatile long shufflePlanEpoch;
     private volatile ShuffleCommitReceipt shuffleReceipt;
     private volatile org.pangrova.protocol.v2.ExecutionOwnerIdentity shuffleExecutionOwner;
-    private volatile AdaptiveDecision adaptiveDecision;
     private volatile org.pangrova.planner.api.adaptive.CoalesceResult coalescedInputs;
 
     /** Per-task retry counters for task-level retry before stage-level retry. */
@@ -346,16 +342,6 @@ public final class Stage {
         return lastError;
     }
 
-    /** Stores real shuffle statistics reported by Worker after stage completion. */
-    public void setShuffleStatsReport(ShuffleStageStatsReport report) {
-        this.shuffleStatsReport = report;
-    }
-
-    /** Returns the Worker-reported shuffle statistics, or null if not yet received. */
-    public ShuffleStageStatsReport shuffleStatsReport() {
-        return shuffleStatsReport;
-    }
-
     /**
      * Binds the external shuffle allocation for the current stage generation.
      * A newer generation replaces the failed generation's allocation; stale
@@ -464,16 +450,6 @@ public final class Stage {
     /** Returns the fenced owner of the shuffle allocation, or null before dispatch. */
     public org.pangrova.protocol.v2.ExecutionOwnerIdentity shuffleExecutionOwner() {
         return shuffleExecutionOwner;
-    }
-
-    /** Stores the AQE decision produced after this stage completed. */
-    public void setAdaptiveDecision(AdaptiveDecision decision) {
-        this.adaptiveDecision = decision;
-    }
-
-    /** Returns the AQE decision for this stage, or null if AQE was disabled or not yet evaluated. */
-    public AdaptiveDecision adaptiveDecision() {
-        return adaptiveDecision;
     }
 
     public int stageId() {

@@ -69,14 +69,14 @@ class QueryDispatcherOwnershipReleaseTest {
         workerManager.registerWorker(worker.workerInfo());
         taskTracker = new CoordinatorTaskTracker();
 
-        var deps = new QueryDispatcherContext(new org.pangrova.shuffle.skew.MedianSkewDetector(),
+        var deps = new QueryDispatcherContext(
                 compiler,
                 new org.pangrova.coordinator.query.execution.SecurityContextBundle(null, null, null),
                 new org.pangrova.coordinator.query.execution.SchedulingContextBundle(
                         httpDispatcher, taskScheduler, workerManager, taskTracker,
                         null, null, null, null),
                 null, null, 0L,
-                null, null, null, haService, COORDINATOR_ID, null, null, null, null, null);
+                null, null, haService, COORDINATOR_ID, null, null, null, null, null);
         dispatcher = new QueryDispatcher(withPolicies(deps), null, null);
         executionCleanup = dispatcher;
         worker.connect(dispatcher, taskTracker, workerManager);

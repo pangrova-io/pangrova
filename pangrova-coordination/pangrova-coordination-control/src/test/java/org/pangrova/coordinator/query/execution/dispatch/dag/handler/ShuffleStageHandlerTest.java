@@ -15,10 +15,7 @@ import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageEdge;
 import org.pangrova.coordinator.query.stage.StageNode;
-import org.pangrova.coordinator.query.execution.dispatch.adaptive.AdaptiveQueryEvaluator;
 import org.pangrova.coordinator.query.execution.dispatch.dag.ExchangeInputTestAccess;
-import org.pangrova.planner.adaptive.AdaptiveQueryConfig;
-import org.pangrova.planner.adaptive.AdaptiveQueryExecutor;
 import org.pangrova.planner.analysis.PlanFragment;
 import org.pangrova.planner.cost.distribution.PangrovaDistribution;
 import org.pangrova.planner.cost.distribution.PangrovaExchangeInput;
@@ -34,7 +31,6 @@ import org.pangrova.shuffle.api.ShuffleLifecycleManager;
 import org.pangrova.shuffle.api.ShuffleRegistration;
 import org.pangrova.shuffle.api.ShuffleServerEndpoint;
 import org.pangrova.shuffle.api.ShuffleServiceAddress;
-import org.pangrova.shuffle.skew.MedianSkewDetector;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -94,9 +90,6 @@ class ShuffleStageHandlerTest {
                 .build(consumer.plan(), graph, List.of(), 1)).isInstanceOf(IllegalStateException.class);
         handler.onFinished(lifecycleEvent);
         assertThat(graph.readyStageEntities(java.util.Set.of(3))).contains(consumer);
-        var advisor = new AdaptiveQueryEvaluator(new MedianSkewDetector(),
-                AdaptiveQueryConfig.ENABLED, new AdaptiveQueryExecutor());
-        assertThat(advisor.evaluateStageCompletion(producer).coalesceResult().coalescedCount()).isOne();
         var externalInputs = ExchangeInputTestAccess.buildExternalCohort(consumer.plan(), graph).stream()
                 .map(org.pangrova.protocol.v2.ExchangeInputBinding::getExternal).toList();
         assertThat(externalInputs).extracting(ExternalShuffleInput::getSourcePartitionStart)

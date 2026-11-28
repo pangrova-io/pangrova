@@ -2373,10 +2373,10 @@ public abstract class SqlE2ETestBase extends ContainerTestBase {
         var scheduling = new org.pangrova.coordinator.query.execution.SchedulingContextBundle(
                 httpDispatcher, scheduler, workerManager, taskTracker, null, null,
                 E2eCurrentAuthority.configuredSpillBudget(NATIVE_WRITE_STAGE_BYTES), null);
-        var deps = new QueryDispatcherContext(new org.pangrova.shuffle.skew.MedianSkewDetector(),
+        var deps = new QueryDispatcherContext(
                 compiler, security, scheduling,
                 metadataBootstrap.catalogRegistry(), null, 0L,
-                null, null, null, null, null, null, indexAwareSplitFetcher, embeddingRegistry,
+                null, null, null, null, null, indexAwareSplitFetcher, embeddingRegistry,
                 new org.pangrova.generation.publication.read.PublishedGenerationBindingResolver(
                         sharedArtifactBuildStore),
                 new org.pangrova.coordinator.generation.read.GeneratedValueReadResolver(

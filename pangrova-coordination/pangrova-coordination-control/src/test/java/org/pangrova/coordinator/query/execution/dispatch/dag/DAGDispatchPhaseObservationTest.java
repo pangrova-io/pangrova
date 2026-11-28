@@ -84,7 +84,7 @@ class DAGDispatchPhaseObservationTest {
         var registry = new QueryOperatorStatsRegistry();
         var context = new DAGDispatchContext((request, worker) -> {
             throw new AssertionError("A failed preparation must not dispatch a task");
-        }, new CoordinatorTaskTracker(), null, null, 30, null, null, null, PipelineConfig.DISABLED,
+        }, new CoordinatorTaskTracker(), null, null, 30, null, null, PipelineConfig.DISABLED,
                 null, null, null);
         WorkerSelector rejectAdmission = new WorkerSelector() {
             @Override

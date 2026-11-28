@@ -99,8 +99,8 @@ final class NativeReportDeliveryFixture implements AutoCloseable {
                 var grant = authority.requireExecutionAnchor(query);
                 return new ExecutionOwnerIdentity(grant.ownerId(), grant.ownerIncarnation(), grant.fencingToken());
             });
-            context = new QueryDispatcherContext(null, context.compiler(), context.security(), context.scheduling(),
-                    null, null, context.taskTimeoutSeconds(), null, null, null,
+            context = new QueryDispatcherContext(context.compiler(), context.security(), context.scheduling(),
+                    null, null, context.taskTimeoutSeconds(), null, null,
                     authority, TaskJournalStoreFixture.COORDINATOR_ID, store.journal(), null, null, null, null);
         }
         var execution = new QueryDispatcher(SourceFreeQueryFixture.withPolicies(context), null, null);
