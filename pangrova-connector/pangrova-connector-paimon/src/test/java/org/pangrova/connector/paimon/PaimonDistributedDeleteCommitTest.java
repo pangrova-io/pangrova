@@ -183,6 +183,46 @@ class PaimonDistributedDeleteCommitTest extends PaimonDeleteFixture {
         changedSize[changedSize.length - 1] ^= 1;
         assertThatThrownBy(() -> org.pangrova.connector.paimon.write.PaimonSdkWriteFragment.decode(changedSize, restored))
                 .hasMessageContaining("differs from its SDK commit metadata");
+        int fingerprintBytes = Short.BYTES + object.localFingerprint().length();
+        byte[] priorVersion = Arrays.copyOf(receipt, receipt.length - fingerprintBytes);
+        java.nio.ByteBuffer.wrap(priorVersion).putInt(2);
+        System.arraycopy(receipt, receipt.length - Long.BYTES, priorVersion,
+                priorVersion.length - Long.BYTES, Long.BYTES);
+        var legacy = org.pangrova.connector.paimon.write.PaimonSdkWriteFragment.decode(priorVersion, restored);
+        assertThat(legacy.messages()).isEqualTo(prepared.messages());
+        assertThat(legacy.objects()).singleElement().satisfies(observed -> {
+            assertThat(observed.uri()).isEqualTo(object.uri());
+            assertThat(observed.sizeBytes()).isEqualTo(object.sizeBytes());
+            assertThat(observed.localFingerprint()).isEmpty();
+        });
+        assertThat(snapshotId()).isEqualTo(-1L);
+    }
+
+    @Test
+    void sameLengthReplacementDoesNotMatchTheClosedStagedObject() throws Exception {
+        createTable(false, false);
+        var metadata = new PaimonMetadata(catalog, "delete_catalog", new PaimonSplitRegistry());
+        var handle = (org.pangrova.connector.paimon.handle.PaimonOutputTableHandle)
+                metadata.beginInsert(SESSION, handle(metadata));
+        var receipt = finish(provider().createPageSink(ConnectorTransactionHandle.empty(), SESSION, handle), SURVIVOR);
+        var observed = org.pangrova.connector.paimon.write.PaimonSdkWriteFragment.decode(receipt, handle);
+        var object = observed.objects().get(0);
+        var path = java.nio.file.Path.of(java.net.URI.create(object.uri()));
+        var replacement = java.nio.file.Files.createTempFile(path.getParent(), "replacement-", ".tmp");
+        java.nio.file.Files.copy(path, replacement, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        java.nio.file.Files.move(replacement, path, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        assertThat(java.nio.file.Files.size(path)).isEqualTo(object.sizeBytes());
+
+        var fragments = List.of(receipt);
+        var context = PaimonCommitFixture.context(metadata, SESSION, handle, fragments);
+        if (observed.localAuthority().isEmpty()) {
+            assertThat(metadata.reclaimObservedStaging(SESSION, handle, fragments, context)).isFalse();
+        } else {
+            assertThat(object.localFingerprint()).hasSize(64);
+            assertThatThrownBy(() -> metadata.reclaimObservedStaging(SESSION, handle, fragments, context))
+                    .rootCause().hasMessageContaining("Observed Paimon staged file differs from its closed-file receipt");
+        }
+        assertThat(path).isRegularFile();
         assertThat(snapshotId()).isEqualTo(-1L);
     }
 

@@ -286,7 +286,11 @@ lease expires, including after retirement of the execution anchor.
 For observed SDK files in the same Linux local storage namespace, the cleanup
 holder verifies identity before unlinking.
 The worker receipt binds the namespace to the kernel boot identity and the
-database directory inode. Recovery verifies that binding before treating any
+database directory inode. The local file fingerprint also binds its inode and
+creation and modification timestamps. Recovery checks that fingerprint and
+length before unlinking. Older fragments without a file fingerprint can still
+be published through the fenced commit journal. They leave reclamation pending.
+Recovery verifies the namespace itself before treating any
 missing path as absent, and uses directory-relative operations that do not
 follow links beneath the database directory. A successor can repeat a partial
 deletion under its new claim. The completion record covers only reported files.
