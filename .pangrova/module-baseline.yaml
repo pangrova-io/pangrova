@@ -799,7 +799,6 @@ artifacts:
       - org.pangrova.coordinator.query.audit
       - org.pangrova.coordinator.query.execution
       - org.pangrova.coordinator.query.execution.dispatch
-      - org.pangrova.coordinator.query.execution.dispatch.adaptive
       - org.pangrova.coordinator.query.execution.dispatch.dag
       - org.pangrova.coordinator.query.execution.dispatch.dag.binding
       - org.pangrova.coordinator.query.execution.dispatch.dag.control
@@ -3560,7 +3559,6 @@ artifacts:
       - org.pangrova.protocol.rest.copy.preparation
       - org.pangrova.protocol.rest.data
       - org.pangrova.protocol.rest.maintenance
-      - org.pangrova.protocol.rest.shuffle
       - org.pangrova.protocol.rest.task
       - org.pangrova.protocol.rest.task.exchange
       - org.pangrova.protocol.rest.version
@@ -3617,7 +3615,6 @@ artifacts:
       - org.pangrova.protocol.rest.copy.preparation
       - org.pangrova.protocol.rest.data
       - org.pangrova.protocol.rest.maintenance
-      - org.pangrova.protocol.rest.shuffle
       - org.pangrova.protocol.rest.task
       - org.pangrova.protocol.rest.task.exchange
       - org.pangrova.protocol.rest.version
@@ -4324,7 +4321,6 @@ artifacts:
         - pangrova-semantic
         - pangrova-server-bootstrap
         - pangrova-shuffle-api
-        - pangrova-shuffle-exchange
         - pangrova-streaming-api
         - pangrova-streaming-pipeline
         - pangrova-table
