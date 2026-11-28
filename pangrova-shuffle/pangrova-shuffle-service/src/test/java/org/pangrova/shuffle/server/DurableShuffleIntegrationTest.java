@@ -37,6 +37,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.protocol.v2.BatchChunk;
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
@@ -208,13 +209,15 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
         assertThat(read.committedProducerCount()).isEqualTo(1);
         assertThat(read.planEpoch()).isEqualTo(2);
         assertThat(read.producerSetChecksum()).isEqualTo(producerChecksum());
+        var dataPlaneBefore = shuffleStatements();
         for (int frame = 0; frame < 128; frame++) restarted.engine.requireReadAuthority(read);
-        assertThat(performedReadWindows()).isEqualTo(grantsBefore + 1);
-        assertThat(protectedReaders("query-1")).isEqualTo(1);
-
         var page = restarted.engine.readPage(read, 0);
         assertThat(page).hasSize(1);
         assertThat(restarted.engine.readPayload(read, page.get(0))).isEqualTo(winnerPayload);
+        assertShuffleStatementCount(dataPlaneBefore, 0);
+
+        assertThat(performedReadWindows()).isEqualTo(grantsBefore + 1);
+        assertThat(protectedReaders("query-1")).isEqualTo(1);
 
         try (S3Client client = s3Client()) {
             String key = "integration/" + shuffleId
@@ -918,8 +921,9 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
                 .mapToLong(Map.Entry::getValue).sum()).isOne();
     }
 
-    @Test
-    void acknowledgesOneWriteWindowForThirtyTwoUploadedBatches() throws Exception {
+    @ParameterizedTest
+    @CsvSource({"1,1", "32,1", "32,4"})
+    void writeWindowSqlDoesNotGrowWithBatchesOrChunks(int batchCount, int chunkCount) throws Exception {
         String query = "batch-statements-" + UUID.randomUUID();
         String shuffle = "shuffle-" + query;
         seedAnchor(query, owner());
@@ -935,11 +939,11 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
             byte[] payload = {1, 2, 3, 4};
             byte[] checksum = ShuffleChecksums.sha256(payload);
             ByteString canonical = ByteString.copyFrom(payload);
-            int batchCount = 32;
             var before = shuffleStatements();
             try (var rpc = WriteRpc.open(engine)) {
                 for (int sequence = 0; sequence < batchCount; sequence++) {
-                    rpc.send(new CompleteWriteBatch(shuffle, 0, sequence, 1, producer, grant, canonical, checksum));
+                    rpc.send(new CompleteWriteBatch(shuffle, 0, sequence, 1, producer, grant, canonical, checksum),
+                            chunkCount);
                 }
                 var acknowledgement = rpc.finish();
                 assertThat(acknowledgement.getTotalBatchesAccepted()).isEqualTo(batchCount);
@@ -2238,15 +2242,24 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
         }
 
         void send(CompleteWriteBatch batch) {
-            var checksum = ShuffleChecksums.protocol(batch.checksum());
-            requests.onNext(WriteBatchRequest.newBuilder().setShuffleId(batch.shuffleId())
-                    .setProducerAttempt(batch.attempt()).setPartitionId(batch.outputPartitionId())
-                    .setStreamSequence(nextSequence++).setRowCount(batch.rowCount())
-                    .setCodec(CompressionCodec.COMPRESSION_CODEC_NONE).setUncompressedSize(batch.canonicalSize())
-                    .setAccessCapability(batch.capability())
-                    .setChunk(BatchChunk.newBuilder().setBatchSequence(batch.batchSequence()).setChunkCount(1)
-                            .setBatchSizeBytes(batch.canonicalSize()).setData(batch.canonicalBytes())
-                            .setBatchChecksum(checksum).setChunkChecksum(checksum)).build());
+            send(batch, 1);
+        }
+
+        void send(CompleteWriteBatch batch, int chunkCount) {
+            var batchChecksum = ShuffleChecksums.protocol(batch.checksum());
+            var bytes = batch.canonicalBytes();
+            for (int index = 0; index < chunkCount; index++) {
+                var chunk = bytes.substring(bytes.size() * index / chunkCount, bytes.size() * (index + 1) / chunkCount);
+                var chunkChecksum = ShuffleChecksums.protocol(ShuffleChecksums.sha256(chunk.toByteArray()));
+                requests.onNext(WriteBatchRequest.newBuilder().setShuffleId(batch.shuffleId())
+                        .setProducerAttempt(batch.attempt()).setPartitionId(batch.outputPartitionId())
+                        .setStreamSequence(nextSequence++).setRowCount(batch.rowCount())
+                        .setCodec(CompressionCodec.COMPRESSION_CODEC_NONE).setUncompressedSize(batch.canonicalSize())
+                        .setAccessCapability(batch.capability())
+                        .setChunk(BatchChunk.newBuilder().setBatchSequence(batch.batchSequence()).setChunkIndex(index)
+                                .setChunkCount(chunkCount).setBatchSizeBytes(batch.canonicalSize()).setData(chunk)
+                                .setBatchChecksum(batchChecksum).setChunkChecksum(chunkChecksum)).build());
+            }
         }
 
         WriteBatchResponse finish() throws Exception {

@@ -137,6 +137,12 @@ transactions. One publication transaction rechecks the live fences, publishes
 the ordered inventory as a group and consumes the reservation. The stream
 flushes its last group before acknowledging the producer's half-close.
 
+The PostgreSQL/MinIO regression verifies the same eight authorization and
+inventory statements for one batch, 32 batches and 128 chunks within a single
+write window. The read regression observes zero Shuffle SQL statements while
+checking admitted frames and reading the finalized manifest page and payload.
+Window opening, renewal, close and recovery have separate database accounting.
+
 An unconfirmed object PUT surfaces immediately to the write stream when the SDK
 reports failure. The SDK performs a single attempt for each PUT. Its reservation
 protects the object prefix through the configured call deadline plus 60 seconds
