@@ -44,7 +44,10 @@ public final class PaimonNativePhysicalWriteProvider implements NativePhysicalWr
         if (!PhysicalFileWriteBindings.template(pinned).equals(PhysicalFileWriteBindings.template(allocation))) {
             throw new IllegalArgumentException("Physical output differs from its persisted SDK allocation");
         }
-        var table = load(handle);
+        validateCurrentAllocation(load(handle), allocation);
+    }
+
+    private static void validateCurrentAllocation(FileStoreTable table, NativePhysicalWriteAllocation allocation) {
         var actual = PaimonPhysicalSchemas.forAppend(table.schema());
         if (actual.schemaId() != allocation.schema().schemaId()
                 || !Arrays.equals(actual.physicalSchema(), allocation.schema().physicalSchema())
@@ -64,7 +67,7 @@ public final class PaimonNativePhysicalWriteProvider implements NativePhysicalWr
         validateCommitContext(session, handle, context);
         var table = load(handle);
         boolean published = table.snapshotManager().latestSnapshotOfUser(context.commitFingerprint()).isPresent();
-        if (!published) validateAllocation(session, handle, allocation);
+        if (!published) validateCurrentAllocation(table, allocation);
         var locations = new HashSet<String>();
         for (var receipt : receipts) {
             validateReceipt(allocation, receipt, context.executionId());

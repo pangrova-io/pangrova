@@ -62,15 +62,8 @@ final class PaimonDistributedWriteFinisher {
             return;
         }
 
-        if (!commitMessages(freshTable, handle, allMessages, eventType, context)) {
-            LOG.info("event=paimon_distributed_write_already_committed schema={} table={} fingerprint={}",
-                    handle.schemaName(), handle.tableName(), context.commitFingerprint());
-        } else {
-            LOG.info("event=paimon_distributed_write_committed schema={} table={} messageCount={}",
-                    handle.schemaName(), handle.tableName(), allMessages.size());
-        }
-        notifyAfterCommit(freshTable, handle, allMessages, eventType,
-                context.commitFingerprint(), notifier);
+        Snapshot publication = commitMessages(freshTable, handle, allMessages, eventType, context);
+        notifyAfterCommit(publication, handle, allMessages, eventType, context.commitFingerprint(), notifier);
     }
 
     private static DeserializedFragments deserialize(
@@ -155,7 +148,7 @@ final class PaimonDistributedWriteFinisher {
         return new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR, detail);
     }
 
-    private static boolean commitMessages(Table freshTable, PaimonOutputTableHandle handle,
+    private static Snapshot commitMessages(Table freshTable, PaimonOutputTableHandle handle,
                                           List<CommitMessage> allMessages, CommitEventType eventType,
                                           DistributedWriteCommitContext context) {
         FileStoreTable fileStore = org.pangrova.connector.paimon.handle.PaimonTableIdentity.requireSame(
@@ -163,29 +156,38 @@ final class PaimonDistributedWriteFinisher {
                 "Paimon distributed write");
         var snapshots = fileStore.snapshotManager();
         String commitUser = context.commitFingerprint();
-        if (snapshots.latestSnapshotOfUser(commitUser).isPresent()) {
-            return false;
+        var existing = snapshots.latestSnapshotOfUser(commitUser);
+        if (existing.isPresent()) {
+            LOG.info("event=paimon_distributed_write_already_committed schema={} table={} fingerprint={}",
+                    handle.schemaName(), handle.tableName(), commitUser);
+            return existing.orElseThrow();
         }
         org.pangrova.connector.paimon.handle.PaimonTableHandleFactory.requireWriteDeclarationSupported(
                 freshTable.options());
         validateReplayWindow(context, snapshots);
         InnerTable innerTable = requireCommitTable(freshTable, handle, eventType);
         commitPrepared(innerTable, handle, allMessages, eventType, commitUser);
-        return true;
+        var publication = snapshots.latestSnapshotOfUser(commitUser).orElseThrow(() ->
+                new IllegalStateException("Paimon committed snapshot marker is absent after write completion"));
+        LOG.info("event=paimon_distributed_write_committed schema={} table={} messageCount={}",
+                handle.schemaName(), handle.tableName(), allMessages.size());
+        return publication;
     }
 
     private static void validateReplayWindow(
             DistributedWriteCommitContext context,
             SnapshotManager snapshots) {
-        Long earliest = snapshots.earliestSnapshotId();
         if (context.baseSnapshotId() >= 0
                 && !snapshots.snapshotExists(context.baseSnapshotId())) {
             throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
                     "Paimon base snapshot expired before commit replay; outcome is ambiguous");
         }
-        if (context.baseSnapshotId() < 0 && earliest != null && earliest > 1) {
-            throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
-                    "Paimon initial snapshot history expired before commit replay");
+        if (context.baseSnapshotId() < 0) {
+            Long earliest = snapshots.earliestSnapshotId();
+            if (earliest != null && earliest > 1) {
+                throw new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
+                        "Paimon initial snapshot history expired before commit replay");
+            }
         }
     }
 
@@ -223,7 +225,7 @@ final class PaimonDistributedWriteFinisher {
         }
     }
 
-    private static void notifyAfterCommit(Table freshTable, PaimonOutputTableHandle handle,
+    private static void notifyAfterCommit(Snapshot publication, PaimonOutputTableHandle handle,
                                           List<CommitMessage> allMessages,
                                           CommitEventType eventType, String commitFingerprint,
                                           CommitNotifier notifier) {
@@ -242,11 +244,7 @@ final class PaimonDistributedWriteFinisher {
             }
         }
 
-        FileStoreTable fileStore = (FileStoreTable) freshTable;
-        Snapshot snapshot = fileStore.snapshotManager().latestSnapshotOfUser(commitFingerprint)
-                .orElseThrow(() -> new IllegalStateException(
-                        "Paimon committed snapshot marker is absent after write completion"));
-        String snapshotId = String.valueOf(snapshot.id());
+        String snapshotId = String.valueOf(publication.id());
         notifier.notify(handle.schemaName(), handle.tableName(),
                 addedFiles, removedFiles, snapshotId, eventType, commitFingerprint);
     }

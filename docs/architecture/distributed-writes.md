@@ -525,6 +525,11 @@ when a replay decodes the journaled binding. Paimon's `uuid()` can be synthesize
 name and the earliest schema, so location and schema fingerprint are part of the identity rather
 than optional corroboration. A mismatch fails the write; it never re-targets the current table.
 
+Paimon reuses the decoded output binding for file receipts and validates the
+physical allocation against the table observation already used to check
+publication. An exact snapshot found during replay is passed directly to
+the commit notifier. A write with a bound base validates that snapshot
+directly. Initial writes still inspect the earliest retained snapshot.
 The Paimon SDK owns snapshot conflict retries. If the SDK returns an ambiguous error, journal
 recovery checks retained snapshot history for the original fingerprint. The connector SPI requires
 the durable intent identity for abort. Journal recovery quarantines Paimon intents when it cannot
