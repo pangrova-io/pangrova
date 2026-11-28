@@ -71,6 +71,12 @@ an older archive into the expected path is rejected. When installing a separate
 matching header in `include/`. The receipt is created only after a successful
 build whose inputs remained unchanged.
 
+The checked-in Lance FFI Cargo manifest and lockfile use the published crate
+identities so Dependabot can resolve them from a clean checkout. The Native build
+prepares the reviewed Lance SDK and makes Cargo resolve the same locked graph
+with all four patched crates from those verified local paths. Build the archive
+through `build-lance-ffi.sh` so the build verifies the selected SDK sources.
+
 The daily Java jobs and production regression restore the Lance fixture tool
 from the same workflow run's Linux x86-64 Native build. The test artifact
 preserves executable permissions and includes the tool's shared dependencies.
