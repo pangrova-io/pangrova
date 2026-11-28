@@ -19,6 +19,8 @@ import java.util.Base64;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.function.Supplier;
 
 /** Persists capability-free proof from real ordinary-DAG allocation/finalize RPCs. */
@@ -28,6 +30,8 @@ public final class DurableStageShuffleEvidence implements ShuffleLifecycleEviden
     private final String sourceSnapshot;
     private final Supplier<GenerationExecutionOwner> currentOwner;
     private final GenerationJobKey job;
+    private final String graphSha256;
+    private final ConcurrentMap<Integer, GenerationExchangeRegistration> registered = new ConcurrentHashMap<>();
 
     /** Binds a durable artifact job to its real shuffle allocation and finalization store. */
     public DurableStageShuffleEvidence(GenerationStageExchangeStore store, GenerationDispatchSpec spec,
@@ -37,12 +41,13 @@ public final class DurableStageShuffleEvidence implements ShuffleLifecycleEviden
         this.sourceSnapshot = java.util.Objects.requireNonNull(sourceSnapshot, "sourceSnapshot");
         this.currentOwner = java.util.Objects.requireNonNull(currentOwner, "currentOwner");
         this.job = new GenerationJobKey(spec.tenantId(), spec.jobId());
+        this.graphSha256 = GenerationStageGraphCodec.sha256(spec.stageGraph());
     }
 
     @Override
     public Optional<Allocation> restoredAllocation(ShuffleRegistration registration) {
         var edge = requireStage(registration);
-        return persisted(registration.stageId()).map(saved -> {
+        return store.findRegistration(job, currentOwner.get(), edge.exchangeId()).map(saved -> {
             var allocation = new Allocation(saved.shuffleId(), saved.descriptor());
             if (!saved.equals(registrationRecord(registration, edge.exchangeId(), allocation,
                     saved.registeredOwner()))) {
@@ -59,15 +64,17 @@ public final class DurableStageShuffleEvidence implements ShuffleLifecycleEviden
         if (!issued.equals(currentOwner.get())) {
             throw new IllegalStateException("Shuffle registration has a stale owner");
         }
-        var firstOwner = persisted(registration.stageId()).map(GenerationExchangeRegistration::registeredOwner)
-                .orElse(issued);
-        store.register(job, issued, registrationRecord(registration, edge.exchangeId(), allocation, firstOwner));
+        var saved = store.register(job, issued, registrationRecord(registration, edge.exchangeId(), allocation, issued));
+        var previous = registered.putIfAbsent(registration.stageId(), saved);
+        if (previous != null && !previous.equals(saved)) {
+            throw new IllegalStateException("Durable shuffle registration changed after commit");
+        }
     }
 
     private GenerationExchangeRegistration registrationRecord(ShuffleRegistration registration, String exchangeId,
             Allocation allocation, GenerationExecutionOwner registeredOwner) {
         return new GenerationExchangeRegistration(exchangeId, job.executionId(), allocation.shuffleId(),
-                registration.stageId(), registration.planEpoch(), GenerationStageGraphCodec.sha256(spec.stageGraph()),
+                registration.stageId(), registration.planEpoch(), graphSha256,
                 spec.stageGraph().requireStage(registration.stageId()).planSha256(), sourceSnapshot,
                 registration.expectedProducerCount(), hex(registration.expectedProducerSetChecksum()),
                 registration.numPartitions(), allocation.descriptor(), registeredOwner);
@@ -77,8 +84,10 @@ public final class DurableStageShuffleEvidence implements ShuffleLifecycleEviden
     public void finalized(ShuffleRegistration registration, Allocation observed,
             ShuffleExecutionOwner requestOwner, ShuffleCommitReceipt receipt, byte[] response) {
         requireStage(registration);
-        var allocation = persisted(registration.stageId()).orElseThrow(() ->
-                new IllegalStateException("Real shuffle finalization has no persisted server allocation"));
+        var allocation = registered.get(registration.stageId());
+        if (allocation == null) {
+            throw new IllegalStateException("Real shuffle finalization has no persisted server allocation");
+        }
         var owner = currentOwner.get();
         var issued = new GenerationExecutionOwner(requestOwner.ownerId(), requestOwner.ownerIncarnation(),
                 requestOwner.fencingToken());
@@ -125,12 +134,6 @@ public final class DurableStageShuffleEvidence implements ShuffleLifecycleEviden
             throw new IllegalArgumentException("Live shuffle request differs from the immutable durable stage cohort");
         }
         return edges.get(0);
-    }
-
-    private Optional<GenerationExchangeRegistration> persisted(int stageId) {
-        return store.load(job, currentOwner.get()).stream()
-                .map(GenerationStageExchangeStore.ExchangeEvidence::registration)
-                .filter(value -> value.producerStageId() == stageId).findFirst();
     }
 
     private static String hex(byte[] bytes) { return HexFormat.of().formatHex(bytes); }

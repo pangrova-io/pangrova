@@ -12,8 +12,13 @@ import java.util.Optional;
 /** Immutable external exchange evidence guarded by current authority and the exact execution owner. */
 @Internal
 public interface GenerationStageExchangeStore {
-    /** Persists the original real allocation without replacing an earlier registration. */
-    void register(GenerationJobKey job, GenerationExecutionOwner owner, GenerationExchangeRegistration registration);
+    /** Returns the original durable allocation, preserving the first issuer when the current owner replays it. */
+    GenerationExchangeRegistration register(
+            GenerationJobKey job, GenerationExecutionOwner owner, GenerationExchangeRegistration registration);
+
+    /** Resolves just the requested exchange and its registration under current authority. */
+    Optional<GenerationExchangeRegistration> findRegistration(
+            GenerationJobKey job, GenerationExecutionOwner owner, String exchangeId);
 
     /** Persists strictly validated external finalization only after exact producer winners exist. */
     void finalizeExchange(GenerationJobKey job, GenerationExecutionOwner owner,

@@ -94,18 +94,17 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
             var context = PostgresCurrentGenerationAuthority.resolve(
                     transactionAuthority, executionFence, connection, key.tenantId(), key.jobId(),
                     completion.executionOwner());
-            var stage = context.dispatchSpec().stageGraph().requireStage(completion.stageId());
-            var evidence = PostgresGenerationStageExchangeStore.lockAndLoadStageEvidence(
-                    connection, context, stage.stageId());
+            var graph = context.dispatchSpec().stageGraph();
+            var stage = graph.requireStage(completion.stageId());
             if (stage.pageKind() != GenerationPageKind.RELATIONAL_COMPUTE
                     || completion.partitionId() >= stage.parallelism()) {
                 throw new IllegalArgumentException(
                         "Native producer report does not belong to a persisted compute stage");
             }
-            var allocations = evidence.stream()
-                    .map(ExchangeEvidence::registration)
-                    .filter(value -> value.producerStageId() == stage.stageId()).toList();
-            if (allocations.size() != 1 || allocations.get(0).planEpoch() != completion.planEpoch()) {
+            var outgoing = graph.exchanges().stream().filter(edge -> edge.upstreamStageId() == stage.stageId()).toList();
+            if (outgoing.size() != 1 || PostgresGenerationStageExchangeStore.lockRegistration(
+                    connection, context, outgoing.get(0).exchangeId())
+                    .filter(allocation -> allocation.planEpoch() == completion.planEpoch()).isEmpty()) {
                 throw new IllegalStateException("Native producer winner differs from its original external allocation");
             }
             var job = findJob(connection, key.tenantId(), key.jobId(), true).orElseThrow();

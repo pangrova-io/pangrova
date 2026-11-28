@@ -790,10 +790,14 @@ admission. Stored graph format 2, immutable bindings, owner/fence validation
 and canonical replay comparison remain unchanged.
 
 Durable graph startup validates the complete exchange index. Afterwards, partition
-progress reads only the exact page window under the current authority. Claims,
-issued-lease preparation, and producer completion read the immutable registrations
-and finalized receipts attached to the current stage. Each consumer still requires
-finalization evidence for every incoming edge.
+progress reads only the exact page window under the current authority. Claims
+and issued-lease preparation read only the immutable registrations and finalized
+receipts attached to the current stage. Producer completion locks only its output
+allocation and exact issued page. Each consumer still requires
+finalization evidence for every incoming edge. Allocation recovery fetches just
+the registration for the requested edge. Registration returns its committed
+original issuer to the active DAG, and the finalize callback reuses that immutable
+registration while PostgreSQL validates current authority and producer winners.
 
 Generation values live in `pangrova-generation-api`; they do not own serialization. Canonical graph,
 exchange and source-split codecs live in `pangrova-generation-codec`. Submission construction,

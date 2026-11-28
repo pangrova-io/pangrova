@@ -59,6 +59,23 @@ public final class PostgresGenerationStageExchangeStore implements GenerationSta
     private static final String LOCKED_GRAPH_EVIDENCE = LOCKED_EXCHANGE_EVIDENCE.formatted("");
     private static final String LOCKED_STAGE_EVIDENCE = LOCKED_EXCHANGE_EVIDENCE.formatted(
             "AND (producer_stage_id = ? OR consumer_stage_id = ?)");
+    private static final String LOCKED_REGISTRATION = """
+            WITH exact_registration_edge AS MATERIALIZED (
+                SELECT tenant_id, job_id, exchange_id, producer_stage_id, consumer_stage_id, graph_sha256
+                FROM artifact_stage_exchanges
+                WHERE tenant_id = ? AND job_id = ? AND exchange_id = ? FOR SHARE
+            ), registration AS MATERIALIZED (
+                SELECT r.exchange_id, r.registration_bytes, r.registration_sha256
+                FROM artifact_exchange_registrations r
+                JOIN exact_registration_edge e USING (tenant_id, job_id, exchange_id)
+                FOR SHARE OF r
+            )
+            SELECT e.exchange_id, e.producer_stage_id, e.consumer_stage_id, e.graph_sha256,
+                   j.source_snapshot, r.registration_bytes, r.registration_sha256
+            FROM exact_registration_edge e
+            JOIN artifact_build_jobs j USING (tenant_id, job_id)
+            LEFT JOIN registration r ON r.exchange_id = e.exchange_id
+            """;
     private final DataSource dataSource;
     private final GenerationTransactionAuthority transactionAuthority;
     private final GenerationExecutionTransactionFence executionFence;
@@ -74,27 +91,67 @@ public final class PostgresGenerationStageExchangeStore implements GenerationSta
 
     /** Persists the original real allocation without replacing an earlier registration. */
     @Override
-    public void register(GenerationJobKey job, GenerationExecutionOwner owner,
+    public GenerationExchangeRegistration register(GenerationJobKey job, GenerationExecutionOwner owner,
             GenerationExchangeRegistration registration) {
-        transaction(connection -> {
+        return transaction(connection -> {
             var context = PostgresCurrentGenerationAuthority.resolve(
                     transactionAuthority, executionFence, connection, job.tenantId(), job.jobId(), owner);
             validateRegistration(connection, context, registration, requireGraphEdges(connection, context));
+            if (!registration.registeredOwner().equals(owner)) {
+                throw new IllegalArgumentException("Registration must carry its actual issued owner");
+            }
             var existing = findRegistration(connection, job, registration.exchangeId(), true);
             if (existing.isPresent()) {
-                if (!existing.orElseThrow().equals(registration)) {
+                var original = existing.orElseThrow();
+                if (!original.equals(withOriginalIssuer(registration, original.registeredOwner()))) {
                     throw new IllegalStateException("Immutable external exchange allocation changed");
                 }
-                return null;
-            }
-            if (!registration.registeredOwner().equals(owner)) {
-                throw new IllegalArgumentException("New exchange registration must preserve its actual issued owner");
+                return original;
             }
             byte[] bytes = GenerationExchangeEvidenceCodec.encode(registration);
             insertEvidence(connection, job, registration.exchangeId(), bytes,
                     org.pangrova.common.util.DigestUtils.sha256Hex(bytes), false);
-            return null;
+            return registration;
         });
+    }
+
+    private static GenerationExchangeRegistration withOriginalIssuer(GenerationExchangeRegistration requested,
+            GenerationExecutionOwner originalIssuer) {
+        return new GenerationExchangeRegistration(requested.exchangeId(), requested.executionId(), requested.shuffleId(),
+                requested.producerStageId(), requested.planEpoch(), requested.graphSha256(), requested.stagePlanSha256(),
+                requested.sourceSnapshot(), requested.producerCount(), requested.producerSetSha256(),
+                requested.partitionCount(), requested.descriptor(), originalIssuer);
+    }
+
+    @Override
+    public Optional<GenerationExchangeRegistration> findRegistration(GenerationJobKey job,
+            GenerationExecutionOwner owner, String exchangeId) {
+        return transaction(connection -> {
+            var context = PostgresCurrentGenerationAuthority.resolve(
+                    transactionAuthority, executionFence, connection, job.tenantId(), job.jobId(), owner);
+            return lockRegistration(connection, context, exchangeId);
+        });
+    }
+
+    /** A terminal producer needs only its own immutable allocation on the authority connection. */
+    public static Optional<GenerationExchangeRegistration> lockRegistration(Connection connection,
+            PostgresCurrentGenerationAuthority context, String exchangeId) throws SQLException {
+        var spec = context.dispatchSpec();
+        var graph = spec.stageGraph();
+        var edge = graph.exchanges().stream().filter(value -> value.exchangeId().equals(exchangeId))
+                .findFirst().orElseThrow(() -> new IllegalArgumentException("Exchange is outside the persisted graph"));
+        String graphSha256 = GenerationStageGraphCodec.sha256(graph);
+        try (var statement = connection.prepareStatement(LOCKED_REGISTRATION)) {
+            bindKey(statement, new GenerationJobKey(spec.tenantId(), spec.jobId()), exchangeId);
+            try (var row = statement.executeQuery()) {
+                if (!row.next()) {
+                    throw new IllegalStateException("Exact exchange edge is missing from the immutable stage graph");
+                }
+                requireGraphEdge(row, edge, graphSha256);
+                return Optional.ofNullable(readExchangeEvidence(context, row, edge, graphSha256, null))
+                        .map(ExchangeEvidence::registration);
+            }
+        }
     }
 
     /** The caller supplies the actual RPC response only after strict protocol validation, never page statistics. */

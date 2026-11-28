@@ -192,6 +192,8 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
         installStatementCounters();
         long before = executionRouteReads();
         var exchangeBefore = exchangeReads();
+        String exactRegistration = "WITH exact_registration_edge AS MATERIALIZED%";
+        long exactRegistrationBefore = statementReads(exactRegistration);
         String jobLock = "SELECT * FROM artifact_build_jobs WHERE tenant_id=%FOR UPDATE";
         String specs = "SELECT * FROM artifact_build_dispatch_specs%";
         String roles = "SELECT assignment.role_name FROM pangrova_user_roles assignment%";
@@ -206,8 +208,10 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
         assertThat(received.terminalEvidence().bytes()).isEqualTo(delivery.getTerminalReport());
         assertThat(receiver.onTaskStatus(received)).isTrue();
         assertThat(executionRouteReads() - before).as("durable execution route SELECTs").isEqualTo(3);
-        assertThat(exchangeReads().since(exchangeBefore)).as("durable exchange evidence SELECTs")
-                .isEqualTo(new ExchangeReads(0, 0, 0, 0, 1));
+        assertThat(exchangeReads().since(exchangeBefore)).as("batch exchange evidence SELECTs")
+                .isEqualTo(new ExchangeReads(0, 0, 0, 0, 0));
+        assertThat(statementReads(exactRegistration) - exactRegistrationBefore)
+                .as("producer allocation reads").isOne();
         assertThat(statementReads(jobLock) - lockedJobsBefore).as("locked job reads").isOne();
         assertThat(statementReads(specs) - specsBefore).as("dispatch contract reads").isOne();
         assertThat(statementReads(roles) - rolesBefore).as("current direct role reads").isOne();
@@ -736,10 +740,14 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
     }
 
     @Test
-    void shuffleJournalRequiresExactStageAndCurrentAuthorityBeforeRecovery() {
+    void shuffleJournalRequiresExactStageAndCurrentAuthorityBeforeRecovery() throws Exception {
         var original = journal(anchor);
         var registered = shuffleRequest(7);
         var replacement = executions.takeOwnership(KEY.tenantId(), KEY.jobId(), "replacement", 9);
+        installStatementCounters();
+        long allEdgesBefore = exchangeReads().combined();
+        String exactRegistration = "WITH exact_registration_edge AS MATERIALIZED%";
+        long exactRegistrationBefore = statementReads(exactRegistration);
         assertThatThrownBy(() -> original.restoredAllocation(registered))
                 .isInstanceOf(GenerationExecutionOwnerLostException.class);
         var recovered = journal(replacement);
@@ -749,6 +757,8 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
         assertThatThrownBy(() -> recovered.registered(registered, allocation(), shuffleOwner(anchor)))
                 .hasMessageContaining("stale owner");
         recovered.registered(registered, allocation(), shuffleOwner(replacement));
+        assertThat(exchangeReads().combined() - allEdgesBefore).isZero();
+        assertThat(statementReads(exactRegistration) - exactRegistrationBefore).isEqualTo(2);
         assertThat(ModelAuthorityFixtures.artifacts().exchanges(dataSource)
                 .load(KEY, GenerationExecutionOwner.from(replacement))).singleElement().satisfies(evidence ->
                         assertThat(evidence.registration().registeredOwner()).isEqualTo(GenerationExecutionOwner.from(anchor)));
