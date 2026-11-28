@@ -1222,6 +1222,13 @@
         <Method name="~require(RegistrationIdentity|GraphEdge)"/>
         <Bug pattern="UNSAFE_HASH_EQUALS"/>
     </Match>
+    <!-- These are public allocation and producer-cohort identities read from durable exchange records.
+         Capability tokens and digests at authentication boundaries are checked separately. -->
+    <Match>
+        <Class name="org.pangrova.generation.codec.execution.GenerationExchangeEvidenceCodec"/>
+        <Method name="requireRegistration" params="org.pangrova.generation.api.exchange.GenerationExchangeFinalization,org.pangrova.generation.api.exchange.GenerationExchangeRegistration,java.lang.String" returns="void"/>
+        <Bug pattern="UNSAFE_HASH_EQUALS"/>
+    </Match>
     <!-- Calcite borrows a read-only lazy view. Its entry and name sets are unmodifiable. -->
     <Match>
         <Class name="org.pangrova.planner.metadata.catalog.LazyMetadataSchema"/>
@@ -1742,6 +1749,19 @@
          in the owning DTOs. Only the observed class/method/signature/field/type/bug
          tuples are classified; mutable payloads and all other findings stay checked.
          Contract: https://protobuf.dev/reference/java/java-generated/ -->
+    <!-- The read binding retains a built publication. The separate producer digest is copied. -->
+    <Match>
+        <Class name="org.pangrova.shuffle.pangrova.client.PangrovaPartitionRead"/>
+        <Method name="publication" params="" returns="org.pangrova.protocol.v2.ShufflePartitionPublication"/>
+        <Field name="publication" type="org.pangrova.protocol.v2.ShufflePartitionPublication"/>
+        <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+    <Match>
+        <Class name="org.pangrova.shuffle.pangrova.client.PangrovaPartitionRead"/>
+        <Method name="&lt;init&gt;" params="java.lang.String,org.pangrova.shuffle.api.identity.ExchangeChannelContext,long,int,byte[],org.pangrova.protocol.v2.ShufflePartitionPublication" returns="void"/>
+        <Field name="publication" type="org.pangrova.protocol.v2.ShufflePartitionPublication"/>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+    </Match>
     <!-- Shuffle write records carry built Protobuf values and an immutable ByteString.
          The separate checksum byte array stays checked for ownership exposure. -->
     <Match>
@@ -3032,6 +3052,13 @@
         <Method name="files"/>
         <Field name="files"/>
         <Bug pattern="EI_EXPOSE_REP"/>
+    </Match>
+    <!-- PostgreSQL LISTEN requires an identifier. The name consists only of a validated
+         lowercase identifier prefix and the numeric OID returned by PostgreSQL. -->
+    <Match>
+        <Class name="org.pangrova.persistence.streaming.postgresql.PostgresChangeSubscription"/>
+        <Method name="open" params="java.lang.String,java.lang.String,java.lang.String,java.lang.String,java.lang.String" returns="org.pangrova.persistence.streaming.postgresql.PostgresChangeSubscription"/>
+        <Bug pattern="SQL_INJECTION_JDBC"/>
     </Match>
 
     <!-- ResultBatch.Data is the zero-copy columnar IPC handoff: the ByteBuffer is the

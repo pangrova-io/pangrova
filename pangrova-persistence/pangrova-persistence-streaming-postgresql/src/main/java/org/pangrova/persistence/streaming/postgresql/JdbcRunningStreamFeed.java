@@ -77,9 +77,9 @@ public final class JdbcRunningStreamFeed implements AutoCloseable {
                 try {
                     follow(current);
                 } catch (SQLException failure) {
-                    if (active.get() == current && !Thread.currentThread().isInterrupted()) {
+                    if (active.get() == current && !Thread.currentThread().isInterrupted()
+                            && !leadershipChanged.tryAcquire(WAIT_MILLIS, TimeUnit.MILLISECONDS)) {
                         LOG.warn("event=cdc_stream_feed_disconnected", failure);
-                        leadershipChanged.tryAcquire(WAIT_MILLIS, TimeUnit.MILLISECONDS);
                     }
                 }
             }

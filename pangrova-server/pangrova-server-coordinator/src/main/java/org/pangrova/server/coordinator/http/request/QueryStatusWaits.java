@@ -79,7 +79,8 @@ public final class QueryStatusWaits {
             return true;
         };
         try {
-            response.register((CompletionCallback) error -> detach.test(error == null ? Outcome.CLOSED : Outcome.FAILED),
+            response.register(
+                    (CompletionCallback) error -> detach.test(error == null ? Outcome.CLOSED : Outcome.FAILED),
                     (ConnectionCallback) disconnected -> detach.test(Outcome.DISCONNECTED));
             response.setTimeoutHandler(expired -> {
                 if (detach.test(Outcome.TIMEOUT)) resume(expired, render, query.status());
@@ -159,18 +160,24 @@ public final class QueryStatusWaits {
     private enum Outcome { CHANGED, TIMEOUT, DISCONNECTED, DUPLICATE, LIMIT, CLOSED, FAILED, EXECUTOR_REJECTED }
 
     private record WaitMetrics(LongUpDownCounter active, LongCounter completions, DoubleHistogram duration) {
+        private static final double NANOS_PER_MILLISECOND = 1_000_000.0;
+        private static final List<Double> WAIT_DURATION_BUCKETS_MILLIS =
+                List.of(1.0, 10.0, 50.0, 100.0, 500.0, 1_000.0, 5_000.0, 30_000.0);
+
         WaitMetrics(MetricsProvider provider) {
-            this(provider.createUpDownCounter("pangrova.query.status_wait.active", "Suspended query status observers", "requests"),
-                    provider.createCounter("pangrova.query.status_wait.completed", "Query status wait outcomes", "requests"),
-                    provider.createHistogram("pangrova.query.status_wait.duration", "Time a query status observer held capacity",
-                            "ms", List.of(1.0, 10.0, 50.0, 100.0, 500.0, 1_000.0, 5_000.0, 30_000.0)));
+            this(provider.createUpDownCounter(
+                        "pangrova.query.status_wait.active", "Suspended query status observers", "requests"),
+                    provider.createCounter(
+                            "pangrova.query.status_wait.completed", "Query status wait outcomes", "requests"),
+                    provider.createHistogram("pangrova.query.status_wait.duration",
+                            "Time a query status observer held capacity", "ms", WAIT_DURATION_BUCKETS_MILLIS));
         }
 
         void completed(QueryWaitTarget target, Outcome outcome, long elapsedNanos) {
             var attributes = MetricAttributes.of("target", target.name(), "outcome", outcome.name());
             completions.add(1, attributes);
             if (outcome != Outcome.LIMIT && outcome != Outcome.DUPLICATE) {
-                duration.record(elapsedNanos / 1_000_000.0, attributes);
+                duration.record(elapsedNanos / NANOS_PER_MILLISECOND, attributes);
             }
         }
     }

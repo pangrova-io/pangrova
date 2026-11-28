@@ -56,7 +56,8 @@ public final class PostgresChangeSubscription implements AutoCloseable {
         }
     }
 
-    public Connection connection() {
+    /** Borrows the subscribed connection for the same-thread definition snapshot and refresh. */
+    Connection connection() {
         return connection;
     }
 
