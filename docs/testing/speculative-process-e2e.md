@@ -17,6 +17,10 @@ inventory contains `lib/` with ordinary dependencies and the platform Native bun
 plus `cli/` with exactly one `pangrova-client-cli-*-exec.jar`. `runtime.sha256` is
 stored beside those directories. It lists the CLI executable, flat dependency JARs,
 then each Coordinator and Worker list followed by the corresponding JARs in name order.
+For independent remote Shuffle validation, also include one
+`pangrova-shuffle-service-*-exec.jar` under `shuffle/` as the final manifest entry.
+The fixture starts that executable with its own PID, TLS configuration and
+PostgreSQL/MinIO connections.
 Each child JVM loads the order in its role's verified `classpath.list`. The manifest
 must match the frozen runtime files. All embedded Native copies must match the qualified
 Release library. Freeze the installed production dependencies before running so concurrent
@@ -31,14 +35,15 @@ the checkout root, stage those packaged roles and their attached CLI executable:
 runtime_dir=$(mktemp -d)
 release_library="$PWD/pangrova-worker-native/build/libpangrova_native.dylib"
 python3 deploy/docker/stage-role-classpaths.py . "$runtime_dir/lib"
-mkdir "$runtime_dir/cli"
+mkdir "$runtime_dir/cli" "$runtime_dir/shuffle"
 cp pangrova-client/pangrova-client-cli/target/pangrova-client-cli-*-exec.jar "$runtime_dir/cli/"
+cp pangrova-shuffle/pangrova-shuffle-service/target/pangrova-shuffle-service-*-exec.jar "$runtime_dir/shuffle/"
 (
   cd "$runtime_dir" || exit 1
   export LC_ALL=C
   shasum -a 256 cli/*.jar lib/*.jar \
     lib/coordinator/classpath.list lib/coordinator/*.jar \
-    lib/worker/classpath.list lib/worker/*.jar > runtime.sha256
+    lib/worker/classpath.list lib/worker/*.jar shuffle/*.jar > runtime.sha256
 )
 ```
 

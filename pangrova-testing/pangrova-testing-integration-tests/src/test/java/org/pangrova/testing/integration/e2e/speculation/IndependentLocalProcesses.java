@@ -206,7 +206,8 @@ final class IndependentLocalProcesses implements AutoCloseable {
     void startCoordinatorAndFirstWorker() throws Exception {
         if (ownsSecurity) security.start();
         if (shuffleMode == ShuffleMode.REMOTE) {
-            remoteShuffle = ProcessRemoteShuffle.start(workspace, security, tls, availablePort());
+            remoteShuffle = ProcessRemoteShuffle.start(workspace, security, tls, availablePort(),
+                    javaExecutable, artifacts);
         }
         reports.connect(URI.create("http://127.0.0.1:" + coordinatorPort));
         startQueryControlPlane();
