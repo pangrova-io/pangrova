@@ -56,8 +56,8 @@ public final class SqlProcessComparison {
                     if (!VALUE.matcher(result.output()).find() || !result.output().contains("1 row")) {
                         throw new AssertionError("Unexpected SQL result " + result.queryId() + ": " + result.output());
                     }
+                    var resources = resources(processes, result.queryId());
                     if (i >= 0) {
-                        var resources = resources(processes, result.queryId());
                         long drainDelay = System.nanoTime() - start - elapsed;
                         var database = DatabaseCounts.read(processes);
                         csv.printf(Locale.ROOT, "%d,%s,%d,%s,%d,%s,%s%n", i, index == 0 ? "constant" : "iceberg-sum",
