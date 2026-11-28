@@ -26,9 +26,13 @@ import org.pangrova.protocol.v2.TaskState;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.testing.testkit.E2ETest;
 import org.pangrova.testing.testkit.MinioContainer;
+import org.pangrova.worker.exception.JniCallException;
+import org.pangrova.worker.jni.NativeCapabilityLoader;
 import org.pangrova.worker.jni.NativeRuntime;
 import org.pangrova.worker.memory.NativeMemoryCoordinator;
 import org.pangrova.worker.resource.memory.MemoryArbitrator;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.core.sync.RequestBody;
@@ -41,15 +45,16 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 
 /** Reads an actual MinIO Parquet object through the pinned SDK in a fresh Native process. */
 @E2ETest
 @org.junit.jupiter.api.Tag("native-required")
 class NativeS3ReadEvidenceE2ETest extends ContainerTestBase {
+    private static final Logger LOG = LoggerFactory.getLogger(NativeS3ReadEvidenceE2ETest.class);
     private static final String BUCKET = "native-scan-evidence";
     private static final String OBJECT = "snapshot-1/scan.parquet";
     private static final String ACCESS_KEY = "test-native-s3";
@@ -85,6 +90,10 @@ class NativeS3ReadEvidenceE2ETest extends ContainerTestBase {
             var rejected = TaskReport.parseFrom(Files.readAllBytes(directory.resolve("rejected.report")));
             assertThat(rejected.getState()).isEqualTo(TaskState.TASK_STATE_FAILED);
             assertThat(rejected.getNativeObjectReads().getS3SdkAttempts()).isPositive();
+            LOG.info("event=native_s3_read_evidence measuredAttempts={} pinnedAttempts={} returnedBytes={} "
+                            + "responseBodyBytes={} rejectedAttempts={}",
+                    measured.getS3SdkAttempts(), pinned.getS3SdkAttempts(), pinned.getReturnedBytes(),
+                    pinned.getS3ResponseBodyBytes(), rejected.getNativeObjectReads().getS3SdkAttempts());
         }
     }
 
@@ -139,15 +148,29 @@ class NativeS3ReadEvidenceE2ETest extends ContainerTestBase {
             var directory = Path.of(args[0]);
             long bytes = Long.parseLong(args[2]);
             var configuration = RuntimeInitConfig.newBuilder().setMaxMemoryBytes(MEMORY).setIoThreadCount(2).build();
-            NativeRuntime.initNativeRuntime(configuration.toByteArray(),
-                    new NativeMemoryCoordinator(MEMORY, new MemoryArbitrator(MEMORY, 0)));
             try {
+                startRuntime(configuration);
+                assertThatThrownBy(NativeRuntime::finalizeNativeProcess)
+                        .isInstanceOf(JniCallException.class).hasMessageContaining("must shut down");
                 scan(directory.resolve("unqualified.report"), bytes, 0, args[1], ACCESS_KEY);
+                NativeRuntime.shutdownNativeRuntime();
+
+                startRuntime(configuration);
                 scan(directory.resolve("pinned.report"), bytes, bytes, args[1], ACCESS_KEY);
                 scan(directory.resolve("rejected.report"), bytes, bytes, args[1], "denied-native-fixture");
             } finally {
                 NativeRuntime.shutdownNativeRuntime();
+                NativeRuntime.finalizeNativeProcess();
             }
+            NativeRuntime.finalizeNativeProcess();
+            assertThatThrownBy(() -> startRuntime(configuration))
+                    .isInstanceOf(IllegalStateException.class).hasMessageContaining("have been finalized");
+        }
+
+        private static void startRuntime(RuntimeInitConfig configuration) {
+            NativeRuntime.initNativeRuntime(configuration.toByteArray(),
+                    new NativeMemoryCoordinator(MEMORY, new MemoryArbitrator(MEMORY, 0)));
+            NativeCapabilityLoader.finalizeStartup();
         }
 
         private static void scan(Path receipt, long bytes, long pinnedBytes, String endpoint, String accessKey)
@@ -180,18 +203,17 @@ class NativeS3ReadEvidenceE2ETest extends ContainerTestBase {
                                             .setDataFileSizeBytes(pinnedBytes))));
             request.getResourceGrantBuilder().setObjectStoreReadBytes(16 * bytes);
             long handle = NativeRuntime.nativeCreateTaskExecutor(request.build().toByteArray());
+            byte[] report;
             try {
                 NativeRuntime.nativeStartTask(handle);
-                var terminal = new AtomicReference<TaskReport>();
                 await().atMost(Duration.ofSeconds(20)).untilAsserted(() -> {
-                    var report = TaskReport.parseFrom(NativeRuntime.nativeGetTaskStatus(handle));
-                    assertThat(report.getState()).isIn(TaskState.TASK_STATE_FAILED, TaskState.TASK_STATE_FINISHED);
-                    terminal.set(report);
+                    var terminal = TaskReport.parseFrom(NativeRuntime.nativeGetTaskStatus(handle));
+                    assertThat(terminal.getState()).isIn(TaskState.TASK_STATE_FAILED, TaskState.TASK_STATE_FINISHED);
                 });
-                Files.write(receipt, terminal.get().toByteArray());
             } finally {
-                NativeRuntime.nativeReleaseExecutor(handle);
+                report = NativeRuntime.nativeReleaseExecutor(handle);
             }
+            Files.write(receipt, report);
         }
     }
 }

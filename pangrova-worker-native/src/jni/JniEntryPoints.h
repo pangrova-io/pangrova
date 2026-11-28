@@ -98,6 +98,10 @@ JNIEXPORT void JNICALL
 Java_org_pangrova_worker_jni_NativeRuntime_nativeShutdownInternal(
     JNIEnv* env, jclass clazz);
 
+JNIEXPORT void JNICALL
+Java_org_pangrova_worker_jni_NativeRuntime_nativeFinalizeProcess(
+    JNIEnv* env, jclass clazz);
+
 // P1-7: Triggers native pool reclaim (operator MemoryReclaimer spill).
 // Called from Java NativeSpillController.requestSpill when the Java-side
 // arbitrator denies an allocation.

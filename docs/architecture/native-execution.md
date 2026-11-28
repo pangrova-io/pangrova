@@ -636,6 +636,9 @@ Worker shutdown retains registration and periodic heartbeats until tasks have
 released their Native owners and terminal receipts have been acknowledged.
 It then joins heartbeat callbacks, requires a typed deregistration ACK and
 releases registration and dependent runtime resources; interruption is not an ACK.
+The Worker and standalone entry points finalize the process-owned Velox S3
+filesystem after the runtime shuts down. Cached clients close before their AWS
+SDK, and ordinary embedded runtime shutdown still supports reinitialization.
 Physical resource release must not wait for history-retention eviction. The
 Worker performs a bounded, incremental registry walk to probe actual consumed
 result ownership, retaining failed releases for retry; it does not add a timer

@@ -87,6 +87,7 @@ class NativeEngineLifecycle {
                   JNIEnv* env, jobject allocationListener, ExecutorDrain drain);
   void initialize(const NativeRuntimeConfig& config, ExecutorDrain drain);
   void shutdown(ExecutorDrain drain);
+  void finalizeProcess();
   bool isInitialized() const;
 
   pangrova::velox::VeloxMemoryGovernor* veloxMemoryGovernor();
@@ -114,6 +115,7 @@ class NativeEngineLifecycle {
 
   mutable std::mutex mutex_;
   std::atomic<bool> initialized_{false};
+  bool process_finalized_{false};
 
   std::unique_ptr<pangrova::velox::VeloxMemoryGovernor> velox_memory_governor_;
   std::unique_ptr<pangrova::memory::BlockAllocationListener> block_listener_;

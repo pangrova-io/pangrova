@@ -18,6 +18,7 @@ import org.pangrova.worker.bootstrap.phase.WorkerHttpBootstrap;
 import org.pangrova.worker.bootstrap.phase.WorkerTelemetryInitializer;
 import org.pangrova.worker.bootstrap.phase.WorkerResourceBootstrap;
 import org.pangrova.worker.bootstrap.phase.WorkerTaskBootstrap;
+import org.pangrova.worker.jni.NativeRuntime;
 import org.pangrova.worker.task.TaskManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -135,6 +136,12 @@ public final class WorkerBootstrap {
         } finally {
             completeCleanup(success);
         }
+    }
+
+    /** Drains this Worker and finalizes Native resources at process exit. */
+    public void shutdownForProcessExit() {
+        shutdown();
+        NativeRuntime.finalizeNativeProcess();
     }
 
     private void completeCleanup(boolean success) {

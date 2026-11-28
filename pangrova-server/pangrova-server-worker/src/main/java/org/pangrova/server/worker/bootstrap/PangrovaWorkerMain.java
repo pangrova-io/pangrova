@@ -38,7 +38,7 @@ public final class PangrovaWorkerMain {
             WorkerBootstrap bootstrap = new WorkerBootstrap(config, new LoggingAuditEventWriter());
             bootstrap.installProductionCatalogRuntime();
             CdcWorkerRuntimeBootstrap.install(pangrovaConfig, bootstrap);
-            Runtime.getRuntime().addShutdownHook(new Thread(bootstrap::shutdown, "worker-shutdown"));
+            Runtime.getRuntime().addShutdownHook(new Thread(bootstrap::shutdownForProcessExit, "worker-shutdown"));
             bootstrap.start();
             LOG.info("event=worker_process_started workerId={}", config.workerId());
             try {

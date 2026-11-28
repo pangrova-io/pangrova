@@ -466,6 +466,14 @@ Java_org_pangrova_worker_jni_NativeRuntime_nativeShutdownInternal(
   } JNI_CATCH_AND_THROW(env)
 }
 
+JNIEXPORT void JNICALL
+Java_org_pangrova_worker_jni_NativeRuntime_nativeFinalizeProcess(
+    JNIEnv* env, jclass) {
+  try {
+    pangrova::jni::NativeEngineLifecycle::instance().finalizeProcess();
+  } JNI_CATCH_AND_THROW(env)
+}
+
 // P1-7: Triggers native memory pool reclaim from Java when the Java-side
 // arbitrator denies an allocation. Calls shrinkCapacity with allowSpill=true
 // to trigger operator MemoryReclaimer spill across managed pools.
