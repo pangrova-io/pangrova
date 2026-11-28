@@ -321,8 +321,8 @@ void TaskExecutor::recordExecutionError(
   lifecycle_.recordExecutionError(error);
 }
 
-void TaskExecutor::recordResultStreamFinished() {
-  if (!config_.is_result_task || !lifecycle_.finishResultStream()) {
+void TaskExecutor::recordResultStreamFinished(const protocol::v2::NativeResultDeliveryStats& delivery) {
+  if (!config_.is_result_task || !lifecycle_.finishResultStream(delivery)) {
     throw std::logic_error("Cannot finish delivery for an inactive result task");
   }
 }

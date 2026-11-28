@@ -32,6 +32,7 @@ class TaskLifecycle {
     ExecutorState state;
     std::optional<protocol::v2::ExecutionError> error;
     std::string native_stack_trace;
+    std::optional<protocol::v2::NativeResultDeliveryStats> result_delivery;
   };
   TaskLifecycle() = default;
 
@@ -69,7 +70,7 @@ class TaskLifecycle {
   void notifyTaskComplete();
 
   // Publish successful delivery only from the authorized Flight close.
-  bool finishResultStream();
+  bool finishResultStream(protocol::v2::NativeResultDeliveryStats delivery);
 
   // Convenience: set error + transition to FAILED.
   // Captures C++ stack trace at the call site for propagation to Java.
@@ -85,6 +86,7 @@ class TaskLifecycle {
   mutable std::condition_variable terminal_signal_;
   std::optional<protocol::v2::ExecutionError> error_;
   std::string native_stack_trace_;
+  std::optional<protocol::v2::NativeResultDeliveryStats> result_delivery_;
 };
 
 }  // namespace pangrova::executor

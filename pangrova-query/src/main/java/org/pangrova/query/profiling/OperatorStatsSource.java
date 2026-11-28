@@ -69,7 +69,8 @@ public interface OperatorStatsSource {
             long cpuTimeMs,
             long backpressureWaitMs,
             List<Metric> operators,
-            ObjectReads nativeObjectReads) {
+            ObjectReads nativeObjectReads,
+            ResultDelivery nativeResultDelivery) {
         public Attempt {
             operators = List.copyOf(operators);
         }
@@ -79,6 +80,10 @@ public interface OperatorStatsSource {
     record ObjectReads(long requestedBytes, long returnedBytes, long payloadCalls,
             long metadataCalls, long failedCalls, long s3SdkAttempts, long s3SdkRetries,
             long s3ResponseBodyBytes) {}
+
+    /** Monotonic offsets from opening the exact Native Flight reader. */
+    record ResultDelivery(long payloadBatches, Long firstPayloadNanos,
+            long producerEofNanos, long transportCompleteNanos) {}
 
     /** One operator in the named attempt. Wait counters accumulate across its Velox drivers. */
     record Metric(

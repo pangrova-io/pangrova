@@ -17,6 +17,9 @@ import org.pangrova.protocol.v2.ExecutionCallbackContext;
 import org.pangrova.protocol.v2.SecurityContext;
 import org.pangrova.protocol.v2.ShufflePartitionPublication;
 import org.pangrova.protocol.v2.TaskAttemptId;
+import org.pangrova.protocol.v2.TaskReport;
+import org.pangrova.protocol.v2.TaskReportOrigin;
+import org.pangrova.protocol.v2.TaskState;
 
 /** Canonical v2 task construction and Worker-admission validation. */
 public final class CanonicalTaskRequests {
@@ -47,6 +50,21 @@ public final class CanonicalTaskRequests {
                 && metadataFailures <= reads.getMetadataCalls()
                 && reads.getS3SdkRetries() <= reads.getS3SdkAttempts()
                 && (reads.getS3ResponseBodyBytes() == 0 || reads.getS3SdkAttempts() > 0);
+    }
+
+    /** Accepts Flight observations from the exact successfully delivered Native OUTPUT report. */
+    public static boolean nativeResultDeliveryMatchesOutput(TaskRequest request, TaskReport status) {
+        if (!status.hasNativeResultDelivery()) return true;
+        var delivery = status.getNativeResultDelivery();
+        return request != null && request.getExecutionOptions().getDirectResultOutput()
+                && status.getState() == TaskState.TASK_STATE_FINISHED
+                && status.getReportOrigin() == TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE
+                && delivery.getUnknownFields().asMap().isEmpty()
+                && delivery.getPayloadBatches() >= 0
+                && delivery.hasFirstPayloadNanos() == (delivery.getPayloadBatches() > 0)
+                && delivery.getFirstPayloadNanos() >= 0
+                && delivery.getFirstPayloadNanos() <= delivery.getProducerEofNanos()
+                && delivery.getProducerEofNanos() <= delivery.getTransportCompleteNanos();
     }
 
     /** Validates canonical usage against its exact grant in Java's representable accounting domain. */

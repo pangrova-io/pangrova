@@ -7,6 +7,7 @@ import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.observability.api.metrics.MetricsProvider;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.protocol.v2.NativeObjectReadStats;
+import org.pangrova.protocol.v2.NativeResultDeliveryStats;
 import org.pangrova.protocol.v2.NativeTaskStats;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.protocol.v2.TaskReport;
@@ -48,12 +49,14 @@ public final class QueryOperatorStatsRegistry implements OperatorStatsSource {
         NativeTaskStats stats = canonical != null && canonical.hasNativeTaskStats()
                 ? canonical.getNativeTaskStats() : report.supplementalStats();
         var reads = canonical != null && canonical.hasNativeObjectReads() ? canonical.getNativeObjectReads() : null;
-        if (reads == null && (stats == null || stats.getOperatorStatsCount() == 0)) return;
+        var delivery = canonical != null && canonical.hasNativeResultDelivery()
+                ? canonical.getNativeResultDelivery() : null;
+        if (reads == null && delivery == null && (stats == null || stats.getOperatorStatsCount() == 0)) return;
         var sampleStats = stats == null ? NativeTaskStats.getDefaultInstance() : stats;
         var attempts = byQuery.get(attempt.getQueryOrJobId(), ignored -> new QueryTelemetry()).attempts;
         long sequence = report.reportSequence();
         attempts.compute(attempt, (ignored, previous) -> previous == null || sequence > previous.sequence()
-                ? new Sample(report.workerId(), report.state(), sequence, sampleStats, reads) : previous);
+                ? new Sample(report.workerId(), report.state(), sequence, sampleStats, reads, delivery) : previous);
     }
 
     @Override
@@ -87,7 +90,7 @@ public final class QueryOperatorStatsRegistry implements OperatorStatsSource {
     }
 
     private record Sample(String workerId, String state, long sequence, NativeTaskStats stats,
-            NativeObjectReadStats reads) {
+            NativeObjectReadStats reads, NativeResultDeliveryStats delivery) {
         Attempt toAttempt(TaskAttemptId attempt) {
             var operators = stats.getOperatorStatsList().stream()
                     .map(op -> new Metric(op.getOperatorType(), op.getPlanNodeId(), op.getInputRows(),
@@ -99,7 +102,13 @@ public final class QueryOperatorStatsRegistry implements OperatorStatsSource {
             return new Attempt(attempt.getStageId(), attempt.getPartitionId(), attempt.getPlanEpoch(),
                     attempt.getAttemptId(), attempt.getTaskId(), workerId, state, sequence,
                     stats.getElapsedTimeMs(), stats.getCpuTimeMs(), stats.getBackpressureWaitMs(),
-                    operators, objectReads());
+                    operators, objectReads(), resultDelivery());
+        }
+
+        private ResultDelivery resultDelivery() {
+            return delivery == null ? null : new ResultDelivery(delivery.getPayloadBatches(),
+                    delivery.hasFirstPayloadNanos() ? delivery.getFirstPayloadNanos() : null,
+                    delivery.getProducerEofNanos(), delivery.getTransportCompleteNanos());
         }
 
         private ObjectReads objectReads() {

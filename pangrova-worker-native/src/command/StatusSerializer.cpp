@@ -72,6 +72,9 @@ std::vector<uint8_t> serializeTaskStatus(
   }
   status.mutable_usage()->set_columnar_conversion_copied_bytes(
       executor.metricsCollector().snapshot().columnar_conversion_copied_bytes);
+  if (lifecycle.result_delivery) {
+    *status.mutable_native_result_delivery() = *lifecycle.result_delivery;
+  }
   auto* coverage = status.mutable_coverage();
   const auto state = lifecycle.state;
   const uint64_t expected = std::max<uint64_t>(1, executor.splits().size());

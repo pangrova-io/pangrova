@@ -328,6 +328,15 @@ message NativeObjectReadStats {
   uint64 s3_response_body_bytes = 8;
 }
 
+// Worker monotonic offsets from opening the exact Flight reader. A first
+// payload is absent for an empty result. Close succeeds after transport writes.
+message NativeResultDeliveryStats {
+  uint64 payload_batches = 1;
+  optional uint64 first_payload_nanos = 2;
+  uint64 producer_eof_nanos = 3;
+  uint64 transport_complete_nanos = 4;
+}
+
 message TaskReport {
   TaskAttemptId attempt = 1;
   TaskState state = 2;
@@ -346,6 +355,8 @@ message TaskReport {
   // Present when the attempt established the Native read owner, even if no
   // Velox task started. Requested bytes cover Native reservations only.
   NativeObjectReadStats native_object_reads = 13;
+  // A successful Native OUTPUT reader reports this once at committed Flight close.
+  NativeResultDeliveryStats native_result_delivery = 14;
 }
 
 message ExecutionEnvelope {

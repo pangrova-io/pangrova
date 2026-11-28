@@ -67,6 +67,14 @@ counter measures HTTP response bodies received by the SDK, including failed
 attempts, and excludes headers and transport framing. These observations
 are independent of the adapter's admitted byte grant.
 
+A successfully delivered Native `OUTPUT` attempt reports `nativeResultDelivery`.
+It includes `payloadBatches`, `firstPayloadNanos`, `producerEofNanos`, and
+`transportCompleteNanos`. The three times are measured from opening the
+Worker Flight reader. An empty result has no first-payload time. Transport
+completion is recorded when the server commits the stream after writing EOF.
+Client receive time and physical query release use their own observations.
+
+
 Each operator reports `blockedNanos` and the selected reasons
 `waitForProducerNanos`, `waitForConsumerNanos`, `waitForSplitNanos`, and
 `waitForConnectorNanos`. Velox accumulates these intervals across that

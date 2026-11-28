@@ -93,7 +93,8 @@ public final class CanonicalExecutionDrainReports {
         validateOrigin(status);
         validateErrorAndStatistics(status);
         if (status.hasCoverage() || status.hasUsage() || status.hasApproximation() || status.hasArtifactWork()
-                || status.hasNativeTaskStats() || status.hasNativeObjectReads() || status.hasOutputManifestChecksum()
+                || status.hasNativeTaskStats() || status.hasNativeObjectReads() || status.hasNativeResultDelivery()
+                || status.hasOutputManifestChecksum()
                 || !status.getWinningAttemptId().isEmpty()
                 || status.getError().getFailedPartitionIdsCount() != 0) {
             throw invalid("Compact execution drain receipt cannot claim execution/output payload");

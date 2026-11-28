@@ -841,6 +841,21 @@ class PhysicalTwoWorkerShuffleE2ETest extends SqlE2ETestBase {
             table.updateProperties().set(TableProperties.SPLIT_SIZE, "49152").commit();
             var ranged = executeWithDrainedReports(sql);
             assertThat(ranged.sourceSplits(source)).isGreaterThan(1);
+            assertThat(ranged.reports()).filteredOn(TaskReport::hasNativeResultDelivery)
+                    .singleElement().satisfies(report -> {
+                        var delivery = report.getNativeResultDelivery();
+                        assertThat(delivery.getPayloadBatches()).isPositive();
+                        assertThat(delivery.hasFirstPayloadNanos()).isTrue();
+                        assertThat(delivery.getFirstPayloadNanos()).isBetween(0L, delivery.getProducerEofNanos());
+                        assertThat(delivery.getTransportCompleteNanos()).isGreaterThanOrEqualTo(
+                                delivery.getProducerEofNanos());
+                        assertThat(ranged.attempts()).filteredOn(attempt ->
+                                attempt.taskId().equals(report.getAttempt().getTaskId()))
+                                .singleElement().satisfies(attempt -> assertThat(attempt.nativeResultDelivery())
+                                        .isEqualTo(new org.pangrova.query.profiling.OperatorStatsSource.ResultDelivery(
+                                                delivery.getPayloadBatches(), delivery.getFirstPayloadNanos(),
+                                                delivery.getProducerEofNanos(), delivery.getTransportCompleteNanos())));
+                    });
             var scanReports = ranged.sourceReports(source);
             assertThat(scanReports).extracting(report -> report.getAttempt().getWorkerExecutionIdentity())
                     .contains(workerManager.getWorker(WORKER_ID).workerExecutionIdentity().toProto(),

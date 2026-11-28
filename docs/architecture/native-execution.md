@@ -473,7 +473,10 @@ Worker-to-Worker data path or prove distributed recovery.
 `NativeMetricsCollector` and the canonical terminal task report expose
 execution statistics. A successful task with missing or malformed required
 terminal statistics must fail validation; metrics are not inferred from a
-Java-side batch pull loop.
+Java-side batch pull loop. The successful Flight close also attaches the exact Native
+result reader's first payload, observed producer EOF, and completed transport
+offsets to its terminal report. The offsets use one Worker monotonic clock.
+Empty streams record EOF and transport completion with a zero payload count.
 
 ## 19. Function Lifecycle
 

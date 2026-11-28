@@ -800,8 +800,9 @@ void VeloxTaskRunner::start(const std::vector<split::SplitConfig>& splits) {
       // Direct runner tests have no executor registry owner. Canonical Task
       // execution always binds a positive handle before the runner is built.
       if (config_.executor_handle > 0) {
-        info.report_stream_finished = [handle = config_.executor_handle, reporter = config_.failure_reporter] {
-          reporter->reportResultStreamFinished(handle);
+        info.report_stream_finished = [handle = config_.executor_handle, reporter = config_.failure_reporter](
+            const protocol::v2::NativeResultDeliveryStats& delivery) {
+          reporter->reportResultStreamFinished(handle, delivery);
         };
         const std::weak_ptr<facebook::velox::exec::Task> producer = velox_task_;
         info.report_stream_failure = [handle = config_.executor_handle, reporter = config_.failure_reporter,

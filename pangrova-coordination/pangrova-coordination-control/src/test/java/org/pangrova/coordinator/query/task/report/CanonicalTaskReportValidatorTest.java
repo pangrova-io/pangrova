@@ -98,6 +98,31 @@ class CanonicalTaskReportValidatorTest {
     }
 
     @Test
+    void nativeFlightObservationsRequireAnExactOutputAndMonotonicPhases() {
+        var compute = request("COMPUTE", List.of());
+        var canonical = compute.taskRequest().toBuilder();
+        canonical.getExecutionOptionsBuilder().setDirectResultOutput(true);
+        var output = SubmitTaskRequest.from(canonical.build());
+        var delivery = org.pangrova.protocol.v2.NativeResultDeliveryStats.newBuilder()
+                .setPayloadBatches(2).setFirstPayloadNanos(10).setProducerEofNanos(30)
+                .setTransportCompleteNanos(40);
+        var finished = TaskReport.newBuilder().setAttempt(nativeAttempt())
+                .setState(TaskState.TASK_STATE_FINISHED).setCoverage(completeCoverage())
+                .setReportOrigin(org.pangrova.protocol.v2.TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE)
+                .setNativeResultDelivery(delivery).build();
+
+        assertThat(validator.validate(report(output, finished), output)).contains(finished);
+        assertThatThrownBy(() -> validator.validate(report(compute, finished), compute))
+                .hasMessageContaining("Native Flight observations");
+        for (var malformed : List.of(delivery.clone().clearFirstPayloadNanos(),
+                delivery.clone().setTransportCompleteNanos(20), delivery.clone().setPayloadBatches(-1))) {
+            var invalid = finished.toBuilder().setNativeResultDelivery(malformed).build();
+            assertThatThrownBy(() -> validator.validate(report(output, invalid), output))
+                    .hasMessageContaining("Native Flight observations");
+        }
+    }
+
+    @Test
     void shufflePayloadObservationDoesNotConsumeAnExecutionGrant() {
         var issued = request("COMPUTE", List.of());
         assertThat(issued.taskRequest().getResourceGrant().getShuffleSendBytes()).isZero();
@@ -806,6 +831,7 @@ class CanonicalTaskReportValidatorTest {
     }
 
     private static String taskType(SubmitTaskRequest request) {
+        if (request.taskRequest().getExecutionOptions().getDirectResultOutput()) return "OUTPUT";
         return switch (request.taskRequest().getTaskKind()) {
             case TASK_KIND_BACKGROUND_BUILD -> "BACKGROUND_BUILD";
             case TASK_KIND_BACKGROUND_EXPORT -> "BACKGROUND_EXPORT";

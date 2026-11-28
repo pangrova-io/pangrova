@@ -67,6 +67,10 @@ public final class CanonicalTaskReportValidator {
         validateCoverage(status, expectedRequest);
         validateTaskUsage(status, expectedRequest);
         validateNativeObjectReads(status);
+        if (!CanonicalTaskRequests.nativeResultDeliveryMatchesOutput(
+                expectedRequest == null ? null : expectedRequest.taskRequest(), status)) {
+            throw invalid("Native Flight observations contradict the issued result attempt or delivery order");
+        }
         validateBuildKeys(status, expectedRequest);
         GenerationTaskReportValidator.validate(status, report, expectedRequest);
         PhysicalWriteTaskReportValidator.validate(status, report, expectedRequest);

@@ -1,5 +1,6 @@
 package org.pangrova.worker.task;
 
+import org.pangrova.protocol.task.CanonicalTaskRequests;
 import org.pangrova.protocol.rest.task.TaskReportEvidence;
 
 import org.pangrova.worker.enums.NativeTaskFailureCategory;
@@ -236,6 +237,7 @@ public final class TaskCompletionMonitor {
         }
         if (!parsed.getUnknownFields().asMap().isEmpty()
                 || !parsed.getAttempt().equals(request.getAttempt())
+                || !CanonicalTaskRequests.nativeResultDeliveryMatchesOutput(request, parsed)
                 || parsed.getReportOrigin()
                         != org.pangrova.protocol.v2.TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE
                 || (parsed.getState() == org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED
@@ -256,7 +258,7 @@ public final class TaskCompletionMonitor {
             org.pangrova.protocol.v2.TaskReport parsed) {
         if (parsed.getUnknownFields().asMap().isEmpty()
                 && parsed.getAttempt().equals(request.getAttempt())
-                && !parsed.hasNativeTaskStats()) {
+                && !parsed.hasNativeTaskStats() && !parsed.hasNativeResultDelivery()) {
             if (parsed.getState() == org.pangrova.protocol.v2.TaskState.TASK_STATE_FINISHED
                     && !parsed.hasError()
                     && parsed.getReportOrigin()
