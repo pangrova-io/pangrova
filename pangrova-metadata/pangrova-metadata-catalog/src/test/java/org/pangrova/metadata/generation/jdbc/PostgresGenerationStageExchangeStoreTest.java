@@ -142,7 +142,7 @@ class PostgresGenerationStageExchangeStoreTest {
     }
 
     @Test
-    void loadsEveryRegistrationAcrossSeveralCursorFetches() {
+    void restoresAllExchangesOnceButClaimsWithOnlyTheStageEvidence() throws Exception {
         var key = new GenerationJobKey(KEY.tenantId(), "many-exchanges");
         var stages = new ArrayList<GenerationStageGraph.StagePlan>();
         var edges = new ArrayList<GenerationStageGraph.Exchange>();
@@ -167,7 +167,8 @@ class PostgresGenerationStageExchangeStoreTest {
         var work = GenerationDispatchSpecFactory.create(key.jobId(), graph, key.tenantId(), spec.principal(),
                 spec.authorizationScope(), new GenerationDispatchSpec.ResourceGrant(4096, 1, 4096, 60_000));
         builds.createJob(job(key, pages.size()), work, pages);
-        var owner = GenerationExecutionOwner.from(owners.takeOwnership(key.tenantId(), key.jobId(), "process-a", 8));
+        var graphOwner = owners.takeOwnership(key.tenantId(), key.jobId(), "process-a", 8);
+        var owner = GenerationExecutionOwner.from(graphOwner);
         String graphSha = GenerationStageGraphCodec.sha256(graph);
         var expected = new ArrayList<GenerationExchangeRegistration>();
         for (var edge : graph.exchanges()) {
@@ -184,6 +185,28 @@ class PostgresGenerationStageExchangeStoreTest {
                 .containsExactlyElementsOf(expected);
         assertThat(loaded).allSatisfy(item -> assertThat(item.finalization()).isEmpty());
         assertThat(exchanges.load(KEY, owner())).isEmpty();
+
+        try (var connection = dataSource.getConnection(); var corrupt = connection.prepareStatement(
+                "UPDATE artifact_exchange_registrations SET registration_bytes = decode('ff', 'hex') "
+                        + "WHERE tenant_id = ? AND job_id = ? AND exchange_id = ?")) {
+            corrupt.setString(1, key.tenantId());
+            corrupt.setString(2, key.jobId());
+            corrupt.setString(3, "exchange-9-0");
+            assertThat(corrupt.executeUpdate()).isOne();
+        }
+        var stageStore = GenerationAuthorityFixtures.artifacts().stages(dataSource);
+        var first = new GenerationStageExecutionStore.PartitionClaim(
+                key, graphOwner, 1, 0, 0, 8, Duration.ofMinutes(1), NOW);
+        var ninth = new GenerationStageExecutionStore.PartitionClaim(
+                key, graphOwner, 9, 0, 8, 8, Duration.ofMinutes(1), NOW);
+        assertThat(stageStore.preparePartition(first, prepared -> prepared.exchanges()))
+                .hasValueSatisfying(evidence -> assertThat(evidence)
+                        .extracting(GenerationStageExchangeStore.ExchangeEvidence::registration)
+                        .containsExactly(expected.get(0)));
+        assertThatThrownBy(() -> stageStore.preparePartition(ninth, prepared -> prepared.lease()))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("checksum");
+        assertThatThrownBy(() -> stageStore.prepareExecution(key, graphOwner))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("checksum");
     }
 
     @Test

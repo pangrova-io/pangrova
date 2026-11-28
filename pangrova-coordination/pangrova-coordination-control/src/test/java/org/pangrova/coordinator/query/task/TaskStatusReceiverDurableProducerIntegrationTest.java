@@ -272,7 +272,7 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
             assertThat(page.winner()).isEmpty();
         });
         assertThat(statementReads(pageLookup) - beforePage).as("exact page reads").isEqualTo(3);
-        assertThat(exchangeReads().combined() - beforeExchange).as("barrier evidence reads").isEqualTo(3);
+        assertThat(exchangeReads().combined() - beforeExchange).as("barrier evidence reads").isZero();
         assertThat(executionRouteReads() - beforeAuthority).as("execution route reads").isEqualTo(3);
         assertThat(statementReads(publicationLock) - beforePublication)
                 .as("publication lock requests across three windows").isEqualTo(6);

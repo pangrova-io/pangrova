@@ -58,7 +58,6 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
             var context = PostgresCurrentGenerationAuthority.resolve(
                     transactionAuthority, executionFence, connection, key.tenantId(), key.jobId(),
                     GenerationExecutionOwner.from(anchor));
-            PostgresGenerationStageExchangeStore.lockValidatedBarriers(connection, context);
             var stage = context.dispatchSpec().stageGraph().requireStage(stageId);
             if (count > stage.parallelism() - firstPartition) {
                 throw new IllegalArgumentException("Inspected partitions differ from their immutable stage cohort");
@@ -95,8 +94,9 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
             var context = PostgresCurrentGenerationAuthority.resolve(
                     transactionAuthority, executionFence, connection, key.tenantId(), key.jobId(),
                     completion.executionOwner());
-            var evidence = PostgresGenerationStageExchangeStore.lockAndLoadValidatedEvidence(connection, context);
             var stage = context.dispatchSpec().stageGraph().requireStage(completion.stageId());
+            var evidence = PostgresGenerationStageExchangeStore.lockAndLoadStageEvidence(
+                    connection, context, stage.stageId());
             if (stage.pageKind() != GenerationPageKind.RELATIONAL_COMPUTE
                     || completion.partitionId() >= stage.parallelism()) {
                 throw new IllegalArgumentException(
@@ -141,9 +141,9 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
             var authority = PostgresCurrentGenerationAuthority.resolve(
                     transactionAuthority, executionFence, connection, key.tenantId(), key.jobId(),
                     GenerationExecutionOwner.from(first.anchor()));
-            var exchanges = PostgresGenerationStageExchangeStore.lockAndLoadValidatedEvidence(
-                    connection, authority);
             var stage = authority.dispatchSpec().stageGraph().requireStage(first.stageId());
+            var exchanges = PostgresGenerationStageExchangeStore.lockAndLoadStageEvidence(
+                    connection, authority, stage.stageId());
             if (cohort.get(cohort.size() - 1).partitionId() >= stage.parallelism()) {
                 throw new IllegalArgumentException("Requested partition differs from its immutable stage cohort");
             }
@@ -213,8 +213,8 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
             var authority = PostgresCurrentGenerationAuthority.resolve(
                     transactionAuthority, executionFence, connection, lease.tenantId(), lease.jobId(),
                     GenerationExecutionOwner.from(lease.executionAnchor()));
-            var exchanges = PostgresGenerationStageExchangeStore.lockAndLoadValidatedEvidence(
-                    connection, authority);
+            var exchanges = PostgresGenerationStageExchangeStore.lockAndLoadStageEvidence(
+                    connection, authority, lease.stageId());
             var job = findJob(connection, lease.tenantId(), lease.jobId(), true).orElseThrow();
             var page = PostgresGenerationPageSelection.findPage(connection, lease.tenantId(), lease.jobId(),
                     lease.pageId(), true).orElseThrow();

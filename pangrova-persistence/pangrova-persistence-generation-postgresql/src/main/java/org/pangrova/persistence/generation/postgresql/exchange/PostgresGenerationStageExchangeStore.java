@@ -34,7 +34,7 @@ public final class PostgresGenerationStageExchangeStore implements GenerationSta
     private static final String LOCKED_EXCHANGE_EVIDENCE = """
             WITH locked_edges AS MATERIALIZED (
                 SELECT tenant_id, job_id, exchange_id, producer_stage_id, consumer_stage_id, graph_sha256
-                FROM artifact_stage_exchanges WHERE tenant_id = ? AND job_id = ?
+                FROM artifact_stage_exchanges WHERE tenant_id = ? AND job_id = ? %s
                 ORDER BY exchange_id FOR SHARE
             ), locked_registrations AS MATERIALIZED (
                 SELECT r.exchange_id, r.registration_bytes, r.registration_sha256
@@ -56,6 +56,9 @@ public final class PostgresGenerationStageExchangeStore implements GenerationSta
             LEFT JOIN locked_finalizations f ON f.exchange_id = e.exchange_id
             ORDER BY e.exchange_id
             """;
+    private static final String LOCKED_GRAPH_EVIDENCE = LOCKED_EXCHANGE_EVIDENCE.formatted("");
+    private static final String LOCKED_STAGE_EVIDENCE = LOCKED_EXCHANGE_EVIDENCE.formatted(
+            "AND (producer_stage_id = ? OR consumer_stage_id = ?)");
     private final DataSource dataSource;
     private final GenerationTransactionAuthority transactionAuthority;
     private final GenerationExecutionTransactionFence executionFence;
@@ -127,7 +130,7 @@ public final class PostgresGenerationStageExchangeStore implements GenerationSta
         return transaction(connection -> {
             var context = PostgresCurrentGenerationAuthority.resolve(
                     transactionAuthority, executionFence, connection, job.tenantId(), job.jobId(), owner);
-            return readLockedEvidence(connection, context, false, true);
+            return readLockedEvidence(connection, context, null, false, true);
         });
     }
 
@@ -153,28 +156,39 @@ public final class PostgresGenerationStageExchangeStore implements GenerationSta
     /** Called before job/page locks. A successful metadata page alone can never open an exchange consumer. */
     public static void lockValidatedBarriers(Connection connection, PostgresCurrentGenerationAuthority context)
             throws SQLException {
-        readLockedEvidence(connection, context, true, false);
+        readLockedEvidence(connection, context, null, true, false);
     }
 
     /** Locks each barrier and returns the same validated registration and finalization bytes. */
     public static List<ExchangeEvidence> lockAndLoadValidatedEvidence(Connection connection,
             PostgresCurrentGenerationAuthority context) throws SQLException {
-        return readLockedEvidence(connection, context, true, true);
+        return readLockedEvidence(connection, context, null, true, true);
+    }
+
+    /** Locks and validates only the exchange edges incident to an exact stage claim. */
+    public static List<ExchangeEvidence> lockAndLoadStageEvidence(Connection connection,
+            PostgresCurrentGenerationAuthority context, int stage) throws SQLException {
+        return readLockedEvidence(connection, context, stage, true, true);
     }
 
     private static List<ExchangeEvidence> readLockedEvidence(Connection connection,
-            PostgresCurrentGenerationAuthority context, boolean verifyWinners, boolean retainEvidence)
+            PostgresCurrentGenerationAuthority context, Integer stage, boolean verifyWinners, boolean retainEvidence)
             throws SQLException {
         var spec = context.dispatchSpec();
         var job = new GenerationJobKey(spec.tenantId(), spec.jobId());
-        var expected = graphEdges(context);
+        var expected = graphEdges(context, stage);
         String graphSha256 = GenerationStageGraphCodec.sha256(spec.stageGraph());
         var evidence = new ArrayList<ExchangeEvidence>();
-        try (var statement = connection.prepareStatement(LOCKED_EXCHANGE_EVIDENCE)) {
+        try (var statement = connection.prepareStatement(
+                stage == null ? LOCKED_GRAPH_EVIDENCE : LOCKED_STAGE_EVIDENCE)) {
             // Each evidence column can carry 16 MiB. Keep the driver's raw fetch window bounded.
             statement.setFetchSize(4);
             statement.setString(1, job.tenantId());
             statement.setString(2, job.jobId());
+            if (stage != null) {
+                statement.setInt(3, stage);
+                statement.setInt(4, stage);
+            }
             try (var rows = statement.executeQuery()) {
                 int count = 0;
                 while (rows.next()) {
@@ -261,7 +275,7 @@ public final class PostgresGenerationStageExchangeStore implements GenerationSta
     private static String requireGraphEdges(Connection connection, PostgresCurrentGenerationAuthority context)
             throws SQLException {
         var spec = context.dispatchSpec();
-        var expected = graphEdges(context);
+        var expected = graphEdges(context, null);
         String graphSha256 = GenerationStageGraphCodec.sha256(spec.stageGraph());
         try (var statement = connection.prepareStatement("SELECT exchange_id,producer_stage_id,consumer_stage_id,"
                 + "graph_sha256 FROM artifact_stage_exchanges WHERE tenant_id=? AND job_id=? "
@@ -280,8 +294,9 @@ public final class PostgresGenerationStageExchangeStore implements GenerationSta
         return graphSha256;
     }
 
-    private static Map<String, Exchange> graphEdges(PostgresCurrentGenerationAuthority context) {
+    private static Map<String, Exchange> graphEdges(PostgresCurrentGenerationAuthority context, Integer stage) {
         return context.dispatchSpec().stageGraph().exchanges().stream()
+                .filter(edge -> stage == null || edge.upstreamStageId() == stage || edge.downstreamStageId() == stage)
                 .collect(Collectors.toMap(Exchange::exchangeId, value -> value));
     }
 

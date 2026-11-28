@@ -789,6 +789,12 @@ caller-owned transactions. Domain record construction alone is not persistence
 admission. Stored graph format 2, immutable bindings, owner/fence validation
 and canonical replay comparison remain unchanged.
 
+Durable graph startup validates the complete exchange index. Afterwards, partition
+progress reads only the exact page window under the current authority. Claims,
+issued-lease preparation, and producer completion read the immutable registrations
+and finalized receipts attached to the current stage. Each consumer still requires
+finalization evidence for every incoming edge.
+
 Generation values live in `pangrova-generation-api`; they do not own serialization. Canonical graph,
 exchange and source-split codecs live in `pangrova-generation-codec`. Submission construction,
 publication routing and generic immutable read binding live in `pangrova-generation-workflow` under
