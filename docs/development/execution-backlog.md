@@ -121,6 +121,25 @@ description: "Pangrova 查询与写入优化、Java 类型和包更名及单机�
   `pangrova_native pangrova_function_export` 链接成功，arm64 dylib SHA-256 为
   `15d51352c077e5d3b440a3b772377b86ba9e49a24dadc8365a35b257fb6146b3`。
   基线和候选的 Native 源码及 Protobuf 定义相同。见 `native-release-build.log`。
+- 基线 `2225d2d53` 和中间候选 `3eec8e2b9` 以同一 Native 库各完成 153 个 Maven reactor
+  构建。角色清单 SHA-256 依次为
+  `95094e928f2de8f4d2889a2a5114f728af0225ccd39c8b26cfd195c057ef90eb` 和
+  `56f8a88ab3b14c1be7cb5e1f7171c6d2620764e0e9b6f62fbd8e59e700809b5b`。
+  `qualified-handshake.log` 的打包 JNI 握手 1 项通过，实际二进制目录已在 `a1720b2a4` 更新。
+  `qualified-protocol-owner.log` 的协议测试 611 项、`qualified-coordination-selected.log`
+  的真实目录关联测试 27 项通过。注册表恢复定向测试另有 9 项通过。
+- 首个同源基线探测启动 Coordinator、Worker 和 CLI，DDL 已返回 NONE，基准误用
+  STREAM 断言后停止，0 条计量样本。`ebb434c45` 调整 DDL/DML 注册为命令语义后，
+  候选探测取得 2 条正确结果，各有 Native Flight 末批和实际 task drain，租户占用归零。
+  两次普通查询各观察到 0 条 journal SELECT、2 条 journal INSERT，分别涵盖新受理与派发。
+  Iceberg 扫描读取 1464 字节，3 次数据读取和 6 次元数据读取。这次探测与构建重叠，
+  不用于基线性能比较。后续 `b02777e80` 增加读取公开 DRAINED 状态的断言。
+- 首轮同源独立进程的本地 SQL 和 Flight 取消各通过 1 项。同轮双 Coordinator 重放返回
+  429，晚到过滤缺 Native ACK，远端 Shuffle 的两项无 hint 合并检查通过、两项选择性
+  Join 的生产者写流失败。见 `first-process-acceptance.log` 及其各测试日志。
+  `0f91bef5b` 修复租户满额时回放已持久化且仍保留的明确幂等键。
+  PostgreSQL journal 48 项、内存 journal 10 项、Coordinator 回放 11 项和 HTTP
+  指纹 3 项定向通过。候选重新构建后复测进程级用例。
 
 Java 定向测试使用下面的命令结构，日志保留各批传入的选择器和 Maven reactor。
 Paimon、Shuffle 与 journal 的复现命令如下。
