@@ -36,13 +36,12 @@ openness.
 
 ## CLI Demo
 
-https://github.com/user-attachments/assets/ac907ae0-1a61-4912-a43e-805277bd1cc2
+https://github.com/user-attachments/assets/99867717-1361-4bb7-8882-f8516ef26f0a
 
 Explore SQL, multimodal FILE data, scalar, full-text and vector indexes,
 relational analytics, and table maintenance in a local Standalone session.
-The video illustrates the workflow rather than release validation. See the
-[demo guide](docs/getting-started/clients/cli-demo.mdx) for the recording context,
-prerequisites, and replay instructions.
+See the [demo guide](docs/getting-started/clients/cli-demo.mdx) for prerequisites
+and replay instructions.
 
 ## Key Features
 

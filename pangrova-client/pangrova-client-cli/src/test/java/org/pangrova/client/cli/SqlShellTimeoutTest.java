@@ -88,6 +88,57 @@ class SqlShellTimeoutTest {
     }
 
     @Test
+    void startupShowsBrandAndProjectIntroduction() {
+        var output = new ByteArrayOutputStream();
+        var shell = new SqlShell(new TestQueryClient() {}, new BufferedReader(new StringReader("\\q\n")),
+                new PrintStream(output, true, StandardCharsets.UTF_8), Duration.ofSeconds(1));
+
+        shell.run();
+
+        String rendered = output.toString(StandardCharsets.UTF_8);
+        var banner = rendered.lines().limit(6).toList();
+        // A P has an open lower-right side; the former D closed at the bottom.
+        assertThat(banner).hasSize(6);
+        assertThat(banner.get(2)).startsWith("██████╔╝");
+        assertThat(banner.get(4)).startsWith("██║      ").endsWith("██║  ██║");
+        assertThat(banner.get(5)).startsWith("╚═╝      ").endsWith("╚═╝  ╚═╝");
+        assertThat(banner).allSatisfy(line -> assertThat(line.length()).isLessThan(80));
+        assertThat(rendered).contains(
+                "██████╗",
+                "Distributed SQL for open lakehouses",
+                "Open-source lakehouse analytics and AI retrieval.",
+                "Pangrova SQL Shell. Type \\q or exit to quit.",
+                "Bye!");
+    }
+
+    @Test
+    void narrowTerminalUsesCompactBrand() {
+        var output = new ByteArrayOutputStream();
+        var shell = new SqlShell(new TestQueryClient() {}, new BufferedReader(new StringReader("\\q\n")),
+                new PrintStream(output, true, StandardCharsets.UTF_8), Duration.ofSeconds(1),
+                null, null, new TerminalStyle(false, 60));
+
+        shell.run();
+
+        assertThat(output.toString(StandardCharsets.UTF_8))
+                .contains("PANGROVA CLI", "Distributed SQL for open lakehouses")
+                .doesNotContain("██████╗");
+    }
+
+    @Test
+    void colorTerminalEmitsAnsiPresentation() {
+        var output = new ByteArrayOutputStream();
+        var shell = new SqlShell(new TestQueryClient() {}, new BufferedReader(new StringReader("\\q\n")),
+                new PrintStream(output, true, StandardCharsets.UTF_8), Duration.ofSeconds(1),
+                null, null, new TerminalStyle(true, 100));
+
+        shell.run();
+
+        assertThat(output.toString(StandardCharsets.UTF_8))
+                .contains("\u001B[38;5;141m", "\u001B[2m", "\u001B[0m");
+    }
+
+    @Test
     void queryTimesOutAndSendsCancelRequest() {
         // Arrange: a mock client that never returns a terminal state
         AtomicBoolean cancelCalled = new AtomicBoolean(false);
