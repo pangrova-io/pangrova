@@ -55,7 +55,7 @@ public record GenerationStageGraph(int formatVersion, GenerationGraphPurpose pur
             Objects.requireNonNull(pageKind, "pageKind");
             sourceKeys = List.copyOf(sourceKeys);
             outputNames = List.copyOf(outputNames);
-            splittableHashInputs = splittableHashInputs.stream().sorted().toList();
+            splittableHashInputs = List.copyOf(splittableHashInputs.stream().sorted().toList());
             if (stageId < 0 || parallelism < 0
                     || (parallelism == 0 && pageKind != GenerationPageKind.SOURCE_MAP)) {
                 throw new IllegalArgumentException("Invalid durable stage coordinates");
