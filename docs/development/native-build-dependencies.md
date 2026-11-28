@@ -141,6 +141,8 @@ instrumented container code can produce false positives.
 The ASan job first runs the regular bootstrap with
 `PANGROVA_NATIVE_BUILD_PHASE=dependencies`. This fetches the pinned SDK sources and
 prepares dependencies without compiling Release Velox or Release Arrow Flight.
+The Linux bootstrap omits DuckDB by default because Pangrova's Release and
+sanitizer builds disable Velox's DuckDB-backed upstream test utilities.
 `setup-native-asan-env.sh` then rebuilds Abseil, protobuf, RE2, gRPC, Folly, Velox
 and Arrow Flight into separate ASan prefixes and build directories. Folly uses C++20 and its upstream
 `FOLLY_LIBRARY_SANITIZE_ADDRESS` option. The generated `asan-env.sh` records

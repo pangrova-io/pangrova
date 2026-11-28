@@ -730,7 +730,8 @@ prepare_velox_dependencies() {
         git apply "$boost_patch"
       fi
     fi
-    ./scripts/setup-ubuntu.sh
+    # Pangrova builds Velox without its DuckDB-backed upstream test utilities.
+    BUILD_DUCKDB="${BUILD_DUCKDB:-false}" ./scripts/setup-ubuntu.sh
     if [[ "$PANGROVA_PRODUCTION_BUILD" == "ON" ]]; then
       # Force-load every object of the selected archives into a shared
       # library before spending the Velox build on unusable dependencies.
@@ -857,6 +858,7 @@ build_velox() {
     -Dre2_DIR:PATH="$DEPS_PREFIX/lib/cmake/re2" \
     -DVELOX_BUILD_TESTING=OFF \
     -DVELOX_BUILD_TEST_UTILS=OFF \
+    -DVELOX_ENABLE_DUCKDB=OFF \
     -DVELOX_ENABLE_TESTING=OFF \
     -DVELOX_ENABLE_BENCHMARKS=OFF \
     -DVELOX_ENABLE_EXAMPLES=OFF \

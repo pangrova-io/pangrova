@@ -378,10 +378,10 @@ install_fbthrift() {
         aws = sdk / "deps-install/lib/cmake/AWSSDK/AWSSDKConfig.cmake"
         aws.parent.mkdir(parents=True)
         aws.touch()
-        self.executable(sdk / "scripts/setup-ubuntu.sh", 'printf "prepared\\n" >> "$TRACE"')
+        self.executable(sdk / "scripts/setup-ubuntu.sh", 'printf "prepared duckdb=%s\\n" "$BUILD_DUCKDB" >> "$TRACE"')
         self.executable(self.bin / "git", "exit 0")
         self.executable(self.bin / "bash", "exit 0")
-        self.executable(self.bin / "cmake", 'printf "compiled\\n" >> "$TRACE"; exit 73')
+        self.executable(self.bin / "cmake", 'printf "compiled\\n%s\\n" "$@" >> "$TRACE"; exit 73')
         source = BOOTSTRAP.read_text()
         function = "\n".join(
             name + "() {" + source.split(f"\n{name}() {{", 1)[1].split("\n}\n", 1)[0] + "\n}"
@@ -393,6 +393,7 @@ install_fbthrift() {
                    PANGROVA_PRODUCTION_BUILD="OFF", CMAKE_LAUNCHER_FLAGS="",
                    PANGROVA_CMAKE_BIN=str(self.bin / "cmake"), DEPS_PREFIX=str(self.root / "deps"),
                    PANGROVA_BOOTSTRAP_SCRIPT_DIR=str(BOOTSTRAP.parent))
+        env.pop("BUILD_DUCKDB", None)
         for phase, expected in (("dependencies", 0), ("velox", 73)):
             with self.subTest(phase=phase):
                 trace = self.root / f"{phase}-trace"
@@ -401,8 +402,10 @@ install_fbthrift() {
                 result = subprocess.run(["/bin/bash", "-c", command], text=True, capture_output=True,
                                         env=dict(env, PANGROVA_NATIVE_BUILD_PHASE=phase, TRACE=str(trace)))
                 self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
-                self.assertIn("prepared", trace.read_text())
-                self.assertEqual("compiled" in trace.read_text(), phase == "velox")
+                observed = trace.read_text()
+                self.assertIn("prepared duckdb=false", observed)
+                self.assertEqual("compiled" in observed, phase == "velox")
+                self.assertEqual("-DVELOX_ENABLE_DUCKDB=OFF" in observed, phase == "velox")
 
     def test_prepared_macos_velox_requires_prerequisites_and_does_not_rebuild_them(self):
         sdk = self.root / "velox"
