@@ -9,6 +9,7 @@ import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.shuffle.api.ShuffleCommitReceipt.ReadRange;
 import org.pangrova.shuffle.security.enums.CapabilityOperation;
+import org.pangrova.shuffle.server.ShuffleObjectStorage.ManifestWriteReceipt;
 
 import static org.pangrova.shuffle.server.ShuffleServiceModel.Allocation;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupCommand;
@@ -81,8 +82,8 @@ interface ShuffleLifecycleStore extends ShuffleCleanupStore, AutoCloseable {
 /** Durable cleanup claim, paging, lease-renewal, and completion boundary. */
 interface ShuffleCleanupStore {
 
-    /** Settles expired manifest PUTs whose unique object keys are visible before deletion. */
-    void settleVisibleManifestWrites(String shuffleId, List<String> keys);
+    /** Settles an expired manifest PUT using the exact reservation on the stored object. */
+    void settleVisibleManifestWrites(String shuffleId, List<ManifestWriteReceipt> receipts);
 
     /** Claims one durable prefix tombstone for a bounded compensation sweep. */
     Optional<String> claimUncertainSweep(String owner, long leaseMillis);
@@ -201,9 +202,10 @@ final class ShuffleCleanupCoordinator {
         var page = objects.listPrefixPage(shuffleId + "/", after, PAGE_SIZE);
         if (recoverWrites) {
             String nodePrefix = ShufflePartitionManifest.nodePrefix(shuffleId);
-            List<String> manifestKeys = page.keys().stream().filter(key -> key.startsWith(nodePrefix)).toList();
-            if (!manifestKeys.isEmpty()) {
-                store.settleVisibleManifestWrites(shuffleId, manifestKeys);
+            var receipts = page.keys().stream().filter(key -> key.startsWith(nodePrefix))
+                    .map(objects::manifestWriteReceipt).flatMap(Optional::stream).toList();
+            if (!receipts.isEmpty()) {
+                store.settleVisibleManifestWrites(shuffleId, receipts);
             }
         }
         objects.delete(page.keys());

@@ -149,7 +149,11 @@ protects the object prefix through the configured call deadline plus 60 seconds
 for drain. Cleanup closes new admission, waits for protected writes and records
 the prefix for compensation before deleting objects. Exact expired reservations
 survive allocation removal. A confirmed late PUT settles its reservation
-without restoring publication authority. The service retires the periodic
+without restoring publication authority. New manifest objects carry their
+write reservation UUID in S3 user metadata. The cleanup service reads that
+metadata before deleting a manifest and settles only the matching reservation
+for that object key. An older object without this metadata leaves the reservation
+pending until the writer acknowledges its own PUT. The service retires the periodic
 sweep after a complete sweep claimed with all reservations settled. Any PUT
 with an unknown outcome keeps the prefix scheduled for compensation. Writers
 for different stages of the same query share the scope lock. Each allocation

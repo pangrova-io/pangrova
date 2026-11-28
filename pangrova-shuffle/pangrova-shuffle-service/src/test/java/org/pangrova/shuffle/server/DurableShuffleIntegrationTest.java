@@ -1468,7 +1468,9 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
         String queryId = "uncertain-write-query";
         String shuffleId = "uncertain-write-shuffle";
         String objectKey = shuffleId + "/late.bin";
-        String manifestKey = ShufflePartitionManifest.objectKey(shuffleId, new byte[32]);
+        byte[] late = "late".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        byte[] manifestDigest = ShuffleChecksums.sha256(late);
+        String manifestKey = ShufflePartitionManifest.objectKey(shuffleId, manifestDigest);
         seedAnchor(queryId, owner());
         Harness first = openHarness();
         var registration = first.engine.register(RegisterShuffleRequest.newBuilder()
@@ -1486,9 +1488,11 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
                 .setExecutionOwner(owner()).setWorkerExecutionIdentity(org.pangrova.protocol.v2.WorkerExecutionIdentity.newBuilder()
                         .setAdmissionDomainId("00000000-0000-0000-0000-000000000001")
                         .setIncarnationId("00000000-0000-0000-0000-000000000002")).build();
+        UUID manifestReservation;
         try (PostgresShuffleStore store = PostgresShuffleStore.create(config().database())) {
             store.batchStore().openWriteWindow(shuffleId, producer, 300_000);
-            store.beginManifestWrite(store.findAllocation(shuffleId).orElseThrow(), manifestKey, 300_000);
+            manifestReservation = UUID.fromString(store.beginManifestWrite(
+                    store.findAllocation(shuffleId).orElseThrow(), manifestKey, 300_000));
             assertThatThrownBy(() -> first.engine.cleanup(CleanupRequest.newBuilder()
                     .setQueryId(queryId).setExecutionOwner(owner())
                     .setAccessCapability(registration.getCleanupCapability()).build()))
@@ -1509,10 +1513,10 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
         assertThat(restarted.engine.cleanup(cleanupRequest)).isEqualTo(receipt);
         assertThat(restarted.engine.sweepUncertainWritePrefixes(1)).isEqualTo(1);
         try (S3Client client = s3Client()) {
-            for (String key : List.of(objectKey, manifestKey)) {
-                client.putObject(PutObjectRequest.builder().bucket(BUCKET).key("integration/" + key).build(),
-                        RequestBody.fromBytes("late".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
-            }
+            client.putObject(PutObjectRequest.builder().bucket(BUCKET).key("integration/" + objectKey).build(),
+                    RequestBody.fromBytes(late));
+            S3ShuffleObjectStorage.testing(client, BUCKET, "integration")
+                    .putManifestNode(manifestKey, late, manifestDigest, manifestReservation);
             assertThat(client.listObjectsV2(ListObjectsV2Request.builder().bucket(BUCKET)
                     .prefix("integration/" + shuffleId + "/").build()).contents()).hasSize(2);
         }
@@ -1604,7 +1608,7 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
 
     @ParameterizedTest
     @ValueSource(booleans = {true, false})
-    void visibleManifestWriteSettlesWithoutTheWriterAcknowledgement(boolean beforeScopeRemoval) throws Exception {
+    void visibleManifestWriteSettlesOnlyItsOwnReservation(boolean beforeScopeRemoval) throws Exception {
         String queryId = "visible-manifest-" + UUID.randomUUID();
         String shuffleId = "shuffle-" + queryId;
         byte[] content = queryId.getBytes(java.nio.charset.StandardCharsets.UTF_8);
@@ -1618,24 +1622,34 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
                     .setQueryId(queryId).setShuffleId(shuffleId)
                     .setExpectedProducerSetChecksum(ShuffleChecksums.protocol(
                             ShuffleProducerSetChecksum.forContiguousPartitions(queryId, 1, 2, 1))).build());
-            store.beginManifestWrite(store.findAllocation(shuffleId).orElseThrow(), key, 300_000);
-            expireWriteReservations(shuffleId, 1);
+            var allocation = store.findAllocation(shuffleId).orElseThrow();
+            UUID first = UUID.fromString(store.beginManifestWrite(allocation, key, 300_000));
+            UUID second = UUID.fromString(store.beginManifestWrite(allocation, key, 300_000));
+            expireWriteReservations(shuffleId, 2);
             var objects = S3ShuffleObjectStorage.testing(client, BUCKET, "integration");
             if (beforeScopeRemoval) {
-                objects.putImmutable(key, () -> new java.io.ByteArrayInputStream(content), content.length, digest);
+                objects.putManifestNode(key, content, digest, first);
             }
             var receipt = engine.cleanup(CleanupRequest.newBuilder().setQueryId(queryId)
                     .setExecutionOwner(owner()).setAccessCapability(registered.getCleanupCapability()).build());
             assertThat(receipt.getUncertainWriteHandoff()).isTrue();
             if (!beforeScopeRemoval) {
-                assertThat(writeReservations(shuffleId)).isOne();
-                objects.putImmutable(key, () -> new java.io.ByteArrayInputStream(content), content.length, digest);
+                assertThat(writeReservations(shuffleId)).isEqualTo(2);
+                objects.putManifestNode(key, content, digest, first);
                 assertThat(engine.sweepUncertainWritePrefixes(1)).isOne();
-                makeUncertainSweepDue(shuffleId);
             }
+            assertThat(writeReservations(shuffleId)).isOne();
+            assertThat(objects.listPrefixPage(shuffleId + "/", null, 10).keys()).isEmpty();
+            assertThat(isUncertainSweepScheduled(shuffleId)).isTrue();
+
+            // A second PUT for the same content-addressed key can arrive after the first version was deleted.
+            objects.putManifestNode(key, content, digest, second);
+            makeUncertainSweepDue(shuffleId);
+            assertThat(engine.sweepUncertainWritePrefixes(1)).isOne();
             assertThat(writeReservations(shuffleId)).isZero();
             assertThat(objects.listPrefixPage(shuffleId + "/", null, 10).keys()).isEmpty();
             assertThat(isUncertainSweepScheduled(shuffleId)).isTrue();
+            makeUncertainSweepDue(shuffleId);
             assertThat(engine.sweepUncertainWritePrefixes(1)).isOne();
             assertThat(isUncertainSweepScheduled(shuffleId)).isFalse();
         } finally {
