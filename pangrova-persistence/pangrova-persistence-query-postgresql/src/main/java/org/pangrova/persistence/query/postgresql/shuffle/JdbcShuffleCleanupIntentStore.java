@@ -22,16 +22,21 @@ public final class JdbcShuffleCleanupIntentStore implements ShuffleCleanupIntent
     /** Persists cleanup responsibility before publishing a terminal query state. */
     @Override
     public void markPending(ExecutionAnchor grant) {
-        try (Connection connection = dataSource.getConnection()) {
-            connection.setAutoCommit(false);
-            try {
-                if (lockLiveAnchor(connection, grant) == 0) {
-                    recordIntent(connection, grant);
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement(
+                        "SELECT shuffle.seal_terminal_cleanup(?, ?, ?, ?)")) {
+            statement.setString(1, grant.executionId());
+            statement.setString(2, grant.ownerId());
+            statement.setString(3, grant.ownerIncarnation());
+            statement.setLong(4, grant.fencingToken());
+            try (ResultSet rows = statement.executeQuery()) {
+                if (!rows.next()) throw new SQLException("Shuffle terminal cleanup returned no outcome");
+                switch (rows.getInt(1)) {
+                    case 1 -> { }
+                    case 0 -> throw new SecurityException("shuffle cleanup intent scope owner mismatch");
+                    case -1 -> throw new SecurityException("shuffle terminal cleanup lost the execution anchor");
+                    default -> throw new SQLException("Unknown Shuffle terminal cleanup outcome");
                 }
-                connection.commit();
-            } catch (Exception failure) {
-                connection.rollback();
-                throw failure;
             }
         } catch (SQLException failure) {
             throw new IllegalStateException("shuffle cleanup intent persistence failed", failure);
@@ -124,39 +129,6 @@ public final class JdbcShuffleCleanupIntentStore implements ShuffleCleanupIntent
                     return -1;
                 }
                 return rows.getInt("recovery_drain_state");
-            }
-        }
-    }
-
-    private static void recordIntent(
-            Connection connection, ExecutionAnchor grant)
-            throws SQLException {
-        // Take this statement's snapshot after acquiring the anchor lock. Any
-        // registration that previously held the anchor must now be visible.
-        String sql = """
-                WITH locked_scope AS MATERIALIZED (
-                    SELECT owner_id = ? AND owner_incarnation = ? AND owner_fencing_token = ? AS owner_matches
-                    FROM shuffle.shuffle_query_scope WHERE query_id = ? FOR UPDATE
-                ), admission AS MATERIALIZED (
-                    SELECT COALESCE((SELECT owner_matches FROM locked_scope), true) AS allowed
-                ), recorded AS (
-                    INSERT INTO shuffle.shuffle_cleanup_intent (query_id, revocation_generation)
-                    SELECT ?, ? FROM admission WHERE allowed
-                    ON CONFLICT (query_id) DO NOTHING
-                )
-                SELECT allowed FROM admission
-                """;
-        try (PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setString(1, grant.ownerId());
-            statement.setString(2, grant.ownerIncarnation());
-            statement.setLong(3, grant.fencingToken());
-            statement.setString(4, grant.executionId());
-            statement.setString(5, grant.executionId());
-            statement.setLong(6, grant.fencingToken());
-            try (ResultSet rows = statement.executeQuery()) {
-                if (!rows.next() || !rows.getBoolean(1)) {
-                    throw new SecurityException("shuffle cleanup intent scope owner mismatch");
-                }
             }
         }
     }

@@ -204,6 +204,12 @@ reservation requires separate exit proof. The successor keeps the anchor
 and tenant slot in this case. A committed write row remains available while
 the SQL execution is active, even after deferred work acknowledges it.
 
+Before publishing a terminal state in remote Shuffle mode, the Coordinator
+seals cleanup with one database call. The function locks the exact live execution
+anchor and then reads the scope in a fresh PostgreSQL snapshot. A registration
+that finished while the seal waited is included in the owner check. An expired
+or superseded grant stops local terminal publication. [PostgreSQL function volatility](https://www.postgresql.org/docs/16/xfunc-volatility.html)
+
 Terminal Worker reports and query outcome inserts use the original execution grant in
 the same statement that records the event. Journal retirement also checks that
 grant. Local retirement seals journal admission and waits for its admitted

@@ -66,12 +66,12 @@ class JdbcShuffleCleanupIntentStoreIntegrationTest {
         seedAnchor(queryId);
         long before = cleanupStatements();
         store.markPending(grant(queryId));
-        assertThat(cleanupStatements() - before).isEqualTo(2);
+        assertThat(cleanupStatements() - before).isOne();
         assertThat(hasIntent(queryId)).isTrue();
     }
 
     @Test
-    void validatesRegisteredScopeAndRecordsOrReplaysIntentInTwoStatements() throws Exception {
+    void validatesRegisteredScopeAndRecordsOrReplaysIntentInOneStatement() throws Exception {
         String queryId = "registered-scope-" + UUID.randomUUID();
         seedAnchor(queryId);
         try (var connection = dataSource.getConnection()) {
@@ -79,10 +79,10 @@ class JdbcShuffleCleanupIntentStoreIntegrationTest {
         }
         long before = cleanupStatements();
         store.markPending(grant(queryId));
-        assertThat(cleanupStatements() - before).isEqualTo(2);
+        assertThat(cleanupStatements() - before).isOne();
         before = cleanupStatements();
         store.markPending(grant(queryId));
-        assertThat(cleanupStatements() - before).isEqualTo(2);
+        assertThat(cleanupStatements() - before).isOne();
         assertThat(hasIntent(queryId)).isTrue();
     }
 
@@ -151,7 +151,7 @@ class JdbcShuffleCleanupIntentStoreIntegrationTest {
         try (var connection = dataSource.getConnection();
                 var statement = connection.prepareStatement("""
                         SELECT EXISTS (SELECT 1 FROM pg_stat_activity
-                                       WHERE query LIKE '%public.execution_anchor%FOR UPDATE'
+                                       WHERE query LIKE 'SELECT shuffle.seal_terminal_cleanup(%'
                                          AND ? = ANY(pg_blocking_pids(pid)))
                         """)) {
             statement.setInt(1, blockerPid);
@@ -194,7 +194,8 @@ class JdbcShuffleCleanupIntentStoreIntegrationTest {
         seedAnchor(queryId);
         var stale = new ExecutionAnchor(queryId, OWNER.ownerId(), "predecessor", 6,
                 Instant.EPOCH, Instant.EPOCH.plusSeconds(1));
-        store.markPending(stale);
+        assertThatThrownBy(() -> store.markPending(stale)).isInstanceOf(SecurityException.class)
+                .hasMessageContaining("lost the execution anchor");
         assertThat(hasIntent(queryId)).isFalse();
 
         store.markPending(grant(queryId));
@@ -309,7 +310,7 @@ class JdbcShuffleCleanupIntentStoreIntegrationTest {
                 WHERE toplevel AND dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
                   AND query NOT LIKE '%pg_stat_statements%'
                   AND (query LIKE '%public.execution_anchor%' OR query LIKE '%shuffle.shuffle_query_scope%'
-                       OR query LIKE '%shuffle.shuffle_cleanup_intent%')
+                       OR query LIKE '%shuffle.shuffle_cleanup_intent%' OR query LIKE 'SELECT shuffle.seal_terminal_cleanup(%')
                 """;
         try (var connection = dataSource.getConnection(); var statement = connection.createStatement();
                 var row = statement.executeQuery(sql)) {
