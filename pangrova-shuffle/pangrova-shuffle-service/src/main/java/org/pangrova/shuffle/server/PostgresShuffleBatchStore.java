@@ -288,12 +288,23 @@ final class PostgresShuffleBatchStore implements ShuffleBatchStore {
             throws SQLException {
         String sql = "INSERT INTO shuffle_producer_commit "
                 + "(shuffle_id, producer_partition_id, producer_attempt_id, "
-                + "producer_fencing_token, task_id, control_epoch, canonical_attempt) VALUES (?, ?, ?, ?, ?, ?, ?) "
+                + "producer_fencing_token, task_id, control_epoch, canonical_attempt, partition_totals) "
+                + "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
                 + "ON CONFLICT (shuffle_id, producer_partition_id) DO UPDATE SET "
                 + "producer_attempt_id = EXCLUDED.producer_attempt_id, "
                 + "producer_fencing_token = EXCLUDED.producer_fencing_token, "
                 + "task_id = EXCLUDED.task_id, control_epoch = EXCLUDED.control_epoch, "
-                + "canonical_attempt = EXCLUDED.canonical_attempt, committed_at = CURRENT_TIMESTAMP";
+                + "canonical_attempt = EXCLUDED.canonical_attempt, partition_totals = EXCLUDED.partition_totals, "
+                + "committed_at = CURRENT_TIMESTAMP";
+        Long[] totals = new Long[Math.multiplyExact(command.partitions().size(), 4)];
+        int offset = 0;
+        for (PartitionExpectation partition : command.partitions()) {
+            totals[offset++] = (long) partition.partitionId();
+            totals[offset++] = partition.totalBatches();
+            totals[offset++] = partition.totalBytes();
+            totals[offset++] = partition.totalRows();
+        }
+        var encodedTotals = connection.createArrayOf("int8", totals);
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             TaskAttemptId attempt = command.attempt();
             statement.setString(1, command.shuffleId());
@@ -303,7 +314,10 @@ final class PostgresShuffleBatchStore implements ShuffleBatchStore {
             statement.setString(5, attempt.getTaskId());
             statement.setLong(6, attempt.getControlEpoch());
             statement.setBytes(7, attempt.toByteArray());
+            statement.setArray(8, encodedTotals);
             statement.executeUpdate();
+        } finally {
+            encodedTotals.free();
         }
     }
 

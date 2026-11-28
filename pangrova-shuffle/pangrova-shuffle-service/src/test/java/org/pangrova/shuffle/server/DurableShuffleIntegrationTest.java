@@ -335,10 +335,15 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
             assertThat(finalized.getPartitions(1).getCommittedLastSequence()).isEqualTo(-1);
             assertThat(finalized.getPartitions(lastPartition).getCommittedLastSequence()).isZero();
             publishedDigest = finalized.getPartitions(0).getOutputChecksum().getDigest().toByteArray();
-            assertThat(shuffleStatementDelta(beforePublish).entrySet())
+            var publishStatements = shuffleStatementDelta(beforePublish).entrySet();
+            assertThat(publishStatements)
                     .filteredOn(entry -> entry.getKey().contains(
                             "ORDER BY b.output_partition_id, b.producer_partition_id, b.batch_sequence"))
                     .singleElement().satisfies(entry -> assertThat(entry.getValue()).isEqualTo(1));
+            assertThat(publishStatements)
+                    .filteredOn(entry -> entry.getKey().contains("producer_partition_id, partition_totals"))
+                    .singleElement().satisfies(entry -> assertThat(entry.getValue()).isOne());
+            assertThat(publishStatements).noneMatch(entry -> entry.getKey().contains("GROUP BY b.output_partition_id"));
             var beforeReplay = shuffleStatements();
             assertThat(engine.finalizeShuffle(finalize)).isEqualTo(finalized);
             assertThat(shuffleStatementDelta(beforeReplay).keySet())
@@ -466,7 +471,13 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
         try (var store = PostgresShuffleStore.create(config().database())) {
             store.register(registerCommand(query, shuffle, 1, System.currentTimeMillis() + 60_000));
             var first = attempt(0, 1).toBuilder().setQueryOrJobId(query).build();
-            store.batchStore().commitAttempt(new ShuffleServiceModel.CommitCommand(shuffle, first, List.of()));
+            var batch = new BatchIdentity(shuffle, 0, 0, 0, 0);
+            var write = store.batchStore().openWriteWindow(shuffle, first, 60_000);
+            store.batchStore().publishWriteWindow(write, shuffle, first,
+                    List.of(new StoredBatch(batch, first, batch.objectKey(), 16, 2, new byte[32])));
+            var initialPartition = new ShuffleServiceModel.PartitionExpectation(0, 0, 16, 1, 2, new byte[32]);
+            store.batchStore().commitAttempt(new ShuffleServiceModel.CommitCommand(
+                    shuffle, first, List.of(initialPartition)));
             var selected = store.findAllocation(shuffle).orElseThrow();
             var newer = attempt(1, 2).toBuilder().setQueryOrJobId(query).build();
             store.batchStore().commitAttempt(new ShuffleServiceModel.CommitCommand(shuffle, newer, List.of()));
@@ -479,6 +490,8 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
             assertThatThrownBy(() -> store.finalizeShuffle(
                     new ShuffleServiceModel.FinalizeCommand(shuffle, fence, List.of())))
                     .isInstanceOf(IllegalStateException.class).hasMessageContaining("changed during finalization");
+            assertThat(store.batchStore().readAttemptPage(shuffle, first, 0, -1, 2)).hasSize(1);
+            publishEmptyManifest(store, shuffle);
         }
     }
 
@@ -1726,10 +1739,16 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
         store.register(registration);
         var producer = attempt(0, 1).toBuilder().setQueryOrJobId(query).build();
         store.batchStore().commitAttempt(new ShuffleServiceModel.CommitCommand(shuffle, producer, List.of()));
-        var fence = new ShuffleServiceModel.FinalizeFence(2, owner(), 1,
-                registration.shape().producerSetChecksum(), store.findAllocation(shuffle).orElseThrow().metadataVersion());
+        publishEmptyManifest(store, shuffle);
+    }
+
+    private static void publishEmptyManifest(PostgresShuffleStore store, String shuffle) {
+        var current = store.findAllocation(shuffle).orElseThrow();
+        var fence = new ShuffleServiceModel.FinalizeFence(current.identity().planEpoch(), current.owner(),
+                current.shape().expectedProducerCount(), current.shape().producerSetChecksum(),
+                current.metadataVersion());
         List<ShuffleServiceModel.PartitionPublication> partitions = new ArrayList<>();
-        for (int partition = 0; partition < registration.shape().partitionCount(); partition++) {
+        for (int partition = 0; partition < current.shape().partitionCount(); partition++) {
             var summary = new ShuffleServiceModel.FinalizedPartition(partition, 0, 0, -1,
                     ShufflePartitionManifestChecksum.accumulator().finish());
             partitions.add(new ShuffleServiceModel.PartitionPublication(summary, new byte[0]));

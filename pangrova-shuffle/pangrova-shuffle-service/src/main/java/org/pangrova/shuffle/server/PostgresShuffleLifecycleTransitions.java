@@ -67,7 +67,6 @@ final class PostgresShuffleLifecycleTransitions {
             }
             PostgresShuffleRecords.requireRegistered(allocation);
             PostgresShuffleStore.requireNoCleanupIntent(connection, queryId);
-            requireCompleteProducerSet(connection, allocation);
             requireFinalizedPartitions(connection, allocation, command.partitions());
             storeFinalization(connection, command);
             markFinalized(connection, allocation);
@@ -317,33 +316,13 @@ final class PostgresShuffleLifecycleTransitions {
         }
     }
 
-    private static void requireCompleteProducerSet(Connection connection, Allocation allocation)
-            throws SQLException {
-        try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT COUNT(*), MIN(producer_partition_id), MAX(producer_partition_id) "
-                        + "FROM shuffle_producer_commit WHERE shuffle_id = ?")) {
-            statement.setString(1, allocation.identity().shuffleId());
-            try (ResultSet rows = statement.executeQuery()) {
-                rows.next();
-                int expected = allocation.shape().expectedProducerCount();
-                if (rows.getLong(1) != expected) {
-                    throw new IllegalStateException("shuffle producer set is incomplete");
-                }
-                // The primary key makes each producer unique, so count and bounds prove coverage.
-                if (rows.getInt(2) != 0 || rows.getInt(3) != expected - 1) {
-                    throw new IllegalStateException("shuffle producer set is not contiguous");
-                }
-            }
-        }
-    }
-
     private static void requireFinalizedPartitions(
             Connection connection, Allocation allocation, List<PartitionPublication> partitions)
             throws SQLException {
-        Map<Integer, PartitionTotals> actual = partitionTotals(connection, allocation);
         if (partitions.size() != allocation.shape().partitionCount()) {
             throw new IllegalStateException("shuffle finalization lacks partition coverage");
         }
+        Map<Integer, PartitionTotals> actual = readWinnerTotals(connection, allocation);
         HashSet<Integer> seen = new HashSet<>();
         for (PartitionPublication publication : partitions) {
             FinalizedPartition partition = publication.partition();
@@ -363,22 +342,50 @@ final class PostgresShuffleLifecycleTransitions {
         }
     }
 
-    private static Map<Integer, PartitionTotals> partitionTotals(
+    private static Map<Integer, PartitionTotals> readWinnerTotals(
             Connection connection, Allocation allocation) throws SQLException {
-        String sql = "SELECT b.output_partition_id, COALESCE(SUM(b.batch_size_bytes), 0), "
-                + "COALESCE(SUM(b.row_count), 0), COUNT(*) FROM shuffle_batch b "
-                + "JOIN shuffle_producer_commit c ON c.shuffle_id = b.shuffle_id "
-                + "AND c.producer_partition_id = b.producer_partition_id "
-                + "AND c.producer_attempt_id = b.producer_attempt_id "
-                + "WHERE b.shuffle_id = ? GROUP BY b.output_partition_id";
+        String sql = """
+                WITH cohort AS MATERIALIZED (
+                    SELECT producer_partition_id, partition_totals FROM shuffle_producer_commit WHERE shuffle_id = ?
+                ), coverage AS (
+                    SELECT COUNT(*) AS producer_count, MIN(producer_partition_id) AS first_producer,
+                           MAX(producer_partition_id) AS last_producer FROM cohort
+                ), output AS (
+                    SELECT totals.partition_totals[part.tuple_start] AS partition_id,
+                           SUM(totals.partition_totals[part.tuple_start + 1]) AS batch_count,
+                           SUM(totals.partition_totals[part.tuple_start + 2]) AS total_bytes,
+                           SUM(totals.partition_totals[part.tuple_start + 3]) AS total_rows
+                    FROM cohort totals CROSS JOIN LATERAL
+                        generate_series(1, cardinality(totals.partition_totals), 4) AS part(tuple_start)
+                    GROUP BY totals.partition_totals[part.tuple_start]
+                )
+                SELECT coverage.producer_count, coverage.first_producer, coverage.last_producer,
+                       output.partition_id, output.total_bytes, output.total_rows, output.batch_count
+                FROM coverage LEFT JOIN output ON TRUE
+                """;
         Map<Integer, PartitionTotals> result = new HashMap<>();
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, allocation.identity().shuffleId());
             try (ResultSet rows = statement.executeQuery()) {
-                while (rows.next()) {
-                    result.put(rows.getInt(1), new PartitionTotals(
-                            rows.getLong(2), rows.getLong(3), rows.getLong(4)));
+                if (!rows.next()) throw new SQLException("missing shuffle producer coverage");
+                int expected = allocation.shape().expectedProducerCount();
+                if (rows.getLong("producer_count") != expected) {
+                    throw new IllegalStateException("shuffle producer set is incomplete");
                 }
+                // The winner primary key makes each producer unique, so count and bounds prove coverage.
+                if (rows.getInt("first_producer") != 0 || rows.getInt("last_producer") != expected - 1) {
+                    throw new IllegalStateException("shuffle producer set is not contiguous");
+                }
+                do {
+                    int partition = rows.getInt("partition_id");
+                    if (!rows.wasNull()) {
+                        if (partition < 0 || partition >= allocation.shape().partitionCount()) {
+                            throw new IllegalStateException("winner totals contain an invalid output partition");
+                        }
+                        result.put(partition, new PartitionTotals(
+                                rows.getLong("total_bytes"), rows.getLong("total_rows"), rows.getLong("batch_count")));
+                    }
+                } while (rows.next());
             }
         }
         return result;

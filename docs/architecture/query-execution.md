@@ -1549,6 +1549,13 @@ dependent cleanup are available, the owner
 releases pins, execution ownership, tenant admission, and the local query
 lifetime. Failures and rejected dispatch remain eligible for bounded retry.
 
+Remote Shuffle freezes the verified nonempty output counts, bytes, and rows
+with each winning producer attempt. A replacement changes the winner, its
+statistics, and the allocation version in the same transaction. Finalization
+uses the paged batch inventory once to build the ordered manifest. Publication
+then checks contiguous producer coverage and partition totals from the frozen
+winner rows in one statement. Empty outputs are still explicitly published.
+
 In remote Shuffle mode, logical terminal transition uses the original execution
 grant to seal admission. The live DAG reports its outcome without deleting
 Shuffle. Physical cleanup starts after local operations, report publication and
