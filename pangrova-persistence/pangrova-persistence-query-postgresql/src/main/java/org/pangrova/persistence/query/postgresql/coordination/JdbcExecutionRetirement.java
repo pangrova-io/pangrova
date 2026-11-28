@@ -25,14 +25,17 @@ public final class JdbcExecutionRetirement {
                         CAST(? AS boolean), clock_timestamp())
             ),
             retirement AS MATERIALIZED (
-                SELECT owner.*, EXISTS (
-                    SELECT 1 FROM write_commit_journal j
-                    WHERE j.query_id=owner.execution_id AND j.state='PENDING'
-                      AND NOT EXISTS (
-                        SELECT 1 FROM write_commit_quarantine q
-                        WHERE q.query_id=j.query_id AND q.commit_fingerprint=j.commit_fingerprint
-                      )
-                ) AS recover_write FROM owner
+                SELECT owner.*, COALESCE(
+                        (j.state='PENDING' AND NOT EXISTS (
+                            SELECT 1 FROM write_commit_quarantine q
+                            WHERE q.query_id=j.query_id AND q.commit_fingerprint=j.commit_fingerprint
+                        ))
+                        OR (j.staging_drain_token=0 AND
+                            (NOT owner.local_drain OR j.execution_fencing_token<>owner.fencing_token)),
+                        FALSE) AS recover_write,
+                    CASE WHEN owner.local_drain AND j.staging_drain_token=0
+                        THEN j.commit_fingerprint END AS staging_fingerprint
+                FROM owner LEFT JOIN write_commit_journal j ON j.query_id=owner.execution_id
             ),
             retained AS (
                 UPDATE execution_anchor a SET expires_at=LEAST(a.expires_at, r.retired_at), version=a.version+1,
@@ -55,7 +58,12 @@ public final class JdbcExecutionRetirement {
                   AND a.expires_at>r.retired_at AND NOT r.recover_write
                   AND (a.coordinator_work_token IS NULL OR a.coordinator_work_exited
                       OR (r.local_drain AND a.coordinator_work_token=a.fencing_token))
-                RETURNING a.execution_id
+                RETURNING a.execution_id, a.fencing_token, r.staging_fingerprint
+            ),
+            staging_handoff AS (
+                UPDATE write_commit_journal w SET staging_drain_token = r.fencing_token
+                FROM removed r WHERE r.staging_fingerprint IS NOT NULL AND w.query_id = r.execution_id
+                  AND w.commit_fingerprint = r.staging_fingerprint AND w.staging_drain_token = 0
             ),
             slots AS MATERIALIZED (
                 SELECT release_tenant_query_slot(execution_id, NULL, TRUE) AS released FROM removed

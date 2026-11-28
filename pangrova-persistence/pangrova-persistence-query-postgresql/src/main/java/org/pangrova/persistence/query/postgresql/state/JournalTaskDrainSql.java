@@ -61,6 +61,7 @@ final class JournalTaskDrainSql {
 
     // Anchor locking and this proof use separate READ COMMITTED snapshots. A same-token
     // issuance that held FOR SHARE before our lock must be visible to the proof.
+    // The same proof authorizes handoff of staged files for the fenced abort fingerprint.
     private static final String LOCK_CLAIM = CLAIM + " FOR UPDATE";
     private static final String CONFIRM = """
             WITH claim AS MATERIALIZED (
@@ -70,6 +71,9 @@ final class JournalTaskDrainSql {
                 SELECT EXISTS (SELECT 1 FROM claim WHERE coordinator_work_exited) AS local_work_exited,
                        EXISTS (SELECT 1 FROM query_state_journal q JOIN claim c ON q.query_id = c.execution_id)
                            AS query_observed
+            ), write_state AS MATERIALIZED (
+                SELECT w.query_id, w.commit_fingerprint, w.state, w.staging_drain_token, w.execution_fencing_token
+                FROM write_commit_journal w JOIN claim c ON w.query_id = c.execution_id
             ), outcome AS MATERIALIZED (
                 SELECT CASE
                     WHEN NOT EXISTS (SELECT 1 FROM claim) THEN 'LOST_CLAIM'
@@ -104,7 +108,7 @@ final class JournalTaskDrainSql {
                         WHERE t.admission_seal IS NOT NULL AND t.recovery_drain_receipt IS NULL
                     ) THEN 'PENDING_RECEIPTS'
                     WHEN EXISTS (
-                        SELECT 1 FROM write_commit_journal w JOIN claim c ON w.query_id = c.execution_id
+                        SELECT 1 FROM write_state w
                         WHERE w.state = 'PENDING' AND NOT EXISTS (
                             SELECT 1 FROM write_commit_quarantine q
                             WHERE q.query_id = w.query_id AND q.commit_fingerprint = w.commit_fingerprint
@@ -112,6 +116,13 @@ final class JournalTaskDrainSql {
                     ) THEN 'PENDING_WRITE'
                     ELSE 'CONFIRMED'
                 END AS state FROM evidence
+            ), staging_handoff AS (
+                UPDATE write_commit_journal w SET staging_drain_token = c.fencing_token
+                FROM claim c, outcome o, write_state original
+                WHERE o.state = 'CONFIRMED' AND original.query_id = c.execution_id
+                  AND original.execution_fencing_token < c.fencing_token
+                  AND original.staging_drain_token = 0 AND w.staging_drain_token = 0
+                  AND w.query_id = original.query_id AND w.commit_fingerprint = original.commit_fingerprint
             ), sealed AS (
                 UPDATE execution_anchor a SET recovery_drain_state = 2
                 FROM claim c, outcome o
@@ -128,7 +139,7 @@ final class JournalTaskDrainSql {
                                 'errorCode', 'QUERY_OWNER_LOST', 'errorType', 'EXECUTION',
                                 'message', 'Original query execution stopped before completion') END)
                 FROM sealed s CROSS JOIN evidence e CROSS JOIN LATERAL (
-                    SELECT EXISTS (SELECT 1 FROM write_commit_journal w
+                    SELECT EXISTS (SELECT 1 FROM write_state w
                                    WHERE w.query_id = s.execution_id AND w.state = 'COMMITTED') AS committed
                 ) completed
                 WHERE e.query_observed AND NOT EXISTS (

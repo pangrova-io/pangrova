@@ -269,6 +269,15 @@ the statement publishes its control-plane result. Synchronous callers await the
 same completion. Cancellation and the existing deadline settle the owned
 execution and leave physical cleanup with the task and query owners.
 
+If a Paimon write is fenced before catalog publication begins, the abort
+registers a staging cleanup obligation on the original journal fingerprint.
+The abort proves that the output can never become visible. The existing
+Worker and Coordinator exit check records the exact execution token that
+proves staging has stopped. Local retirement can record the same proof from
+its completed drain. The proof and staged object receipts survive execution
+retirement together. File deletion still requires a separate cleanup claim
+and confirmation from the file store.
+
 ![End-to-end query execution: client submission, Coordinator parse/plan/admit/schedule, canonical task binding, Worker JVM and Native execution, Output Worker result stream, and Coordinator terminal handling](../../website/static/img/diagrams/query-execution-flow.svg)
 
 Note: the diagram above shows only the result path. Data from the Compute Workers is aggregated to the Output Worker via Arrow Flight Shuffle, and the Output Worker then streams the results back to the Client.

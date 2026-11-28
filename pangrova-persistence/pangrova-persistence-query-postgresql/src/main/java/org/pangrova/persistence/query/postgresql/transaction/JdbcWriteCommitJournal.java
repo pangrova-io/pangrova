@@ -127,11 +127,11 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
             """;
     private static final String ABORT_UNSTARTED_PUBLICATION = LOCK_OWNED_INTENT + """
             , transition AS (
-                UPDATE write_commit_journal journal SET state = 'ABORTED'
+                UPDATE write_commit_journal journal SET state = 'ABORTED', staging_drain_token = 0
                 FROM target JOIN authority ON authority.execution_id = target.query_id
-                WHERE journal.query_id = target.query_id AND target.state = 'PENDING'
+                WHERE journal.query_id = target.query_id AND target.state IN ('PENDING', 'ABORTED')
                     AND NOT target.publication_started AND journal.published_version IS NULL
-                    AND journal.manifest_sha256 IS NULL
+                    AND journal.manifest_sha256 IS NULL AND journal.staging_drain_token IS NULL
                 RETURNING journal.query_id
             )
             SELECT CASE
@@ -213,7 +213,8 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
 
     private void validateSchema() {
         try (Connection connection = dataSource.getConnection();
-             PreparedStatement statement = connection.prepareStatement(SELECT_BY_QUERY_ID + " AND FALSE")) {
+             PreparedStatement statement = connection.prepareStatement(
+                     SELECT_BY_QUERY_ID + " AND staging_drain_token IS NULL AND FALSE")) {
             statement.setString(1, "");
             try (ResultSet ignored = statement.executeQuery()) {
                 // Validate the canonical required columns; never create a parallel schema.
