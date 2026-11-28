@@ -6,7 +6,7 @@ on:
       probe:
         description: Isolated CI stage to verify
         type: choice
-        options: [macos-docker, macos-intel-docker, production, worker-files, java-daily, libunwind, ai-fixture, jmh-relative, tpc-transport, macos-libcxx, production-pic, system-pic, system-rebuild, metadata-regression, macos-arm-crash, macos-arm-acceptance, macos-intel-acceptance, latency-fixture, chaos-completion]
+        options: [macos-docker, macos-intel-docker, production, worker-files, java-daily, libunwind, ai-fixture, jmh-relative, tpc-transport, macos-libcxx, production-pic, system-pic, system-rebuild, metadata-regression, macos-arm-crash, macos-arm-acceptance, macos-intel-acceptance, latency-fixture, chaos-completion, production-cache-comparison]
         default: macos-docker
       production_source:
         description: Exact production source revision
@@ -1351,3 +1351,87 @@ jobs:
           }
           echo 'Production PIC link passed'
           BASH
+
+  production-cache-comparison:
+    name: Measure canonical production layers from a fresh BuildKit builder
+    if: inputs.probe == 'production-cache-comparison'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    services:
+      registry:
+        image: registry:2.8.3
+        ports: ["5000:5000"]
+    env:
+      SOURCE_COMMIT: ${{ inputs.production_source }}
+      CACHE_REF: 127.0.0.1:5000/pangrova/production-cache:linux-amd64
+      PANGROVA_E2E_IMAGE: pangrova/pangrova:ci-cache-comparison-${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.production_source }}
+          fetch-depth: 5
+      - name: Verify packaging source and tested Iceberg inputs
+        run: |
+          [[ "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$SOURCE_COMMIT"
+          git diff --exit-code 598a036e77908713c7a44ab935f7ccf9443d436f HEAD -- \
+            .pangrova/scripts/build-iceberg-sdk-candidate.sh .github/actions/setup-iceberg-sdk \
+            .github/actions/restore-iceberg-sdk .pangrova/iceberg-sdk .mvn
+      - uses: actions/download-artifact@v8
+        with:
+          name: pinned-iceberg-sdk
+          path: ${{ runner.temp }}/pangrova-iceberg-sdk
+          github-token: ${{ github.token }}
+          run-id: 46131070239
+          digest-mismatch: error
+
+      - name: Build the canonical dependency stage on a cold builder
+        shell: bash
+        run: |
+          toml="$RUNNER_TEMP/buildkit-registry.toml"
+          printf '%s\n' '[registry."127.0.0.1:5000"]' '  http = true' > "$toml"
+          df -h "$RUNNER_TEMP"
+          docker buildx create --name cold --driver docker-container \
+            --driver-opt network=host --buildkitd-config "$toml"
+          docker buildx inspect cold --bootstrap
+          started=$(date +%s)
+          docker buildx bake --builder cold --progress=plain -f deploy/docker/docker-bake.hcl \
+            --set native-production-dependencies.args.NATIVE_BUILD_JOBS=2 \
+            --set "native-production-dependencies.cache-to=type=registry,ref=$CACHE_REF,mode=max,image-manifest=true,oci-mediatypes=true" \
+            native-production-dependencies 2>&1 | tee "$RUNNER_TEMP/cold-production-dependencies.log"
+          printf 'cold_dependency_seconds=%s\n' "$(( $(date +%s) - started ))" | tee "$RUNNER_TEMP/production-cache-times.txt"
+          docker buildx rm cold
+
+      - name: Reuse the published layers on an empty builder and build the actual production image
+        shell: bash
+        run: |
+          df -h "$RUNNER_TEMP"
+          docker buildx create --name warm --driver docker-container \
+            --driver-opt network=host --buildkitd-config "$RUNNER_TEMP/buildkit-registry.toml"
+          docker buildx inspect warm --bootstrap
+          started=$(date +%s)
+          IMAGE="$PANGROVA_E2E_IMAGE" SOURCE_COMMIT="$SOURCE_COMMIT" \
+            docker buildx bake --builder warm --progress=plain --load -f deploy/docker/docker-bake.hcl \
+              --allow "fs.read=$RUNNER_TEMP/pangrova-iceberg-sdk" \
+              --set native-build.args.NATIVE_BUILD_JOBS=2 \
+              --set "native-build.cache-from=type=registry,ref=$CACHE_REF" \
+              --set 'pangrova.args.MAVEN_ARGS=-C --global-settings /build/.mvn/ci-settings.xml' \
+              --set "pangrova.contexts.iceberg-sdk=$RUNNER_TEMP/pangrova-iceberg-sdk" pangrova \
+              2>&1 | tee "$RUNNER_TEMP/warm-production-image.log"
+          printf 'warm_image_seconds=%s\n' "$(( $(date +%s) - started ))" | tee -a "$RUNNER_TEMP/production-cache-times.txt"
+          producer=$(grep '\[pangrova builder .*PANGROVA_NATIVE_BUILD_PHASE=velox' "$RUNNER_TEMP/warm-production-image.log" | head -1 | cut -d' ' -f1)
+          grep -Fx "$producer CACHED" "$RUNNER_TEMP/warm-production-image.log"
+          image_id=$(docker image inspect --format '{{.Id}}' "$PANGROVA_E2E_IMAGE")
+          [[ "$image_id" =~ ^sha256:[a-f0-9]{64}$ ]]
+          [[ "$(docker image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$image_id")" == "$SOURCE_COMMIT" ]]
+          stage=$(mktemp -d "$RUNNER_TEMP/pangrova-local-runtime.XXXXXXXX")
+          bash .pangrova/scripts/stage-production-regression-native.sh "$image_id" "$stage" "$SOURCE_COMMIT"
+          cat "$RUNNER_TEMP/production-cache-times.txt" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: canonical-production-cache-measurements
+          path: |
+            ${{ runner.temp }}/cold-production-dependencies.log
+            ${{ runner.temp }}/warm-production-image.log
+            ${{ runner.temp }}/production-cache-times.txt
