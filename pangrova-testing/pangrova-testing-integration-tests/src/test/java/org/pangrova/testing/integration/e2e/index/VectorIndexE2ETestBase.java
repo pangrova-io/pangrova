@@ -16,7 +16,6 @@ package org.pangrova.testing.integration.e2e.index;
 import org.pangrova.protocol.constants.BuiltInCapabilityIdentifiers;
 import org.pangrova.metadata.testinfra.TableWriteAuthorityFixture;
 import org.pangrova.testing.integration.control.ai.ModelAuthorityFixtures;
-import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.generation.api.publication.GenerationManifest;
 import org.pangrova.generation.api.enums.GenerationJobState;
 import org.pangrova.generation.api.output.GenerationOutput;
@@ -25,35 +24,27 @@ import org.pangrova.protocol.generation.PublishedGenerationBindingChecksum;
 import org.pangrova.protocol.capability.BuiltInCapabilityCatalog;
 import org.pangrova.protocol.v2.ArtifactObject;
 import org.pangrova.protocol.v2.Checksum;
-import org.pangrova.protocol.v2.ExecutionDrainState;
 import org.pangrova.protocol.v2.FallbackPolicy;
-import org.pangrova.protocol.v2.TaskReport;
-import org.pangrova.protocol.v2.TaskReportOrigin;
 import org.pangrova.protocol.v2.TaskRequest;
-import org.pangrova.protocol.v2.TaskState;
 import org.pangrova.types.value.TypedRow;
 import org.pangrova.indexing.api.descriptor.IndexDescriptor;
 import org.pangrova.indexing.api.enums.IndexState;
-import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.time.Duration;
 import java.util.HexFormat;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /** Real JDBC publication, issued task and Native filesystem evidence for vector SQL E2E. */
-public abstract class VectorIndexE2ETestBase extends SqlE2ETestBase {
-    private static EvidenceObserver observer;
+public abstract class VectorIndexE2ETestBase extends NativeIndexE2ETestBase {
 
     protected static IndexDescriptor findIndex(String indexName, String fqn) {
         String[] parts = fqn.split("\\.");
@@ -101,48 +92,6 @@ public abstract class VectorIndexE2ETestBase extends SqlE2ETestBase {
         var outputs = store.loadCompleteOutputs(manifest.tenantId(), manifest.jobId());
         assertThat(outputs).as("actual Native output metadata").isNotEmpty();
         return new PublishedIndex(descriptor, manifest, List.copyOf(outputs));
-    }
-
-    /** The observer copies the original issued request before drain receipt compaction. */
-    protected static QueryEvidence executeObserved(String sql) {
-        EvidenceObserver current;
-        synchronized (VectorIndexE2ETestBase.class) {
-            if (observer == null || observer.tracker != taskTracker) {
-                observer = new EvidenceObserver(taskTracker);
-                taskTracker.addExecutionDrainListener(observer::accept);
-            }
-            current = observer;
-        }
-        Capture capture = new Capture();
-        current.active.add(capture);
-        try {
-            var submitted = submitQueryViaHttp(sql);
-            Set<String> issuedBeforeConsumption = taskTracker.getTaskIds(submitted.queryId());
-            List<TypedRow> rows = consumeSubmittedQuery(submitted);
-            org.awaitility.Awaitility.await("actual Native query drain")
-                    .atMost(Duration.ofSeconds(10)).pollInterval(Duration.ofMillis(50))
-                    .untilAsserted(() -> {
-                        var tasks = capture.forQuery(submitted.queryId());
-                        assertThat(tasks).isNotEmpty();
-                        assertThat(tasks.stream().map(task -> task.request().getAttempt().getTaskId()))
-                                .containsAll(issuedBeforeConsumption);
-                    });
-            var tasks = capture.forQuery(submitted.queryId());
-            for (IssuedTask task : tasks) {
-                assertThat(task.report().getState()).isEqualTo(TaskState.TASK_STATE_FINISHED);
-                assertThat(task.report().getReportOrigin())
-                        .isEqualTo(TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE);
-                assertThat(task.report().getExecutionDrainState())
-                        .isEqualTo(ExecutionDrainState.EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED);
-                assertThat(task.report().hasNativeTaskStats()).isTrue();
-                assertThat(task.report().getAttempt()).isEqualTo(task.request().getAttempt());
-            }
-            return new QueryEvidence(rows, tasks);
-        } catch (Exception failure) {
-            throw new IllegalStateException("Real SQL/Flight execution did not complete", failure);
-        } finally {
-            current.active.remove(capture);
-        }
     }
 
     protected static List<TypedRow> executeAnn(String sql, PublishedIndex index) {
@@ -348,51 +297,4 @@ public abstract class VectorIndexE2ETestBase extends SqlE2ETestBase {
 
     protected record PublishedIndex(IndexDescriptor descriptor, GenerationManifest manifest,
                                     List<GenerationOutput> outputs) {}
-    protected record IssuedTask(TaskRequest request, TaskReport report) {}
-    protected record QueryEvidence(List<TypedRow> rows, List<IssuedTask> tasks) {}
-
-    private static final class EvidenceObserver {
-        private final CoordinatorTaskTracker tracker;
-        private final CopyOnWriteArrayList<Capture> active = new CopyOnWriteArrayList<>();
-
-        private EvidenceObserver(CoordinatorTaskTracker tracker) { this.tracker = tracker; }
-
-        private void accept(TaskReport report) {
-            if (active.isEmpty()) return;
-            var issued = tracker.getTaskRequest(report.getAttempt().getTaskId());
-            if (issued != null) {
-                var fact = new IssuedTask(issued.taskRequest(), report);
-                active.forEach(capture -> capture.accept(fact));
-            }
-        }
-    }
-
-    /** One bounded query scope; replay replaces the same task, and close drops retained plans. */
-    private static final class Capture {
-        private final Map<String, IssuedTask> tasks = new LinkedHashMap<>();
-        private long bytes;
-        private IllegalStateException failure;
-
-        private synchronized void accept(IssuedTask fact) {
-            if (failure != null) return;
-            String id = fact.request().getAttempt().getTaskId();
-            if (tasks.containsKey(id)) return;
-            bytes += fact.request().getSerializedSize() + fact.report().getSerializedSize();
-            if (tasks.size() >= 512 || bytes > 32L * 1024 * 1024) {
-                // Observation must not reject a genuine execution-drain notification.
-                // Fail the test at its own boundary while releasing captured plans.
-                failure = new IllegalStateException("E2E evidence capture exceeded its explicit bound");
-                tasks.clear();
-                bytes = 0;
-                return;
-            }
-            tasks.put(id, fact);
-        }
-
-        private synchronized List<IssuedTask> forQuery(String queryId) {
-            if (failure != null) throw failure;
-            return tasks.values().stream().filter(task -> task.request().getAttempt()
-                    .getQueryOrJobId().equals(queryId)).toList();
-        }
-    }
 }

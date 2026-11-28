@@ -8,6 +8,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.pangrova.testing.testkit.postgres.SharedPostgresContainer;
 import org.pangrova.persistence.query.api.commit.CdcSourceIdentity;
+import org.pangrova.persistence.query.api.commit.CdcWriteCheckpoint;
 import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
 import org.pangrova.persistence.query.api.commit.WriteCommitFingerprint;
 import org.pangrova.persistence.query.api.exception.JournalWriteException;
@@ -56,6 +57,38 @@ class JdbcWriteCommitJournalPostgresTest extends ContainerTestBase {
     }
 
     @Test
+    void concurrentExactAdmissionKeepsTheFirstRedoAndReturnsItsState() throws Exception {
+        var first = pending("admission-race", 1_000L);
+        var duplicate = pending(first.queryId(), 2_000L);
+        var bothReady = new java.util.concurrent.CountDownLatch(2);
+        var threads = Executors.newFixedThreadPool(2);
+        try {
+            var left = threads.submit(() -> admitTogether(first, bothReady));
+            var right = threads.submit(() -> admitTogether(duplicate, bothReady));
+            assertThat(left.get(10, TimeUnit.SECONDS)).isEqualTo(WriteCommitState.PENDING);
+            assertThat(right.get(10, TimeUnit.SECONDS)).isEqualTo(WriteCommitState.PENDING);
+            long originalTimestamp = journal.getEntry(first.queryId()).orElseThrow().timestampMs();
+            assertThat(originalTimestamp).isIn(first.timestampMs(), duplicate.timestampMs());
+            assertThat(journal.recordIntent(pending(first.queryId(), 3_000L))).isEqualTo(WriteCommitState.PENDING);
+            assertThat(journal.getEntry(first.queryId()).orElseThrow().timestampMs()).isEqualTo(originalTimestamp);
+            journal.markCommitted(first.queryId());
+            assertThat(journal.recordIntent(duplicate)).isEqualTo(WriteCommitState.COMMITTED);
+        } finally {
+            threads.shutdownNow();
+            assertThat(threads.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    private WriteCommitState admitTogether(WriteCommitEntry intent, java.util.concurrent.CountDownLatch bothReady)
+            throws InterruptedException {
+        bothReady.countDown();
+        if (!bothReady.await(5, TimeUnit.SECONDS)) {
+            throw new IllegalStateException("Concurrent journal admission did not start");
+        }
+        return journal.recordIntent(intent);
+    }
+
+    @Test
     void committedStateAndRedoPayloadSurviveJdbcRoundTrip() {
         journal.recordIntent(pending("query-1", 1_000L));
 
@@ -65,6 +98,153 @@ class JdbcWriteCommitJournalPostgresTest extends ContainerTestBase {
         assertThat(committed.state()).isEqualTo(WriteCommitState.COMMITTED);
         assertThat(committed.fragments()).singleElement().isEqualTo(new byte[]{1, 2, 3});
         assertThat(journal.replayPendingEntries(Set.of("query-1"))).isEmpty();
+    }
+
+    @Test
+    void compactTerminalReceiptSurvivesRedoRetirementAndRejectsReadmission() {
+        var intent = pending("compact-receipt", 1_000L);
+        journal.recordIntent(intent);
+        assertThat(journal.getReceipt(intent.queryId())).isEmpty();
+        var publication = new NativeWriteFinalization(NativeWriteCommitOutcome.COMMITTED, 43, new byte[32]);
+        journal.recordPublication(intent.queryId(), intent.commitFingerprint(), publication);
+        journal.markCommitted(intent.queryId());
+        var receipt = journal.getReceipt(intent.queryId()).orElseThrow();
+        assertThat(receipt.publication()).isEqualTo(publication);
+        assertThat(receipt.commitFingerprint()).isEqualTo(intent.commitFingerprint());
+        assertThat(receipt.tenantId()).isEqualTo(intent.tenantId());
+        journal.acknowledgeNoDeferredWork(intent.commitFingerprint());
+        journal.purge(intent.queryId());
+
+        var reopened = new JdbcWriteCommitJournal(dataSource);
+        assertThat(reopened.getEntry(intent.queryId())).isEmpty();
+        assertThat(reopened.getReceipt(intent.queryId())).contains(receipt);
+        assertThat(reopened.isCommitted(intent.queryId())).isTrue();
+        reopened.markCommitted(intent.queryId());
+        assertThat(reopened.recordIntent(intent)).isEqualTo(WriteCommitState.COMMITTED);
+        assertThat(reopened.getEntry(intent.queryId())).isEmpty();
+        assertThat(reopened.getReceipt(intent.queryId())).contains(receipt);
+        assertThatThrownBy(() -> {
+            try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement(
+                    "DELETE FROM write_commit_receipts WHERE query_id=?")) {
+                statement.setString(1, intent.queryId());
+                statement.executeUpdate();
+            }
+        }).hasMessageContaining("Write commit receipt is immutable");
+    }
+
+    @Test
+    void migrationBackfillsOnlyExistingJournalIdentityAndTerminalEvidence() throws Exception {
+        var upgradeSource = SharedPostgresContainer.isolatedDataSource("receipt_upgrade");
+        org.flywaydb.core.Flyway.configure().dataSource(upgradeSource)
+                .locations("classpath:db/migration").target("142").load().migrate();
+        var pending = pending("upgrade-pending", 1_000L);
+        var committed = pending("upgrade-committed", 2_000L);
+        var aborted = pending("upgrade-aborted", 3_000L);
+        var publication = new NativeWriteFinalization(NativeWriteCommitOutcome.COMMITTED, 43, new byte[32]);
+        try (var connection = upgradeSource.getConnection(); var statement = connection.prepareStatement("""
+                INSERT INTO write_commit_journal
+                    (query_id, catalog_name, table_name, state, timestamp_ms, fragments, write_mode,
+                     idempotency_key, execution_fencing_token, tenant_id, base_snapshot_id, commit_fingerprint,
+                     write_output_binding, published_version, manifest_sha256)
+                VALUES (?, ?, ?, ?, ?, 'AQID', ?, ?, 0, ?, ?, ?, 'Kg==', ?, ?)
+                """)) {
+            for (var intent : List.of(pending, committed, aborted)) {
+                boolean published = intent == committed;
+                var state = published ? WriteCommitState.COMMITTED
+                        : intent == aborted ? WriteCommitState.ABORTED : WriteCommitState.PENDING;
+                statement.setString(1, intent.queryId());
+                statement.setString(2, intent.catalogName());
+                statement.setString(3, intent.tableName());
+                statement.setString(4, state.name());
+                statement.setLong(5, intent.timestampMs());
+                statement.setString(6, intent.writeMode());
+                statement.setString(7, intent.idempotencyKey());
+                statement.setString(8, intent.tenantId());
+                statement.setLong(9, intent.baseSnapshotId());
+                statement.setString(10, intent.commitFingerprint());
+                if (published) {
+                    statement.setLong(11, publication.publishedVersion());
+                    statement.setBytes(12, publication.manifestSha256());
+                } else {
+                    statement.setNull(11, java.sql.Types.BIGINT);
+                    statement.setNull(12, java.sql.Types.BINARY);
+                }
+                statement.addBatch();
+            }
+            statement.executeBatch();
+        }
+
+        org.flywaydb.core.Flyway.configure().dataSource(upgradeSource)
+                .locations("classpath:db/migration").load().migrate();
+        var upgraded = new JdbcWriteCommitJournal(upgradeSource);
+        assertThat(upgraded.getReceipt(pending.queryId())).isEmpty();
+        assertThat(upgraded.getReceipt(committed.queryId())).get().satisfies(receipt -> {
+            assertThat(receipt.state()).isEqualTo(WriteCommitState.COMMITTED);
+            assertThat(receipt.publication()).isEqualTo(publication);
+            assertThat(receipt.commitFingerprint()).isEqualTo(committed.commitFingerprint());
+        });
+        assertThat(upgraded.getReceipt(aborted.queryId())).get().satisfies(receipt -> {
+            assertThat(receipt.state()).isEqualTo(WriteCommitState.ABORTED);
+            assertThat(receipt.commitFingerprint()).isEqualTo(aborted.commitFingerprint());
+        });
+        upgraded.markCommitted(pending.queryId());
+        assertThat(upgraded.isCommitted(pending.queryId())).isTrue();
+    }
+
+    @Test
+    void sourceTransactionCannotAttachNewEvidenceToATerminalReceiptButMayRepeatExactEvidence() throws Exception {
+        var missing = pending("terminal-without-proof", 1_000L);
+        var published = pending("terminal-with-proof", 2_000L);
+        var publication = new NativeWriteFinalization(NativeWriteCommitOutcome.COMMITTED, 43, new byte[32]);
+        journal.recordIntent(missing);
+        journal.markCommitted(missing.queryId());
+        journal.recordIntent(published);
+        try (var connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            var terminal = JdbcWriteCommitJournal.lockIntent(connection, missing.queryId());
+            assertThatThrownBy(() -> JdbcWriteCommitJournal.commitPublication(connection, terminal, publication))
+                    .isInstanceOf(IllegalStateException.class).hasMessageContaining("conflicts with intent");
+            connection.rollback();
+            var pending = JdbcWriteCommitJournal.lockIntent(connection, published.queryId());
+            JdbcWriteCommitJournal.commitPublication(connection, pending, publication);
+            connection.commit();
+            var exact = JdbcWriteCommitJournal.lockIntent(connection, published.queryId());
+            JdbcWriteCommitJournal.commitPublication(connection, exact, publication);
+            connection.commit();
+        }
+        assertThat(journal.getEntry(missing.queryId()).orElseThrow().publication()).isNull();
+        assertThat(journal.getReceipt(missing.queryId()).orElseThrow().publication()).isNull();
+        assertThat(journal.getEntry(published.queryId()).orElseThrow().publication()).isEqualTo(publication);
+        assertThat(journal.getReceipt(published.queryId()).orElseThrow().publication()).isEqualTo(publication);
+    }
+
+    @Test
+    void receiptPublicationRollsBackWithTheSourceTransaction() throws Exception {
+        var intent = pending("transaction-receipt", 1_000L);
+        journal.recordIntent(intent);
+        var publication = new NativeWriteFinalization(NativeWriteCommitOutcome.COMMITTED, 43, new byte[32]);
+        try (var connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            var locked = JdbcWriteCommitJournal.lockIntent(connection, intent.queryId());
+            JdbcWriteCommitJournal.commitPublication(connection, locked, publication);
+            try (var statement = connection.prepareStatement(
+                    "SELECT state FROM write_commit_receipts WHERE query_id=?")) {
+                statement.setString(1, intent.queryId());
+                try (var rows = statement.executeQuery()) {
+                    assertThat(rows.next()).isTrue();
+                    assertThat(rows.getString(1)).isEqualTo("COMMITTED");
+                }
+            }
+            connection.rollback();
+        }
+        assertThat(journal.getReceipt(intent.queryId())).isEmpty();
+        assertThat(journal.getEntry(intent.queryId())).get().satisfies(restored -> {
+            assertThat(restored.state()).isEqualTo(WriteCommitState.PENDING);
+            assertThat(restored.commitFingerprint()).isEqualTo(intent.commitFingerprint());
+            assertThat(restored.fragments()).singleElement().isEqualTo(intent.fragments().get(0));
+            assertThat(restored.writeOutputBinding()).isEqualTo(intent.writeOutputBinding());
+            assertThat(restored.publication()).isNull();
+        });
     }
 
     @Test
@@ -78,13 +258,15 @@ class JdbcWriteCommitJournalPostgresTest extends ContainerTestBase {
         journal.markCommitted(confirmed.queryId());
         var reopened = new JdbcWriteCommitJournal(dataSource);
         assertThat(reopened.findCdcCheckpoint("tenant-a", "orders", "stream:orders-v1"))
-                .get().extracting(WriteCommitEntry::queryId).isEqualTo(olderPending.queryId());
+                .contains(new CdcWriteCheckpoint(
+                        olderPending.queryId(), olderPending.commitFingerprint(), WriteCommitState.PENDING, source));
         assertThat(reopened.findCdcCheckpoint("tenant-a", "orders", "stream:orders-v2")).isEmpty();
         assertThat(reopened.findCdcCheckpoint("tenant-b", "orders", "stream:orders-v1")).isEmpty();
 
         journal.markAborted(olderPending.queryId(), olderPending.commitFingerprint());
         assertThat(reopened.findCdcCheckpoint("tenant-a", "orders", "stream:orders-v1"))
-                .get().extracting(WriteCommitEntry::queryId).isEqualTo(confirmed.queryId());
+                .contains(new CdcWriteCheckpoint(
+                        confirmed.queryId(), confirmed.commitFingerprint(), WriteCommitState.COMMITTED, source));
     }
 
     @Test
@@ -185,6 +367,7 @@ class JdbcWriteCommitJournalPostgresTest extends ContainerTestBase {
         reopened.markAborted(intent.queryId(), intent.commitFingerprint());
         var aborted = reopened.getEntry(intent.queryId()).orElseThrow();
         assertThat(aborted.state()).isEqualTo(WriteCommitState.ABORTED);
+        assertThat(reopened.getReceipt(intent.queryId()).orElseThrow().state()).isEqualTo(WriteCommitState.ABORTED);
         assertThat(aborted.fragments()).singleElement().isEqualTo(new byte[]{1, 2, 3});
         assertThat(aborted.commitFingerprint()).isEqualTo(intent.commitFingerprint());
         assertThat(reopened.replayPendingEntries(Set.of(intent.queryId()))).isEmpty();
@@ -252,6 +435,111 @@ class JdbcWriteCommitJournalPostgresTest extends ContainerTestBase {
     }
 
     @Test
+    void takeoverCanAbortBeforeTheFirstAttemptAndFencesBothPublishers() {
+        var leases = new org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore(dataSource);
+        var lifetime = Duration.ofMinutes(1);
+        var original = leases.tryAcquire("unopened-publication", "coordinator-a", "process-a", lifetime).orElseThrow();
+        var intent = pending(original.executionId(), 1_000L, null, original.fencingToken());
+        journal.recordIntent(intent);
+        assertThat(leases.yield(original)).isTrue();
+        var successor = leases.tryAcquire(intent.queryId(), "coordinator-b", "process-b", lifetime).orElseThrow();
+
+        assertThat(journal.abortBeforePublication(intent, successor.fencingToken())).isTrue();
+        assertThat(journal.abortBeforePublication(intent, successor.fencingToken())).isTrue();
+        assertThat(journal.getReceipt(intent.queryId()).orElseThrow().state()).isEqualTo(WriteCommitState.ABORTED);
+        assertThatThrownBy(() -> journal.tryBeginPublication(intent, original.fencingToken()))
+                .hasMessageContaining("Lost execution anchor");
+        assertThatThrownBy(() -> journal.tryBeginPublication(intent, successor.fencingToken()))
+                .hasMessageContaining("no exact intent");
+    }
+
+    @Test
+    void takeoverOfStartedPublicationCannotRepublishOrInferAbort() {
+        var leases = new org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore(dataSource);
+        var lifetime = Duration.ofMinutes(1);
+        var original = leases.tryAcquire("started-publication", "coordinator-a", "process-a", lifetime).orElseThrow();
+        var intent = pending(original.executionId(), 1_000L, null, original.fencingToken());
+        journal.recordIntent(intent);
+        assertThat(journal.tryBeginPublication(intent, original.fencingToken())).isTrue();
+        assertThat(journal.tryBeginPublication(intent, original.fencingToken())).isFalse();
+        assertThat(leases.yield(original)).isTrue();
+        var successor = leases.tryAcquire(intent.queryId(), "coordinator-b", "process-b", lifetime).orElseThrow();
+
+        assertThat(journal.tryBeginPublication(intent, successor.fencingToken())).isFalse();
+        assertThat(journal.abortBeforePublication(intent, successor.fencingToken())).isFalse();
+        assertThat(journal.getEntry(intent.queryId()).orElseThrow().state()).isEqualTo(WriteCommitState.PENDING);
+        assertThat(journal.getReceipt(intent.queryId())).isEmpty();
+    }
+
+    @Test
+    void publicationStartAndUnpublishedAbortHaveOneWinner() throws Exception {
+        var leases = new org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore(dataSource);
+        var owner = leases.tryAcquire("publication-race", "coordinator-a", "process-a", Duration.ofMinutes(1))
+                .orElseThrow();
+        var intent = pending(owner.executionId(), 1_000L, null, owner.fencingToken());
+        journal.recordIntent(intent);
+
+        var bothReady = new java.util.concurrent.CountDownLatch(2);
+        var executor = Executors.newFixedThreadPool(2);
+        try {
+            var publish = executor.submit(() -> {
+                bothReady.countDown();
+                assertThat(bothReady.await(5, TimeUnit.SECONDS)).isTrue();
+                try {
+                    return journal.tryBeginPublication(intent, owner.fencingToken());
+                } catch (IllegalStateException aborted) {
+                    assertThat(aborted).hasMessageContaining("no exact intent");
+                    return false;
+                }
+            });
+            var abort = executor.submit(() -> {
+                bothReady.countDown();
+                assertThat(bothReady.await(5, TimeUnit.SECONDS)).isTrue();
+                return journal.abortBeforePublication(intent, owner.fencingToken());
+            });
+            assertThat(publish.get(10, TimeUnit.SECONDS)).isNotEqualTo(abort.get(10, TimeUnit.SECONDS));
+        } finally {
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test
+    void fencedOutcomeRejectsPreviousOwnerAndRetainsExactReceiptAcrossRedoRetirement() {
+        var leases = new org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore(dataSource);
+        var lifetime = Duration.ofMinutes(1);
+        var original = leases.tryAcquire("fenced-terminal", "coordinator-a", "process-a", lifetime).orElseThrow();
+        var intent = pending(original.executionId(), 1_000L, null, original.fencingToken());
+        journal.recordIntent(intent);
+        assertThat(leases.yield(original)).isTrue();
+        var successor = leases.tryAcquire(intent.queryId(), "coordinator-b", "process-b", lifetime).orElseThrow();
+
+        assertThat(journal.recordTerminalOutcome(intent, original.fencingToken(), WriteCommitState.COMMITTED))
+                .isFalse();
+        assertThat(journal.recordTerminalOutcome(intent, original.fencingToken(), WriteCommitState.ABORTED))
+                .isFalse();
+        assertThatThrownBy(() -> journal.markCommitted(intent.queryId())).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> journal.markAborted(intent.queryId(), intent.commitFingerprint()))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(journal.getEntry(intent.queryId())).get().extracting(WriteCommitEntry::state)
+                .isEqualTo(WriteCommitState.PENDING);
+
+        assertThat(journal.recordTerminalOutcome(intent, successor.fencingToken(), WriteCommitState.COMMITTED))
+                .isTrue();
+        assertThatThrownBy(() -> journal.recordTerminalOutcome(intent, successor.fencingToken(), WriteCommitState.ABORTED))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Conflicting terminal write outcome");
+        journal.acknowledgeNoDeferredWork(intent.commitFingerprint());
+        assertThat(leases.release(successor)).isTrue();
+        journal.purge(intent.queryId());
+        assertThat(journal.getEntry(intent.queryId())).isEmpty();
+        assertThat(journal.getReceipt(intent.queryId()).orElseThrow().commitFingerprint())
+                .isEqualTo(intent.commitFingerprint());
+        assertThat(journal.recordTerminalOutcome(intent, successor.fencingToken(), WriteCommitState.COMMITTED))
+                .isFalse();
+    }
+
+    @Test
     void releaseKeepsAnUnresolvedWriteClaimableUntilCommitIsConfirmed() {
         var leases = new org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore(dataSource);
         var lifetime = java.time.Duration.ofMinutes(1);
@@ -266,7 +554,9 @@ class JdbcWriteCommitJournalPostgresTest extends ContainerTestBase {
             assertThat(anchor.fencingToken()).isGreaterThan(original.fencingToken());
         });
         assertThat(leases.release(original)).isFalse();
-        journal.markCommitted(original.executionId());
+        var intent = journal.getEntry(original.executionId()).orElseThrow();
+        assertThat(journal.recordTerminalOutcome(intent, recovered.get(0).fencingToken(), WriteCommitState.COMMITTED))
+                .isTrue();
         assertThat(leases.release(recovered.get(0))).isTrue();
         assertThat(leases.claimExpired("coordinator-c", "process-c", lifetime, 1)).isEmpty();
     }

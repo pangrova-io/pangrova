@@ -59,6 +59,17 @@ TEST_F(MetadataReadContextTest, TaskMetadataCannotOpenWithoutItsAdmittedOwner) {
   EXPECT_THROW(MetadataReadContext(nullptr, {}), std::invalid_argument);
 }
 
+TEST_F(MetadataReadContextTest, FailedFileOpenCountsAsOneMetadataCallAndReleasesOwner) {
+  auto budget = std::make_shared<resource::TaskObjectReadBudget>(0);
+  MetadataReadContext reads(budget, {});
+  EXPECT_THROW(reads.open("file:" + path + ".missing"), std::exception);
+  const auto sample = budget->snapshot();
+  EXPECT_EQ(sample.metadata_calls, 1);
+  EXPECT_EQ(sample.failed_calls, 1);
+  EXPECT_EQ(sample.returned_bytes, 0);
+  EXPECT_EQ(budget->activeReads(), 0);
+}
+
 TEST_F(MetadataReadContextTest, ActualDataSourceRejectsZeroReadGrantWithoutConsumingBytes) {
   auto budget = std::make_shared<pangrova::resource::TaskObjectReadBudget>(0);
   PangrovaVeloxDataSource input(pool.get(), type, type);
@@ -135,6 +146,7 @@ TEST_F(MetadataReadContextTest, ReleasedTaskOwnerRejectsOpenBeforeResolvingAnInv
     EXPECT_NE(std::string(failure.what()).find("cancelled or released"), std::string::npos);
   }
   EXPECT_EQ(budget->activeReads(), 0);
+  EXPECT_EQ(budget->snapshot().metadata_calls, 2);
 }
 
 }  // namespace

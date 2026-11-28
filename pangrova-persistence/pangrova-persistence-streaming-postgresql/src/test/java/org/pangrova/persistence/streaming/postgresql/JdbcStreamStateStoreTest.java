@@ -131,27 +131,6 @@ class JdbcStreamStateStoreTest extends ContainerTestBase {
     }
 
     @Test
-    void listByStateFiltersCorrectly() {
-        store.createState(newState("s-run", "t").withLifecycleState(StreamLifecycleState.RUNNING));
-        store.createState(newState("s-sus", "t").withLifecycleState(StreamLifecycleState.SUSPENDED));
-        store.createState(newState("s-run2", "t").withLifecycleState(StreamLifecycleState.RUNNING));
-
-        List<StreamState> running = store.listByState(StreamLifecycleState.RUNNING);
-        assertThat(running).hasSize(2);
-        assertThat(running).allMatch(s -> s.lifecycleState() == StreamLifecycleState.RUNNING);
-    }
-
-    @Test
-    void listAllReturnsEverything() {
-        store.createState(newState("s1", "t1"));
-        store.createState(newState("s2", "t2"));
-        store.createState(newState("s3", "t1"));
-
-        List<StreamState> all = store.listAll();
-        assertThat(all).hasSize(3);
-    }
-
-    @Test
     void deleteRemovesEntry() {
         store.createState(newState("s-del", "t"));
         assertThat(store.loadState("s-del")).isPresent();

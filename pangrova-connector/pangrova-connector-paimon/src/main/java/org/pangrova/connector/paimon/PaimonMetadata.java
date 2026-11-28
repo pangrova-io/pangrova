@@ -46,7 +46,8 @@ import java.util.OptionalLong;
  * Paimon metadata implementation delegating to real Paimon Catalog API.
  * Acts as anti-corruption layer: Paimon SDK types stay within this module.
  */
-public class PaimonMetadata implements ConnectorMetadata {
+public class PaimonMetadata implements ConnectorMetadata,
+        org.pangrova.connector.api.metadata.DistributedWriteStagingCleanup {
 
     private static final Logger LOG = LoggerFactory.getLogger(PaimonMetadata.class);
 
@@ -371,25 +372,13 @@ public class PaimonMetadata implements ConnectorMetadata {
         writes.finish(session, (PaimonOutputTableHandle) outputHandle, fragments, context);
     }
 
-    /**
-     * Discards the exact data files staged by a distributed write that will never be published.
-     * Paimon has no format-level abort barrier, so this only unlinks unpublished files; the
-     * durable four-argument abort remains unsupported and is quarantined by reconciliation.
-     */
     @Override
-    public void abortDistributedWrite(ConnectorSession session,
-                                      ConnectorOutputTableHandle outputHandle,
-                                      java.util.List<byte[]> fragments) {
-        PaimonOutputTableHandle handle = (PaimonOutputTableHandle) outputHandle;
-        PaimonDistributedWriteFinisher.abort(
-                loadFreshTable(handle.schemaName(), handle.tableName()), handle, fragments);
-    }
+    public boolean requiresPublicationClaim() { return true; }
 
     @Override
-    public ConnectorOutputTableHandle reconstructOutputHandle(
-            ConnectorSession session, SchemaTableName tableName,
-            String writeMode, long baseSnapshotId) {
-        return writes.reconstruct(tableName, writeMode, baseSnapshotId);
+    public boolean reclaimObservedStaging(ConnectorSession session, ConnectorOutputTableHandle verifiedOutput,
+            java.util.List<byte[]> fragments, DistributedWriteCommitContext context) {
+        return writes.reclaimObservedStaging(session, (PaimonOutputTableHandle) verifiedOutput, fragments, context);
     }
 
     org.pangrova.connector.api.metadata.NativePhysicalWriteProvider physicalWriteProvider() {

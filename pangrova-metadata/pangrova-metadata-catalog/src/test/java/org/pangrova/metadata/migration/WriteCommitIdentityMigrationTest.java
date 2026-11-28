@@ -48,6 +48,43 @@ class WriteCommitIdentityMigrationTest {
                 + "WHERE version='33' AND success")).isZero();
     }
 
+    @Test
+    void binaryRedoKeepsExactPayloadsAndFingerprint() throws Exception {
+        DataSource source = SharedPostgresContainer.isolatedDataSource("write_commit_binary");
+        migrateTo(source, "143");
+        String fingerprint = "ba".repeat(32);
+        try (var connection = source.getConnection();
+                var statement = connection.prepareStatement("""
+                        INSERT INTO write_commit_journal (query_id, catalog_name, table_name, state, timestamp_ms,
+                            fragments, write_mode, idempotency_key, tenant_id, base_snapshot_id, write_output_binding,
+                            commit_fingerprint, execution_fencing_token)
+                        VALUES ('binary-redo', 'iceberg', 'sales.orders', 'PENDING', 1,
+                            'AA==,,/wA=', 'INSERT', ?, 'tenant', -1, 'ACr/', ?, 0)
+                        """)) {
+            statement.setString(1, fingerprint);
+            statement.setString(2, fingerprint);
+            assertThat(statement.executeUpdate()).isEqualTo(1);
+        }
+
+        migrateTo(source, "144");
+
+        try (var connection = source.getConnection();
+                var statement = connection.prepareStatement("""
+                        SELECT fragments[1], fragments[2], fragments[3], cardinality(fragments),
+                            write_output_binding, commit_fingerprint
+                        FROM write_commit_journal WHERE query_id = 'binary-redo'
+                        """);
+                var rows = statement.executeQuery()) {
+            assertThat(rows.next()).isTrue();
+            assertThat(rows.getBytes(1)).containsExactly((byte) 0);
+            assertThat(rows.getBytes(2)).isEmpty();
+            assertThat(rows.getBytes(3)).containsExactly((byte) 0xff, (byte) 0);
+            assertThat(rows.getInt(4)).isEqualTo(3);
+            assertThat(rows.getBytes(5)).containsExactly((byte) 0, (byte) 42, (byte) 0xff);
+            assertThat(rows.getString(6)).isEqualTo(fingerprint);
+        }
+    }
+
     private static void migrateTo(DataSource dataSource, String version) {
         Flyway.configure()
                 .dataSource(dataSource)

@@ -4,9 +4,11 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Consumer;
 
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerInfo;
+import org.pangrova.query.api.journal.TaskStateEvent;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.scheduler.api.placement.PlacementWorker;
@@ -20,9 +22,17 @@ import org.pangrova.scheduler.speculation.SpeculativeTaskRegistry;
 public final class CoordinatorSpeculativeTaskRegistry implements SpeculativeTaskRegistry {
 
     private final CoordinatorTaskTracker tracker;
+    private final Consumer<List<TaskStateEvent>> recordIssuances;
 
     public CoordinatorSpeculativeTaskRegistry(CoordinatorTaskTracker tracker) {
+        this(tracker, null);
+    }
+
+    /** Creates a registry that records transport authority in the execution journal. */
+    public CoordinatorSpeculativeTaskRegistry(
+            CoordinatorTaskTracker tracker, Consumer<List<TaskStateEvent>> recordIssuances) {
         this.tracker = tracker;
+        this.recordIssuances = recordIssuances;
     }
 
     @Override
@@ -62,33 +72,15 @@ public final class CoordinatorSpeculativeTaskRegistry implements SpeculativeTask
     }
 
     @Override
-    public void registerTask(String queryId, String taskId) {
-        tracker.registerTask(queryId, taskId);
-    }
-
-    @Override
-    public void registerTaskRequest(String taskId, SubmitTaskRequest request) {
-        tracker.registerTaskRequest(taskId, request);
-    }
-
-    @Override
-    public void bindDispatchTarget(SubmitTaskRequest request, PlacementWorker worker) {
-        tracker.bindDispatchTarget(request, requireWorkerInfo(worker));
-    }
-
-    @Override
-    public void markScheduled(String queryId, String taskId) {
-        tracker.markScheduled(queryId, taskId);
+    public void prepareDispatch(SubmitTaskRequest request, PlacementWorker worker) {
+        WorkerInfo target = requireWorkerInfo(worker);
+        tracker.prepareTaskDispatch(request, target);
+        if (recordIssuances != null) recordIssuances.accept(List.of(tracker.issuanceFact(request, target)));
     }
 
     @Override
     public void assignWorker(String taskId, String workerId) {
         tracker.assignWorker(taskId, workerId);
-    }
-
-    @Override
-    public void setDeadline(String taskId, Instant deadline) {
-        tracker.setDeadline(taskId, deadline);
     }
 
     @Override

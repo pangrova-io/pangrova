@@ -18,13 +18,16 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import static org.pangrova.generation.api.constants.GenerationOutputTypeIds.TEXT_INDEX;
+import static org.pangrova.generation.api.constants.GenerationOutputTypeIds.VECTOR_INDEX;
 import static org.pangrova.persistence.jdbc.support.JdbcSupport.getInstant;
 
 /** Same-connection immutable publication reads, shared by query resolution and durable claim preparation. */
@@ -80,10 +83,15 @@ final class PostgresGenerationPublishedInputs {
         }
     }
 
-    static Map<PublicationRead, PublishedInput> load(Connection connection,
-            String tenantId, List<PublicationRead> reads, List<GenerationSplit> splits) throws SQLException {
-        Map<PublicationRead, PublishedInput> result = new LinkedHashMap<>();
-        var requested = splits.stream().map(GenerationSplit::dataObjectId).sorted().distinct().toList();
+    /** Reads publication evidence once for the union of requested sources, then verifies each page separately. */
+    static List<Map<PublicationRead, PublishedInput>> load(Connection connection, String tenantId,
+            String executionId, List<PublicationRead> reads, List<List<GenerationSplit>> partitionSplits)
+            throws SQLException {
+        if (reads.isEmpty()) return Collections.nCopies(partitionSplits.size(), Map.of());
+        var requested = partitionSplits.stream().flatMap(List::stream).map(GenerationSplit::dataObjectId)
+                .distinct().sorted().toList();
+        var result = new ArrayList<Map<PublicationRead, PublishedInput>>(partitionSplits.size());
+        for (int i = 0; i < partitionSplits.size(); i++) result.add(new HashMap<>());
         for (var read : reads) {
             var manifest = findManifest(connection, tenantId, read.artifactId(), read.generation(),
                     read.sourceSnapshot(), true).orElseThrow(
@@ -92,31 +100,46 @@ final class PostgresGenerationPublishedInputs {
                     || !manifest.manifestSha256().equals(read.manifestSha256())) {
                 throw new IllegalStateException("Pinned stage publication identity or digest differs");
             }
-            var outputs = PostgresGenerationOutputQueries.loadLockedPublishedOutputs(
-                    connection, tenantId, manifest.jobId(), requested);
-            Map<String, String> covered = splitChecksums(splits, outputs);
-            if (!PostgresGenerationOutputQueries.matchesLockedPublishedSplits(
-                    connection, tenantId, manifest.jobId(), List.copyOf(covered.keySet()), covered)) {
-                throw new IllegalStateException("Pinned artifact source allocation differs from durable task inputs");
+            if (VECTOR_INDEX.equals(manifest.artifactType()) || TEXT_INDEX.equals(manifest.artifactType())) {
+                PostgresSnapshotPinLedger.retainForExecution(connection, tenantId, read.artifactId(),
+                        read.generation(), read.sourceSnapshot(), executionId);
             }
-            result.put(read, new PublishedInput(manifest, outputs, covered.keySet()));
+            loadPublicationWindow(connection, tenantId, manifest, read, requested, partitionSplits, result);
         }
-        return Collections.unmodifiableMap(result);
+        return result.stream().map(Map::copyOf).toList();
     }
 
-    private static Map<String, String> splitChecksums(
-            List<GenerationSplit> splits, List<GenerationOutput> outputs) {
-        var coveredIds = outputs.stream()
-                .filter(output -> output.scope() == GenerationOutputScope.SOURCE_OBJECT)
-                .map(GenerationOutput::sourceObjectId).collect(java.util.stream.Collectors.toSet());
-        Map<String, String> checksums = new HashMap<>();
-        for (var split : splits) {
-            if (coveredIds.contains(split.dataObjectId())) {
-                if (checksums.put(split.dataObjectId(), split.splitSha256()) != null) {
-                    throw new IllegalStateException("Durable publication inputs repeat a physical source object");
-                }
+    private static void loadPublicationWindow(Connection connection, String tenantId, GenerationManifest manifest,
+            PublicationRead read, List<String> requested, List<List<GenerationSplit>> partitionSplits,
+            List<Map<PublicationRead, PublishedInput>> result) throws SQLException {
+        Map<String, List<GenerationOutput>> bySource = new HashMap<>();
+        var generationOutputs = new ArrayList<GenerationOutput>();
+        for (var output : PostgresGenerationOutputQueries.loadLockedPublishedOutputs(
+                connection, tenantId, manifest.jobId(), requested)) {
+            if (output.scope() == GenerationOutputScope.SOURCE_OBJECT) {
+                bySource.computeIfAbsent(output.sourceObjectId(), ignored -> new ArrayList<>()).add(output);
+            } else {
+                generationOutputs.add(output);
             }
         }
-        return checksums;
+        var checksums = PostgresGenerationOutputQueries.loadLockedPublishedSplitChecksums(
+                connection, tenantId, manifest.jobId(), bySource.keySet().stream().sorted().toList());
+        for (int i = 0; i < partitionSplits.size(); i++) {
+            var covered = new LinkedHashSet<String>();
+            var outputs = new ArrayList<>(generationOutputs);
+            for (var split : partitionSplits.get(i)) {
+                var scoped = bySource.get(split.dataObjectId());
+                if (scoped == null) continue;
+                if (!covered.add(split.dataObjectId())) {
+                    throw new IllegalStateException("Durable publication inputs repeat a physical source object");
+                }
+                if (!split.splitSha256().equalsIgnoreCase(checksums.get(split.dataObjectId()))) {
+                    throw new IllegalStateException(
+                            "Pinned artifact source allocation differs from durable task inputs");
+                }
+                outputs.addAll(scoped);
+            }
+            result.get(i).put(read, new PublishedInput(manifest, outputs, covered));
+        }
     }
 }

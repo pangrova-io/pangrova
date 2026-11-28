@@ -155,7 +155,7 @@ public class AdaptiveQueryExecutor {
         if (actualSize <= 0) {
             return plannedParallelism;
         }
-        int optimalTasks = Math.max(1, (int) (actualSize / TARGET_TASK_SIZE));
-        return Math.min(optimalTasks, MAX_PARALLELISM);
+        long optimalTasks = Math.max(1L, actualSize / TARGET_TASK_SIZE);
+        return (int) Math.min(optimalTasks, MAX_PARALLELISM);
     }
 }

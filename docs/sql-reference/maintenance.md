@@ -24,8 +24,6 @@ tables run only operations enabled by their policy, and OBSERVED/LINKED tables
 cannot be written or dropped through Pangrova. Procedure availability and
 semantics depend on the connector, authenticated context, and storage configuration.
 
-See [Current Capability Status](../getting-started/capability-status.md).
-
 ## Automatic Maintenance
 
 The maintenance leader runs a periodic scan over **controlled tables only**. The
@@ -170,7 +168,8 @@ MODE LINEAR;
 ### RECLUSTER TABLE
 
 The SQL call waits for an authenticated Worker to stage replacement files and
-for the Coordinator to publish the result under the table maintenance lease.
+for the Coordinator to publish the result under the table maintenance lease. The
+Coordinator and Workers must share the configured internal authentication secret.
 The Worker uses the exact admitted catalog and table metadata revisions. The
 catalog and data paths must be accessible from the Coordinator and Workers.
 If a Worker is unavailable before returning its staging receipt, another

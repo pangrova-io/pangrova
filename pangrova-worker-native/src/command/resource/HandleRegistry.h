@@ -29,7 +29,8 @@ class HandleRegistry final : public executor::TaskFailureReporter {
  public:
   static HandleRegistry& instance();
   void reportExecutionError(int64_t handle, const protocol::v2::ExecutionError& error) const override;
-  void reportResultStreamFinished(int64_t handle) const override;
+  void reportResultStreamFinished(int64_t handle,
+      const protocol::v2::NativeResultDeliveryStats& delivery) const override;
   void reportResultStreamFailure(int64_t handle, const std::string& message) const override;
 
   // Register an executor and return a unique handle.

@@ -42,5 +42,4 @@ plugins for additional formats.
 Use Iceberg or Paimon when the table already exists in that format and its feature set
 matches the workload. Use Lance for managed datasets that require the Native dataset
 control path. A connector being installed does not imply that every SQL operation,
-predicate, or write mode is supported; check the connector page and
-[current capability status](../capability-status.md).
+predicate, or write mode is supported. Check each connector guide for supported operations.

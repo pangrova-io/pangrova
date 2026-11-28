@@ -19,6 +19,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 
+import static org.pangrova.server.coordinator.testinfra.QuerySubmissionTestSupport.assertAdmissionThenWorkerFailure;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.pangrova.server.coordinator.testinfra.SecuredCoordinatorFixtures.withAuthority;
 
@@ -125,8 +126,7 @@ class CoordinatorBootstrapSplitPropertyTest extends org.pangrova.server.coordina
                             .header("Authorization", authorizationHeader())
                             .build(),
                     HttpResponse.BodyHandlers.ofString());
-            assertThat(resp.statusCode()).isEqualTo(503);
-            assertThat(resp.body()).contains("No available worker for task dispatch");
+            assertAdmissionThenWorkerFailure(bootstrap.getQueryManager(), resp);
         } finally {
             bootstrap.shutdown();
         }

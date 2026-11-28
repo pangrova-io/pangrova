@@ -1,5 +1,6 @@
 package org.pangrova.testing.integration.e2e.speculation;
 
+import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.pangrova.client.http.PangrovaRestClient;
@@ -7,27 +8,29 @@ import org.pangrova.client.http.QueryExecution;
 import org.pangrova.common.client.enums.ResultProtocol;
 import org.pangrova.common.client.exception.PangrovaClientException;
 import org.pangrova.common.client.exception.PangrovaServerException;
-import org.pangrova.common.client.result.ResultEndpoint;
 import org.pangrova.common.client.session.RetryPolicy;
 import org.pangrova.common.concurrent.ExecutorDrain;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.common.enums.PangrovaErrorCode;
-import org.pangrova.common.enums.QueryWaitTarget;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.testing.testkit.E2ETest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.net.InetSocketAddress;
+import java.net.URI;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.function.BiConsumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowableOfType;
+import static org.awaitility.Awaitility.await;
+import static org.pangrova.testing.integration.e2e.speculation.ProcessQueryResults.awaitResult;
+import static org.pangrova.testing.integration.e2e.speculation.ProcessQueryResults.consumeAndDrain;
 
 /** Offers fixed arrivals to a real tenant while its Native output owners hold admission slots. */
 @E2ETest
@@ -63,16 +66,28 @@ class PersistentTenantOverloadE2ETest extends ContainerTestBase {
                 + "JOIN tenant_user_memberships m ON m.tenant_id=t.tenant_id WHERE m.user_principal=$1";
         String tenantLookup = "SELECT * FROM tenants WHERE tenant_id = $1";
         String placementLookup = "SELECT status, resource_pool FROM tenants WHERE tenant_id = $1";
-        try (var processes = new IndependentLocalProcesses()) {
+        String lineageLookup = "SELECT payload::text FROM query_lineage_outbox WHERE event_id = $1";
+        var collector = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        collector.createContext("/", exchange -> {
+            try (exchange) {
+                exchange.getRequestBody().transferTo(java.io.OutputStream.nullOutputStream());
+                exchange.sendResponseHeaders(204, -1);
+            }
+        });
+        collector.start();
+        try (AutoCloseable stopCollector = () -> collector.stop(0);
+                var processes = new IndependentLocalProcesses()) {
+            processes.configureDurableLineage(URI.create("http://127.0.0.1:" + collector.getAddress().getPort()));
             processes.startCoordinatorAndFirstWorker();
             processes.enableMetadataStatementCounters();
             try (var client = processes.coordinatorClientBuilder().retryPolicy(RetryPolicy.NONE).build()) {
                 long initialMembership = processes.metadataStatementCalls(membershipLookup);
                 long initialTenant = processes.metadataStatementCalls(tenantLookup);
                 long initialPlacement = processes.metadataStatementCalls(placementLookup);
+                long initialLineage = processes.metadataStatementCalls(lineageLookup);
                 long deadline = System.currentTimeMillis() + TIMEOUT.toMillis();
                 var query = client.beginQuery("SELECT CAST(42 AS BIGINT)", Map.of());
-                finish(client, query, awaitResult(query, deadline), List.of(42L), deadline);
+                consumeAndDrain(client, query, awaitResult(query, deadline), List.of(42L), deadline);
                 assertThat(processes.activeTenantReservations()).isZero();
                 long membershipReads = processes.metadataStatementCalls(membershipLookup) - initialMembership;
                 long tenantReads = processes.metadataStatementCalls(tenantLookup) - initialTenant;
@@ -82,6 +97,10 @@ class PersistentTenantOverloadE2ETest extends ContainerTestBase {
                 assertThat(membershipReads).as("authorization membership lookups").isOne();
                 assertThat(tenantReads).as("full tenant reads for placement").isZero();
                 assertThat(placementReads).as("current placement read for one cohort").isOne();
+                assertThat(processes.metadataStatementCalls(lineageLookup) - initialLineage)
+                        .as("duplicate durable lineage payload SELECTs").isZero();
+                await("both durable lineage facts delivered")
+                        .atMost(TIMEOUT).untilAsserted(() -> assertOwnedLineage(processes, query.submission().queryId()));
 
                 processes.revokeTenantMembership();
                 var revoked = catchThrowableOfType(() -> client.beginQuery("SELECT CAST(43 AS BIGINT)", Map.of()),
@@ -96,52 +115,120 @@ class PersistentTenantOverloadE2ETest extends ContainerTestBase {
         }
     }
 
-    @Test
-    void occupiedSharedSlotsReturnTheTenantQuotaResponseBeforeAnyLocalQueryRuns() throws Exception {
-        try (var processes = new IndependentLocalProcesses()) {
-            processes.startCoordinatorAndFirstWorker();
-            String first = "peer-query-1";
-            String second = "peer-query-2";
-            assertThat(processes.reservePeerTenantSlot(first)).isTrue();
-            try (var client = processes.coordinatorClientBuilder().retryPolicy(RetryPolicy.NONE).build()) {
-                assertThat(processes.reservePeerTenantSlot(second)).isTrue();
-                assertThat(processes.activeTenantReservations()).isEqualTo(2);
-                var denied = catchThrowableOfType(() -> client.beginQuery("SELECT CAST(42 AS BIGINT)", Map.of()),
-                        PangrovaClientException.class);
-                assertThat(denied).isNotNull();
-                LOG.info("event=peer_slot_admission errorCode={} serverError={}",
-                        denied.errorCode(), denied instanceof PangrovaServerException);
-                assertThat(denied).isNotInstanceOf(PangrovaServerException.class);
-                assertThat(denied.errorCode()).isEqualTo(PangrovaErrorCode.TENANT_QUOTA_EXCEEDED.getCode());
-                assertThat(processes.activeTenantReservations()).isEqualTo(2);
-            } finally {
-                processes.releasePeerTenantSlot(second);
-                processes.releasePeerTenantSlot(first);
-            }
-            assertThat(processes.activeTenantReservations()).isZero();
-            try (var client = processes.coordinatorClientBuilder().retryPolicy(RetryPolicy.NONE).build()) {
-                long deadline = System.currentTimeMillis() + TIMEOUT.toMillis();
-                var accepted = client.beginQuery("SELECT CAST(42 AS BIGINT)", Map.of());
-                finish(client, accepted, awaitResult(accepted, deadline), List.of(42L), deadline);
-                assertThat(processes.activeTenantReservations()).isZero();
+    private static void assertOwnedLineage(IndependentLocalProcesses processes, String queryId) throws Exception {
+        try (var connection = processes.metadataDataSource().getConnection();
+                var statement = connection.prepareStatement(
+                        """
+                        SELECT category FROM query_lineage_outbox
+                        WHERE query_id=? AND delivered_at IS NOT NULL ORDER BY category
+                        """)) {
+            statement.setString(1, queryId);
+            try (var rows = statement.executeQuery()) {
+                assertThat(rows.next()).isTrue();
+                assertThat(rows.getString(1)).isEqualTo("START");
+                assertThat(rows.next()).isTrue();
+                assertThat(rows.getString(1)).isEqualTo("TERMINAL");
+                assertThat(rows.next()).isFalse();
             }
         }
     }
 
+    @Test
+    void independentCoordinatorsShareTenantQuotaAndDrainMixedSql() throws Exception {
+        try (var primary = new IndependentLocalProcesses()) {
+            primary.startCoordinatorAndFirstWorker();
+            seedArrivalTable(primary);
+            try (var peer = primary.startPeer()) {
+                try {
+                    verifySharedQuota(primary, peer);
+                } catch (Exception | Error failure) {
+                    failure.addSuppressed(new IllegalStateException(
+                            "Coordinator diagnostics retained at " + primary.retainDiagnostics()
+                                    + " and " + peer.retainDiagnostics()));
+                    throw failure;
+                }
+            }
+        }
+    }
+
+    private static void verifySharedQuota(IndependentLocalProcesses primary, IndependentLocalProcesses peer)
+            throws Exception {
+        assertThat(peer.coordinatorPid()).isNotEqualTo(primary.coordinatorPid());
+        assertThat(peer.coordinatorPort()).isNotEqualTo(primary.coordinatorPort());
+        assertThat(peer.hostJdbcUrl()).isEqualTo(primary.hostJdbcUrl());
+        primary.enableMetadataStatementCounters();
+        try (var first = primary.coordinatorClientBuilder().retryPolicy(RetryPolicy.NONE).build();
+             var second = peer.coordinatorClientBuilder().retryPolicy(RetryPolicy.NONE).build()) {
+            var clients = List.of(first, second);
+            for (var client : clients) complete(client, WORKLOADS.get(1), System.nanoTime());
+            assertThat(primary.activeTenantReservations()).isZero();
+
+            long deadline = System.currentTimeMillis() + TIMEOUT.toMillis();
+            var firstQuery = first.beginQuery(WORKLOADS.get(1).sql(), Map.of());
+            var secondQuery = second.beginQuery(WORKLOADS.get(3).sql(), Map.of());
+            var firstEndpoint = awaitResult(firstQuery, deadline);
+            var secondEndpoint = awaitResult(secondQuery, deadline);
+            assertThat(peer.activeTenantReservations()).isEqualTo(2);
+
+            String journal = "SELECT%FROM query_state_journal%";
+            long snapshot = primary.metadataStatementCalls(journal);
+            verifyReconnectedStatus(primary, firstQuery);
+            verifyReconnectedStatus(peer, secondQuery);
+            assertThat(primary.metadataStatementCalls(journal) - snapshot)
+                    .as("journal SELECTs for authenticated status reads on live owners").isZero();
+
+            offer(clients, 40, Duration.ofMillis(25), 8, PersistentTenantOverloadE2ETest::reject);
+            assertThat(primary.activeTenantReservations()).isEqualTo(2);
+            consumeAndDrain(first, firstQuery, firstEndpoint, WORKLOADS.get(1).expected(), deadline);
+            assertThat(peer.activeTenantReservations()).isOne();
+            consumeAndDrain(second, secondQuery, secondEndpoint, WORKLOADS.get(3).expected(), deadline);
+            assertThat(primary.activeTenantReservations()).isZero();
+
+            offer(clients, 80, Duration.ofMillis(125), 2, PersistentTenantOverloadE2ETest::complete);
+            assertThat(primary.activeTenantReservations()).isZero();
+            assertThat(primary.reports().forwardingFailures()).isEmpty();
+            assertThat(peer.reports().forwardingFailures()).isEmpty();
+            requireReportsFromOwner(primary, firstQuery);
+            requireReportsFromOwner(peer, secondQuery);
+        }
+    }
+
+    private static void verifyReconnectedStatus(IndependentLocalProcesses process, QueryExecution active) {
+        try (var observer = process.coordinatorClientBuilder().retryPolicy(RetryPolicy.NONE).build()) {
+            for (int read = 0; read < 12; read++) {
+                var status = observer.getQueryStatus(active.submission().queryId());
+                assertThat(status.state()).isNotIn("FAILED", "CANCELLED");
+                assertThat(status.resultEndpoint()).isNotNull();
+            }
+        }
+    }
+
+    private static void requireReportsFromOwner(IndependentLocalProcesses process, QueryExecution query) {
+        var observed = process.reports().deliveries().stream().map(ProcessStatusReportRelay.Delivery::report)
+                .filter(report -> query.submission().queryId().equals(report.queryId())).toList();
+        assertThat(observed).isNotEmpty().allSatisfy(report ->
+                assertThat(report.reportedAttempt().getExecutionOwner().getOwnerId())
+                        .isEqualTo(process.coordinatorId()));
+    }
+
+    private static void seedArrivalTable(IndependentLocalProcesses processes) throws Exception {
+        processes.createSourceCatalog();
+        processes.command("CREATE TABLE " + TABLE + " (id BIGINT, shard BIGINT) PARTITIONED BY (shard)",
+                ResultProtocol.GRPC_TLS);
+        processes.command("INSERT INTO " + TABLE + " VALUES (0,0),(1,0),(2,0),(3,0)", ResultProtocol.GRPC_TLS);
+        processes.command("INSERT INTO " + TABLE + " VALUES (4,1),(5,1),(6,1),(7,1)", ResultProtocol.GRPC_TLS);
+    }
+
     private static void runArrivals(IndependentLocalProcesses processes) throws Exception {
         processes.startCoordinatorAndFirstWorker();
-        processes.createSourceCatalog();
-        processes.query("CREATE TABLE " + TABLE + " (id BIGINT, shard BIGINT) PARTITIONED BY (shard)",
-                ResultProtocol.GRPC_TLS);
-        processes.query("INSERT INTO " + TABLE + " VALUES (0,0),(1,0),(2,0),(3,0)", ResultProtocol.GRPC_TLS);
-        processes.query("INSERT INTO " + TABLE + " VALUES (4,1),(5,1),(6,1),(7,1)", ResultProtocol.GRPC_TLS);
+        seedArrivalTable(processes);
         processes.startSecondWorker();
 
         try (var client = processes.coordinatorClientBuilder().retryPolicy(RetryPolicy.NONE).build()) {
             for (var workload : WORKLOADS) {
                 long warmupDeadline = System.currentTimeMillis() + TIMEOUT.toMillis();
                 var warmup = client.beginQuery(workload.sql(), Map.of());
-                finish(client, warmup, awaitResult(warmup, warmupDeadline), workload.expected(), warmupDeadline);
+                consumeAndDrain(client, warmup, awaitResult(warmup, warmupDeadline), workload.expected(), warmupDeadline);
             }
             assertThat(processes.activeTenantReservations()).isZero();
 
@@ -152,19 +239,24 @@ class PersistentTenantOverloadE2ETest extends ContainerTestBase {
             var secondEndpoint = awaitResult(second, deadline);
             assertThat(processes.activeTenantReservations()).isEqualTo(2);
 
-            offer(45, Duration.ofMillis(50), 8, (workload, scheduled) -> reject(client, workload, scheduled));
+            offer(List.of(client), 45, Duration.ofMillis(50), 8, PersistentTenantOverloadE2ETest::reject);
             assertThat(processes.activeTenantReservations()).isEqualTo(2);
-            finish(client, first, firstEndpoint, List.of(81L), deadline);
-            finish(client, second, secondEndpoint, List.of(82L), deadline);
+            consumeAndDrain(client, first, firstEndpoint, List.of(81L), deadline);
+            consumeAndDrain(client, second, secondEndpoint, List.of(82L), deadline);
             assertThat(processes.activeTenantReservations()).isZero();
-            offer(40, Duration.ofMillis(200), 1, (workload, scheduled) -> complete(client, workload, scheduled));
+            offer(List.of(client), 40, Duration.ofMillis(200), 1, PersistentTenantOverloadE2ETest::complete);
             assertThat(processes.activeTenantReservations()).isZero();
             assertThat(processes.reports().forwardingFailures()).isEmpty();
         }
     }
 
-    private static void offer(int count, Duration interval, int concurrency,
-                              BiConsumer<Workload, Long> operation) throws Exception {
+    @FunctionalInterface
+    private interface Arrival {
+        void run(PangrovaRestClient client, Workload workload, long scheduled);
+    }
+
+    private static void offer(List<PangrovaRestClient> clients, int count, Duration interval, int concurrency,
+                              Arrival operation) throws Exception {
         var pool = ManagedExecutorFactory.newScheduledThreadPool("tenant-overload-arrivals", concurrency);
         var jobs = new ArrayList<Future<?>>(count);
         long first = System.nanoTime() + interval.toNanos();
@@ -172,7 +264,8 @@ class PersistentTenantOverloadE2ETest extends ContainerTestBase {
             for (int index = 0; index < count; index++) {
                 long scheduled = first + index * interval.toNanos();
                 var workload = WORKLOADS.get(index % WORKLOADS.size());
-                jobs.add(pool.schedule(() -> operation.accept(workload, scheduled),
+                var client = clients.get(index % clients.size());
+                jobs.add(pool.schedule(() -> operation.run(client, workload, scheduled),
                         Math.max(0, scheduled - System.nanoTime()), TimeUnit.NANOSECONDS));
             }
             for (var job : jobs) job.get(TIMEOUT.toSeconds(), TimeUnit.SECONDS);
@@ -199,44 +292,12 @@ class PersistentTenantOverloadE2ETest extends ContainerTestBase {
         long submitted = System.nanoTime();
         var endpoint = awaitResult(query, deadline);
         long ready = System.nanoTime();
-        long eof = finish(client, query, endpoint, workload.expected(), deadline);
+        var timing = consumeAndDrain(client, query, endpoint, workload.expected(), deadline);
         LOG.info("event=tenant_arrival result=drained workload={} submitUs={} queueUs={} readyUs={} "
-                        + "eofUs={} drainUs={}",
+                        + "firstRowUs={} eofUs={} drainUs={}",
                 workload.name(), micros(submitted, scheduled), micros(started, scheduled),
-                micros(ready, scheduled), micros(eof, scheduled), micros(System.nanoTime(), scheduled));
-    }
-
-    private static ResultEndpoint awaitResult(QueryExecution query, long deadline) {
-        var endpoint = query.submission().resultEndpoint();
-        while (endpoint == null) {
-            var status = query.awaitStatus(QueryWaitTarget.RESULT_OR_TERMINAL, deadline);
-            assertThat(status.state()).as("Query %s error %s", status.queryId(), status.error())
-                    .isNotIn("FAILED", "CANCELLED");
-            endpoint = status.resultEndpoint();
-            if ("FINISHED".equals(status.state())) assertThat(endpoint).isNotNull();
-        }
-        assertThat(endpoint.protocol()).isEqualTo(ResultProtocol.GRPC_TLS.value());
-        return endpoint;
-    }
-
-    private static long finish(PangrovaRestClient client, QueryExecution query, ResultEndpoint endpoint,
-                               List<Long> expected, long deadline) {
-        var values = new ArrayList<Long>();
-        try (var cursor = client.openResult(endpoint, deadline)) {
-            while (cursor.next()) {
-                values.add(((Number) cursor.value(0)).longValue());
-            }
-        }
-        long eof = System.nanoTime();
-        assertThat(values).containsExactlyElementsOf(expected);
-        var status = query.awaitStatus(QueryWaitTarget.DRAINED, deadline);
-        while (!Boolean.TRUE.equals(status.drained())) {
-            assertThat(status.state()).as("Query %s error %s", status.queryId(), status.error())
-                    .isNotIn("FAILED", "CANCELLED");
-            status = query.awaitStatus(QueryWaitTarget.DRAINED, deadline);
-        }
-        assertThat(status.state()).isEqualTo("FINISHED");
-        return eof;
+                micros(ready, scheduled), micros(timing.firstRow(), scheduled),
+                micros(timing.eof(), scheduled), micros(System.nanoTime(), scheduled));
     }
 
     private static long micros(long timestamp, long origin) {

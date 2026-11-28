@@ -10,7 +10,9 @@ import org.pangrova.execution.api.enums.TaskPurpose;
 import org.pangrova.coordinator.query.execution.split.QuerySplit;
 import org.pangrova.execution.task.StageDispatchRecord;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.UnaryOperator;
 import org.pangrova.coordinator.query.execution.dispatch.dag.control.DurableStageRuntime;
@@ -24,12 +26,14 @@ import org.pangrova.generation.publication.read.PublishedGenerationBindingResolv
 import org.pangrova.execution.task.DispatchResult;
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.DispatchCanceller;
 import org.pangrova.coordinator.query.stage.Stage;
+import org.pangrova.coordinator.query.stage.ShuffleInputLayout.Consumer;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageEdge;
 import org.pangrova.coordinator.query.stage.StageNode;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.execution.BoundExecutionPlan;
+import org.pangrova.protocol.execution.identity.WorkerExecutionIdentity;
 import org.pangrova.protocol.v2.DataSplit;
 import org.pangrova.protocol.v2.OperatorBinding;
 import org.pangrova.persistence.query.api.state.QueryStateJournal;
@@ -43,11 +47,9 @@ import org.slf4j.LoggerFactory;
 final class LeafStageDispatcher {
 
     private static final Logger LOG = LoggerFactory.getLogger(LeafStageDispatcher.class);
-    private static final int ARTIFACT_DISPATCH_WINDOW = 16;
     private static final long MAX_DML_MEMORY_BYTES = 256L * 1024 * 1024;
 
     private final org.pangrova.coordinator.scheduler.TaskDispatcher dispatcher;
-    private final QueryStateJournal stateJournal;
     private final long taskTimeoutSeconds;
     private final TaskStageRegistrar taskStageRegistrar;
     private final PublishedGenerationBindingResolver artifactBindingResolver;
@@ -55,7 +57,6 @@ final class LeafStageDispatcher {
     private final boolean remoteShuffle;
     private final boolean localShuffle;
     private final StagePartitionDispatcher partitions;
-    private final DispatchCanceller canceller;
 
     LeafStageDispatcher(org.pangrova.coordinator.scheduler.TaskDispatcher dispatcher,
                         QueryStateJournal stateJournal,
@@ -64,15 +65,14 @@ final class LeafStageDispatcher {
                         TaskStageRegistrar taskStageRegistrar,
                         LeafDispatchOptions options) {
         this.dispatcher = dispatcher;
-        this.stateJournal = stateJournal;
         this.taskTimeoutSeconds = taskTimeoutSeconds;
         this.taskStageRegistrar = taskStageRegistrar;
         this.artifactBindingResolver = options.artifactBindingResolver();
         this.descriptorEncoder = options.descriptorEncoder();
         this.remoteShuffle = options.remoteShuffle();
         this.localShuffle = options.localShuffle();
-        this.partitions = new StagePartitionDispatcher(dispatcher, canceller, options.taskAccessBinder());
-        this.canceller = canceller;
+        this.partitions = new StagePartitionDispatcher(dispatcher, canceller, options.taskAccessBinder(),
+                stateJournal == null ? null : stateJournal::appendTaskIssuancesSync);
     }
 
     record LeafDispatchOptions(
@@ -107,7 +107,7 @@ final class LeafStageDispatcher {
             org.pangrova.protocol.rest.config.ShuffleConfig shuffleConfig,
             List<List<DataSplit>> partitionedSplits,
             List<List<String>> partitionFilePaths,
-            boolean leafStage,
+            List<Long> partitionWork,
             boolean hasArtifacts,
             int taskCount) {}
 
@@ -122,16 +122,20 @@ final class LeafStageDispatcher {
         PreparedDispatch prepared = prepareDispatch(input);
         List<DAGDispatchEngine.PartitionDispatch> dispatches = new ArrayList<>();
         var templates = input.boundPlan().operatorBindings();
-        int window = prepared.hasArtifacts() ? ARTIFACT_DISPATCH_WINDOW : Math.max(1, prepared.taskCount());
+        if (prepared.hasArtifacts()) {
+            if (artifactBindingResolver == null) {
+                throw new IllegalStateException("artifact retrieval plan has no durable metadata resolver");
+            }
+            artifactBindingResolver.retainSnapshotPinsForExecution(
+                    input.session().tenantId(), input.execution().executionId(), templates);
+        }
         for (int first = 0; first < prepared.taskCount();) {
-            int last = first + Math.min(window, prepared.taskCount() - first);
+            int last = first + Math.min(QueryStateJournal.MAX_TASK_ISSUANCE_BATCH, prepared.taskCount() - first);
             var taskBindings = prepared.hasArtifacts()
                     ? materializeArtifactBindings(input.session().tenantId(), templates,
                             prepared.partitionedSplits().subList(first, last))
                     : java.util.Collections.nCopies(last - first, templates);
-            for (int partition = first; partition < last; partition++) {
-                dispatches.add(dispatchPartition(input, prepared, partition, taskBindings.get(partition - first)));
-            }
+            dispatchPreparedWindow(input, prepared, dispatches, first, last, taskBindings);
             first = last;
         }
         LOG.info("event=push_mode_dispatch queryId={} stageId={} splits={}"
@@ -141,6 +145,26 @@ final class LeafStageDispatcher {
                 prepared.shuffleConfig() == null
                         ? 0 : prepared.shuffleConfig().numPartitions());
         return dispatches;
+    }
+
+    private void dispatchPreparedWindow(LeafDispatch input, PreparedDispatch prepared,
+            List<DAGDispatchEngine.PartitionDispatch> dispatches, int first, int last,
+            List<List<OperatorBinding>> taskBindings) {
+        List<StagePartitionDispatcher.Candidate> candidates = new ArrayList<>(last - first);
+        Map<WorkerExecutionIdentity, Double> windowWork = new HashMap<>();
+        for (int partition = first; partition < last; partition++) {
+            long work = prepared.partitionWork().get(partition);
+            var worker = selectWorker(input, prepared, partition, work, windowWork);
+            var request = buildTaskRequest(input, prepared, partition, worker, taskBindings.get(partition - first));
+            candidates.add(new StagePartitionDispatcher.Candidate(request, worker));
+            if (work > 0) {
+                windowWork.merge(worker.workerExecutionIdentity(), (double) work, Double::sum);
+            }
+        }
+        var issued = partitions.dispatchCohort(candidates);
+        for (int index = 0; index < issued.size(); index++) {
+            dispatches.add(dispatchRecord(issued.get(index), candidates.get(index).worker()));
+        }
     }
 
     private PreparedDispatch prepareDispatch(LeafDispatch input) {
@@ -155,16 +179,20 @@ final class LeafStageDispatcher {
         var assigned = hasArtifactBindings
                 ? partitionArtifactSplits(artifactGroups, taskCount)
                 : StageSplitPartitions.partitionSplits(splits, taskCount,
-                        QuerySplit::estimatedScanBytes);
+                        QuerySplit::estimatedPlacementWeight);
         var partitionedSplits = assigned.stream()
                 .map(partition -> partition.stream().map(QuerySplit::data).toList()).toList();
         var partitionFilePaths = assigned.stream()
                 .map(partition -> partition.stream().flatMap(split -> split.filePaths().stream()).toList())
                 .toList();
+        var stage = input.dag().findStage(plan.stageId());
+        var consumers = stage == null ? List.<Consumer>of() : stage.shuffleInputs().consumers();
+        var work = consumers.isEmpty() ? assigned.stream().map(LeafStageDispatcher::placementWork).toList()
+                : consumers.stream().map(consumer -> consumer.partitions().totalBytes()).toList();
         return new PreparedDispatch(new TaskRequestFactory.FrozenStagePlan(input.boundPlan().planBytes()),
                 ExchangeSourceBuilder.prepare(plan, input.dag(), input.dispatched()),
                 input.workerSelector().bindStagePlacement(input.session().tenantId()),
-                shuffleConfig, partitionedSplits, partitionFilePaths, leafStage, hasArtifactBindings, taskCount);
+                shuffleConfig, partitionedSplits, partitionFilePaths, work, hasArtifactBindings, taskCount);
     }
 
     private int taskCount(
@@ -182,7 +210,7 @@ final class LeafStageDispatcher {
         int clusterCap = workerCount > Integer.MAX_VALUE / WorkerSelector.MAX_TASKS_PER_WORKER
                 ? Integer.MAX_VALUE : workerCount * WorkerSelector.MAX_TASKS_PER_WORKER;
         var stage = input.dag().findStage(input.plan().stageId());
-        int taskCount = stage != null && !stage.coalescedInputRanges().isEmpty()
+        int taskCount = stage != null && !stage.shuffleInputs().consumers().isEmpty()
                 ? stage.physicalTaskCount()
                 : taskCountForGraph(input.plan(), input.dag(), remoteShuffle, rawParallelism, clusterCap);
         if (hasArtifactBindings) taskCount = artifactTaskCount(input, artifactSourceCount, taskCount);
@@ -228,11 +256,8 @@ final class LeafStageDispatcher {
                 Math.max(input.splitsWithPaths().size(), 1));
     }
 
-    private DAGDispatchEngine.PartitionDispatch dispatchPartition(
-            LeafDispatch input, PreparedDispatch prepared, int partition, List<OperatorBinding> taskBindings) {
-        var worker = selectWorker(input, prepared, partition);
-        var request = buildTaskRequest(input, prepared, partition, worker, taskBindings);
-        var issued = partitions.dispatch(request, worker);
+    private static DAGDispatchEngine.PartitionDispatch dispatchRecord(StagePartitionDispatcher.Issued issued,
+            WorkerInfo worker) {
         return new DAGDispatchEngine.PartitionDispatch(issued.acknowledgement(), worker.httpPort(),
                 worker.transportPort(), worker.workerId(), issued.request(), null);
     }
@@ -240,56 +265,51 @@ final class LeafStageDispatcher {
     private List<DAGDispatchEngine.PartitionDispatch> dispatchDurable(
             LeafDispatch input, DurablePartitionRequest.StageRequestPlan requestPlan) {
         List<DAGDispatchEngine.PartitionDispatch> result = new ArrayList<>();
-        ExchangeSourceBuilder.StageInputs exchangeInputs = null;
-        DurableStageRuntime.StageTasks stageTasks = null;
         int stage = input.plan().stageId();
-        int total = input.plan().parallelism();
-        int window = GenerationStageExecutionStore.PARTITION_INSPECTION_WINDOW;
+        int total = input.dag().findStage(stage).physicalTaskCount();
+        int window = Math.min(GenerationStageExecutionStore.PARTITION_WINDOW,
+                QueryStateJournal.MAX_TASK_ISSUANCE_BATCH);
+        var exchangeInputs = ExchangeSourceBuilder.prepare(input.plan(), input.dag(), input.dispatched());
+        var shuffleOutput = buildShuffleConfig(input.plan(), input.dag(), true);
+        var allocation = shuffleHandle(input.dag(), stage);
+        var windows = input.durable().bindStageWindows(stage, requestPlan,
+                partition -> new DurablePartitionRequest.ExchangeAccess(input.planEpoch(),
+                        exchangeInputs.bind(partition, null), shuffleOutput, allocation, descriptorEncoder));
         for (int first = 0; first < total; first += Math.min(window, total - first)) {
-            var progressWindow = input.durable().inspect(stage, first, Math.min(window, total - first));
-            for (int offset = 0; offset < progressWindow.size(); offset++) {
-                int partition = first + offset;
-                var progress = progressWindow.get(offset);
-                if (progress.winner().isPresent()) {
-                    var winner = input.durable().winner(stage, partition, progress);
+            int count = Math.min(window, total - first);
+            var prepared = windows.prepare(first, count, java.time.Instant.now());
+            if (prepared.size() != count) {
+                throw new IllegalStateException(
+                        "Exact durable partition window is not claimable by the current execution owner");
+            }
+            var candidates = prepared.stream().filter(DurableStageRuntime.PreparedTask.class::isInstance)
+                    .map(DurableStageRuntime.PreparedTask.class::cast)
+                    .map(task -> new StagePartitionDispatcher.Candidate(task.request(), task.worker())).toList();
+            var issued = partitions.dispatchCohort(candidates).iterator();
+            for (var partition : prepared) {
+                if (partition instanceof DurableStageRuntime.PreparedTask task) {
+                    var dispatch = issued.next();
+                    input.durable().dispatched(task, dispatch.acknowledgement());
+                    result.add(dispatchRecord(dispatch, task.worker()));
+                } else {
+                    var report = ((DurableStageRuntime.RestoredTask) partition).report();
                     result.add(new DAGDispatchEngine.PartitionDispatch(
-                            java.util.concurrent.CompletableFuture.completedFuture(null), 0, 0, null, null, winner));
-                    continue;
+                            java.util.concurrent.CompletableFuture.completedFuture(null), 0, 0, null, null, report));
                 }
-                if (exchangeInputs == null) {
-                    exchangeInputs = ExchangeSourceBuilder.prepare(input.plan(), input.dag(), input.dispatched());
-                    stageTasks = input.durable().bindStageTasks(stage, requestPlan);
-                }
-                var access = new DurablePartitionRequest.ExchangeAccess(input.planEpoch(),
-                        exchangeInputs.bind(partition, null),
-                        buildShuffleConfig(input.plan(), input.dag(), true),
-                        shuffleHandle(input.dag(), stage), descriptorEncoder);
-                var prepared = stageTasks.prepare(partition, progress, access, java.time.Instant.now())
-                        .orElseThrow(() -> new IllegalStateException(
-                                "Exact durable partition is not claimable by the current execution owner"));
-                var issued = partitions.dispatch(prepared.request(), prepared.worker());
-                input.durable().dispatched(prepared, issued.acknowledgement());
-                result.add(new DAGDispatchEngine.PartitionDispatch(issued.acknowledgement(),
-                        prepared.worker().httpPort(),
-                        prepared.worker().transportPort(), prepared.worker().workerId(), issued.request(), null));
             }
         }
         return List.copyOf(result);
     }
 
-    private WorkerInfo selectWorker(
-            LeafDispatch input, PreparedDispatch prepared, int partition) {
-        List<String> paths = prepared.partitionFilePaths().get(partition);
-        if (!input.boundPlan().operatorBindings().isEmpty()) {
-            return prepared.placement().selectForBindings(
-                    input.session().tenantId(), paths,
-                    input.boundPlan().operatorBindings());
+    private WorkerInfo selectWorker(LeafDispatch input, PreparedDispatch prepared, int partition, long work,
+            Map<WorkerExecutionIdentity, Double> windowWork) {
+        String tenantId = input.session().tenantId();
+        var bindings = input.boundPlan().operatorBindings();
+        if (work > 0) {
+            return prepared.placement().selectScanWorker(
+                    tenantId, prepared.partitionFilePaths().get(partition), bindings, work, windowWork);
         }
-        if (prepared.leafStage() && !paths.isEmpty()) {
-            return prepared.placement().selectWithCacheAffinity(
-                    input.session().tenantId(), paths);
-        }
-        return prepared.placement().select(input.session().tenantId());
+        return prepared.placement().selectForBindings(tenantId, List.of(), bindings);
     }
 
     private SubmitTaskRequest buildTaskRequest(
@@ -384,9 +404,7 @@ final class LeafStageDispatcher {
             }
             DispatchResult r = pd.future().join();
             taskStageRegistrar.register(execution.executionId(), r.taskId(), stage);
-            if (stateJournal != null) {
-                canceller.journalScheduledTask(stateJournal, r.taskId());
-            }
+
         }
     }
 
@@ -405,10 +423,16 @@ final class LeafStageDispatcher {
             grouped.computeIfAbsent(split.data().getDataObjectId(), ignored -> new ArrayList<>()).add(split);
         }
         return grouped.values().stream()
-                .map(group -> new SourceObjectSplits(group, group.stream()
-                        .mapToLong(split -> Math.max(1L, split.estimatedScanBytes()))
-                        .reduce(0L, (left, right) -> left + Math.min(Long.MAX_VALUE - left, right))))
+                .map(group -> new SourceObjectSplits(group, placementWork(group)))
                 .toList();
+    }
+
+    private static long placementWork(List<QuerySplit> splits) {
+        long total = 0L;
+        for (var split : splits) {
+            total += Math.min(Long.MAX_VALUE - total, split.estimatedPlacementWeight());
+        }
+        return total;
     }
 
     /** Keeps every split of one immutable source object on one Native task. */

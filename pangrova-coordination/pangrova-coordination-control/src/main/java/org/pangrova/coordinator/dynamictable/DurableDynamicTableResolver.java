@@ -1,9 +1,7 @@
 package org.pangrova.coordinator.dynamictable;
 
-import org.pangrova.materialization.api.domain.MaterializationId;
 import org.pangrova.materialization.api.domain.QualifiedName;
-import org.pangrova.materialization.api.domain.TenantId;
-import org.pangrova.persistence.materialization.api.publication.MaterializationCatalog;
+import org.pangrova.coordinator.materialization.PlanningMaterializations;
 import org.pangrova.planner.mv.DynamicTableRewriter;
 import org.pangrova.connector.api.metadata.table.QualifiedTableName;
 
@@ -19,8 +17,7 @@ public final class DurableDynamicTableResolver implements DynamicTableRewriter.P
 
     private static final Pattern NAME_PART = Pattern.compile("[A-Za-z_][A-Za-z_0-9]*");
 
-    private final MaterializationCatalog catalog;
-    private final String tenantId;
+    private final PlanningMaterializations publications;
     private final String defaultCatalog;
     private final String defaultSchema;
     private final java.util.function.Consumer<
@@ -32,18 +29,16 @@ public final class DurableDynamicTableResolver implements DynamicTableRewriter.P
      * <p>Leasing happens before the target is handed to the planner, so garbage
      * collection cannot collect a generation between resolution and execution.
      *
-     * @param catalog durable publication read model
-     * @param tenantId object tenant
+     * @param publications query-local tenant publication directory
      * @param defaultCatalog session default catalog
      * @param defaultSchema session default schema
      * @param readerPins per-query lease callback
      */
-    public DurableDynamicTableResolver(MaterializationCatalog catalog, String tenantId,
+    public DurableDynamicTableResolver(PlanningMaterializations publications,
             String defaultCatalog, String defaultSchema,
             java.util.function.Consumer<org.pangrova.materialization.api.port.PublishedMaterialization>
                     readerPins) {
-        this.catalog = Objects.requireNonNull(catalog, "catalog");
-        this.tenantId = Objects.requireNonNull(tenantId, "tenantId");
+        this.publications = Objects.requireNonNull(publications, "publications");
         this.defaultCatalog = defaultCatalog;
         this.defaultSchema = defaultSchema;
         this.readerPins = Objects.requireNonNull(readerPins, "readerPins");
@@ -55,9 +50,7 @@ public final class DurableDynamicTableResolver implements DynamicTableRewriter.P
         if (logical == null) {
             return Optional.empty();
         }
-        MaterializationId object = new MaterializationId(
-                new TenantId(tenantId), QualifiedName.parse(logical.toString()));
-        return catalog.findPublished(object)
+        return publications.snapshot().find(QualifiedName.parse(logical.toString()))
                 .map(published -> {
                     readerPins.accept(published);
                     return new DynamicTableRewriter.PublishedTarget(logical,

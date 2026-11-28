@@ -3,11 +3,13 @@ package org.pangrova.client.cli;
 import org.pangrova.client.cli.exception.QueryTimeoutException;
 import org.pangrova.client.http.QueryClient;
 import org.pangrova.client.http.QueryExecution;
+import org.pangrova.transport.client.ColumnDescriptor;
 import org.pangrova.transport.client.ResultCursor;
 import org.pangrova.common.client.enums.CancelOutcome;
 import org.pangrova.common.client.error.ErrorDetail;
 import org.pangrova.common.client.exception.PangrovaClientException;
 import org.pangrova.common.client.query.QueryStatusResponse;
+import org.pangrova.common.enums.ResultDisposition;
 import org.pangrova.common.enums.QueryWaitTarget;
 import org.pangrova.common.client.result.ResultEndpoint;
 import org.pangrova.common.client.query.SubmitQueryResponse;
@@ -20,9 +22,11 @@ import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
+import java.sql.Types;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -42,15 +46,16 @@ class SqlShellTimeoutTest {
     void revokedFlightAuthorityReportsOnlyConfirmedQueryFailure(boolean queryFails) {
         String queryId = "q-flight-revoked";
         var endpoint = new ResultEndpoint("localhost", 1234, "ticket", "grpc+tls");
-        var running = QueryStatusResponse.of(queryId, "RUNNING", null, endpoint);
+        var running = QueryStatusResponse.of(
+                queryId, "RUNNING", null, ResultDisposition.STREAM, endpoint);
         var failed = QueryStatusResponse.of(queryId, "FAILED",
                 new ErrorDetail("AI_PROVIDER_UNAVAILABLE", "RUNTIME_ERROR", "Reranking provider returned HTTP 502"),
-                null);
+                ResultDisposition.STREAM, endpoint);
         var statusReads = new AtomicInteger();
         QueryClient client = new TestQueryClient() {
             @Override
             public SubmitQueryResponse submitQuery(String sql, Map<String, String> properties) {
-                return new SubmitQueryResponse(queryId, "RUNNING", null, List.of("result"));
+                return new SubmitQueryResponse(queryId, "RUNNING", ResultDisposition.PENDING, null, List.of("result"));
             }
 
             @Override
@@ -83,6 +88,57 @@ class SqlShellTimeoutTest {
     }
 
     @Test
+    void startupShowsBrandAndProjectIntroduction() {
+        var output = new ByteArrayOutputStream();
+        var shell = new SqlShell(new TestQueryClient() {}, new BufferedReader(new StringReader("\\q\n")),
+                new PrintStream(output, true, StandardCharsets.UTF_8), Duration.ofSeconds(1));
+
+        shell.run();
+
+        String rendered = output.toString(StandardCharsets.UTF_8);
+        var banner = rendered.lines().limit(6).toList();
+        // A P has an open lower-right side; the former D closed at the bottom.
+        assertThat(banner).hasSize(6);
+        assertThat(banner.get(2)).startsWith("██████╔╝");
+        assertThat(banner.get(4)).startsWith("██║      ").endsWith("██║  ██║");
+        assertThat(banner.get(5)).startsWith("╚═╝      ").endsWith("╚═╝  ╚═╝");
+        assertThat(banner).allSatisfy(line -> assertThat(line.length()).isLessThan(80));
+        assertThat(rendered).contains(
+                "██████╗",
+                "Distributed SQL for open lakehouses",
+                "Open-source lakehouse analytics and AI retrieval.",
+                "Pangrova SQL Shell. Type \\q or exit to quit.",
+                "Bye!");
+    }
+
+    @Test
+    void narrowTerminalUsesCompactBrand() {
+        var output = new ByteArrayOutputStream();
+        var shell = new SqlShell(new TestQueryClient() {}, new BufferedReader(new StringReader("\\q\n")),
+                new PrintStream(output, true, StandardCharsets.UTF_8), Duration.ofSeconds(1),
+                null, null, new TerminalStyle(false, 60));
+
+        shell.run();
+
+        assertThat(output.toString(StandardCharsets.UTF_8))
+                .contains("PANGROVA CLI", "Distributed SQL for open lakehouses")
+                .doesNotContain("██████╗");
+    }
+
+    @Test
+    void colorTerminalEmitsAnsiPresentation() {
+        var output = new ByteArrayOutputStream();
+        var shell = new SqlShell(new TestQueryClient() {}, new BufferedReader(new StringReader("\\q\n")),
+                new PrintStream(output, true, StandardCharsets.UTF_8), Duration.ofSeconds(1),
+                null, null, new TerminalStyle(true, 100));
+
+        shell.run();
+
+        assertThat(output.toString(StandardCharsets.UTF_8))
+                .contains("\u001B[38;5;141m", "\u001B[2m", "\u001B[0m");
+    }
+
+    @Test
     void queryTimesOutAndSendsCancelRequest() {
         // Arrange: a mock client that never returns a terminal state
         AtomicBoolean cancelCalled = new AtomicBoolean(false);
@@ -91,12 +147,13 @@ class SqlShellTimeoutTest {
         QueryClient client = new TestQueryClient() {
             @Override
             public SubmitQueryResponse submitQuery(String sql, Map<String, String> props) {
-                return new SubmitQueryResponse("q-timeout-test", "RUNNING", null, List.of("col1"));
+                return new SubmitQueryResponse("q-timeout-test", "RUNNING",
+                        ResultDisposition.PENDING, null, List.of("col1"));
             }
 
             @Override
             public QueryStatusResponse getQueryStatus(String queryId) {
-                return new QueryStatusResponse(queryId, "RUNNING", null, null, null);
+                return new QueryStatusResponse(queryId, "RUNNING", null, null, ResultDisposition.PENDING, null);
             }
 
             @Override
@@ -136,13 +193,14 @@ class SqlShellTimeoutTest {
         QueryClient client = new TestQueryClient() {
             @Override
             public SubmitQueryResponse submitQuery(String sql, Map<String, String> props) {
-                return new SubmitQueryResponse("q-interrupt-test", "RUNNING", null, List.of("col1"));
+                return new SubmitQueryResponse("q-interrupt-test", "RUNNING",
+                        ResultDisposition.PENDING, null, List.of("col1"));
             }
 
             @Override
             public QueryStatusResponse getQueryStatus(String queryId) {
                 pollStarted.countDown();
-                return new QueryStatusResponse(queryId, "RUNNING", null, null, null);
+                return new QueryStatusResponse(queryId, "RUNNING", null, null, ResultDisposition.PENDING, null);
             }
 
             @Override
@@ -186,12 +244,12 @@ class SqlShellTimeoutTest {
         QueryClient client = new TestQueryClient() {
             @Override
             public SubmitQueryResponse submitQuery(String sql, Map<String, String> props) {
-                return new SubmitQueryResponse("q-normal", "FINISHED", null, List.of());
+                return new SubmitQueryResponse("q-normal", "FINISHED", ResultDisposition.NONE, null, List.of());
             }
 
             @Override
             public QueryStatusResponse getQueryStatus(String queryId) {
-                return new QueryStatusResponse(queryId, "FINISHED", null, null, null);
+                return new QueryStatusResponse(queryId, "FINISHED", null, null, ResultDisposition.NONE, null);
             }
 
             @Override
@@ -226,12 +284,13 @@ class SqlShellTimeoutTest {
         QueryClient client = new TestQueryClient() {
             @Override
             public SubmitQueryResponse submitQuery(String sql, Map<String, String> props) {
-                return new SubmitQueryResponse("q-cancel-fail", "RUNNING", null, List.of("col1"));
+                return new SubmitQueryResponse("q-cancel-fail", "RUNNING",
+                        ResultDisposition.PENDING, null, List.of("col1"));
             }
 
             @Override
             public QueryStatusResponse getQueryStatus(String queryId) {
-                return new QueryStatusResponse(queryId, "RUNNING", null, null, null);
+                return new QueryStatusResponse(queryId, "RUNNING", null, null, ResultDisposition.PENDING, null);
             }
 
             @Override
@@ -265,15 +324,15 @@ class SqlShellTimeoutTest {
         QueryClient client = new TestQueryClient() {
             @Override
             public SubmitQueryResponse submitQuery(String sql, Map<String, String> props) {
-                return new SubmitQueryResponse("q-transitions", "RUNNING", null, List.of());
+                return new SubmitQueryResponse("q-transitions", "RUNNING", ResultDisposition.PENDING, null, List.of());
             }
 
             @Override
             public QueryStatusResponse getQueryStatus(String queryId) {
                 if (pollCount.incrementAndGet() >= 3) {
-                    return new QueryStatusResponse(queryId, "FINISHED", null, null, null);
+                    return new QueryStatusResponse(queryId, "FINISHED", null, null, ResultDisposition.NONE, null);
                 }
-                return new QueryStatusResponse(queryId, "RUNNING", null, null, null);
+                return new QueryStatusResponse(queryId, "RUNNING", null, null, ResultDisposition.PENDING, null);
             }
 
             @Override
@@ -296,6 +355,140 @@ class SqlShellTimeoutTest {
 
         assertThat(output).contains("Query submitted: q-transitions", "OK (no result set)");
         assertThat(output).doesNotContain("QUERY_TIMEOUT");
+    }
+
+    @Test
+    void emptySelectStillConsumesAStream() {
+        var endpoint = new ResultEndpoint("worker", 1234, "empty-select", "grpc");
+        var opened = new AtomicBoolean();
+        QueryClient client = new TestQueryClient() {
+            @Override
+            public SubmitQueryResponse submitQuery(String sql, Map<String, String> properties) {
+                return new SubmitQueryResponse("q-empty", "FINISHED",
+                        ResultDisposition.STREAM, endpoint, List.of("value"));
+            }
+
+            @Override
+            public ResultCursor openResult(ResultEndpoint result, long deadlineEpochMs) {
+                assertThat(result).isEqualTo(endpoint);
+                opened.set(true);
+                return emptyCursor();
+            }
+        };
+        var output = new ByteArrayOutputStream();
+        var shell = new SqlShell(client, new BufferedReader(new StringReader("SELECT 1 WHERE false;\n")),
+                new PrintStream(output, true, StandardCharsets.UTF_8), Duration.ofSeconds(2));
+
+        shell.run();
+
+        assertThat(opened).isTrue();
+        assertThat(output.toString(StandardCharsets.UTF_8)).contains("0 rows")
+                .doesNotContain("OK (no result set)");
+    }
+
+    @Test
+    void delayedEndpointPublicationIsConsumedWithoutTreatingItAsNoResult() {
+        var endpoint = new ResultEndpoint("worker", 1234, "delayed", "grpc");
+        var reads = new AtomicInteger();
+        var opened = new AtomicBoolean();
+        QueryClient client = new TestQueryClient() {
+            @Override
+            public SubmitQueryResponse submitQuery(String sql, Map<String, String> properties) {
+                return new SubmitQueryResponse("q-delayed", "RUNNING",
+                        ResultDisposition.PENDING, null, List.of("value"));
+            }
+
+            @Override
+            public QueryStatusResponse getQueryStatus(String queryId) {
+                int read = reads.incrementAndGet();
+                if (read == 1) {
+                    return QueryStatusResponse.of(
+                            queryId, "RUNNING", null, ResultDisposition.PENDING, null);
+                }
+                if (read == 2) {
+                    return QueryStatusResponse.of(
+                            queryId, "RUNNING", null, ResultDisposition.STREAM, endpoint);
+                }
+                return QueryStatusResponse.of(
+                        queryId, "FINISHED", null, ResultDisposition.STREAM, endpoint);
+            }
+
+            @Override
+            public ResultCursor openResult(ResultEndpoint result, long deadlineEpochMs) {
+                assertThat(result).isEqualTo(endpoint);
+                opened.set(true);
+                return emptyCursor();
+            }
+        };
+        var output = new ByteArrayOutputStream();
+        var shell = new SqlShell(client, new BufferedReader(new StringReader("SELECT 1;\n")),
+                new PrintStream(output, true, StandardCharsets.UTF_8), Duration.ofSeconds(2));
+
+        shell.run();
+
+        assertThat(opened).isTrue();
+        assertThat(output.toString(StandardCharsets.UTF_8)).contains("0 rows")
+                .doesNotContain("OK (no result set)");
+    }
+
+    @Test
+    void cancellationBeforeEndpointPublicationIsTerminalNoResult() {
+        var cancellations = new AtomicInteger();
+        QueryClient client = new TestQueryClient() {
+            @Override
+            public SubmitQueryResponse submitQuery(String sql, Map<String, String> properties) {
+                return new SubmitQueryResponse("q-cancelled", "RUNNING",
+                        ResultDisposition.PENDING, null, List.of("value"));
+            }
+
+            @Override
+            public QueryStatusResponse getQueryStatus(String queryId) {
+                return QueryStatusResponse.of(
+                        queryId, "CANCELLED", null, ResultDisposition.NONE, null);
+            }
+
+            @Override
+            public CancelOutcome cancelQuery(String queryId) {
+                cancellations.incrementAndGet();
+                return CancelOutcome.CANCEL_ACCEPTED;
+            }
+
+            @Override
+            public ResultCursor openResult(ResultEndpoint endpoint, long deadlineEpochMs) {
+                throw new AssertionError("A cancelled resultless query must not open Flight");
+            }
+        };
+        var output = new ByteArrayOutputStream();
+        var shell = new SqlShell(client, new BufferedReader(new StringReader("SELECT 1;\n")),
+                new PrintStream(output, true, StandardCharsets.UTF_8), Duration.ofSeconds(2));
+
+        shell.run();
+
+        assertThat(output.toString(StandardCharsets.UTF_8)).contains("QUERY_CANCELLED")
+                .doesNotContain("RESULT_ENDPOINT_MISSING");
+        assertThat(cancellations).hasValue(1);
+    }
+
+    private static ResultCursor emptyCursor() {
+        return new ResultCursor() {
+            @Override
+            public List<ColumnDescriptor> columns() {
+                return List.of(new ColumnDescriptor("value", Types.INTEGER, "INTEGER", 10, 0, Optional.empty()));
+            }
+
+            @Override
+            public boolean next() {
+                return false;
+            }
+
+            @Override
+            public Object value(int column) {
+                throw new AssertionError("No rows");
+            }
+
+            @Override
+            public void close() { }
+        };
     }
 
     @Test

@@ -2,8 +2,10 @@ package org.pangrova.persistence.generation.postgresql.job;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.pangrova.generation.api.dependency.GenerationDependencySet;
 import org.pangrova.generation.api.job.GenerationDispatchSpec;
 import org.pangrova.generation.api.identity.GenerationJobKey;
+import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.PartitionClaim;
 import org.pangrova.persistence.jdbc.api.generation.GenerationPublicationCandidates;
 import org.pangrova.persistence.jdbc.api.generation.GenerationTransactionAuthority;
 import org.pangrova.persistence.jdbc.api.generation.GenerationExecutionTransactionFence;
@@ -36,28 +38,49 @@ class GenerationCancellationLockIntegrationTest extends ContainerTestBase {
 
     @Test
     void exactClaimDistinguishesMissingCoordinatesFromAContendedOrUnavailablePage() throws Exception {
-        var target = new PostgresGenerationPageSelection.Coordinates(0, 0, 0);
-        var ready = new PostgresGenerationPageSelection.Selection(
-                "tenant-a", "job-a", NOW, java.util.Optional.of(target));
-        var future = new PostgresGenerationPageSelection.Selection(
-                "tenant-a", "job-a", NOW.minusSeconds(1), java.util.Optional.of(target));
-        var wrongOrdinal = new PostgresGenerationPageSelection.Selection(
-                "tenant-a", "job-a", NOW, java.util.Optional.of(new PostgresGenerationPageSelection.Coordinates(0, 0, 1)));
+        var key = new GenerationJobKey("tenant-a", "job-a");
+        var anchor = new ExecutionAnchor(key.executionId(), "owner-a", "incarnation-a", 1, NOW, NOW.plusSeconds(60));
+        var ready = List.of(new PartitionClaim(key, anchor, 0, 0, 0, 1, Duration.ofMinutes(1), NOW));
+        var future = List.of(new PartitionClaim(key, anchor, 0, 0, 0, 1, Duration.ofMinutes(1), NOW.minusSeconds(1)));
+        var wrongOrdinal = List.of(new PartitionClaim(key, anchor, 0, 0, 1, 1, Duration.ofMinutes(1), NOW));
         try (var owner = dataSource.getConnection(); var claimant = dataSource.getConnection()) {
             owner.setAutoCommit(false);
             claimant.setAutoCommit(false);
             execute(claimant, "SET LOCAL statement_timeout='3s'");
             execute(owner, "SELECT page_id FROM artifact_build_pages WHERE job_id='job-a' FOR UPDATE");
 
-            assertThat(PostgresGenerationPageSelection.selectClaimablePage(claimant, ready)).isEmpty();
-            assertThatThrownBy(() -> PostgresGenerationPageSelection.selectClaimablePage(claimant, wrongOrdinal))
+            assertThat(PostgresGenerationPageSelection.selectClaimableCohort(claimant, ready, false)).isEmpty();
+            assertThatThrownBy(() -> PostgresGenerationPageSelection.selectClaimableCohort(claimant, wrongOrdinal, false))
                     .isInstanceOf(IllegalStateException.class).hasMessageContaining("exact immutable page allocation");
 
             owner.rollback();
-            assertThat(PostgresGenerationPageSelection.selectClaimablePage(claimant, future)).isEmpty();
-            assertThat(PostgresGenerationPageSelection.selectClaimablePage(claimant, ready))
-                    .hasValueSatisfying(page -> assertThat(page.pageId()).isEqualTo("page-a"));
+            assertThat(PostgresGenerationPageSelection.selectClaimableCohort(claimant, future, false)).isEmpty();
+            assertThat(PostgresGenerationPageSelection.selectClaimableCohort(claimant, ready, false))
+                    .singleElement().satisfies(page -> assertThat(page.pageId()).isEqualTo("page-a"));
             claimant.rollback();
+        }
+    }
+
+    @Test
+    void pageClaimReturnsTheSameExpirationThatPostgresqlPersists() throws Exception {
+        Instant claimTime = NOW.plusNanos(123);
+        Duration leaseDuration = Duration.ofSeconds(30);
+        var anchor = new ExecutionAnchor(new GenerationJobKey("tenant-a", "job-a").executionId(),
+                "owner-a", "incarnation-a", 1, NOW, NOW.plusSeconds(60));
+        try (var connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            execute(connection, "UPDATE artifact_build_pages SET page_kind='RELATIONAL_COMPUTE' "
+                    + "WHERE tenant_id='tenant-a' AND job_id='job-a' AND page_id='page-a'");
+            var page = PostgresGenerationPageSelection.selectClaimablePage(
+                    connection, "tenant-a", "job-a", claimTime, true).orElseThrow();
+            var lease = PostgresGenerationPageClaim.claim(
+                    connection, page, anchor, 1, leaseDuration, claimTime, true).orElseThrow();
+            var stored = PostgresGenerationPageSelection.findPage(
+                    connection, "tenant-a", "job-a", page.pageId(), true).orElseThrow();
+
+            assertThat(lease.expiresAt()).isEqualTo(stored.leaseExpiresAt());
+            assertThat(lease.expiresAt()).isEqualTo(NOW.plus(leaseDuration));
+            connection.rollback();
         }
     }
 
@@ -78,6 +101,35 @@ class GenerationCancellationLockIntegrationTest extends ContainerTestBase {
             executor.shutdownNow();
             assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
         }
+    }
+
+    @Test
+    void stalePublicationClaimCannotCancelANewerClaim() throws Exception {
+        try (var connection = dataSource.getConnection()) {
+            execute(connection, "UPDATE artifact_build_jobs SET state='READY_TO_PUBLISH', "
+                    + "publication_owner='owner-a', publication_owner_epoch=1, publication_fencing_token=1, "
+                    + "publication_execution_owner_id='execution-owner-a', "
+                    + "publication_execution_owner_incarnation='incarnation-a', "
+                    + "publication_execution_owner_token=1, "
+                    + "publication_lease_expires_at=CURRENT_TIMESTAMP + INTERVAL '1 hour', "
+                    + "updated_at=CURRENT_TIMESTAMP WHERE tenant_id='tenant-a' AND job_id='job-a'");
+        }
+        var store = cancellationStore();
+        var stale = store.findJob("tenant-a", "job-a").orElseThrow();
+        try (var connection = dataSource.getConnection()) {
+            execute(connection, "UPDATE artifact_build_jobs SET publication_owner='owner-b', "
+                    + "publication_owner_epoch=2, publication_fencing_token=2, updated_at=CURRENT_TIMESTAMP "
+                    + "WHERE tenant_id='tenant-a' AND job_id='job-a'");
+        }
+
+        assertThat(store.cancelPublicationClaim(stale, "owner-a", 1, "late expiry", NOW.plusSeconds(1)))
+                .isFalse();
+        assertStates("tenant-a", "job-a", "READY_TO_PUBLISH", "PENDING");
+
+        var current = store.findJob("tenant-a", "job-a").orElseThrow();
+        assertThat(store.cancelPublicationClaim(current, "owner-b", 2, "expired", NOW.plusSeconds(2)))
+                .isTrue();
+        assertStates("tenant-a", "job-a", "CANCELLED", "CANCELLED");
     }
 
     @Test
@@ -127,6 +179,12 @@ class GenerationCancellationLockIntegrationTest extends ContainerTestBase {
             @Override
             public AuthorizedDispatch authorize(Connection connection, String tenant, String job) {
                 throw unexpectedDependency("persisted authority");
+            }
+
+            @Override
+            public void requireCurrent(Connection connection, String tenant, String principal,
+                    org.pangrova.security.api.authorization.DeferredAuthorizationScope scope) {
+                throw unexpectedDependency("submission authority");
             }
 
             @Override
@@ -214,9 +272,18 @@ class GenerationCancellationLockIntegrationTest extends ContainerTestBase {
             for (int index = 6; index <= 8; index++) {
                 statement.setObject(index, NOW.atOffset(java.time.ZoneOffset.UTC));
             }
-            statement.setString(9, "b".repeat(64));
+            statement.setString(9, GenerationDependencySet.sourceSnapshot(
+                    "lake.raw.items", "snapshot-a").sha256());
             statement.executeUpdate();
             insertPage(connection, tenant, job);
+            try (var dependency = connection.prepareStatement(
+                    "INSERT INTO artifact_build_dependencies (tenant_id,job_id,dependency_ordinal,"
+                            + "dependency_kind,dependency_id,dependency_version) VALUES (?,?,0,'SOURCE_SNAPSHOT',"
+                            + "'lake.raw.items','snapshot-a')")) {
+                dependency.setString(1, tenant);
+                dependency.setString(2, job);
+                dependency.executeUpdate();
+            }
         }
     }
 

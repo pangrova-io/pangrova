@@ -11,7 +11,6 @@ import org.pangrova.governance.runtime.lineage.LineageEventEmitter;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.planner.analysis.SqlCompiler;
 import org.pangrova.planner.adaptive.AdaptiveQueryConfig;
-import org.pangrova.planner.adaptive.AdaptiveQueryExecutor;
 import org.pangrova.coordinator.resilience.resilience4j.ResilienceRegistry;
 import org.pangrova.coordinator.scheduler.placement.CacheAffinityAssigner;
 import org.pangrova.coordinator.query.security.AccessControlEnforcer;
@@ -31,14 +30,12 @@ import static org.pangrova.common.util.Preconditions.checkNotNull;
  * Publication read services are explicit borrowed dependencies, independent of index pruning.
  */
 public record QueryDispatcherContext(
-        org.pangrova.shuffle.api.SkewDetector skewDetector,
         SqlCompiler compiler,
         SecurityContextBundle security,
         SchedulingContextBundle scheduling,
         CatalogRegistry catalogRegistry,
         LineageEventEmitter lineageEmitter,
         long taskTimeoutSeconds,
-        AdaptiveQueryExecutor adaptiveQueryExecutor,
         AdaptiveQueryConfig adaptiveQueryConfig,
         ShuffleLifecycleManager shuffleLifecycleManager,
         HighAvailabilityCoordinationService haService,
@@ -57,9 +54,6 @@ public record QueryDispatcherContext(
         if (shuffleLifecycleManager != null && scheduling.speculativeStageHandler() != null) {
             ShuffleRetryPolicyValidator.validateSpeculation(scheduling.speculativeStageHandler().isEnabled(),
                     shuffleLifecycleManager.capabilities());
-        }
-        if (adaptiveQueryConfig != null && adaptiveQueryExecutor != null) {
-            checkNotNull(skewDetector, "AQE requires an explicitly configured skewDetector");
         }
     }
 
@@ -133,9 +127,8 @@ public record QueryDispatcherContext(
                 dispatcher, taskScheduler, workerManager, taskTracker,
                 null, null, null, resilienceRegistry);
         return new QueryDispatcherContext(
-                null,
                 compiler, security, scheduling,
                 catalogRegistry, lineageEmitter, taskTimeoutSeconds,
-                null, null, null, null, null, null, null, null, null, null);
+                null, null, null, null, null, null, null, null, null);
     }
 }

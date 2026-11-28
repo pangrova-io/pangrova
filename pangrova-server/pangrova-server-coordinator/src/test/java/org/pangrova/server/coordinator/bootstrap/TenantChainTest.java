@@ -31,6 +31,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+import static org.pangrova.server.coordinator.testinfra.QuerySubmissionTestSupport.assertAdmissionThenWorkerFailure;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -168,8 +169,7 @@ class TenantChainTest extends org.pangrova.server.coordinator.testinfra.SignedOi
 
         HttpResponse<String> resp = submitQuery(port, "SELECT 1");
 
-        assertThat(resp.statusCode()).isEqualTo(503);
-        assertThat(resp.body()).contains("No available worker for task dispatch");
+        assertAdmissionThenWorkerFailure(coordinatorBootstrap.getQueryManager(), resp);
     }
 
     /** TenantResolver returns empty for unknown user principal. */

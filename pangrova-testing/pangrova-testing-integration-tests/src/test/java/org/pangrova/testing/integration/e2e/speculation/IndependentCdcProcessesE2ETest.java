@@ -18,6 +18,8 @@ import org.pangrova.common.client.enums.ResultProtocol;
 import org.pangrova.protocol.source.DataSplitProtoCodec;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.protocol.v2.TaskKind;
+import org.pangrova.protocol.v2.TaskRequest;
+import org.pangrova.protocol.task.CanonicalTaskAdmissionSeals;
 import org.pangrova.testing.testkit.ContainerTestBase;
 import org.pangrova.testing.testkit.E2ETest;
 import org.testcontainers.containers.KafkaContainer;
@@ -47,12 +49,63 @@ import static org.awaitility.Awaitility.await;
 class IndependentCdcProcessesE2ETest extends ContainerTestBase {
 
     private static final int ICEBERG_CATALOG_BARRIER = 716_241;
+    private static final String EXECUTION_OWNER_LOOKUP =
+            "SELECT owner_id, owner_incarnation, fencing_token,%FROM execution_anchor WHERE execution_id = %"
+                    + "AND expires_at > clock_timestamp()";
+    private static final String STREAM_REVISION_LOOKUP =
+            "SELECT * FROM ingestion_stream_state WHERE stream_name = %";
+    private static final String RUNNING_STREAMS_LOOKUP =
+            "SELECT * FROM ingestion_stream_state WHERE lifecycle_state = %";
+    private static final String CHANGED_STREAMS_LOOKUP = RUNNING_STREAMS_LOOKUP + " AND stream_name = ANY (%";
+    private static final String ACKNOWLEDGE_OFFSETS =
+            "WITH current_revision AS MATERIALIZED (%INSERT INTO ingestion_stream_offsets%";
+    private static final String STANDALONE_OFFSET_LOCK =
+            "SELECT % FROM ingestion_stream_state WHERE stream_name = % AND tenant_id = %"
+                    + " AND checkpoint_id = % AND epoch = % AND lifecycle_state = % FOR UPDATE";
+    private static final String STREAM_OFFSET_LOOKUP =
+            "SELECT topic, partition_id, committed_offset FROM ingestion_stream_offsets WHERE stream_name = %";
+    private static final String CDC_CHECKPOINT_PREDICATE =
+            "%FROM write_commit_journal%WHERE tenant_id = % AND cdc_stream_id = %";
+    private static final String CHECKPOINT_LOOKUP = "SELECT query_id, commit_fingerprint, state, "
+            + "cdc_stream_id, cdc_source_epoch, cdc_offset_ranges::text" + CDC_CHECKPOINT_PREDICATE;
+    private static final String CHECKPOINT_REDO_LOOKUP = "SELECT query_id, catalog_name, table_name, state, "
+            + "timestamp_ms, fragments," + CDC_CHECKPOINT_PREDICATE;
 
     private enum Scenario { COMBINED, MAINTENANCE, WORKER_EXIT, ICEBERG_WORKER_EXIT }
 
     @Test
     void combinedCoordinatorPublishesKafkaRangesThroughWorkerHttpAndPaimon() throws Exception {
-        verifyPublication(Scenario.COMBINED);
+        try (var kafka = new KafkaContainer(DockerImageName.parse("confluentinc/cp-kafka:7.6.0"))) {
+            kafka.start();
+            String broker = kafka.getBootstrapServers();
+            var firstTarget = new AtomicReference<URI>();
+            var secondTarget = new AtomicReference<URI>();
+            var issuedId = new AtomicReference<String>();
+            try (var processes = IndependentLocalProcesses.cdc(broker);
+                    var first = new ProcessWorkerHttpRelay(firstTarget::get);
+                    var second = new ProcessWorkerHttpRelay(secondTarget::get)) {
+                processes.reports().mapWorkerHttpPorts(worker -> {
+                    boolean isFirst = worker.workerId().equals("local-worker-1");
+                    (isFirst ? firstTarget : secondTarget).set(URI.create(
+                            "http://" + worker.httpHost() + ":" + worker.httpPort()));
+                    return (isFirst ? first : second).port();
+                });
+                recordCdcIssuanceOnDelivery(processes, first, issuedId);
+                recordCdcIssuanceOnDelivery(processes, second, issuedId);
+                try {
+                    assertPublication(broker, processes, Scenario.COMBINED,
+                            IndependentCdcProcessesE2ETest::verifyWorkerExit);
+                    assertThat(issuedId.get()).isNotBlank();
+                    await("successful CDC exits the task journal and releases its lease").atMost(Duration.ofSeconds(10))
+                            .until(() -> executionReleased(processes, issuedId.get())
+                                    && cdcIssuanceCleared(processes, issuedId.get()));
+                } catch (Exception | Error failure) {
+                    failure.addSuppressed(new IllegalStateException(
+                            "CDC process diagnostics retained at " + processes.retainDiagnostics()));
+                    throw failure;
+                }
+            }
+        }
     }
 
     @Test
@@ -110,9 +163,9 @@ class IndependentCdcProcessesE2ETest extends ContainerTestBase {
         }
         processes.startCoordinatorAndFirstWorker();
         processes.createSourceCatalog();
-        processes.query("CREATE SCHEMA IF NOT EXISTS spec_catalog.default", ResultProtocol.GRPC_TLS);
-        processes.query("CREATE TABLE spec_catalog.default.orders (id BIGINT, payload VARCHAR)", ResultProtocol.GRPC_TLS);
-        processes.query("INSERT INTO spec_catalog.default.orders VALUES (99, 'unrelated')", ResultProtocol.GRPC_TLS);
+        processes.command("CREATE SCHEMA IF NOT EXISTS spec_catalog.default", ResultProtocol.GRPC_TLS);
+        processes.command("CREATE TABLE spec_catalog.default.orders (id BIGINT, payload VARCHAR)", ResultProtocol.GRPC_TLS);
+        processes.command("INSERT INTO spec_catalog.default.orders VALUES (99, 'unrelated')", ResultProtocol.GRPC_TLS);
         processes.query("CREATE STREAM orders_stream FROM KAFKA ("
                 + "'bootstrap.servers'='" + broker + "', 'topic'='" + topic + "',"
                 + "'group.id'='independent-cdc-orders') FORMAT 'debezium-json' INTO spec_catalog.default.orders"
@@ -396,19 +449,23 @@ class IndependentCdcProcessesE2ETest extends ContainerTestBase {
             admin.createTopics(List.of(new NewTopic(topic, 1, (short) 1))).all().get(30, TimeUnit.SECONDS);
         }
         processes.startCoordinatorAndFirstWorker();
+        processes.enableMetadataStatementCounters();
+        long legacyReads = processes.metadataStatementCalls("%FROM cdc_commit_state%");
+        long checkpointReads = processes.metadataStatementCalls(CHECKPOINT_LOOKUP);
+        long checkpointRedoReads = processes.metadataStatementCalls(CHECKPOINT_REDO_LOOKUP);
         if (iceberg) {
             processes.createSourceCatalog();
         } else {
             String warehouse = processes.warehouse().toString().replace("'", "''");
-            processes.query("CREATE CATALOG spec_catalog WITH ('connector'='paimon', 'warehouse'='"
+            processes.command("CREATE CATALOG spec_catalog WITH ('connector'='paimon', 'warehouse'='"
                     + warehouse + "')", ResultProtocol.GRPC_TLS);
         }
-        processes.query("CREATE SCHEMA IF NOT EXISTS spec_catalog.default", ResultProtocol.GRPC_TLS);
+        processes.command("CREATE SCHEMA IF NOT EXISTS spec_catalog.default", ResultProtocol.GRPC_TLS);
         String key = iceberg ? "" : ", PRIMARY KEY (id) NOT ENFORCED";
-        processes.query("CREATE TABLE spec_catalog.default.orders (id BIGINT, payload VARCHAR"
+        processes.command("CREATE TABLE spec_catalog.default.orders (id BIGINT, payload VARCHAR"
                 + key + ")", ResultProtocol.GRPC_TLS);
         if (iceberg) {
-            var seed = processes.query(
+            var seed = processes.command(
                     "INSERT INTO spec_catalog.default.orders VALUES (42, 'cdc-visible'), (99, 'unrelated')",
                     ResultProtocol.GRPC_TLS);
             await("setup INSERT releases its execution anchor before the Worker fault")
@@ -418,10 +475,7 @@ class IndependentCdcProcessesE2ETest extends ContainerTestBase {
             processes.startSecondWorker();
             assertThat(processes.pid("local-worker-1")).isNotEqualTo(processes.pid("local-worker-2"));
         }
-        processes.query("CREATE STREAM orders_stream FROM KAFKA ("
-                + "'bootstrap.servers'='" + broker + "', 'topic'='" + topic + "',"
-                + "'group.id'='independent-cdc-orders') FORMAT 'debezium-json' INTO spec_catalog.default.orders"
-                + " WITH ('cdc.write.privileges'='INSERT,UPDATE,DELETE')", ResultProtocol.GRPC_TLS);
+        createRunningStream(processes, broker, topic);
 
         if (streamingOnly) {
             processes.switchToMaintenanceOnly();
@@ -443,21 +497,28 @@ class IndependentCdcProcessesE2ETest extends ContainerTestBase {
             } else if (scenario == Scenario.COMBINED) {
                 verifyPaimonCommitInterruption(processes, producer, insert);
             } else {
-                producer.send(insert).get(30, TimeUnit.SECONDS);
-                awaitPublication(processes, 1);
+                verifyLocalStagingPointReads(processes, producer, insert);
             }
             if (streamingOnly) {
                 assertThat(paimonPayloads(processes)).containsExactly("cdc-visible");
             } else {
                 assertThat(payload(processes)).contains("cdc-visible");
             }
+            if (scenario == Scenario.COMBINED || streamingOnly) {
+                verifyIdleCheckpointReads(processes);
+            }
 
             if (streamingOnly) {
                 rejectJournalCompletion(processes);
             }
-            producer.send(new ProducerRecord<>(topic, null, "{\"op\":\"u\","
+            var update = new ProducerRecord<String, String>(topic, null, "{\"op\":\"u\","
                     + "\"before\":{\"id\":42,\"payload\":\"cdc-visible\"},"
-                    + "\"after\":{\"id\":42,\"payload\":\"cdc-updated\"}}")).get(30, TimeUnit.SECONDS);
+                    + "\"after\":{\"id\":42,\"payload\":\"cdc-updated\"}}");
+            if (scenario == Scenario.COMBINED) {
+                queueChangeWhileSuspended(processes, producer, update);
+            } else {
+                producer.send(update).get(30, TimeUnit.SECONDS);
+            }
             if (streamingOnly) {
                 verifyMaintenanceRecovery(processes);
             } else {
@@ -482,6 +543,85 @@ class IndependentCdcProcessesE2ETest extends ContainerTestBase {
         boolean workerCompletedCdc = processes.reports().deliveries().stream().anyMatch(delivery ->
                 "CDC_INGEST".equals(delivery.report().taskType()) && "FINISHED".equals(delivery.report().state()));
         assertThat(workerCompletedCdc).isEqualTo(!streamingOnly);
+        assertThat(processes.metadataStatementCalls("%FROM cdc_commit_state%"))
+                .as("The journaled CDC path reads only its own checkpoint authority")
+                .isEqualTo(legacyReads);
+        assertThat(processes.metadataStatementCalls(CHECKPOINT_LOOKUP))
+                .as("CDC discovers exact source ranges through the checkpoint projection")
+                .isGreaterThan(checkpointReads);
+        assertThat(processes.metadataStatementCalls(CHECKPOINT_REDO_LOOKUP))
+                .as("CDC discovery never loads sink fragments or write bindings")
+                .isEqualTo(checkpointRedoReads);
+        assertThat(processes.coordinatorLog()).doesNotContain("event=stream_resume_all");
+    }
+
+    private static void createRunningStream(IndependentLocalProcesses processes, String broker, String topic)
+            throws Exception {
+        String insert = "INSERT INTO ingestion_stream_state%";
+        String update = "UPDATE ingestion_stream_state%";
+        long inserts = processes.metadataStatementCalls(insert);
+        long updates = processes.metadataStatementCalls(update);
+        processes.query("CREATE STREAM orders_stream FROM KAFKA ("
+                + "'bootstrap.servers'='" + broker + "', 'topic'='" + topic + "',"
+                + "'group.id'='independent-cdc-orders') FORMAT 'debezium-json' INTO spec_catalog.default.orders"
+                + " WITH ('cdc.write.privileges'='INSERT,UPDATE,DELETE')", ResultProtocol.GRPC_TLS);
+        assertThat(List.of(processes.metadataStatementCalls(insert) - inserts,
+                processes.metadataStatementCalls(update) - updates))
+                .as("CREATE STREAM puts the complete definition directly in RUNNING")
+                .containsExactly(1L, 0L);
+    }
+
+    private static void queueChangeWhileSuspended(IndependentLocalProcesses processes,
+            KafkaProducer<String, String> producer, ProducerRecord<String, String> update) throws Exception {
+        long definitionChanges = processes.metadataStatementCalls(CHANGED_STREAMS_LOOKUP);
+        processes.query("ALTER STREAM orders_stream SUSPEND", ResultProtocol.GRPC_TLS);
+        producer.send(update).get(30, TimeUnit.SECONDS);
+        await("the elected runtime reads the changed definition").atMost(Duration.ofSeconds(15))
+                .until(() -> processes.metadataStatementCalls(CHANGED_STREAMS_LOOKUP) > definitionChanges);
+        assertThat(journalFingerprint(processes, "COMMITTED", 1)).isNotBlank();
+        assertThat(payload(processes)).contains("cdc-visible").doesNotContain("cdc-updated");
+        processes.query("ALTER STREAM orders_stream RESUME", ResultProtocol.GRPC_TLS);
+    }
+
+    private static void verifyLocalStagingPointReads(IndependentLocalProcesses processes,
+            KafkaProducer<String, String> producer, ProducerRecord<String, String> insert) throws Exception {
+        long ownerReads = processes.metadataStatementCalls(EXECUTION_OWNER_LOOKUP);
+        long revisionReads = processes.metadataStatementCalls(STREAM_REVISION_LOOKUP);
+        long acknowledgements = processes.metadataStatementCalls(ACKNOWLEDGE_OFFSETS);
+        long separateLocks = processes.metadataStatementCalls(STANDALONE_OFFSET_LOCK);
+        producer.send(insert).get(30, TimeUnit.SECONDS);
+        awaitPublication(processes, 1);
+        assertThat(List.of(
+                processes.metadataStatementCalls(EXECUTION_OWNER_LOOKUP) - ownerReads,
+                processes.metadataStatementCalls(STREAM_REVISION_LOOKUP) - revisionReads))
+                .as("point reads for execution ownership and stream revision through one complete local batch")
+                .containsExactly(4L, 3L);
+        assertThat(processes.metadataStatementCalls(ACKNOWLEDGE_OFFSETS) - acknowledgements)
+                .as("offset acknowledgements include the exact revision lock")
+                .isOne();
+        assertThat(processes.metadataStatementCalls(STANDALONE_OFFSET_LOCK) - separateLocks)
+                .as("separate transaction statements to lock the stream revision")
+                .isZero();
+    }
+
+    private static void verifyIdleCheckpointReads(IndependentLocalProcesses processes) throws Exception {
+        long definitions = processes.metadataStatementCalls(RUNNING_STREAMS_LOOKUP);
+        var warmup = new AtomicReference<>(idleCheckpointCalls(processes));
+        await("discovery, checkpoint, and offset reads stop over multiple source intervals")
+                .during(Duration.ofSeconds(16)).atMost(Duration.ofSeconds(40)).pollInterval(Duration.ofMillis(500))
+                .untilAsserted(() -> {
+                    assertThat(processes.metadataStatementCalls(RUNNING_STREAMS_LOOKUP))
+                            .as("running stream discovery reads without DDL")
+                            .isEqualTo(definitions);
+                    var current = idleCheckpointCalls(processes);
+                    assertThat(current).as("reads after the final checkpoint is cached")
+                            .isEqualTo(warmup.getAndSet(current));
+                });
+    }
+
+    private static List<Long> idleCheckpointCalls(IndependentLocalProcesses processes) throws SQLException {
+        return List.of(processes.metadataStatementCalls(CHECKPOINT_LOOKUP),
+                processes.metadataStatementCalls(STREAM_OFFSET_LOOKUP));
     }
 
     private static void verifyPaimonCommitInterruption(IndependentLocalProcesses processes,
@@ -562,6 +702,58 @@ class IndependentCdcProcessesE2ETest extends ContainerTestBase {
         } else {
             assertThat(paimonPayloads(processes)).containsExactly("cdc-visible");
             assertThat(paimonSnapshot(processes)).isEqualTo(1L);
+        }
+    }
+
+    private static void recordCdcIssuanceOnDelivery(IndependentLocalProcesses processes,
+            ProcessWorkerHttpRelay workerHttp, AtomicReference<String> issuedId) {
+        workerHttp.beforeDelivery(transfer -> {
+            if (!transfer.isTaskSubmission()) return;
+            try {
+                var request = transfer.submittedTask().taskRequest();
+                if (request.getTaskKind() == TaskKind.TASK_KIND_CDC_INGEST) {
+                    assertCommittedCdcIssuance(processes, request, workerHttp.port());
+                    issuedId.set(request.getAttempt().getQueryOrJobId());
+                }
+            } catch (IOException malformed) {
+                throw new UncheckedIOException(malformed);
+            } catch (SQLException failure) {
+                throw new IllegalStateException("Cannot inspect committed CDC issuance", failure);
+            }
+        });
+    }
+
+    private static void assertCommittedCdcIssuance(
+            IndependentLocalProcesses processes, TaskRequest request, int controlPort) throws SQLException {
+        var attempt = request.getAttempt();
+        try (var connection = processes.metadataDataSource().getConnection();
+                var statement = connection.prepareStatement("""
+                        SELECT t.worker_http_port, t.admission_seal, t.owner_fencing_token, a.fencing_token
+                        FROM task_state_journal t JOIN execution_anchor a ON t.query_id = a.execution_id
+                        WHERE t.query_id = ? AND t.task_id = ? AND t.admission_seal IS NOT NULL
+                        """)) {
+            statement.setString(1, attempt.getQueryOrJobId());
+            statement.setString(2, attempt.getTaskId());
+            try (var rows = statement.executeQuery()) {
+                assertThat(rows.next()).isTrue();
+                assertThat(rows.getInt("worker_http_port")).isEqualTo(controlPort);
+                assertThat(rows.getBytes("admission_seal"))
+                        .isEqualTo(CanonicalTaskAdmissionSeals.create(request).toByteArray());
+                assertThat(rows.getLong("owner_fencing_token")).isEqualTo(attempt.getExecutionOwner().getFencingToken());
+                assertThat(rows.getLong("fencing_token")).isEqualTo(attempt.getExecutionOwner().getFencingToken());
+                assertThat(rows.next()).isFalse();
+            }
+        }
+    }
+
+    private static boolean cdcIssuanceCleared(IndependentLocalProcesses processes, String executionId)
+            throws SQLException {
+        try (var connection = processes.metadataDataSource().getConnection();
+                var statement = connection.prepareStatement("SELECT 1 FROM task_state_journal WHERE query_id = ?")) {
+            statement.setString(1, executionId);
+            try (var rows = statement.executeQuery()) {
+                return !rows.next();
+            }
         }
     }
 

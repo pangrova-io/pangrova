@@ -198,10 +198,10 @@ class IndexDdlLifecycleE2ETest extends SqlE2ETestBase {
             assertThat(indexes).isNotEmpty();
 
             TypedRow first = indexes.get(0);
-            assertThat(first.containsColumn("index_name")).isTrue();
-            assertThat(first.containsColumn("index_type")).isTrue();
-            assertThat(first.containsColumn("columns")).isTrue();
-            assertThat(first.containsColumn("state")).isTrue();
+            assertThat(first.columnNames()).containsExactly(
+                    "index_name", "index_type", "columns", "state", "stale_reason", "created_at",
+                    "algorithm", "metric", "index_id", "generation", "build_snapshot_id",
+                    "last_indexed_snapshot_id", "updated_at");
         }
     }
 
@@ -318,6 +318,15 @@ class IndexDdlLifecycleE2ETest extends SqlE2ETestBase {
     class DdlValidation {
 
         @Test
+        void nativeRangeOverlapRequiresForce() {
+            QueryError error = sqlRunner.executeExpectingError(
+                    "CREATE INDEX idx_overlap ON " + fqn() + "(amount) USING BTREE");
+
+            assertThat(error.message()).contains("overlaps with native MIN_MAX capability", "Use FORCE");
+            assertThat(sqlRunner.execute("SHOW INDEXES FROM " + fqn())).isEmpty();
+        }
+
+        @Test
         @DisplayName("CREATE INDEX with duplicate name returns error")
         void duplicateNameError() {
             sqlRunner.executeDdl("CREATE INDEX idx_dup ON " + fqn()
@@ -325,7 +334,7 @@ class IndexDdlLifecycleE2ETest extends SqlE2ETestBase {
 
             QueryError error = sqlRunner.executeExpectingError(
                     "CREATE INDEX idx_dup ON " + fqn()
-                            + "(amount) USING BTREE");
+                            + "(amount) USING BTREE FORCE");
             assertThat(error.message().toLowerCase())
                     .containsAnyOf("already exists", "duplicate");
         }
@@ -342,7 +351,7 @@ class IndexDdlLifecycleE2ETest extends SqlE2ETestBase {
         void btreePublishesCompositeArtifacts() throws Exception {
             sqlRunner.execute("INSERT INTO " + fqn()
                     + " (user_id, description, amount, status) VALUES (5, 'partial null', 500.0, NULL)");
-            sqlRunner.executeDdl("CREATE INDEX idx_mc_btree ON " + fqn() + "(user_id, status) USING BTREE");
+            sqlRunner.executeDdl("CREATE INDEX idx_mc_btree ON " + fqn() + "(user_id, status) USING BTREE FORCE");
             awaitReadyIndex("idx_mc_btree");
             var serializer = new IndexSerializer(TypeSerializerRegistry.fromStrategies(ServiceLoader.load(IndexStrategyProvider.class)));
             var keys = new java.util.ArrayList<Comparable<?>>();

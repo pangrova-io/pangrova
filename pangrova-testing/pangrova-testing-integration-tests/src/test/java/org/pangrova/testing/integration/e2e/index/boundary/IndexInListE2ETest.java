@@ -169,7 +169,7 @@ class IndexInListE2ETest extends SqlE2ETestBase {
         @DisplayName("IN clause returns correct results with BTREE index")
         void inListReturnsCorrectResults() {
             sqlRunner.executeDdl("CREATE INDEX idx_bt ON " + fqn
-                    + "(amount) USING BTREE");
+                    + "(amount) USING BTREE FORCE");
 
             List<TypedRow> rows = sqlRunner.execute(
                     "SELECT * FROM " + fqn
@@ -186,7 +186,7 @@ class IndexInListE2ETest extends SqlE2ETestBase {
         void inListCorrectnessInvariant() {
             IndexTestFixture.assertCorrectnessInvariant(sqlRunner, fqn,
                     "amount IN (50.0, 150.0, 250.0)",
-                    "CREATE INDEX idx_bt ON " + fqn + "(amount) USING BTREE");
+                    "CREATE INDEX idx_bt ON " + fqn + "(amount) USING BTREE FORCE");
         }
     }
 }

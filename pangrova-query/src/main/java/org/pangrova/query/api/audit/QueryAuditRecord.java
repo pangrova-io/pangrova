@@ -29,6 +29,13 @@ public record QueryAuditRecord(
         Instant completedAt,
         boolean success
 ) {
+    /** Creates the terminal record when the Coordinator measures wall time. */
+    public static QueryAuditRecord wallTimeOnly(String queryId, String principal, String sql, String tenantId,
+            long wallTimeMs, Instant completedAt, boolean success) {
+        return new QueryAuditRecord(queryId, java.util.Objects.requireNonNull(principal, "principal"), sql,
+                tenantId, 0, 0, 0, wallTimeMs, 0, 0, 0, 0, 0, 0, 0, 0, completedAt, success);
+    }
+
     /**
      * Backward-compatible constructor without sql, tenantId, stageCount, taskCount.
      */

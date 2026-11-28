@@ -94,7 +94,7 @@ class FlightResultServer : public arrow::flight::FlightServerBase {
     // A streaming failure is terminal for the exact Native task before the
     // reader releases its credits and unblocks suspended Drivers.
     std::function<void(const std::string&)> report_stream_failure;
-    std::function<void()> report_stream_finished;
+    std::function<void(const protocol::v2::NativeResultDeliveryStats&)> report_stream_finished;
     bool ready = false;
     bool claimed = false;
   };

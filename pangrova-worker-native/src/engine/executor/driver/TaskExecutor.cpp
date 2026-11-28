@@ -321,8 +321,8 @@ void TaskExecutor::recordExecutionError(
   lifecycle_.recordExecutionError(error);
 }
 
-void TaskExecutor::recordResultStreamFinished() {
-  if (!config_.is_result_task || !lifecycle_.finishResultStream()) {
+void TaskExecutor::recordResultStreamFinished(const protocol::v2::NativeResultDeliveryStats& delivery) {
+  if (!config_.is_result_task || !lifecycle_.finishResultStream(delivery)) {
     throw std::logic_error("Cannot finish delivery for an inactive result task");
   }
 }
@@ -349,14 +349,12 @@ TaskExecutor::artifactWorkReport() const {
       : std::nullopt;
 }
 
-void TaskExecutor::injectDynamicFilter(
-    const std::string& plan_node_id,
-    const google::protobuf::RepeatedPtrField<protocol::v2::RuntimeFilter>& filters) {
+void TaskExecutor::injectDynamicFilter(const protocol::v2::RuntimeFilterBinding& binding) {
   if (!execution_driver_) {
     throw std::runtime_error(
         "TaskExecutor: Native execution driver is unavailable");
   }
-  execution_driver_->injectDynamicFilter(plan_node_id, filters);
+  execution_driver_->injectDynamicFilter(binding);
 }
 
 void TaskExecutor::updateMemoryLimit(int64_t new_limit_bytes) {
@@ -417,8 +415,8 @@ observability::NativeMetricsCollector& TaskExecutor::metricsCollector() {
   return metrics_collector_;
 }
 
-uint64_t TaskExecutor::requestedObjectReadBytes() const {
-  return execution_driver_ ? execution_driver_->requestedObjectReadBytes() : 0;
+std::optional<protocol::v2::NativeObjectReadStats> TaskExecutor::objectReadStats() const {
+  return execution_driver_ ? execution_driver_->objectReadStats() : std::nullopt;
 }
 
 std::optional<protocol::v2::NativeTaskStats> TaskExecutor::collectTaskStats() const {

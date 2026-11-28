@@ -249,6 +249,28 @@ class ShuffleAccessRenewalIntegrationTest extends ContainerTestBase {
     }
 
     @Test
+    void cleanupCapabilityWaitsForTheCurrentSuccessorsPredecessorExitProof() throws Exception {
+        replaceAnchor(successor());
+        setRecoveryDrainState(1);
+        var cleanup = RenewAccessRequest.newBuilder()
+                .setOperation(ShuffleAccessOperation.SHUFFLE_ACCESS_OPERATION_CLEANUP)
+                .setQueryId(queryId).setExecutionOwner(successor()).build();
+        assertThatThrownBy(() -> engine.renewAccess(cleanup, true)).isInstanceOf(SecurityException.class);
+        try (var connection = connection(); var statement = connection.prepareStatement(
+                "SELECT COUNT(*) FROM shuffle.shuffle_allocation WHERE query_id = ?")) {
+            statement.setString(1, queryId);
+            try (var rows = statement.executeQuery()) {
+                assertThat(rows.next()).isTrue();
+                assertThat(rows.getInt(1)).isOne();
+            }
+        }
+
+        setRecoveryDrainState(2);
+        var capability = engine.renewAccess(cleanup, true).getAccessCapability();
+        authority.verify(capability, CapabilityScope.forQuery(queryId, successor()), System.currentTimeMillis());
+    }
+
+    @Test
     void stopsAnAlreadyOpenedReadAtTheNextBatchBoundaryAfterCapabilityExpiry() {
         long now = System.currentTimeMillis();
         var allocation = store.findAllocation(shuffleId).orElseThrow();
@@ -265,6 +287,15 @@ class ShuffleAccessRenewalIntegrationTest extends ContainerTestBase {
         assertThatThrownBy(() -> engine.readPage(read, 0))
                 .isInstanceOf(SecurityException.class)
                 .hasMessageContaining("batch boundary");
+    }
+
+    private void setRecoveryDrainState(int state) throws Exception {
+        try (var connection = connection(); var update = connection.prepareStatement(
+                "UPDATE public.execution_anchor SET recovery_drain_state=? WHERE execution_id=?")) {
+            update.setInt(1, state);
+            update.setString(2, queryId);
+            assertThat(update.executeUpdate()).isOne();
+        }
     }
 
     private RegisterShuffleRequest registration() {

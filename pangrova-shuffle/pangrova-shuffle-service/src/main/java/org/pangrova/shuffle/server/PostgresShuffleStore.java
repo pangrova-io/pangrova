@@ -9,6 +9,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Consumer;
@@ -32,11 +33,10 @@ import static org.pangrova.shuffle.server.PostgresShuffleRecords.refreshQuerySco
 import static org.pangrova.shuffle.server.ShuffleServiceModel.Allocation;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.AllocationIdentity;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupCommand;
-import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupCursor;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupLease;
-import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupObjectPage;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupPlan;
-import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupShufflePage;
+import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupReceipt;
+import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupStart;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.FinalizeCommand;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.FinalizeResult;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.RegisterCommand;
@@ -44,16 +44,8 @@ import static org.pangrova.shuffle.server.ShuffleServiceModel.RegisterCommand;
 /** PostgreSQL-backed allocation and finalization state machine. */
 final class PostgresShuffleStore implements ShuffleLifecycleStore {
     private static final String SHUFFLE_SCHEMA = "shuffle";
-    private static final String GRANT_READ_WINDOW = """
-            WITH pinned AS MATERIALIZED (
-                SELECT query_id, read_until_ms FROM shuffle_read_pin
-                WHERE pin_id = ? AND query_id = ? FOR SHARE
-            ), candidate AS MATERIALIZED (
-                SELECT p.query_id, clock_timestamp() AS granted_at,
-                    LEAST(a.expires_at, to_timestamp(p.read_until_ms / 1000.0)) AS expires_at
-                FROM pinned p JOIN public.execution_anchor a ON a.execution_id = p.query_id
-                WHERE NOT EXISTS (SELECT 1 FROM shuffle_cleanup_intent i WHERE i.query_id = p.query_id)
-            ), admission AS MATERIALIZED (
+    private static final String RECORD_READ_WINDOW = """
+            , admission AS MATERIALIZED (
                 SELECT query_id, granted_at,
                     LEAST(expires_at, granted_at + (? * INTERVAL '1 millisecond')) AS protected_until
                 FROM candidate
@@ -68,6 +60,32 @@ final class PostgresShuffleStore implements ShuffleLifecycleStore {
             SELECT FLOOR(EXTRACT(EPOCH FROM (w.protected_until - w.granted_at)) * 1000)::bigint
             FROM admission w CROSS JOIN recorded
             """;
+    private static final String GRANT_READ_WINDOW = """
+            WITH pinned AS MATERIALIZED (
+                SELECT query_id, read_until_ms FROM shuffle_read_pin
+                WHERE pin_id = ? AND query_id = ? FOR SHARE
+            ), candidate AS MATERIALIZED (
+                SELECT p.query_id, clock_timestamp() AS granted_at,
+                    LEAST(a.expires_at, to_timestamp(p.read_until_ms / 1000.0)) AS expires_at
+                FROM pinned p JOIN public.execution_anchor a ON a.execution_id = p.query_id
+                WHERE NOT EXISTS (SELECT 1 FROM shuffle_cleanup_intent i WHERE i.query_id = p.query_id)
+            )
+            """ + RECORD_READ_WINDOW;
+    private static final String RENEW_READ_WINDOW = """
+            WITH owned_scope AS MATERIALIZED (
+                SELECT query_id FROM shuffle_query_scope
+                WHERE query_id = ? AND owner_id = ? AND owner_incarnation = ?
+                    AND owner_fencing_token = ? AND state = 'ACTIVE'
+                    AND NOT EXISTS (SELECT 1 FROM shuffle_cleanup_intent i
+                                    WHERE i.query_id = shuffle_query_scope.query_id)
+                FOR SHARE
+            ), candidate AS MATERIALIZED (
+                SELECT p.query_id, clock_timestamp() AS granted_at,
+                    LEAST(CAST(? AS timestamptz), to_timestamp(p.read_until_ms / 1000.0)) AS expires_at
+                FROM owned_scope s JOIN shuffle_read_pin p USING (query_id)
+                WHERE p.pin_id = ? FOR SHARE OF p
+            )
+            """ + RECORD_READ_WINDOW;
 
     private final HikariDataSource dataSource;
     private final PostgresShuffleBatchStore batchStore;
@@ -188,10 +206,16 @@ final class PostgresShuffleStore implements ShuffleLifecycleStore {
     @Override
     public ReadAdmission openRead(
             String queryId, ExecutionOwnerIdentity owner, String shuffleId, int partitionId,
-            long startSequence, long readUntilMs, long drainMillis) {
+            long startSequence, org.pangrova.shuffle.api.ShuffleCommitReceipt.ReadRange range,
+            long readUntilMs, long drainMillis) {
         return transaction(dataSource, connection -> {
             requireActiveOwner(connection, queryId, owner);
-            var published = PostgresShuffleRecords.readPublishedPartition(connection, queryId, shuffleId, partitionId);
+            var published = PostgresShuffleRecords.readPublishedPartition(
+                    connection, queryId, shuffleId, partitionId, range != null);
+            if (range != null && (!published.partition().readRanges().contains(range)
+                    || startSequence < range.startSequence() || startSequence > range.endSequenceExclusive())) {
+                throw new IllegalArgumentException("shuffle read does not match a published range");
+            }
             if (startSequence < 0 || startSequence - 1 > published.partition().committedLastSequence()) {
                 throw new IllegalArgumentException("read start sequence exceeds partition range");
             }
@@ -220,8 +244,19 @@ final class PostgresShuffleStore implements ShuffleLifecycleStore {
     @Override
     public long grantReadWindow(String queryId, ExecutionOwnerIdentity owner, UUID id) {
         return transaction(dataSource, connection -> {
-            requireActiveOwner(connection, queryId, owner);
-            return grantReadWindow(connection, queryId, id);
+            // Sample the terminal seal in a new statement after acquiring the anchor lock.
+            var ownerExpiresAt = ExecutionAnchorFence.lockLiveOwnerExpiry(connection, queryId, owner);
+            try (PreparedStatement grant = connection.prepareStatement(RENEW_READ_WINDOW)) {
+                grant.setString(1, queryId);
+                grant.setString(2, owner.getOwnerId());
+                grant.setString(3, owner.getOwnerIncarnation());
+                grant.setLong(4, owner.getFencingToken());
+                grant.setObject(5, ownerExpiresAt);
+                grant.setObject(6, id);
+                grant.setLong(7, ShuffleReadLease.WINDOW_MILLIS);
+                grant.setObject(8, id);
+                return executeReadGrant(grant);
+            }
         });
     }
 
@@ -231,27 +266,35 @@ final class PostgresShuffleStore implements ShuffleLifecycleStore {
             grant.setString(2, queryId);
             grant.setLong(3, ShuffleReadLease.WINDOW_MILLIS);
             grant.setObject(4, id);
-            try (ResultSet row = grant.executeQuery()) {
-                if (!row.next()) {
-                    throw new SecurityException("shuffle read pin is closed, expired or terminally fenced");
-                }
-                return row.getLong(1);
+            return executeReadGrant(grant);
+        }
+    }
+
+    private static long executeReadGrant(PreparedStatement grant) throws SQLException {
+        try (ResultSet row = grant.executeQuery()) {
+            if (!row.next()) {
+                throw new SecurityException("shuffle read pin is closed, expired or terminally fenced");
             }
+            return row.getLong(1);
         }
     }
 
     @Override
     public void releaseRead(UUID id) {
         transaction(dataSource, connection -> {
-            try (PreparedStatement delete = connection.prepareStatement(
-                    "DELETE FROM shuffle_read_pin WHERE pin_id = ?")) {
-                delete.setObject(1, id);
-                delete.executeUpdate();
-            }
-            try (PreparedStatement deleteWindow = connection.prepareStatement(
-                    "DELETE FROM public.execution_read_window WHERE read_id = ?")) {
-                deleteWindow.setObject(1, id);
-                deleteWindow.executeUpdate();
+            // Consume the pin deletion before locking the execution window, as renewal does.
+            String sql = """
+                    WITH target(read_id) AS (VALUES (CAST(? AS uuid))),
+                    released_pin AS (
+                        DELETE FROM shuffle_read_pin p USING target t
+                        WHERE p.pin_id = t.read_id RETURNING p.pin_id
+                    )
+                    DELETE FROM public.execution_read_window
+                    WHERE read_id = COALESCE((SELECT pin_id FROM released_pin), (SELECT read_id FROM target))
+                    """;
+            try (PreparedStatement release = connection.prepareStatement(sql)) {
+                release.setObject(1, id);
+                release.executeUpdate();
             }
             return null;
         });
@@ -262,7 +305,7 @@ final class PostgresShuffleStore implements ShuffleLifecycleStore {
             String queryId, ExecutionOwnerIdentity owner, long expiresAtMs) {
         transaction(dataSource, connection -> {
             requireFutureExpiry(connection, expiresAtMs);
-            ExecutionAnchorFence.requireLiveOwner(connection, queryId, owner, true);
+            ExecutionAnchorFence.requireCleanupOwner(connection, queryId, owner);
             QueryScope scope = lockExistingQueryScope(connection, queryId);
             if (scope == null) {
                 return null;
@@ -400,13 +443,18 @@ final class PostgresShuffleStore implements ShuffleLifecycleStore {
     }
 
     @Override
-    public Optional<CleanupPlan> beginCleanup(CleanupCommand command, CleanupLease lease) {
+    public CleanupStart beginCleanup(CleanupCommand command, CleanupLease lease) {
         return transitions.beginCleanup(command, lease);
     }
 
     @Override
     public Optional<CleanupPlan> beginExpiredCleanup(CleanupLease lease) {
         return transitions.beginExpiredCleanup(lease);
+    }
+
+    @Override
+    public void settleVisibleManifestWrites(String shuffleId, List<String> keys) {
+        transitions.settleVisibleManifestWrites(shuffleId, keys);
     }
 
     @Override
@@ -425,13 +473,7 @@ final class PostgresShuffleStore implements ShuffleLifecycleStore {
     }
 
     @Override
-    public CleanupObjectPage cleanupObjects(
-            CleanupPlan plan, CleanupCursor after, int limit, CleanupLease lease) {
-        return transitions.cleanupObjects(plan, after, limit, lease);
-    }
-
-    @Override
-    public CleanupShufflePage cleanupShuffles(
+    public List<String> cleanupShuffles(
             CleanupPlan plan, String after, int limit, CleanupLease lease) {
         return transitions.cleanupShuffles(plan, after, limit, lease);
     }
@@ -442,8 +484,8 @@ final class PostgresShuffleStore implements ShuffleLifecycleStore {
     }
 
     @Override
-    public void completeCleanup(CleanupPlan plan) {
-        transitions.completeCleanup(plan);
+    public CleanupReceipt completeCleanup(CleanupPlan plan) {
+        return transitions.completeCleanup(plan);
     }
 
     @Override

@@ -179,5 +179,6 @@ done
 Report test counts for step 6 and each step 7 selection, including FAIL, SKIPPED and
 BLOCKED results; step 6 without the eight isolated results is incomplete. Routing
 integration is not independent-process distributed evidence. CI additionally builds a
-same-source production image and verifies its image ID, source revision, classifier
-and runtime manifest; do not copy that argument list into another runner.
+same-source production image in a separate hosted job. The full regression job
+loads the digest-checked same-run artifact, verifies its image ID and source
+revision, and stages the matching classifier and runtime manifest.

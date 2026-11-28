@@ -33,7 +33,7 @@ public final class CoordinatorSpeculativeAttemptDispatcher implements Speculativ
 
     @Override
     public String dispatch(SubmitTaskRequest request, PlacementWorker worker) {
-        return dispatcher.dispatch(request, requireWorkerInfo(worker)).taskId();
+        return dispatcher.dispatchBound(request, requireWorkerInfo(worker)).taskId();
     }
 
     private static WorkerInfo requireWorkerInfo(PlacementWorker worker) {

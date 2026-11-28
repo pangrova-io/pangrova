@@ -1,6 +1,7 @@
 package org.pangrova.persistence.jdbc.api.generation;
 
 import org.pangrova.common.api.annotation.Internal;
+import org.pangrova.common.util.DigestUtils;
 import org.pangrova.generation.api.dependency.GenerationDependency;
 import org.pangrova.generation.api.job.GenerationDispatchSpec;
 import org.pangrova.generation.api.page.GenerationPage;
@@ -8,6 +9,7 @@ import org.pangrova.generation.api.page.GenerationPage;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -23,8 +25,24 @@ public interface GenerationTransactionInputs {
      * and authorization scope. Missing state returns empty; corrupt state is rejected.
      * This read does not grant current authority or synthesize missing observations.
      */
-    Optional<GenerationDispatchSpec> findDispatchSpec(Connection connection, String tenantId, String jobId)
+    default Optional<GenerationDispatchSpec> findDispatchSpec(Connection connection, String tenantId, String jobId)
+            throws SQLException {
+        return findStoredDispatch(connection, tenantId, jobId).map(StoredDispatch::dispatchSpec);
+    }
+
+    /** Reads the specification and its verified canonical graph digest from the same row. */
+    Optional<StoredDispatch> findStoredDispatch(Connection connection, String tenantId, String jobId)
             throws SQLException;
+
+    /** The exact persisted contract and the digest already checked against its graph bytes. */
+    record StoredDispatch(GenerationDispatchSpec dispatchSpec, String graphSha256) {
+        public StoredDispatch {
+            Objects.requireNonNull(dispatchSpec, "dispatchSpec");
+            if (!DigestUtils.isSha256Hex(graphSha256)) {
+                throw new IllegalArgumentException("Stored dispatch requires the verified SHA-256 of its graph");
+            }
+        }
+    }
 
     /** Loads exact version-pinned job dependencies in persisted ordinal order. */
     List<GenerationDependency> loadJobDependencies(Connection connection, String tenantId, String jobId)

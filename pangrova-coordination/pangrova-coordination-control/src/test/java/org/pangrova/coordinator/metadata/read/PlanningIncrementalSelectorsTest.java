@@ -113,9 +113,10 @@ class PlanningIncrementalSelectorsTest {
         assertThatThrownBy(() -> PlanningIncrementalSelectors.bind(session, Map.of(" ", new SnapshotRange(1, 2))))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("invalid");
-        assertThatThrownBy(() -> new SnapshotRange(2, 2))
+        assertThat(SnapshotRange.parse(new SnapshotRange(2, 2).encode())).isEqualTo(new SnapshotRange(2, 2));
+        assertThatThrownBy(() -> new SnapshotRange(0, 2))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("differ");
+                .hasMessageContaining("positive");
         assertThatThrownBy(() -> SnapshotRange.parse("1"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("from:to");

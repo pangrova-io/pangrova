@@ -42,6 +42,16 @@ class TableFormatterTest {
         assertAligned(output, 2);
     }
 
+    @Test
+    void styledTablesColorHeadersAndSeparatorsWithoutChangingPlainOutput() {
+        var rows = List.of(List.of("Alice"));
+        var plain = TableFormatter.formatPage(List.of("name"), rows);
+        var styled = TableFormatter.formatPage(List.of("name"), rows, new TerminalStyle(true, 100));
+
+        assertThat(plain).doesNotContain("\u001B[");
+        assertThat(styled).contains("\u001B[1;38;5;141m", "\u001B[2m", "Alice");
+    }
+
     private static void assertAligned(String output, int columns) {
         var physical = output.lines().filter(line -> line.startsWith("+") || line.startsWith("|")).toList();
         assertThat(physical).extracting(TableFormatter::displayWidth).containsOnly(

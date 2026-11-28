@@ -2,7 +2,7 @@ package org.pangrova.persistence.generation.postgresql.job;
 
 import org.pangrova.generation.api.enums.GenerationPageKind;
 import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.NativeWinner;
-import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.PartitionProgress;
+import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.PartitionClaim;
 import org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStoreMappings.PageRow;
 
 import java.sql.Connection;
@@ -21,75 +21,97 @@ import static org.pangrova.persistence.jdbc.support.JdbcSupport.setInstant;
 final class PostgresGenerationPageSelection {
     private PostgresGenerationPageSelection() {}
 
-    record Coordinates(int stageId, int partitionId, int pageOrdinal) {
-        Coordinates {
-            if (stageId < 0 || partitionId < 0 || pageOrdinal < 0) {
-                throw new IllegalArgumentException("Durable page coordinates must be nonnegative");
+    private static final String FINALIZED_STAGE_INPUTS = """
+            AND NOT EXISTS (
+                SELECT 1 FROM artifact_stage_exchanges e
+                WHERE e.tenant_id = p.tenant_id AND e.job_id = p.job_id AND e.consumer_stage_id = p.stage_id
+                    AND NOT EXISTS (
+                        SELECT 1 FROM artifact_exchange_finalizations f
+                        WHERE f.tenant_id = e.tenant_id AND f.job_id = e.job_id AND f.exchange_id = e.exchange_id
+                    )
+            )
+            """;
+
+    // The mixed job queue includes artifact reductions with page-level dependencies.
+    static final String READY_PAGE_INPUTS = """
+            AND (p.page_kind IN ('RELATIONAL_COMPUTE', 'RELATIONAL_PARTITION') OR NOT EXISTS (
+                SELECT 1 FROM artifact_build_page_dependencies d
+                JOIN artifact_build_pages u ON u.tenant_id = d.tenant_id
+                    AND u.job_id = d.job_id AND u.page_id = d.dependency_page_id
+                WHERE d.tenant_id = p.tenant_id AND d.job_id = p.job_id AND d.page_id = p.page_id
+                    AND u.state <> 'SUCCEEDED'
+            ))
+            """ + FINALIZED_STAGE_INPUTS;
+
+    private static final String CLAIMABLE_PAGE = """
+            SELECT p.* FROM artifact_build_pages p WHERE p.tenant_id=? AND p.job_id=?
+            AND ((p.state='PENDING' AND p.next_available_at<=?) OR (p.state='LEASED' AND p.lease_expires_at<?))
+            """;
+    private static final String SELECT_NEXT = "ORDER BY page_ordinal LIMIT 1 FOR UPDATE SKIP LOCKED";
+    private static final String CLAIMABLE_ANY = CLAIMABLE_PAGE + READY_PAGE_INPUTS + SELECT_NEXT;
+    private static final String CLAIMABLE_RELATIONAL = CLAIMABLE_PAGE + FINALIZED_STAGE_INPUTS + SELECT_NEXT;
+    private static final String SELECT_COHORT = """
+            WITH requested(partition_id, page_ordinal) AS (
+                SELECT * FROM unnest(?::integer[], ?::integer[])
+            ),
+            exact AS MATERIALIZED (
+                SELECT p.partition_id, p.page_id FROM artifact_build_pages p
+                JOIN requested r USING (partition_id, page_ordinal)
+                WHERE tenant_id=? AND job_id=? AND stage_id=?
+            ),
+            claimable AS (
+            %s
+            AND page_id IN (SELECT page_id FROM exact)
+            ORDER BY partition_id FOR UPDATE SKIP LOCKED
+            )
+            SELECT (SELECT count(*) FROM exact WHERE partition_id=r.partition_id) AS allocations,
+                   claimable.*
+            FROM requested r LEFT JOIN claimable USING (partition_id)
+            ORDER BY r.partition_id
+            """;
+    private static final String CLAIMABLE_COHORT = SELECT_COHORT.formatted(CLAIMABLE_PAGE + READY_PAGE_INPUTS);
+    private static final String RELATIONAL_COHORT = SELECT_COHORT.formatted(CLAIMABLE_PAGE + FINALIZED_STAGE_INPUTS);
+
+    static Optional<PageRow> selectClaimablePage(Connection connection, String tenantId, String jobId, Instant now,
+            boolean relational) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                relational ? CLAIMABLE_RELATIONAL : CLAIMABLE_ANY)) {
+            statement.setString(1, tenantId);
+            statement.setString(2, jobId);
+            setInstant(statement, 3, now);
+            setInstant(statement, 4, now);
+            try (ResultSet result = statement.executeQuery()) {
+                return result.next() ? Optional.of(mapPage(result)) : Optional.empty();
             }
         }
     }
 
-    record Selection(String tenantId, String jobId, Instant now, Optional<Coordinates> coordinates) {}
+    /** Locks pages in partition order and distinguishes a missing identity from an unavailable page. */
+    static List<PageRow> selectClaimableCohort(Connection connection, List<PartitionClaim> cohort,
+            boolean relational) throws SQLException {
+        var first = cohort.get(0);
+        try (var statement = connection.prepareStatement(relational ? RELATIONAL_COHORT : CLAIMABLE_COHORT)) {
+            statement.setObject(1, cohort.stream().mapToInt(PartitionClaim::partitionId).toArray());
+            statement.setObject(2, cohort.stream().mapToInt(PartitionClaim::pageOrdinal).toArray());
+            statement.setString(3, first.job().tenantId());
+            statement.setString(4, first.job().jobId());
+            statement.setInt(5, first.stageId());
+            statement.setString(6, first.job().tenantId());
+            statement.setString(7, first.job().jobId());
+            setInstant(statement, 8, first.now());
+            setInstant(statement, 9, first.now());
 
-    private static final String CLAIMABLE_PAGE = "SELECT * FROM artifact_build_pages "
-        + "WHERE tenant_id=? AND job_id=? "
-        + "AND ((state='PENDING' AND next_available_at<=?) "
-        + "OR (state='LEASED' AND lease_expires_at<?)) "
-        + "AND NOT EXISTS (SELECT 1 FROM artifact_build_page_dependencies d "
-        + "JOIN artifact_build_pages u ON u.tenant_id=d.tenant_id "
-        + "AND u.job_id=d.job_id "
-        + "AND u.page_id=d.dependency_page_id WHERE d.job_id=artifact_build_pages.job_id "
-        + "AND d.tenant_id=artifact_build_pages.tenant_id "
-        + "AND d.page_id=artifact_build_pages.page_id AND u.state<>'SUCCEEDED') "
-        + "AND NOT EXISTS (SELECT 1 FROM artifact_stage_exchanges e WHERE "
-        + "e.tenant_id=artifact_build_pages.tenant_id AND e.job_id=artifact_build_pages.job_id "
-        + "AND e.consumer_stage_id=artifact_build_pages.stage_id AND NOT EXISTS "
-        + "(SELECT 1 FROM artifact_exchange_finalizations f WHERE f.tenant_id=e.tenant_id "
-        + "AND f.job_id=e.job_id AND f.exchange_id=e.exchange_id)) ";
-
-    private static final String CLAIMABLE_ORDER = "ORDER BY page_ordinal LIMIT 1 FOR UPDATE SKIP LOCKED";
-    private static final String CLAIMABLE_ANY = CLAIMABLE_PAGE + CLAIMABLE_ORDER;
-    private static final String CLAIMABLE_EXACT = """
-            WITH exact AS MATERIALIZED (
-                SELECT page_id FROM artifact_build_pages
-                WHERE tenant_id=? AND job_id=? AND stage_id=? AND partition_id=? AND page_ordinal=?
-            ),
-            claimable AS (
-            """ + CLAIMABLE_PAGE
-            + "AND page_id IN (SELECT page_id FROM exact) " + CLAIMABLE_ORDER
-            + """
-            )
-            SELECT coordinates.allocations, claimable.*
-            FROM (SELECT count(*) AS allocations FROM exact) coordinates
-            LEFT JOIN claimable ON true
-            """;
-
-    static Optional<PageRow> selectClaimablePage(Connection connection, Selection selection)
-            throws SQLException {
-        Coordinates coordinates = selection.coordinates().orElse(null);
-        try (PreparedStatement statement = connection.prepareStatement(
-                coordinates == null ? CLAIMABLE_ANY : CLAIMABLE_EXACT)) {
-            int parameter = 1;
-            if (coordinates != null) {
-                statement.setString(parameter++, selection.tenantId());
-                statement.setString(parameter++, selection.jobId());
-                statement.setInt(parameter++, coordinates.stageId());
-                statement.setInt(parameter++, coordinates.partitionId());
-                statement.setInt(parameter++, coordinates.pageOrdinal());
-            }
-            statement.setString(parameter++, selection.tenantId());
-            statement.setString(parameter++, selection.jobId());
-            setInstant(statement, parameter++, selection.now());
-            setInstant(statement, parameter, selection.now());
-            try (ResultSet result = statement.executeQuery()) {
-                boolean present = result.next();
-                if (coordinates != null && (!present || result.getLong("allocations") != 1)) {
-                    throw new IllegalStateException(
-                            "Durable stage partition lacks one exact immutable page allocation");
+            var selected = new ArrayList<PageRow>(cohort.size());
+            try (var rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    if (rows.getLong("allocations") != 1) {
+                        throw new IllegalStateException(
+                                "Durable stage partition lacks one exact immutable page allocation");
+                    }
+                    if (rows.getString("page_id") != null) selected.add(mapPage(rows));
                 }
-                return present && (coordinates == null || result.getString("page_id") != null)
-                        ? Optional.of(mapPage(result)) : Optional.empty();
             }
+            return selected.size() == cohort.size() ? selected : List.of();
         }
     }
 
@@ -126,9 +148,14 @@ final class PostgresGenerationPageSelection {
         }
     }
 
-    static List<PartitionProgress> inspectWindow(Connection connection, String tenantId, String jobId,
+    static NativeWinner nativeWinner(PageRow page) {
+        return new NativeWinner(page.pageId(), page.attemptId(), page.fencingToken(), page.ownerEpoch(),
+                page.executionOwner(), page.reportBytes(), page.reportSha256());
+    }
+
+    static List<PageRow> lockWindow(Connection connection, String tenantId, String jobId,
             int stageId, GenerationPageKind kind, int firstPartition, int count) throws SQLException {
-        var progress = new ArrayList<PartitionProgress>(count);
+        var pages = new ArrayList<PageRow>(count);
         try (var statement = connection.prepareStatement("""
                 SELECT * FROM artifact_build_pages
                 WHERE tenant_id=? AND job_id=? AND stage_id=? AND partition_id>=? AND partition_id<?
@@ -143,25 +170,24 @@ final class PostgresGenerationPageSelection {
             try (var rows = statement.executeQuery()) {
                 while (rows.next()) {
                     var page = mapPage(rows);
-                    if (page.partitionId() != firstPartition + progress.size() || page.kind() != kind) {
+                    if (page.partitionId() != firstPartition + pages.size() || page.kind() != kind) {
                         throw new IllegalStateException("Persisted pages differ from their exact stage partitions");
                     }
-                    var winner = "SUCCEEDED".equals(page.state())
-                            ? Optional.of(new NativeWinner(page.pageId(), page.attemptId(), page.fencingToken(),
-                                    page.ownerEpoch(), page.executionOwner(), page.reportBytes(), page.reportSha256()))
-                            : Optional.<NativeWinner>empty();
-                    progress.add(new PartitionProgress(page.pageOrdinal(), page.kind(), page.state(), winner));
+                    pages.add(page);
                 }
             }
         }
-        if (progress.size() != count) {
+        if (pages.size() != count) {
             throw new IllegalStateException("Persisted stage partitions are missing from the window");
         }
-        return List.copyOf(progress);
+        return List.copyOf(pages);
     }
 
     static PageRow mapPage(ResultSet result) throws SQLException {
         Instant leaseExpiresAt = getInstant(result, "lease_expires_at");
+        int inputEnd = result.getInt("exchange_partition_end");
+        var range = inputEnd == 0 ? null : PostgresGenerationBatchRanges.decode(
+                result.getInt("exchange_partition_start"), inputEnd, result.getBytes("exchange_batch_ranges"));
         return new PageRow(
                 result.getString("tenant_id"), result.getString("job_id"),
                 result.getString("page_id"),
@@ -171,9 +197,9 @@ final class PostgresGenerationPageSelection {
                 result.getString("state"),
                 result.getInt("attempt_id"), result.getLong("fencing_token"),
                 result.getString("lease_owner"), result.getLong("owner_epoch"),
-                leaseExpiresAt,
+                leaseExpiresAt, getInstant(result, "next_available_at"),
                 result.getInt("max_attempts"), result.getBytes("report_bytes"),
-                result.getString("report_sha256"),
+                result.getString("report_sha256"), range,
                 result.getString("execution_owner_id") == null ? null
                         : new org.pangrova.generation.api.execution.GenerationExecutionOwner(
                                 result.getString("execution_owner_id"), result.getString("execution_owner_incarnation"),

@@ -1,5 +1,6 @@
 package org.pangrova.persistence.query.memory.state;
 
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.pangrova.persistence.query.api.enums.JournalAdmissionOutcome;
 
 import java.util.LinkedHashMap;
@@ -8,8 +9,12 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.persistence.query.api.exception.JournalWriteException;
+import org.pangrova.query.api.journal.QueryAcceptance;
+import org.pangrova.query.api.journal.QueryAcceptanceAdmission;
 import org.pangrova.query.api.journal.QueryStateEvent;
 import org.pangrova.persistence.query.api.state.QueryStateJournal;
 import org.pangrova.persistence.query.api.state.StateJournalConfig;
@@ -50,6 +55,66 @@ public final class InMemoryQueryStateJournal implements QueryStateJournal {
     }
     @Override public void appendQueryEventSync(QueryStateEvent event) { appendQueryEvent(event); }
 
+    @Override public synchronized QueryAcceptanceAdmission acceptQuerySync(QueryStateEvent event) {
+        Objects.requireNonNull(event, "event");
+        if (event.acceptance() == null) throw new IllegalArgumentException("Durable acceptance requires a fact");
+        requireOpen();
+        QueryStateEvent existing = findAcceptanceEvent(event.acceptance().principal(),
+                event.acceptance().idempotencyKeyDigest());
+        if (existing != null) {
+            boolean sameQuery = existing.queryId().equals(event.queryId());
+            if (!sameQuery && isExpired(existing)) {
+                purgeQuery(existing.queryId());
+            } else {
+                if (!digestEquals(existing.acceptance().requestFingerprint(),
+                        event.acceptance().requestFingerprint())) {
+                    throw uniqueConflict();
+                }
+                return new QueryAcceptanceAdmission(sameQuery, existing.acceptance());
+            }
+        }
+        appendQueryEvent(event);
+        return new QueryAcceptanceAdmission(true, event.acceptance());
+    }
+
+    @Override public void appendOwnedTerminalSync(QueryStateEvent event, ExecutionAnchor anchor) {
+        QueryStateJournal.requireOwnedTerminal(event, anchor);
+        appendQueryEvent(event);
+    }
+
+    @Override public void appendFencedAdmissionSync(QueryStateEvent event, ExecutionAnchor anchor) {
+        appendQueryEventSync(event);
+    }
+
+    @Override public QueryAcceptanceAdmission acceptFencedQuerySync(QueryStateEvent event, ExecutionAnchor anchor) {
+        return acceptQuerySync(event);
+    }
+
+    @Override public synchronized void appendTaskIssuancesSync(List<TaskStateEvent> events) {
+        var cohort = QueryStateJournal.requireTaskIssuanceCohort(events);
+        requireOpen();
+        int newEvents = 0;
+        for (var event : cohort) {
+            var prior = tasks.get(event.context().eventId());
+            if (prior == null) newEvents++;
+            else requireExact(prior.equals(event));
+        }
+        if (newEvents > capacity - queries.size() - tasks.size()) {
+            throw new JournalWriteException("Journal resident-event capacity exceeded", null,
+                    JournalAdmissionOutcome.REJECTED_BEFORE_TRANSFER);
+        }
+        for (var event : cohort) tasks.putIfAbsent(event.context().eventId(), event);
+    }
+
+    @Override public synchronized Optional<QueryAcceptance> findAcceptance(String principal,
+            String idempotencyKeyDigest) {
+        requireOpen();
+        Objects.requireNonNull(principal, "principal");
+        Objects.requireNonNull(idempotencyKeyDigest, "idempotencyKeyDigest");
+        return Optional.ofNullable(findAcceptanceEvent(principal, idempotencyKeyDigest))
+                .map(QueryStateEvent::acceptance);
+    }
+
     @Override public synchronized void appendTaskEvent(TaskStateEvent event) {
         Objects.requireNonNull(event, "event");
         requireOpen();
@@ -64,17 +129,6 @@ public final class InMemoryQueryStateJournal implements QueryStateJournal {
     }
     @Override public void appendTaskEventSync(TaskStateEvent event) { appendTaskEvent(event); }
 
-    @Override public synchronized List<QueryStateEvent> replayActiveQueries() {
-        requireOpen();
-        Set<String> terminal = terminalQueries();
-        return queries.values().stream().filter(event -> !terminal.contains(event.queryId())).toList();
-    }
-    @Override public synchronized List<TaskStateEvent> replayActiveTasks() {
-        requireOpen();
-        Set<String> active = replayActiveQueries().stream().map(QueryStateEvent::queryId)
-                .collect(java.util.stream.Collectors.toSet());
-        return tasks.values().stream().filter(event -> active.contains(event.queryId())).toList();
-    }
     @Override public synchronized Optional<QueryStateEvent> latestQueryEvent(String queryId) {
         requireOpen();
         Objects.requireNonNull(queryId, "queryId");
@@ -106,15 +160,59 @@ public final class InMemoryQueryStateJournal implements QueryStateJournal {
         requireOpen();
         Objects.requireNonNull(queryId, "queryId");
         tasks.values().removeIf(event -> event.queryId().equals(queryId));
-        queries.values().removeIf(event -> event.queryId().equals(queryId));
+        QueryStateEvent acceptance = queries.values().stream()
+                .filter(event -> queryId.equals(event.queryId()) && event.acceptance() != null)
+                .findFirst().orElse(null);
+        if (acceptance == null || isExpired(acceptance)) {
+            queries.values().removeIf(event -> event.queryId().equals(queryId));
+        }
     }
     @Override public synchronized void close() { closed = true; }
     @Override public synchronized boolean isDrained() { return closed; }
 
-    private Set<String> terminalQueries() {
-        return queries.values().stream().filter(event -> TERMINAL.contains(event.state()))
-                .map(QueryStateEvent::queryId).collect(java.util.stream.Collectors.toSet());
+    @Override public synchronized void purgeExpiredAcceptances() {
+        requireOpen();
+        var expired = queries.values().stream()
+                .filter(event -> event.acceptance() != null && isExpired(event))
+                .map(QueryStateEvent::queryId).toList();
+        for (String queryId : expired) {
+            tasks.values().removeIf(event -> queryId.equals(event.queryId()));
+            queries.values().removeIf(event -> queryId.equals(event.queryId()));
+        }
     }
+
+    private QueryStateEvent findAcceptanceEvent(String principal, String idempotencyKeyDigest) {
+        for (QueryStateEvent event : queries.values()) {
+            if (event.acceptance() != null && event.acceptance().principal().equals(principal)
+                    && digestEquals(event.acceptance().idempotencyKeyDigest(), idempotencyKeyDigest)) {
+                return event;
+            }
+        }
+        return null;
+    }
+
+    private boolean isExpired(QueryStateEvent acceptance) {
+        long terminal = queries.values().stream()
+                .filter(event -> acceptance.queryId().equals(event.queryId()) && TERMINAL.contains(event.state()))
+                .mapToLong(event -> event.context().timestampMs()).max().orElse(0);
+        if (terminal == 0) return false;
+        long retainedFrom = Math.max(acceptance.context().timestampMs(), terminal);
+        long now = System.currentTimeMillis();
+        return now >= retainedFrom
+                && acceptance.acceptance().retentionMs() <= now - retainedFrom;
+    }
+
+    private static boolean digestEquals(String left, String right) {
+        return MessageDigest.isEqual(left.getBytes(StandardCharsets.UTF_8),
+                right.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static JournalWriteException uniqueConflict() {
+        var conflict = new java.sql.SQLException("Idempotency key conflict", "23505");
+        return new JournalWriteException("Idempotency key was already used for a different request",
+                conflict, JournalAdmissionOutcome.REJECTED_BEFORE_TRANSFER);
+    }
+
     private void requireOpen() {
         if (closed) throw failure("Process-local journal is closed");
     }

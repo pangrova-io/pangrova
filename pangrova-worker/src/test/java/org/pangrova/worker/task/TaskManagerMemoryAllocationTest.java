@@ -75,7 +75,6 @@ class TaskManagerMemoryAllocationTest {
                         new TaskResource(
                                 tasks.manager(),
                                 runtime.transports().exchangeTransport(),
-                                new org.pangrova.worker.exchange.source.ExchangeSourceRegistry(),
                                 "127.0.0.1",
                                 runtime.resultPort(),
                                 null,

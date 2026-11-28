@@ -5,16 +5,18 @@ import org.pangrova.common.util.DigestUtils;
 import org.pangrova.common.api.annotation.Experimental;
 
 import java.util.Objects;
+import java.util.function.BooleanSupplier;
 
 import static org.pangrova.common.util.Preconditions.requireText;
 
 /**
- * Durable identity of one coordinator-owned distributed catalog commit.
+ * Durable identity and optional local publication authority for one distributed catalog commit.
  *
  * <p>The same instance values must be used for the first catalog attempt and every recovery
  * attempt. Connectors use {@code commitFingerprint} as an externally persisted idempotency marker;
  * {@code baseSnapshotId} is the table snapshot captured when the write began, never a snapshot
- * looked up during recovery.</p>
+ * looked up during recovery. The live publication claim is bound separately by the current
+ * owner and carries no persisted identity.</p>
  */
 @Experimental
 public record DistributedWriteCommitContext(
@@ -26,7 +28,8 @@ public record DistributedWriteCommitContext(
         String principal,
         org.pangrova.connector.api.commit.WriteAuthorizationReceipt authorizationReceipt,
         org.pangrova.common.file.CopyFileCommitBinding copyFile,
-        CdcSourceCommitIdentity cdcSource) {
+        CdcSourceCommitIdentity cdcSource,
+        BooleanSupplier publicationClaim) {
 
     /** Creates a non-CDC distributed commit context. */
     public DistributedWriteCommitContext(
@@ -39,7 +42,24 @@ public record DistributedWriteCommitContext(
             WriteAuthorizationReceipt authorizationReceipt,
             org.pangrova.common.file.CopyFileCommitBinding copyFile) {
         this(executionId, tenantId, baseSnapshotId, writeOutputBinding, commitFingerprint,
-                principal, authorizationReceipt, copyFile, null);
+                principal, authorizationReceipt, copyFile, null, null);
+    }
+
+    /** Creates the immutable durable identity before a coordinator binds its live publication claim. */
+    public DistributedWriteCommitContext(String executionId, String tenantId, long baseSnapshotId,
+            byte[] writeOutputBinding, String commitFingerprint, String principal,
+            WriteAuthorizationReceipt authorizationReceipt,
+            org.pangrova.common.file.CopyFileCommitBinding copyFile, CdcSourceCommitIdentity cdcSource) {
+        this(executionId, tenantId, baseSnapshotId, writeOutputBinding, commitFingerprint,
+                principal, authorizationReceipt, copyFile, cdcSource, null);
+    }
+
+    /** Requires the current owner to persist the unique start before invoking an external publisher. */
+    public boolean tryBeginPublication() {
+        if (publicationClaim == null) {
+            throw new IllegalStateException("External publication requires its live journal claim");
+        }
+        return publicationClaim.getAsBoolean();
     }
 
     public DistributedWriteCommitContext {

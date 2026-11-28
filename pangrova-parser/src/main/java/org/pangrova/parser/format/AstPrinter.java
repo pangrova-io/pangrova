@@ -59,6 +59,7 @@ import org.pangrova.parser.api.ast.statement.maintenance.VacuumStatement;
 import java.util.Locale;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Optional;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
@@ -118,7 +119,7 @@ public final class AstPrinter {
         q.qualify().ifPresent(qf -> sb.append(" QUALIFY ").append(printExpr(qf)));
         appendListClause(sb, " ORDER BY ", q.orderBy(), this::joinSortItems);
         q.rerankBy().ifPresent(r -> sb.append(" RERANK BY ").append(printRerankClause(r)));
-        q.limit().ifPresent(l -> sb.append(" LIMIT ").append(printExpr(l)));
+        appendPagination(sb, q.limit(), q.offset());
         return sb.toString();
     }
 
@@ -178,7 +179,14 @@ public final class AstPrinter {
             }
             sb.append(printQuery(sq.queries().get(i)));
         }
+        appendListClause(sb, " ORDER BY ", sq.orderBy(), this::joinSortItems);
+        appendPagination(sb, sq.limit(), sq.offset());
         return sb.toString();
+    }
+
+    private void appendPagination(StringBuilder sb, Optional<Expression> limit, Optional<Expression> offset) {
+        limit.ifPresent(value -> sb.append(" LIMIT ").append(printExpr(value)));
+        offset.ifPresent(value -> sb.append(" OFFSET ").append(printExpr(value)));
     }
 
     private String printCteQuery(CteQuery cte) {

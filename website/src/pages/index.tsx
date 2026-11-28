@@ -139,7 +139,7 @@ const community = [
   },
   {
     title: 'Documentation',
-    description: 'Start with the quickstart, capability status, and architecture overview.',
+    description: 'Start with the quickstart and architecture overview.',
     href: '/docs/',
     label: 'Read the docs',
   },
@@ -148,12 +148,6 @@ const community = [
     description: 'Review development priorities and open engineering items.',
     href: '/docs/getting-started/roadmap/',
     label: 'View the roadmap',
-  },
-  {
-    title: 'Capability status',
-    description: 'Check implemented paths, wiring gaps, and qualification limits.',
-    href: '/docs/getting-started/capability-status/',
-    label: 'Check capabilities',
   },
 ];
 
@@ -186,7 +180,10 @@ function Hero() {
             <span className={styles.heroBadgeDot} />
             Open source · Apache License 2.0
           </div>
-          <img src="img/logo-transparent.png" alt="Pangrova" className={styles.heroLogo} />
+          <div className={styles.heroBrand}>
+            <img src="img/logo-transparent.png" alt="Pangrova logo" className={styles.heroLogo} />
+            <span className={styles.heroWordmark}>Pangrova</span>
+          </div>
           <h1 className={styles.heroTitle}>{siteConfig.tagline}</h1>
           <p className={styles.heroSubtitle}>
             {siteConfig.title} is a distributed SQL engine for lakehouse analytics and AI
@@ -273,7 +270,6 @@ function Architecture() {
           <Link to="/docs/architecture/overview/">System overview →</Link>
           <Link to="/docs/architecture/query-execution/">Query execution →</Link>
           <Link to="/docs/architecture/distributed/">Distributed architecture →</Link>
-          <Link to="/docs/getting-started/capability-status/">Capability boundaries →</Link>
         </div>
       </div>
     </section>

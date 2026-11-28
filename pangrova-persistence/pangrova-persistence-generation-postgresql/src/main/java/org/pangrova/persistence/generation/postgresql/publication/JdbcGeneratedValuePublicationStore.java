@@ -7,6 +7,7 @@ import org.pangrova.common.util.DigestUtils;
 import org.pangrova.persistence.jdbc.api.generation.GenerationTransactionAuthority;
 import org.pangrova.persistence.jdbc.api.generation.GenerationExecutionTransactionFence;
 
+import org.pangrova.generation.api.graph.GenerationStageGraph;
 import org.pangrova.persistence.jdbc.api.generation.GenerationTransactionInputs;
 import org.pangrova.generation.api.job.GenerationJob;
 import org.pangrova.generation.api.enums.GenerationJobState;
@@ -58,7 +59,6 @@ public final class JdbcGeneratedValuePublicationStore
     private final GenerationTransactionAuthority transactionAuthority;
     private final GenerationExecutionTransactionFence executionFence;
     private final GenerationTransactionInputs inputs;
-    private final GenerationPublicationOutputValidator outputValidator;
     private final JdbcGeneratedValueDescriptorStore descriptorStore;
 
     /** Composes descriptor publication with current authority and the same-transaction execution fence. */
@@ -68,7 +68,6 @@ public final class JdbcGeneratedValuePublicationStore
         this.transactionAuthority = java.util.Objects.requireNonNull(transactionAuthority, "transactionAuthority");
         this.executionFence = java.util.Objects.requireNonNull(executionFence, "executionFence");
         this.inputs = Objects.requireNonNull(inputs, "inputs");
-        this.outputValidator = new GenerationPublicationOutputValidator(inputs);
         this.dataSource = Objects.requireNonNull(dataSource, "dataSource must not be null");
         this.descriptorStore = new JdbcGeneratedValueDescriptorStore(dataSource);
     }
@@ -126,10 +125,11 @@ public final class JdbcGeneratedValuePublicationStore
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try {
-                transactionAuthority.requireCurrent(connection, claimedJob.tenantId(), claimedJob.jobId());
+                var dispatch = transactionAuthority.requireCurrent(
+                        connection, claimedJob.tenantId(), claimedJob.jobId());
                 executionFence.requirePublication(connection, claimedJob.tenantId(), claimedJob.jobId());
                 GenerationManifest manifest = publishLocked(
-                        connection, claimedJob, owner, ownerEpoch, now);
+                        connection, claimedJob, owner, ownerEpoch, now, dispatch.stageGraph());
                 // Recheck after every potentially blocking publication write, before commit.
                 // Expiry here rolls back the generation, descriptor pointer and job together.
                 executionFence.requirePublication(connection, claimedJob.tenantId(), claimedJob.jobId());
@@ -146,10 +146,10 @@ public final class JdbcGeneratedValuePublicationStore
 
     private GenerationManifest publishLocked(
             Connection connection, GenerationJob claimedJob,
-            String owner, long ownerEpoch, Instant now) throws SQLException {
+            String owner, long ownerEpoch, Instant now, GenerationStageGraph graph) throws SQLException {
         JobRow job = lockClaimedJob(connection, claimedJob, owner, ownerEpoch, now);
         List<GenerationOutput> outputs =
-                outputValidator.loadAndValidate(connection, job);
+                GenerationPublicationOutputValidator.loadAndValidate(connection, job, graph);
         Aggregate aggregate = aggregate(job, outputs);
         JdbcGeneratedValueDescriptorStore.GeneratedDescriptor descriptor =
                 JdbcGeneratedValueDescriptorStore.lock(

@@ -4,6 +4,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.time.Duration;
+import java.time.OffsetDateTime;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
@@ -16,15 +17,12 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.pangrova.coordinator.query.execution.QueryOwnershipTracker;
-import org.pangrova.coordinator.task.CoordinatorTaskTracker;
-import org.pangrova.coordinator.task.TaskCancelRetrier;
-import org.pangrova.coordinator.worker.WorkerManager;
-import org.pangrova.persistence.coordination.memory.membership.InMemoryWorkerRegistry;
 import org.pangrova.persistence.jdbc.support.SchemaMigrationRunner;
+import org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore;
 import org.pangrova.persistence.query.postgresql.shuffle.JdbcShuffleCleanupIntentStore;
-import org.pangrova.shuffle.api.ShuffleCleanupRecovery;
 import org.pangrova.shuffle.api.ShuffleExecutionOwner;
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
+import java.time.Instant;
 import org.postgresql.ds.PGSimpleDataSource;
 import org.testcontainers.containers.PostgreSQLContainer;
 
@@ -54,7 +52,7 @@ class JdbcShuffleCleanupIntentStoreIntegrationTest {
         try (var connection = dataSource.getConnection(); var statement = connection.createStatement()) {
             statement.execute("CREATE EXTENSION IF NOT EXISTS pg_stat_statements");
         }
-        store = new JdbcShuffleCleanupIntentStore(dataSource, ignored -> OWNER);
+        store = new JdbcShuffleCleanupIntentStore(dataSource);
     }
 
     @AfterAll
@@ -67,26 +65,25 @@ class JdbcShuffleCleanupIntentStoreIntegrationTest {
         String queryId = "before-register-" + UUID.randomUUID();
         seedAnchor(queryId);
         long before = cleanupStatements();
-        store.markPending(queryId);
-        assertThat(cleanupStatements() - before).isEqualTo(2);
-        assertThat(store.isPending(queryId)).isTrue();
-        assertThat(store.pendingForOwner(OWNER.ownerId(), 100)).contains(queryId);
+        store.markPending(grant(queryId));
+        assertThat(cleanupStatements() - before).isOne();
+        assertThat(hasIntent(queryId)).isTrue();
     }
 
     @Test
-    void validatesRegisteredScopeAndRecordsOrReplaysIntentInTwoStatements() throws Exception {
+    void validatesRegisteredScopeAndRecordsOrReplaysIntentInOneStatement() throws Exception {
         String queryId = "registered-scope-" + UUID.randomUUID();
         seedAnchor(queryId);
         try (var connection = dataSource.getConnection()) {
             seedScope(connection, queryId, OWNER);
         }
         long before = cleanupStatements();
-        store.markPending(queryId);
-        assertThat(cleanupStatements() - before).isEqualTo(2);
+        store.markPending(grant(queryId));
+        assertThat(cleanupStatements() - before).isOne();
         before = cleanupStatements();
-        store.markPending(queryId);
-        assertThat(cleanupStatements() - before).isEqualTo(2);
-        assertThat(store.isPending(queryId)).isTrue();
+        store.markPending(grant(queryId));
+        assertThat(cleanupStatements() - before).isOne();
+        assertThat(hasIntent(queryId)).isTrue();
     }
 
     @Test
@@ -96,9 +93,9 @@ class JdbcShuffleCleanupIntentStoreIntegrationTest {
         try (var connection = dataSource.getConnection()) {
             seedScope(connection, queryId, new ShuffleExecutionOwner(OWNER.ownerId(), "boot-foreign", 8));
         }
-        assertThatThrownBy(() -> store.markPending(queryId)).isInstanceOf(SecurityException.class)
+        assertThatThrownBy(() -> store.markPending(grant(queryId))).isInstanceOf(SecurityException.class)
                 .hasMessageContaining("scope owner mismatch");
-        assertThat(store.isPending(queryId)).isFalse();
+        assertThat(hasIntent(queryId)).isFalse();
     }
 
     @ParameterizedTest
@@ -132,7 +129,7 @@ class JdbcShuffleCleanupIntentStoreIntegrationTest {
                 return null;
             });
             assertThat(registrationLocked.await(5, TimeUnit.SECONDS)).isTrue();
-            var terminal = executor.submit(() -> store.markPending(queryId));
+            var terminal = executor.submit(() -> store.markPending(grant(queryId)));
             await().atMost(Duration.ofSeconds(5)).until(() -> waitingForAnchor(blockerPid.get()));
             finishRegistration.countDown();
             registration.get(5, TimeUnit.SECONDS);
@@ -143,7 +140,7 @@ class JdbcShuffleCleanupIntentStoreIntegrationTest {
                         .hasCauseInstanceOf(SecurityException.class).hasRootCauseMessage(
                                 "shuffle cleanup intent scope owner mismatch");
             }
-            assertThat(store.isPending(queryId)).isEqualTo(matchingOwner);
+            assertThat(hasIntent(queryId)).isEqualTo(matchingOwner);
         } finally {
             finishRegistration.countDown();
             executor.shutdownNow();
@@ -154,7 +151,7 @@ class JdbcShuffleCleanupIntentStoreIntegrationTest {
         try (var connection = dataSource.getConnection();
                 var statement = connection.prepareStatement("""
                         SELECT EXISTS (SELECT 1 FROM pg_stat_activity
-                                       WHERE query LIKE '%public.execution_anchor%FOR UPDATE'
+                                       WHERE query LIKE 'SELECT shuffle.seal_terminal_cleanup(%'
                                          AND ? = ANY(pg_blocking_pids(pid)))
                         """)) {
             statement.setInt(1, blockerPid);
@@ -165,54 +162,116 @@ class JdbcShuffleCleanupIntentStoreIntegrationTest {
     }
 
     @Test
-    void cleanupRetryDoesNotReinsertCompletedIntent() throws Exception {
-        String queryId = "completed-cleanup-" + UUID.randomUUID();
+    void emptyCleanupPreservesItsSealAndReplaysTheOriginalConvergenceTime() throws Exception {
+        String queryId = "empty-cleanup-" + UUID.randomUUID();
         seedAnchor(queryId);
-        store.markPending(queryId);
-        AtomicInteger remoteCleanups = new AtomicInteger();
-        ShuffleCleanupRecovery recovery = id -> {
-            remoteCleanups.incrementAndGet();
-            try (Connection connection = dataSource.getConnection();
-                    PreparedStatement statement = connection.prepareStatement(
-                            "DELETE FROM shuffle.shuffle_cleanup_intent WHERE query_id = ?")) {
-                statement.setString(1, id);
-                statement.executeUpdate();
-            } catch (Exception e) {
-                throw new IllegalStateException(e);
-            }
-        };
-        CoordinatorTaskTracker tasks = new CoordinatorTaskTracker();
-        tasks.openQueryIssuance(queryId);
-        QueryOwnershipTracker tracker = new QueryOwnershipTracker(
-                tasks, new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry()),
-                null, new TaskCancelRetrier((request, worker) -> null, tasks));
-        tracker.setShuffleCleanup(store, recovery);
-
+        store.markPending(grant(queryId));
         long before = cleanupStatements();
-        assertThat(tracker.tryCleanupQuery(queryId)).isTrue();
-        assertThat(cleanupStatements() - before).isEqualTo(2);
-        before = cleanupStatements();
-        assertThat(tracker.tryCleanupQuery(queryId)).isTrue();
-        assertThat(cleanupStatements() - before).isEqualTo(1);
 
-        assertThat(store.isPending(queryId)).isFalse();
-        assertThat(remoteCleanups.get()).isEqualTo(1);
+        assertThat(store.completeWithoutScope(grant(queryId))).isTrue();
+        assertThat(cleanupStatements() - before).isEqualTo(2);
+        var converged = convergenceTime(queryId);
+        assertThat(converged).isNotNull();
+        assertThat(store.completeWithoutScope(grant(queryId))).isTrue();
+        assertThat(convergenceTime(queryId)).isEqualTo(converged);
     }
 
     @Test
-    void keysetScanAdvancesBeyondOneCleanupPage() throws Exception {
-        String prefix = "zz-keyset-" + UUID.randomUUID();
-        for (int i = 1; i <= 3; i++) {
-            String queryId = prefix + "-" + i;
-            seedAnchor(queryId);
-            store.markPending(queryId);
+    void untrackedDurableScopeStillRequiresTheRemoteCleanupProtocol() throws Exception {
+        String queryId = "untracked-cleanup-" + UUID.randomUUID();
+        seedAnchor(queryId);
+        try (var connection = dataSource.getConnection()) {
+            seedScope(connection, queryId, OWNER);
         }
+        store.markPending(grant(queryId));
+        assertThat(store.completeWithoutScope(grant(queryId))).isFalse();
+        assertThat(hasIntent(queryId)).isTrue();
+    }
 
-        var first = store.pendingForOwnerAfter(OWNER.ownerId(), prefix + "-0", 2);
-        var second = store.pendingForOwnerAfter(OWNER.ownerId(), first.get(1), 2);
+    @Test
+    void staleTerminalAndCleanupCallsCannotMutateTheSuccessorIntent() throws Exception {
+        String queryId = "stale-cleanup-" + UUID.randomUUID();
+        seedAnchor(queryId);
+        var stale = new ExecutionAnchor(queryId, OWNER.ownerId(), "predecessor", 6,
+                Instant.EPOCH, Instant.EPOCH.plusSeconds(1));
+        assertThatThrownBy(() -> store.markPending(stale)).isInstanceOf(SecurityException.class)
+                .hasMessageContaining("lost the execution anchor");
+        assertThat(hasIntent(queryId)).isFalse();
 
-        assertThat(first).containsExactly(prefix + "-1", prefix + "-2");
-        assertThat(second).containsExactly(prefix + "-3");
+        store.markPending(grant(queryId));
+        setDrainState(queryId, 1);
+        assertThat(store.completeWithoutScope(stale)).isTrue();
+        assertThat(hasIntent(queryId)).isTrue();
+        setDrainState(queryId, 2);
+        assertThat(store.prepareProvenRecovery(grant(queryId))).isFalse();
+        assertThat(convergenceTime(queryId)).isNotNull();
+    }
+
+    @Test
+    void onlyTheProvenSuccessorCanAdoptAPredecessorScopeWithoutAnIntent() throws Exception {
+        String queryId = "drained-recovery-" + UUID.randomUUID();
+        seedAnchor(queryId);
+        try (var connection = dataSource.getConnection()) {
+            seedScope(connection, queryId, new ShuffleExecutionOwner("predecessor", "older-boot", 6));
+        }
+        setDrainState(queryId, 1);
+        assertThatThrownBy(() -> store.prepareProvenRecovery(grant(queryId)))
+                .isInstanceOf(SecurityException.class).hasMessageContaining("predecessor exit proof");
+        assertThat(hasIntent(queryId)).isFalse();
+        setDrainState(queryId, 2);
+        assertThat(store.prepareProvenRecovery(grant(queryId))).isTrue();
+        assertThat(hasIntent(queryId)).isTrue();
+    }
+
+    @Test
+    void recoveredRetirementRequiresPositiveConvergenceAndReapsItWithTheAnchor() throws Exception {
+        String queryId = "cleanup-retirement-" + UUID.randomUUID();
+        seedAnchor(queryId);
+        var owner = grant(queryId);
+        var anchors = new JdbcExecutionAnchorStore(dataSource);
+        setDrainState(queryId, 2);
+        assertThat(anchors.releaseDrainedQuery(owner, true)).isFalse();
+        assertThat(anchors.current(queryId)).isPresent();
+        assertThat(store.prepareProvenRecovery(owner)).isFalse();
+        assertThat(convergenceTime(queryId)).isNotNull();
+        assertThat(anchors.releaseDrainedQuery(owner, true)).isTrue();
+        assertThat(anchors.current(queryId)).isEmpty();
+        assertThat(hasIntent(queryId)).isFalse();
+    }
+
+    private static OffsetDateTime convergenceTime(String queryId) throws Exception {
+        try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement(
+                "SELECT converged_at FROM shuffle.shuffle_cleanup_intent WHERE query_id = ?")) {
+            statement.setString(1, queryId);
+            try (var rows = statement.executeQuery()) {
+                assertThat(rows.next()).isTrue();
+                return rows.getObject(1, OffsetDateTime.class);
+            }
+        }
+    }
+
+    private static ExecutionAnchor grant(String queryId) {
+        return new ExecutionAnchor(queryId, OWNER.ownerId(), OWNER.ownerIncarnation(), OWNER.fencingToken(),
+                Instant.EPOCH, Instant.EPOCH.plusSeconds(1));
+    }
+
+    private static boolean hasIntent(String queryId) throws Exception {
+        try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement(
+                "SELECT 1 FROM shuffle.shuffle_cleanup_intent WHERE query_id = ?")) {
+            statement.setString(1, queryId);
+            try (var rows = statement.executeQuery()) {
+                return rows.next();
+            }
+        }
+    }
+
+    private static void setDrainState(String queryId, int state) throws Exception {
+        try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement(
+                "UPDATE public.execution_anchor SET recovery_drain_state = ? WHERE execution_id = ?")) {
+            statement.setInt(1, state);
+            statement.setString(2, queryId);
+            assertThat(statement.executeUpdate()).isOne();
+        }
     }
 
     private static void seedAnchor(String queryId) throws Exception {
@@ -251,7 +310,7 @@ class JdbcShuffleCleanupIntentStoreIntegrationTest {
                 WHERE toplevel AND dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
                   AND query NOT LIKE '%pg_stat_statements%'
                   AND (query LIKE '%public.execution_anchor%' OR query LIKE '%shuffle.shuffle_query_scope%'
-                       OR query LIKE '%shuffle.shuffle_cleanup_intent%')
+                       OR query LIKE '%shuffle.shuffle_cleanup_intent%' OR query LIKE 'SELECT shuffle.seal_terminal_cleanup(%')
                 """;
         try (var connection = dataSource.getConnection(); var statement = connection.createStatement();
                 var row = statement.executeQuery(sql)) {

@@ -7,6 +7,7 @@ import org.pangrova.protocol.transport.TransportServerConfig;
 import org.pangrova.protocol.transport.TransportServerLifecycle;
 import io.grpc.ServerInterceptor;
 import org.apache.arrow.flight.Location;
+import org.apache.arrow.flight.FlightProducer;
 import org.apache.arrow.memory.BufferAllocator;
 import org.apache.arrow.memory.RootAllocator;
 import org.slf4j.Logger;
@@ -42,12 +43,11 @@ public class TransportServer implements TransportServerLifecycle {
     private static final long ALLOCATOR_DRAIN_POLL_INTERVAL_MS = 50;
 
     private final int requestedPort;
-    private final DataProducer producer;
+    private final FlightProducer flightProducer;
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final BufferAllocator allocator;
     private final boolean ownsAllocator;
     private final TransportServerConfig config;
-    private final TransportTicketSigner ticketSigner;
     private final List<ServerInterceptor> serverInterceptors;
 
     private volatile org.apache.arrow.flight.FlightServer delegate;
@@ -57,81 +57,52 @@ public class TransportServer implements TransportServerLifecycle {
     private boolean stopping;
 
     public TransportServer(DataProducer producer, TransportServerConfig config) {
-        this(producer, config,
-                config.allocatorLimitBytes() > 0 ? config.allocatorLimitBytes() : DEFAULT_ALLOCATOR_LIMIT);
+        this(producer, config, allocatorLimit(config));
     }
 
-    /** Creates a server with an explicit allocator memory limit. */
+    /** Creates a serialized stream server with an explicit allocator memory limit. */
     public TransportServer(DataProducer producer, TransportServerConfig config, long allocatorLimit) {
-        Objects.requireNonNull(producer, "producer must not be null");
-        Objects.requireNonNull(config, "config must not be null");
-        this.requestedPort = config.port();
-        this.producer = producer;
-        this.allocator = new RootAllocator(allocatorLimit);
-        this.ownsAllocator = true;
-        this.config = config;
-        this.ticketSigner = null;
-        this.serverInterceptors = List.of();
+        this(producer, config, new RootAllocator(allocatorLimit), true, null, List.of());
     }
 
-    /**
-     * Creates a TransportServer with ticket signing enabled.
-     */
-    public TransportServer(DataProducer producer, TransportServerConfig config,
-                           TransportTicketSigner ticketSigner) {
-        Objects.requireNonNull(producer, "producer must not be null");
-        Objects.requireNonNull(config, "config must not be null");
-        this.requestedPort = config.port();
-        this.producer = producer;
-        long limit = config.allocatorLimitBytes() > 0 ? config.allocatorLimitBytes() : DEFAULT_ALLOCATOR_LIMIT;
-        this.allocator = new RootAllocator(limit);
-        this.ownsAllocator = true;
-        this.config = config;
-        this.ticketSigner = ticketSigner;
-        this.serverInterceptors = List.of();
+    public TransportServer(DataProducer producer, TransportServerConfig config, TransportTicketSigner ticketSigner) {
+        this(producer, config, new RootAllocator(allocatorLimit(config)), true, ticketSigner, List.of());
     }
 
-    /**
-     * Creates a TransportServer using an externally-managed allocator
-     * (e.g., from OffHeapAllocatorManager). The caller retains ownership
-     * of the allocator — this server will not close it.
-     */
     public TransportServer(DataProducer producer, TransportServerConfig config, BufferAllocator allocator) {
-        Objects.requireNonNull(producer, "producer must not be null");
-        Objects.requireNonNull(config, "config must not be null");
-        this.requestedPort = config.port();
-        this.producer = producer;
-        this.allocator = Objects.requireNonNull(allocator, "allocator");
-        this.ownsAllocator = false;
-        this.config = config;
-        this.ticketSigner = null;
-        this.serverInterceptors = List.of();
+        this(producer, config, allocator, false, null, List.of());
     }
 
-    /**
-     * Creates a TransportServer with gRPC ServerInterceptors (e.g., for distributed
-     * tracing via FlightSpanInterceptor). Interceptors are attached to the underlying
-     * gRPC NettyServerBuilder via the data exchange SDK's {@code grpc.builderConsumer} hint.
-     *
-     * @param producer            data producer
-     * @param config              transport config (port, TLS settings)
-     * @param ticketSigner        optional ticket signer (may be null)
-     * @param serverInterceptors  gRPC server interceptors to attach (may be empty)
-     */
-    public TransportServer(DataProducer producer, TransportServerConfig config,
-                           TransportTicketSigner ticketSigner,
-                           List<ServerInterceptor> serverInterceptors) {
-        Objects.requireNonNull(producer, "producer must not be null");
-        Objects.requireNonNull(config, "config must not be null");
+    public TransportServer(DataProducer producer, TransportServerConfig config, TransportTicketSigner ticketSigner,
+            List<ServerInterceptor> serverInterceptors) {
+        this(producer, config, new RootAllocator(allocatorLimit(config)), true, ticketSigner, serverInterceptors);
+    }
+
+    /** Binds a direct Arrow Flight producer. The caller retains allocator ownership. */
+    public TransportServer(FlightProducer producer, TransportServerConfig config, BufferAllocator allocator,
+            List<ServerInterceptor> serverInterceptors) {
+        this(producer, config, allocator, false, serverInterceptors);
+    }
+
+    private TransportServer(DataProducer producer, TransportServerConfig config, BufferAllocator allocator,
+            boolean ownsAllocator, TransportTicketSigner signer, List<ServerInterceptor> serverInterceptors) {
+        this(new BatchStreamProducer(Objects.requireNonNull(producer), allocator, signer),
+                config, allocator, ownsAllocator, serverInterceptors);
+    }
+
+    private TransportServer(FlightProducer producer, TransportServerConfig config, BufferAllocator allocator,
+            boolean ownsAllocator, List<ServerInterceptor> serverInterceptors) {
+        this.flightProducer = Objects.requireNonNull(producer, "producer");
+        this.config = Objects.requireNonNull(config, "config");
         this.requestedPort = config.port();
-        this.producer = producer;
-        long limit = config.allocatorLimitBytes() > 0 ? config.allocatorLimitBytes() : DEFAULT_ALLOCATOR_LIMIT;
-        this.allocator = new RootAllocator(limit);
-        this.ownsAllocator = true;
-        this.config = config;
-        this.ticketSigner = ticketSigner;
-        this.serverInterceptors = serverInterceptors != null
-                ? List.copyOf(serverInterceptors) : List.of();
+        this.allocator = Objects.requireNonNull(allocator, "allocator");
+        this.ownsAllocator = ownsAllocator;
+        this.serverInterceptors = serverInterceptors == null ? List.of() : List.copyOf(serverInterceptors);
+    }
+
+    private static long allocatorLimit(TransportServerConfig config) {
+        long limit = config.allocatorLimitBytes();
+        return limit > 0 ? limit : DEFAULT_ALLOCATOR_LIMIT;
     }
 
     @Override
@@ -183,23 +154,18 @@ public class TransportServer implements TransportServerLifecycle {
         return server != null ? server.getPort() : requestedPort;
     }
 
-    public DataProducer getProducer() {
-        return producer;
-    }
-
     BufferAllocator allocator() {
         return allocator;
     }
 
     private org.apache.arrow.flight.FlightServer buildServer() throws IOException {
-        BatchStreamProducer batchProducer = new BatchStreamProducer(producer, allocator, ticketSigner);
         validateTlsConfiguration();
         if (config.tlsEnabled()) {
-            return buildSecureServer(batchProducer);
+            return buildSecureServer();
         }
         Location location = Location.forGrpcInsecure("0.0.0.0", requestedPort);
         org.apache.arrow.flight.FlightServer.Builder builder =
-                org.apache.arrow.flight.FlightServer.builder(allocator, location, batchProducer);
+                org.apache.arrow.flight.FlightServer.builder(allocator, location, flightProducer);
         attachInterceptors(builder);
         return builder.build();
     }
@@ -212,8 +178,7 @@ public class TransportServer implements TransportServerLifecycle {
         }
     }
 
-    private org.apache.arrow.flight.FlightServer buildSecureServer(
-            BatchStreamProducer batchProducer) throws IOException {
+    private org.apache.arrow.flight.FlightServer buildSecureServer() throws IOException {
         Path certificate = requireTlsFile(config.tlsCertPath());
         Path key = requireTlsFile(config.tlsKeyPath());
         Path trust = config.mtlsConfigured() ? requireTlsFile(config.tlsTrustChainPath()) : null;
@@ -221,7 +186,7 @@ public class TransportServer implements TransportServerLifecycle {
         try (var certificateInput = Files.newInputStream(certificate);
              var keyInput = Files.newInputStream(key);
              var trustInput = trust == null ? null : Files.newInputStream(trust)) {
-            var builder = org.apache.arrow.flight.FlightServer.builder(allocator, location, batchProducer)
+            var builder = org.apache.arrow.flight.FlightServer.builder(allocator, location, flightProducer)
                     .useTls(certificateInput, keyInput);
             if (trustInput != null) {
                 builder.useMTlsClientVerification(trustInput);

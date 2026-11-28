@@ -1,4 +1,5 @@
 package org.pangrova.coordinator.query;
+import org.pangrova.parser.parse.TimeTravelSqlClauses.Analysis;
 import org.pangrova.query.runtime.QueryManager;
 
 import org.pangrova.query.lifecycle.QueryStateMachine;
@@ -36,6 +37,7 @@ import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.scheduler.strategies.placement.LoadBalancedStrategy;
 import org.pangrova.planner.analysis.SqlCompiler;
+import org.pangrova.common.enums.ResultDisposition;
 import org.pangrova.common.client.result.ResultEndpoint;
 import org.pangrova.query.api.error.QueryFailure;
 import org.pangrova.query.api.submission.QuerySubmissionResult;
@@ -114,7 +116,7 @@ class QueryManagerAsyncSubmitTest {
     void asyncReceiptReturnsWhilePlanningIsHeldAndObserverCancellationKeepsTheQuery() throws Exception {
         var entering = new CountDownLatch(1);
         var release = new CountDownLatch(1);
-        var endpoint = new ResultEndpoint("localhost", 9090, "ticket-async-observer", "arrow-flight");
+        var endpoint = new ResultEndpoint("localhost", 9090, "ticket-async-observer", "grpc");
         var dispatcher = new SlowQueryDispatcher(entering, release) {
             @Override
             public CompletionStage<DispatchResult> executeAsync(QueryStateMachine sm, String sql,
@@ -151,7 +153,7 @@ class QueryManagerAsyncSubmitTest {
     }
 
     @Test
-    void resultlessWriteDispatchReturnsBeforeLongCommit() throws Exception {
+    void writeDispatchReturnsPendingBeforeLongCommit() throws Exception {
         CountDownLatch commit = new CountDownLatch(1);
         QueryDispatcher dispatcher = new SlowQueryDispatcher(new CountDownLatch(1), commit) {
             @Override
@@ -175,6 +177,7 @@ class QueryManagerAsyncSubmitTest {
             QuerySubmissionResult response = manager.submitQuery(
                     "long-write", "INSERT INTO t VALUES (1)", testSession("long-write"));
             assertThat(response.state()).isEqualTo(org.pangrova.query.api.enums.QueryState.RUNNING);
+            assertThat(response.resultDisposition()).isEqualTo(ResultDisposition.PENDING);
             assertThat(response.resultEndpoint()).isNull();
             assertThat(manager.getQueryState("long-write")).contains(QueryState.RUNNING);
         } finally {
@@ -292,7 +295,7 @@ class QueryManagerAsyncSubmitTest {
             public CompletionStage<DispatchResult> executeAsync(QueryStateMachine sm, String sql,
                                           QuerySession session) {
                 var endpoint = new ResultEndpoint(
-                        "localhost", 9090, "ticket-early", "arrow-flight");
+                        "localhost", 9090, "ticket-early", "grpc");
                 sm.tryTransition(QueryState.PLANNING);
                 sm.tryTransition(QueryState.SCHEDULING);
                 sm.setResultEndpoint(endpoint);
@@ -324,25 +327,25 @@ class QueryManagerAsyncSubmitTest {
     }
 
     @Test
-    @DisplayName("FINISHED before DispatchResult waits for the control-plane endpoint")
-    void terminalBeforeEndpointDoesNotReturnNullEndpoint() throws Exception {
+    @DisplayName("endpoint published before terminal retains one streaming contract")
+    void endpointPublishedBeforeTerminalRetainsStream() throws Exception {
         CountDownLatch terminalReached = new CountDownLatch(1);
-        CountDownLatch allowResult = new CountDownLatch(1);
+        CountDownLatch allowDispatchResult = new CountDownLatch(1);
         QueryDispatcher dispatcher = new SlowQueryDispatcher(
                 new CountDownLatch(1), new CountDownLatch(1)) {
             @Override
             public CompletionStage<DispatchResult> executeAsync(QueryStateMachine sm, String sql,
                                           QuerySession session) {
+                var endpoint = new ResultEndpoint("localhost", 9090, "ticket-ddl", "grpc");
                 sm.tryTransition(QueryState.PLANNING);
                 sm.tryTransition(QueryState.SCHEDULING);
                 sm.tryTransition(QueryState.RUNNING);
+                sm.setResultEndpoint(endpoint);
                 sm.tryTransition(QueryState.FINISHING);
                 sm.tryTransition(QueryState.FINISHED);
                 terminalReached.countDown();
-                await(allowResult);
-                return CompletableFuture.completedFuture(new DispatchResult("localhost", "task-ddl",
-                        new ResultEndpoint("localhost", 9090,
-                                "ticket-ddl", "arrow-flight")));
+                await(allowDispatchResult);
+                return CompletableFuture.completedFuture(null);
             }
         };
         QueryManager manager = new QueryManager(QueryManagerTestContexts.minimalAsync(
@@ -351,18 +354,21 @@ class QueryManagerAsyncSubmitTest {
         ExecutorService submitter = Executors.newSingleThreadExecutor();
         try {
             Future<QuerySubmissionResult> submitted = submitter.submit(() ->
-                    manager.submitQuery("ddl-before-endpoint", "SHOW TABLES",
-                            testSession("ddl-before-endpoint")));
+                    manager.submitQuery("ddl-before-dispatch-result", "SHOW TABLES",
+                            testSession("ddl-before-dispatch-result")));
             assertThat(terminalReached.await(5, TimeUnit.SECONDS)).isTrue();
-            assertThatThrownBy(() -> submitted.get(200, TimeUnit.MILLISECONDS))
-                    .isInstanceOf(TimeoutException.class);
-            allowResult.countDown();
             QuerySubmissionResult response = submitted.get(5, TimeUnit.SECONDS);
-            assertThat(response.state()).isEqualTo(org.pangrova.query.api.enums.QueryState.FINISHED);
-            assertThat(response.resultEndpoint()).isNotNull();
+            assertThat(response.state()).isEqualTo(org.pangrova.query.api.enums.QueryState.RUNNING);
+            assertThat(response.resultDisposition()).isEqualTo(ResultDisposition.STREAM);
             assertThat(response.resultEndpoint().ticket()).isEqualTo("ticket-ddl");
+            allowDispatchResult.countDown();
+            org.awaitility.Awaitility.await().atMost(java.time.Duration.ofSeconds(5)).untilAsserted(() -> {
+                assertThat(manager.getQueryState("ddl-before-dispatch-result")).contains(QueryState.FINISHED);
+                assertThat(manager.getResultEndpoint("ddl-before-dispatch-result"))
+                        .contains(response.resultEndpoint());
+            });
         } finally {
-            allowResult.countDown();
+            allowDispatchResult.countDown();
             submitter.shutdownNow();
         }
     }
@@ -423,10 +429,11 @@ class QueryManagerAsyncSubmitTest {
         var executingState = new AtomicReference<QueryStateMachine>();
         var compiler = new SqlCompiler() {
             @Override
-            public org.pangrova.planner.analysis.PlanResult compileForPolicyApplication(String sql) {
+            public org.pangrova.planner.analysis.PlanResult compileForPolicyApplication(Analysis input) {
                 var state = executingState.get();
                 state.tryTransition(QueryState.SCHEDULING);
                 state.tryTransition(QueryState.RUNNING);
+                state.markNoResult();
                 state.markWriteDispatchReady();
                 await(failDispatch);
                 throw new org.pangrova.security.api.exception.AccessDeniedException("publication permission revoked");
@@ -556,7 +563,7 @@ class QueryManagerAsyncSubmitTest {
             // listener fires on RUNNING and immediately reads the endpoint.
             ResultEndpoint endpoint = new ResultEndpoint(
                     "localhost", 9090,
-                    "ticket-" + session.queryId(), "arrow-flight");
+                    "ticket-" + session.queryId(), "grpc");
             sm.setResultEndpoint(endpoint);
 
             // Simulate compile → schedule → dispatch transitions quickly
@@ -583,8 +590,8 @@ class QueryManagerAsyncSubmitTest {
         }
 
         @Override
-        public boolean acquireQueryOwnership(String queryId) {
-            return true; // always succeed in test
+        public Ownership acquireQueryOwnership(String queryId, String tenantId) {
+            return new Ownership(true, java.util.OptionalLong.empty()); // always succeed in test
         }
 
         @Override
@@ -593,7 +600,8 @@ class QueryManagerAsyncSubmitTest {
         }
 
         @Override
-        public boolean tryCleanupQuery(String queryId) {
+        public boolean tryCleanupQuery(String queryId,
+                org.pangrova.execution.api.ownership.ExecutionAnchor originalGrant) {
             return true;
         }
 
@@ -602,7 +610,7 @@ class QueryManagerAsyncSubmitTest {
             // no-op in test
         }
 
-        private static QueryDispatcherContext buildMinimalContext() {
+        static QueryDispatcherContext buildMinimalContext() {
             return buildMinimalContext(new SqlCompiler());
         }
 

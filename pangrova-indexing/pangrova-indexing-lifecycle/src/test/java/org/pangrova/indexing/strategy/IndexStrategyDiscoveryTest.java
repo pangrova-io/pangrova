@@ -24,6 +24,9 @@ class IndexStrategyDiscoveryTest {
                 IndexType.R_TREE, IndexType.GIN);
         assertThat(strategies.providers()).extracting(IndexStrategyProvider::supportedType)
                 .containsExactlyInAnyOrderElementsOf(scalarTypes);
+        assertThat(java.util.Arrays.stream(IndexType.values())
+                .filter(type -> !type.requiresNativeArtifact()).toList())
+                .containsExactlyInAnyOrderElementsOf(scalarTypes);
         for (var type : scalarTypes) {
             var provider = strategies.getProvider(type);
             List<List<Comparable<?>>> rows = type == IndexType.R_TREE

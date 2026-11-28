@@ -60,7 +60,12 @@ try (Connection conn = DriverManager.getConnection(url, props);
 
 ### Forward-only results
 
-JDBC uses the accepting Coordinator endpoint for status and cancellation.
+JDBC uses the accepting Coordinator for live status and cancellation. If that
+Coordinator becomes unavailable, an authenticated query with a signed receipt can
+recover its terminal outcome through another configured ingress or the same
+ingress after restart. JDBC throws a `SQLException` when the query succeeded but
+the original Flight stream is unavailable and the client has yet to consume it.
+A recovered resultless statement retains its success outcome.
 `executeQuery()` returns after the result schema and first data batch are
 available, or Flight reaches EOF. `ResultSet.next()` reads subsequent batches
 as needed. JDBC validates the Coordinator's terminal outcome before returning
@@ -165,8 +170,11 @@ caller. A cancellation on an idle statement returns immediately.
 
 `Statement.cancel()` retains the currently active query identity if its HTTP request
 fails or its acknowledgement is malformed, so an explicit retry still addresses
-the same query. Only a validated, matching `CANCEL_ACCEPTED` or `ALREADY_TERMINAL`
-response retires that identity; a delayed response cannot clear a newer query.
+the same query. A validated, matching `CANCEL_ACCEPTED` or `ALREADY_TERMINAL`
+response retires that identity. A confirmed `CANCELLED` status from the accepting
+Coordinator also retires it and prevents a duplicate cancellation request.
+Retirement applies to the exact query identity, including when a newer query
+starts before a delayed response arrives.
 `NOT_FOUND` raises `SQLException` and leaves an active identity available for retry.
 It proves only that the contacted coordinator did not find the query, not that an
 older coordinator in an HA deployment cancelled it. These logical acknowledgements
@@ -183,6 +191,11 @@ These are client protocol semantics, not a production-readiness claim for the ca
 server. The current Coordinator discovery implementation still requires real table
 enumeration, complete connector schema declarations, and authenticated tenant/RBAC
 session wiring; HTTP fixture tests do not establish that server-side chain.
+
+`DatabaseMetaData.getIndexInfo` is not implemented. It throws
+`SQLFeatureNotSupportedException` instead of returning an empty result that could be
+misread as “no indexes.” Use `SHOW INDEXES` for the stable index descriptor contract
+documented in [Index DDL](../../indexing/index-ddl.md#show-indexes).
 
 ```java
 Properties props = new Properties();

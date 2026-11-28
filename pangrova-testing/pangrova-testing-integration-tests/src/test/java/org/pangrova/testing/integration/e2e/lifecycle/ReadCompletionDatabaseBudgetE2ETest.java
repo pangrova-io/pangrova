@@ -19,10 +19,14 @@ import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 
 /** Measures PostgreSQL reads from SQL submission through physical drain. */
 class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
+    private static final String CATALOG = "read_budget_iceberg";
+    private static final String SCHEMA = "default";
+    private static final String QUALIFIED_SCHEMA = CATALOG + "." + SCHEMA + ".";
     private static final String JOURNAL_LOOKUP =
             "SELECT query_id, catalog_name,%FROM write_commit_journal WHERE query_id = $1";
     private static final String RELEASE_JOURNAL_LOOKUP =
@@ -32,6 +36,13 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
                     + "WHERE execution_id = $1 AND expires_at > clock_timestamp()";
     private static final String PUBLICATION_LOOKUP =
             "SELECT tenant_id,requesting_principal,%FROM materialization.attempts WHERE execution_anchor=$1";
+    private static final String PUBLISHED_NAME_LOOKUP =
+            "SELECT o.tenant_id, o.object_name, o.object_kind,%FROM materialization.objects o "
+                    + "JOIN materialization.generations g%AND o.tenant_id=$1 AND o.object_name=$2";
+    private static final String PUBLICATION_SNAPSHOT_LOAD =
+            "WITH registry AS (%FROM registry LEFT JOIN published ON TRUE%";
+    private static final String SEPARATE_PUBLICATION_REVISION =
+            "SELECT COALESCE((SELECT epoch FROM materialization.registry_epochs WHERE tenant_id=$1), %)";
     private static final String READ_ADMISSION_LOOKUP =
             "SELECT control.*, catalog.incarnation_id AS observed_catalog_incarnation%";
     private static final String TABLE_REGISTRATION_LOOKUP =
@@ -46,6 +57,8 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
             "SELECT DISTINCT table_namespace FROM iceberg_tables WHERE catalog_name = %";
     private static final String ICEBERG_PROPERTY_NAMESPACE_LIST =
             "SELECT DISTINCT namespace FROM iceberg_namespace_properties WHERE catalog_name = %";
+    private static final String ICEBERG_TABLE_LIST =
+            "SELECT * FROM iceberg_tables WHERE catalog_name = $1 AND table_namespace = $2";
     private static final String ICEBERG_NAMED_NAMESPACE_LOOKUP =
             "SELECT table_namespace FROM iceberg_tables WHERE catalog_name = %"
                     + "AND%table_namespace = %OR table_namespace LIKE %LIMIT %";
@@ -68,7 +81,8 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
 
     @Override
     protected List<ConnectorTestConfig> connectorConfigs() {
-        return List.of(ConnectorTestConfig.icebergLocal("iceberg_catalog", "default", icebergWarehouse().toString(),
+        return List.of(ConnectorTestConfig.icebergLocal(CATALOG, SCHEMA,
+                icebergWarehouse().resolveSibling("read-budget-iceberg-warehouse").toString(),
                 Map.of("type", "jdbc", "uri", pgJdbcUrl(), "jdbc.user", pgUsername(),
                         "jdbc.password", pgPassword(), "jdbc.schema-version", "V1")));
     }
@@ -83,6 +97,9 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
 
     @Test
     void readCompletionChecksOwnershipWithoutQueryingTheWriteJournal() throws Exception {
+        String retirementLookup = "SELECT NOT EXISTS (%FROM execution_anchor WHERE execution_id=%"
+                + "AND NOT EXISTS (%FROM tenant_concurrency_queries%";
+        long previousRetirementLookups = calls(retirementLookup);
         long previousJournalLookups = calls(JOURNAL_LOOKUP);
         long previousReleaseJournalLookups = calls(RELEASE_JOURNAL_LOOKUP);
         long previousOwnershipLookups = calls(ANCHOR_LOOKUP);
@@ -97,8 +114,12 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
             while (endpoint == null) {
                 var status = execution.awaitStatus(QueryWaitTarget.RESULT_OR_TERMINAL, deadline);
                 assertThat(status.state()).isNotIn("FAILED", "CANCELLED");
+                if (status.resultDisposition() == org.pangrova.common.enums.ResultDisposition.PENDING) {
+                    continue;
+                }
+                assertThat(status.resultDisposition())
+                        .isEqualTo(org.pangrova.common.enums.ResultDisposition.STREAM);
                 endpoint = status.resultEndpoint();
-                if ("FINISHED".equals(status.state())) assertThat(endpoint).isNotNull();
             }
             try (var cursor = client.openResult(endpoint, deadline)) {
                 assertThat(cursor.next()).isTrue();
@@ -111,14 +132,42 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
         assertThat(calls(RELEASE_JOURNAL_LOOKUP) - previousReleaseJournalLookups)
                 .as("separate write recovery SELECTs during anchor release").isZero();
         assertThat(calls(ANCHOR_LOOKUP) - previousOwnershipLookups).as("query finalization fence SELECTs").isOne();
+        assertThat(calls(retirementLookup) - previousRetirementLookups)
+                .as("retirement status reads during normal read completion").isZero();
         assertExactAttemptProfile(queryId);
         assertProfileIsScopedToTheSubmittingPrincipal(queryId);
         assertQueryLifecycleIsScopedToTheSubmittingPrincipal(queryId);
     }
 
     @Test
+    void warmOrdinaryReadsDoNotReadThePublicationDirectory() throws SQLException {
+        String left = "iceberg_catalog.default.publication_budget_left";
+        String right = "iceberg_catalog.default.publication_budget_right";
+        sqlRunner.executeDdl("CREATE TABLE " + left + " (id BIGINT)");
+        sqlRunner.executeDdl("CREATE TABLE " + right + " (id BIGINT)");
+        sqlRunner.execute("INSERT INTO " + left + " VALUES (42)");
+        sqlRunner.execute("INSERT INTO " + right + " VALUES (42)");
+        String point = "SELECT id FROM " + left + " WHERE id = 42";
+        sqlRunner.execute(point);
+
+        long pointLookups = calls(PUBLISHED_NAME_LOOKUP);
+        long snapshotLoads = calls(PUBLICATION_SNAPSHOT_LOAD);
+        long isolatedRevisionReads = calls(SEPARATE_PUBLICATION_REVISION);
+        for (String sql : List.of(point, point,
+                "SELECT a.id FROM " + left + " a JOIN " + left + " b ON a.id = b.id",
+                "SELECT a.id FROM " + left + " a JOIN " + right + " b ON a.id = b.id")) {
+            assertThat(sqlRunner.execute(sql)).extracting(row -> row.getLong("id")).containsExactly(42L);
+        }
+
+        assertThat(calls(PUBLISHED_NAME_LOOKUP) - pointLookups).as("exact publication lookups").isZero();
+        assertThat(calls(PUBLICATION_SNAPSHOT_LOAD) - snapshotLoads).as("tenant directory loads").isZero();
+        assertThat(calls(SEPARATE_PUBLICATION_REVISION) - isolatedRevisionReads)
+                .as("standalone publication revision reads").isZero();
+    }
+
+    @Test
     void managedReadLoadsItsRegistrationAndCatalogTogether() throws SQLException {
-        String table = "iceberg_catalog.default.read_admission_database_budget";
+        String table = QUALIFIED_SCHEMA + "read_admission_database_budget";
         sqlRunner.executeDdl("CREATE TABLE " + table + " (id BIGINT, email VARCHAR)");
         sqlRunner.execute("INSERT INTO " + table + " VALUES (42, 'alice@example.com')");
         sqlRunner.executeDdl("ALTER TABLE " + table + " ALTER COLUMN email SET TAG pii_type = 'PII_EMAIL'");
@@ -155,7 +204,7 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
 
     @Test
     void managedJoinBatchesDistinctTablePoliciesAndReusesAliases() throws SQLException {
-        String name = "iceberg_catalog.default.policy_reads_";
+        String name = QUALIFIED_SCHEMA + "policy_reads_";
         int tables = 4;
         for (int index = 0; index < tables; index++) {
             String table = name + index;
@@ -208,9 +257,51 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
     }
 
     @Test
+    void exactNamedVersionSharesTableDiscoveryWithReadBinding() throws SQLException {
+        String table = "iceberg_catalog.default.named_version_database_budget";
+        sqlRunner.executeDdl("CREATE TABLE " + table + " (id BIGINT)");
+        sqlRunner.execute("INSERT INTO " + table + " VALUES (42)");
+        sqlRunner.executeDdl("ALTER TABLE " + table + " CREATE TAG pinned");
+        sqlRunner.execute("INSERT INTO " + table + " VALUES (43)");
+
+        long pointerBefore = calls(ICEBERG_POINTER_LOOKUP);
+        long namespaceBefore = calls(ICEBERG_TABLE_NAMESPACE_LIST) + calls(ICEBERG_PROPERTY_NAMESPACE_LIST);
+        long tablesBefore = icebergTableListings();
+        String named = table + " VERSION AS OF TAG 'pinned'";
+        assertThat(sqlRunner.execute("SELECT id FROM " + named))
+                .extracting(row -> row.getLong("id")).containsExactly(42L);
+
+        long pointers = calls(ICEBERG_POINTER_LOOKUP) - pointerBefore;
+        long namespaces = calls(ICEBERG_TABLE_NAMESPACE_LIST) + calls(ICEBERG_PROPERTY_NAMESPACE_LIST)
+                - namespaceBefore;
+        long tables = icebergTableListings() - tablesBefore;
+        org.slf4j.LoggerFactory.getLogger(ReadCompletionDatabaseBudgetE2ETest.class).info(
+                "event=named_version_catalog_reads pointers={} namespaceLists={} tableLists={}",
+                pointers, namespaces, tables);
+        assertThat(pointers).as("source discovery and live split validation").isEqualTo(2L);
+        assertThat(namespaces).isZero();
+        assertThat(tables).isZero();
+
+        assertThat(sqlRunner.execute("SELECT a.id AS left_id, b.id AS right_id FROM " + named
+                + " a CROSS JOIN " + named + " b")).singleElement().satisfies(row -> {
+                    assertThat(row.getLong("left_id")).isEqualTo(42L);
+                    assertThat(row.getLong("right_id")).isEqualTo(42L);
+                });
+        assertThat(sqlRunner.execute("SELECT id FROM iceberg_catalog.DEFAULT.NAMED_VERSION_DATABASE_BUDGET"
+                + " VERSION AS OF TAG 'pinned'"))
+                .extracting(row -> row.getLong("id")).containsExactly(42L);
+        assertThatThrownBy(() -> sqlRunner.execute("SELECT id FROM " + table + " VERSION AS OF TAG 'missing'"))
+                .hasMessageContaining("Selected source ref is unavailable: missing");
+    }
+
+    private static long icebergTableListings() throws SQLException {
+        return calls(ICEBERG_TABLE_LIST) + calls(ICEBERG_TABLE_LIST + " AND (iceberg_type = %");
+    }
+
+    @Test
     void qualifiedSourceResolvesWithoutLookingUpItsCatalogNameAsATable() throws SQLException {
-        String table = "iceberg_catalog.default.qualified_read_database_budget";
-        String sameNameAsCatalog = "iceberg_catalog.default.iceberg_catalog";
+        String table = QUALIFIED_SCHEMA + "qualified_read_database_budget";
+        String sameNameAsCatalog = QUALIFIED_SCHEMA + CATALOG;
         sqlRunner.executeDdl("CREATE TABLE " + table + " (id BIGINT)");
         sqlRunner.executeDdl("CREATE TABLE " + sameNameAsCatalog + " (id BIGINT)");
         sqlRunner.execute("INSERT INTO " + table + " VALUES (42)");
@@ -229,12 +320,13 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
         assertThat(calls(ICEBERG_NAMED_NAMESPACE_LOOKUP) - previousNamedNamespaceLookups)
                 .as("exact Iceberg namespace SELECTs").isOne();
 
-        assertThat(sqlRunner.execute("SELECT id FROM iceberg_catalog"))
+        assertThat(sqlRunner.execute("SELECT id FROM " + CATALOG))
                 .extracting(row -> row.getLong("id")).containsExactly(7L);
-        assertThat(sqlRunner.execute("SELECT id FROM \"iceberg_catalog\".\"default\".\"qualified_read_database_budget\""))
+        assertThat(sqlRunner.execute("SELECT id FROM \"%s\".\"%s\".\"qualified_read_database_budget\""
+                .formatted(CATALOG, SCHEMA)))
                 .extracting(row -> row.getLong("id")).containsExactly(42L);
         assertThat(sqlRunner.execute("SELECT qualified.id AS qualified_id, local_table.id AS local_id FROM "
-                + table + " AS qualified CROSS JOIN iceberg_catalog AS local_table"))
+                + table + " AS qualified CROSS JOIN " + CATALOG + " AS local_table"))
                 .singleElement().satisfies(row -> {
                     assertThat(row.getLong("qualified_id")).isEqualTo(42L);
                     assertThat(row.getLong("local_id")).isEqualTo(7L);
@@ -243,7 +335,7 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
 
     @Test
     void publicInsertPublishesWithoutLookingForAnInternalMaterializationAttempt() throws SQLException {
-        String table = "iceberg_catalog.default.completion_database_budget";
+        String table = QUALIFIED_SCHEMA + "completion_database_budget";
         sqlRunner.executeDdl("CREATE TABLE " + table + " (id BIGINT)");
         long previousLookups = calls(PUBLICATION_LOOKUP);
         long previousOwnershipLookups = calls(ANCHOR_LOOKUP);
@@ -276,6 +368,7 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
         var http = HttpClient.newHttpClient();
         String base = "http://localhost:" + coordinatorHttpPort();
         for (String route : java.util.List.of("/v1/query/profile/" + queryId + "/json",
+                "/v1/query/profile/" + queryId + "/json?history=true",
                 "/api/queries/" + queryId + "/profile")) {
             var request = java.net.http.HttpRequest.newBuilder(URI.create(base + route))
                     .header("Authorization", "Bearer " + E2E_SECOND_USER_BEARER_TOKEN).GET().build();
@@ -314,7 +407,7 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
             long before = calls(sql);
             var response = http.send(authenticatedHttpRequest(uri).GET().build(), HttpResponse.BodyHandlers.ofString());
             assertThat(response.statusCode()).isEqualTo(200);
-            assertThat(calls(sql) - before).as("owner's scoped profile SELECTs").isOne();
+            assertThat(calls(sql) - before).as("owner's scoped profile SELECTs").isZero();
             var body = JsonMapperFactory.shared().readTree(response.body());
             assertThat(body.path("queryId").asText()).isEqualTo(queryId);
             assertThat(body.path("telemetryAvailable").asBoolean()).isTrue();
@@ -338,8 +431,8 @@ class ReadCompletionDatabaseBudgetE2ETest extends SqlE2ETestBase {
 
     @Test
     void measuresVersionedStatisticsReadsForRepeatedAndDistinctManagedSources() throws SQLException {
-        String left = "iceberg_catalog.default.statistics_budget_l";
-        String right = "iceberg_catalog.default.statistics_budget_r";
+        String left = QUALIFIED_SCHEMA + "statistics_budget_l";
+        String right = QUALIFIED_SCHEMA + "statistics_budget_r";
         for (String table : List.of(left, right)) {
             sqlRunner.executeDdl("CREATE TABLE " + table + " (id BIGINT, score BIGINT)");
             sqlRunner.execute("INSERT INTO " + table + " VALUES (1, 11), (2, 12)");

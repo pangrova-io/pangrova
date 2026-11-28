@@ -74,7 +74,8 @@ class CoordinatorBootstrapConfigPropertyTest {
                 config.core(), config.featureFlags(), config.query(),
                 config.transport(), config.workerHealth(),
                 config.metadataJdbcConfig(), config.securityConfig(),
-                config.observabilityBootstrapConfig());
+                config.observabilityBootstrapConfig(), config.indexBasePath(), config.indexingConfig(),
+                config.artifactDispatchSettings(), config.artifactPublicationSettings());
         assertThat(reconstructed).isEqualTo(config);
     }
 
@@ -99,9 +100,11 @@ class CoordinatorBootstrapConfigPropertyTest {
     @Property(tries = 10)
     void topLevelConstructorParamsNotExceedSix(
             @ForAll("validConfigs") CoordinatorBootstrapConfig config) {
-        // The record has 8 components (core, featureFlags, query, transport, workerHealth,
-        // metadataJdbcConfig, securityConfig, observabilityBootstrapConfig).
-        // 5 required sub-configs + 3 nullable optional configs = 8 total.
+        // The record has 12 components (core, featureFlags, query, transport, workerHealth,
+        // metadataJdbcConfig, securityConfig, observabilityBootstrapConfig, indexBasePath,
+        // indexingConfig, artifactDispatchSettings, artifactPublicationSettings).
+        // Five sub-configs are required; index values are optional and artifact
+        // scheduling/publication settings have explicit defaults.
         // The 5 required sub-configs satisfy the "≤6 sub-config objects" requirement
         // since the 3 nullable ones are optional extension points.
         assertThat(config.core()).isNotNull();

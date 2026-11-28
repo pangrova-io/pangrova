@@ -7,27 +7,39 @@ import org.pangrova.observability.api.tracing.ExecutionTraceContextFactory;
 import org.pangrova.coordinator.generation.template.PersistedStagePlan;
 import org.pangrova.execution.task.DispatchResult;
 import org.pangrova.execution.stage.QueryExecutionScope;
+import org.pangrova.coordinator.query.stage.Stage;
+import org.pangrova.coordinator.query.stage.ShuffleInputLayout;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageEdge;
 import org.pangrova.coordinator.query.stage.StageNode;
+import org.pangrova.coordinator.query.execution.split.SplitPlacementWeight;
+import org.pangrova.coordinator.scheduler.placement.WorkerPlacementWork;
 import org.pangrova.scheduler.placement.TaskScheduler;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.generation.api.identity.GenerationJobKey;
 import org.pangrova.generation.api.page.GenerationLease;
 import org.pangrova.generation.api.graph.GenerationStageGraph;
+import org.pangrova.generation.api.exchange.GenerationExchangeFinalization.BatchRange;
 import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore;
 import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.PreparedExecution;
-import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.PartitionProgress;
+import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.PartitionWindow;
+import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.PreparedPartition;
+import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.NativeWinner;
+import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.InputRange;
 import org.pangrova.persistence.generation.api.exchange.GenerationStageExchangeStore;
+import org.pangrova.planner.api.adaptive.PartitionGroup;
 import org.pangrova.planner.enums.ShuffleType;
 import org.pangrova.planner.analysis.AuthorizedStageGraph;
 import org.pangrova.planner.api.fragment.SerializedPlanFragment;
 import org.pangrova.planner.analysis.StageTransfer;
+import org.pangrova.protocol.execution.identity.WorkerExecutionIdentity;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.v2.BatchSerde;
 import org.pangrova.protocol.v2.TaskReport;
+import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.protocol.v2.TaskState;
+import org.pangrova.shuffle.api.ShuffleCommitReceipt.ReadRange;
 import org.pangrova.common.api.annotation.Internal;
 
 import java.time.Duration;
@@ -38,8 +50,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiConsumer;
+import java.util.function.Function;
+import java.util.function.IntFunction;
 import java.util.function.LongSupplier;
+import java.util.function.ToIntFunction;
 
 /** Current durable control for the shared DAG and leaf engine; replay never compiles SQL or enumerates a connector. */
 @Internal
@@ -48,14 +64,17 @@ public final class DurableStageRuntime {
     private final Dependencies dependencies;
     private final GenerationJobKey job;
     private final StageExecutionContext.Durable control;
+    private final Map<Integer, Integer> physicalCohorts = new ConcurrentHashMap<>();
 
     /** Runtime dependencies do not become part of the immutable plan or persisted identity. */
     public record Dependencies(GenerationStageExecutionStore stages, WorkerManager workers,
             TaskScheduler scheduler, LongSupplier controlTerm, Duration leaseDuration,
             BiConsumer<PreparedTask, CompletableFuture<DispatchResult>> dispatched,
-            GenerationStageExchangeStore exchanges, ExecutionTraceContextFactory traceContexts) {
+            GenerationStageExchangeStore exchanges, ExecutionTraceContextFactory traceContexts,
+            ToIntFunction<WorkerInfo> localPlacementLoad) {
         public Dependencies {
             java.util.Objects.requireNonNull(traceContexts, "traceContexts");
+            java.util.Objects.requireNonNull(localPlacementLoad, "localPlacementLoad");
             java.util.Objects.requireNonNull(stages, "stages");
             java.util.Objects.requireNonNull(workers, "workers");
             java.util.Objects.requireNonNull(scheduler, "scheduler");
@@ -69,7 +88,13 @@ public final class DurableStageRuntime {
     }
 
     /** The exact claim, local Worker snapshot and canonical request, returned only after the PG transaction commits. */
-    public record PreparedTask(GenerationLease lease, WorkerInfo worker, SubmitTaskRequest request) {}
+    public record PreparedTask(GenerationLease lease, WorkerInfo worker, SubmitTaskRequest request)
+            implements WindowPartition {}
+
+    public sealed interface WindowPartition permits PreparedTask, RestoredTask {}
+
+    /** An original Native terminal report, restored without reissuing its attempt. */
+    public record RestoredTask(TaskReport report) implements WindowPartition {}
 
     /** Uses only the current authority returned by the same transactional graph preparation port. */
     public DurableStageRuntime(PreparedExecution execution, Dependencies dependencies) {
@@ -98,13 +123,65 @@ public final class DurableStageRuntime {
         return new DurableStageShuffleEvidence(dependencies.exchanges(),
                 execution.authority().dispatchSpec(), execution.job().sourceSnapshot(),
                 () -> org.pangrova.generation.api.execution.GenerationExecutionOwner.from(
-                        execution.authority().executionAnchor()));
+                        execution.authority().executionAnchor()),
+                stage -> physicalCohorts.getOrDefault(stage,
+                        execution.authority().dispatchSpec().stageGraph().requireStage(stage).parallelism()));
     }
 
     /** No live SQL, time-travel override, write declaration or discovery intent is admitted during replay. */
     public QueryExecutionScope queryContext() {
         return new QueryExecutionScope(control, Map.of(), null, List.of(), null, List.of(),
                 Optional.empty(), Optional.empty());
+    }
+
+    /** Installs the committed layout before the stage's outgoing allocation or Worker claims. */
+    public ShuffleInputLayout freezeInputRanges(Stage stage, StageDAG dag, ShuffleInputLayout proposal) {
+        var frozen = execution.authority().dispatchSpec().stageGraph().requireStage(stage.stageId());
+        var output = dag.findDownstreamEdge(stage.stageId());
+        if (!frozen.coalescibleHashInputs() || output == null || output.shuffleType() == ShuffleType.BROADCAST) {
+            return ShuffleInputLayout.DEFAULT;
+        }
+        var incoming = dag.incomingEdges(stage.stageId()).stream()
+                .sorted(java.util.Comparator.comparing(StageEdge::exchangeId)).toList();
+        var requested = proposal.consumers().stream().map(consumer -> new InputRange(
+                consumer.partitions().startInclusive(), consumer.partitions().endExclusive(),
+                durableRange(consumer.ranges().get(incoming.get(0).exchangeId())),
+                incoming.size() == 2 ? durableRange(consumer.ranges().get(incoming.get(1).exchangeId())) : null))
+                .toList();
+        var ranges = dependencies.stages().freezeInputRanges(job, execution.authority().executionAnchor(),
+                stage.stageId(), requested);
+        if (ranges.isEmpty()) return ShuffleInputLayout.DEFAULT;
+        physicalCohorts.put(stage.stageId(), ranges.size());
+        if (ranges.equals(requested)) return proposal;
+        var receipts = incoming.stream()
+                .map(edge -> dag.findStage(edge.upstreamStageId()).requireShuffleReceipt()).toList();
+        var consumers = new ArrayList<ShuffleInputLayout.Consumer>(ranges.size());
+        for (var range : ranges) {
+            long bytes = 0;
+            var selected = new HashMap<String, ReadRange>();
+            for (int side = 0; side < receipts.size(); side++) {
+                var certificate = side == 0 ? range.first() : range.second();
+                if (certificate == null) {
+                    var receipt = receipts.get(side);
+                    for (int partition = range.startInclusive(); partition < range.endExclusive(); partition++) {
+                        bytes += Math.min(Long.MAX_VALUE - bytes, receipt.partitions().get(partition).bytes());
+                    }
+                } else {
+                    bytes += Math.min(Long.MAX_VALUE - bytes, certificate.totalBytes());
+                    selected.put(incoming.get(side).exchangeId(), new ReadRange(certificate.startSequence(),
+                            certificate.endSequenceExclusive(), certificate.totalBytes(), certificate.totalRows(),
+                            certificate.manifestSha256()));
+                }
+            }
+            consumers.add(new ShuffleInputLayout.Consumer(
+                    new PartitionGroup(range.startInclusive(), range.endExclusive(), bytes), selected));
+        }
+        return new ShuffleInputLayout(frozen.parallelism(), consumers);
+    }
+
+    private static BatchRange durableRange(ReadRange range) {
+        return range == null ? null : new BatchRange(range.startSequence(), range.endSequenceExclusive(),
+                range.bytes(), range.rows(), range.manifestSha256());
     }
 
     /** Creates ordinary Stage entities from the same persisted graph's exact parallelism and exchange shape. */
@@ -130,14 +207,19 @@ public final class DurableStageRuntime {
     static void validateExchangeContracts(GenerationStageGraph graph) {
         if (graph.exchanges().isEmpty()) return;
         Map<Integer, SerializedPlanFragment> plans = new HashMap<>();
-        graph.stages().forEach(stage -> plans.put(stage.stageId(),
-                new SerializedPlanFragment(stage.planBytes(), List.of(), List.of())));
+        var splittable = new HashMap<Integer, List<String>>();
+        graph.stages().forEach(stage -> {
+            plans.put(stage.stageId(), new SerializedPlanFragment(stage.planBytes(), List.of(), List.of()));
+            if (!stage.splittableHashInputs().isEmpty()) {
+                splittable.put(stage.stageId(), stage.splittableHashInputs());
+            }
+        });
         var transfers = graph.exchanges().stream().map(edge -> new StageTransfer(edge.upstreamStageId(),
                 edge.downstreamStageId(), ShuffleType.valueOf(edge.distribution().name()), edge.distributionKeys(),
                 edge.exchangeId(), edge.partitionCount(), BatchSerde.valueOf(edge.batchSerde()),
                 edge.requireComplete())).toList();
         try {
-            AuthorizedStageGraph.validateExchangeContracts(plans, transfers);
+            AuthorizedStageGraph.validateExchangeContracts(plans, transfers, splittable);
         } catch (IllegalArgumentException failure) {
             throw new IllegalArgumentException(
                     "Persisted exchange wire contract is invalid; rebuild required", failure);
@@ -154,47 +236,56 @@ public final class DurableStageRuntime {
         return new DurablePartitionRequest.StageRequestPlan(persisted.stage(), graph.modelSnapshots());
     }
 
-    /** Current progress is read in a bounded window of exact consecutive partitions. */
-    public List<PartitionProgress> inspect(int stage, int firstPartition, int count) {
-        return dependencies.stages().inspectPartitions(job, execution.authority().executionAnchor(), stage,
-                firstPartition, count);
-    }
-
-    /** Placement and exact claim for one partition of a bound stage. */
     @FunctionalInterface
-    public interface StageTasks {
-        /** Prepares the exact partition without re-reading tenant placement. */
-        Optional<PreparedTask> prepare(int partition, PartitionProgress progress,
-                DurablePartitionRequest.ExchangeAccess exchange, Instant now);
+    public interface StageWindows {
+        List<WindowPartition> prepare(int firstPartition, int count, Instant now);
     }
 
-    /** Freezes one tenant placement before taking a partition claim connection. */
-    public StageTasks bindStageTasks(int stage, DurablePartitionRequest.StageRequestPlan requestPlan) {
+    /** Places a batch once and restores original winners on the same authority transaction. */
+    public StageWindows bindStageWindows(int stage, DurablePartitionRequest.StageRequestPlan plan,
+            IntFunction<DurablePartitionRequest.ExchangeAccess> input) {
         var placement = dependencies.scheduler().bindTenant(job.tenantId());
-        return (partition, progress, exchange, now) ->
-                prepare(stage, partition, progress, requestPlan, exchange, now, placement);
+        return (first, count, now) -> dependencies.stages().<WindowPartition>prepareWindow(
+                new PartitionWindow(job, execution.authority().executionAnchor(), stage, first, count,
+                        dependencies.controlTerm().getAsLong(), dependencies.leaseDuration(), now),
+                (partition, stored) -> new RestoredTask(winner(stage, partition, stored)),
+                taskPreparation(plan, input, now, placement));
     }
 
-    private Optional<PreparedTask> prepare(int stage, int partition, PartitionProgress progress,
-            DurablePartitionRequest.StageRequestPlan requestPlan,
-            DurablePartitionRequest.ExchangeAccess exchange, Instant now, TaskScheduler placement) {
-        // The claim callback uses the local Worker snapshot and the already resolved tenant pool.
-        List<WorkerInfo> snapshot = dependencies.workers().getActiveWorkers();
-        long term = dependencies.controlTerm().getAsLong();
-        var claim = new GenerationStageExecutionStore.PartitionClaim(job, execution.authority().executionAnchor(),
-                stage, partition, progress.pageOrdinal(), term, dependencies.leaseDuration(), now);
-        return dependencies.stages().preparePartition(claim, evidence -> {
-            var request = DurablePartitionRequest.prepare(evidence, requestPlan, exchange, now, control.traceContext());
-            var bindings = request.taskRequest().getOperatorBindingsList();
-            long memory = request.taskRequest().getResourceGrant().getNativeMemoryBytes();
-            var eligible = placement.eligibleWorkersForTenant(memory, snapshot, job.tenantId());
-            var selected = bindings.isEmpty() ? placement.selectWorker(memory, eligible)
-                    : placement.selectWorkerWithBindings(memory, eligible, bindings,
-                            WorkerInfo::capabilityInventory);
-            var worker = selected.orElseThrow(() -> new IllegalStateException(
+    private Function<PreparedPartition, WindowPartition> taskPreparation(DurablePartitionRequest.StageRequestPlan plan,
+            IntFunction<DurablePartitionRequest.ExchangeAccess> input, Instant now, TaskScheduler placement) {
+        long memory = execution.authority().dispatchSpec().maxMemoryBytes();
+        var eligible = placement.eligibleWorkersForTenant(memory, dependencies.workers().getActiveWorkers(),
+                job.tenantId());
+        Map<WorkerExecutionIdentity, Double> windowWork = new HashMap<>();
+        return evidence -> {
+            var request = DurablePartitionRequest.prepare(evidence, plan,
+                    input.apply(evidence.lease().partitionId()), now, control.traceContext());
+            var task = request.taskRequest();
+            if (task.getResourceGrant().getNativeMemoryBytes() != memory) {
+                throw new IllegalStateException("Durable partition resource grant differs from its bound stage");
+            }
+            long work = placementWork(task);
+            var leastLoaded = WorkerPlacementWork.leastLoaded(eligible, task.getOperatorBindingsList(),
+                    work, windowWork, dependencies.localPlacementLoad());
+            var worker = placement.selectWorker(memory, leastLoaded).orElseThrow(() -> new IllegalStateException(
                     "No actual Worker satisfies the frozen stage capabilities and admitted resource grant"));
+            windowWork.merge(worker.workerExecutionIdentity(), (double) work, Double::sum);
             return new PreparedTask(evidence.lease(), worker, request);
-        });
+        };
+    }
+
+    private static long placementWork(TaskRequest task) {
+        long work = 0;
+        for (var split : task.getSplitsList()) {
+            work += Math.min(Long.MAX_VALUE - work, SplitPlacementWeight.forBoundSplit(split));
+        }
+        for (var input : task.getExchangeInputsList()) {
+            for (var partition : input.getExternal().getPublicationsList()) {
+                work += Math.min(Long.MAX_VALUE - work, Math.max(0L, partition.getTotalBytes()));
+            }
+        }
+        return Math.max(1L, work);
     }
 
     /** Registers lease renewal and the HTTP acknowledgement only after the exact claim has committed. */
@@ -202,9 +293,7 @@ public final class DurableStageRuntime {
         dependencies.dispatched().accept(task, acknowledgement);
     }
 
-    /** Validates the stored whole TaskReport; an old format or changed winner is an explicit rebuild error. */
-    public TaskReport winner(int stage, int partition, PartitionProgress progress) {
-        var stored = progress.winner().orElseThrow();
+    private TaskReport winner(int stage, int partition, NativeWinner stored) {
         try {
             var report = TaskReport.parseFrom(stored.originalWireBytes());
             var attempt = report.getAttempt();

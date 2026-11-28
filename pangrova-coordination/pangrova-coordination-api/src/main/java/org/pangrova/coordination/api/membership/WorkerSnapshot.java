@@ -25,7 +25,7 @@ public record WorkerSnapshot(
         List<String> dataLocality,
         String memoryPressure,
         double cpuUtilization,
-        int runningTaskCount,
+        int inFlightTaskCount,
         long availableMemoryBytes,
         long lastHeartbeatMs,
         long registeredAtMs,
@@ -42,13 +42,13 @@ public record WorkerSnapshot(
     /** Creates a snapshot for a Worker that advertises only Native execution. */
     public WorkerSnapshot(String workerId, String host, int httpPort, int transportPort,
                           int protocolVersion, String rackId, List<String> dataLocality,
-                          String memoryPressure, double cpuUtilization, int runningTaskCount,
+                          String memoryPressure, double cpuUtilization, int inFlightTaskCount,
                           long availableMemoryBytes, long lastHeartbeatMs, long registeredAtMs,
                           int resultServerPort, CacheCatalogSummary cacheSummary, String capabilityInventory,
                           int copyTaskTlsPort, String admissionDomainId, String incarnationId,
                           WorkerShuffleDeployment shuffleDeployment) {
         this(workerId, host, httpPort, transportPort, protocolVersion, rackId,
-                dataLocality, memoryPressure, cpuUtilization, runningTaskCount, availableMemoryBytes, lastHeartbeatMs,
+                dataLocality, memoryPressure, cpuUtilization, inFlightTaskCount, availableMemoryBytes, lastHeartbeatMs,
                 registeredAtMs, resultServerPort, cacheSummary, capabilityInventory, copyTaskTlsPort,
                 admissionDomainId, incarnationId, shuffleDeployment, false);
     }
@@ -64,7 +64,7 @@ public record WorkerSnapshot(
         List<String> dataLocality,
         String memoryPressure,
         double cpuUtilization,
-        int runningTaskCount,
+        int inFlightTaskCount,
         long availableMemoryBytes,
         long lastHeartbeatMs,
         long registeredAtMs,
@@ -75,7 +75,7 @@ public record WorkerSnapshot(
         String admissionDomainId,
         String incarnationId) {
         this(workerId, host, httpPort, transportPort, protocolVersion, rackId,
-                dataLocality, memoryPressure, cpuUtilization, runningTaskCount, availableMemoryBytes, lastHeartbeatMs,
+                dataLocality, memoryPressure, cpuUtilization, inFlightTaskCount, availableMemoryBytes, lastHeartbeatMs,
                 registeredAtMs, resultServerPort, cacheSummary, capabilityInventory, copyTaskTlsPort,
                         admissionDomainId, incarnationId, null);
     }
@@ -83,12 +83,12 @@ public record WorkerSnapshot(
     /** Creates a snapshot for a worker without a dedicated COPY task TLS listener. */
     public WorkerSnapshot(String workerId, String host, int httpPort, int transportPort,
                           int protocolVersion, String rackId, List<String> dataLocality,
-                          String memoryPressure, double cpuUtilization, int runningTaskCount,
+                          String memoryPressure, double cpuUtilization, int inFlightTaskCount,
                           long availableMemoryBytes, long lastHeartbeatMs, long registeredAtMs,
                           int resultServerPort, CacheCatalogSummary cacheSummary,
                           String capabilityInventory, String admissionDomainId, String incarnationId) {
         this(workerId, host, httpPort, transportPort, protocolVersion, rackId, dataLocality,
-                memoryPressure, cpuUtilization, runningTaskCount, availableMemoryBytes,
+                memoryPressure, cpuUtilization, inFlightTaskCount, availableMemoryBytes,
                 lastHeartbeatMs, registeredAtMs, resultServerPort, cacheSummary,
                 capabilityInventory, 0, admissionDomainId, incarnationId);
     }

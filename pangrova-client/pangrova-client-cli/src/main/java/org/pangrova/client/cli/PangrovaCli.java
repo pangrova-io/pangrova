@@ -45,21 +45,24 @@ public final class PangrovaCli {
     /** Runs the interactive SQL shell with connection settings parsed from {@code args}. */
     public static void main(String[] args) throws IOException {
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8))) {
-            run(args, reader, System.out);
+            run(args, reader, System.out, TerminalStyle.detect());
         }
     }
 
     /** Runs the same shell over caller-owned console streams, without replacing global process streams. */
     public static void run(String[] args, BufferedReader reader, java.io.PrintStream out) {
+        run(args, reader, out, TerminalStyle.plain());
+    }
+
+    private static void run(String[] args, BufferedReader reader, java.io.PrintStream out, TerminalStyle style) {
         CliArgs parsed = parseArgs(args);
         if (parsed.batch.file() != null) {
             runFile(parsed, reader, out);
             return;
         }
         try (PangrovaRestClient client = createClient(parsed)) {
-            if (parsed.catalog != null) out.println("Catalog: " + parsed.catalog);
             new SqlShell(client, reader, out, parsed.queryTimeout,
-                    parsed.catalog, parsed.schema).run();
+                    parsed.catalog, parsed.schema, style).run();
         }
     }
 

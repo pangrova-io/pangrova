@@ -116,7 +116,8 @@ class PangrovaVeloxDataSource : public facebook::velox::connector::DataSource {
           remainingFilter = nullptr,
       int64_t preferredOutputBatchBytes = kDefaultBatchTargetBytes,
       int64_t eagerFirstStripeThresholdBytes = 1L * 1024 * 1024,
-      facebook::velox::core::ExpressionEvaluator* expressionEvaluator = nullptr);
+      facebook::velox::core::ExpressionEvaluator* expressionEvaluator = nullptr,
+      std::shared_ptr<const facebook::velox::config::ConfigBase> fileSystemConfig = nullptr);
 
   void addSplit(
       std::shared_ptr<facebook::velox::connector::ConnectorSplit> split)
@@ -141,6 +142,7 @@ class PangrovaVeloxDataSource : public facebook::velox::connector::DataSource {
   folly::CancellationSource cancellation_source_;
   folly::CancellationToken cancellation_token_{cancellation_source_.getToken()};
   std::shared_ptr<resource::TaskObjectReadBudget> read_budget_;
+  const std::shared_ptr<const facebook::velox::config::ConfigBase> file_system_config_;
   std::string current_source_id_;
   std::string current_source_snapshot_;
   // Apply dynamic filters to a RowVector, returning a filtered vector.
@@ -197,12 +199,10 @@ class PangrovaVeloxDataSource : public facebook::velox::connector::DataSource {
   std::optional<facebook::velox::RowVectorPtr> nextFromMergeReader(
       uint64_t batchSize);
 
-  // Apply Iceberg delete filter post-processing on RowVector.
-  // originalBatchSize is the pre-dynamic-filter row count, used to advance
-  // row_index_offset_ correctly for file-level position delete alignment.
+  // Apply deletes to a contiguous batch starting at the original file row.
   facebook::velox::RowVectorPtr applyDeleteFilter(
       facebook::velox::RowVectorPtr rowVector,
-      facebook::velox::vector_size_t originalBatchSize);
+      int64_t firstPhysicalRow);
 
   // Apply partition injection, column mapping, and type promotion.
   // Shared by both the normal read path and the merge reader path.
@@ -257,7 +257,6 @@ class PangrovaVeloxDataSource : public facebook::velox::connector::DataSource {
 
   // Iceberg delete filter (operates directly on RowVector).
   std::vector<std::unique_ptr<delete_filter::RowDeleteFilter>> delete_filters_;
-  int64_t row_index_offset_ = 0;
 
   bool artifact_candidate_filter_enabled_ = false;
   std::unordered_set<uint64_t> artifact_candidate_positions_;

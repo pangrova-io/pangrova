@@ -2,9 +2,12 @@ package org.pangrova.server.coordinator.embedding;
 
 import org.pangrova.config.ConfigValidator;
 import org.pangrova.config.PangrovaConfiguration;
+import org.pangrova.config.constants.CoordinatorOptions;
 import org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrap;
 import org.pangrova.server.coordinator.bootstrap.CoordinatorBootstrapConfig;
 import org.pangrova.server.coordinator.bootstrap.PangrovaCoordinatorMain;
+
+import java.nio.file.Path;
 
 /**
  * Public entry point for running a Coordinator inside another JVM process.
@@ -26,12 +29,17 @@ public final class EmbeddedCoordinator implements AutoCloseable {
     /** Validates {@code configuration} and starts a coordinator. */
     public static EmbeddedCoordinator start(PangrovaConfiguration configuration) {
         validator().validate(configuration);
-        return start(PangrovaCoordinatorMain.buildBootstrapConfig(configuration));
+        var config = PangrovaCoordinatorMain.buildBootstrapConfig(configuration);
+        var directory = Path.of(configuration.getString(CoordinatorOptions.ADMISSION_STATE_DIRECTORY));
+        return start(config, new CoordinatorBootstrap(config, directory));
     }
 
     /** Starts a coordinator from an already-built bootstrap configuration. */
     public static EmbeddedCoordinator start(CoordinatorBootstrapConfig config) {
-        CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(config);
+        return start(config, new CoordinatorBootstrap(config));
+    }
+
+    private static EmbeddedCoordinator start(CoordinatorBootstrapConfig config, CoordinatorBootstrap bootstrap) {
         bootstrap.start();
         return new EmbeddedCoordinator(config, bootstrap);
     }

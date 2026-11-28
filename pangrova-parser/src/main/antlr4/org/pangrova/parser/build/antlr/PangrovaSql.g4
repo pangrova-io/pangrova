@@ -156,6 +156,10 @@ incrementalReadStatement
 // --- Standard SQL: SELECT query ---
 
 query
+    : querySpecification queryTail
+    ;
+
+querySpecification
     : SELECT distinct=DISTINCT? selectItems
       (FROM tableRefList)?
       (WHERE where=expression)?
@@ -163,10 +167,14 @@ query
       (HAVING having=expression)?
       (QUALIFY qualify=expression)?
       (WINDOW windowDefinitionList)?
-      (ORDER BY orderByList)?
-      (RERANK BY rerankClause)?
-      (LIMIT limit=expression)?
-      (OFFSET offset=expression)?
+    ;
+
+queryTail
+    : (ORDER BY orderByList)? (RERANK BY rerankClause)? pagination
+    ;
+
+pagination
+    : (LIMIT limit=expression)? (OFFSET offset=expression)?
     ;
 
 windowDefinitionList
@@ -182,7 +190,7 @@ windowDefinition
     ;
 
 setQuery
-    : query (setOperator query)*
+    : querySpecification ((setOperator querySpecification)+ (ORDER BY orderByList)? pagination | queryTail)
     ;
 
 setOperator

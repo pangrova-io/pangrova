@@ -13,6 +13,7 @@ POM = ET.parse(ROOT / 'pom.xml')
 NS = {'m': 'http://maven.apache.org/POM/4.0.0'}
 PROPERTIES = POM.find('m:properties', NS)
 PLUGIN_VERSION = PROPERTIES.find('m:maven-checkstyle-plugin.version', NS).text
+CHECKSTYLE_GOAL = f'org.apache.maven.plugins:maven-checkstyle-plugin:{PLUGIN_VERSION}:check'
 ENGINE_VERSION = PROPERTIES.find('m:checkstyle.version', NS).text
 
 
@@ -136,7 +137,7 @@ def main():
     </configuration>
   </plugin></plugins></build>
 </project>''')
-        result = subprocess.run(['mvn', '-B', '-q', 'checkstyle:check'], cwd=root,
+        result = subprocess.run(['mvn', '-B', '-q', CHECKSTYLE_GOAL], cwd=root,
                                 capture_output=True, text=True)
         report = root / 'target/checkstyle-result.xml'
         if not report.exists():
@@ -161,7 +162,7 @@ def main():
         for name, check in expected.items():
             if check not in warnings:
                 next(sources.rglob(f'{name}.java')).unlink()
-        warnings_only = subprocess.run(['mvn', '-B', '-q', 'checkstyle:check'], cwd=root,
+        warnings_only = subprocess.run(['mvn', '-B', '-q', CHECKSTYLE_GOAL], cwd=root,
                                        capture_output=True, text=True)
         assert warnings_only.returncode == 0, warnings_only.stdout + warnings_only.stderr
         remaining = [error for file in ET.parse(report).findall('file') for error in file.findall('error')]

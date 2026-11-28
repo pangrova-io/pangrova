@@ -1,0 +1,122 @@
+---
+title: "CLI Workflow Demo"
+description: "Watch the branded Pangrova CLI and a real walkthrough covering SQL, multimodal FILE data, indexing, analytics, and table maintenance"
+---
+
+import useBaseUrl from '@docusaurus/useBaseUrl';
+
+# CLI Workflow Demo
+
+Watch a complete Pangrova walkthrough that opens with the branded CLI, then
+executes the live workflow against a local Standalone instance. The recording
+keeps only the product surface and removes logger noise and query IDs.
+
+<video
+  controls
+  aria-label="Pangrova CLI workflow demonstration"
+  preload="metadata"
+  poster={useBaseUrl('/media/pangrova-cli-demo-poster.png')}
+  src={useBaseUrl('/media/pangrova-cli-demo.mp4')}
+  style={{width: '100%', borderRadius: '12px'}}
+>
+  Your browser does not support embedded video.
+</video>
+
+<a href={useBaseUrl('/media/pangrova-cli-demo.mp4')} download="pangrova-cli-demo.mp4">Download the MP4</a> · 3 min 59 sec · 1080p · English narration
+
+The interactive CLI uses a responsive wordmark, a color-aware prompt and status
+messages, styled table headers, and compact output on narrow terminals. Color is
+disabled for piped output or whenever `NO_COLOR` is set.
+
+## Demo coverage
+
+1. **CLI introduction** — open with the branded Pangrova CLI, project pitch, and
+   terminal styling.
+2. **Core SQL** — register a local Iceberg catalog, create a schema and a
+   partitioned events table, insert six rows, inspect the schema, and run detail
+   and aggregate queries.
+3. **Multimodal FILE data** — publish a PNG image, a text document, and a PDF
+   through `FILE_FROM_BYTES`, then query their governed MIME type and size.
+4. **Scalar and full-text indexes** — create Bloom filter, B-tree, bitmap, hash,
+   sparse, prefix, n-gram Bloom, and inverted indexes; inspect their state and run
+   selective predicates plus full-text filtering.
+5. **Containment, spatial, and vector indexes** — create JVM GIN and R-Tree
+   indexes and Native HNSW and IVF-PQ vector indexes. Exercise text filtering,
+   spatial ranges, and exact vector nearest-neighbor ordering. The vector query
+   uses a positive `OFFSET`, which follows the documented exact ordered path.
+   `SHOW INDEXES` reports descriptor state; neither the returned rows nor
+   a `READY` descriptor alone proves that a query used an index.
+6. **Relational analytics and maintenance** — join customer and order tables,
+   rank rows with a window function, aggregate through a CTE, compact and vacuum
+   the table, and verify the final row count.
+
+## Replay the example
+
+The matching multi-statement SQL workflow is available in
+[`examples/cli-workflow.sql`](https://github.com/pangrova-io/pangrova/blob/main/examples/cli-workflow.sql).
+It uses a generic local warehouse path instead of the path shown in the
+recording. Follow the [Standalone quickstart](../quickstart.md) to prepare and
+start the local Coordinator and Worker. Before replaying:
+
+- Use a fresh, isolated **local** development instance, not a port forwarded to
+  a shared or production service. Confirm that the Worker has registered and
+  that its advertised result endpoint is reachable from the CLI.
+- Confirm that the catalog `pangrova_final_demo2` is not registered and that
+  `/tmp/pangrova-cli-warehouse` is unused on the Standalone host.
+- Ensure the executing principal can create catalogs, schemas, tables, and
+  indexes, insert rows, and query data. Native index builds also require enough
+  Worker memory for the configured index jobs.
+- Configure indexing plus local governed FILE storage and its capability secret
+  for the multimodal section. Apply the authentication and TLS options from the
+  [CLI reference](./cli.md#command-line-options) when required by your
+  development configuration; do not disable them to run a demo.
+
+From the repository root, open the CLI and execute the statements one at a time,
+stopping immediately if any statement fails:
+
+```bash
+bin/pangrova-cli.sh --host localhost --port 8080
+```
+
+For the same fresh development instance, you can also replay the file through
+the interactive shell:
+
+```bash
+bin/pangrova-cli.sh --host localhost --port 8080 < examples/cli-workflow.sql
+```
+
+Piped input continues after statement errors and does not wait for asynchronous
+index builds. For index validation, use the interactive method: repeat each
+`SHOW INDEXES` until every expected descriptor is `READY`; stop and investigate
+a `STALE` descriptor or a build that does not complete. Only then run its
+associated queries. Verify that every statement succeeds: the detail query
+returns six rows, region counts are `east=2`, `north=1`, `south=1`, `west=2`,
+event-type counts are `click=3`, `purchase=2`,
+`search=1`, all created indexes reach `READY`, and the final order count is five.
+A zero exit code from the interactive shell alone does not establish successful
+execution.
+
+For fail-fast automation, split the example into ordered single-statement UTF-8
+files and invoke `--file` for each one, stopping on the first nonzero exit. The
+multi-statement example must not be passed directly to `--file`. See the
+[CLI script-mode reference](./cli.md#script-mode) for output and execution
+receipts.
+
+## Optional cleanup
+
+The SQL file ends with optional cleanup statements for every object created by
+this demo. Run them only against the isolated instance and objects created by
+this workflow, never against shared or production data.
+
+```sql
+DROP TABLE pangrova_final_demo2.analytics.orders;
+DROP TABLE pangrova_final_demo2.analytics.customers;
+DROP TABLE pangrova_final_demo2.analytics.vector_lab_v4;
+DROP TABLE pangrova_final_demo2.analytics.spatial_lab_v4;
+DROP TABLE pangrova_final_demo2.analytics.gin_lab_v4;
+DROP TABLE pangrova_final_demo2.analytics.index_lab_v4;
+DROP TABLE pangrova_final_demo2.analytics.documents;
+DROP TABLE pangrova_final_demo2.analytics.events;
+DROP SCHEMA pangrova_final_demo2.analytics;
+DROP CATALOG pangrova_final_demo2;
+```

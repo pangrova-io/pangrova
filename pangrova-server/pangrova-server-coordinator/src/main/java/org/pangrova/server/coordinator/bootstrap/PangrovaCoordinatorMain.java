@@ -47,7 +47,8 @@ public final class PangrovaCoordinatorMain {
             CoordinatorBootstrapConfig config = buildBootstrapConfig(pangrovaConfig);
             validateProductionInternalAuth(config);
             logSecurityPosture(pangrovaConfig);
-            CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(config);
+            CoordinatorBootstrap bootstrap = new CoordinatorBootstrap(config,
+                    Path.of(pangrovaConfig.getString(CoordinatorOptions.ADMISSION_STATE_DIRECTORY)));
             Runtime.getRuntime().addShutdownHook(new Thread(bootstrap::shutdown, "coordinator-shutdown"));
             bootstrap.start();
             LOG.info("event=coordinator_process_started coordinatorId={}", config.coordinatorId());
@@ -112,12 +113,30 @@ public final class PangrovaCoordinatorMain {
                         config.getLong(CoordinatorOptions.TASK_SPILL_MAX_BYTES)),
                 config.getInt(CoordinatorOptions.WORKER_MAX_RETRY),
                 config.getString(CoordinatorOptions.PLACEMENT_PROVIDER));
+        boolean indexingEnabled = config.getBoolean(CoordinatorOptions.INDEXING_ENABLED);
+        String indexBasePath = config.getString(CoordinatorOptions.INDEX_BASE_PATH);
+        if (indexBasePath == null || indexBasePath.isBlank()) {
+            indexBasePath = System.getProperty("pangrova.index.basePath");
+        }
         var bootstrap = new CoordinatorBootstrapConfig(
                 core, buildFeatureFlags(config), queryConfig,
                 loadTransportConfig(config),
                 CoordinatorBootstrapConfig.WorkerHealthConfig.defaults(),
                 loadMetadataJdbcConfig(config), SecurityConfigurationLoader.load(config),
-                ObservabilityConfig.fromDeployment(config).orElse(null));
+                ObservabilityConfig.fromDeployment(config).orElse(null),
+                indexBasePath,
+                indexingEnabled ? CoordinatorIndexingConfiguration.from(config, indexBasePath) : null,
+                new org.pangrova.coordinator.generation.DurableGenerationDispatcher.Settings(
+                        config.getDuration(org.pangrova.config.constants.IndexingOptions.ARTIFACT_DISPATCH_LEASE),
+                        config.getDuration(org.pangrova.config.constants.IndexingOptions.ARTIFACT_DISPATCH_RETRY_DELAY),
+                        config.getInt(org.pangrova.config.constants.IndexingOptions.ARTIFACT_DISPATCH_MAX_IN_FLIGHT)),
+                new org.pangrova.coordinator.generation.DurableGenerationPublisher.PollSettings(
+                        config.getDuration(org.pangrova.config.constants.IndexingOptions.ARTIFACT_PUBLISH_CLAIM_TTL),
+                        config.getDuration(org.pangrova.config.constants.IndexingOptions.ARTIFACT_PUBLISH_RETRY_DELAY),
+                        config.getDuration(
+                                org.pangrova.config.constants.IndexingOptions.ARTIFACT_PUBLISH_POLL_INTERVAL),
+                        config.getInt(org.pangrova.config.constants.IndexingOptions.ARTIFACT_PUBLISH_BATCH_SIZE),
+                        java.time.Clock.systemUTC()));
         try {
             CoordinatorShuffleProviders.validate(bootstrap);
         } catch (IllegalArgumentException invalid) {
@@ -196,7 +215,7 @@ public final class PangrovaCoordinatorMain {
                 config.getBoolean(CoordinatorOptions.TENANT_ENABLED),
                 config.getBoolean(CoordinatorOptions.OPERATIONS_ENABLED),
                 config.getBoolean(CoordinatorOptions.SPECULATION_ENABLED),
-                false, false, false, false,
+                false, config.getBoolean(CoordinatorOptions.INDEXING_ENABLED), false, false,
                 shuffleMode, shuffleEndpoints, provider, settings);
     }
 

@@ -4,7 +4,12 @@ import org.pangrova.coordination.api.enums.CoordinatorRole;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
 
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.pangrova.persistence.coordination.memory.lease.InMemoryDistributedLease;
@@ -256,16 +261,10 @@ class HighAvailabilityCoordinationServiceTest {
         assertThat(haService.tryBecomeLeader("node-1")).isTrue();
     }
 
-    /**
-     * Integration test: node-1 becomes leader via start(), then node-1 fails
-     * (close stops lease renewal), node-2 detects expired lease and takes over.
-     *
-     * Uses short lease (200ms) and heartbeat (50ms) for fast failover.
-     * Both nodes share the same InMemoryDistributedLease.
-     */
     @Test
-    void leaderSwitchover_standbyTakesOverAfterLeaderFailure() throws Exception {
-        InMemoryDistributedLease sharedLease = new InMemoryDistributedLease();
+    void standbyTakesOverAfterLeaderCloses() {
+        InMemoryDistributedLease sharedLease = new InMemoryDistributedLease(
+                Clock.fixed(Instant.EPOCH, ZoneOffset.UTC));
         HighAvailabilityCoordinationService.CoordinationConfig fastConfig =
                 new HighAvailabilityCoordinationService.CoordinationConfig(200, 50);
 
@@ -282,16 +281,14 @@ class HighAvailabilityCoordinationServiceTest {
             node2.start("node-2");
             assertThat(node2.getRole()).isEqualTo(CoordinatorRole.STANDBY);
 
-            // Simulate node-1 failure: close stops lease renewal, lease will expire
+            // Closing the leader releases its lease.
             node1.close();
 
-            // Wait for lease expiry (200ms) + detection cycle (50ms) + margin
-            Thread.sleep(500);
-
-            // Verify node-2 detected leader failure and took over
-            assertThat(node2.getLeaderId()).isEqualTo("node-2");
-            assertThat(node2.getRole()).isEqualTo(CoordinatorRole.LEADER);
-            assertThat(node2.isLeader("node-2")).isTrue();
+            await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> {
+                assertThat(node2.getLeaderId()).isEqualTo("node-2");
+                assertThat(node2.getRole()).isEqualTo(CoordinatorRole.LEADER);
+                assertThat(node2.isLeader("node-2")).isTrue();
+            });
         } finally {
             node1.close();
             node2.close();

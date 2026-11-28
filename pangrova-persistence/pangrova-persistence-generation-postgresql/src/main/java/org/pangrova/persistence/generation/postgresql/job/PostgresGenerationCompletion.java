@@ -31,7 +31,8 @@ final class PostgresGenerationCompletion {
             GenerationExecutionTransactionFence executionFence,
             Connection connection, GenerationPageCompletion completion)
             throws SQLException {
-        if (!ownsCompletion(transactionAuthority, executionFence, connection, completion)) return false;
+        transactionAuthority.requireCurrent(connection, completion.tenantId(), completion.jobId());
+        if (!ownsExecution(executionFence, connection, completion)) return false;
         GenerationJob job = PostgresGenerationJobStoreMappings.findJob(
                 connection, completion.tenantId(), completion.jobId(), true).orElse(null);
         if (job == null) {
@@ -46,19 +47,17 @@ final class PostgresGenerationCompletion {
         return applyCompletion(connection, completion, job, page);
     }
 
-    /** The producer path already selected the exact job and page for update on this connection. */
-    static boolean completeLockedProducer(GenerationTransactionAuthority transactionAuthority,
-            GenerationExecutionTransactionFence executionFence, Connection connection,
+    /** Producer authorization and the exact job and page locks are held by the caller's transaction. */
+    static boolean completeLockedProducer(GenerationExecutionTransactionFence executionFence, Connection connection,
             GenerationPageCompletion completion, GenerationJob job,
             PostgresGenerationJobStoreMappings.PageRow page) throws SQLException {
-        if (!ownsCompletion(transactionAuthority, executionFence, connection, completion)) return false;
+        // Recheck the execution deadline after the potentially blocking job, page and exchange locks.
+        if (!ownsExecution(executionFence, connection, completion)) return false;
         return applyCompletion(connection, completion, job, page);
     }
 
-    private static boolean ownsCompletion(GenerationTransactionAuthority transactionAuthority,
-            GenerationExecutionTransactionFence executionFence, Connection connection,
-            GenerationPageCompletion completion) throws SQLException {
-        transactionAuthority.requireCurrent(connection, completion.tenantId(), completion.jobId());
+    private static boolean ownsExecution(GenerationExecutionTransactionFence executionFence,
+            Connection connection, GenerationPageCompletion completion) throws SQLException {
         try {
             executionFence.requireCurrent(connection, completion.tenantId(),
                     completion.jobId(), completion.executionOwner());
@@ -81,9 +80,7 @@ final class PostgresGenerationCompletion {
         }
         validateAndInsertOutputs(connection, job, page, completion);
         markSucceeded(connection, completion);
-        PostgresGenerationJobStoreSupport.advanceCompletionBarrier(
-                connection, completion.tenantId(),
-                completion.jobId(), completion.completedAt());
+        PostgresGenerationJobStoreSupport.advanceCompletionBarrier(connection, job, completion.completedAt());
         return true;
     }
 

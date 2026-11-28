@@ -9,7 +9,6 @@ import org.apache.arrow.vector.IntVector;
 import org.apache.arrow.vector.VarBinaryVector;
 import org.apache.arrow.vector.VarCharVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
-import org.apache.arrow.vector.ipc.ArrowStreamWriter;
 import org.apache.arrow.vector.types.DateUnit;
 import org.apache.arrow.vector.types.FloatingPointPrecision;
 import org.apache.arrow.vector.types.TimeUnit;
@@ -17,12 +16,10 @@ import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.arrow.vector.types.pojo.FieldType;
 import org.apache.arrow.vector.types.pojo.Schema;
+import org.pangrova.types.enums.PangrovaType;
 import org.pangrova.types.value.ColumnValue;
 import org.pangrova.types.value.TypedRow;
 
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.nio.channels.Channels;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
@@ -32,18 +29,7 @@ import java.util.Objects;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/**
- * Converts bounded control-plane statement rows to columnar IPC bytes.
- *
- * <p>Provides two serialization operations:</p>
- * <ul>
- *   <li>VectorSchemaRoot serialization to IPC from existing columnar vectors</li>
- *   <li>DDL/DML: TypedRow list → columnar fill → IPC</li>
- * </ul>
- *
- * <p>The allocator is injected from outside to comply with runtime resource
- * governance — no private allocator pools.</p>
- */
+/** Fills the Arrow vectors sent directly by the bounded control-plane result server. */
 public final class CoordinatorResultWriter {
 
     private static final Logger LOG = LoggerFactory.getLogger(CoordinatorResultWriter.class);
@@ -54,99 +40,72 @@ public final class CoordinatorResultWriter {
         this.allocator = Objects.requireNonNull(allocator, "allocator");
     }
 
-    /**
-     * Serializes a pre-built VectorSchemaRoot directly to columnar IPC bytes.
-     * Uses existing columnar vectors without constructing intermediate row objects.
-     */
-    public byte[] serializeFromRoot(VectorSchemaRoot root) {
-        Objects.requireNonNull(root, "root");
-        return serializeRoot(root);
+    private static final long BATCH_LIMIT_BYTES = 128L * 1024 * 1024;
+
+    /** Transfers the new batch to the caller only after all of its vectors have been filled. */
+    public CoordinatorResultBatch buildBatch(List<TypedRow> rows, List<String> columnNames) {
+        return buildBatch(rows, columnNames, Map.of());
     }
 
-    /**
-     * Converts a list of TypedRow to columnar IPC bytes.
-     * Column order follows the provided columnNames list.
-     * Pre-extracts column data into a column-major array to avoid per-cell map lookups.
-     */
-    public byte[] serializeTypedRows(List<TypedRow> rows, List<String> columnNames) {
+    CoordinatorResultBatch buildBatch(
+            List<TypedRow> rows, List<String> columnNames, Map<String, PangrovaType> columnTypes) {
         Objects.requireNonNull(rows, "rows");
         Objects.requireNonNull(columnNames, "columnNames");
-        Schema schema = buildSchemaFromTypedRows(rows, columnNames);
-        int colCount = columnNames.size();
-        int rowCount = rows.size();
-        Object[][] columnData = new Object[colCount][rowCount];
-        for (int r = 0; r < rowCount; r++) {
-            TypedRow row = rows.get(r);
-            for (int c = 0; c < colCount; c++) {
-                columnData[c][r] = row.get(columnNames.get(c));
+        Objects.requireNonNull(columnTypes, "columnTypes");
+        var schema = buildSchemaFromTypedRows(rows, columnNames, columnTypes);
+        var child = allocator.newChildAllocator("control-result", 0, BATCH_LIMIT_BYTES);
+        VectorSchemaRoot root = null;
+        try {
+            root = VectorSchemaRoot.create(schema, child);
+            for (var vector : root.getFieldVectors()) {
+                vector.setInitialCapacity(Math.max(1, rows.size()));
             }
+            root.allocateNew();
+            for (int col = 0; col < columnNames.size(); col++) {
+                fillVector(root.getVector(col), rows, columnNames.get(col));
+            }
+            root.setRowCount(rows.size());
+            return new CoordinatorResultBatch(root, child);
+        } catch (RuntimeException | Error failure) {
+            var allocated = root;
+            org.pangrova.common.lifecycle.ResourceCloser.closeAll(failure, () -> {
+                if (allocated != null) allocated.close();
+            }, child::close);
+            throw failure;
         }
-        return writeSerializedBatch(schema, colCount, rowCount,
-                (col, row) -> columnData[col][row]);
     }
 
     // ── Schema builders ──
 
-    private Schema buildSchemaFromTypedRows(List<TypedRow> rows, List<String> columnNames) {
+    private Schema buildSchemaFromTypedRows(List<TypedRow> rows, List<String> columnNames,
+                                           Map<String, PangrovaType> columnTypes) {
         List<Field> arrowFields = new ArrayList<>(columnNames.size());
         TypedRow sample = rows.isEmpty() ? null : rows.get(0);
         for (String name : columnNames) {
-            ArrowType type = (sample != null)
-                    ? columnValueToArrowType(sample.get(name))
-                    : ArrowType.Utf8.INSTANCE;
+            PangrovaType declaredType = columnTypes.get(name);
+            ArrowType type = ArrowType.Utf8.INSTANCE;
+            if (declaredType != null) {
+                type = declaredArrowType(declaredType);
+            } else {
+                ColumnValue value = sample == null ? null : sample.get(name);
+                if (value != null) {
+                    type = columnValueToArrowType(value);
+                }
+            }
             arrowFields.add(new Field(name, FieldType.nullable(type), null));
         }
         return new Schema(arrowFields);
     }
 
-    // ── IPC writer ──
-
-    private static final long CHILD_ALLOCATOR_LIMIT = 128L * 1024 * 1024; // 128 MB
-
-    private byte[] writeSerializedBatch(Schema schema, int colCount, int rowCount,
-                                 CellAccessor accessor) {
-        try (BufferAllocator child = allocator.newChildAllocator("result-writer", 0, CHILD_ALLOCATOR_LIMIT);
-             VectorSchemaRoot root = VectorSchemaRoot.create(schema, child)) {
-            root.allocateNew();
-            for (int col = 0; col < colCount; col++) {
-                batchFillVector(root, col, rowCount, accessor);
-            }
-            root.setRowCount(rowCount);
-            return serializeRoot(root);
-        }
-    }
-
-    private static final int INITIAL_IPC_BUFFER_SIZE = 64 * 1024;
-
-    private static final ThreadLocal<ByteArrayOutputStream> REUSABLE_BAOS =
-            ThreadLocal.withInitial(() -> new ByteArrayOutputStream(INITIAL_IPC_BUFFER_SIZE));
-
-    private byte[] serializeRoot(VectorSchemaRoot root) {
-        ByteArrayOutputStream baos = REUSABLE_BAOS.get();
-        baos.reset();
-        try (ArrowStreamWriter writer = new ArrowStreamWriter(root, null, Channels.newChannel(baos))) {
-            writer.start();
-            writer.writeBatch();
-            writer.end();
-        } catch (IOException e) {
-            throw new IllegalStateException("Failed to serialize columnar IPC", e);
-        }
-        return baos.toByteArray();
-    }
-
-    // ── Batch columnar vector fill ──
-
-    private void batchFillVector(VectorSchemaRoot root, int col, int rowCount,
-                                 CellAccessor accessor) {
-        var vector = root.getFieldVectors().get(col);
+    private void fillVector(org.apache.arrow.vector.FieldVector vector, List<TypedRow> rows, String column) {
         VectorSetter setter = resolveVectorSetter(vector);
-        for (int row = 0; row < rowCount; row++) {
-            Object value = accessor.get(col, row);
+        for (int row = 0; row < rows.size(); row++) {
+            ColumnValue value = rows.get(row).get(column);
             if (value == null || value instanceof ColumnValue.NullValue) {
                 vector.setNull(row);
                 continue;
             }
-            Object raw = (value instanceof ColumnValue cv) ? ColumnValue.toRaw(cv) : value;
+            Object raw = ColumnValue.toRaw(value);
             if (raw == null) {
                 vector.setNull(row);
             } else {
@@ -193,16 +152,24 @@ public final class CoordinatorResultWriter {
     // ── Type mapping ──
 
     private static final int DECIMAL_PRECISION = 38;
+    private static final Map<PangrovaType, ArrowType> SCALAR_ARROW_TYPES = Map.of(
+            PangrovaType.INTEGER, new ArrowType.Int(32, true),
+            PangrovaType.BIGINT, new ArrowType.Int(64, true),
+            PangrovaType.FLOAT, new ArrowType.FloatingPoint(FloatingPointPrecision.SINGLE),
+            PangrovaType.DOUBLE, new ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE),
+            PangrovaType.BOOLEAN, ArrowType.Bool.INSTANCE,
+            PangrovaType.VARCHAR, ArrowType.Utf8.INSTANCE,
+            PangrovaType.VARBINARY, ArrowType.Binary.INSTANCE);
 
     private static final Map<Class<? extends ColumnValue>, java.util.function.Function<ColumnValue, ArrowType>>
             CV_TO_ARROW = Map.ofEntries(
-            Map.entry(ColumnValue.IntValue.class, cv -> new ArrowType.Int(32, true)),
-            Map.entry(ColumnValue.LongValue.class, cv -> new ArrowType.Int(64, true)),
-            Map.entry(ColumnValue.FloatValue.class, cv -> new ArrowType.FloatingPoint(FloatingPointPrecision.SINGLE)),
-            Map.entry(ColumnValue.DoubleValue.class, cv -> new ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE)),
-            Map.entry(ColumnValue.BooleanValue.class, cv -> ArrowType.Bool.INSTANCE),
-            Map.entry(ColumnValue.StringValue.class, cv -> ArrowType.Utf8.INSTANCE),
-            Map.entry(ColumnValue.BytesValue.class, cv -> ArrowType.Binary.INSTANCE),
+            Map.entry(ColumnValue.IntValue.class, cv -> declaredArrowType(PangrovaType.INTEGER)),
+            Map.entry(ColumnValue.LongValue.class, cv -> declaredArrowType(PangrovaType.BIGINT)),
+            Map.entry(ColumnValue.FloatValue.class, cv -> declaredArrowType(PangrovaType.FLOAT)),
+            Map.entry(ColumnValue.DoubleValue.class, cv -> declaredArrowType(PangrovaType.DOUBLE)),
+            Map.entry(ColumnValue.BooleanValue.class, cv -> declaredArrowType(PangrovaType.BOOLEAN)),
+            Map.entry(ColumnValue.StringValue.class, cv -> declaredArrowType(PangrovaType.VARCHAR)),
+            Map.entry(ColumnValue.BytesValue.class, cv -> declaredArrowType(PangrovaType.VARBINARY)),
             Map.entry(ColumnValue.DecimalValue.class, cv -> new ArrowType.Decimal(DECIMAL_PRECISION, 10, 128)),
             Map.entry(ColumnValue.DateValue.class, cv -> new ArrowType.Date(DateUnit.DAY)),
             Map.entry(ColumnValue.TimestampValue.class, cv -> new ArrowType.Timestamp(TimeUnit.MICROSECOND, null)),
@@ -212,14 +179,16 @@ public final class CoordinatorResultWriter {
             })
     );
 
+    private static ArrowType declaredArrowType(PangrovaType type) {
+        ArrowType arrowType = SCALAR_ARROW_TYPES.get(type);
+        if (arrowType == null) {
+            throw new IllegalArgumentException("Unsupported declared control-plane column type: " + type);
+        }
+        return arrowType;
+    }
+
     private static ArrowType columnValueToArrowType(ColumnValue cv) {
         var mapper = CV_TO_ARROW.get(cv.getClass());
         return mapper != null ? mapper.apply(cv) : ArrowType.Utf8.INSTANCE;
-    }
-
-    /** Functional interface for accessing cell values by (col, row) index. */
-    @FunctionalInterface
-    private interface CellAccessor {
-        Object get(int col, int row);
     }
 }

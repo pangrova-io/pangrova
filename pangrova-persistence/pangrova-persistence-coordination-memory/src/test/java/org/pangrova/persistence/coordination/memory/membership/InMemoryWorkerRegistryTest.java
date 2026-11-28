@@ -66,7 +66,7 @@ class InMemoryWorkerRegistryTest {
         // dynamic fields updated
         assertThat(updated.memoryPressure()).isEqualTo("HIGH");
         assertThat(updated.cpuUtilization()).isEqualTo(0.95);
-        assertThat(updated.runningTaskCount()).isEqualTo(5);
+        assertThat(updated.inFlightTaskCount()).isEqualTo(5);
         assertThat(updated.availableMemoryBytes()).isEqualTo(512L);
         assertThat(updated.lastHeartbeatMs()).isGreaterThanOrEqualTo(now);
         // static fields unchanged
@@ -183,7 +183,7 @@ class InMemoryWorkerRegistryTest {
         registry.register(original);
         registry.heartbeat(original.registrationIdentity(),
                 new org.pangrova.coordination.api.heartbeat.HeartbeatSnapshot("HIGH", 0.9, 3, 123L, null));
-        assertThat(registry.getWorker(original.workerId()).orElseThrow().runningTaskCount()).isEqualTo(3);
+        assertThat(registry.getWorker(original.workerId()).orElseThrow().inFlightTaskCount()).isEqualTo(3);
         assertThat(registry.unregister(original.registrationIdentity())).isTrue();
     }
 
@@ -202,7 +202,7 @@ class InMemoryWorkerRegistryTest {
         assertThat(registry.heartbeat(old.registrationIdentity(), metrics)).isEmpty();
         assertThat(registry.refreshRegistration(old)).isTrue();
         assertThat(registry.refreshRegistration(old)).isTrue();
-        assertThat(registry.heartbeat(old.registrationIdentity(), metrics).orElseThrow().runningTaskCount()).isEqualTo(7);
+        assertThat(registry.heartbeat(old.registrationIdentity(), metrics).orElseThrow().inFlightTaskCount()).isEqualTo(7);
         var replacement = removalWorker(old.admissionDomainId(), "00000000-0000-0000-0000-0000000000e2", now);
         registry.register(replacement);
         assertThat(registry.heartbeat(old.registrationIdentity(), metrics)).isEmpty();

@@ -3,6 +3,7 @@ package org.pangrova.server.coordinator.bootstrap;
 import org.pangrova.common.resilience.CircuitBreakerPolicy;
 import org.pangrova.coordination.api.leadership.MaintenanceLeaderAware;
 import org.pangrova.coordinator.resilience.resilience4j.ResilienceRegistry;
+import org.pangrova.coordinator.generation.DurableGenerationPublisher.PollSettings;
 import org.pangrova.governance.api.quality.QualityRuleStore;
 import org.pangrova.governance.runtime.GovernanceContext;
 import org.pangrova.governance.runtime.GovernanceDeps;
@@ -20,19 +21,14 @@ import org.pangrova.persistence.generation.api.publication.GenerationPublication
 import org.pangrova.persistence.governance.postgresql.JdbcGovernanceAuditTrail;
 import org.pangrova.persistence.security.memory.tenant.InMemoryTenantStore;
 import org.pangrova.persistence.streaming.memory.InMemoryCdcRegistrationStore;
-import org.pangrova.persistence.streaming.memory.InMemoryWatermarkStore;
 import org.pangrova.persistence.streaming.postgresql.JdbcCdcRegistrationStore;
-import org.pangrova.persistence.streaming.postgresql.JdbcWatermarkPositionStore;
 import org.pangrova.security.tenant.QuotaChecker;
 import org.pangrova.security.tenant.TenantResolver;
 import org.pangrova.common.lifecycle.ResourceCloser;
 import org.pangrova.streaming.api.cdc.CdcLifecycleManager;
 import org.pangrova.streaming.api.cdc.CdcRegistrationStore;
-import org.pangrova.streaming.api.watermark.WatermarkStore;
 import org.pangrova.streaming.cdc.CdcRegistrationHandler;
 import org.pangrova.streaming.maintenance.MaintenanceScheduler;
-import org.pangrova.streaming.pipeline.StreamingContext;
-import org.pangrova.streaming.watermark.WatermarkTracker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -51,7 +47,6 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
     private volatile boolean maintenanceLeader;
 
     // Streaming
-    private StreamingContext streamingModule;
     private CdcRegistrationHandler cdcRegistrationHandler;
     private MaintenanceScheduler maintenanceScheduler;
     private org.pangrova.streaming.maintenance.MaintenanceTableSource maintenanceTableSource;
@@ -159,10 +154,6 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
         this.branchTtlCleanupTask = cleanupTask;
     }
 
-    synchronized StreamingBootstrap getStreamingBootstrap() {
-        return streamingBootstrap;
-    }
-
     void startStreaming(CoordinatorBootstrapConfig config, DataSource dataSource) {
         startStreaming(config, dataSource, catalogRegistry);
     }
@@ -176,15 +167,11 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
         this.catalogRegistry = catalogs;
         MaintenanceScheduler scheduler = buildMaintenanceScheduler(catalogs, config);
         this.maintenanceScheduler = scheduler;
-        WatermarkStore watermarkStore = dataSource != null
-                ? new JdbcWatermarkPositionStore(dataSource) : new InMemoryWatermarkStore();
-        WatermarkTracker tracker = new WatermarkTracker(watermarkStore);
-        streamingModule = new StreamingContext(scheduler, tracker);
         CdcRegistrationStore cdcStore = createCdcRegistrationStore(dataSource);
         cdcRegistrationHandler = new CdcRegistrationHandler(cdcStore);
-        LOG.info("Phase: streaming — initialized (watermarkStore={} cdcRegistrationStore={} "
+        LOG.info("Phase: streaming — initialized (cdcRegistrationStore={} "
                         + "maintenanceSource={} periodicScanLeaderGated=true)",
-                watermarkStore.getClass().getSimpleName(), cdcStore.getClass().getSimpleName(),
+                cdcStore.getClass().getSimpleName(),
                 maintenanceTableSource.getClass().getSimpleName());
     }
 
@@ -305,7 +292,6 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
 
     CdcLifecycleManager getCdcLifecycleManager() { return cdcRegistrationHandler; }
     MaintenanceScheduler getMaintenanceScheduler() { return maintenanceScheduler; }
-    StreamingContext getStreamingContext() { return streamingModule; }
     LineageEventEmitter getLineageEmitter() { return lineageEmitter; }
 
     CircuitBreakerPolicy getCircuitBreakerPolicy() { return resilienceRegistry; }
@@ -322,10 +308,17 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
     }
 
     void startIndexQuery(org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore metadataStore,
-                         org.pangrova.observability.api.metrics.MetricsProvider metricsProvider) {
+                         org.pangrova.observability.api.metrics.MetricsProvider metricsProvider,
+                         GenerationJobStore artifactBuildStore) {
         try {
+            var accessors = new org.pangrova.coordinator.indexing.connector.ConnectorAccessorResolver(
+                    java.util.Objects.requireNonNull(catalogRegistry, "catalogRegistry"));
+            var snapshotValidator = new org.pangrova.coordinator.indexing.ddl.ArtifactSnapshotPinValidator(
+                    artifactBuildStore,
+                    session -> accessors.forSession(session).resolveSnapshotPinProvider());
             indexQueryBootstrap = new IndexQueryBootstrap(
-                    metadataStore, metricsProvider, INDEX_EVAL_TIMEOUT_MS, 0);
+                    metadataStore, metricsProvider, INDEX_EVAL_TIMEOUT_MS, 0,
+                    catalogRegistry, snapshotValidator::validate);
             LOG.info("Phase: index-query — initialized (query-only split filter)");
         } catch (Exception e) {
             LOG.warn("event=index_query_start_failed error={} action=skip_index_filtering",
@@ -368,7 +361,7 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
                        GenerationPublicationStore artifactPublicationStore) {
         startIndexing(metadataStore, buildClaims, catalog, metricsProvider, accessControl,
                 baseIndexPath, lease, artifactBuildStore,
-                artifactPublicationStore, null);
+                artifactPublicationStore, null, null);
     }
 
     void startIndexing(org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore metadataStore,
@@ -381,16 +374,58 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
                        GenerationJobStore artifactBuildStore,
                        GenerationPublicationStore artifactPublicationStore,
                        org.pangrova.coordinator.indexing.lifecycle.MaintenanceLeaderElection leaderElection) {
+        startIndexing(metadataStore, buildClaims, catalog, metricsProvider, accessControl,
+                baseIndexPath, lease, artifactBuildStore,
+                artifactPublicationStore, leaderElection, null,
+                org.pangrova.coordinator.generation.DurableGenerationPublisher.defaultSettings());
+    }
+
+    void startIndexing(org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore metadataStore,
+                       org.pangrova.persistence.indexing.api.build.IndexBuildClaimRepository buildClaims,
+                       org.pangrova.metadata.catalog.registry.CatalogRegistry catalog,
+                       org.pangrova.observability.api.metrics.MetricsProvider metricsProvider,
+                       org.pangrova.security.api.authorization.AccessControl accessControl,
+                       String baseIndexPath,
+                       org.pangrova.persistence.coordination.api.lease.DistributedLease lease,
+                       GenerationJobStore artifactBuildStore,
+                       GenerationPublicationStore artifactPublicationStore,
+                       org.pangrova.coordinator.indexing.lifecycle.MaintenanceLeaderElection leaderElection,
+                       org.pangrova.indexing.config.IndexingConfig indexingConfig) {
+        startIndexing(metadataStore, buildClaims, catalog, metricsProvider, accessControl,
+                baseIndexPath, lease, artifactBuildStore, artifactPublicationStore,
+                leaderElection, indexingConfig,
+                org.pangrova.coordinator.generation.DurableGenerationPublisher.defaultSettings());
+    }
+
+    void startIndexing(org.pangrova.persistence.indexing.api.metadata.IndexMetadataStore metadataStore,
+                       org.pangrova.persistence.indexing.api.build.IndexBuildClaimRepository buildClaims,
+                       org.pangrova.metadata.catalog.registry.CatalogRegistry catalog,
+                       org.pangrova.observability.api.metrics.MetricsProvider metricsProvider,
+                       org.pangrova.security.api.authorization.AccessControl accessControl,
+                       String baseIndexPath,
+                       org.pangrova.persistence.coordination.api.lease.DistributedLease lease,
+                       GenerationJobStore artifactBuildStore,
+                       GenerationPublicationStore artifactPublicationStore,
+                       org.pangrova.coordinator.indexing.lifecycle.MaintenanceLeaderElection leaderElection,
+                       org.pangrova.indexing.config.IndexingConfig indexingConfig,
+                       PollSettings publicationSettings) {
+        IndexingBootstrap candidate = null;
         try {
-            indexingBootstrap = new IndexingBootstrap(
+            candidate = new IndexingBootstrap(
                     baseIndexPath, lease, artifactBuildStore,
-                    artifactPublicationStore, leaderElection);
-            indexingBootstrap.start(metadataStore, buildClaims, catalog, metricsProvider, accessControl);
+                    artifactPublicationStore, leaderElection, indexingConfig, publicationSettings);
+            candidate.start(metadataStore, buildClaims, catalog, metricsProvider, accessControl);
+            indexingBootstrap = candidate;
             LOG.info("Phase: indexing — initialized");
-        } catch (Exception e) {
+        } catch (RuntimeException | Error failure) {
+            if (candidate != null) {
+                ResourceCloser.closeOnFailure(failure, candidate);
+            }
+            if (failure instanceof Error error) {
+                throw error;
+            }
             LOG.warn("event=indexing_start_failed error={} action=skip_index_filtering",
-                    e.getMessage(), e);
-            indexingBootstrap = null;
+                    failure.getMessage(), failure);
         }
     }
 
@@ -433,8 +468,7 @@ final class ModuleIntegrationBootstrap implements MaintenanceLeaderAware, AutoCl
     }
 
     private void closeStreaming() {
-        closeModule(streamingModule, "streaming");
-        streamingModule = null;
+        closeModule(maintenanceScheduler, "streaming");
         maintenanceScheduler = null;
         maintenanceTableSource = null;
         cdcRegistrationHandler = null;

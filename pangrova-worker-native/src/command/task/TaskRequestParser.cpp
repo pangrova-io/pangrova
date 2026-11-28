@@ -1,6 +1,8 @@
 // Deserializes the canonical v2 TaskRequest into Native executor configuration.
 #include "command/task/TaskRequestParser.h"
 #include "engine/resource/WorkerStorageBinding.h"
+#include "engine/split/PathUtils.h"
+#include "velox/common/config/Config.h"
 #include "command/task/PhysicalWriteAdmission.h"
 #include "command/task/WorkerLocalCopyInput.h"
 
@@ -111,6 +113,30 @@ std::string hex(const std::string& bytes) {
     result[i * 2 + 1] = digits[value & 0x0fU];
   }
   return result;
+}
+
+std::shared_ptr<const facebook::velox::config::ConfigBase> s3ReadConfig(
+    const proto::ObjectStoreExecutionBinding& binding) {
+  const auto& s3 = binding.s3();
+  const std::string_view scheme = s3.tls_enabled() ? "https://" : "http://";
+  if (!binding.has_s3() || !s3.endpoint().starts_with(scheme)
+      || s3.endpoint().size() <= scheme.size() || s3.region().empty()
+      || s3.access_key().empty() || s3.secret_key().empty()) {
+    throw std::invalid_argument("Worker-local S3 read storage settings are incomplete");
+  }
+  const auto authority = binding.SerializeAsString();
+  return std::make_shared<const facebook::velox::config::ConfigBase>(
+      std::unordered_map<std::string, std::string>{
+          {"hive.s3.endpoint", s3.endpoint().substr(scheme.size())},
+          {"hive.s3.endpoint.region", s3.region()},
+          {"hive.s3.aws-access-key", s3.access_key()},
+          {"hive.s3.aws-secret-key", s3.secret_key()},
+          {"hive.s3.aws-session-token", s3.security_token()},
+          {"hive.s3.path-style-access", s3.path_style_access() ? "true" : "false"},
+          {"hive.s3.ssl.enabled", s3.tls_enabled() ? "true" : "false"},
+          {"hive.s3.aws-imds-enabled", "false"},
+          {"pangrova.s3.warehouse", binding.warehouse_uri()},
+          {"pangrova.s3.authority", hex(sha256(authority.data(), authority.size()))}});
 }
 
 std::pair<std::string, std::string> dependencyFingerprints(
@@ -506,9 +532,15 @@ std::string mergeEngineToString(proto::PaimonMergeEngine engine) {
   }
 }
 
-IcebergConfig parseIceberg(const proto::IcebergSplitDetail& detail) {
+IcebergConfig parseIceberg(const proto::IcebergSplitDetail& detail, const SplitConfig& split) {
   IcebergConfig config;
   config.snapshot_id = detail.snapshot_id();
+  config.data_file_size_bytes = checkedInt64(detail.data_file_size_bytes(), "data_file_size_bytes");
+  if (config.data_file_size_bytes > 0
+      && (split.start_offset > config.data_file_size_bytes
+          || split.length > config.data_file_size_bytes - split.start_offset)) {
+    throw std::invalid_argument("Iceberg split range exceeds its snapshot data object");
+  }
   config.data_sequence_number = detail.data_sequence_number();
   config.spec_id = detail.spec_id();
   config.content = icebergContentToString(detail.content());
@@ -532,7 +564,7 @@ IcebergConfig parseIceberg(const proto::IcebergSplitDetail& detail) {
 
 void parseSchemaEvolution(const proto::SchemaEvolution& evolution, SplitConfig& config);
 
-PaimonConfig parsePaimon(const proto::PaimonSplitDetail& detail) {
+PaimonConfig parsePaimon(const proto::PaimonSplitDetail& detail, const SplitConfig& split) {
   if (!detail.has_merge_policy()) throw std::invalid_argument("Paimon split requires exact SDK merge policy");
   PaimonConfig config;
   config.merge_engine = mergeEngineToString(detail.merge_engine());
@@ -549,12 +581,16 @@ PaimonConfig parsePaimon(const proto::PaimonSplitDetail& detail) {
       changelogProducerToString(detail.changelog_producer());
   config.deletion_vectors_enabled = detail.deletion_vectors_enabled();
   config.needs_merge = detail.needs_merge();
+  if (config.needs_merge && split.start_offset != 0) {
+    throw std::runtime_error("Paimon merge requires a whole primary file");
+  }
   config.ignore_delete = detail.merge_policy().ignore_delete();
   config.remove_record_on_delete = detail.merge_policy().remove_record_on_delete();
   config.sequence_column = detail.sequence_column();
   config.aggregation_specs.insert(
       detail.aggregation_specs().begin(), detail.aggregation_specs().end());
   config.lsm_levels.reserve(detail.lsm_levels_size());
+  bool hasWholePrimaryFile = !config.needs_merge;
   for (const auto& level : detail.lsm_levels()) {
     split::LsmLevelConfig parsed;
     parsed.level = level.level();
@@ -580,6 +616,10 @@ PaimonConfig parsePaimon(const proto::PaimonSplitDetail& detail) {
       physical.file_path = file.opaque_location();
       physical.file_format = parseFileFormat(file.file_format());
       physical.file_size = file.file_size();
+      if (!hasWholePrimaryFile && physical.file_path == split.file_path &&
+          physical.file_size == static_cast<uint64_t>(split.length)) {
+        hasWholePrimaryFile = true;
+      }
       physical.min_sequence_number = file.min_sequence_number();
       physical.max_sequence_number = file.max_sequence_number();
       SplitConfig evolution;
@@ -600,6 +640,9 @@ PaimonConfig parsePaimon(const proto::PaimonSplitDetail& detail) {
     }
     parsed.total_record_count = level.total_record_count();
     config.lsm_levels.push_back(std::move(parsed));
+  }
+  if (!hasWholePrimaryFile) {
+    throw std::runtime_error("Paimon merge requires a whole primary file");
   }
   return config;
 }
@@ -968,6 +1011,13 @@ SplitConfig parseSplit(const proto::DataSplit& split, const proto::TaskRequest& 
   }
   config.start_offset = checkedInt64(split.start_offset(), "start_offset");
   config.length = checkedInt64(split.length(), "length");
+  if (config.file_format == split::FileFormatType::PARQUET) {
+    if (config.length == 0 || config.start_offset > std::numeric_limits<int64_t>::max() - config.length) {
+      throw std::runtime_error("Parquet split requires a positive, bounded byte range");
+    }
+  } else if (config.start_offset != 0) {
+    throw std::runtime_error("A nonzero byte offset is supported only for Parquet");
+  }
 
   for (const auto& partition : split.partition_values()) {
     if (partition.column_name().empty() ||
@@ -1003,9 +1053,9 @@ SplitConfig parseSplit(const proto::DataSplit& split, const proto::TaskRequest& 
   }
 
   if (detail.has_iceberg()) {
-    config.iceberg = parseIceberg(detail.iceberg());
+    config.iceberg = parseIceberg(detail.iceberg(), config);
   } else if (detail.has_paimon()) {
-    config.paimon = parsePaimon(detail.paimon());
+    config.paimon = parsePaimon(detail.paimon(), config);
     config.paimon->partition_values = config.partition_values;
     if (detail.physical_file_scan().has_deletion_vector()) {
       config.deletion_vector = std::make_shared<const proto::DeletionVectorReference>(
@@ -1492,7 +1542,10 @@ void validateRuntimeFilterBindings(
   config.initial_runtime_filters.reserve(
       request.initial_runtime_filters_size());
   for (const auto& binding : request.initial_runtime_filters()) {
-    if (binding.plan_node_id().empty() || binding.filters_size() == 0 ||
+    const bool exact_node = binding.has_plan_node_id() && !binding.plan_node_id().empty();
+    const bool sole_scan = binding.sole_table_scan() &&
+        request.initial_runtime_filters_size() == 1;
+    if ((!exact_node && !sole_scan) || binding.filters_size() == 0 ||
         !plan_node_ids.emplace(binding.plan_node_id()).second) {
       throw std::runtime_error(
           "TaskRequest initial runtime-filter binding is invalid or duplicated");
@@ -1874,12 +1927,37 @@ executor::TaskExecutorConfig parseFromProto(const proto::TaskRequest& request) {
   config.splits.reserve(request.splits_size());
   std::unordered_set<std::string> split_ids;
   std::unordered_set<std::string> manifest_partitions;
+  std::unordered_map<const proto::ObjectStoreExecutionBinding*,
+      std::shared_ptr<const facebook::velox::config::ConfigBase>> s3_read_configs;
   for (const auto& split : request.splits()) {
     if (!split_ids.emplace(split.split_id()).second) {
       throw std::runtime_error("TaskRequest contains duplicate DataSplit split_id");
     }
     auto parsed = parseSplit(split, request);
     const auto& detail = split.file_detail();
+    if (split.has_catalog() && parsed.file_format != split::FileFormatType::LANCE
+        && split::normalizeToS3Uri(parsed.file_path).starts_with("s3://")) {
+      const auto& storage = pangrova::resource::requireWorkerLocalStorage(
+          request.worker_local_storage_bindings(), split.catalog(), request.security().tenant_id(), parsed.file_path);
+      if (parsed.iceberg) {
+        for (const auto& deletion : parsed.iceberg->delete_files) {
+          pangrova::resource::validateStorageLocation(storage, deletion.file_path);
+          if (!deletion.dv_file_path.empty()) {
+            pangrova::resource::validateStorageLocation(storage, deletion.dv_file_path);
+          }
+        }
+      }
+      if (parsed.paimon) {
+        for (const auto& level : parsed.paimon->lsm_levels) {
+          for (const auto& file : level.files) {
+            pangrova::resource::validateStorageLocation(storage, file.file_path);
+          }
+        }
+      }
+      auto [found, inserted] = s3_read_configs.try_emplace(&storage);
+      if (inserted) found->second = s3ReadConfig(storage);
+      parsed.file_system_config = found->second;
+    }
     if (parsed.file_format == split::FileFormatType::LANCE) {
       const auto partition_key = split.source_id() + '\0' + split.source_snapshot() + '\0' +
           split.opaque_location() + '\0' + (detail.has_scan_partition()

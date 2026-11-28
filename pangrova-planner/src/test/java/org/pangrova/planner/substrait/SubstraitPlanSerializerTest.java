@@ -88,6 +88,18 @@ class SubstraitPlanSerializerTest {
     }
 
     @Test
+    void serializeUnboundedFetchLeavesCountUnset() throws Exception {
+        Plan plan = buildPlan("SELECT 3 AS id UNION ALL SELECT 1 ORDER BY id OFFSET 1");
+
+        var proto = io.substrait.proto.Plan.parseFrom(serializer.serialize(plan));
+        var fetch = findFetch(proto.getRelations(0).getRoot().getInput()).orElseThrow();
+
+        assertThat(fetch.hasOffsetExpr()).isTrue();
+        assertThat(fetch.getOffsetExpr().getLiteral().getI64()).isOne();
+        assertThat(fetch.getCountModeCase()).isEqualTo(io.substrait.proto.FetchRel.CountModeCase.COUNTMODE_NOT_SET);
+    }
+
+    @Test
     void typedValuesSurviveCanonicalProtoReparseWithoutLosingNullOrDecimalBytes() throws Exception {
         Plan plan = buildPlan("SELECT CAST(1.23 AS DECIMAL(10,2)) AS short_value, "
                 + "CAST(-0.77 AS DECIMAL(25,4)) AS long_value, "

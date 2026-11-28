@@ -13,13 +13,11 @@
  */
 package org.pangrova.coordinator.query.execution;
 
+import org.pangrova.parser.api.ast.Statement;
 import org.pangrova.coordinator.metadata.ConnectorWriteBindingFactory;
 import org.pangrova.execution.write.WriteAuthorityAdmission;
 import org.pangrova.query.api.write.WriteAuthorityResolver;
 import org.pangrova.query.api.write.WriteAuthorityRequest;
-
-import org.pangrova.coordinator.query.execution.split.QuerySplit;
-
 import org.pangrova.query.api.enums.QueryState;
 
 import java.util.List;
@@ -40,7 +38,6 @@ import org.pangrova.execution.stage.QueryExecutionScope;
 import org.pangrova.execution.stage.binding.RerankIntent;
 import org.pangrova.coordinator.query.execution.retrieval.RetrievalIntentCollector;
 import org.pangrova.coordinator.scheduler.placement.DefaultWorkerSelector;
-import org.pangrova.coordinator.query.execution.split.SplitFetcher;
 import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.task.write.NativeWriteCommitTracker;
@@ -110,7 +107,7 @@ final class QuerySchedulingEngine {
     // ── Main dispatch entry point ──
 
     CompletionStage<DispatchResult> startQuery(QueryStateMachine sm, QuerySession session,
-            PlannedQuery plannedQuery, DispatchQueryContext ctx) {
+            PlannedQuery plannedQuery, DispatchQueryContext ctx, Statement statement) {
         LOG.info("event=dispatch_query queryId={} user={} sql_preview={}",
                 session.queryId(),
                 session.userIdentity() != null
@@ -121,7 +118,7 @@ final class QuerySchedulingEngine {
         DispatchQueryContext effectiveCtx = enricher.enrichWithVectorSearch(
                 plannedQuery, ctx, session.queryId(), session.tenantId());
         effectiveCtx = enricher.enrichWithReranker(
-                effectiveCtx, session.queryId(), session.tenantId());
+                plannedQuery::splitSources, effectiveCtx, statement, session.queryId(), session.tenantId());
         return dispatchToWorker(
                 sm, withPolicyContext(session, plannedQuery), plannedQuery, effectiveCtx);
     }
@@ -367,11 +364,14 @@ final class QuerySchedulingEngine {
         java.util.Optional<RerankIntent> rerank = retrievalIntents.collectRerankIntent(ctx.rerankerPlan());
         boolean needsRetrievalReducer = merge.isPresent() || rerank.isPresent();
         boolean usesDefaultDrivers = !session.sessionProperties().containsKey("velox.max_drivers");
+        boolean supportsBroadcastExchange = deps.dagEngine().supportsBroadcastExchange();
         var fragments = artifactIntents.isEmpty() && !needsRetrievalReducer
                 ? ctx.compiler().fragmentQueryForCluster(plannedQuery, clusterParallelismLimit,
                         parallelism -> usesDefaultDrivers
-                                ? deps.workerSelector().estimateMaximumTaskDrivers(workerCount, parallelism) : 0)
-                : plannedQuery.fragmentWithPhysicalRetrievalIdentity(clusterParallelismLimit, needsRetrievalReducer);
+                                ? deps.workerSelector().estimateMaximumTaskDrivers(workerCount, parallelism) : 0,
+                        supportsBroadcastExchange)
+                : plannedQuery.fragmentWithPhysicalRetrievalIdentity(
+                        clusterParallelismLimit, needsRetrievalReducer, supportsBroadcastExchange);
         ctx.vectorSearchNode().ifPresent(vector -> LOG.info(
                 "event=vector_retrieval_plan queryId={} indexId={} intentCount={} stageCount={}",
                 session.queryId(), vector.indexId(), artifactIntents.size(),
@@ -455,17 +455,6 @@ final class QuerySchedulingEngine {
     }
 
     // ── Split and stage infrastructure ──
-
-    List<QuerySplit> fetchAndFilterSplits(
-            PlannedQuery plannedQuery, Map<String, Long> snapshotOverrides,
-            String queryId, QuerySession session) {
-        if (deps.indexAwareSplitFetcher() != null) {
-            return deps.indexAwareSplitFetcher().fetchAndFilterSplits(
-                    plannedQuery, snapshotOverrides, queryId, session);
-        }
-        return SplitFetcher.fetchSplitsWithFilePaths(
-                plannedQuery, deps.catalogRegistry(), snapshotOverrides, session);
-    }
 
     void registerStageListeners(StageDAG dag, QueryStateMachine querySm) {
         for (Stage stage : dag.stageEntities()) {

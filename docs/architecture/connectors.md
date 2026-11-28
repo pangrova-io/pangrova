@@ -74,6 +74,16 @@ connector metadata call propagates as a resolution error rather than being
 reported as a missing table. Iceberg table-handle lookup loads current catalog
 state so an external drop or recreation is visible immediately.
 
+Snapshot selection uses an opaque string token at the Connector SPI boundary.
+`ConnectorTableHandle.withTimeTravelSnapshot`, `SnapshotAwareMetadata`, and
+`SnapshotPinProvider` all carry that token unchanged; the Coordinator does not
+parse or order it. SQL `FOR SYSTEM_TIME` / `FOR SYSTEM_VERSION` remains a numeric
+user syntax and converts to the connector token at the handle boundary. Iceberg
+and Paimon currently issue canonical decimal snapshot IDs, while Lance uses its
+canonical decimal version; each connector validates its own syntax. Snapshot-pin
+tag components are hex-encoded so opaque UTF-8 tokens remain delimiter-safe and
+safe as Paimon tag file names.
+
 ---
 
 ## 2. ClassLoader Isolation Design
@@ -342,9 +352,9 @@ not declared. Configuration and the full capability matrix are in
 `ConnectorPageSinkProvider` and `ConnectorPageSink` are the canonical connector write SPI.
 The Worker `NativeWriteExecutor` appends columnar batches and obtains a staged metadata
 fragment with `finishWithMetadata()`; the Coordinator publishes it with
-`ConnectorMetadata.finishDistributedWrite()`. The CDC runtime writes through `CdcWriteSink`
-and `ConnectorPageSinkCdcWriter`. `TableWriter` was retired: its single-shot batch hierarchy had
-no production factory, consumer or close owner.
+`ConnectorMetadata.finishDistributedWrite()`. CDC stages admitted ranges using
+`BoundCdcPageSinkWriter` and publishes their fragments through the same connector commit
+contract and the durable write journal.
 
 **Relationship between ClassLoader isolation and the Native layer**: Java ClassLoader isolation applies only to Java-layer Connector plugins (metadata, Split planning, transaction management). The Native-layer DataSourceFactory is registered by the `connector_type` string (such as `"iceberg"`, `"paimon"`); it is a global, stateless format reader and is not affected by Java ClassLoader isolation. When multiple Connectors need to read the Parquet format, the Native layer shares the same `ParquetFormatReader` instance and distinguishes the semantics of different lakehouse formats via `SplitInfo.connector_info` (oneof) (such as Iceberg Delete File handling vs Paimon LSM Merge). Therefore, Java-layer ClassLoader isolation and Native-layer DataSourceFactory registration are two independent dimensions that do not interfere with each other.
 

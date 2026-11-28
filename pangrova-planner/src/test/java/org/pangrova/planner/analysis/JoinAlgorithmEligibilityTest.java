@@ -26,6 +26,7 @@ import org.apache.calcite.sql.type.SqlTypeName;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.api.Test;
+import org.pangrova.planner.type.PlannerTypeFactory;
 import org.pangrova.planner.cost.CboConfig;
 import org.pangrova.planner.cost.CostModelConfig;
 import org.pangrova.planner.cost.join.BroadcastJoinRule;
@@ -33,6 +34,7 @@ import org.pangrova.planner.cost.join.HashJoinRule;
 import org.pangrova.planner.cost.join.SortMergeJoinRule;
 import org.pangrova.planner.substrait.SubstraitConverter;
 import org.pangrova.planner.substrait.SubstraitPlanSerializer;
+import org.pangrova.planner.type.PlannerTypeFactory;
 
 import java.io.IOException;
 import java.math.BigDecimal;
@@ -87,7 +89,7 @@ class JoinAlgorithmEligibilityTest {
     @Test
     void tpchQ9ConvertsEveryCboDistributedJoinToSubstrait() throws IOException {
         CalciteSchema schema = CalciteSchema.createRootSchema(false);
-        var types = new SqlTypeFactoryImpl(RelDataTypeSystem.DEFAULT);
+        var types = new PlannerTypeFactory();
         var decimal = types.createSqlType(SqlTypeName.DECIMAL, 15, 2);
         schema.add("part", table(types.builder().add("p_partkey", SqlTypeName.BIGINT)
                 .add("p_name", SqlTypeName.VARCHAR, 55).build()));

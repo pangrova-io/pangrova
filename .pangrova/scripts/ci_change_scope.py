@@ -65,6 +65,7 @@ def needs_runtime(paths):
                 ".pangrova/scripts/build-iceberg-sdk-candidate.sh",
                 ".pangrova/scripts/setup-macos-native-test-docker.",
                 ".pangrova/scripts/macos-native-stage.",
+                ".pangrova/scripts/linux-asan-stage.sh",
                 ".pangrova/scripts/proto-descriptors/")):
             continue
         if name.startswith("config/checkstyle/") or name.startswith("config/spotbugs/"):
@@ -132,7 +133,8 @@ def emit_scope(*, runtime, native, performance):
     print(f"runtime={str(runtime).lower()}")
     print(f"native={str(native).lower()}")
     print(f"performance={str(performance).lower()}")
-    platforms = NATIVE_PLATFORMS if native else NATIVE_PLATFORMS[:1]
+    print('linux_native=' + json.dumps(NATIVE_PLATFORMS[0], separators=(',', ':')))
+    platforms = NATIVE_PLATFORMS[1:] if native else []
     print('native_matrix=' + json.dumps(platforms, separators=(',', ':')))
 
 

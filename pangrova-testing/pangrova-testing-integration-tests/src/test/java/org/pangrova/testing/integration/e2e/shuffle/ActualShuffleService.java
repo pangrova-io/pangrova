@@ -72,9 +72,7 @@ final class ActualShuffleService implements AutoCloseable {
                         org.pangrova.shuffle.nativewire.NativeExchangeAttempts.decode(read.consumerAttempt()),
                         input.getSourcePartitionStart(), input.getDeadlineEpochMs()),
                 input.getPlanEpoch(), input.getExpectedProducerPartitions(),
-                input.getExpectedProducerSetChecksum().getDigest().toByteArray(), new ShuffleCommitReceipt.Partition(
-                        part.getLastSequence(), part.getTotalBytes(), part.getTotalRows(),
-                        java.util.HexFormat.of().formatHex(part.getManifestSha256().toByteArray())));
+                input.getExpectedProducerSetChecksum().getDigest().toByteArray(), part);
     }
 
     ActualShuffleService(Path directory, int partitions, int serviceCount) throws Exception {

@@ -15,7 +15,7 @@ public final class IndexSourceAuthority {
     public static ConnectorAccessorResolver forDescriptor(
             IndexMetadataStore indexes, IndexBuildServices builds,
             ConnectorAccessorResolver accessors, IndexDescriptor descriptor) {
-        if (IndexDdlExecutor.requiresNativeArtifact(descriptor.indexType())) {
+        if (descriptor.indexType().requiresNativeArtifact()) {
             if (builds.aiNative() == null) {
                 throw new AccessDeniedException("Native index has no durable build authority");
             }

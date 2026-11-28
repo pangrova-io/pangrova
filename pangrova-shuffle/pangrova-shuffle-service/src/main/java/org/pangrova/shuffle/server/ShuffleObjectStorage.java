@@ -15,7 +15,13 @@ interface ShuffleObjectStorage extends AutoCloseable {
 
     void delete(List<String> keys);
 
-    String deletePrefixPage(String prefix, String after, int limit);
+    ObjectPage listPrefixPage(String prefix, String after, int limit);
+
+    record ObjectPage(List<String> keys, String next) {
+        public ObjectPage {
+            keys = List.copyOf(keys);
+        }
+    }
 
     @Override
     void close();

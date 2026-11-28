@@ -196,6 +196,8 @@ configure_compiler() {
   [[ "$SDKROOT" == /* && "$SDKROOT" != "/" && -d "$SDKROOT/usr/include" ]] \
     || die "macOS SDK headers not found at $SDKROOT"
   export SDKROOT
+  # Keep the C++ deployment baseline aligned with the packaged Lance C FFI.
+  export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-13.0}"
   export PATH="$PANGROVA_HOME/bin:$llvm_prefix/bin:$PATH"
   [[ -n "$BISON_PREFIX" && -d "$BISON_PREFIX/bin" ]] && export PATH="$BISON_PREFIX/bin:$PATH"
   [[ -n "$FLEX_PREFIX" && -d "$FLEX_PREFIX/bin" ]] && export PATH="$FLEX_PREFIX/bin:$PATH"
@@ -203,7 +205,57 @@ configure_compiler() {
   export CXX="$llvm_prefix/bin/clang++"
   step "Using $("$CXX" --version | head -1)"
   step "Using macOS SDK $SDKROOT"
+  step "Using macOS deployment target $MACOSX_DEPLOYMENT_TARGET"
+  configure_darwin_cxx_runtime
 }
+
+configure_darwin_cxx_runtime() {
+  local version
+  version=$("$CXX" -dumpversion)
+  [[ "$version" =~ ^[0-9]+(\.[0-9]+)*$ ]] || die "Cannot identify the selected Clang version: $version"
+  [[ "${version%%.*}" -ge 18 ]] || return 0
+
+  # Standalone libc++ 18+ headers can emit exception symbols unavailable in
+  # the macOS system runtime. Pair the runtime with its own SDK headers.
+  local headers="$SDKROOT/usr/include/c++/v1"
+  [[ -f "$headers/__config" ]] || die "The macOS SDK does not contain libc++ headers: $headers"
+  local checksum identity driver temporary
+  checksum=$(LC_ALL=C shasum -a 256 < "$CXX")
+  checksum="${checksum%% *}"
+  identity=$(printf 'sdk-libcxx-v1\n%s\n%s\n%s\n' "$CXX" "$checksum" "$headers" | LC_ALL=C shasum -a 256)
+  identity="${identity%% *}"
+  driver="$PANGROVA_HOME/toolchain/$identity/clang++"
+  mkdir -p "$(dirname "$driver")"
+  temporary=$(mktemp "$driver.XXXXXXXX")
+  {
+    # Keep ccache's compiler content identity sensitive to the actual Clang.
+    printf '#!/usr/bin/env bash\n# Clang SHA-256: %s\n' "$checksum"
+    printf 'exec %q -nostdinc++ -isystem %q "$@"\n' "$CXX" "$headers"
+  } > "$temporary"
+  chmod +x "$temporary"
+  mv -f "$temporary" "$driver"
+  export CXX="$driver"
+  step "Using macOS SDK libc++ headers at $headers"
+  verify_darwin_exception_abi
+}
+
+verify_darwin_exception_abi() (
+  local directory
+  directory=$(mktemp -d "${TMPDIR:-/tmp}/pangrova-libcxx-check.XXXXXXXX")
+  trap 'rm -r "$directory"' EXIT
+  "$CXX" -isysroot "$SDKROOT" -std=c++20 -x c++ - -o "$directory/exception-check" <<'CPP'
+#include <exception>
+#include <stdexcept>
+int main() {
+  try {
+    std::rethrow_exception(std::make_exception_ptr(std::runtime_error("expected")));
+  } catch (const std::runtime_error&) {
+    return 0;
+  }
+}
+CPP
+  "$directory/exception-check"
+)
 
 ensure_folly_compiler_abi() {
   [[ "$OS" == "Darwin" ]] || return 0
@@ -327,6 +379,8 @@ build_grpc() {
   # dependency. Force HTTP/1.1 for Git transports that fail HTTP/2 framing.
   git -c http.version=HTTP/1.1 -C "$src" submodule update --init --depth 1 \
     third_party/cares/cares
+  # gRPC ships the generated sources for the installed libraries. Its
+  # optional external proto downloads would add network access to configure.
   cmake -S "$src" -B "$src/_cmake_build" -GNinja \
     -U CMAKE_CXX_FLAGS \
     -DCMAKE_BUILD_TYPE=Release \
@@ -342,6 +396,7 @@ build_grpc() {
     -DgRPC_INSTALL=ON \
     -DgRPC_BUILD_TESTS=OFF \
     -DgRPC_BUILD_CSHARP_EXT=OFF \
+    -DgRPC_DOWNLOAD_ARCHIVES=OFF \
     -DgRPC_ABSL_PROVIDER=package \
     -DgRPC_CARES_PROVIDER=module \
     -DgRPC_PROTOBUF_PROVIDER=package \
@@ -367,11 +422,11 @@ ensure_darwin_snappy() {
     || die "Pinned Snappy package is incomplete at $prefix"
 }
 
-darwin_folly_has_alignment_patch() {
+darwin_folly_has_release_archive() {
   local prefix="$1"
   local digest="$2"
   local stamp="$prefix/.pangrova-folly-alignment"
-  [[ -f "$prefix/lib/libfolly.a" && -f "$stamp" && "$(< "$stamp")" == "$digest" ]]
+  [[ -f "$prefix/lib/libfolly.a" && -f "$stamp" && "$(< "$stamp")" == "Release $digest" ]]
 }
 
 prepare_velox_dependencies() {
@@ -599,16 +654,20 @@ prepare_velox_dependencies() {
         "https://github.com/facebook/folly/archive/refs/tags/${FB_OS_VERSION}.tar.gz" \
         folly
       apply_folly_source_patches "$DEPENDENCY_DIR/folly"
-      # Use the formula's opt prefix even if Homebrew leaves it unlinked.
-      cmake_install_dir folly \
+      # Release consumers instantiate Folly's inline templates with NDEBUG.
+      # Reconfigure generated Folly builds before replacing an older archive.
+      PROMPT_ALWAYS_RESPOND=y cmake_install_dir folly \
+        -DCMAKE_BUILD_TYPE=Release \
         -DBUILD_SHARED_LIBS="$VELOX_BUILD_SHARED" -DBUILD_TESTS=OFF \
         -DFOLLY_HAVE_INT128_T=ON -DGFLAGS_SHARED=FALSE \
         "-DCMAKE_PREFIX_PATH=$INSTALL_PREFIX;$libevent_prefix;$HOMEBREW_PREFIX"
       if [[ "$VELOX_BUILD_SHARED" != "ON" ]]; then
         [[ -f "$INSTALL_PREFIX/lib/libfolly.a" ]] || die "Darwin Folly archive was not installed"
+        grep -Fxq 'CMAKE_BUILD_TYPE:STRING=Release' "$DEPENDENCY_DIR/folly/_build/CMakeCache.txt" \
+          || die "Darwin Folly archive was not built in Release mode"
         local stamp
         stamp=$(mktemp "$INSTALL_PREFIX/.pangrova-folly-alignment.XXXXXXXX")
-        printf '%s\n' "$folly_alignment_digest" > "$stamp"
+        printf 'Release %s\n' "$folly_alignment_digest" > "$stamp"
         mv "$stamp" "$INSTALL_PREFIX/.pangrova-folly-alignment"
       fi
     }
@@ -642,7 +701,7 @@ prepare_velox_dependencies() {
       run_and_time install_aws_deps
     fi
     if [[ -f "$fbthrift_stamp" ]]; then
-      if ! darwin_folly_has_alignment_patch "$INSTALL_PREFIX" "$folly_alignment_digest"; then
+      if ! darwin_folly_has_release_archive "$INSTALL_PREFIX" "$folly_alignment_digest"; then
         run_and_time install_folly
       fi
       if [[ "$(<"$fbthrift_stamp")" != openssl@3 ]]; then
@@ -664,7 +723,24 @@ prepare_velox_dependencies() {
       git apply --check "$archive_patch"
       git apply "$archive_patch"
     fi
-    ./scripts/setup-ubuntu.sh
+    if [[ "$PANGROVA_PRODUCTION_BUILD" == "ON" ]]; then
+      local boost_patch="$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/velox-linux-production-pic-boost.patch"
+      if ! git apply --reverse --check "$boost_patch" >/dev/null 2>&1; then
+        git apply --check "$boost_patch"
+        git apply "$boost_patch"
+      fi
+    fi
+    # Pangrova builds Velox without its DuckDB-backed upstream test utilities.
+    BUILD_DUCKDB="${BUILD_DUCKDB:-false}" ./scripts/setup-ubuntu.sh
+    if [[ "$PANGROVA_PRODUCTION_BUILD" == "ON" ]]; then
+      # Force-load every object of the selected archives into a shared
+      # library before spending the Velox build on unusable dependencies.
+      local boost_lib="${INSTALL_PREFIX:-/usr/local}/lib"
+      "$CXX" -shared -Wl,-z,defs,-z,text -Wl,--whole-archive \
+        "$boost_lib/libboost_filesystem.a" "$boost_lib/libboost_atomic.a" \
+        -Wl,--no-whole-archive -pthread -o "$WORK_DIR/boost-pic-check.so"
+      rm "$WORK_DIR/boost-pic-check.so"
+    fi
     # setup-ubuntu.sh installs core Velox dependencies but leaves cloud adapters
     # to an explicit command. The S3-enabled Velox configure requires AWSSDK.
     if [[ ! -f "${INSTALL_PREFIX:-/usr/local}/lib/cmake/AWSSDK/AWSSDKConfig.cmake" ]]; then
@@ -698,8 +774,8 @@ verify_prepared_velox_dependencies() {
   [[ "$INSTALL_PREFIX" == "$VELOX_DIR/deps-install" ]] || die "Prepared Velox prefix differs"
   local folly_alignment_digest
   folly_alignment_digest="$(shasum -a 256 "$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../patches/folly-2026.01.05-spookyhash-alignment.patch" | awk '{print $1}')"
-  darwin_folly_has_alignment_patch "$INSTALL_PREFIX" "$folly_alignment_digest" \
-    || die "Prepared Folly archive lacks the required alignment patch identity"
+  darwin_folly_has_release_archive "$INSTALL_PREFIX" "$folly_alignment_digest" \
+    || die "Prepared Folly archive lacks the required Release and alignment patch identity"
   [[ -f "$INSTALL_PREFIX/.pangrova-fbthrift-ready" && \
       "$(< "$INSTALL_PREFIX/.pangrova-fbthrift-ready")" == openssl@3 && \
       -f "$INSTALL_PREFIX/lib/cmake/Snappy/SnappyConfig.cmake" && \
@@ -782,6 +858,7 @@ build_velox() {
     -Dre2_DIR:PATH="$DEPS_PREFIX/lib/cmake/re2" \
     -DVELOX_BUILD_TESTING=OFF \
     -DVELOX_BUILD_TEST_UTILS=OFF \
+    -DVELOX_ENABLE_DUCKDB=OFF \
     -DVELOX_ENABLE_TESTING=OFF \
     -DVELOX_ENABLE_BENCHMARKS=OFF \
     -DVELOX_ENABLE_EXAMPLES=OFF \
@@ -835,6 +912,8 @@ build_arrow_flight() {
   local arrow_platform_args=()
   if [[ "$OS" == "Darwin" ]]; then
     [[ -n "$OPENSSL_PREFIX" ]] && arrow_platform_args+=("-DOPENSSL_ROOT_DIR=$OPENSSL_PREFIX")
+    # Use Arrow's checksummed codec source so its static archive and headers share a prefix.
+    arrow_platform_args+=("-Dzstd_SOURCE=BUNDLED")
     arrow_platform_args+=("-DCMAKE_C_VISIBILITY_PRESET=default" "-DCMAKE_CXX_VISIBILITY_PRESET=default"
       "-DCMAKE_VISIBILITY_INLINES_HIDDEN=OFF")
     arrow_platform_args+=("-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-unexported_symbols_list,\"$PANGROVA_BOOTSTRAP_SCRIPT_DIR/../arrow_unexported_symbols_macos.list\"")
@@ -940,7 +1019,7 @@ ENVEOF
     "$PANGROVA_HOME/env.sh"
   if [[ "$OS" == "Darwin" ]]; then
     local llvm_env
-    llvm_env="export CC=\"$CC\"\nexport CXX=\"$CXX\"\nexport SDKROOT=\"$SDKROOT\"\nexport OPENSSL_ROOT_DIR=\"$OPENSSL_PREFIX\"\nexport PATH=\"$(dirname "$CXX"):\$PATH\""
+    llvm_env="export CC=\"$CC\"\nexport CXX=\"$CXX\"\nexport SDKROOT=\"$SDKROOT\"\nexport MACOSX_DEPLOYMENT_TARGET=\"$MACOSX_DEPLOYMENT_TARGET\"\nexport OPENSSL_ROOT_DIR=\"$OPENSSL_PREFIX\"\nexport PATH=\"$(dirname "$CC"):\$PATH\""
     sed -i.tmp -e "s|LLVM_ENV|$llvm_env|" "$PANGROVA_HOME/env.sh"
   else
     sed -i.tmp -e '/LLVM_ENV/d' "$PANGROVA_HOME/env.sh"
@@ -995,6 +1074,9 @@ main() {
   verify_build_tools
   configure_compiler
   [[ "$#" == 0 ]] || return 0
+  # Arrow's retired JFrog mirror can be the only Snappy URL selected on macOS.
+  # Use the byte-identical upstream tag archive and keep Arrow's SHA-256 check.
+  export ARROW_SNAPPY_URL="${ARROW_SNAPPY_URL:-https://codeload.github.com/google/snappy/tar.gz/refs/tags/1.1.10}"
   if [[ "$PANGROVA_PRODUCTION_BUILD" == "OFF" ]]; then
     # Arrow still verifies the pinned archive's SHA-256 in its ExternalProject.
     export ARROW_LZ4_URL="${ARROW_LZ4_URL:-https://codeload.github.com/lz4/lz4/tar.gz/refs/tags/v1.10.0}"

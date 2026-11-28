@@ -21,5 +21,3 @@ See the [REST API](../getting-started/clients/rest-api.md) for query request pro
 and the [JDBC driver](../getting-started/clients/jdbc.md) for connection configuration.
 Only properties consumed by the relevant planner or connector have an effect; a
 property being passed through is not evidence that it is implemented.
-
-See [Current Capability Status](../getting-started/capability-status.md).

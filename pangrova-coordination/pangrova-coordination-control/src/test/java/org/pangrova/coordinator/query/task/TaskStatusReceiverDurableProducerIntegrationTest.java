@@ -11,6 +11,14 @@ import org.pangrova.generation.submission.GenerationDispatchSpecFactory;
 
 
 import com.google.protobuf.CodedOutputStream;
+import io.substrait.proto.ExchangeRel;
+import io.substrait.proto.NamedStruct;
+import io.substrait.proto.Plan;
+import io.substrait.proto.PlanRel;
+import io.substrait.proto.ReadRel;
+import io.substrait.proto.Rel;
+import io.substrait.proto.RelRoot;
+import io.substrait.proto.Type;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -21,6 +29,7 @@ import org.pangrova.query.runtime.QueryManager;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.query.api.stage.StageCompletionCallback;
+import org.pangrova.coordinator.query.execution.dispatch.dag.control.DurablePartitionRequest;
 import org.pangrova.coordinator.query.execution.dispatch.dag.control.DurableStageRuntime;
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.TaskTerminalRegistry;
 import org.pangrova.coordinator.query.stage.Stage;
@@ -35,7 +44,9 @@ import org.pangrova.coordinator.testinfra.SharedPostgresContainer;
 import org.pangrova.coordinator.worker.TestWorkerInfoBuilder;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.scheduler.strategies.placement.LoadBalancedStrategy;
+import org.pangrova.generation.api.exchange.GenerationExchangeFinalization;
 import org.pangrova.generation.api.job.GenerationDispatchSpec;
+import org.pangrova.generation.codec.execution.GenerationExchangeEvidenceCodec;
 import org.pangrova.generation.api.job.GenerationJob;
 import org.pangrova.generation.api.identity.GenerationJobKey;
 import org.pangrova.generation.api.enums.GenerationJobState;
@@ -56,12 +67,23 @@ import org.pangrova.generation.api.enums.GenerationEmptyPartitionPolicy;
 import org.pangrova.generation.api.enums.GenerationExecutionKind;
 import org.pangrova.generation.api.constants.GenerationOutputTypeIds;
 import org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStore;
+import org.pangrova.persistence.generation.postgresql.query.PostgresGenerationQueries;
+import org.pangrova.generation.api.page.GenerationSplit;
 import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore;
 import org.pangrova.observability.noop.NoOpTracingProvider;
 import org.pangrova.planner.analysis.AuthorizedStageGraph;
 import org.pangrova.planner.api.fragment.SerializedPlanFragment;
 import org.pangrova.planner.analysis.SqlCompiler;
+import org.pangrova.protocol.rest.config.ShuffleConfig;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
+import org.pangrova.protocol.source.DataSplitProtoCodec;
+import org.pangrova.protocol.substrait.SubstraitProtocolVersion;
+import org.pangrova.protocol.v2.FileFormat;
+import org.pangrova.protocol.v2.FileSplitDetail;
+import org.pangrova.shuffle.api.ShuffleAccess;
+import org.pangrova.shuffle.api.ShuffleHandle;
+import org.pangrova.shuffle.api.ShuffleServerEndpoint;
+import org.pangrova.shuffle.api.ShuffleServiceAddress;
 import org.pangrova.protocol.rest.task.TaskAttemptDescriptor;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.protocol.v2.CompletionState;
@@ -117,7 +139,7 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
                 new GenerationPage(KEY.jobId(), "producer-0", 1, 0, 0,
                         GenerationPageKind.RELATIONAL_COMPUTE, List.of(), List.of(), 3),
                 new GenerationPage(KEY.jobId(), "terminal-0", 0, 0, 1,
-                        GenerationPageKind.RELATIONAL_PARTITION, List.of(), List.of("producer-0"), 3)));
+                        GenerationPageKind.RELATIONAL_PARTITION, List.of(), List.of(), 3)));
         anchor = executions.takeOwnership(KEY.tenantId(), KEY.jobId(), "report-coordinator", 8);
         registerExchange();
         lease = stages.preparePartition(claim(1, 0), value -> value.lease()).orElseThrow();
@@ -172,6 +194,14 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
         installStatementCounters();
         long before = executionRouteReads();
         var exchangeBefore = exchangeReads();
+        String exactRegistration = "WITH exact_registration_edge AS MATERIALIZED%";
+        long exactRegistrationBefore = statementReads(exactRegistration);
+        String jobLock = "SELECT * FROM artifact_build_jobs WHERE tenant_id=%FOR UPDATE";
+        String specs = "SELECT * FROM artifact_build_dispatch_specs%";
+        String roles = "SELECT assignment.role_name FROM pangrova_user_roles assignment%";
+        long lockedJobsBefore = statementReads(jobLock);
+        long specsBefore = statementReads(specs);
+        long rolesBefore = statementReads(roles);
         var delivery = org.pangrova.protocol.http.TaskStatusDelivery.newBuilder()
                 .setRole(org.pangrova.protocol.http.TaskRole.TASK_ROLE_COMPUTE)
                 .setWorkerId("worker-1").setSequence(1).setTimestampMs(System.currentTimeMillis())
@@ -180,8 +210,13 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
         assertThat(received.terminalEvidence().bytes()).isEqualTo(delivery.getTerminalReport());
         assertThat(receiver.onTaskStatus(received)).isTrue();
         assertThat(executionRouteReads() - before).as("durable execution route SELECTs").isEqualTo(3);
-        assertThat(exchangeReads().since(exchangeBefore)).as("durable exchange evidence SELECTs")
-                .isEqualTo(new ExchangeReads(0, 0, 0, 0, 1));
+        assertThat(exchangeReads().since(exchangeBefore)).as("batch exchange evidence SELECTs")
+                .isEqualTo(new ExchangeReads(0, 0, 0, 0, 0));
+        assertThat(statementReads(exactRegistration) - exactRegistrationBefore)
+                .as("producer allocation reads").isOne();
+        assertThat(statementReads(jobLock) - lockedJobsBefore).as("locked job reads").isOne();
+        assertThat(statementReads(specs) - specsBefore).as("dispatch contract reads").isOne();
+        assertThat(statementReads(roles) - rolesBefore).as("current direct role reads").isOne();
         assertThat(committedAtStageFinish).isTrue();
         assertThat(tracker.getTaskState(KEY.executionId(), TASK))
                 .isEqualTo(org.pangrova.coordinator.enums.ScheduledTaskState.FINISHED);
@@ -218,22 +253,10 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
     }
 
     @Test
-    void inspectsExactStageCohortWithoutPerPartitionTransactions() throws Exception {
+    void preparesExactStageWindowsWithOneAuthorityAndOneLockedPageReadEach() throws Exception {
         var key = new GenerationJobKey(KEY.tenantId(), "progress-windows");
         int partitions = 20;
-        var wideSpec = specification(key, partitions);
-        var pages = new java.util.ArrayList<GenerationPage>();
-        var upstream = new java.util.ArrayList<String>();
-        for (int partition = 0; partition < partitions; partition++) {
-            String pageId = "producer-" + partition;
-            upstream.add(pageId);
-            pages.add(new GenerationPage(key.jobId(), pageId, 1, partition, partition,
-                    GenerationPageKind.RELATIONAL_COMPUTE, List.of(), List.of(), 3));
-        }
-        pages.add(new GenerationPage(key.jobId(), "terminal-0", 0, 0, partitions,
-                GenerationPageKind.RELATIONAL_PARTITION, List.of(), upstream, 3));
-        builds.createJob(job(key, pages.size()), wideSpec, pages);
-        var owner = executions.takeOwnership(key.tenantId(), key.jobId(), "report-coordinator", 8);
+        var owner = createWideJob(key, partitions);
         installStatementCounters();
         String pageLookup = "SELECT * FROM artifact_build_pages%stage_id=%partition_id%FOR UPDATE";
         long beforePage = statementReads(pageLookup);
@@ -243,16 +266,16 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
         long beforePublication = statementReads(publicationLock);
         String roleLookup = "SELECT assignment.role_name FROM pangrova_user_roles assignment%";
         long beforeRoles = statementReads(roleLookup);
-        var progress = new java.util.ArrayList<GenerationStageExecutionStore.PartitionProgress>();
-        int window = GenerationStageExecutionStore.PARTITION_INSPECTION_WINDOW;
+        var prepared = new java.util.ArrayList<GenerationLease>();
+        int window = GenerationStageExecutionStore.PARTITION_WINDOW;
         for (int first = 0; first < partitions; first += window) {
-            progress.addAll(stages.inspectPartitions(key, owner, 1, first, Math.min(window, partitions - first)));
+            prepared.addAll(prepareRootWindow(key, owner, first, Math.min(window, partitions - first)));
         }
-        assertThat(progress).extracting(GenerationStageExecutionStore.PartitionProgress::pageOrdinal)
+        assertThat(prepared).extracting(GenerationLease::pageOrdinal)
                 .containsExactlyElementsOf(java.util.stream.IntStream.range(0, partitions).boxed().toList());
-        assertThat(progress).allSatisfy(page -> {
+        assertThat(prepared).allSatisfy(page -> {
             assertThat(page.kind()).isEqualTo(GenerationPageKind.RELATIONAL_COMPUTE);
-            assertThat(page.winner()).isEmpty();
+            assertThat(page.attemptId()).isZero();
         });
         assertThat(statementReads(pageLookup) - beforePage).as("exact page reads").isEqualTo(3);
         assertThat(exchangeReads().combined() - beforeExchange).as("barrier evidence reads").isEqualTo(3);
@@ -261,18 +284,308 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
                 .as("publication lock requests across three windows").isEqualTo(6);
         assertThat(statementReads(roleLookup) - beforeRoles)
                 .as("direct policy role reads across three windows").isEqualTo(3);
-        assertThatThrownBy(() -> stages.inspectPartitions(key, owner, 1, 0, window + 1))
-                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("inspection window");
-        assertThatThrownBy(() -> stages.inspectPartitions(key, owner, 1, partitions - 1, 2))
-                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("immutable stage cohort");
+        assertThatThrownBy(() -> prepareRootWindow(key, owner, 0, window + 1))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("partition window");
+        assertThatThrownBy(() -> prepareRootWindow(key, owner, partitions - 1, 2))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("relational stage cohort");
         try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement(
                 "DELETE FROM artifact_build_pages WHERE tenant_id=? AND job_id=? AND stage_id=1 AND partition_id=6")) {
             statement.setString(1, key.tenantId());
             statement.setString(2, key.jobId());
             assertThat(statement.executeUpdate()).isOne();
         }
-        assertThatThrownBy(() -> stages.inspectPartitions(key, owner, 1, 0, window))
+        assertThatThrownBy(() -> prepareRootWindow(key, owner, 0, window))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("exact stage partitions");
+    }
+
+    private List<GenerationLease> prepareRootWindow(GenerationJobKey key, ExecutionAnchor owner, int first, int count) {
+        var window = new GenerationStageExecutionStore.PartitionWindow(
+                key, owner, 1, first, count, 8, Duration.ofMinutes(1), Instant.now());
+        return stages.prepareWindow(window,
+                (partition, winner) -> { throw new AssertionError("Expected an unissued test partition"); },
+                evidence -> evidence.lease());
+    }
+
+    @Test
+    void claimsEightPartitionsWithOneAuthorityBarrierAndExactPageRead() throws Exception {
+        int window = GenerationStageExecutionStore.PARTITION_WINDOW;
+        var key = new GenerationJobKey(KEY.tenantId(), "batched-page-claims");
+        var owner = createWideJob(key, window * 2);
+        installStatementCounters();
+
+        var selectionSql = "WITH requested(partition_id, page_ordinal) AS (%artifact_build_pages%";
+        var startedSql = "UPDATE artifact_build_jobs SET state=$% WHERE tenant_id=%AND state=$%";
+        var splitSql = "SELECT page_id,source_object_id,split_bytes,split_sha256%FROM artifact_build_page_sources%";
+        var dependenciesSql = "SELECT page_id,dependency_page_id%FROM artifact_build_page_dependencies%";
+        var former = partitionClaims(key, owner, 0, window);
+        long exchangeBefore = exchangeReads().combined();
+        long authorityBefore = executionRouteReads();
+        long selectionBefore = statementReads(selectionSql);
+        long startedBefore = statementReads(startedSql);
+        long splitBefore = statementReads(splitSql);
+        long dependenciesBefore = statementReads(dependenciesSql);
+        for (var claim : former) stages.preparePartition(claim, prepared -> prepared.lease()).orElseThrow();
+        assertThat(exchangeReads().combined() - exchangeBefore).isEqualTo(window);
+        assertThat(executionRouteReads() - authorityBefore).isEqualTo(window);
+        assertThat(statementReads(selectionSql) - selectionBefore).isEqualTo(window);
+        assertThat(statementReads(startedSql) - startedBefore).as("initial job transition").isOne();
+        assertThat(statementReads(splitSql) - splitBefore).isEqualTo(window);
+        assertThat(statementReads(dependenciesSql) - dependenciesBefore).isZero();
+
+        var claims = partitionClaims(key, owner, window, window);
+        exchangeBefore = exchangeReads().combined();
+        authorityBefore = executionRouteReads();
+        selectionBefore = statementReads(selectionSql);
+        startedBefore = statementReads(startedSql);
+        splitBefore = statementReads(splitSql);
+        dependenciesBefore = statementReads(dependenciesSql);
+        var leased = stages.preparePartitions(claims, prepared -> prepared.lease());
+        assertThat(leased).extracting(GenerationLease::partitionId)
+                .containsExactlyElementsOf(claims.stream().map(GenerationStageExecutionStore.PartitionClaim::partitionId).toList());
+        assertThat(leased).allSatisfy(lease -> {
+            assertThat(lease.attemptId()).isZero();
+            assertThat(lease.executionAnchor()).isEqualTo(owner);
+        });
+        assertThat(exchangeReads().combined() - exchangeBefore).as("locked exchange evidence reads").isOne();
+        assertThat(executionRouteReads() - authorityBefore).as("execution authority reads").isOne();
+        assertThat(statementReads(selectionSql) - selectionBefore).as("exact page cohort reads").isOne();
+        assertThat(statementReads(startedSql) - startedBefore).as("updates for an already running job").isZero();
+        assertThat(statementReads(splitSql) - splitBefore).as("page source reads").isOne();
+        assertThat(statementReads(dependenciesSql) - dependenciesBefore).as("page dependency reads").isZero();
+
+        try (var connection = dataSource.getConnection()) {
+            try (var sql = connection.prepareStatement("""
+                    SELECT count(*) FROM artifact_build_page_dependencies WHERE tenant_id=? AND job_id=?
+                    """)) {
+                sql.setString(1, key.tenantId());
+                sql.setString(2, key.jobId());
+                try (var rows = sql.executeQuery()) {
+                    assertThat(rows.next()).isTrue();
+                    assertThat(rows.getLong(1)).isZero();
+                }
+            }
+        }
+    }
+
+    @Test
+    void durablePlacementAccountsForFrozenScanBytesBeforeIssuingAWholeWindow() throws Exception {
+        int window = GenerationStageExecutionStore.PARTITION_WINDOW;
+        int partitions = window + 2;
+        var key = new GenerationJobKey(KEY.tenantId(), "weighted-durable-placement");
+        var placementSpec = specification(key, partitions, placementProducerPlan());
+        var pages = new java.util.ArrayList<GenerationPage>();
+        for (int partition = 0; partition < partitions; partition++) {
+            var split = placementSplit(partition, (partition == 0 ? 128L : 1L) * 1024 * 1024);
+            pages.add(new GenerationPage(key.jobId(), "producer-" + partition, 1, partition, partition,
+                    GenerationPageKind.RELATIONAL_COMPUTE, List.of(split), List.of(), 3));
+        }
+        pages.add(new GenerationPage(key.jobId(), "terminal-0", 0, 0, partitions,
+                GenerationPageKind.RELATIONAL_PARTITION, List.of(), List.of(), 3));
+        builds.createJob(job(key, pages.size()), placementSpec, pages);
+        var owner = executions.takeOwnership(key.tenantId(), key.jobId(), "report-coordinator", 8);
+        var access = placementExchange(key, placementSpec, owner, partitions);
+
+        var workers = new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry());
+        var preferred = TestWorkerInfoBuilder.active("placement-preferred", "localhost", 8080, 8081);
+        var alternate = TestWorkerInfoBuilder.withMetrics("placement-alternate", "localhost", 8082, 8083,
+                0.25, 0, 1024L * 1024 * 1024, 1);
+        workers.registerWorker(preferred);
+        workers.registerWorker(alternate);
+        workers.registerWorker(TestWorkerInfoBuilder.withMetrics("placement-too-small", "localhost", 8084, 8085,
+                0, 0, 1, 1));
+        var runtime = runtime(key, owner, workers);
+        var plan = new DurablePartitionRequest.StageRequestPlan(placementSpec.stageGraph().requireStage(1), List.of());
+        installStatementCounters();
+        long before = executionRouteReads();
+
+        var bound = runtime.bindStageWindows(1, plan, partition -> access);
+        var prepared = bound.prepare(0, window, Instant.now()).stream()
+                .map(DurableStageRuntime.PreparedTask.class::cast).toList();
+
+        assertThat(executionRouteReads() - before).as("authority reads for the whole cohort").isOne();
+        assertThat(prepared).extracting(value -> value.lease().partitionId())
+                .containsExactlyElementsOf(java.util.stream.IntStream.range(0, window).boxed().toList());
+        var workersByPartition = new java.util.ArrayList<String>();
+        workersByPartition.add(preferred.workerId());
+        workersByPartition.addAll(java.util.Collections.nCopies(window - 1, alternate.workerId()));
+        assertThat(prepared).extracting(value -> value.worker().workerId())
+                .containsExactlyElementsOf(workersByPartition);
+
+        var first = prepared.get(0);
+        tracker.prepareTaskDispatch(first.request(), first.worker());
+        try {
+            assertThat(tracker.placementLoad(preferred)).isOne();
+            assertThat(bound.prepare(window, 1, Instant.now())).singleElement()
+                    .isInstanceOfSatisfying(DurableStageRuntime.PreparedTask.class,
+                            task -> assertThat(task.worker()).isEqualTo(alternate));
+        } finally {
+            tracker.unregisterUndispatchedTask(key.executionId(), first.request().taskRequest().getAttempt().getTaskId());
+        }
+        assertThat(tracker.placementLoad(preferred)).isZero();
+        assertThat(bound.prepare(window + 1, 1, Instant.now())).singleElement()
+                .isInstanceOfSatisfying(DurableStageRuntime.PreparedTask.class,
+                        task -> assertThat(task.worker()).isEqualTo(preferred));
+    }
+
+    private static GenerationSplit placementSplit(int partition, long bytes) {
+        String object = "object-" + partition;
+        var file = FileSplitDetail.newBuilder().setFileFormat(FileFormat.FILE_FORMAT_PARQUET).build();
+        var split = DataSplitProtoCodec.buildFileSplit(new DataSplitProtoCodec.FileSplitInput(
+                "iceberg", "lake.raw.items", "41", object, "s3://placement/" + object + ".parquet",
+                0, bytes, java.util.Map.of(), file));
+        return GenerationSplit.of(object, split.toByteArray());
+    }
+
+    private DurablePartitionRequest.ExchangeAccess placementExchange(GenerationJobKey key,
+            GenerationDispatchSpec placementSpec, ExecutionAnchor owner, int partitions) {
+        long epoch = 7;
+        var checksum = ShuffleProducerSetChecksum.forContiguousPartitions(key.executionId(), 1, epoch, partitions);
+        var registration = new ShuffleRegistration(key.executionId(), 1, 1, 0, false, epoch, partitions, checksum);
+        var evidence = new DurableStageShuffleEvidence(ModelAuthorityFixtures.artifacts().exchanges(dataSource),
+                placementSpec, "41", () -> GenerationExecutionOwner.from(owner));
+        evidence.registered(registration, allocation(), shuffleOwner(owner));
+        var route = new ShuffleServiceAddress("shuffle", 9443, "shuffle");
+        var endpoint = new ShuffleServerEndpoint("shuffle", 9443, 0, 1, "shuffle");
+        var grant = new ShuffleAccess(new byte[] {1}, System.currentTimeMillis() + 60_000L);
+        var handle = new ShuffleHandle(allocation().shuffleId(), List.of(endpoint), route,
+                grant, grant, grant, grant, partitions, checksum);
+        var config = new ShuffleConfig("ARROW_BATCH", "none", 10_000, "MEMORY_ONLY", 1, List.of());
+        return new DurablePartitionRequest.ExchangeAccess(epoch, List.of(), config, handle,
+                (id, address, endpoints, count) -> allocation().descriptor());
+    }
+
+    private static byte[] placementProducerPlan() {
+        var schema = NamedStruct.newBuilder().addNames("id").setStruct(Type.Struct.newBuilder()
+                .setNullability(Type.Nullability.NULLABILITY_REQUIRED)
+                .addTypes(Type.newBuilder().setI64(Type.I64.newBuilder()
+                        .setNullability(Type.Nullability.NULLABILITY_NULLABLE))));
+        var source = Rel.newBuilder().setRead(ReadRel.newBuilder().setBaseSchema(schema)
+                .setNamedTable(ReadRel.NamedTable.newBuilder().addAllNames(List.of("lake", "raw", "items"))));
+        var exchange = Rel.newBuilder().setExchange(ExchangeRel.newBuilder().setInput(source)
+                .setPartitionCount(1).setRoundRobin(ExchangeRel.RoundRobin.newBuilder().setExact(true)));
+        var plan = Plan.newBuilder().addRelations(PlanRel.newBuilder().setRoot(RelRoot.newBuilder()
+                .setInput(exchange).addNames("id")));
+        SubstraitProtocolVersion.stamp(plan);
+        return plan.build().toByteArray();
+    }
+
+    @Test
+    void idempotentRelationalAdmissionReadsOnlyFrozenSplitsAndKeepsExactOrdinals() throws Exception {
+        var key = new GenerationJobKey(KEY.tenantId(), "admission-replay");
+        int partitions = 8;
+        var dispatch = specification(key, partitions);
+        var pages = new java.util.ArrayList<GenerationPage>();
+        for (int partition = 0; partition < partitions; partition++) {
+            String pageId = "producer-" + (partitions - partition);
+            pages.add(new GenerationPage(key.jobId(), pageId, 1, partition, partition,
+                    GenerationPageKind.RELATIONAL_COMPUTE,
+                    List.of(GenerationSplit.of("source-" + partition, new byte[]{(byte) partition, 1}),
+                            GenerationSplit.of("source-" + partition + "-next", new byte[]{(byte) partition, 2})),
+                    List.of(), 3));
+        }
+        var terminal = new GenerationPage(key.jobId(), "terminal-0", 0, 0, partitions,
+                GenerationPageKind.RELATIONAL_PARTITION, List.of(), List.of(), 3);
+        pages.add(terminal);
+        var job = job(key, pages.size());
+        builds.createJob(job, dispatch, pages);
+        installStatementCounters();
+
+        String pageSql = "SELECT%FROM artifact_build_pages WHERE tenant_id=%ORDER BY page_ordinal%";
+        String splitSql = "SELECT%FROM artifact_build_page_sources%";
+        String dependencySql = "SELECT%FROM artifact_build_page_dependencies%";
+        long pageBefore = statementReads(pageSql);
+        long splitBefore = statementReads(splitSql);
+        long dependencyBefore = statementReads(dependencySql);
+
+        builds.createJob(job, dispatch, pages);
+
+        assertThat(statementReads(pageSql) - pageBefore).isOne();
+        assertThat(statementReads(splitSql) - splitBefore).isOne();
+        assertThat(statementReads(dependencySql) - dependencyBefore).isZero();
+        try (var connection = dataSource.getConnection()) {
+            assertThat(new PostgresGenerationQueries().loadPages(connection, key.tenantId(), key.jobId()))
+                    .containsExactlyElementsOf(pages);
+        }
+
+        var first = pages.get(0);
+        pages.set(0, new GenerationPage(key.jobId(), first.pageId(), first.stageId(), first.partitionId(),
+                first.pageOrdinal(), first.kind(), List.of(first.splits().get(1), first.splits().get(0)),
+                List.of(), first.maxAttempts()));
+        assertThatThrownBy(() -> builds.createJob(job, dispatch, pages))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("different work pages");
+    }
+
+    @Test
+    void aBlockedOrFailedCohortDoesNotConsumeAnyNewAttempt() {
+        var key = new GenerationJobKey(KEY.tenantId(), "atomic-page-claims");
+        var owner = createWideJob(key, 4);
+        var claims = partitionClaims(key, owner, 0, 4);
+        stages.preparePartition(claims.get(3), prepared -> prepared.lease()).orElseThrow();
+
+        assertThat(stages.preparePartitions(claims, prepared -> {
+            throw new AssertionError("A partly available cohort must not prepare a request");
+        })).isEmpty();
+        var failure = new IllegalStateException("request preparation failed");
+        assertThatThrownBy(() -> stages.preparePartitions(claims.subList(0, 3), prepared -> {
+            if (prepared.lease().partitionId() == 2) throw failure;
+            return prepared.lease();
+        })).isSameAs(failure);
+
+        assertThat(stages.preparePartitions(claims.subList(0, 3), prepared -> prepared.lease()))
+                .hasSize(3).allSatisfy(lease -> assertThat(lease.attemptId()).isZero());
+    }
+
+    @Test
+    void mixedWindowRestoresExactWinnerAndRollsBackEveryFreshLeaseOnPreparationFailure() {
+        var key = new GenerationJobKey(KEY.tenantId(), "mixed-durable-window");
+        var owner = createWideJob(key, 3);
+        placementExchange(key, specification(key, 3), owner, 3);
+        var original = stages.preparePartition(partitionClaims(key, owner, 0, 1).get(0),
+                evidence -> evidence.lease()).orElseThrow();
+        byte[] nativeReport = {1, 2, 3};
+        assertThat(stages.completeProducer(new GenerationStageExecutionStore.ProducerCompletion(key,
+                GenerationExecutionOwner.from(owner), 1, 0, 7, original.attemptId(), original.fencingToken(),
+                original.ownerEpoch(), nativeReport, Instant.now()))).isTrue();
+
+        var window = new GenerationStageExecutionStore.PartitionWindow(
+                key, owner, 1, 0, 3, 8, Duration.ofMinutes(1), Instant.now());
+        var failure = new IllegalStateException("second fresh request failed");
+        assertThatThrownBy(() -> stages.prepareWindow(window, (partition, winner) -> partition, evidence -> {
+            if (evidence.lease().partitionId() == 2) throw failure;
+            return evidence.lease().partitionId();
+        })).isSameAs(failure);
+
+        var prepared = stages.prepareWindow(window, (partition, winner) -> {
+            assertThat(winner.originalWireBytes()).isEqualTo(nativeReport);
+            assertThat(winner.fencingToken()).isEqualTo(original.fencingToken());
+            return partition;
+        }, evidence -> {
+            assertThat(evidence.lease().attemptId()).isZero();
+            return evidence.lease().partitionId();
+        });
+        assertThat(prepared).containsExactly(0, 1, 2);
+    }
+
+    private ExecutionAnchor createWideJob(GenerationJobKey key, int partitions) {
+        var wideSpec = specification(key, partitions);
+        var pages = new java.util.ArrayList<GenerationPage>();
+        for (int partition = 0; partition < partitions; partition++) {
+            String pageId = "producer-" + partition;
+            pages.add(new GenerationPage(key.jobId(), pageId, 1, partition, partition,
+                    GenerationPageKind.RELATIONAL_COMPUTE, List.of(), List.of(), 3));
+        }
+        pages.add(new GenerationPage(key.jobId(), "terminal-0", 0, 0, partitions,
+                GenerationPageKind.RELATIONAL_PARTITION, List.of(), List.of(), 3));
+        builds.createJob(job(key, pages.size()), wideSpec, pages);
+        return executions.takeOwnership(key.tenantId(), key.jobId(), "report-coordinator", 8);
+    }
+
+    private static List<GenerationStageExecutionStore.PartitionClaim> partitionClaims(
+            GenerationJobKey key, ExecutionAnchor owner, int first, int count) {
+        Instant now = Instant.now();
+        return java.util.stream.IntStream.range(first, first + count)
+                .mapToObj(partition -> new GenerationStageExecutionStore.PartitionClaim(
+                        key, owner, 1, partition, partition, 8, Duration.ofMinutes(1), now)).toList();
     }
 
     private void installStatementCounters() throws java.sql.SQLException {
@@ -372,9 +685,8 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
         assertThat(receiver.onTaskStatus(status(request, original))).isTrue();
         var replacement = executions.takeOwnership(KEY.tenantId(), KEY.jobId(), "replacement-coordinator", 9);
         var runtime = runtime(replacement);
-        var progress = runtime.inspect(1, 0, 1).get(0);
-        assertThat(progress.winner().orElseThrow().originalWireBytes()).isEqualTo(original);
-        var restored = runtime.winner(1, 0, progress);
+        var restored = restoreProducer(runtime);
+        assertThat(restored.toByteArray()).isEqualTo(original);
         assertThat(restored.getAttempt()).isEqualTo(request.taskRequest().getAttempt());
         assertThat(restored.getAttempt().getExecutionOwner().getOwnerId()).isEqualTo(anchor.ownerId());
         assertThat(runtime.control().authority().executionAnchor().ownerId()).isEqualTo(replacement.ownerId());
@@ -383,31 +695,83 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
     }
 
     @Test
-    void corruptedWinnerCannotChangeTheOriginalAllocationEpochEvenWithAnUpdatedStorageSha() throws Exception {
-        assertThat(receiver.onTaskStatus(status(request, originalWire(request)))).isTrue();
-        var replacement = executions.takeOwnership(KEY.tenantId(), KEY.jobId(), "replacement-coordinator", 9);
+    void storedWinnerWithValidDigestCannotChangeTheOriginalAllocationEpoch() throws Exception {
+        var attempt = request.taskRequest().getAttempt();
         byte[] changed = originalWire(request(8));
-        try (var connection = dataSource.getConnection(); var update = connection.prepareStatement(
-                "UPDATE artifact_build_pages SET report_bytes=?,report_sha256=? WHERE tenant_id=? AND job_id=? "
-                        + "AND page_id=?")) {
-            update.setBytes(1, changed);
-            update.setString(2, DigestUtils.sha256Hex(changed));
-            update.setString(3, KEY.tenantId());
-            update.setString(4, KEY.jobId());
-            update.setString(5, lease.pageId());
-            assertThat(update.executeUpdate()).isEqualTo(1);
-        }
+        assertThat(stages.completeProducer(new GenerationStageExecutionStore.ProducerCompletion(KEY,
+                GenerationExecutionOwner.from(anchor), attempt.getStageId(), attempt.getPartitionId(),
+                attempt.getPlanEpoch(), attempt.getAttemptId(), attempt.getFencingToken(), attempt.getControlEpoch(),
+                changed, Instant.now()))).isTrue();
+
+        var replacement = executions.takeOwnership(KEY.tenantId(), KEY.jobId(), "replacement-coordinator", 9);
         var runtime = runtime(replacement);
-        assertThatThrownBy(() -> runtime.winner(1, 0, runtime.inspect(1, 0, 1).get(0)))
+        assertThatThrownBy(() -> restoreProducer(runtime))
                 .hasMessageContaining("original allocation epoch");
     }
 
+    @Test
+    void finalizedExchangeDoesNotReloadProducerReportsForClaimOrReplay() throws Exception {
+        assertThat(receiver.onTaskStatus(status(request, originalWire(request)))).isTrue();
+        var store = ModelAuthorityFixtures.artifacts().exchanges(dataSource);
+        var owner = GenerationExecutionOwner.from(anchor);
+        var registration = store.load(KEY, owner).get(0).registration();
+        byte[] provider = new byte[]{1, 4, 2};
+        var proof = new GenerationExchangeFinalization(registration.exchangeId(),
+                GenerationExchangeEvidenceCodec.sha256(registration), registration.shuffleId(),
+                registration.planEpoch(), owner, registration.producerCount(), registration.producerSetSha256(),
+                List.of(new GenerationExchangeFinalization.Partition(0, 0, 0, -1, "d".repeat(64))),
+                0, 0, DigestUtils.sha256Hex(provider));
+
+        installStatementCounters();
+        String reportScan = "SELECT partition_id,state,report_bytes,report_sha256,%FROM artifact_build_pages%";
+        String exactRegistration = "WITH exact_registration_edge AS MATERIALIZED%";
+        long before = statementReads(reportScan);
+        long registrationsBefore = statementReads(exactRegistration);
+        String graphLookup = "SELECT exchange_id,producer_stage_id,consumer_stage_id,%"
+                + "FROM artifact_stage_exchanges WHERE tenant_id=%";
+        long globalBefore = statementReads(graphLookup);
+        store.finalizeExchange(KEY, owner, proof, provider);
+        store.finalizeExchange(KEY, owner, proof, provider);
+        assertThat(statementReads(exactRegistration) - registrationsBefore).isEqualTo(2);
+        assertThat(statementReads(graphLookup) - globalBefore).isZero();
+        assertThat(stages.prepareExecution(KEY, anchor).exchanges()).singleElement()
+                .satisfies(evidence -> assertThat(evidence.finalization()).contains(proof));
+        String splitLookup = "SELECT%source_object_id,split_bytes,split_sha256%FROM artifact_build_page_sources%";
+        String dependencyLookup = "SELECT%dependency_page_id%FROM artifact_build_page_dependencies%";
+        long splitsBefore = statementReads(splitLookup);
+        long dependenciesBefore = statementReads(dependencyLookup);
+        var terminal = stages.preparePartition(claim(0, 1), prepared -> prepared.lease()).orElseThrow();
+        assertThat(terminal.splits()).isEmpty();
+        assertThat(terminal.dependencyPageIds()).isEmpty();
+        var leasedEvidence = stages.prepareLeasedPartition(terminal, Instant.now(), prepared -> prepared.exchanges());
+        assertThat(statementReads(splitLookup) - splitsBefore).isZero();
+        assertThat(statementReads(dependencyLookup) - dependenciesBefore).isZero();
+        assertThat(leasedEvidence).singleElement()
+                .satisfies(evidence -> assertThat(evidence.finalization()).contains(proof));
+        assertThat(statementReads(reportScan) - before).isZero();
+    }
+
+    private TaskReport restoreProducer(DurableStageRuntime runtime) {
+        var plan = new DurablePartitionRequest.StageRequestPlan(spec.stageGraph().requireStage(1), List.of());
+        var windows = runtime.bindStageWindows(1, plan, partition -> {
+            throw new AssertionError("A restored partition must never build a new Worker request");
+        });
+        var restored = windows.prepare(0, 1, Instant.now());
+        assertThat(restored).hasSize(1);
+        return ((DurableStageRuntime.RestoredTask) restored.get(0)).report();
+    }
+
     private DurableStageRuntime runtime(ExecutionAnchor current) {
-        return new DurableStageRuntime(stages.prepareExecution(KEY, current), new DurableStageRuntime.Dependencies(
-                stages, new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry()),
+        return runtime(KEY, current, new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry()));
+    }
+
+    private DurableStageRuntime runtime(GenerationJobKey key, ExecutionAnchor current, WorkerManager workers) {
+        return new DurableStageRuntime(stages.prepareExecution(key, current), new DurableStageRuntime.Dependencies(
+                stages, workers,
                 new TaskScheduler(new LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty()), () -> 9, Duration.ofMinutes(2),
                 (task, acknowledgement) -> { throw new AssertionError("Winner replay must not dispatch a Worker"); },
-                ModelAuthorityFixtures.artifacts().exchanges(dataSource), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory()));
+                ModelAuthorityFixtures.artifacts().exchanges(dataSource),
+                new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory(), tracker::placementLoad));
     }
 
     private void registerTask(SubmitTaskRequest submitted) {
@@ -466,10 +830,16 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
     }
 
     @Test
-    void shuffleJournalRequiresExactStageAndCurrentAuthorityBeforeRecovery() {
+    void shuffleJournalRequiresExactStageAndCurrentAuthorityBeforeRecovery() throws Exception {
         var original = journal(anchor);
         var registered = shuffleRequest(7);
         var replacement = executions.takeOwnership(KEY.tenantId(), KEY.jobId(), "replacement", 9);
+        installStatementCounters();
+        var readsBefore = exchangeReads();
+        String separateIdentity = "SELECT j.source_snapshot, e.physical_producer_count%";
+        long separateIdentityBefore = statementReads(separateIdentity);
+        String exactRegistration = "WITH exact_registration_edge AS MATERIALIZED%";
+        long exactRegistrationBefore = statementReads(exactRegistration);
         assertThatThrownBy(() -> original.restoredAllocation(registered))
                 .isInstanceOf(GenerationExecutionOwnerLostException.class);
         var recovered = journal(replacement);
@@ -479,6 +849,12 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
         assertThatThrownBy(() -> recovered.registered(registered, allocation(), shuffleOwner(anchor)))
                 .hasMessageContaining("stale owner");
         recovered.registered(registered, allocation(), shuffleOwner(replacement));
+        var reads = exchangeReads().since(readsBefore);
+        assertThat(reads.combined()).isZero();
+        assertThat(reads.registration()).isZero();
+        assertThat(reads.graph()).isOne();
+        assertThat(statementReads(separateIdentity) - separateIdentityBefore).isZero();
+        assertThat(statementReads(exactRegistration) - exactRegistrationBefore).isEqualTo(3);
         assertThat(ModelAuthorityFixtures.artifacts().exchanges(dataSource)
                 .load(KEY, GenerationExecutionOwner.from(replacement))).singleElement().satisfies(evidence ->
                         assertThat(evidence.registration().registeredOwner()).isEqualTo(GenerationExecutionOwner.from(anchor)));
@@ -503,13 +879,17 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
     }
 
     private static GenerationDispatchSpec specification() {
-        return specification(KEY, 1);
+        return specification(KEY, 1, placementProducerPlan());
     }
 
     private static GenerationDispatchSpec specification(GenerationJobKey key, int parallelism) {
+        return specification(key, parallelism, new byte[] {1});
+    }
+
+    private static GenerationDispatchSpec specification(GenerationJobKey key, int parallelism, byte[] producerPlan) {
         var graph = new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION, GenerationGraphPurpose.RELATIONAL_EXPORT,
                 List.of(GenerationStageGraph.StagePlan.of(1, parallelism, GenerationPageKind.RELATIONAL_COMPUTE,
-                                new byte[]{1}, GenerationStageTemplate.of(new byte[0], List.of(), List.of()),
+                                producerPlan, GenerationStageTemplate.of(new byte[0], List.of(), List.of()),
                                 List.of("lake.raw.items"), List.of("id"), false),
                         GenerationStageGraph.StagePlan.of(0, 1, GenerationPageKind.RELATIONAL_PARTITION,
                                 new byte[]{2}, GenerationStageTemplate.of(new byte[]{3}, List.of(), List.of()),

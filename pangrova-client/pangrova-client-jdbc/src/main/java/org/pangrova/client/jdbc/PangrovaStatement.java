@@ -1,7 +1,5 @@
 package org.pangrova.client.jdbc;
 
-import org.pangrova.client.jdbc.enums.StatementKeywordKind;
-
 import org.pangrova.common.client.enums.CancelOutcome;
 
 import org.pangrova.common.client.exception.PangrovaClientException;
@@ -9,8 +7,10 @@ import org.pangrova.common.client.exception.PangrovaConnectionException;
 import org.pangrova.common.client.exception.PangrovaProtocolException;
 import org.pangrova.client.http.PangrovaRestClient;
 import org.pangrova.client.http.QueryExecution;
+import org.pangrova.client.jdbc.exception.QueryCancelledException;
 import org.pangrova.common.client.exception.PangrovaServerException;
 import org.pangrova.common.client.query.QueryStatusResponse;
+import org.pangrova.common.enums.ResultDisposition;
 import org.pangrova.transport.client.ResultCursor;
 import org.pangrova.transport.client.exception.TransportConnectionException;
 import org.pangrova.transport.client.exception.TransportException;
@@ -23,7 +23,6 @@ import java.sql.SQLException;
 import java.sql.SQLFeatureNotSupportedException;
 import java.sql.SQLTimeoutException;
 import java.sql.SQLWarning;
-import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -36,8 +35,6 @@ import java.util.concurrent.atomic.AtomicReference;
 public final class PangrovaStatement implements java.sql.Statement {
 
     private static final Logger LOG = LoggerFactory.getLogger(PangrovaStatement.class);
-    /** Length of the WITH keyword, the scan start position for CTE parsing. */
-    private static final int WITH_KEYWORD_LENGTH = 4;
 
     private final PangrovaConnection connection;
     private volatile boolean closed;
@@ -71,7 +68,9 @@ public final class PangrovaStatement implements java.sql.Statement {
         acquireExecution();
         try {
             closeCurrentResultSet();
-            return runQuery(sql, (client, query, deadlineMs) -> fetchQueryResult(client, query, deadlineMs, producer));
+            currentUpdateCount = -1;
+            return runQuery(sql, (client, query, deadlineMs, ready) ->
+                    fetchQueryResult(client, query, deadlineMs, producer, ready));
         } catch (SQLException e) {
             throw e;
         } catch (Exception e) {
@@ -93,9 +92,13 @@ public final class PangrovaStatement implements java.sql.Statement {
         submission.get().complete(query);
         LOG.debug("Submitted query queryId={}", query.submission().queryId());
         try {
-            T result = operation.execute(client, query, deadlineMs);
+            var ready = QueryCompletionWaiter.awaitResult(query, deadlineMs, queryTimeoutSeconds);
+            T result = operation.execute(client, query, deadlineMs, ready);
             if (currentResultSet == null) currentQuery.compareAndSet(query, null);
             return result;
+        } catch (QueryCancelledException cancelled) {
+            currentQuery.compareAndSet(query, null);
+            throw cancelled;
         } catch (Exception failure) {
             cancelOnFailure(query, failure);
             throw failure;
@@ -122,15 +125,17 @@ public final class PangrovaStatement implements java.sql.Statement {
 
     @FunctionalInterface
     private interface QueryOperation<T> {
-        T execute(PangrovaRestClient client, QueryExecution query, long deadlineMs)
-                throws Exception;
+        T execute(PangrovaRestClient client, QueryExecution query, long deadlineMs,
+                  QueryCompletionWaiter.ReadyResult ready) throws Exception;
     }
 
     private ResultSet fetchQueryResult(PangrovaRestClient client, QueryExecution query,
-                                       long deadlineMs, java.sql.Statement producer) throws Exception {
+                                       long deadlineMs, java.sql.Statement producer,
+                                       QueryCompletionWaiter.ReadyResult ready) throws Exception {
         String queryId = query.submission().queryId();
-        QueryCompletionWaiter.ReadyEndpoint ready =
-                QueryCompletionWaiter.awaitReadableEndpoint(query, deadlineMs, queryTimeoutSeconds);
+        if (ready.disposition() != ResultDisposition.STREAM) {
+            throw new SQLException("Query does not return a result set, queryId=" + queryId);
+        }
         int timeoutSeconds = queryTimeoutSeconds;
         ResultCursor cursor;
         try {
@@ -147,6 +152,9 @@ public final class PangrovaStatement implements java.sql.Statement {
                     if (!ready.terminal()) {
                         try {
                             QueryCompletionWaiter.awaitTerminalSuccess(query, deadlineMs, timeoutSeconds);
+                        } catch (QueryCancelledException cancelled) {
+                            currentQuery.compareAndSet(query, null);
+                            throw cancelled;
                         } catch (PangrovaClientException failure) {
                             throw toSqlException(failure);
                         }
@@ -263,14 +271,13 @@ public final class PangrovaStatement implements java.sql.Statement {
         try {
             closeCurrentResultSet();
             currentUpdateCount = -1;
-            return runQuery(sql, (client, query, deadlineMs) -> {
-                if (isUpdateStatement(sql)) {
-                    currentUpdateCount = fetchUpdateCount(query, deadlineMs);
-                    return false;
-                } else {
-                    currentResultSet = fetchQueryResult(client, query, deadlineMs, this);
+            return runQuery(sql, (client, query, deadlineMs, ready) -> {
+                if (ready.disposition() == ResultDisposition.STREAM) {
+                    fetchQueryResult(client, query, deadlineMs, this, ready);
                     return true;
                 }
+                currentUpdateCount = fetchUpdateCount(query, deadlineMs, ready);
+                return false;
             });
         } catch (SQLException e) {
             throw e;
@@ -288,8 +295,8 @@ public final class PangrovaStatement implements java.sql.Statement {
         try {
             closeCurrentResultSet();
             currentUpdateCount = -1;
-            return runQuery(sql, (client, query, deadlineMs) -> {
-                int count = fetchUpdateCount(query, deadlineMs);
+            return runQuery(sql, (client, query, deadlineMs, ready) -> {
+                int count = fetchUpdateCount(query, deadlineMs, ready);
                 currentUpdateCount = count;
                 return count;
             });
@@ -302,9 +309,18 @@ public final class PangrovaStatement implements java.sql.Statement {
         }
     }
 
-    private int fetchUpdateCount(QueryExecution query, long deadlineMs) throws SQLException {
-        QueryStatusResponse status = QueryCompletionWaiter.awaitTerminalSuccess(query, deadlineMs, queryTimeoutSeconds);
+    private int fetchUpdateCount(QueryExecution query, long deadlineMs,
+                                 QueryCompletionWaiter.ReadyResult ready) throws SQLException {
         String queryId = query.submission().queryId();
+        if (ready.disposition() != ResultDisposition.NONE) {
+            throw new SQLException("Query returns a result set, queryId=" + queryId);
+        }
+        QueryStatusResponse status = ready.terminalStatus().isPresent()
+                ? ready.terminalStatus().get()
+                : QueryCompletionWaiter.awaitTerminalSuccess(query, deadlineMs, queryTimeoutSeconds);
+        if (status.resultDisposition() != ResultDisposition.NONE) {
+            throw new SQLException("Query returns a result set, queryId=" + queryId);
+        }
         if (status.stats() != null) {
             long affectedRows = status.stats().rowsReturned();
             if (affectedRows < 0 || affectedRows > Integer.MAX_VALUE) {
@@ -314,127 +330,6 @@ public final class PangrovaStatement implements java.sql.Statement {
             return (int) affectedRows;
         }
         return 0;
-    }
-
-    static boolean isUpdateStatement(String sql) {
-        String stripped = stripLeadingComments(sql).stripLeading();
-        if (stripped.isEmpty()) {
-            return false;
-        }
-        int end = 0;
-        while (end < stripped.length() && !Character.isWhitespace(stripped.charAt(end))) {
-            end++;
-        }
-        String keyword = stripped.substring(0, end).toUpperCase(Locale.ROOT);
-        if ("WITH".equals(keyword)) {
-            // CTE-wrapped DML: skip past balanced parentheses to find the terminal keyword
-            return isCteWrappedDml(stripped);
-        }
-        return switch (keyword) {
-            case "INSERT", "UPDATE", "DELETE", "MERGE",
-                 "CREATE", "DROP", "ALTER", "TRUNCATE",
-                 "COMPACT", "VACUUM", "GRANT", "REVOKE" -> true;
-            default -> false;
-        };
-    }
-
-    /**
-     * Determines if a WITH statement wraps a DML operation by finding the
-     * terminal keyword after the CTE definitions.
-     */
-    private static boolean isCteWrappedDml(String sql) {
-        // Skip past "WITH" keyword
-        int i = WITH_KEYWORD_LENGTH;
-        int len = sql.length();
-        int parenDepth = 0;
-        boolean inSingleQuote = false;
-
-        while (i < len) {
-            char c = sql.charAt(i);
-            if (c == '\'') {
-                inSingleQuote = !inSingleQuote;
-            } else if (isParenOutsideQuotes(c, inSingleQuote)) {
-                parenDepth += parenDelta(c);
-            } else if (isTopLevelTokenStart(c, parenDepth, inSingleQuote)) {
-                // At top-level, check if we've found a keyword (non-CTE-name position)
-                // Look for the terminal keyword after the last CTE closing paren
-                // by finding a keyword that's a DML verb
-                StatementKeywordKind outcome = classifyTopLevelKeyword(sql, i);
-                if (outcome != StatementKeywordKind.OTHER) {
-                    return outcome == StatementKeywordKind.DML;
-                }
-            }
-            i++;
-        }
-        return false;
-    }
-
-    private static boolean isParenOutsideQuotes(char c, boolean inSingleQuote) {
-        return !inSingleQuote && (c == '(' || c == ')');
-    }
-
-    private static int parenDelta(char c) {
-        return c == '(' ? 1 : -1;
-    }
-
-    private static boolean isTopLevelTokenStart(char c, int parenDepth, boolean inSingleQuote) {
-        return !inSingleQuote && parenDepth == 0 && !Character.isWhitespace(c);
-    }
-
-    /**
-     * Reads the top-level word starting at {@code start} and classifies it.
-     *
-     * @return an explicit classification; an unknown token is never a nullable Boolean
-     */
-    private static StatementKeywordKind classifyTopLevelKeyword(String sql, int start) {
-        int len = sql.length();
-        int wordEnd = start;
-        while (wordEnd < len && !Character.isWhitespace(sql.charAt(wordEnd))
-                && sql.charAt(wordEnd) != '(' && sql.charAt(wordEnd) != ',') {
-            wordEnd++;
-        }
-        String word = sql.substring(start, wordEnd).toUpperCase(Locale.ROOT);
-        if (isDmlKeyword(word)) {
-            return StatementKeywordKind.DML;
-        }
-        if (isSelectKeyword(word)) {
-            return StatementKeywordKind.SELECT;
-        }
-        return StatementKeywordKind.OTHER;
-    }
-
-
-    private static boolean isDmlKeyword(String word) {
-        return switch (word) {
-            case "INSERT", "UPDATE", "DELETE", "MERGE" -> true;
-            default -> false;
-        };
-    }
-
-    private static boolean isSelectKeyword(String word) {
-        return "SELECT".equals(word);
-    }
-
-    private static String stripLeadingComments(String sql) {
-        String s = sql;
-        while (true) {
-            s = s.stripLeading();
-            if (s.startsWith("--")) {
-                int nl = s.indexOf('\n');
-                if (nl < 0) {
-                    return "";
-                }
-                s = s.substring(nl + 1);
-            } else if (s.startsWith("/*")) {
-                int end = s.indexOf("*/");
-                if (end < 0) {
-                    return "";
-                }
-                s = s.substring(end + 2);
-            } else {
-                return s;
-            }
-        }
     }
 
     // --- Unsupported operations ---

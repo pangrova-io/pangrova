@@ -52,6 +52,10 @@ when running Q9. Prepare their immutable fixture before starting Maven; test
 startup only verifies local model inventory and never calls the model registry.
 This is separate from SF100/SF1000 data preparation and performance acceptance.
 
+The SQL latency baselines load the test kit's TPC-H tables into a dedicated
+Iceberg catalog and warehouse for each test run. The `SHOW TABLES` case verifies
+the full fixture table set before timing the authenticated SQL round trips.
+
 From the repository root:
 
 ```bash
@@ -341,8 +345,21 @@ checks both context and the unchanged tail validator before accepting comparison
 
 Container IDs/PIDs/AUTO ports are retained as process evidence but normalized out
 of cross-run comparability; worker host multiplicities, resource budgets and
-hardware stay fixed. Operator-profile output also has an evidence limit:
-Pangrova's current public JSON profile synthesizes its stage/task tree by dividing
-query totals, and derives IO wait. The harness labels these as unqualified derived
-fields; actual v2 Native operator counters need a separate properly wired collector
-before claiming operator-level bottleneck measurements.
+hardware stay fixed. Operator-profile output combines distinct evidence classes. `QueryProfileService`
+publishes the registered execution DAG, stage transitions, downstream preparation,
+dispatch work, selected physical attempts and the runtime-filter wait recorded by
+`QueryStageObservations`. For retained Native task reports, `attempts[].operators`
+contains actual task counters such as input/output rows and bytes, CPU/wall time,
+peak memory, spill, blocked time and producer/consumer/split/connector waits. These
+fields are measured telemetry, not a stage/task tree synthesized from query totals.
+The execution graph is process-local and currently registered for live execution;
+missing telemetry is unavailable rather than a fabricated zero.
+
+Audit totals remain query-owner records and must not be presented as per-attempt
+operator measurements. Result-phase timestamps (first row, stream open, EOF,
+client close, authority revoke, queue clear and last-buffer release), Exchange
+blocked reasons and exact physical-release attribution are still incomplete. Native
+object-store export also remains requested-byte accounting: independent GET
+attempts, retries, returned bytes and wire bytes are not yet available. The harness
+must label these fields unavailable and must not derive operator bottlenecks, IO
+wait or physical-read volume from query totals.

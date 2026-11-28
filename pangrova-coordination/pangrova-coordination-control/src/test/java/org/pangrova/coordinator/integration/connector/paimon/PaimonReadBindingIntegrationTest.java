@@ -1,6 +1,8 @@
 package org.pangrova.coordinator.integration.connector.paimon;
 
 import org.pangrova.protocol.source.CanonicalConnectorSplit;
+import org.pangrova.common.enums.PangrovaErrorCode;
+import org.pangrova.connector.api.exception.ConnectorException;
 import org.pangrova.connector.api.enums.ReadSnapshotState;
 import org.pangrova.connector.paimon.PaimonSplitRegistry;
 import org.pangrova.connector.paimon.PaimonSplitManager;
@@ -9,8 +11,11 @@ import org.pangrova.connector.paimon.PaimonMetadata;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.CatalogFactory;
+import org.apache.paimon.catalog.FileSystemCatalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.data.GenericRow;
+import org.apache.paimon.fs.SeekableInputStream;
+import org.apache.paimon.fs.local.LocalFileIO;
 import org.apache.paimon.options.Options;
 import org.apache.paimon.schema.Schema;
 import org.apache.paimon.schema.SchemaChange;
@@ -18,22 +23,28 @@ import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.types.DataTypes;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.transaction.ConnectorTransactionHandle;
+import org.pangrova.connector.api.metadata.SplitPlanningBudget;
 import org.pangrova.connector.api.metadata.Constraint;
 import org.pangrova.connector.api.metadata.DynamicFilter;
 import org.pangrova.connector.api.metadata.table.ConnectorReadBinding;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
+import org.pangrova.connector.api.metadata.table.SnapshotRange;
 import org.pangrova.coordinator.task.TestConnectorQuery;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Proxy;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -52,6 +63,39 @@ class PaimonReadBindingIntegrationTest {
         @Override public Optional<String> getSchema() { return Optional.of("db"); }
         @Override public Map<String, String> getProperties() { return Map.of("queryId", "read", "tenant_id", "tenant"); }
     };
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void appendRangeReadsEachInteriorSnapshotOnceAndRevalidatesTheTarget(boolean dataEvolution) throws Exception {
+        var io = new CountingSnapshotIo();
+        try (var catalog = new FileSystemCatalog(io, new org.apache.paimon.fs.Path(warehouse.toString()));
+             var registry = new PaimonSplitRegistry()) {
+            catalog.createDatabase("db", false);
+            var id = Identifier.create("db", "append_range");
+            var schema = Schema.newBuilder().column("id", DataTypes.BIGINT())
+                    .option("bucket", "-1").option("file.format", "parquet");
+            if (dataEvolution) schema.option("data-evolution.enabled", "true").option("row-tracking.enabled", "true");
+            catalog.createTable(id, schema.build(), false);
+            var table = (FileStoreTable) catalog.getTable(id);
+            for (int i = 1; i <= 4; i++) write(table, i);
+            var metadata = new PaimonMetadata(catalog, "bound", registry);
+            var handle = metadata.getTableHandle(SESSION, new SchemaTableName("db", "append_range"));
+            var selected = metadata.bindRead(SESSION, handle.withIncrementalRange(new SnapshotRange(1, 4)));
+            io.snapshotOpens.clear();
+
+            assertThat(splits(catalog, registry, metadata, selected)).hasSize(3).allSatisfy(split ->
+                    assertThat(split.getSourceSnapshot()).isEqualTo("4"));
+            assertThat(List.of(io.opens(1), io.opens(2), io.opens(3), io.opens(4)))
+                    .as("base, interior snapshots and fenced upper snapshot").containsExactly(1, 1, 1, 2);
+
+            io.snapshotOpens.clear();
+            var exhausted = new SplitPlanningBudget(SplitPlanningBudget.standard().deadlineNanos(), 0);
+            assertThatThrownBy(() -> splits(catalog, registry, metadata, selected, exhausted))
+                    .isInstanceOfSatisfying(ConnectorException.class, failure ->
+                            assertThat(failure.getErrorCode()).isEqualTo(PangrovaErrorCode.CONNECTOR_SPLIT_LIMIT_REACHED));
+            assertThat(io.opens(3)).as("later snapshot after stage capacity was exhausted").isZero();
+        }
+    }
 
     @Test
     void validatingABoundScanAndPlanningItsFilesShareOneFreshCatalogLoad() throws Exception {
@@ -84,6 +128,28 @@ class PaimonReadBindingIntegrationTest {
     }
 
     @Test
+    void boundAppendScanCountsPhysicalFilesAgainstRemainingStageCapacity() throws Exception {
+        try (var catalog = catalog(); var registry = new PaimonSplitRegistry()) {
+            var table = create(catalog, "bounded");
+            write(table, 2);
+            write(table, 3);
+            var metadata = new PaimonMetadata(catalog, "bound", registry);
+            var selected = bind(metadata, "bounded");
+            var deadline = SplitPlanningBudget.standard().deadlineNanos();
+
+            var limited = new SplitPlanningBudget(deadline, 1);
+            assertThatThrownBy(() -> splits(catalog, registry, metadata, selected, limited))
+                    .isInstanceOfSatisfying(ConnectorException.class, failure ->
+                            assertThat(failure.getErrorCode())
+                                    .isEqualTo(PangrovaErrorCode.CONNECTOR_SPLIT_LIMIT_REACHED));
+            assertThat(splits(catalog, registry, metadata, selected, new SplitPlanningBudget(deadline, 2)))
+                    .hasSize(2).allSatisfy(split ->
+                            assertThat(split.getSourceSnapshot())
+                                    .isEqualTo(Long.toString(selected.snapshotId().orElseThrow())));
+        }
+    }
+
+    @Test
     void selectedStatisticsAndSplitsDoNotAdvanceAfterAnotherCommit() throws Exception {
         try (var catalog = catalog()) {
             var table = create(catalog, "rows");
@@ -107,6 +173,9 @@ class PaimonReadBindingIntegrationTest {
             var table = create(catalog, "schema");
             write(table, 2);
             long version = table.snapshotManager().latestSnapshotId();
+            String versionToken = new org.pangrova.connector.paimon.index.PaimonSnapshotAwareMetadata(table)
+                    .currentSnapshotId().orElseThrow();
+            assertThat(versionToken).isEqualTo(Long.toString(version));
             catalog.alterTable(Identifier.create("db", "schema"),
                     List.of(SchemaChange.addColumn("added", DataTypes.STRING())), false);
             var metadata = new PaimonMetadata(catalog, "bound", new org.pangrova.connector.paimon.PaimonSplitRegistry());
@@ -114,7 +183,7 @@ class PaimonReadBindingIntegrationTest {
             assertThat(current.snapshotId().orElseThrow()).isEqualTo(version);
             assertThat(current.declaration().metadata().columns()).containsExactly("id", "added");
             var selector = metadata.getTableHandle(SESSION, new SchemaTableName("db", "schema"))
-                    .withTimeTravelSnapshot(version);
+                    .withTimeTravelSnapshot(versionToken);
             var historical = metadata.bindRead(SESSION, selector);
             assertThat(historical.declaration().requireExactDeclaration().columns()).containsExactly("id");
             assertThat(splits(catalog, current)).isNotEmpty();
@@ -142,6 +211,9 @@ class PaimonReadBindingIntegrationTest {
             var table = create(catalog, "scoped_history");
             write(table, 2);
             long version = table.snapshotManager().latestSnapshotId();
+            String versionToken = new org.pangrova.connector.paimon.index.PaimonSnapshotAwareMetadata(table)
+                    .currentSnapshotId().orElseThrow();
+            assertThat(versionToken).isEqualTo(Long.toString(version));
             catalog.alterTable(Identifier.create("db", "scoped_history"),
                     List.of(SchemaChange.addColumn("added", DataTypes.STRING())), false);
             var query = new org.pangrova.coordinator.task.TestConnectorQuery("historical-owner");
@@ -150,7 +222,7 @@ class PaimonReadBindingIntegrationTest {
             query.authority().beginMetadata("bound", () -> metadata);
             try {
                 var currentSelector = metadata.getTableHandle(actor, new SchemaTableName("db", "scoped_history"));
-                var original = metadata.bindRead(actor, currentSelector.withTimeTravelSnapshot(version));
+                var original = metadata.bindRead(actor, currentSelector.withTimeTravelSnapshot(versionToken));
                 assertThat(original.declaration().metadata().columns()).containsExactly("id");
                 assertThat(metadata.bindRead(actor, original.handle())).isSameAs(original);
                 assertThat(metadata.getTableStatistics(actor, original.handle())).isSameAs(original.statistics());
@@ -249,6 +321,11 @@ class PaimonReadBindingIntegrationTest {
 
     private static List<org.pangrova.protocol.v2.DataSplit> splits(Catalog catalog, PaimonSplitRegistry registry,
             PaimonMetadata metadata, ConnectorReadBinding binding) throws Exception {
+        return splits(catalog, registry, metadata, binding, SplitPlanningBudget.standard());
+    }
+
+    private static List<org.pangrova.protocol.v2.DataSplit> splits(Catalog catalog, PaimonSplitRegistry registry,
+            PaimonMetadata metadata, ConnectorReadBinding binding, SplitPlanningBudget budget) throws Exception {
         var query = new TestConnectorQuery("read", "reader", "tenant", Map.of());
         var session = query.session("bound", "db");
         registry.beginQuery(query.authority());
@@ -256,7 +333,7 @@ class PaimonReadBindingIntegrationTest {
         List<org.pangrova.protocol.v2.DataSplit> result = new ArrayList<>();
         try {
             var source = manager.getBoundSplits(ConnectorTransactionHandle.empty(), session, metadata, binding,
-                    DynamicFilter.ALL, Constraint.EMPTY);
+                    DynamicFilter.ALL, Constraint.EMPTY, budget);
             try {
                 assertThat(registry.size()).isZero();
                 while (!source.isFinished()) {
@@ -274,5 +351,22 @@ class PaimonReadBindingIntegrationTest {
             query.retire();
         }
         return result;
+    }
+
+    private static final class CountingSnapshotIo extends LocalFileIO {
+        private final Map<String, AtomicInteger> snapshotOpens = new ConcurrentHashMap<>();
+
+        @Override
+        public SeekableInputStream newInputStream(org.apache.paimon.fs.Path path) throws IOException {
+            if (path.getName().startsWith("snapshot-")) {
+                snapshotOpens.computeIfAbsent(path.getName(), ignored -> new AtomicInteger()).incrementAndGet();
+            }
+            return super.newInputStream(path);
+        }
+
+        int opens(long snapshot) {
+            var count = snapshotOpens.get("snapshot-" + snapshot);
+            return count == null ? 0 : count.get();
+        }
     }
 }

@@ -8,46 +8,19 @@ import org.apache.paimon.manifest.FileSource;
 import org.apache.paimon.stats.SimpleStats;
 import org.apache.paimon.table.sink.CommitMessage;
 import org.apache.paimon.table.sink.CommitMessageImpl;
-import org.apache.paimon.table.sink.CommitMessageSerializer;
 import org.pangrova.connector.paimon.handle.PaimonOutputTableHandle;
 import org.pangrova.connector.api.metadata.NativePhysicalFileReceipt;
 
-import java.io.ByteArrayOutputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
 import java.util.List;
 
 /** SDK metadata publication only; never constructs or executes a business-row writer. */
-public final class PaimonPhysicalCommitMessages {
+final class PaimonPhysicalCommitMessages {
     private PaimonPhysicalCommitMessages() {}
 
-    /**
-     * Encodes verified physical receipts for the SDK append publication.
-     *
-     * @param handle the bound append output
-     * @param receipts the winning closed-file receipts
-     * @return SDK commit metadata without business row payloads
-     */
-    public static byte[] append(PaimonOutputTableHandle handle, List<NativePhysicalFileReceipt> receipts) {
+    /** Builds SDK commit messages from the verified physical append receipts. */
+    static List<CommitMessage> append(PaimonOutputTableHandle handle, List<NativePhysicalFileReceipt> receipts) {
         int buckets = handle.nativePhysicalWriteAllocation().orElseThrow().policy().bucketCount();
-        List<CommitMessage> messages = receipts.stream().map(receipt -> message(receipt, buckets)).toList();
-        var serializer = new CommitMessageSerializer();
-        try (var bytes = new ByteArrayOutputStream(); var out = new DataOutputStream(bytes)) {
-            out.writeInt(serializer.getVersion());
-            out.writeUTF("APPEND");
-            out.writeUTF(handle.schemaName());
-            out.writeUTF(handle.tableName());
-            out.writeInt(messages.size());
-            for (var message : messages) {
-                byte[] encoded = serializer.serialize(message);
-                out.writeInt(encoded.length);
-                out.write(encoded);
-            }
-            out.flush();
-            return bytes.toByteArray();
-        } catch (IOException failure) {
-            throw new IllegalStateException("SDK physical append commit metadata serialization failed", failure);
-        }
+        return receipts.stream().map(receipt -> message(receipt, buckets)).toList();
     }
 
     private static CommitMessage message(NativePhysicalFileReceipt receipt, int buckets) {

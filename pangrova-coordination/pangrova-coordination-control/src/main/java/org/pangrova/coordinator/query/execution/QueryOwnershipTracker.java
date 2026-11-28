@@ -1,5 +1,9 @@
 package org.pangrova.coordinator.query.execution;
 
+import java.util.Optional;
+import java.util.function.Predicate;
+import org.pangrova.query.lifecycle.QueryExecutionPort.Ownership;
+import java.util.OptionalLong;
 import org.pangrova.connector.api.metadata.ConnectorMetadataScope;
 
 import java.util.concurrent.atomic.AtomicReference;
@@ -13,6 +17,8 @@ import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.shuffle.api.ShuffleCleanupRecovery;
+import org.pangrova.shuffle.api.ShuffleExecutionOwner;
+import org.pangrova.execution.api.ownership.ExecutionAnchor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -82,33 +88,60 @@ public final class QueryOwnershipTracker {
                 checkNotNull(recovery, "recovery must not be null"));
     }
 
-    /**
-     * Acquires query ownership via the HA coordination service.
-     * Returns true if ownership was acquired or if ownership tracking is not configured.
-     */
-    public boolean acquireQueryOwnership(String queryId) {
+    /** Acquires the query grant from the configured ownership backend. */
+    public Ownership acquireQueryOwnership(String queryId, String tenantId) {
+        return acquireQueryOwnership(queryId, tenantId, java.util.OptionalInt.empty());
+    }
+
+    /** Acquires fresh ownership and an authorized durable slot as one grant when capacity is supplied. */
+    Ownership acquireQueryOwnership(String queryId, String tenantId, java.util.OptionalInt capacity) {
         OwnershipSnapshot snapshot = ownershipSnapshot.get();
         if (snapshot == null) {
-            return true;
+            if (capacity.isPresent()) throw new IllegalStateException("Durable query admission requires ownership");
+            return new Ownership(true, OptionalLong.empty());
         }
         try {
-            boolean acquired = snapshot.service().acquireQueryOwnership(queryId, snapshot.coordinatorId());
-            if (!acquired) {
+            var acquired = snapshot.service().acquireQueryOwnership(queryId, snapshot.coordinatorId(),
+                    tenantId, capacity);
+            if (acquired.isEmpty()) {
                 LOG.warn("event=query_ownership_denied queryId={} coordinatorId={}",
                         queryId, snapshot.coordinatorId());
+                return new Ownership(false, OptionalLong.empty());
             }
-            return acquired;
-        } catch (Exception e) {
+            var grant = acquired.orElseThrow();
+            return new Ownership(true, grant.publicationRevision(), grant.anchor());
+        } catch (org.pangrova.persistence.query.api.coordination.ExecutionAnchorStore.TenantCapacityExceeded denied) {
+            throw new org.pangrova.security.exception.TenantQuotaExceededException(denied.getMessage());
+        } catch (RuntimeException failure) {
             LOG.warn("event=query_ownership_acquire_failed queryId={} coordinatorId={} error={}",
-                    queryId, snapshot.coordinatorId(), e.getMessage());
-            return false;
+                    queryId, snapshot.coordinatorId(), failure.getMessage());
+            return new Ownership(false, OptionalLong.empty());
         }
     }
 
-    /** Cleans up split assignment state, releases ownership, and notifies connectors. */
-    public boolean tryCleanupQuery(String queryId) {
+    /** Releases a candidate grant without claiming or cleaning a local issued query. */
+    public void releaseQueryOwnership(String queryId) {
+        OwnershipSnapshot snapshot = ownershipSnapshot.get();
+        if (snapshot != null) {
+            snapshot.service().releaseQueryOwnership(queryId, snapshot.coordinatorId());
+        }
+    }
+
+    boolean releaseIssuedQueryOwnership(ExecutionAnchor anchor,
+            Optional<Predicate<ExecutionAnchor>> durableRetirement) {
+        OwnershipSnapshot snapshot = ownershipSnapshot.get();
+        return snapshot != null && snapshot.service().releaseLocallyDrainedQuery(anchor, durableRetirement);
+    }
+
+    boolean isQueryRetired(String queryId) {
+        OwnershipSnapshot snapshot = ownershipSnapshot.get();
+        return snapshot != null && snapshot.service().isQueryRetired(queryId);
+    }
+
+    /** Drains split, connector and Shuffle owners while retaining the execution grant. */
+    public boolean tryCleanupQuery(String queryId, ExecutionAnchor originalGrant) {
         if (!tryCleanupLocalQuery(queryId)) return false;
-        cleanupExecutionOwnership(queryId);
+        cleanupShuffle(queryId, originalGrant);
         return true;
     }
 
@@ -119,21 +152,20 @@ public final class QueryOwnershipTracker {
         return true;
     }
 
-    private void cleanupExecutionOwnership(String queryId) {
+    private void cleanupShuffle(String queryId, ExecutionAnchor grant) {
         CleanupBinding cleanup = shuffleCleanup;
-        if (cleanup != null) {
-            ShuffleCleanupIntentStore intents = cleanup.intents();
-            // QueryStateMachine writes the durable intent before its terminal
-            // transition. A retry must only consume that intent: recreating it
-            // after remote cleanup atomically deleted the scope and intent
-            // would make cleanup loop forever.
-            if (intents.isPending(queryId)) {
-                cleanup.recovery().recoverCleanupShuffle(queryId);
-            }
+        if (cleanup == null) return;
+        checkNotNull(grant, "Remote Shuffle cleanup requires its original query grant");
+        var ownership = checkNotNull(ownershipSnapshot.get(), "Remote Shuffle cleanup requires ownership");
+        if (!queryId.equals(grant.executionId())) {
+            throw new IllegalArgumentException("Shuffle cleanup requires the original query identity");
         }
-        OwnershipSnapshot snapshot = ownershipSnapshot.get();
-        if (snapshot != null) {
-            snapshot.service().releaseQueryOwnership(queryId, snapshot.coordinatorId());
+        if (!ownership.service().validateExecutionToken(queryId, grant.fencingToken())) return;
+
+        var owner = new ShuffleExecutionOwner(grant.ownerId(), grant.ownerIncarnation(), grant.fencingToken());
+        if (cleanup.recovery().cleanupTrackedShuffle(queryId, owner)) return;
+        if (!cleanup.intents().completeWithoutScope(grant)) {
+            cleanup.recovery().recoverCleanupShuffle(queryId, owner);
         }
     }
 

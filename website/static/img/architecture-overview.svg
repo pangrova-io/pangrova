@@ -377,5 +377,5 @@
   <polyline points="1532,1000 1518,1000 1518,1100 1480,1100" fill="none" stroke="#94A3B8" stroke-width="2" stroke-dasharray="3 6" marker-end="url(#arrowSlate)"/>
 
   <!-- Footer note -->
-  <text class="t-sm" x="70" y="1530">Main relational path shown. CDC writes currently remain Coordinator-local; see the System Overview and Current Capability Status for supported combinations.</text>
+  <text class="t-sm" x="70" y="1530">Main relational path shown. CDC writes currently remain Coordinator-local.</text>
 </svg>

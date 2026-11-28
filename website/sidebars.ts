@@ -26,7 +26,6 @@ const sidebars: SidebarsConfig = {
       collapsed: false,
       items: [
         {type: 'doc', id: 'getting-started/project-positioning', label: 'Positioning & Customers'},
-        {type: 'doc', id: 'getting-started/capability-status', label: 'Current Capability Status'},
         {type: 'doc', id: 'getting-started/roadmap', label: 'Roadmap'},
         {type: 'doc', id: 'getting-started/quickstart', label: 'Quickstart'},
         {
@@ -37,6 +36,7 @@ const sidebars: SidebarsConfig = {
             {type: 'doc', id: 'getting-started/clients/rest-api', label: 'REST API'},
             {type: 'doc', id: 'getting-started/clients/rest-catalog-api', label: 'REST Catalog API'},
             {type: 'doc', id: 'getting-started/clients/cli', label: 'CLI'},
+            {type: 'doc', id: 'getting-started/clients/cli-demo', label: 'CLI Workflow Demo'},
           ],
         },
         {

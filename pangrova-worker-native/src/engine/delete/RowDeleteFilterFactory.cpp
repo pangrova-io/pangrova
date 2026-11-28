@@ -12,7 +12,8 @@ namespace pangrova::delete_filter {
 
 std::vector<std::unique_ptr<RowDeleteFilter>> RowDeleteFilterFactory::create(
     const split::IcebergConfig& iceberg,
-    const std::string& dataFilePath) {
+    const std::string& dataFilePath,
+    const pangrova::velox::MetadataReadContext* reads) {
   for (const auto& df : iceberg.delete_files) {
     if (df.delete_type == "equality") {
       throw std::runtime_error(
@@ -27,7 +28,7 @@ std::vector<std::unique_ptr<RowDeleteFilter>> RowDeleteFilterFactory::create(
   // Phase 1: Deletion vector filters (applied first — O(1) bitmap lookup).
   for (const auto& df : iceberg.delete_files) {
     if (df.delete_type == "deletion_vector") {
-      auto bitmap = io::DeletionVectorReader::readIcebergDV(df.dv_file_path, dataFilePath);
+      auto bitmap = io::DeletionVectorReader::readIcebergDV(df.dv_file_path, dataFilePath, reads);
       filters.push_back(
           std::make_unique<DeletionVectorRowFilter>(std::move(bitmap)));
     }
@@ -38,7 +39,7 @@ std::vector<std::unique_ptr<RowDeleteFilter>> RowDeleteFilterFactory::create(
   for (const auto& df : iceberg.delete_files) {
     if (df.delete_type == "position") {
       auto loaded = DeleteFileReader::readPositions(
-            df.file_path, dataFilePath);
+            df.file_path, dataFilePath, reads);
         positions.insert(positions.end(), loaded.begin(), loaded.end());
     }
   }

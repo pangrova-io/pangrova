@@ -84,6 +84,11 @@ public final class InMemoryExecutionAnchorStore implements ExecutionAnchorStore 
     }
 
     @Override
+    public synchronized boolean isQueryRetired(String executionId) {
+        return !rows.containsKey(executionId);
+    }
+
+    @Override
     public synchronized boolean yield(ExecutionAnchor anchor) {
         Objects.requireNonNull(anchor, "anchor must not be null");
         Row current = rows.get(anchor.executionId());

@@ -16,7 +16,6 @@ import org.pangrova.protocol.v2.ExecutionDrainState;
 import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.testing.nativefixture.ActualNativeTaskFixture;
 import org.pangrova.worker.exception.TaskAdmissionException;
-import org.pangrova.worker.exchange.source.ExchangeSourceRegistry;
 import org.pangrova.worker.http.endpoint.TaskResource;
 
 import java.io.ByteArrayInputStream;
@@ -79,7 +78,7 @@ class TaskSetupAdmissionTest {
         try (var runtime = new ActualNativeTaskFixture();
                 var tasks = new ActualTaskManagerFixture(runtime, "queued-task-admission");
                 var resource = new TaskResource(tasks.manager(), runtime.transports().exchangeTransport(),
-                        new ExchangeSourceRegistry(), "127.0.0.1", runtime.resultPort(), null,
+                        "127.0.0.1", runtime.resultPort(), null,
                         new TaskResource.ResultBinding("grpc", runtime.resultTickets()))) {
             var manager = tasks.manager();
             var request = runtime.valuesRequest(true);

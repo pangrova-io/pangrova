@@ -23,6 +23,18 @@ in the `pangrova-config` module. The bundled defaults ship in
 | `coordinator.port` | int | `8080` | Listen port for the coordinator HTTP server |
 | `coordinator.role` | string | `"COMBINED"` | Deployment role: `QUERY` (serve reads and writes without background maintenance), `MAINTENANCE` (background tasks only), or `COMBINED` (both). An unrecognized deployment role rejects startup. Writes to generated-column tables still require an active durable materialization owner. |
 | `coordinator.internal-auth-secret` | string | — | Shared internal control-plane secret, identical to `worker.internal-auth-secret`. The production process rejects absent, blank or fewer than 32 UTF-8 bytes, independently of client authentication. Inject through the YAML `${PANGROVA_INTERNAL_AUTH_SECRET}` placeholder. |
+| `coordinator.query-peer-key` | string | — | Enables live query forwarding through shared HTTP ingress. Use a separate signing key of at least 32 UTF-8 bytes shared by query-serving Coordinators with client authentication enabled. |
+
+| `coordinator.admission.state-directory` | string | `"data/coordinator-admission"` | Persistent local directory for the exclusive Coordinator process identity. Applies to QUERY and COMBINED roles using PostgreSQL. |
+
+Give each query-serving Coordinator a separate persistent directory. Keep the
+same directory across process restarts. Only a replacement holding its exclusive
+filesystem lock can prove that a prior incarnation released ownership. A
+different directory creates a different ownership domain. Preserve each
+Coordinator's directory when replacing a container, and never clone it into
+another running deployment. After a crash, Coordinator-hosted results remain
+unavailable and their execution reservations stay held until the same-domain
+replacement publishes exit proof and normal recovery verifies physical drain.
 
 ## coordinator.transport
 
@@ -150,7 +162,7 @@ authentication mode.
 
 Feature flags control which subsystem modules are active. They are shared
 between `coordinator.yml` and `worker.yml` where noted. All default to `true`
-except `security.enabled` and `tenant.enabled`.
+except `security.enabled`, `tenant.enabled` and `indexing.enabled`.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
@@ -158,7 +170,23 @@ except `security.enabled` and `tenant.enabled`.
 | `resilience.enabled` | bool | `true` | Enable the resilience module (circuit breaker, retry) |
 | `streaming.enabled` | bool | `true` | Enable the streaming module |
 | `tenant.enabled` | bool | `false` | Enable the multi-tenant module; requires authenticated user identities |
-| `indexing.enabled` | bool | `true` | Enable the indexing module |
+| `indexing.enabled` | bool | `false` | Enable the indexing module; configure `indexing.base-path` before enabling it |
+| `indexing.base-path` | string | — (required when indexing is enabled) | Durable scalar `.idx` and Native artifact staging root; PostgreSQL stores only descriptors, mappings and manifests |
+| `indexing.build.thread-pool-size` / `parallelism` / `batch-flush-size` | int | `4` / `4` / `500` | Scalar builder threads, per-index file concurrency and mapping batch size |
+| `indexing.build.max-concurrent-per-tenant` | int | `2` | Maximum admitted scalar builds for one tenant |
+| `indexing.cache.size-bytes` | long | `-1` | Coordinator scalar evaluation cache; negative selects `min(256 MiB, 12.5% of max heap)` |
+| `indexing.eval.parallelism` / `timeout-ms` | int / long | `8` / `5000` | Scalar split evaluation concurrency and timeout |
+| `indexing.eval.circuit-failure-threshold` / `circuit-open-seconds` | int | `5` / `60` | Scalar evaluation circuit breaker |
+| `indexing.eval.include-stale` | bool | `true` | Permit conservative hints for STALE scalar indexes |
+| `indexing.gc.interval-minutes` / `grace-period-minutes` | int | `60` / `1440` | Index GC interval and dropped-index grace period |
+| `indexing.commit-listener.enabled` / `poll-batch-size` | bool / int | `false` / `64` | Durable commit-driven maintenance and poll batch; enable only after lifecycle qualification |
+| `indexing.consistency.check-interval-minutes` / `rebuild-threshold` | int / double | `30` / `0.8` | Coverage check interval and refresh threshold |
+| `indexing.consistency.auto-rebuild-enabled` | bool | `false` | Automatic replacement; enable only after lifecycle qualification |
+| `indexing.consistency.stuck-detection-multiplier` | int | `2` | Stuck-generation threshold multiplier |
+| `indexing.artifact.dispatch-lease` / `dispatch-retry-delay` | duration | `2m` / `5s` | Native build-page lease and retry backoff |
+| `indexing.artifact.dispatch-max-in-flight` | int | `32` | Maximum Native build pages leased by one Coordinator |
+| `indexing.artifact.publish-claim-ttl` / `publish-retry-delay` | duration | `30s` / `15s` | Atomic generation publication lease and retry backoff |
+| `indexing.artifact.publish-poll-interval` / `publish-batch-size` | duration / int | `1s` / `64` | Native publication polling and batch bound |
 | `operations.enabled` | bool | `true` | Construct the Coordinator recovery playbook for explicitly dispatched incidents |
 | `observability.enabled` | bool | `true` | Enable the observability module |
 | `security.enabled` | bool | `false` | Enable the security module. Requires an authoritative PostgreSQL metadata datasource and configured `security.auth.type`; missing/unavailable stores fail startup. |
@@ -219,7 +247,17 @@ Additional coordinator behavior is tuned via JVM system properties
 | System property | Default | Description |
 |-----------------|---------|-------------|
 | `pangrova.http.max-requests-per-minute` | `100` | Public HTTP requests per actual transport-peer IP per fixed one-minute window |
-| `pangrova.index.basePath` | — (required when indexing is enabled) | Base directory for index build artifacts; startup fails if indexing is enabled and this is unset |
+
+`indexing.base-path` is YAML-backed and may also be supplied through
+`PANGROVA_INDEX_BASE_PATH`. The legacy
+`-Dpangrova.index.basePath` property remains a process-level fallback for existing
+standalone launch scripts; new deployments should use the YAML key. Indexing
+stays disabled until the root and Worker artifact-cache prerequisites are
+configured. The root must be readable and writable at the same path by every
+Coordinator and Worker that builds or reads scalar artifacts; Native Workers
+write artifact objects directly to that root. Automatic commit-driven refresh
+and consistency rebuild remain disabled until lifecycle qualification passes;
+fenced stuck-build recovery remains available as a fail-safe.
 
 The server captures the actual connection peer before authentication. Caller-supplied
 `X-Forwarded-For` is not trusted for authentication, brute-force tracking or this

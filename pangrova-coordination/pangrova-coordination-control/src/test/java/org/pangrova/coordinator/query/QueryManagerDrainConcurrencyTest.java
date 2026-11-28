@@ -215,7 +215,81 @@ class QueryManagerDrainConcurrencyTest {
         submission.get(3, TimeUnit.SECONDS);
         assertThat(manager.getQueryState("anchor-race"))
                 .contains(QueryState.CANCELLED);
-        assertThat(dispatcher.cleanupCount.get()).isEqualTo(1);
+        org.awaitility.Awaitility.await().atMost(3, TimeUnit.SECONDS)
+                .until(() -> dispatcher.cleanupCount.get() == 1);
+    }
+
+    @Test
+    void drainWaitsForCandidateAdmissionBeforeRegistration() throws Exception {
+        BlockingOwnershipDispatcher dispatcher = new BlockingOwnershipDispatcher();
+        QueryManager manager = new QueryManager(
+                QueryManagerTestContexts.minimal(dispatcher, TestObservability.TRACING));
+        Future<?> submission = executor.submit(() -> manager.submitQuery(
+                "pending-drain", "SELECT 1", testSession()));
+        assertThat(dispatcher.acquireEntered.await(3, TimeUnit.SECONDS)).isTrue();
+        Future<Boolean> drain = executor.submit(() -> manager.awaitAllQueries(5000));
+        assertThatThrownBy(() -> drain.get(100, TimeUnit.MILLISECONDS))
+                .isInstanceOf(TimeoutException.class);
+        dispatcher.allowAcquire.countDown();
+        submission.get(3, TimeUnit.SECONDS);
+        assertThat(manager.getActiveQueryCount()).isZero();
+        assertThat(drain.get(3, TimeUnit.SECONDS)).isTrue();
+    }
+
+    @Test
+    void drainWaitsForCandidateCleanupToFinish() throws Exception {
+        var dispatcher = new CleanupBlockingDispatcher();
+        QueryManager manager = new QueryManager(
+                QueryManagerTestContexts.minimal(dispatcher, TestObservability.TRACING));
+        Future<?> submission = executor.submit(() -> manager.submitQuery(
+                "cleanup-drain", "SELECT 1", testSession()));
+        assertThat(dispatcher.cleanupEntered.await(3, TimeUnit.SECONDS)).isTrue();
+        Future<Boolean> drain = executor.submit(() -> manager.awaitAllQueries(5000));
+        assertThatThrownBy(() -> drain.get(100, TimeUnit.MILLISECONDS))
+                .isInstanceOf(TimeoutException.class);
+        dispatcher.allowCleanup.countDown();
+        assertThatThrownBy(() -> submission.get(3, TimeUnit.SECONDS))
+                .hasCauseInstanceOf(IllegalStateException.class);
+        assertThat(drain.get(3, TimeUnit.SECONDS)).isTrue();
+    }
+
+    @Test
+    void failedCandidateCleanupRetainsDrainUntilRetrySucceeds() throws Exception {
+        var dispatcher = new CleanupRetryDispatcher();
+        QueryManager manager = new QueryManager(
+                QueryManagerTestContexts.minimal(dispatcher, TestObservability.TRACING));
+        assertThatThrownBy(() -> manager.submitQuery("cleanup-retry", "SELECT 1", testSession()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("issuance bind failed");
+        assertThat(manager.getActiveQueryCount()).isOne();
+        assertThat(manager.awaitAllQueries(1000)).isTrue();
+        assertThat(dispatcher.cleanupAttempts).hasValue(2);
+        assertThat(manager.getActiveQueryCount()).isZero();
+    }
+
+    @Test
+    void concurrentCleanupRetriesRetainSingleCandidateOwner() throws Exception {
+        var dispatcher = new ConcurrentCleanupRetryDispatcher();
+        QueryManager manager = new QueryManager(
+                QueryManagerTestContexts.minimal(dispatcher, TestObservability.TRACING));
+        assertThatThrownBy(() -> manager.submitQuery("cleanup-overlap", "SELECT 1", testSession()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("issuance bind failed");
+        assertThat(manager.getActiveQueryCount()).isOne();
+
+        Future<?> retry = executor.submit(manager::retryPendingTerminalCompletions);
+        try {
+            assertThat(dispatcher.retryEntered.await(3, TimeUnit.SECONDS)).isTrue();
+            Future<?> overlappingRetry = executor.submit(manager::retryPendingTerminalCompletions);
+            overlappingRetry.get(3, TimeUnit.SECONDS);
+            assertThat(dispatcher.cleanupAttempts).hasValue(2);
+            assertThat(manager.getActiveQueryCount()).isOne();
+        } finally {
+            dispatcher.allowRetry.countDown();
+        }
+        retry.get(3, TimeUnit.SECONDS);
+        assertThat(manager.awaitAllQueries(1000)).isTrue();
+        assertThat(dispatcher.cleanupAttempts).hasValue(2);
     }
 
     @Test
@@ -247,11 +321,16 @@ class QueryManagerDrainConcurrencyTest {
         sm.tryTransition(QueryState.PLANNING);
         sm.tryTransition(QueryState.SCHEDULING);
         sm.tryTransition(QueryState.RUNNING);
+        var grant = new org.pangrova.execution.api.ownership.ExecutionAnchor("slow-intent", "owner", "boot", 1,
+                java.time.Instant.EPOCH, java.time.Instant.EPOCH.plusSeconds(1));
+        sm.bindJournalGrant(grant);
+        sm.retainJournalOwnership();
         queryManager.registerStateMachine("slow-intent", sm);
         CountDownLatch recorderEntered = new CountDownLatch(1);
         CountDownLatch releaseRecorder = new CountDownLatch(1);
         AtomicBoolean monitorHeld = new AtomicBoolean();
-        queryManager.setShuffleCleanupPending(queryId -> {
+        queryManager.setShuffleCleanupPending(original -> {
+            assertThat(original).isSameAs(grant);
             monitorHeld.set(Thread.holdsLock(sm));
             recorderEntered.countDown();
             try {
@@ -385,7 +464,77 @@ class QueryManagerDrainConcurrencyTest {
                                       QuerySession session) {
             sm.toFinisher().run();
             return CompletableFuture.completedFuture(new DispatchResult(
-                    "local", "task-local", new ResultEndpoint("local", 0, "/results/local", "http")));
+                    "local", "task-local", new ResultEndpoint("local", 0, "/results/local", "grpc")));
+        }
+    }
+
+    private static final class CleanupBlockingDispatcher extends FinishingDispatcher {
+        private final CountDownLatch cleanupEntered = new CountDownLatch(1);
+        private final CountDownLatch allowCleanup = new CountDownLatch(1);
+
+        @Override
+        public org.pangrova.connector.api.metadata.ConnectorMetadataScope bindConnectorAuthority(
+                QueryStateMachine state, String queryId) {
+            throw new IllegalStateException("issuance bind failed");
+        }
+
+        @Override
+        public void releaseQueryOwnership(String queryId) {
+            cleanupEntered.countDown();
+            try {
+                if (!allowCleanup.await(3, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("cleanup release timed out");
+                }
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(interrupted);
+            }
+        }
+    }
+
+    private static final class CleanupRetryDispatcher extends FinishingDispatcher {
+        private final AtomicInteger cleanupAttempts = new AtomicInteger();
+
+        @Override
+        public org.pangrova.connector.api.metadata.ConnectorMetadataScope bindConnectorAuthority(
+                QueryStateMachine state, String queryId) {
+            throw new IllegalStateException("issuance bind failed");
+        }
+
+        @Override
+        public void releaseQueryOwnership(String queryId) {
+            if (cleanupAttempts.incrementAndGet() == 1) {
+                throw new IllegalStateException("cleanup release failed");
+            }
+        }
+    }
+
+    private static final class ConcurrentCleanupRetryDispatcher extends FinishingDispatcher {
+        private final AtomicInteger cleanupAttempts = new AtomicInteger();
+        private final CountDownLatch retryEntered = new CountDownLatch(1);
+        private final CountDownLatch allowRetry = new CountDownLatch(1);
+
+        @Override
+        public org.pangrova.connector.api.metadata.ConnectorMetadataScope bindConnectorAuthority(
+                QueryStateMachine state, String queryId) {
+            throw new IllegalStateException("issuance bind failed");
+        }
+
+        @Override
+        public void releaseQueryOwnership(String queryId) {
+            int attempt = cleanupAttempts.incrementAndGet();
+            if (attempt == 1) throw new IllegalStateException("cleanup release failed");
+            if (attempt == 2) {
+                retryEntered.countDown();
+                try {
+                    if (!allowRetry.await(3, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException("cleanup retry timed out");
+                    }
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException(interrupted);
+                }
+            }
         }
     }
 
@@ -405,30 +554,33 @@ class QueryManagerDrainConcurrencyTest {
         }
 
         @Override
-        public boolean acquireQueryOwnership(String queryId) {
+        public Ownership acquireQueryOwnership(String queryId, String tenantId) {
             acquireEntered.countDown();
             try {
                 if (!allowAcquire.await(3, TimeUnit.SECONDS)) {
-                    return false;
+                    return new Ownership(false, java.util.OptionalLong.empty());
                 }
             } catch (InterruptedException failure) {
                 Thread.currentThread().interrupt();
-                return false;
+                return new Ownership(false, java.util.OptionalLong.empty());
             }
             ownerAcquired.set(grant);
-            return grant;
+            return new Ownership(grant, java.util.OptionalLong.empty());
         }
 
         @Override
         public CompletionStage<DispatchResult> executeAsync(QueryStateMachine sm, String sql,
                                       QuerySession session) {
+            if (!sm.isTerminal()) sm.toFinisher().run();
             return CompletableFuture.completedFuture(null);
         }
 
         @Override
-        public boolean tryCleanupQuery(String queryId) {
-            cleanupCount.incrementAndGet();
-            return true;
+        public boolean tryCleanupQuery(String queryId,
+                org.pangrova.execution.api.ownership.ExecutionAnchor originalGrant) {
+            boolean cleaned = super.tryCleanupQuery(queryId, originalGrant);
+            if (cleaned) cleanupCount.incrementAndGet();
+            return cleaned;
         }
     }
 }

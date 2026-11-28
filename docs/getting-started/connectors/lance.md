@@ -143,5 +143,4 @@ write prepared against an older table incarnation cannot publish after a drop/re
 
 **See also:** [Connector design](../../architecture/connectors.md),
 [Connector configuration](../../configuration/connectors.md),
-[Distributed writes](../../architecture/distributed-writes.md),
-[Current capability status](../capability-status.md)
+[Distributed writes](../../architecture/distributed-writes.md)

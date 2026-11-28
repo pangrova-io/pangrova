@@ -19,6 +19,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LANCE_FFI_DIR="${SCRIPT_DIR}/../lance-ffi"
+SDK_CONFIG="${LANCE_FFI_DIR}/.cargo/owned-lance-sdk.toml"
 PANGROVA_HOME="${PANGROVA_HOME:-$HOME/.pangrova}"
 DEPS_PREFIX="${PANGROVA_DEPS_PREFIX:-$PANGROVA_HOME/native-deps}"
 
@@ -116,12 +117,17 @@ build_target() {
     # warnings (or fails on older production workers).
     export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-13.0}"
   fi
-  local build_log input_capture
+  local build_log input_capture source_root
+  source_root="$(cd "${SCRIPT_DIR}/../.." && pwd)"
   input_capture="$(mktemp "${TMPDIR:-/tmp}/pangrova-lance-inputs.XXXXXX")"
   python3 "${SCRIPT_DIR}/lance-ffi-provenance.py" capture \
-    --root "$(cd "${SCRIPT_DIR}/../.." && pwd)" --capture "$input_capture"
+    --root "$source_root" --capture "$input_capture"
+  if ! cargo --config "$SDK_CONFIG" metadata --locked --format-version 1 --filter-platform "$target" \
+      | python3 "${SCRIPT_DIR}/lance-ffi-provenance.py" verify-sdk-resolution --root "$source_root"; then
+    die "Cargo did not resolve the verified Lance SDK for $target"
+  fi
   build_log="$(mktemp "${TMPDIR:-/tmp}/pangrova-lance-build.XXXXXX")"
-  if ! cargo build --color never --locked --release --target "${target}" 2>&1 | tee "$build_log"; then
+  if ! cargo --config "$SDK_CONFIG" build --color never --locked --release --target "$target" 2>&1 | tee "$build_log"; then
     die "Lance compilation failed; diagnostics retained at ${build_log}"
   fi
   if grep -Eq '^warning(\[|:)' "$build_log"; then
@@ -131,7 +137,7 @@ build_target() {
   local lib_path="target/${target}/release/liblance_c_ffi.a"
   if [ -f "${lib_path}" ]; then
     python3 "${SCRIPT_DIR}/lance-ffi-provenance.py" seal \
-      --root "$(cd "${SCRIPT_DIR}/../.." && pwd)" --capture "$input_capture" \
+      --root "$source_root" --capture "$input_capture" \
       --archive "$lib_path" --header include/lance_c_ffi.h --target "$target"
     rm -- "$input_capture"
     local size

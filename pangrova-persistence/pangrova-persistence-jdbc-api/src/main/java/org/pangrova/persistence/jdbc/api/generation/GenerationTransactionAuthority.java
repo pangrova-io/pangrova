@@ -2,6 +2,7 @@ package org.pangrova.persistence.jdbc.api.generation;
 
 import org.pangrova.common.api.annotation.Internal;
 import org.pangrova.generation.api.job.GenerationDispatchSpec;
+import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
 
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -25,13 +26,21 @@ public interface GenerationTransactionAuthority {
     /** Includes the roles that authorized this exact persisted scope in the caller's transaction. */
     AuthorizedDispatch authorize(Connection connection, String tenantId, String jobId) throws SQLException;
 
-    record AuthorizedDispatch(GenerationDispatchSpec dispatchSpec, Set<String> currentDirectRoles) {
+    record AuthorizedDispatch(GenerationTransactionInputs.StoredDispatch stored, Set<String> currentDirectRoles) {
         public AuthorizedDispatch {
-            Objects.requireNonNull(dispatchSpec, "dispatchSpec");
+            Objects.requireNonNull(stored, "stored");
             currentDirectRoles = Set.copyOf(currentDirectRoles);
+        }
+
+        public GenerationDispatchSpec dispatchSpec() {
+            return stored.dispatchSpec();
         }
     }
 
     /** Validates an explicit compiler-observed specification under current domain authority. */
     void requireCurrent(Connection connection, GenerationDispatchSpec spec) throws SQLException;
+
+    /** Authorizes a persisted submission subject before its durable job and stage graph exist. */
+    void requireCurrent(Connection connection, String tenantId, String principal,
+                        DeferredAuthorizationScope authorizationScope) throws SQLException;
 }

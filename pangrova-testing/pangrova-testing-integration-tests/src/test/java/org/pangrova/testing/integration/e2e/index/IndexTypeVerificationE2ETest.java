@@ -1,7 +1,14 @@
 package org.pangrova.testing.integration.e2e.index;
 
+import org.apache.hadoop.conf.Configuration;
+import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.data.GenericRecord;
+import org.apache.iceberg.data.Record;
+import org.apache.iceberg.data.parquet.GenericParquetWriter;
+import org.apache.iceberg.hadoop.HadoopCatalog;
+import org.apache.iceberg.io.DataWriter;
+import org.apache.iceberg.parquet.Parquet;
 import org.pangrova.types.value.TypedRow;
-import org.pangrova.testing.integration.e2e.SqlE2ETestBase;
 import org.pangrova.testing.integration.e2e.config.ConnectorTestConfig;
 import org.pangrova.testing.integration.e2e.fixture.IndexTestFixture;
 import org.junit.jupiter.api.BeforeAll;
@@ -36,7 +43,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>Validates: Requirements 9.1, 10.1–10.5, 18.1–18.10, R3.1, R3.2, R3.3, R3.4</p>
  */
 @DisplayName("Index Type Verification E2E")
-class IndexTypeVerificationE2ETest extends SqlE2ETestBase {
+class IndexTypeVerificationE2ETest extends NativeIndexE2ETestBase {
 
     private static final String CATALOG = "iceberg_catalog";
     private static final String SCHEMA = "default";
@@ -105,7 +112,8 @@ class IndexTypeVerificationE2ETest extends SqlE2ETestBase {
         @Test
         @DisplayName("data skipping: range predicate returns only matching rows")
         void dataSkipping() {
-            sqlRunner.executeDdl("CREATE INDEX idx_bt ON " + fqn + "(amount) USING BTREE");
+            sqlRunner.executeDdl("CREATE INDEX idx_bt ON " + fqn + "(amount) USING BTREE FORCE");
+            IndexReadiness.awaitReady(sqlRunner, fqn, "idx_bt");
             List<TypedRow> rows = sqlRunner.execute(
                     "SELECT * FROM " + fqn + " WHERE amount BETWEEN 100.0 AND 200.0");
             assertThat(rows).isNotEmpty();
@@ -116,11 +124,107 @@ class IndexTypeVerificationE2ETest extends SqlE2ETestBase {
         }
 
         @Test
-        @DisplayName("correctness invariant: withIndex containsAll baseline")
+        @DisplayName("correctness invariant: indexed result equals baseline multiset")
         void correctnessInvariant() {
-            IndexTestFixture.assertCorrectnessInvariant(sqlRunner, fqn,
-                    "amount BETWEEN 100.0 AND 200.0",
-                    "CREATE INDEX idx_bt_corr ON " + fqn + "(amount) USING BTREE");
+            List<TypedRow> baseline = sqlRunner.execute(
+                    "SELECT * FROM " + fqn + " WHERE amount BETWEEN 100.0 AND 200.0");
+            sqlRunner.executeDdl("CREATE INDEX idx_bt_corr ON " + fqn + "(amount) USING BTREE FORCE");
+            IndexReadiness.awaitReady(sqlRunner, fqn, "idx_bt_corr");
+            List<TypedRow> withIndex = sqlRunner.execute(
+                    "SELECT * FROM " + fqn + " WHERE amount BETWEEN 100.0 AND 200.0");
+            assertThat(withIndex).containsExactlyInAnyOrderElementsOf(baseline);
+        }
+
+        @Test
+        @DisplayName("Native B-tree skips files that connector ranges cannot exclude")
+        void nativeSplitPruningUsesBTreeWithOverlappingConnectorRanges(TestInfo info) {
+            String table = "t_bt_native_" + info.getTestMethod().map(m -> m.getName()).orElse("unknown")
+                    + "_" + System.nanoTime();
+            String nativeFqn = CATALOG + "." + SCHEMA + "." + table;
+            sqlRunner.executeDdl("CREATE TABLE " + nativeFqn + " (user_id BIGINT)");
+            for (int batch = 0; batch < 4; batch++) {
+                int low = batch == 0 ? 1 : 0;
+                int high = (batch + 1) * 100;
+                sqlRunner.execute("INSERT INTO " + nativeFqn + " VALUES (" + low + "), (" + high + ")");
+            }
+            List<TypedRow> baseline = sqlRunner.execute(
+                    "SELECT * FROM " + nativeFqn + " WHERE user_id = 1");
+            assertThat(baseline).hasSize(1);
+
+            String indexName = "idx_bt_native";
+            sqlRunner.executeDdl("CREATE INDEX " + indexName + " ON " + nativeFqn
+                    + "(user_id) USING BTREE FORCE");
+            IndexReadiness.awaitReady(sqlRunner, nativeFqn, indexName);
+
+            var withIndex = executeNativeScan(
+                    "SELECT * FROM " + nativeFqn + " WHERE user_id = 1");
+
+            assertThat(withIndex.rows()).containsExactlyElementsOf(baseline);
+            assertThat(withIndex.evaluated())
+                    .as("Native pre-scan B-tree evaluations").isGreaterThanOrEqualTo(4);
+            assertThat(withIndex.skipped())
+                    .as("Native B-tree skips with overlapping connector ranges").isGreaterThanOrEqualTo(3);
+        }
+
+        @Test
+        @DisplayName("Native B-tree range uses SQL UTF-8 string ordering")
+        void nativeBTreeStringOrderingMatchesSql() {
+            String table = CATALOG + "." + SCHEMA + ".t_bt_unicode_" + System.nanoTime();
+            String bmp = "\uE000";
+            String supplementary = "\uD800\uDC00";
+            sqlRunner.executeDdl("CREATE TABLE " + table + " (word VARCHAR)");
+            sqlRunner.execute("INSERT INTO " + table + " VALUES ('A'), ('"
+                    + bmp + "'), ('" + supplementary + "')");
+            String query = "SELECT word FROM " + table + " WHERE word > '" + bmp + "'";
+            List<TypedRow> baseline = sqlRunner.execute(query);
+            assertThat(baseline).hasSize(1);
+            assertThat(baseline.get(0).getString("word")).isEqualTo(supplementary);
+            sqlRunner.executeDdl("CREATE INDEX idx_bt_unicode ON " + table + "(word) USING BTREE FORCE");
+            IndexReadiness.awaitReady(sqlRunner, table, "idx_bt_unicode");
+
+            var withIndex = executeNativeScan(query);
+            assertThat(withIndex.rows()).containsExactlyInAnyOrderElementsOf(baseline);
+            assertThat(withIndex.evaluated())
+                    .as("the surviving file reaches Native B-tree evaluation").isPositive();
+        }
+
+        @Test
+        @DisplayName("Native B-tree equality retains signed zero under SQL equality")
+        void nativeBTreeSignedZeroMatchesSql() throws Exception {
+            String name = "t_bt_zero_" + System.nanoTime();
+            String table = CATALOG + "." + SCHEMA + "." + name;
+            sqlRunner.executeDdl("CREATE TABLE " + table + " (amount DOUBLE)");
+            // External writers can retain the IEEE 754 sign bit in the Iceberg data file.
+            try (var catalog = new HadoopCatalog(new Configuration(), icebergWarehouse().toString())) {
+                var physicalTable = catalog.loadTable(TableIdentifier.of(SCHEMA, name));
+                DataWriter<Record> writer = Parquet.writeData(physicalTable.io().newOutputFile(
+                                physicalTable.location() + "/data/signed-zero.parquet"))
+                        .schema(physicalTable.schema()).withSpec(physicalTable.spec())
+                        .createWriterFunc(GenericParquetWriter::create).build();
+                try (writer) {
+                    for (double amount : new double[] {-0.0d, 10.0d}) {
+                        GenericRecord row = GenericRecord.create(physicalTable.schema());
+                        row.setField("amount", amount);
+                        writer.write(row);
+                    }
+                }
+                physicalTable.newAppend().appendFile(writer.toDataFile()).commit();
+            }
+            assertThat(sqlRunner.execute("SELECT amount FROM " + table))
+                    .extracting(row -> Double.doubleToRawLongBits(((Number) row.getRaw("amount")).doubleValue()))
+                    .as("the unfiltered source must preserve negative zero")
+                    .containsExactlyInAnyOrder(Double.doubleToRawLongBits(-0.0d), Double.doubleToRawLongBits(10.0d));
+            String query = "SELECT amount FROM " + table + " WHERE amount = 0E0";
+            List<TypedRow> baseline = sqlRunner.execute(query);
+            assertThat(baseline).hasSize(1);
+            sqlRunner.executeDdl("CREATE INDEX idx_bt_zero ON " + table + "(amount) USING BTREE FORCE");
+            IndexReadiness.awaitReady(sqlRunner, table, "idx_bt_zero");
+
+            var withIndex = executeNativeScan(query);
+            assertThat(withIndex.rows()).containsExactlyInAnyOrderElementsOf(baseline);
+            assertThat(withIndex.evaluated())
+                    .as("the surviving file reaches Native B-tree evaluation").isEqualTo(1);
+            assertThat(withIndex.skipped()).isZero();
         }
     }
 
@@ -310,7 +414,7 @@ class IndexTypeVerificationE2ETest extends SqlE2ETestBase {
         @Test
         @DisplayName("data skipping: range on sorted column returns only matching rows")
         void dataSkipping() {
-            sqlRunner.executeDdl("CREATE INDEX idx_sparse ON " + fqn + "(user_id) USING SPARSE");
+            sqlRunner.executeDdl("CREATE INDEX idx_sparse ON " + fqn + "(user_id) USING SPARSE FORCE");
             List<TypedRow> rows = sqlRunner.execute(
                     "SELECT * FROM " + fqn + " WHERE user_id BETWEEN 1 AND 20");
             assertThat(rows).isNotEmpty();
@@ -325,7 +429,7 @@ class IndexTypeVerificationE2ETest extends SqlE2ETestBase {
         void correctnessInvariant() {
             IndexTestFixture.assertCorrectnessInvariant(sqlRunner, fqn,
                     "user_id BETWEEN 1 AND 20",
-                    "CREATE INDEX idx_sparse_corr ON " + fqn + "(user_id) USING SPARSE");
+                    "CREATE INDEX idx_sparse_corr ON " + fqn + "(user_id) USING SPARSE FORCE");
         }
     }
 

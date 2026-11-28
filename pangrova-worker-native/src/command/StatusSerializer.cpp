@@ -66,9 +66,15 @@ std::vector<uint8_t> serializeTaskStatus(
   }
   // The task-owned accumulator survives writer errors and destruction. No
   // commit fragment is required to observe an allocation that already happened.
-  status.mutable_usage()->set_object_store_read_bytes(executor.requestedObjectReadBytes());
+  if (auto reads = executor.objectReadStats()) {
+    status.mutable_usage()->set_object_store_read_bytes(reads->requested_bytes());
+    *status.mutable_native_object_reads() = std::move(*reads);
+  }
   status.mutable_usage()->set_columnar_conversion_copied_bytes(
       executor.metricsCollector().snapshot().columnar_conversion_copied_bytes);
+  if (lifecycle.result_delivery) {
+    *status.mutable_native_result_delivery() = *lifecycle.result_delivery;
+  }
   auto* coverage = status.mutable_coverage();
   const auto state = lifecycle.state;
   const uint64_t expected = std::max<uint64_t>(1, executor.splits().size());
@@ -130,9 +136,12 @@ std::vector<uint8_t> serializeTaskStatus(
   if (unsuccessful && lifecycle.error.has_value()) {
     *status.mutable_error() = *lifecycle.error;
   }
-  if (auto artifact_report = executor.artifactWorkReport();
-      artifact_report.has_value()) {
-    *status.mutable_artifact_work() = std::move(*artifact_report);
+  if (finished) {
+    // Output staging can finish just before cancellation wins the terminal race.
+    // Only the successful task state authorizes publication of those outputs.
+    if (auto artifact_report = executor.artifactWorkReport(); artifact_report) {
+      *status.mutable_artifact_work() = std::move(*artifact_report);
+    }
   }
   std::vector<uint8_t> buf(status.ByteSizeLong());
   if (!status.SerializeToArray(buf.data(), static_cast<int>(buf.size()))) {

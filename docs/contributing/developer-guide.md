@@ -57,6 +57,10 @@ patches; it is not a Maven Central release. Set `GRADLE_BIN` when Gradle 8.14.4 
 not the default executable. For the full release validation chain, use the
 repository's build-pipeline rule and the production CI workflow.
 
+Runtime CI builds and tests the pinned candidate once per workflow run. Native
+fixtures, Maven jobs, and the production image consume that run's SDK artifact.
+A Docker build from a local checkout builds the pinned candidate from source.
+
 The Lance Rust archive is tied to its Rust sources, Cargo lock/configuration,
 owned SDK patch, canonical protocols and C header by
 `liblance_c_ffi.a.provenance.json`. CMake verifies that receipt both when
@@ -67,16 +71,40 @@ an older archive into the expected path is rejected. When installing a separate
 matching header in `include/`. The receipt is created only after a successful
 build whose inputs remained unchanged.
 
+The checked-in Lance FFI Cargo manifest and lockfile use the published crate
+identities so Dependabot can resolve them from a clean checkout. The Native build
+prepares the reviewed Lance SDK and makes Cargo resolve the same locked graph
+with all four patched crates from those verified local paths. Build the archive
+through `build-lance-ffi.sh` so the build verifies the selected SDK sources.
+
+The Lance FFI manifest tests use temporary local datasets. They check that two
+writers produce one immutable manifest and that a store which ignores
+conditional creates fails before publishing. Each test removes its temporary
+dataset when it exits.
+
+On macOS, the canonical Arrow Flight build uses Arrow's checksummed Zstandard
+source so its codec headers and static archive come from the same build.
+
 The daily Java jobs and production regression restore the Lance fixture tool
-from the same workflow run's Linux x86-64 Native build. The test artifact
+from the same workflow run's Linux x86-64 Native build. The other architectures
+and sanitizers validate in parallel. The final CI gate requires every selected
+job to succeed. The test artifact
 preserves executable permissions and includes the tool's shared dependencies.
 Locally, build the `pangrova_lance_fixture_tool` Native target before running
 the Lance SDK tests. Maven looks for it in `pangrova-worker-native/build` by
 default. Set `-Dpangrova.lance.fixture.tool` when using another build directory.
 
+The macOS CI jobs reuse a retained SDK only when its dependency inputs and
+runner toolchain match. Cold builds transfer the prerequisites and SDK within
+the same workflow run. The Native test job verifies the archive checksum and
+the running toolchain before using either SDK.
+
 On GitHub-hosted macOS, the Native test job runs the PostgreSQL TestContainer
 through a temporary Lima Docker VM with loopback port forwarding. The Native
-test binary and its Java fixture broker run on the macOS host.
+test binary and its Java fixture broker run on the macOS host. The host verifies
+the pinned Docker Engine archive before starting the guest and installs it after
+the guest boots. If startup fails, the job prints Lima and guest boot logs and
+the Engine journal when SSH is available.
 
 ### 1.3 Matching AddressSanitizer Dependencies
 
@@ -84,6 +112,12 @@ ASan must use one compiler and a matching instrumented dependency cohort. Using
 Release RE2/gRPC/Flight with ASan Abseil can change inline hash-table layouts even
 when the headers and dependency versions match. A successful link is insufficient;
 the native configure executes the canonical RE2 template/regex admission check.
+
+Linux CI builds the instrumented dependencies in one job and compiles and tests
+Pangrova in a second job. Each job has its own GitHub-hosted runner time budget.
+The second job reinstalls Velox's system packages and verifies the same-run
+artifact checksum, revision, compiler, and runtime libraries before restoring
+the ASan dependency cohort. UBSan builds and tests in a single job.
 
 After the regular bootstrap has fetched the pinned sources, build the separate
 sanitizer dependencies and explicitly select them. Run from the repository root:
@@ -769,6 +803,10 @@ logging:
 
 
 ### 7.3 CI Failure Summaries
+
+Branch pushes and release calls let an active full validation finish. If
+another run for the same ref is waiting, GitHub keeps the latest pending run.
+A new commit on a pull request cancels its superseded validation.
 
 When CI fails on a push to `main`, open the **Main CI failure diagnostics**
 workflow for the corresponding run and attempt. Its summary lists the first

@@ -1,6 +1,7 @@
 package org.pangrova.persistence.query.api.commit;
 
 import org.pangrova.connector.api.commit.NativeWriteFinalization;
+import org.pangrova.persistence.query.api.enums.WriteCommitState;
 
 import org.pangrova.common.api.annotation.Stable;
 
@@ -29,9 +30,11 @@ public interface WriteCommitJournal extends WriteCommitOutbox {
      * Must be called BEFORE {@code finishDistributedWrite()}.
      *
      * @param entry the commit intent with state {@link WriteCommitState#PENDING}
-     * @throws JournalWriteException if persistence fails
+     * @return PENDING when the exact redo is available, or COMMITTED when the exact
+     *         terminal receipt already exists, including after redo retirement
+     * @throws JournalWriteException if persistence fails or admission conflicts
      */
-    void recordIntent(WriteCommitEntry entry);
+    WriteCommitState recordIntent(WriteCommitEntry entry);
 
     /**
      * Durably records a confirmed external manifest before catalog visibility is changed.
@@ -53,7 +56,7 @@ public interface WriteCommitJournal extends WriteCommitOutbox {
     boolean requiresPublication(WriteCommitEntry intent);
 
     /**
-     * Marks an existing intent as COMMITTED after successful commit.
+     * Marks an unanchored intent as COMMITTED after successful commit.
      * Must be called AFTER {@code finishDistributedWrite()} succeeds.
      *
      * @param queryId the query identifier of the committed write
@@ -62,11 +65,34 @@ public interface WriteCommitJournal extends WriteCommitOutbox {
     void markCommitted(String queryId);
 
     /**
+     * Persists the proven outcome of an exact intent under its current execution fence.
+     * A recovery owner supplies its own token, not the token that admitted the intent.
+     * The durable implementation locks the authority and records the outcome in one statement.
+     *
+     * @return false when the execution token is no longer current
+     * @throws IllegalStateException if the journal identity or outcome conflicts
+     */
+    boolean recordTerminalOutcome(WriteCommitEntry intent, long fencingToken, WriteCommitState outcome);
+
+    /** Binds the actual current token to the format's one-time external publication gate. */
+    default org.pangrova.connector.api.commit.DistributedWriteCommitContext publicationContext(
+            WriteCommitEntry entry, long currentToken) {
+        return entry.commitContext(() -> tryBeginPublication(entry, currentToken));
+    }
+
+    /** Returns true only to the caller that durably wins first publication of the exact pending intent. */
+    boolean tryBeginPublication(WriteCommitEntry intent, long fencingToken);
+
+    /** Installs an irrevocable abort barrier only when the external publication gate is still unopened. */
+    boolean abortBeforePublication(WriteCommitEntry intent, long fencingToken);
+
+    /**
      * Checks whether a write for the given query has already been committed.
      * Used during recovery to skip already-committed writes (idempotency guard).
+     * The compact terminal receipt remains available after redo retirement.
      *
      * @param queryId the query identifier to check
-     * @return true if a COMMITTED entry exists for this queryId
+     * @return true if a COMMITTED terminal receipt exists for this queryId
      */
     boolean isCommitted(String queryId);
 
@@ -78,12 +104,16 @@ public interface WriteCommitJournal extends WriteCommitOutbox {
      */
     Optional<WriteCommitEntry> getEntry(String queryId);
 
+    /** Retained terminal identity, independent of whether the replayable redo still exists. */
+    Optional<WriteCommitReceipt> getReceipt(String queryId);
+
     /**
      * Finds a batch awaiting publication or the most recently confirmed checkpoint for
      * one exact CDC source generation. An unresolved batch takes priority over confirmed
-     * history so another batch cannot bypass it after leadership transfer.
+     * history so another batch cannot bypass it after leadership transfer. The checkpoint
+     * carries source ranges and journal identity. Fenced replay reads the redo separately.
      */
-    Optional<WriteCommitEntry> findCdcCheckpoint(String tenantId, String streamId, String sourceEpoch);
+    Optional<CdcWriteCheckpoint> findCdcCheckpoint(String tenantId, String streamId, String sourceEpoch);
 
     /**
      * Replays PENDING entries only for executions atomically claimed by the
@@ -96,12 +126,12 @@ public interface WriteCommitJournal extends WriteCommitOutbox {
     List<WriteCommitEntry> replayPendingEntries(Set<String> executionIds);
 
     /**
-     * Persists a terminal barrier after fenced recovery has confirmed the exact intent's abort.
+     * Persists a terminal barrier after a confirmed abort of an unanchored intent.
      * Query failure or a timeout alone is not evidence that a catalog commit was aborted.
      * Repeating the same ABORTED transition is idempotent. Missing, different, committed,
      * or externally published intents are rejected; the immutable identity is never deleted.
      *
-     * @param queryId execution identifier whose durable fence is held by the caller
+     * @param queryId execution identifier without a durable anchor
      * @param commitFingerprint immutable fingerprint of the reconciled intent
      * @throws IllegalStateException if the intent is missing, differs or has publication evidence
      * @throws JournalWriteException if persistence fails

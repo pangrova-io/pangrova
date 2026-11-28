@@ -22,9 +22,10 @@ import org.pangrova.connector.api.metadata.table.TableStatistics;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /** Leaf split/SDK contract data; not authorization or Native execution proof. */
-final class GeneratedBuildTestConnectors {
+public final class GeneratedBuildTestConnectors {
     private static final String SNAPSHOT = "41";
 
     private GeneratedBuildTestConnectors() {}
@@ -35,11 +36,20 @@ final class GeneratedBuildTestConnectors {
                 new ConnectorTableMetadata.Column("embedding", org.pangrova.types.enums.PangrovaType.VARBINARY));
     }
 
-    static final class SnapshotConnector implements Connector {
+    public static final class SnapshotConnector implements Connector {
         private final ConnectorMetadata metadata;
+        private final String snapshot;
+        private final Runnable beforeEnumeration;
+        private final AtomicInteger enumerations = new AtomicInteger();
 
         SnapshotConnector(Map<String, String> properties) {
+            this(properties, SNAPSHOT, () -> {});
+        }
+
+        public SnapshotConnector(Map<String, String> properties, String snapshot, Runnable beforeEnumeration) {
             this.metadata = new SnapshotConnectorMetadata(properties);
+            this.snapshot = snapshot;
+            this.beforeEnumeration = beforeEnumeration;
         }
 
         @Override
@@ -49,8 +59,15 @@ final class GeneratedBuildTestConnectors {
 
         @Override
         public ConnectorSplitManager getSplitManager() {
-            return (transaction, session, table, dynamicFilter, constraint) ->
-                    new FixedSplitSource(List.of(split(0), split(1)));
+            return (transaction, session, table, dynamicFilter, constraint) -> {
+                beforeEnumeration.run();
+                enumerations.incrementAndGet();
+                return new FixedSplitSource(List.of(split(0, snapshot), split(1, snapshot)));
+            };
+        }
+
+        public int enumerations() {
+            return enumerations.get();
         }
 
         @Override
@@ -68,7 +85,7 @@ final class GeneratedBuildTestConnectors {
         @Override
         public ConnectorTableHandle getTableHandle(
                 ConnectorSession session, SchemaTableName tableName) {
-            return new SnapshotTableHandle(-1);
+            return new SnapshotTableHandle("");
         }
 
         @Override
@@ -105,10 +122,10 @@ final class GeneratedBuildTestConnectors {
         }
     }
 
-    static final class FixedCatalogRegistry extends CatalogRegistry {
+    public static final class FixedCatalogRegistry extends CatalogRegistry {
         private final CatalogHandle handle;
 
-        FixedCatalogRegistry(CatalogHandle handle) {
+        public FixedCatalogRegistry(CatalogHandle handle) {
             super(memoryTableStores(), null);
             this.handle = handle;
         }
@@ -127,10 +144,10 @@ final class GeneratedBuildTestConnectors {
         }
     }
 
-    record SnapshotTableHandle(long snapshot) implements ConnectorTableHandle {
+    record SnapshotTableHandle(String snapshot) implements ConnectorTableHandle {
         @Override
-        public ConnectorTableHandle withTimeTravelSnapshot(long snapshotId) {
-            return new SnapshotTableHandle(snapshotId);
+        public ConnectorTableHandle withTimeTravelSnapshot(String snapshotToken) {
+            return new SnapshotTableHandle(snapshotToken);
         }
     }
 
@@ -142,10 +159,10 @@ final class GeneratedBuildTestConnectors {
         }
     }
 
-    private static SnapshotSplit split(int ordinal) {
+    private static SnapshotSplit split(int ordinal, String snapshot) {
         var dataSplit = DataSplitProtoCodec.buildFileSplit(
                 new DataSplitProtoCodec.FileSplitInput(
-                        "test", "lake.sales.documents", SNAPSHOT,
+                        "test", "lake.sales.documents", snapshot,
                         "object-" + ordinal,
                         "s3://bucket/object-" + ordinal + ".parquet",
                         0, 1024, Map.of(),

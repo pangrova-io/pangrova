@@ -124,7 +124,12 @@ public final class WorkerTerminalTaskReports {
                         .TASK_REPORT_ORIGIN_WORKER_RECONCILED)
                 .setCoverage(zeroCompletedCoverage(request))
                 .setError(firstFailure);
-        nativeUsage(request, observedNative).ifPresent(report::setUsage);
+        nativeUsage(request, observedNative).ifPresent(usage -> {
+            report.setUsage(usage);
+            observedNative.filter(TaskReport::hasNativeObjectReads)
+                    .filter(CanonicalTaskRequests::nativeObjectReadsWithinUsage)
+                    .ifPresent(observed -> report.setNativeObjectReads(observed.getNativeObjectReads()));
+        });
         observedNative.filter(observed -> observed.getExecutionDrainState()
                 == org.pangrova.protocol.v2.ExecutionDrainState.EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED)
                 .ifPresent(observed -> {

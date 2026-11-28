@@ -3,7 +3,9 @@ coordinator:
   id: "${HOSTNAME:-coordinator-0}"
   host: 0.0.0.0
   port: 8080
-  role: QUERY
+  role: COMBINED
+  admission:
+    state-directory: "${PANGROVA_COORDINATOR_ADMISSION_STATE_DIRECTORY:-/opt/pangrova/data/coordinator-admission}"
   internal-auth-secret: "${PANGROVA_INTERNAL_AUTH_SECRET}"
   ha:
     enabled: false
@@ -18,3 +20,9 @@ security:
   enabled: true
   auth:
     type: NOOP
+
+indexing:
+  # Keep automatic maintenance disabled until lifecycle qualification. Set a
+  # shared durable root before enabling; Workers receive it through catalog config.
+  enabled: false
+  base-path: "${PANGROVA_INDEX_BASE_PATH:-/opt/pangrova/indexes}"

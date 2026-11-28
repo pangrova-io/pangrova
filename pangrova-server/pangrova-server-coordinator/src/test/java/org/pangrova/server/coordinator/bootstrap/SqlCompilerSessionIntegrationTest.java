@@ -77,12 +77,12 @@ class SqlCompilerSessionIntegrationTest {
     private static void assertDispatcherStartup(
             MetadataBootstrap metadata, SqlCompiler template) {
         var workers = new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry());
-        try (var scheduling = new QuerySchedulingRuntime(null, "load-balanced");
-             var dispatcher = new RemoteTaskDispatcher(
+        var scheduler = QueryPlacementFactory.create(null, "load-balanced");
+        try (var dispatcher = new RemoteTaskDispatcher(
                 org.pangrova.common.resilience.CircuitBreakerPolicy.noOp(),
                 org.pangrova.testing.testkit.constants.TestObservability.TRACING)) {
             var deps = QueryDispatcherContext.withDefaults(template, null, null, null, dispatcher,
-                    scheduling.scheduler(), workers,
+                    scheduler, workers,
                     new CoordinatorTaskTracker(), metadata.catalogRegistry(), null, null, 0L);
             assertThatCode(() -> new QueryDispatcher(deps, null, null)).doesNotThrowAnyException();
         }
@@ -111,6 +111,8 @@ class SqlCompilerSessionIntegrationTest {
         var betaCompiler = template.forSession(beta);
         assertThat(alphaCompiler.planner()).isNotSameAs(betaCompiler.planner());
         assertThat(alphaCompiler.forSession(alpha)).isSameAs(alphaCompiler);
+        assertThatThrownBy(() -> template.forSession(alpha, java.util.OptionalLong.of(0L)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("admitted query authority");
         assertThatThrownBy(() -> alphaCompiler.forSession(beta))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("another session");
         assertThat(alphaCompiler.compileToPlannedQuery("SELECT 1")).isNotNull();

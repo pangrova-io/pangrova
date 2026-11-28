@@ -83,7 +83,7 @@ class IndexAggregationE2ETest extends SqlE2ETestBase {
         List<TypedRow> baseline = sqlRunner.execute(
                 "SELECT COUNT(*) AS cnt FROM " + fqn
                         + " WHERE amount BETWEEN 100.0 AND 300.0");
-        sqlRunner.executeDdl("CREATE INDEX idx_bt ON " + fqn + "(amount) USING BTREE");
+        sqlRunner.executeDdl("CREATE INDEX idx_bt ON " + fqn + "(amount) USING BTREE FORCE");
         List<TypedRow> withIndex = sqlRunner.execute(
                 "SELECT COUNT(*) AS cnt FROM " + fqn
                         + " WHERE amount BETWEEN 100.0 AND 300.0");

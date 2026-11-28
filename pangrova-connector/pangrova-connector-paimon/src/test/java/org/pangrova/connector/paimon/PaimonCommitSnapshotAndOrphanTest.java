@@ -210,8 +210,12 @@ class PaimonCommitSnapshotAndOrphanTest {
 
         ConnectorOutputTableHandle later = metadata.beginInsert(SESSION, loadHandle("replay_event"));
         writeRows(later, buildRows(1, 2));
+        Long headBeforeReplay = table.snapshotManager().latestSnapshotId();
+        assertThat(headBeforeReplay).isGreaterThan(committedSnapshot);
+
         metadata.finishDistributedWrite(SESSION, handle, List.of(fragment), context);
 
+        assertThat(table.snapshotManager().latestSnapshotId()).isEqualTo(headBeforeReplay);
         assertThat(replayed.get()).isNotNull();
         assertThat(replayed.get().snapshotId()).isEqualTo(String.valueOf(committedSnapshot));
         assertThat(replayed.get().commitFingerprint()).isEqualTo(context.commitFingerprint());

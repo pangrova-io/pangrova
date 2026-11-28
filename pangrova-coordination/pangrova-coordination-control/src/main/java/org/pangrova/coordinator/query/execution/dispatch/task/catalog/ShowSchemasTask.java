@@ -24,6 +24,6 @@ public final class ShowSchemasTask implements MetadataTask<ShowSchemasStatement>
     @Override
     public StatementResult execute(ShowSchemasStatement statement, StatementExecutionContext context) {
         List<TypedRow> rows = executor.executeShowSchemas(statement, context.session());
-        return StatementResult.fromRows(rows, null, StatementCategory.SHOW);
+        return new StatementResult(rows, List.of("schema_name"), null, StatementCategory.SHOW);
     }
 }

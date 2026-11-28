@@ -3,7 +3,12 @@ package org.pangrova.worker.task;
 import org.pangrova.worker.exception.TaskAdmissionException;
 
 import org.junit.jupiter.api.Test;
+import org.pangrova.protocol.v2.ExecutionDrainState;
+import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
 import org.pangrova.protocol.v2.TaskAttemptId;
+import org.pangrova.protocol.v2.TaskReport;
+import org.pangrova.protocol.v2.TaskReportOrigin;
+import org.pangrova.protocol.v2.TaskState;
 import org.pangrova.protocol.v2.TaskRequest;
 
 import java.time.Clock;
@@ -21,6 +26,33 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /** Real compact admission authority tests; these are not Native or distributed E2E tests. */
 class TaskAdmissionRegistryTest {
     private static final Clock NOW = Clock.fixed(Instant.ofEpochMilli(1000), ZoneOffset.UTC);
+
+    @Test
+    void inFlightCountIncludesSetupAndTerminalCleanupAndExcludesReplays() {
+        var registry = new TaskAdmissionRegistry(3, NOW);
+        var task = request("task", 2000).toBuilder().setAttempt(TaskAttemptId.newBuilder().setTaskId("task")
+                .setQueryOrJobId("query").setPlanEpoch(1).setFencingToken(1).setControlEpoch(1)
+                .setExecutionOwner(ExecutionOwnerIdentity.newBuilder().setOwnerId("owner")
+                        .setOwnerIncarnation("instance").setFencingToken(1))).build();
+        var admitted = registry.reserve(task, "worker-task");
+        registry.reserve(task, "duplicate");
+        assertThat(registry.inFlightTaskCount()).isEqualTo(1);
+        admitted.admitted();
+        assertThat(registry.inFlightTaskCount()).isEqualTo(1);
+
+        var failedSetup = registry.reserve(request("blocked", 2000), "blocked-worker-task");
+        assertThat(registry.inFlightTaskCount()).isEqualTo(2);
+        failedSetup.rejectedBeforeOwnership(new IllegalStateException("setup rejected"));
+        assertThat(registry.inFlightTaskCount()).isEqualTo(1);
+
+        var receipt = TaskReport.newBuilder().setAttempt(task.getAttempt())
+                .setState(TaskState.TASK_STATE_FINISHED).setReportOrigin(TaskReportOrigin.TASK_REPORT_ORIGIN_NATIVE)
+                .setExecutionDrainState(ExecutionDrainState.EXECUTION_DRAIN_STATE_NATIVE_OWNER_RELEASED).build();
+        registry.retainDrainReceipt("worker-task", receipt, 2000);
+        registry.retainDrainReceipt("worker-task", receipt, 2000);
+        assertThat(registry.inFlightTaskCount()).isZero();
+        assertThat(registry.size()).isEqualTo(1);
+    }
 
     @Test
     void duplicateWaitsForSetupWhileControlCanAlreadyResolveTheOwner() throws Exception {
@@ -147,9 +179,17 @@ class TaskAdmissionRegistryTest {
         assertThatThrownBy(reservation::admitted).isInstanceOf(TaskAdmissionException.class)
                 .hasMessageContaining("deadline has expired");
         assertThat(registry.resolve("task")).isNull();
-        assertThat(registry.seal(sealRequest(task), true).noOwnerExited()).isFalse();
+        var pending = registry.seal(sealRequest(task), true);
+        assertThat(pending.expiredAbsent()).isFalse();
+        assertThat(pending.noOwnerExited()).isFalse();
         reservation.rejectedBeforeOwnership(new IllegalStateException("Resources actually refunded"));
         assertThat(registry.seal(sealRequest(task), true).noOwnerExited()).isTrue();
+
+        registry.removeExpired("task", "worker-task");
+        assertThat(registry.size()).isZero();
+        clock.time.set(1000);
+        assertThatThrownBy(() -> registry.reserve(task, "late"))
+                .isInstanceOf(TaskAdmissionException.class).hasMessageContaining("deadline has expired");
     }
 
     @Test
@@ -228,6 +268,7 @@ class TaskAdmissionRegistryTest {
         var task = request("task", 2000);
         var actual = registry.seal(sealRequest(task), false);
         assertThat(actual.noOwnerExited()).isTrue();
+        assertThat(registry.inFlightTaskCount()).isZero();
         assertThat(actual.workerTaskId()).isEmpty();
         assertThat(actual.receipt()).isEmpty();
         assertThatThrownBy(() -> registry.reserve(task, "late-worker-task"))
@@ -253,12 +294,40 @@ class TaskAdmissionRegistryTest {
     }
 
     @Test
-    void expiredForgottenIdentityDoesNotManufactureHistoricalNoOwnerProof() {
-        var registry = new TaskAdmissionRegistry(1, NOW);
-        var result = registry.seal(sealRequest(request("forgotten", 999)), false);
+    void expiredAbsentIdentityDoesNotReopenAfterClockRollbackOrConsumeCapacity() {
+        var clock = new AdmissionClock(2000);
+        var registry = new TaskAdmissionRegistry(1, clock);
+        var expired = request("forgotten", 2000);
+        var result = registry.seal(sealRequest(expired), true);
+        assertThat(result.expiredAbsent()).isTrue();
         assertThat(result.noOwnerExited()).isFalse();
         assertThat(result.receipt()).isEmpty();
         assertThat(registry.size()).isZero();
+
+        clock.time.set(1000);
+        assertThatThrownBy(() -> registry.reserve(expired, "late"))
+                .isInstanceOf(TaskAdmissionException.class).hasMessageContaining("deadline has expired");
+        assertThat(registry.seal(sealRequest(expired), true)).isEqualTo(result);
+        assertThat(registry.reserve(request("fresh", 2001), "worker-task").first()).isTrue();
+    }
+
+    @Test
+    void expiredHandedOffAdmissionStaysPendingAndRetainsItsCleanupOwner() {
+        var clock = new AdmissionClock(1000);
+        var registry = new TaskAdmissionRegistry(1, clock);
+        var task = request("active", 2000);
+        var admission = registry.reserve(task, "worker-task");
+        admission.publish(() -> {});
+        admission.admitted();
+
+        clock.time.set(2000);
+        registry.removeExpired("active", "worker-task");
+        assertThatThrownBy(() -> registry.reserve(request("fresh", 3000), "new-worker-task"))
+                .isInstanceOf(TaskAdmissionException.class).hasMessageContaining("identity limit reached");
+        var pending = registry.seal(sealRequest(task), true);
+        assertThat(pending.workerTaskId()).isEqualTo("worker-task");
+        assertThat(pending.expiredAbsent()).isFalse();
+        assertThat(pending.exitReceipt(sealRequest(task))).isEmpty();
     }
 
     @Test
@@ -273,6 +342,21 @@ class TaskAdmissionRegistryTest {
         assertThatThrownBy(() -> registry.seal(seal.toBuilder().setDeadlineEpochMs(3000).build(), true))
                 .isInstanceOf(TaskAdmissionException.class).hasMessageContaining("issued task");
         assertThat(registry.reserve(task, "duplicate").first()).isFalse();
+    }
+
+    @Test
+    void runtimeFiltersCanOnlyResolveAnExactLiveHandedOffAttempt() {
+        var registry = new TaskAdmissionRegistry(2, NOW);
+        var task = request("task", 2000);
+        var actual = task.getAttempt();
+        var admitted = registry.reserve(task, "worker-task");
+        admitted.publish(() -> {});
+        assertThat(registry.resolveRuntimeFilterAttempt(actual)).isNull();
+        admitted.handOff();
+        assertThat(registry.resolveRuntimeFilterAttempt(actual)).isEqualTo("worker-task");
+        assertThat(registry.resolveRuntimeFilterAttempt(actual.toBuilder().setAttemptId(1).build())).isNull();
+        registry.seal(sealRequest(task), true);
+        assertThat(registry.resolveRuntimeFilterAttempt(actual)).isNull();
     }
 
     private static org.pangrova.protocol.v2.TaskAdmissionSealRequest sealRequest(TaskRequest request) {

@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import sys
 
 
 def digest(path):
@@ -19,8 +20,9 @@ def inputs(root):
     native = root / "pangrova-worker-native"
     crate = native / "lance-ffi"
     files = [crate / name for name in ("Cargo.toml", "Cargo.lock", "build.rs", "rust-toolchain.toml",
-                                      ".cargo/config.toml")]
-    files += [native / "bin/prepare-lance-sdk.sh", native / "patches/lance-writer-drain.patch"]
+                                      ".cargo/config.toml", ".cargo/owned-lance-sdk.toml")]
+    files += [native / "bin/build-lance-ffi.sh", native / "bin/prepare-lance-sdk.sh",
+              native / "patches/lance-writer-drain.patch"]
     for directory in (crate / "src", crate / "include",
                       root / "pangrova-protocol/src/main/proto",
                       root / "pangrova-protocol/src/main/proto-imports"):
@@ -54,9 +56,22 @@ def verify(root, archive, header, target):
         raise ValueError("Lance archive/header/source provenance differs; rebuild with build-lance-ffi.sh")
 
 
+def verify_sdk_resolution(root, metadata):
+    sdk = root / "pangrova-worker-native/deps-download/lance-sdk-owned"
+    for name in ("lance", "lance-encoding", "lance-file", "lance-io"):
+        expected = (sdk / f"{name}-0.20.0/Cargo.toml").resolve()
+        packages = [package for package in metadata["packages"] if package["name"] == name]
+        if len(packages) != 1:
+            raise ValueError(f"Expected exactly one resolved {name} crate")
+        package = packages[0]
+        if (package["source"] is not None or package["version"] != "0.20.0"
+                or Path(package["manifest_path"]).resolve() != expected):
+            raise ValueError(f"Expected Cargo to resolve {name} to the verified SDK source")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=("capture", "seal", "verify"))
+    parser.add_argument("mode", choices=("capture", "seal", "verify", "verify-sdk-resolution"))
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--capture", type=Path)
     parser.add_argument("--archive", type=Path)
@@ -68,8 +83,10 @@ def main():
             args.capture.write_text(json.dumps(inputs(args.root), sort_keys=True))
         elif args.mode == "seal":
             seal(args.root, args.archive, args.header, args.target, args.capture)
-        else:
+        elif args.mode == "verify":
             verify(args.root, args.archive, args.header, args.target)
+        else:
+            verify_sdk_resolution(args.root, json.load(sys.stdin))
     except (OSError, ValueError) as failure:
         parser.exit(1, f"Lance C FFI provenance rejected: {failure}\n")
 

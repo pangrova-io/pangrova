@@ -1,8 +1,6 @@
 package org.pangrova.query.lifecycle;
 
 import java.time.Instant;
-import java.util.Collection;
-import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -13,24 +11,47 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.BiConsumer;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
+import org.pangrova.query.exception.QueryRegistrationPendingException;
+import org.pangrova.query.lifecycle.TenantAdmissionPort.LocalUsage;
 
 /** Owns local query membership, including retained terminal states and outstanding physical cleanup. */
 public final class QueryRegistry {
+    private static final LocalUsage EMPTY_TENANT_USAGE = new LocalUsage(0, 0);
+    private final ConcurrentHashMap<String, LocalUsage> tenantUsage;
     private final ConcurrentHashMap<String, QueryStateMachine> queries = new ConcurrentHashMap<>();
     // Initializers may call external services. Reserve the identity outside shared map operations.
     private final ConcurrentHashMap<String, QueryStateMachine> registering = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, QueryStateMachine> pendingSubmissions = new ConcurrentHashMap<>();
+    private final Object submissionGate = new Object();
     private final AtomicInteger outstanding = new AtomicInteger();
     private final ReentrantLock drainLock = new ReentrantLock();
     private final Condition progressed = drainLock.newCondition();
 
+    public QueryRegistry() {
+        this(false);
+    }
+
+    public QueryRegistry(boolean trackTenantUsage) {
+        tenantUsage = trackTenantUsage ? new ConcurrentHashMap<>() : null;
+    }
+
     /** Initializes a new lifetime before making it visible. A duplicate never invokes the initializer. */
     public QueryStateMachine register(String id, QueryStateMachine state, Runnable initialize) {
-        QueryStateMachine competing = registering.putIfAbsent(id, state);
-        if (competing != null) return competing;
+        synchronized (submissionGate) {
+            QueryStateMachine pending = pendingSubmissions.get(id);
+            if (pending != null && pending != state) {
+                throw new QueryRegistrationPendingException(id);
+            }
+            QueryStateMachine competing = registering.putIfAbsent(id, state);
+            if (competing != null) return competing;
+        }
         try {
             QueryStateMachine current = queries.get(id);
             if (current != null) return current;
             initialize.run();
+            if (tenantUsage != null) {
+                state.bindTenantUsage(this);
+            }
             outstanding.incrementAndGet();
             queries.put(id, state);
             return null;
@@ -39,11 +60,35 @@ public final class QueryRegistry {
         }
     }
 
-    /** Called after physical resources have been released. The lifetime owns the once-only transition. */
-    public void complete(String id, QueryStateMachine state) {
-        if (!state.claimPhysicalCleanup()) return;
+    /** Atomically publishes a drain-accounted candidate before admission can block. */
+    public boolean reserveSubmission(String id, QueryStateMachine state) {
+        synchronized (submissionGate) {
+            if (queries.containsKey(id) || registering.containsKey(id)) return false;
+            return pendingSubmissions.putIfAbsent(id, state) == null;
+        }
+    }
+
+    /** Returns the exact candidate that has not yet entered the executable registry. */
+    public QueryStateMachine pendingSubmission(String id) {
+        return pendingSubmissions.get(id);
+    }
+
+    /** Releases only the exact candidate reservation after registration or definitive cleanup. */
+    public void releaseSubmission(String id, QueryStateMachine state) {
+        if (pendingSubmissions.remove(id, state)) signalDrained();
+    }
+
+    /** Completes local bookkeeping and publishes global drain only with committed retirement evidence. */
+    public void complete(String id, QueryStateMachine state, boolean retired) {
+        if (!state.claimPhysicalCleanup(retired)) return;
         if (state.discardUnadmittedQuery()) queries.remove(id, state);
         if (outstanding.decrementAndGet() == 0) {
+            signalDrained();
+        }
+    }
+
+    private void signalDrained() {
+        if (outstanding.get() == 0 && pendingSubmissions.isEmpty()) {
             drainLock.lock();
             try {
                 progressed.signalAll();
@@ -61,9 +106,22 @@ public final class QueryRegistry {
         return Map.copyOf(queries);
     }
 
-    /** Live membership for quota accounting. Clients may only observe it. */
-    public Collection<QueryStateMachine> states() {
-        return Collections.unmodifiableCollection(queries.values());
+    /** Returns the current local occupancy directly by tenant. */
+    public LocalUsage tenantUsage(String tenantId) {
+        return tenantUsage == null ? EMPTY_TENANT_USAGE : tenantUsage.getOrDefault(tenantId, EMPTY_TENANT_USAGE);
+    }
+
+    // Called while holding the affected query's state lock. The map operation must not acquire state locks.
+    void updateTenantUsage(String tenantId, int concurrentDelta, int queuedDelta) {
+        tenantUsage.compute(tenantId, (id, existing) -> {
+            var previous = existing == null ? EMPTY_TENANT_USAGE : existing;
+            int concurrent = previous.concurrentQueries() + concurrentDelta;
+            int queued = previous.queuedQueries() + queuedDelta;
+            if (queued < 0 || queued > concurrent) {
+                throw new IllegalStateException("Inconsistent query occupancy for tenant " + id);
+            }
+            return concurrent == 0 ? null : new LocalUsage(concurrent, queued);
+        });
     }
 
     public void forEach(BiConsumer<String, QueryStateMachine> consumer) {
@@ -76,18 +134,18 @@ public final class QueryRegistry {
     }
 
     public int outstandingCount() {
-        return outstanding.get();
+        return outstanding.get() + pendingSubmissions.size();
     }
 
     /** Admission is sealed by the caller. Pending cleanup is retried without holding the wait lock. */
     public boolean awaitDrain(long timeoutMillis, Runnable retryPending) {
         long started = System.nanoTime();
         long budget = TimeUnit.MILLISECONDS.toNanos(Math.max(0, timeoutMillis));
-        while (outstanding.get() > 0) {
+        while (outstanding.get() > 0 || !pendingSubmissions.isEmpty()) {
             retryPending.run();
             drainLock.lock();
             try {
-                if (outstanding.get() == 0) return true;
+                if (outstanding.get() == 0 && pendingSubmissions.isEmpty()) return true;
                 long remaining = budget - (System.nanoTime() - started);
                 if (remaining <= 0) return false;
                 progressed.awaitNanos(Math.min(remaining, TimeUnit.MILLISECONDS.toNanos(100)));

@@ -6,7 +6,7 @@ import java.util.function.Consumer;
 import org.pangrova.common.api.annotation.Internal;
 import org.pangrova.query.api.error.QueryFailure;
 
-/** Terminal observations exchanged between task reporting and the query DAG owner. */
+/** Execution observations exchanged between task reporting and the query DAG owner. */
 @Internal
 public interface StageCompletionCallback {
 
@@ -15,6 +15,9 @@ public interface StageCompletionCallback {
      * copy settles its original slot. Error diagnostics may be absent.
      */
     void onTaskTerminal(String queryId, String taskId, String state, QueryFailure error);
+
+    /** Reports that the issued physical attempt entered Native execution. */
+    default void onTaskRunning(String queryId, String taskId, int stageId) {}
 
     /** Identifies the winning physical attempt and its optional completed build summary. */
     default void onSuccessfulTaskTerminal(String queryId, String logicalTaskId,

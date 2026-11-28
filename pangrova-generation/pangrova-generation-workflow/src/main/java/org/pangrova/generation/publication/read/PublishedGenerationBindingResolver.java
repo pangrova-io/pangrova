@@ -161,6 +161,23 @@ public final class PublishedGenerationBindingResolver {
                 .build();
     }
 
+    /** Retains source pins for physical candidate hydration until the fenced execution anchor is gone. */
+    public void retainSnapshotPinsForExecution(
+            String tenantId, String executionId, List<OperatorBinding> bindings) {
+        requireText(tenantId, "tenantId");
+        requireText(executionId, "executionId");
+        bindings.stream().flatMap(binding -> binding.getArtifactsList().stream())
+                .filter(artifact -> org.pangrova.generation.api.constants.GenerationOutputTypeIds.VECTOR_INDEX
+                        .equals(artifact.getArtifactType())
+                        || org.pangrova.generation.api.constants.GenerationOutputTypeIds.TEXT_INDEX
+                        .equals(artifact.getArtifactType()))
+                .map(artifact -> new PublicationRead(artifact.getArtifactId(), artifact.getGeneration(),
+                        artifact.getSourceId(), artifact.getSourceSnapshot(), artifact.getReadEpoch()))
+                .distinct()
+                .forEach(read -> store.retainSnapshotPinForExecution(
+                        tenantId, read.artifactId(), read.generation(), read.sourceSnapshot(), executionId));
+    }
+
     /** Reads each publication once for the assigned sources in an exact live dispatch window. */
     public List<List<OperatorBinding>> materializeForTasks(
             String tenantId, List<OperatorBinding> bindings, List<List<DataSplit>> taskSplits) {

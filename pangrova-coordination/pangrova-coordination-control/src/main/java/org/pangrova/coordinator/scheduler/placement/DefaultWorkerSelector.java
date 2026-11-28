@@ -2,6 +2,10 @@ package org.pangrova.coordinator.scheduler.placement;
 
 import org.pangrova.scheduler.api.resource.SpillBudget;
 import java.util.List;
+import java.util.Map;
+import org.pangrova.protocol.execution.identity.WorkerExecutionIdentity;
+import java.util.function.ToIntFunction;
+import org.pangrova.protocol.v2.OperatorBinding;
 import org.pangrova.scheduler.api.exception.NoAvailableWorkerException;
 import org.pangrova.scheduler.placement.ExactModelResolver;
 import org.pangrova.ai.control.model.EmbeddingModelExecutionAdmission;
@@ -27,6 +31,8 @@ public final class DefaultWorkerSelector implements WorkerSelector {
     private final CacheAffinityAssigner cacheAffinityAssigner;
     private final SpillBudget spillBudget;
     private final EmbeddingModelRegistry embeddingModelRegistry;
+    private final ToIntFunction<WorkerInfo> localPlacementLoad;
+    private final ClusterCapacity stageCapacity;
 
     /** Creates a selector without an embedding catalog; embedding execution is denied. */
     public DefaultWorkerSelector(WorkerManager workerManager,
@@ -43,11 +49,36 @@ public final class DefaultWorkerSelector implements WorkerSelector {
             CacheAffinityAssigner cacheAffinityAssigner,
             SpillBudget spillBudget,
             EmbeddingModelRegistry embeddingModelRegistry) {
+        this(workerManager, taskScheduler, cacheAffinityAssigner, spillBudget, embeddingModelRegistry, worker -> 0);
+    }
+
+    /** Uses local task ownership to cover the gap between Worker heartbeats. */
+    public DefaultWorkerSelector(
+            WorkerManager workerManager,
+            TaskScheduler taskScheduler,
+            CacheAffinityAssigner cacheAffinityAssigner,
+            SpillBudget spillBudget,
+            EmbeddingModelRegistry embeddingModelRegistry,
+            ToIntFunction<WorkerInfo> localPlacementLoad) {
+        this(workerManager, taskScheduler, cacheAffinityAssigner, spillBudget, embeddingModelRegistry,
+                localPlacementLoad, null);
+    }
+
+    private DefaultWorkerSelector(
+            WorkerManager workerManager,
+            TaskScheduler taskScheduler,
+            CacheAffinityAssigner cacheAffinityAssigner,
+            SpillBudget spillBudget,
+            EmbeddingModelRegistry embeddingModelRegistry,
+            ToIntFunction<WorkerInfo> localPlacementLoad,
+            ClusterCapacity stageCapacity) {
         this.workerManager = workerManager;
         this.taskScheduler = taskScheduler;
         this.cacheAffinityAssigner = cacheAffinityAssigner;
         this.spillBudget = spillBudget;
         this.embeddingModelRegistry = embeddingModelRegistry;
+        this.localPlacementLoad = java.util.Objects.requireNonNull(localPlacementLoad, "localPlacementLoad");
+        this.stageCapacity = stageCapacity;
     }
 
     @Override
@@ -60,7 +91,7 @@ public final class DefaultWorkerSelector implements WorkerSelector {
     @Override
     public WorkerSelector bindStagePlacement(String tenantId) {
         return new DefaultWorkerSelector(workerManager, taskScheduler.bindTenant(tenantId),
-                cacheAffinityAssigner, spillBudget, embeddingModelRegistry);
+                cacheAffinityAssigner, spillBudget, embeddingModelRegistry, localPlacementLoad, measureCapacity());
     }
 
     @Override
@@ -91,25 +122,22 @@ public final class DefaultWorkerSelector implements WorkerSelector {
     public StageResourceGrant computeResourceLimit(
             int parallelism, int concurrentStages, WorkerInfo selectedWorker) {
         java.util.Objects.requireNonNull(selectedWorker, "selectedWorker must not be null");
-        List<WorkerInfo> workers = schedulableWorkers();
-        WorkerInfo target = workers.stream()
-                .filter(worker -> worker.workerId().equals(selectedWorker.workerId()))
-                .findFirst()
-                .orElseThrow(() -> new NoAvailableWorkerException(
-                        "Selected worker is no longer schedulable: "
-                                + selectedWorker.workerId()));
-        int workerCount = workers.size();
+        WorkerInfo target = workerManager.getWorker(selectedWorker.workerId());
+        if (target == null
+                || !java.util.Objects.equals(target.workerExecutionIdentity(), selectedWorker.workerExecutionIdentity())
+                || !taskScheduler.isEligible(MIN_TASK_MEMORY_BYTES, target, null)) {
+            throw new NoAvailableWorkerException("Selected Worker incarnation is no longer schedulable: "
+                    + selectedWorker.workerId());
+        }
+        ClusterCapacity capacity = stageCapacity != null ? stageCapacity : measureCapacity();
         int totalParallelism = Math.max(parallelism * concurrentStages, 1);
-        long clusterMemory = workers.stream()
-                .mapToLong(WorkerInfo::availableMemoryBytes)
-                .sum();
         long perTaskMemory = Math.min(target.availableMemoryBytes(),
-                Math.max(clusterMemory / totalParallelism, MIN_TASK_MEMORY_BYTES));
+                Math.max(capacity.availableMemoryBytes() / totalParallelism, MIN_TASK_MEMORY_BYTES));
         // Split one admitted worker budget between the Velox pool and the
         // serialized producer queue; reserving both at their full size would
         // oversubscribe a worker whose available capacity equals this grant.
         long shuffleBufferBytes = Math.min(perTaskMemory / 4, MAX_SHUFFLE_BUFFER_BYTES);
-        int perTaskThreads = taskCpuSlots(workerCount, parallelism, totalParallelism);
+        int perTaskThreads = taskCpuSlots(capacity.workers(), parallelism, totalParallelism);
         return StageResourceGrant.newBuilder()
                 .setGrantId("unbound-stage-grant")
                 .setCpuSlots(perTaskThreads)
@@ -133,6 +161,17 @@ public final class DefaultWorkerSelector implements WorkerSelector {
                 .findFirst().orElseThrow(() -> new NoAvailableWorkerException(
                         "Local shuffle's original Worker incarnation cannot execute this task"));
     }
+
+    private ClusterCapacity measureCapacity() {
+        var workers = schedulableWorkers();
+        long availableMemory = 0;
+        for (var worker : workers) {
+            availableMemory += worker.availableMemoryBytes();
+        }
+        return new ClusterCapacity(workers.size(), availableMemory);
+    }
+
+    private record ClusterCapacity(int workers, long availableMemoryBytes) {}
 
     private List<WorkerInfo> schedulableWorkers() {
         return taskScheduler.eligibleWorkers(
@@ -212,6 +251,28 @@ public final class DefaultWorkerSelector implements WorkerSelector {
         return taskScheduler.selectWorker(MIN_TASK_MEMORY_BYTES, capable)
                 .orElseThrow(() -> new NoAvailableWorkerException(
                         "Exact-capability workers have insufficient available resources"));
+    }
+
+    @Override
+    public WorkerInfo selectScanWorker(String tenantId, List<String> paths, List<OperatorBinding> bindings,
+            long scanWork,
+            Map<WorkerExecutionIdentity, Double> windowWork) {
+        var candidates = taskScheduler.eligibleWorkersForTenant(
+                MIN_TASK_MEMORY_BYTES, workerManager.getActiveWorkers(), tenantId);
+        var leastLoaded = WorkerPlacementWork.leastLoaded(
+                candidates, bindings, scanWork, windowWork, localPlacementLoad);
+        if (leastLoaded.isEmpty()) throw new NoAvailableWorkerException();
+
+        if (!paths.isEmpty()) {
+            WorkerInfo cacheHit = selectByCachedFiles(leastLoaded, paths);
+            if (cacheHit != null) return cacheHit;
+            if (bindings.isEmpty() && cacheAffinityAssigner != null && cacheAffinityAssigner.hasWorkers()) {
+                WorkerInfo preferred = findPreferred(leastLoaded, cacheAffinityAssigner.preferredWorkers(paths, 3));
+                if (preferred != null) return preferred;
+            }
+        }
+        return taskScheduler.selectWorker(MIN_TASK_MEMORY_BYTES, leastLoaded)
+                .orElseThrow(NoAvailableWorkerException::new);
     }
 
     @Override

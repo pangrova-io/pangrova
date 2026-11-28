@@ -8,17 +8,19 @@ import java.util.Map;
 import org.apache.calcite.jdbc.JavaTypeFactoryImpl;
 import org.apache.calcite.plan.RelOptCluster;
 import org.apache.calcite.plan.volcano.VolcanoPlanner;
+import org.apache.calcite.rel.core.JoinRelType;
+import org.apache.calcite.rel.logical.LogicalJoin;
 import org.apache.calcite.rel.logical.LogicalValues;
 import org.apache.calcite.rex.RexBuilder;
+import org.apache.calcite.sql.fun.SqlStdOperatorTable;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageEdge;
 import org.pangrova.coordinator.query.stage.StageNode;
-import org.pangrova.coordinator.query.execution.dispatch.adaptive.AdaptiveQueryEvaluator;
 import org.pangrova.coordinator.query.execution.dispatch.dag.ExchangeInputTestAccess;
-import org.pangrova.planner.adaptive.AdaptiveQueryConfig;
-import org.pangrova.planner.adaptive.AdaptiveQueryExecutor;
 import org.pangrova.planner.analysis.PlanFragment;
 import org.pangrova.planner.cost.distribution.PangrovaDistribution;
 import org.pangrova.planner.cost.distribution.PangrovaExchangeInput;
@@ -34,7 +36,6 @@ import org.pangrova.shuffle.api.ShuffleLifecycleManager;
 import org.pangrova.shuffle.api.ShuffleRegistration;
 import org.pangrova.shuffle.api.ShuffleServerEndpoint;
 import org.pangrova.shuffle.api.ShuffleServiceAddress;
-import org.pangrova.shuffle.skew.MedianSkewDetector;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -94,9 +95,6 @@ class ShuffleStageHandlerTest {
                 .build(consumer.plan(), graph, List.of(), 1)).isInstanceOf(IllegalStateException.class);
         handler.onFinished(lifecycleEvent);
         assertThat(graph.readyStageEntities(java.util.Set.of(3))).contains(consumer);
-        var advisor = new AdaptiveQueryEvaluator(new MedianSkewDetector(),
-                AdaptiveQueryConfig.ENABLED, new AdaptiveQueryExecutor());
-        assertThat(advisor.evaluateStageCompletion(producer).coalesceResult().coalescedCount()).isOne();
         var externalInputs = ExchangeInputTestAccess.buildExternalCohort(consumer.plan(), graph).stream()
                 .map(org.pangrova.protocol.v2.ExchangeInputBinding::getExternal).toList();
         assertThat(externalInputs).extracting(ExternalShuffleInput::getSourcePartitionStart)
@@ -139,7 +137,7 @@ class ShuffleStageHandlerTest {
                         .setOwnerId("coordinator").setOwnerIncarnation("incarnation").setFencingToken(1).build());
         handler.onFinished(producerEvent);
 
-        ExchangeInputTestAccess.freezeCoalescedInputs(consumer, graph);
+        ExchangeInputTestAccess.freezeAdaptiveInputs(consumer, graph);
         handler.onScheduling(event(consumer, graph, "q-coalesced"));
         assertThat(consumer.physicalTaskCount()).isEqualTo(1);
         assertThat(lifecycle.registrations.get(1).expectedProducerCount()).isEqualTo(1);
@@ -150,8 +148,112 @@ class ShuffleStageHandlerTest {
         assertThat(bindings.get(0).getExternal().getPublicationsList())
                 .extracting(org.pangrova.protocol.v2.ShufflePartitionPublication::getTotalBytes)
                 .containsExactly(16L, 17L, 18L, 19L);
-        assertThatThrownBy(() -> consumer.freezeCoalescedInputs(
-                org.pangrova.planner.api.adaptive.CoalesceResult.NO_OP)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> consumer.freezeShuffleInputs(
+                org.pangrova.coordinator.query.stage.ShuffleInputLayout.DEFAULT))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = JoinRelType.class, names = {"INNER", "LEFT", "RIGHT", "FULL", "SEMI"})
+    void alignedJoinRegistersItsExpandedConsumerCohortAndBindsOnlyPublishedRanges(JoinRelType type) {
+        String queryId = "q-skew-" + type;
+        var lifecycle = new RecordingLifecycle();
+        var handler = new ShuffleStageHandler(lifecycle);
+        var left = stage(2, 1, 100);
+        var right = stage(3, 1, 100);
+        var leftEdge = hashInput(2, "left");
+        var rightEdge = hashInput(3, "right");
+        var source = left.plan().stagePlan().requireLiveFragment().relNode();
+        var leftInput = joinInput(source, leftEdge);
+        var rightInput = joinInput(source, rightEdge);
+        var rex = source.getCluster().getRexBuilder();
+        var field = source.getRowType().getFieldList().get(0).getType();
+        var condition = rex.makeCall(SqlStdOperatorTable.EQUALS,
+                rex.makeInputRef(field, 0), rex.makeInputRef(field, 1));
+        var join = LogicalJoin.create(leftInput, rightInput, List.of(), condition, java.util.Set.of(), type);
+        var consumer = Stage.create(new StageNode(4, new PlanFragment(join, 100, 4),
+                4, "COMPUTE", List.of()), queryId);
+        var downstream = Stage.create(new StageNode(5, plan(), 1, "OUTPUT", List.of()), queryId);
+        var stages = List.of(left, right, consumer, downstream);
+        var graph = StageDAG.create(stages, stages.stream().map(Stage::plan).toList(),
+                Map.of(4, List.of(3, 2), 5, List.of(4)),
+                List.of(rightEdge, leftEdge, edge(4, 5, ShuffleType.SINGLETON, 1)));
+        var owner = org.pangrova.protocol.v2.ExecutionOwnerIdentity.newBuilder()
+                .setOwnerId("coordinator").setOwnerIncarnation("incarnation").setFencingToken(1).build();
+        for (var producer : List.of(left, right)) {
+            var event = event(producer, graph, queryId);
+            handler.onScheduling(event);
+            producer.bindShuffleExecutionIdentity(producer.shufflePlanEpoch(), owner);
+            lifecycle.hotPartition = hotPartition(producer.stageId());
+            handler.onFinished(event);
+        }
+
+        ExchangeInputTestAccess.freezeAdaptiveInputs(consumer, graph);
+        handler.onScheduling(event(consumer, graph, queryId));
+        int hotConsumers = switch (type) {
+            case INNER -> 4;
+            case LEFT, RIGHT, SEMI -> 2;
+            case FULL -> 1;
+            default -> throw new AssertionError(type);
+        };
+        assertThat(consumer.physicalTaskCount()).isEqualTo(hotConsumers + 2);
+        assertThat(lifecycle.registrations.get(2).expectedProducerCount()).isEqualTo(hotConsumers + 2);
+        var actual = new ArrayList<List<Long>>();
+        for (int task = 1; task <= hotConsumers; task++) {
+            var inputs = ExchangeInputTestAccess.build(consumer.plan(), graph, List.of(), task);
+            assertThat(inputs).hasSize(2).allSatisfy(input -> {
+                assertThat(input.getExternal().getSourcePartitionStart()).isEqualTo(1);
+                assertThat(input.getExternal().getPublicationsCount()).isOne();
+            });
+            actual.add(List.of(rangeStart(inputs, "left"), rangeStart(inputs, "right")));
+        }
+        var expected = switch (type) {
+            case INNER -> List.of(List.of(0L, 0L), List.of(0L, 1L), List.of(1L, 0L), List.of(1L, 1L));
+            case LEFT, SEMI -> List.of(List.of(0L, -1L), List.of(1L, -1L));
+            case RIGHT -> List.of(List.of(-1L, 0L), List.of(-1L, 1L));
+            case FULL -> List.of(List.of(-1L, -1L));
+            default -> throw new AssertionError(type);
+        };
+        assertThat(actual).containsExactlyElementsOf(expected);
+        assertThat(ExchangeInputTestAccess.build(consumer.plan(), graph, List.of(), hotConsumers + 1))
+                .allSatisfy(input -> {
+                    assertThat(input.getExternal().getSourcePartitionStart()).isEqualTo(2);
+                    assertThat(input.getExternal().getPublicationsCount()).isEqualTo(2);
+                });
+    }
+
+    private static long rangeStart(List<org.pangrova.protocol.v2.ExchangeInputBinding> inputs, String exchangeId) {
+        var publication = inputs.stream().filter(input -> input.getExchangeId().equals(exchangeId))
+                .findFirst().orElseThrow().getExternal().getPublications(0);
+        assertThat(org.pangrova.protocol.task.CanonicalTaskRequests.validPartitionPublication(publication)).isTrue();
+        if (!publication.hasStartSequence()) return -1;
+        assertThat(publication.getLastSequence()).isEqualTo(publication.getStartSequence());
+        int source = exchangeId.equals("left") ? 2 : 3;
+        var range = hotPartition(source).readRanges().get((int) publication.getStartSequence());
+        assertThat(publication.getTotalBytes()).isEqualTo(range.bytes());
+        assertThat(publication.getManifestSha256().toByteArray())
+                .isEqualTo(java.util.HexFormat.of().parseHex(range.manifestSha256()));
+        return publication.getStartSequence();
+    }
+
+    private static StageEdge hashInput(int source, String name) {
+        return new StageEdge(source, 4, ShuffleType.HASH, List.of(0), name, 4,
+                BatchSerde.BATCH_SERDE_ARROW_BATCH, true);
+    }
+
+    private static PangrovaExchangeInput joinInput(org.apache.calcite.rel.RelNode source, StageEdge edge) {
+        var distribution = PangrovaDistribution.hash(edge.distributionKeys());
+        return new PangrovaExchangeInput(source.getCluster(), source.getTraitSet().replace(distribution),
+                source.getRowType(), new PangrovaExchangeInput.Specification("exchange-input-" + edge.exchangeId(),
+                        edge.exchangeId(), edge.upstreamStageId(), edge.downstreamStageId(),
+                        distribution, edge.partitionCount(), edge.batchSerde(), true));
+    }
+
+    private static ShuffleCommitReceipt.Partition hotPartition(int producer) {
+        long bytes = 150L * 1024 * 1024;
+        return new ShuffleCommitReceipt.Partition(1, 2 * bytes, 2, "%064x".formatted(producer),
+                List.of(new ShuffleCommitReceipt.ReadRange(0, 1, bytes, 1, "%064x".formatted(producer * 10)),
+                        new ShuffleCommitReceipt.ReadRange(1, 2, bytes, 1, "%064x".formatted(producer * 10 + 1))));
     }
 
     @Test
@@ -280,6 +382,7 @@ class ShuffleStageHandlerTest {
     private static final class RecordingLifecycle implements ShuffleLifecycleManager {
         private final List<ShuffleRegistration> registrations = new ArrayList<>();
         private final List<String> commits = new ArrayList<>();
+        private ShuffleCommitReceipt.Partition hotPartition;
 
         @Override
         public ShuffleCapabilityDescriptor capabilities() {
@@ -312,6 +415,9 @@ class ShuffleStageHandlerTest {
             for (int id = 0; id < registration.numPartitions(); id++) {
                 String digest = "%064x".formatted(id);
                 partitions.put(id, new ShuffleCommitReceipt.Partition(0, 16 + id, 1, digest));
+            }
+            if (hotPartition != null) {
+                partitions.put(1, hotPartition);
             }
             return new ShuffleCommitReceipt(publication, registration.expectedProducerCount(),
                     java.util.HexFormat.of().formatHex(registration.expectedProducerSetChecksum()), partitions);

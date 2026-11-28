@@ -57,7 +57,7 @@ class WebUiResourceIntegrationTest {
                 workerManager, new org.pangrova.coordinator.task.CoordinatorTaskTracker());
 
         ResourceConfig config = new ResourceConfig();
-        config.register(new WebUiResource(queryManager, workerManager, null));
+        config.register(new WebUiResource(queryManager, workerManager, null, null));
         config.register(new WebUiStaticResource());
         config.register(JacksonFeature.class);
 
@@ -156,7 +156,7 @@ class WebUiResourceIntegrationTest {
             assertThat(w.get("host")).isEqualTo("localhost");
             assertThat(w.get("healthState")).isEqualTo("ACTIVE");
             assertThat(w.get("memoryPressure")).isEqualTo("NONE");
-            assertThat(w.get("runningTaskCount")).isEqualTo(3);
+            assertThat(w.get("inFlightTaskCount")).isEqualTo(3);
         } finally {
             workerManager.removeWorker("worker-001");
         }

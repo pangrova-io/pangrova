@@ -7,8 +7,8 @@ import java.util.Objects;
 import org.pangrova.query.api.lineage.QueryLineageFact;
 
 /**
- * Immutable journal event for query state transitions.
- * Captures the essential state needed to rebuild a QueryStateMachine on HA recovery.
+ * Immutable admission or outcome fact. Terminal outcome metadata can prove a retired
+ * receipt's result disposition without storing any Flight credentials.
  *
  * @param queryId        unique query identifier (required)
  * @param sql            the SQL text submitted (nullable for non-QUEUED events)
@@ -23,17 +23,36 @@ public record QueryStateEvent(
         String sql,
         String sessionJson,
         String state,
-        QueryLineageFact lineage
+        QueryLineageFact lineage,
+        QueryAcceptance acceptance,
+        QueryTerminalOutcome terminalOutcome
 ) {
     /** Existing producers without enabled governance have no fabricated lineage payload. */
     public QueryStateEvent(JournalEventContext context, String queryId, String sql, String sessionJson, String state) {
-        this(context, queryId, sql, sessionJson, state, null);
+        this(context, queryId, sql, sessionJson, state, null, null, null);
+    }
+
+    public QueryStateEvent(JournalEventContext context, String queryId, String sql, String sessionJson, String state,
+            QueryLineageFact lineage) {
+        this(context, queryId, sql, sessionJson, state, lineage, null, null);
+    }
+
+    public QueryStateEvent(JournalEventContext context, String queryId, String sql, String sessionJson, String state,
+            QueryLineageFact lineage, QueryAcceptance acceptance) {
+        this(context, queryId, sql, sessionJson, state, lineage, acceptance, null);
     }
 
     public QueryStateEvent {
         Objects.requireNonNull(context, "context must not be null");
         Objects.requireNonNull(queryId, "queryId must not be null");
         Objects.requireNonNull(state, "state must not be null");
+        if (acceptance != null
+                && (!"QUEUED".equals(state) || !queryId.equals(acceptance.receipt().queryId()))) {
+            throw new IllegalArgumentException("Acceptance must belong to the initial QUEUED event");
+        }
+        if (terminalOutcome != null && !terminalOutcome.matchesState(state)) {
+            throw new IllegalArgumentException("Terminal outcome must match the query state");
+        }
         if (lineage != null) {
             LineageEventType expected = switch (state) {
                 case "QUEUED" -> LineageEventType.START;

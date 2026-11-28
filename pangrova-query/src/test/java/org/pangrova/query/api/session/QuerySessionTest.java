@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.pangrova.common.json.CanonicalJsonMapper;
@@ -26,12 +27,15 @@ class QuerySessionTest {
         var actor = new UserIdentity("actor", Set.of(), Map.of(), Instant.EPOCH);
         var original = new QuerySession("query", Map.of("catalog", "catalog"), actor, "unresolved",
                 Optional.of(authority), trace, Map.of("catalog.schema.exact", 17L),
-                Map.of("catalog.schema.delta", new SnapshotRange(29, 23)), true);
+                Map.of("catalog.schema.delta", new SnapshotRange(29, 23)), true, OptionalLong.of(19L));
         var copy = original.withTenantId("resolved").withSessionProperties(Map.of("schema", "schema"))
                 .withUserIdentity(actor).withQueryAuthority(authority).withTraceContext(trace);
         assertThat(copy.queryAuthority()).containsSame(authority);
         assertThat(copy.traceContext()).isSameAs(trace);
         assertThat(copy.tenantId()).isEqualTo("resolved");
+        assertThat(copy.publicationRevision()).isEmpty();
+        assertThat(original.withSessionProperties(Map.of()).withTenantId("unresolved").publicationRevision())
+                .hasValue(19L);
         assertThat(copy.queryId()).isEqualTo(original.queryId());
         assertThat(copy.sourceSnapshots()).isEqualTo(original.sourceSnapshots());
         assertThat(copy.sourceIncrementalRanges()).isEqualTo(original.sourceIncrementalRanges());

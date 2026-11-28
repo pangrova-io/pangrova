@@ -12,6 +12,7 @@ import org.apache.paimon.utils.JsonSerdeUtil;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * Factory for creating immutable {@link PaimonTableHandle} and {@link PaimonOutputTableHandle}
@@ -138,13 +139,17 @@ public final class PaimonTableHandleFactory {
         requireWriteDeclarationSupported(table.options());
         String tableLocation = extractLocation(table);
         String tableUuid = extractUuid(table);
-        String schemaFingerprint = PaimonTableIdentity.schemaFingerprint(
-                requireFileStore(table).schema());
+        var fileStore = requireFileStore(table);
+        String schemaFingerprint = PaimonTableIdentity.schemaFingerprint(fileStore.schema());
         String rowTypeJson = JsonSerdeUtil.toFlatJson(table.rowType());
         List<String> primaryKeys = table.primaryKeys();
         List<String> partitionKeys = table.partitionKeys();
-        Long latestSnapshot = table instanceof FileStoreTable fileStore
-                ? fileStore.snapshotManager().latestSnapshotId() : null;
+        Long latestSnapshot = fileStore.snapshotManager().latestSnapshotId();
+        var allocationId = UUID.randomUUID();
+        String suffix = "pg-" + allocationId + "-";
+        var options = fileStore.coreOptions();
+        var stagedFileNames = new PaimonOutputTableHandle.StagedFileNames(allocationId,
+                options.dataFilePrefix() + suffix, options.changelogFilePrefix() + suffix);
 
         return new PaimonOutputTableHandle(
                 schemaName,
@@ -155,7 +160,7 @@ public final class PaimonTableHandleFactory {
                 rowTypeJson,
                 new PaimonOutputTableHandle.Layout(primaryKeys, partitionKeys),
                 new PaimonOutputTableHandle.WriteSemantics(overwritePartition, mode,
-                        latestSnapshot == null ? -1L : latestSnapshot, Optional.empty()));
+                        latestSnapshot == null ? -1L : latestSnapshot, stagedFileNames, Optional.empty()));
     }
 
     /**

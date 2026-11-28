@@ -25,13 +25,16 @@ import java.util.Map;
 import java.util.OptionalLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class CdcTaskPlannerTest {
 
     @Test
     void plansTasksFromCommittedOffsetsAndCurrentLogEnds() {
+        var reader = new Reader();
+        var observed = CdcTaskPlanner.SourceOffsets.observe(reader);
         CdcTaskPlanner.CdcTaskPlan plan = CdcTaskPlanner.plan(
-                stream(), new Reader(), plan(), Map.of(new TopicPartitionOffset("orders", 0), 4L),
+                stream(), observed, plan(), Map.of(new TopicPartitionOffset("orders", 0), 4L),
                 100L, 100L, 2, attempt(), security(), grant(), 4_102_444_800_000L,
                 "00000000-0000-0000-0000-000000000001", 42L);
 
@@ -44,6 +47,8 @@ class CdcTaskPlannerTest {
         assertThat(plan.endOffsets()).containsEntry(
                 new TopicPartitionOffset("orders", 0), 10L)
                 .containsEntry(new TopicPartitionOffset("orders", 1), 12L);
+        assertThat(reader.partitionReads).isEqualTo(1);
+        assertThat(reader.endOffsetReads).isEqualTo(1);
     }
 
     @Test
@@ -51,7 +56,7 @@ class CdcTaskPlannerTest {
         var first = new TopicPartitionOffset("orders", 0);
         var second = new TopicPartitionOffset("orders", 1);
         var plan = CdcTaskPlanner.plan(
-                stream(), new Reader(), plan(), Map.of(first, 4L, second, 12L),
+                stream(), CdcTaskPlanner.SourceOffsets.observe(new Reader()), plan(), Map.of(first, 4L, second, 12L),
                 3L, 3L, 2, attempt(), security(), grant(), 4_102_444_800_000L,
                 "00000000-0000-0000-0000-000000000001", 42L);
 
@@ -63,7 +68,31 @@ class CdcTaskPlannerTest {
                 }));
     }
 
-    private static final class Reader implements CdcSourceReader {
+    @Test
+    void rejectsAnIncompleteSourceObservation() {
+        var reader = new Reader() {
+            @Override
+            public Map<TopicPartitionOffset, Long> endOffsets(Collection<TopicPartitionOffset> partitions) {
+                return Map.of(new TopicPartitionOffset("orders", 0), 10L);
+            }
+        };
+        assertThatThrownBy(() -> CdcTaskPlanner.SourceOffsets.observe(reader))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("partition inventory");
+    }
+
+    @Test
+    void rejectsALogEndBehindTheDurableOffset() {
+        var observed = CdcTaskPlanner.SourceOffsets.observe(new Reader());
+        var behind = Map.of(new TopicPartitionOffset("orders", 0), 11L);
+        assertThatThrownBy(() -> CdcTaskPlanner.plan(
+                stream(), observed, plan(), behind, 100L, 100L, 2, attempt(), security(), grant(),
+                4_102_444_800_000L, "00000000-0000-0000-0000-000000000001", 42L))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Invalid CDC source interval");
+    }
+
+    private static class Reader implements CdcSourceReader {
+        private int partitionReads;
+        private int endOffsetReads;
         @Override public List<SourceRecord> pollBatch(int maxRecords, Duration timeout) {
             throw new AssertionError("Planner must not poll");
         }
@@ -74,11 +103,13 @@ class CdcTaskPlannerTest {
             throw new AssertionError("Planner must not seek");
         }
         @Override public List<TopicPartitionOffset> partitions() {
+            partitionReads++;
             return List.of(new TopicPartitionOffset("orders", 0),
                     new TopicPartitionOffset("orders", 1));
         }
         @Override public Map<TopicPartitionOffset, Long> endOffsets(
                 Collection<TopicPartitionOffset> partitions) {
+            endOffsetReads++;
             return Map.of(new TopicPartitionOffset("orders", 0), 10L,
                     new TopicPartitionOffset("orders", 1), 12L);
         }

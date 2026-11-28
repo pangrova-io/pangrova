@@ -425,10 +425,11 @@ MaterializedArtifact ImmutableArtifactCache::materialize(
         throw std::runtime_error(
             "No registered filesystem for artifact URI: " + object.opaque_uri());
       }
-      std::shared_ptr<facebook::velox::ReadFile> input(fs->openFileForRead(object.opaque_uri()));
+      std::shared_ptr<facebook::velox::ReadFile> input;
       if (task_budget) {
-        input = std::make_shared<resource::TaskBudgetReadFile>(
-            std::move(input), task_budget, folly::CancellationToken{});
+        input = resource::TaskBudgetReadFile::open(*fs, object.opaque_uri(), task_budget, {});
+      } else {
+        input = fs->openFileForRead(object.opaque_uri());
       }
       if (input->size() != object.size_bytes()) {
         throw std::runtime_error("Remote artifact object size mismatch");

@@ -39,7 +39,9 @@ import org.pangrova.coordinator.scheduler.RemoteTaskDispatcher;
 import org.pangrova.scheduler.placement.TaskScheduler;
 import org.pangrova.coordinator.task.CoordinatorTaskTracker;
 import org.pangrova.coordinator.testinfra.SourceFreeNativeWorkerFixture;
+import org.pangrova.scheduler.api.enums.ErrorCategory;
 import org.pangrova.scheduler.api.enums.HealthState;
+import org.pangrova.scheduler.api.exception.TaskDispatchException;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.scheduler.strategies.placement.LoadBalancedStrategy;
@@ -233,15 +235,25 @@ class DistributedScenarioTest {
 
     @Test
     void extraLogicalTaskFailureDoesNotFailTheDagQuery() {
-        String taskId = dispatchAndGetTaskId("resched-q1");
-        dispatchAdditionalTask(taskId, "resched-q1-invalid-plan", true);
-        nativeWorker.consume(endpoint("resched-q1"));
+        String queryId = "resched-q1";
+        String failedTaskId = "resched-q1-invalid-plan";
+        String taskId = dispatchAndGetTaskId(queryId);
+        assertThatThrownBy(() -> dispatchAdditionalTask(taskId, failedTaskId, true))
+                .isInstanceOfSatisfying(TaskDispatchException.class, failure -> {
+                    assertThat(failure.getCategory()).isEqualTo(ErrorCategory.WORKER_FATAL);
+                    assertThat(failure.getCause())
+                            .hasMessageContaining("NATIVE_TASK_FAILED")
+                            .hasMessageContaining("invalid Substrait plan");
+                });
+        org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> {
+            assertThat(taskTracker.hasFailedTask(queryId)).isTrue();
+            assertActualFailure(failedTaskId);
+        });
+        assertThat(queryState(queryId)).isEqualTo(QueryState.RUNNING);
+        nativeWorker.consume(endpoint(queryId));
         awaitTaskFinished(taskId);
-        awaitQueryState("resched-q1", QueryState.FINISHED);
-        org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
-                assertThat(taskTracker.hasFailedTask("resched-q1")).isTrue());
-        assertActualFailure("resched-q1-invalid-plan");
-        assertThat(queryManager.getStateMachine("resched-q1").getError()).isEmpty();
+        awaitQueryState(queryId, QueryState.FINISHED);
+        assertThat(queryManager.getStateMachine(queryId).getError()).isEmpty();
     }
 
     @Test
@@ -380,7 +392,7 @@ class DistributedScenarioTest {
     private static WorkerInfo routingSnapshot(WorkerInfo actual, double score, Instant heartbeat) {
         return new WorkerInfo(actual.workerId(), actual.host(), actual.httpPort(), actual.transportPort(),
                 actual.resultServerPort(), actual.healthState(), actual.memoryPressure(), 1.0 - score,
-                actual.runningTaskCount(), ROUTING_MEMORY_BYTES, heartbeat, score, actual.resourcePoolId(),
+                actual.inFlightTaskCount(), ROUTING_MEMORY_BYTES, heartbeat, score, actual.resourcePoolId(),
                 actual.protocolVersion(), actual.rackId(), actual.dataLocality(), actual.cacheSummary(),
                 actual.capabilityInventory(), actual.workerExecutionIdentity());
     }

@@ -3,12 +3,18 @@ package org.pangrova.coordinator.result;
 import org.pangrova.execution.task.DispatchResult;
 
 import org.pangrova.common.client.result.ResultEndpoint;
+import org.pangrova.types.enums.PangrovaType;
 import org.pangrova.types.value.TypedRow;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.function.Function;
+
+import org.pangrova.query.api.lifecycle.QueryOperation;
+import org.pangrova.common.lifecycle.ResourceCloser;
 
 /**
  * Facade for small coordinator control-plane statement responses.
@@ -24,31 +30,42 @@ public final class CoordinatorResultService implements AutoCloseable {
     private final CoordinatorResultBuffer buffer;
     private final CoordinatorResultWriter writer;
     private final ResultEndpoint transportEndpoint;
+    private final Function<String, QueryOperation> retainOperation;
 
-    public CoordinatorResultService(CoordinatorResultBuffer buffer,
-                                    CoordinatorResultWriter writer,
-                                    ResultEndpoint transportEndpoint) {
+    /** Borrows the transport, batch allocator, and query-operation admission. */
+    public CoordinatorResultService(CoordinatorResultBuffer buffer, CoordinatorResultWriter writer,
+            ResultEndpoint transportEndpoint, Function<String, QueryOperation> retainOperation) {
         this.buffer = Objects.requireNonNull(buffer, "buffer");
         this.writer = Objects.requireNonNull(writer, "writer");
         this.transportEndpoint = Objects.requireNonNull(transportEndpoint, "transportEndpoint");
+        this.retainOperation = Objects.requireNonNull(retainOperation, "retainOperation");
     }
 
     /**
-     * Serializes a bounded DDL/SHOW/DML acknowledgement response and transitions
-     * the control-plane statement to FINISHED.
+     * Publishes a bounded columnar response and transfers its physical query operation to the buffer.
      */
     public DispatchResult dispatchControlPlaneRows(
+            String queryId, List<TypedRow> rows, List<String> columnNames) {
+        return dispatchControlPlaneRows(queryId, rows, columnNames, Map.of());
+    }
+
+    /** Publishes rows with explicitly declared column types. */
+    public DispatchResult dispatchControlPlaneRows(
             String queryId, List<TypedRow> rows, List<String> columnNames,
-            Runnable finisher) {
+            Map<String, PangrovaType> columnTypes) {
         Objects.requireNonNull(queryId, "queryId");
         Objects.requireNonNull(rows, "rows");
         Objects.requireNonNull(columnNames, "columnNames");
-        Objects.requireNonNull(finisher, "finisher");
-        byte[] resultBytes = writer.serializeTypedRows(rows, columnNames);
-        buffer.put(queryId, resultBytes);
-        finisher.run();
-        LOG.debug("event=control_plane_result_complete queryId={} bytes={}",
-                queryId, resultBytes.length);
+        var operation = retainOperation.apply(queryId);
+        CoordinatorResultBatch batch;
+        try {
+            batch = writer.buildBatch(rows, columnNames, columnTypes);
+        } catch (RuntimeException | Error failure) {
+            ResourceCloser.closeAll(failure, operation::close);
+            throw failure;
+        }
+        buffer.publish(queryId, batch, operation);
+        LOG.debug("event=control_plane_result_complete queryId={} bytes={}", queryId, batch.bytes());
         return buildResult(queryId);
     }
 
@@ -61,9 +78,9 @@ public final class CoordinatorResultService implements AutoCloseable {
         return new DispatchResult("coordinator-control", queryId, endpoint);
     }
 
-    /** Retires acknowledgement timers only after accepted query/publication owners drain. */
-    public void stopExpirationScheduling() {
-        buffer.stopExpirationScheduling();
+    /** Releases a failed query's unclaimed result. */
+    public void discardUnopened(String queryId) {
+        buffer.discardUnopened(queryId);
     }
 
     /** Releases retained acknowledgement bytes after the serving transport exits. */

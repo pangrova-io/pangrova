@@ -15,3 +15,7 @@ __ZSt*
 __ZT*NSt*
 __ZGVNSt*
 __ZZNSt*
+# Arrow's inline Status::message fallback can be constant-initialized by a
+# C++20 consumer while Arrow Flight expects writable storage for its initializer.
+__ZZNK5arrow6Status7messageEvE10no_message
+__ZGVZNK5arrow6Status7messageEvE10no_message

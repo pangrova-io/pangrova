@@ -31,7 +31,6 @@ A Pangrova cluster has two roles:
 
 Query data lives in the object store (S3, OSS, MinIO, HDFS, or local filesystem);
 Workers may also use local disk for shuffle and artifact staging; size it for the enabled paths.
-See [Current Capability Status](../getting-started/capability-status.md).
 
 ## Sizing Guidance
 

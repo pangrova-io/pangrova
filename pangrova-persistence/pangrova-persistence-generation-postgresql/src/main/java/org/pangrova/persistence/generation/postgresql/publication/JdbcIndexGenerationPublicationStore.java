@@ -14,6 +14,7 @@ import org.pangrova.generation.codec.format.BuiltInGenerationOutputFormats;
 import org.pangrova.generation.api.publication.GenerationManifest;
 import org.pangrova.persistence.generation.api.publication.GenerationPublicationStore;
 import org.pangrova.generation.api.constants.GenerationOutputTypeIds;
+import org.pangrova.generation.api.exception.GenerationPublicationFenceException;
 import org.pangrova.persistence.catalog.api.exception.MetastoreException;
 import org.pangrova.indexing.api.enums.IndexPublicationMode;
 import org.pangrova.indexing.api.enums.IndexState;
@@ -43,7 +44,6 @@ public final class JdbcIndexGenerationPublicationStore
     private final GenerationTransactionAuthority transactionAuthority;
     private final GenerationExecutionTransactionFence executionFence;
     private final GenerationTransactionInputs inputs;
-    private final GenerationPublicationOutputValidator outputValidator;
 
     /** Composes index publication with current authority, execution fencing and same-connection input reads. */
     public JdbcIndexGenerationPublicationStore(
@@ -52,7 +52,6 @@ public final class JdbcIndexGenerationPublicationStore
         this.transactionAuthority = java.util.Objects.requireNonNull(transactionAuthority, "transactionAuthority");
         this.executionFence = java.util.Objects.requireNonNull(executionFence, "executionFence");
         this.inputs = Objects.requireNonNull(inputs, "inputs");
-        this.outputValidator = new GenerationPublicationOutputValidator(inputs);
         this.dataSource = Objects.requireNonNull(dataSource, "dataSource must not be null");
     }
 
@@ -70,18 +69,31 @@ public final class JdbcIndexGenerationPublicationStore
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try {
-                transactionAuthority.requireCurrent(connection, claimedJob.tenantId(), claimedJob.jobId());
+                var dispatch = transactionAuthority.requireCurrent(
+                        connection, claimedJob.tenantId(), claimedJob.jobId());
                 executionFence.requirePublication(connection, claimedJob.tenantId(), claimedJob.jobId());
                 JobRow job = lockClaimedJob(connection, claimedJob, owner, ownerEpoch, now);
                 List<GenerationOutput> outputs =
-                        outputValidator.loadAndValidate(connection, job);
+                        GenerationPublicationOutputValidator.loadAndValidate(connection, job, dispatch.stageGraph());
                 Aggregate aggregate = aggregate(job, outputs);
+                try (PreparedStatement schemaLock = connection.prepareStatement(
+                        "SELECT pangrova_assert_index_schema_descriptor_available(?)")) {
+                    schemaLock.setString(1, job.artifactId());
+                    schemaLock.executeQuery().close();
+                } catch (SQLException blocked) {
+                    if ("55000".equals(blocked.getSQLState())) {
+                        // The write-ahead schema fence has invalidated this exact
+                        // generation. Do not spin a terminal publication indefinitely.
+                        throw new GenerationPublicationFenceException(blocked.getMessage());
+                    }
+                    throw blocked;
+                }
                 DescriptorFence descriptor = lockDescriptor(connection, job.artifactId());
                 IndexPublicationMode mode = validateDescriptorFence(connection, descriptor, job);
                 long publicationEpoch = nextPublicationEpoch(connection, job.artifactId());
                 GenerationManifest manifest = manifest(job, aggregate, now);
 
-                retireActiveGeneration(connection, job.artifactId());
+                retireActiveGeneration(connection, job.artifactId(), now);
                 insertIndexGeneration(connection, manifest, publicationEpoch);
                 activateDescriptor(connection, descriptor, job, mode, now);
                 if (mode == IndexPublicationMode.ONLINE_REPLACEMENT) {
@@ -228,7 +240,7 @@ public final class JdbcIndexGenerationPublicationStore
             statement.setString(1, indexId);
             try (ResultSet result = statement.executeQuery()) {
                 if (!result.next()) {
-                    throw new IllegalStateException("Index disappeared before artifact publication");
+                    throw new GenerationPublicationFenceException("Index disappeared before artifact publication");
                 }
                 return new DescriptorFence(
                         IndexType.valueOf(result.getString(1)),
@@ -242,7 +254,7 @@ public final class JdbcIndexGenerationPublicationStore
             Connection connection, DescriptorFence descriptor,
             JobRow job) throws SQLException {
         if (descriptor.type() != requiredIndexType(job.artifactType())) {
-            throw new IllegalStateException(
+            throw new GenerationPublicationFenceException(
                     "Index type differs from the artifact generation type");
         }
         int generation = parseGeneration(job.generation());
@@ -254,7 +266,7 @@ public final class JdbcIndexGenerationPublicationStore
                 && hasBuildingGeneration(connection, job, descriptor.generation())) {
             return IndexPublicationMode.ONLINE_REPLACEMENT;
         }
-        throw new IllegalStateException("Index generation CAS fence differs from artifact job");
+        throw new GenerationPublicationFenceException("Index generation CAS fence differs from artifact job");
     }
 
     private static IndexType requiredIndexType(String artifactType) {
@@ -297,11 +309,13 @@ public final class JdbcIndexGenerationPublicationStore
     }
 
     private static void retireActiveGeneration(
-            Connection connection, String indexId) throws SQLException {
+            Connection connection, String indexId, Instant timestamp) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
-                "UPDATE index_generation_manifests SET state='RETIRED' "
+                "UPDATE index_generation_manifests SET state='RETIRED', "
+                        + "retired_at=GREATEST(published_at, ?), retirement_reason='superseded' "
                         + "WHERE index_id=? AND state='ACTIVE'")) {
-            statement.setString(1, indexId);
+            setInstant(statement, 1, timestamp);
+            statement.setString(2, indexId);
             statement.executeUpdate();
         }
     }

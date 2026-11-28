@@ -19,7 +19,11 @@ final class SecurityConfigurationLoader {
     static SecurityConfig load(PangrovaConfiguration config) {
         rejectUnsupportedSecurityKeys(config.toMap());
         String internalSecret = config.getString(CoordinatorOptions.INTERNAL_AUTH_SECRET);
+        String peerKey = config.getString(CoordinatorOptions.QUERY_PEER_KEY);
         if (!config.getBoolean(CoordinatorOptions.SECURITY_ENABLED)) {
+            if (peerKey != null) {
+                throw invalid("coordinator.query-peer-key requires security.enabled=true");
+            }
             return internalSecret == null ? null
                     : SecurityConfig.internalRequestsOnly(internalSecret);
         }
@@ -28,7 +32,8 @@ final class SecurityConfigurationLoader {
             throw invalid("security.auth.type is required when security.enabled=true");
         }
         AuthenticatorFactory factory = CoordinatorAuthenticatorFactories.select(type);
-        return new SecurityConfig(factory, internalSecret, authenticatorProperties(config.toMap(), factory));
+        return new SecurityConfig(java.util.Optional.of(factory), internalSecret,
+                authenticatorProperties(config.toMap(), factory), peerKey);
     }
 
     private static Map<String, String> authenticatorProperties(

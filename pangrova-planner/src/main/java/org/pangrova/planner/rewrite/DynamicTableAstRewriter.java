@@ -156,7 +156,10 @@ public final class DynamicTableAstRewriter {
         return new SetQuery(
                 setQuery.queries().stream()
                         .map(query -> rewriteQuery(query, cteNames, mapping)).toList(),
-                setQuery.operators());
+                setQuery.operators(),
+                setQuery.orderBy().stream().map(item -> rewriteSortItem(item, cteNames, mapping)).toList(),
+                rewriteOptional(setQuery.limit(), cteNames, mapping),
+                rewriteOptional(setQuery.offset(), cteNames, mapping));
     }
 
     private CteQuery rewriteCteQuery(CteQuery cteQuery, Set<String> outerNames,

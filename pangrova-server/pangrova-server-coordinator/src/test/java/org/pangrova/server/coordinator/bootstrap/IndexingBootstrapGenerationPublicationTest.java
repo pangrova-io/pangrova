@@ -103,7 +103,7 @@ class IndexingBootstrapGenerationPublicationTest extends ContainerTestBase {
                 ModelAuthorityFixtures.artifacts().tabularPublications(dataSource));
         executions.takeOwnership(job.tenantId(), job.jobId(), "coordinator-publication", 1);
         try (var publisher = new DurableGenerationPublisher(builds,
-                router, executions.ownership("coordinator-publication"))) {
+                router, executions.ownership("coordinator-publication"), ignored -> {})) {
             publisher.start();
             await().atMost(Duration.ofSeconds(10)).untilAsserted(() ->
                     assertThat(builds.findJob(job.tenantId(), job.jobId()).orElseThrow().state())

@@ -17,8 +17,6 @@ The diagrams and interface sketches below are explanatory, not generated wire/AP
 contracts or evidence that all statement forms are supported. Native Flight serves
 shuffle and results; the Worker JVM is not a result/shuffle batch relay. The canonical
 v2 definitions and current JNI exports take precedence over historical snippets.
-Read [Current Capability Status](../getting-started/capability-status.md) for default
-no-op providers, absent task registration, and qualification limits.
 
 ## Query session ownership
 
@@ -47,18 +45,214 @@ SDK, Coordinator, Worker, Client DTOs or provider implementations.
 
 ### Query submission and execution completion
 
-The HTTP submission exchange suspends while the query waits for readiness.
-Concurrent retries with the same authenticated principal, idempotency key and
-request fingerprint observe the same owned receipt. They release their HTTP
-threads while the original request is pending, and cancelling an observer
-does not cancel the admitted query.
+Every authenticated HTTP submission returns a durable acceptance receipt. The candidate query first
+passes admission and execution-owner acquisition, then atomically commits its initial
+`QUEUED` journal fact with principal, key digest, request fingerprint, lineage, and a
+`QUEUED`/`PENDING` acceptance receipt. PostgreSQL locks the exact execution grant
+and checks its expiry against the database clock after acquiring the lock, in
+the same statement as the journal insert. The grant's owner, incarnation, and
+fencing token must all match. Any resulting lineage commits in the journal
+transaction. Only that durable acceptance publishes the query into the
+executable registry. If the predecessor's accepted insert committed before
+takeover, replay of that exact event can return the original receipt.
+An accepted query continues under the query and task deadlines after its
+receipt is returned. A request without an idempotency key receives a fresh
+journal identity derived from its query ID. A supplied key addresses retries
+in the principal's client-key namespace.
+The durable path enqueues one dispatch callback. Status and Flight publish
+result readiness. A query cancelled in the queue can release its slot before
+the callback is reached, and the callback then skips dispatch. A callback
+that has started owns a dispatch operation until its execution and outcome
+publication exit.
+The receipt includes the issuing Coordinator
+incarnation and HTTP origin. Matching retries return the original route and query ID
+without a second execution; different fingerprints fail with HTTP 409.
+Unknown commit outcomes reconcile the same authoritative row. Acceptance survives
+restart and remains for at least ten minutes after the later of acceptance or
+terminal completion. The expiry sweep and idempotency-key reuse retain the
+receipt and task facts while the execution anchor exists, including during
+takeover of an expired lease. Expired acceptance sweeping runs on the retention cadence,
+independently of physical completion retries and drain. A failed sweep is logged and
+retried on a subsequent retention pass. Pending candidates reserve drain capacity before blocking admission work;
+cancellation requests are recorded until acceptance and registration complete, and a
+replay releases its candidate admission and throttle reservations. Cancelling an observer does not cancel the admitted query.
+
+Successful `USE BRANCH` returns `branch_selection` in the terminal state.
+The same selection is stored in the terminal journal fact and available from
+receipt recovery. A connection applies the selection once when observing
+successful completion and sends the route in later query session properties.
+
+Shared ingress can authenticate a user and relay a live query control to the
+incarnation in its signed receipt. It uses one bounded async HTTP call. The
+owner validates the delegated principal, destination incarnation, command and
+deadline, then serves its existing local state or profile or applies the
+cancellation. The ingress verifies the owner's status code and response bytes
+before relaying them. Route resolution uses the receipt, so waiting and profile
+operations avoid coordinator-registry, journal, and audit lookups. Explicit
+history reads use the ingress's existing durable lookup. Startup binds the HTTP
+listener before membership registration, so the registry records the actual
+port and the same process incarnation used in the receipt. The listener serves
+requests once Coordinator initialization completes.
+
+When an owner cannot serve a signed receipt, the client can read its durable
+outcome through another configured ingress or the same ingress after restart.
+The recovery endpoint authenticates the principal and signature before accessing
+PostgreSQL. One indexed statement checks the exact keyed acceptance, latest
+terminal fact, and absence of the execution anchor in one snapshot. An existing
+anchor keeps the recovery pending even after its lease expires. This lets the
+successor finish Worker exits, write reconciliation and physical cleanup before
+reporting a recovered terminal state. The regular live path continues to use the
+owner projection without a journal read.
+
+A recovered outcome includes durable drain evidence and omits the live status
+version and Flight endpoint. `NONE` identifies a successful resultless
+execution. `UNAVAILABLE` identifies successful execution whose stream can
+no longer be served.
+The SDK retains a recovered outcome on its query handle and does not resubmit
+the SQL.
+
+Query planning, scheduling, running and finishing states live in the owning
+Coordinator's status projection. The query journal commits admission and the
+terminal outcome, including its lineage when configured. The JDBC journal
+commits each owned lineage fact in the query event transaction. The observer
+publishes lineage for an in-memory journal through its configured emitter.
+An explicit historical
+lookup can show `QUEUED` until the outcome commits. Active status, result
+readiness and operator progress come from the live owner.
+
+Scheduled materialization refreshes register with the definer's identity and
+freeze START lineage before catalog resolution. An early planning failure
+can then persist its START and failure facts before retiring the execution.
+
+Nonterminal Worker reports update the issued attempt, scheduling metrics and
+speculation timestamps in memory. The receiver compares the issued grant
+against the locally held grant for ordinary SQL progress. It transfers no
+intermediate report to the journal. Durable records still include the exact
+pre-HTTP task issuance, synchronous terminal reports and recovered exit receipts.
+
+The query journal supports point lookups for retained query facts and signed receipts.
+Recovery checks journal presence for only the claimed execution IDs. The
+bounded statement probes the query and task indexes and returns IDs that have
+evidence. It does not load historical plans, sessions, or report payloads to
+construct an in-memory execution. Write reconciliation can defer an execution
+before it is admitted for Worker drain. An exact claim with no query or task
+evidence and no local projection can be released immediately.
+
+Coordinator-hosted statements bind their original process incarnation to the
+existing fenced work reservation. The expiry index excludes anchors with
+unproven local work. On restart, the exclusive, persistent admission directory
+proves which incarnations have exited. A single indexed startup update
+synchronizes with their existing execution anchors, including a reservation
+still committing in PostgreSQL after the JVM exits. A surviving original
+Coordinator also records proof at actual local drain under its exact original
+grant. This works after the lease expires and after heartbeat renewal evicts
+the grant from the process cache. If the grant expires before the retirement
+transaction, the original Coordinator records its exit proof and leaves the
+journal facts available to the successor. A successor applies the remaining
+drain gates before returning the tenant slot.
 
 The bounded asynchronous submission executor runs SQL planning and starts the
 distributed DAG. The DAG publishes its OUTPUT endpoint after Worker acknowledgement
-and settles the execution through its completion stage. A running query does not
-hold a submission thread while its Workers produce or finish results. The
+and settles the execution through its completion stage. Each DAG dispatch cohort
+commits the exact binary Worker admission seals and control addresses before
+sending HTTP requests. PostgreSQL records up to 16 attempts in one
+execution-fenced task-journal statement. The sender uses the frozen requests
+for HTTP admission. Speculative copies and dead-Worker retries use the same
+pre-send fence for their newly bound attempt. Failure to persist that fence
+prevents transport entry. An attempt that may have crossed the HTTP boundary
+still needs its exact drain receipt.
+
+An acquired recovery claim starts an off-path scan of up to 16 outstanding
+predecessor seals at a time, including terminal and orphaned executions. The
+Coordinator sends the compact seals concurrently. It routes to the Worker that
+owns the admission domain when the registry identifies an exclusive successor.
+Only a canonical exit-only receipt whose attempt matches the seal is retained.
+The journal writes a page of verified receipts in one statement under the
+current claim. A later attempt or takeover skips the proofs already recorded.
+HTTP 202, an unavailable Worker, and mismatched evidence leave the attempt
+pending. Pending attempts yield to later pages before they are checked again.
+Recovery admits one page per execution and up to four across executions.
+The cleanup pool reads and records journal pages. Worker HTTP responses settle
+asynchronously, so a slow Worker does not occupy a cleanup thread. A successor
+claim waits for any in-flight page for the same execution, and the journal
+fence rejects receipts from a superseded claim.
+The original live Worker can prove exit for an expired exact attempt absent
+from its admission registry. It checks for an owner and advances the admission
+deadline cutoff under the same lock. A late delivery of that request remains
+ineligible after a wall-clock rollback. An expired attempt with a registered
+owner still requires actual drain evidence.
+
+Before starting a Coordinator-owned statement, the statement dispatcher
+reserves its exact execution grant in PostgreSQL. The update locks the
+execution anchor and samples expiry after acquiring the lock. Takeover
+preserves this reservation. It covers local Flight publication and control
+work that may have catalog effects. Ordinary relational statements and Native
+DML continue through fenced Worker issuance and the write journal without a
+Coordinator statement reservation.
+
+After the last receipt page, PostgreSQL locks the exact successor grant and
+checks for a matching issuance and exit receipt for each observed attempt.
+An admitted query with no Worker issuances, no unmatched reports and no
+Coordinator statement reservation can also be retired. A late predecessor
+cannot acquire either issuance boundary after takeover. The transaction
+closes issuance and records a terminal event if one is still needed. A
+durably committed catalog write ends as `FINISHED`. A drained read or
+unpublished write ends as `FAILED`. An existing Coordinator statement
+reservation requires separate exit proof. The successor keeps the anchor
+and tenant slot in this case. A committed write row remains available while
+the SQL execution is active, even after deferred work acknowledges it.
+
+Before publishing a terminal state in remote Shuffle mode, the Coordinator
+seals cleanup with one database call. The function locks the exact live execution
+anchor and then reads the scope in a fresh PostgreSQL snapshot. A registration
+that finished while the seal waited is included in the owner check. An expired
+or superseded grant stops local terminal publication. [PostgreSQL function volatility](https://www.postgresql.org/docs/16/xfunc-volatility.html)
+
+Terminal Worker reports and query outcome inserts use the original execution grant in
+the same statement that records the event. Journal retirement also checks that
+grant. Local retirement seals journal admission and waits for its admitted
+writers to exit. PostgreSQL then takes the admission and exact anchor locks,
+and releases the execution anchor and slot together with journal retirement in
+one transaction. A handoff retains the journal while recovery owns the
+reservation. A former Coordinator cannot add a late Worker fact, rewrite the
+successor's terminal outcome, or purge the successor's evidence. For a proven
+predecessor without a live local projection, remote Shuffle must remove its
+scope and record convergence under the terminal seal. The fenced retirement
+then removes the predecessor's reader pins, task journal, acknowledged write
+record when eligible, anchor, terminal seal and tenant slot in one transaction. Keyed query receipts
+retain their journal retention. Query pin admission checks the live, fresh
+execution anchor in the existing generation lock statement.
+
+The collector has no idle database polls. Releasing the query's resources still
+requires complete attempt coverage and the result and Shuffle drain gates.
+
+A running query does not hold a submission thread while its
+Workers produce or finish results. The
 execution operation remains admitted through terminal callbacks, while task and
 result owners account for their own physical drain.
+
+The Coordinator parses SQL into one immutable syntax tree with named-relation
+source positions. Statement dispatch, view lookup, snapshot selection, the
+authenticated planner, and retrieval analysis use that tree. The syntax cache is bounded and keyed by
+exact SQL text so aliases, quoted names, comments, and source positions retain
+their original spelling. View replacement uses source positions and parses the
+generated text. Published Dynamic Tables substitute the relation in the AST. The compiler resolves
+explicit snapshot selectors before opening the authenticated schema and
+verifies that each selected source has a bound snapshot. Catalog, publication,
+snapshot, and policy decisions remain query-local. Calcite character types and
+literals use UTF-8 to preserve the text passed to Substrait and Arrow Flight.
+
+PostgreSQL returns the authenticated tenant's materialization publication revision
+with the freshly acquired execution anchor. The Coordinator binds the numeric revision
+explicitly to the query compiler. Planning uses it to share one immutable tenant directory
+across Dynamic Table resolution and optional
+materialized-view substitution. An unchanged revision reuses the local directory.
+The first query that needs a newer directory loads the revision and publications
+in one PostgreSQL statement. PostgreSQL advances the revision in the same
+transaction that changes the materialization header. Queries without a durable
+admission observation obtain an authoritative snapshot before resolving names.
+Selected generations still require durable reader leases before planning can
+expose them, and logical table authorization continues to apply.
 
 Literal INSERT and INSERT OVERWRITE resolve the target metadata once during
 statement admission. Column order, FILE MIME validation, managed-file validation,
@@ -73,11 +267,50 @@ the statement publishes its control-plane result. Synchronous callers await the
 same completion. Cancellation and the existing deadline settle the owned
 execution and leave physical cleanup with the task and query owners.
 
+If a Paimon write is fenced before catalog publication begins, the abort
+registers a staging cleanup obligation on the original journal fingerprint.
+The abort proves that the output can never become visible. The existing
+Worker and Coordinator exit check records the exact execution token that
+proves staging has stopped. Local retirement can record the same proof from
+its completed drain. The proof and staged object receipts survive execution
+retirement together. The same transaction makes observed staging eligible
+for a separate cleanup lease. Query retirement can return its task, Shuffle,
+and tenant resources after the handoff. File release has its own completion
+record for the exact fingerprint. Coordinators subscribe before discovering
+pending work, then claim by committed notification or lease deadline. An
+empty queue does not require periodic database queries. A Coordinator that
+cannot access the original namespace defers its own claim while giving peers
+immediate eligibility. After interruption, another claim can start when the
+lease expires, including after retirement of the execution anchor.
+
+For observed SDK files in the same Linux local storage namespace, the cleanup
+holder verifies identity before unlinking.
+The worker receipt binds the namespace to the kernel boot identity and the
+database directory inode. Recovery verifies that binding before treating any
+missing path as absent, and uses directory-relative operations that do not
+follow links beneath the database directory. A successor can repeat a partial
+deletion under its new claim. The completion record covers only reported files.
+Native physical output, external roots, unreported files, and an unavailable
+original storage namespace retain the staging obligation.
+
 ![End-to-end query execution: client submission, Coordinator parse/plan/admit/schedule, canonical task binding, Worker JVM and Native execution, Output Worker result stream, and Coordinator terminal handling](../../website/static/img/diagrams/query-execution-flow.svg)
 
 Note: the diagram above shows only the result path. Data from the Compute Workers is aggregated to the Output Worker via Arrow Flight Shuffle, and the Output Worker then streams the results back to the Client.
 
 ### Live split enumeration and published reads
+
+SQL `CHANGES BETWEEN SNAPSHOT` binds its range during authenticated compilation.
+The ordinary distributed planner applies projections, filters, ordering and limits
+to the selected connector delta. Workers read the split plan and stream results
+through Native Flight. Connectors validate the selected upper snapshot and reject
+an unsupported append range before returning splits.
+
+For direct Paimon SQL, one pass validates each append snapshot and immediately
+enumerates its delta manifests. The pass opens a single manifest at a time per
+query and checks the remaining stage capacity before retaining its files or
+opening the next object. The upper snapshot is reused for enumeration and read
+fresh at the final identity check. The SDK still supplies table authorization,
+manifest predicates, and split grouping.
 
 `QuerySplit` in `pangrova-query` owns the immutable encoded split plus cache-affinity
 locations. Enumeration and dispatch consume this value without depending on a nested
@@ -90,6 +323,9 @@ Generation service discovery. A provider failure, cancellation or authorization
 rejection propagates to the query. A real table scan without its configured catalog
 registry fails; a source-free plan can legitimately have no connector splits.
 Whole-table OVERWRITE/UPDATE enumeration keeps its unpruned path.
+Calcite table copies that share one query-local read binding also share
+the ownership check for that binding. Preparation revalidates it before
+enumeration and again before dispatch.
 For a bound Iceberg data scan, the split manager validates the chosen snapshot and
 opens the file plan on the first batch request. Full, historical and incremental
 scans convert only the splits requested by the consumer. The Coordinator applies a
@@ -97,6 +333,53 @@ single 30-second elapsed-time budget and a 100,000-split cap across the stage's
 sources. A batch that arrives after the deadline or would exceed the cap fails the
 stage and closes the source. An empty binding is still validated against its
 admitted table identity before returning zero splits.
+
+An Iceberg snapshot's existing file count and byte total estimate the available
+scan parallelism. In parallel live SQL scan stages, the split source groups
+adjacent Parquet row groups from manifest `split_offsets` using the table's
+`read.split.target-size` (128 MiB by default). A file with usable boundaries
+produces disjoint byte intervals under one data object and snapshot identity.
+Each interval has its own split ID and carries the same position-delete
+descriptors. Native applies deletes using file-global row positions. Files
+without usable offsets, single-task result stages, writes and artifact-backed
+reads retain whole-object units. The planner derives the ranges entirely from
+manifest metadata. Scalar index pruning batches metadata lookups for distinct paths
+and evaluates an immutable file once before applying its decision and hints to
+the file's ranges. Each Iceberg data range carries the whole object length
+from the same snapshot. The Worker checks the interval against that length
+and passes it to the configured S3 reader, which can read the footer and
+data ranges without an object HEAD per split. The Native S3 reader records
+SDK attempts, retries and response body bytes in the exact task's read
+statistics. The Worker resolves the catalog revision and its tenant-scoped
+S3 settings before JNI. Scoped readers reuse one configuration across the
+task's splits. Native qualifies data, metadata and delete objects against
+that warehouse, and keys S3 clients and buffered data by the storage
+authority. Worker-local qualified inputs continue to verify the stored bytes
+against their exact size and digest.
+
+Paimon historical read binding uses the selected snapshot object to resolve the
+exact schema and locate its statistics. It reads the snapshot object directly
+for initial selection and for the final identity check before publishing the
+binding. The final check observes the file again so that snapshot expiration or
+replacement during binding invalidates the selection.
+
+The Coordinator passes the remaining split capacity and the same monotonic
+deadline to the selected connector. Paimon checks the physical file count for
+append and incremental scans, and the SDK split count for merge reads, before
+allocating the connector split list or registering SDK readers. Conversion
+rechecks the deadline and query lifetime while visiting files. The pinned
+Paimon batch scanner checks cancellation and the deadline on manifest entry
+admission, including the underlying scanner for data-evolution reads. The
+connector retains the SDK's data-evolution wrapper and query authorization.
+It submits one window of at most 32 manifest reads per source, constrained by
+the configured scan parallelism, and consumes that window before submitting
+another. Full scans reconcile file identities across all windows so a deletion
+in a later manifest also removes an earlier addition. Append, primary-key and
+data-evolution scans share this submission bound. Each planning table uses
+its query-owned FileIO, which rejects serialization because its cancellation
+and read budget belong to the running query. The connector rejects more
+than one million candidate entries or an incremental range spanning more than
+one million snapshots. A rejected scan fails as a whole.
 The direct JDBC catalog reads the metadata pointer during load. Catalog wrappers
 that can return cached SDK tables refresh that observation before validation.
 
@@ -161,9 +444,9 @@ rebuilding a duplicate split list.
 The SDK-to-wire normalizer walks only Protobuf fields whose descriptors can
 contain Fetch, hash join or merge join relations, including subqueries. It
 reuses unchanged messages and rebuilds the ancestors of each corrected relation.
-Native task admission retains typed Bloom index hints and Paimon deletion-vector
-references for the in-process scanner. The Lance read unit stays encoded for its
-Rust FFI call.
+Native task admission retains typed Bloom and single-column B-tree index hints
+and Paimon deletion-vector references for the in-process scanner. The Lance read
+unit stays encoded for its Rust FFI call.
 
 A direct projection of distinct table columns uses the standard Substrait
 ReadRel output mapping. The Native scan assigns the selected columns and
@@ -176,6 +459,11 @@ in the scan. The filter checks the predicate and discards its hidden input
 columns before downstream operators. Split pruning uses the original Calcite
 filter. The SQL authorization check
 still covers the logical relation. [Trino projection pushdown](https://trino.io/docs/current/optimizer/pushdown.html#projection-pushdown) · [Velox table scan assignments](https://facebookincubator.github.io/velox/develop/operators.html#tablescannode)
+
+For a set expression, the planner applies trailing sorting and pagination to
+the combined relation. An offset without a limit produces a Substrait Fetch
+with a canonical offset expression and an unset count. The Worker applies
+the offset once in the final pipeline.
 
 For a Parquet scan that requests at most half of the canonical top-level
 columns, the Native reader uses a 64 KiB speculative footer read. It can
@@ -202,6 +490,13 @@ encoding the plan. The output stage validates declared logical result types.
 Live stage preparation retains split source descriptors for both enumeration and
 artifact binding. It rechecks the captured owners after connector I/O and before
 dispatch. The frozen descriptors preserve the original snapshot and predicates.
+Ordinary SQL resolves those descriptors during stage preparation. Reranker analysis
+resolves them earlier only when a reranker needs to bind indexes.
+
+Protected relational exports bind Exchange inputs on the compiled Substrait
+messages. Binding follows producer order and uses the bound producer's physical
+output schema. Each stage is encoded once after binding. Graph construction and
+replay validate the serialized producer and consumer contracts.
 
 A projection and an immediately adjacent filter can prove that a generated
 column has no effect on expressions or emitted fields. This skips its
@@ -259,12 +554,17 @@ A controlled read checks the current catalog deployment once when matching its p
 
 A live read with an eligible runtime filter starts the build and releases probe
 enumeration on build completion, deadline, or query termination. One leaf shuffle
-producer can collect ranges for up to four BIGINT equality columns. The Coordinator
-unions the ranges per ordinal across the complete winning build cohort. It applies
-the domains together when the probe's Iceberg snapshot, schema, source and field
+producer can collect ranges for up to four same-width signed integer equality
+columns. The Coordinator merges each winning report into a bounded union and
+shares the sealed union once the cohort completes. It applies the domains
+together when the probe's Iceberg or Paimon snapshot, schema, source and field
 identities match. The join still evaluates the full condition for each matching row.
-Missing evidence or a timeout releases an unfiltered probe. A late report leaves
-the already issued probe ranges unchanged.
+Missing evidence or a timeout releases the probe. Complete evidence that arrives
+after release can still constrain splits when it arrives before the probe's
+enumeration begins. If the matching generation enumerated without the domains,
+the Coordinator can deliver the completed predicates to that exact running
+attempt. The Native scan observes updates between batches. The final Join
+continues to evaluate the complete condition.
 
 ### 2.3 Custom Optimization Rules
 
@@ -419,9 +719,13 @@ Key performance points:
 - Worker-to-Worker shuffle uses Native Arrow Flight and serialized pages; it does not cross JNI per batch
 - The downstream Native ExchangeSource reads the Flight stream directly into Velox
 
-### 3.3 Output Task Interaction Protocol (the Coordinator never participates in data processing)
+### 3.3 Output Task Interaction Protocol (the Coordinator never executes relational data-processing operators)
 
-The Coordinator executes no data-processing operators. All Output Stages (including Gather, Merge, Limit, and Final Aggregation) run on a dedicated Output Worker. The Coordinator acts purely as a proxy, redirecting the Client to the Output Worker's Arrow Flight endpoint.
+The Coordinator executes no relational data-processing operators. Output Stages
+(including Gather, Merge, Limit, and Final Aggregation) run on a dedicated Output
+Worker, and the Coordinator redirects streaming clients to that Worker's Arrow
+Flight endpoint. Bounded control-plane statement results use the Coordinator's
+separate result source; resultless statements publish no endpoint.
 
 Eligible global counts and integral minima and maxima reduce on the parallel scan tasks. The final stage gathers the scalar results and merges them. Each scan task evaluates the original aggregate inputs and filter masks.
 
@@ -435,7 +739,7 @@ Eligible grouped counts and integral minima and maxima also reduce on scan tasks
 
 | Principle | Description |
 |------|------|
-| Coordinator zero data processing | The Coordinator only performs scheduling and state management; it never touches any RecordBatch |
+| Coordinator zero relational data processing | The Coordinator schedules and manages state; bounded control-plane rows use a separate result source rather than a relational Output Stage |
 | Output Task = ordinary Task | The Output Task's Substrait Plan contains Exchange(Gather) + Final operators, but no TableScan |
 | Unidirectional data flow | Compute Worker → Output Worker → Client; there is no reverse data flow |
 | End-to-end backpressure propagation | Client consumes slowly → Output Worker pauses → Compute Worker pauses |
@@ -462,7 +766,9 @@ A more complex example — `SELECT c.name, SUM(o.amount) FROM orders o JOIN cust
 
 #### 3.3.3 REST API Definitions
 
-> Note: this section is the authoritative specification of the Control Plane (REST/JSON). The Protobuf snippets that appear here serve only as design notes for the internal Java↔Native path or for the `.proto` definitions in `pangrova-protocol`. The final network API (Coordinator ↔ Worker) is JSON/HTTP; all Protobuf definitions should be kept in sync with the `pangrova-protocol` repository.
+> Public query control uses HTTP with JSON. Worker task dispatch, status
+> reports, runtime filter delivery, and cancellation carry typed Protobuf
+> messages. Their schemas live in `pangrova-protocol`.
 
 **Service overview**
 
@@ -474,9 +780,12 @@ Coordinator exposes (HTTP/REST):
 Worker exposes (HTTP/REST):
 - `POST /v1/task` SubmitTask
 - `DELETE /v1/task/{taskId}` CancelTask
-- `POST /v1/task/{taskId}/dynamic-filter` InjectDynamicFilter
-- `POST /v1/task/upstream-commit` NotifyUpstreamCommit
+- `POST /v1/task/{taskId}/dynamic-filter` accepts a bounded Protobuf row-filter update for an exact attempt
 - `GET /v1/health` HealthCheck
+
+Blocking Shuffle readers use the exact upstream publication in their
+admitted input binding. Direct Flight inputs carry the producer cohort and
+partition tickets.
 
 Worker -> Coordinator (HTTP/REST):
 - `POST /v1/task/status-report` ReportTaskStatus
@@ -504,8 +813,59 @@ evidence cannot be persisted and later become unreadable. The submission
 factory validates graph size before returning a dispatch specification, and
 all build insertion paths validate again before SQL mutations, including
 caller-owned transactions. Domain record construction alone is not persistence
-admission. Stored graph format 2, immutable bindings, owner/fence validation
-and canonical replay comparison remain unchanged.
+admission. Graph format 4 binds the planner's partition-local proof and the exact
+splittable input identities to the immutable stage plan and exchange shape.
+Replay checks the allowed sides against the saved Substrait join in the same
+pass that verifies its exchange schemas.
+On submission, the initial graph write and exchange index share the same
+computed digest. Claim, registration and publication transactions carry the
+digest verified by their existing authority read into exchange validation.
+Registration uses one locked lookup for the original allocation, source
+snapshot and physical producer count, alongside the existing graph index check.
+
+The durable DAG reuses the live byte-based coalescer and skew selector for
+eligible HASH inputs. Before allocating the output or issuing a lease,
+PostgreSQL freezes the physical task layout under the job lock. The transaction
+retires surplus pages after a reduction or appends pages and increments the
+admitted count after an expansion. The original submission identity used for
+idempotent admission is preserved. Recovery restores the same task ordinals
+and range certificates under the current owner even if adaptive settings
+change. Downstream partitions retain their original shape.
+
+Exchange finalization commits a compact digest of each available batch range
+index. A freeze reads the compact input receipts once to verify complete
+coverage and every required pair of certified ranges. The claims read their
+certificates in the existing page lookup and verify the exact Worker binding.
+Physical producer completion and finalization use the registered task count.
+
+Finalization stores the original provider message in a PostgreSQL binary column.
+The same insert binds its SHA-256 to the compact receipt. PostgreSQL checks the
+digest when a relational producer succeeds and protects the winning row until job
+retirement. The first finalization insert checks the exact contiguous cohort of
+successful producer pages in PostgreSQL using only page metadata. Claims and
+recovery use that committed proof without transferring or rehashing producer
+reports. An idempotent finalization conflict compares the retained provider bytes
+and partition evidence. First finalization and retries lock only the exact
+registration and its pinned source snapshot.
+
+Relational export stores each producer-to-consumer dependency once in the stage
+graph and its exchange index. A consumer page is eligible only after its incoming
+exchanges have finalized. Exact claim and issued-lease preparation therefore skip
+page dependency and split reads for those consumers. Root stages still read their
+frozen scan splits, and artifact reductions still read their ordered page inputs.
+
+Durable graph startup validates the complete exchange index. Dispatch then locks
+one exact page window under the current authority and either restores the stored
+Native winner or prepares a new lease for each partition. Both operations use the
+same page read. A blocked window or a failed preparation issues no new leases.
+Claims and issued-lease preparation read only the immutable registrations and
+finalized receipts attached to the current stage. Producer completion locks only its output
+allocation and exact issued page. Each consumer verifies the partition range's
+manifest digest, committed sequence, row count, and byte count against the
+finalization receipt for its incoming edge. Allocation recovery fetches just
+the registration for the requested edge. Registration returns its committed
+original issuer to the active DAG, and the finalize callback reuses that immutable
+registration while PostgreSQL validates current authority and producer winners.
 
 Generation values live in `pangrova-generation-api`; they do not own serialization. Canonical graph,
 exchange and source-split codecs live in `pangrova-generation-codec`. Submission construction,
@@ -538,87 +898,100 @@ change publication authority, lock order, or caller-owned transaction boundaries
 Arrow Flight (data plane):
 - Shuffle data pull + Client result pull (gRPC streaming)
 
-**Query API (Coordinator REST)**
+**Query API (Coordinator REST, v2)**
+
+Version-checked REST requests send `X-Pangrova-Api-Version: 2`. The Coordinator
+accepts version 2 only. Query submission, live state, cancellation, and result
+retrieval share the explicit result-disposition contract.
 
 Submit query `POST /v1/query/submit`
 
 Request:
 ```json
 {
-    "sessionId": "session-123",
-    "sql": "SELECT * FROM orders",
-    "sessionProperties": {"catalog": "iceberg"},
-    "options": {
-        "maxExecutionTimeMs": 1800000,
-        "maxMemoryBytes": 34359738368,
-        "resourceGroup": "interactive",
-        "explainOnly": false
-    }
+    "query": "SELECT * FROM orders",
+    "session_properties": {"catalog": "iceberg", "schema": "analytics"}
 }
 ```
 
 Response:
 ```json
 {
-    "queryId": "query-20260206-001",
-    "state": "RUNNING",
-    "resultEndpoint": {
-        "host": "worker-3",
-        "port": 8082,
-        "ticket": "query-20260206-001",
-        "protocol": "arrow-flight"
-    }
+    "query_id": "query-20260206-001",
+    "state": "QUEUED",
+    "result_disposition": "PENDING",
+    "result_endpoint": null,
+    "column_names": []
 }
 ```
 
-Every relational query returns the direct Output Worker `resultEndpoint`. This
-includes tableless constants, folded expressions, `LIMIT 0`, and connector
-system-table `SELECT` statements: none may be evaluated, buffered, cached, or
-proxied by the Coordinator. Bounded DDL/SHOW/DML acknowledgement rows are the
-only exception and use an isolated control-plane result transport.
+The response above shows a pending submission receipt. `PENDING` means the query
+has no readable result endpoint yet. `STREAM` means the response carries an
+opaque Arrow Flight `result_endpoint`; its publication and disposition are visible
+in the same live status version. `NONE` means the statement is legally resultless
+and must not carry an endpoint. `PENDING` must not survive a terminal state, and a
+query cannot change between `NONE` and `STREAM`. Empty `SELECT` statements and
+control-plane results with a schema remain `STREAM`, even when they return zero
+rows.
 
-
-
-> **INSERT/UPDATE/DELETE Response**: For DML statements, the response carries a `resultEndpoint` pointing to the Coordinator Flight server. The Client retrieves the affected-row-count result via Arrow Flight `doGet()`, same as any other query.
->
-> ```json
-> {
->     "queryId": "query-20260206-002",
->     "state": "FINISHED",
->     "resultEndpoint": {
->         "host": "coordinator-1",
->         "port": 8083,
->         "ticket": "query-20260206-002",
->         "protocol": "arrow-flight"
->     }
-> }
-> ```
->
-> For long-running DML (large INSERT INTO ... SELECT), the initial response returns `state: "RUNNING"` with `resultEndpoint` pointing to the Output Worker. The Client polls `GET /v1/query/{queryId}/state` until `state: "FINISHED"`, then calls Flight `doGet()` to retrieve the final result.
+Clients poll live state while the disposition is `PENDING` and open Flight only
+for `STREAM`. A terminal `FINISHED/NONE` outcome is successful completion without
+rows to fetch. Resultless DDL/DML therefore do not require an Output Worker or
+Coordinator Flight endpoint. An asynchronous Native write can report `PENDING`
+while it commits; the outer statement subsequently publishes either the
+materialized control-plane `STREAM` or terminal `NONE`. Bounded output still
+requires an active reader before the query can finish.
 
 Query state `GET /v1/query/{queryId}/state`
 
-Response:
+Live response:
 ```json
 {
-    "queryId": "query-20260206-001",
+    "query_id": "query-20260206-001",
     "state": "RUNNING",
-    "resultEndpoint": {"host": "worker-3", "port": 8082, "ticket": "query-20260206-001"},
-    "error": null,
+    "result_disposition": "STREAM",
+    "result_endpoint": {
+        "host": "worker-3",
+        "port": 9090,
+        "ticket": "opaque-ticket",
+        "protocol": "grpc"
+    },
+    "version": 7,
+    "drained": false,
     "stats": {
-        "elapsedTimeMs": 2300,
-        "processedRows": 1000000,
-        "processedBytes": 128000000
+        "elapsed_time_ms": 2300,
+        "queued_time_ms": 12,
+        "rows_returned": 1000000
     }
 }
 ```
 
+Live status always includes `result_disposition`, `version`, and `drained`.
+Optional `error`, `stats`, and `result_endpoint` fields are omitted when absent.
+Result endpoint protocols are canonical: `grpc` or `grpc+tls`.
+`version` orders live owner snapshots and supports bounded waits. A live owner
+publishes `drained` after local resources have exited and the execution anchor
+and execution-bound tenant reservation have been returned. When retirement
+passes to recovery, local cleanup finishes without publishing `drained`.
+Recovery in the same process wakes existing drain waiters after commit. An
+authenticated status request to a former owner can confirm a peer's retirement
+with one indexed check. Each query permits one check in flight, and active or
+already retired queries use the in-memory status.
+Historical journal diagnostics contain only `query_id` and `state`.
+
 Cancel query `POST /v1/query/{queryId}/cancel`
 
-Response:
+Response (HTTP 202):
 ```json
-{ "queryId": "query-20260206-001", "state": "CANCELLED" }
+{
+    "query_id": "query-20260206-001",
+    "cancelled": true,
+    "outcome": "CANCEL_ACCEPTED"
+}
 ```
+
+Cancellation acceptance is not physical-drain evidence. Clients use a targeted
+live state wait for `DRAINED` when they need resource-release confirmation.
 
 **Internal Worker task API**
 
@@ -686,7 +1059,10 @@ the returned identity and endpoint scope before recording the dispatch result.
 
 `DELETE /v1/task/{taskId}` seals the exact issued attempt using a binary
 `TaskAdmissionSealRequest`. HTTP 202 leaves physical release pending. HTTP 200
-returns the canonical `TaskReport` receipt for completed release.
+returns a canonical exit-only `TaskReport`. The
+`TASK_ADMISSION_EXPIRED_WITHOUT_LIVE_OWNER` receipt identifies present absence
+after the exact deadline. It carries the original attempt and Worker
+incarnation and contains no Native execution results.
 
 The canonical task carries the Substrait plan, splits, resource grant, security
 context and fenced exchange bindings. A producer retry uses a new downstream
@@ -740,7 +1116,10 @@ acknowledged separately from physical release.
 
 The authenticated status route accepts up to 8 MiB including write fragments.
 Canonical terminal evidence is bounded to 4 MiB. Other Coordinator task and
-public routes retain their configured request limit.
+public routes retain their configured request limit. The Worker control client
+decodes its bounded drain response in the protocol layer and validates the
+exact issued attempt before the Coordinator uses the receipt. Ordinary status
+reports share the same origin and drain-state checks.
 
 The Worker completion monitor reads a scalar Native lifecycle state through JNI.
 Its in-progress wait wakes on terminal publication and has a 50 ms timeout for
@@ -806,8 +1185,8 @@ operator and closes the input on producer EOF.
 
 **Result pull (Client to Output Worker)**
 
-The HTTP result endpoint contains the Worker address and an opaque signed
-ticket. The client passes that ticket directly to Flight DoGet. The signed
+For Worker output, the HTTP result endpoint contains the Worker address and an
+opaque signed ticket. The client passes that ticket directly to Flight DoGet. The signed
 payload contains a ResultReadGrant that binds the task attempt, caller security
 context, scope and expiry. DoGet validates the grant against the registered
 Native output before claiming the stream.
@@ -838,7 +1217,7 @@ Coordinator serves control-plane statement results through its own result source
 | Constraint | Description | Rationale |
 |------|------|------|
 | Compute Tasks scheduled before Output Task | The Coordinator must schedule Stage 1 before Stage 0 | The Output Task needs to know the Flight endpoints of upstream Tasks |
-| Return to Client only after Output Task is scheduled | SubmitQueryResponse must include resultEndpoint | The Client needs to know where to pull results |
+| Result transport published atomically with STREAM | SubmitQueryResponse can return PENDING until the output or control-plane endpoint is registered | Clients never mistake pending publication for a resultless query |
 | Client may connect before Native output is ready | DoGet waits for the actual output registration | The stream carries its schema and then waits for the first RecordBatch |
 | Compute Tasks may produce data before the Output Worker connects | The Shuffle Buffer caches data, waiting for downstream to pull | Decouples upstream/downstream startup ordering |
 
@@ -863,7 +1242,11 @@ State transition rules:
 | FINISHING | Client finished pulling or timed out | FINISHED | Release all Task resources |
 | RUNNING | Client cancels | CANCELLED | Cancel all Tasks |
 
-
+A streaming query waits for EOF or timeout before logical completion can
+finish. A resultless statement publishes `FINISHED/NONE` without waiting for a
+Flight reader. Terminal publication converts any unresolved `PENDING`
+disposition to `NONE`; an already published `STREAM` endpoint remains attached
+for failure and cancellation diagnostics.
 
 #### 3.3.6 Exception-Scenario Interaction Timelines
 
@@ -945,61 +1328,103 @@ The Coordinator routes durable Shuffle producer reports by the exact task kind i
 Durable recovery and producer completion use the exchange registration and finalization evidence read under the same barrier locks in their transaction.
 One PostgreSQL query reads the exchange graph, registration, finalization, and pinned source snapshot with shared row locks and a bounded JDBC cursor window. Finalized producer winners are verified against their authoritative partition records.
 
-An exact durable partition claim checks its persisted page coordinates and selects
-the eligible locked page in a single PostgreSQL statement. The result distinguishes
-an invalid allocation from a valid page that is unavailable or already locked.
+Durable stage scheduling inspects up to eight consecutive partitions per
+transaction. Each dispatch window then claims its unfinished partitions in one
+transaction. One PostgreSQL statement distinguishes invalid page identities
+from valid pages that are unavailable or locked. The claim revalidates current
+authority, execution ownership, and exchange barriers once for the window and
+reuses the same locked exchange evidence to prepare each request. A failed
+preparation rolls back the window's new attempts. The Coordinator sends tasks
+only after the claim transaction commits.
 
-Producer completion revalidates authorization and execution ownership using the
-current transaction. It uses the job and page already locked by the producer
-report and skips split loading when the page publishes only Shuffle data.
-Durable stage scheduling inspects up to eight consecutive partition records per authority and barrier transaction. The scheduler checks the whole window before dispatching any of its partitions and revalidates each exact claim against the current owner and page state.
-Loading the durable dispatch specification and validating its authorization scope share the same transaction-level publication lock.
+Two ordered PostgreSQL reads load the canonical splits and dependency page IDs
+for the exact claim window. The same transaction locks each referenced
+publication once and reuses its coverage pin across the window. Object and
+checksum reads use the union of the window's source IDs. Each request verifies
+its split checksums and receives only its source objects and generation-wide
+objects.
 
-Before opening partition-claim transactions, relational replay decodes the
-immutable stage bindings and computes the request plan checksum. Each claim
-matches its current stage and model declarations against that prepared contract,
-then binds its own split, publication, lease, and resource evidence.
-Durable stage scheduling inspects up to eight consecutive partition records per authority and barrier transaction. The scheduler checks the whole window before dispatching any of its partitions and revalidates each exact claim against the current owner and page state.
-Loading the durable dispatch specification and validating its authorization scope share the same transaction-level publication lock.
-Task preparation uses the direct roles already verified by table authorization on this connection. Tenant membership, table policy, model authority, and the exact execution owner are checked within the transaction.
+An idempotent artifact submission compares the persisted page allocation,
+canonical checksummed splits, and producer dependencies in their stored order.
+PostgreSQL reads each of these tables once for the job while the submission
+holds the job row lock.
+
+Producer completion verifies current authorization once under the transaction's
+publication lock. It checks the execution deadline again after acquiring the
+exchange, job and page locks. The completion barrier advances from the job
+counters already read under the row lock. Shuffle-only reports skip split
+loading.
+
+Relational replay decodes the immutable stage bindings and calculates the plan
+checksum before opening the claim transaction. Each request keeps its exact
+split, publication and lease evidence. Loading the dispatch specification and
+validating its authorization scope share the transaction-level publication lock.
+Task preparation uses the direct roles already verified by table authorization
+on this connection.
 
 #### 3.3.8 Coordinator Scheduler Design
 
 **Stage scheduling order**
 
-Each live or durable dispatch cohort resolves its tenant placement before the first task is issued. The PostgreSQL placement lookup reads the current tenant status and its assigned resource pool. Later stages and retries repeat that lookup. Local Shuffle still requires the same exact Worker incarnation. Durable partition claims use the resolved pool and current in-memory Worker inventory during the claim transaction.
+Each live or durable dispatch cohort resolves its tenant placement before the first task is issued. The PostgreSQL placement lookup reads the current tenant status and its assigned resource pool. Later stages and retries repeat that lookup. Local Shuffle still requires the same exact Worker incarnation. Durable dispatch refreshes the in-memory Worker inventory and filters eligible Workers before each claim window. Each partition is ranked against its exact operator bindings inside the transaction.
 
 The Coordinator schedules in topological order of the Stage DAG: leaf Stages are scheduled first, and the Output Stage is scheduled last.
 
 For live reads, Worker progress and task acknowledgement release downstream preparation onto a bounded Coordinator pool. Multiple readiness signals for the same query share one queued operation. The operation holds query issuance until preparation exits, including split-source close. Queue saturation fails the affected query with a resource-exhaustion error. A Java linkage failure during preparation fails the query with the dispatch error and retains the original cause. The dispatch waiter is notified immediately, and preparation releases its issuance operation as it exits. Fenced publication and durable recovery retain their authoritative completion order.
+The immutable DAG indexes exact incoming and outgoing exchange edges for each
+stage. Preparation checks the dispatched producer cohorts and validates each
+distinct wire plan. When the consumer already declares the exact producer
+schema, the bound Substrait tree can be reused directly.
+
+Live leaf tasks place the largest estimated scan work on the least loaded
+partition. The Coordinator estimates work once while binding each split and
+stores the weight beside the canonical split. It combines planned input bytes,
+file-open overhead and row decode costs. Iceberg uses the planned range, auxiliary delete bytes and
+estimated rows from its scan task. Paimon merge scans count each physical input
+and its rows, including the bound deletion vector when present. Lance
+manifest partitions use their bound row count and a minimum weight because
+the number of physical files is unavailable at this boundary. The estimate
+issues no catalog, PostgreSQL or storage requests. Artifact-backed tasks
+keep each source object's splits together.
+
+The starting weights are 4 MiB per file open, 32 byte-equivalents per decoded
+row and 64 per Paimon merge input row. The Worker enforces physical I/O, memory
+and task grants against the immutable task binding. [Spark file-open cost](https://spark.apache.org/docs/3.5.6/sql-performance-tuning.html)
 
 ![Stage DAG example (SELECT ... JOIN ... ORDER BY ... LIMIT):](../../website/static/img/diagrams/generated/query-execution-33-90eae7ac69.svg)
 
-**Output Worker selection algorithm**
+**Scan Worker placement**
 
-The production path is executed by `DefaultWorkerSelector`; it no longer maintains a separate warm pool or a Worker-side slot reservation API.
+For live scans and durable partitions the Coordinator first checks tenant
+placement, active health, memory fit and exact capability bindings. Among
+eligible Workers it ranks
+the work already assigned in the current issuance window plus the current
+partition's estimated work multiplied by the larger of two task counts.
+The Worker heartbeat counts reservations from setup through physical release,
+including attempts admitted by other Coordinators. The local count represents
+the Coordinator's exact assignments to that Worker incarnation. Taking the larger count accounts for
+assignments the heartbeat has yet to include without summing overlapping samples.
 
-```java
-public WorkerInfo selectWithCacheAffinity(String tenantId, List<String> splitFilePaths) {
-    if (cacheAffinityAssigner == null || splitFilePaths.isEmpty()) {
-        return select(tenantId);
-    }
-    WorkerInfo cacheHit = selectByCachedFiles(activeWorkers, splitFilePaths);
-    if (cacheHit != null) {
-        return cacheHit;
-    }
-    return firstConsistentHashPreferredWorkerOrLoadBasedFallback(tenantId, splitFilePaths);
-}
-```
+The Coordinator counts a bound task before transport. A pre-transport
+rollback or the first exact physical drain receipt releases that count.
+Logical task completion alone leaves it counted. The window adds work for
+partitions selected before their assignments are bound. Later windows see
+the bound attempts through the existing task tracker. Placement uses local
+memory and the current topology snapshot.
 
-Output Worker selection strategy:
+For tied scan work, the selector prefers reported cache hits, then eligible
+consistent-hash targets for scans without explicit operator bindings. The
+configured scheduling strategy ranks the remaining candidates. Live stages
+without scan work retain the existing resource and capability selection. Local
+Shuffle pins the first selected Worker incarnation for the query.
 
-| Priority | Condition | Note |
-|--------|------|------|
-| 1 | An ACTIVE Worker's heartbeat cache summary hits the split file | Reuse the real cache-hit signal, prioritize data locality |
-| 2 | `CacheAffinityAssigner`'s consistent-hash preferred Worker for the split file | Keep stable placement when the cache is cold or has not been reported |
-| 3 | `TaskScheduler.selectWorker`'s load-based selection | The general path when there is no file path or no cache affinity available |
-| 4 | No ACTIVE Worker meets the resource threshold | Query queues or throws `NoAvailableWorkerException` |
+Durable partitions estimate work from their frozen physical split ranges, typed
+file details and the encoded bytes of published exchange inputs. Partitions with
+no estimated input count as one unit of work. The estimate uses the request
+already built for the fenced claim, with no additional PostgreSQL or storage
+request. Workers with equal projected work use the configured scheduling
+strategy as the tie breaker.
+[Trino node scheduling](https://trino.io/docs/current/admin/properties-node-scheduler.html)
 
 #### 3.3.9 Multi-Stage Exchange Scenarios
 
@@ -1044,7 +1469,14 @@ reintroduced behind a Worker-owned protocol.
 
 `SHOW`, `DESCRIBE`, session control, DDL status, and DML acknowledgement rows are
 bounded control-plane responses. `StatementDispatcher` alone may publish these
-through the isolated control-plane transport. Relational `SELECT` code cannot
+through the isolated control-plane transport. It fills one bounded Arrow batch
+and hands the same vectors to Flight on the request thread. This removes the
+intermediate IPC buffer and the batch-fill thread. A ticket admits one reader. The query
+retains its operation and tenant slot until the serving read exits and the
+batch allocation is released. An unopened batch releases its operation on
+expiration, query failure, cancellation, or Coordinator shutdown. Active readers
+retain their allocation until exit. The query and transport track these transitions
+in memory. Relational `SELECT` code cannot
 access that service or its buffer. Connector system-table `SELECT` statements
 therefore compile and dispatch like any other query, and fail closed if the
 connector/Native scan contract is unavailable.
@@ -1085,12 +1517,15 @@ SDK internal flow:
 1. POST /v1/query/submit→ Coordinator
 2. Use a readable endpoint from the submit receipt or wait for the next status
    version on the Coordinator endpoint that accepted the query
-3. Open Arrow Flight DoGet(resultEndpoint) and return a forward-only ResultSet
-   after receiving the schema and first data batch or EOF
+3. For STREAM, open Arrow Flight DoGet(resultEndpoint) and return a forward-only
+   ResultSet after receiving the schema and first data batch or EOF
 4. Advance the Flight batches through ResultSet.next() and decode only the values
    requested by getters. At EOF, close Flight and confirm terminal query success.
    The JDBC query timeout covers both Flight reads and terminal confirmation.
 ```
+
+A JDBC `executeQuery` call requires `STREAM`. Update paths wait for terminal
+success and accept `NONE` without opening Flight.
 
 The query owner publishes state, error, result endpoint and physical drain in
 one immutable version. Checking the observed version and registering a waiter
@@ -1099,14 +1534,26 @@ thread. Timeout and connection completion detach its observer. State changes
 schedule HTTP response work on Jetty. An explicit historical status read can
 consult the query journal.
 
-A first execution acquires its PostgreSQL advisory lock before the anchor INSERT
-allocates and returns the fencing token. A separate statement starts the lease
-clock after the inserted row is exclusively owned, including when the INSERT
-waited for a competing uncommitted row.
+An execution first acquires its PostgreSQL advisory lock, then attempts to
+insert its anchor. The successful insert owns the new row and returns its fencing
+token. A fresh statement starts the lease clock after any INSERT wait and checks
+the durable read window using the same clock sample. A protected window rolls
+back the provisional insert. Only an anchor conflict reads the existing owner
+under a row lock for the takeover decision.
 
 A live DAG with a verified read-only plan skips the write commit journal during task completion. Query finalization still checks the current execution anchor and evaluates the lease against the PostgreSQL clock in the same SELECT. Write publication and recovery keep their durable commit checks.
 
-After physical cleanup, ownership release locks the execution anchor and starts a fresh PostgreSQL statement. That statement computes the database time, evaluates the write recovery obligation, and retires the exact owner. An unresolved, unquarantined write expires the anchor for takeover. A release with no outstanding write recovery deletes the anchor. A write intent that commits while release waits for the lock is visible to the retirement statement.
+PostgreSQL admits a tenant-scoped SQL query by reserving its concurrency slot and creating
+the execution anchor in the same transaction. The grant also captures the tenant publication
+epoch. A full tenant quota creates no anchor or query journal record.
+
+The Coordinator keeps the anchor while Worker tasks, Shuffle, connectors, reader pins,
+and local admission finish cleanup. Final release takes the same per-execution admission
+lock and locks the anchor row. A fresh statement then reads the backend clock and any
+write-recovery obligation, including an intent that committed while release waited on
+the row lock. An unresolved, unquarantined write yields the anchor and keeps the slot
+for its successor. Otherwise the exact fenced anchor and its slot retire in one
+transaction. A recovered pre-journal grant uses the same retirement operation.
 
 Terminal publication can complete while local operations, required journal
 publication or exact Worker drain receipts are still outstanding. The cleanup
@@ -1117,18 +1564,113 @@ dependent cleanup are available, the owner
 releases pins, execution ownership, tenant admission, and the local query
 lifetime. Failures and rejected dispatch remain eligible for bounded retry.
 
-In remote Shuffle mode, terminal transition locks the execution anchor before
-checking scope ownership and recording the durable cleanup intent. The service
-acknowledges cleanup after its object cleanup and intent deletion complete. The
-Coordinator uses this acknowledgement to release execution ownership.
+Remote Shuffle freezes the verified nonempty output counts, bytes, and rows
+with each winning producer attempt. A replacement changes the winner, its
+statistics, and the allocation version in the same transaction. Finalization
+uses the paged batch inventory once to build the ordered manifest. Publication
+then checks contiguous producer coverage and partition totals from the frozen
+winner rows in one statement. Empty outputs are still explicitly published.
+
+Large outputs also publish contiguous intervals of complete batches. The
+manifest writer targets 64 MiB per interval and retains at most 32 intervals,
+with remaining batches included in the final interval. Each interval records
+its absolute start and exclusive end, bytes, rows, and canonical digest.
+Small outputs that fit before the first split or manifest leaf boundary build
+only the whole-partition digest. Publication and replay retain the same range
+index in the partition row.
+
+The gRPC reader can request an exact published interval alongside its resume
+cursor. Admission checks that evidence in the same partition lookup, before
+it creates a read pin. The server stops at the exclusive end and reports the
+original interval totals even when resumed. The Java reader verifies the
+absolute sequence, totals, digest, and terminal coordinates against its
+independent binding. Whole-partition reads keep their existing terminal and
+skip reading the range index.
+
+The Worker task binding carries the selected publication for each source
+partition. A range publication contains the absolute first and last sequence
+numbers and the evidence for the selected batches. After verifying each batch,
+the Worker translates its sequence to the continuous local sequence used by
+the JNI input. Native admission calculates the expected batch count from each
+selected interval. Durable recovery validates whole source partitions against
+the frozen exchange receipt and split reads against their immutable page certificates.
+
+For an aligned live HASH join, the Planner provides the exchange order and
+the sides eligible for splitting. INNER can split either or both sides. LEFT
+and LEFT SEMI split only the left side, RIGHT only the right side, and FULL
+uses whole partitions. The Coordinator evaluates certified intervals from the
+finalized receipts. A side must exceed the fixed minimum, the coalescing
+target and the configured multiple of its median partition bytes. A candidate
+must cut peak input bytes per task by at least 25 percent. It can at most
+double the bucket's input bytes and create 32 tasks per original bucket.
+Stage-wide extra tasks are capped at the larger of 31 and the original
+partition count, with the largest buckets receiving the budget first.
+
+The Coordinator freezes one ordered input layout before allocating this
+stage's output and reuses it on retry. Workers get the exact certificate
+for each split input and the corresponding whole receipt for any replicated
+input. Consumer task IDs stay contiguous, separate from original partition
+IDs. Placement uses the selected input bytes and no new database read is
+needed to select the layout. Eligible durable jobs apply the same size and cost
+bounds before committing the layout for recovery.
+
+In remote Shuffle mode, logical terminal transition uses the original execution
+grant to seal admission. The live DAG reports its outcome without deleting
+Shuffle. Physical cleanup starts after local operations, report publication and
+all issued Worker attempts have drained. The Coordinator uses the cached cleanup
+capability for a tracked scope when it is still usable. If registration was
+never reached, PostgreSQL records convergence after verifying the absence of a
+scope under the same grant, with no Shuffle RPC. An untracked durable scope
+requires service acknowledgement. The Shuffle service commits scope removal and
+convergence together after object cleanup. Both paths keep the terminal seal
+until retirement deletes the execution anchor, fencing delayed registration
+even when cleanup has already completed. The cleanup response carries the query,
+the exact authenticated owner, the first terminal seal's fencing token as the
+revocation generation, and the durable scope convergence time. A replay or
+authorized successor receives the original generation and timestamp. The
+Coordinator checks the binding before discarding its tracked query state. Cleanup
+never aggregates the batch manifest for its control response. The response marks
+a durable handoff when an expired uncertain upload still requires prefix sweeps.
+Expired producer windows and manifest PUTs retain their exact reservation IDs
+after scope removal. Each external manifest node includes an independent write
+identity in its hashed contents. A cleanup page that lists the exact node key
+can settle that PUT even if the writer exited before acknowledging it. Cleanup
+commits all matching reservations in the page before deleting any listed
+object. Healthy writes and cleanup without expired reservations keep their
+existing database round trips, and observation needs no per-object HEAD.
+Once every reservation is settled, the next sweep claim records that all writes
+had settled before the object listing began. Completion under that lease retires
+the sweep schedule and preserves the allocation identity fence. An absent
+manifest key or a producer window with an unknown outcome keeps its prefix
+eligible for subsequent sweeps.
+
+The Shuffle service selects an expired cleanup scope under a row lock and carries
+its previous lease deadline into the recovery claim. The claim still checks active
+read pins and outstanding write reservations under that lock. The initial seal
+closes admission for the scope and all allocations and records the terminal
+intent in one statement. A later claim of the sealed scope updates only the
+cleanup lease and leaves the allocation rows untouched.
+
+A remote reader renews its execution window with two PostgreSQL statements. It
+first locks the exact execution anchor and takes its expiry. The grant statement
+starts a fresh snapshot after that lock, verifies the active scope and terminal
+seal, and applies the captured expiry to the exact pin. Closing a reader deletes
+its pin and execution window in one statement, with the pin locked first.
+Closure can still retire its execution window after cleanup has already removed
+the pin.
+
+The terminal cleanup queue and the proven predecessor drain path drive these
+operations. The Coordinator does not scan Shuffle intents during idle health
+ticks. A stale original grant cannot consume a successor's intent.
 
 For resultless DML, the submit response may return `RUNNING` after the actual
 WRITE task is dispatched, with no Flight endpoint. The client waits on the owner status through the final catalog commit. The 30-second submit timeout
 bounds compilation and initial dispatch, not data-file writing or commit.
 
-`Statement.execute()` and `executeQuery()` use this same Flight endpoint path.
-An absent endpoint is waited for while the query runs and is an error if the
-query finishes without one. The JDBC result set holds the current Flight batch,
+`Statement.execute()` and `executeQuery()` use the explicit disposition contract.
+`PENDING` waits for endpoint publication or terminal completion. `executeQuery()`
+requires `STREAM`; update paths accept terminal `NONE` without opening Flight. The
+JDBC result set holds the current Flight batch,
 while the Arrow allocator bounds the transport receive window. Closing a partial
 result closes the Flight call and requests cancellation for its active query
 identity. Cancellation acknowledgement and physical release are separate events.
@@ -1271,16 +1813,29 @@ Note: Velox internally uses a shared thread pool (`thread-pool-size`) to schedul
 
 ## 5. Dynamic Filtering
 
-For an eligible inner equality join, the Coordinator binds the BIGINT key
-ordinal of an actual build exchange to a direct Iceberg scan field. The binding
-retains the selected snapshot and stable field identity. A small build can use
+For an eligible inner equality join, the Coordinator binds up to four signed
+TINYINT, SMALLINT, INTEGER or BIGINT key ordinals of an actual build exchange
+to same-width fields on a direct Iceberg or Paimon scan. Each binding retains
+the selected snapshot and stable field identity. A small build can use
 the existing broadcast exchange when a probe needs at least 32 files or 128 MiB.
-Native collects one signed range while producing the exchange. The range travels
-with the task's canonical terminal report. The Coordinator combines ranges from
-the full winning cohort and waits at most 200 ms before allowing probe discovery.
-An incomplete or late cohort leaves the scan unconstrained. A proven all-NULL
-cohort still validates the pinned read authority and emits no probe splits. A
-nonempty range joins the existing static constraints in the same Iceberg scan.
+Native collects signed ranges while producing the exchange and includes them in
+the task's canonical terminal report. The Coordinator retains at most 16
+disjoint intervals per key while winning attempts report. If the union exceeds
+that limit, it keeps a conservative interval covering every observed key and
+expands it for subsequent winners. The final cohort seals one immutable
+snapshot. A missing report permits the full probe scan. The Coordinator selects up to four pairs
+with disjoint build and probe stages, prioritizing estimated probe bytes and file
+count. Each probe uses its own winning build cohort. The pairs share one 200 ms
+wait window after initial source scheduling. One build can release its probe
+while another is still collecting. The deadline releases scheduling. Each probe
+samples the completed build evidence immediately before opening split
+enumeration, which lets a build finishing after the deadline still prune that
+scan. The wait outcome in the profile records the scheduling decision, and the
+enumeration log indicates when it used evidence after a timeout. If the evidence
+is still incomplete when enumeration starts, the probe uses its static constraints.
+A proven all-NULL cohort still validates the pinned read authority and emits no
+probe splits. Proven nonempty ranges join the existing constraints in the same
+Iceberg or Paimon scan.
 
 ![Scenario: SELECT * FROM orders o JOIN customers c ON o.customer_id = c.id](../../website/static/img/diagrams/generated/query-execution-42-97f613bbd6.svg)
 
@@ -1460,6 +2015,15 @@ ALTER TABLE orders ROLLBACK TO SNAPSHOT 12345
 ALTER TABLE orders CREATE BRANCH dev AS OF 12345
 ALTER TABLE orders DROP BRANCH dev
 ```
+
+An authorized Iceberg JDBC query with an exact table name resolves its branch or
+tag on the same metadata observation that supplies the historical read binding.
+JDBC discovery and binding reuse the encoded current schema and partition spec.
+A historical selection encodes its own schema when it differs from the current
+schema. Repeated occurrences of the same qualified reference reuse the resolution within
+the statement. The planner checks the catalog deployment and table ownership.
+Split enumeration checks the live table and the selected snapshot before
+dispatch. Case-insensitive resolution still checks for ambiguous names.
 
 ## 9. Statistics Collection
 
@@ -1854,21 +2418,31 @@ dynamic-filter:
 
 ## 16. Shuffle feedback and adaptive execution
 
-The Coordinator derives bytes and rows per output partition from the external
-Shuffle commit receipt. The receipt belongs to one allocation and plan epoch
-and proves the exact producer set. The adaptive evaluator uses these statistics
-to report candidate coalescing, skew, and strategy changes. A stage without
-published Shuffle statistics skips evaluation. Candidate coalescing preserves
-the original partition order as contiguous ranges and requires an observed
-entry for each source partition, including explicitly empty partitions.
+The Coordinator uses the external Shuffle commit receipt directly. The receipt
+proves the exact producer set for one allocation and plan epoch. Live dispatch
+can assign contiguous source ranges to fewer consumers for eligible stages.
+Each source partition, including an empty one, must appear in the receipt.
+The stage retains the receipt used by its physical input bindings.
 
-Dispatch uses the original stage and exchange coordinates. Each consumer
-binds its corresponding published partition or the direct producer tickets.
-A task count alone cannot describe which producer ranges a consumer reads.
-An adaptive dispatch contract must freeze a complete range mapping against the
-committed allocation and keep consumer attempt identity separate from source
-partition identity. Multi-input stages must agree on matching partitions, and
-retry must keep the chosen mapping and allocation epoch.
+For a live equality join over independent scans, the fragmenter can establish
+hash exchanges on both inputs. It uses the bound source statistics to identify
+parallel work and respects the session's requested parallelism. For one stage
+dispatch, partition grants share the measured cluster capacity. Each grant
+uses the selected Worker's current available memory and requires its original
+process identity. Ordered equality keys must have matching hash types. The same proof applies to the physical
+input bindings used during dispatch.
+
+Live dispatch can freeze a shared range mapping for a partition-local compute
+stage with two committed external hash inputs. The join's equality keys must
+match both exchange keys in order, with the same hash key types and original
+partition count. Each consumer reads the same contiguous range from both
+allocations. The Coordinator budgets the sum of both inputs' bytes per original
+partition and respects the protocol limit on partitions per input.
+
+The range mapping keeps source partition IDs separate from consumer attempt
+IDs. Each input binding carries its own allocation epoch, publication proofs,
+and read access. A live retry uses the frozen mapping for that stage. Durable
+replay uses the original persisted partition allocation.
 
 The implementation and verification requirements are tracked in the
 [query performance plan](../development/query-performance-parity-plan.md#q3-让-cbo聚合和-aqe-缩减跨节点工作).
@@ -1894,10 +2468,6 @@ The following metrics from [14 §3](./observability.md) are emitted by query exe
 | `pangrova.task.execution_time_ms` | histogram | TaskExecutor | Per-task execution time |
 | `pangrova.shuffle.bytes_transferred` | counter | ShuffleManager | Shuffle data volume |
 | `pangrova.dynamic_filter.rows_filtered` | counter | DynamicFilterService | Rows eliminated by dynamic filters |
-| `pangrova.aqe.reoptimizations_total` | counter | AdaptiveQueryEvaluator | AQE re-optimization events |
-| `pangrova.aqe.partitions_coalesced` | counter | AdaptiveQueryEvaluator | Partitions merged by coalescing |
-| `pangrova.aqe.joins_converted` | counter | AdaptiveQueryEvaluator | Joins converted to broadcast |
-| `pangrova.aqe.skew_splits` | counter | AdaptiveQueryEvaluator | Skewed partitions split |
 
 ### 17.2 Tracing Spans
 
@@ -1908,7 +2478,7 @@ Query execution emits the following spans (see [14 §4](./observability.md) for 
 ### 17.3 Log Events
 
 - Query lifecycle transitions: QUEUED → PLANNING → SCHEDULING → RUNNING → FINISHED/FAILED (INFO)
-- AQE re-optimization decisions: coalescing, join switching, skew handling (INFO)
+- Committed Shuffle totals, range coalescing and certified skew splits (INFO)
 - Dynamic filter generation and application events (DEBUG)
 - Write path commit/abort events (INFO)
 

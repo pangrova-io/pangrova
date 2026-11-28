@@ -97,7 +97,7 @@ class ClusteringE2ETest extends SqlE2ETestBase {
         @DisplayName("BTREE index on range column enables range query filtering")
         void btreeIndexRangeQuery() {
             sqlRunner.executeDdl("CREATE INDEX idx_clust ON " + fqn()
-                    + "(col1) USING BTREE");
+                    + "(col1) USING BTREE FORCE");
 
             List<TypedRow> result = sqlRunner.execute(
                     "SELECT * FROM " + fqn()

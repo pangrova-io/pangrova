@@ -1,7 +1,6 @@
 package org.pangrova.planner.analysis;
 
-import org.pangrova.planner.api.fragment.SerializedPlanFragment;
-
+import org.pangrova.planner.enums.ShuffleType;
 import com.google.protobuf.Any;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.InvalidProtocolBufferException;
@@ -9,11 +8,14 @@ import io.substrait.proto.NamedStruct;
 import io.substrait.proto.Plan;
 import io.substrait.proto.Rel;
 import io.substrait.proto.RelRoot;
+import org.pangrova.planner.api.fragment.SerializedPlanFragment;
+import org.pangrova.planner.api.result.ResultColumnModel;
 import org.pangrova.protocol.substrait.SubstraitRelationLayout;
 import org.pangrova.protocol.substrait.SubstraitPlanCodec;
 import org.pangrova.protocol.v2.BatchSerde;
 import org.pangrova.protocol.v2.ExchangeInputDetail;
 import org.pangrova.protocol.v2.RelationDetailEnvelope;
+import org.pangrova.protocol.v2.ResultColumnLogicalType;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -21,6 +23,7 @@ import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -48,11 +51,13 @@ final class AuthorizedStageExchangeBindings {
                         + input.getOutputSchema().getStruct().getTypesList()
                         + " producer=" + schema.getStruct().getTypesList());
             }
+            if (schema.equals(input.getOutputSchema())) continue;
             var envelope = envelope(relation).toBuilder().setExchangeInput(
                     input.toBuilder().setOutputSchema(schema)).build();
             replacements.put(relation, relation.toBuilder().setExtensionLeaf(
                     relation.getExtensionLeaf().toBuilder().setDetail(Any.pack(envelope))).build());
         }
+        if (replacements.isEmpty()) return consumer;
         Rel root = SubstraitRelationLayout.replaceRelations(target.root().getInput(), replacements);
         var plan = target.plan().toBuilder().setRelations(0, target.plan().getRelations(0).toBuilder()
                 .setRoot(target.root().toBuilder().setInput(root))).build();
@@ -87,10 +92,18 @@ final class AuthorizedStageExchangeBindings {
 
     static void validate(List<AuthorizedStageGraph.SerializedStage> stages, List<StageTransfer> transfers) {
         validate(stages.stream().collect(Collectors.toMap(AuthorizedStageGraph.SerializedStage::stageId,
-                AuthorizedStageGraph.SerializedStage::serializedPlan)), transfers);
+                AuthorizedStageGraph.SerializedStage::serializedPlan)), transfers,
+                stages.stream().filter(stage -> !stage.splittableHashInputs().isEmpty()).collect(Collectors.toMap(
+                        AuthorizedStageGraph.SerializedStage::stageId,
+                        AuthorizedStageGraph.SerializedStage::splittableHashInputs)));
     }
 
     static void validate(Map<Integer, SerializedPlanFragment> plans, List<StageTransfer> transfers) {
+        validate(plans, transfers, Map.of());
+    }
+
+    static void validate(Map<Integer, SerializedPlanFragment> plans, List<StageTransfer> transfers,
+            Map<Integer, List<String>> splittableHashInputs) {
         Map<Integer, Fragment> fragments = new HashMap<>();
         plans.forEach((id, plan) -> fragments.put(id, fragment(id, plan)));
         for (var edge : transfers) {
@@ -99,6 +112,9 @@ final class AuthorizedStageExchangeBindings {
             }
         }
         var incoming = incoming(transfers);
+        if (!fragments.keySet().containsAll(splittableHashInputs.keySet())) {
+            throw new IllegalArgumentException("Skew eligibility requires a frozen stage plan");
+        }
         for (var stage : fragments.entrySet()) {
             var fragment = stage.getValue();
             var expected = incoming.getOrDefault(stage.getKey(), Map.of());
@@ -113,27 +129,73 @@ final class AuthorizedStageExchangeBindings {
                             "Exchange input differs from frozen producer schema: " + edge.exchangeId());
                 }
             }
+            validateSkewInputs(fragment, expected, splittableHashInputs.getOrDefault(stage.getKey(), List.of()));
         }
     }
 
+    private static void validateSkewInputs(Fragment fragment, Map<String, StageTransfer> incoming,
+            List<String> declared) {
+        if (declared.isEmpty()) return;
+        if (incoming.size() != 2 || incoming.values().stream().anyMatch(edge -> edge.shuffleType() != ShuffleType.HASH)
+                || declared.size() != new HashSet<>(declared).size()
+                || !wireSplittableInputs(fragment.root().getInput()).equals(Set.copyOf(declared))) {
+            throw new IllegalArgumentException("Skew eligibility differs from the frozen join and its HASH inputs");
+        }
+    }
+
+    private static Set<String> wireSplittableInputs(Rel root) {
+        Rel input = root.hasExchange() ? root.getExchange().getInput() : root;
+        while (input.hasProject() || input.hasFilter()) {
+            input = input.hasProject() ? input.getProject().getInput() : input.getFilter().getInput();
+        }
+        return switch (input.getRelTypeCase()) {
+            case HASH_JOIN -> splittableSides(input.getHashJoin().getType().name(),
+                    input.getHashJoin().getLeft(), input.getHashJoin().getRight());
+            case JOIN -> splittableSides(input.getJoin().getType().name(),
+                    input.getJoin().getLeft(), input.getJoin().getRight());
+            case MERGE_JOIN -> splittableSides(input.getMergeJoin().getType().name(),
+                    input.getMergeJoin().getLeft(), input.getMergeJoin().getRight());
+            default -> Set.of();
+        };
+    }
+
+    private static Set<String> splittableSides(String joinType, Rel left, Rel right) {
+        var l = input(left);
+        var r = input(right);
+        if (l == null || r == null || l.getExchangeId().equals(r.getExchangeId())) return Set.of();
+        return switch (joinType) {
+            case "JOIN_TYPE_INNER" -> Set.of(l.getExchangeId(), r.getExchangeId());
+            case "JOIN_TYPE_LEFT", "JOIN_TYPE_LEFT_SEMI" -> Set.of(l.getExchangeId());
+            case "JOIN_TYPE_RIGHT" -> Set.of(r.getExchangeId());
+            default -> Set.of();
+        };
+    }
+
     static List<AuthorizedStageGraph.SerializedStage> bind(
-            List<AuthorizedStageGraph.SerializedStage> stages, List<StageTransfer> transfers) {
-        var pending = stages.stream().collect(Collectors.toMap(
-                AuthorizedStageGraph.SerializedStage::stageId, Function.identity()));
+            FragmentedPlan graph, SqlCompiler compiler, List<String> outputNames) {
+        var pending = graph.stages().stream().collect(Collectors.toMap(PlanStage::stageId, stage -> {
+            var source = stage.fragment();
+            var names = "OUTPUT".equals(stage.taskType()) ? List.copyOf(outputNames) : source.fieldNames();
+            return new CompiledStage(stage, source.compileStagePlan(compiler, names), names,
+                    List.copyOf(source.splitSources()), source.resultColumnModels(), source.resultColumnTypes());
+        }));
         Map<Integer, Fragment> frozen = new HashMap<>();
         List<AuthorizedStageGraph.SerializedStage> bound = new ArrayList<>();
-        var incoming = incoming(transfers);
+        var incoming = incoming(graph.transfers());
         Map<Integer, Integer> degrees = new HashMap<>();
         pending.keySet().forEach(id -> degrees.put(id, incoming.getOrDefault(id, Map.of()).size()));
-        var downstream = transfers.stream().collect(Collectors.groupingBy(StageTransfer::upstreamStageId,
+        var downstream = graph.transfers().stream().collect(Collectors.groupingBy(StageTransfer::upstreamStageId,
                 Collectors.mapping(StageTransfer::downstreamStageId, Collectors.toList())));
         var ready = new TreeSet<Integer>();
         degrees.forEach((id, degree) -> { if (degree == 0) ready.add(id); });
         while (!ready.isEmpty()) {
             Integer id = ready.pollFirst();
-            var stage = bindStage(pending.remove(id), incoming.getOrDefault(id, Map.of()), frozen);
-            frozen.put(id, fragment(stage));
-            bound.add(stage);
+            var stage = pending.remove(id);
+            var fragment = fragment(id, stage.compiled().plan());
+            var inputs = incoming.getOrDefault(id, Map.of());
+            var binding = bindStage(id, fragment, inputs, frozen);
+            frozen.put(id, binding);
+            bound.add(stage.serialize(binding.plan(), inputs));
             for (int target : downstream.getOrDefault(id, List.of())) {
                 if (degrees.compute(target, (key, degree) -> degree - 1) == 0) ready.add(target);
             }
@@ -142,10 +204,11 @@ final class AuthorizedStageExchangeBindings {
         return List.copyOf(bound);
     }
 
-    private static AuthorizedStageGraph.SerializedStage bindStage(AuthorizedStageGraph.SerializedStage stage,
-            Map<String, StageTransfer> incoming, Map<Integer, Fragment> sources) {
-        Fragment fragment = fragment(stage);
+    private static Fragment bindStage(int stageId, Fragment fragment, Map<String, StageTransfer> incoming,
+            Map<Integer, Fragment> sources) {
         requireInputs(fragment, incoming);
+        if (incoming.isEmpty()) return fragment;
+
         Map<Rel, Rel> replacements = new IdentityHashMap<>();
         for (Rel relation : fragment.layout().relations()) {
             var input = input(relation);
@@ -157,29 +220,22 @@ final class AuthorizedStageExchangeBindings {
             if (!source.schema().getStruct().equals(input.getOutputSchema().getStruct())) {
                 throw new IllegalArgumentException("Exchange input type differs from producer: " + edge.exchangeId());
             }
+            if (source.schema().equals(input.getOutputSchema())) continue;
             var envelope = envelope(relation).toBuilder().setExchangeInput(
                     input.toBuilder().setOutputSchema(source.schema())).build();
             replacements.put(relation, relation.toBuilder().setExtensionLeaf(
                     relation.getExtensionLeaf().toBuilder().setDetail(Any.pack(envelope))).build());
         }
+        if (replacements.isEmpty()) return fragment;
         Rel root = SubstraitRelationLayout.replaceRelations(fragment.root().getInput(), replacements);
         var plan = fragment.plan().toBuilder().setRelations(0, fragment.plan().getRelations(0).toBuilder()
                 .setRoot(fragment.root().toBuilder().setInput(root))).build();
-        var serialized = new SerializedPlanFragment(plan.toByteArray(), stage.serializedPlan().retrievalTopKHints(),
-                stage.serializedPlan().aiInvocationHints());
-        return new AuthorizedStageGraph.SerializedStage(stage.stageId(), stage.parallelism(), stage.taskType(),
-                serialized, stage.sources(), stage.outputNames(), stage.resultColumnModels(),
-                stage.resultColumnTypes(),
-                stage.estimatedShuffleBytes(), stage.estimatedShuffleRows());
+        return fragment(stageId, plan);
     }
 
     private static Map<Integer, Map<String, StageTransfer>> incoming(List<StageTransfer> transfers) {
         return transfers.stream().collect(Collectors.groupingBy(StageTransfer::downstreamStageId,
                 Collectors.toMap(StageTransfer::exchangeId, Function.identity())));
-    }
-
-    private static Fragment fragment(AuthorizedStageGraph.SerializedStage stage) {
-        return fragment(stage.stageId(), stage.serializedPlan());
     }
 
     private static Fragment fragment(int stageId, SerializedPlanFragment serialized) {
@@ -281,4 +337,39 @@ final class AuthorizedStageExchangeBindings {
 
     private record Fragment(Plan plan, RelRoot root, SubstraitRelationLayout.LayoutTree layout,
                             NamedStruct schema, Map<String, ExchangeInputDetail> inputs) {}
+
+    private record CompiledStage(PlanStage stage, CompiledStagePlan compiled, List<String> names,
+            List<SplitSourceDescriptor> sources, List<ResultColumnModel> resultModels,
+            List<ResultColumnLogicalType> resultTypes) {
+        private AuthorizedStageGraph.SerializedStage serialize(Plan boundPlan, Map<String, StageTransfer> inputs) {
+            var source = stage.fragment();
+            boolean coalescible = false;
+            List<String> splittable = List.of();
+            if (adaptiveInputs(inputs)) {
+                if (inputs.size() == 1) {
+                    var edge = inputs.values().iterator().next();
+                    coalescible = source.supportsCoalescedHashInput(edge.exchangeId(), edge.distributionKeys());
+                } else {
+                    var keys = inputs.values().stream()
+                            .collect(Collectors.toMap(StageTransfer::exchangeId, StageTransfer::distributionKeys));
+                    var join = source.alignedHashJoin(keys, stage.parallelism());
+                    coalescible = join.isPresent();
+                    splittable = join.map(PlanFragment.AlignedHashJoin::splittableExchanges)
+                            .filter(exchanges -> !exchanges.isEmpty() && Set.copyOf(exchanges).equals(
+                                    wireSplittableInputs(boundPlan.getRelations(0).getRoot().getInput())))
+                            .orElseGet(List::of);
+                }
+            }
+            return new AuthorizedStageGraph.SerializedStage(stage.stageId(), stage.parallelism(), stage.taskType(),
+                    compiled.withPlan(boundPlan).serialize(), sources, names, resultModels, resultTypes,
+                    source.estimatedShuffleBytes(), source.estimatedShuffleRows(), coalescible, splittable);
+        }
+
+        private boolean adaptiveInputs(Map<String, StageTransfer> inputs) {
+            return stage.taskType().equals("COMPUTE") && stage.parallelism() >= 2 && sources.isEmpty()
+                    && !inputs.isEmpty() && inputs.size() <= 2 && inputs.values().stream().allMatch(edge ->
+                        edge.shuffleType() == ShuffleType.HASH && edge.requireComplete()
+                                && edge.partitionCount() == stage.parallelism());
+        }
+    }
 }

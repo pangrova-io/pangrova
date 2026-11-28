@@ -112,7 +112,7 @@ class IndexEmptyResultE2ETest extends SqlE2ETestBase {
         @DisplayName("BTREE: non-matching range returns empty result")
         void btreeEmptyResult() {
             sqlRunner.executeDdl("CREATE INDEX idx_bt ON " + fqn
-                    + "(amount) USING BTREE");
+                    + "(amount) USING BTREE FORCE");
 
             List<TypedRow> rows = sqlRunner.execute(
                     "SELECT * FROM " + fqn + " WHERE amount BETWEEN 9000.0 AND 9999.0");
@@ -123,7 +123,7 @@ class IndexEmptyResultE2ETest extends SqlE2ETestBase {
         @DisplayName("SPARSE: non-matching range returns empty result")
         void sparseEmptyResult() {
             sqlRunner.executeDdl("CREATE INDEX idx_sp ON " + fqn
-                    + "(user_id) USING SPARSE");
+                    + "(user_id) USING SPARSE FORCE");
 
             List<TypedRow> rows = sqlRunner.execute(
                     "SELECT * FROM " + fqn + " WHERE user_id BETWEEN 50000 AND 60000");

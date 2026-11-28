@@ -94,6 +94,11 @@ final class PaimonFilterBuilder {
         if (domain instanceof Domain.Range range) {
             return rangeToPredicate(builder, fieldIndex, range, fieldType);
         }
+        if (domain instanceof Domain.RangeUnion union) {
+            var predicates = union.ranges().stream()
+                    .map(range -> rangeToPredicate(builder, fieldIndex, range, fieldType)).toList();
+            return PredicateBuilder.or(predicates);
+        }
         if (domain instanceof Domain.InList inList) {
             List<Object> coerced = inList.values().stream()
                     .map(v -> coerceToPaimonType(v, fieldType))
@@ -146,7 +151,23 @@ final class PaimonFilterBuilder {
             }
             return BinaryString.fromString(value.toString());
         }
+        if (value instanceof Long bound) {
+            // Runtime build ranges use signed 64-bit coordinates on the execution wire.
+            return switch (fieldType.getTypeRoot()) {
+                case TINYINT -> (byte) requireRange(bound, Byte.MIN_VALUE, Byte.MAX_VALUE);
+                case SMALLINT -> (short) requireRange(bound, Short.MIN_VALUE, Short.MAX_VALUE);
+                case INTEGER -> Math.toIntExact(bound);
+                default -> bound;
+            };
+        }
         return value;
+    }
+
+    private static long requireRange(long bound, long minimum, long maximum) {
+        if (bound < minimum || bound > maximum) {
+            throw new IllegalArgumentException("Predicate bound is outside the signed integer column range");
+        }
+        return bound;
     }
 
     private static Predicate combineParts(List<Predicate> parts) {

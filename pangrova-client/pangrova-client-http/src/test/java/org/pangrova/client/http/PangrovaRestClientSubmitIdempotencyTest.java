@@ -67,6 +67,7 @@ class PangrovaRestClientSubmitIdempotencyTest {
     void branchSelectionsAreAppliedToSubsequentRequestsInJustOneClient() {
         var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
         var observed = new java.util.concurrent.CopyOnWriteArrayList<java.util.Map<String, String>>();
+        var selections = new java.util.concurrent.ConcurrentHashMap<String, org.pangrova.common.client.query.BranchSelection>();
         server.createContext("/v1/query/submit", exchange -> {
             var request = mapper.readValue(exchange.getRequestBody(), org.pangrova.common.client.query.SubmitQueryRequest.class);
             observed.add(request.sessionProperties());
@@ -75,17 +76,31 @@ class PangrovaRestClientSubmitIdempotencyTest {
                 case "USE BRANCH MAIN ON c.s.t" -> new org.pangrova.common.client.query.BranchSelection("c.s.t", null);
                 default -> null;
             };
+            var id = java.util.UUID.randomUUID().toString();
+            if (selection != null) selections.put(id, selection);
             var body = mapper.writeValueAsBytes(new org.pangrova.common.client.query.SubmitQueryResponse(
-                    "query", "FINISHED", null, java.util.List.of(), selection));
+                    id, "QUEUED", org.pangrova.common.enums.ResultDisposition.PENDING, null, java.util.List.of()));
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, body.length);
+            try (var stream = exchange.getResponseBody()) { stream.write(body); }
+        });
+        server.createContext("/v1/query/", exchange -> {
+            var id = exchange.getRequestURI().getPath().split("/")[3];
+            var status = new org.pangrova.common.client.query.QueryStatusResponse(id, "FINISHED", null, null,
+                    org.pangrova.common.enums.ResultDisposition.NONE, null, 1L, true, selections.get(id));
+            var body = mapper.writeValueAsBytes(status);
             exchange.getResponseHeaders().add("Content-Type", "application/json");
             exchange.sendResponseHeaders(200, body.length);
             try (var stream = exchange.getResponseBody()) { stream.write(body); }
         });
         try (var first = client(); var second = client()) {
-            first.submitQuery("USE BRANCH dev ON c.s.t", Map.of());
+            var switchToDev = first.beginQuery("USE BRANCH dev ON c.s.t", Map.of());
+            var terminal = org.pangrova.common.enums.QueryWaitTarget.TERMINAL;
+            switchToDev.awaitStatus(terminal, Long.MAX_VALUE);
             first.submitQuery("SELECT id FROM c.s.t", Map.of());
             second.submitQuery("SELECT id FROM c.s.t", Map.of());
-            first.submitQuery("USE BRANCH MAIN ON c.s.t", Map.of());
+            first.beginQuery("USE BRANCH MAIN ON c.s.t", Map.of()).awaitStatus(terminal, Long.MAX_VALUE);
+            switchToDev.awaitStatus(terminal, Long.MAX_VALUE);
             first.submitQuery("SELECT id FROM c.s.t", Map.of());
         }
         var route = Map.of("branch.routing.c.s.t", "dev");
@@ -106,7 +121,7 @@ class PangrovaRestClientSubmitIdempotencyTest {
                 Thread.currentThread().interrupt();
             }
             try {
-                byte[] body = "{\"query_id\":\"q-1\",\"state\":\"QUEUED\"}"
+                byte[] body = "{\"query_id\":\"q-1\",\"state\":\"QUEUED\",\"result_disposition\":\"PENDING\"}"
                         .getBytes(StandardCharsets.UTF_8);
                 exchange.sendResponseHeaders(200, body.length);
                 exchange.getResponseBody().write(body);
@@ -137,7 +152,7 @@ class PangrovaRestClientSubmitIdempotencyTest {
             idempotencyKey.set(exchange.getRequestHeaders().getFirst("Idempotency-Key"));
             requestId.set(exchange.getRequestHeaders().getFirst("X-Pangrova-Request-Id"));
             exchange.getRequestBody().readAllBytes();
-            byte[] body = "{\"query_id\":\"q-1\",\"state\":\"QUEUED\"}"
+            byte[] body = "{\"query_id\":\"q-1\",\"state\":\"QUEUED\",\"result_disposition\":\"PENDING\"}"
                     .getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("Content-Type", "application/json");
             exchange.sendResponseHeaders(200, body.length);

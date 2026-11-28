@@ -27,9 +27,14 @@ class CanonicalRemoteShuffleAdmissionTest {
         var populated = empty.toBuilder().setLastSequence(1).setTotalRows(2).setTotalBytes(3).build();
         assertThat(CanonicalTaskRequests.validPartitionPublication(empty)).isTrue();
         assertThat(CanonicalTaskRequests.validPartitionPublication(populated)).isTrue();
+        var range = populated.toBuilder().setStartSequence(7).setLastSequence(8).build();
+        assertThat(CanonicalTaskRequests.validPartitionPublication(range)).isTrue();
         for (var invalid : List.of(
                 empty.toBuilder().clearLastSequence(), empty.toBuilder().clearTotalRows(),
                 empty.toBuilder().clearTotalBytes(), empty.toBuilder().setTotalBytes(1),
+                empty.toBuilder().setStartSequence(0), range.toBuilder().setStartSequence(-1),
+                range.toBuilder().setStartSequence(9), range.toBuilder().setTotalRows(1),
+                range.toBuilder().setLastSequence(Long.MAX_VALUE),
                 empty.toBuilder().setLastSequence(-2), populated.toBuilder().setLastSequence(2),
                 populated.toBuilder().clearManifestSha256(),
                 populated.toBuilder().setManifestSha256(ByteString.copyFrom(new byte[33])))) {

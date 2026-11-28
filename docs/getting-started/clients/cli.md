@@ -6,6 +6,8 @@ description: "Interactive SQL shell and script mode"
 # CLI
 
 Use the Pangrova CLI for interactive queries and scripted SQL execution.
+Watch the [CLI workflow demo](./cli-demo.mdx) for a complete catalog, table, write,
+and query example.
 
 
 ## CLI
@@ -62,7 +64,18 @@ given explicitly.
 
 ```
 $ bin/pangrova-cli.sh --host localhost --port 8080
+██████╗   █████╗  ███╗   ██╗  ██████╗  ██████╗   ██████╗  ██╗   ██╗  █████╗
+██╔══██╗ ██╔══██╗ ████╗  ██║ ██╔════╝  ██╔══██╗ ██╔═══██╗ ██║   ██║ ██╔══██╗
+██████╔╝ ███████║ ██╔██╗ ██║ ██║  ███╗ ██████╔╝ ██║   ██║ ██║   ██║ ███████║
+██╔═══╝  ██╔══██║ ██║╚██╗██║ ██║   ██║ ██╔══██╗ ██║   ██║ ╚██╗ ██╔╝ ██╔══██║
+██║      ██║  ██║ ██║ ╚████║ ╚██████╔╝ ██║  ██║ ╚██████╔╝  ╚████╔╝  ██║  ██║
+╚═╝      ╚═╝  ╚═╝ ╚═╝  ╚═══╝  ╚═════╝  ╚═╝  ╚═╝  ╚═════╝    ╚═══╝   ╚═╝  ╚═╝
+Distributed SQL for open lakehouses
+Open-source lakehouse analytics and AI retrieval.
+Calcite planning · Velox execution · Arrow Flight · Iceberg · Paimon · Lance
+
 Pangrova SQL Shell. Type \q or exit to quit.
+End statements with ';'. Results are paged in groups of up to 128 rows.
 
 pangrova> SELECT 1 + 1 AS result;
 +--------+
@@ -70,12 +83,22 @@ pangrova> SELECT 1 + 1 AS result;
 +--------+
 |      2 |
 +--------+
+1 row
 
 pangrova> SHOW CATALOGS;
 ```
 
 Type `\q` or `exit` to quit. Statements that produce no result set print
 `OK (no result set)`.
+
+### Terminal Presentation
+
+Interactive terminals render the Pangrova wordmark, colored prompt, styled table
+headers, muted metadata, and colored success or error messages. The launcher
+detects terminal width, with `COLUMNS` as an optional override. Below 80 columns,
+the CLI switches to a compact wordmark. Color is disabled automatically for
+piped or redirected output and whenever `NO_COLOR` is set; `TERM=dumb` also
+disables it.
 
 ### Script Mode
 

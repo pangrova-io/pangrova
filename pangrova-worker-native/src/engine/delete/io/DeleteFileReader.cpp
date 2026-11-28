@@ -3,6 +3,7 @@
 // zero-conversion integration; falls back to Arrow when Velox DWIO is
 // unavailable at compile time.
 #include "engine/delete/io/DeleteFileReader.h"
+#include "engine/velox/connector/MetadataReadContext.h"
 
 #include <fstream>
 #include <sstream>
@@ -57,7 +58,8 @@ std::shared_ptr<facebook::velox::ReadFile> openDeleteFile(
 
 std::vector<int64_t> DeleteFileReader::readPositions(
     const std::string& deleteFilePath,
-    const std::string& dataFilePath) {
+    const std::string& dataFilePath,
+    const pangrova::velox::MetadataReadContext* reads) {
   auto& pool = deleteReaderPool();
   auto format = resolveDeleteFileFormat(deleteFilePath);
 
@@ -71,7 +73,7 @@ std::vector<int64_t> DeleteFileReader::readPositions(
         facebook::velox::dwio::common::getReaderFactory(format)
             ->createReader(
                 std::make_unique<facebook::velox::dwio::common::BufferedInput>(
-                    openDeleteFile(deleteFilePath),
+                    reads ? reads->open(deleteFilePath) : openDeleteFile(deleteFilePath),
                     pool),
                 readerOpts);
   } catch (const std::exception& e) {

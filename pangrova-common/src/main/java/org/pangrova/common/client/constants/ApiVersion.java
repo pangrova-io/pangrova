@@ -29,13 +29,13 @@ public final class ApiVersion {
     /**
      * Current API version. Increment when a breaking REST protocol change is introduced.
      */
-    public static final int CURRENT = 1;
+    public static final int CURRENT = 2;
 
     /**
      * Minimum API version the server still supports. Requests from clients with
      * a version below this are rejected.
      */
-    public static final int MIN_SUPPORTED = 1;
+    public static final int MIN_SUPPORTED = 2;
 
     /**
      * HTTP header name used by clients to declare their expected API version.

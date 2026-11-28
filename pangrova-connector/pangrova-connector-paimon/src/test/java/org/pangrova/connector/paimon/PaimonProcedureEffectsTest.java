@@ -15,6 +15,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.connector.api.exception.ConnectorException;
+import org.pangrova.connector.api.exception.SnapshotExpiredException;
+import org.pangrova.connector.api.index.SnapshotPinOwner;
+import org.pangrova.connector.api.index.SnapshotDataFile;
+import org.pangrova.common.connector.SnapshotPinTags;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -74,6 +78,69 @@ class PaimonProcedureEffectsTest {
         assertThat(rows()).isEqualTo(expected);
         assertThat(freshTable().latestSnapshot().orElseThrow().commitKind().name())
                 .isEqualTo("COMPACT");
+    }
+
+    @Test
+    void physicalCompactionAndExpirationPreserveEachExactIndexHold() throws Exception {
+        write(1, "before");
+        write(2, "retained");
+        String oldToken = Long.toString(snapshotId());
+        var first = new SnapshotPinOwner("index-one", 0, "attempt-one");
+        var second = new SnapshotPinOwner("index-two", 0, "attempt-two");
+        var replacement = new SnapshotPinOwner("index-one", 1, "attempt-three");
+        var pins = metadata.getIndexSupport().orElseThrow().getSnapshotPinProvider().orElseThrow();
+        pins.pinSnapshot("procedure_effects", "db", "effects", oldToken, first);
+        pins.pinSnapshot("procedure_effects", "db", "effects", oldToken, second);
+        var snapshots = metadata.getSnapshotAwareMetadata("db", "effects").orElseThrow();
+        var oldPaths = snapshots.listFilesAtSnapshot(oldToken).stream().map(SnapshotDataFile::path).toList();
+        assertThat(oldPaths).isNotEmpty();
+        assertThat(rows()).isEqualTo(Map.of(1L, "before", 2L, "retained"));
+        write(1, "after");
+        write(3, "new");
+        String preCompaction = Long.toString(snapshotId());
+
+        var result = metadata.executeProcedure(null, "compact", Map.of("arg0", TABLE_NAME));
+        assertThat(result.get(0).getString("result")).isEqualTo("compact succeeded");
+        assertThat(freshTable().latestSnapshot().orElseThrow().commitKind().name()).isEqualTo("COMPACT");
+        String currentToken = Long.toString(snapshotId());
+        assertThat(currentToken).isNotEqualTo(preCompaction);
+        var currentPaths = metadata.getSnapshotAwareMetadata("db", "effects").orElseThrow()
+                .listFilesAtSnapshot(currentToken).stream().map(SnapshotDataFile::path).toList();
+        var replacedPaths = oldPaths.stream().filter(path -> !currentPaths.contains(path)).toList();
+        assertThat(replacedPaths).isNotEmpty();
+        pins.pinSnapshot("procedure_effects", "db", "effects", currentToken, replacement);
+        metadata.executeProcedure(null, "expire_snapshots", Map.of("arg0", TABLE_NAME, "retain_max", "1"));
+        assertThat(freshTable().snapshotManager().snapshotExists(Long.parseLong(oldToken))).isFalse();
+
+        var options = new Options();
+        options.set("warehouse", warehouse.toUri().toString());
+        try (var reopened = CatalogFactory.createCatalog(CatalogContext.create(options))) {
+            var reopenedMetadata = new PaimonMetadata(reopened, "procedure_effects", new PaimonSplitRegistry());
+            var reopenedPins = reopenedMetadata.getIndexSupport().orElseThrow().getSnapshotPinProvider().orElseThrow();
+            var reopenedSnapshots = reopenedMetadata.getSnapshotAwareMetadata("db", "effects").orElseThrow();
+            var reopenedTable = (FileStoreTable) reopened.getTable(TABLE_ID);
+            reopenedPins.validateSnapshotPin("procedure_effects", "db", "effects", oldToken, first);
+            reopenedPins.validateSnapshotPin("procedure_effects", "db", "effects", oldToken, second);
+            assertThat(reopenedSnapshots.listFilesAtSnapshot(oldToken)).extracting(SnapshotDataFile::path)
+                    .containsExactlyInAnyOrderElementsOf(oldPaths);
+            for (String path : replacedPaths) {
+                assertThat(reopenedTable.fileIO().exists(new org.apache.paimon.fs.Path(path))).isTrue();
+            }
+            assertThat(rowsAtTag(reopenedTable, first, oldToken)).isEqualTo(Map.of(1L, "before", 2L, "retained"));
+            reopenedPins.unpinSnapshot("procedure_effects", "db", "effects", oldToken, first);
+            reopenedPins.validateSnapshotPin("procedure_effects", "db", "effects", oldToken, second);
+            assertThat(rowsAtTag(reopenedTable, second, oldToken)).isEqualTo(Map.of(1L, "before", 2L, "retained"));
+            reopenedPins.unpinSnapshot("procedure_effects", "db", "effects", oldToken, second);
+            assertThatThrownBy(() -> reopenedSnapshots.listFilesAtSnapshot(oldToken))
+                    .isInstanceOf(SnapshotExpiredException.class);
+            reopenedPins.validateSnapshotPin("procedure_effects", "db", "effects", currentToken, replacement);
+            assertThat(rows()).isEqualTo(Map.of(1L, "after", 2L, "retained", 3L, "new"));
+        }
+    }
+
+    private Map<Long, String> rowsAtTag(FileStoreTable table, SnapshotPinOwner owner, String token) throws Exception {
+        String tag = SnapshotPinTags.forSnapshot(owner.indexId(), owner.generation(), owner.attemptId(), token);
+        return rows(table.copy(Map.of("scan.tag-name", tag)));
     }
 
     @Test
@@ -191,7 +258,11 @@ class PaimonProcedureEffectsTest {
     }
 
     private Map<Long, String> rows() throws Exception {
-        var builder = freshTable().newReadBuilder();
+        return rows(freshTable());
+    }
+
+    private Map<Long, String> rows(org.apache.paimon.table.Table table) throws Exception {
+        var builder = table.newReadBuilder();
         Map<Long, String> result = new HashMap<>();
         try (var iterator = builder.newRead().createReader(builder.newScan().plan()).toCloseableIterator()) {
             while (iterator.hasNext()) {

@@ -94,13 +94,22 @@ binds each admitted predicate to its assigned scan before row filtering.
 | 4 | `source_snapshot` | string | Immutable source snapshot/version |
 | 5 | `data_object_id` | string | Source-owned object identity |
 | 6 | `opaque_location` | string | Worker-resolved data location |
-| 7 | `start_offset` | uint64 | Bounded range start |
-| 8 | `length` | uint64 | Bounded range length |
+| 7 | `start_offset` | uint64 | Parquet byte range start. Other read units use zero |
+| 8 | `length` | uint64 | Positive Parquet byte range length or format-owned read unit length |
 | 9 | `partition_values` | repeated PartitionValue | Typed partition pruning metadata |
 | 11 | `catalog` | CatalogExecutionBinding | Exact catalog deployment for Native manifest partitions |
 | 12 | `file_detail` | FileSplitDetail | Typed format-specific scan metadata |
 
 Field number 10 and the former `connector_detail` field name are reserved.
+
+Native Parquet selects row groups whose first file byte falls inside the
+half-open split interval. It checks that the interval fits the opened object
+and disables whole-file preload for partial ranges. The file footer remains
+available to every range. Position deletes apply to the file-global start row
+of each unfiltered batch, including batches from a nonzero range. Paimon merge
+uses a whole primary file and its bound LSM files. Lance uses its physical row
+range or pinned manifest partition. Apache ORC reads currently fail admission
+at the Native reader because the linked Velox factory delegates to DWRF.
 
 ### 1.6 Task kinds and terminal states
 

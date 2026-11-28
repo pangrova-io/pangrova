@@ -37,7 +37,9 @@ public final class NativeReadSplitBinding {
     /** Authorizes one scan against an immutable deployment and computes its wire identity once. */
     public static NativeReadSplitBinding prepare(CatalogHandle catalog, ConnectorSession session) {
         var descriptor = catalog.getDescriptor();
-        if (!NATIVE_STORAGE_PROVIDERS.contains(descriptor.provider())) {
+        boolean icebergS3 = "iceberg".equals(descriptor.provider())
+                && descriptor.properties().getOrDefault("warehouse", "").startsWith("s3://");
+        if (!NATIVE_STORAGE_PROVIDERS.contains(descriptor.provider()) && !icebergS3) {
             return PASS_THROUGH;
         }
         requireSession(session);
@@ -89,5 +91,6 @@ public final class NativeReadSplitBinding {
         @Override public SplitConstraint splitConstraint() { return delegate.splitConstraint(); }
         @Override public List<String> dataFilePaths() { return delegate.dataFilePaths(); }
         @Override public long estimatedScanBytes() { return delegate.estimatedScanBytes(); }
+        @Override public long estimatedScanRows() { return delegate.estimatedScanRows(); }
     }
 }

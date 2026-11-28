@@ -58,7 +58,17 @@ public final class CoordinatorExecutionAuthority implements AutoCloseable {
         }
     }
 
-    /** Acquires only through the authoritative backend CAS and backend clock. */
+    /** Issues a lease for a newly allocated execution identity through the backend CAS. */
+    public Optional<ExecutionAnchor> acquireNew(String executionId) {
+        var operation = operations.enter();
+        try {
+            return backend.tryAcquire(executionId, coordinatorId, incarnation, leaseDuration);
+        } finally {
+            operation.close();
+        }
+    }
+
+    /** Resumes this process's live ownership or acquires an execution for recovery. */
     public Optional<ExecutionAnchor> acquire(String executionId) {
         var operation = operations.enter();
         try {

@@ -12,9 +12,8 @@ import org.pangrova.parser.api.enums.StatementType;
 /**
  * Represents a {@code SELECT ... FROM table CHANGES BETWEEN SNAPSHOT x AND y} statement.
  *
- * <p>This statement reads incremental changes between two snapshots of a table,
- * returning changed rows with an implicit {@code _change_type} column indicating
- * the type of change (INSERT, UPDATE_BEFORE, UPDATE_AFTER, DELETE).</p>
+ * <p>This statement reads appended rows between two snapshots. The relation
+ * includes a virtual {@code _change_type} column with value {@code INSERT}.</p>
  *
  * @param selectItems    columns to project
  * @param tableName      fully qualified table name parts

@@ -66,6 +66,22 @@ intervals fail explicitly; they cannot be accepted as an empty change set. Paimo
 snapshot IDs advance sequentially, while retained history may lose older snapshots
 through [snapshot expiration](https://paimon.apache.org/docs/1.4/maintenance/manage-snapshots/).
 
+### Split planning I/O
+
+All physical Paimon scan sources in one Coordinator stage share the stage's
+monotonic planning deadline and a 256 MiB encoded metadata read allowance.
+Each source has its own one-million manifest-open ceiling. Standalone split
+enumeration starts with its own allowance. The scan reserves bytes before
+calling the underlying reader. Unused bytes return to the stage when that read
+exits. The allowance covers bytes delivered by file I/O to the SDK during scan
+planning. Manifest cache hits do not open files. Exceeding a limit rejects the
+plan.
+
+When a plan exits after cancellation or failure, its metadata view rejects
+new opens. The Coordinator's query operation stays active until previously
+admitted backend calls and streams close. Paimon planning uses the existing
+SDK scan and its worker pool.
+
 ### Physical file formats
 
 Native scan splits retain the Paimon SDK's exact snapshot ID, physical file
@@ -91,6 +107,10 @@ cardinality and physical-row domain. Native validates the SDK bitmap container,
 CRC and row bounds. Deduplicate merge reads persisted sequence/kind fields before
 projecting user columns, so a delete winner cannot resurrect an older row.
 Historical metadata resolves the schema ID from the pinned Paimon snapshot.
+Ordinary bound split planning passes the verified snapshot to a query-local
+SDK scan view. Historical scans take their schema ID from that object.
+The Coordinator reads the source snapshot object again before publishing
+the plan, so expiry or replacement during planning rejects the scan.
 
 Each physical file carries its own immutable field-ID mapping and source types.
 Renamed fields remain bound to their original IDs; a new field reusing an old

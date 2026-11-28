@@ -84,7 +84,7 @@ class IndexOrderByLimitE2ETest extends SqlE2ETestBase {
                 "SELECT * FROM " + fqn
                         + " WHERE amount BETWEEN 0.0 AND 400.0"
                         + " ORDER BY amount LIMIT 5");
-        sqlRunner.executeDdl("CREATE INDEX idx_bt ON " + fqn + "(amount) USING BTREE");
+        sqlRunner.executeDdl("CREATE INDEX idx_bt ON " + fqn + "(amount) USING BTREE FORCE");
         List<TypedRow> withIndex = sqlRunner.execute(
                 "SELECT * FROM " + fqn
                         + " WHERE amount BETWEEN 0.0 AND 400.0"

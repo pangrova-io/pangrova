@@ -63,7 +63,7 @@ public record PaimonFilesTableHandle(PaimonTableHandle baseTable, List<Manifest>
     }
 
     @Override
-    public PaimonFilesTableHandle withTimeTravelSnapshot(long selectedSnapshotId) {
-        return selector(baseTable.withTimeTravelSnapshot(selectedSnapshotId));
+    public PaimonFilesTableHandle withTimeTravelSnapshot(String snapshotToken) {
+        return selector(baseTable.withTimeTravelSnapshot(snapshotToken));
     }
 }

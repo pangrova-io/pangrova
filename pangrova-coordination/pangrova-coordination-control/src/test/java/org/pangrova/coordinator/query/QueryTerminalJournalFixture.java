@@ -25,6 +25,8 @@ final class QueryTerminalJournalFixture implements AutoCloseable {
             installCommittedWriteObserver();
             execute("GRANT USAGE ON SCHEMA " + schema + " TO " + role);
             execute("GRANT SELECT, INSERT, DELETE ON ALL TABLES IN SCHEMA " + schema + " TO " + role);
+            // PostgreSQL row locking requires UPDATE privilege on at least one column.
+            execute("GRANT UPDATE (expires_at) ON execution_anchor TO " + role);
             execute("GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA " + schema + " TO " + role);
             var source = new PGSimpleDataSource();
             source.setURL(SharedPostgresContainer.instance().getJdbcUrl());

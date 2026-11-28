@@ -19,10 +19,10 @@ public interface ConnectorTableHandle {
      * override this method to return a handle that scans at the given snapshot.
      * The default returns {@code this} unchanged for connectors without time travel.</p>
      *
-     * @param snapshotId the snapshot ID to pin the scan to
+     * @param snapshotToken opaque connector snapshot token to pin the scan to
      * @return a new handle for time-travel, or this handle if unsupported
      */
-    default ConnectorTableHandle withTimeTravelSnapshot(long snapshotId) {
+    default ConnectorTableHandle withTimeTravelSnapshot(String snapshotToken) {
         return this;
     }
 

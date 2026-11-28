@@ -20,7 +20,7 @@ import static org.pangrova.protocol.rest.task.ProtocolTestFixtures.exchangeSourc
 
 /**
  * Verifies field completeness and consistency across cross-node communication DTOs:
- * WorkerRegistrationRequest, HeartbeatPayload (wire format), and ExchangeSourceDescriptor.
+ * WorkerRegistrationRequest, HeartbeatRequest (wire format), and ExchangeSourceDescriptor.
  *
  * <p>Validates: Requirements 2.8</p>
  */
@@ -220,7 +220,7 @@ class CrossNodeProtocolTest {
     }
 
     // ========================================================================
-    // Cross-DTO consistency: WorkerRegistrationRequest ↔ HeartbeatPayload
+    // Cross-DTO consistency: WorkerRegistrationRequest ↔ HeartbeatRequest
     // ========================================================================
 
     @Nested

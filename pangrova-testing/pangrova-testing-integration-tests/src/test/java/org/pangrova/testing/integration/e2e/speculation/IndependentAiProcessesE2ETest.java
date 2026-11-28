@@ -35,10 +35,10 @@ class IndependentAiProcessesE2ETest extends ContainerTestBase {
                     processes.createSourceCatalog();
                     String table = "spec_catalog.default.ai_process_"
                             + UUID.randomUUID().toString().replace("-", "");
-                    processes.query("CREATE TABLE " + table + " (id BIGINT, prompt VARCHAR)",
+                    processes.command("CREATE TABLE " + table + " (id BIGINT, prompt VARCHAR)",
                             ResultProtocol.GRPC_TLS);
                     for (int id = 0; id < 4; id++) {
-                        processes.query("INSERT INTO " + table + " VALUES (" + id
+                        processes.command("INSERT INTO " + table + " VALUES (" + id
                                 + ", 'Reply with one word for greeting " + id + ".')", ResultProtocol.GRPC_TLS);
                     }
                     verifySingleWorkerModelCalls(processes, provider, table, "local-worker-1");

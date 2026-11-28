@@ -140,9 +140,9 @@ class SubquerySetOperationTest extends SqlE2ETestBase {
         @DisplayName("UNION ALL combines results from two queries")
         void unionAll() {
             List<TypedRow> rows = sqlRunner.execute(
-                    "SELECT o_orderkey AS id FROM orders WHERE o_orderstatus = 'O' LIMIT 5 "
+                    "SELECT id FROM (SELECT o_orderkey AS id FROM orders WHERE o_orderstatus = 'O' LIMIT 5) opened "
                     + "UNION ALL "
-                    + "SELECT o_orderkey AS id FROM orders WHERE o_orderstatus = 'F' LIMIT 5");
+                    + "SELECT id FROM (SELECT o_orderkey AS id FROM orders WHERE o_orderstatus = 'F' LIMIT 5) filled");
             assertThat(rows).hasSize(10);
         }
 

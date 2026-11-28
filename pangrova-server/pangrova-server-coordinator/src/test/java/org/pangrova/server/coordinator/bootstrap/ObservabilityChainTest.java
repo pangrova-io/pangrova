@@ -29,6 +29,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Map;
 
+import static org.pangrova.server.coordinator.testinfra.QuerySubmissionTestSupport.assertAdmissionThenWorkerFailure;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 
@@ -142,8 +143,7 @@ class ObservabilityChainTest extends org.pangrova.server.coordinator.testinfra.S
         int port = coordinatorBootstrap.getHttpPort();
 
         HttpResponse<String> resp = submitQuery(port, "SELECT 1");
-        assertThat(resp.statusCode()).isEqualTo(503);
-        assertThat(resp.body()).contains("No available worker for task dispatch");
+        assertAdmissionThenWorkerFailure(coordinatorBootstrap.getQueryManager(), resp);
     }
 
     /**
@@ -300,8 +300,7 @@ class ObservabilityChainTest extends org.pangrova.server.coordinator.testinfra.S
         int port = coordinatorBootstrap.getHttpPort();
 
         HttpResponse<String> resp = submitQuery(port, "SELECT 42");
-        assertThat(resp.statusCode()).isEqualTo(503);
-        assertThat(resp.body()).contains("No available worker for task dispatch");
+        assertAdmissionThenWorkerFailure(coordinatorBootstrap.getQueryManager(), resp);
 
         assertThat(coordinatorBootstrap.getQueryManager()).isNotNull();
     }

@@ -2006,100 +2006,90 @@ mod tests {
     use super::*;
     use lance::dataset::CommitBuilder;
     use lance_table::io::commit::CommitHandler;
-    use std::process::Command;
-    use std::time::Duration;
+    use object_store::{
+        GetOptions, GetResult, ListResult, MultipartUpload, ObjectMeta, PutMultipartOpts,
+        PutResult,
+    };
+    use std::path::PathBuf;
 
-    struct MinioContainer {
-        id: String,
-        endpoint: String,
-    }
+    struct TempDataset(PathBuf);
 
-    impl MinioContainer {
-        fn start(image: &str) -> Self {
-            let output = Command::new("docker")
-                .args([
-                    "run",
-                    "-d",
-                    "--rm",
-                    "-p",
-                    "127.0.0.1::9000",
-                    "-e",
-                    "MINIO_ROOT_USER=minioadmin",
-                    "-e",
-                    "MINIO_ROOT_PASSWORD=minioadmin",
-                    image,
-                    "server",
-                    "/data",
-                ])
-                .output()
-                .expect("Docker is required for the Lance S3 commit test");
-            assert!(
-                output.status.success(),
-                "MinIO container failed to start: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-            let id = String::from_utf8(output.stdout).unwrap().trim().to_owned();
-            let container = Self {
-                id,
-                endpoint: String::new(),
-            };
-            let port_output = Command::new("docker")
-                .args(["port", &container.id, "9000/tcp"])
-                .output()
-                .expect("cannot inspect MinIO port");
-            assert!(port_output.status.success(), "cannot inspect MinIO port");
-            let port = String::from_utf8(port_output.stdout)
-                .unwrap()
-                .trim()
-                .rsplit(':')
-                .next()
-                .unwrap()
-                .parse::<u16>()
-                .expect("invalid MinIO host port");
-            let mut container = container;
-            container.endpoint = format!("http://127.0.0.1:{port}");
-            let mut last_error = String::new();
-            for _ in 0..80 {
-                let alias = Command::new("docker")
-                    .args([
-                        "exec",
-                        &container.id,
-                        "mc",
-                        "alias",
-                        "set",
-                        "pangrova",
-                        "http://127.0.0.1:9000",
-                        "minioadmin",
-                        "minioadmin",
-                    ])
-                    .output()
-                    .expect("cannot execute MinIO client");
-                if alias.status.success() {
-                    return container;
-                }
-                last_error = String::from_utf8_lossy(&alias.stderr).into_owned();
-                std::thread::sleep(Duration::from_millis(250));
-            }
-            panic!("MinIO did not become ready: {last_error}");
+    impl TempDataset {
+        fn new() -> Self {
+            let root = std::env::temp_dir().join(format!("pangrova-lance-{}", uuid::Uuid::new_v4()));
+            std::fs::create_dir(&root).unwrap();
+            Self(root)
         }
 
-        fn create_bucket(&self, bucket: &str) {
-            let target = format!("pangrova/{bucket}");
-            let output = Command::new("docker")
-                .args(["exec", &self.id, "mc", "mb", &target])
-                .output()
-                .expect("cannot create MinIO bucket");
-            assert!(
-                output.status.success(),
-                "MinIO bucket creation failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
+        fn uri(&self) -> &str {
+            self.0.to_str().unwrap()
         }
     }
 
-    impl Drop for MinioContainer {
+    impl Drop for TempDataset {
         fn drop(&mut self) {
-            let _ = Command::new("docker").args(["rm", "-f", &self.id]).output();
+            if let Err(error) = std::fs::remove_dir_all(&self.0) {
+                if std::thread::panicking() {
+                    eprintln!("Cannot remove Lance test dataset {}: {error}", self.0.display());
+                } else {
+                    panic!("Cannot remove Lance test dataset {}: {error}", self.0.display());
+                }
+            }
+        }
+    }
+
+    #[derive(Debug)]
+    struct OverwritingFileStore(Arc<dyn object_store::ObjectStore>);
+
+    impl std::fmt::Display for OverwritingFileStore {
+        fn fmt(&self, output: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            output.write_str("OverwritingFileStore")
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl object_store::ObjectStore for OverwritingFileStore {
+        async fn put_opts(
+            &self, location: &Path, payload: PutPayload, mut options: PutOptions,
+        ) -> object_store::Result<PutResult> {
+            if matches!(options.mode, PutMode::Create) {
+                options.mode = PutMode::Overwrite;
+            }
+            self.0.put_opts(location, payload, options).await
+        }
+
+        async fn put_multipart_opts(
+            &self, location: &Path, options: PutMultipartOpts,
+        ) -> object_store::Result<Box<dyn MultipartUpload>> {
+            self.0.put_multipart_opts(location, options).await
+        }
+
+        async fn get_opts(
+            &self, location: &Path, options: GetOptions,
+        ) -> object_store::Result<GetResult> {
+            self.0.get_opts(location, options).await
+        }
+
+        async fn delete(&self, location: &Path) -> object_store::Result<()> {
+            self.0.delete(location).await
+        }
+
+        fn list(
+            &self, prefix: Option<&Path>,
+        ) -> futures::stream::BoxStream<'_, object_store::Result<ObjectMeta>> {
+            self.0.list(prefix)
+        }
+
+        async fn list_with_delimiter(&self, prefix: Option<&Path>) -> object_store::Result<ListResult> {
+            self.0.list_with_delimiter(prefix).await
+        }
+
+        async fn copy(&self, from: &Path, to: &Path) -> object_store::Result<()> {
+            self.0.copy(from, to).await
+        }
+
+        async fn copy_if_not_exists(&self, from: &Path, to: &Path) -> object_store::Result<()> {
+            self.0.copy_if_not_exists(from, to).await
         }
     }
 
@@ -2175,39 +2165,32 @@ mod tests {
     }
 
     async fn assert_sdk_candidate_race(first_store: ObjectStore, second_store: ObjectStore,
-            base: Path, uri: &str, params: ObjectStoreParams, supports_conditional_create: bool) {
+            base: Path, uri: &str, params: ObjectStoreParams) -> (String, Vec<u8>) {
         let fingerprint = hex_digest(&sha256(b"actual-sdk-candidate-race"));
         let (first, second) = futures::join!(
             sdk_prepare(first_store.clone(), uri, &params, "writer-one", &fingerprint),
             sdk_prepare(second_store, uri, &params, "writer-two", &fingerprint),
         );
         let path = object_path(&base, &format!("_pangrova/prepared/{fingerprint}.manifest")).unwrap();
-        if supports_conditional_create {
-            assert_eq!(usize::from(first.is_ok()) + usize::from(second.is_ok()), 1);
-            assert_eq!(usize::from(matches!(first, Err(lance::Error::DatasetAlreadyExists { .. })))
-                + usize::from(matches!(second, Err(lance::Error::DatasetAlreadyExists { .. }))), 1);
-            let expected = if first.is_ok() { "writer-one" } else { "writer-two" };
-            let winner = first.or(second).unwrap();
-            assert_eq!(winner.version().version, 1);
-            assert_eq!(winner.manifest().tag.as_deref(), Some(fingerprint.as_str()));
-            assert_eq!(winner.read_transaction().await.unwrap().unwrap().uuid, expected);
-            let arrow_schema: Schema = winner.schema().into();
-            assert_eq!(arrow_schema.field(0).name(), expected);
-            let payload = first_store.inner.get(&path).await.unwrap().bytes().await.unwrap();
-            assert!(!payload.is_empty());
-            let late = sdk_prepare(first_store.clone(), uri, &params, "late-writer", &fingerprint).await;
-            assert!(matches!(late, Err(lance::Error::DatasetAlreadyExists { .. })));
-            let unchanged = first_store.inner.get(&path).await.unwrap().bytes().await.unwrap();
-            assert_eq!(unchanged, payload);
-            assert!(matches!(first_store.inner.head(&object_path(&base, "_versions/1.manifest").unwrap()).await,
-                Err(ObjectStoreError::NotFound { .. })));
-        } else {
-            for result in [first, second] {
-                let error = result.expect_err("unsafe MinIO conditional PUT must fail closed");
-                assert!(format!("{error:?}").contains("ignored conditional create"));
-            }
-            assert!(matches!(first_store.inner.head(&path).await, Err(ObjectStoreError::NotFound { .. })));
-        }
+        assert_eq!(usize::from(first.is_ok()) + usize::from(second.is_ok()), 1);
+        assert_eq!(usize::from(matches!(first, Err(lance::Error::DatasetAlreadyExists { .. })))
+            + usize::from(matches!(second, Err(lance::Error::DatasetAlreadyExists { .. }))), 1);
+        let expected = if first.is_ok() { "writer-one" } else { "writer-two" };
+        let winner = first.or(second).unwrap();
+        assert_eq!(winner.version().version, 1);
+        assert_eq!(winner.manifest().tag.as_deref(), Some(fingerprint.as_str()));
+        assert_eq!(winner.read_transaction().await.unwrap().unwrap().uuid, expected);
+        let arrow_schema: Schema = winner.schema().into();
+        assert_eq!(arrow_schema.field(0).name(), expected);
+        let payload = first_store.inner.get(&path).await.unwrap().bytes().await.unwrap();
+        assert!(!payload.is_empty());
+        let late = sdk_prepare(first_store.clone(), uri, &params, "late-writer", &fingerprint).await;
+        assert!(matches!(late, Err(lance::Error::DatasetAlreadyExists { .. })));
+        let unchanged = first_store.inner.get(&path).await.unwrap().bytes().await.unwrap();
+        assert_eq!(unchanged, payload);
+        assert!(matches!(first_store.inner.head(&object_path(&base, "_versions/1.manifest").unwrap()).await,
+            Err(ObjectStoreError::NotFound { .. })));
+        (fingerprint, payload.to_vec())
     }
 
     #[test]
@@ -2215,15 +2198,15 @@ mod tests {
         get_or_create_runtime().block_on(async {
             let store = ObjectStore::memory();
             assert_sdk_candidate_race(store.clone(), store, Path::from("test-dataset"),
-                "memory:///test-dataset", ObjectStoreParams::default(), true).await;
+                "memory:///test-dataset", ObjectStoreParams::default()).await;
         });
     }
 
     #[test]
     fn sdk_prepared_manifest_and_sidecar_preserve_physical_directory_hierarchy() {
-        let root = std::env::temp_dir().join(format!("pangrova-lance-path-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&root).unwrap();
-        let uri = root.to_str().unwrap();
+        let temp = TempDataset::new();
+        let root = &temp.0;
+        let uri = temp.uri();
         let fingerprint = hex_digest(&sha256(b"actual-sdk-nested-path"));
         get_or_create_runtime().block_on(async {
             let params = ObjectStoreParams::default();
@@ -2254,39 +2237,50 @@ mod tests {
             assert!(object_path(&base, "_pangrova%2Fwrite-staging/transaction-test.pb").is_err());
             assert!(object_path(&base, "_pangrova//write-staging/transaction-test.pb").is_err());
         });
-        std::fs::remove_dir_all(root).unwrap();
     }
 
-    fn assert_minio_conditional_commit(image: &str, supports_conditional_create: bool) {
-        let minio = MinioContainer::start(image);
-        let bucket = format!("pangrova-lance-{}", uuid::Uuid::new_v4());
-        minio.create_bucket(&bucket);
-        let uri = format!("s3://{bucket}/test-dataset");
-        let mut params = AtomicCommitStore::for_uri(&uri).unwrap().store_params();
-        params.storage_options.as_mut().unwrap().extend([
-            ("aws_endpoint".to_owned(), minio.endpoint.clone()),
-            ("aws_region".to_owned(), "us-east-1".to_owned()),
-            ("aws_access_key_id".to_owned(), "minioadmin".to_owned()),
-            ("aws_secret_access_key".to_owned(), "minioadmin".to_owned()),
-            ("aws_allow_http".to_owned(), "true".to_owned()),
-        ]);
+    #[test]
+    fn local_file_store_conditional_manifest_commit_has_one_winner() {
+        let dataset = TempDataset::new();
+        let uri = dataset.uri();
         get_or_create_runtime().block_on(async {
-            let (store, base) = ObjectStore::from_uri_and_params(Arc::new(ObjectStoreRegistry::default()),
-                &uri, &params).await.unwrap();
-            let (second_store, _) = ObjectStore::from_uri_and_params(Arc::new(ObjectStoreRegistry::default()),
-                &uri, &params).await.unwrap();
-            assert_sdk_candidate_race(store, second_store, base, &uri, params, supports_conditional_create).await;
+            let params = ObjectStoreParams::default();
+            let (first, base) = ObjectStore::from_uri_and_params(
+                Arc::new(ObjectStoreRegistry::default()), uri, &params,
+            ).await.unwrap();
+            let (second, _) = ObjectStore::from_uri_and_params(
+                Arc::new(ObjectStoreRegistry::default()), uri, &params,
+            ).await.unwrap();
+
+            let (fingerprint, payload) = assert_sdk_candidate_race(first, second, base, uri, params).await;
+            let manifest = dataset.0.join(format!("_pangrova/prepared/{fingerprint}.manifest"));
+            assert_eq!(std::fs::read(manifest).unwrap(), payload);
         });
     }
 
     #[test]
-    fn minio_without_conditional_create_fails_closed() {
-        assert_minio_conditional_commit("minio/minio:RELEASE.2024-01-16T16-07-38Z", false);
-    }
-
-    #[test]
-    fn minio_conditional_manifest_commit_has_one_winner() {
-        assert_minio_conditional_commit("tobi312/minio:RELEASE.2025-02-28T09-55-16Z", true);
+    fn local_file_store_without_conditional_create_fails_closed() {
+        let dataset = TempDataset::new();
+        let uri = dataset.uri();
+        get_or_create_runtime().block_on(async {
+            let params = ObjectStoreParams::default();
+            let (mut store, _) = ObjectStore::from_uri_and_params(
+                Arc::new(ObjectStoreRegistry::default()), uri, &params,
+            ).await.unwrap();
+            store.inner = Arc::new(OverwritingFileStore(store.inner));
+            let fingerprint = hex_digest(&sha256(b"unsafe-write-candidate"));
+            let (first, second) = futures::join!(
+                sdk_prepare(store.clone(), uri, &params, "writer-one", &fingerprint),
+                sdk_prepare(store, uri, &params, "writer-two", &fingerprint),
+            );
+            for result in [first, second] {
+                let error = result.expect_err("a backend that overwrites must fail closed");
+                assert!(format!("{error:?}").contains("ignored conditional create"));
+            }
+            let prepared = dataset.0.join("_pangrova/prepared");
+            assert!(std::fs::read_dir(prepared).unwrap().next().is_none());
+            assert!(!dataset.0.join("_versions").exists());
+        });
     }
 
     #[test]

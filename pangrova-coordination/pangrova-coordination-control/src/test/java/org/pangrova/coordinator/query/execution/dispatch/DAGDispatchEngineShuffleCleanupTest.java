@@ -9,7 +9,6 @@ import org.pangrova.execution.task.DispatchResult;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -45,13 +44,13 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Tests shuffle resource cleanup on dispatch failure paths.
+ * Verifies logical dispatch failures leave Shuffle with the physical execution owner.
  */
 class DAGDispatchEngineShuffleCleanupTest {
 
     @Test
-    @DisplayName("dispatch failure notifies shuffle cleanup exactly once")
-    void dispatchCatchBlockCleansUpShuffle() {
+    @DisplayName("dispatch failure leaves physical Shuffle cleanup with the query owner")
+    void dispatchFailureDoesNotDeleteShuffle() {
         RecordingShuffleManager recorder = new RecordingShuffleManager();
         DAGDispatchEngine engine = buildEngine(new FailingTaskDispatcher(), recorder,
                 List.of(new ShuffleStageHandler(recorder)));
@@ -62,12 +61,12 @@ class DAGDispatchEngineShuffleCleanupTest {
 
         try (engine) {
             assertThrows(Exception.class, () -> await(engine, session, dag, compiler));
-            assertEquals(List.of("q-d29"), recorder.cleanupCalls);
+            assertTrue(recorder.cleanupCalls.isEmpty());
         }
     }
 
     @Test
-    void stageLinkageFailureRetainsItsCauseAndCleansUpTheQuery() {
+    void stageLinkageFailureRetainsItsCauseWithoutDeletingShuffle() {
         var recorder = new RecordingShuffleManager();
         var session = SourceFreeQueryFixture.session("q-linkage");
         var dag = buildSingleStageDAG(session.queryId());
@@ -81,7 +80,7 @@ class DAGDispatchEngineShuffleCleanupTest {
             assertSame(missingClass, failure.getCause());
             assertEquals(StageState.FAILED, dag.findStage(1).stateMachine().getState());
             assertEquals(0, dag.findStage(1).retryCount());
-            assertEquals(List.of(session.queryId()), recorder.cleanupCalls);
+            assertTrue(recorder.cleanupCalls.isEmpty());
         }
     }
 
@@ -162,7 +161,7 @@ class DAGDispatchEngineShuffleCleanupTest {
         @Override
         public DispatchResult dispatch(SubmitTaskRequest request, WorkerInfo worker) {
             return new DispatchResult("localhost", "task-noop",
-                    new ResultEndpoint("localhost", 8080, "ticket-noop", "http"));
+                    new ResultEndpoint("localhost", 8080, "ticket-noop", "grpc"));
         }
     }
 
@@ -176,7 +175,6 @@ class DAGDispatchEngineShuffleCleanupTest {
                 null,  // lineageEmitter
                 null,  // catalogRegistry
                 30L,   // taskTimeoutSeconds
-                null,  // adaptiveQueryExecutor
                 null,  // adaptiveQueryConfig
                 null,  // speculativeStageHandler
                 PipelineConfig.DISABLED,

@@ -10,9 +10,11 @@ import org.pangrova.generation.api.job.GenerationDispatchSpec;
 import org.pangrova.persistence.jdbc.api.security.policy.AuthorizationPublicationLock;
 import org.pangrova.persistence.security.api.tenant.DeferredTenantAuthority;
 import org.pangrova.security.api.exception.AuthorizationDeniedException;
+import org.pangrova.security.api.authorization.DeferredAuthorizationScope;
 
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.util.List;
 import java.util.Set;
 
 /** Bridges current security and canonical tenant authority on one metadata transaction. */
@@ -40,16 +42,16 @@ public final class PostgresGenerationTransactionAuthority implements GenerationT
     @Override
     public AuthorizedDispatch authorize(Connection connection, String tenantId, String jobId) throws SQLException {
         publicationLock.lockPublication(connection);
-        GenerationDispatchSpec spec;
+        GenerationTransactionInputs.StoredDispatch stored;
         try {
-            spec = inputs.findDispatchSpec(connection, tenantId, jobId)
+            stored = inputs.findStoredDispatch(connection, tenantId, jobId)
                     .orElseThrow(() -> new AuthorizationDeniedException(
                             "Deferred work has no scoped dispatch specification"));
         } catch (IllegalArgumentException unscopedOrCorrupt) {
             throw new AuthorizationDeniedException(
                     "Deferred work has invalid scope metadata; securely resubmit the job");
         }
-        return new AuthorizedDispatch(spec, requireScope(connection, spec));
+        return new AuthorizedDispatch(stored, requireScope(connection, stored.dispatchSpec()));
     }
 
     /** Checks the current tenant, security, and model authority under the publication lock. */
@@ -57,6 +59,15 @@ public final class PostgresGenerationTransactionAuthority implements GenerationT
     public void requireCurrent(Connection connection, GenerationDispatchSpec spec) throws SQLException {
         publicationLock.lockPublication(connection);
         requireScope(connection, spec);
+    }
+
+    @Override
+    public void requireCurrent(Connection connection, String tenantId, String principal,
+                               DeferredAuthorizationScope authorizationScope) throws SQLException {
+        publicationLock.lockPublication(connection);
+        tenantAuthority.requireCurrent(connection, principal, tenantId, authorizationScope);
+        tableAuthority.requireCurrent(connection, principal, authorizationScope);
+        modelAuthority.requireCurrent(connection, principal, List.of());
     }
 
     private Set<String> requireScope(Connection connection, GenerationDispatchSpec spec) throws SQLException {

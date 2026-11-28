@@ -99,10 +99,14 @@ class WorkerCrashQueryTerminationTest extends SqlE2ETestBase {
                     .containsAnyElementsOf(submitted);
 
             ensureWorkerRunning();
-            await().atMost(FAILURE_DETECTION_TIMEOUT).untilAsserted(() ->
-                    assertThat(queryManager.getActiveQueryIds())
-                            .as("failed queries physically drain after Worker control recovers")
-                            .doesNotContainAnyElementsOf(submitted));
+            await().atMost(FAILURE_DETECTION_TIMEOUT).untilAsserted(() -> {
+                // Drive the same reconciliation ticks as the production Coordinator.
+                queryManager.retryPendingTaskCancellations();
+                queryManager.retryPendingTerminalCompletions();
+                assertThat(queryManager.getActiveQueryIds())
+                        .as("failed queries physically drain after Worker control recovers")
+                        .doesNotContainAnyElementsOf(submitted);
+            });
         });
     }
 

@@ -130,10 +130,5 @@ class BuildClaimMutualExclusionPropertyTest {
         public boolean heartbeat(String indexId, int generation, String ownerId, Instant now) {
             return ownerId.equals(claims.get(indexId + ":" + generation));
         }
-
-        @Override
-        public int expireBefore(Instant cutoff) {
-            throw new AssertionError("Expiry is outside this CAS model");
-        }
     }
 }

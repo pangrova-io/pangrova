@@ -62,11 +62,27 @@
   box-shadow: 0 0 0 4px rgba(52, 211, 153, 0.16);
 }
 
+.heroBrand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: 1.75rem auto 1.25rem;
+}
+
 .heroLogo {
-  width: 170px;
+  width: 150px;
   height: auto;
-  margin: 1.75rem auto 1rem;
   filter: drop-shadow(0 18px 32px rgba(30, 27, 75, 0.55));
+}
+
+.heroWordmark {
+  margin-top: 0.85rem;
+  color: #f8fafc;
+  font-size: clamp(2rem, 4vw, 3rem);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
 }
 
 .heroTitle {
@@ -386,7 +402,7 @@
 
 .communityGrid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 1.2rem;
 }
 

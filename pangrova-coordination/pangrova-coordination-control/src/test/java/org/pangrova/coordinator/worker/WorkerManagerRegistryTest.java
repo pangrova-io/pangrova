@@ -76,7 +76,6 @@ class WorkerManagerRegistryTest {
         var recovered = new WorkerManager(SUSPECT_MS, DEAD_MS, registry, direct);
         recovered.loadFromRegistry();
         assertThat(recovered.getActiveWorkers()).isEmpty();
-        assertThat(recovered.tryRecoverFromRegistry(worker.workerId())).isFalse();
         assertThat(recovered.onHeartbeat(snapshot.registrationIdentity(),
                 new WorkerManager.HeartbeatData(MemoryPressure.NONE, 0, 0, 100)))
                 .isEqualTo(org.pangrova.coordination.api.enums.WorkerHeartbeatStatus.REGISTRATION_REQUIRED);
@@ -126,7 +125,7 @@ class WorkerManagerRegistryTest {
         WorkerSnapshot snapshot = registry.getWorker("w-2").orElseThrow();
         assertThat(snapshot.memoryPressure()).isEqualTo("LOW");
         assertThat(snapshot.cpuUtilization()).isEqualTo(0.75);
-        assertThat(snapshot.runningTaskCount()).isEqualTo(5);
+        assertThat(snapshot.inFlightTaskCount()).isEqualTo(5);
         assertThat(snapshot.availableMemoryBytes()).isEqualTo(512L * 1024 * 1024);
         // static fields unchanged
         assertThat(snapshot.host()).isEqualTo("host-w-2");

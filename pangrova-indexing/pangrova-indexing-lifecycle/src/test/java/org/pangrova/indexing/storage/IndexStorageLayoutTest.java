@@ -31,6 +31,20 @@ class IndexStorageLayoutTest {
         assertThat(layout.indexFilePath(first, attempt, source)).isEqualTo(servingPath);
     }
 
+    @Test
+    void retiredPathOwnershipUsesOriginalPhysicalGenerationAndExactScope() {
+        var layout = new IndexStorageLayout("/indexes");
+        String source = "/data/part-1.parquet";
+        String original = layout.indexFilePath(descriptor(0), new UUID(0, 1), source);
+        assertThat(layout.isRetiredIndexFilePath(descriptor(4), source, 2, original)).isTrue();
+        assertThat(layout.isRetiredIndexFilePath(descriptor(4), "different-source", 2, original)).isFalse();
+        assertThat(layout.isRetiredIndexFilePath(descriptor(4), source, 0,
+                layout.indexFilePath(descriptor(1), new UUID(0, 2), source))).isFalse();
+        assertThat(layout.isRetiredIndexFilePath(descriptor(4), source, 2, "/indexes/v1/legacy.idx")).isFalse();
+        assertThat(new IndexStorageLayout("/changed-root")
+                .isRetiredIndexFilePath(descriptor(4), source, 2, original)).isFalse();
+    }
+
     private static IndexDescriptor descriptor(int generation) {
         return new IndexDescriptor(
                 "index-id", "by_value", "catalog", "schema", "table",

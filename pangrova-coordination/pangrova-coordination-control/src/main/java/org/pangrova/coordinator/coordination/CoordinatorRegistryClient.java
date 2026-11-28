@@ -32,7 +32,7 @@ final class CoordinatorRegistryClient {
         reg.heartbeat(coordinatorId);
     }
 
-    void register(String coordinatorId, long epoch) {
+    void register(String coordinatorId, String incarnation, long epoch) {
         CoordinatorRegistry reg = registry;
         if (reg == null) {
             return;
@@ -40,7 +40,7 @@ final class CoordinatorRegistryClient {
         long now = System.currentTimeMillis();
         reg.register(new CoordinatorSnapshot(
                 coordinatorId, host, httpPort,
-                "STANDBY", epoch, now, now));
+                "STANDBY", epoch, now, now, -1, incarnation));
         LOG.debug("event=coordinator_registered coordinatorId={} host={} httpPort={}",
                 coordinatorId, host, httpPort);
     }

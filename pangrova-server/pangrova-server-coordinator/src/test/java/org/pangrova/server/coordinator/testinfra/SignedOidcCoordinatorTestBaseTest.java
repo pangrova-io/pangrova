@@ -13,6 +13,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 
+import static org.pangrova.server.coordinator.testinfra.QuerySubmissionTestSupport.assertAdmissionThenWorkerFailure;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /** Real HTTP admission integration, not a Native SQL execution or multi-worker E2E test. */
@@ -28,8 +29,7 @@ class SignedOidcCoordinatorTestBaseTest extends SignedOidcCoordinatorTestBase {
     void signedActiveTenantReachesWorkerAdmission() throws Exception {
         coordinator = startAuthorizedCoordinator(CoordinatorBootstrapConfig.withDefaults("fixture-positive", 0));
         var response = submit(true);
-        assertThat(response.statusCode()).isEqualTo(503);
-        assertThat(response.body()).contains("COORDINATOR-0001", "No available worker for task dispatch");
+        assertAdmissionThenWorkerFailure(coordinator.getQueryManager(), response);
     }
 
     @Test

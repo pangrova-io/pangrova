@@ -55,6 +55,9 @@ public record IndexDescriptor(
         Instant updatedAt,
         String tenantId) {
 
+    public static final String SOURCE_SCHEMA_FINGERPRINT_PROPERTY =
+            "pangrova.source.schema-fingerprint";
+
     /**
      * Compact constructor — validates required fields and defensively copies collections.
      */
@@ -84,6 +87,27 @@ public record IndexDescriptor(
         if (value == null) {
             throw new IllegalArgumentException(fieldName + " must not be null");
         }
+    }
+
+    /** Returns the exact indexed-column schema binding, or null when unbound. */
+    public String sourceSchemaFingerprint() {
+        String fingerprint = properties.get(SOURCE_SCHEMA_FINGERPRINT_PROPERTY);
+        return fingerprint == null || fingerprint.isBlank() ? null : fingerprint;
+    }
+
+    /** Returns a descriptor bound to the supplied source schema fingerprint. */
+    public IndexDescriptor withSourceSchemaFingerprint(String schemaFingerprint) {
+        var boundProperties = new java.util.LinkedHashMap<>(properties);
+        if (schemaFingerprint == null || schemaFingerprint.isBlank()) {
+            boundProperties.remove(SOURCE_SCHEMA_FINGERPRINT_PROPERTY);
+        } else {
+            boundProperties.put(SOURCE_SCHEMA_FINGERPRINT_PROPERTY, schemaFingerprint);
+        }
+        return new IndexDescriptor(
+                indexId, indexName, catalogName, schemaName, tableName,
+                columnNames, indexType, boundProperties,
+                state, staleReason, generation, buildSnapshotId, lastIndexedSnapshotId,
+                createdAt, updatedAt, tenantId);
     }
 
     /**

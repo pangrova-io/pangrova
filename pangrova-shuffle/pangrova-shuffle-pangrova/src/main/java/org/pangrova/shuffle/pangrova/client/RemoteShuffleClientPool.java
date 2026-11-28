@@ -229,10 +229,7 @@ public final class RemoteShuffleClientPool implements Closeable, org.pangrova.sh
             var context = new org.pangrova.shuffle.api.identity.ExchangeChannelContext(
                     consumer, partition, input.getDeadlineEpochMs());
             var read = new PangrovaPartitionRead(input.getShuffleId(), context, input.getPlanEpoch(),
-                    input.getExpectedProducerPartitions(), producerSetDigest,
-                    new org.pangrova.shuffle.api.ShuffleCommitReceipt.Partition(published.getLastSequence(),
-                            published.getTotalBytes(), published.getTotalRows(),
-                            java.util.HexFormat.of().formatHex(published.getManifestSha256().toByteArray())));
+                    input.getExpectedProducerPartitions(), producerSetDigest, published);
             return openPartition(input, partition, read, access);
         };
     }

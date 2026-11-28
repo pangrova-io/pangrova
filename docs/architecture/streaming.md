@@ -30,6 +30,17 @@ sidebar_label: "Streaming & CDC"
 > the streaming bootstrap; it does not own a second registration, scheduler or
 > offset/watermark store.
 
+The active maintenance Coordinator holds one dedicated PostgreSQL connection for
+stream definition notifications. The metadata JDBC endpoint must preserve
+PostgreSQL session semantics for this connection. The listener subscribes
+before loading the running definitions and then refreshes only the distinct
+stream names changed by committed DDL. The channel is scoped to the metadata
+relation. A connection loss clears the in-memory view and a new subscription
+rebuilds it before scheduling resumes. Source observation uses the in-memory view, so idle rounds
+perform no PostgreSQL stream discovery query. Batch admission, publication and
+offset acknowledgement still validate the current revision under their existing
+durable fences.
+
 The JDBC offset batch store owns one connection and commits the complete batch
 only after all writes succeed. SQL exceptions, runtime exceptions, and Errors
 trigger rollback; a rollback exception is suppressed on the original failure.
@@ -55,8 +66,7 @@ incremental continuous-query materialization.
 **Reading scope:** the diagrams, SQL/API examples, SPI sketches, and connector writer
 sketches below describe design or component contracts unless explicitly identified
 as current bootstrap behavior. They do not establish a working distributed ingestion,
-refresh, maintenance, or recovery lifecycle. Use
-[Current Capability Status](../getting-started/capability-status.md) for default wiring.
+refresh, maintenance, or recovery lifecycle.
 
 **It is NOT a general-purpose stream processing engine.**
 
@@ -159,16 +169,33 @@ registration advertises CDC, subject to tenant placement and resource limits.
 The shared membership store persists the capability for the registered Worker
 incarnation so Coordinator failover preserves eligibility.
 Both roles bind the persisted stream creator and durable execution owner before staging.
+MAINTENANCE claims a new execution identity directly through the durable lease acquisition
+transaction. Recovery can reuse the exact live lease held by the same process.
+During MAINTENANCE staging, each poll and private-file batch checks interruption, the task
+deadline, and the locally observed maintenance term. The runtime rechecks PostgreSQL ownership
+and stream revision before accepting the staged fragments into the journal, again before catalog
+publication, and before acknowledging offsets.
 COMBINED also binds the selected Worker incarnation before dispatch. Dispatch, publication, and
 acknowledgement check the active control and maintenance terms against the
 same stream revision. Pending publication records block another batch for
 that checkpoint generation. Once publication is durably confirmed, restart
 can restore missing offsets from the exact ranges in the journal.
-PostgreSQL checks the running stream revision in the same transaction that
-advances these offsets. Replayed acknowledgements preserve the greatest
-committed offset for each partition. When a stream first switches from the previous
-two-phase writer, the runtime imports confirmed checkpoints for that stream generation.
-An unresolved legacy transaction blocks admission until its catalog outcome is reconciled.
+One PostgreSQL statement locks the exact running stream revision and advances
+the acknowledged offsets as a group. The same path restores offsets during
+recovery. Replayed acknowledgements preserve the greatest committed offset for
+each partition. The Coordinator verifies maintenance leadership and checks the
+normal batch execution owner before acknowledging offsets. The journaled runtime discovers running streams
+and resolves their checkpoints through the write journal and offset store. Discovery reads the
+exact checkpoint generation, source ranges, and journal identity. Fenced replay loads the write
+binding and sink fragments when it claims a pending intent. A new checkpoint generation starts
+from its own offsets.
+
+Each source pass observes the partition inventory and its exclusive end offsets once.
+Admission and task planning use the same observation. After the runtime reconciles a stream
+and observes that its source is caught up, later passes with identical source offsets in
+the same maintenance term and stream revision skip checkpoint and committed-offset reads.
+Changed source offsets, a new stream revision or term, and failures invalidate the idle
+observation. New work reloads the durable checkpoint and offsets before admission.
 
 Both paths use the same write journal and connector publication context.
 Independent process tests exercise Paimon recovery when a Worker exits after
@@ -177,18 +204,15 @@ while the journal is still PENDING. The other crash windows and equivalent
 Iceberg cases remain open. See
 [distributed writes](distributed-writes.md#worker-cdc-publication-and-recovery).
 
-Schedulers start paused until maintenance leadership is acquired. A dedicated
-control loop reconciles persisted stream states every five seconds, and immediately
-after election, without running source initialization on the lease-renewal thread.
-It discovers remote CREATE/RESUME operations and stops local attempts superseded
-by remote SUSPEND/DROP or a newer epoch. Each start, lifecycle change, configuration
-change and terminal failure advances the stream epoch. Source and sink cleanup is
-owned by exactly one queued cancellation or running pipeline. A late callback cannot
-remove a replacement attempt. Maintenance renewal exceptions demote local background
-services; a changed backend epoch triggers demotion and activation again.
+The elected Coordinator reconciles running stream definitions every five seconds.
+CREATE writes a complete running definition in one insert. ALTER and DROP advance
+the durable stream epoch. A batch from a superseded epoch fails its next authoritative
+boundary check. DDL opens no source reader or connector sink.
 
-These are local scheduling and metadata fences. They do not atomically fence an
-external catalog publication or establish Kafka-to-Worker recovery correctness.
+The journal runtime executes source work separately from lease renewal. A renewal error
+clears the local maintenance epoch, which cancels local staging at its next poll or batch
+boundary. A new backend term is activated after local demotion. The Coordinator drains
+the journal runtime before closing metadata resources.
 
 ### 2.5 CDC Write Semantics
 
@@ -713,23 +737,8 @@ This section defines the metrics and tracing integration points for the streamin
 
 ### 8.1 Metrics
 
-The Coordinator passes its configured metrics provider to each scheduled CDC loop. Instruments use a `stream` dimension. Both direct writes and checkpointed two-phase publication emit the following series.
-
-| Metric | Source component | Measurement |
-|--------|------------------|-------------|
-| `pangrova.streaming.cdc.records.consumed` | Source poll | Records returned in a fresh poll. Retrying the retained batch does not increment the counter. |
-| `pangrova.streaming.cdc.bytes.consumed` | Source poll | Sum of raw key and value lengths, in bytes. |
-| `pangrova.streaming.cdc.batches.processed` | Source acknowledgement | Batches whose next offsets were acknowledged successfully, including checkpointed replays. |
-| `pangrova.streaming.cdc.source.poll.duration` | Source reader | Duration of each poll attempt in seconds, including empty polls. |
-| `pangrova.streaming.cdc.write.duration` | Sink | Duration of the direct write or two-phase stage attempt in seconds. |
-| `pangrova.streaming.cdc.commit.duration` | Source reader | Duration of each offset acknowledgement attempt in seconds. |
-| `pangrova.streaming.cdc.failures` | Pipeline | Recovery and cycle failures observed while running. |
-| `pangrova.streaming.cdc.consumer.lag` | Kafka reader | Last sampled sum of assigned partition offset distances. Collection omits the point until all assigned distances are available. |
-| `pangrova.streaming.cdc.pipeline.uptime` | Pipeline executor | Elapsed seconds since this loop started. The loop unregisters both gauges on exit. |
-
-If a watermark update fails after the source acknowledges a batch, the running loop retries the watermark update before its next poll. The source acknowledgement and the watermark store have independent commits. A process loss between them can leave the persisted watermark behind the acknowledged offsets.
-
-Maintenance design measures are listed separately.
+The journal runtime logs stream failures and restored checkpoints with stream identity.
+Maintenance publishes its own task metrics.
 
 | Metric | Source component | Measurement |
 |--------|------------------|-------------|
@@ -739,9 +748,6 @@ Maintenance design measures are listed separately.
 
 ### 8.2 Tracing Spans
 
-- `cdc.consume` — CDC batch consumption (SERVER span)
-  - `cdc.write` — connector sink staging (INTERNAL)
-  - `cdc.commit` — Transaction commit (INTERNAL)
 - `maintenance.compact` — Compaction task (SERVER span)
 - `maintenance.expire_snapshots` — Snapshot expiration (SERVER span)
 
@@ -759,8 +765,7 @@ See [14 §7](./observability.md) for structured logging format.
 > **CDC execution boundary.** A Coordinator hosting both roles dispatches bounded
 > CDC tasks to Worker JVMs. A streaming-only Coordinator stages those ranges locally. Kafka supplies partition inventory and
 > ZooKeeper remains an optional coordination backend. Catalog publication precedes
-> source acknowledgement, with a failure window between the two operations. See
-> [Current Capability Status](../getting-started/capability-status.md).
+> source acknowledgement, with a failure window between the two operations.
 
 
 > **TableMaintenance Authoritative Definition**: The authoritative async interface is defined in §2.9 of this document. All references in [00 §5.1](./overview.md) and [02 §13.2](./query-execution.md) have been updated to match the async signatures here. Method names use `*Async` suffix with `CompletableFuture<*>` return types.

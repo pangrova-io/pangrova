@@ -1,6 +1,7 @@
 package org.pangrova.server.coordinator.bootstrap;
 
 import org.pangrova.observability.sdk.config.ObservabilityConfig;
+import org.pangrova.indexing.config.IndexingConfig;
 
 import org.pangrova.server.coordinator.enums.CoordinatorDeploymentRole;
 
@@ -27,7 +28,11 @@ public record CoordinatorBootstrapConfig(
         WorkerHealthConfig workerHealth,
         MetadataJdbcConfig metadataJdbcConfig,
         SecurityConfig securityConfig,
-        ObservabilityConfig observabilityBootstrapConfig) {
+        ObservabilityConfig observabilityBootstrapConfig,
+        String indexBasePath,
+        IndexingConfig indexingConfig,
+        org.pangrova.coordinator.generation.DurableGenerationDispatcher.Settings artifactDispatchSettings,
+        org.pangrova.coordinator.generation.DurableGenerationPublisher.PollSettings artifactPublicationSettings) {
 
     public CoordinatorBootstrapConfig {
         if (core == null) {
@@ -45,9 +50,33 @@ public record CoordinatorBootstrapConfig(
         if (workerHealth == null) {
             throw new IllegalArgumentException("workerHealth must not be null");
         }
+        if (artifactDispatchSettings == null) {
+            throw new IllegalArgumentException("artifactDispatchSettings must not be null");
+        }
+        if (artifactPublicationSettings == null) {
+            throw new IllegalArgumentException("artifactPublicationSettings must not be null");
+        }
         // metadataJdbcConfig, securityConfig, observabilityBootstrapConfig are
         // nullable — they are only required when the corresponding feature flag
         // is enabled. Callers must check featureFlags before accessing them.
+    }
+
+    /** Creates a configuration with indexing and artifact maintenance unconfigured. */
+    public CoordinatorBootstrapConfig(
+            CoreConfig core,
+            FeatureFlags featureFlags,
+            QueryConfig query,
+            TransportConfig transport,
+            WorkerHealthConfig workerHealth,
+            MetadataJdbcConfig metadataJdbcConfig,
+            SecurityConfig securityConfig,
+            ObservabilityConfig observabilityBootstrapConfig) {
+        this(core, featureFlags, query, transport, workerHealth, metadataJdbcConfig,
+                securityConfig, observabilityBootstrapConfig,
+                System.getProperty("pangrova.index.basePath"), null,
+                new org.pangrova.coordinator.generation.DurableGenerationDispatcher.Settings(
+                        java.time.Duration.ofMinutes(2), java.time.Duration.ofSeconds(5), 32),
+                org.pangrova.coordinator.generation.DurableGenerationPublisher.defaultSettings());
     }
 
     /** Creates a standalone coordinator configuration with production defaults. */
@@ -59,7 +88,11 @@ public record CoordinatorBootstrapConfig(
                 QueryConfig.defaults(),
                 TransportConfig.defaults(),
                 WorkerHealthConfig.defaults(),
-                null, null, null);
+                null, null, null,
+                System.getProperty("pangrova.index.basePath"), null,
+                new org.pangrova.coordinator.generation.DurableGenerationDispatcher.Settings(
+                        java.time.Duration.ofMinutes(2), java.time.Duration.ofSeconds(5), 32),
+                org.pangrova.coordinator.generation.DurableGenerationPublisher.defaultSettings());
     }
 
     // -- Convenience accessors delegating to sub-configs --
@@ -110,19 +143,32 @@ public record CoordinatorBootstrapConfig(
     public ShuffleMode shuffleMode() { return featureFlags.shuffleMode(); }
     public List<String> shuffleEndpoints() { return featureFlags.shuffleEndpoints(); }
 
+    public IndexingConfig indexingConfig() { return indexingConfig; }
+    public org.pangrova.coordinator.generation.DurableGenerationPublisher.PollSettings artifactPublicationSettings() {
+        return artifactPublicationSettings;
+    }
+
+    public java.time.Duration artifactDispatchLease() {
+        return artifactDispatchSettings.leaseDuration();
+    }
+    public java.time.Duration artifactDispatchRetryDelay() {
+        return artifactDispatchSettings.retryBackoff();
+    }
+    public int artifactDispatchMaxInFlight() {
+        return artifactDispatchSettings.maxInFlight();
+    }
+
     /**
-     * Returns the base index path for index file storage.
-     * Reads from the {@code pangrova.index.basePath} system property.
-     * Fails fast if not configured when indexing is enabled.
+     * Returns the durable scalar index and Native artifact staging root.
+     * Fails fast when indexing is enabled without an explicit root.
      */
     public String baseIndexPath() {
-        String path = System.getProperty("pangrova.index.basePath");
+        String path = indexBasePath;
         if (indexingEnabled() && (path == null || path.isBlank())) {
             throw new IllegalStateException(
-                    "baseIndexPath is required when indexing is enabled. "
-                            + "Set system property 'pangrova.index.basePath'");
+                    "indexing.base-path is required when indexing is enabled");
         }
-        return path != null
+        return path != null && !path.isBlank()
             ? path
             : Path.of(System.getProperty("java.io.tmpdir"), "pangrova", "indexes").toString();
     }
@@ -390,7 +436,15 @@ public record CoordinatorBootstrapConfig(
 
     /** The selected factory owns the configuration schema and creates the process authenticator. */
     public record SecurityConfig(Optional<AuthenticatorFactory> clientAuthenticator,
-                                 String internalAuthSecret, java.util.Map<String, String> authenticatorProperties) {
+                                 String internalAuthSecret, java.util.Map<String, String> authenticatorProperties,
+                                 String queryPeerKey) {
+        private static final int MIN_QUERY_PEER_KEY_BYTES = 32;
+
+        public SecurityConfig(Optional<AuthenticatorFactory> clientAuthenticator, String internalAuthSecret,
+                java.util.Map<String, String> authenticatorProperties) {
+            this(clientAuthenticator, internalAuthSecret, authenticatorProperties, null);
+        }
+
         public SecurityConfig(String providerId, String internalAuthSecret,
                 java.util.Map<String, String> authenticatorProperties) {
             this(CoordinatorAuthenticatorFactories.select(providerId), internalAuthSecret, authenticatorProperties);
@@ -414,6 +468,14 @@ public record CoordinatorBootstrapConfig(
                 clientAuthenticator.orElseThrow().validate(authenticatorProperties);
             } else if (!authenticatorProperties.isEmpty()) {
                 throw new IllegalArgumentException("Client authentication properties require a provider");
+            }
+            if (queryPeerKey != null && (queryPeerKey.isBlank()
+                    || queryPeerKey.getBytes(java.nio.charset.StandardCharsets.UTF_8).length < MIN_QUERY_PEER_KEY_BYTES
+                    || queryPeerKey.equals(internalAuthSecret)
+                    || clientAuthenticator.isEmpty()
+                    || "NOOP".equals(clientAuthenticator.orElseThrow().providerId()))) {
+                throw new IllegalArgumentException(
+                        "Query peer forwarding requires client authentication and a separate key of at least 32 bytes");
             }
         }
 

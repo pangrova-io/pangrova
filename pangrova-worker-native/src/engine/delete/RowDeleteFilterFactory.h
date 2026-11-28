@@ -14,6 +14,10 @@
 #include "engine/split/SplitConfig.h"
 #include "engine/delete/RowDeleteFilter.h"
 
+namespace pangrova::velox {
+class MetadataReadContext;
+}
+
 namespace pangrova::delete_filter {
 
 class RowDeleteFilterFactory {
@@ -30,7 +34,8 @@ class RowDeleteFilterFactory {
   //        (file_path, pos) tuples for multiple data files).
   static std::vector<std::unique_ptr<RowDeleteFilter>> create(
       const split::IcebergConfig& iceberg,
-      const std::string& dataFilePath = "");
+      const std::string& dataFilePath = "",
+      const pangrova::velox::MetadataReadContext* reads = nullptr);
 };
 
 }  // namespace pangrova::delete_filter

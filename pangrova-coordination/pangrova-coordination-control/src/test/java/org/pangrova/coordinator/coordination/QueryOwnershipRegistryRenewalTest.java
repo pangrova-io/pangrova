@@ -53,6 +53,8 @@ class QueryOwnershipRegistryRenewalTest {
 
         assertThat(registry.renewOwned(OWNER, INCARNATION)).isFalse();
         assertThat(registry.localAnchor("stolen")).isEmpty();
+        registry.releaseLocallyDrainedQuery(anchor, Optional.empty());
+        assertThat(store.localDrain).isEqualTo(anchor);
     }
 
     @Test
@@ -102,6 +104,13 @@ class QueryOwnershipRegistryRenewalTest {
         private final InMemoryExecutionAnchorStore delegate = new InMemoryExecutionAnchorStore();
         private Runnable beforeRenew = () -> { };
         private Runnable afterRelease = () -> { };
+        private ExecutionAnchor localDrain;
+
+        @Override
+        public boolean releaseLocallyDrainedQuery(ExecutionAnchor anchor) {
+            localDrain = anchor;
+            return false;
+        }
 
         @Override
         public Optional<ExecutionAnchor> tryAcquire(
@@ -136,6 +145,11 @@ class QueryOwnershipRegistryRenewalTest {
         public List<ExecutionAnchor> claimExpired(
                 String newOwnerId, String newOwnerIncarnation, Duration leaseDuration, int maxBatchSize) {
             return delegate.claimExpired(newOwnerId, newOwnerIncarnation, leaseDuration, maxBatchSize);
+        }
+
+        @Override
+        public boolean isQueryRetired(String executionId) {
+            return delegate.isQueryRetired(executionId);
         }
 
         @Override

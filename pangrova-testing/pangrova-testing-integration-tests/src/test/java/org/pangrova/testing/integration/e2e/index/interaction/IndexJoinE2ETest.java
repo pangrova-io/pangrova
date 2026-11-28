@@ -95,7 +95,7 @@ class IndexJoinE2ETest extends SqlE2ETestBase {
                 + " WHERE a.amount BETWEEN 0.0 AND 100.0";
         List<TypedRow> baseline = sqlRunner.execute(query);
         sqlRunner.executeDdl("CREATE INDEX idx_bt ON " + leftFqn
-                + "(amount) USING BTREE");
+                + "(amount) USING BTREE FORCE");
         List<TypedRow> withIndex = sqlRunner.execute(query);
         assertThat(withIndex).containsAll(baseline);
     }

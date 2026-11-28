@@ -35,7 +35,8 @@ class TaskExecutorPropertyTest {
     private static final Map<String, String> SPI_TO_NATIVE_RUNTIME =
             Map.ofEntries(
                     Map.entry("createTask", "nativeCreateTaskExecutor"),
-                    Map.entry("startTask", "nativeStartTask"),
+                    Map.entry("startTask", "nativeStartTaskWithTrace"),
+                    Map.entry("startResultTask", "nativeStartTaskWithTrace"),
                     Map.entry("releaseTask", "nativeReleaseExecutor"),
                     Map.entry("cancelTask", "nativeCancelTask"),
                     Map.entry("executeCommand", "nativeCommand"),
@@ -134,7 +135,7 @@ class TaskExecutorPropertyTest {
         }
     }
 
-    @Property(tries = 10)
+    @Property
     void everyTaskExecutorMethodHasNativeRuntimeDelegate(@ForAll("spiMethodNames") String name) {
         String expected = SPI_TO_NATIVE_RUNTIME.get(name);
         Set<String> methods =
@@ -148,7 +149,7 @@ class TaskExecutorPropertyTest {
         assertThat(methods).contains(expected);
     }
 
-    @Property(tries = 10)
+    @Property
     void taskExecutorSpiDeclaresExactlyRequiredMethods(@ForAll("spiMethodNames") String name)
             throws Exception {
         assertThat(TaskExecutor.class.getMethod(name, parameters(name)).isDefault()).isFalse();
@@ -157,10 +158,10 @@ class TaskExecutorPropertyTest {
                 .containsExactlyInAnyOrderElementsOf(SPI_TO_NATIVE_RUNTIME.keySet());
         assertThat(Arrays.stream(TaskExecutor.class.getDeclaredMethods())
                 .filter(Method::isDefault).map(Method::getName))
-                .containsExactlyInAnyOrder("isWorkerExecuted", "getTaskCommitFragments");
+                .containsExactlyInAnyOrder("createAdmittedTask", "isWorkerExecuted", "getTaskCommitFragments");
     }
 
-    @Property(tries = 10)
+    @Property
     void nativeTaskExecutorIsFinal(@ForAll("spiMethodNames") String name) throws Exception {
         assertThat(Modifier.isFinal(NativeTaskExecutor.class.getModifiers())).isTrue();
         assertThat(NativeTaskExecutor.class.getMethod(name, parameters(name)).getDeclaringClass())
@@ -170,6 +171,7 @@ class TaskExecutorPropertyTest {
     private static Class<?>[] parameters(String name) {
         return switch (name) {
             case "createTask" -> new Class<?>[] {org.pangrova.protocol.v2.TaskRequest.class};
+            case "startResultTask" -> new Class<?>[] {long.class, Runnable.class};
             case "executeCommand" -> new Class<?>[] {long.class, byte[].class};
             case "pushExchangeChunk" -> new Class<?>[] {long.class, byte[].class, byte[].class};
             case "awaitFinished" -> new Class<?>[] {long.class, int.class};

@@ -73,6 +73,61 @@ include("{MODULE}")
         self.assertEqual(environment, "detect_leaks=0:halt_on_error=1")
 
 
+class VeloxThriftLinkContractTest(unittest.TestCase):
+    def test_archive_globs_leave_thrift_to_the_explicit_resolver(self):
+        source = (ROOT / "pangrova-worker-native/cmake/FindVelox.cmake").read_text()
+        pattern = re.search(r'^set\(_THRIFT_ARCHIVE_PATTERN [^\n]+\)$', source, re.M)
+        self.assertIsNotNone(pattern)
+        with tempfile.TemporaryDirectory(prefix="velox thrift link ") as directory:
+            root = Path(directory)
+            build = root / "velox-build"
+            build.mkdir()
+            (build / "CMakeCache.txt").touch()
+            bundled = build / "CMake/resolve_dependency_modules/arrow/arrow_ep/src/arrow_ep-build/thrift_ep-install"
+            installed = root / "velox-install"
+            for prefix in (bundled, installed):
+                (prefix / "lib").mkdir(parents=True)
+                (prefix / "lib/libthrift.a").touch()
+                (prefix / "include/thrift").mkdir(parents=True)
+                (prefix / "include/thrift/TApplicationException.h").touch()
+
+            selection = []
+            for variable in ("_DEPS_INSTALL_LIBS", "_VENDORED_LIBS", "_INSTALL_PREFIX_LIBS"):
+                archive_filter = re.search(
+                    rf'^\s*(list\(FILTER {variable} EXCLUDE REGEX "\$\{{_THRIFT_ARCHIVE_PATTERN\}}"\))$',
+                    source, re.M)
+                self.assertIsNotNone(archive_filter, variable)
+                selection.append(f'set({variable} "/sdk/libtransport.a;/sdk/libthrift-core.a;'
+                                 '/sdk/libthrift.a;/keep/libarrow.a")\n'
+                                 f'{archive_filter[1]}\n'
+                                 f'if(NOT "${{{variable}}}" STREQUAL "/keep/libarrow.a")\n'
+                                 '  message(FATAL_ERROR "Unexpected archive selection")\nendif()')
+            resolver = source[source.index("# 9) Apache Thrift"):source.index("# Thrift and s2n")]
+            (root / "CMakeLists.txt").write_text(f"""
+cmake_minimum_required(VERSION 3.20)
+project(VeloxThriftLink NONE)
+set(VELOX_BUILD_DIR "{build}")
+set(VELOX_INSTALL_PREFIX "{installed}")
+add_library(velox_imported INTERFACE)
+{pattern[0]}
+{chr(10).join(selection)}
+{resolver}
+get_target_property(archive velox_imported INTERFACE_LINK_LIBRARIES)
+get_target_property(headers velox_imported INTERFACE_SYSTEM_INCLUDE_DIRECTORIES)
+file(WRITE "${{CMAKE_CURRENT_BINARY_DIR}}/selected-components.txt" "${{archive}}\n${{headers}}\n")
+""")
+            configured = root / "configured"
+            args = ["cmake", "-S", str(root), "-B", str(configured)]
+            report = configured / "selected-components.txt"
+            for prefix in (bundled, installed):
+                with self.subTest(prefix=prefix.name):
+                    result = subprocess.run(args, capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertEqual(report.read_text().splitlines(),
+                                     [str(prefix / "lib/libthrift.a"), str(prefix / "include")])
+                    (prefix / "lib/libthrift.a").unlink()
+
+
 class AsanFollyContractTest(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="asan folly contract ")
@@ -271,7 +326,7 @@ file(WRITE "${{CMAKE_CURRENT_BINARY_DIR}}/gflags-path.txt" "${{libraries}}")
                         setup.index("arrow_source="))
         self.assertIn("-Dfolly_SOURCE=SYSTEM", setup)
         self.assertIn('export PANGROVA_ASAN_FOLLY_PREFIX="$PANGROVA_ASAN_FOLLY_PREFIX"', setup)
-        workflow = (ROOT / ".github/workflows/ci.yml").read_text()
+        workflow = (ROOT / ".github/workflows/native-sanitizer.yml").read_text()
         self.assertIn('-DPANGROVA_ASAN_FOLLY_PREFIX="$PANGROVA_ASAN_FOLLY_PREFIX"', workflow)
 
 

@@ -25,11 +25,10 @@ sidebar_label: "Native Execution Layer"
 
 The main relational execution path places operators and vector Top-K merging on
 Native Workers. With both streaming and query roles enabled, CDC ingestion runs in
-Worker JVMs. The streaming-only role uses a local connector sink. Native Flight carries relational shuffle
-traffic directly between Workers. See [Current Capability Status](../getting-started/capability-status.md).
-Read-dependent
-Iceberg/Paimon writes are staged through the Java connector SDK from a Native
-write-drain callback; the final catalog commit remains Coordinator-owned.
+Worker JVMs. The streaming-only role uses a local connector sink. Native Flight carries
+relational shuffle traffic directly between Workers. Read-dependent Iceberg/Paimon writes
+are staged through the Java connector SDK from a Native write-drain callback. The
+Coordinator owns the final catalog commit.
 Lance's Rust/C++ FFI is a separate Native storage adapter whose public SQL
 write and catalog publication path is still subject to the acceptance criteria
 in [distributed-writes.md](./distributed-writes.md).
@@ -91,7 +90,9 @@ exchange pages. An OUTPUT Driver admits the canonical Arrow batch and prepares
 its standard Flight record message once. A task-owned byte window controls
 ready messages and retained transport buffers. A full window suspends the
 Driver until a buffer is released. Flight sends the display schema and the
-prepared record messages. Successful producer completion seals the queue, and
+prepared record messages. Flight checks revocation with a single atomic read
+per authority check. Reader and buffer lifetime transitions still use the
+task's ownership mutex. Successful producer completion seals the queue, and
 Flight commits the result task after writing the stream to EOF. The task releases
 its resources after the producer, registered authority, reader and retained
 buffers have all drained. The singleton global Sort remains a scale bottleneck
@@ -471,7 +472,10 @@ Worker-to-Worker data path or prove distributed recovery.
 `NativeMetricsCollector` and the canonical terminal task report expose
 execution statistics. A successful task with missing or malformed required
 terminal statistics must fail validation; metrics are not inferred from a
-Java-side batch pull loop.
+Java-side batch pull loop. The successful Flight close also attaches the exact Native
+result reader's first payload, observed producer EOF, and completed transport
+offsets to its terminal report. The offsets use one Worker monotonic clock.
+Empty streams record EOF and transport completion with a zero payload count.
 
 ## 19. Function Lifecycle
 

@@ -22,6 +22,8 @@ import java.util.Map;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 import java.util.function.LongSupplier;
 
 import static org.pangrova.common.util.Preconditions.requirePositiveDuration;
@@ -37,9 +39,12 @@ public final class DurableGenerationDispatcher implements AutoCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(
             DurableGenerationDispatcher.class);
+    private static final Duration SHUTDOWN_DRAIN_TIMEOUT = Duration.ofSeconds(5);
+    private static final long DRAIN_CHECK_INTERVAL_MILLIS = 10;
     private final GenerationPollLifecycle pollLifecycle = new GenerationPollLifecycle();
 
     private final GenerationJobStore store;
+    private final Consumer<org.pangrova.generation.api.job.GenerationJob> snapshotValidator;
     private final TaskScheduler scheduler;
     private final WorkerManager workerManager;
     private final TaskDispatcher taskDispatcher;
@@ -71,7 +76,8 @@ public final class DurableGenerationDispatcher implements AutoCloseable {
             GenerationExecutionOwnership executionOwnership,
             org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore stages,
             org.pangrova.persistence.generation.api.exchange.GenerationStageExchangeStore exchanges,
-            org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchEngine dagEngine) {}
+            org.pangrova.coordinator.query.execution.dispatch.dag.DAGDispatchEngine dagEngine,
+            Consumer<org.pangrova.generation.api.job.GenerationJob> snapshotValidator) {}
 
     /** Bounded lease and concurrency settings for durable artifact dispatch. */
     public record Settings(
@@ -93,6 +99,8 @@ public final class DurableGenerationDispatcher implements AutoCloseable {
         Objects.requireNonNull(settings, "settings must not be null");
         this.store = Objects.requireNonNull(
                 dependencies.store(), "store must not be null");
+        this.snapshotValidator = Objects.requireNonNull(
+                dependencies.snapshotValidator(), "snapshotValidator must not be null");
         this.scheduler = Objects.requireNonNull(
                 dependencies.scheduler(), "scheduler must not be null");
         this.workerManager = Objects.requireNonNull(
@@ -127,7 +135,7 @@ public final class DurableGenerationDispatcher implements AutoCloseable {
         var runtime = new org.pangrova.coordinator.query.execution.dispatch.dag.control
                 .DurableStageRuntime.Dependencies(
                 dependencies.stages(), workerManager, scheduler, epochSupplier, leaseDuration,
-                this::registerGraphAttempt, dependencies.exchanges(), traceContexts);
+                this::registerGraphAttempt, dependencies.exchanges(), traceContexts, taskTracker::placementLoad);
         this.graphs = new org.pangrova.coordinator.generation.runtime.DurableGenerationGraphs(
                 new org.pangrova.coordinator.generation.runtime.DurableGenerationGraphs.Dependencies(
                         store, runtime, dependencies.dagEngine(), retryBackoff), clock);
@@ -197,6 +205,7 @@ public final class DurableGenerationDispatcher implements AutoCloseable {
     private java.util.Optional<GenerationLease> claimAuthorizedPage(
             org.pangrova.generation.api.identity.GenerationJobKey job, long epoch, Instant now) {
         try {
+            store.findJob(job.tenantId(), job.jobId()).ifPresent(snapshotValidator);
             var anchor = executionOwnership.acquire(job);
             if (anchor.isEmpty()) {
                 return java.util.Optional.empty();
@@ -206,6 +215,11 @@ public final class DurableGenerationDispatcher implements AutoCloseable {
                 return java.util.Optional.empty();
             }
             return store.claimNextPage(job.tenantId(), job.jobId(), anchor.orElseThrow(), epoch, leaseDuration, now);
+        } catch (org.pangrova.connector.api.exception.SnapshotExpiredException expired) {
+            store.cancelJob(job.tenantId(), job.jobId(), expired.getMessage(), now);
+            LOG.warn("event=artifact_claim_snapshot_expired jobId={} tenantId={} reason={}",
+                    job.jobId(), job.tenantId(), expired.getMessage());
+            return java.util.Optional.empty();
         } catch (org.pangrova.security.api.exception.AuthorizationDeniedException revoked) {
             store.cancelJob(job.tenantId(), job.jobId(), revoked.getMessage(), now);
             LOG.warn("event=artifact_claim_revoked jobId={} tenantId={} reason={}",
@@ -476,13 +490,14 @@ public final class DurableGenerationDispatcher implements AutoCloseable {
             try {
                 attempt.cancelling = true;
                 cancelActiveTask(entry.getKey(), attempt);
-                var receipt = taskTracker.executionDrainReceipt(entry.getKey());
-                if (receipt.isPresent()) {
-                    retireDrainedAttempt(entry.getKey(), attempt, receipt.orElseThrow(), clock.instant());
-                }
             } catch (RuntimeException | Error cleanup) {
                 failure = appendFailure(failure, cleanup);
             }
+        }
+        try {
+            awaitShutdownDrains();
+        } catch (RuntimeException | Error cleanup) {
+            failure = appendFailure(failure, cleanup);
         }
         if (!active.isEmpty()) {
             failure = appendFailure(failure, new IllegalStateException(
@@ -499,6 +514,30 @@ public final class DurableGenerationDispatcher implements AutoCloseable {
             }
         }
         rethrowCleanupFailure(failure);
+    }
+
+    private void awaitShutdownDrains() {
+        long deadline = System.nanoTime() + SHUTDOWN_DRAIN_TIMEOUT.toNanos();
+        while (!active.isEmpty()) {
+            Throwable failure = null;
+            for (var entry : active.entrySet()) {
+                try {
+                    String taskId = entry.getKey();
+                    taskTracker.executionDrainReceipt(taskId).ifPresent(
+                            receipt -> retireDrainedAttempt(taskId, entry.getValue(), receipt, clock.instant()));
+                } catch (RuntimeException | Error cleanup) {
+                    failure = appendFailure(failure, cleanup);
+                }
+            }
+            rethrowCleanupFailure(failure);
+            if (active.isEmpty() || System.nanoTime() - deadline >= 0) return;
+            try {
+                TimeUnit.MILLISECONDS.sleep(DRAIN_CHECK_INTERVAL_MILLIS);
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("Interrupted awaiting artifact execution drain receipts", interrupted);
+            }
+        }
     }
 
     private static Throwable appendFailure(Throwable existing, Throwable added) {

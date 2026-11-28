@@ -1,5 +1,6 @@
 package org.pangrova.worker.heartbeat;
 
+import org.pangrova.protocol.rest.worker.HeartbeatRequest;
 import com.sun.net.httpserver.HttpServer;
 import java.net.InetSocketAddress;
 import java.net.http.HttpClient;
@@ -31,7 +32,7 @@ class HeartbeatSenderTest {
         ScheduledExecutorService executor = newExecutor();
         HeartbeatConfig config = new HeartbeatConfig("http://localhost:9999", "w-1", 1000);
         HeartbeatSender sender = new HeartbeatSender(config,
-                () -> new HeartbeatPayload("w-1", "NONE", 0.1, 0, 1024, HEARTBEAT_IDENTITY),
+                () -> new HeartbeatRequest("w-1", "NONE", 0.1, 0, 1024, HEARTBEAT_IDENTITY),
                 executor);
 
         sender.start();
@@ -51,7 +52,7 @@ class HeartbeatSenderTest {
                 () -> {
                     callCount.incrementAndGet();
                     latch.countDown();
-                    return new HeartbeatPayload("w-2", "NONE", 0.5, 2, 2048, HEARTBEAT_IDENTITY);
+                    return new HeartbeatRequest("w-2", "NONE", 0.5, 2, 2048, HEARTBEAT_IDENTITY);
                 },
                 executor);
 
@@ -74,7 +75,7 @@ class HeartbeatSenderTest {
                 () -> {
                     callCount.incrementAndGet();
                     latch.countDown();
-                    return new HeartbeatPayload("w-3", "LOW", 0.8, 5, 512, HEARTBEAT_IDENTITY);
+                    return new HeartbeatRequest("w-3", "LOW", 0.8, 5, 512, HEARTBEAT_IDENTITY);
                 },
                 executor);
 
@@ -122,7 +123,7 @@ class HeartbeatSenderTest {
         ScheduledExecutorService executor = newExecutor();
         HeartbeatConfig config = new HeartbeatConfig("http://localhost:9999", "w-5", 1000);
         HeartbeatSender sender = new HeartbeatSender(config,
-                () -> new HeartbeatPayload("w-5", "NONE", 0.1, 0, 1024, HEARTBEAT_IDENTITY),
+                () -> new HeartbeatRequest("w-5", "NONE", 0.1, 0, 1024, HEARTBEAT_IDENTITY),
                 executor);
 
         sender.start();
@@ -145,7 +146,7 @@ class HeartbeatSenderTest {
                 () -> {
                     heartbeatCount.incrementAndGet();
                     firstBeat.countDown();
-                    return new HeartbeatPayload("w-6", "NONE", 0.1, 0, 1024, HEARTBEAT_IDENTITY);
+                    return new HeartbeatRequest("w-6", "NONE", 0.1, 0, 1024, HEARTBEAT_IDENTITY);
                 },
                 executor);
 
@@ -182,7 +183,7 @@ class HeartbeatSenderTest {
                 () -> {
                     heartbeatCount.incrementAndGet();
                     firstBeat.countDown();
-                    return new HeartbeatPayload("w-7", "NONE", 0.2, 1, 4096, HEARTBEAT_IDENTITY);
+                    return new HeartbeatRequest("w-7", "NONE", 0.2, 1, 4096, HEARTBEAT_IDENTITY);
                 },
                 executor);
 
@@ -215,7 +216,7 @@ class HeartbeatSenderTest {
         ScheduledExecutorService executor = newExecutor();
         HeartbeatConfig config = new HeartbeatConfig("http://localhost:9999", "w-8", 1000);
         HeartbeatSender sender = new HeartbeatSender(config,
-                () -> new HeartbeatPayload("w-8", "NONE", 0.1, 0, 1024, HEARTBEAT_IDENTITY),
+                () -> new HeartbeatRequest("w-8", "NONE", 0.1, 0, 1024, HEARTBEAT_IDENTITY),
                 executor);
 
         sender.start();
@@ -247,7 +248,7 @@ class HeartbeatSenderTest {
                     "http://127.0.0.1:" + server.getAddress().getPort(), "w-epoch", 1000);
             HeartbeatSender sender = new HeartbeatSender(
                     config,
-                    () -> new HeartbeatPayload("w-epoch", "NONE", 0.1, 0, 1024, HEARTBEAT_IDENTITY),
+                    () -> new HeartbeatRequest("w-epoch", "NONE", 0.1, 0, 1024, HEARTBEAT_IDENTITY),
                     executor, HttpClient.newHttpClient(), null);
             AtomicLong observed = new AtomicLong();
             sender.setCoordinatorEpochObserver(observed::set);
@@ -283,7 +284,7 @@ class HeartbeatSenderTest {
         HeartbeatSender sender = new HeartbeatSender(
                 new HeartbeatConfig("http://127.0.0.1:" + server.getAddress().getPort(),
                         "w-immediate", 10_000),
-                () -> new HeartbeatPayload("w-immediate", "NONE", 0.1, 0, 512L * 1024 * 1024, HEARTBEAT_IDENTITY),
+                () -> new HeartbeatRequest("w-immediate", "NONE", 0.1, 0, 512L * 1024 * 1024, HEARTBEAT_IDENTITY),
                 executor);
         sender.setCoordinatorEpochObserver(epoch -> acknowledged.countDown());
         try {
@@ -316,7 +317,7 @@ class HeartbeatSenderTest {
         var executor = newExecutor();
         var sender = new HeartbeatSender(new HeartbeatConfig(
                 "http://127.0.0.1:" + server.getAddress().getPort(), "fenced-worker", 1000),
-                () -> new HeartbeatPayload("fenced-worker", "NONE", 0, 0, 1024, HEARTBEAT_IDENTITY), executor);
+                () -> new HeartbeatRequest("fenced-worker", "NONE", 0, 0, 1024, HEARTBEAT_IDENTITY), executor);
         var repaired = new java.util.concurrent.atomic.AtomicInteger();
         var fenced = new java.util.concurrent.atomic.AtomicInteger();
         sender.setReRegistrationCallback(repaired::incrementAndGet);

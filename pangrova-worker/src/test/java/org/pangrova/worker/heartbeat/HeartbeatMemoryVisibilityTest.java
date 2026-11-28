@@ -1,5 +1,6 @@
 package org.pangrova.worker.heartbeat;
 
+import org.pangrova.protocol.rest.worker.HeartbeatRequest;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ScheduledExecutorService;
@@ -41,18 +42,18 @@ class HeartbeatMemoryVisibilityTest {
         assertEquals(TOTAL_BUDGET - taskMemory, arbitrator.getAvailableMemory());
 
         // Build payload supplier that reads from the same arbitrator
-        Supplier<HeartbeatPayload> payloadSupplier = () -> new HeartbeatPayload(
+        Supplier<HeartbeatRequest> payloadSupplier = () -> new HeartbeatRequest(
                 "w-mem-test", "NONE", 0.0, 0, arbitrator.getAvailableMemory(), HEARTBEAT_IDENTITY);
 
         // Before release: payload shows reduced available memory
-        HeartbeatPayload beforeRelease = payloadSupplier.get();
+        HeartbeatRequest beforeRelease = payloadSupplier.get();
         assertEquals(TOTAL_BUDGET - taskMemory, beforeRelease.availableMemoryBytes());
 
         // Simulate task completion releasing memory
         arbitrator.release("query-1", taskMemory);
 
         // After release: payload immediately reflects full budget
-        HeartbeatPayload afterRelease = payloadSupplier.get();
+        HeartbeatRequest afterRelease = payloadSupplier.get();
         assertEquals(TOTAL_BUDGET, afterRelease.availableMemoryBytes());
     }
 
@@ -149,11 +150,11 @@ class HeartbeatMemoryVisibilityTest {
         CountDownLatch heartbeatFired = new CountDownLatch(1);
 
         // Payload supplier captures available memory at invocation time
-        Supplier<HeartbeatPayload> supplier = () -> {
+        Supplier<HeartbeatRequest> supplier = () -> {
             long avail = arbitrator.getAvailableMemory();
             latestAvailable.set(avail);
             heartbeatFired.countDown();
-            return new HeartbeatPayload("w-send-time", "NONE", 0.0, 0, avail, HEARTBEAT_IDENTITY);
+            return new HeartbeatRequest("w-send-time", "NONE", 0.0, 0, avail, HEARTBEAT_IDENTITY);
         };
 
         HeartbeatConfig config = new HeartbeatConfig("http://localhost:9999", "w-send-time", 50);

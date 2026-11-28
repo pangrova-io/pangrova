@@ -883,11 +883,9 @@ duplicate IDs and incompatible factory API versions fail startup. The default
 `load-balanced` implementation ranks the current
 memory-pressure and CPU snapshot, with concurrent rotation of ties. Disk/network
 latencies are not supplied on this path, and scoring thresholds do not currently
-drive blacklisting. The old FairShareStrategy (retired) and common-factor score multiplier
-have been removed: multiplying every candidate by the same share did not provide
-tenant fairness. The optional Java `WeightedFairScheduler` still has its own queue
-and lifecycle; its existence is not proof that distributed query execution uses
-weighted CPU allocation. Those integrations remain unimplemented.
+drive blacklisting. The Coordinator constructs its placement strategy directly
+and uses the live tenant placement authority for each dispatch cohort.
+Distributed weighted CPU allocation remains unimplemented.
 
 Failed-task retries use `coordinator.worker.max-retry`. The query stage owns the
 budget for each original task and its replacements. The launcher looks up the

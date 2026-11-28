@@ -54,17 +54,16 @@ class JdbcIndexMappingPublicationFenceTest extends ContainerTestBase {
     }
 
     @Test
-    void replacementRejectsWritesFromThePreviouslySuccessfulHeartbeat() {
+    void abandonedAttemptCannotWriteAfterRecoveryFencesTheGeneration() {
         var claims = new JdbcIndexBuildClaimRepository(dataSource);
         assertThat(claims.heartbeat("index", 0, OWNER, START.plusSeconds(1))).isTrue();
-        assertThat(claims.expireBefore(START.plusSeconds(2))).isOne();
-        assertThat(claims.tryClaim("index", 0, "winner", START.plusSeconds(3))).isTrue();
+        assertThat(store.abandonIndexGeneration("index", 0, START,
+                START.plusSeconds(2), START.plusSeconds(3), "coordinator crashed")).isPresent();
 
         assertThatThrownBy(() -> store.batchRegisterIndexFiles(OWNER, List.of(mapping(0, "late"))))
-                .isInstanceOf(IllegalStateException.class).hasMessageContaining("lost its claim");
-        store.registerIndexFile("winner", mapping(0, "current"));
-        assertThat(store.getIndexFileMappings("index")).extracting(IndexFileMapping::dataFilePath)
-                .containsExactly("current");
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(store.getIndexFileMappings("index")).isEmpty();
+        assertThat(store.findIndex("index").orElseThrow().state()).isEqualTo(IndexState.STALE);
     }
 
     @Test

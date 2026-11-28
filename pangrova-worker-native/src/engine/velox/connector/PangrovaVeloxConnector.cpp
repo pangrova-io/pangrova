@@ -194,8 +194,10 @@ PangrovaVeloxDataSource::PangrovaVeloxDataSource(
     std::shared_ptr<const facebook::velox::core::ITypedExpr> remainingFilter,
     int64_t preferredOutputBatchBytes,
     int64_t eagerFirstStripeThresholdBytes,
-    facebook::velox::core::ExpressionEvaluator* expressionEvaluator)
-    : pool_(pool),
+    facebook::velox::core::ExpressionEvaluator* expressionEvaluator,
+    std::shared_ptr<const facebook::velox::config::ConfigBase> fileSystemConfig)
+    : file_system_config_(std::move(fileSystemConfig)),
+      pool_(pool),
       output_type_(outputType),
       scan_schema_(scanSchema),
       eager_first_stripe_threshold_bytes_(eagerFirstStripeThresholdBytes),
@@ -256,7 +258,7 @@ void PangrovaVeloxDataSource::addSplit(
   batch_calibrated_ = false;
 
   if (splitConfig.system_table.has_value()) {
-    const MetadataReadContext reads(read_budget_, cancellation_token_);
+    const MetadataReadContext reads(read_budget_, cancellation_token_, splitConfig.file_system_config);
     if (*splitConfig.system_table == split::SystemTableKind::ICEBERG_MANIFESTS) {
       if (splitConfig.file_format != split::FileFormatType::METADATA_AVRO) {
         throw std::runtime_error("Iceberg manifests split requires metadata Avro format");
@@ -424,11 +426,13 @@ void PangrovaVeloxDataSource::prepareSplitState(
   // Clear any filters from a previous split first.
   delete_filters_.clear();
   if (config.iceberg.has_value()) {
+    std::optional<MetadataReadContext> deleteReads;
+    if (config.file_system_config && !config.iceberg->delete_files.empty()) {
+      deleteReads.emplace(read_budget_, cancellation_token_, config.file_system_config);
+    }
     delete_filters_ = delete_filter::RowDeleteFilterFactory::create(
-        config.iceberg.value(), config.file_path);
+        config.iceberg.value(), config.file_path, deleteReads ? &*deleteReads : nullptr);
   }
-  row_index_offset_ = 0;
-
   // Paimon changelog mode: when changelog_mode=true, the split's
   // Parquet file contains a _row_kind column (TINYINT: 0=+I, 1=-U,
   // 2=+U, 3=-D). The Velox reader reads _row_kind as a regular column
@@ -472,7 +476,46 @@ void PangrovaVeloxDataSource::createReaderPair(
   const auto& target_type = requestedType ? requestedType : output_type_;
   auto cleanPath = split::normalizeToS3Uri(
       split::stripFilePrefix(splitConfig.file_path));
-  auto format = resolveFileFormat(splitConfig.file_format);
+  const auto format = resolveFileFormat(splitConfig.file_format);
+
+  if (cleanPath.starts_with("s3://") && !splitConfig.file_system_config) {
+    throw std::runtime_error("Native S3 read requires the exact Worker-local catalog");
+  }
+  const auto& fileSystemConfig = splitConfig.file_system_config ? splitConfig.file_system_config : file_system_config_;
+  auto fileSystem = facebook::velox::filesystems::getFileSystem(cleanPath, fileSystemConfig);
+  if (!fileSystem) {
+    throw std::runtime_error(
+        "No registered Velox filesystem for data object: " + cleanPath);
+  }
+  std::optional<int64_t> snapshotFileSize;
+  if (cleanPath.starts_with("s3://") && splitConfig.expected_file_sha256.empty()
+      && splitConfig.iceberg && splitConfig.iceberg->data_file_size_bytes > 0) {
+    snapshotFileSize = splitConfig.iceberg->data_file_size_bytes;
+  }
+  std::shared_ptr<facebook::velox::ReadFile> readFile;
+  if (read_budget_) {
+    auto admitted = resource::TaskBudgetReadFile::open(
+        *fileSystem, cleanPath, read_budget_, cancellation_token_, snapshotFileSize);
+    if (!splitConfig.expected_file_sha256.empty()) {
+      admitted->verifySha256(splitConfig.expected_file_sha256, splitConfig.length);
+    }
+    readFile = std::move(admitted);
+  } else {
+    if (!splitConfig.expected_file_sha256.empty()) {
+      throw std::runtime_error("Qualified task input requires its admitted read owner");
+    }
+    facebook::velox::filesystems::FileOptions options;
+    options.fileSize = snapshotFileSize;
+    readFile = fileSystem->openFileForRead(cleanPath, options);
+  }
+  const auto fileSize = readFile->size();
+  const auto start = static_cast<uint64_t>(splitConfig.start_offset);
+  const auto length = static_cast<uint64_t>(splitConfig.length);
+  if (splitConfig.start_offset < 0 || splitConfig.length < 0 ||
+      (length == 0 && start != 0) || start > fileSize || length > fileSize - start) {
+    throw std::runtime_error("Parquet split byte range exceeds the opened file");
+  }
+  const bool partialRange = length != 0 && (start != 0 || length != fileSize);
 
   facebook::velox::dwio::common::ReaderOptions readerOpts(pool_);
   readerOpts.setFileFormat(format);
@@ -482,7 +525,12 @@ void PangrovaVeloxDataSource::createReaderPair(
   static constexpr uint64_t kProjectedParquetFooterBytes = 64L * 1024;
   const bool sparseParquet = format == facebook::velox::dwio::common::FileFormat::PARQUET
       && target_type->size() <= scan_schema_->size() / 2;
-  if (sparseParquet) {
+  if (partialRange) {
+    // Avoid preloading the data from row groups owned by neighboring splits.
+    readerOpts.setFilePreloadThreshold(0);
+    readerOpts.setFooterSpeculativeIoSize(
+        std::clamp<uint64_t>(fileSize / 4, 8, kProjectedParquetFooterBytes));
+  } else if (sparseParquet) {
     readerOpts.setFilePreloadThreshold(kProjectedParquetFooterBytes);
     readerOpts.setFooterSpeculativeIoSize(kProjectedParquetFooterBytes);
   }
@@ -508,23 +556,6 @@ void PangrovaVeloxDataSource::createReaderPair(
   readerOpts.setMaxCoalesceDistance(kMaxCoalesceDistance);
   readerOpts.setMaxCoalesceBytes(kMaxCoalesceBytes);
 
-  auto fileSystem = facebook::velox::filesystems::getFileSystem(cleanPath, nullptr);
-  if (!fileSystem) {
-    throw std::runtime_error(
-        "No registered Velox filesystem for data object: " + cleanPath);
-  }
-  std::shared_ptr<facebook::velox::ReadFile> readFile(
-      fileSystem->openFileForRead(cleanPath));
-  if (read_budget_) {
-    auto admitted = std::make_shared<resource::TaskBudgetReadFile>(
-        std::move(readFile), read_budget_, cancellation_token_);
-    if (!splitConfig.expected_file_sha256.empty()) {
-      admitted->verifySha256(splitConfig.expected_file_sha256, splitConfig.length);
-    }
-    readFile = std::move(admitted);
-  } else if (!splitConfig.expected_file_sha256.empty()) {
-    throw std::runtime_error("Qualified task input requires its admitted read owner");
-  }
   std::unique_ptr<facebook::velox::dwio::common::BufferedInput> input;
 #if PANGROVA_HAS_CACHED_BUFFERED_INPUT && PANGROVA_HAS_VELOX_ASYNC_CACHE
   auto* cache = facebook::velox::cache::AsyncDataCache::getInstance();
@@ -534,13 +565,18 @@ void PangrovaVeloxDataSource::createReaderPair(
     // Match Velox FileHandle's path and directory identity for the full reader
     // lifetime; scan-level tracking remains optional.
     const auto separator = cleanPath.rfind('/');
-    const auto group = separator == std::string::npos
-        ? cleanPath : cleanPath.substr(0, separator);
+    auto group = separator == std::string::npos ? cleanPath : cleanPath.substr(0, separator);
     auto ioStats = std::make_shared<facebook::velox::dwio::common::IoStatistics>();
+    auto cachePath = cleanPath;
+    if (splitConfig.file_system_config) {
+      const auto authority = splitConfig.file_system_config->get<std::string>("pangrova.s3.authority").value();
+      cachePath = authority + ":" + cachePath;
+      group = authority + ":" + group;
+    }
     input = std::make_unique<facebook::velox::dwio::common::CachedBufferedInput>(
         readFile,
         facebook::velox::dwio::common::MetricsLog::voidLog(),
-        facebook::velox::StringIdLease(facebook::velox::fileIds(), cleanPath),
+        facebook::velox::StringIdLease(facebook::velox::fileIds(), cachePath),
         cache,
         std::shared_ptr<facebook::velox::cache::ScanTracker>(),
         facebook::velox::StringIdLease(facebook::velox::fileIds(), group),
@@ -566,6 +602,9 @@ void PangrovaVeloxDataSource::createReaderPair(
     }
   }
   facebook::velox::dwio::common::RowReaderOptions rowOpts;
+  if (partialRange) {
+    rowOpts.range(start, length);
+  }
   // Velox defaults Parquet timestamps to millisecond output precision. Keep
   // the file's microsecond and nanosecond fractions through scans and sorts.
   rowOpts.setTimestampPrecision(
@@ -575,13 +614,13 @@ void PangrovaVeloxDataSource::createReaderPair(
   // that uses source (physical) column names from the file schema. The Parquet
   // reader matches columns by name, so renamed columns would fail without this.
   // Post-processing (applyColumnMapping) renames back to target names.
-  std::unordered_map<std::string, std::string> target_to_source;
+  std::unordered_map<std::string, size_t> target_to_mapping;
   if (!requestedType) {
-    for (const auto& cm : current_column_mappings_) {
-      auto lower_target = cm.target_name;
+    for (size_t i = 0; i < current_column_mappings_.size(); ++i) {
+      auto lower_target = current_column_mappings_[i].target_name;
       std::transform(lower_target.begin(), lower_target.end(),
                      lower_target.begin(), ::tolower);
-      target_to_source[lower_target] = cm.source_name;
+      target_to_mapping[lower_target] = i;
     }
   }
   std::vector<std::string> reader_names;
@@ -607,7 +646,7 @@ void PangrovaVeloxDataSource::createReaderPair(
     auto lower_col = col_name;
     std::transform(lower_col.begin(), lower_col.end(),
                    lower_col.begin(), ::tolower);
-    auto it = target_to_source.find(lower_col);
+    auto it = target_to_mapping.find(lower_col);
     auto physical_type = target_type->childAt(i);
     if (!requestedType) {
       for (const auto& mapping : current_column_mappings_) {
@@ -625,8 +664,22 @@ void PangrovaVeloxDataSource::createReaderPair(
       }
     }
     if (col_name.empty()) continue;
-    reader_names.push_back(
-        it == target_to_source.end() ? col_name : it->second);
+    bool mapped = it != target_to_mapping.end();
+    auto physical_name = mapped ? current_column_mappings_[it->second].source_name : col_name;
+    if (!requestedType && splitConfig.iceberg && col_name != kPhysicalRowPositionColumnName &&
+        !outReader->rowType()->containsChild(physical_name)) {
+      if (current_partition_values_.contains(col_name)) continue;
+      // Keep the missing column out of DWIO's projection. Preserve an explicit
+      // mapping's identity even when the logical name belongs to another field.
+      if (mapped) {
+        current_column_mappings_[it->second].source_id = -1;
+      } else {
+        current_column_mappings_.push_back({.source_id = -1, .source_name = col_name,
+            .target_name = col_name, .default_value = {}});
+      }
+      continue;
+    }
+    reader_names.push_back(std::move(physical_name));
     reader_types.push_back(physical_type);
   }
   if (!requestedType) {
@@ -666,11 +719,10 @@ void PangrovaVeloxDataSource::createReaderPair(
   // keep lazy loading to avoid blocking on metadata of stripes that may be
   // pruned by predicate pushdown.
   // L2-6: Threshold is now configurable (was hardcoded 1MB).
-  auto fileSize = readFile->size();
-  bool isSmallFile =
+  const bool isSmallFile =
       fileSize > 0 && eager_first_stripe_threshold_bytes_ > 0 &&
       fileSize < static_cast<uint64_t>(eager_first_stripe_threshold_bytes_);
-  rowOpts.setEagerFirstStripeLoad(isSmallFile
+  rowOpts.setEagerFirstStripeLoad(!partialRange && isSmallFile
       && (!sparseParquet || fileSize <= kProjectedParquetFooterBytes));
 
   // Task 2.16 (Parquet Page Index): Enable column index filtering for
@@ -993,6 +1045,7 @@ void PangrovaVeloxDataSource::initializeMergeReader(
         split::SplitConfig fileConfig;
         fileConfig.file_path = path;
         fileConfig.file_format = file.file_format;
+        fileConfig.file_system_config = split.file_system_config;
         createReaderPair(fileConfig, reader, rowReader, physical_type, &uuidPlan);
         // Filtering an update before primary-key merge can resurrect older rows.
         // Keep non-key predicates in the relational FilterNode after the merge.
@@ -1188,6 +1241,9 @@ std::optional<facebook::velox::RowVectorPtr> PangrovaVeloxDataSource::next(
           current_reader_output_type_ ? current_reader_output_type_ : output_type_,
       0,
       pool_);
+  // Positional deletes use the file-global row where this unfiltered batch begins.
+  const bool applyDeletes = !delete_filters_.empty() && !artifact_candidate_filter_enabled_;
+  const auto firstPhysicalRow = applyDeletes ? velox_row_reader_->nextRowNumber() : 0;
   uint64_t rowsRead = velox_row_reader_->next(batchSize, result);
   checkCancelled();
   auto io_elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -1259,12 +1315,7 @@ std::optional<facebook::velox::RowVectorPtr> PangrovaVeloxDataSource::next(
   // benefits from larger batches to amortize per-request overhead.
   batch_sizer_.adjustForIOLatency(io_elapsed_ms);
 
-  // File positions refer to the original batch. Apply deletion before
-  // interpreting a dynamic filter on the evolved logical columns.
-  // Apply Iceberg/Paimon delete filter on the raw reader output first.
-  // row_index_offset_ tracks the file-level position and must advance
-  // by the original batch size (before any filtering).
-  auto originalBatchSize = rowVector->size();
+  // Apply deletion on the raw output before filtering evolved logical columns.
   if (artifact_candidate_filter_enabled_) {
     // The immutable index was built from the exact serialized split (including
     // delete metadata) and contains only live row locators. Reapplying a
@@ -1272,14 +1323,16 @@ std::optional<facebook::velox::RowVectorPtr> PangrovaVeloxDataSource::next(
     // offsets and corrupt physical identity, so candidate filtering subsumes
     // delete filtering for this exact source snapshot.
     rowVector = applyArtifactCandidateFilter(std::move(rowVector));
-    row_index_offset_ += originalBatchSize;
     if (!rowVector || rowVector->size() == 0) {
       auto emptyVector = facebook::velox::BaseVector::create(
           output_type_, 0, pool_);
       return std::dynamic_pointer_cast<facebook::velox::RowVector>(emptyVector);
     }
-  } else if (!delete_filters_.empty()) {
-    rowVector = applyDeleteFilter(rowVector, originalBatchSize);
+  } else if (applyDeletes) {
+    if (firstPhysicalRow < 0 || rowsRead != static_cast<uint64_t>(rowVector->size())) {
+      throw std::runtime_error("Delete filtering requires an unfiltered physical row batch");
+    }
+    rowVector = applyDeleteFilter(rowVector, firstPhysicalRow);
     if (!rowVector || rowVector->size() == 0) {
       // All rows deleted — return empty vector (not nullopt, which
       // signals EOF to Velox).
@@ -1288,9 +1341,6 @@ std::optional<facebook::velox::RowVectorPtr> PangrovaVeloxDataSource::next(
       return std::dynamic_pointer_cast<facebook::velox::RowVector>(
           emptyVector);
     }
-  } else {
-    // No delete filters — still advance the offset for consistency.
-    row_index_offset_ += originalBatchSize;
   }
 
   return applyDynamicFilters(applyPostProcessing(std::move(rowVector)));
@@ -1429,16 +1479,17 @@ facebook::velox::RowVectorPtr PangrovaVeloxDataSource::applyLanceIdentity(
     return rows;
   }
   const auto size = rows->size();
+  int64_t firstPhysicalRow = 0;
   if (physical_lance_file_) {
     const auto start = lance_reader_->lastBatchRowStart();
     if (size <= 0 ||
         start > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) - static_cast<uint64_t>(size - 1)) {
       throw std::runtime_error("Physical Lance row position exceeds the signed locator bounds");
     }
-    row_index_offset_ = static_cast<int64_t>(start);
+    firstPhysicalRow = static_cast<int64_t>(start);
     positions = facebook::velox::BaseVector::create(facebook::velox::BIGINT(), size, pool_);
     for (facebook::velox::vector_size_t row = 0; row < size; ++row) {
-      positions->asFlatVector<int64_t>()->set(row, static_cast<int64_t>(row_index_offset_ + row));
+      positions->asFlatVector<int64_t>()->set(row, firstPhysicalRow + row);
     }
   }
   auto names = output_type_->names();
@@ -1486,7 +1537,7 @@ facebook::velox::RowVectorPtr PangrovaVeloxDataSource::applyLanceIdentity(
   rows = std::make_shared<facebook::velox::RowVector>(pool_, facebook::velox::ROW(names, types),
       nullptr, size, std::move(children));
   if (artifact_candidate_filter_enabled_) return applyArtifactCandidateFilter(std::move(rows));
-  return physical_lance_file_ ? applyDeleteFilter(std::move(rows), size) : rows;
+  return physical_lance_file_ ? applyDeleteFilter(std::move(rows), firstPhysicalRow) : rows;
 }
 
 facebook::velox::RowVectorPtr
@@ -1507,17 +1558,15 @@ PangrovaVeloxDataSource::applyLancePostProcessing(
 
 facebook::velox::RowVectorPtr PangrovaVeloxDataSource::applyDeleteFilter(
     facebook::velox::RowVectorPtr rowVector,
-    facebook::velox::vector_size_t originalBatchSize) {
+    int64_t firstPhysicalRow) {
   if (delete_filters_.empty() || !rowVector || rowVector->size() == 0) {
-    row_index_offset_ += originalBatchSize;
     return rowVector;
   }
 
   facebook::velox::SelectivityVector rows(rowVector->size());
   for (const auto& filter : delete_filters_) {
-    filter->apply(*rowVector, rows, row_index_offset_);
+    filter->apply(*rowVector, rows, firstPhysicalRow);
   }
-  row_index_offset_ += originalBatchSize;
 
   auto selected = rows.countSelected();
   if (selected == rowVector->size()) {
@@ -1707,7 +1756,7 @@ PangrovaVeloxConnector::createDataSource(
       assignedSourceFilter(remainingFilter, outputType, sourceType),
       preferredBatchBytes,
       eagerFirstStripeThreshold,
-      connectorQueryCtx->expressionEvaluator());
+      connectorQueryCtx->expressionEvaluator(), connectorConfig());
   source->setCancellationToken(connectorQueryCtx->cancellationToken());
   source->setReadBudget(std::move(readBudget));
   return std::make_unique<ColumnAssignmentDataSource>(

@@ -6,7 +6,8 @@ import com.google.protobuf.Any;
 import com.google.protobuf.Message;
 import org.pangrova.protocol.function.catalog.FunctionCatalogStartupContracts;
 import org.pangrova.protocol.v2.EvictCacheRequest;
-import org.pangrova.protocol.v2.InjectRuntimeFilterRequest;
+import org.pangrova.protocol.task.TaskRuntimeFilterWire;
+import org.pangrova.protocol.v2.RuntimeFilterBinding;
 import org.pangrova.protocol.v2.PrefetchArtifactsRequest;
 import org.pangrova.protocol.v2.ProtocolVersion;
 import org.pangrova.protocol.v2.RuntimeCommand;
@@ -74,48 +75,12 @@ public final class NativeCommandBuilder {
                 EvictCacheRequest.newBuilder().setPattern(pattern).build());
     }
 
-    /** Builds a runtime-filter injection command after decoding its canonical payload. */
-    public static byte[] injectRuntimeFilter(
-            String planNodeId, byte[] filterProto) {
-        requireRuntimeFilterPayload(planNodeId, filterProto);
-        final InjectRuntimeFilterRequest decoded = parseRuntimeFilter(filterProto);
-        validateRuntimeFilter(planNodeId, decoded);
-        return buildCommand(
-                RuntimeCommandType.RUNTIME_COMMAND_TYPE_INJECT_RUNTIME_FILTER,
-                decoded.toBuilder().setPlanNodeId(planNodeId).build());
-    }
-
-    private static void requireRuntimeFilterPayload(String planNodeId, byte[] filterProto) {
-        if (planNodeId == null || planNodeId.isBlank()) {
-            throw new IllegalArgumentException("planNodeId must not be blank");
+    /** Wraps the decoded runtime-filter update in a Native command. */
+    public static byte[] injectRuntimeFilter(RuntimeFilterBinding update) {
+        if (update == null || !TaskRuntimeFilterWire.hasScanTarget(update) || update.getFiltersCount() == 0) {
+            throw new IllegalArgumentException("Runtime filter update must include a scan node and filters");
         }
-        if (filterProto == null || filterProto.length == 0) {
-            throw new IllegalArgumentException(
-                    "filterProto must contain an InjectRuntimeFilterRequest");
-        }
-    }
-
-    private static InjectRuntimeFilterRequest parseRuntimeFilter(byte[] filterProto) {
-        try {
-            return InjectRuntimeFilterRequest.parseFrom(filterProto);
-        } catch (com.google.protobuf.InvalidProtocolBufferException e) {
-            throw new IllegalArgumentException(
-                    "filterProto is not a canonical v2 runtime filter", e);
-        }
-    }
-
-    private static void validateRuntimeFilter(
-            String planNodeId, InjectRuntimeFilterRequest decoded) {
-        if (decoded.getFiltersCount() == 0) {
-            throw new IllegalArgumentException(
-                    "runtime filter request must contain at least one filter");
-        }
-        if (!decoded.getPlanNodeId().isEmpty()
-                && !decoded.getPlanNodeId().equals(planNodeId)) {
-            throw new IllegalArgumentException(
-                    "runtime filter plan node mismatch: request=" + planNodeId
-                            + " payload=" + decoded.getPlanNodeId());
-        }
+        return buildCommand(RuntimeCommandType.RUNTIME_COMMAND_TYPE_INJECT_RUNTIME_FILTER, update);
     }
 
     /** Returns the serialized concrete message carried by response.payload. */

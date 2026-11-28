@@ -178,6 +178,22 @@ class IcebergMetadataTest {
     }
 
     @Test
+    void dropTableReportsUnestablishedOutcomeInsteadOfSuccessfulMutation() {
+        createNamespace("db");
+        var id = TableIdentifier.of("db", "orders");
+        var name = new SchemaTableName("db", "orders");
+        catalog.createTable(id, TEST_SCHEMA);
+        var handle = metadata.getTableHandle(SESSION, name);
+
+        metadata.dropTable(SESSION, handle);
+        assertThat(metadata.getTableHandle(SESSION, name)).isNull();
+        assertThatThrownBy(() -> metadata.dropTable(SESSION, handle))
+                .isInstanceOfSatisfying(org.pangrova.connector.api.exception.ConnectorException.class,
+                        failure -> assertThat(failure.getErrorCode()).isEqualTo(
+                                org.pangrova.common.enums.PangrovaErrorCode.CONNECTOR_DDL_FAILED));
+    }
+
+    @Test
     void getTableHandle_observesExternalDropAndRecreateImmediately() {
         createNamespace("db");
         TableIdentifier id = TableIdentifier.of("db", "orders");
@@ -248,6 +264,22 @@ class IcebergMetadataTest {
                 new SnapshotReference("main", SnapshotReferenceType.BRANCH, snapshotId),
                 new SnapshotReference("feature", SnapshotReferenceType.BRANCH, snapshotId),
                 new SnapshotReference("release", SnapshotReferenceType.TAG, snapshotId));
+    }
+
+    @Test
+    void resolvesOnlyReferencesOfTheRequestedKind() {
+        createNamespace("db");
+        var tableName = new SchemaTableName("db", "orders");
+        var table = catalog.createTable(TableIdentifier.of("db", "orders"), TEST_SCHEMA);
+        appendSyntheticFile(table, "first.parquet");
+        long snapshot = table.currentSnapshot().snapshotId();
+        table.manageSnapshots().createBranch("feature", snapshot).createTag("release", snapshot).commit();
+
+        assertThat(metadata.resolveRefSnapshotId(SESSION, tableName, "BRANCH", "feature")).hasValue(snapshot);
+        assertThat(metadata.resolveRefSnapshotId(SESSION, tableName, "TAG", "release")).hasValue(snapshot);
+        assertThat(metadata.resolveRefSnapshotId(SESSION, tableName, "BRANCH", "release")).isEmpty();
+        assertThat(metadata.resolveRefSnapshotId(SESSION, tableName, "TAG", "feature")).isEmpty();
+        assertThat(metadata.resolveRefSnapshotId(SESSION, tableName, "TAG", "missing")).isEmpty();
     }
 
     @Test

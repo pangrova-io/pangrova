@@ -36,7 +36,9 @@ for archive_name in libunwind.a "libunwind-${arch}.a"; do
     }
 done
 
-# This catches a non-PIC archive before the much larger Native link starts.
+# Match the production JNI link group. On x86-64, the architecture archive
+# references _Ux86_64_setcontext in libunwind.a after the first archive scan.
+# The link also catches non-PIC objects before the much larger Native link.
 cat > "$work_dir/pic-check.c" <<'EOF'
 #include <libunwind.h>
 int pangrova_libunwind_pic_check(void) {
@@ -49,7 +51,8 @@ int pangrova_libunwind_pic_check(void) {
 EOF
 "${CC:-cc}" -fPIC -shared -Wl,-z,defs \
     -I"$prefix/include" "$work_dir/pic-check.c" \
-    "$prefix/lib/libunwind.a" "$prefix/lib/libunwind-${arch}.a" \
+    -Wl,--start-group "$prefix/lib/libunwind.a" "$prefix/lib/libunwind-${arch}.a" \
+    -Wl,--end-group \
     -Wl,-Bstatic -lz -llzma -Wl,-Bdynamic -ldl -lm \
     -o "$work_dir/libunwind-pic-check.so"
 if readelf -d "$work_dir/libunwind-pic-check.so" | grep -F 'libunwind.so' >/dev/null; then

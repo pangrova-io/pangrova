@@ -45,6 +45,7 @@ public final class PaimonCommitTestSupport {
                         session.getUser(),
                         PaimonWriteReceiptFixtures.receipt(), null),
                 fragments);
+        var allowed = new java.util.concurrent.atomic.AtomicBoolean(true);
         return new DistributedWriteCommitContext(
                 executionId,
                 tenantId,
@@ -52,7 +53,8 @@ public final class PaimonCommitTestSupport {
                 writeBinding,
                 fingerprint,
                 session.getUser(),
-                PaimonWriteReceiptFixtures.receipt(), null);
+                PaimonWriteReceiptFixtures.receipt(), null, null,
+                () -> allowed.compareAndSet(true, false));
     }
 
     /** Mirrors the coordinator's durable connector output binding for a Paimon handle. */

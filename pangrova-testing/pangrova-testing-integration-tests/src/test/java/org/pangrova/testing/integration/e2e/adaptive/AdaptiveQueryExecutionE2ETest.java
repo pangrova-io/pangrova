@@ -12,18 +12,8 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/**
- * E2E test for Adaptive Query Execution (AQE) runtime adaptation.
- *
- * <p>Validates that PartitionCoalescer and SkewJoinHandler produce correct
- * results when triggered by real shuffle statistics through the full pipeline:
- * SQL → Parser → Planner → Substrait → Native → AdaptiveQueryEvaluator →
- * PartitionCoalescer/SkewJoinHandler → Transport → Client.
- *
- * <p>Uses data distributions designed to trigger AQE decisions:
- * many small partitions (coalescing) and highly skewed keys (skew join).
- */
-@DisplayName("Adaptive Query Execution E2E — Runtime Adaptation")
+/** SQL result coverage for small groups, uneven keys and repeated joins. */
+@DisplayName("SQL correctness for small groups and skewed inputs")
 class AdaptiveQueryExecutionE2ETest extends SqlE2ETestBase {
 
     private static final String CATALOG = "iceberg_catalog";
@@ -60,15 +50,15 @@ class AdaptiveQueryExecutionE2ETest extends SqlE2ETestBase {
     }
 
     // -----------------------------------------------------------------------
-    // Partition coalescing: many small groups → coalesced partitions
+    // Queries with many small groups
     // -----------------------------------------------------------------------
 
     @Nested
-    @DisplayName("Partition Coalescing")
+    @DisplayName("Many small groups")
     class PartitionCoalescingScenarios {
 
         @Test
-        @DisplayName("Aggregation with many small groups produces correct results after coalescing")
+        @DisplayName("Aggregation with many small groups produces correct results")
         void manySmallGroupsCoalesced() {
             String sql = String.format(
                     "SELECT category, SUM(amount) AS total, COUNT(*) AS cnt "
@@ -96,7 +86,7 @@ class AdaptiveQueryExecutionE2ETest extends SqlE2ETestBase {
         }
 
         @Test
-        @DisplayName("JOIN with many dim keys produces correct result after coalescing")
+        @DisplayName("JOIN with many dim keys produces correct result")
         void joinWithManyDimKeysCoalesced() {
             String sql = String.format(
                     "SELECT d.name, SUM(f.amount) AS total "
@@ -127,7 +117,7 @@ class AdaptiveQueryExecutionE2ETest extends SqlE2ETestBase {
     // -----------------------------------------------------------------------
 
     @Nested
-    @DisplayName("Skew Join Handling")
+    @DisplayName("Skewed input correctness")
     class SkewJoinHandlingScenarios {
 
         @Test

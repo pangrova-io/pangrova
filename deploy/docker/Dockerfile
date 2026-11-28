@@ -12,14 +12,12 @@ RUN bash /verify-native-source.sh /expected /workspace \
     && pangrova-worker-native/bin/package-native-lib.sh --production \
         /workspace/pangrova-worker-native/build/libpangrova_native.so
 
-FROM maven:3.9-eclipse-temurin-17@sha256:1a352420f7aba21f5ad08df31bab55f74c013fb491f1ae8ab1dd7ff9ed698584 AS builder
-ARG TARGETARCH
-RUN apt-get update && apt-get install -y --no-install-recommends python3 curl unzip patch libdigest-sha-perl \
-    && python3 -c 'import sys; assert sys.version_info >= (3, 10), sys.version' \
-    && rm -rf /var/lib/apt/lists/*
+FROM maven:3.9-eclipse-temurin-17@sha256:1a352420f7aba21f5ad08df31bab55f74c013fb491f1ae8ab1dd7ff9ed698584 AS java-build-base
 WORKDIR /build
-# Iceberg candidate4 is published only to Maven Local by the repository's patched
-# SDK build. Preserve it in a layer independent of the disposable Maven cache.
+
+FROM java-build-base AS iceberg-sdk-build
+RUN apt-get update && apt-get install -y --no-install-recommends curl unzip patch libdigest-sha-perl \
+    && rm -rf /var/lib/apt/lists/*
 RUN curl --fail --location --retry 3 --output /tmp/gradle.zip \
         https://services.gradle.org/distributions/gradle-8.14.4-bin.zip \
     && echo "f1771298a70f6db5a29daf62378c4e18a17fc33c9ba6b14362e0cdf40610380d  /tmp/gradle.zip" | sha256sum -c - \
@@ -27,11 +25,23 @@ RUN curl --fail --location --retry 3 --output /tmp/gradle.zip \
 COPY .pangrova/scripts/build-iceberg-sdk-candidate.sh .pangrova/scripts/
 COPY pangrova-connector/pangrova-connector-iceberg/patches/ pangrova-connector/pangrova-connector-iceberg/patches/
 RUN --mount=type=cache,target=/root/.gradle \
-    GRADLE_BIN=/opt/gradle-8.14.4/bin/gradle bash .pangrova/scripts/build-iceberg-sdk-candidate.sh \
-    && mkdir -p /pinned-iceberg && cp -a /root/.m2/repository/org/apache/iceberg /pinned-iceberg/
+    GRADLE_BIN=/opt/gradle-8.14.4/bin/gradle PANGROVA_ICEBERG_MAVEN_REPOSITORY=/sdk \
+    bash .pangrova/scripts/build-iceberg-sdk-candidate.sh
+
+# CI overrides this stage with the verified same-run SDK as a named context.
+FROM scratch AS iceberg-sdk
+COPY --from=iceberg-sdk-build /sdk/ /
+
+FROM java-build-base AS builder
+ARG TARGETARCH
+RUN apt-get update && apt-get install -y --no-install-recommends python3 \
+    && python3 -c 'import sys; assert sys.version_info >= (3, 10), sys.version' \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=iceberg-sdk /org/apache/iceberg/ /pinned-iceberg/iceberg/
 # The complete reactor defines dependencies; there is no stale manual POM cache inventory.
 COPY . .
 COPY --from=native-release /workspace/pangrova-worker-native/build/libpangrova_native.so /native/libpangrova_native.so
+ARG MAVEN_ARGS
 # Hadoop's Jersey 1 server contains shaded ASM classes also present in Jersey 4.
 # Keep its client/core dependencies, but omit the unused legacy server stack.
 RUN --mount=type=cache,target=/root/.m2 bash -euo pipefail -c '\
@@ -49,7 +59,7 @@ RUN --mount=type=cache,target=/root/.m2 bash -euo pipefail -c '\
     test "${#bundles[@]}" -eq 1; bundle="${bundles[0]}"; test -f "$bundle"; \
     jar tf "$bundle" | grep -Fx "META-INF/native/linux/$resource_arch/libpangrova_native.so"; \
     mvn -B -q install:install-file -Dfile="$bundle" -DpomFile=pangrova-native-bundle/pom.xml \
-        -Dclassifier="$classifier"; \
+        -Dclassifier="$classifier" -Dpackaging=jar; \
     mvn -B -q -Pnative-runtime -DskipTests \
         -pl pangrova-standalone,pangrova-client/pangrova-client-cli,pangrova-connector/pangrova-connector-iceberg,pangrova-connector/pangrova-connector-paimon,pangrova-connector/pangrova-connector-lance,\!pangrova-native-bundle \
         -am install; \

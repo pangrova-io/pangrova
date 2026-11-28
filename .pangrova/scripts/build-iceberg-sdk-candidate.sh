@@ -64,14 +64,39 @@ printf 'source_commit=%s\nsource_sha256=%s\npatch_sha256=%s\nfixed_patch_sha256=
   > "$source_root/iceberg-build.properties"
 
 cd "$source_root"
-"$gradle_bin" --no-daemon --max-workers=2 \
+# These are the pinned Gradle 8.14.4 dependency repository resolver's
+# internal retry settings (revalidate on Gradle upgrades). Keep three
+# attempts, but allow transient rate limits time to recover. Backoff is
+# per repository operation, not an overall build timeout or Retry-After
+# guarantee. Persistent failures still fail the original Gradle command.
+gradle_repository_args=(
+  -Dorg.gradle.internal.repository.max.tentatives=3
+  -Dorg.gradle.internal.repository.initial.backoff=30000
+)
+"$gradle_bin" "${gradle_repository_args[@]}" --no-daemon --max-workers=2 \
   :iceberg-core:test --tests org.apache.iceberg.avro.TestFixedByteBufferWriter
-"$gradle_bin" --no-daemon \
+publish_args=(--no-daemon)
+if [[ -n "${PANGROVA_ICEBERG_MAVEN_REPOSITORY:-}" ]]; then
+  publish_args+=("-Dmaven.repo.local=$PANGROVA_ICEBERG_MAVEN_REPOSITORY")
+fi
+"$gradle_bin" "${gradle_repository_args[@]}" "${publish_args[@]}" \
   :iceberg-api:publishToMavenLocal \
   :iceberg-bundled-guava:publishToMavenLocal \
   :iceberg-common:publishToMavenLocal \
   :iceberg-core:publishToMavenLocal \
   :iceberg-orc:publishToMavenLocal \
   :iceberg-parquet:publishToMavenLocal
+
+if [[ -n "${PANGROVA_ICEBERG_MAVEN_REPOSITORY:-}" ]]; then
+  for module in api bundled-guava common core orc parquet; do
+    artifact="$PANGROVA_ICEBERG_MAVEN_REPOSITORY/org/apache/iceberg/iceberg-$module/$candidate_version/iceberg-$module-$candidate_version"
+    for extension in jar pom; do
+      if [[ ! -s "$artifact.$extension" ]]; then
+        echo "Missing Iceberg SDK publication: $artifact.$extension" >&2
+        exit 1
+      fi
+    done
+  done
+fi
 
 echo "Published $candidate_version from $source_commit with patches $patch_sha256 and $fixed_patch_sha256"

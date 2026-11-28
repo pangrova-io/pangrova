@@ -6,6 +6,7 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Objects;
@@ -15,8 +16,8 @@ public final class JdbcMutationFault {
     private JdbcMutationFault() {}
 
     /**
-     * Delegates real JDBC work, then fails successful executeUpdate/executeBatch/executeLargeUpdate
-     * calls matching the SQL prefix.
+     * Delegates real JDBC work, then fails a matching mutation once it succeeds.
+     * Mutations using RETURNING can execute through executeQuery and hand back rows.
      * An optional rollback failure occurs before delegation; close still reaches the real connection.
      */
     public static DataSource afterMutation(DataSource source, String sqlPrefix,
@@ -77,6 +78,11 @@ public final class JdbcMutationFault {
         return (PreparedStatement) Proxy.newProxyInstance(JdbcMutationFault.class.getClassLoader(),
                 new Class<?>[]{PreparedStatement.class}, (proxy, method, args) -> {
                     Object result = invoke(statement, method, args);
+                    if (method.getName().equals("executeQuery")) {
+                        try (var rows = (ResultSet) result) {
+                            throw failure;
+                        }
+                    }
                     if (method.getName().equals("executeUpdate") || method.getName().equals("executeBatch")
                             || method.getName().equals("executeLargeUpdate")) {
                         throw failure;

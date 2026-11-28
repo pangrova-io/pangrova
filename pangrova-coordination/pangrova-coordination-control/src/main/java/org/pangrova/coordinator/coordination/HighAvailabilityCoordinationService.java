@@ -1,5 +1,6 @@
 package org.pangrova.coordinator.coordination;
 
+import java.util.function.Predicate;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.List;
@@ -11,6 +12,9 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 import org.pangrova.common.concurrent.ThreadSafe;
+import org.pangrova.observability.api.metrics.LongCounter;
+import org.pangrova.observability.api.metrics.MetricAttributes;
+import org.pangrova.observability.api.metrics.MetricsProvider;
 import org.pangrova.persistence.coordination.api.membership.CoordinatorRegistry;
 import org.pangrova.coordination.api.enums.CoordinatorRole;
 import org.pangrova.persistence.coordination.api.lease.DistributedLease;
@@ -34,6 +38,8 @@ import org.slf4j.LoggerFactory;
 public class HighAvailabilityCoordinationService implements AutoCloseable {
 
     private static final Logger LOG = LoggerFactory.getLogger(HighAvailabilityCoordinationService.class);
+    private static final MetricAttributes LOCAL_RETIREMENT = MetricAttributes.of("path", "local");
+    private static final MetricAttributes RECOVERED_RETIREMENT = MetricAttributes.of("path", "recovery");
 
     /** Immutable HA configuration. */
     public record CoordinationConfig(long leaseTimeoutMs, long heartbeatIntervalMs,
@@ -74,6 +80,8 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
     private final AtomicLong epoch = new AtomicLong(0);
     private final AtomicReference<LeaseEntry> localLease = new AtomicReference<>();
     private final QueryOwnershipRegistry ownership;
+    private final LongCounter queryRetirements;
+    private final AtomicBoolean retirementMetricFailed = new AtomicBoolean();
 
     private final AtomicReference<Consumer<String>> failoverCallback = new AtomicReference<>();
     private final AtomicReference<Runnable> demotionCallback = new AtomicReference<>();
@@ -93,6 +101,12 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
     /** Creates coordination with explicit bounded query ownership and heartbeat configuration. */
     public HighAvailabilityCoordinationService(DistributedLease lease, CoordinationConfig config,
             ExecutionAnchorStore anchors) {
+        this(lease, config, anchors, null);
+    }
+
+    /** Creates coordination with a counter for acknowledged durable query retirements. */
+    public HighAvailabilityCoordinationService(DistributedLease lease, CoordinationConfig config,
+            ExecutionAnchorStore anchors, MetricsProvider metrics) {
         Objects.requireNonNull(lease, "lease must not be null");
         this.leaseElection = new LeaseBackedLeaderElection(lease);
         this.config = Objects.requireNonNull(config, "config must not be null");
@@ -100,6 +114,9 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
                 this.config.maxQueryOwnershipEntries(),
                 Duration.ofMillis(this.config.leaseTimeoutMs()),
                 Objects.requireNonNull(anchors, "execution anchor store must be selected explicitly"));
+        queryRetirements = metrics == null ? null : metrics.createCounter(
+                "pangrova.coordinator.queries.terminal_cleanup.durable_retirements",
+                "Committed durable query retirements acknowledged by the execution store", "queries");
     }
 
     /** Uses the process-wide backend/incarnation binding without adding a second ownership authority. */
@@ -220,6 +237,26 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
         return ownership.acquire(queryId, coordinatorId, requireLocalIncarnation());
     }
 
+    /** Acquires a query grant carrying the catalog revision observed by the backend. */
+    public Optional<org.pangrova.persistence.query.api.coordination.ExecutionAnchorStore.QueryAcquisition>
+            acquireQueryOwnership(String queryId, String coordinatorId, String tenantId) {
+        return acquireQueryOwnership(queryId, coordinatorId, tenantId, java.util.OptionalInt.empty());
+    }
+
+    /** Acquires a query grant, reserving a durable tenant slot when a capacity is supplied. */
+    public Optional<org.pangrova.persistence.query.api.coordination.ExecutionAnchorStore.QueryAcquisition>
+            acquireQueryOwnership(String queryId, String coordinatorId, String tenantId,
+                    java.util.OptionalInt capacity) {
+        Objects.requireNonNull(queryId, "queryId");
+        Objects.requireNonNull(coordinatorId, "coordinatorId");
+        Objects.requireNonNull(tenantId, "tenantId");
+        CoordinatorExecutionAuthority authority = processAuthority;
+        if (authority != null && !authority.coordinatorId().equals(coordinatorId)) {
+            return Optional.empty();
+        }
+        return ownership.acquire(queryId, coordinatorId, requireLocalIncarnation(), tenantId, capacity);
+    }
+
     /** Completes only a query fenced to this exact local process. */
     public boolean releaseQueryOwnership(String queryId, String coordinatorId) {
         Objects.requireNonNull(queryId, "queryId must not be null");
@@ -304,6 +341,44 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
         return ownership.claimExpired(
                 Objects.requireNonNull(localNodeId.get(), "coordinator is not started"),
                 requireLocalIncarnation(), maxBatchSize);
+    }
+
+    /** Releases an exact recovery grant after its execution is established to have no remaining work. */
+    public boolean releaseRecoveryClaim(ExecutionAnchor anchor) {
+        return ownership.release(anchor);
+    }
+
+    /** Releases the original local grant after the execution and its owned resources have drained. */
+    public boolean releaseLocallyDrainedQuery(ExecutionAnchor anchor,
+            Optional<Predicate<ExecutionAnchor>> durableRetirement) {
+        if (!anchor.ownerId().equals(localNodeId.get())
+                || !anchor.ownerIncarnation().equals(localIncarnation.get())) return false;
+        if (!ownership.releaseLocallyDrainedQuery(anchor, durableRetirement)) return false;
+        recordQueryRetirement(LOCAL_RETIREMENT);
+        return true;
+    }
+
+    /** Checks retirement only for an observer of locally drained work handed to recovery. */
+    public boolean isQueryRetired(String queryId) {
+        return ownership.isQueryRetired(queryId);
+    }
+
+    /** Retires a drained SQL predecessor, preserving grants that still own durable dependencies. */
+    public boolean releaseDrainedRecoveryClaim(ExecutionAnchor anchor, boolean remoteShuffle) {
+        if (!ownership.releaseDrainedQuery(anchor, remoteShuffle)) return false;
+        recordQueryRetirement(RECOVERED_RETIREMENT);
+        return true;
+    }
+
+    private void recordQueryRetirement(MetricAttributes path) {
+        if (queryRetirements == null) return;
+        try {
+            queryRetirements.add(1, path);
+        } catch (RuntimeException failure) {
+            if (retirementMetricFailed.compareAndSet(false, true)) {
+                LOG.warn("event=query_retirement_metric_recording_failed", failure);
+            }
+        }
     }
 
     /** Relinquishes one failed recovery claim without marking the query complete. */
@@ -514,7 +589,7 @@ public class HighAvailabilityCoordinationService implements AutoCloseable {
     }
 
     private void registerWithRegistry(String coordinatorId) {
-        registryClient.register(coordinatorId, epoch.get());
+        registryClient.register(coordinatorId, requireLocalIncarnation(), epoch.get());
     }
 
     private void updateRegistryRole(String coordinatorId, CoordinatorRole newRole) {

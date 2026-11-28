@@ -30,8 +30,7 @@ reranking are distinct execution paths.
   executes exact distance ordering; a configured model and provider are required.
 
 These examples are query shapes and syntax references, not measured recall/latency
-or a qualification of every combination. See
-[Current Capability Status](../../getting-started/capability-status.md).
+or a qualification of every combination.
 
 ---
 
@@ -217,12 +216,13 @@ SHOW INDEXES FROM table_name;
 ```
 
 **Description:** Lists all indexes on the specified table including vector indexes.
+See [Index DDL](../../indexing/index-ddl.md#show-indexes) for the exact result columns.
 
 **Example:**
 
 ```sql
 SHOW INDEXES FROM articles;
--- Returns: index_name, index_type, columns, state, algorithm, metric
+-- Returns the stable SHOW INDEXES descriptor contract.
 ```
 
 ---

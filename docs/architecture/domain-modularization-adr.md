@@ -49,7 +49,7 @@ unimplemented targets must not be written as current state.
   and the HTTP classes implement that interface.
 - QueryId and ExecutionAnchor identify cross-protocol queries and cross-query/
   background-task execution ownership, respectively, and belong to Execution API.
-  Query publishes lifecycle, audit, and log-replay contracts. Pre-submission
+  Query publishes lifecycle, audit, and journal point-lookup contracts. Pre-submission
   validation and binding that depend on concrete task requests, generated-column
   protocols, and Native runtime capability are implemented by Execution Binding.
 - Table publishes the operations required by ownership, statistics, maintenance,
@@ -249,7 +249,7 @@ domain.
 | Batch | `api.block/page/reader` describes data access. `arrow` owns the Arrow representation, stream validation, and value conversion after detaching from buffers. | Callers that only read generic interfaces can load the contracts in an independent classloader. |
 | File | `api.space/profile/authority` describes the read operations required for access. `access/directory` performs authorization and directory management, and `worker` implements delegated access. | PostgreSQL may load the same File JAR, but its source may reference only File's `.api`. Server injects the repository. |
 | Planner | `api.fragment/metadata/statistics` exposes planning inputs and outputs. `analysis/validation/optimization/cost/substrait` analyze, validate, optimize, estimate, and serialize. | Coordinator borrows Planner to prepare plans. Workers read the protocol and need not load Planner. |
-| Query | `api.submission/session/lifecycle/journal` describes sessions, state, and replay. `lifecycle/stage/dispatch/recovery/retention` execute business flows. | Query owns state transitions. HTTP response mapping, persistence, and execution processes each consume the corresponding contract. |
+| Query | `api.submission/session/lifecycle/journal` describes sessions, state, and exact receipt lookup. `lifecycle/stage/dispatch/retention` execute business flows. | Query owns state transitions. The Coordinator's takeover path uses the execution lease and, for issued tasks, confirmed Worker exit facts from the persistence backend. |
 | Semantic | `api.identity/version/validation/publication` defines identity, immutable versions, validation results, and publication constraints. `validation` validates definitions. | The backend owns atomic writes of versions and published pointers, and the version contract retains CAS results. |
 | Table | `api.ownership/observation/rename/maintenance/statistics/policy` separates table identity, maintenance operations, and bindings. Implementations organize calls by same-named capability. | Backend transactions and repository selection belong to Persistence and Server. |
 | Worker | `task.state` owns task state constraints, `task.report` owns status reporting and acknowledgement, `execution` executes tasks, and `jni` manages the JNI boundary. | Bootstrap holds the production status-reporting client, and TaskManager borrows it. Failed startup and normal shutdown both release that client after task exit. |
@@ -562,8 +562,8 @@ Governance interprets this vocabulary, so it now belongs to
 `governance.api.enums.ColumnDerivationKind`. Planner's Calcite column lineage,
 Query's column record, and Governance's dataset column record use the same value.
 Planner and Query each depend one-way on Governance API; Coordinator can pass the
-derived kind directly. Query execution, state transitions, and replay remain owned
-by Query. When reviewing similar changes, the commit record should list the
+derived kind directly. Query owns its state transitions and journal facts. When
+reviewing similar changes, the commit record should list the
 original references, the new direction, the semantic owner, and the corresponding
 gate or behavior test.
 

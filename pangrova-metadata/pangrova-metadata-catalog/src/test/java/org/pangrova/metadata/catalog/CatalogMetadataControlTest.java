@@ -1,6 +1,9 @@
 package org.pangrova.metadata.catalog;
 
 import org.pangrova.metadata.api.catalog.CatalogDeploymentIdentity;
+import org.pangrova.metadata.api.exception.MetadataException;
+import org.pangrova.metadata.api.exception.TableNotFoundException;
+import org.pangrova.common.enums.PangrovaErrorCode;
 
 import org.pangrova.metadata.testinfra.TestCatalogRegistry;
 
@@ -269,6 +272,26 @@ class CatalogMetadataControlTest {
     }
 
     @Test
+    void dropTableReportsInitialAbsenceWithoutCallingConnectorMutation() {
+        assertThatThrownBy(() -> service.dropTable(session(), ref("missing")))
+                .isInstanceOf(TableNotFoundException.class);
+        assertThat(connectorMetadata.dropCalls).isZero();
+    }
+
+    @Test
+    void dropTableDoesNotReportInitialAbsenceAfterConnectorMutationStarts() {
+        service.createTable(session(), ref("orders"), tableMetadata("orders"));
+        connectorMetadata.dropFailure = new TableNotFoundException("Connector outcome unavailable");
+
+        assertThatThrownBy(() -> service.dropTable(session(), ref("orders")))
+                .isNotInstanceOf(TableNotFoundException.class)
+                .isInstanceOfSatisfying(MetadataException.class, failure ->
+                        assertThat(failure.getErrorCode()).isEqualTo(PangrovaErrorCode.METADATA_METASTORE_ERROR));
+        assertThat(connectorMetadata.dropCalls).isOne();
+        assertThat(registry.tableControl().find("cat", "db", "orders")).isPresent();
+    }
+
+    @Test
     void dropTableRetiresTheControlRecord() {
         service.createTable(session(), ref("orders"), tableMetadata("orders"));
 
@@ -436,6 +459,8 @@ class CatalogMetadataControlTest {
         private final Map<String, String> versions = new LinkedHashMap<>();
         private String schemaFingerprint = "schema";
         private Runnable afterDeclaration = () -> { };
+        private int dropCalls;
+        private RuntimeException dropFailure;
         private ConnectorSession lastSession;
 
         void create(SchemaTableName name, String uuid) {
@@ -461,6 +486,10 @@ class CatalogMetadataControlTest {
 
         @Override
         public void dropTable(ConnectorSession session, ConnectorTableHandle handle) {
+            dropCalls++;
+            if (dropFailure != null) {
+                throw dropFailure;
+            }
             String key = ((TestHandle) handle).key;
             tables.remove(key);
             uuids.remove(key);

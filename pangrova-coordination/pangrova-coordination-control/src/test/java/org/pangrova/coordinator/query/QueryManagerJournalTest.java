@@ -38,7 +38,11 @@ class QueryManagerJournalTest {
             var owner = new QueryJournalLifecycle(store.journal());
             owner.setOwner("session-issuer");
             var state = new QueryStateMachine();
-            owner.queued(queryId, "SELECT 1", session, state);
+            var anchors = new org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore(
+                    store.administrator());
+            var anchor = anchors.tryAcquire(queryId, "session-issuer", "test-incarnation", Duration.ofMinutes(1))
+                    .orElseThrow();
+            owner.queued(queryId, "SELECT 1", session, state, anchor);
             QueryStateEvent committed = store.journal().latestQueryEvent(queryId).orElseThrow();
             var json = org.pangrova.common.json.JsonMapperFactory.shared().readTree(committed.sessionJson());
             assertThat(json.size()).isEqualTo(3);
@@ -218,6 +222,27 @@ class QueryManagerJournalTest {
             assertThat(fixture.manager.awaitAllQueries(5000)).isTrue();
             assertThat(fixture.store.committedEvents("accepted-failure").stream().filter(event -> event.state().equals("QUEUED"))).hasSize(1);
             assertThat(fixture.store.terminalWrites("accepted-failure", "FAILED")).isEqualTo(1);
+            assertThat(fixture.admission.admittedCount("fixture-tenant")).isZero();
+        }
+    }
+
+    @Test void unresolvedIdempotentAcceptanceRetainsCleanupUntilTheJournalCommits() throws Exception {
+        try (var fixture = new QueryManagerJournalFixture(2)) {
+            fixture.store.denyQueryInsert();
+            var acceptance = new org.pangrova.query.api.journal.QueryAcceptanceRequest(
+                    "fixture-subject", "a".repeat(64), "b".repeat(64));
+            var receipt = fixture.manager.submitQuery("accepted-idempotent", "SELECT 1",
+                    SourceFreeQueryFixture.session("accepted-idempotent"), acceptance);
+            assertThat(receipt.queryId()).isEqualTo("accepted-idempotent");
+            assertThat(receipt.state()).isEqualTo(QueryState.QUEUED);
+            assertThat(fixture.manager.getActiveQueryCount()).isEqualTo(1);
+            assertThat(fixture.manager.getQueryState("accepted-idempotent")).contains(QueryState.FAILED);
+            fixture.store.allowQueryInsert();
+            fixture.retry();
+            assertThat(fixture.manager.awaitAllQueries(5000)).isTrue();
+            assertThat(fixture.store.committedEvents("accepted-idempotent").stream()
+                    .filter(event -> event.state().equals("QUEUED"))).hasSize(1);
+            assertThat(fixture.store.terminalWrites("accepted-idempotent", "FAILED")).isEqualTo(1);
             assertThat(fixture.admission.admittedCount("fixture-tenant")).isZero();
         }
     }

@@ -2,6 +2,7 @@ package org.pangrova.coordinator.query.execution.split;
 
 import java.util.List;
 import java.util.Map;
+import org.pangrova.connector.api.metadata.SplitPlanningBudget.FileGranularity;
 import org.pangrova.query.api.session.QuerySession;
 import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.planner.analysis.PlanFragment;
@@ -18,8 +19,8 @@ public final class CatalogStageSplitSource implements StageSplitSource {
     @Override
     public List<QuerySplit> fetchAndFilterSplits(
             PlanFragment fragment, List<SplitSourceDescriptor> sources, Map<String, Long> snapshotOverrides,
-            String queryId, QuerySession session) {
+            QuerySession session, FileGranularity fileGranularity) {
         return SplitFetcher.fetchSplitsWithFilePaths(sources, catalogs,
-                snapshotOverrides, fragment.queryOutputColumns(), session);
+                snapshotOverrides, fragment.queryOutputColumns(), session, fileGranularity);
     }
 }

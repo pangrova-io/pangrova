@@ -1,28 +1,23 @@
 package org.pangrova.coordinator.result;
 
-import org.pangrova.protocol.transport.DataProducer;
-import org.pangrova.protocol.exception.DataProducerException;
-import org.pangrova.protocol.transport.DataTicket;
-import org.pangrova.protocol.transport.DataStream;
-import org.pangrova.protocol.enums.TransportStatus;
+import org.apache.arrow.flight.CallStatus;
+import org.apache.arrow.flight.FlightDescriptor;
+import org.apache.arrow.flight.FlightEndpoint;
+import org.apache.arrow.flight.FlightInfo;
+import org.apache.arrow.flight.NoOpFlightProducer;
+import org.apache.arrow.flight.Ticket;
+import org.apache.arrow.vector.types.pojo.Schema;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Objects;
-import java.util.concurrent.atomic.AtomicReference;
 
-/**
- * Data producer serving bounded coordinator control-plane statement results.
- * Relational query rows are never written here; clients read those directly
- * from the Worker endpoint returned by dispatch.
- * Throws {@link DataProducerException} with {@link TransportStatus#NOT_FOUND}
- * when the queryId is missing or expired, so clients receive an explicit error
- * instead of a false-success empty result (EOF).
- */
-public final class CoordinatorDataProducer implements DataProducer {
-
+/** Sends the Coordinator's bounded Arrow batch directly to one Flight reader. */
+public final class CoordinatorDataProducer extends NoOpFlightProducer {
     private static final Logger LOG = LoggerFactory.getLogger(CoordinatorDataProducer.class);
-
+    private static final Schema ADVISORY_SCHEMA = new Schema(List.of());
     private final CoordinatorResultBuffer buffer;
 
     public CoordinatorDataProducer(CoordinatorResultBuffer buffer) {
@@ -30,21 +25,29 @@ public final class CoordinatorDataProducer implements DataProducer {
     }
 
     @Override
-    public DataStream openStream(DataTicket ticket) {
-        String queryId = ticket.queryId();
-        byte[] data = buffer.get(queryId);
-        if (data == null) {
-            LOG.warn("event=result_not_found queryId={}", queryId);
-            throw new DataProducerException(
-                    TransportStatus.NOT_FOUND,
-                    "Result not found for queryId=" + queryId);
+    public void getStream(CallContext context, Ticket ticket, ServerStreamListener listener) {
+        String queryId = new String(ticket.getBytes(), StandardCharsets.UTF_8);
+        var result = buffer.claim(queryId);
+        if (result == null) {
+            listener.error(CallStatus.NOT_FOUND.withDescription("Control result is unavailable")
+                    .toRuntimeException());
+            return;
         }
-        LOG.debug("event=result_served queryId={} sizeBytes={}", queryId, data.length);
-        var pending = new AtomicReference<>(data);
-        return () -> {
-            byte[] next = pending.getAndSet(null);
-            return next != null ? next : new byte[0];
-        };
+        try (result) {
+            if (listener.isCancelled()) return;
+            // Flight stages the outgoing data before releasing the query's allocator.
+            result.streamTo(listener);
+        } catch (RuntimeException failure) {
+            LOG.warn("event=control_result_stream_failed queryId={}", queryId, failure);
+            listener.error(failure);
+            return;
+        }
+        listener.completed();
     }
 
+    @Override
+    public FlightInfo getFlightInfo(CallContext context, FlightDescriptor descriptor) {
+        var endpoint = new FlightEndpoint(new Ticket(descriptor.getCommand()));
+        return new FlightInfo(ADVISORY_SCHEMA, descriptor, List.of(endpoint), -1, -1);
+    }
 }

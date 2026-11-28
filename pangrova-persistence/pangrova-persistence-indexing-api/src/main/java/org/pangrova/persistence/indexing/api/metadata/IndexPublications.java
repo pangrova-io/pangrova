@@ -1,9 +1,12 @@
 package org.pangrova.persistence.indexing.api.metadata;
 
 import org.pangrova.common.api.annotation.Experimental;
-import java.util.Optional;
+import org.pangrova.indexing.api.descriptor.IndexDescriptor;
+
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /** Atomic activation and lookup of immutable published generations. */
 @Experimental
@@ -21,6 +24,17 @@ public interface IndexPublications {
 
     /** Atomically validates and activates one complete immutable generation. */
     IndexGenerationManifest publishIndexGeneration(IndexPublicationRequest request);
+
+    /**
+     * Retires the exact native publication after verified source snapshot drift.
+     * A concurrent descriptor or manifest change (including a staging build) makes
+     * the operation a no-op. Existing retained readers are not released.
+     */
+    default boolean retireNativeGenerationForSourceDrift(
+            IndexDescriptor expected, IndexGenerationManifest active,
+            String currentSnapshot, Instant timestamp) {
+        throw new UnsupportedOperationException("Native generation retirement is required");
+    }
 
     /** Finds the active immutable generation manifest for an index. */
     Optional<IndexGenerationManifest> findActiveIndexGeneration(String indexId);
