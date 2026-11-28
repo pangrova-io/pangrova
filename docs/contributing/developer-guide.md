@@ -77,6 +77,12 @@ prepares the reviewed Lance SDK and makes Cargo resolve the same locked graph
 with all four patched crates from those verified local paths. Build the archive
 through `build-lance-ffi.sh` so the build verifies the selected SDK sources.
 
+The Lance FFI S3 tests start real MinIO containers. The test for a server that
+ignores conditional creates uses the original MinIO release binary and verifies
+its SHA-256 for the Docker server's architecture. The fixture is cached under
+the Lance FFI target directory. Both MinIO cases still exercise real writes,
+reads, and the remote manifest publication contract.
+
 The daily Java jobs and production regression restore the Lance fixture tool
 from the same workflow run's Linux x86-64 Native build. The other architectures
 and sanitizers validate in parallel. The final CI gate requires every selected

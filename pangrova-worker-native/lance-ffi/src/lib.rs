@@ -2006,8 +2006,58 @@ mod tests {
     use super::*;
     use lance::dataset::CommitBuilder;
     use lance_table::io::commit::CommitHandler;
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::PathBuf;
     use std::process::Command;
     use std::time::Duration;
+
+    const MINIO_IMAGE: &str = "tobi312/minio:RELEASE.2025-02-28T09-55-16Z";
+    const LEGACY_MINIO_RELEASE: &str = "RELEASE.2024-01-16T16-07-38Z";
+
+    fn legacy_minio_binary() -> PathBuf {
+        let output = Command::new("docker")
+            .args(["version", "--format", "{{.Server.Arch}}"])
+            .output()
+            .expect("Docker is required for the Lance S3 commit test");
+        assert!(output.status.success(), "cannot determine the Docker server architecture");
+        let arch = std::str::from_utf8(&output.stdout).unwrap().trim();
+        let checksum = match arch {
+            "amd64" => "f80ee0924802adcdf5ae03fd0bade3ff2d519372e8a1ff30e7e74456ee6896c6",
+            "arm64" => "3427a19e2c67affe0cf2ac3dbc769cd01012196e70937984f8b22dc05d26fe76",
+            _ => panic!("unsupported Docker server architecture for the legacy MinIO fixture: {arch}"),
+        };
+        let asset = format!("minio.linux-{arch}.{LEGACY_MINIO_RELEASE}");
+        let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/test-fixtures");
+        std::fs::create_dir_all(&fixtures).expect("cannot create the MinIO fixture cache");
+        let binary = fixtures.join(&asset);
+        let verify = |path: &std::path::Path| {
+            let bytes = std::fs::read(path).expect("cannot read the legacy MinIO release binary");
+            assert_eq!(hex_digest(&sha256(&bytes)), checksum, "legacy MinIO release checksum differs");
+        };
+        if !binary.exists() {
+            let temporary = fixtures.join(format!("{asset}.{}.part", uuid::Uuid::new_v4()));
+            let url = format!("https://github.com/minio/minio/releases/download/{LEGACY_MINIO_RELEASE}/{asset}");
+            let output = Command::new("curl")
+                .args(["--fail", "--location", "--silent", "--show-error", "--proto", "=https",
+                       "--connect-timeout", "30", "--max-time", "1200", "--output"])
+                .arg(&temporary)
+                .arg(url)
+                .output()
+                .expect("curl is required to fetch the legacy MinIO release");
+            if !output.status.success() {
+                let _ = std::fs::remove_file(&temporary);
+                panic!("cannot download the legacy MinIO release: {}",
+                       String::from_utf8_lossy(&output.stderr));
+            }
+            verify(&temporary);
+            std::fs::rename(&temporary, &binary).expect("cannot publish the verified MinIO fixture");
+        } else {
+            verify(&binary);
+        }
+        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o555))
+            .expect("cannot make the legacy MinIO fixture executable");
+        binary.canonicalize().expect("cannot resolve the legacy MinIO fixture path")
+    }
 
     struct MinioContainer {
         id: String,
@@ -2015,22 +2065,25 @@ mod tests {
     }
 
     impl MinioContainer {
-        fn start(image: &str) -> Self {
-            let output = Command::new("docker")
-                .args([
-                    "run",
-                    "-d",
-                    "--rm",
-                    "-p",
-                    "127.0.0.1::9000",
-                    "-e",
-                    "MINIO_ROOT_USER=minioadmin",
-                    "-e",
-                    "MINIO_ROOT_PASSWORD=minioadmin",
-                    image,
-                    "server",
-                    "/data",
-                ])
+        fn start(legacy_binary: Option<&std::path::Path>) -> Self {
+            let mut command = Command::new("docker");
+            command.args([
+                "run",
+                "-d",
+                "--rm",
+                "-p",
+                "127.0.0.1::9000",
+                "-e",
+                "MINIO_ROOT_USER=minioadmin",
+                "-e",
+                "MINIO_ROOT_PASSWORD=minioadmin",
+            ]);
+            if let Some(binary) = legacy_binary {
+                command.args(["--entrypoint", "/opt/pangrova/minio-legacy", "--mount"])
+                    .arg(format!("type=bind,source={},target=/opt/pangrova/minio-legacy,readonly", binary.display()));
+            }
+            let output = command
+                .args([MINIO_IMAGE, "server", "/data"])
                 .output()
                 .expect("Docker is required for the Lance S3 commit test");
             assert!(
@@ -2257,8 +2310,8 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
-    fn assert_minio_conditional_commit(image: &str, supports_conditional_create: bool) {
-        let minio = MinioContainer::start(image);
+    fn assert_minio_conditional_commit(legacy_binary: Option<&std::path::Path>, supports_conditional_create: bool) {
+        let minio = MinioContainer::start(legacy_binary);
         let bucket = format!("pangrova-lance-{}", uuid::Uuid::new_v4());
         minio.create_bucket(&bucket);
         let uri = format!("s3://{bucket}/test-dataset");
@@ -2281,12 +2334,12 @@ mod tests {
 
     #[test]
     fn minio_without_conditional_create_fails_closed() {
-        assert_minio_conditional_commit("minio/minio:RELEASE.2024-01-16T16-07-38Z", false);
+        assert_minio_conditional_commit(Some(&legacy_minio_binary()), false);
     }
 
     #[test]
     fn minio_conditional_manifest_commit_has_one_winner() {
-        assert_minio_conditional_commit("tobi312/minio:RELEASE.2025-02-28T09-55-16Z", true);
+        assert_minio_conditional_commit(None, true);
     }
 
     #[test]
