@@ -13,6 +13,7 @@ import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.io.CloseableIterable;
 import org.junit.jupiter.api.Test;
+import org.pangrova.protocol.source.DataSplitProtoCodec;
 import org.pangrova.connector.api.exception.ConnectorException;
 import org.pangrova.connector.api.metadata.ConnectorSplit;
 import org.pangrova.connector.api.metadata.SplitPlanningBudget;
@@ -109,6 +110,8 @@ class IcebergSplitSourceTest {
             assertThat(range.snapshotId()).isEqualTo(17);
             assertThat(range.toDataSplit().getDataObjectId()).isEqualTo(first.toDataSplit().getDataObjectId());
             assertThat(range.toDataSplit().getSplitId()).isNotEqualTo(first.toDataSplit().getSplitId());
+            assertThat(DataSplitProtoCodec.fileDetail(range.toDataSplit()).getIceberg().getDataFileSizeBytes())
+                    .isEqualTo(100);
         });
         assertThat(converted).hasValue(1);
         assertThat(closed).hasValue(1);

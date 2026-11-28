@@ -744,6 +744,7 @@ TEST(ParseTaskConfigTest, ParsesGenericDataSplitAndTypedFileDetail) {
   auto* iceberg = detail.mutable_iceberg();
   iceberg->set_read_mode(proto::ICEBERG_READ_MODE_SNAPSHOT);
   iceberg->set_snapshot_id(12345);
+  iceberg->set_data_file_size_bytes(8192);
   auto* delete_file = iceberg->add_delete_files();
   delete_file->set_opaque_location("/delete/positions.parquet");
   delete_file->set_delete_type(proto::DELETE_FILE_TYPE_POSITION);
@@ -766,6 +767,7 @@ TEST(ParseTaskConfigTest, ParsesGenericDataSplitAndTypedFileDetail) {
   EXPECT_EQ(parsed.required_subfields.at("payload").front(), "nested.value");
   ASSERT_TRUE(parsed.iceberg.has_value());
   EXPECT_EQ(parsed.iceberg->snapshot_id, 12345);
+  EXPECT_EQ(parsed.iceberg->data_file_size_bytes, 8192);
   EXPECT_EQ(
       parsed.iceberg->delete_files.front().file_path,
       "/delete/positions.parquet");
@@ -801,6 +803,17 @@ TEST(ParseTaskConfigTest, RejectsInvalidParquetByteIntervals) {
   file->set_length(5000);
   file->mutable_file_detail()->set_file_format(proto::FILE_FORMAT_ORC);
   EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::runtime_error);
+}
+
+TEST(ParseTaskConfigTest, RejectsRangeLargerThanSnapshotDataObject) {
+  auto request = validRequest();
+  auto* split = addFileSplit(request);
+  auto* iceberg = split->mutable_file_detail()->mutable_iceberg();
+  iceberg->set_read_mode(proto::ICEBERG_READ_MODE_SNAPSHOT);
+  iceberg->set_snapshot_id(12345);
+  iceberg->set_data_file_size_bytes(split->start_offset() + split->length() - 1);
+
+  EXPECT_THROW(parseTaskConfig(serializeRaw(request)), std::invalid_argument);
 }
 
 TEST(ParseTaskConfigTest, ParsesPinnedIcebergMetadataSplitAndRejectsIdentityDrift) {

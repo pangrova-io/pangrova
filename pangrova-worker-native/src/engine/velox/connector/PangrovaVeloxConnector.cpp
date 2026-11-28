@@ -477,9 +477,15 @@ void PangrovaVeloxDataSource::createReaderPair(
     throw std::runtime_error(
         "No registered Velox filesystem for data object: " + cleanPath);
   }
+  std::optional<int64_t> snapshotFileSize;
+  if (cleanPath.starts_with("s3://") && splitConfig.expected_file_sha256.empty()
+      && splitConfig.iceberg && splitConfig.iceberg->data_file_size_bytes > 0) {
+    snapshotFileSize = splitConfig.iceberg->data_file_size_bytes;
+  }
   std::shared_ptr<facebook::velox::ReadFile> readFile;
   if (read_budget_) {
-    auto admitted = resource::TaskBudgetReadFile::open(*fileSystem, cleanPath, read_budget_, cancellation_token_);
+    auto admitted = resource::TaskBudgetReadFile::open(
+        *fileSystem, cleanPath, read_budget_, cancellation_token_, snapshotFileSize);
     if (!splitConfig.expected_file_sha256.empty()) {
       admitted->verifySha256(splitConfig.expected_file_sha256, splitConfig.length);
     }
@@ -488,7 +494,9 @@ void PangrovaVeloxDataSource::createReaderPair(
     if (!splitConfig.expected_file_sha256.empty()) {
       throw std::runtime_error("Qualified task input requires its admitted read owner");
     }
-    readFile = fileSystem->openFileForRead(cleanPath);
+    facebook::velox::filesystems::FileOptions options;
+    options.fileSize = snapshotFileSize;
+    readFile = fileSystem->openFileForRead(cleanPath, options);
   }
   const auto fileSize = readFile->size();
   const auto start = static_cast<uint64_t>(splitConfig.start_offset);

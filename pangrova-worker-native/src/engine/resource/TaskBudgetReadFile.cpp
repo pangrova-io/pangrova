@@ -44,11 +44,14 @@ uint64_t requested(const std::vector<folly::Range<char*>>& buffers) {
 
 std::shared_ptr<TaskBudgetReadFile> TaskBudgetReadFile::open(
     facebook::velox::filesystems::FileSystem& filesystem, std::string_view path,
-    const std::shared_ptr<TaskObjectReadBudget>& budget, const folly::CancellationToken& cancellation) {
+    const std::shared_ptr<TaskObjectReadBudget>& budget, const folly::CancellationToken& cancellation,
+    std::optional<int64_t> file_size) {
   checkpoint(cancellation);
   auto opening = budget->begin(0, TaskObjectReadBudget::Operation::METADATA);
   opening.startCall();
-  auto file = filesystem.openFileForRead(path);
+  facebook::velox::filesystems::FileOptions options;
+  options.fileSize = file_size;
+  auto file = filesystem.openFileForRead(path, options);
   opening.completeCall(0);
   return std::make_shared<TaskBudgetReadFile>(std::move(file), budget, cancellation);
 }

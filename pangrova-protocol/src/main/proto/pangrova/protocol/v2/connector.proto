@@ -150,6 +150,9 @@ message IcebergSplitDetail {
   int64 data_sequence_number = 6;
   int32 spec_id = 7;
   int32 content = 8;
+  // Whole immutable object length from the selected snapshot. A split may own
+  // only a byte range within it.
+  uint64 data_file_size_bytes = 9;
 }
 
 enum PaimonReadMode {

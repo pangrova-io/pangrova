@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <string_view>
 
 #include "folly/CancellationToken.h"
@@ -18,7 +19,7 @@ class TaskBudgetReadFile final : public facebook::velox::ReadFile {
  public:
   static std::shared_ptr<TaskBudgetReadFile> open(facebook::velox::filesystems::FileSystem& filesystem,
       std::string_view path, const std::shared_ptr<TaskObjectReadBudget>& budget,
-      const folly::CancellationToken& cancellation);
+      const folly::CancellationToken& cancellation, std::optional<int64_t> file_size = {});
   TaskBudgetReadFile(std::shared_ptr<facebook::velox::ReadFile> input,
       std::shared_ptr<TaskObjectReadBudget> budget, folly::CancellationToken cancellation);
   using facebook::velox::ReadFile::pread;

@@ -506,9 +506,15 @@ std::string mergeEngineToString(proto::PaimonMergeEngine engine) {
   }
 }
 
-IcebergConfig parseIceberg(const proto::IcebergSplitDetail& detail) {
+IcebergConfig parseIceberg(const proto::IcebergSplitDetail& detail, const SplitConfig& split) {
   IcebergConfig config;
   config.snapshot_id = detail.snapshot_id();
+  config.data_file_size_bytes = checkedInt64(detail.data_file_size_bytes(), "data_file_size_bytes");
+  if (config.data_file_size_bytes > 0
+      && (split.start_offset > config.data_file_size_bytes
+          || split.length > config.data_file_size_bytes - split.start_offset)) {
+    throw std::invalid_argument("Iceberg split range exceeds its snapshot data object");
+  }
   config.data_sequence_number = detail.data_sequence_number();
   config.spec_id = detail.spec_id();
   config.content = icebergContentToString(detail.content());
@@ -1021,7 +1027,7 @@ SplitConfig parseSplit(const proto::DataSplit& split, const proto::TaskRequest& 
   }
 
   if (detail.has_iceberg()) {
-    config.iceberg = parseIceberg(detail.iceberg());
+    config.iceberg = parseIceberg(detail.iceberg(), config);
   } else if (detail.has_paimon()) {
     config.paimon = parsePaimon(detail.paimon(), config);
     config.paimon->partition_values = config.partition_values;

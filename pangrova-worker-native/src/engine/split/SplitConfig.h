@@ -52,6 +52,7 @@ struct DeleteFileConfig {
 // Iceberg-specific split configuration.
 struct IcebergConfig {
   int64_t snapshot_id = 0;
+  int64_t data_file_size_bytes = 0;
   int64_t data_sequence_number = 0;
   int spec_id = 0;
   std::string content;  // "DATA", "POSITION_DELETES", "EQUALITY_DELETES"

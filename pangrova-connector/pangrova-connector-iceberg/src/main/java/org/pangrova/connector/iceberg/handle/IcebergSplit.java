@@ -27,7 +27,7 @@ import org.pangrova.connector.api.metadata.table.TypePromotion;
  * @param filePath             data file path
  * @param fileOffset           byte offset within the file
  * @param fileLength           byte length of the split
- * @param dataFileSizeBytes    total data file size in bytes for scheduling cost estimation
+ * @param dataFileSizeBytes    whole data object length from the selected snapshot
  * @param fileFormat           file format (e.g. "PARQUET", "ORC")
  * @param partitionValues      partition column name-value pairs
  * @param snapshotId           snapshot id this split belongs to
@@ -70,6 +70,11 @@ public record IcebergSplit(
         if (fileFormat != null && "LANCE".equalsIgnoreCase(fileFormat)) {
             throw new IllegalArgumentException(
                     "Iceberg does not expose Lance as a supported data-file format");
+        }
+        if (dataFileSizeBytes < 0 || (dataFileSizeBytes > 0
+                && (fileOffset < 0 || fileLength <= 0 || fileOffset > dataFileSizeBytes
+                        || fileLength > dataFileSizeBytes - fileOffset))) {
+            throw new IllegalArgumentException("Iceberg split range exceeds its snapshot data object");
         }
         tableName = tableName == null ? "" : tableName;
         partitionValues = partitionValues == null ? Map.of() : Map.copyOf(partitionValues);
@@ -266,6 +271,7 @@ public record IcebergSplit(
                 .setDataSequenceNumber(dataSequenceNumber)
                 .setSpecId(specId)
                 .setContent(resolveContent())
+                .setDataFileSizeBytes(dataFileSizeBytes)
                 .setFromSnapshotId(fromSnapshotId)
                 .setToSnapshotId(toSnapshotId);
 
