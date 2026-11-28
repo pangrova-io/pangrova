@@ -270,8 +270,7 @@ class TaskExecutor {
   std::optional<protocol::v2::ArtifactWorkReport> artifactWorkReport() const;
 
   // Dynamic filter injection.
-  void injectDynamicFilter(const std::string& plan_node_id,
-      const google::protobuf::RepeatedPtrField<protocol::v2::RuntimeFilter>& filters);
+  void injectDynamicFilter(const protocol::v2::RuntimeFilterBinding& binding);
 
   // Memory limit update from Java side — delegates to VeloxMemoryGovernor.
   void updateMemoryLimit(int64_t new_limit_bytes);

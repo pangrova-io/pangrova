@@ -271,9 +271,9 @@ validateExternalSource(const proto::ExternalShuffleInput& external,
 void handleInjectRuntimeFilter(const proto::RuntimeCommand& cmd,
                                int64_t executor_handle,
                                proto::RuntimeCommandResponse& resp) {
-  proto::InjectRuntimeFilterRequest payload;
+  proto::RuntimeFilterBinding payload;
   if (!unpackPayload(cmd, &payload, resp,
-                     "pangrova.protocol.v2.InjectRuntimeFilterRequest")) {
+                     "pangrova.protocol.v2.RuntimeFilterBinding")) {
     return;
   }
 
@@ -285,7 +285,7 @@ void handleInjectRuntimeFilter(const proto::RuntimeCommand& cmd,
     return;
   }
 
-  executor->injectDynamicFilter(payload.plan_node_id(), payload.filters());
+  executor->injectDynamicFilter(payload);
   resp = successResponse();
 }
 

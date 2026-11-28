@@ -6,7 +6,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.ResourceLock;
 import org.pangrova.protocol.task.TaskRuntimeFilterWire;
-import org.pangrova.protocol.v2.InjectRuntimeFilterRequest;
+import org.pangrova.protocol.v2.RuntimeFilterBinding;
 import org.pangrova.protocol.v2.RangeFilter;
 import org.pangrova.protocol.v2.RuntimeFilter;
 import org.pangrova.protocol.v2.RuntimeFilterScope;
@@ -46,7 +46,7 @@ class TaskRuntimeFilterControlTest {
     }
 
     private static int deliver(TaskResource resource, TaskAttemptId attempt) throws Exception {
-        var update = InjectRuntimeFilterRequest.newBuilder().setPlanNodeId("scan")
+        var update = RuntimeFilterBinding.newBuilder().setSoleTableScan(true)
                 .addFilters(RuntimeFilter.newBuilder().setColumnName("id")
                         .setScope(RuntimeFilterScope.RUNTIME_FILTER_SCOPE_ROW_FILTER)
                         .setRange(RangeFilter.newBuilder()

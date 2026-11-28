@@ -4,6 +4,7 @@ package pangrova.protocol.http;
 option java_package = "org.pangrova.protocol.http";
 option java_multiple_files = true;
 
+import "pangrova/protocol/v2/execution_binding.proto";
 import "pangrova/protocol/v2/runtime.proto";
 import "pangrova/protocol/v2/task.proto";
 import "pangrova/protocol/v2/common.proto";
@@ -50,7 +51,7 @@ message CopyTaskScope {
 // Sends one typed scan update to the exact admitted execution attempt.
 message TaskRuntimeFilterDelivery {
   pangrova.protocol.v2.TaskAttemptId attempt = 1;
-  pangrova.protocol.v2.InjectRuntimeFilterRequest update = 2;
+  pangrova.protocol.v2.RuntimeFilterBinding update = 2;
 }
 
 message TaskSubmitAck {

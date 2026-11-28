@@ -291,7 +291,11 @@ enum ValueEncoding {
 }
 
 message RuntimeFilterBinding {
-  string plan_node_id = 1;
+  oneof scan_target {
+    string plan_node_id = 1;
+    // Accepted only when the converted Native plan contains exactly one table scan.
+    bool sole_table_scan = 3;
+  }
   repeated RuntimeFilter filters = 2;
 }
 

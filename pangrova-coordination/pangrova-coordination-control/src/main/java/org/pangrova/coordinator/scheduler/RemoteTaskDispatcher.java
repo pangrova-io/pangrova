@@ -32,7 +32,7 @@ import org.pangrova.transport.http.client.HttpClientFactory;
 import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.execution.task.DispatchResult;
 import org.pangrova.coordinator.worker.WorkerInfo;
-import org.pangrova.protocol.v2.InjectRuntimeFilterRequest;
+import org.pangrova.protocol.v2.RuntimeFilterBinding;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.coordinator.transport.ShuffleTlsConfig;
 import org.pangrova.protocol.http.TaskAdmitted;
@@ -603,7 +603,7 @@ public class RemoteTaskDispatcher implements TaskDispatcher, AutoCloseable {
 
     @Override
     public CompletableFuture<Boolean> injectDynamicFilter(TaskAttemptId attempt,
-            InjectRuntimeFilterRequest update, WorkerInfo worker) {
+            RuntimeFilterBinding update, WorkerInfo worker) {
         return taskControlClient.injectDynamicFilter(attempt, update, worker);
     }
 

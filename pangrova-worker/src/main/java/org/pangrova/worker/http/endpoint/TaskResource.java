@@ -464,7 +464,7 @@ public final class TaskResource implements Closeable {
         var command = org.pangrova.worker.jni.NativeCommandBuilder.injectRuntimeFilter(update);
         org.pangrova.worker.jni.NativeCommandBuilder.requireSuccess(
                 executor.executeCommand(handle.getAsLong(), command), "INJECT_DYNAMIC_FILTER task=" + taskId);
-        LOG.debug("event=dynamic_filter_injected taskId={} planNodeId={}", taskId, update.getPlanNodeId());
+        LOG.debug("event=dynamic_filter_injected taskId={} target={}", taskId, update.getScanTargetCase());
         return Response.noContent().build();
     }
 

@@ -4,7 +4,7 @@ import java.util.concurrent.CompletableFuture;
 
 import org.pangrova.execution.task.DispatchResult;
 import org.pangrova.coordinator.worker.WorkerInfo;
-import org.pangrova.protocol.v2.InjectRuntimeFilterRequest;
+import org.pangrova.protocol.v2.RuntimeFilterBinding;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 
@@ -66,7 +66,7 @@ public interface TaskDispatcher {
 
     /** Returns true only when the exact Worker attempt acknowledged the runtime filter. */
     default CompletableFuture<Boolean> injectDynamicFilter(TaskAttemptId attempt,
-            InjectRuntimeFilterRequest update, WorkerInfo worker) {
+            RuntimeFilterBinding update, WorkerInfo worker) {
         return CompletableFuture.failedFuture(
                 new UnsupportedOperationException("Runtime filter delivery is unavailable"));
     }

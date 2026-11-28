@@ -245,45 +245,23 @@ PlanExecutionDriver::getScanNodeOutputType(
 }
 
 std::string PlanExecutionDriver::resolveScanNodeId(
-    const std::string& requested_plan_node_id,
-    const std::string& column_name) const {
+    const std::string& requested_plan_node_id) const {
   std::lock_guard<std::mutex> lock(runner_mutex_);
-  auto exact = scan_node_output_types_.find(requested_plan_node_id);
-  if (exact != scan_node_output_types_.end()) {
-    return exact->first;
+  if (requested_plan_node_id.empty()) {
+    if (scan_node_output_types_.size() == 1) return scan_node_output_types_.begin()->first;
+    throw std::runtime_error("Runtime filter requires exactly one Native table scan");
   }
-
-  std::string match;
-  size_t match_count = 0;
-  for (const auto& [node_id, output_type] : scan_node_output_types_) {
-    if (!output_type || !output_type->containsChild(column_name)) {
-      continue;
-    }
-    match = node_id;
-    ++match_count;
-  }
-  if (match_count == 1) {
-    return match;
-  }
-  if (match_count == 0) {
-    throw std::runtime_error(
-        "No scan node exposes runtime-filter column " + column_name +
-        " (requested plan node " + requested_plan_node_id + ")");
-  }
-  throw std::runtime_error(
-      "Ambiguous runtime-filter target for column " + column_name +
-      ": " + std::to_string(match_count) +
-      " scan nodes match; an exact plan_node_id is required");
+  if (scan_node_output_types_.contains(requested_plan_node_id)) return requested_plan_node_id;
+  throw std::runtime_error("Runtime filter references unknown Native scan node " + requested_plan_node_id);
 }
 
-void PlanExecutionDriver::injectDynamicFilter(
-    const std::string& plan_node_id,
-    const google::protobuf::RepeatedPtrField<protocol::v2::RuntimeFilter>& filters) {
-  if (plan_node_id.empty()) {
-    throw std::invalid_argument("Native runtime filters require a plan_node_id");
+void PlanExecutionDriver::injectDynamicFilter(const protocol::v2::RuntimeFilterBinding& binding) {
+  const auto& plan_node_id = binding.plan_node_id();
+  if ((!binding.sole_table_scan() && plan_node_id.empty()) || binding.filters().empty()) {
+    throw std::invalid_argument("Native runtime filters require a plan_node_id or sole table scan and predicates");
   }
 
-  auto converted = pangrova::velox::convertDynamicFilters(filters);
+  auto converted = pangrova::velox::convertDynamicFilters(binding.filters());
   std::shared_ptr<velox::VeloxTaskRunner> runner;
   {
     std::lock_guard<std::mutex> lock(runner_mutex_);
@@ -312,8 +290,7 @@ void PlanExecutionDriver::injectDynamicFilter(
 void PlanExecutionDriver::applyDynamicFilter(
     const std::shared_ptr<velox::VeloxTaskRunner>& runner,
     PendingDynamicFilter filter) {
-  const std::string resolved_plan_node_id = resolveScanNodeId(
-      filter.requested_plan_node_id, filter.column_name);
+  const std::string resolved_plan_node_id = resolveScanNodeId(filter.requested_plan_node_id);
   auto output_type = getScanNodeOutputType(resolved_plan_node_id);
   if (!output_type.has_value()) {
     throw std::runtime_error(

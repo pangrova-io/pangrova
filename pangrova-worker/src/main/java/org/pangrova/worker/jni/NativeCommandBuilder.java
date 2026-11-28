@@ -6,7 +6,8 @@ import com.google.protobuf.Any;
 import com.google.protobuf.Message;
 import org.pangrova.protocol.function.catalog.FunctionCatalogStartupContracts;
 import org.pangrova.protocol.v2.EvictCacheRequest;
-import org.pangrova.protocol.v2.InjectRuntimeFilterRequest;
+import org.pangrova.protocol.task.TaskRuntimeFilterWire;
+import org.pangrova.protocol.v2.RuntimeFilterBinding;
 import org.pangrova.protocol.v2.PrefetchArtifactsRequest;
 import org.pangrova.protocol.v2.ProtocolVersion;
 import org.pangrova.protocol.v2.RuntimeCommand;
@@ -75,8 +76,8 @@ public final class NativeCommandBuilder {
     }
 
     /** Wraps the decoded runtime-filter update in a Native command. */
-    public static byte[] injectRuntimeFilter(InjectRuntimeFilterRequest update) {
-        if (update == null || update.getPlanNodeId().isBlank() || update.getFiltersCount() == 0) {
+    public static byte[] injectRuntimeFilter(RuntimeFilterBinding update) {
+        if (update == null || !TaskRuntimeFilterWire.hasScanTarget(update) || update.getFiltersCount() == 0) {
             throw new IllegalArgumentException("Runtime filter update must include a scan node and filters");
         }
         return buildCommand(RuntimeCommandType.RUNTIME_COMMAND_TYPE_INJECT_RUNTIME_FILTER, update);

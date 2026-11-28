@@ -1510,7 +1510,10 @@ void validateRuntimeFilterBindings(
   config.initial_runtime_filters.reserve(
       request.initial_runtime_filters_size());
   for (const auto& binding : request.initial_runtime_filters()) {
-    if (binding.plan_node_id().empty() || binding.filters_size() == 0 ||
+    const bool exact_node = binding.has_plan_node_id() && !binding.plan_node_id().empty();
+    const bool sole_scan = binding.sole_table_scan() &&
+        request.initial_runtime_filters_size() == 1;
+    if ((!exact_node && !sole_scan) || binding.filters_size() == 0 ||
         !plan_node_ids.emplace(binding.plan_node_id()).second) {
       throw std::runtime_error(
           "TaskRequest initial runtime-filter binding is invalid or duplicated");

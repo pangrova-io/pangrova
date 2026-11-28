@@ -41,7 +41,7 @@ public final class StageSplitFetcher {
     }
 
     /** The enumerated splits and the exact compilation observations that admitted them. */
-    public record FetchedSplits(List<QuerySplit> splits, PreparedSources sources) {
+    public record FetchedSplits(List<QuerySplit> splits, PreparedSources sources, boolean acceptsLateFilter) {
         public FetchedSplits {
             splits = List.copyOf(splits);
             java.util.Objects.requireNonNull(sources, "Fetched stage splits require exact source observations");
@@ -74,46 +74,41 @@ public final class StageSplitFetcher {
         var sources = sourcePlan.descriptors();
         if ("OVERWRITE".equals(writeMode) || "UPDATE".equals(writeMode)) {
             return new FetchedSplits(fetchWithoutConstraints(
-                    sources, fragment.queryOutputColumns(), overrides, session), sourcePlan);
+                    sources, fragment.queryOutputColumns(), overrides, session), sourcePlan, false);
         }
-        var ranges = filter == null ? null : filter.probeRanges(plan.stageId());
-        if (ranges == null || sources.size() != 1) {
+        boolean matchingProbe = filter != null && sources.size() == 1
+                && matchesProbe(sources.get(0), filter.plan());
+        var ranges = matchingProbe ? filter.probeRanges(plan.stageId()) : null;
+        if (ranges == null) {
+            boolean acceptsLateFilter = matchingProbe && filter.releasedOnTimeout();
             return new FetchedSplits(
                     splitSource.fetchAndFilterSplits(fragment, sources, overrides, session, fileGranularity),
-                    sourcePlan);
+                    sourcePlan, acceptsLateFilter);
         }
-        var original = sources.get(0);
-        var pruned = prune(original, filter.plan(), ranges);
-        var splits = splitSource.fetchAndFilterSplits(fragment, List.of(pruned), overrides, session,
-                fileGranularity);
-        if (original != pruned) {
-            LOG.info("event=runtime_filter_probe_splits queryId={} stageId={} splitCount={} "
-                            + "emptyBuild={} afterWaitDeadline={}",
-                    session.queryId(), plan.stageId(), splits.size(), ranges.isEmpty(), filter.releasedOnTimeout());
-        }
-        return new FetchedSplits(splits, sourcePlan);
+        var source = sources.get(0);
+        Constraint constraint = ranges.isEmpty() ? Constraint.NONE
+                : withBuildRanges(source.constraint(), filter.plan(), ranges);
+        var pruned = new SplitSourceDescriptor(source.catalogName(), source.schemaName(), source.tableName(),
+                constraint, source.tableColumns(), source.readBinding());
+        var splits = splitSource.fetchAndFilterSplits(fragment, List.of(pruned), overrides, session, fileGranularity);
+        LOG.info("event=runtime_filter_probe_splits queryId={} stageId={} splitCount={} "
+                        + "emptyBuild={} afterWaitDeadline={}",
+                session.queryId(), plan.stageId(), splits.size(), ranges.isEmpty(), filter.releasedOnTimeout());
+        return new FetchedSplits(splits, sourcePlan, false);
     }
 
-    private static SplitSourceDescriptor prune(
-            SplitSourceDescriptor source, StageRuntimeFilter filter, Map<Integer, List<BuildKeyRange>> ranges) {
+    private static boolean matchesProbe(SplitSourceDescriptor source, StageRuntimeFilter filter) {
         var read = source.readBinding().orElse(null);
         var selected = filter.probeRead();
         if (read == null || !read.snapshotId().equals(selected.snapshotId())
                 || !read.sourceIdentity().equals(selected.sourceIdentity())
                 || !read.schemaIdentity().equals(selected.schemaIdentity())) {
-            return source;
+            return false;
         }
-        for (var key : filter.keys()) {
-            boolean exactField = source.tableColumns().contains(key.column())
-                    && read.schemaIdentity().stream().flatMap(schema -> schema.fields().stream())
-                            .anyMatch(column -> column.name().equals(key.column())
-                                    && column.fieldId().orElse(-1) == key.fieldId());
-            if (!exactField) return source;
-        }
-        Constraint constraint = ranges.isEmpty() ? Constraint.NONE
-                : withBuildRanges(source.constraint(), filter, ranges);
-        return new SplitSourceDescriptor(source.catalogName(), source.schemaName(), source.tableName(),
-                constraint, source.tableColumns(), source.readBinding());
+        return filter.keys().stream().allMatch(key -> source.tableColumns().contains(key.column())
+                && read.schemaIdentity().stream().flatMap(schema -> schema.fields().stream())
+                        .anyMatch(column -> column.name().equals(key.column())
+                                && column.fieldId().orElse(-1) == key.fieldId()));
     }
 
     private static Constraint withBuildRanges(

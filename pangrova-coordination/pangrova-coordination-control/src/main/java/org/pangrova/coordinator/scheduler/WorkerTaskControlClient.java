@@ -17,7 +17,7 @@ import org.pangrova.common.concurrent.BackoffStrategy;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.protocol.rest.task.UpstreamCommitNotification;
 import org.pangrova.protocol.task.TaskRuntimeFilterWire;
-import org.pangrova.protocol.v2.InjectRuntimeFilterRequest;
+import org.pangrova.protocol.v2.RuntimeFilterBinding;
 import org.pangrova.protocol.v2.TaskAdmissionSealRequest;
 import org.pangrova.protocol.v2.TaskAttemptId;
 import org.pangrova.protocol.task.CanonicalExecutionDrainReports;
@@ -55,7 +55,7 @@ final class WorkerTaskControlClient {
     }
 
     CompletableFuture<Boolean> injectDynamicFilter(TaskAttemptId attempt,
-            InjectRuntimeFilterRequest update, WorkerInfo worker) {
+            RuntimeFilterBinding update, WorkerInfo worker) {
         if (!attempt.getWorkerExecutionIdentity().equals(worker.workerExecutionIdentity().toProto())) {
             return CompletableFuture.failedFuture(new IllegalArgumentException("Runtime filter Worker target differs"));
         }

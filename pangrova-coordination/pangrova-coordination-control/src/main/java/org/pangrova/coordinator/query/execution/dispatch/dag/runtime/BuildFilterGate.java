@@ -5,6 +5,7 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ScheduledExecutorService;
@@ -13,6 +14,13 @@ import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.coordinator.query.stage.Stage;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.planner.analysis.StageRuntimeFilter;
+import org.pangrova.protocol.v2.InListFilter;
+import org.pangrova.protocol.v2.RangeFilter;
+import org.pangrova.protocol.v2.RuntimeFilter;
+import org.pangrova.protocol.v2.RuntimeFilterBinding;
+import org.pangrova.protocol.v2.RuntimeFilterScope;
+import org.pangrova.protocol.v2.TaskAttemptId;
+import org.pangrova.protocol.v2.TypedValue;
 import org.pangrova.query.api.stage.StageCompletionCallback.BuildKeyRange;
 import org.pangrova.query.profiling.enums.RuntimeFilterOutcome;
 
@@ -37,6 +45,12 @@ public final class BuildFilterGate {
     private final List<Integer> buildOrdinals;
     private final CompletableFuture<ProbeRelease> completedBuild = new CompletableFuture<>();
     private volatile ProbeRelease releasedProbe;
+    private volatile long lateProbeEpoch;
+    // The existing gate owns exactly one probe generation and its delivery claims.
+    @javax.annotation.concurrent.GuardedBy("this")
+    private final HashSet<String> deliveredAttempts = new HashSet<>();
+    @javax.annotation.concurrent.GuardedBy("this")
+    private RuntimeFilterBinding lateBinding;
 
     public record ProbeRelease(RuntimeFilterOutcome outcome, Map<Integer, List<BuildKeyRange>> ranges) {
         public ProbeRelease {
@@ -129,6 +143,53 @@ public final class BuildFilterGate {
         var released = releasedProbe;
         if (released == null || !isProbe(stageId)) return null;
         return (released == TIMEOUT ? completedBuild.getNow(TIMEOUT) : released).ranges();
+    }
+
+    /** Records the exact generation before transport can admit any of its unfiltered splits. */
+    public synchronized void bindProbeGeneration(long epoch, boolean acceptsLateFilter) {
+        lateProbeEpoch = acceptsLateFilter ? epoch : 0;
+        deliveredAttempts.clear();
+    }
+
+    /** True only when both a matching unfiltered generation and complete nonempty domains exist. */
+    public boolean lateDeliveryReady() {
+        return lateProbeEpoch > 0 && completedBuild.getNow(TIMEOUT).outcome() == RuntimeFilterOutcome.APPLIED;
+    }
+
+    /** Claims one delivery to an exact attempt of the current unfiltered probe. */
+    public synchronized Optional<RuntimeFilterBinding> claimLateBinding(TaskAttemptId attempt) {
+        if (!lateDeliveryReady() || attempt.getPlanEpoch() != lateProbeEpoch
+                || !isProbe(attempt.getStageId()) || !deliveredAttempts.add(attempt.getTaskId())) {
+            return Optional.empty();
+        }
+        if (lateBinding == null) {
+            var ranges = completedBuild.getNow(TIMEOUT).ranges();
+            var binding = RuntimeFilterBinding.newBuilder().setSoleTableScan(true);
+            for (var key : plan.keys()) {
+                binding.addFilters(rowFilter(key.column(), ranges.get(key.buildOrdinal())));
+            }
+            lateBinding = binding.build();
+        }
+        return Optional.of(lateBinding);
+    }
+
+    private static RuntimeFilter rowFilter(String column, List<BuildKeyRange> ranges) {
+        var filter = RuntimeFilter.newBuilder().setColumnName(column)
+                .setScope(RuntimeFilterScope.RUNTIME_FILTER_SCOPE_ROW_FILTER);
+        if (ranges.stream().allMatch(range -> range.minimum() == range.maximum())) {
+            var values = InListFilter.newBuilder();
+            for (var range : ranges) values.addValues(intValue(range.minimum()));
+            return filter.setInList(values).build();
+        }
+        // Each key is necessary. The enclosing interval preserves every match in its union.
+        long lower = ranges.stream().mapToLong(BuildKeyRange::minimum).min().orElseThrow();
+        long upper = ranges.stream().mapToLong(BuildKeyRange::maximum).max().orElseThrow();
+        return filter.setRange(RangeFilter.newBuilder().setLower(intValue(lower)).setUpper(intValue(upper))
+                .setLowerInclusive(true).setUpperInclusive(true)).build();
+    }
+
+    private static TypedValue intValue(long value) {
+        return TypedValue.newBuilder().setInt64Value(value).build();
     }
 
     /** Indicates that the probe was released by the wait deadline. */

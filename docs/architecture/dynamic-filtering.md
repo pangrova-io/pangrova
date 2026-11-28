@@ -11,7 +11,7 @@ Pangrova applies static and runtime Join predicates at different points in query
 | Path | Source and scope | Published behavior |
 |---|---|---|
 | Native hash Join | Velox build operator and probe scan in the same native task | When the complete build hash table is available, HashProbe can push an exact domain or bounded Bloom filter through the Velox driver to the corresponding scan ordinal. `ColumnAssignmentDataSource` evaluates the received filter on projected rows, including aliased columns, across source formats. Velox checks Join type and spill state before publishing. Scan output rows and producer plan node IDs identify the effect. Underlying file reads can still occur. |
-| Explicit filter binding | A caller supplies a typed `RuntimeFilterBinding` and an exact target plan node | The native task parser validates initial bindings. Runtime commands can inject a filter into an executing task. These consumers do not create a source of build-side values. |
+| Explicit filter binding | A caller supplies a typed `RuntimeFilterBinding` and an exact target plan node | The native task parser validates initial bindings. The same typed binding works at startup and while a task runs. The sole-scan selector requires precisely one Native table scan. A named selector must match a Native scan ID. |
 | Coordinator-generated cross-stage pruning | A bounded INNER Join build with eligible BIGINT equalities and a pinned Iceberg probe scan | The Coordinator uses the elected Native build receipts and committed Exchange when enumerating the probe. The probe uses the original constraints when build evidence is unavailable at enumeration. |
 
 ## Planning and execution
@@ -26,7 +26,8 @@ It resolves the full `TaskAttemptId`, including the Worker incarnation, against
 the running local admission. HTTP 409 identifies a mismatched or unavailable
 attempt. HTTP 204 acknowledges that the Native owner accepted the command.
 The scan operator provides separate evidence that the predicate took effect.
-The Worker passes the validated message to JNI without decoding a nested payload.
+The Worker passes the validated binding to JNI without decoding a nested payload.
+Task startup and online delivery share `RuntimeFilterBinding`.
 
 ## Published Shuffle build with a local probe
 
@@ -63,6 +64,21 @@ The Worker evaluates the complete Join condition on the rows, preserving
 build key correlation, duplicates and SQL NULL semantics. SQL tests cover
 results, actual scanned splits and bytes, and physical release.
 
+If the original split enumeration had no complete build evidence when it began,
+the Coordinator may offer the completed domains to the same probe generation
+after its Worker reports RUNNING. Build completion examines the active tasks
+in memory. A subsequent RUNNING report can deliver the same binding if the build
+finished first. The Coordinator uses the endpoint and Worker incarnation captured
+with the exact issued attempt. The path adds no catalog or journal queries. Each
+attempt receives at most one offer, with a Coordinator-wide limit of 64 in-flight
+RPCs and a bounded build-delivery queue.
+
+A set of singleton intervals is sent as a typed membership predicate. For a
+multivalued disjoint domain the enclosing bounds retain every eligible row. The
+Native connector observes the binding before subsequent scan batches and can
+bind it before opening a later eligible reader. Object reads already issued
+remain part of the profile.
+
 Additional key types, connector coverage, filters sharing a build or probe
-stage, and late predicates for already-running probes remain in the
+stage, and production load evidence remain in the
 [query performance plan](../development/query-performance-parity-plan.md).

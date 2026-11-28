@@ -529,7 +529,7 @@ TEST_F(NativeCommandExchangeTest, RejectsExchangeDataOnTheCommandChannel) {
 
 TEST_F(NativeCommandExchangeTest, RuntimeFilterCommandValidatesTheDecodedBinding) {
   constexpr auto commandType = proto::RUNTIME_COMMAND_TYPE_INJECT_RUNTIME_FILTER;
-  proto::InjectRuntimeFilterRequest request;
+  proto::RuntimeFilterBinding request;
   auto* filter = request.add_filters();
   filter->set_column_name("id");
   filter->set_scope(proto::RUNTIME_FILTER_SCOPE_ROW_FILTER);
@@ -539,7 +539,10 @@ TEST_F(NativeCommandExchangeTest, RuntimeFilterCommandValidatesTheDecodedBinding
   ASSERT_FALSE(missingNode.success());
   EXPECT_NE(missingNode.error().message().find("plan_node_id"), std::string::npos);
 
-  request.set_plan_node_id("iceberg-read");
+  request.set_sole_table_scan(false);
+  EXPECT_FALSE(dispatch(commandType, request).success());
+
+  request.set_sole_table_scan(true);
   const auto accepted = dispatch(commandType, request);
   ASSERT_TRUE(accepted.success()) << accepted.error().message();
 

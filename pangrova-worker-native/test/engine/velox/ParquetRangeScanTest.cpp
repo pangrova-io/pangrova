@@ -2,6 +2,7 @@
 
 #include "TestMemoryHelper.h"
 #include "engine/resource/TaskObjectReadBudget.h"
+#include "engine/velox/filter/PendingFilterRegistry.h"
 #include "velox/common/file/File.h"
 #include "velox/dwio/common/BufferedInput.h"
 #include "velox/dwio/common/FileSink.h"
@@ -116,6 +117,51 @@ TEST(ParquetRangeScanTest, AdjacentRangesKeepFileGlobalDeletePositions) {
   EXPECT_EQ(read(0, size).first, (std::vector<int64_t>{10, 12, 20, 22}));
   EXPECT_TRUE(read(size - 1, 1).first.empty());
   EXPECT_THROW(read(boundary, size), std::runtime_error);
+}
+
+TEST(ParquetRangeScanTest, RunningScanAppliesLatePredicateToOnlySubsequentBatches) {
+  char temp[] = "/tmp/pangrova-parquet-late-filter-XXXXXX";
+  ASSERT_NE(mkdtemp(temp), nullptr);
+  const std::filesystem::path directory(temp);
+  auto cleanup = folly::makeGuard([&] { std::filesystem::remove_all(directory); });
+  const auto path = (directory / "scan.parquet").string();
+  auto root = pangrova::test::testRootPool("ParquetLateRuntimeFilter");
+  auto pool = root->addLeafChild("scan");
+  sdk::test::VectorMaker maker(pool.get());
+  auto data = maker.rowVector({"id"}, {maker.flatVector<int64_t>({10, 11, 12, 20, 21, 22})});
+  writeParquet(path, data, *root, *pool);
+
+  auto read = [&](bool inject) {
+    const std::string task = inject ? "late-parquet-probe" : "baseline-parquet-probe";
+    const std::string scan = "node_0";
+    auto& registry = PendingFilterRegistry::instance();
+    auto remove = folly::makeGuard([&] { registry.remove(task); });
+    PangrovaVeloxDataSource source(pool.get(), data->rowType(), data->rowType(), task, scan);
+    split::SplitConfig split;
+    split.file_path = path;
+    split.file_format = split::FileFormatType::PARQUET;
+    split.length = static_cast<int64_t>(std::filesystem::file_size(path));
+    source.addSplit(std::make_shared<PangrovaConnectorSplit>(
+        PangrovaVeloxConnector::kConnectorId, split));
+
+    std::vector<int64_t> ids;
+    size_t batches = 0;
+    sdk::ContinueFuture future = folly::makeSemiFuture();
+    for (auto batch = source.next(2, future); batch && *batch; batch = source.next(2, future)) {
+      sdk::DecodedVector decoded(*(*batch)->childAt(0));
+      for (sdk::vector_size_t row = 0; row < (*batch)->size(); ++row) {
+        ids.push_back(decoded.valueAt<int64_t>(row));
+      }
+      if (++batches == 1 && inject) {
+        EXPECT_EQ(ids, (std::vector<int64_t>{10, 11}));
+        registry.push(task, scan, 0, std::make_shared<sdk::common::BigintRange>(20, 21, false));
+      }
+    }
+    return ids;
+  };
+
+  EXPECT_EQ(read(false), (std::vector<int64_t>{10, 11, 12, 20, 21, 22}));
+  EXPECT_EQ(read(true), (std::vector<int64_t>{10, 11, 20, 21}));
 }
 
 }  // namespace

@@ -2,7 +2,7 @@ package org.pangrova.protocol.task;
 
 import com.google.protobuf.InvalidProtocolBufferException;
 import org.pangrova.protocol.http.TaskRuntimeFilterDelivery;
-import org.pangrova.protocol.v2.InjectRuntimeFilterRequest;
+import org.pangrova.protocol.v2.RuntimeFilterBinding;
 import org.pangrova.protocol.v2.RuntimeFilter;
 import org.pangrova.protocol.v2.RuntimeFilterScope;
 import org.pangrova.protocol.v2.TaskAttemptId;
@@ -15,7 +15,7 @@ public final class TaskRuntimeFilterWire {
     private TaskRuntimeFilterWire() {}
 
     /** Validates and serializes one exact Worker delivery. */
-    public static byte[] encode(TaskAttemptId attempt, InjectRuntimeFilterRequest update) {
+    public static byte[] encode(TaskAttemptId attempt, RuntimeFilterBinding update) {
         var delivery = TaskRuntimeFilterDelivery.newBuilder().setAttempt(attempt).setUpdate(update).build();
         validate(delivery);
         return delivery.toByteArray();
@@ -39,12 +39,21 @@ public final class TaskRuntimeFilterWire {
         }
         CanonicalTaskRequests.validateAttempt(delivery.getAttempt());
         var update = delivery.getUpdate();
-        if (update.getPlanNodeId().isBlank() || update.getFiltersCount() == 0
+        if (!hasScanTarget(update) || update.getFiltersCount() == 0
                 || update.getFiltersCount() > CanonicalTaskRequests.MAX_BUILD_KEY_COLUMNS
                 || !update.getUnknownFields().asMap().isEmpty()
                 || update.getFiltersList().stream().anyMatch(TaskRuntimeFilterWire::invalidFilter)) {
             throw new IllegalArgumentException("Runtime filter update is missing its scan or typed predicates");
         }
+    }
+
+    /** Checks that the binding names a Native node or explicitly asserts a sole physical scan. */
+    public static boolean hasScanTarget(RuntimeFilterBinding binding) {
+        return switch (binding.getScanTargetCase()) {
+            case PLAN_NODE_ID -> !binding.getPlanNodeId().isBlank();
+            case SOLE_TABLE_SCAN -> binding.getSoleTableScan();
+            case SCANTARGET_NOT_SET -> false;
+        };
     }
 
     private static boolean invalidFilter(RuntimeFilter filter) {

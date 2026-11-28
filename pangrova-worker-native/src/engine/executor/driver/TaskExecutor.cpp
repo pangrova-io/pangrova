@@ -349,14 +349,12 @@ TaskExecutor::artifactWorkReport() const {
       : std::nullopt;
 }
 
-void TaskExecutor::injectDynamicFilter(
-    const std::string& plan_node_id,
-    const google::protobuf::RepeatedPtrField<protocol::v2::RuntimeFilter>& filters) {
+void TaskExecutor::injectDynamicFilter(const protocol::v2::RuntimeFilterBinding& binding) {
   if (!execution_driver_) {
     throw std::runtime_error(
         "TaskExecutor: Native execution driver is unavailable");
   }
-  execution_driver_->injectDynamicFilter(plan_node_id, filters);
+  execution_driver_->injectDynamicFilter(binding);
 }
 
 void TaskExecutor::updateMemoryLimit(int64_t new_limit_bytes) {

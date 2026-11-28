@@ -4,7 +4,7 @@ import com.google.protobuf.InvalidProtocolBufferException;
 import org.junit.jupiter.api.Test;
 import org.pangrova.protocol.CanonicalTaskRequestTestFixture;
 import org.pangrova.protocol.execution.identity.WorkerExecutionIdentity;
-import org.pangrova.protocol.v2.InjectRuntimeFilterRequest;
+import org.pangrova.protocol.v2.RuntimeFilterBinding;
 import org.pangrova.protocol.v2.RangeFilter;
 import org.pangrova.protocol.v2.RuntimeFilter;
 import org.pangrova.protocol.v2.RuntimeFilterScope;
@@ -25,6 +25,16 @@ class TaskRuntimeFilterWireTest {
         assertThat(decoded.getAttempt()).isEqualTo(attempt);
         assertThat(decoded.getUpdate()).isEqualTo(update);
         assertThat(encoded.length).isEqualTo(decoded.getSerializedSize());
+    }
+
+    @Test
+    void acceptsOnlyAnExplicitSoleScanSelector() throws Exception {
+        var attempt = attempt();
+        var sole = update().toBuilder().setSoleTableScan(true).build();
+        assertThat(TaskRuntimeFilterWire.decode(TaskRuntimeFilterWire.encode(attempt, sole)).getUpdate())
+                .isEqualTo(sole);
+        assertThatThrownBy(() -> TaskRuntimeFilterWire.encode(attempt, sole.toBuilder().setSoleTableScan(false).build()))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("scan");
     }
 
     @Test
@@ -58,8 +68,8 @@ class TaskRuntimeFilterWireTest {
                 .getAttempt().toBuilder().setWorkerExecutionIdentity(worker.toProto()).build();
     }
 
-    private static InjectRuntimeFilterRequest update() {
-        return InjectRuntimeFilterRequest.newBuilder().setPlanNodeId("scan")
+    private static RuntimeFilterBinding update() {
+        return RuntimeFilterBinding.newBuilder().setPlanNodeId("scan")
                 .addFilters(RuntimeFilter.newBuilder().setColumnName("id")
                         .setScope(RuntimeFilterScope.RUNTIME_FILTER_SCOPE_ROW_FILTER)
                         .setRange(RangeFilter.newBuilder()

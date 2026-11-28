@@ -1139,6 +1139,11 @@ void VeloxTaskRunner::injectDynamicFilter(
     return;
   }
 
+  std::lock_guard<std::mutex> lock(dynamic_filter_publication_mutex_);
+  if (dynamic_filter_publication_closed_) {
+    throw std::runtime_error("Native scan has already released its runtime filters");
+  }
+
   // Route dynamic filter to the process-global PendingFilterRegistry.
   // PangrovaVeloxDataSource::next() drains pending filters from the registry
   // on each batch read, applying them as row-level filters.
@@ -1249,7 +1254,11 @@ void VeloxTaskRunner::revokeResultOutput() {
 
 void VeloxTaskRunner::cleanup() {
   std::call_once(cleanup_once_, [this] {
-    PendingFilterRegistry::instance().remove(config_.task_id);
+    {
+      std::lock_guard<std::mutex> lock(dynamic_filter_publication_mutex_);
+      dynamic_filter_publication_closed_ = true;
+      PendingFilterRegistry::instance().remove(config_.task_id);
+    }
     // Successful producer completion is not consumption or result revocation.
     if (cancelled_.load() || !errorMessage().empty()) revokeResultOutput();
     // A successful producer flushes explicitly before publishing FINISHED.

@@ -512,7 +512,10 @@ the domains together when the probe's Iceberg snapshot, schema, source and field
 identities match. The join still evaluates the full condition for each matching row.
 Missing evidence or a timeout releases the probe. Complete evidence that arrives
 after release can still constrain splits when it arrives before the probe's
-enumeration begins.
+enumeration begins. If the matching generation enumerated without the domains,
+the Coordinator can deliver the completed predicates to that exact running
+attempt. The Native scan observes updates between batches. The final Join
+continues to evaluate the complete condition.
 
 ### 2.3 Custom Optimization Rules
 

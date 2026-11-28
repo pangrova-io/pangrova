@@ -5,7 +5,7 @@ import com.google.protobuf.ByteString;
 import org.junit.jupiter.api.Test;
 import org.pangrova.protocol.v2.ErrorClass;
 import org.pangrova.protocol.v2.ExecutionError;
-import org.pangrova.protocol.v2.InjectRuntimeFilterRequest;
+import org.pangrova.protocol.v2.RuntimeFilterBinding;
 import org.pangrova.protocol.v2.PrefetchArtifactsRequest;
 import org.pangrova.protocol.v2.RangeFilter;
 import org.pangrova.protocol.v2.RuntimeCommand;
@@ -49,7 +49,7 @@ class NativeCommandBuilderTest {
 
     @Test
     void runtimeFilterUsesTypedV2Payload() throws Exception {
-        InjectRuntimeFilterRequest filterRequest = InjectRuntimeFilterRequest.newBuilder()
+        RuntimeFilterBinding filterRequest = RuntimeFilterBinding.newBuilder()
                 .setPlanNodeId("node_0")
                 .addFilters(RuntimeFilter.newBuilder()
                         .setColumnName("order_id")
@@ -63,17 +63,17 @@ class NativeCommandBuilderTest {
         RuntimeCommand command = parseCommand(NativeCommandBuilder.injectRuntimeFilter(filterRequest));
         assertThat(command.getCommandType())
                 .isEqualTo(RuntimeCommandType.RUNTIME_COMMAND_TYPE_INJECT_RUNTIME_FILTER);
-        assertThat(command.getPayload().unpack(InjectRuntimeFilterRequest.class))
+        assertThat(command.getPayload().unpack(RuntimeFilterBinding.class))
                 .isEqualTo(filterRequest);
     }
 
     @Test
     void runtimeFilterRequiresAScanAndTypedPredicates() {
         assertThatThrownBy(() -> NativeCommandBuilder.injectRuntimeFilter(
-                InjectRuntimeFilterRequest.getDefaultInstance()))
+                RuntimeFilterBinding.getDefaultInstance()))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> NativeCommandBuilder.injectRuntimeFilter(
-                InjectRuntimeFilterRequest.newBuilder().setPlanNodeId("node_0").build()))
+                RuntimeFilterBinding.newBuilder().setPlanNodeId("node_0").build()))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("scan node and filters");
     }
 

@@ -27,7 +27,7 @@ unlisted: true
 |---|---|---|
 | CBO 统计质量 | 已移除由 min/max/NDV 推导的均匀直方图，并保留缺失 NDV。Join 和过滤器按直接列来源读取统计。三表 Join 的两个等价写法在本地规划探针中均使用实际来源的列统计 | 范围过滤仍需实测分布。倾斜和相关性可能影响 Join 顺序、build 侧、broadcast 和并行度。用每 plan node 的估计偏差与实际物理计划验证 |
 | Join 并行化 | `PlanFragmenter.resolveStageParallelism` 对缺少兼容 Exchange 或仍混有直接表扫描的 Join 回到单任务，保护分布式覆盖 | 普通等值 Join 可以按已绑定扫描的工作量建立两侧哈希分区。继续记录仍触发单任务保护的 SQL、实际 Worker/driver 数与关键路径 |
-| 跨 Stage 动态过滤（A9） | 实时 INNER BIGINT 等值 Join 按完整获胜回执约束同一 Iceberg 快照。真实双 Worker 查询的连续键场景从 40 个分片、32,449 字节降到 2 个分片、1,398 字节。分散构建区间场景从 35 个分片、24,460 字节降到 4 个分片、2,795 字节 | 单构建任务保留有界稀疏区间，冷探测从 35 个分片、27,885 字节降到 4 个分片、2,795 字节。稳定 filter ID/generation、多 filter/多 key 和 running probe late injection 仍按 A9/WP4 实施；等待成本、其他键及连接器按真实分布验收 |
+| 跨 Stage 动态过滤（A9） | 实时 INNER BIGINT 等值 Join 按完整获胜回执约束同一 Iceberg 快照。真实双 Worker 查询的连续键场景从 40 个分片、32,449 字节降到 2 个分片、1,398 字节。分散构建区间场景从 35 个分片、24,460 字节降到 4 个分片、2,795 字节 | 单构建任务保留有界稀疏区间，冷探测从 35 个分片、27,885 字节降到 4 个分片、2,795 字节。运行中探测端使用精确任务代际接收晚到行过滤，真实双 Worker 对照仍按 A9/WP4 验收；等待成本、其他键及连接器按真实分布验收 |
 | 扫描发现与分片大小 | Iceberg 已按批枚举并关闭 SDK 文件计划。`SplitFetcher` 仍收齐分片用于全局放置，`IndexAwareSplitFetcher` 先全量 fetch 再过滤。放置使用实际文件范围、打开文件与解码的估计，以及签发窗口和在途任务负载 | 按字节分配将两个 512 MiB 和两个 512 KiB 的输入从 1 GiB 与 1 MiB 调整为两组 512.5 MiB。10,000 文件的单 split 探针 P50 从 11.340 ms 降到 2.647 ms，生产 SQL 仍须单独测量放置等待、I/O 和尾 task |
 | 聚合与 Exchange | 全局 `COUNT`、整数 `MIN/MAX` 以及满足成本门槛的 DECIMAL `SUM/AVG` 可在并行扫描任务局部聚合。双 Worker 验证了精确 DECIMAL 类型、过滤空值、38 位溢出状态归并，以及两列整数分组从 192 行降至 16 行。扫描端状态行数和 IPC 有效载荷均从实际任务报告读取 | 验证 DECIMAL 组合分组、混合函数和更多中间状态。高基数、DISTINCT 和 GROUPING SETS 独立衡量 CPU、内存及交换量 |
 | AQE 读取布局（A10/B5） | 符合条件的单哈希输入按已提交回执合并连续分区，保留生产坐标和各分区证明。真实 Native 与两端点对照覆盖了 4 → 1 个任务和 35 行逐项一致。独立双 Worker 的 FULL OUTER JOIN 使用两侧合计字节规划，实测 4 → 1 个消费任务，八行结果和资源回收均通过 | 用生产负载校准单输入和双输入阈值与尾时延。更复杂输入、偏斜拆分和 durable mapping replay 按 A10/WP5 验证完整覆盖 |
@@ -52,7 +52,7 @@ unlisted: true
 
 1. 在已有按物理扫描字节分配的基础上分开校准对象打开、解码和删除成本，记录估计缺失。需要 durable cohort 的阶段按固定快照和完整分片覆盖验证限流派发。 [Spark 文件分区](https://spark.apache.org/docs/latest/sql-performance-tuning.html#tuning-partitions)
 2. 先从 manifest、分区/文件统计剪裁开始，基于 Native reader 指标证明 row group/page 的读取量。大文件按不重叠的合法范围拆分，小文件按工作量组包。测试快照演进、删除文件、冷/热缓存、宽表、稀疏与随机访问。索引按成本和实际跳过 bytes 评估。缓存亲和用实际命中与驻留证据，prefetch 按字节预算，避免无效读取把热数据挤出。 [Iceberg 扫描规划](https://iceberg.apache.org/spec/#scan-planning)
-3. **扩大可证明的动态过滤覆盖（A9/WP4）。** 当前 Iceberg INNER BIGINT 路径使用选定快照、稳定 field ID、完整获胜集合和 200 ms 有界等待。已对同一连接联合多个构建键域，也支持单查询多个独立构建与探测组合，共用等待期限。双 Worker 对照验证了分片和实际读取字节下降。共享 Stage 的过滤组合、稳定 filter ID/generation、能力声明和 running probe late injection 的实施合同见执行链路 A9；本页负责按实际数据分布测量过载及超时成本，验证更多类型和连接器，并统计等待、已发 I/O、文件/row group 跳过和实际字节。 [Trino 动态过滤](https://trino.io/docs/current/admin/dynamic-filtering.html)
+3. **扩大可证明的动态过滤覆盖（A9/WP4）。** 当前 Iceberg INNER BIGINT 路径使用选定快照、稳定 field ID、完整获胜集合和 200 ms 有界等待。已对同一连接联合多个构建键域，也支持单查询多个独立构建与探测组合，共用等待期限。双 Worker 对照验证了分片和实际读取字节下降。运行中探测端按精确代际接收有界晚到过滤。共享 Stage 的过滤组合、能力声明和生产对照见执行链路 A9；本页负责按实际数据分布测量过载及超时成本，验证更多类型和连接器，并统计等待、已发 I/O、文件/row group 跳过和实际字节。 [Trino 动态过滤](https://trino.io/docs/current/admin/dynamic-filtering.html)
 
 ### Q3 让 CBO、聚合和 AQE 缩减跨节点工作
 

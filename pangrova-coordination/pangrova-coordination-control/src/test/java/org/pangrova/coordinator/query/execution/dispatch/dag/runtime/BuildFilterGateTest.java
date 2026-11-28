@@ -142,6 +142,58 @@ class BuildFilterGateTest {
     }
 
     @Test
+    void anUnfilteredProbeCanClaimThePublishedBindingOncePerExactAttempt() {
+        var dag = dag();
+        var gate = onlyGate(dag);
+        try (var timer = new Deadline()) {
+            gate.releaseProbe(new CompletableFuture<>(), timer, deadline());
+            timer.expire();
+            var first = org.pangrova.protocol.v2.TaskAttemptId.newBuilder()
+                    .setTaskId("probe-attempt").setStageId(PROBE).setPlanEpoch(2).build();
+
+            gate.bindProbeGeneration(2, true);
+            assertThat(gate.claimLateBinding(first)).isEmpty();
+            gate.onFinished(completeBuild(dag, Map.of(
+                    0, List.of(new BuildKeyRange(2, 2), new BuildKeyRange(34, 34)),
+                    2, List.of(new BuildKeyRange(-5, -4), new BuildKeyRange(11, 12)))));
+            assertThat(gate.claimLateBinding(first.toBuilder().setPlanEpoch(1).build())).isEmpty();
+            assertThat(gate.claimLateBinding(first.toBuilder().setStageId(BUILD).build())).isEmpty();
+
+            var binding = gate.claimLateBinding(first).orElseThrow();
+            assertThat(binding.getSoleTableScan()).isTrue();
+            assertThat(binding.getFilters(0).getInList().getValuesList())
+                    .extracting(org.pangrova.protocol.v2.TypedValue::getInt64Value).containsExactly(2L, 34L);
+            assertThat(binding.getFilters(1).getRange().getLower().getInt64Value()).isEqualTo(-5);
+            assertThat(binding.getFilters(1).getRange().getUpper().getInt64Value()).isEqualTo(12);
+            assertThat(gate.claimLateBinding(first)).isEmpty();
+            assertThat(gate.claimLateBinding(first.toBuilder().setTaskId("speculative-attempt").build()))
+                    .containsSame(binding);
+
+            gate.bindProbeGeneration(3, false);
+            assertThat(gate.claimLateBinding(first)).isEmpty();
+            assertThat(gate.claimLateBinding(first.toBuilder().setPlanEpoch(3).build())).isEmpty();
+        }
+    }
+
+    @Test
+    void completeBuildRacingEnumerationRemainsAvailableToLaterRunningAttempts() {
+        var dag = dag();
+        var gate = onlyGate(dag);
+        try (var timer = new Deadline()) {
+            gate.releaseProbe(new CompletableFuture<>(), timer, deadline());
+            timer.expire();
+            gate.onFinished(completeBuild(dag, Map.of(
+                    0, List.of(new BuildKeyRange(2, 3)), 2, List.of(new BuildKeyRange(11, 11)))));
+            assertThat(gate.lateDeliveryReady()).isFalse();
+
+            gate.bindProbeGeneration(1, true);
+            var attempt = org.pangrova.protocol.v2.TaskAttemptId.newBuilder()
+                    .setTaskId("started-later").setStageId(PROBE).setPlanEpoch(1).build();
+            assertThat(gate.claimLateBinding(attempt)).isPresent();
+        }
+    }
+
+    @Test
     void terminalQueryRetiresTheBuildEvenWhenTheProbeHadAlreadyTimedOut() {
         var dag = dag();
         var gate = onlyGate(dag);

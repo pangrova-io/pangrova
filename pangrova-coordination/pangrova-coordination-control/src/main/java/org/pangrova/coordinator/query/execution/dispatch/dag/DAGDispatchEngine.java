@@ -67,6 +67,7 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
     private final StageSplitFetcher stageSplitFetcher;
     private final CoalescedShuffleInputs coalescedShuffleInputs;
     private final DownstreamStageScheduler downstreamStageScheduler;
+    private final LateProbeFilterDelivery lateProbeFilters;
     private final ScheduledExecutorService deadlines = ManagedExecutorFactory.newScheduledThreadPool(
             "dag-dispatch-deadline", 2);
     private final DAGLifecycleController lifecycle;
@@ -94,6 +95,7 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
         this.stageSplitFetcher = new StageSplitFetcher(dependencies.catalogRegistry(), splitFetcher);
         this.coalescedShuffleInputs = new CoalescedShuffleInputs(dependencies.adaptiveQueryConfig());
         this.downstreamStageScheduler = new DownstreamStageScheduler(dependencies.taskTracker());
+        this.lateProbeFilters = new LateProbeFilterDelivery(dependencies.dispatcher(), dependencies.taskTracker());
         this.lifecycle = new DAGLifecycleController(
                 dependencies.dispatcher(), canceller,
                 dependencies.shuffleLifecycleManager(), dependencies.lineageEmitter(),
@@ -228,7 +230,10 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
             case FINISHED -> {
                 fireHandlerEvent(stage, state, StageLifecycleHandler::onFinished);
                 var filter = state.filterForBuild(stage.stageId());
-                if (filter != null) filter.onFinished(stage);
+                if (filter != null) {
+                    filter.onFinished(stage);
+                    lateProbeFilters.buildPublished(state, filter);
+                }
                 onStageFinished(state, observations);
             }
             case FAILED -> onFailedState(stage, state, observations);
@@ -352,6 +357,7 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
         try {
             downstreamStageScheduler.close();
         } finally {
+            lateProbeFilters.close();
             deadlines.shutdownNow();
         }
     }
@@ -482,6 +488,12 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
                         allowsRanges ? FileGranularity.BYTE_RANGES : FileGranularity.WHOLE_OBJECT),
                 result -> result.splits().size());
         List<QuerySplit> splits = fetched.splits();
+        long planEpoch = Math.addExact(generation, 1L);
+        var probeFilter = state.filterForProbe(plan.stageId());
+        if (probeFilter != null) {
+            probeFilter.bindProbeGeneration(
+                    planEpoch, fetched.acceptsLateFilter() && isLiveRelationalRead(queryContext));
+        }
         BoundExecutionPlan boundPlan = measureDispatchWork(
                 observations, plan.stageId(), generation, DispatchPhase.VALIDATE_AND_BIND_PLAN, () -> {
                     org.pangrova.execution.split.CanonicalSplitValidator.validateAll(
@@ -500,7 +512,7 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
                 state.execution(), plan, boundPlan, splits, state.workerSelector(),
                 state.dag(), state.dispatched(), writeConfig,
                 !compiled.retrievalTopKHints().isEmpty(),
-                Math.addExact(stage.currentGeneration(), 1L), null,
+                planEpoch, null,
                 buildFilter == null ? List.of() : buildFilter.buildOrdinals());
         return new PreparedStage(plan, dispatch, null);
     }
@@ -649,6 +661,14 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
     @Override
     public void onQueryTerminal(String queryId, java.util.function.Consumer<Boolean> listener) {
         lifecycle.onQueryTerminal(queryId, listener);
+    }
+
+    @Override
+    public void onTaskRunning(String queryId, String taskId, int stageId) {
+        var state = lifecycle.liveExecution(queryId);
+        if (state == null) return;
+        var gate = state.filterForProbe(stageId);
+        if (gate != null) lateProbeFilters.offer(state, gate, taskId);
     }
 
     /** Routes a worker terminal task report to its owning stage. */

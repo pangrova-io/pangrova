@@ -261,6 +261,16 @@ final class TaskIdentityRegistry {
         workerLoads.merge(worker.workerExecutionIdentity(), 1, Integer::sum);
     }
 
+    CoordinatorTaskTracker.IssuedTask liveReadTarget(String taskId, String queryId) {
+        var identity = identities.get(taskId);
+        if (identity == null || !identity.entered() || identity.drainReceipt() != null
+                || identity.worker() == null || identity.request() == null) return null;
+        var task = identity.request().taskRequest();
+        if (!task.getAttempt().getQueryOrJobId().equals(queryId) || task.getSplitsCount() == 0
+                || task.getTaskKind() != org.pangrova.protocol.v2.TaskKind.TASK_KIND_READ) return null;
+        return new CoordinatorTaskTracker.IssuedTask(identity.request(), identity.worker(), java.util.Optional.empty());
+    }
+
     int workerLoad(WorkerExecutionIdentity worker) {
         return workerLoads.getOrDefault(worker, 0);
     }

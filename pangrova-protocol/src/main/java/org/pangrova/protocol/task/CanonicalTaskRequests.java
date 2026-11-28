@@ -582,7 +582,8 @@ public final class CanonicalTaskRequests {
     private static void validateRuntimeFilters(TaskRequest request) {
         HashSet<String> planNodeIds = new HashSet<>();
         for (var binding : request.getInitialRuntimeFiltersList()) {
-            if (binding.getPlanNodeId().isBlank()
+            if (!TaskRuntimeFilterWire.hasScanTarget(binding)
+                    || (binding.getSoleTableScan() && request.getInitialRuntimeFiltersCount() != 1)
                     || !planNodeIds.add(binding.getPlanNodeId())
                     || binding.getFiltersCount() == 0
                     || binding.getFiltersList().stream().anyMatch(filter ->

@@ -224,6 +224,22 @@ public class CoordinatorTaskTracker {
         return Set.copyOf(tasks.keySet());
     }
 
+    /** Visits running task IDs without copying the query's task catalog or consulting durable state. */
+    public void visitRunningTasks(String queryId, java.util.function.Consumer<String> visitor) {
+        var tasks = queryTasks.get(queryId);
+        if (tasks == null) return;
+        tasks.forEach((taskId, state) -> {
+            if (state.getState() == ScheduledTaskState.RUNNING) visitor.accept(taskId);
+        });
+    }
+
+    /** Reads the frozen target for a non-drained physical scan still observed running. */
+    public IssuedTask runningReadTarget(String queryId, String taskId) {
+        var state = findStateMachine(queryId, taskId);
+        return state != null && state.getState() == ScheduledTaskState.RUNNING
+                ? taskIdentityStore.liveReadTarget(taskId, queryId) : null;
+    }
+
     /** Returns the most recently started task identity, when available. */
     public String getLatestStartedTaskId(String queryId) {
         Set<String> taskIds = getTaskIds(queryId);

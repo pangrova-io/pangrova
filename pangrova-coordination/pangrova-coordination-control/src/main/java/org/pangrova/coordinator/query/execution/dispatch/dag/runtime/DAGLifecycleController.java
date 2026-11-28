@@ -119,6 +119,11 @@ public final class DAGLifecycleController {
         }
     }
 
+    /** Returns the active live DAG for an exact Worker status observation. */
+    public DAGExecutionState liveExecution(String queryId) {
+        return liveExecutions.get(queryId);
+    }
+
     /** Returns the registered immutable query context. */
     public QueryExecutionScope queryContext(String queryId) {
         return queryContexts.get(queryId);

@@ -292,6 +292,9 @@ public final class TaskStatusReceiver {
             return true;
         }
 
+        if ("RUNNING".equals(report.state()) && stageCompletionCallback != null) {
+            stageCompletionCallback.onTaskRunning(queryId, taskId, report.stageId());
+        }
         if (isFinishedState(report.state())) {
             return speculation.handleTaskCompletion(queryId, taskId, report);
         }
