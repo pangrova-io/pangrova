@@ -67,7 +67,7 @@ public final class DefaultWriteCommitReconciler implements WriteCommitReconciler
     }
 
     @Override
-    public WriteRecoveryOutcome reconcile(WriteCommitEntry entry) {
+    public WriteRecoveryOutcome reconcile(WriteCommitEntry entry, long claimedToken) {
         Optional<CopyFilePublication> recorded = entry.copyFile() == null
                 ? Optional.empty() : journal.findCopyFilePublication(entry);
         if (isCommittedCopyMissingPublication(entry, recorded)) {
@@ -104,7 +104,7 @@ public final class DefaultWriteCommitReconciler implements WriteCommitReconciler
                 confirmRecordedCopyPublication(metadata, session, handle, entry, recorded.orElseThrow());
                 return WriteRecoveryOutcome.COMMITTED;
             }
-            RequiredWritePublication.commit(journal, metadata, session, handle, entry,
+            RequiredWritePublication.commit(journal, metadata, session, handle, entry, claimedToken,
                     journal.requiresPublication(entry));
             if (entry.copyFile() != null) {
                 if (!(metadata instanceof CopyFilePublicationMetadata copyMetadata)) {
@@ -126,7 +126,7 @@ public final class DefaultWriteCommitReconciler implements WriteCommitReconciler
             return WriteRecoveryOutcome.QUARANTINED;
         } catch (RuntimeException e) {
             if (handle != null && mayConfirmOrdinaryAbort(entry, e)) {
-                return confirmAbort(metadata, session, handle, entry);
+                return confirmAbort(metadata, session, handle, entry, claimedToken);
             }
             LOG.error("event=write_commit_reconcile queryId={} table={} outcome=QUARANTINED "
                     + "reason=ambiguous error={}", entry.queryId(), table, e.toString());
@@ -134,9 +134,13 @@ public final class DefaultWriteCommitReconciler implements WriteCommitReconciler
         }
     }
 
-    private static WriteRecoveryOutcome confirmAbort(ConnectorMetadata metadata, ConnectorSession session,
-            ConnectorOutputTableHandle handle, WriteCommitEntry entry) {
+    private WriteRecoveryOutcome confirmAbort(ConnectorMetadata metadata, ConnectorSession session,
+            ConnectorOutputTableHandle handle, WriteCommitEntry entry, long claimedToken) {
         try {
+            if (metadata.requiresPublicationClaim()) {
+                return journal.abortBeforePublication(entry, claimedToken) ? WriteRecoveryOutcome.ABORTED
+                        : WriteRecoveryOutcome.QUARANTINED;
+            }
             var receipt = metadata.abortDistributedWrite(session, handle, entry.fragments(), entry.commitContext());
             if (!receipt.executionId().equals(entry.queryId())
                     || !receipt.commitFingerprint().equals(entry.commitFingerprint())) {

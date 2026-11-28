@@ -74,6 +74,18 @@ public interface WriteCommitJournal extends WriteCommitOutbox {
      */
     boolean recordTerminalOutcome(WriteCommitEntry intent, long fencingToken, WriteCommitState outcome);
 
+    /** Binds the actual current token to the format's one-time external publication gate. */
+    default org.pangrova.connector.api.commit.DistributedWriteCommitContext publicationContext(
+            WriteCommitEntry entry, long currentToken) {
+        return entry.commitContext(() -> tryBeginPublication(entry, currentToken));
+    }
+
+    /** Returns true only to the caller that durably wins first publication of the exact pending intent. */
+    boolean tryBeginPublication(WriteCommitEntry intent, long fencingToken);
+
+    /** Installs an irrevocable abort barrier only when the external publication gate is still unopened. */
+    boolean abortBeforePublication(WriteCommitEntry intent, long fencingToken);
+
     /**
      * Checks whether a write for the given query has already been committed.
      * Used during recovery to skip already-committed writes (idempotency guard).

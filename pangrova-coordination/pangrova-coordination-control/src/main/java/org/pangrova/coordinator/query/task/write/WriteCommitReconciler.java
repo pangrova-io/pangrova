@@ -20,8 +20,9 @@ public interface WriteCommitReconciler {
      * Determines the terminal outcome for a single pending intent.
      *
      * @param pendingEntry the durable intent (carries catalog/table/fragments/idempotency key)
+     * @param claimedToken the current recovery token
      * @return the decided outcome; must not be null
      */
-    WriteRecoveryOutcome reconcile(WriteCommitEntry pendingEntry);
+    WriteRecoveryOutcome reconcile(WriteCommitEntry pendingEntry, long claimedToken);
 
 }

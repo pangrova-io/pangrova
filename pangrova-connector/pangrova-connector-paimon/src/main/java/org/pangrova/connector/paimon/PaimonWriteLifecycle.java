@@ -113,8 +113,15 @@ final class PaimonWriteLifecycle {
         requireSameTarget(handle, journaled);
         String tenant = tenantId(session);
         validateFingerprint(tenant, journaled, fragments, context, bindingBytes);
-        Table table = load(journaled.schemaName(), journaled.tableName());
-        org.pangrova.connector.paimon.handle.PaimonTableIdentity.requireSame(
+        var identifier = Identifier.create(journaled.schemaName(), journaled.tableName());
+        Table table;
+        try {
+            table = PaimonTableIdentity.loadFresh(catalog, identifier);
+        } catch (Catalog.TableNotExistException failure) {
+            throw new org.pangrova.connector.api.exception.SourceTableUnavailableException(
+                    "Paimon publication target is absent: " + identifier, failure);
+        }
+        PaimonTableIdentity.requireSame(
                 table, journaled.tableUuid(), journaled.tableLocation(), journaled.schemaFingerprint(),
                 "Paimon distributed write");
         List<byte[]> sdkFragments = fragments;

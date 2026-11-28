@@ -371,6 +371,9 @@ public class PaimonMetadata implements ConnectorMetadata {
         writes.finish(session, (PaimonOutputTableHandle) outputHandle, fragments, context);
     }
 
+    @Override
+    public boolean requiresPublicationClaim() { return true; }
+
     org.pangrova.connector.api.metadata.NativePhysicalWriteProvider physicalWriteProvider() {
         return writes.physical();
     }

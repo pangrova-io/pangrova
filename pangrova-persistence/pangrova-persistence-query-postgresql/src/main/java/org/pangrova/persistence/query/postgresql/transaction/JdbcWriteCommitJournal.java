@@ -74,13 +74,13 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
                     + "(SELECT 1 FROM execution_anchor WHERE execution_id=write_commit_journal.query_id)";
 
     // The CASE makes the wall-clock sample depend on obtaining the exact journal row lock.
-    private static final String RECORD_FENCED_OUTCOME = """
+    private static final String LOCK_OWNED_INTENT = """
             WITH owner AS MATERIALIZED (
                 SELECT execution_id, expires_at
                 FROM execution_anchor WHERE execution_id = ? AND fencing_token = ?
                 FOR SHARE
             ), target AS MATERIALIZED (
-                SELECT journal.query_id, journal.state
+                SELECT journal.query_id, journal.state, journal.publication_started
                 FROM owner JOIN write_commit_journal journal ON journal.query_id = owner.execution_id
                 WHERE journal.commit_fingerprint = ?
                 FOR UPDATE OF journal
@@ -90,7 +90,10 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
                 WHERE CASE WHEN (SELECT count(*) FROM target) <= 1
                     THEN owner.expires_at > clock_timestamp()
                     ELSE false END
-            ), transition AS (
+            )
+            """;
+    private static final String RECORD_FENCED_OUTCOME = LOCK_OWNED_INTENT + """
+            , transition AS (
                 UPDATE write_commit_journal journal
                 SET state = ?, timestamp_ms = (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::bigint
                 FROM target JOIN authority ON authority.execution_id = target.query_id
@@ -107,6 +110,38 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
                            WHERE receipt.commit_fingerprint = ? AND receipt.state = ?) AS exact_outcome
             """;
 
+    private static final String BEGIN_PUBLICATION = LOCK_OWNED_INTENT + """
+            , transition AS (
+                UPDATE write_commit_journal journal SET publication_started = true
+                FROM target JOIN authority ON authority.execution_id = target.query_id
+                WHERE journal.query_id = target.query_id AND target.state = 'PENDING'
+                    AND NOT target.publication_started AND journal.published_version IS NULL
+                    AND journal.manifest_sha256 IS NULL
+                RETURNING journal.query_id
+            )
+            SELECT CASE
+                WHEN NOT EXISTS (SELECT 1 FROM authority) THEN -1
+                WHEN NOT EXISTS (SELECT 1 FROM target WHERE state = 'PENDING') THEN -2
+                WHEN EXISTS (SELECT 1 FROM transition) THEN 1
+                ELSE 0 END
+            """;
+    private static final String ABORT_UNSTARTED_PUBLICATION = LOCK_OWNED_INTENT + """
+            , transition AS (
+                UPDATE write_commit_journal journal SET state = 'ABORTED'
+                FROM target JOIN authority ON authority.execution_id = target.query_id
+                WHERE journal.query_id = target.query_id AND target.state = 'PENDING'
+                    AND NOT target.publication_started AND journal.published_version IS NULL
+                    AND journal.manifest_sha256 IS NULL
+                RETURNING journal.query_id
+            )
+            SELECT CASE
+                WHEN NOT EXISTS (SELECT 1 FROM authority) THEN -1
+                WHEN NOT EXISTS (SELECT 1 FROM target) THEN -2
+                WHEN EXISTS (SELECT 1 FROM transition)
+                    OR EXISTS (SELECT 1 FROM target WHERE state = 'ABORTED' AND NOT publication_started)
+                    THEN 1
+                ELSE 0 END
+            """;
     private static final String RECORD_PUBLICATION =
             "UPDATE write_commit_journal SET published_version = ?, manifest_sha256 = ? "
                     + "WHERE query_id = ? AND commit_fingerprint = ? AND "
@@ -463,6 +498,41 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
             }
         } catch (SQLException failure) {
             throw new JournalWriteException("Cannot persist fenced write outcome: " + intent.queryId(), failure,
+                    JournalAdmissionOutcome.ACCEPTED_UNESTABLISHED);
+        }
+    }
+
+    @Override
+    public boolean tryBeginPublication(WriteCommitEntry intent, long fencingToken) {
+        return applyPublicationGate(BEGIN_PUBLICATION, intent, fencingToken);
+    }
+
+    @Override
+    public boolean abortBeforePublication(WriteCommitEntry intent, long fencingToken) {
+        return applyPublicationGate(ABORT_UNSTARTED_PUBLICATION, intent, fencingToken);
+    }
+
+    private boolean applyPublicationGate(String sql, WriteCommitEntry intent, long token) {
+        Objects.requireNonNull(intent, "intent");
+        if (token <= 0) {
+            throw new IllegalArgumentException("Durable external publication requires an execution token");
+        }
+        try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement(sql)) {
+            statement.setString(1, intent.queryId());
+            statement.setLong(2, token);
+            statement.setString(3, intent.commitFingerprint());
+            try (var result = statement.executeQuery()) {
+                if (!result.next()) throw new SQLException("Missing external publication gate result");
+                return switch (result.getInt(1)) {
+                    case 1 -> true;
+                    case 0 -> false;
+                    case -1 -> throw new IllegalStateException("Lost execution anchor for write " + intent.queryId());
+                    case -2 -> throw new IllegalStateException("Write publication gate has no exact intent " + intent.queryId());
+                    default -> throw new SQLException("Unknown external publication gate result");
+                };
+            }
+        } catch (SQLException failure) {
+            throw new JournalWriteException("Cannot persist external publication gate: " + intent.queryId(), failure,
                     JournalAdmissionOutcome.ACCEPTED_UNESTABLISHED);
         }
     }

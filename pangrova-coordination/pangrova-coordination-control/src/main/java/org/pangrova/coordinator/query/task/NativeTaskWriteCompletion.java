@@ -195,7 +195,8 @@ final class NativeTaskWriteCompletion {
                 CatalogHandle catalog = catalogRegistry.getCatalog(name);
                 return catalog instanceof ConnectorCatalogHandle connector ? connector : null;
             });
-            if (reconciler.reconcile(committed) != org.pangrova.coordinator.enums.WriteRecoveryOutcome.COMMITTED) {
+            if (reconciler.reconcile(committed, committed.executionFencingToken())
+                    != org.pangrova.coordinator.enums.WriteRecoveryOutcome.COMMITTED) {
                 throw new IllegalStateException("COMMITTED COPY lost its current Iceberg snapshot proof");
             }
         }
@@ -217,7 +218,7 @@ final class NativeTaskWriteCompletion {
         boolean required = DynamicTableRewriter.isInternalExecution(writeState.session())
                 && writeCommitJournal.requiresPublication(intent);
         RequiredWritePublication.commit(writeCommitJournal, metadata, writeState.session(), boundHandle, intent,
-                required);
+                intent.executionFencingToken(), required);
         if (intent.copyFile() == null) {
             return null;
         }

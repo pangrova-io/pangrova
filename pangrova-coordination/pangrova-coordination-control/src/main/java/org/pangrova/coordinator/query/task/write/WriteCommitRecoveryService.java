@@ -109,7 +109,7 @@ public final class WriteCommitRecoveryService {
             RecoveryCounters counters) {
         WriteRecoveryOutcome outcome;
         try {
-            outcome = reconciler.reconcile(entry);
+            outcome = reconciler.reconcile(entry, claimedToken);
         } catch (RuntimeException e) {
             LOG.error("event=write_recovery_alarm severity=CRITICAL "
                     + "message=\"reconciler failed; quarantining intent\" queryId={} table={} error={}",

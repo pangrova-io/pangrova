@@ -207,7 +207,8 @@ class LiveTwoWorkerCdcAcceptanceTest extends ContainerTestBase {
                 journal,
                 intent -> {
                     metadata.finishDistributedWrite(
-                            SESSION, output, intent.fragments(), intent.commitContext());
+                            SESSION, output, intent.fragments(),
+                            journal.publicationContext(intent, intent.executionFencingToken()));
                     published.add(intent);
                 },
                 (source, offsets, fingerprint) -> acknowledged.add(Map.copyOf(offsets)),

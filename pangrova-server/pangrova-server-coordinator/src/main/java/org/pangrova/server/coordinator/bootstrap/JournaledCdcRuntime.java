@@ -335,8 +335,9 @@ final class JournaledCdcRuntime implements AutoCloseable {
         CdcSourceIdentity source = sourceIdentity(state, plan);
         var publisher = (org.pangrova.coordinator.streaming.CdcWriteCommitCoordinator.Publisher) intent -> {
             requireCurrentOwner(state, owner);
-            metadata.finishDistributedWrite(session, writePlan.outputHandle(),
-                    intent.fragments(), intent.commitContext());
+            var context = metadata.requiresPublicationClaim() ? journal.publicationContext(intent, anchor.fencingToken())
+                    : intent.commitContext();
+            metadata.finishDistributedWrite(session, writePlan.outputHandle(), intent.fragments(), context);
         };
         var acknowledger = (CdcStreamExecution.OffsetCommitter) (actualSource, endOffsets, fingerprint) -> {
             requireMaintenanceTerm(state, owner.maintenanceEpoch());

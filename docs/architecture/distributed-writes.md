@@ -143,6 +143,15 @@ outcome under the current fencing token. Recovery supplies its claimed token wit
 original fingerprint. A connector publication recorded by the journal carries its durable
 evidence into the remaining commit steps.
 
+Paimon takes a one-time publication claim just before invoking its snapshot
+publisher. The claim and an abort-before-publication decision lock the same
+execution anchor and exact journal intent. A successor can record an abort after
+a confirmed missing target when the claim is still unopened. Once the claim
+is recorded, recovery requires the exact published snapshot marker. If the
+marker is absent, the intent remains pending for reconciliation. An abort
+receipt establishes the logical outcome and leaves physical object cleanup to
+its own authority.
+
 ### Problem Statement
 
 There is an inherently ambiguous boundary between an external catalog commit and the coordinator

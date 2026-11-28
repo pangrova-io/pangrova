@@ -167,6 +167,11 @@ public record WriteCommitEntry(
 
     /** Returns the exact connector commit context persisted with this intent. */
     public DistributedWriteCommitContext commitContext() {
+        return commitContext(null);
+    }
+
+    /** Binds the current coordinator's claim without changing the stored write identity. */
+    DistributedWriteCommitContext commitContext(java.util.function.BooleanSupplier claim) {
         org.pangrova.connector.api.commit.CdcSourceCommitIdentity connectorCdc =
                 cdcSource == null ? null
                         : new org.pangrova.connector.api.commit.CdcSourceCommitIdentity(
@@ -180,7 +185,7 @@ public record WriteCommitEntry(
                                         .toList());
         return new DistributedWriteCommitContext(
                 queryId, tenantId, baseSnapshotId, writeOutputBinding, commitFingerprint,
-                principal, authorizationReceipt, copyFile, connectorCdc);
+                principal, authorizationReceipt, copyFile, connectorCdc, claim);
     }
 
     /**

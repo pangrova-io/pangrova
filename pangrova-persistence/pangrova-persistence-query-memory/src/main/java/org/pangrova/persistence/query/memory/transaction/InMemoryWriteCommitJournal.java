@@ -24,6 +24,7 @@ public final class InMemoryWriteCommitJournal implements WriteCommitJournal {
     private final ConcurrentHashMap<String, WriteCommitEntry> entries = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, WriteCommitReceipt> receipts = new ConcurrentHashMap<>();
     private final java.util.Set<String> acknowledged = ConcurrentHashMap.newKeySet();
+    private final java.util.Set<String> publicationStarts = ConcurrentHashMap.newKeySet();
 
     @Override
     public boolean requiresPublication(WriteCommitEntry intent) {
@@ -103,6 +104,42 @@ public final class InMemoryWriteCommitJournal implements WriteCommitJournal {
             return terminal;
         });
         return true;
+    }
+
+    @Override
+    public boolean tryBeginPublication(WriteCommitEntry intent, long token) {
+        var started = new java.util.concurrent.atomic.AtomicBoolean();
+        entries.compute(intent.queryId(), (key, existing) -> {
+            requirePublicationIdentity(intent, existing);
+            if (existing.state() != WriteCommitState.PENDING) {
+                throw new IllegalStateException("Write publication gate requires a pending intent: " + key);
+            }
+            started.set(existing.publication() == null && publicationStarts.add(intent.commitFingerprint()));
+            return existing;
+        });
+        return started.get();
+    }
+
+    @Override
+    public boolean abortBeforePublication(WriteCommitEntry intent, long token) {
+        var barrier = entries.compute(intent.queryId(), (key, existing) -> {
+            requirePublicationIdentity(intent, existing);
+            if (publicationStarts.contains(intent.commitFingerprint()) || existing.publication() != null
+                    || existing.state() == WriteCommitState.COMMITTED) {
+                return existing;
+            }
+            var aborted = existing.state() == WriteCommitState.ABORTED ? existing
+                    : existing.withState(WriteCommitState.ABORTED, System.currentTimeMillis());
+            retainReceipt(aborted);
+            return aborted;
+        });
+        return barrier.state() == WriteCommitState.ABORTED && !publicationStarts.contains(intent.commitFingerprint());
+    }
+
+    private static void requirePublicationIdentity(WriteCommitEntry intent, WriteCommitEntry existing) {
+        if (existing == null || !intent.commitFingerprint().equals(existing.commitFingerprint())) {
+            throw new IllegalStateException("Write publication gate has no exact intent " + intent.queryId());
+        }
     }
 
     @Override
@@ -222,6 +259,7 @@ public final class InMemoryWriteCommitJournal implements WriteCommitJournal {
     public void purge(String queryId) {
         entries.computeIfPresent(queryId, (id, entry) -> {
             if (entry.state() == WriteCommitState.COMMITTED && acknowledged.remove(entry.commitFingerprint())) {
+                publicationStarts.remove(entry.commitFingerprint());
                 return null;
             }
             return entry;

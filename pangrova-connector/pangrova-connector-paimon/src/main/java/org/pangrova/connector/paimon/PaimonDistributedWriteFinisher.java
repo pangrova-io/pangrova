@@ -166,6 +166,11 @@ final class PaimonDistributedWriteFinisher {
                 freshTable.options());
         validateReplayWindow(context, snapshots);
         InnerTable innerTable = requireCommitTable(freshTable, handle, eventType);
+        if (!context.tryBeginPublication()) {
+            return snapshots.latestSnapshotOfUser(commitUser).orElseThrow(() ->
+                    new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR,
+                            "Paimon publication previously started without a confirmed snapshot"));
+        }
         commitPrepared(innerTable, handle, allMessages, eventType, commitUser);
         var publication = snapshots.latestSnapshotOfUser(commitUser).orElseThrow(() ->
                 new IllegalStateException("Paimon committed snapshot marker is absent after write completion"));

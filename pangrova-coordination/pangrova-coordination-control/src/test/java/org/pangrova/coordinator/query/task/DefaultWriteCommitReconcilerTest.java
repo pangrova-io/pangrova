@@ -124,7 +124,7 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.testkit.Cont
         var source = new CdcSourceIdentity("orders", "checkpoint-1",
                 List.of(new CdcSourceIdentity.OffsetRange("orders", 0, 10, 11)));
 
-        var outcome = reconciler.reconcile(pending(TABLE, List.of(new byte[]{1}), "MERGE", source));
+        var outcome = reconciler.reconcile(pending(TABLE, List.of(new byte[]{1}), "MERGE", source), 0L);
 
         assertThat(outcome).isEqualTo(WriteRecoveryOutcome.QUARANTINED);
         assertThat(metadata.decodeCount.get()).isZero();
@@ -137,7 +137,7 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.testkit.Cont
         var reconciler = new DefaultWriteCommitReconciler(
                 new InMemoryWriteCommitJournal(), c -> catalog(md));
 
-        var outcome = reconciler.reconcile(pending(TABLE, List.of("frag".getBytes()), "INSERT"));
+        var outcome = reconciler.reconcile(pending(TABLE, List.of("frag".getBytes()), "INSERT"), 0L);
 
         assertThat(outcome).isEqualTo(WriteRecoveryOutcome.COMMITTED);
         assertThat(md.decodeCount.get()).as("exact handle decoded").isEqualTo(1);
@@ -155,7 +155,7 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.testkit.Cont
         var reconciler = new DefaultWriteCommitReconciler(
                 new InMemoryWriteCommitJournal(), c -> catalog(md));
 
-        var outcome = reconciler.reconcile(pending(TABLE, List.of("f".getBytes()), "INSERT"));
+        var outcome = reconciler.reconcile(pending(TABLE, List.of("f".getBytes()), "INSERT"), 0L);
 
         assertThat(outcome).isEqualTo(WriteRecoveryOutcome.QUARANTINED);
         assertThat(md.finishCount.get()).as("must not commit when codec unavailable").isZero();
@@ -168,7 +168,7 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.testkit.Cont
         var reconciler = new DefaultWriteCommitReconciler(
                 new InMemoryWriteCommitJournal(), c -> catalog(md));
 
-        var outcome = reconciler.reconcile(pending(TABLE, List.of("f".getBytes()), "DELETE"));
+        var outcome = reconciler.reconcile(pending(TABLE, List.of("f".getBytes()), "DELETE"), 0L);
 
         assertThat(outcome).isEqualTo(WriteRecoveryOutcome.QUARANTINED);
         assertThat(md.finishCount.get()).isZero();
@@ -177,12 +177,34 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.testkit.Cont
     }
 
     @Test
+    void gatedMissingTableAbortsOnlyWhenPublicationNeverStarted() {
+        for (boolean started : List.of(false, true)) {
+            var journal = new InMemoryWriteCommitJournal();
+            var intent = pending(TABLE, List.of(new byte[]{1}), "INSERT");
+            journal.recordIntent(intent);
+            if (started) {
+                assertThat(journal.tryBeginPublication(intent, 17L)).isTrue();
+            }
+            var metadata = new RecordingMetadata();
+            metadata.tableGone = true;
+            metadata.gatedPublication = true;
+            var reconciler = new DefaultWriteCommitReconciler(journal, name -> catalog(metadata));
+
+            assertThat(reconciler.reconcile(intent, 31L)).isEqualTo(
+                    started ? WriteRecoveryOutcome.QUARANTINED : WriteRecoveryOutcome.ABORTED);
+            assertThat(journal.getEntry(intent.queryId()).orElseThrow().state()).isEqualTo(
+                    started ? WriteCommitState.PENDING : WriteCommitState.ABORTED);
+            assertThat(metadata.finishCount.get()).isZero();
+        }
+    }
+
+    @Test
     void emptyOverwriteIsReplayedBecauseTruncateHasNoFragments() {
         RecordingMetadata md = new RecordingMetadata();
         var reconciler = new DefaultWriteCommitReconciler(
                 new InMemoryWriteCommitJournal(), c -> catalog(md));
 
-        var outcome = reconciler.reconcile(pending(TABLE, List.of(), "OVERWRITE"));
+        var outcome = reconciler.reconcile(pending(TABLE, List.of(), "OVERWRITE"), 0L);
 
         assertThat(outcome).isEqualTo(WriteRecoveryOutcome.COMMITTED);
         assertThat(md.decodeCount.get()).isEqualTo(1);
@@ -197,7 +219,7 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.testkit.Cont
 
         // A legacy lossy handle.toString() cannot be reconstructed -> safe quarantine.
         var outcome = reconciler.reconcile(
-                pending("IcebergOutputTableHandle[schemaName=x]", List.of("f".getBytes()), "INSERT"));
+                pending("IcebergOutputTableHandle[schemaName=x]", List.of("f".getBytes()), "INSERT"), 0L);
 
         assertThat(outcome).isEqualTo(WriteRecoveryOutcome.QUARANTINED);
         assertThat(md.decodeCount.get()).isZero();
@@ -208,7 +230,7 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.testkit.Cont
         var reconciler = new DefaultWriteCommitReconciler(
                 new InMemoryWriteCommitJournal(), c -> null);
 
-        var outcome = reconciler.reconcile(pending(TABLE, List.of("f".getBytes()), "INSERT"));
+        var outcome = reconciler.reconcile(pending(TABLE, List.of("f".getBytes()), "INSERT"), 0L);
 
         assertThat(outcome).isEqualTo(WriteRecoveryOutcome.QUARANTINED);
     }
@@ -221,7 +243,7 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.testkit.Cont
                 c -> catalog(md, "catalog-incarnation-2"));
 
         var outcome = reconciler.reconcile(
-                pending(TABLE, List.of("old-fragment".getBytes()), "INSERT"));
+                pending(TABLE, List.of("old-fragment".getBytes()), "INSERT"), 0L);
 
         assertThat(outcome).isEqualTo(WriteRecoveryOutcome.QUARANTINED);
         assertThat(md.decodeCount.get()).isZero();
@@ -240,7 +262,7 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.testkit.Cont
         assertThat(decoded).usingRecursiveComparison().isEqualTo(output);
         assertThat(actual.getOutputHandleCodec().serialize(decoded)).isEqualTo(actual.getOutputHandleCodec().serialize(output));
         assertThat(new DefaultWriteCommitReconciler(
-                new InMemoryWriteCommitJournal(), ignored -> actual).reconcile(intent))
+                new InMemoryWriteCommitJournal(), ignored -> actual).reconcile(intent, 0L))
                 .isEqualTo(WriteRecoveryOutcome.COMMITTED);
         assertThat(execution.intent().state()).isEqualTo(WriteCommitState.COMMITTED);
         assertThat(execution.intent().publication().publishedVersion()).isEqualTo(accepted.getVersion());
@@ -261,7 +283,7 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.testkit.Cont
                 entry.fragments(), entry.writeMode(), fingerprint, entry.tenantId(), entry.principal(), entry.authorizationReceipt(),
                 entry.baseSnapshotId(), changed.toByteArray(), fingerprint, entry.ownerId(), entry.ownerIncarnation(), entry.executionFencingToken(), null, null, null);
         assertThat(new DefaultWriteCommitReconciler(
-                new InMemoryWriteCommitJournal(), ignored -> actual).reconcile(forged))
+                new InMemoryWriteCommitJournal(), ignored -> actual).reconcile(forged, 0L))
                 .isEqualTo(WriteRecoveryOutcome.QUARANTINED);
         assertThat(execution.intent().state()).isEqualTo(WriteCommitState.PENDING);
         assertThat(execution.intent().publication()).isNull();
@@ -304,9 +326,15 @@ class DefaultWriteCommitReconcilerTest extends org.pangrova.testing.testkit.Cont
         final AtomicInteger finishCount = new AtomicInteger();
         volatile boolean codecUnavailable = false;
         volatile boolean tableGone = false;
+        boolean gatedPublication;
         volatile List<byte[]> lastFragments;
         volatile SchemaTableName lastTable;
         volatile String lastWriteMode;
+
+        @Override
+        public boolean requiresPublicationClaim() {
+            return gatedPublication;
+        }
 
         @Override
         public void finishDistributedWrite(ConnectorSession session,

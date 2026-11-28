@@ -435,6 +435,76 @@ class JdbcWriteCommitJournalPostgresTest extends ContainerTestBase {
     }
 
     @Test
+    void takeoverCanAbortBeforeTheFirstAttemptAndFencesBothPublishers() {
+        var leases = new org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore(dataSource);
+        var lifetime = Duration.ofMinutes(1);
+        var original = leases.tryAcquire("unopened-publication", "coordinator-a", "process-a", lifetime).orElseThrow();
+        var intent = pending(original.executionId(), 1_000L, null, original.fencingToken());
+        journal.recordIntent(intent);
+        assertThat(leases.yield(original)).isTrue();
+        var successor = leases.tryAcquire(intent.queryId(), "coordinator-b", "process-b", lifetime).orElseThrow();
+
+        assertThat(journal.abortBeforePublication(intent, successor.fencingToken())).isTrue();
+        assertThat(journal.abortBeforePublication(intent, successor.fencingToken())).isTrue();
+        assertThat(journal.getReceipt(intent.queryId()).orElseThrow().state()).isEqualTo(WriteCommitState.ABORTED);
+        assertThatThrownBy(() -> journal.tryBeginPublication(intent, original.fencingToken()))
+                .hasMessageContaining("Lost execution anchor");
+        assertThatThrownBy(() -> journal.tryBeginPublication(intent, successor.fencingToken()))
+                .hasMessageContaining("no exact intent");
+    }
+
+    @Test
+    void takeoverOfStartedPublicationCannotRepublishOrInferAbort() {
+        var leases = new org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore(dataSource);
+        var lifetime = Duration.ofMinutes(1);
+        var original = leases.tryAcquire("started-publication", "coordinator-a", "process-a", lifetime).orElseThrow();
+        var intent = pending(original.executionId(), 1_000L, null, original.fencingToken());
+        journal.recordIntent(intent);
+        assertThat(journal.tryBeginPublication(intent, original.fencingToken())).isTrue();
+        assertThat(journal.tryBeginPublication(intent, original.fencingToken())).isFalse();
+        assertThat(leases.yield(original)).isTrue();
+        var successor = leases.tryAcquire(intent.queryId(), "coordinator-b", "process-b", lifetime).orElseThrow();
+
+        assertThat(journal.tryBeginPublication(intent, successor.fencingToken())).isFalse();
+        assertThat(journal.abortBeforePublication(intent, successor.fencingToken())).isFalse();
+        assertThat(journal.getEntry(intent.queryId()).orElseThrow().state()).isEqualTo(WriteCommitState.PENDING);
+        assertThat(journal.getReceipt(intent.queryId())).isEmpty();
+    }
+
+    @Test
+    void publicationStartAndUnpublishedAbortHaveOneWinner() throws Exception {
+        var leases = new org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore(dataSource);
+        var owner = leases.tryAcquire("publication-race", "coordinator-a", "process-a", Duration.ofMinutes(1))
+                .orElseThrow();
+        var intent = pending(owner.executionId(), 1_000L, null, owner.fencingToken());
+        journal.recordIntent(intent);
+
+        var bothReady = new java.util.concurrent.CountDownLatch(2);
+        var executor = Executors.newFixedThreadPool(2);
+        try {
+            var publish = executor.submit(() -> {
+                bothReady.countDown();
+                assertThat(bothReady.await(5, TimeUnit.SECONDS)).isTrue();
+                try {
+                    return journal.tryBeginPublication(intent, owner.fencingToken());
+                } catch (IllegalStateException aborted) {
+                    assertThat(aborted).hasMessageContaining("no exact intent");
+                    return false;
+                }
+            });
+            var abort = executor.submit(() -> {
+                bothReady.countDown();
+                assertThat(bothReady.await(5, TimeUnit.SECONDS)).isTrue();
+                return journal.abortBeforePublication(intent, owner.fencingToken());
+            });
+            assertThat(publish.get(10, TimeUnit.SECONDS)).isNotEqualTo(abort.get(10, TimeUnit.SECONDS));
+        } finally {
+            executor.shutdownNow();
+            assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    @Test
     void fencedOutcomeRejectsPreviousOwnerAndRetainsExactReceiptAcrossRedoRetirement() {
         var leases = new org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore(dataSource);
         var lifetime = Duration.ofMinutes(1);

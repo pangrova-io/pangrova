@@ -62,6 +62,10 @@ class PaimonDistributedDeleteCommitTest extends PaimonDeleteTestSupport {
         assertThat(publications).hasValue(1);
         assertThat(notifications).hasValue(0);
         assertThat(readRows()).containsExactly(DELETED);
+        assertThatThrownBy(() -> metadata.finishDistributedWrite(SESSION, output, fragments, context))
+                .isInstanceOf(org.pangrova.connector.api.exception.ConnectorException.class)
+                .hasMessageContaining("previously started without a confirmed snapshot");
+        assertThat(readRows()).containsExactly(DELETED);
     }
 
     @ParameterizedTest(name = "survivors: partitioned={0}, appendOnly={1}")

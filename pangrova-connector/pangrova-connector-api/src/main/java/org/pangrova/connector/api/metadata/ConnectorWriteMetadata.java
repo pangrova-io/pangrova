@@ -160,6 +160,9 @@ public interface ConnectorWriteMetadata {
                 "Replay-safe distributed write commit is not implemented by this connector");
     }
 
+    /** Whether this connector opens the journal gate before its first external publication. */
+    default boolean requiresPublicationClaim() { return false; }
+
     /**
      * Installs a durable abort barrier for the exact journaled intent. Returning proves
      * that this intent can never become visible; it does not authorize object deletion.
