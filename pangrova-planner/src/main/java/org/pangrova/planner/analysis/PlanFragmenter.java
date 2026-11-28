@@ -114,12 +114,13 @@ final class PlanFragmenter {
     static FragmentedPlan fragment(RelNode root, int sessionParallelismOverride,
             StageTerminalPurpose terminalPurpose, int clusterParallelismLimit, boolean needsRetrievalReducer) {
         return fragment(root, sessionParallelismOverride, terminalPurpose, clusterParallelismLimit,
-                needsRetrievalReducer, List::of, ignored -> 0);
+                needsRetrievalReducer, List::of, ignored -> 0, true);
     }
 
     static FragmentedPlan fragment(RelNode root, int sessionParallelismOverride,
             StageTerminalPurpose terminalPurpose, int clusterParallelismLimit, boolean needsRetrievalReducer,
-            Supplier<List<FunctionCatalogView>> catalogueSource, IntUnaryOperator driverEstimate) {
+            Supplier<List<FunctionCatalogView>> catalogueSource, IntUnaryOperator driverEstimate,
+            boolean supportsBroadcastExchange) {
         checkNotNull(root, "root RelNode must not be null");
         if (clusterParallelismLimit < 1) {
             throw new IllegalArgumentException("Cluster parallelism limit must be positive");
@@ -128,7 +129,8 @@ final class PlanFragmenter {
                 sessionParallelismOverride,
                 DEFAULT_BYTES_PER_PARTITION,
                 Math.min(DEFAULT_MAX_PARALLELISM, clusterParallelismLimit),
-                checkNotNull(terminalPurpose, "terminalPurpose must not be null"), catalogueSource, driverEstimate);
+                checkNotNull(terminalPurpose, "terminalPurpose must not be null"), catalogueSource, driverEstimate,
+                supportsBroadcastExchange);
         return context.fragment(root, needsRetrievalReducer);
     }
 
@@ -166,6 +168,7 @@ final class PlanFragmenter {
         private final Supplier<List<FunctionCatalogView>> catalogueSource;
         private List<FunctionCatalogView> functionCatalogues;
         private final IntUnaryOperator driverEstimate;
+        private final boolean supportsBroadcastExchange;
         private int nextStageId;
         private boolean liveRead;
 
@@ -175,9 +178,10 @@ final class PlanFragmenter {
                 int maxParallelism,
                 StageTerminalPurpose terminalPurpose,
                 Supplier<List<FunctionCatalogView>> catalogueSource,
-                IntUnaryOperator driverEstimate) {
+                IntUnaryOperator driverEstimate, boolean supportsBroadcastExchange) {
             this.catalogueSource = catalogueSource;
             this.driverEstimate = driverEstimate;
+            this.supportsBroadcastExchange = supportsBroadcastExchange;
             this.sessionParallelismOverride = sessionParallelismOverride;
             this.bytesPerPartition = bytesPerPartition;
             this.maxParallelism = maxParallelism;
@@ -253,7 +257,13 @@ final class PlanFragmenter {
                     node = node.copy(node.getTraitSet(), inputs);
                 }
             }
-            if (liveRead && node instanceof LogicalJoin join) {
+            if (!supportsBroadcastExchange && node instanceof PangrovaBroadcastJoin join) {
+                var build = exchangeBoundary(join.getRight());
+                if (build == null || build.distribution().type() != DistributionType.BROADCAST) {
+                    throw new IllegalArgumentException("Physical broadcast join lacks its build exchange");
+                }
+                node = materializeHashJoin(join, build.input());
+            } else if (liveRead && node instanceof LogicalJoin join) {
                 node = materializeJoinInputs(join);
             }
             if (node instanceof Aggregate aggregate
@@ -785,8 +795,10 @@ final class PlanFragmenter {
         }
 
         private RelNode materializeJoinInputs(LogicalJoin join) {
-            RelNode broadcast = materializeSelectiveBuild(join);
-            if (broadcast != join) return broadcast;
+            if (supportsBroadcastExchange) {
+                RelNode broadcast = materializeSelectiveBuild(join);
+                if (broadcast != join) return broadcast;
+            }
             var keys = join.analyzeCondition();
             if (maxParallelism <= SINGLE_PARALLELISM || sessionParallelismOverride == SINGLE_PARALLELISM
                     || !PartitionLocalPlanInspector.isIndependent(join.getLeft())
@@ -796,8 +808,13 @@ final class PlanFragmenter {
                 return join;
             }
 
+            return materializeHashJoin(join, join.getRight());
+        }
+
+        private static RelNode materializeHashJoin(Join join, RelNode buildInput) {
+            var keys = join.analyzeCondition();
             RelNode left = enforceDistribution(join.getLeft(), PangrovaDistribution.hash(keys.leftKeys));
-            RelNode right = enforceDistribution(join.getRight(), PangrovaDistribution.hash(keys.rightKeys));
+            RelNode right = enforceDistribution(buildInput, PangrovaDistribution.hash(keys.rightKeys));
             return new PangrovaHashJoin(new HashJoinConfig(join.getCluster(), join.getTraitSet(), left, right,
                     join.getCondition(), join.getVariablesSet(), join.getJoinType()));
         }

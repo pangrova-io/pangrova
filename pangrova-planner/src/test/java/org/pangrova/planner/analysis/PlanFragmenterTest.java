@@ -548,6 +548,15 @@ class PlanFragmenterTest {
         assertThat(producer.fragment().relNode()).isInstanceOf(PangrovaExchange.class);
         assertThat(serialize(producer.fragment().relNode()).getExchange().getPartitionCount())
                 .isEqualTo(consumer.parallelism());
+
+        FragmentedPlan remote = PlanFragmenter.fragment(join, -1, StageTerminalPurpose.QUERY_RESULT, 8,
+                false, List::of, ignored -> 0, false);
+        assertThat(remote.transfers()).filteredOn(candidate -> candidate.shuffleType() == ShuffleType.HASH)
+                .hasSize(2).allSatisfy(edge -> assertThat(edge.distributionKeys()).containsExactly(0));
+        assertThat(remote.transfers()).noneMatch(candidate -> candidate.shuffleType() == ShuffleType.BROADCAST);
+        assertThat(remote.stages()).anySatisfy(stage ->
+                assertThat(stage.fragment().relNode()).isInstanceOf(PangrovaHashJoin.class));
+
     }
 
     @Test

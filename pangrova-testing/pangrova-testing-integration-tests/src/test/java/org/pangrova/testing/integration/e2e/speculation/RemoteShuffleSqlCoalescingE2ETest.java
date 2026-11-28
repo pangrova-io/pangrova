@@ -16,6 +16,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -47,6 +49,46 @@ class RemoteShuffleSqlCoalescingE2ETest extends ContainerTestBase {
                 throw failure;
             }
         }
+    }
+
+    @Test
+    void selectiveBuildUsesHashExchangeWithRemoteShuffle() throws Exception {
+        try (var processes = IndependentLocalProcesses.remoteShuffle()) {
+            try {
+                verifySelectiveBuild(processes);
+            } catch (Exception | Error failure) {
+                failure.addSuppressed(new IllegalStateException(
+                        "Local process diagnostics retained at " + processes.retainDiagnostics()));
+                throw failure;
+            }
+        }
+    }
+
+    private static void verifySelectiveBuild(IndependentLocalProcesses processes) throws Exception {
+        processes.startCoordinatorAndFirstWorker();
+        processes.createSourceCatalog();
+        String probe = "spec_catalog.default.remote_selective_probe";
+        String build = "spec_catalog.default.remote_selective_build";
+        var protocol = ResultProtocol.GRPC_TLS;
+        processes.command("CREATE TABLE " + probe + " (id BIGINT, payload BIGINT) PARTITIONED BY (id)", protocol);
+        processes.command("CREATE TABLE " + build + " (id BIGINT)", protocol);
+        var rows = IntStream.range(0, 40).mapToObj(id -> "(" + id + "," + (100 + id) + ")")
+                .collect(Collectors.joining(","));
+        processes.command("INSERT INTO " + probe + " VALUES " + rows, protocol);
+        processes.command("INSERT INTO " + build + " VALUES (2),(2),(35),(NULL)", protocol);
+        processes.startSecondWorker();
+
+        var result = processes.query("SELECT p.id, p.payload FROM " + probe + " p JOIN " + build
+                + " b ON p.id = b.id ORDER BY p.id", protocol);
+        assertThat(resultRows(result.output())).containsExactly(List.of("2", "102"), List.of("2", "102"),
+                List.of("35", "135"));
+        Awaitility.await("remote selective join fully drains").atMost(Duration.ofSeconds(30)).untilAsserted(() -> {
+            assertThat(processes.status(result.queryId()).drained()).isTrue();
+            assertThat(releasedWorkers(processes, result.queryId())).isNotEmpty();
+            assertThat(processes.activeTenantReservations()).isZero();
+            assertThat(processes.remoteShuffleObjectsReleased()).isTrue();
+        });
+        assertThat(processes.reports().forwardingFailures()).isEmpty();
     }
 
     private static void verifyFullJoin(IndependentLocalProcesses processes) throws Exception {

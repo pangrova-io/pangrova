@@ -83,12 +83,12 @@ public class SqlCompiler {
                 sessionPlanner, sessionScope);
     }
 
-    /** Captures phase support before fixing the producer and consumer stage schemas. */
+    /** Captures Worker and transport capabilities before assigning physical exchanges. */
     public FragmentedPlan fragmentQueryForCluster(PlannedQuery query, int clusterParallelismLimit,
-            java.util.function.IntUnaryOperator driverEstimate) {
+            java.util.function.IntUnaryOperator driverEstimate, boolean supportsBroadcastExchange) {
         return query.fragmentForCluster(clusterParallelismLimit,
                 () -> validator.capabilitySnapshot().functionCatalogues(),
-                driverEstimate);
+                driverEstimate, supportsBroadcastExchange);
     }
 
     /** Installs the metadata boundary without depending on its implementation. */

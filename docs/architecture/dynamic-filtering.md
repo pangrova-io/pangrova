@@ -35,6 +35,11 @@ A broadcast Join can receive its build records from another stage and scan the p
 
 `NativeExchangeDataPlaneE2ETest.PublishedBuildFiltersTheLocalJoinProbe` commits a Direct partition with keys 2, 4, 4, unregisters its producer, and reads the partition through loopback Flight under its epoch, producer attempt and fence. The actual probe scan returns two of its four rows. The Join outputs three rows, preserving the duplicate build key. `HashJoinScanFilterTest` records the producing Join plan node and the scan output for both INNER and LEFT joins over two Parquet sources.
 
+When the Coordinator selects REMOTE Shuffle, the fragmenter uses keyed hash
+exchange for eligible equi-joins. This applies to selective builds and to
+physical broadcast joins selected by the optimizer. Each input uses its own
+join keys, and the hash join retains the complete original condition.
+
 ## Pruning a probe scan in another stage
 
 `PlanFragmenter` selects a bounded build on the physical right side of an

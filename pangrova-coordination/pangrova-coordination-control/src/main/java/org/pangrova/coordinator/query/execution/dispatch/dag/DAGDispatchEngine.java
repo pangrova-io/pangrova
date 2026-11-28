@@ -62,6 +62,7 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
 
     private final org.pangrova.coordinator.task.TaskCancelRetrier cancelRetrier;
     private final PipelineConfig pipelineConfig;
+    private final boolean remoteShuffle;
     private final LeafStageDispatcher leafStageDispatcher;
     private final DAGStagePlanBinder stagePlanBinder;
     private final StageSplitFetcher stageSplitFetcher;
@@ -85,6 +86,7 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
                 dependencies.dispatcher(), dependencies.taskTracker());
         this.cancelRetrier = canceller.cancelRetrier();
         this.pipelineConfig = dependencies.pipelineConfig();
+        remoteShuffle = dependencies.shuffleLifecycleManager() instanceof ShuffleTaskAccess;
         var externalShuffle = dependencies.shuffleLifecycleManager()
                 instanceof RecoverableShuffleControl control ? control : null;
         if ((artifactResolver == null) != (generatedValueReads == null)) {
@@ -106,14 +108,18 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
                 new LeafStageDispatcher.LeafDispatchOptions(
                         artifactResolver, pipelineConfig.localShuffle(),
                         externalShuffle instanceof ExternalShuffleDescriptorEncoder encoder ? encoder : null,
-                        dependencies.shuffleLifecycleManager()
-                                instanceof ShuffleTaskAccess,
+                        remoteShuffle,
                         dependencies.shuffleLifecycleManager()
                                 instanceof ShuffleTaskAccess grants
                                         ? new CoordinatorShuffleTaskGrantBinder(grants)::bind
                                         : java.util.function.UnaryOperator.identity()));
         this.durableControl = new org.pangrova.coordinator.query.execution.dispatch.dag.runtime.DurableDAGControl(
                 lifecycle, externalShuffle);
+    }
+
+    /** Returns whether the selected shuffle transport accepts broadcast exchange. */
+    public boolean supportsBroadcastExchange() {
+        return !remoteShuffle;
     }
 
     /** Attaches the bounded diagnostics used by the query profile. */
