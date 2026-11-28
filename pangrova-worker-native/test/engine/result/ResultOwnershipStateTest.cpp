@@ -64,6 +64,22 @@ TEST_F(ResultOwnershipStateTest, ReaderLifetimeRemainsChargedAfterProducerEofAnd
   EXPECT_TRUE(state_->evidence().drained());
 }
 
+TEST_F(ResultOwnershipStateTest, ConcurrentRevocationKeepsTheActiveReaderCharged) {
+  state_->acquireReader();
+  EXPECT_FALSE(state_->authorityRevoked());
+  auto first = std::async(std::launch::async, [&] { return state_->revokeAuthority(); });
+  auto second = std::async(std::launch::async, [&] { return state_->revokeAuthority(); });
+  EXPECT_NE(first.get(), second.get());
+  EXPECT_TRUE(state_->authorityRevoked());
+  EXPECT_TRUE(state_->evidence().authority_revoked);
+  EXPECT_FALSE(state_->tryAcquireBatch());
+  state_->stopProducer();
+  state_->revokeAndClearQueue();
+  EXPECT_FALSE(state_->evidence().drained());
+  state_->releaseReader();
+  EXPECT_TRUE(state_->evidence().drained());
+}
+
 TEST_F(ResultOwnershipStateTest, PreparationAndRevocationCannotReportDrainEarly) {
   ASSERT_TRUE(state_->tryAcquireBatch());
   state_->stopProducer();

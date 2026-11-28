@@ -118,7 +118,7 @@ class ResultFlightStream final : public arrow::flight::FlightDataStream {
 
   bool live() const {
     return !(context_ && context_->is_cancelled()) &&
-        !info_.ownership->evidence().authority_revoked &&
+        !info_.ownership->authorityRevoked() &&
         info_.authority.deadline_epoch_ms() > static_cast<uint64_t>(epochMillis());
   }
 
@@ -179,7 +179,7 @@ arrow::Result<std::unique_ptr<arrow::flight::FlightDataStream>> resultFlightStre
     return std::make_unique<ResultFlightStream>(
         std::move(info), std::move(display), timeoutSeconds, context);
   } catch (const std::runtime_error& error) {
-    if (ownership->evidence().authority_revoked) {
+    if (ownership->authorityRevoked()) {
       return arrow::Status::Cancelled("Result reader admission failed: ", error.what());
     }
     return arrow::Status::Invalid("Result reader admission failed: ", error.what());

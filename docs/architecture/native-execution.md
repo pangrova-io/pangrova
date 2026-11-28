@@ -91,7 +91,9 @@ exchange pages. An OUTPUT Driver admits the canonical Arrow batch and prepares
 its standard Flight record message once. A task-owned byte window controls
 ready messages and retained transport buffers. A full window suspends the
 Driver until a buffer is released. Flight sends the display schema and the
-prepared record messages. Successful producer completion seals the queue, and
+prepared record messages. Flight checks revocation with a single atomic read
+per authority check. Reader and buffer lifetime transitions still use the
+task's ownership mutex. Successful producer completion seals the queue, and
 Flight commits the result task after writing the stream to EOF. The task releases
 its resources after the producer, registered authority, reader and retained
 buffers have all drained. The singleton global Sort remains a scale bottleneck

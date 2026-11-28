@@ -62,7 +62,7 @@ PostgreSQL 接管分类用例预置 4,096 条其他查询日志和 4,096 条其�
 | B3 | callback 隔离、query-order/admission、阶段准备和 durable commit 容量 | 固定到达率叠加阻塞目录、慢对象存储和终态报告压力 |
 | B4 | identity projection 移除、local aggregate reduction | 真实聚合 CPU、首批/完成时延、跨 Worker 与 benchmark 结果 |
 | B5 | 实时单输入与对齐双输入 AQE 的实际范围映射已验证 | 不同 Join/NULL/重复键/重试/混合负载的阈值与尾时延校准 |
-| B6 | Native result ownership、byte credit、explicit EOF/drain、early-close failure | 跨主机吞吐、soak、完整 ASan/UBSan 和 phase 归因 |
+| B6 | Native result ownership、byte credit、explicit EOF/drain、early-close failure；Flight 每批撤权检查不再读取带锁的完整所有权快照，已加入并发撤权与读取者释放回归 | 跨主机吞吐、soak、完整 ASan/UBSan 和 phase 归因 |
 | B7 | Shuffle read/write window、atomic bounded publication、零逐 batch 授权 SQL | 真实 PostgreSQL 计数、热点、owner 切换、对象清理和并发读取 |
 | B8 | fenced write journal、intent-before-catalog、ambiguous reconciliation | Iceberg/Paimon/Lance/COPY/CDC 高并发和故障组合、跨引擎结果 |
 | B9 | 固定到达率混合样本和阶段事件 | Linux 专用 runner/config、共享 SF100/SF1000、非零三窗口与 Trino/Spark reference |
