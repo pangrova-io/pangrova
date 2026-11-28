@@ -24,9 +24,11 @@ import org.testcontainers.images.builder.Transferable;
 import org.testcontainers.utility.DockerImageName;
 
 import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
 import java.sql.DriverManager;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Base64;
 import java.util.List;
 import java.util.LinkedHashSet;
 import java.util.Map;
@@ -41,6 +43,7 @@ final class ProcessSecurityAuthority implements AutoCloseable {
     static final String TENANT = "spec-process-tenant";
     private final String schema = "spec_" + UUID.randomUUID().toString().replace("-", "");
     private final boolean isolatedDatabase;
+    private final String queryPeerKey = newQueryPeerKey();
     private final PGSimpleDataSource dataSource = new PGSimpleDataSource();
     private final LinkedHashSet<String> catalogs = new LinkedHashSet<>(List.of("spec_catalog"));
     private final GenericContainer<?> ldap;
@@ -79,6 +82,14 @@ final class ProcessSecurityAuthority implements AutoCloseable {
     }
 
     PGSimpleDataSource dataSource() { return dataSource; }
+
+    String queryPeerKey() { return queryPeerKey; }
+
+    private static String newQueryPeerKey() {
+        byte[] key = new byte[32];
+        new SecureRandom().nextBytes(key);
+        return Base64.getEncoder().encodeToString(key);
+    }
 
     void allowCatalog(String catalog) {
         if (storageCreated) throw new IllegalStateException("Process permissions are already initialized");

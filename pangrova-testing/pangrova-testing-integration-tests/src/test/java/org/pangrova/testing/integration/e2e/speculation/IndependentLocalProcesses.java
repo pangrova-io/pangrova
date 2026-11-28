@@ -755,6 +755,7 @@ final class IndependentLocalProcesses implements AutoCloseable {
                   admission:
                     state-directory: "%s"
                   internal-auth-secret: "%s"
+                  query-peer-key: "%s"
                   speculation:
                     enabled: %s
                   ha:
@@ -789,7 +790,7 @@ final class IndependentLocalProcesses implements AutoCloseable {
                 indexing:
                   enabled: %s
                 """.formatted(coordinatorId(), coordinatorPort, role, workspace.resolve("coordinator-admission"),
-                internalSecret, speculation, advertisedAddress.getHostAddress(),
+                internalSecret, security.queryPeerKey(), speculation, advertisedAddress.getHostAddress(),
                 coordinatorIdentity.certificateChain(), coordinatorIdentity.privateKey(),
                 tls.root(), shuffleMode, remoteShuffle == null ? advertisedAddress.getHostAddress() : "localhost",
                 security.hostJdbcUrl(), security.hostLdapUrl(), indexing)

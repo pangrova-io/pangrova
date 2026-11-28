@@ -10,6 +10,8 @@ through `IndependentLocalProcesses`: one production Coordinator JVM, two product
 Worker JVMs with distinct PIDs and endpoints, and separate public CLI JVMs. PostgreSQL
 and LDAP use the existing container fixtures. A Pangrova application image is not a
 prerequisite for this local validation path.
+Coordinator processes sharing a test PostgreSQL and LDAP authority also share
+the query peer signing key so clients can resume the original signed route.
 
 Provide `pangrova.e2e.local.lib-dir`, `pangrova.e2e.local.jar-manifest` and
 `pangrova.e2e.local.native-lib` as for `IndependentLocalProcessesE2ETest`. The runtime
