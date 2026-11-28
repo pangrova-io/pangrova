@@ -1,6 +1,7 @@
 package org.pangrova.coordinator.query.execution.dispatch.dag.control;
 
 import org.pangrova.shuffle.api.coordinator.ExternalShuffleDescriptorEncoder;
+import org.pangrova.generation.api.exchange.GenerationExchangeFinalization;
 import org.pangrova.generation.api.exchange.GenerationExchangeRegistration;
 import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.PreparedPartition;
 import org.pangrova.protocol.v2.ExecutionOwnerIdentity;
@@ -11,6 +12,7 @@ import org.pangrova.protocol.v2.ExchangeReadMode;
 import org.pangrova.shuffle.api.ShuffleServerEndpoint;
 import org.pangrova.shuffle.api.ShuffleServiceAddress;
 
+import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.List;
 
@@ -30,12 +32,14 @@ final class StageExchangeAccessValidator {
                     .filter(input -> input.getExchangeId().equals(edge.exchangeId())).toList();
             var evidence = prepared.exchanges().stream().filter(value ->
                     value.registration().exchangeId().equals(edge.exchangeId())).findFirst().orElseThrow();
-            if (inputs.size() != 1 || !inputs.get(0).hasExternal() || evidence.finalization().isEmpty()) {
+            if (inputs.size() != 1 || !inputs.get(0).hasExternal()) {
                 throw new IllegalArgumentException("Consumer task requires one actually finalized external allocation");
             }
+            var finalized = evidence.finalization().orElseThrow(() ->
+                    new IllegalArgumentException("Consumer task requires one actually finalized external allocation"));
             var binding = inputs.get(0);
             requireBlocking(binding);
-            requireInput(binding.getExternal(), prepared, evidence.registration(), access.descriptorEncoder());
+            requireInput(binding.getExternal(), prepared, evidence.registration(), finalized, access.descriptorEncoder());
         }
         var outgoing = graph.exchanges().stream().filter(edge -> edge.upstreamStageId() == stage).toList();
         requireOutput(prepared, access, outgoing);
@@ -49,7 +53,8 @@ final class StageExchangeAccessValidator {
     }
 
     private static void requireInput(ExternalShuffleInput input, PreparedPartition prepared,
-            GenerationExchangeRegistration registration, ExternalShuffleDescriptorEncoder encoder) {
+            GenerationExchangeRegistration registration, GenerationExchangeFinalization finalized,
+            ExternalShuffleDescriptorEncoder encoder) {
         if (!input.getShuffleId().equals(registration.shuffleId())
                 || input.getPlanEpoch() != registration.planEpoch()
                 || !input.hasSourcePartitionStart()
@@ -60,7 +65,28 @@ final class StageExchangeAccessValidator {
             throw new IllegalArgumentException("Consumer access changed the immutable allocation, epoch or cohort");
         }
         requireChecksum(input.getExpectedProducerSetChecksum(), registration);
+        requirePublishedRange(input, finalized);
         requireConsumerTransport(input, prepared, registration, encoder);
+    }
+
+    static void requirePublishedRange(ExternalShuffleInput input, GenerationExchangeFinalization finalized) {
+        int start = input.getSourcePartitionStart();
+        int count = input.getPublicationsCount();
+        if (!input.hasSourcePartitionStart() || start < 0 || count == 0
+                || start > finalized.partitions().size() - count) {
+            throw new IllegalArgumentException("Consumer range is outside the persisted Shuffle receipt");
+        }
+        for (int offset = 0; offset < count; offset++) {
+            var expected = finalized.partitions().get(start + offset);
+            var actual = input.getPublications(offset);
+            if (!actual.hasLastSequence() || actual.getLastSequence() != expected.committedLastSequence()
+                    || !actual.hasTotalBytes() || actual.getTotalBytes() != expected.totalBytes()
+                    || !actual.hasTotalRows() || actual.getTotalRows() != expected.totalRows()
+                    || !Arrays.equals(actual.getManifestSha256().toByteArray(),
+                            HexFormat.of().parseHex(expected.manifestSha256()))) {
+                throw new IllegalArgumentException("Consumer publication differs from the persisted Shuffle receipt");
+            }
+        }
     }
 
     private static void requireConsumerTransport(ExternalShuffleInput input, PreparedPartition prepared,
