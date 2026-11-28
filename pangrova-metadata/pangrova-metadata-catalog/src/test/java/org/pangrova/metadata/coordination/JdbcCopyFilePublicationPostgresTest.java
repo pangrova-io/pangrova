@@ -129,8 +129,8 @@ class JdbcCopyFilePublicationPostgresTest {
         JdbcWriteCommitJournal journal = new JdbcWriteCommitJournal(source);
 
         assertThatThrownBy(() -> journal.recordIntent(intent))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("durable file admission");
+                .isInstanceOf(org.pangrova.persistence.query.api.exception.JournalWriteException.class)
+                .rootCause().hasMessageContaining("COPY journal intent differs from durable file admission");
         assertThat(new JdbcCopyFileClaimStore(source).claim(claim))
                 .isEqualTo(CopyFileClaimResult.ACQUIRED);
         journal.recordIntent(intent);

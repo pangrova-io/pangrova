@@ -45,17 +45,10 @@ public final class CdcWriteCommitCoordinator {
         Objects.requireNonNull(intent, "intent");
         CdcSourceIdentity source = Objects.requireNonNull(
                 intent.cdcSource(), "CDC commit requires its exact source identity");
-        var receipt = journal.getReceipt(intent.queryId()).orElse(null);
-        if (receipt != null) {
-            if (!receipt.cdcWrite()
-                    || !receipt.commitFingerprint().equals(intent.commitFingerprint())
-                    || receipt.state() != WriteCommitState.COMMITTED) {
-                throw new IllegalStateException("CDC retry differs from its terminal write receipt");
-            }
+        if (journal.recordIntent(intent) == WriteCommitState.COMMITTED) {
             offsetAcker.acknowledge(source, intent.commitFingerprint());
             return;
         }
-        journal.recordIntent(intent);
         publisher.publish(intent);
         if (!journal.recordTerminalOutcome(intent, intent.executionFencingToken(), WriteCommitState.COMMITTED)) {
             throw new IllegalStateException("Lost execution anchor while publishing CDC intent: " + intent.queryId());

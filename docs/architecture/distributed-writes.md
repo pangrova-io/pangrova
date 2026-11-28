@@ -150,9 +150,13 @@ marking its local journal committed. A coordinator crash or timeout in that inte
 from the RPC result alone whether publication happened. Recovery therefore needs both a durable
 redo record and an externally visible idempotency marker.
 
-A successful PostgreSQL journal insert uses the affected-row count as evidence
-inside the transaction. Duplicate event IDs trigger an exact readback, and
-query events with lineage still commit with their outbox rows. The coordinator
+Write-intent admission resolves the compact fingerprint receipt and inserts missing
+redo in one PostgreSQL statement. Ordinary writes and CDC can proceed with a new
+or existing pending intent, or recognize an exact committed replay without a
+separate preflight query. A concurrent winner outside the statement snapshot is
+resolved through an exact receipt read. The COPY journal trigger checks the immutable
+file admission in the insert transaction. Query events with lineage still commit
+with their outbox rows. The coordinator
 uses one loaded COMMITTED write entry for recovery, COPY proof, and deferred
 work acknowledgement. COPY resolves an existing immutable publication or inserts a
 new one in a single PostgreSQL statement. A concurrent winner outside the

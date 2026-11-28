@@ -111,59 +111,28 @@ final class NativeTaskWriteCompletion {
             return true;
         }
 
-        // The compact receipt survives retirement of the full redo and binds exact replays.
-        var receipt = writeCommitJournal.getReceipt(queryId).orElse(null);
-        if (receipt != null) {
-            if (receipt.state() != WriteCommitState.COMMITTED) {
-                throw new IllegalStateException("Cannot complete an aborted write: " + queryId);
-            }
-            var currentWrite = writeCommitTracker.peekWriteState(queryId);
-            if (currentWrite != null && !receipt.commitFingerprint().equals(
-                    createWriteCommitIntent(queryId, currentWrite, currentWrite.fragments(), anchor)
-                            .commitFingerprint())) {
-                throw new IllegalStateException("Write replay differs from its terminal receipt: " + queryId);
-            }
-            WriteCommitEntry committed = writeCommitJournal.getEntry(queryId).orElse(null);
-            if (committed == null) {
-                if (currentWrite != null && (receipt.copyWrite() || receipt.cdcWrite())) {
-                    throw new IllegalStateException("Specialized write replay requires its source-specific proof");
-                }
-                writeCommitTracker.removeWriteState(queryId);
-                return true;
-            }
-            if (committed.state() != WriteCommitState.COMMITTED
-                    || !receipt.commitFingerprint().equals(committed.commitFingerprint())) {
-                throw new IllegalStateException("Write terminal receipt differs from retained redo: " + queryId);
-            }
-            if (committed.copyFile() != null) {
-                DefaultWriteCommitReconciler reconciler = new DefaultWriteCommitReconciler(
-                        writeCommitJournal, name -> {
-                            CatalogHandle catalog = catalogRegistry.getCatalog(name);
-                            return catalog instanceof ConnectorCatalogHandle connector ? connector : null;
-                        });
-                if (reconciler.reconcile(committed)
-                        != org.pangrova.coordinator.enums.WriteRecoveryOutcome.COMMITTED) {
-                    throw new IllegalStateException("COMMITTED COPY lost its current Iceberg snapshot proof");
-                }
-            }
-            LOG.info("event=distributed_write_already_committed queryId={}", queryId);
-            retireCommittedWrite(committed);
-            return true;
-        }
-
-        // The live write context must outlive both intent and catalog commit.
-        NativeWriteCommitTracker.WriteCommitState writeState =
-                writeCommitTracker.peekWriteState(queryId);
+        NativeWriteCommitTracker.WriteCommitState writeState = writeCommitTracker.peekWriteState(queryId);
         if (writeState == null) {
+            finishFromTerminalReceipt(queryId, null);
             return true;
         }
 
-        enforceWriteQuality(writeState, queryId);
-
-        // Retain a replayable exact intent before touching the external catalog.
         List<byte[]> fragments = writeState.fragments();
         WriteCommitEntry intent = createWriteCommitIntent(queryId, writeState, fragments, anchor);
-        writeCommitJournal.recordIntent(intent);
+        try {
+            enforceWriteQuality(writeState, queryId);
+        } catch (PangrovaException qualityFailure) {
+            // An already-published outcome remains authoritative if quality rules changed before a replay.
+            if (finishFromTerminalReceipt(queryId, intent)) {
+                return true;
+            }
+            throw qualityFailure;
+        }
+
+        if (writeCommitJournal.recordIntent(intent) == WriteCommitState.COMMITTED) {
+            finishCommittedWrite(queryId, intent.commitFingerprint(), needsSpecializedReplay(intent));
+            return true;
+        }
 
         if (!isCurrentExecutionOwner(queryId, fencer, anchor, "before_catalog_commit")) {
             return false;
@@ -187,6 +156,51 @@ final class NativeTaskWriteCompletion {
         LOG.info("event=distributed_write_committed queryId={} catalog={} fragmentCount={}",
                 queryId, writeState.catalogName(), fragments.size());
         return true;
+    }
+
+    private boolean finishFromTerminalReceipt(String queryId, WriteCommitEntry candidate) {
+        var receipt = writeCommitJournal.getReceipt(queryId).orElse(null);
+        if (receipt == null) {
+            return false;
+        }
+        if (receipt.state() != WriteCommitState.COMMITTED) {
+            throw new IllegalStateException("Cannot complete an aborted write: " + queryId);
+        }
+        if (candidate != null && !receipt.commitFingerprint().equals(candidate.commitFingerprint())) {
+            throw new IllegalStateException("Write replay differs from its terminal receipt: " + queryId);
+        }
+        finishCommittedWrite(queryId, receipt.commitFingerprint(), needsSpecializedReplay(candidate));
+        return true;
+    }
+
+    private static boolean needsSpecializedReplay(WriteCommitEntry candidate) {
+        return candidate != null && (candidate.copyFile() != null || candidate.cdcSource() != null);
+    }
+
+    private void finishCommittedWrite(String queryId, String fingerprint, boolean requireRedo) {
+        WriteCommitEntry committed = writeCommitJournal.getEntry(queryId).orElse(null);
+        if (committed == null) {
+            if (requireRedo) {
+                throw new IllegalStateException("Specialized write replay requires its source-specific proof");
+            }
+            writeCommitTracker.removeWriteState(queryId);
+            return;
+        }
+        if (committed.state() != WriteCommitState.COMMITTED
+                || !fingerprint.equals(committed.commitFingerprint())) {
+            throw new IllegalStateException("Write terminal receipt differs from retained redo: " + queryId);
+        }
+        if (committed.copyFile() != null) {
+            var reconciler = new DefaultWriteCommitReconciler(writeCommitJournal, name -> {
+                CatalogHandle catalog = catalogRegistry.getCatalog(name);
+                return catalog instanceof ConnectorCatalogHandle connector ? connector : null;
+            });
+            if (reconciler.reconcile(committed) != org.pangrova.coordinator.enums.WriteRecoveryOutcome.COMMITTED) {
+                throw new IllegalStateException("COMMITTED COPY lost its current Iceberg snapshot proof");
+            }
+        }
+        LOG.info("event=distributed_write_already_committed queryId={}", queryId);
+        retireCommittedWrite(committed);
     }
 
     private CopyFilePublication commitCatalog(NativeWriteCommitTracker.WriteCommitState writeState,

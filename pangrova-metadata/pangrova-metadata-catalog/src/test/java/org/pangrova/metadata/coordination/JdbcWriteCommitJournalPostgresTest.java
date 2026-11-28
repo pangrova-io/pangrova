@@ -57,6 +57,38 @@ class JdbcWriteCommitJournalPostgresTest extends ContainerTestBase {
     }
 
     @Test
+    void concurrentExactAdmissionKeepsTheFirstRedoAndReturnsItsState() throws Exception {
+        var first = pending("admission-race", 1_000L);
+        var duplicate = pending(first.queryId(), 2_000L);
+        var bothReady = new java.util.concurrent.CountDownLatch(2);
+        var threads = Executors.newFixedThreadPool(2);
+        try {
+            var left = threads.submit(() -> admitTogether(first, bothReady));
+            var right = threads.submit(() -> admitTogether(duplicate, bothReady));
+            assertThat(left.get(10, TimeUnit.SECONDS)).isEqualTo(WriteCommitState.PENDING);
+            assertThat(right.get(10, TimeUnit.SECONDS)).isEqualTo(WriteCommitState.PENDING);
+            long originalTimestamp = journal.getEntry(first.queryId()).orElseThrow().timestampMs();
+            assertThat(originalTimestamp).isIn(first.timestampMs(), duplicate.timestampMs());
+            assertThat(journal.recordIntent(pending(first.queryId(), 3_000L))).isEqualTo(WriteCommitState.PENDING);
+            assertThat(journal.getEntry(first.queryId()).orElseThrow().timestampMs()).isEqualTo(originalTimestamp);
+            journal.markCommitted(first.queryId());
+            assertThat(journal.recordIntent(duplicate)).isEqualTo(WriteCommitState.COMMITTED);
+        } finally {
+            threads.shutdownNow();
+            assertThat(threads.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+        }
+    }
+
+    private WriteCommitState admitTogether(WriteCommitEntry intent, java.util.concurrent.CountDownLatch bothReady)
+            throws InterruptedException {
+        bothReady.countDown();
+        if (!bothReady.await(5, TimeUnit.SECONDS)) {
+            throw new IllegalStateException("Concurrent journal admission did not start");
+        }
+        return journal.recordIntent(intent);
+    }
+
+    @Test
     void committedStateAndRedoPayloadSurviveJdbcRoundTrip() {
         journal.recordIntent(pending("query-1", 1_000L));
 
@@ -88,7 +120,7 @@ class JdbcWriteCommitJournalPostgresTest extends ContainerTestBase {
         assertThat(reopened.getReceipt(intent.queryId())).contains(receipt);
         assertThat(reopened.isCommitted(intent.queryId())).isTrue();
         reopened.markCommitted(intent.queryId());
-        assertThatThrownBy(() -> reopened.recordIntent(intent)).isInstanceOf(JournalWriteException.class);
+        assertThat(reopened.recordIntent(intent)).isEqualTo(WriteCommitState.COMMITTED);
         assertThat(reopened.getEntry(intent.queryId())).isEmpty();
         assertThat(reopened.getReceipt(intent.queryId())).contains(receipt);
         assertThatThrownBy(() -> {

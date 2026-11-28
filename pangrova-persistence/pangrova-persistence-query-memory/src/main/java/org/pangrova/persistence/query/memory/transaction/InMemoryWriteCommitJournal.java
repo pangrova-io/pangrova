@@ -32,7 +32,7 @@ public final class InMemoryWriteCommitJournal implements WriteCommitJournal {
     }
 
     @Override
-    public void recordIntent(WriteCommitEntry entry) {
+    public WriteCommitState recordIntent(WriteCommitEntry entry) {
         java.util.Objects.requireNonNull(entry, "entry");
         if (entry.state() != WriteCommitState.PENDING) {
             throw new IllegalArgumentException("Only PENDING write intents may be recorded");
@@ -40,20 +40,25 @@ public final class InMemoryWriteCommitJournal implements WriteCommitJournal {
         if (entry.copyFile() != null) {
             throw new IllegalStateException("COPY requires a durable PostgreSQL write journal");
         }
-        entries.compute(entry.queryId(), (ignored, existing) -> {
+        var redo = entries.compute(entry.queryId(), (ignored, existing) -> {
             if (existing == null) {
-                if (receipts.containsKey(entry.queryId())) {
-                    throw new IllegalStateException("Cannot re-admit a retired write intent: " + entry.queryId());
+                var receipt = receipts.get(entry.queryId());
+                if (receipt == null) {
+                    return entry;
                 }
-                return entry;
+                requireAdmittedIdentity(entry, receipt.commitFingerprint(), receipt.state());
+                return null;
             }
-            if (!existing.commitFingerprint().equals(entry.commitFingerprint())
-                    || existing.state() == WriteCommitState.ABORTED) {
-                throw new IllegalStateException(
-                        "Conflicting write commit intent for queryId=" + entry.queryId());
-            }
+            requireAdmittedIdentity(entry, existing.commitFingerprint(), existing.state());
             return existing;
         });
+        return redo == null ? WriteCommitState.COMMITTED : redo.state();
+    }
+
+    private static void requireAdmittedIdentity(WriteCommitEntry entry, String fingerprint, WriteCommitState state) {
+        if (!entry.commitFingerprint().equals(fingerprint) || state == WriteCommitState.ABORTED) {
+            throw new IllegalStateException("Conflicting write commit intent for queryId=" + entry.queryId());
+        }
     }
 
     @Override

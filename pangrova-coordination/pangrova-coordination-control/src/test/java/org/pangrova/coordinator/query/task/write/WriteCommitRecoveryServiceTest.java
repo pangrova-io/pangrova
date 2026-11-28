@@ -84,7 +84,8 @@ class WriteCommitRecoveryServiceTest {
         assertThat(journal.getEntry(intent.queryId())).isEmpty();
         assertThat(journal.getReceipt(intent.queryId())).contains(receipt);
         assertThat(journal.isCommitted(intent.queryId())).isTrue();
-        assertThatThrownBy(() -> journal.recordIntent(intent)).isInstanceOf(IllegalStateException.class);
+        assertThat(journal.recordIntent(intent)).isEqualTo(WriteCommitState.COMMITTED);
+        assertThat(journal.getEntry(intent.queryId())).isEmpty();
     }
 
     @Test

@@ -51,15 +51,22 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
     private static final Logger LOG = LoggerFactory.getLogger(JdbcWriteCommitJournal.class);
     private static final ObjectMapper JSON = new ObjectMapper();
 
+    private static final String SELECT_ADMISSION_RECEIPT =
+            "SELECT state, commit_fingerprint FROM write_commit_receipts WHERE query_id = ?";
+
     private static final String INSERT_ENTRY =
-            "INSERT INTO write_commit_journal (query_id, catalog_name, table_name, state, "
+            "WITH existing AS MATERIALIZED (" + SELECT_ADMISSION_RECEIPT + "), inserted AS ("
+                    + "INSERT INTO write_commit_journal (query_id, catalog_name, table_name, state, "
                     + "timestamp_ms, fragments, write_mode, idempotency_key, owner_id, "
                     + "tenant_id, base_snapshot_id, commit_fingerprint, owner_incarnation, "
                     + "execution_fencing_token, write_output_binding, principal, deferred_authorization_scope, "
                     + "published_version, manifest_sha256, copy_claim_key, copy_load_generation, "
                     + "copy_claim_digest, copy_table_uuid, cdc_stream_id, cdc_source_epoch, cdc_offset_ranges) "
-                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb) "
-                    + "ON CONFLICT (query_id) DO NOTHING";
+                    + "SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb "
+                    + "WHERE NOT EXISTS (SELECT 1 FROM existing) "
+                    + "ON CONFLICT (query_id) DO NOTHING RETURNING state, commit_fingerprint"
+                    + ") SELECT state, commit_fingerprint FROM inserted UNION ALL "
+                    + "SELECT state, commit_fingerprint FROM existing";
 
     private static final String UPDATE_STATE =
             "UPDATE write_commit_journal SET state = ?, timestamp_ms = ? "
@@ -184,7 +191,7 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
     }
 
     @Override
-    public void recordIntent(WriteCommitEntry entry) {
+    public WriteCommitState recordIntent(WriteCommitEntry entry) {
         Objects.requireNonNull(entry, "entry must not be null");
         if (entry.state() != WriteCommitState.PENDING) {
             throw new IllegalArgumentException("Only PENDING write intents may be recorded");
@@ -195,11 +202,9 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
         }
         try (Connection conn = dataSource.getConnection();
              PreparedStatement ps = conn.prepareStatement(INSERT_ENTRY)) {
-            if (entry.copyFile() != null) {
-                requireMatchingCopyAdmission(conn, entry);
-            }
             int parameter = 1;
-            ps.setString(parameter++, entry.queryId());
+            ps.setString(parameter++, entry.queryId()); // exact compact identity lookup
+            ps.setString(parameter++, entry.queryId()); // redo INSERT
             ps.setString(parameter++, entry.catalogName());
             ps.setString(parameter++, entry.tableName());
             ps.setString(parameter++, entry.state().name());
@@ -245,37 +250,16 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
                 ps.setString(parameter++, cdcSource.sourceEpoch());
                 ps.setString(parameter, encodeCdcRanges(cdcSource));
             }
-            int inserted = ps.executeUpdate();
-            if (inserted == 0) {
-                requireMatchingExistingIntent(conn, entry);
-            }
-            LOG.info("event=write_commit_intent_recorded queryId={} catalog={} table={}",
-                    entry.queryId(), entry.catalogName(), entry.tableName());
+            WriteCommitState state = admitIntent(conn, ps, entry);
+            LOG.info("event=write_commit_intent_resolved queryId={} catalog={} table={} state={}",
+                    entry.queryId(), entry.catalogName(), entry.tableName(), state);
+            return state;
         } catch (SQLException e) {
             LOG.error("event=write_commit_intent_failed queryId={} error={}",
                     entry.queryId(), e.getMessage(), e);
             throw new JournalWriteException(
                     "Failed to record write commit intent for queryId=" + entry.queryId(), e,
                     JournalAdmissionOutcome.ACCEPTED_UNESTABLISHED);
-        }
-    }
-
-    private static void requireMatchingCopyAdmission(Connection connection, WriteCommitEntry entry)
-            throws SQLException {
-        CopyFileCommitBinding binding = entry.copyFile();
-        try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT claim_digest, execution_id, tenant_id, table_uuid "
-                        + "FROM copy_file_claims WHERE claim_key=? AND load_generation=?")) {
-            statement.setString(1, binding.fileKey());
-            statement.setLong(2, binding.loadGeneration());
-            try (ResultSet result = statement.executeQuery()) {
-                if (!result.next() || !binding.claimDigest().equals(result.getString("claim_digest"))
-                        || !entry.queryId().equals(result.getString("execution_id"))
-                        || !entry.tenantId().equals(result.getString("tenant_id"))
-                        || !binding.tableUuid().equals(result.getObject("table_uuid", UUID.class).toString())) {
-                    throw new IllegalStateException("COPY write intent differs from durable file admission");
-                }
-            }
         }
     }
 
@@ -805,23 +789,48 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
                 NativeWriteCommitOutcome.COMMITTED, version, result.getBytes("manifest_sha256"));
     }
 
-    private static void requireMatchingExistingIntent(
-            Connection connection, WriteCommitEntry candidate) throws SQLException {
-        try (PreparedStatement ps = connection.prepareStatement(SELECT_BY_QUERY_ID)) {
-            ps.setString(1, candidate.queryId());
-            try (ResultSet rs = ps.executeQuery()) {
-                if (!rs.next()
-                        || !candidate.commitFingerprint().equals(
-                        rs.getString("commit_fingerprint"))
-                        || WriteCommitState.ABORTED.name().equals(rs.getString("state"))) {
-                    throw new JournalWriteException(
-                            "Conflicting write commit intent for queryId=" + candidate.queryId(),
-                            new IllegalStateException(
-                                    "query id has a different fingerprint or a durable abort barrier"),
-                            JournalAdmissionOutcome.ACCEPTED_UNESTABLISHED);
+    private static WriteCommitState admitIntent(Connection connection, PreparedStatement admission,
+            WriteCommitEntry candidate) throws SQLException {
+        SQLException racedRetirement = null;
+        try (ResultSet result = admission.executeQuery()) {
+            if (result.next()) {
+                return requireExactAdmittedState(result, candidate);
+            }
+        } catch (SQLException failure) {
+            if (!"23505".equals(failure.getSQLState())) {
+                throw failure;
+            }
+            // A competing insert and retirement can leave only the unique compact receipt.
+            racedRetirement = failure;
+        }
+        // A concurrent winner may be absent from the INSERT statement's original snapshot.
+        try (var statement = connection.prepareStatement(SELECT_ADMISSION_RECEIPT)) {
+            statement.setString(1, candidate.queryId());
+            try (var result = statement.executeQuery()) {
+                if (result.next()) {
+                    return requireExactAdmittedState(result, candidate);
                 }
+                if (racedRetirement != null) {
+                    throw racedRetirement;
+                }
+                throw new JournalWriteException("Write admission has no durable receipt for queryId="
+                        + candidate.queryId(), new IllegalStateException("Missing write admission receipt"),
+                        JournalAdmissionOutcome.ACCEPTED_UNESTABLISHED);
             }
         }
+    }
+
+    private static WriteCommitState requireExactAdmittedState(ResultSet row, WriteCommitEntry candidate)
+            throws SQLException {
+        if (candidate.commitFingerprint().equals(row.getString("commit_fingerprint"))) {
+            WriteCommitState state = WriteCommitState.valueOf(row.getString("state"));
+            if (state != WriteCommitState.ABORTED) {
+                return state;
+            }
+        }
+        throw new JournalWriteException("Conflicting write commit intent for queryId=" + candidate.queryId(),
+                new IllegalStateException("query id has a different fingerprint or a durable abort barrier"),
+                JournalAdmissionOutcome.ACCEPTED_UNESTABLISHED);
     }
 
     private static void requireCommittedEntry(Connection connection, String queryId) throws SQLException {

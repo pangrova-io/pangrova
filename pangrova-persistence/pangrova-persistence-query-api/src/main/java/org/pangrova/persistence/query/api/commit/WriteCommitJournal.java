@@ -30,9 +30,11 @@ public interface WriteCommitJournal extends WriteCommitOutbox {
      * Must be called BEFORE {@code finishDistributedWrite()}.
      *
      * @param entry the commit intent with state {@link WriteCommitState#PENDING}
-     * @throws JournalWriteException if persistence fails
+     * @return PENDING when the exact redo is available, or COMMITTED when the exact
+     *         terminal receipt already exists, including after redo retirement
+     * @throws JournalWriteException if persistence fails or admission conflicts
      */
-    void recordIntent(WriteCommitEntry entry);
+    WriteCommitState recordIntent(WriteCommitEntry entry);
 
     /**
      * Durably records a confirmed external manifest before catalog visibility is changed.

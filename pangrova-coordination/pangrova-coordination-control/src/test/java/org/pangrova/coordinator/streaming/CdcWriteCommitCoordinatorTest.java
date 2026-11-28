@@ -77,7 +77,7 @@ class CdcWriteCommitCoordinatorTest {
         var next = new CdcSourceIdentity("stream-1", "epoch-1",
                 List.of(new CdcSourceIdentity.OffsetRange("orders", 0, 20, 30)));
         assertThatThrownBy(() -> coordinator.commit(intent(next)))
-                .isInstanceOf(IllegalStateException.class).hasMessageContaining("terminal write receipt");
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("Conflicting write commit intent");
         assertThat(acks[0]).isOne();
     }
 
