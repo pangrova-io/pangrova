@@ -252,7 +252,7 @@ jobs:
           cmake --build build --parallel 2 --target pangrova_native_tests
           python3 "$RUNNER_TEMP/run-crash-probe.py" release-folly
           test "$(cat "$RUNNER_TEMP/native-crash-diagnostics/standard.result")" -eq 0
-      - name: Apply the candidate Thrift selection and fixture startup changes
+      - name: Apply the candidate Thrift, Arrow status storage and fixture changes
         if: inputs.probe == 'macos-arm-acceptance'
         run: |
           [[ "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
@@ -260,6 +260,9 @@ jobs:
           test "$(git rev-parse FETCH_HEAD)" = "$SOURCE_COMMIT"
           for file in \
             pangrova-worker-native/cmake/FindVelox.cmake \
+            pangrova-worker-native/arrow_unexported_symbols_macos.list \
+            pangrova-worker-native/bin/isolate-arrow-macos-exports.py \
+            pangrova-worker-native/test/CanonicalFlightPackageTest.py \
             pangrova-worker-native/bin/run-native-tests.py \
             pangrova-worker-native/test/RunNativeTestsTest.py \
             pangrova-connector/pangrova-connector-lance/src/test/java/org/pangrova/connector/lance/LanceCatalogTestDatabase.java \
@@ -267,6 +270,17 @@ jobs:
             git show "$SOURCE_COMMIT:$file" > "$file"
           done
           git diff --check
+      - name: Rebuild canonical Arrow and Flight with private status storage
+        if: inputs.probe == 'macos-arm-acceptance'
+        run: |
+          source ~/.pangrova/env.sh
+          old_libraries="$RUNNER_TEMP/original-flight"
+          mkdir "$old_libraries"
+          for name in libarrow.1800.dylib libarrow_flight.1800.dylib; do
+            cp -L "$PANGROVA_DEPS_PREFIX/lib/$name" "$old_libraries/$name"
+          done
+          SKIP_DEPS=1 PANGROVA_NATIVE_BUILD_PHASE=arrow-flight \
+            bash pangrova-worker-native/bin/setup-native-build-env.sh
       - name: Restore Maven dependencies for the archived Native fixture
         if: inputs.probe == 'macos-arm-acceptance'
         uses: actions/cache/restore@v4
@@ -304,6 +318,44 @@ jobs:
           if grep -Eq '/lib(transport|thrift[^ .\/]+)\.a' "$link_plan"; then
             exit 1
           fi
+      - name: Compare original and isolated Flight libraries in the same full executable
+        if: inputs.probe == 'macos-arm-acceptance'
+        working-directory: pangrova-worker-native
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          import subprocess
+
+          tests = (
+              "ResultFlightStreamTest.SignedFlightClaimsOnlyAnAlreadyReadableRegistration",
+              "ResultFlightStreamTest.ActualRunnerKeepsLogicalWireNamesRequiredFlagsAndPresentationLabelsSeparate",
+              "ResultFlightStreamTest.ActualFlightCancellationWakesPendingReadAndRetiresItsLease",
+              "ResultFlightStreamTest.ActualFlightShutdownRevokesPendingFetchBeforeJoiningTransport",
+              "ResultFlightStreamTest.ConcurrentSignedTicketReplayCannotReplaceTheActualPendingReader",
+              "NativeExchangeDataPlaneE2ETest.ConcurrentFlightLongPollsDoNotStarveTimers",
+              "NativeExchangeDataPlaneE2ETest.CancellingOneFlightSourceKeepsTheSharedPeerStreamAlive",
+              "NativeExchangeDataPlaneE2ETest.CloseCancelsBlockedRead",
+          )
+          directory = Path(os.environ["RUNNER_TEMP"])
+          logs = directory / "native-crash-diagnostics"
+          archived = dict(os.environ, DYLD_LIBRARY_PATH=str(directory / "original-flight"),
+                          DYLD_PRINT_LIBRARIES="1")
+          candidate = dict(os.environ, DYLD_PRINT_LIBRARIES="1")
+          for name, environment in (("original", archived), ("isolated", candidate)):
+              failures = 0
+              for index, test in enumerate(tests):
+                  result = subprocess.run(
+                      ["build/pangrova_native_tests", "--gtest_filter=" + test],
+                      env=environment, capture_output=True, text=True, errors="replace", timeout=45)
+                  (logs / f"flight-status-{name}-{index}.log").write_text(result.stdout + result.stderr)
+                  if result.returncode != 0 or "[  PASSED  ] 1 test." not in result.stdout:
+                      failures += 1
+                  print(name, result.returncode, test, flush=True)
+              print(f"{name}: {failures} of {len(tests)} failed", flush=True)
+              if name == "isolated" and failures:
+                  raise SystemExit(1)
+          PY
       - name: Prepare the same cold Docker endpoint as full macOS CI
         if: inputs.probe == 'macos-arm-acceptance'
         run: bash .pangrova/scripts/setup-macos-native-test-docker.sh
