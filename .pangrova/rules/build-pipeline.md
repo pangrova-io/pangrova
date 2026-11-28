@@ -110,7 +110,7 @@ python3 pangrova-worker-native/bin/run-native-tests.py --build-dir pangrova-work
 UBSan uses `dev-ubsan` and `--build-dir pangrova-worker-native/build-ubsan`. On macOS,
 pass `CMAKE_PROJECT_folly_INCLUDE=<repo>/pangrova-worker-native/cmake/AsanFollyCompat.cmake`
 to Folly's configure; on arm64 with Folly v2026.01.05.00 and LLVM 17.0.6 build the
-[qualified Darwin dependency](../../docs/development/darwin-function-sanitizer.md#build-the-integer-corrected-dependency).
+[qualified Darwin dependency](../../docs/development/execution-backlog.md#darwin-function).
 The macOS gate runs `ASAN_OPTIONS=detect_leaks=0:halt_on_error=1` and does not qualify
 LeakSanitizer; Linux ASan/LSan is a separate release gate. The runner rejects a
 recoverable sanitizer diagnostic even when CTest succeeds.

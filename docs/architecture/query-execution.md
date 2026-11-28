@@ -2447,7 +2447,7 @@ and read access. A live retry uses the frozen mapping for that stage. Durable
 replay uses the original persisted partition allocation.
 
 The implementation and verification requirements are tracked in the
-[query performance plan](../development/query-performance-parity-plan.md#q3-让-cbo聚合和-aqe-缩减跨节点工作).
+[execution backlog](../development/execution-backlog.md#focused-probes).
 
 ---
 
