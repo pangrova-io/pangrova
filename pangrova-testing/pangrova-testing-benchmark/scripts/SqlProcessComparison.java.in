@@ -32,9 +32,9 @@ public final class SqlProcessComparison {
             processes.startCoordinatorAndFirstWorker();
             String table = "spec_catalog.default.perf_" + UUID.randomUUID().toString().replace("-", "");
             processes.createSourceCatalog();
-            processes.query("CREATE TABLE " + table + " (id BIGINT)", ResultProtocol.GRPC_TLS);
+            processes.command("CREATE TABLE " + table + " (id BIGINT)", ResultProtocol.GRPC_TLS);
             for (int part = 0; part < 3; part++) {
-                processes.query("INSERT INTO " + table + " VALUES (4), (5), (5)", ResultProtocol.GRPC_TLS);
+                processes.command("INSERT INTO " + table + " VALUES (4), (5), (5)", ResultProtocol.GRPC_TLS);
             }
             processes.startSecondWorker();
             processes.enableMetadataStatementCounters();
