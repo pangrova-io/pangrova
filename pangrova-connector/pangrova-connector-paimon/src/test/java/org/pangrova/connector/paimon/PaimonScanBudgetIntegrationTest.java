@@ -18,7 +18,9 @@ import org.junit.jupiter.api.io.TempDir;
 import org.pangrova.common.concurrent.ManagedExecutorFactory;
 import org.pangrova.common.enums.PangrovaErrorCode;
 import org.pangrova.connector.api.exception.ConnectorException;
+import org.pangrova.connector.api.metadata.Domain;
 import org.pangrova.connector.api.metadata.SplitPlanningBudget;
+import org.pangrova.connector.api.metadata.table.ColumnHandle;
 import org.pangrova.connector.api.metadata.SplitPlanningBudget.EncodedMetadataBudget;
 
 import java.io.IOException;
@@ -258,6 +260,35 @@ class PaimonScanBudgetIntegrationTest {
             assertThat(expected).hasSize(1);
             assertThat(actual).containsExactlyElementsOf(expected);
             assertThat(io.opens.get()).isGreaterThan(2);
+        }
+    }
+
+    @Test
+    void pinnedPaimonPlanningPrunesDisjointIntegerBuildRanges() throws Exception {
+        try (var catalog = new FileSystemCatalog(new LocalFileIO(), new org.apache.paimon.fs.Path(directory.toString()))) {
+            catalog.createDatabase("db", false);
+            var id = Identifier.create("db", "integer_ranges");
+            catalog.createTable(id, Schema.newBuilder().column("id", DataTypes.INT())
+                    .column("payload", DataTypes.BIGINT()).partitionKeys("id").option("bucket", "-1")
+                    .build(), false);
+            var table = (FileStoreTable) catalog.getTable(id);
+            var builder = table.newBatchWriteBuilder();
+            try (var writer = builder.newWrite(); var commit = builder.newCommit()) {
+                for (int key = -4; key < 5; key++) {
+                    writer.write(GenericRow.of(key, (long) key * 10));
+                }
+                commit.commit(writer.prepareCommit());
+            }
+            var snapshot = table.snapshotManager().latestSnapshot();
+            var domain = new Domain.RangeUnion(java.util.List.of(
+                    new Domain.Range(-3L, -2L, true, true), new Domain.Range(3L, 3L, true, true)));
+            ColumnHandle key = () -> "id";
+            var predicate = PaimonFilterBuilder.build(table.rowType(), () -> Map.of(key, domain));
+            var filtered = budget(100).plan(table, predicate, snapshot).stream()
+                    .map(DataSplit.class::cast).map(split -> split.partition().getInt(0)).toList();
+
+            assertThat(budget(100).plan(table, null, snapshot)).hasSize(9);
+            assertThat(filtered).containsExactlyInAnyOrder(-3, -2, 3);
         }
     }
 

@@ -914,7 +914,10 @@ final class PlanFragmenter {
             return selectedRead(scan)
                     .filter(read -> read.snapshotId().isPresent() && read.handle().incrementalRange().isEmpty())
                     .flatMap(read -> read.schemaIdentity()
-                            .filter(schema -> "ICEBERG".equals(schema.tableIdentity().format()))
+                            .filter(schema -> switch (schema.tableIdentity().format()) {
+                                case "ICEBERG", "PAIMON" -> true;
+                                default -> false;
+                            })
                             .stream().flatMap(schema -> schema.fields().stream())
                             .filter(field -> field.name().equals(name))
                             .findFirst().map(field -> new ProbeColumn(read, field.fieldId().orElseThrow(), name)));

@@ -9,6 +9,7 @@ import org.apache.paimon.predicate.PredicateBuilder;
 import org.apache.paimon.types.DataField;
 import org.apache.paimon.types.DataType;
 import org.apache.paimon.types.DataTypeFamily;
+import org.apache.paimon.types.IntType;
 import org.apache.paimon.types.RowType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -94,6 +95,11 @@ final class PaimonFilterBuilder {
         if (domain instanceof Domain.Range range) {
             return rangeToPredicate(builder, fieldIndex, range, fieldType);
         }
+        if (domain instanceof Domain.RangeUnion union) {
+            var predicates = union.ranges().stream()
+                    .map(range -> rangeToPredicate(builder, fieldIndex, range, fieldType)).toList();
+            return PredicateBuilder.or(predicates);
+        }
         if (domain instanceof Domain.InList inList) {
             List<Object> coerced = inList.values().stream()
                     .map(v -> coerceToPaimonType(v, fieldType))
@@ -139,6 +145,9 @@ final class PaimonFilterBuilder {
     private static Object coerceToPaimonType(Object value, DataType fieldType) {
         if (value == null) {
             return null;
+        }
+        if (fieldType instanceof IntType && value instanceof Long longValue) {
+            return Math.toIntExact(longValue);
         }
         if (fieldType.getTypeRoot().getFamilies().contains(DataTypeFamily.CHARACTER_STRING)) {
             if (value instanceof BinaryString) {
