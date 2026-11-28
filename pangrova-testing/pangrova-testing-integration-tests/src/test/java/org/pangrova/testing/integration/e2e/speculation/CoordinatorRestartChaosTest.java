@@ -49,6 +49,7 @@ import static org.awaitility.Awaitility.await;
 class CoordinatorRestartChaosTest extends ContainerTestBase {
     private static final String WORKER = "e2e-worker-1";
     private static final String WORKER_HOST = "worker-1";
+    private static final int WORKER_HTTP_PORT = 8081;
     private static final int WORKER_RESULT_PORT = 9090;
     private static final String WORKER_CONTROL_URL = "http://chaos-proxy:9090";
     private static final String CONFIG = "/opt/pangrova/config/";
@@ -133,6 +134,7 @@ class CoordinatorRestartChaosTest extends ContainerTestBase {
                 }
                 docker.startContainerCmd(worker.getContainerId()).exec();
                 awaitWorker(observer, workersRequest, true);
+                awaitWorkerRoute(coordinator);
                 nativeQuery(client, mappedResult, reports, security);
 
                 try (var held = reports.holdReports(report -> "FINISHED".equals(report.state()))) {
@@ -272,6 +274,25 @@ class CoordinatorRestartChaosTest extends ContainerTestBase {
                 });
     }
 
+    private static void awaitWorkerRoute(GenericContainer<?> coordinator) throws Exception {
+        // The Worker can register while the Coordinator JVM still caches a lookup failure from cancellation.
+        var securityProperty = coordinator.execInContainer("sh", "-c",
+                "sed -n 's/^networkaddress[.]cache[.]negative[.]ttl=//p' \"$JAVA_HOME/conf/security/java.security\"");
+        assertThat(securityProperty.getExitCode()).as(securityProperty.getStderr()).isZero();
+        long negativeCacheSeconds = Long.parseLong(securityProperty.getStdout().strip());
+        assertThat(negativeCacheSeconds).isBetween(0L, TIMEOUT.toSeconds() - 1);
+        String endpoint = "http://" + WORKER_HOST + ":" + WORKER_HTTP_PORT + "/v1/health";
+        await("Worker is reachable from Coordinator through the negative DNS cache lifetime")
+                .during(Duration.ofSeconds(negativeCacheSeconds)).atMost(TIMEOUT)
+                .pollInterval(Duration.ofSeconds(1)).untilAsserted(() -> {
+                    var health = coordinator.execInContainer("curl", "--fail", "--silent", "--show-error",
+                            "--max-time", "2", endpoint);
+                    assertThat(health.getExitCode()).as(health.getStderr()).isZero();
+                    assertThat(JsonMapperFactory.shared().readTree(health.getStdout()).path("nodeType").asText())
+                            .isEqualTo("WORKER");
+                });
+    }
+
     private static void configure(GenericContainer<?> container, String role, String yaml,
             TestTlsAuthority tls, TestTlsAuthority.Identity identity) {
         String configFile = CONFIG + "chaos-" + role + ".yml";
@@ -328,7 +349,7 @@ class CoordinatorRestartChaosTest extends ContainerTestBase {
                   id: e2e-worker-1
                   host: 0.0.0.0
                   advertised-host: %s
-                  port: 8081
+                  port: %d
                   coordinator-url: "%s"
                   internal-auth-secret: "%s"
                   heartbeat-interval: 2s
@@ -349,7 +370,7 @@ class CoordinatorRestartChaosTest extends ContainerTestBase {
                   native:
                     cache:
                       enabled: false
-                """.formatted(WORKER_HOST, WORKER_CONTROL_URL, secret, WORKER_RESULT_PORT, WORKER_HOST);
+                """.formatted(WORKER_HOST, WORKER_HTTP_PORT, WORKER_CONTROL_URL, secret, WORKER_RESULT_PORT, WORKER_HOST);
     }
 
     private static String required(String property) {
