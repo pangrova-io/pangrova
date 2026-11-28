@@ -102,6 +102,25 @@ description: "Pangrova 查询与写入优化、Java 类型和包更名及单机�
 - `query-peer-http.log` 的 Coordinator HTTP 定向回归 3 项通过。覆盖同 JVM 内两个真实端口、
   PostgreSQL 下的幂等回执、并发等待、诊断零 journal SELECT、显式回执恢复与取消。
   双独立 JVM 和出错 Worker 的组合仍待同源验证。
+- `b59ce4b58` 将已准备但未进入传输的本地预留加入 Worker 心跳负载，已进入的 attempt
+  继续用较大值处理重叠，保留精确释放边界。控制模块 reactor 定向编译成功，20 项中
+  4 项通过，16 项在旧 Native capability fixture 校验处退出，见 `a6-placement-reactor.log`。
+- `50795527e` 将 manifest PUT 的对象元数据绑定到该次写入的 UUID，补偿清理只结清
+  对应的对象键和预留。真实 PostgreSQL/MinIO 上 `DurableShuffleIntegrationTest`
+  35 项通过，覆盖两次同键 PUT 在分批清扫中分别结清。见
+  `shuffle-exact-manifest-reservation.log`。未出现对象的远端止写证明仍开放。
+- `7ba8d6949` 将本地 Paimon SDK 已报告文件的 inode 与时间戳纳入回收指纹。
+  `PaimonDistributedDeleteCommitTest` 在 macOS JDK 17 Maven reactor 和 Linux arm64
+  Temurin 17 容器中各 21 项通过。Linux 实际验证了同长度替换保留、原对象删除与重复清理，
+  两端都解码了不带指纹的历史 v2 fragment。见 `paimon-file-identity-macos.log` 和
+  `paimon-file-identity-linux-staged.log`。
+- `fc361160d` 把 macOS 进程 user/system CPU 合计加入角色采样。Mach 时间单位转换在本机
+  对齐进程 CPU 时钟，独立 JDK 17 子进程的探测取得 3 组 CPU、RSS 和 heap 样本。
+- Native SDK 使用固定 Velox 提交 `3da0390118fa4b0addbfbdeb03f438ec1b1237a6`，
+  通过仓库补丁检查并重建 archive 和 provenance。Release 目标
+  `pangrova_native pangrova_function_export` 链接成功，arm64 dylib SHA-256 为
+  `15d51352c077e5d3b440a3b772377b86ba9e49a24dadc8365a35b257fb6146b3`。
+  基线和候选的 Native 源码及 Protobuf 定义相同。见 `native-release-build.log`。
 
 Java 定向测试使用下面的命令结构，日志保留各批传入的选择器和 Maven reactor。
 Paimon、Shuffle 与 journal 的复现命令如下。
@@ -125,7 +144,7 @@ python3 -m unittest discover -s .pangrova/scripts/tests -p 'test_*.py'
 | A3 · WP1.3 结果状态 | `PENDING`、`STREAM`、`NONE` 已贯通客户端与服务端，本地双 Worker 和独立 CLI 已有覆盖 | 在独立进程上验证空结果、无结果集、延迟 Ready、结果读完后写提交失败、取消恢复。不允许端点 Ready 与逻辑终态互相替代。见 B2/B6/B8 |
 | A4 · WP2 关键路径归因与容量 | 已有准备排队/执行、Worker 回报、胜出超时和全局物理排空等观测，本地真实 PostgreSQL 已验证排空计数不重复 | 跑同机固定到达率矩阵，覆盖短长查询、租户过载、目录阻塞、终态报告压力和 durable commit。关联真实提交、规划、ACK、JNI 创建、首末批、终态和排空，分离连接池、锁和实际执行时间。按 B3 证明饱和时独立查询与取消仍能推进 |
 | A5 · WP3.2 Paimon 枚举 | 普通读取、内部增量和直接追加共用阶段上限，已加入跨窗口删除合并与受阻读取用例 | 在最新候选统一复跑并加入对象存储流中断、超时、取消和 manifest 压力。核对固定快照、完整结果、I/O 实际关闭和元素/字节/并发额度，校准阶段预算 |
-| A6 · WP3.3 分片工作量与 Worker 放置 | 窗口合并持久认领，已纳入冻结 split、交换字节和精确在途计数。Worker 心跳包含各 Coordinator 已进入 Worker 的工作 | 补多 Coordinator 样本传播和并发放置验证。核对 Worker incarnation、样本新鲜度、ACK、派发前回滚和实际释放，解决在途与心跳重叠。按格式、冷热、删除文件和并发校准打包/放置，测分配等待和最长任务。共享样本不可扩大查询授权 |
+| A6 · WP3.3 分片工作量与 Worker 放置 | 窗口合并持久认领，已纳入冻结 split、交换字节和精确在途计数。已区分本地预留与进入派发的 attempt | 补多 Coordinator 样本传播和并发放置验证。核对 Worker incarnation、样本新鲜度、ACK、派发前回滚、在途与心跳重叠以及实际释放。按格式、冷热、删除文件和并发校准打包/放置，测分配等待和最长任务。共享样本不可扩大查询授权 |
 | A7 · WP3.4 物理读取覆盖 | Parquet/Iceberg 支持基于合法范围读取并共享对象长度，Lance/Paimon 已有各自的整文件或范围约束 | 验证受保护产物贯穿授权与读取的整对象身份、本地对象存储的 GET/HEAD 次数，以及删除文件较大时的成本与位置正确性。范围不得重叠或缺失，需核对整文件对照、删除语义、投影、压缩和对象版本不匹配。见 A8 |
 | A8 · WP3.1 物理 I/O 和权限 | Native 读取计数及 S3 body 字节已进入 attempt Profile，标准 Iceberg/Paimon 已有逐目录凭证和缓存隔离实现 | 复跑真实 MinIO 与独立 Native 进程夹具，再按标准 SQL 路径及其他 SDK 实测逻辑请求、实际请求/重试、返回字节、缓存与异常。验证同地址不同凭证、目录变更、撤权及缓存隔离。HTTP header/传输帧如未实测标为不可用 |
 | A9 · WP4 跨 Stage 动态过滤 | Iceberg/Paimon 同宽 TINYINT、SMALLINT、INTEGER、BIGINT 及多独立组合已实现，摘要有界。A9 已有定向 Java 和 Native 交换回归 | 以独立双 Worker 同源部署包验证晚到过滤、被接纳 attempt、Native 确认、split/row group/读取字节、结果与实际释放。覆盖共享 Stage、其他键、连接器及并行组合。按负载校准等待成本和晚到对已发 I/O 的影响，保持缺证、NULL、版本不匹配时的结果正确 |
