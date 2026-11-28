@@ -211,6 +211,23 @@ class PaimonDistributedDeleteCommitTest extends PaimonDeleteFixture {
     }
 
     @Test
+    void missingStagedObjectReceiptsLeaveCleanupPending() throws Exception {
+        createTable(false, false);
+        var metadata = new PaimonMetadata(catalog, "delete_catalog", new PaimonSplitRegistry());
+        var handle = (org.pangrova.connector.paimon.handle.PaimonOutputTableHandle)
+                metadata.beginInsert(SESSION, handle(metadata));
+        var receipt = finish(provider().createPageSink(ConnectorTransactionHandle.empty(), SESSION, handle), SURVIVOR);
+        var staged = org.pangrova.connector.paimon.write.PaimonSdkWriteFragment.decode(receipt, handle);
+        var stagedFile = java.nio.file.Path.of(java.net.URI.create(staged.objects().get(0).uri()));
+        List<byte[]> missing = List.of();
+        var context = PaimonCommitFixture.context(metadata, SESSION, handle, missing);
+
+        assertThat(metadata.reclaimObservedStaging(SESSION, handle, missing, context)).isFalse();
+        assertThat(stagedFile).isRegularFile();
+        assertThat(snapshotId()).isEqualTo(-1L);
+    }
+
+    @Test
     void durableCommitReplayDoesNotPublishDuplicateRowsOrSnapshots() throws Exception {
         createTable(false, false);
         var metadata = new PaimonMetadata(catalog, "delete_catalog", new org.pangrova.connector.paimon.PaimonSplitRegistry());

@@ -290,6 +290,7 @@ database directory inode. Recovery verifies that binding before treating any
 missing path as absent, and uses directory-relative operations that do not
 follow links beneath the database directory. A successor can repeat a partial
 deletion under its new claim. The completion record covers only reported files.
+An empty object receipt leaves the cleanup obligation pending.
 Native physical output, external roots, unreported files, and an unavailable
 original storage namespace retain the staging obligation.
 

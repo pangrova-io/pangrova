@@ -20,6 +20,7 @@ public final class PaimonObservedWriteStaging {
 
     /** Deletes the observed files when the local storage authority matches. */
     public static boolean reclaim(PaimonOutputTableHandle handle, List<byte[]> fragments) throws IOException {
+        if (fragments.isEmpty()) return false;
         Path root = PaimonLocalStagingAuthority.absolutePath(
                 new org.apache.paimon.fs.Path(handle.tableLocation()).toUri());
         if (root == null || !root.equals(root.normalize())) return false;
@@ -30,7 +31,7 @@ public final class PaimonObservedWriteStaging {
             String authority = PaimonLocalStagingAuthority.observe(secureParent);
             if (authority.isEmpty()) return false;
             Map<Path, Long> objects = collect(handle, fragments, root, authority);
-            if (objects == null) return false;
+            if (objects == null || objects.isEmpty()) return false;
             try (var directory = secureParent.newDirectoryStream(root.getFileName(), LinkOption.NOFOLLOW_LINKS)) {
                 for (var object : objects.entrySet()) {
                     reclaim(directory, object.getKey(), 0, object.getValue());
