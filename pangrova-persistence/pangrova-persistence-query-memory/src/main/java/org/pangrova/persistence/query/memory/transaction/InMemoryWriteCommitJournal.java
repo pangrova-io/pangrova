@@ -74,6 +74,33 @@ public final class InMemoryWriteCommitJournal implements WriteCommitJournal {
     }
 
     @Override
+    public boolean recordTerminalOutcome(WriteCommitEntry intent, long token, WriteCommitState outcome) {
+        if (outcome == WriteCommitState.PENDING) {
+            throw new IllegalArgumentException("Expected a terminal write outcome");
+        }
+        // A process-local journal has no durable anchor. Its caller validates local ownership.
+        entries.compute(intent.queryId(), (id, existing) -> {
+            if (existing == null) {
+                var receipt = receipts.get(id);
+                if (receipt != null && receipt.commitFingerprint().equals(intent.commitFingerprint())
+                        && receipt.state() == outcome) {
+                    return null;
+                }
+                throw new IllegalStateException("Missing terminal write identity: " + id);
+            }
+            if (!existing.commitFingerprint().equals(intent.commitFingerprint())
+                    || existing.state() != WriteCommitState.PENDING && existing.state() != outcome
+                    || outcome == WriteCommitState.ABORTED && existing.publication() != null) {
+                throw new IllegalStateException("Conflicting terminal write outcome: " + id);
+            }
+            var terminal = existing.state() == outcome ? existing : existing.withState(outcome, System.currentTimeMillis());
+            retainReceipt(terminal);
+            return terminal;
+        });
+        return true;
+    }
+
+    @Override
     public void recordPublication(String queryId, String fingerprint, NativeWriteFinalization publication) {
         entries.compute(queryId, (ignored, existing) -> {
             if (existing == null || !existing.commitFingerprint().equals(fingerprint)) {

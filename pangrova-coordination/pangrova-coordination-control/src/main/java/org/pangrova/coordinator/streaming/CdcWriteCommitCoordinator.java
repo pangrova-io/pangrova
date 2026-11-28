@@ -3,6 +3,7 @@ package org.pangrova.coordinator.streaming;
 import org.pangrova.persistence.query.api.commit.CdcSourceIdentity;
 import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
 import org.pangrova.persistence.query.api.commit.WriteCommitJournal;
+import org.pangrova.persistence.query.api.enums.WriteCommitState;
 
 import java.util.Objects;
 
@@ -48,7 +49,7 @@ public final class CdcWriteCommitCoordinator {
         if (receipt != null) {
             if (!receipt.cdcWrite()
                     || !receipt.commitFingerprint().equals(intent.commitFingerprint())
-                    || receipt.state() != org.pangrova.persistence.query.api.enums.WriteCommitState.COMMITTED) {
+                    || receipt.state() != WriteCommitState.COMMITTED) {
                 throw new IllegalStateException("CDC retry differs from its terminal write receipt");
             }
             offsetAcker.acknowledge(source, intent.commitFingerprint());
@@ -56,7 +57,9 @@ public final class CdcWriteCommitCoordinator {
         }
         journal.recordIntent(intent);
         publisher.publish(intent);
-        journal.markCommitted(intent.queryId());
+        if (!journal.recordTerminalOutcome(intent, intent.executionFencingToken(), WriteCommitState.COMMITTED)) {
+            throw new IllegalStateException("Lost execution anchor while publishing CDC intent: " + intent.queryId());
+        }
         offsetAcker.acknowledge(source, intent.commitFingerprint());
     }
 }

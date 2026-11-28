@@ -134,7 +134,14 @@ Routing rule: relational writes, including DELETE ALL and VALUES, use Native tas
 
 ## 2. Write Transaction Atomicity
 
-Ordinary SQL writes use the execution owner's catalog and journal fences. The Coordinator checks the durable materialization consumer for trusted internal executions and during recovery. A COPY publication validates ownership after persisting its exact file receipt. A connector publication recorded by the journal carries its durable evidence into the remaining commit steps.
+Ordinary SQL writes use the execution owner's catalog and journal fences. The Coordinator
+checks the durable materialization consumer for trusted internal executions and during recovery.
+A COPY write persists its exact file receipt before finalizing the journal. An owned execution
+finalizes its journal in one PostgreSQL statement that locks the execution anchor and exact
+intent, checks expiry against the database clock after obtaining the row locks, and records the
+outcome under the current fencing token. Recovery supplies its claimed token with the
+original fingerprint. A connector publication recorded by the journal carries its durable
+evidence into the remaining commit steps.
 
 ### Problem Statement
 

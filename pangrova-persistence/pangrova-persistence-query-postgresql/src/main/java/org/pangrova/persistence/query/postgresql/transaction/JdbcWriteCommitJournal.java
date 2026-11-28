@@ -63,7 +63,42 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
 
     private static final String UPDATE_STATE =
             "UPDATE write_commit_journal SET state = ?, timestamp_ms = ? "
-                    + "WHERE query_id = ? AND state = 'PENDING'";
+                    + "WHERE query_id = ? AND state = 'PENDING' AND NOT EXISTS "
+                    + "(SELECT 1 FROM execution_anchor WHERE execution_id=write_commit_journal.query_id)";
+
+    // The CASE makes the wall-clock sample depend on obtaining the exact journal row lock.
+    private static final String RECORD_FENCED_OUTCOME = """
+            WITH owner AS MATERIALIZED (
+                SELECT execution_id, expires_at
+                FROM execution_anchor WHERE execution_id = ? AND fencing_token = ?
+                FOR SHARE
+            ), target AS MATERIALIZED (
+                SELECT journal.query_id, journal.state
+                FROM owner JOIN write_commit_journal journal ON journal.query_id = owner.execution_id
+                WHERE journal.commit_fingerprint = ?
+                FOR UPDATE OF journal
+            ), authority AS MATERIALIZED (
+                SELECT owner.execution_id
+                FROM owner
+                WHERE CASE WHEN (SELECT count(*) FROM target) <= 1
+                    THEN owner.expires_at > clock_timestamp()
+                    ELSE false END
+            ), transition AS (
+                UPDATE write_commit_journal journal
+                SET state = ?, timestamp_ms = (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::bigint
+                FROM target JOIN authority ON authority.execution_id = target.query_id
+                WHERE journal.query_id = target.query_id AND target.state = 'PENDING'
+                    AND (CAST(? AS boolean) OR journal.published_version IS NULL
+                        AND journal.manifest_sha256 IS NULL)
+                RETURNING journal.query_id
+            )
+            SELECT EXISTS (SELECT 1 FROM authority) AS current_owner,
+                   EXISTS (SELECT 1 FROM transition)
+                       OR EXISTS (SELECT 1 FROM target WHERE state = ?)
+                       OR EXISTS (SELECT 1 FROM write_commit_receipts receipt
+                           JOIN authority ON authority.execution_id = receipt.query_id
+                           WHERE receipt.commit_fingerprint = ? AND receipt.state = ?) AS exact_outcome
+            """;
 
     private static final String RECORD_PUBLICATION =
             "UPDATE write_commit_journal SET published_version = ?, manifest_sha256 = ? "
@@ -413,6 +448,41 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
         }
     }
 
+    @Override
+    public boolean recordTerminalOutcome(WriteCommitEntry intent, long token, WriteCommitState outcome) {
+        Objects.requireNonNull(intent, "intent");
+        Objects.requireNonNull(outcome, "outcome");
+        if (outcome == WriteCommitState.PENDING || token <= 0) {
+            throw new IllegalArgumentException("Durable finalization requires a terminal outcome and execution token");
+        }
+        try (var connection = dataSource.getConnection();
+             var statement = connection.prepareStatement(RECORD_FENCED_OUTCOME)) {
+            statement.setString(1, intent.queryId());
+            statement.setLong(2, token);
+            statement.setString(3, intent.commitFingerprint());
+            statement.setString(4, outcome.name());
+            statement.setBoolean(5, outcome == WriteCommitState.COMMITTED);
+            statement.setString(6, outcome.name());
+            statement.setString(7, intent.commitFingerprint());
+            statement.setString(8, outcome.name());
+            try (var result = statement.executeQuery()) {
+                if (!result.next()) {
+                    throw new IllegalStateException("Missing write outcome result: " + intent.queryId());
+                }
+                if (!result.getBoolean("current_owner")) {
+                    return false;
+                }
+                if (!result.getBoolean("exact_outcome")) {
+                    throw new IllegalStateException("Conflicting terminal write outcome: " + intent.queryId());
+                }
+                return true;
+            }
+        } catch (SQLException failure) {
+            throw new JournalWriteException("Cannot persist fenced write outcome: " + intent.queryId(), failure,
+                    JournalAdmissionOutcome.ACCEPTED_UNESTABLISHED);
+        }
+    }
+
     /** Locks and decodes the real redo intent on the source catalog's publication connection. */
     public static WriteCommitEntry lockIntent(Connection connection, String queryId) throws SQLException {
         if (connection.getAutoCommit()) throw new IllegalArgumentException("Intent lock requires a transaction");
@@ -621,7 +691,8 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
         try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement(
                 "UPDATE write_commit_journal SET state='ABORTED' WHERE query_id=? AND commit_fingerprint=? "
                         + "AND state IN ('PENDING','ABORTED') "
-                        + "AND published_version IS NULL AND manifest_sha256 IS NULL")) {
+                        + "AND published_version IS NULL AND manifest_sha256 IS NULL AND NOT EXISTS "
+                        + "(SELECT 1 FROM execution_anchor WHERE execution_id=write_commit_journal.query_id)")) {
             statement.setString(1, queryId);
             statement.setString(2, fingerprint);
             if (statement.executeUpdate() == 0) {
@@ -758,7 +829,7 @@ public final class JdbcWriteCommitJournal implements WriteCommitJournal {
             statement.setString(1, queryId);
             try (var row = statement.executeQuery()) {
                 if (!row.next() || !WriteCommitState.COMMITTED.name().equals(row.getString(1))) {
-                    throw new IllegalStateException("Cannot commit a missing or aborted write intent: " + queryId);
+                    throw new IllegalStateException("Cannot commit a missing, aborted or fenced write intent: " + queryId);
                 }
             }
         }

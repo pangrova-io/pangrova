@@ -1,6 +1,7 @@
 package org.pangrova.persistence.query.api.commit;
 
 import org.pangrova.connector.api.commit.NativeWriteFinalization;
+import org.pangrova.persistence.query.api.enums.WriteCommitState;
 
 import org.pangrova.common.api.annotation.Stable;
 
@@ -53,13 +54,23 @@ public interface WriteCommitJournal extends WriteCommitOutbox {
     boolean requiresPublication(WriteCommitEntry intent);
 
     /**
-     * Marks an existing intent as COMMITTED after successful commit.
+     * Marks an unanchored intent as COMMITTED after successful commit.
      * Must be called AFTER {@code finishDistributedWrite()} succeeds.
      *
      * @param queryId the query identifier of the committed write
      * @throws JournalWriteException if the update fails
      */
     void markCommitted(String queryId);
+
+    /**
+     * Persists the proven outcome of an exact intent under its current execution fence.
+     * A recovery owner supplies its own token, not the token that admitted the intent.
+     * The durable implementation locks the authority and records the outcome in one statement.
+     *
+     * @return false when the execution token is no longer current
+     * @throws IllegalStateException if the journal identity or outcome conflicts
+     */
+    boolean recordTerminalOutcome(WriteCommitEntry intent, long fencingToken, WriteCommitState outcome);
 
     /**
      * Checks whether a write for the given query has already been committed.
@@ -101,12 +112,12 @@ public interface WriteCommitJournal extends WriteCommitOutbox {
     List<WriteCommitEntry> replayPendingEntries(Set<String> executionIds);
 
     /**
-     * Persists a terminal barrier after fenced recovery has confirmed the exact intent's abort.
+     * Persists a terminal barrier after a confirmed abort of an unanchored intent.
      * Query failure or a timeout alone is not evidence that a catalog commit was aborted.
      * Repeating the same ABORTED transition is idempotent. Missing, different, committed,
      * or externally published intents are rejected; the immutable identity is never deleted.
      *
-     * @param queryId execution identifier whose durable fence is held by the caller
+     * @param queryId execution identifier without a durable anchor
      * @param commitFingerprint immutable fingerprint of the reconciled intent
      * @throws IllegalStateException if the intent is missing, differs or has publication evidence
      * @throws JournalWriteException if persistence fails

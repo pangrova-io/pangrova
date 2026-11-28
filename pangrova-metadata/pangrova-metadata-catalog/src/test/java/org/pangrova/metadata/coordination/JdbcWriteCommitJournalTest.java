@@ -288,7 +288,8 @@ class JdbcWriteCommitJournalTest extends ContainerTestBase {
             assertThat(facts.confirmRecoveredTaskDrains(successor)).isEqualTo(DrainOutcome.PENDING_WRITE);
             assertThat(facts.latestQueryEvent(intent.queryId()).orElseThrow().state()).isEqualTo("RUNNING");
 
-            journal.markCommitted(intent.queryId());
+            assertThat(journal.recordTerminalOutcome(intent, successor.fencingToken(), WriteCommitState.COMMITTED))
+                    .isTrue();
             journal.acknowledgeNoDeferredWork(intent.commitFingerprint());
             journal.purge(intent.queryId());
             assertThat(journal.getEntry(intent.queryId())).isPresent();

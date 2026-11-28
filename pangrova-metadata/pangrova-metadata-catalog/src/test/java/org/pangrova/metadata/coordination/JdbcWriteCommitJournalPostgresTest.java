@@ -105,17 +105,42 @@ class JdbcWriteCommitJournalPostgresTest extends ContainerTestBase {
         var upgradeSource = SharedPostgresContainer.isolatedDataSource("receipt_upgrade");
         org.flywaydb.core.Flyway.configure().dataSource(upgradeSource)
                 .locations("classpath:db/migration").target("142").load().migrate();
-        var previous = new JdbcWriteCommitJournal(upgradeSource);
         var pending = pending("upgrade-pending", 1_000L);
         var committed = pending("upgrade-committed", 2_000L);
         var aborted = pending("upgrade-aborted", 3_000L);
-        previous.recordIntent(pending);
-        previous.recordIntent(committed);
-        previous.recordIntent(aborted);
         var publication = new NativeWriteFinalization(NativeWriteCommitOutcome.COMMITTED, 43, new byte[32]);
-        previous.recordPublication(committed.queryId(), committed.commitFingerprint(), publication);
-        previous.markCommitted(committed.queryId());
-        previous.markAborted(aborted.queryId(), aborted.commitFingerprint());
+        try (var connection = upgradeSource.getConnection(); var statement = connection.prepareStatement("""
+                INSERT INTO write_commit_journal
+                    (query_id, catalog_name, table_name, state, timestamp_ms, fragments, write_mode,
+                     idempotency_key, execution_fencing_token, tenant_id, base_snapshot_id, commit_fingerprint,
+                     write_output_binding, published_version, manifest_sha256)
+                VALUES (?, ?, ?, ?, ?, 'AQID', ?, ?, 0, ?, ?, ?, 'Kg==', ?, ?)
+                """)) {
+            for (var intent : List.of(pending, committed, aborted)) {
+                boolean published = intent == committed;
+                var state = published ? WriteCommitState.COMMITTED
+                        : intent == aborted ? WriteCommitState.ABORTED : WriteCommitState.PENDING;
+                statement.setString(1, intent.queryId());
+                statement.setString(2, intent.catalogName());
+                statement.setString(3, intent.tableName());
+                statement.setString(4, state.name());
+                statement.setLong(5, intent.timestampMs());
+                statement.setString(6, intent.writeMode());
+                statement.setString(7, intent.idempotencyKey());
+                statement.setString(8, intent.tenantId());
+                statement.setLong(9, intent.baseSnapshotId());
+                statement.setString(10, intent.commitFingerprint());
+                if (published) {
+                    statement.setLong(11, publication.publishedVersion());
+                    statement.setBytes(12, publication.manifestSha256());
+                } else {
+                    statement.setNull(11, java.sql.Types.BIGINT);
+                    statement.setNull(12, java.sql.Types.BINARY);
+                }
+                statement.addBatch();
+            }
+            statement.executeBatch();
+        }
 
         org.flywaydb.core.Flyway.configure().dataSource(upgradeSource)
                 .locations("classpath:db/migration").load().migrate();
@@ -378,6 +403,41 @@ class JdbcWriteCommitJournalPostgresTest extends ContainerTestBase {
     }
 
     @Test
+    void fencedOutcomeRejectsPreviousOwnerAndRetainsExactReceiptAcrossRedoRetirement() {
+        var leases = new org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore(dataSource);
+        var lifetime = Duration.ofMinutes(1);
+        var original = leases.tryAcquire("fenced-terminal", "coordinator-a", "process-a", lifetime).orElseThrow();
+        var intent = pending(original.executionId(), 1_000L, null, original.fencingToken());
+        journal.recordIntent(intent);
+        assertThat(leases.yield(original)).isTrue();
+        var successor = leases.tryAcquire(intent.queryId(), "coordinator-b", "process-b", lifetime).orElseThrow();
+
+        assertThat(journal.recordTerminalOutcome(intent, original.fencingToken(), WriteCommitState.COMMITTED))
+                .isFalse();
+        assertThat(journal.recordTerminalOutcome(intent, original.fencingToken(), WriteCommitState.ABORTED))
+                .isFalse();
+        assertThatThrownBy(() -> journal.markCommitted(intent.queryId())).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> journal.markAborted(intent.queryId(), intent.commitFingerprint()))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(journal.getEntry(intent.queryId())).get().extracting(WriteCommitEntry::state)
+                .isEqualTo(WriteCommitState.PENDING);
+
+        assertThat(journal.recordTerminalOutcome(intent, successor.fencingToken(), WriteCommitState.COMMITTED))
+                .isTrue();
+        assertThatThrownBy(() -> journal.recordTerminalOutcome(intent, successor.fencingToken(), WriteCommitState.ABORTED))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Conflicting terminal write outcome");
+        journal.acknowledgeNoDeferredWork(intent.commitFingerprint());
+        assertThat(leases.release(successor)).isTrue();
+        journal.purge(intent.queryId());
+        assertThat(journal.getEntry(intent.queryId())).isEmpty();
+        assertThat(journal.getReceipt(intent.queryId()).orElseThrow().commitFingerprint())
+                .isEqualTo(intent.commitFingerprint());
+        assertThat(journal.recordTerminalOutcome(intent, successor.fencingToken(), WriteCommitState.COMMITTED))
+                .isFalse();
+    }
+
+    @Test
     void releaseKeepsAnUnresolvedWriteClaimableUntilCommitIsConfirmed() {
         var leases = new org.pangrova.persistence.query.postgresql.coordination.JdbcExecutionAnchorStore(dataSource);
         var lifetime = java.time.Duration.ofMinutes(1);
@@ -392,7 +452,9 @@ class JdbcWriteCommitJournalPostgresTest extends ContainerTestBase {
             assertThat(anchor.fencingToken()).isGreaterThan(original.fencingToken());
         });
         assertThat(leases.release(original)).isFalse();
-        journal.markCommitted(original.executionId());
+        var intent = journal.getEntry(original.executionId()).orElseThrow();
+        assertThat(journal.recordTerminalOutcome(intent, recovered.get(0).fencingToken(), WriteCommitState.COMMITTED))
+                .isTrue();
         assertThat(leases.release(recovered.get(0))).isTrue();
         assertThat(leases.claimExpired("coordinator-c", "process-c", lifetime, 1)).isEmpty();
     }

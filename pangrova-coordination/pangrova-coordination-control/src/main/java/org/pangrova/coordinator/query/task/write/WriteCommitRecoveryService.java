@@ -3,6 +3,7 @@ package org.pangrova.coordinator.query.task.write;
 import org.pangrova.coordinator.enums.WriteRecoveryOutcome;
 import org.pangrova.persistence.query.api.commit.WriteCommitEntry;
 import org.pangrova.persistence.query.api.commit.WriteCommitJournal;
+import org.pangrova.persistence.query.api.enums.WriteCommitState;
 import org.pangrova.query.api.write.QuarantinedWriteCommit;
 import org.pangrova.persistence.query.api.transaction.WriteCommitQuarantineStore;
 import org.slf4j.Logger;
@@ -129,7 +130,7 @@ public final class WriteCommitRecoveryService {
             WriteCommitEntry entry, long token,
             BiPredicate<String, Long> durableFence, RecoveryCounters counters) {
         requireCurrentFence(entry.queryId(), token, durableFence);
-        journal.markCommitted(entry.queryId());
+        recordTerminalOutcome(entry, token, WriteCommitState.COMMITTED);
         if (!entry.authorizationReceipt().declaration().hasGeneratedColumns()) {
             journal.acknowledgeNoDeferredWork(entry.commitFingerprint());
         }
@@ -142,10 +143,16 @@ public final class WriteCommitRecoveryService {
             WriteCommitEntry entry, long token,
             BiPredicate<String, Long> durableFence, RecoveryCounters counters) {
         requireCurrentFence(entry.queryId(), token, durableFence);
-        journal.markAborted(entry.queryId(), entry.commitFingerprint());
+        recordTerminalOutcome(entry, token, WriteCommitState.ABORTED);
         counters.aborted++;
         LOG.warn("event=write_commit_recovered outcome=ABORTED queryId={} table={}",
                 entry.queryId(), entry.tableName());
+    }
+
+    private void recordTerminalOutcome(WriteCommitEntry entry, long token, WriteCommitState outcome) {
+        if (!journal.recordTerminalOutcome(entry, token, outcome)) {
+            throw new IllegalStateException("Lost execution anchor while recovering write intent: " + entry.queryId());
+        }
     }
 
     private void quarantine(

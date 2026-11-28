@@ -171,13 +171,18 @@ final class NativeTaskWriteCompletion {
 
         CopyFilePublication copyPublication = commitCatalog(writeState, intent);
 
-        // A changed owner must reconcile the same intent, never publish another commit.
-        if (!isCurrentExecutionOwner(queryId, fencer, anchor, "after_catalog_commit")) return false;
         if (copyPublication != null) {
+            if (!isCurrentExecutionOwner(queryId, fencer, anchor, "before_copy_publication")) return false;
             writeCommitJournal.recordCopyFilePublication(intent, copyPublication);
-            if (!isCurrentExecutionOwner(queryId, fencer, anchor, "after_copy_publication")) return false;
         }
-        writeCommitJournal.markCommitted(queryId);
+        if (anchor == null) {
+            writeCommitJournal.markCommitted(queryId);
+        } else if (!writeCommitJournal.recordTerminalOutcome(
+                intent, anchor.fencingToken(), WriteCommitState.COMMITTED)) {
+            LOG.warn("event=distributed_write_fenced queryId={} fencingToken={} phase=journal_outcome",
+                    queryId, anchor.fencingToken());
+            return false;
+        }
         retireCommittedWrite(intent);
         LOG.info("event=distributed_write_committed queryId={} catalog={} fragmentCount={}",
                 queryId, writeState.catalogName(), fragments.size());
