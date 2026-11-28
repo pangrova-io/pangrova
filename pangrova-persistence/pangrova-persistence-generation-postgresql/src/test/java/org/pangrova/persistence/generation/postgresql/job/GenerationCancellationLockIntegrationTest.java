@@ -71,11 +71,10 @@ class GenerationCancellationLockIntegrationTest extends ContainerTestBase {
             connection.setAutoCommit(false);
             execute(connection, "UPDATE artifact_build_pages SET page_kind='RELATIONAL_COMPUTE' "
                     + "WHERE tenant_id='tenant-a' AND job_id='job-a' AND page_id='page-a'");
-            var selection = new PostgresGenerationPageSelection.Selection(
-                    "tenant-a", "job-a", claimTime, java.util.Optional.empty());
-            var page = PostgresGenerationPageSelection.selectClaimablePage(connection, selection).orElseThrow();
+            var page = PostgresGenerationPageSelection.selectClaimablePage(
+                    connection, "tenant-a", "job-a", claimTime, true).orElseThrow();
             var lease = PostgresGenerationPageClaim.claim(
-                    connection, page, anchor, 1, leaseDuration, claimTime).orElseThrow();
+                    connection, page, anchor, 1, leaseDuration, claimTime, true).orElseThrow();
             var stored = PostgresGenerationPageSelection.findPage(
                     connection, "tenant-a", "job-a", page.pageId(), true).orElseThrow();
 
