@@ -1,6 +1,5 @@
 package org.pangrova.worker.shuffle;
 
-import org.pangrova.worker.shuffle.NativeShuffleProducerRegistrar;
 
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;

@@ -2,8 +2,6 @@ package org.pangrova.persistence.security.postgresql.policy;
 
 import static org.pangrova.persistence.jdbc.operation.JdbcOperations.rollbackAfterFailure;
 
-import org.pangrova.persistence.security.postgresql.policy.JdbcPolicyStoreBase;
-
 import org.pangrova.security.api.authorization.ReadAuthorizationSubjectSource;
 import org.pangrova.security.api.policy.GroupRoleMapping;
 import org.pangrova.security.api.policy.PrivilegeGrant;

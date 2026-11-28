@@ -1,7 +1,5 @@
 package org.pangrova.persistence.security.postgresql.policy;
 
-import org.pangrova.persistence.security.postgresql.policy.JdbcPolicyStoreBase;
-
 import org.pangrova.persistence.security.api.policy.GrantStore;
 import org.pangrova.security.api.enums.Privilege;
 import org.pangrova.security.api.policy.PrivilegeGrant;
