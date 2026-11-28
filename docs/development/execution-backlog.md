@@ -23,7 +23,7 @@ description: "Pangrova 查询、写入、Native 与发布的统一未完成清�
 | A8 · WP3.1 物理 I/O 和权限 | Native 读取计数及 S3 body 字节已进入 attempt Profile，标准 Iceberg/Paimon 已有逐目录凭证和缓存隔离实现 | 复跑真实 MinIO 与独立 Native 进程夹具，再按标准 SQL 路径及其他 SDK 实测逻辑请求、实际请求/重试、返回字节、缓存与异常。验证同地址不同凭证、目录变更、撤权及缓存隔离。HTTP header/传输帧如未实测标为不可用 |
 | A9 · WP4 跨 Stage 动态过滤 | Iceberg/Paimon 同宽 TINYINT、SMALLINT、INTEGER、BIGINT 及多独立组合已实现，摘要有界。A9 已有定向 Java 和 Native 交换回归 | 以独立双 Worker 同源部署包验证晚到过滤、被接纳 attempt、Native 确认、split/row group/读取字节、结果与实际释放。覆盖共享 Stage、其他键、连接器及并行组合。按负载校准等待成本和晚到对已发 I/O 的影响，保持缺证、NULL、版本不匹配时的结果正确 |
 | A10 · WP5 AQE 与持久读取布局 | 单输入和对齐双输入已有真实 SQL 合并证据，持久单/双侧拆分、接管与最终发布有 PostgreSQL 回归 | 复跑同源部署的 Shuffle → JNI → Flight 混合范围和偏斜用例。验证更复杂输入、Join 类型、NULL、重复键、投机获胜、原有 epoch、重试、durable replay、读取覆盖、最终 producer cohort 和复制上界。用混合负载校准阈值与尾 task。见 B5 |
-| A11 · WP6 Shuffle 撤权、producer 停止与回收 | 已有读写 lease/window、终态封口、精确收敛、晚到对象清扫和本地 PostgreSQL/MinIO 证据 | 补未出现对象的 PUT 与 producer window 的正向停止证明，覆盖丢 ACK、迟到 PUT、清扫跨页、旧 owner、替换实例和并发 reader。撤销后阻止新的读取/发帧，在途 I/O 与实际退出有证据才删除或交还。复跑真实多实例/跨主机 SQL 计数与热点负载。见 B7 |
+| A11 · WP6 Shuffle 撤权、producer 停止与回收 | 已有读写 lease/window、终态封口、精确收敛、晚到对象清扫和本地 PostgreSQL/MinIO 证据 | 补未出现对象的 PUT 与 producer window 的正向停止证明，覆盖丢 ACK、迟到 PUT、清扫跨页、旧 owner、替换实例和并发 reader。撤销后阻止新的读取/发帧，在途 I/O 与实际退出有证据才删除或交还。本机多实例复跑 SQL 计数与故障回归，跨主机热点留待独立主机验收。见 B7 |
 | A12 · WP8 写入日志与 CDC 回执 | 二进制 journal、精确回执、CDC 领导任期和 PostgreSQL 变更订阅已接入，本地写入 journal 有定向验证 | 验证各来源重放窗口、回执回收、提交 ACK 丢失、CDC 断线重连与跨 Coordinator 暂停/恢复。复跑空闲数据库计数，覆盖并发/故障与锁等待。只有目录提交可见且精确发布证明成立才确认成功或前进 offset。见 B8 |
 | A13 · WP8 暂存文件与 fenced commit | 已接入 Paimon SDK 已上报文件的同 Linux 存储命名空间清理及独立租约回收 | 补未上报文件、Native 物理写出、外部根/对象存储、跨内核重启的存储权威。跨进程注入部分删除、未知提交、租约变化和重复清理，验证匹配指纹、实际止写、回收与发布 fencing。覆盖成功快照及遗留孤儿对象，核验保留集合。见 B8 |
 | A14 · WP9 发布证据 | 受控 nightly 和 Native CI 已有入口，合并与定向回归本身不盖发布章 | 完成同源 Linux Native/生产镜像与不可变 TPC 证据门槛，替换 `tpch-sf100-baseline.json` 中 22 条零值占位。运行前落实 B9 环境，CI 和基础设施变更需先取得明确批准。参见 [Native 资格](#native-qualification) |
@@ -38,9 +38,13 @@ description: "Pangrova 查询、写入、Native 与发布的统一未完成清�
 | B4 | 6 项 Planner 回归，已有局部归约实现和历史双 Worker 对照 | 在同源真实 SQL 量化 identity projection、局部聚合的 CPU、首批/完成时延、实际交换量和跨 Worker 影响 |
 | B5 | 43 项 PostgreSQL 持久交换回归，已有单/双输入合并对照 | 结合 A10 验证更多输入、 Join/NULL/重复/重试/不同代次、倾斜、混合负载、阈值与尾时延 |
 | B6 | 66 项 Java Profile 与 Native 回报合同回归，已有本地中途断连证据 | 在最新部署产物跑实际 Flight、慢读/断连、失败 EOF、跨主机吞吐和长稳。验证独立客户端阶段、各层内存上界与全资源实际释放。完成完整 ASan/UBSan，并保留平台适用的 LSan 证据 |
-| B7 | 40 项真实 PostgreSQL/MinIO 回归 | 多实例跨主机热点、慢消费者、并发读写、租约切换、物理清理和每流/每窗口 SQL。覆盖已关闭窗口及保护时间内在途 I/O |
+| B7 | 40 项本地 PostgreSQL/MinIO 回归 | 本机复跑慢消费者、并发读写、租约切换、物理清理和每流/每窗口 SQL，覆盖已关闭窗口及保护时间内在途 I/O。跨主机热点的吞吐、尾时延和恢复时间待独立主机实测。见 [B7 环境要求](#b7-topology) |
 | B8 | 23 项 PostgreSQL 写入回归 | Iceberg/Paimon/Lance/COPY/CDC 的同表与异表高并发、未知提交、崩溃与接管、重放、跨引擎结果及实际资源归还 |
 | B9 | 有基准工具和固定到达率样本。核对时仓库可用专用 runner 数为 0，仓库级 Actions 变量列表中无 `TPC_BENCHMARK_CONFIG_DIR`，最近一次 [受控 nightly](https://github.com/pangrova-io/pangrova/actions/runs/46131366631) 跳过 | 配置匹配的专用 Linux runner、同源部署配置和共享 SF100/SF1000 快照。取得 Trino、Spark SQL 与 Pangrova 的正确性摘要、真实 Profile、三个独立有效窗口和可复核对照。缺失或零值样本无法计入 |
+
+### B7 环境要求 {#b7-topology}
+
+同机多 JVM、容器或 Docker context 的结果按同机回归记录。跨主机验收需要把相关实例部署在独立主机，流量经过真实主机间网络。记录主机、部署产物、服务拓扑、热点负载、吞吐、P95 和故障恢复时间。只有本机可用时，先完成同机回归，将跨主机子项标为「待环境」。
 
 ## 仍需跑通的专项与设计门槛 {#focused-probes}
 
@@ -97,7 +101,7 @@ Native configure 显式传入该 Folly prefix 和匹配插桩的 Protobuf/Abseil
 ```text
 在 Pangrova 仓库继续实施当前分支的 docs/development/execution-backlog.md。以最新 main 和此文件为准。PR #112 已合入，只作为已交付基线，后续提交归并到一个新 PR。若清单还在文档清理分支，从包含清单的提交接续并合入最新 main。保留其他工作区的未提交改动，先读 AGENTS.md 和相关 .pangrova/rules。
 
-逐项核对 A1–A14 和 B1–B9 的现有实现、测试和运行证据，先交付确定缺失的代码，再做统一生产验收。并行推进彼此独立的批次，优先完成跨 Coordinator 放置、受保护整对象读取与真实 I/O 证据、动态过滤覆盖、Shuffle 正向止写证明、CDC 回执和写入暂存回收。性能候选先做归因，按清单的触发条件决定是否实施。阶段内跑最贴近的回归，代码收齐后构建同源部署包，统一跑跨主机、故障注入、Native/Flight、资源实际排空和 SF100/SF1000 对标。CI、依赖、模块所有权及基础设施变更按仓库规则先获批准。
+逐项核对 A1–A14 和 B1–B9 的现有实现、测试和运行证据，先交付确定缺失的代码，再做统一生产验收。并行推进彼此独立的批次，优先完成跨 Coordinator 放置、受保护整对象读取与真实 I/O 证据、动态过滤覆盖、Shuffle 正向止写证明、CDC 回执和写入暂存回收。性能候选先做归因，按清单的触发条件决定是否实施。阶段内跑最贴近的回归，代码收齐后构建同源部署包，统一跑跨主机、故障注入、Native/Flight、资源实际排空和 SF100/SF1000 对标。B7 同机多进程只计并发、租约、SQL 次数和清理回归。跨主机热点需要独立主机与真实主机间网络。只有本机时，完成可跑部分并将跨主机子项标为「待环境」。CI、依赖、模块所有权及基础设施变更按仓库规则先获批准。
 
 每次提交保留精确授权、快照、owner/epoch、attempt、fenced commit 和物理退出语义，维持清单中的稳态零读库门槛。定期检查空间，只清理可再生的无用产物。批次通过后及时提交并推送到同一新 PR，记录 commit、命令、运行环境、结果、日志和真实阻塞。已验证的条目按覆盖范围关闭并移出本文件。没有可比基准或实际部署证据时保留相应未完成项，全部强制门槛通过后再合并。
 ```
