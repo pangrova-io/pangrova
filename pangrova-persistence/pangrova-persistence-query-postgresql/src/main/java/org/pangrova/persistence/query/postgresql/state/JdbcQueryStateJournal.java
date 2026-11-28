@@ -292,7 +292,8 @@ public final class JdbcQueryStateJournal implements QueryStateJournal, Recovered
                                      AND terminal.state IN ('FINISHED', 'FAILED', 'CANCELLED')
                                ) timestamps
                                WHERE timestamps.finished_at IS NOT NULL
-                                 AND accepted.retention_ms <= ? - GREATEST(accepted.timestamp_ms, timestamps.finished_at)
+                                 AND accepted.retention_ms <= ?
+                                     - GREATEST(accepted.timestamp_ms, timestamps.finished_at)
                                  AND NOT EXISTS (
                                      SELECT 1 FROM execution_anchor a WHERE a.execution_id = accepted.query_id
                                  )
