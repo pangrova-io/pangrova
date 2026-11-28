@@ -195,8 +195,13 @@ final class S3ShuffleObjectStorage implements ShuffleObjectStorage {
         var response = client.listObjectsV2(request.build());
         List<String> keys = response.contents().stream()
                 .map(object -> stripPrefix(object.key())).toList();
+        Boolean truncated = response.isTruncated();
+        if (truncated == null || (truncated && keys.isEmpty())
+                || keys.stream().anyMatch(key -> !key.startsWith(keyPrefix))) {
+            throw new IllegalStateException("Object storage returned an invalid shuffle cleanup page");
+        }
         delete(keys);
-        return response.isTruncated() && !keys.isEmpty() ? keys.get(keys.size() - 1) : null;
+        return truncated ? keys.get(keys.size() - 1) : null;
     }
 
     @Override

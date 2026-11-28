@@ -364,10 +364,40 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
             var cleanup = engine.renewAccess(org.pangrova.protocol.v2.shuffle.RenewAccessRequest.newBuilder()
                     .setOperation(org.pangrova.protocol.v2.shuffle.ShuffleAccessOperation.SHUFFLE_ACCESS_OPERATION_CLEANUP)
                     .setQueryId(query).setExecutionOwner(owner()).build(), true);
+            var beforeCleanup = shuffleStatements();
             engine.cleanup(CleanupRequest.newBuilder().setQueryId(query).setExecutionOwner(owner())
                     .setAccessCapability(cleanup.getAccessCapability()).build());
+            assertThat(shuffleStatementDelta(beforeCleanup).keySet())
+                    .as("the object store lists and deletes payloads and manifests without a batch inventory scan")
+                    .noneMatch(sql -> sql.contains("shuffle_batch"));
             assertThat(client.listObjectsV2(ListObjectsV2Request.builder().bucket(BUCKET)
                     .prefix("integration/" + shuffle + "/").build()).contents()).isEmpty();
+        }
+    }
+
+    @Test
+    void listsPastDeletedKeysAndKeepsAnAdjacentPrefix() {
+        String prefix = "paged-cleanup-" + UUID.randomUUID();
+        var payload = RequestBody.fromBytes(new byte[] {1});
+        try (S3Client client = s3Client()) {
+            var storage = S3ShuffleObjectStorage.testing(client, BUCKET, "integration");
+            var keys = List.of("0/part/0", "0/part/1", "1/part/0", "manifest/a", "manifest/b");
+            for (String key : keys) {
+                client.putObject(PutObjectRequest.builder().bucket(BUCKET)
+                        .key("integration/" + prefix + "/" + key).build(), payload);
+            }
+            String other = prefix + "-other/0/part/0";
+            client.putObject(PutObjectRequest.builder().bucket(BUCKET).key("integration/" + other).build(), payload);
+
+            String first = storage.deletePrefixPage(prefix + "/", null, 2);
+            assertThat(first).isEqualTo(prefix + "/0/part/1");
+            String second = storage.deletePrefixPage(prefix + "/", first, 2);
+            assertThat(second).isEqualTo(prefix + "/manifest/a");
+            assertThat(storage.deletePrefixPage(prefix + "/", second, 2)).isNull();
+            assertThat(client.listObjectsV2(ListObjectsV2Request.builder().bucket(BUCKET)
+                    .prefix("integration/" + prefix).build()).contents())
+                    .singleElement().satisfies(object -> assertThat(object.key()).isEqualTo("integration/" + other));
+            storage.delete(List.of(other));
         }
     }
 
@@ -1015,7 +1045,7 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
     }
 
     @Test
-    void pagesLargeCleanupAndRecoversOnlyAfterLeaseExpiry() throws Exception {
+    void largeCleanupRecoversOnlyAfterLeaseExpiry() throws Exception {
         String queryId = "large-cleanup-query";
         String shuffleId = "large-cleanup-shuffle";
         try (PostgresShuffleStore store = PostgresShuffleStore.create(config().database())) {
@@ -1054,22 +1084,8 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
             assertThat(recoveryStatements)
                     .as("takeover of a sealed scope does not rewrite its shuffle allocations")
                     .noneMatch(sql -> sql.contains("UPDATE shuffle_allocation") && sql.contains("SET state = "));
-            var cursor = (ShuffleServiceModel.CleanupCursor) null;
-            List<Integer> pageSizes = new ArrayList<>();
-            int objectCount = 0;
-            while (true) {
-                var page = store.cleanupObjects(recovered, cursor, 1_000,
-                        new CleanupLease("recovery-cleaner", 202, 1_000));
-                if (page.objectKeys().isEmpty()) {
-                    break;
-                }
-                pageSizes.add(page.objectKeys().size());
-                objectCount += page.objectKeys().size();
-                cursor = page.nextCursor();
-                if (cursor == null) break;
-            }
-            assertThat(pageSizes).containsExactly(1_000, 1_000, 505);
-            assertThat(objectCount).isEqualTo(2_505);
+            assertThat(store.cleanupShuffles(recovered, null, 1_000,
+                    new CleanupLease("recovery-cleaner", 202, 1_000))).containsExactly(shuffleId);
             assertThatThrownBy(() -> store.completeCleanup(firstPlan))
                     .isInstanceOf(IllegalStateException.class).hasMessageContaining("cleanup lease");
             assertThat(store.findAllocation(shuffleId)).isPresent();

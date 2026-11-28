@@ -174,7 +174,11 @@ The Coordinator holds allocation and publication state per query and drops that 
 The Shuffle bucket must provide strongly consistent prefix listing. A LIST
 issued after a successful PUT must include the new key, and a LIST issued
 after a successful delete must reflect the deletion. Cleanup uses this property
-to remove objects after the last writer settles. [Amazon S3 consistency model](https://docs.aws.amazon.com/AmazonS3/latest/userguide/Welcome.html#ConsistencyModel)
+to enumerate and delete the sealed shuffle prefix directly, including
+unpublished uploads and manifest nodes. PostgreSQL supplies the authorized
+prefixes and cleanup lease. Its batch inventory stays off the cleanup read
+path. Pagination uses lexicographic `StartAfter` on S3 general purpose buckets
+and compatible deployments. [ListObjectsV2](https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListObjectsV2.html) · [Amazon S3 consistency model](https://docs.aws.amazon.com/AmazonS3/latest/userguide/Welcome.html#ConsistencyModel)
 
 Enabling replication does not by itself establish a recovery guarantee; the deployment must
 verify that required objects are readable from the surviving location.

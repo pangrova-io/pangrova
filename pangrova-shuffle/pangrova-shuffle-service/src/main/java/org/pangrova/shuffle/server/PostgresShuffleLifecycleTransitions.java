@@ -22,12 +22,9 @@ import static org.pangrova.shuffle.server.PostgresShuffleRecords.lockExpiredClea
 import static org.pangrova.shuffle.server.PostgresShuffleRecords.requireCleanupPageLimit;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.Allocation;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupCommand;
-import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupCursor;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupLease;
-import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupObjectPage;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupPlan;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupReceipt;
-import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupShufflePage;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupStart;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.FinalizeCommand;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.FinalizeResult;
@@ -212,16 +209,7 @@ final class PostgresShuffleLifecycleTransitions {
         });
     }
 
-    CleanupObjectPage cleanupObjects(
-            CleanupPlan plan, CleanupCursor after, int limit, CleanupLease lease) {
-        return transaction(dataSource, connection -> {
-            requireCleanupPageLimit(limit);
-            PostgresShuffleRecords.renewCleanup(connection, plan, lease);
-            return PostgresShuffleRecords.cleanupObjects(connection, plan, after, limit);
-        });
-    }
-
-    CleanupShufflePage cleanupShuffles(
+    List<String> cleanupShuffles(
             CleanupPlan plan, String after, int limit, CleanupLease lease) {
         return transaction(dataSource, connection -> {
             requireCleanupPageLimit(limit);

@@ -1,6 +1,7 @@
 package org.pangrova.shuffle.server;
 
 import java.time.Clock;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -10,12 +11,9 @@ import org.pangrova.shuffle.security.enums.CapabilityOperation;
 
 import static org.pangrova.shuffle.server.ShuffleServiceModel.Allocation;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupCommand;
-import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupCursor;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupLease;
-import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupObjectPage;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupPlan;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupReceipt;
-import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupShufflePage;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupStart;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.FinalizeCommand;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.FinalizeResult;
@@ -90,10 +88,7 @@ interface ShuffleCleanupStore {
 
     Optional<CleanupPlan> beginExpiredCleanup(CleanupLease lease);
 
-    CleanupObjectPage cleanupObjects(
-            CleanupPlan plan, CleanupCursor after, int limit, CleanupLease lease);
-
-    CleanupShufflePage cleanupShuffles(
+    List<String> cleanupShuffles(
             CleanupPlan plan, String after, int limit, CleanupLease lease);
 
     void renewCleanup(CleanupPlan plan, CleanupLease lease);
@@ -167,34 +162,21 @@ final class ShuffleCleanupCoordinator {
     }
 
     private CleanupReceipt execute(CleanupPlan plan) {
-        deleteTrackedObjects(plan);
+        // The sealed scope authorizes the exact prefixes. Strongly consistent storage listing
+        // includes both accepted objects and uploads that never entered the batch inventory.
         deleteObjectPrefixes(plan);
         return store.completeCleanup(plan);
-    }
-
-    private void deleteTrackedObjects(CleanupPlan plan) {
-        CleanupCursor cursor = null;
-        while (true) {
-            CleanupObjectPage page = store.cleanupObjects(
-                    plan, cursor, PAGE_SIZE, lease(plan.leaseOwner()));
-            if (!page.objectKeys().isEmpty()) {
-                objects.delete(page.objectKeys());
-            }
-            cursor = page.nextCursor();
-            if (cursor == null) return;
-        }
     }
 
     private void deleteObjectPrefixes(CleanupPlan plan) {
         String shuffleAfter = null;
         while (true) {
-            CleanupShufflePage page = store.cleanupShuffles(
-                    plan, shuffleAfter, PAGE_SIZE, lease(plan.leaseOwner()));
-            for (String shuffleId : page.shuffleIds()) {
+            List<String> shuffleIds = store.cleanupShuffles(plan, shuffleAfter, PAGE_SIZE, lease(plan.leaseOwner()));
+            for (String shuffleId : shuffleIds) {
                 deleteObjectPrefix(plan, shuffleId);
             }
-            shuffleAfter = page.nextShuffleId();
-            if (shuffleAfter == null) return;
+            if (shuffleIds.size() < PAGE_SIZE) return;
+            shuffleAfter = shuffleIds.get(shuffleIds.size() - 1);
         }
     }
 

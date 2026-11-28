@@ -249,29 +249,4 @@ final class ShuffleServiceModel {
             }
         }
     }
-
-    record CleanupCursor(
-            String shuffleId,
-            int producerPartitionId,
-            int producerAttemptId,
-            int outputPartitionId,
-            long batchSequence) {}
-
-    record CleanupObjectPage(List<String> objectKeys, CleanupCursor nextCursor) {
-        CleanupObjectPage {
-            objectKeys = List.copyOf(objectKeys);
-            if (objectKeys.isEmpty() != (nextCursor == null)) {
-                throw new IllegalArgumentException("cleanup object page cursor is inconsistent");
-            }
-        }
-    }
-
-    record CleanupShufflePage(List<String> shuffleIds, String nextShuffleId) {
-        CleanupShufflePage {
-            shuffleIds = List.copyOf(shuffleIds);
-            if (shuffleIds.isEmpty() != (nextShuffleId == null)) {
-                throw new IllegalArgumentException("cleanup shuffle page cursor is inconsistent");
-            }
-        }
-    }
 }

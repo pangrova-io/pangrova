@@ -9,6 +9,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Consumer;
@@ -32,12 +33,9 @@ import static org.pangrova.shuffle.server.PostgresShuffleRecords.refreshQuerySco
 import static org.pangrova.shuffle.server.ShuffleServiceModel.Allocation;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.AllocationIdentity;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupCommand;
-import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupCursor;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupLease;
-import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupObjectPage;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupPlan;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupReceipt;
-import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupShufflePage;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupStart;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.FinalizeCommand;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.FinalizeResult;
@@ -464,13 +462,7 @@ final class PostgresShuffleStore implements ShuffleLifecycleStore {
     }
 
     @Override
-    public CleanupObjectPage cleanupObjects(
-            CleanupPlan plan, CleanupCursor after, int limit, CleanupLease lease) {
-        return transitions.cleanupObjects(plan, after, limit, lease);
-    }
-
-    @Override
-    public CleanupShufflePage cleanupShuffles(
+    public List<String> cleanupShuffles(
             CleanupPlan plan, String after, int limit, CleanupLease lease) {
         return transitions.cleanupShuffles(plan, after, limit, lease);
     }

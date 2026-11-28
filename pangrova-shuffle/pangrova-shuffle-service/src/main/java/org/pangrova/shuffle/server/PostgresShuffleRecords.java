@@ -24,12 +24,9 @@ import static org.pangrova.shuffle.server.ShuffleServiceModel.AllocationShape;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.BatchIdentity;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.StoredBatch;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupCommand;
-import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupCursor;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupLease;
-import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupObjectPage;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupPlan;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupReceipt;
-import static org.pangrova.shuffle.server.ShuffleServiceModel.CleanupShufflePage;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.FinalizedPartition;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.PublishedPartition;
 import static org.pangrova.shuffle.server.ShuffleServiceModel.PartitionPublication;
@@ -72,21 +69,6 @@ final class PostgresShuffleRecords {
             WHERE a.shuffle_id = ?
             FOR UPDATE OF a
             """;
-    private static final String CLEANUP_OBJECTS_BASE_SQL =
-            "SELECT b.object_key, b.shuffle_id, b.producer_partition_id, "
-                    + "b.producer_attempt_id, b.output_partition_id, b.batch_sequence "
-                    + "FROM shuffle_batch b JOIN shuffle_allocation a USING (shuffle_id) "
-                    + "WHERE a.query_id = ? ";
-    private static final String CLEANUP_OBJECTS_ORDER_SQL =
-            "ORDER BY b.shuffle_id, b.producer_partition_id, b.producer_attempt_id, "
-                    + "b.output_partition_id, b.batch_sequence LIMIT ?";
-    private static final String CLEANUP_OBJECTS_FIRST_SQL =
-            CLEANUP_OBJECTS_BASE_SQL + CLEANUP_OBJECTS_ORDER_SQL;
-    private static final String CLEANUP_OBJECTS_AFTER_SQL = CLEANUP_OBJECTS_BASE_SQL
-            + "AND (b.shuffle_id, b.producer_partition_id, b.producer_attempt_id, "
-            + "b.output_partition_id, b.batch_sequence) > (?, ?, ?, ?, ?) "
-            + CLEANUP_OBJECTS_ORDER_SQL;
-
     private PostgresShuffleRecords() {}
 
     static Optional<Allocation> findAllocation(
@@ -350,42 +332,7 @@ final class PostgresShuffleRecords {
                 row.getBoolean("uncertain_write_handoff"));
     }
 
-    static CleanupObjectPage cleanupObjects(
-            Connection connection,
-            CleanupPlan plan,
-            CleanupCursor after,
-            int limit) throws SQLException {
-        String sql = after == null ? CLEANUP_OBJECTS_FIRST_SQL : CLEANUP_OBJECTS_AFTER_SQL;
-        try (PreparedStatement statement = connection.prepareStatement(sql)) {
-            int parameter = 1;
-            statement.setString(parameter++, plan.queryId());
-            if (after != null) {
-                statement.setString(parameter++, after.shuffleId());
-                statement.setInt(parameter++, after.producerPartitionId());
-                statement.setInt(parameter++, after.producerAttemptId());
-                statement.setInt(parameter++, after.outputPartitionId());
-                statement.setLong(parameter++, after.batchSequence());
-            }
-            statement.setInt(parameter, limit);
-            return readCleanupObjects(statement, limit);
-        }
-    }
-
-    private static CleanupObjectPage readCleanupObjects(PreparedStatement statement, int limit)
-            throws SQLException {
-        List<String> keys = new ArrayList<>();
-        CleanupCursor cursor = null;
-        try (ResultSet rows = statement.executeQuery()) {
-            while (rows.next()) {
-                keys.add(rows.getString(1));
-                cursor = new CleanupCursor(rows.getString(2), rows.getInt(3), rows.getInt(4),
-                        rows.getInt(5), rows.getLong(6));
-            }
-        }
-        return new CleanupObjectPage(keys, keys.size() == limit ? cursor : null);
-    }
-
-    static CleanupShufflePage cleanupShuffles(
+    static List<String> cleanupShuffles(
             Connection connection,
             CleanupPlan plan,
             String after,
@@ -403,8 +350,7 @@ final class PostgresShuffleRecords {
                 }
             }
         }
-        String cursor = shuffleIds.size() == limit ? shuffleIds.get(shuffleIds.size() - 1) : null;
-        return new CleanupShufflePage(shuffleIds, cursor);
+        return List.copyOf(shuffleIds);
     }
 
     static void renewCleanup(
