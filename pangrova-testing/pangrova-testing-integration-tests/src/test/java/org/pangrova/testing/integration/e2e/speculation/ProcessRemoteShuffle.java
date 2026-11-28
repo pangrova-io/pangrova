@@ -185,7 +185,7 @@ final class ProcessRemoteShuffle implements AutoCloseable {
                 new ShuffleServiceConfig.Security(identity.certificateChain(), identity.privateKey(), tls.root(),
                         capabilityFile, List.of(COORDINATOR_IDENTITY), Duration.ofHours(1)),
                 new ShuffleServiceConfig.Limits(1024 * 1024, 16 * 1024 * 1024,
-                        48 * 1024 * 1024, 4, 4, 16));
+                        48 * 1024 * 1024, 16, 4, 32));
     }
 
     String endpoint() {

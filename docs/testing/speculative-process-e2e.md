@@ -23,6 +23,8 @@ For independent remote Shuffle validation, also include one
 `pangrova-shuffle-service-*-exec.jar` under `shuffle/` as the final manifest entry.
 The fixture starts that executable with its own PID, TLS configuration and
 PostgreSQL/MinIO connections.
+The remote SQL coalescing fixture allows 16 concurrent producer streams
+across its two stage cohorts, with a 48 MiB in-flight byte budget and four I/O threads.
 Each child JVM loads the order in its role's verified `classpath.list`. The manifest
 must match the frozen runtime files. All embedded Native copies must match the qualified
 Release library. Freeze the installed production dependencies before running so concurrent
