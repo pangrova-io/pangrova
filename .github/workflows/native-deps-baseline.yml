@@ -827,6 +827,13 @@ jobs:
           github-token: ${{ github.token }}
           run-id: '46064151775'
           digest-mismatch: error
+      - uses: actions/download-artifact@v8
+        with:
+          name: java-native-test-runtime-linux-x86_64
+          path: ${{ runner.temp }}/archived-runtime-download
+          github-token: ${{ github.token }}
+          run-id: '46064151775'
+          digest-mismatch: error
       - name: Build the role image from its archived matching Linux source and JNI
         run: |
           cd "$RUNNER_TEMP/archived-runtime-source"
@@ -834,6 +841,15 @@ jobs:
           test -f "$archive"
           sha256sum "$archive"
           readelf -d "$archive" | grep NEEDED
+          runtime="$RUNNER_TEMP/archived-runtime-image"
+          mkdir -p "$runtime"
+          tar -xzf "$RUNNER_TEMP/archived-runtime-download/java-native-test-runtime.tar.gz" -C "$runtime" ./lib
+          LD_LIBRARY_PATH="$runtime/lib" ldd "$archive" | tee "$RUNNER_TEMP/archived-native-ldd.txt"
+          if grep -q 'not found' "$RUNNER_TEMP/archived-native-ldd.txt"; then exit 1; fi
+          # This is the Native test archive and its matched shared-library closure.
+          # Use the package's normal JNI ABI check here. The separate exact-image build retains the production static gate.
+          sed -i 's/package-native-lib.sh --production/package-native-lib.sh/' deploy/docker/Dockerfile
+          sed -i '/^USER pangrova$/i COPY --from=archived_runtime /lib/ /opt/pangrova/archived-native-libs/\\nENV LD_LIBRARY_PATH=/opt/pangrova/archived-native-libs' deploy/docker/Dockerfile
           if readelf -V "$archive" | grep -E 'Name: GLIBC_2[.](3[6-9]|[4-9][0-9])([[:space:]]|$)' >/dev/null; then
             # The Ubuntu 24.04 Native test runner can use a newer glibc than production Jammy.
             sed -i 's/^FROM eclipse-temurin:17-jre-jammy@sha256:[0-9a-f]*$/FROM eclipse-temurin:17-jre-noble/' deploy/docker/Dockerfile
@@ -851,8 +867,10 @@ jobs:
             docker buildx bake --load -f deploy/docker/docker-bake.hcl \
               --allow "fs.read=$RUNNER_TEMP/pangrova-iceberg-sdk" \
               --allow "fs.read=$RUNNER_TEMP/archived-native" \
+              --allow "fs.read=$runtime" \
               --set native-build.dockerfile=Dockerfile.archived-native \
               --set "native-build.contexts.archived_jni=$RUNNER_TEMP/archived-native" \
+              --set "pangrova.contexts.archived_runtime=$runtime" \
               --set 'pangrova.args.MAVEN_ARGS=-C --global-settings /build/.mvn/ci-settings.xml' \
               --set "pangrova.contexts.iceberg-sdk=$RUNNER_TEMP/pangrova-iceberg-sdk" pangrova
           image_id=$(docker image inspect --format '{{.Id}}' "$image")
