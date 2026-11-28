@@ -42,7 +42,8 @@ public final class PaimonNativePhysicalWriteProvider implements NativePhysicalWr
         requireSession(session);
         var handle = requireHandle(output);
         var pinned = handle.nativePhysicalWriteAllocation().orElseThrow();
-        if (!PhysicalFileWriteBindingFactory.template(pinned).equals(PhysicalFileWriteBindingFactory.template(allocation))) {
+        if (!PhysicalFileWriteBindingFactory.template(pinned)
+                .equals(PhysicalFileWriteBindingFactory.template(allocation))) {
             throw new IllegalArgumentException("Physical output differs from its persisted SDK allocation");
         }
         validateCurrentAllocation(load(handle), allocation);
@@ -100,10 +101,12 @@ public final class PaimonNativePhysicalWriteProvider implements NativePhysicalWr
             NativePhysicalFileReceipt receipt, String executionId) {
         try {
             var attempt = TaskAttemptId.parseFrom(receipt.allocation().taskAttempt());
-            var expected = NativeWriteBinder.bindPhysical(PhysicalFileWriteBindingFactory.template(allocation), attempt);
+            var expected = NativeWriteBinder.bindPhysical(
+                PhysicalFileWriteBindingFactory.template(allocation), attempt);
             var metrics = receipt.metrics();
             if (!attempt.getQueryOrJobId().equals(executionId)
-                    || !expected.getFilesList().contains(PhysicalFileWriteBindingFactory.fileAllocation(receipt.allocation()))
+                    || !expected.getFilesList().contains(
+                        PhysicalFileWriteBindingFactory.fileAllocation(receipt.allocation()))
                     || metrics.schemaId() != allocation.schema().schemaId()
                     || metrics.sizeBytes() < MINIMUM_LANCE_FILE_BYTES
                     || metrics.encodingMajor() != 0 || metrics.encodingMinor() != 3

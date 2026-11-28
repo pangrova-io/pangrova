@@ -180,7 +180,8 @@ public final class PhysicalFileWriteReceipts {
         var partition = DataSplit.newBuilder().addAllPartitionValues(file.getPartitionList()).build();
         var allocation = new NativePhysicalFileAllocation(new NativePhysicalFileAllocation.Location(
                 file.getOpaqueLocation(), file.getFileName(), file.getFileSource()),
-                partition.getPartitionValuesCount() == 0 ? new byte[0] : PhysicalFileWriteBindingFactory.bytes(partition),
+                partition.getPartitionValuesCount() == 0
+                            ? new byte[0] : PhysicalFileWriteBindingFactory.bytes(partition),
                 file.getBucketId(), file.getFileOrdinal(), file.getRestoredMaxSequence(),
                 file.getRestoredFileSetChecksum().getDigest().toByteArray(),
                 PhysicalFileWriteBindingFactory.bytes(file.getTaskAttempt()));

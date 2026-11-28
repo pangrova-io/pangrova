@@ -55,7 +55,8 @@ public final class MetadataSchemaBuilder {
     }
 
     /** Builds schema and cost metadata with the same query-local selected read owner. */
-    public CalciteSchema buildRootSchema(ConnectorSession authenticatedSession, PlanningReadBindingResolver readBindings) {
+    public CalciteSchema buildRootSchema(ConnectorSession authenticatedSession,
+            PlanningReadBindingResolver readBindings) {
         ConnectorSession session = PlanningConnectorSession.bind(authenticatedSession,
                 authenticatedSession.getCatalog().orElse(null),
                 authenticatedSession.getSchema().orElse(null));

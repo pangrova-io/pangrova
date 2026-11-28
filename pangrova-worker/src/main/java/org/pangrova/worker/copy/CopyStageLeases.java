@@ -404,7 +404,8 @@ public final class CopyStageLeases implements AutoCloseable {
         private boolean matches(PrepareCopySourceRequest request) {
             return Arrays.equals(canonicalSha256, Sha256Digests.sha256().digest(request.canonicalBytes()))
                     && MessageDigest.isEqual(nonceSha256,
-                            Sha256Digests.sha256().digest(request.sourceRead().nonce().getBytes(StandardCharsets.UTF_8)))
+                            Sha256Digests.sha256()
+                                        .digest(request.sourceRead().nonce().getBytes(StandardCharsets.UTF_8)))
                     && scope.equals(request.sourceRead().scope());
         }
     }

@@ -94,7 +94,8 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
             byte[] bytes = completion.originalWireBytes();
             var report = new GenerationPageCompletion(key.tenantId(), key.jobId(), page.pageId(),
                     completion.fencingToken(),
-                    completion.controlTerm(), bytes, org.pangrova.common.crypto.Sha256Digests.sha256Hex(bytes), List.of(),
+                    completion.controlTerm(), bytes, org.pangrova.common.crypto.Sha256Digests.sha256Hex(bytes),
+                List.of(),
                     completion.completedAt(), completion.executionOwner());
             return PostgresGenerationCompletion.completeLockedProducer(
                     executionFence, connection, report, job, page);

@@ -81,7 +81,8 @@ public final class LazyMetadataSchema extends AbstractSchema {
     public LazyMetadataSchema(CatalogReadAccess catalogRegistry, String catalog, String schema,
                        ConnectorSession authenticatedSession) {
         this(catalog, schema,
-                catalogRegistry == null ? null : new PlanningReadBindingResolver(catalogRegistry, authenticatedSession));
+                catalogRegistry == null ? null
+                        : new PlanningReadBindingResolver(catalogRegistry, authenticatedSession));
     }
 
     LazyMetadataSchema(String catalog, String schema, PlanningReadBindingResolver readBindings) {

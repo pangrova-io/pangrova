@@ -51,6 +51,7 @@ public final class ResultReadTickets {
     }
 
     private String signature(String message) {
-        return HexFormat.of().formatHex(Sha256Digests.hmacSha256(key).doFinal(message.getBytes(StandardCharsets.UTF_8)));
+        return HexFormat.of().formatHex(
+                Sha256Digests.hmacSha256(key).doFinal(message.getBytes(StandardCharsets.UTF_8)));
     }
 }

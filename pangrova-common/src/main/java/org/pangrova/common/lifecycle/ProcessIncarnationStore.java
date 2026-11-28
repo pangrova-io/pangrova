@@ -96,7 +96,8 @@ public final class ProcessIncarnationStore {
             ByteBuffer header = ByteBuffer.allocate(HEADER_BYTES);
             readFully(data, header);
             byte[] encoded = header.array();
-            byte[] previous = Sha256Digests.sha256().digest(java.util.Arrays.copyOf(encoded, Integer.BYTES + UUID_BYTES));
+            byte[] previous = Sha256Digests.sha256()
+                    .digest(java.util.Arrays.copyOf(encoded, Integer.BYTES + UUID_BYTES));
             header.flip();
             if (header.getInt() != MAGIC) throw new IOException("Unknown Process incarnation ledger format");
             UUID domain = readUuid(header);

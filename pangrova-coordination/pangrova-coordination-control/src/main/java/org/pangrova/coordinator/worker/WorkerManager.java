@@ -407,7 +407,8 @@ public final class WorkerManager {
                 Instant.ofEpochMilli(snapshot.lastHeartbeatMs()),
                 existing.performanceScore(), existing.resourcePoolId(),
                 existing.protocolVersion(),
-                existing.rackId(), existing.dataLocality(), cacheSummary != null ? cacheSummary : existing.cacheSummary(),
+                existing.rackId(), existing.dataLocality(),
+                cacheSummary != null ? cacheSummary : existing.cacheSummary(),
                 existing.admittedInventory(), existing.copyTaskTlsPort(), existing.workerExecutionIdentity(),
                 existing.shuffleDeployment(), existing.cdcIngestSupported());
     }

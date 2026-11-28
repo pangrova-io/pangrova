@@ -437,7 +437,8 @@ final class JdbcIndexDescriptorStore extends JdbcIndexMetadataStoreBase {
             conn.setAutoCommit(false);
             try {
                 FailureTarget target = lockFailureTarget(conn, indexId, generation,
-                        org.pangrova.persistence.jdbc.operation.JdbcOperations.canonicalInstant(expectedBuildUpdatedAt));
+                        org.pangrova.persistence.jdbc.operation.JdbcOperations.canonicalInstant(
+                                expectedBuildUpdatedAt));
                 if (target != null && attemptId != null && !attemptId.equals(target.attemptId())) {
                     target = null;
                 }
