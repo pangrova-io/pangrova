@@ -1,9 +1,12 @@
 package org.pangrova.generation.codec.execution;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
 import com.fasterxml.jackson.databind.ObjectWriter;
 import org.pangrova.common.json.JsonMapperFactory;
 import org.pangrova.common.util.DigestUtils;
+import org.pangrova.generation.api.exchange.GenerationExchangeFinalization;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -14,10 +17,17 @@ import java.util.Objects;
 /** Fixed persistence representation; bounds both serialization and replay before accepting evidence. */
 final class GenerationCanonicalJson {
     private static final int MAX_BYTES = 16 * 1024 * 1024;
-    private static final ObjectWriter WRITER = JsonMapperFactory.writer();
-    private static final ObjectReader READER = JsonMapperFactory.reader();
+    private static final ObjectMapper MAPPER = JsonMapperFactory.shared()
+            .addMixIn(GenerationExchangeFinalization.Partition.class, PartitionEncoding.class);
+    private static final ObjectWriter WRITER = MAPPER.writer();
+    private static final ObjectReader READER = MAPPER.reader();
 
     private GenerationCanonicalJson() {}
+
+    private abstract static class PartitionEncoding {
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        abstract String rangeIndexSha256();
+    }
 
     static byte[] encode(Object value, String description) {
         Objects.requireNonNull(value, "value");

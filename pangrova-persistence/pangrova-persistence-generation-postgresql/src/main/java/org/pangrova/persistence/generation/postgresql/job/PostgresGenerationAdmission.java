@@ -157,8 +157,7 @@ final class PostgresGenerationAdmission {
                 && left.dependencySet().equals(right.dependencySet())
                 && left.emptyPartitionPolicy() == right.emptyPartitionPolicy()
                 && left.encryptionKeyRef().equals(right.encryptionKeyRef())
-                && left.idempotencyKey().equals(right.idempotencyKey())
-                && left.expectedPages() == right.expectedPages();
+                && left.idempotencyKey().equals(right.idempotencyKey());
     }
 
     private static boolean sameCoreIdentity(GenerationJob left, GenerationJob right) {

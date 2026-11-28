@@ -824,14 +824,20 @@ digest verified by their existing authority read into exchange validation.
 Registration uses one locked lookup for the original allocation, source
 snapshot and physical producer count, alongside the existing graph index check.
 
-The durable DAG reuses the live byte-based coalescer for certified single HASH
-inputs and aligned two-input HASH joins. When a stage reduces its task count,
-PostgreSQL freezes the original partition ranges and physical producer count
-before any output allocation or lease. The transaction retires unused page
-ordinals and accounts for them in the submitted logical page total. Recovery
-loads the same ranges under the current owner, including after an adaptive
-configuration change. Each new claim verifies its own stored range against
-every finalized input, while downstream partitions retain their original shape.
+The durable DAG reuses the live byte-based coalescer and skew selector for
+eligible HASH inputs. Before allocating the output or issuing a lease,
+PostgreSQL freezes the physical task layout under the job lock. The transaction
+retires surplus pages after a reduction or appends pages and increments the
+admitted count after an expansion. The original submission identity used for
+idempotent admission is preserved. Recovery restores the same task ordinals
+and range certificates under the current owner even if adaptive settings
+change. Downstream partitions retain their original shape.
+
+Exchange finalization commits a compact digest of each available batch range
+index. A freeze reads the compact input receipts once to verify complete
+coverage and every required pair of certified ranges. The claims read their
+certificates in the existing page lookup and verify the exact Worker binding.
+Physical producer completion and finalization use the registered task count.
 
 Finalization stores the original provider message in a PostgreSQL binary column.
 The same insert binds its SHA-256 to the compact receipt. PostgreSQL checks the
@@ -1586,8 +1592,8 @@ partition. A range publication contains the absolute first and last sequence
 numbers and the evidence for the selected batches. After verifying each batch,
 the Worker translates its sequence to the continuous local sequence used by
 the JNI input. Native admission calculates the expected batch count from each
-selected interval. Durable recovery still validates whole source partitions
-against the frozen exchange receipt.
+selected interval. Durable recovery validates whole source partitions against
+the frozen exchange receipt and split reads against their immutable page certificates.
 
 For an aligned live HASH join, the Planner provides the exchange order and
 the sides eligible for splitting. INNER can split either or both sides. LEFT
@@ -1605,8 +1611,8 @@ stage's output and reuses it on retry. Workers get the exact certificate
 for each split input and the corresponding whole receipt for any replicated
 input. Consumer task IDs stay contiguous, separate from original partition
 IDs. Placement uses the selected input bytes and no new database read is
-needed to select the layout. Durable jobs continue to freeze whole-partition
-groups.
+needed to select the layout. Eligible durable jobs apply the same size and cost
+bounds before committing the layout for recovery.
 
 In remote Shuffle mode, logical terminal transition uses the original execution
 grant to seal admission. The live DAG reports its outcome without deleting

@@ -8,6 +8,7 @@ import org.pangrova.coordinator.generation.template.PersistedStagePlan;
 import org.pangrova.execution.task.DispatchResult;
 import org.pangrova.execution.stage.QueryExecutionScope;
 import org.pangrova.coordinator.query.stage.Stage;
+import org.pangrova.coordinator.query.stage.ShuffleInputLayout;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageEdge;
 import org.pangrova.coordinator.query.stage.StageNode;
@@ -19,6 +20,7 @@ import org.pangrova.coordinator.worker.WorkerManager;
 import org.pangrova.generation.api.identity.GenerationJobKey;
 import org.pangrova.generation.api.page.GenerationLease;
 import org.pangrova.generation.api.graph.GenerationStageGraph;
+import org.pangrova.generation.api.exchange.GenerationExchangeFinalization.BatchRange;
 import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore;
 import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.PreparedExecution;
 import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.PartitionWindow;
@@ -26,7 +28,6 @@ import org.pangrova.persistence.generation.api.execution.GenerationStageExecutio
 import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.NativeWinner;
 import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.InputRange;
 import org.pangrova.persistence.generation.api.exchange.GenerationStageExchangeStore;
-import org.pangrova.planner.api.adaptive.CoalesceResult;
 import org.pangrova.planner.api.adaptive.PartitionGroup;
 import org.pangrova.planner.enums.ShuffleType;
 import org.pangrova.planner.analysis.AuthorizedStageGraph;
@@ -38,6 +39,7 @@ import org.pangrova.protocol.v2.BatchSerde;
 import org.pangrova.protocol.v2.TaskReport;
 import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.protocol.v2.TaskState;
+import org.pangrova.shuffle.api.ShuffleCommitReceipt.ReadRange;
 import org.pangrova.common.api.annotation.Internal;
 
 import java.time.Duration;
@@ -132,33 +134,54 @@ public final class DurableStageRuntime {
                 Optional.empty(), Optional.empty());
     }
 
-    /** Installs the committed ranges before the stage's outgoing allocation or Worker claims. */
-    public CoalesceResult freezeInputRanges(Stage stage, StageDAG dag, CoalesceResult proposal) {
+    /** Installs the committed layout before the stage's outgoing allocation or Worker claims. */
+    public ShuffleInputLayout freezeInputRanges(Stage stage, StageDAG dag, ShuffleInputLayout proposal) {
         var frozen = execution.authority().dispatchSpec().stageGraph().requireStage(stage.stageId());
         var output = dag.findDownstreamEdge(stage.stageId());
         if (!frozen.coalescibleHashInputs() || output == null || output.shuffleType() == ShuffleType.BROADCAST) {
-            return CoalesceResult.NO_OP;
+            return ShuffleInputLayout.DEFAULT;
         }
-        var requested = proposal.groups().stream().map(group ->
-                new InputRange(group.startInclusive(), group.endExclusive())).toList();
+        var incoming = dag.incomingEdges(stage.stageId()).stream()
+                .sorted(java.util.Comparator.comparing(StageEdge::exchangeId)).toList();
+        var requested = proposal.consumers().stream().map(consumer -> new InputRange(
+                consumer.partitions().startInclusive(), consumer.partitions().endExclusive(),
+                durableRange(consumer.ranges().get(incoming.get(0).exchangeId())),
+                incoming.size() == 2 ? durableRange(consumer.ranges().get(incoming.get(1).exchangeId())) : null))
+                .toList();
         var ranges = dependencies.stages().freezeInputRanges(job, execution.authority().executionAnchor(),
                 stage.stageId(), requested);
-        if (ranges.isEmpty()) return CoalesceResult.NO_OP;
+        if (ranges.isEmpty()) return ShuffleInputLayout.DEFAULT;
         physicalCohorts.put(stage.stageId(), ranges.size());
         if (ranges.equals(requested)) return proposal;
-        var receipts = dag.incomingEdges(stage.stageId()).stream()
+        var receipts = incoming.stream()
                 .map(edge -> dag.findStage(edge.upstreamStageId()).requireShuffleReceipt()).toList();
-        var groups = new ArrayList<PartitionGroup>(ranges.size());
+        var consumers = new ArrayList<ShuffleInputLayout.Consumer>(ranges.size());
         for (var range : ranges) {
             long bytes = 0;
-            for (var receipt : receipts) {
-                for (int partition = range.startInclusive(); partition < range.endExclusive(); partition++) {
-                    bytes += Math.min(Long.MAX_VALUE - bytes, receipt.partitions().get(partition).bytes());
+            var selected = new HashMap<String, ReadRange>();
+            for (int side = 0; side < receipts.size(); side++) {
+                var certificate = side == 0 ? range.first() : range.second();
+                if (certificate == null) {
+                    var receipt = receipts.get(side);
+                    for (int partition = range.startInclusive(); partition < range.endExclusive(); partition++) {
+                        bytes += Math.min(Long.MAX_VALUE - bytes, receipt.partitions().get(partition).bytes());
+                    }
+                } else {
+                    bytes += Math.min(Long.MAX_VALUE - bytes, certificate.totalBytes());
+                    selected.put(incoming.get(side).exchangeId(), new ReadRange(certificate.startSequence(),
+                            certificate.endSequenceExclusive(), certificate.totalBytes(), certificate.totalRows(),
+                            certificate.manifestSha256()));
                 }
             }
-            groups.add(new PartitionGroup(range.startInclusive(), range.endExclusive(), bytes));
+            consumers.add(new ShuffleInputLayout.Consumer(
+                    new PartitionGroup(range.startInclusive(), range.endExclusive(), bytes), selected));
         }
-        return new CoalesceResult(groups, frozen.parallelism(), groups.size());
+        return new ShuffleInputLayout(frozen.parallelism(), consumers);
+    }
+
+    private static BatchRange durableRange(ReadRange range) {
+        return range == null ? null : new BatchRange(range.startSequence(), range.endSequenceExclusive(),
+                range.bytes(), range.rows(), range.manifestSha256());
     }
 
     /** Creates ordinary Stage entities from the same persisted graph's exact parallelism and exchange shape. */

@@ -44,7 +44,6 @@ import org.pangrova.shuffle.api.coordinator.ShuffleTaskAccess;
 import org.pangrova.coordinator.query.execution.dispatch.shuffle.CoordinatorShuffleTaskGrantBinder;
 import org.pangrova.coordinator.query.execution.dispatch.dag.binding.StageSplitFetcher;
 import org.pangrova.coordinator.query.stage.Stage;
-import org.pangrova.coordinator.query.stage.ShuffleInputLayout;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageNode;
 import org.pangrova.coordinator.query.task.QueryOperatorStatsRegistry;
@@ -440,11 +439,10 @@ public final class DAGDispatchEngine implements StageCompletionCallback, AutoClo
 
     private void freezePhysicalInputs(Stage stage, DAGExecutionState state) {
         var context = lifecycle.queryContext(state.queryId());
-        if (state.durable() == null && (stage.hasFrozenShuffleInputs() || !isLiveRelationalRead(context))) return;
+        if (stage.hasFrozenShuffleInputs() || (state.durable() == null && !isLiveRelationalRead(context))) return;
         var candidate = adaptiveShuffleInputs.select(stage, state.dag());
-        var inputs = state.durable() == null ? candidate.layout()
-                : ShuffleInputLayout.coalesced(
-                        state.durable().freezeInputRanges(stage, state.dag(), candidate.coalesced()));
+        var inputs = state.durable() == null ? candidate
+                : state.durable().freezeInputRanges(stage, state.dag(), candidate);
         stage.freezeShuffleInputs(inputs);
         if (!inputs.consumers().isEmpty()) {
             long splitConsumers = inputs.consumers().stream().filter(consumer -> !consumer.ranges().isEmpty()).count();

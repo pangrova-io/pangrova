@@ -75,8 +75,7 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
                     completion.executionOwner());
             var graph = context.dispatchSpec().stageGraph();
             var stage = graph.requireStage(completion.stageId());
-            if (stage.pageKind() != GenerationPageKind.RELATIONAL_COMPUTE
-                    || completion.partitionId() >= stage.parallelism()) {
+            if (stage.pageKind() != GenerationPageKind.RELATIONAL_COMPUTE) {
                 throw new IllegalArgumentException(
                         "Native producer report does not belong to a persisted compute stage");
             }
@@ -84,7 +83,8 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
                     .filter(edge -> edge.upstreamStageId() == stage.stageId()).toList();
             if (outgoing.size() != 1 || PostgresGenerationStageExchangeStore.lockRegistration(
                     connection, context, outgoing.get(0).exchangeId())
-                    .filter(allocation -> allocation.planEpoch() == completion.planEpoch()).isEmpty()) {
+                    .filter(allocation -> allocation.planEpoch() == completion.planEpoch()
+                            && completion.partitionId() < allocation.producerCount()).isEmpty()) {
                 throw new IllegalStateException("Native producer winner differs from its original external allocation");
             }
             var job = findJob(connection, key.tenantId(), key.jobId(), true).orElseThrow();
@@ -122,7 +122,8 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
             var stage = authority.dispatchSpec().stageGraph().requireStage(first.stageId());
             var exchanges = PostgresGenerationStageExchangeStore.lockAndLoadStageEvidence(
                     connection, authority, stage.stageId());
-            if (cohort.get(cohort.size() - 1).partitionId() >= stage.parallelism()) {
+            if (cohort.get(cohort.size() - 1).partitionId() >= Math.max(stage.parallelism(),
+                    producerCount(stage, exchanges))) {
                 throw new IllegalArgumentException("Requested partition differs from its immutable stage cohort");
             }
             var job = findJob(connection, key.tenantId(), key.jobId(), true).orElseThrow();
@@ -162,11 +163,14 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
                     transactionAuthority, executionFence, connection, key.tenantId(), key.jobId(),
                     GenerationExecutionOwner.from(window.anchor()));
             var stage = authority.dispatchSpec().stageGraph().requireStage(window.stageId());
-            if (!stage.pageKind().isRelational() || window.count() > stage.parallelism() - window.firstPartition()) {
+            if (!stage.pageKind().isRelational()) {
                 throw new IllegalArgumentException("Requested window differs from its relational stage cohort");
             }
             var exchanges = PostgresGenerationStageExchangeStore.lockAndLoadStageEvidence(
                     connection, authority, stage.stageId());
+            if (window.count() > producerCount(stage, exchanges) - window.firstPartition()) {
+                throw new IllegalArgumentException("Requested window differs from its physical stage cohort");
+            }
             var job = findJob(connection, key.tenantId(), key.jobId(), true).orElseThrow();
             var rows = PostgresGenerationPageSelection.lockWindow(connection, key.tenantId(), key.jobId(),
                     stage.stageId(), stage.pageKind(), window.firstPartition(), window.count());
@@ -199,6 +203,12 @@ public final class PostgresGenerationStageExecutionStore extends PostgresGenerat
             }
             return List.copyOf(result);
         });
+    }
+
+    private static int producerCount(StagePlan stage, List<ExchangeEvidence> exchanges) {
+        return exchanges.stream().map(ExchangeEvidence::registration)
+                .filter(registration -> registration.producerStageId() == stage.stageId())
+                .findFirst().map(registration -> registration.producerCount()).orElse(stage.parallelism());
     }
 
     private static boolean claimable(PageRow page, Instant now) {

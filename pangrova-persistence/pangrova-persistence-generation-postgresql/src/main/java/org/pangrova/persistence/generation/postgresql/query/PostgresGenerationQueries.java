@@ -95,7 +95,7 @@ public final class PostgresGenerationQueries implements GenerationTransactionInp
         List<PageIdentity> pages = new ArrayList<>();
         try (PreparedStatement statement = connection.prepareStatement("""
                 SELECT page_id,stage_id,partition_id,page_ordinal,page_kind,max_attempts
-                FROM artifact_build_pages WHERE tenant_id=? AND job_id=?
+                FROM artifact_build_pages WHERE tenant_id=? AND job_id=? AND NOT adaptive_created
                 ORDER BY page_ordinal
                 """)) {
             statement.setString(1, tenantId);

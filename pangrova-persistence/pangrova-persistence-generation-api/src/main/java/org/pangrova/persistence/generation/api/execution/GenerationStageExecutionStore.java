@@ -56,20 +56,28 @@ public interface GenerationStageExecutionStore {
             Function<PreparedPartition, T> prepare);
 
     /**
-     * Freezes an optional coalesced layout before the outgoing allocation or any leases exist.
+     * Freezes an optional adaptive layout before the outgoing allocation or any leases exist.
      * An empty result retains the original cohort. A takeover always reuses a previously frozen layout.
      */
     List<InputRange> freezeInputRanges(GenerationJobKey key, ExecutionAnchor anchor, int stageId,
             List<InputRange> proposed);
 
-    /** Contiguous range of original Shuffle partitions consumed by one physical task. */
-    record InputRange(int startInclusive, int endExclusive) {
+    /** Contiguous original partitions with optional certificates in sorted incoming exchange ID order. */
+    record InputRange(int startInclusive, int endExclusive,
+            org.pangrova.generation.api.exchange.GenerationExchangeFinalization.BatchRange first,
+            org.pangrova.generation.api.exchange.GenerationExchangeFinalization.BatchRange second) {
+        public InputRange(int startInclusive, int endExclusive) {
+            this(startInclusive, endExclusive, null, null);
+        }
+
         public InputRange {
-            if (startInclusive < 0 || endExclusive <= startInclusive) {
+            if (startInclusive < 0 || endExclusive <= startInclusive
+                    || ((first != null || second != null) && endExclusive - startInclusive != 1)) {
                 throw new IllegalArgumentException("Invalid durable Shuffle input range");
             }
         }
         public int count() { return endExclusive - startInclusive; }
+        public boolean split() { return first != null || second != null; }
     }
 
     /** An exact contiguous physical window under a single durable execution anchor. */
@@ -77,7 +85,8 @@ public interface GenerationStageExecutionStore {
             int count, long controlTerm, Duration leaseDuration, Instant now) {
         public PartitionWindow {
             requireClaimAuthority(job, anchor, controlTerm, leaseDuration, now);
-            if (stageId < 0 || firstPartition < 0 || count < 1 || count > PARTITION_WINDOW) {
+            if (stageId < 0 || firstPartition < 0 || count < 1 || count > PARTITION_WINDOW
+                    || firstPartition > Integer.MAX_VALUE - count) {
                 throw new IllegalArgumentException("Invalid durable partition window");
             }
         }

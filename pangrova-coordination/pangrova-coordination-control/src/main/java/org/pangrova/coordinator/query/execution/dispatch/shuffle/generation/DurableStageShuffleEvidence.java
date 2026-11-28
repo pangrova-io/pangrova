@@ -111,11 +111,9 @@ public final class DurableStageShuffleEvidence implements ShuffleLifecycleEviden
                     "External finalize RPC changed allocation, owner, epoch or producer cohort");
         }
         List<GenerationExchangeFinalization.Partition> partitions = receipt.partitions().entrySet().stream()
-                .map(entry -> {
-                    var value = entry.getValue();
-                    return new GenerationExchangeFinalization.Partition(entry.getKey(), value.bytes(),
-                            value.rows(), value.lastSequence(), value.manifestSha256());
-                }).toList();
+                .map(entry -> GenerationExchangeFinalization.Partition.fromPublication(
+                        entry.getKey(), entry.getValue()))
+                .toList();
         var proof = new GenerationExchangeFinalization(
                 allocation.exchangeId(), GenerationExchangeEvidenceCodec.sha256(allocation), observed.shuffleId(),
                 receipt.publication().generation(), owner, receipt.producerCount(), receipt.producerSetSha256(),

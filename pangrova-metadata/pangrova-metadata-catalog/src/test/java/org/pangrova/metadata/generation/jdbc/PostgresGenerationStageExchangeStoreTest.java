@@ -6,6 +6,7 @@ import org.pangrova.generation.api.enums.GenerationGraphPurpose;
 import org.pangrova.shuffle.api.descriptor.ShuffleProviderDescriptor;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.pangrova.testing.testkit.postgres.JdbcMutationFault;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.pangrova.metadata.generation.jdbc.GenerationTransactionFailureAssertions.assertFailure;
@@ -21,6 +22,7 @@ import org.pangrova.generation.codec.execution.GenerationStageGraphCodec;
 import org.pangrova.generation.api.graph.template.GenerationStageTemplate;
 import org.pangrova.persistence.generation.postgresql.job.PostgresGenerationJobStore;
 import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore;
+import org.pangrova.persistence.generation.api.execution.GenerationStageExecutionStore.InputRange;
 import org.pangrova.persistence.generation.api.exception.GenerationStorageException;
 
 import org.flywaydb.core.Flyway;
@@ -33,6 +35,7 @@ import org.pangrova.generation.api.identity.GenerationJobKey;
 import org.pangrova.generation.api.enums.GenerationJobState;
 import org.pangrova.generation.api.page.GenerationPage;
 import org.pangrova.generation.api.exchange.GenerationExchangeFinalization;
+import org.pangrova.generation.api.exchange.GenerationExchangeFinalization.BatchRange;
 import org.pangrova.generation.api.exchange.GenerationExchangeRegistration;
 import org.pangrova.generation.api.execution.GenerationExecutionOwner;
 import org.pangrova.generation.api.page.GenerationPageCompletion;
@@ -605,6 +608,163 @@ class PostgresGenerationStageExchangeStoreTest {
             assertThat(job.expectedPages()).isEqualTo(6);
             assertThat(job.completedPages()).isEqualTo(5);
         });
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void freezesExpandedSkewCohortAndRestoresItsLastWinnerWithExactCertificates(boolean splitBoth) throws Exception {
+        var key = new GenerationJobKey(KEY.tenantId(), "skew-export-" + splitBoth);
+        var graph = skewGraph(splitBoth);
+        var dispatch = GenerationDispatchSpecFactory.create(key.jobId(), graph, key.tenantId(), spec.principal(),
+                spec.authorizationScope(), new GenerationDispatchSpec.ResourceGrant(4096, 1, 4096, 60_000));
+        var pages = new ArrayList<GenerationPage>();
+        pages.add(new GenerationPage(key.jobId(), "left-source", 2, 0, 0,
+                GenerationPageKind.RELATIONAL_COMPUTE, List.of(), List.of(), 3));
+        pages.add(new GenerationPage(key.jobId(), "right-source", 3, 0, 1,
+                GenerationPageKind.RELATIONAL_COMPUTE, List.of(), List.of(), 3));
+        for (int partition = 0; partition < 4; partition++) {
+            pages.add(new GenerationPage(key.jobId(), "join-" + partition, 1, partition, partition + 2,
+                    GenerationPageKind.RELATIONAL_COMPUTE, List.of(), List.of(), 3));
+        }
+        pages.add(new GenerationPage(key.jobId(), "terminal", 0, 0, 6,
+                GenerationPageKind.RELATIONAL_PARTITION, List.of(), List.of(), 3));
+        builds.createJob(job(key, pages.size()), dispatch, pages);
+        var initial = owners.takeOwnership(key.tenantId(), key.jobId(), "skew-initial", 8);
+        var initialOwner = GenerationExecutionOwner.from(initial);
+        var stages = GenerationAuthorityFixtures.artifacts().stages(dataSource);
+        var left = List.of(new BatchRange(0, 1, 70, 1, "1".repeat(64)),
+                new BatchRange(1, 2, 80, 1, "2".repeat(64)));
+        var right = List.of(new BatchRange(0, 1, 90, 2, "3".repeat(64)),
+                new BatchRange(1, 2, 100, 1, "4".repeat(64)));
+        publishSkewInput(stages, key, graph, initial, "left", 2, 0, left);
+        publishSkewInput(stages, key, graph, initial, "right", 3, 1, right);
+
+        var proposed = new ArrayList<InputRange>();
+        proposed.add(new InputRange(0, 1));
+        proposed.add(new InputRange(1, 2));
+        proposed.add(new InputRange(2, 3));
+        for (var l : left) {
+            if (splitBoth) {
+                for (var r : right) proposed.add(new InputRange(3, 4, l, r));
+            } else {
+                proposed.add(new InputRange(3, 4, l, null));
+            }
+        }
+        var missing = new ArrayList<>(proposed);
+        missing.remove(3);
+        assertThatThrownBy(() -> stages.freezeInputRanges(key, initial, 1, missing))
+                .isInstanceOf(IllegalArgumentException.class);
+        var duplicate = new ArrayList<>(proposed);
+        duplicate.add(4, duplicate.get(3));
+        assertThatThrownBy(() -> stages.freezeInputRanges(key, initial, 1, duplicate))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("repeats");
+        var altered = proposed.stream().map(range -> range.first() == null ? range : new InputRange(
+                range.startInclusive(), range.endExclusive(),
+                new BatchRange(range.first().startSequence(), range.first().endSequenceExclusive(),
+                        range.first().totalBytes(), range.first().totalRows(), "f".repeat(64)),
+                range.second())).toList();
+        assertThatThrownBy(() -> stages.freezeInputRanges(key, initial, 1, altered))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("finalized range index");
+        if (!splitBoth) {
+            var wrongSide = proposed.stream().map(range -> range.first() == null ? range
+                    : new InputRange(3, 4, null, right.get((int) range.first().startSequence()))).toList();
+            assertThatThrownBy(() -> stages.freezeInputRanges(key, initial, 1, wrongSide))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("preserved side");
+        }
+        assertThat(builds.findJob(key.tenantId(), key.jobId()).orElseThrow().expectedPages()).isEqualTo(pages.size());
+
+        assertThat(stages.freezeInputRanges(key, initial, 1, proposed)).containsExactlyElementsOf(proposed);
+        builds.createJob(job(key, pages.size()), dispatch, pages);
+        assertThatThrownBy(() -> exchanges.register(key, initialOwner,
+                registration(key, graph, initialOwner, "output", 1, 4, 1)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("persisted stage contract");
+        var output = registration(key, graph, initialOwner, "output", 1, proposed.size(), 1);
+        exchanges.register(key, initialOwner, output);
+        int last = proposed.size() - 1;
+        var firstWindow = new GenerationStageExecutionStore.PartitionWindow(
+                key, initial, 1, last, 1, 8, Duration.ofMinutes(1), NOW);
+        var winner = stages.prepareWindow(firstWindow, (partition, stored) -> {
+            throw new AssertionError("The appended page has not yet run");
+        }, value -> value).get(0);
+        assertThat(winner.lease().partitionId()).isEqualTo(last);
+        assertThat(winner.inputRange()).isEqualTo(proposed.get(last));
+        assertThat(winner.lease().pageOrdinal()).isGreaterThanOrEqualTo(pages.size());
+        completeRangeProducer(stages, key, initialOwner, winner.lease());
+        assertThatThrownBy(() -> exchanges.finalizeExchange(key, initialOwner, proof(output, initialOwner),
+                providerResponse())).isInstanceOf(GenerationStorageException.class);
+
+        var takeover = owners.takeOwnership(key.tenantId(), key.jobId(), "skew-takeover", 9);
+        var newOwner = GenerationExecutionOwner.from(takeover);
+        assertThat(stages.freezeInputRanges(key, takeover, 1, List.of())).containsExactlyElementsOf(proposed);
+        try (var connection = dataSource.getConnection(); var mutation = connection.prepareStatement("""
+                UPDATE artifact_build_pages SET exchange_batch_ranges=NULL
+                WHERE tenant_id=? AND job_id=? AND stage_id=1 AND exchange_batch_ranges IS NOT NULL
+                """)) {
+            mutation.setString(1, key.tenantId());
+            mutation.setString(2, key.jobId());
+            assertThatThrownBy(mutation::executeUpdate).isInstanceOf(SQLException.class)
+                    .hasMessageContaining("immutable");
+        }
+        var window = new GenerationStageExecutionStore.PartitionWindow(
+                key, takeover, 1, 0, proposed.size(), 9, Duration.ofMinutes(1), NOW);
+        record Prepared(InputRange range, org.pangrova.generation.api.page.GenerationLease lease) {}
+        var replayed = stages.prepareWindow(window, (partition, stored) -> {
+            assertThat(stored.originalWireBytes()).containsExactly(5, 7);
+            assertThat(stored.pageId()).isEqualTo(winner.lease().pageId());
+            return new Prepared(proposed.get(partition), null);
+        }, value -> new Prepared(value.inputRange(), value.lease()));
+        assertThat(replayed).hasSize(proposed.size()).extracting(Prepared::range).containsExactlyElementsOf(proposed);
+        assertThat(replayed.get(last).lease()).isNull();
+        for (var prepared : replayed.subList(0, last)) {
+            completeRangeProducer(stages, key, newOwner, prepared.lease());
+        }
+        exchanges.finalizeExchange(key, newOwner, proof(output, newOwner), providerResponse());
+        var current = builds.findJob(key.tenantId(), key.jobId()).orElseThrow();
+        assertThat(current.expectedPages()).isEqualTo(pages.size() + proposed.size() - 4);
+        assertThat(current.completedPages()).isEqualTo(current.expectedPages() - 1);
+        assertThat(stages.preparePartition(new GenerationStageExecutionStore.PartitionClaim(
+                key, takeover, 0, 0, 6, 9, Duration.ofMinutes(1), NOW), value -> value.lease())).isPresent();
+    }
+
+    private void publishSkewInput(GenerationStageExecutionStore stages, GenerationJobKey key,
+            GenerationStageGraph graph, ExecutionAnchor anchor, String exchange, int stage, int ordinal,
+            List<BatchRange> certificates) {
+        var owner = GenerationExecutionOwner.from(anchor);
+        var registration = registration(key, graph, owner, exchange, stage, 1, 4);
+        exchanges.register(key, owner, registration);
+        var lease = stages.preparePartition(new GenerationStageExecutionStore.PartitionClaim(
+                key, anchor, stage, 0, ordinal, 8, Duration.ofMinutes(1), NOW), value -> value.lease()).orElseThrow();
+        completeRangeProducer(stages, key, owner, lease);
+        long bytes = certificates.stream().mapToLong(BatchRange::totalBytes).sum();
+        long rows = certificates.stream().mapToLong(BatchRange::totalRows).sum();
+        var partition = new org.pangrova.shuffle.api.ShuffleCommitReceipt.Partition(1, bytes, rows, "d".repeat(64),
+                certificates.stream().map(range -> new org.pangrova.shuffle.api.ShuffleCommitReceipt.ReadRange(
+                        range.startSequence(), range.endSequenceExclusive(), range.totalBytes(), range.totalRows(),
+                        range.manifestSha256())).toList());
+        var parts = new ArrayList<>(proof(registration, owner).partitions());
+        parts.set(3, GenerationExchangeFinalization.Partition.fromPublication(3, partition));
+        exchanges.finalizeExchange(key, owner, new GenerationExchangeFinalization(exchange,
+                GenerationExchangeEvidenceCodec.sha256(registration), registration.shuffleId(), registration.planEpoch(),
+                owner, 1, registration.producerSetSha256(), parts, bytes, rows,
+                DigestUtils.sha256Hex(providerResponse())), providerResponse());
+    }
+
+    private static GenerationStageGraph skewGraph(boolean splitBoth) {
+        var base = coalescedGraph();
+        var previous = base.requireStage(1);
+        var join = GenerationStageGraph.StagePlan.of(1, 4, previous.pageKind(), previous.planBytes(),
+                previous.template(), List.of(), List.of("id"), false, true,
+                splitBoth ? List.of("left", "right") : List.of("left"));
+        var right = GenerationStageGraph.StagePlan.of(3, 1, GenerationPageKind.RELATIONAL_COMPUTE,
+                new byte[]{5}, base.requireStage(2).template(), List.of("lake.raw.items"), List.of("id"), false);
+        return new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION, base.purpose(),
+                List.of(base.requireStage(2), right, join, base.requireStage(0)),
+                List.of(new GenerationStageGraph.Exchange("left", 2, 1, GenerationExchangeDistribution.HASH,
+                                List.of(0), 4, "BATCH_SERDE_ARROW_BATCH", true),
+                        new GenerationStageGraph.Exchange("right", 3, 1, GenerationExchangeDistribution.HASH,
+                                List.of(0), 4, "BATCH_SERDE_ARROW_BATCH", true),
+                        base.exchanges().stream().filter(edge -> edge.exchangeId().equals("output"))
+                                .findFirst().orElseThrow()), List.of());
     }
 
     private static GenerationStageGraph coalescedGraph() {

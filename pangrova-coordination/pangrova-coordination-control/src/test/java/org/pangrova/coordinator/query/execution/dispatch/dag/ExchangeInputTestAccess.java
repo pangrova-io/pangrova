@@ -31,6 +31,6 @@ public final class ExchangeInputTestAccess {
 
     public static void freezeAdaptiveInputs(org.pangrova.coordinator.query.stage.Stage stage, StageDAG dag) {
         var selector = new AdaptiveShuffleInputs(org.pangrova.planner.adaptive.AdaptiveQueryConfig.ENABLED);
-        stage.freezeShuffleInputs(selector.select(stage, dag).layout());
+        stage.freezeShuffleInputs(selector.select(stage, dag));
     }
 }

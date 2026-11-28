@@ -310,7 +310,8 @@ public final class PostgresGenerationStageExchangeStore implements GenerationSta
             org.pangrova.generation.api.graph.GenerationStageGraph.StagePlan stage) throws SQLException {
         int count = row.getInt("physical_producer_count");
         if (row.wasNull()) return stage.parallelism();
-        if (count <= 0 || count >= stage.parallelism()) {
+        if (count <= 0 || (count >= stage.parallelism() && stage.splittableHashInputs().isEmpty())
+                || count > GenerationExchangeFinalization.maximumAdaptiveTasks(stage.parallelism())) {
             throw new IllegalStateException("Frozen Shuffle producer count differs from its original stage");
         }
         return count;
