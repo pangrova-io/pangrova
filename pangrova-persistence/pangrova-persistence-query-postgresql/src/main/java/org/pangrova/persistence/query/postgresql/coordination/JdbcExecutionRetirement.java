@@ -61,7 +61,8 @@ public final class JdbcExecutionRetirement {
                 RETURNING a.execution_id, a.fencing_token, r.staging_fingerprint
             ),
             staging_handoff AS (
-                UPDATE write_commit_journal w SET staging_drain_token = r.fencing_token
+                UPDATE write_commit_journal w SET staging_drain_token = r.fencing_token,
+                    staging_observed_due_at = clock_timestamp()
                 FROM removed r WHERE r.staging_fingerprint IS NOT NULL AND w.query_id = r.execution_id
                   AND w.commit_fingerprint = r.staging_fingerprint AND w.staging_drain_token = 0
             ),

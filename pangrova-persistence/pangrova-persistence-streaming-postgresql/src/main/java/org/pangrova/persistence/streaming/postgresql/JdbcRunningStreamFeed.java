@@ -3,16 +3,12 @@ package org.pangrova.persistence.streaming.postgresql;
 import org.pangrova.common.concurrent.ExecutorDrain;
 import org.pangrova.common.concurrent.ThreadSafe;
 import org.pangrova.streaming.api.checkpoint.StreamState;
-import org.postgresql.PGConnection;
-import org.postgresql.PGNotification;
-import org.postgresql.ds.PGSimpleDataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
@@ -26,11 +22,12 @@ import java.util.concurrent.atomic.AtomicReference;
 public final class JdbcRunningStreamFeed implements AutoCloseable {
     private static final Logger LOG = LoggerFactory.getLogger(JdbcRunningStreamFeed.class);
     private static final int WAIT_MILLIS = 1_000;
-    private static final int NETWORK_TIMEOUT_MILLIS = 5_000;
     private static final int STOP_TIMEOUT_MILLIS = 30_000;
     private static final String RUNNING = "SELECT * FROM ingestion_stream_state WHERE lifecycle_state = 'RUNNING'";
 
-    private final PGSimpleDataSource dedicatedSource = new PGSimpleDataSource();
+    private final String jdbcUrl;
+    private final String user;
+    private final String password;
     private final ExecutorService listener = Executors.newSingleThreadExecutor(
             runnable -> new Thread(runnable, "cdc-stream-definition-feed"));
     private final AtomicReference<Subscription> active = new AtomicReference<>();
@@ -41,10 +38,9 @@ public final class JdbcRunningStreamFeed implements AutoCloseable {
      * reads never consume a metadata pool slot or reach a different borrower.
      */
     public JdbcRunningStreamFeed(String jdbcUrl, String user, String password) {
-        dedicatedSource.setURL(jdbcUrl);
-        dedicatedSource.setUser(user);
-        dedicatedSource.setPassword(password);
-        dedicatedSource.setTcpKeepAlive(true);
+        this.jdbcUrl = jdbcUrl;
+        this.user = user;
+        this.password = password;
     }
 
     public void start() {
@@ -93,15 +89,15 @@ public final class JdbcRunningStreamFeed implements AutoCloseable {
     }
 
     private void follow(Subscription subscription) throws SQLException {
-        try (Connection connection = dedicatedSource.getConnection()) {
-            connection.setNetworkTimeout(Runnable::run, NETWORK_TIMEOUT_MILLIS);
-            var notifications = connection.unwrap(PGConnection.class);
-            String channel = subscribe(connection);
+        try (var feed = PostgresChangeSubscription.open(
+                jdbcUrl, user, password, "ingestion_stream_state", "pangrova_running_stream_")) {
+            var connection = feed.connection();
             // LISTEN commits in autocommit mode. Any newer writes are queued even during the snapshot read.
             var definitions = load(connection);
             subscription.snapshot = Map.copyOf(definitions);
             while (active.get() == subscription && !Thread.currentThread().isInterrupted()) {
-                var names = changedNames(channel, notifications.getNotifications(WAIT_MILLIS));
+                var names = feed.awaitChanges(WAIT_MILLIS);
+                if (names.contains("")) names.remove("");
                 if (!names.isEmpty()) {
                     refresh(connection, definitions, names);
                     subscription.snapshot = Map.copyOf(definitions);
@@ -109,18 +105,6 @@ public final class JdbcRunningStreamFeed implements AutoCloseable {
             }
         } finally {
             subscription.snapshot = Map.of();
-        }
-    }
-
-    private static String subscribe(Connection connection) throws SQLException {
-        try (var statement = connection.createStatement()) {
-            String channel;
-            try (var rows = statement.executeQuery("SELECT 'ingestion_stream_state'::regclass::oid")) {
-                if (!rows.next()) throw new SQLException("Missing CDC stream relation identity");
-                channel = "pangrova_running_stream_" + rows.getLong(1);
-            }
-            statement.execute("LISTEN " + channel);
-            return channel;
         }
     }
 
@@ -132,17 +116,6 @@ public final class JdbcRunningStreamFeed implements AutoCloseable {
             }
         }
         return definitions;
-    }
-
-    private static Set<String> changedNames(String channel, PGNotification[] notifications) {
-        if (notifications == null || notifications.length == 0) return Set.of();
-        var names = new HashSet<String>();
-        for (var event : notifications) {
-            if (channel.equals(event.getName()) && !event.getParameter().isEmpty()) {
-                names.add(event.getParameter());
-            }
-        }
-        return names;
     }
 
     private static void refresh(Connection connection, Map<String, StreamState> definitions,

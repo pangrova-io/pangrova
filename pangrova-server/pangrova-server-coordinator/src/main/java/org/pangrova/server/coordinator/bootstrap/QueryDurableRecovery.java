@@ -17,19 +17,16 @@ import org.pangrova.metadata.catalog.registry.CatalogRegistry;
 import org.pangrova.coordinator.query.task.write.WriteCommitRecoveryService;
 import org.pangrova.shuffle.api.ShuffleExecutionOwner;
 import org.pangrova.execution.api.ownership.ExecutionAnchor;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /** Owns durable shuffle cleanup and write-commit recovery wiring for queries. */
 final class QueryDurableRecovery implements AutoCloseable {
 
-    private static final Logger LOG = LoggerFactory.getLogger(QueryDurableRecovery.class);
     private static final long CALLBACK_DRAIN_TIMEOUT_MS = 5_000;
 
     private final CoordinatorBootstrapConfig config;
     private final DataSource metadataDataSource;
     private final HighAvailabilityCoordinationService coordination;
-    private final JdbcObservedWriteStaging observedStaging;
+    private ObservedWriteStagingRecovery observedStaging;
     private final org.pangrova.server.coordinator.bootstrap.lifecycle.CoordinatorCallbackLifetime callbacks =
             new org.pangrova.server.coordinator.bootstrap.lifecycle.CoordinatorCallbackLifetime();
 
@@ -43,7 +40,6 @@ final class QueryDurableRecovery implements AutoCloseable {
         this.config = config;
         this.metadataDataSource = metadataDataSource;
         this.coordination = coordination;
-        observedStaging = metadataDataSource == null ? null : new JdbcObservedWriteStaging(metadataDataSource);
     }
 
     void installShuffleCleanup(QueryManager queryManager, QueryDispatcher dispatcher) {
@@ -60,9 +56,22 @@ final class QueryDurableRecovery implements AutoCloseable {
         queryDispatcher = dispatcher;
     }
 
+    void startObservedStaging(CatalogRegistry catalog) {
+        var jdbc = config.metadataJdbcConfig();
+        if (catalog == null || metadataDataSource == null || jdbc == null) return;
+        var journal = new JdbcObservedWriteStaging(metadataDataSource);
+        observedStaging = new ObservedWriteStagingRecovery(journal, jdbc, config.coordinatorId(),
+                entry -> WriteCommitComponentFactory.reclaimObservedStaging(catalog, entry));
+        observedStaging.start();
+    }
+
     @Override
     public void close() {
-        callbacks.close(CALLBACK_DRAIN_TIMEOUT_MS);
+        try {
+            callbacks.close(CALLBACK_DRAIN_TIMEOUT_MS);
+        } finally {
+            if (observedStaging != null) observedStaging.close();
+        }
     }
 
     ShuffleExecutionOwner resolveShuffleOwner(String queryId) {
@@ -108,8 +117,7 @@ final class QueryDurableRecovery implements AutoCloseable {
         return deferred;
     }
 
-    boolean releaseRecoveredQuery(ExecutionAnchor claim, CatalogRegistry catalog, boolean reclaimStaging) {
-        if (reclaimStaging && !reclaimObservedStaging(claim, catalog)) return false;
+    boolean releaseRecoveredQuery(ExecutionAnchor claim) {
         boolean remote = shuffleCleanupIntents != null;
         if (remote && shuffleCleanupIntents.prepareProvenRecovery(claim)) {
             var owner = new ShuffleExecutionOwner(claim.ownerId(), claim.ownerIncarnation(), claim.fencingToken());
@@ -118,16 +126,4 @@ final class QueryDurableRecovery implements AutoCloseable {
         return coordination.releaseDrainedRecoveryClaim(claim, remote);
     }
 
-    private boolean reclaimObservedStaging(ExecutionAnchor claim, CatalogRegistry catalog) {
-        if (observedStaging == null) throw new IllegalStateException("Staged cleanup requires durable authority");
-        var intent = observedStaging.claim(claim).orElse(null);
-        if (intent == null) return false;
-        if (!WriteCommitComponentFactory.reclaimObservedStaging(catalog, intent)) {
-            // Retain the durable obligation for deployments with no safe filesystem authority here.
-            LOG.warn("event=observed_write_staging_pending queryId={} catalog={}", intent.queryId(),
-                    intent.catalogName());
-            return true;
-        }
-        return observedStaging.complete(claim, intent.commitFingerprint());
-    }
 }

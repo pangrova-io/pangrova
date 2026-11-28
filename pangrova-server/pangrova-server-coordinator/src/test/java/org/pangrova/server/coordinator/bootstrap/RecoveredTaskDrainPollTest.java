@@ -38,7 +38,7 @@ class RecoveredTaskDrainPollTest {
             observed.add(event.taskId());
             return CompletableFuture.completedFuture(pending
                     ? SchedulerCancelResult.pending() : SchedulerCancelResult.drained(next));
-        }, (anchor, outcome) -> true, executor, 25)) {
+        }, anchor -> true, executor, 25)) {
             poll.start(scheduler);
             poll.track(List.of(claim));
             await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
@@ -66,7 +66,7 @@ class RecoveredTaskDrainPollTest {
             if (event.taskId().equals("2")) return CompletableFuture.failedFuture(
                     new IllegalStateException("control response unavailable"));
             return CompletableFuture.completedFuture(SchedulerCancelResult.drained(receipt));
-        }, (anchor, outcome) -> true, executor, 25)) {
+        }, anchor -> true, executor, 25)) {
             poll.start(scheduler);
             poll.track(List.of(claim));
             await().atMost(Duration.ofSeconds(3)).untilAsserted(() ->
@@ -93,7 +93,7 @@ class RecoveredTaskDrainPollTest {
         var poll = new RecoveredTaskDrainPoll(journal, event -> {
             if (event.queryId().equals("query-" + limit)) return CompletableFuture.completedFuture(receipt);
             return slowReplies.computeIfAbsent(event.queryId(), ignored -> new CompletableFuture<>());
-        }, (anchor, outcome) -> true, executor, 25);
+        }, anchor -> true, executor, 25);
         try {
             poll.start(scheduler);
             poll.track(claims);
@@ -130,7 +130,7 @@ class RecoveredTaskDrainPollTest {
                 return blockedReply;
             }
             return CompletableFuture.completedFuture(receipt);
-        }, (anchor, outcome) -> true, executor, 25);
+        }, anchor -> true, executor, 25);
         try {
             poll.start(scheduler);
             poll.track(List.of(older));

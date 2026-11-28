@@ -275,10 +275,18 @@ The abort proves that the output can never become visible. The existing
 Worker and Coordinator exit check records the exact execution token that
 proves staging has stopped. Local retirement can record the same proof from
 its completed drain. The proof and staged object receipts survive execution
-retirement together. File deletion still requires a separate cleanup claim
-and confirmation from the file store. For observed SDK files in the same
-Linux local storage namespace, the recovery callback claims reclamation
-before unlinking and records completion for the exact fingerprint afterward.
+retirement together. The same transaction makes observed staging eligible
+for a separate cleanup lease. Query retirement can return its task, Shuffle,
+and tenant resources after the handoff. File release has its own completion
+record for the exact fingerprint. Coordinators subscribe before discovering
+pending work, then claim by committed notification or lease deadline. An
+empty queue does not require periodic database queries. A Coordinator that
+cannot access the original namespace defers its own claim while giving peers
+immediate eligibility. After interruption, another claim can start when the
+lease expires, including after retirement of the execution anchor.
+
+For observed SDK files in the same Linux local storage namespace, the cleanup
+holder verifies identity before unlinking.
 The worker receipt binds the namespace to the kernel boot identity and the
 database directory inode. Recovery verifies that binding before treating any
 missing path as absent, and uses directory-relative operations that do not

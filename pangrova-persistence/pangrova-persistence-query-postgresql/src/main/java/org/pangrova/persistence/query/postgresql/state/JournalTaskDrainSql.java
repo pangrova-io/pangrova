@@ -72,8 +72,7 @@ final class JournalTaskDrainSql {
                        EXISTS (SELECT 1 FROM query_state_journal q JOIN claim c ON q.query_id = c.execution_id)
                            AS query_observed
             ), write_state AS MATERIALIZED (
-                SELECT w.query_id, w.commit_fingerprint, w.state, w.staging_drain_token,
-                       w.execution_fencing_token, w.staging_observed_reclaimed_at
+                SELECT w.query_id, w.commit_fingerprint, w.state, w.staging_drain_token, w.execution_fencing_token
                 FROM write_commit_journal w JOIN claim c ON w.query_id = c.execution_id
             ), outcome AS MATERIALIZED (
                 SELECT CASE
@@ -118,7 +117,8 @@ final class JournalTaskDrainSql {
                     ELSE 'CONFIRMED'
                 END AS state FROM evidence
             ), staging_handoff AS (
-                UPDATE write_commit_journal w SET staging_drain_token = c.fencing_token
+                UPDATE write_commit_journal w SET staging_drain_token = c.fencing_token,
+                    staging_observed_due_at = clock_timestamp()
                 FROM claim c, outcome o, write_state original
                 WHERE o.state = 'CONFIRMED' AND original.query_id = c.execution_id
                   AND original.execution_fencing_token < c.fencing_token
@@ -148,11 +148,7 @@ final class JournalTaskDrainSql {
                     AND q.state IN ('FINISHED', 'FAILED', 'CANCELLED')
                 )
             )
-            SELECT CASE WHEN state = 'CONFIRMED' AND EXISTS (
-                SELECT 1 FROM write_state w JOIN claim c ON c.execution_id = w.query_id
-                WHERE w.staging_drain_token IS NOT NULL AND w.staging_observed_reclaimed_at IS NULL
-                  AND w.execution_fencing_token < c.fencing_token
-            ) THEN 'CONFIRMED_STAGING' ELSE state END FROM outcome
+            SELECT state FROM outcome
             """;
 
     private static final String RETAIN = """
