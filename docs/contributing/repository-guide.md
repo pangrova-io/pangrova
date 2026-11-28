@@ -60,9 +60,9 @@ The root README is an introduction; development inventories belong here.
 | `pangrova-testing` | Shared test infrastructure, E2E, benchmark, chaos and reference generator |
 | Root community files | README, CONTRIBUTING, SECURITY, CODE_OF_CONDUCT, CHANGELOG, LICENSE and NOTICE |
 
-Module presence is not an end-to-end capability guarantee. See
-[capability status](../getting-started/capability-status.md) and
-[architecture](../architecture/overview.md).
+Module presence is not an end-to-end capability guarantee.
+See the [architecture overview](../architecture/overview.md) for how the modules
+fit into the execution path.
 
 ## Documentation ownership
 

@@ -60,6 +60,5 @@ Use images for image description and supported document/image formats for OCR;
 not every `FILE` payload is valid for every model. `AI_OCR` requires both the model
 and file arguments.
 
-See [AI Functions — File Helpers](../../sql-reference/functions/ai-functions.md#file-helper-functions),
-[Worker Configuration](../../configuration/worker.md), and
-[Current Capability Status](../../getting-started/capability-status.md).
+See [AI Functions — File Helpers](../../sql-reference/functions/ai-functions.md#file-helper-functions)
+and [Worker Configuration](../../configuration/worker.md).

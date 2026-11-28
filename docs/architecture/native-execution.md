@@ -25,11 +25,10 @@ sidebar_label: "Native Execution Layer"
 
 The main relational execution path places operators and vector Top-K merging on
 Native Workers. With both streaming and query roles enabled, CDC ingestion runs in
-Worker JVMs. The streaming-only role uses a local connector sink. Native Flight carries relational shuffle
-traffic directly between Workers. See [Current Capability Status](../getting-started/capability-status.md).
-Read-dependent
-Iceberg/Paimon writes are staged through the Java connector SDK from a Native
-write-drain callback; the final catalog commit remains Coordinator-owned.
+Worker JVMs. The streaming-only role uses a local connector sink. Native Flight carries
+relational shuffle traffic directly between Workers. Read-dependent Iceberg/Paimon writes
+are staged through the Java connector SDK from a Native write-drain callback. The
+Coordinator owns the final catalog commit.
 Lance's Rust/C++ FFI is a separate Native storage adapter whose public SQL
 write and catalog publication path is still subject to the acceptance criteria
 in [distributed-writes.md](./distributed-writes.md).
