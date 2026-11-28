@@ -26,7 +26,7 @@ class Descriptor(ctypes.Structure):
     _fields_ = [("index", ctypes.c_int32), ("kind", ctypes.c_uint32)]
 
 
-def observe(lib, jstat, target):
+def observe(lib, mach_timebase, jstat, target):
     role, pid = target
     task = TaskInfo()
     if lib.proc_pidinfo(pid, 4, 0, ctypes.byref(task), ctypes.sizeof(task)) != ctypes.sizeof(task):
@@ -49,7 +49,9 @@ def observe(lib, jstat, target):
         heap = round(sum(float(values[k]) for k in ("S0U", "S1U", "EU", "OU")) * 1024)
     except (OSError, subprocess.SubprocessError, ValueError, KeyError, IndexError):
         pass  # A disappearing JVM can still yield a valid OS sample; leave heap unobserved.
-    return role, pid, task.resident, heap, task.threads, total, sockets
+    numerator, denominator = mach_timebase
+    cpu_time_ns = (task.user + task.system) * numerator // denominator
+    return role, pid, task.resident, heap, task.threads, total, sockets, cpu_time_ns
 
 
 def main():
@@ -59,19 +61,23 @@ def main():
     if sys.platform != "darwin" or not os.environ.get("JAVA_HOME"):
         parser.error("Requires macOS and JAVA_HOME pointing to the JDK 17 used by the Workers")
     lib = ctypes.CDLL("/usr/lib/libproc.dylib")
+    mach_timebase = (ctypes.c_uint32 * 2)()
+    if ctypes.CDLL(None).mach_timebase_info(ctypes.byref(mach_timebase)) != 0 or mach_timebase[1] == 0:
+        raise RuntimeError("Cannot read the Mach CPU timebase")
     jstat = Path(os.environ["JAVA_HOME"]) / "bin/jstat"
     root = args.directory
     with (root / "role-samples.csv").open("x") as out, ThreadPoolExecutor(max_workers=3) as executor:
         csvout = csv.writer(out)
         csvout.writerow(["fork", "timestamp_ns", "accepted_queries", "role", "pid", "rss_bytes",
-                         "sampled_heap_used_bytes", "thread_count", "open_descriptors", "socket_descriptors"])
+                         "sampled_heap_used_bytes", "thread_count", "open_descriptors", "socket_descriptors",
+                         "cpu_time_ns"])
         while not (root / "sampling-complete").exists():
             for log in sorted(root.glob("*.log")):
                 matches = re.findall(r"role=(coordinator|local-worker-[12]) pid=(\d+)", log.read_text())
                 query_csv = log.with_suffix(".csv")
                 samples = max(0, len(query_csv.read_text().splitlines()) - 1) if query_csv.exists() else 0
                 targets = [(role, int(pid)) for role, pid in matches]
-                for record in executor.map(lambda t: observe(lib, jstat, t), targets):
+                for record in executor.map(lambda t: observe(lib, mach_timebase, jstat, t), targets):
                     if record is not None:
                         csvout.writerow([log.stem, time.time_ns(), samples, *record])
             out.flush()

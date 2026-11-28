@@ -230,6 +230,9 @@ waits separately. Client first-row latency requires a client-side clock.
 For per-role observations on macOS, redirect each fork's combined output to
 `<fork>.log` next to its `<fork>.csv`. Start the following sampler before the
 forks and create the completion marker after the last fork exits.
+Each role sample includes cumulative user and system CPU time in nanoseconds
+alongside RSS, JVM heap, threads and file descriptors. Compare the CPU counter
+between samples for the same process.
 
 ```bash
 python3 "$BENCHMARK_SCRIPTS/sample_sql_role_resources.py" "$sql_results" &
