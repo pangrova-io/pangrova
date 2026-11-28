@@ -16,6 +16,53 @@ description: "Pangrova 查询与写入优化、Java 类型和包更名及单机�
 3. **开发并分批集成。** N2、N3 的更名先于涉及同一文件的行为修改合入，N4 汇总模块完整性。执行链路收口受理、所有权和终态（A1–A4），推进枚举、放置和读取（A5–A8），随后以实际读取证据校准动态过滤和自适应执行（A9–A10）。Shuffle 止写与回收（A11）和写入日志、CDC、fenced commit（A12–A13）由独立批次并行，同一持久化或协议权威由单一批次更新。更名与行为修复各有可审查提交。
 4. **统一验收和交付。** 每批推进时先跑最贴近的检查，全部开发集成后按 B1–B8 和更名验收矩阵，以同一提交重建并跑单机全链路。按实际通过范围关闭任务，记录尚缺的证据和可复现命令。
 
+## 实施记录 {#implementation-evidence}
+
+### 2026-11-28 同机基线
+
+- 取基线 `2225d2d53d8981c69bf1a638f92a8c8ca1db519e`。`git fetch origin main` 确认
+  `b63549583914d12bd087b12035181bb99a720b8f` 已是基线祖先。从该提交切出
+  `codex/implement-execution-backlog`，初始 worktree 无本地改动。
+- 主机为 macOS 13.7.8 arm64，8 个逻辑 CPU，16 GiB 内存。Docker 28.5.1 VM 提供
+  8 个 CPU 和约 7.65 GiB 内存。使用 Corretto 17.0.20、Maven 3.9.16、Python 3.12.14 和
+  `en_US.UTF-8`。系统 Python 未达到 3.10 时，首次构建在协议代码生成阶段退出。
+- 基线 `mvn -B -DskipTests -Pnative-runtime clean install` 成功，153 个 reactor 项目构建完成，
+  此命令跳过测试。用 `deploy/docker/stage-role-classpaths.py` 冻结角色运行时和 CLI，
+  清单 SHA-256 为 `08613b3eb3fa03484332f69988462285d9239addf114c0e81f4189aaced37bfa`。
+  该清单包含此前安装的 Native classifier，不能作为同源验收产物。
+- `build-lance-ffi.sh` 完成后，`cmake --preset dev-release -S pangrova-worker-native` 拒绝
+  既有 Velox checkout 的注册源 provenance。锁定提交的独立副本已通过仓库补丁
+  `apply` 和 `verify`。旧 classifier 的进程探测也在首个 Worker 的函数目录握手处失败，
+  Completion/Drain 时延、SQL、I/O 及采样数均未取得。原始日志为本机证据目录中的
+  `baseline-install-utf8.log`、`baseline-native.log` 和 `baseline-exploratory-topology.log`。
+- 首轮可比负载采用 `sql_process_comparison.py`。该夹具使用一个 Coordinator JVM、两个
+  Worker JVM、独立 CLI、PostgreSQL 16、LDAP、Iceberg 本地仓库和 TLS Flight。每轮创建独立表，
+  写入三个文件，每文件为 `4, 5, 5`，然后交替运行 `SELECT 21 + 21 AS answer` 与
+  `SELECT SUM(id) AS answer FROM <table>`，每种查询 3 次预热、12 次采样，结果均应为
+  `42`。此负载与 MinIO、独立 Shuffle、CDC 和更大的容量矩阵分别取证。
+
+### 基线源码复核
+
+逐项扫描声明与包路径。61 个旧类型各有一处声明，22 个旧包合计 162 个带包声明的源码文件
+（含子包及测试），11 个保留项含 Java 和 Protobuf 各一处 `ColumnMapping`。
+仓内命名迁移按下方映射执行。执行条目的源码和既有回归入口如下，关闭条件仍以同源运行证据为准。
+
+| 范围 | 生产路径与回归入口 |
+|---|---|
+| A1/B1 | `QueryAdmission` 与 PostgreSQL query journal。以 `QueryManagerDurableAcceptanceTest`、`JdbcQueryStateJournalIntegrationTest` 为定向入口。 |
+| A2/B2 | `QueryTerminalCleanup`、`QueryOwnershipTracker`、Native owner 释放和租约退役。以 `CoordinatorFailoverOrphanE2ETest`、`IndependentClientCancellationE2ETest` 和 `ReadCompletionDatabaseBudgetE2ETest` 复核。 |
+| A3 | `ResultDisposition` 贯通 HTTP、CLI 与 Flight。独立进程夹具覆盖 STREAM 和 NONE，另需核对迟到 Ready、失败 EOF 与取消交错。 |
+| A4/B3 | `PersistentTenantOverloadE2ETest` 已有独立双 Coordinator 固定到达率路径，`AsyncSubmitSaturationE2ETest` 覆盖提交压力。需要同机当前版本的数据与阶段归因。 |
+| A5 | `PaimonAppendRangeScan` 和 `SplitPlanningBudget` 控制增量枚举，`PaimonScopedSplitExecutionTest` 覆盖固定上下文。需补对象存储故障与 I/O 关闭证据。 |
+| A6 | `WorkerHeartbeatBootstrap` 发布全 Worker 在途总量，`WorkerPlacementWork` 对该总量与本 Coordinator 本地计数取最大值。两者的重叠与外部负荷需要分别核对。参考 `SplitPlacementWeightTest` 和 `WorkerHeartbeatIdentityTest`。 |
+| A7/A8 | `NativeS3ReadEvidenceE2ETest` 是对象存储 I/O 与读取身份定向入口。JNI 架构页记录 Apache ORC 当前在准入处失败，因此真实 ORC 覆盖仍开放。 |
+| A9 | `TaskRuntimeFilterWire` 与 `RuntimeFilterRpcIntegrationTest` 覆盖控制面，`IndependentLateRuntimeFilterE2ETest` 覆盖真实晚到过滤。主线已包含 build-key range 不可变快照修复 `b325de4c4`。 |
+| A10/B5 | `DurableStageShuffleEvidence` 记录持久交换证据，`RemoteShuffleSqlCoalescingE2ETest` 和 `AdaptiveQueryExecutionE2ETest` 提供真实 SQL 入口。 |
+| A11/B7 | `PostgresShuffleWindowPublication` 发布 producer window，`DurableShuffleIntegrationTest` 与 `PhysicalTwoWorkerShuffleE2ETest` 覆盖持久状态和数据面。未出现对象的止写证明仍开放。 |
+| A12/B8 | `CdcCommitCoordinator`、`JdbcCdcCommitStateStore` 管理发布和回执，`IndependentCdcProcessesE2ETest` 和 `IndependentRelationalWriteRecoveryE2ETest` 提供重放、接管与回读入口。 |
+| A13 | `ObservedWriteStagingRecovery` 和 `JdbcObservedWriteStaging` 驱动观测文件回收。现有回收作用域覆盖已报告的本地 Paimon SDK 文件。 |
+| B4/B6 | 复用 `RemoteShuffleSqlCoalescingE2ETest` 的真实 SQL 入口与独立进程基准。以 `NativeCapabilityHandshakeE2ETest` 和物理排空夹具核对同源部署及所有权。 |
+
 ## A 实现工作包与单项验证 {#remaining-work}
 
 | ID | 当前证据 | 剩余工作和关闭条件 |
