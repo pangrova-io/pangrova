@@ -140,6 +140,21 @@ description: "Pangrova 查询与写入优化、Java 类型和包更名及单机�
   `0f91bef5b` 修复租户满额时回放已持久化且仍保留的明确幂等键。
   PostgreSQL journal 48 项、内存 journal 10 项、Coordinator 回放 11 项和 HTTP
   指纹 3 项定向通过。候选重新构建后复测进程级用例。
+- `IndependentRelationalWriteRecoveryE2ETest` 使用两个独立 Worker、PostgreSQL 和
+  Iceberg SDK 回读，通过 6 项。见 `first-process-acceptance.log`。
+  `58cde1142` 将远端 Shuffle Service 的 executable 纳入同源 manifest 并以独立进程启动，
+  接入同机 PostgreSQL、MinIO 和 TLS。首次独立 Shuffle 复跑定位了写流上限 4 过小；
+  `f5038a586` 为这个 SQL 夹具设定 16 条流、48 MiB 聚合入站缓冲与 4 个 I/O 线程。
+  此后 `RemoteShuffleSqlCoalescingE2ETest` 4 项通过，日志记录实际 Shuffle、Coordinator、
+  两个 Worker 和 CLI 的 PID。见 `signed-and-capacity-process-acceptance.log`。
+- Release Native 首轮 CTest 跑了 4391 项，4388 项通过。`de6fcfe79` 修复并发
+  generated-value 夹具的临时路径碰撞，`34629a3e0` 补齐历史 Velox checkpoint 的反向
+  S3 patch，相关复跑 7 项全过。见 `native-tests-full.log` 和
+  `native-tests-qualification-retry.log`。
+- 第三项 Native 失败来自本机既有 Arrow dylib 的弱符号合并。仓库的
+  `PANGROVA_NATIVE_BUILD_PHASE=arrow-flight` 重新构建并验证了 Darwin 独立包，
+  针对新包运行的 `CanonicalFlightPackageTest.py` 五项通过。见
+  `qualified-darwin-flight.log` 和 `qualified-darwin-flight-test.log`。
 
 Java 定向测试使用下面的命令结构，日志保留各批传入的选择器和 Maven reactor。
 Paimon、Shuffle 与 journal 的复现命令如下。
