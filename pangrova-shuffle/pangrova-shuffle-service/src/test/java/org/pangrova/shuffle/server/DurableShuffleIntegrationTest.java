@@ -19,6 +19,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
@@ -60,9 +61,13 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.core.interceptor.Context.BeforeExecution;
+import software.amazon.awssdk.core.interceptor.ExecutionAttributes;
+import software.amazon.awssdk.core.interceptor.ExecutionInterceptor;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.S3ClientBuilder;
 import software.amazon.awssdk.services.s3.S3Configuration;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
@@ -1045,6 +1050,73 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
     }
 
     @Test
+    void blockedCleanupListingLeavesTheSingleRpcIoThreadAvailable() throws Exception {
+        String cleanupQuery = "held-cleanup-" + UUID.randomUUID();
+        String liveQuery = "live-registration-" + UUID.randomUUID();
+        seedAnchor(cleanupQuery, owner());
+        seedAnchor(liveQuery, owner());
+        var held = registrationFor(cleanupQuery);
+        var live = registrationFor(liveQuery);
+        var listStarted = new CountDownLatch(1);
+        var releaseList = new CountDownLatch(1);
+        var client = s3ClientBuilder().overrideConfiguration(builder -> builder.addExecutionInterceptor(
+                new ExecutionInterceptor() {
+                    @Override
+                    public void beforeExecution(BeforeExecution context, ExecutionAttributes attributes) {
+                        if (context.request() instanceof ListObjectsV2Request request
+                                && ("integration/" + held.getShuffleId() + "/").equals(request.prefix())) {
+                            listStarted.countDown();
+                            try {
+                                if (!releaseList.await(30, TimeUnit.SECONDS)) {
+                                    throw new IllegalStateException("cleanup test did not release the listing");
+                                }
+                            } catch (InterruptedException interrupted) {
+                                Thread.currentThread().interrupt();
+                                throw new IllegalStateException("cleanup listing interrupted", interrupted);
+                            }
+                        }
+                    }
+                })).build();
+        var config = config();
+        var store = PostgresShuffleStore.create(config.database());
+        var limits = new ShuffleServiceConfig.Limits(1024, 1024, 3072, 1, 1, 1);
+        try (var engine = new ShuffleServiceEngine(config, store, store.batchStore(),
+                S3ShuffleObjectStorage.testing(client, BUCKET, "integration"),
+                ShuffleCapabilityAuthority.testing(SECRET), Clock.systemUTC());
+                var transport = new CanonicalShuffleGrpcServer(engine, limits)) {
+            var heldAllocation = engine.register(held);
+            var server = ServerBuilder.forPort(0).addService(transport).build().start();
+            var channel = ManagedChannelBuilder.forAddress("localhost", server.getPort()).usePlaintext().build();
+            try {
+                var cleanup = ShuffleServiceGrpc.newFutureStub(channel).withDeadlineAfter(20, TimeUnit.SECONDS)
+                        .cleanup(CleanupRequest.newBuilder().setQueryId(cleanupQuery).setExecutionOwner(owner())
+                                .setAccessCapability(heldAllocation.getCleanupCapability()).build());
+                assertThat(listStarted.await(5, TimeUnit.SECONDS)).isTrue();
+
+                var admitted = ShuffleServiceGrpc.newBlockingStub(channel).withDeadlineAfter(5, TimeUnit.SECONDS)
+                        .registerShuffle(live);
+
+                assertThat(admitted.getShuffleId()).isEqualTo(live.getShuffleId());
+                assertThat(cleanup.isDone()).isFalse();
+                releaseList.countDown();
+                assertThat(cleanup.get(5, TimeUnit.SECONDS).getScopeConvergedAtEpochMillis()).isPositive();
+                engine.cleanup(CleanupRequest.newBuilder().setQueryId(liveQuery).setExecutionOwner(owner())
+                        .setAccessCapability(admitted.getCleanupCapability()).build());
+            } finally {
+                releaseList.countDown();
+                channel.shutdownNow().awaitTermination(10, TimeUnit.SECONDS);
+                server.shutdownNow().awaitTermination(10, TimeUnit.SECONDS);
+            }
+        }
+    }
+
+    private static RegisterShuffleRequest registrationFor(String queryId) {
+        return registration().toBuilder().setQueryId(queryId).setShuffleId("shuffle-" + queryId)
+                .setExpectedProducerSetChecksum(ShuffleChecksums.protocol(
+                        ShuffleProducerSetChecksum.forContiguousPartitions(queryId, 1, 2, 1))).build();
+    }
+
+    @Test
     void largeCleanupRecoversOnlyAfterLeaseExpiry() throws Exception {
         String queryId = "large-cleanup-query";
         String shuffleId = "large-cleanup-shuffle";
@@ -1084,8 +1156,14 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
             assertThat(recoveryStatements)
                     .as("takeover of a sealed scope does not rewrite its shuffle allocations")
                     .noneMatch(sql -> sql.contains("UPDATE shuffle_allocation") && sql.contains("SET state = "));
-            assertThat(store.cleanupShuffles(recovered, null, 1_000,
-                    new CleanupLease("recovery-cleaner", 202, 1_000))).containsExactly(shuffleId);
+            var beforePaging = shuffleStatements();
+            var renewed = new CleanupLease("recovery-cleaner", 202, 1_000);
+            assertThat(store.cleanupShuffles(recovered, null, 1_000, renewed)).containsExactly(shuffleId);
+            assertThat(store.cleanupShuffles(recovered, shuffleId, 1_000, renewed)).isEmpty();
+            assertShuffleStatementCount(beforePaging, 2);
+            assertThatThrownBy(() -> store.cleanupShuffles(firstPlan, null, 1_000,
+                    new CleanupLease("first-cleaner", 202, 1_000)))
+                    .isInstanceOf(IllegalStateException.class).hasMessageContaining("cleanup lease");
             assertThatThrownBy(() -> store.completeCleanup(firstPlan))
                     .isInstanceOf(IllegalStateException.class).hasMessageContaining("cleanup lease");
             assertThat(store.findAllocation(shuffleId)).isPresent();
@@ -1930,12 +2008,16 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
     }
 
     private static S3Client s3Client() {
+        return s3ClientBuilder().build();
+    }
+
+    private static S3ClientBuilder s3ClientBuilder() {
         return S3Client.builder().endpointOverride(minioEndpoint())
                 .region(Region.US_EAST_1)
                 .credentialsProvider(StaticCredentialsProvider.create(
                         AwsBasicCredentials.create(ACCESS_KEY, SECRET_KEY)))
                 .serviceConfiguration(S3Configuration.builder()
-                        .pathStyleAccessEnabled(true).build()).build();
+                        .pathStyleAccessEnabled(true).build());
     }
 
     private static URI minioEndpoint() {

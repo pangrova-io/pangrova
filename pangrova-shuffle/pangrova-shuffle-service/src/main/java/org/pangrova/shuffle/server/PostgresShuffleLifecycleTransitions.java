@@ -213,8 +213,7 @@ final class PostgresShuffleLifecycleTransitions {
             CleanupPlan plan, String after, int limit, CleanupLease lease) {
         return transaction(dataSource, connection -> {
             requireCleanupPageLimit(limit);
-            PostgresShuffleRecords.renewCleanup(connection, plan, lease);
-            return PostgresShuffleRecords.cleanupShuffles(connection, plan, after, limit);
+            return PostgresShuffleRecords.cleanupShuffles(connection, plan, after, limit, lease);
         });
     }
 

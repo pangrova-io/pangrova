@@ -333,21 +333,33 @@ final class PostgresShuffleRecords {
     }
 
     static List<String> cleanupShuffles(
-            Connection connection,
-            CleanupPlan plan,
-            String after,
-            int limit) throws SQLException {
-        String sql = "SELECT shuffle_id FROM shuffle_allocation WHERE query_id = ? "
-                + "AND shuffle_id > ? ORDER BY shuffle_id LIMIT ?";
+            Connection connection, CleanupPlan plan, String after, int limit, CleanupLease lease) throws SQLException {
+        String sql = """
+                WITH renewed AS (
+                    UPDATE shuffle_query_scope SET cleanup_lease_expires_at_ms = ?
+                    WHERE query_id = ? AND state = 'CLEANING' AND cleanup_lease_owner = ?
+                    RETURNING query_id
+                )
+                SELECT page.shuffle_id FROM renewed r LEFT JOIN LATERAL (
+                    SELECT a.shuffle_id FROM shuffle_allocation a
+                    WHERE a.query_id = r.query_id AND a.shuffle_id > ? ORDER BY a.shuffle_id LIMIT ?
+                ) page ON TRUE ORDER BY page.shuffle_id
+                """;
         List<String> shuffleIds = new ArrayList<>();
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
-            statement.setString(1, plan.queryId());
-            statement.setString(2, after == null ? "" : after);
-            statement.setInt(3, limit);
+            statement.setLong(1, lease.expiresAtMs());
+            statement.setString(2, plan.queryId());
+            statement.setString(3, plan.leaseOwner());
+            statement.setString(4, after == null ? "" : after);
+            statement.setInt(5, limit);
             try (ResultSet rows = statement.executeQuery()) {
-                while (rows.next()) {
-                    shuffleIds.add(rows.getString(1));
+                if (!rows.next()) {
+                    throw new IllegalStateException("shuffle cleanup lease has been lost");
                 }
+                do {
+                    String shuffleId = rows.getString(1);
+                    if (shuffleId != null) shuffleIds.add(shuffleId);
+                } while (rows.next());
             }
         }
         return List.copyOf(shuffleIds);

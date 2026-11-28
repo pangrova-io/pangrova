@@ -153,6 +153,13 @@ When terminal cleanup closes the scope, the current execution owner can renew
 cleanup access while in-flight I/O drains. A successor can recover cleanup
 access after acquiring the durable anchor. The scope and its allocations stay
 closed to new data access during recovery.
+The gRPC cleanup endpoint runs on a separate bounded executor with at most
+two workers, capped by `limits.io-threads`. Its admission queue uses
+`limits.max-queued-operations`. Object listing and deletion can occupy those
+workers while task registration, exchange reads and writes use the I/O pool.
+Fetching a page of sealed shuffle IDs renews its cleanup lease in the same
+PostgreSQL statement.
+
 The cleanup claim checks read pins and write reservations in one PostgreSQL
 statement using one database timestamp. Cleanup pages that contain fewer
 entries than the page limit complete without another inventory query.
