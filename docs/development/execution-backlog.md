@@ -155,6 +155,16 @@ description: "Pangrova 查询与写入优化、Java 类型和包更名及单机�
   `PANGROVA_NATIVE_BUILD_PHASE=arrow-flight` 重新构建并验证了 Darwin 独立包，
   针对新包运行的 `CanonicalFlightPackageTest.py` 五项通过。见
   `qualified-darwin-flight.log` 和 `qualified-darwin-flight-test.log`。
+- 以合格的 Arrow/Flight 包重新链接后的 Release Native SHA-256 为
+  `8a65aff4fca301cb400ebf146656d77bb4f365dc29cedb8ad7bb4c5b79fc31ff`，其 Mach-O rpath
+  指向验证过的私有 Arrow 包。新函数目录与跟踪夹具逐字节一致。带地址和未定义行为
+  插桩的 generated-value 独立目标重复 5 轮，每轮 6 项通过，无 sanitizer 诊断。
+  见 `native-qualified-pinned-link.log` 和 `generated-value-segment-asan-ubsan.log`。
+- `50050a0fc` 下的独立晚到过滤夹具覆盖 40 个文件、10,485,760 行，比较同一份快照。
+  两台 Worker 上收到精确 Native 确认，扫描算子输出从 10,485,760 行降到 8,658,946 行，
+  实际读取均为 15,951,120 字节，回读结果相同，task 与租户已排空。此负载下过滤减少
+  了扫描输出，已发起的 I/O 没有减少。见 `reachable-peer-and-late-read-metrics.log`。
+- 同版本交付提交集中到 [PR #127](https://github.com/pangrova-io/pangrova/pull/127)。
 
 Java 定向测试使用下面的命令结构，日志保留各批传入的选择器和 Maven reactor。
 Paimon、Shuffle 与 journal 的复现命令如下。
