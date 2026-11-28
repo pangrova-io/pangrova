@@ -477,7 +477,7 @@ class PostgresGenerationStageExchangeStoreTest {
                 .hasMessageContaining("securely resubmit");
         assertThatThrownBy(() -> builds.findDispatchSpec(KEY.tenantId(), KEY.jobId()))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("invalid")
-                .hasRootCauseMessage("Durable graph requires format 3; explicitly rebuild old jobs");
+                .hasRootCauseMessage("Durable graph requires format 4; explicitly rebuild old jobs");
         assertThat(builds.findJob(KEY.tenantId(), KEY.jobId())).isPresent();
         try (var connection = dataSource.getConnection(); var statement = connection.createStatement();
              var result = statement.executeQuery("SELECT state,attempt_id FROM artifact_build_pages "

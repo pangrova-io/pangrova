@@ -113,7 +113,14 @@ public final class PlanFragment implements StagePlanAccess {
 
     /** The aligned exchange leaves in join order and the inputs eligible for independent splitting. */
     public record AlignedHashJoin(String leftExchangeId, String rightExchangeId,
-                                  boolean splitLeft, boolean splitRight) {}
+                                  boolean splitLeft, boolean splitRight) {
+        /** Returns the exact exchange IDs that can be independently split. */
+        public List<String> splittableExchanges() {
+            if (splitLeft && splitRight) return List.of(leftExchangeId, rightExchangeId);
+            if (splitLeft) return List.of(leftExchangeId);
+            return splitRight ? List.of(rightExchangeId) : List.of();
+        }
+    }
 
     /** Returns the join's partition alignment and the sides whose counterparts may be replicated. */
     public Optional<AlignedHashJoin> alignedHashJoin(java.util.Map<String, List<Integer>> exchanges, int partitions) {

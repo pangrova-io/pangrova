@@ -92,7 +92,7 @@ acceptance is not yet verified; metadata/planner checks are not a substitute for
 that gate, and a deployment without actual external shuffle cannot execute global
 jobs.
 
-The durable graph uses format 3. It hashes canonical operator bindings, indexed
+The durable graph uses format 4. It hashes canonical operator bindings, indexed
 logical result types, exact published input pointers, observed model identities,
 and the planner's proof that eligible HASH inputs can be coalesced.
 Old envelopes are explicitly rejected and require secure resubmission; their

@@ -22,12 +22,12 @@ import java.util.Set;
 /** Canonical durable stage topology. Metadata stores bytes and identities, never planner nodes or row data. */
 public record GenerationStageGraph(int formatVersion, GenerationGraphPurpose purpose, List<StagePlan> stages,
         List<Exchange> exchanges, List<ModelSnapshot> modelSnapshots) {
-    public static final int FORMAT_VERSION = 3;
+    public static final int FORMAT_VERSION = 4;
     private static final int MAX_GRAPH_ENTRIES = 4096;
 
     public GenerationStageGraph {
         if (formatVersion != FORMAT_VERSION) {
-            throw new IllegalArgumentException("Durable graph requires format 3; explicitly rebuild old jobs");
+            throw new IllegalArgumentException("Durable graph requires format 4; explicitly rebuild old jobs");
         }
         Objects.requireNonNull(purpose, "purpose");
         modelSnapshots = modelSnapshots.stream().sorted(Comparator.comparing(ModelSnapshot::logicalName)).toList();
@@ -43,18 +43,19 @@ public record GenerationStageGraph(int formatVersion, GenerationGraphPurpose pur
     public record StagePlan(int stageId, int parallelism, GenerationPageKind pageKind,
             String planBase64, String planSha256, GenerationStageTemplate template,
             List<String> sourceKeys, List<String> outputNames, boolean publicationOutput,
-            boolean coalescibleHashInputs) {
+            boolean coalescibleHashInputs, List<String> splittableHashInputs) {
         public StagePlan(int stageId, int parallelism, GenerationPageKind pageKind, String planBase64,
                 String planSha256, GenerationStageTemplate template, List<String> sourceKeys,
                 List<String> outputNames, boolean publicationOutput) {
             this(stageId, parallelism, pageKind, planBase64, planSha256, template, sourceKeys,
-                    outputNames, publicationOutput, false);
+                    outputNames, publicationOutput, false, List.of());
         }
 
         public StagePlan {
             Objects.requireNonNull(pageKind, "pageKind");
             sourceKeys = List.copyOf(sourceKeys);
             outputNames = List.copyOf(outputNames);
+            splittableHashInputs = splittableHashInputs.stream().sorted().toList();
             if (stageId < 0 || parallelism < 0
                     || (parallelism == 0 && pageKind != GenerationPageKind.SOURCE_MAP)) {
                 throw new IllegalArgumentException("Invalid durable stage coordinates");
@@ -63,6 +64,11 @@ public record GenerationStageGraph(int formatVersion, GenerationGraphPurpose pur
                     || parallelism < 2 || !sourceKeys.isEmpty())) {
                 throw new IllegalArgumentException(
                         "Only partition-local relational compute can coalesce Shuffle inputs");
+            }
+            if (!splittableHashInputs.isEmpty() && (!coalescibleHashInputs || splittableHashInputs.size() > 2
+                    || splittableHashInputs.stream().anyMatch(String::isBlank)
+                    || new HashSet<>(splittableHashInputs).size() != splittableHashInputs.size())) {
+                throw new IllegalArgumentException("Invalid durable skew eligibility");
             }
             decode(planBase64, planSha256, false, "stage plan");
             Objects.requireNonNull(template, "Durable stage template is absent; explicitly rebuild old jobs");
@@ -88,9 +94,17 @@ public record GenerationStageGraph(int formatVersion, GenerationGraphPurpose pur
         public static StagePlan of(int stageId, int parallelism, GenerationPageKind kind,
                 byte[] plan, GenerationStageTemplate template, List<String> sourceKeys, List<String> outputNames,
                 boolean publicationOutput, boolean coalescibleHashInputs) {
+            return of(stageId, parallelism, kind, plan, template, sourceKeys, outputNames,
+                    publicationOutput, coalescibleHashInputs, List.of());
+        }
+
+        /** Freezes the Planner's exact split-side identities with the canonical stage payload. */
+        public static StagePlan of(int stageId, int parallelism, GenerationPageKind kind,
+                byte[] plan, GenerationStageTemplate template, List<String> sourceKeys, List<String> outputNames,
+                boolean publicationOutput, boolean coalescibleHashInputs, List<String> splittableHashInputs) {
             return new StagePlan(stageId, parallelism, kind, Base64.getEncoder().encodeToString(plan),
                     DigestUtils.sha256Hex(plan), template,
-                    sourceKeys, outputNames, publicationOutput, coalescibleHashInputs);
+                    sourceKeys, outputNames, publicationOutput, coalescibleHashInputs, splittableHashInputs);
         }
 
         public byte[] planBytes() {
@@ -154,6 +168,7 @@ public record GenerationStageGraph(int formatVersion, GenerationGraphPurpose pur
         }
         Set<String> ids = new HashSet<>();
         Map<Integer, List<Integer>> downstream = new HashMap<>();
+        Map<Integer, List<Exchange>> incoming = new HashMap<>();
         Map<Integer, Integer> remaining = new HashMap<>();
         byId.keySet().forEach(id -> remaining.put(id, 0));
         for (var edge : exchanges) {
@@ -165,12 +180,25 @@ public record GenerationStageGraph(int formatVersion, GenerationGraphPurpose pur
                 throw new IllegalArgumentException("Durable graph exchange is unbound or changes its partition cohort");
             }
             downstream.computeIfAbsent(source.stageId(), ignored -> new ArrayList<>()).add(target.stageId());
+            incoming.computeIfAbsent(target.stageId(), ignored -> new ArrayList<>()).add(edge);
             remaining.compute(target.stageId(), (ignored, count) -> count + 1);
         }
         validateAcyclic(stages.size(), downstream, remaining);
+        for (var stage : stages) {
+            validateSplittableInputs(stage, incoming.getOrDefault(stage.stageId(), List.of()));
+        }
         if (purpose == GenerationGraphPurpose.RELATIONAL_EXPORT && stages.stream().anyMatch(stage ->
                 !stage.publicationOutput() && !downstream.containsKey(stage.stageId()))) {
             throw new IllegalArgumentException("Durable relational graph has a detached compute stage");
+        }
+    }
+
+    private static void validateSplittableInputs(StagePlan stage, List<Exchange> inputs) {
+        if (stage.splittableHashInputs().isEmpty()) return;
+        if (inputs.size() != 2 || inputs.stream().anyMatch(
+                    edge -> edge.distribution() != GenerationExchangeDistribution.HASH)
+                || !inputs.stream().map(Exchange::exchangeId).toList().containsAll(stage.splittableHashInputs())) {
+            throw new IllegalArgumentException("Durable skew eligibility must name aligned incoming HASH exchanges");
         }
     }
 

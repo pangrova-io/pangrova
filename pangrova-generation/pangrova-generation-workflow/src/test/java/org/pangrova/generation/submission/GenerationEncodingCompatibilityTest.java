@@ -56,9 +56,9 @@ class GenerationEncodingCompatibilityTest {
     }
     @Test
     void graphKeepsPersistedBytesAndDigest() throws Exception {
-        byte[] expected = golden("stage-graph-v3.json");
+        byte[] expected = golden("stage-graph-v4.json");
         assertThat(GenerationStageGraphCodec.encode(graph())).isEqualTo(expected);
-        assertThat(GenerationStageGraphCodec.sha256(graph())).isEqualTo("6d81ca5e84a02b41e35d94ee06850ab548d4b1626defff753cddbdb7aa987531");
+        assertThat(GenerationStageGraphCodec.sha256(graph())).isEqualTo("19045762637c2cdf589e31beeaf2c627f8a6f4f47d345b40fdbdb024ea4ac88b");
         assertThat(GenerationStageGraphCodec.decode(expected, GenerationStageGraphCodec.sha256(graph()))).isEqualTo(graph());
     }
 
@@ -128,7 +128,7 @@ class GenerationEncodingCompatibilityTest {
 
     @Test
     void correctlyHashedNullExtraFieldsAndTrailingValuesCannotBecomeReplayEvidence() throws Exception {
-        rejectNoncanonical("stage-graph-v3.json", GenerationStageGraphCodec::decode);
+        rejectNoncanonical("stage-graph-v4.json", GenerationStageGraphCodec::decode);
         rejectNoncanonical("exchange-registration.json", GenerationExchangeEvidenceCodec::decodeRegistration);
         rejectNoncanonical("exchange-finalization.json", GenerationExchangeEvidenceCodec::decodeFinalization);
     }

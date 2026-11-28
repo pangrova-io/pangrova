@@ -76,7 +76,7 @@ class GenerationStageTemplateTest {
                 .getBytes(StandardCharsets.UTF_8);
         assertThatThrownBy(() -> GenerationStageGraphCodec.decode(old, DigestUtils.sha256Hex(old)))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("invalid")
-                .hasRootCauseMessage("Durable graph requires format 3; explicitly rebuild old jobs");
+                .hasRootCauseMessage("Durable graph requires format 4; explicitly rebuild old jobs");
     }
 
     private static PublicationRead read(String artifact) {

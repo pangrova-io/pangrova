@@ -259,6 +259,31 @@ class PlanFragmenterTest {
                         type == JoinRelType.INNER || type == JoinRelType.RIGHT));
     }
 
+    @Test
+    void authorizedLeftJoinFreezesOnlyItsPreservedInputForReplay() {
+        var fragmented = PlanFragmenter.fragment(hashJoin(hashExchange(), hashExchange(), JoinRelType.LEFT), 8);
+        var consumer = fragmented.stages().stream()
+                .filter(stage -> containsRel(stage.fragment().relNode(), Join.class)).findFirst().orElseThrow();
+        var incoming = fragmented.transfers().stream().filter(edge -> edge.downstreamStageId() == consumer.stageId())
+                .collect(java.util.stream.Collectors.toMap(StageTransfer::exchangeId, StageTransfer::distributionKeys));
+        var split = consumer.fragment().alignedHashJoin(incoming, consumer.parallelism()).orElseThrow();
+        var output = fragmented.stages().stream().filter(stage -> "OUTPUT".equals(stage.taskType()))
+                .findFirst().orElseThrow();
+        var planner = new PangrovaPlanner(org.apache.calcite.jdbc.CalciteSchema.createRootSchema(false));
+        var compiler = new SqlCompiler(planner, new SubstraitConverter(), new SubstraitPlanSerializer());
+        var graph = AuthorizedStageGraph.compile(fragmented, compiler,
+                output.fragment().fieldNames(), StageTerminalPurpose.QUERY_RESULT);
+        assertThat(graph.stages()).filteredOn(stage -> stage.stageId() == consumer.stageId())
+                .singleElement().satisfies(stage ->
+                        assertThat(stage.splittableHashInputs()).containsExactly(split.leftExchangeId()));
+        var serialized = graph.stages().stream().collect(java.util.stream.Collectors.toMap(
+                AuthorizedStageGraph.SerializedStage::stageId, AuthorizedStageGraph.SerializedStage::serializedPlan));
+        AuthorizedStageGraph.validateExchangeContracts(serialized, graph.transfers(), Map.of(consumer.stageId(),
+                List.of(split.leftExchangeId())));
+        assertThatThrownBy(() -> AuthorizedStageGraph.validateExchangeContracts(serialized, graph.transfers(),
+                Map.of(consumer.stageId(), List.of(split.rightExchangeId())))).hasMessageContaining("frozen join");
+    }
+
     private PangrovaExchangeInput joinExchange(String id, int source, RelDataType type, List<Integer> keys) {
         var distribution = PangrovaDistribution.hash(keys);
         return new PangrovaExchangeInput(cluster, cluster.traitSet().replace(distribution), type,

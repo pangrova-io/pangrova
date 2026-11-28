@@ -55,7 +55,7 @@ final class FeatureExportStageGraph {
             stages.add(GenerationStageGraph.StagePlan.of(stage.stageId(), stage.parallelism(), kind, plan,
                     FrozenStageBindings.freeze(bound, List.of()),
                     stage.sources().stream().map(source -> source.qualifiedName()).toList(),
-                    stage.outputNames(), terminal, stage.coalescibleHashInputs()));
+                    stage.outputNames(), terminal, stage.coalescibleHashInputs(), stage.splittableHashInputs()));
             pages.addAll(pages(stage, jobId, consumers.contains(stage.stageId()) ? List.of() : splits,
                     kind, maxAttempts, pages.size()));
         }

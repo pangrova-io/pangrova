@@ -184,14 +184,19 @@ public final class DurableStageRuntime {
     static void validateExchangeContracts(GenerationStageGraph graph) {
         if (graph.exchanges().isEmpty()) return;
         Map<Integer, SerializedPlanFragment> plans = new HashMap<>();
-        graph.stages().forEach(stage -> plans.put(stage.stageId(),
-                new SerializedPlanFragment(stage.planBytes(), List.of(), List.of())));
+        var splittable = new HashMap<Integer, List<String>>();
+        graph.stages().forEach(stage -> {
+            plans.put(stage.stageId(), new SerializedPlanFragment(stage.planBytes(), List.of(), List.of()));
+            if (!stage.splittableHashInputs().isEmpty()) {
+                splittable.put(stage.stageId(), stage.splittableHashInputs());
+            }
+        });
         var transfers = graph.exchanges().stream().map(edge -> new StageTransfer(edge.upstreamStageId(),
                 edge.downstreamStageId(), ShuffleType.valueOf(edge.distribution().name()), edge.distributionKeys(),
                 edge.exchangeId(), edge.partitionCount(), BatchSerde.valueOf(edge.batchSerde()),
                 edge.requireComplete())).toList();
         try {
-            AuthorizedStageGraph.validateExchangeContracts(plans, transfers);
+            AuthorizedStageGraph.validateExchangeContracts(plans, transfers, splittable);
         } catch (IllegalArgumentException failure) {
             throw new IllegalArgumentException(
                     "Persisted exchange wire contract is invalid; rebuild required", failure);
