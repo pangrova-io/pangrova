@@ -849,7 +849,8 @@ jobs:
           # This is the Native test archive and its matched shared-library closure.
           # Use the package's normal JNI ABI check here. The separate exact-image build retains the production static gate.
           sed -i 's/package-native-lib.sh --production/package-native-lib.sh/' deploy/docker/Dockerfile
-          sed -i '/^USER pangrova$/i COPY --from=archived_runtime /lib/ /opt/pangrova/archived-native-libs/\\nENV LD_LIBRARY_PATH=/opt/pangrova/archived-native-libs' deploy/docker/Dockerfile
+          sed -i '/^USER pangrova$/i COPY --from=archived_runtime /lib/ /opt/pangrova/archived-native-libs/' deploy/docker/Dockerfile
+          sed -i '/^USER pangrova$/i ENV LD_LIBRARY_PATH=/opt/pangrova/archived-native-libs' deploy/docker/Dockerfile
           if readelf -V "$archive" | grep -E 'Name: GLIBC_2[.](3[6-9]|[4-9][0-9])([[:space:]]|$)' >/dev/null; then
             # The Ubuntu 24.04 Native test runner can use a newer glibc than production Jammy.
             sed -i 's/^FROM eclipse-temurin:17-jre-jammy@sha256:[0-9a-f]*$/FROM eclipse-temurin:17-jre-noble/' deploy/docker/Dockerfile
