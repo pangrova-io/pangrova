@@ -3,10 +3,11 @@
 
 #include <gtest/gtest.h>
 
-#include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -18,19 +19,21 @@ namespace {
 class TestFile final {
  public:
   TestFile() {
-    path_ = std::filesystem::temp_directory_path() /
-            ("pangrova-generated-values-" +
-             std::to_string(
-                 std::chrono::steady_clock::now().time_since_epoch().count()));
+    auto pattern = (std::filesystem::temp_directory_path() /
+                    "pangrova-generated-values-XXXXXX").string();
+    if (::mkdtemp(pattern.data()) == nullptr) {
+      throw std::runtime_error("Cannot create a generated-value test directory");
+    }
+    directory_ = pattern;
   }
   ~TestFile() {
     std::error_code ignored;
-    std::filesystem::remove(path_, ignored);
+    std::filesystem::remove_all(directory_, ignored);
   }
-  std::string path() const { return path_.string(); }
+  std::string path() const { return (directory_ / "segment.bin").string(); }
 
  private:
-  std::filesystem::path path_;
+  std::filesystem::path directory_;
 };
 
 TEST(GeneratedValueSegmentTest, RoundTripsExactFloatVectors) {
