@@ -1,6 +1,7 @@
 package org.pangrova.testing.integration.e2e.speculation;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.github.dockerjava.api.model.ExposedPort;
 import eu.rekawek.toxiproxy.ToxiproxyClient;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -49,6 +50,7 @@ import static org.awaitility.Awaitility.await;
 class CoordinatorRestartChaosTest extends ContainerTestBase {
     private static final String WORKER = "e2e-worker-1";
     private static final String WORKER_HOST = "worker-1";
+    private static final int COORDINATOR_HTTP_PORT = 8080;
     private static final int WORKER_HTTP_PORT = 8081;
     private static final int WORKER_RESULT_PORT = 9090;
     private static final String WORKER_CONTROL_URL = "http://chaos-proxy:9090";
@@ -87,8 +89,7 @@ class CoordinatorRestartChaosTest extends ContainerTestBase {
             cluster.configureCoordinator(container -> configure(container, "coordinator",
                     coordinatorConfig(security.processJdbcUrl(), secret), tls, coordinatorIdentity));
             cluster.configureWorkers((number, container) -> {
-                var coordinator = cluster.getCoordinator();
-                reports.connect(URI.create("http://" + coordinator.getHost() + ":" + coordinator.getMappedPort(8080)));
+                reports.connect(coordinatorEndpoint(cluster.getCoordinator()));
                 container.withEnv("PANGROVA_COORDINATOR_URL", WORKER_CONTROL_URL);
                 container.addExposedPort(WORKER_RESULT_PORT);
                 configure(container, "worker", workerConfig(secret), tls, workerIdentity);
@@ -96,18 +97,16 @@ class CoordinatorRestartChaosTest extends ContainerTestBase {
             cluster.start();
             var coordinator = cluster.getCoordinator();
             var worker = cluster.getWorkers().get(0);
-            var mappedResult = new InetSocketAddress(mappedResultAddress, worker.getMappedPort(WORKER_RESULT_PORT));
+            var mappedResult = new InetSocketAddress(mappedResultAddress, mappedPort(worker, WORKER_RESULT_PORT));
             assertThat(coordinator.getContainerInfo().getImageId()).isEqualTo(imageId);
             assertThat(worker.getContainerInfo().getImageId()).isEqualTo(imageId);
             var auth = ClientAuthentication.basic(ProcessSecurityAuthority.USER, ProcessSecurityAuthority.PASSWORD);
-            var workersRequest = HttpRequest.newBuilder(URI.create(cluster.getCoordinatorUrl() + "/api/workers"))
-                    .header("Authorization", auth.authorizationHeader()).timeout(Duration.ofSeconds(5)).GET().build();
+            var resultSecurity = new ResultTransportSecurity(
+                    true, tls.root(), clientIdentity.certificateChain(), clientIdentity.privateKey());
+            var base = coordinatorEndpoint(coordinator);
+            var workersRequest = workerListRequest(base, auth);
             var observer = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
-            try (var client = PangrovaRestClient.builder().coordinatorHost(coordinator.getHost())
-                    .coordinatorPort(coordinator.getMappedPort(8080)).authentication(auth)
-                    .resultTransportSecurity(new ResultTransportSecurity(
-                            true, tls.root(), clientIdentity.certificateChain(), clientIdentity.privateKey()))
-                    .build()) {
+            try (var client = coordinatorClient(base, auth, resultSecurity)) {
                 awaitWorker(observer, workersRequest, true);
                 String completed = nativeQuery(client, mappedResult, reports, security);
                 link.disable();
@@ -135,8 +134,10 @@ class CoordinatorRestartChaosTest extends ContainerTestBase {
                 docker.startContainerCmd(worker.getContainerId()).exec();
                 awaitWorker(observer, workersRequest, true);
                 awaitWorkerRoute(coordinator);
+                mappedResult = new InetSocketAddress(mappedResultAddress, mappedPort(worker, WORKER_RESULT_PORT));
                 nativeQuery(client, mappedResult, reports, security);
 
+                URI restartedBase;
                 try (var held = reports.holdReports(report -> "FINISHED".equals(report.state()))) {
                     String active = drainNativeQuery(client, mappedResult);
                     awaitNativeReport(reports, active, false);
@@ -144,25 +145,54 @@ class CoordinatorRestartChaosTest extends ContainerTestBase {
                         assertState(client, active, "RUNNING");
                         assertThat(journalState(security, active)).isEqualTo("RUNNING");
                     });
-                    restartCoordinator(coordinator, observer, URI.create(cluster.getCoordinatorUrl()));
-                    assertState(client, completed, "FINISHED");
-                    assertThat(journalState(security, completed)).isEqualTo("FINISHED");
-                    // A non-HA restart serves the last journal fact even without the old in-memory task.
-                    assertState(client, active, "RUNNING");
-                    assertThat(journalState(security, active)).isEqualTo("RUNNING");
+                    restartedBase = restartCoordinator(coordinator, observer, reports);
+                    try (var recovered = coordinatorClient(restartedBase, auth, resultSecurity)) {
+                        assertState(recovered, completed, "FINISHED");
+                        assertThat(journalState(security, completed)).isEqualTo("FINISHED");
+                        // A non-HA restart serves the last journal fact even without the old in-memory task.
+                        assertState(recovered, active, "RUNNING");
+                        assertThat(journalState(security, active)).isEqualTo("RUNNING");
+                    }
                 }
-                awaitWorker(observer, workersRequest, true);
-                nativeQuery(client, mappedResult, reports, security);
+                try (var recovered = coordinatorClient(restartedBase, auth, resultSecurity)) {
+                    awaitWorker(observer, workerListRequest(restartedBase, auth), true);
+                    nativeQuery(recovered, mappedResult, reports, security);
+                }
             }
         }
     }
 
-    private static void restartCoordinator(GenericContainer<?> process, HttpClient http, URI base) {
+    private static URI coordinatorEndpoint(GenericContainer<?> coordinator) {
+        return URI.create("http://" + coordinator.getHost() + ":" + mappedPort(coordinator, COORDINATOR_HTTP_PORT));
+    }
+
+    private static int mappedPort(GenericContainer<?> process, int port) {
+        // Docker can publish a new ephemeral port after restart. Testcontainers caches the startup inspection.
+        var bindings = process.getCurrentContainerInfo().getNetworkSettings().getPorts().getBindings()
+                .get(ExposedPort.tcp(port));
+        assertThat(bindings).as("published TCP port %s on %s", port, process.getContainerId()).isNotEmpty();
+        return Integer.parseInt(bindings[0].getHostPortSpec());
+    }
+
+    private static PangrovaRestClient coordinatorClient(URI endpoint, ClientAuthentication auth,
+            ResultTransportSecurity resultSecurity) {
+        return PangrovaRestClient.builder().coordinatorHost(endpoint.getHost()).coordinatorPort(endpoint.getPort())
+                .authentication(auth).resultTransportSecurity(resultSecurity).build();
+    }
+
+    private static HttpRequest workerListRequest(URI endpoint, ClientAuthentication auth) {
+        return HttpRequest.newBuilder(endpoint.resolve("/api/workers"))
+                .header("Authorization", auth.authorizationHeader()).timeout(Duration.ofSeconds(5)).GET().build();
+    }
+
+    private static URI restartCoordinator(GenericContainer<?> process, HttpClient http, ProcessStatusReportRelay reports) {
         var docker = process.getDockerClient();
         String id = process.getContainerId();
         String previousStart = docker.inspectContainerCmd(id).exec().getState().getStartedAt();
         docker.killContainerCmd(id).withSignal("KILL").exec();
         docker.startContainerCmd(id).exec();
+        URI base = coordinatorEndpoint(process);
+        reports.reconnect(base);
         var health = HttpRequest.newBuilder(base.resolve("/v1/health")).timeout(Duration.ofSeconds(3)).GET().build();
         await("new Coordinator process serves the control plane").atMost(TIMEOUT).until(() -> {
             var state = docker.inspectContainerCmd(id).exec().getState();
@@ -180,6 +210,7 @@ class CoordinatorRestartChaosTest extends ContainerTestBase {
             return body.path("checks").path("http").asBoolean()
                     && body.path("checks").path("transport").asBoolean();
         });
+        return base;
     }
 
     private static String nativeQuery(PangrovaRestClient client, InetSocketAddress mappedResult,
@@ -310,7 +341,7 @@ class CoordinatorRestartChaosTest extends ContainerTestBase {
                 coordinator:
                   id: e2e-coordinator
                   host: 0.0.0.0
-                  port: 8080
+                  port: %d
                   role: QUERY
                   internal-auth-secret: "%s"
                   ha:
@@ -340,7 +371,7 @@ class CoordinatorRestartChaosTest extends ContainerTestBase {
                       user-dn-pattern: uid={0},dc=pangrova,dc=org
                 tenant:
                   enabled: true
-                """.formatted(secret, jdbc);
+                """.formatted(COORDINATOR_HTTP_PORT, secret, jdbc);
     }
 
     private static String workerConfig(String secret) {
