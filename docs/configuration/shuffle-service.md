@@ -153,6 +153,9 @@ When terminal cleanup closes the scope, the current execution owner can renew
 cleanup access while in-flight I/O drains. A successor can recover cleanup
 access after acquiring the durable anchor. The scope and its allocations stay
 closed to new data access during recovery.
+The cleanup claim checks read pins and write reservations in one PostgreSQL
+statement using one database timestamp. Cleanup pages that contain fewer
+entries than the page limit complete without another inventory query.
 The Coordinator holds allocation and publication state per query and drops that state after the service acknowledges cleanup.
 
 ## object-storage

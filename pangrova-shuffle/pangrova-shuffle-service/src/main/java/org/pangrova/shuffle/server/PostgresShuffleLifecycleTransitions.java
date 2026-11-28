@@ -134,13 +134,10 @@ final class PostgresShuffleLifecycleTransitions {
                         connection, command), null);
             }
             PostgresShuffleStore.adoptOwnerIfFenced(connection, queryId, scope.owner(), command.owner());
-            if (hasActiveReads(connection, queryId)) {
+            String pendingReason = pendingCleanupIo(connection, queryId);
+            if (pendingReason != null) {
                 PostgresShuffleRecords.sealCleanupAdmission(connection, command, null);
-                return new CleanupAdmission(null, "shuffle reads are still in progress");
-            }
-            if (protectOutstandingWrites(connection, queryId)) {
-                PostgresShuffleRecords.sealCleanupAdmission(connection, command, null);
-                return new CleanupAdmission(null, "shuffle writes are still in progress");
+                return new CleanupAdmission(null, pendingReason);
             }
             if ("ACTIVE".equals(scope.state())) {
                 PostgresShuffleRecords.sealCleanupAdmission(connection, command, lease);
@@ -161,8 +158,7 @@ final class PostgresShuffleLifecycleTransitions {
             var scope = lockExpiredCleanupScope(connection, lease.nowMs());
             if (scope == null) return Optional.empty();
             String queryId = scope.queryId();
-            if (hasActiveReads(connection, queryId)) return Optional.empty();
-            if (protectOutstandingWrites(connection, queryId)) return Optional.empty();
+            if (pendingCleanupIo(connection, queryId) != null) return Optional.empty();
             claimSealedCleanup(connection, queryId, scope.leaseExpiresAtMs(), lease);
             return Optional.of(new CleanupPlan(queryId, lease.owner()));
         });
@@ -245,41 +241,36 @@ final class PostgresShuffleLifecycleTransitions {
         return transaction(dataSource, connection -> PostgresShuffleRecords.completeCleanup(connection, plan));
     }
 
-    private static boolean hasActiveReads(Connection connection, String queryId) throws SQLException {
-        // pinRead and cleanup serialize on the same query scope row.
-        try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT 1 FROM shuffle_read_pin WHERE query_id = ? "
-                        + "AND protect_until_ms > EXTRACT(EPOCH FROM clock_timestamp()) * 1000 LIMIT 1")) {
-            statement.setString(1, queryId);
-            try (ResultSet result = statement.executeQuery()) {
-                return result.next();
-            }
-        }
-    }
-
-    private static boolean protectOutstandingWrites(Connection connection, String queryId) throws SQLException {
-        // Use one cutoff for both outcomes. An expiring reservation must either hold
-        // cleanup or produce a durable tombstone for late object writes.
+    private static String pendingCleanupIo(Connection connection, String queryId) throws SQLException {
+        // The scope lock excludes new read pins and write grants. One cutoff classifies
+        // both existing I/O and the reservations that need late-write compensation.
         String sql = """
                 WITH cutoff AS MATERIALIZED (
                     SELECT clock_timestamp() AS now
+                ), readers AS MATERIALIZED (
+                    SELECT 1 FROM shuffle_read_pin CROSS JOIN cutoff
+                    WHERE query_id = ? AND protect_until_ms > EXTRACT(EPOCH FROM cutoff.now) * 1000
+                    LIMIT 1
                 ), reservations AS MATERIALIZED (
                     SELECT i.shuffle_id, i.recovery_after > cutoff.now AS protected
                     FROM shuffle_write_intent i JOIN shuffle_allocation a USING (shuffle_id)
-                    CROSS JOIN cutoff WHERE a.query_id = ?
+                    CROSS JOIN cutoff WHERE a.query_id = ? AND NOT EXISTS (SELECT 1 FROM readers)
                 ), fenced AS (
                     INSERT INTO shuffle_uncertain_write_tombstone (shuffle_id, reservations_retained)
                     SELECT DISTINCT shuffle_id, TRUE FROM reservations WHERE NOT protected
                       AND NOT EXISTS (SELECT 1 FROM reservations WHERE protected)
                     ON CONFLICT (shuffle_id) DO NOTHING
                 )
-                SELECT EXISTS (SELECT 1 FROM reservations WHERE protected)
+                SELECT CASE WHEN EXISTS (SELECT 1 FROM readers) THEN 'shuffle reads are still in progress'
+                            WHEN EXISTS (SELECT 1 FROM reservations WHERE protected)
+                            THEN 'shuffle writes are still in progress' END
                 """;
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setString(1, queryId);
+            statement.setString(2, queryId);
             try (ResultSet row = statement.executeQuery()) {
                 row.next();
-                return row.getBoolean(1);
+                return row.getString(1);
             }
         }
     }

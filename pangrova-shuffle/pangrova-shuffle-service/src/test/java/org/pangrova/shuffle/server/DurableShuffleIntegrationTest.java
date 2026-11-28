@@ -1038,6 +1038,12 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
                     new CleanupLease("recovery-cleaner", 201, 1_000)).orElseThrow();
             var recoveryStatements = shuffleStatementDelta(beforeRecovery).keySet();
             assertThat(recoveryStatements)
+                    .as("one cleanup statement classifies live readers and write reservations")
+                    .anyMatch(sql -> sql.contains("FROM shuffle_read_pin")
+                            && sql.contains("FROM shuffle_write_intent")
+                            && sql.contains("INSERT INTO shuffle_uncertain_write_tombstone"))
+                    .noneMatch(sql -> sql.startsWith("SELECT 1 FROM shuffle_read_pin"));
+            assertThat(recoveryStatements)
                     .as("cleanup claim does not aggregate batches for its control response")
                     .noneMatch(sql -> sql.startsWith("SELECT COUNT(DISTINCT") && sql.contains("shuffle_batch"));
             assertThat(recoveryStatements)
@@ -1060,6 +1066,7 @@ class DurableShuffleIntegrationTest extends ContainerTestBase {
                 pageSizes.add(page.objectKeys().size());
                 objectCount += page.objectKeys().size();
                 cursor = page.nextCursor();
+                if (cursor == null) break;
             }
             assertThat(pageSizes).containsExactly(1_000, 1_000, 505);
             assertThat(objectCount).isEqualTo(2_505);

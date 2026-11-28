@@ -367,11 +367,11 @@ final class PostgresShuffleRecords {
                 statement.setLong(parameter++, after.batchSequence());
             }
             statement.setInt(parameter, limit);
-            return readCleanupObjects(statement);
+            return readCleanupObjects(statement, limit);
         }
     }
 
-    private static CleanupObjectPage readCleanupObjects(PreparedStatement statement)
+    private static CleanupObjectPage readCleanupObjects(PreparedStatement statement, int limit)
             throws SQLException {
         List<String> keys = new ArrayList<>();
         CleanupCursor cursor = null;
@@ -382,7 +382,7 @@ final class PostgresShuffleRecords {
                         rows.getInt(5), rows.getLong(6));
             }
         }
-        return new CleanupObjectPage(keys, cursor);
+        return new CleanupObjectPage(keys, keys.size() == limit ? cursor : null);
     }
 
     static CleanupShufflePage cleanupShuffles(
@@ -403,7 +403,7 @@ final class PostgresShuffleRecords {
                 }
             }
         }
-        String cursor = shuffleIds.isEmpty() ? null : shuffleIds.get(shuffleIds.size() - 1);
+        String cursor = shuffleIds.size() == limit ? shuffleIds.get(shuffleIds.size() - 1) : null;
         return new CleanupShufflePage(shuffleIds, cursor);
     }
 

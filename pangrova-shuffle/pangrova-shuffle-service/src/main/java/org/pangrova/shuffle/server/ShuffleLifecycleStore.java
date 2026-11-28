@@ -177,11 +177,11 @@ final class ShuffleCleanupCoordinator {
         while (true) {
             CleanupObjectPage page = store.cleanupObjects(
                     plan, cursor, PAGE_SIZE, lease(plan.leaseOwner()));
-            if (page.objectKeys().isEmpty()) {
-                return;
+            if (!page.objectKeys().isEmpty()) {
+                objects.delete(page.objectKeys());
             }
-            objects.delete(page.objectKeys());
             cursor = page.nextCursor();
+            if (cursor == null) return;
         }
     }
 
@@ -190,13 +190,11 @@ final class ShuffleCleanupCoordinator {
         while (true) {
             CleanupShufflePage page = store.cleanupShuffles(
                     plan, shuffleAfter, PAGE_SIZE, lease(plan.leaseOwner()));
-            if (page.shuffleIds().isEmpty()) {
-                return;
-            }
             for (String shuffleId : page.shuffleIds()) {
                 deleteObjectPrefix(plan, shuffleId);
             }
             shuffleAfter = page.nextShuffleId();
+            if (shuffleAfter == null) return;
         }
     }
 
