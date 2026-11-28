@@ -152,6 +152,12 @@ marker is absent, the intent remains pending for reconciliation. An abort
 receipt establishes the logical outcome and leaves physical object cleanup to
 its own authority.
 
+For a Native physical Paimon append, the Coordinator resolves the table and
+durable binding once. Physical receipt validation and publication share the
+same observed snapshot marker. Verified closed-file receipts become Paimon
+SDK commit messages directly. The existing Worker SDK fragment format is
+decoded at its original boundary.
+
 ### Problem Statement
 
 There is an inherently ambiguous boundary between an external catalog commit and the coordinator

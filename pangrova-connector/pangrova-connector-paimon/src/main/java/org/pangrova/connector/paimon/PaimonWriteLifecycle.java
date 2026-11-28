@@ -2,6 +2,7 @@ package org.pangrova.connector.paimon;
 
 import org.pangrova.connector.paimon.handle.PaimonTableIdentity;
 
+import org.apache.paimon.Snapshot;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.table.FileStoreTable;
@@ -17,10 +18,13 @@ import org.pangrova.protocol.v2.WriteOutputBinding;
 import org.pangrova.connector.api.session.ConnectorSession;
 import org.pangrova.connector.api.exception.ConnectorException;
 import org.pangrova.connector.api.commit.DistributedWriteCommitContext;
+import org.pangrova.connector.api.enums.CommitEventType;
 import org.pangrova.connector.api.metadata.table.SchemaTableName;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.function.Supplier;
 
 /** Exact output allocation and sole durable SDK publication; no execution of row data. */
 final class PaimonWriteLifecycle {
@@ -121,18 +125,27 @@ final class PaimonWriteLifecycle {
             throw new org.pangrova.connector.api.exception.SourceTableUnavailableException(
                     "Paimon publication target is absent: " + identifier, failure);
         }
-        PaimonTableIdentity.requireSame(
+        var exactTable = PaimonTableIdentity.requireSame(
                 table, journaled.tableUuid(), journaled.tableLocation(), journaled.schemaFingerprint(),
                 "Paimon distributed write");
-        List<byte[]> sdkFragments = fragments;
-        if (journaled.nativePhysicalWriteAllocation().isPresent()) {
+        Supplier<Optional<Snapshot>> existingPublication =
+                () -> exactTable.snapshotManager().latestSnapshotOfUser(context.commitFingerprint());
+        PaimonDistributedWriteFinisher.DeserializedFragments prepared;
+        var allocation = journaled.nativePhysicalWriteAllocation();
+        if (allocation.isPresent()) {
             if (!binding.hasPhysical()) {
                 throw new IllegalArgumentException("Durable physical output binding is missing");
             }
             var receipts = PhysicalFileWriteReceipts.decode(binding.getPhysical(), fragments);
-            sdkFragments = physical.prepareCommitMetadata(session, journaled, receipts, context);
+            var snapshot = existingPublication.get();
+            var messages = physical.prepareCommitMessages(session, journaled, allocation.orElseThrow(), exactTable,
+                    binding, receipts, context, snapshot.isPresent());
+            prepared = new PaimonDistributedWriteFinisher.DeserializedFragments(messages, CommitEventType.APPEND);
+            existingPublication = () -> snapshot;
+        } else {
+            prepared = PaimonDistributedWriteFinisher.deserialize(fragments, journaled);
         }
-        PaimonDistributedWriteFinisher.finish(table, journaled, sdkFragments, context,
+        PaimonDistributedWriteFinisher.finish(exactTable, journaled, prepared, context, existingPublication,
                 (schema, target, added, removed, snapshot, event, fingerprint) -> notifier.notify(
                         tenant, schema, target, added, removed, snapshot, event, fingerprint));
     }

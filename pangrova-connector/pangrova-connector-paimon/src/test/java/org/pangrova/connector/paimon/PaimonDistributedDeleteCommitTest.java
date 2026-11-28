@@ -55,7 +55,9 @@ class PaimonDistributedDeleteCommitTest extends PaimonDeleteTestSupport {
         var table = new org.apache.paimon.table.AppendOnlyFileStoreTable(faultyIo,
                 original.location(), original.schema(), org.apache.paimon.table.CatalogEnvironment.empty());
 
-        assertThatThrownBy(() -> PaimonDistributedWriteFinisher.finish(table, output, fragments, context,
+        var prepared = PaimonDistributedWriteFinisher.deserialize(fragments, output);
+        assertThatThrownBy(() -> PaimonDistributedWriteFinisher.finish(table, output, prepared, context,
+                () -> table.snapshotManager().latestSnapshotOfUser(context.commitFingerprint()),
                 (schema, name, added, removed, snapshot, event, fingerprint) -> notifications.incrementAndGet()))
                 .isInstanceOf(org.pangrova.connector.api.exception.ConnectorException.class)
                 .hasStackTraceContaining("Exception occurs when committing snapshot");

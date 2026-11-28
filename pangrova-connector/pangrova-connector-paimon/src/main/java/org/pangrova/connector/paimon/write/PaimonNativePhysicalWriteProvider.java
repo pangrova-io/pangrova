@@ -7,6 +7,7 @@ import com.google.protobuf.InvalidProtocolBufferException;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.table.sink.CommitMessage;
 import org.pangrova.connector.paimon.handle.PaimonOutputHandleCodec;
 import org.pangrova.connector.paimon.handle.PaimonOutputTableHandle;
 import org.pangrova.protocol.write.PhysicalFileWriteBindings;
@@ -58,15 +59,12 @@ public final class PaimonNativePhysicalWriteProvider implements NativePhysicalWr
         PaimonPhysicalWriteAllocations.validateSource(table, allocation);
     }
 
-    @Override
-    public List<byte[]> prepareCommitMetadata(ConnectorSession session, ConnectorOutputTableHandle output,
-            List<NativePhysicalFileReceipt> receipts, DistributedWriteCommitContext context) {
-        var handle = requireHandle(output);
-        var allocation = handle.nativePhysicalWriteAllocation().orElseThrow();
+    /** Verifies the actual closed objects against the already resolved SDK table and write binding. */
+    public List<CommitMessage> prepareCommitMessages(ConnectorSession session, PaimonOutputTableHandle handle,
+            NativePhysicalWriteAllocation allocation, FileStoreTable table, WriteOutputBinding binding,
+            List<NativePhysicalFileReceipt> receipts, DistributedWriteCommitContext context, boolean published) {
         requireSession(session);
-        validateCommitContext(session, handle, context);
-        var table = load(handle);
-        boolean published = table.snapshotManager().latestSnapshotOfUser(context.commitFingerprint()).isPresent();
+        validateCommitContext(session, handle, binding, context);
         if (!published) validateCurrentAllocation(table, allocation);
         var locations = new HashSet<String>();
         for (var receipt : receipts) {
@@ -76,32 +74,25 @@ public final class PaimonNativePhysicalWriteProvider implements NativePhysicalWr
             }
             if (!published) PaimonPhysicalObjectVerifier.verify(table, receipt);
         }
-        return List.of(PaimonPhysicalCommitMessages.append(handle, receipts));
+        return PaimonPhysicalCommitMessages.append(handle, receipts);
     }
 
     private void validateCommitContext(ConnectorSession session, PaimonOutputTableHandle handle,
-            DistributedWriteCommitContext context) {
+            WriteOutputBinding output, DistributedWriteCommitContext context) {
         if (!session.getUser().equals(context.principal())
                 || !context.tenantId().equals(session.getProperties().get("tenant_id"))
                 || context.baseSnapshotId() != handle.baseSnapshotId()) {
             throw new IllegalArgumentException("Physical publication differs from its authorized durable context");
         }
-        try {
-            var output = WriteOutputBinding.parseFrom(context.writeOutputBinding());
-            var physical = output.getPhysical();
-            var expected = PhysicalFileWriteBindings.template(handle.nativePhysicalWriteAllocation().orElseThrow())
-                    .toBuilder().setCatalog(physical.getCatalog()).setOutputHandle(physical.getOutputHandle()).build();
-            var codec = new PaimonOutputHandleCodec();
-            if (!output.hasPhysical() || !physical.equals(expected)
-                    || !physical.getCatalog().getCatalogName().equals(catalogName)
-                    || !physical.getCatalog().getConnectorProvider().equals("paimon")
-                    || !Arrays.equals(codec.serialize(handle),
-                            physical.getOutputHandle().getPayload().toByteArray())) {
-                throw new IllegalArgumentException(
-                        "Physical publication differs from its exact persisted output binding");
-            }
-        } catch (InvalidProtocolBufferException failure) {
-            throw new IllegalArgumentException("Malformed durable physical output binding", failure);
+        var physical = output.getPhysical();
+        var expected = PhysicalFileWriteBindings.template(handle.nativePhysicalWriteAllocation().orElseThrow())
+                .toBuilder().setCatalog(physical.getCatalog()).setOutputHandle(physical.getOutputHandle()).build();
+        var codec = new PaimonOutputHandleCodec();
+        if (!output.hasPhysical() || !physical.equals(expected)
+                || !physical.getCatalog().getCatalogName().equals(catalogName)
+                || !physical.getCatalog().getConnectorProvider().equals("paimon")
+                || !Arrays.equals(codec.serialize(handle), physical.getOutputHandle().getPayload().toByteArray())) {
+            throw new IllegalArgumentException("Physical publication differs from its exact persisted output binding");
         }
     }
 

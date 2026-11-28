@@ -26,6 +26,8 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.function.Supplier;
 
 /**
  * Finishes a distributed Paimon write: deserializes commit-message fragments
@@ -49,11 +51,10 @@ final class PaimonDistributedWriteFinisher {
     /** Deserialized commit fragments with the commit event type they declare. */
     record DeserializedFragments(List<CommitMessage> messages, CommitEventType eventType) {}
 
-    /** Finishes the distributed write for the given output handle. */
-    static void finish(Table freshTable, PaimonOutputTableHandle handle,
-                       List<byte[]> fragments, DistributedWriteCommitContext context,
-                       CommitNotifier notifier) {
-        DeserializedFragments parsed = deserialize(fragments, handle);
+    /** Publishes validated SDK messages and reuses the exact snapshot observed during preparation. */
+    static void finish(FileStoreTable table, PaimonOutputTableHandle handle,
+            DeserializedFragments parsed, DistributedWriteCommitContext context,
+            Supplier<Optional<Snapshot>> existingPublication, CommitNotifier notifier) {
         List<CommitMessage> allMessages = parsed.messages();
         CommitEventType eventType = parsed.eventType();
         if (allMessages.isEmpty() && eventType != CommitEventType.OVERWRITE) {
@@ -62,11 +63,13 @@ final class PaimonDistributedWriteFinisher {
             return;
         }
 
-        Snapshot publication = commitMessages(freshTable, handle, allMessages, eventType, context);
+        var existing = existingPublication.get();
+        Snapshot publication = existing.isPresent() ? existing.orElseThrow()
+                : commitMessages(table, handle, allMessages, eventType, context);
         notifyAfterCommit(publication, handle, allMessages, eventType, context.commitFingerprint(), notifier);
     }
 
-    private static DeserializedFragments deserialize(
+    static DeserializedFragments deserialize(
             List<byte[]> fragments, PaimonOutputTableHandle handle) {
         List<CommitMessage> allMessages = new ArrayList<>();
         CommitEventType eventType = null;
@@ -148,20 +151,10 @@ final class PaimonDistributedWriteFinisher {
         return new ConnectorException(PangrovaErrorCode.CONNECTOR_WRITE_ERROR, detail);
     }
 
-    private static Snapshot commitMessages(Table freshTable, PaimonOutputTableHandle handle,
-                                          List<CommitMessage> allMessages, CommitEventType eventType,
-                                          DistributedWriteCommitContext context) {
-        FileStoreTable fileStore = org.pangrova.connector.paimon.handle.PaimonTableIdentity.requireSame(
-                freshTable, handle.tableUuid(), handle.tableLocation(), handle.schemaFingerprint(),
-                "Paimon distributed write");
-        var snapshots = fileStore.snapshotManager();
+    private static Snapshot commitMessages(FileStoreTable freshTable, PaimonOutputTableHandle handle,
+            List<CommitMessage> allMessages, CommitEventType eventType, DistributedWriteCommitContext context) {
+        var snapshots = freshTable.snapshotManager();
         String commitUser = context.commitFingerprint();
-        var existing = snapshots.latestSnapshotOfUser(commitUser);
-        if (existing.isPresent()) {
-            LOG.info("event=paimon_distributed_write_already_committed schema={} table={} fingerprint={}",
-                    handle.schemaName(), handle.tableName(), commitUser);
-            return existing.orElseThrow();
-        }
         org.pangrova.connector.paimon.handle.PaimonTableHandleFactory.requireWriteDeclarationSupported(
                 freshTable.options());
         validateReplayWindow(context, snapshots);
