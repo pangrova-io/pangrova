@@ -1,13 +1,20 @@
 ---
-title: "执行链路剩余工作与验收"
-description: "Pangrova 查询、写入与 Native 的单机实施和验收清单"
+title: "Pangrova 执行链路与代码命名实施计划"
+description: "Pangrova 查询与写入优化、Java 类型和包更名及单机验收计划"
 ---
 
-# 执行链路剩余工作与验收
+# Pangrova 执行链路与代码命名实施计划
 
-本清单以 2026-11-28 的 `main`（`904eeba54`）为基线。执行链路整合代码已通过 [PR #112](https://github.com/pangrova-io/pangrova/pull/112) 合入。已有本地证据包括 230 项专项定向回归，以及 A9 之后的 70 项 Java 和 12 项重新链接的 Native 定向回归。C1–C9 文档勘误已完成。上述结果只覆盖各自测试范围。
+执行链路优化的历史交付基线是 [PR #112](https://github.com/pangrova-io/pangrova/pull/112) 合入后的 `904eeba54`。现有证据包括 230 项专项回归，以及 A9 之后的 70 项 Java 和 12 项重新链接的 Native 定向回归。原执行清单的 C1–C9 文档勘误已完成。类型和包的原审计基线是 `aed718692`，本次以 `main` 的 `b63549583` 核对现存声明、包和测试入口。实施时同步最新 `origin/main`，逐项重核状态。
 
-当前有 21 个待关闭条目，包括 A1–A13 与 B1–B8。A 表列出实现缺口和单项验证，B 表列出单机联合验收。Coordinator、Worker、Shuffle Service、客户端、PostgreSQL 和 MinIO 可在同一主机以独立进程或容器启动。故障注入与性能测量均按同机拓扑记录。同一组故障或负载证据可用于多个条目。表后的专项探针和资格条件并入相应条目，按证据触发的设计候选在测出瓶颈后才实施。旧方案、测量和已交付批次可从该基线的 Git 历史追溯。
+本轮包含 A1–A13 实现与专项验证、B1–B8 单机联合验收，以及 N1–N4 命名实施批次，覆盖 61 处 Java 类型更名、22 个待迁移的旧包和 11 处需保留的声明。两个方向共用同一提交的最终验收产物。Coordinator、Worker、Shuffle Service、客户端、PostgreSQL 和 MinIO 可在同一主机用独立进程或容器启动。故障注入、性能和资源释放证据均按同机拓扑记录。
+
+## 实施顺序与并行边界 {#implementation-order}
+
+1. **冻结基线。** 从包含本计划的提交接续并同步最新主线。记录同机拓扑、版本、SQL、快照、资源、测试状态、各阶段时延和实际 SQL/I/O 次数。核对调用方、服务注册与旧名的新旧状态。以真实观察确认每项性能缺口。
+2. **基础更名和性能取证并行。** 先收口 N1 的 Common、JDBC 和策略持久化。同步准备 A4 的负载与阶段计量，以及 A2、A8、A11、A13 的故障和物理资源证据。共用模块由同一批次负责，性能取证可使用冻结的基线。
+3. **开发并分批集成。** N2、N3 的更名先于涉及同一文件的行为修改合入，N4 汇总模块完整性。执行链路收口受理、所有权和终态（A1–A4），推进枚举、放置和读取（A5–A8），随后以实际读取证据校准动态过滤和自适应执行（A9–A10）。Shuffle 止写与回收（A11）和写入日志、CDC、fenced commit（A12–A13）由独立批次并行，同一持久化或协议权威由单一批次更新。更名与行为修复各有可审查提交。
+4. **统一验收和交付。** 每批推进时先跑最贴近的检查，全部开发集成后按 B1–B8 和更名验收矩阵，以同一提交重建并跑单机全链路。按实际通过范围关闭任务，记录尚缺的证据和可复现命令。
 
 ## A 实现工作包与单项验证 {#remaining-work}
 
@@ -51,10 +58,197 @@ description: "Pangrova 查询、写入与 Native 的单机实施和验收清单"
 
 ## 运行合同与关闭门槛 {#hard-gates}
 
-1. 正常状态等待、重连和诊断投影零 journal SELECT。显式历史、未知提交和接管限在对应权威边界。正常持久 journal 新事件以单条 INSERT 完成，无独立读回。
+1. 正常状态等待、重连和诊断投影零 journal SELECT。显式历史、未知提交和接管限在对应权威边界。正常持久 journal 新事件以单条 INSERT 完成，无独立读回。目录、授权、统计和分片枚举按实际 SQL 与连接器调用分别计数，逐项消除同一权威版本的重复读取。
 2. Shuffle 建流、续租、关闭及恢复可访问权威库。数据面 batch/chunk 零同步授权 SQL，生产按有界窗口预留和发布。对象身份、序号、覆盖、摘要、owner epoch 和已接纳 attempt 必须可证明。
 3. 从入口到结果区分 ACK、Ready、首末批、EOF、逻辑终态和物理排空。每项发布和实际清理都需要精确身份与证据。旧 owner 不得确认新代次状态，未知目录提交不能推定成功或提前删除。
-4. 同一版本交付 Coordinator、Worker、Native、Shuffle Service、CLI、JDBC 和 benchmark。候选使用独立测试 schema 和对象前缀。每条生产路径保留唯一权威入口，删除退役调用、配置和注册后用实际入口复测。协议、JNI、descriptor golden 和模块规则按仓库要求验证。把复测命令、commit、运行环境、原始日志和结果摘要写入此文件或链接到可复核产物。按实际覆盖关闭并删除对应待办。
+4. 同一版本交付 Coordinator、Worker、Native、Shuffle Service、CLI、JDBC 和 benchmark。候选使用独立测试 schema 和对象前缀。每条生产路径保留唯一权威入口，删除退役调用、配置和注册后用实际入口复测。协议、JNI、descriptor golden 和模块规则按仓库要求验证。把复测命令、commit、运行环境、原始日志和结果摘要写入此文件或链接到可复核产物。按实际覆盖关闭并移出对应待办。纯更名批次记录声明、运行注册和合同等价证据。
+
+## N Java 类型与包更名 {#java-naming}
+
+Java API 和 SPI 在同一版本统一切换，仓内声明、实现、消费者、资源和测试随所属批次一起更新，外部 Java 插件使用新的全限定名重新编译并与 Coordinator、Worker 同批部署。纯更名以模块归属、Maven 坐标、`Automatic-Module-Name`、SQL、HTTP、Protobuf、JNI 和持久化行为等价为验收基准。
+
+原清单的 `protocol.rest.task.convert` 已随 `83a27ff60` 删除，其转换器和测试由 canonical `SubmitTaskRequest` 及现有对称性测试承接。该条纳入回归覆盖，其他 22 个源包逐项实施。
+
+### 实施批次 {#java-naming-batches}
+
+| 批次 | 变更范围与关闭条件 |
+|---|---|
+| N1 · Common、JDBC 与策略持久化 | 按下方分包和类型映射替换基础声明及直接调用方。更新 `SharedPackagePolicy` 中 `ThreadSafe` 和 `NotThreadSafe` 的精确白名单，验证 `PluginClassLoaderTest` 测到应用类路径真实存在的 `common.validation.Preconditions`。验证 JDBC 回滚、时间绑定、schema 初始化和策略隔离。 |
+| N2 · Parser、Planner、Protocol Java、Indexing、生成与 Connector | 按映射移动声明、测试和真实消费者。用生产入口验证 `StatementParser`、`SqlParser`、`ConnectorIndexCapabilities`、`SourceSnapshotPinner` 等涉及的解析诊断、计划、读取绑定、物化快照固定和写入回执。同步切换 SPI 文件路径、文件内容和反射入口。 |
+| N3 · 启停、观测、AI、运维与测试夹具 | 更新 `TaskWrapper`、`MaintenanceLeadershipListener` 和各注册组件的实际调用链。按映射迁移夹具与选择器，保留包私有访问、断言和测试标签。验证 Worker 启停、维护领导权切换、Shuffle Producer 注册及资源归还。 |
+| N4 · 模块契约与交付核对 | 每批同步调整同一 artifact 在 `.pangrova/modules.yaml` 的包根和导出，使用 `.pangrova/scripts/generate-module-baseline.py` 更新基线。逐项盘点 61 处声明、22 个旧包和 11 处保留声明。核对唯一全限定名、真实 SPI 加载和包权限。更新受影响文档和 `CHANGELOG.md` 的 `Unreleased`，记录插件同版本重编译。Maven 模块标识 `org.pangrova.persistence.jdbc.support` 继续有效。 |
+
+同批更新文件路径、声明、构造器、导入、嵌套类型、调用方、反射和类加载字符串、`META-INF/services`、Maven 测试选择器、Checkstyle、SpotBugs、示例和文档。按旧全限定名和声明范围逐项核对，区分外部 SDK、协议名称和 Maven 模块标识。
+
+### 类型更名清单 {#java-type-renames}
+
+表中的目标名为新的 Java 简单名。类型保留在原包，涉及包迁移时以[目标包清单](#java-package-moves)为准。声明、构造器、嵌套类型的所属路径、调用方和直接以该类型命名的测试在同批更新。
+
+#### 首批确认的 17 项
+
+| 旧名 | 新名 |
+| --- | --- |
+| `EndpointRouting` | `EndpointSelector` |
+| `TaskWrapping` | `TaskWrapper` |
+| `MdcTaskWrapping` | `MdcTaskWrapper` |
+| `SourcePinning` | `SourceSnapshotPinner` |
+| `CoordinatorSourcePinning` | `CoordinatorSourceSnapshotPinner` |
+| `MaterializationDefinitionPlanning` | `MaterializationDefinitionPlanner` |
+| `PredictiveScaling` | `PredictiveScalingPolicy` |
+| `WorkerObservabilitySetup` | `WorkerTelemetryInitializer` |
+| `MaintenanceLeaderAware` | `MaintenanceLeadershipListener` |
+| `MaterializationDdlRegistration` | `MaterializationDdlRegistrar` |
+| `EmbeddingModelTaskRegistration` | `EmbeddingModelTaskRegistrar` |
+| `NativeShuffleProducerRegistration` | `NativeShuffleProducerRegistrar` |
+| `JdbcSourceObjectRegistration` | `JdbcSourceObjectRegistrar` |
+| `StandardMetricsRegistration` | `StandardMetricsCollectors` |
+| `NativeObjectStoreBindings` | `NativeObjectStoreBindingFactory` |
+| `CatalogExecutionBindings` | `CatalogExecutionBindingFactory` |
+| `TestDataSetup` | `TestDatasetLoader` |
+
+#### 扩大范围后确认的 44 项
+
+| 所属职责 | 旧名 | 新名 |
+| --- | --- | --- |
+| Common | `DigestUtils` | `Sha256Digests` |
+| Common | `ThreadUtils` | `ThreadSleeper` |
+| 类型转换 | `PangrovaTypeMapping` | `PangrovaTypeConverter` |
+| AI | `AiEmbeddingInvocationSupport` | `AiEmbeddingInvoker` |
+| AI | `AiInvocationResultSupport` | `AiInvocationResultNormalizer` |
+| AI | `GovernedAiBindings` | `GovernedAiBindingProjector` |
+| Protocol Java | `GovernedScalarEncoding` | `GovernedScalarDecoder` |
+| 治理 | `ColumnTagBindings` | `ColumnTagAuthority` |
+| 文件任务 | `FileSpaceTaskSupport` | `FileSpaceTaskAuthority` |
+| Planner | `AuthorizedStageExchangeBindings` | `AuthorizedStageExchangeBinder` |
+| Planner | `DecorrelationSupport` | `PlannerDecorrelator` |
+| Planner | `DmlMergeJoinSupport` | `DmlMergeJoinRewriter` |
+| Planner | `DynamicTablePlanningSupport` | `DynamicTablePlanRewriter` |
+| Planner | `PlanningReadBindings` | `PlanningReadBindingResolver` |
+| 生成执行 | `FrozenStageBindings` | `GenerationStageTemplateCodec` |
+| 生成执行 | `GenerationPartitionBindings` | `GenerationPartitionBinder` |
+| Protocol Java | `DeclaredSqlBindings` | `DeclaredSqlBindingIndex` |
+| Protocol Java | `NativeWriteBindings` | `NativeWriteBinder` |
+| Protocol Java | `PhysicalFileWriteBindings` | `PhysicalFileWriteBindingFactory` |
+| Protocol Java | `SourceSnapshotBindings` | `SourceSnapshotCodec` |
+| Iceberg | `IcebergReadBindings` | `IcebergReadBinder` |
+| Iceberg | `IcebergFileReadBindings` | `IcebergFileReadSelector` |
+| Iceberg | `IcebergManifestReadBindings` | `IcebergManifestReadSelector` |
+| Iceberg | `IcebergPartitionReadBindings` | `IcebergPartitionReadSelector` |
+| Paimon | `PaimonReadBindings` | `PaimonReadBinder` |
+| Paimon | `PaimonBranchReadBindings` | `PaimonBranchReadBinder` |
+| Paimon | `PaimonFilesReadBindings` | `PaimonFilesReadBinder` |
+| Paimon | `PaimonSystemReadBindings` | `PaimonSystemReadBinder` |
+| Connector SPI | `ConnectorIndexSupport` | `ConnectorIndexCapabilities` |
+| Paimon | `PaimonConnectorIndexSupport` | `PaimonIndexCapabilities` |
+| JDBC | `JdbcSupport` | `JdbcOperations` |
+| 索引持久化 | `JdbcStoreSupport` | `JdbcIndexMetadataStoreBase` |
+| 策略持久化 | `JdbcPolicyStoreSupport` | `JdbcPolicyStoreBase` |
+| Catalog 持久化 | `PostgresCatalogPersistenceSupport` | `PostgresCatalogPersistenceBase` |
+| 生成任务持久化 | `PostgresGenerationJobStoreSupport` | `PostgresGenerationJobStoreTransitions` |
+| 授权持久化 | `PrivilegeMutationEncoding` | `PrivilegeMutationEncoder` |
+| 测试 | `FragmentTestSupport` | `PlanFragmentFixture` |
+| 测试 | `VectorIndexResilienceE2ETest.MultiMetricSupport` | `MultiMetricIndexCases` |
+| 测试 | `PaimonCommitTestSupport` | `PaimonCommitFixture` |
+| 测试 | `PaimonDeleteTestSupport` | `PaimonDeleteFixture` |
+| 测试 | `PlanExecutionFactoryDeleteTestSupport` | `DeleteDispatchFixture` |
+| 测试 | `RegistryTestSchemaHelper` | `RegistryPostgresFixture` |
+| 测试 | `TpcHTestSupport` | `TpcHResultAssertions` |
+| 测试 | `WriteTestHelper` | `SqlTestRowWriter` |
+
+#### 保留的 11 处声明
+
+- 数据映射和领域绑定保留 `BuildFileMapping`、`ColumnKeyMapping`、Java 和 Protobuf 各一处 `ColumnMapping`、`GroupRoleMapping`、`IndexFileMapping`、`FunctionSignatureBindings`、`TablePolicyBindings`。
+- 编码契约保留 `GeneratedColumnSourceEncoding` 和 `ValueEncoding`。
+- 现有测试场景保留 `PartitionKeyMapping`。
+
+### 包迁移清单 {#java-package-moves}
+
+以下包名均省略 `org.pangrova.`。整包迁移时保持生产源码与对应测试的包归属，同步应用到既有子包。Common、JDBC 和 E2E 夹具的分包位置见下方分配表。
+
+| 旧包 | 目标包 |
+| --- | --- |
+| `parser.api.parse` | `parser.api.syntax` |
+| `parser.parse` | `parser.syntax` |
+| `planner.parse` | `planner.sqlnode` |
+| `indexing.strategies.normalize` | `indexing.strategies.normalization` |
+| `common.concurrent` | `common.concurrency` |
+| `common.property.concurrent` | `common.property.concurrency` |
+| `ai.worker.provider.governed` | `ai.worker.provider.governance` |
+| `persistence.generation.api.generated` | `persistence.generation.api.generatedvalue` |
+| `persistence.ai.postgresql.assembly` | `persistence.ai.postgresql.controlplane` |
+| `persistence.security.postgresql.support` | `JdbcPolicyStoreBase` 及其测试到 `persistence.security.postgresql.policy`，`CanonicalSecuritySchemaTest` 到 `persistence.security.postgresql.schema` |
+| `coordinator.query.execution.dispatch.adaptive` | `coordinator.query.execution.dispatch.adaptivequery` |
+| `planner.adaptive` | `planner.adaptivequery` |
+| `planner.api.adaptive` | `planner.api.adaptivequery` |
+| `planner.property.adaptive` | `planner.property.adaptivequery` |
+| `testing.integration.e2e.adaptive` | `testing.integration.e2e.adaptivequery` |
+| `coordinator.query.execution.dispatch.task.semantic` | `coordinator.query.execution.dispatch.task.semanticview` |
+| `coordinator.semantic` | `coordinator.semanticview` |
+| `planner.incremental` | `planner.incrementalquery` |
+| `common.util` | 按 Common 职责拆分 |
+| `common.property.util` | `common.property.<对应职责>` |
+| `persistence.jdbc.support` | 按 JDBC 职责拆分 |
+| `testing.integration.e2e.setup` | 按 E2E 夹具职责拆分 |
+
+#### Common 分包
+
+| 类型 | 目标包 |
+| --- | --- |
+| `DataSize` | `common.units` |
+| `Sha256Digests` | `common.crypto` |
+| `NumberConversions` | `common.numeric` |
+| `OrderedMaps` | `common.collection` |
+| `Preconditions` | `common.validation` |
+| `SqlText`、`Utf8Order` | `common.text` |
+| `Stopwatch` | `common.time` |
+| `UriComponents` | `common.net` |
+
+普通测试与被测类型同包。属性测试进入 `common.property.units`、`common.property.crypto` 或 `common.property.validation` 等对应职责包。
+
+#### JDBC 分包
+
+| 类型 | 目标包 |
+| --- | --- |
+| `DriverManagerDataSource`、`PooledDataSourceFactory` | `persistence.jdbc.datasource` |
+| `JdbcOperations`、`JdbcRollbackTest` | `persistence.jdbc.operation` |
+| `SchemaMigrationRunner` | `persistence.jdbc.migration` |
+
+#### E2E 夹具分包
+
+| 类型 | 目标包 |
+| --- | --- |
+| `TestDatasetLoader`、`TestDatasetLoaderTest` | `testing.integration.e2e.fixture.dataset` |
+| `MetadataSchemaInitializer`、`MetadataSchemaInitializerTest` | `testing.integration.e2e.fixture.schema` |
+| `TestCatalogRegistrar`、`TestConnectorHandleFactory`、`IcebergCatalogFactory`、`TestConnectorFactory`、`TestDatasetLoaderIcebergTest` | `testing.integration.e2e.fixture.catalog` |
+
+让 `TestDatasetLoaderIcebergTest` 和 `IcebergCatalogFactory` 保持同包，以保留工厂的包私有可见性。
+
+## 更名验收与统一验证 {#local-naming-validation}
+
+| 层级 | 验证要求 |
+|---|---|
+| 每批验证 | 使用 JDK 17、Maven 3.9+ 和 Docker。先跑 `mvn -q -pl <受影响模块> -am test`，再覆盖直接消费模块。记录测试数量、失败、错误、跳过及对应提交。 |
+| 基础行为与隔离 | 覆盖摘要字节、任务上下文、并发、JDBC 回滚、已有数据的 schema 初始化、权限策略和插件隔离。运行 `PluginClassLoaderTest`、`ServiceLoaderReachabilityTest` 及相关属性测试。 |
+| SQL、协议与启动 | 运行 `SqlCompilerSessionIntegrationTest`、`SubmitTaskRequestSymmetryTest`、`SpiWiringVerificationTest`、`BootstrapReachabilityTest`、`AdaptiveQueryExecutionE2ETest` 和 `ClusteringE2ETest`。覆盖解析、任务契约、Coordinator 启动、计划执行和真实 Worker 暂存。 |
+| Worker 与跨语言 | 使用同一提交构建并打包的 Native 库，运行 `NativeCapabilityHandshakeE2ETest`、Shuffle Producer 注册测试及适用的 Native owner 独立 JVM 用例。验证能力握手、写入绑定、注册和释放。 |
+| 集成与验收 | 清理旧 Java `target` 后重建。运行全 reactor 日常测试和 `mvn -q -DskipTests verify -Pstatic-analysis`。按 `.pangrova/rules/build-pipeline.md` 执行本地生产回归、Activation Smoke 及独立 Native owner 用例。使用同一构建验证 B1–B8，复用范围一致的测试证据。 |
+| 仓库检查 | 验证模块基线、SPI、文档类引用、Protobuf descriptor 和开发产物。逐项扫描旧全限定名及其路径、导入、类名字符串、服务资源和测试选择器。 |
+
+```bash
+bash .pangrova/scripts/check-module-manifest.sh
+bash .pangrova/scripts/check-spi-annotations.sh
+bash .pangrova/scripts/check-doc-class-refs.sh
+bash .pangrova/scripts/proto-descriptor-diff.sh
+git diff --check
+bash .pangrova/scripts/clean-dev-artifacts.sh
+bash .pangrova/scripts/check-dev-artifacts.sh --strict
+```
+
+用相同 SQL、快照和本机条件区分基线失败、重命名回归与行为回归。测试结果按实际情况记录通过、失败、跳过或阻塞及原因。
+
+## 交付与回退 {#delivery}
+
+按仓库规定将同一提交集合交付到一个 PR，记录变更清单、提交、复现命令、测试与日志、同机基线和候选的差异。确认主线是否已前进并复测受影响的范围。按仓库 CI 和分支保护完成合并后，从同一版本重建 Coordinator、Worker、Native bundle 和插件，并验证插件加载及关键读写链路。发生回归时按依赖逆序回退受影响的完整提交批次，使用回退后的同一提交重建并复验。
 
 ## 单机 Native 构建与验证 {#native-qualification}
 
@@ -86,12 +280,15 @@ Native configure 显式传入该 Folly prefix 和匹配插桩的 Protobuf/Abseil
 - 用 `RuntimeErrorDiagnostic.cpp` 对照异常创建、复制、抛出、重抛和自然退出的线程，在 1、32、4096 次迭代运行模式 0、1、2、3、4、8。留存原 runtime 的对照结果。
 - 先通过完整 23 项校准控制，再以该 runtime SHA 和相同源码/依赖完整跑 Native CTest。分别保留 macOS 常规 gate 和额外 LeakSanitizer 运行证据。源码、Lance、ANN 或函数组合变化后重新核验受影响的产物。
 
-## 下一任务 Prompt {#continuation-prompt}
+## 新开任务 Prompt {#continuation-prompt}
 
 ```text
-在 Pangrova 仓库继续实施当前分支的 docs/development/execution-backlog.md。以最新 main 和此文件为准。PR #112 已合入，只作为已交付基线，后续提交归并到一个新 PR。若清单还在文档清理分支，从包含清单的提交接续并合入最新 main。保留其他工作区的未提交改动，先读 AGENTS.md 和相关 .pangrova/rules。
+在 Pangrova 仓库实施 docs/development/execution-backlog.md 的全部剩余工作并完成验收。当前文档在 codex/consolidate-execution-backlog。先在当前 worktree 检查分支和本地改动，从包含此文档的提交接续并同步最新 origin/main。使用一个实施分支和一组可独立审查的提交。读取 AGENTS.md 和 .pangrova/rules/ 中与变更范围有关的规则。
 
-逐项核对 A1–A13 和 B1–B8 的现有实现、测试和运行证据，先交付确定缺失的代码，再做统一单机验收。并行推进彼此独立的批次，优先完成跨 Coordinator 放置、受保护整对象读取与真实 I/O 证据、动态过滤覆盖、Shuffle 正向止写证明、CDC 回执和写入暂存回收。性能候选先做归因，按清单的触发条件决定是否实施。阶段内跑最贴近的回归，代码收齐后构建本机同源部署包，用独立进程或本地容器运行故障注入、Native/Flight、资源实际排空和本地性能对照。B7 使用本机 PostgreSQL/MinIO 验证多实例热点、租约、SQL 次数和清理。CI、依赖、模块所有权及基础设施变更按仓库规则先获批准。
-
-每次提交保留精确授权、快照、owner/epoch、attempt、fenced commit 和物理退出语义，维持清单中的稳态零读库门槛。定期检查空间，只清理可再生的无用产物。批次通过后及时提交并推送到同一新 PR，记录 commit、命令、运行环境、结果、日志和真实阻塞。已验证的条目按覆盖范围关闭并移出本文件。只有满足对应条目的单机验证条件才关闭，合并按仓库规则执行。
+1. 冻结同机基线并更新实施清单。逐项核对 A1–A13、B1–B8、N1–N4，检查源码、生产入口、调用方、测试和已有证据。核对 61 处类型、22 个待迁移的旧包和 11 处保留声明。对上游已实现的条目复核证据后关闭。记录起始 commit、部署拓扑、SQL、数据快照、资源、基线时延、SQL 次数和 I/O 观测。
+2. 按依赖并行推进，先完成代码再做统一验收。先收口 Common、JDBC、策略持久化，同时进行性能取证。命名迁移与行为修复分提交，同一模块、协议或持久化权威的改动按依赖串行集成。更名批次同步更新声明、路径、真实消费者、SPI 注册、类加载器、模块包根、测试选择器和文档。仓内 Java API/SPI 按同版本直接切换，外部插件同步重编译。
+3. 从客户端提交到资源实际释放逐段验证。覆盖 HTTP 鉴权、幂等、租户准入、语法/目录/快照/策略/优化、Substrait、split 枚举与放置、Worker ACK、JNI/Velox 任务与文件读写、Shuffle、OUTPUT、Native Flight、客户端末批和 EOF、逻辑终态、实际物理排空。写入继续覆盖文件片段、journal、fenced commit、快照可见、CDC 回执与 offset。先用计时、JFR、数据库计数和 I/O 归因，再定位重复编解码、复制、过渡层与重复读库，按清单门槛实施并清理退役路径。
+4. 守住权威边界。正常状态等待、重连和诊断零 journal SELECT，新 journal 持久事件单条 INSERT，Shuffle batch/chunk 零同步授权 SQL。按路径记录授权、目录、统计、回收和异常恢复所需 SQL。保留精确授权、快照、owner/epoch、attempt、fencing、背压边界和释放证据。使用真实调用方验证协议和 JNI，从两端一起处理有依据的变更。核对 descriptor、SQL、HTTP 和持久化合同。
+5. 批次内先跑定向回归，所有代码收齐后统一验收。使用同一提交构建 Coordinator、Worker、Native、Shuffle Service 和客户端，以同机独立进程或容器使用 PostgreSQL、MinIO 和 Flight。跑 B1–B8、命名验收矩阵、长稳、适用的 sanitizer、实际物理排空和全链路回归。固定本机资源、数据与负载，对比首批、完成、排空时延、P50/P95、吞吐、拒绝、SQL/I/O、CPU 和内存。对照最新版本的结果正确性与故障恢复。
+6. 每批记录实际运行的命令、commit、环境、数量、状态、产物和日志。对未通过项重现并修复，满足对应验收标准后关闭，在计划中记录证据并移出待办。定期清理可再生的开发产物。把同一提交集合整理为一个 PR，按仓库规则完成发布所需验证和交付。持续推进到所有本地验收项关闭，遇到具体外部依赖或授权阻塞时记录边界并继续独立工作。
 ```
