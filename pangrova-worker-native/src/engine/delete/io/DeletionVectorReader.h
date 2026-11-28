@@ -45,7 +45,8 @@ class DeletionVectorReader {
   //
   // Throws std::runtime_error on I/O failure or invalid Puffin format.
   static roaring::Roaring64Map readIcebergDV(
-      const std::string& filePath, const std::string& dataFilePath = "");
+      const std::string& filePath, const std::string& dataFilePath = "",
+      const pangrova::velox::MetadataReadContext* reads = nullptr);
 
   // Read a generic raw portable Roaring Bitmap payload.
   // Paimon snapshot deletion containers use PaimonSnapshotDeletionFilter.
@@ -68,8 +69,7 @@ class DeletionVectorReader {
     uint64_t cardinality;
   };
   static BlobLocation parsePuffinFooter(
-      const std::string& fileContent, const std::string& dataFilePath,
-      const pangrova::velox::MetadataReadContext* reads = nullptr);
+      const std::string& fileContent, const std::string& dataFilePath);
 
   // Validate Puffin magic bytes at the given offset.
   static void validatePuffinMagic(
