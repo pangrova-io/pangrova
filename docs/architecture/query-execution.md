@@ -1279,8 +1279,9 @@ and task grants against the immutable task binding. [Spark file-open cost](https
 
 **Scan Worker placement**
 
-For a live scan the Coordinator first checks tenant placement, active health,
-memory fit and exact capability bindings. Among eligible Workers it ranks
+For live scans and durable partitions the Coordinator first checks tenant
+placement, active health, memory fit and exact capability bindings. Among
+eligible Workers it ranks
 the work already assigned in the current issuance window plus the current
 partition's estimated work multiplied by the larger of two task counts.
 Those counts come from the Worker's heartbeat and the Coordinator's exact
@@ -1296,10 +1297,16 @@ memory and the current topology snapshot.
 
 For tied scan work, the selector prefers reported cache hits, then eligible
 consistent-hash targets for scans without explicit operator bindings. The
-configured scheduling strategy ranks the remaining candidates. Stages without
-scan work use the existing resource and capability selection. Local Shuffle
-pins the first selected Worker incarnation for the query. Durable partition
-claims retain their own fenced selection path.
+configured scheduling strategy ranks the remaining candidates. Live stages
+without scan work retain the existing resource and capability selection. Local
+Shuffle pins the first selected Worker incarnation for the query.
+
+Durable partitions estimate work from their frozen physical split ranges, typed
+file details and the encoded bytes of published exchange inputs. Partitions with
+no estimated input count as one unit of work. The estimate uses the request
+already built for the fenced claim, with no additional PostgreSQL or storage
+request. Workers with equal projected work use the configured scheduling
+strategy as the tie breaker.
 [Trino node scheduling](https://trino.io/docs/current/admin/properties-node-scheduler.html)
 
 #### 3.3.9 Multi-Stage Exchange Scenarios

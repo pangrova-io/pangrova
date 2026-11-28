@@ -10,6 +10,8 @@ import org.pangrova.execution.stage.QueryExecutionScope;
 import org.pangrova.coordinator.query.stage.StageDAG;
 import org.pangrova.coordinator.query.stage.StageEdge;
 import org.pangrova.coordinator.query.stage.StageNode;
+import org.pangrova.coordinator.query.execution.split.SplitPlacementWeight;
+import org.pangrova.coordinator.scheduler.placement.WorkerPlacementWork;
 import org.pangrova.scheduler.placement.TaskScheduler;
 import org.pangrova.coordinator.worker.WorkerInfo;
 import org.pangrova.coordinator.worker.WorkerManager;
@@ -24,9 +26,11 @@ import org.pangrova.planner.enums.ShuffleType;
 import org.pangrova.planner.analysis.AuthorizedStageGraph;
 import org.pangrova.planner.api.fragment.SerializedPlanFragment;
 import org.pangrova.planner.analysis.StageTransfer;
+import org.pangrova.protocol.execution.identity.WorkerExecutionIdentity;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
 import org.pangrova.protocol.v2.BatchSerde;
 import org.pangrova.protocol.v2.TaskReport;
+import org.pangrova.protocol.v2.TaskRequest;
 import org.pangrova.protocol.v2.TaskState;
 import org.pangrova.common.api.annotation.Internal;
 
@@ -40,6 +44,7 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.BiConsumer;
 import java.util.function.LongSupplier;
+import java.util.function.ToIntFunction;
 
 /** Current durable control for the shared DAG and leaf engine; replay never compiles SQL or enumerates a connector. */
 @Internal
@@ -53,9 +58,11 @@ public final class DurableStageRuntime {
     public record Dependencies(GenerationStageExecutionStore stages, WorkerManager workers,
             TaskScheduler scheduler, LongSupplier controlTerm, Duration leaseDuration,
             BiConsumer<PreparedTask, CompletableFuture<DispatchResult>> dispatched,
-            GenerationStageExchangeStore exchanges, ExecutionTraceContextFactory traceContexts) {
+            GenerationStageExchangeStore exchanges, ExecutionTraceContextFactory traceContexts,
+            ToIntFunction<WorkerInfo> localPlacementLoad) {
         public Dependencies {
             java.util.Objects.requireNonNull(traceContexts, "traceContexts");
+            java.util.Objects.requireNonNull(localPlacementLoad, "localPlacementLoad");
             java.util.Objects.requireNonNull(stages, "stages");
             java.util.Objects.requireNonNull(workers, "workers");
             java.util.Objects.requireNonNull(scheduler, "scheduler");
@@ -188,6 +195,7 @@ public final class DurableStageRuntime {
                     stage, task.partition(), task.pageOrdinal(), term, dependencies.leaseDuration(), now));
             exchanges.put(task.partition(), task.exchange());
         }
+        Map<WorkerExecutionIdentity, Double> windowWork = new HashMap<>();
         return dependencies.stages().preparePartitions(claims, evidence -> {
             var request = DurablePartitionRequest.prepare(evidence, requestPlan,
                     exchanges.get(evidence.lease().partitionId()), now, control.traceContext());
@@ -195,14 +203,27 @@ public final class DurableStageRuntime {
             if (task.getResourceGrant().getNativeMemoryBytes() != memory) {
                 throw new IllegalStateException("Durable partition resource grant differs from its bound stage");
             }
-            var bindings = task.getOperatorBindingsList();
-            var selected = bindings.isEmpty() ? placement.selectWorker(memory, eligible)
-                    : placement.selectWorkerWithBindings(memory, eligible, bindings,
-                            WorkerInfo::capabilityInventory);
-            var worker = selected.orElseThrow(() -> new IllegalStateException(
+            long work = placementWork(task);
+            var leastLoaded = WorkerPlacementWork.leastLoaded(eligible, task.getOperatorBindingsList(),
+                    work, windowWork, dependencies.localPlacementLoad());
+            var worker = placement.selectWorker(memory, leastLoaded).orElseThrow(() -> new IllegalStateException(
                     "No actual Worker satisfies the frozen stage capabilities and admitted resource grant"));
+            windowWork.merge(worker.workerExecutionIdentity(), (double) work, Double::sum);
             return new PreparedTask(evidence.lease(), worker, request);
         });
+    }
+
+    private static long placementWork(TaskRequest task) {
+        long work = 0;
+        for (var split : task.getSplitsList()) {
+            work += Math.min(Long.MAX_VALUE - work, SplitPlacementWeight.forBoundSplit(split));
+        }
+        for (var input : task.getExchangeInputsList()) {
+            for (var partition : input.getExternal().getPublicationsList()) {
+                work += Math.min(Long.MAX_VALUE - work, Math.max(0L, partition.getTotalBytes()));
+            }
+        }
+        return Math.max(1L, work);
     }
 
     /** Registers lease renewal and the HTTP acknowledgement only after the exact claim has committed. */

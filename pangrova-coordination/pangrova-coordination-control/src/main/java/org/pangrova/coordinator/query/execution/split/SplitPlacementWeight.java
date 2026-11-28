@@ -5,13 +5,18 @@ import org.pangrova.protocol.v2.PaimonSplitDetail;
 import org.pangrova.protocol.v2.PhysicalFileScanDetail;
 
 /** Byte-equivalent scan work estimated exclusively from already-bound planning metadata. */
-final class SplitPlacementWeight {
+public final class SplitPlacementWeight {
     // Keep the open cost independently of the payload size. Spark uses the same initial unit.
     private static final long FILE_OPEN_BYTES = 4L * 1024 * 1024;
     private static final long DECODE_BYTES_PER_ROW = 32L;
     private static final long MERGE_BYTES_PER_ROW = 64L;
 
     private SplitPlacementWeight() {}
+
+    /** Estimates a restored split from its immutable physical range and typed read detail. */
+    public static long forBoundSplit(DataSplit split) {
+        return estimate(split, Math.max(0L, split.getLength()), 0L);
+    }
 
     static long estimate(DataSplit data, long scanBytes, long estimatedRows) {
         if (!data.hasFileDetail()) {

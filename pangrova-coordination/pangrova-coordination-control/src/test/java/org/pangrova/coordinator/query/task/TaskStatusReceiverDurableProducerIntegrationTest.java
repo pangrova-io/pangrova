@@ -11,6 +11,14 @@ import org.pangrova.generation.submission.GenerationDispatchSpecFactory;
 
 
 import com.google.protobuf.CodedOutputStream;
+import io.substrait.proto.ExchangeRel;
+import io.substrait.proto.NamedStruct;
+import io.substrait.proto.Plan;
+import io.substrait.proto.PlanRel;
+import io.substrait.proto.ReadRel;
+import io.substrait.proto.Rel;
+import io.substrait.proto.RelRoot;
+import io.substrait.proto.Type;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -21,6 +29,7 @@ import org.pangrova.query.runtime.QueryManager;
 import org.pangrova.coordinator.query.execution.QueryDispatcher;
 import org.pangrova.coordinator.query.execution.QueryDispatcherContext;
 import org.pangrova.query.api.stage.StageCompletionCallback;
+import org.pangrova.coordinator.query.execution.dispatch.dag.control.DurablePartitionRequest;
 import org.pangrova.coordinator.query.execution.dispatch.dag.control.DurableStageRuntime;
 import org.pangrova.coordinator.query.execution.dispatch.dag.handler.TaskTerminalRegistry;
 import org.pangrova.coordinator.query.stage.Stage;
@@ -63,7 +72,16 @@ import org.pangrova.observability.noop.NoOpTracingProvider;
 import org.pangrova.planner.analysis.AuthorizedStageGraph;
 import org.pangrova.planner.api.fragment.SerializedPlanFragment;
 import org.pangrova.planner.analysis.SqlCompiler;
+import org.pangrova.protocol.rest.config.ShuffleConfig;
 import org.pangrova.protocol.rest.task.SubmitTaskRequest;
+import org.pangrova.protocol.source.DataSplitProtoCodec;
+import org.pangrova.protocol.substrait.SubstraitProtocolVersion;
+import org.pangrova.protocol.v2.FileFormat;
+import org.pangrova.protocol.v2.FileSplitDetail;
+import org.pangrova.shuffle.api.ShuffleAccess;
+import org.pangrova.shuffle.api.ShuffleHandle;
+import org.pangrova.shuffle.api.ShuffleServerEndpoint;
+import org.pangrova.shuffle.api.ShuffleServiceAddress;
 import org.pangrova.protocol.rest.task.TaskAttemptDescriptor;
 import org.pangrova.protocol.rest.task.TaskStatusReport;
 import org.pangrova.protocol.v2.CompletionState;
@@ -331,6 +349,108 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
     }
 
     @Test
+    void durablePlacementAccountsForFrozenScanBytesBeforeIssuingAWholeWindow() throws Exception {
+        int window = GenerationStageExecutionStore.PARTITION_INSPECTION_WINDOW;
+        int partitions = window + 2;
+        var key = new GenerationJobKey(KEY.tenantId(), "weighted-durable-placement");
+        var placementSpec = specification(key, partitions, placementProducerPlan());
+        var pages = new java.util.ArrayList<GenerationPage>();
+        for (int partition = 0; partition < partitions; partition++) {
+            var split = placementSplit(partition, (partition == 0 ? 128L : 1L) * 1024 * 1024);
+            pages.add(new GenerationPage(key.jobId(), "producer-" + partition, 1, partition, partition,
+                    GenerationPageKind.RELATIONAL_COMPUTE, List.of(split), List.of(), 3));
+        }
+        pages.add(new GenerationPage(key.jobId(), "terminal-0", 0, 0, partitions,
+                GenerationPageKind.RELATIONAL_PARTITION, List.of(),
+                pages.stream().map(GenerationPage::pageId).toList(), 3));
+        builds.createJob(job(key, pages.size()), placementSpec, pages);
+        var owner = executions.takeOwnership(key.tenantId(), key.jobId(), "report-coordinator", 8);
+        var access = placementExchange(key, placementSpec, owner, partitions);
+
+        var workers = new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry());
+        var preferred = TestWorkerInfoBuilder.active("placement-preferred", "localhost", 8080, 8081);
+        var alternate = TestWorkerInfoBuilder.withMetrics("placement-alternate", "localhost", 8082, 8083,
+                0.25, 0, 1024L * 1024 * 1024, 1);
+        workers.registerWorker(preferred);
+        workers.registerWorker(alternate);
+        workers.registerWorker(TestWorkerInfoBuilder.withMetrics("placement-too-small", "localhost", 8084, 8085,
+                0, 0, 1, 1));
+        var runtime = runtime(key, owner, workers);
+        var plan = new DurablePartitionRequest.StageRequestPlan(placementSpec.stageGraph().requireStage(1), List.of());
+        var tasks = java.util.stream.IntStream.range(0, window)
+                .mapToObj(partition -> new DurableStageRuntime.PartitionTask(partition, partition, access)).toList();
+        installStatementCounters();
+        long before = executionRouteReads();
+
+        var bound = runtime.bindStageTasks(1, plan);
+        var prepared = bound.prepare(tasks, Instant.now());
+
+        assertThat(executionRouteReads() - before).as("authority reads for the whole cohort").isOne();
+        assertThat(prepared).extracting(value -> value.lease().partitionId())
+                .containsExactlyElementsOf(java.util.stream.IntStream.range(0, window).boxed().toList());
+        var workersByPartition = new java.util.ArrayList<String>();
+        workersByPartition.add(preferred.workerId());
+        workersByPartition.addAll(java.util.Collections.nCopies(window - 1, alternate.workerId()));
+        assertThat(prepared).extracting(value -> value.worker().workerId())
+                .containsExactlyElementsOf(workersByPartition);
+
+        var first = prepared.get(0);
+        tracker.prepareTaskDispatch(first.request(), first.worker());
+        try {
+            assertThat(tracker.placementLoad(preferred)).isOne();
+            assertThat(bound.prepare(List.of(new DurableStageRuntime.PartitionTask(window, window, access)),
+                    Instant.now())).singleElement().satisfies(task -> assertThat(task.worker()).isEqualTo(alternate));
+        } finally {
+            tracker.unregisterUndispatchedTask(key.executionId(), first.request().taskRequest().getAttempt().getTaskId());
+        }
+        assertThat(tracker.placementLoad(preferred)).isZero();
+        assertThat(bound.prepare(List.of(new DurableStageRuntime.PartitionTask(window + 1, window + 1, access)),
+                Instant.now())).singleElement().satisfies(task -> assertThat(task.worker()).isEqualTo(preferred));
+    }
+
+    private static GenerationSplit placementSplit(int partition, long bytes) {
+        String object = "object-" + partition;
+        var file = FileSplitDetail.newBuilder().setFileFormat(FileFormat.FILE_FORMAT_PARQUET).build();
+        var split = DataSplitProtoCodec.buildFileSplit(new DataSplitProtoCodec.FileSplitInput(
+                "iceberg", "lake.raw.items", "41", object, "s3://placement/" + object + ".parquet",
+                0, bytes, java.util.Map.of(), file));
+        return GenerationSplit.of(object, split.toByteArray());
+    }
+
+    private DurablePartitionRequest.ExchangeAccess placementExchange(GenerationJobKey key,
+            GenerationDispatchSpec placementSpec, ExecutionAnchor owner, int partitions) {
+        long epoch = 7;
+        var checksum = ShuffleProducerSetChecksum.forContiguousPartitions(key.executionId(), 1, epoch, partitions);
+        var registration = new ShuffleRegistration(key.executionId(), 1, 1, 0, false, epoch, partitions, checksum);
+        var evidence = new DurableStageShuffleEvidence(ModelAuthorityFixtures.artifacts().exchanges(dataSource),
+                placementSpec, "41", () -> GenerationExecutionOwner.from(owner));
+        evidence.registered(registration, allocation(), shuffleOwner(owner));
+        var route = new ShuffleServiceAddress("shuffle", 9443, "shuffle");
+        var endpoint = new ShuffleServerEndpoint("shuffle", 9443, 0, 1, "shuffle");
+        var grant = new ShuffleAccess(new byte[] {1}, System.currentTimeMillis() + 60_000L);
+        var handle = new ShuffleHandle(allocation().shuffleId(), List.of(endpoint), route,
+                grant, grant, grant, grant, partitions, checksum);
+        var config = new ShuffleConfig("ARROW_BATCH", "none", 10_000, "MEMORY_ONLY", 1, List.of());
+        return new DurablePartitionRequest.ExchangeAccess(epoch, List.of(), config, handle,
+                (id, address, endpoints, count) -> allocation().descriptor());
+    }
+
+    private static byte[] placementProducerPlan() {
+        var schema = NamedStruct.newBuilder().addNames("id").setStruct(Type.Struct.newBuilder()
+                .setNullability(Type.Nullability.NULLABILITY_REQUIRED)
+                .addTypes(Type.newBuilder().setI64(Type.I64.newBuilder()
+                        .setNullability(Type.Nullability.NULLABILITY_NULLABLE))));
+        var source = Rel.newBuilder().setRead(ReadRel.newBuilder().setBaseSchema(schema)
+                .setNamedTable(ReadRel.NamedTable.newBuilder().addAllNames(List.of("lake", "raw", "items"))));
+        var exchange = Rel.newBuilder().setExchange(ExchangeRel.newBuilder().setInput(source)
+                .setPartitionCount(1).setRoundRobin(ExchangeRel.RoundRobin.newBuilder().setExact(true)));
+        var plan = Plan.newBuilder().addRelations(PlanRel.newBuilder().setRoot(RelRoot.newBuilder()
+                .setInput(exchange).addNames("id")));
+        SubstraitProtocolVersion.stamp(plan);
+        return plan.build().toByteArray();
+    }
+
+    @Test
     void idempotentAdmissionReadsEachPageInputTableOnceAndKeepsExactOrdinals() throws Exception {
         var key = new GenerationJobKey(KEY.tenantId(), "admission-replay");
         int partitions = 8;
@@ -548,11 +668,16 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
     }
 
     private DurableStageRuntime runtime(ExecutionAnchor current) {
-        return new DurableStageRuntime(stages.prepareExecution(KEY, current), new DurableStageRuntime.Dependencies(
-                stages, new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry()),
+        return runtime(KEY, current, new WorkerManager(20_000, 60_000, new InMemoryWorkerRegistry()));
+    }
+
+    private DurableStageRuntime runtime(GenerationJobKey key, ExecutionAnchor current, WorkerManager workers) {
+        return new DurableStageRuntime(stages.prepareExecution(key, current), new DurableStageRuntime.Dependencies(
+                stages, workers,
                 new TaskScheduler(new LoadBalancedStrategy(), ignoredTenantForPlacement -> java.util.Optional.empty()), () -> 9, Duration.ofMinutes(2),
                 (task, acknowledgement) -> { throw new AssertionError("Winner replay must not dispatch a Worker"); },
-                ModelAuthorityFixtures.artifacts().exchanges(dataSource), new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory()));
+                ModelAuthorityFixtures.artifacts().exchanges(dataSource),
+                new org.pangrova.observability.sdk.tracing.otel.OtelExecutionTraceContextFactory(), tracker::placementLoad));
     }
 
     private void registerTask(SubmitTaskRequest submitted) {
@@ -652,9 +777,13 @@ class TaskStatusReceiverDurableProducerIntegrationTest {
     }
 
     private static GenerationDispatchSpec specification(GenerationJobKey key, int parallelism) {
+        return specification(key, parallelism, new byte[] {1});
+    }
+
+    private static GenerationDispatchSpec specification(GenerationJobKey key, int parallelism, byte[] producerPlan) {
         var graph = new GenerationStageGraph(GenerationStageGraph.FORMAT_VERSION, GenerationGraphPurpose.RELATIONAL_EXPORT,
                 List.of(GenerationStageGraph.StagePlan.of(1, parallelism, GenerationPageKind.RELATIONAL_COMPUTE,
-                                new byte[]{1}, GenerationStageTemplate.of(new byte[0], List.of(), List.of()),
+                                producerPlan, GenerationStageTemplate.of(new byte[0], List.of(), List.of()),
                                 List.of("lake.raw.items"), List.of("id"), false),
                         GenerationStageGraph.StagePlan.of(0, 1, GenerationPageKind.RELATIONAL_PARTITION,
                                 new byte[]{2}, GenerationStageTemplate.of(new byte[]{3}, List.of(), List.of()),

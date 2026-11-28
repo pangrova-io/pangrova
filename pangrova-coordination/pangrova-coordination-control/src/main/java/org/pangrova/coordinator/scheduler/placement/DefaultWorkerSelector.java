@@ -1,7 +1,6 @@
 package org.pangrova.coordinator.scheduler.placement;
 
 import org.pangrova.scheduler.api.resource.SpillBudget;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.pangrova.protocol.execution.identity.WorkerExecutionIdentity;
@@ -238,21 +237,8 @@ public final class DefaultWorkerSelector implements WorkerSelector {
             Map<WorkerExecutionIdentity, Double> windowWork) {
         var candidates = taskScheduler.eligibleWorkersForTenant(
                 MIN_TASK_MEMORY_BYTES, workerManager.getActiveWorkers(), tenantId);
-        var leastLoaded = new ArrayList<WorkerInfo>();
-        double minimum = Double.POSITIVE_INFINITY;
-        for (var worker : candidates) {
-            if (!bindings.isEmpty() && !WorkerCapabilityMatcher.supports(worker.capabilityInventory(), bindings)) {
-                continue;
-            }
-            int activeTasks = Math.max(worker.runningTaskCount(), localPlacementLoad.applyAsInt(worker));
-            double assignedHere = windowWork.getOrDefault(worker.workerExecutionIdentity(), 0.0);
-            double work = activeTasks * (double) scanWork + assignedHere;
-            if (work < minimum) {
-                leastLoaded.clear();
-                minimum = work;
-            }
-            if (work == minimum) leastLoaded.add(worker);
-        }
+        var leastLoaded = WorkerPlacementWork.leastLoaded(
+                candidates, bindings, scanWork, windowWork, localPlacementLoad);
         if (leastLoaded.isEmpty()) throw new NoAvailableWorkerException();
 
         if (!paths.isEmpty()) {
